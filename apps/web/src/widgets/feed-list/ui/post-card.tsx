@@ -7,12 +7,16 @@ import { Bookmark, Eye, Heart, MessageSquare, Pin, Play, Repeat2 } from 'lucide-
 import { Role } from '@studenthub/shared-types'
 import { useAppSelector } from '../../../shared/store'
 import {
+  LIKE_EMOJI,
   addReactionRequest,
   canRepost,
+  hasMyReaction,
+  reactionSummaryOf,
+  reactionTotal,
   removeReactionRequest,
+  withMyReaction,
   type FeedPost,
   type PostMedia,
-  type PostReaction,
 } from '../../../entities/post'
 import { ProfileLink } from '../../../entities/user'
 import { RepostDialog, useRepost } from '../../../features/repost-post'
@@ -27,7 +31,6 @@ import { PostTileMenu } from './post-tile-menu'
 import { RepostBanner, RepostUnavailable } from './repost-banner'
 import { useRepostSource } from '../lib/use-repost-source'
 
-const LIKE = '❤️'
 const MODERATOR_ROLES: Role[] = [
   Role.PLATFORM_ADMIN,
   Role.PLATFORM_MODERATOR,
@@ -107,7 +110,7 @@ function PostCardView({
   const myId = useAppSelector((s) => s.auth.user?.id)
   const myRole = useAppSelector((s) => s.auth.role)
 
-  const [reactions, setReactions] = useState<PostReaction[]>(post.reactions)
+  const [reactions, setReactions] = useState(() => reactionSummaryOf(post, myId))
   // Репост уходит в собственную ленту сразу по нажатию; окно остаётся только тем ролям,
   // у кого «своей» аудитории нет и цель приходится выбирать руками (useRepost).
   const { audience: repostAudience, repost, isPending: repostPending } = useRepost()
@@ -119,26 +122,19 @@ function PostCardView({
   const canDelete = menuPost.authorId === myId || canModerate
   // Репост репоста ссылается на исходник — а он зрителю недоступен, сервер откажет.
   const showRepost = !originalUnavailable && canRepost(myRole, post)
-  const liked = reactions.some((r) => r.emoji === LIKE && r.userId === myId)
+  const liked = hasMyReaction(reactions, LIKE_EMOJI)
   const { bookmarked, toggle: toggleBookmark } = useBookmark(post.id, post.bookmarked)
 
   // Оптимистичный лайк с откатом (docs/FRONTEND_RULES.md §5.5).
   function toggleLike(): void {
     if (!myId) return
     const prev = reactions
-    if (liked) {
-      setReactions(prev.filter((r) => !(r.emoji === LIKE && r.userId === myId)))
-      removeReactionRequest(post.id, LIKE).catch(() => {
-        setReactions(prev)
-        toast.error(tErr('INTERNAL_ERROR'))
-      })
-    } else {
-      setReactions([...prev, { emoji: LIKE, userId: myId }])
-      addReactionRequest(post.id, LIKE).catch(() => {
-        setReactions(prev)
-        toast.error(tErr('INTERNAL_ERROR'))
-      })
-    }
+    setReactions(withMyReaction(prev, LIKE_EMOJI, !liked))
+    const request = liked ? removeReactionRequest : addReactionRequest
+    request(post.id, LIKE_EMOJI).catch(() => {
+      setReactions(prev)
+      toast.error(tErr('INTERNAL_ERROR'))
+    })
   }
 
   const created = new Date(post.createdAt)
@@ -225,7 +221,7 @@ function PostCardView({
           label={t('like')}
           pressed={liked}
           onClick={toggleLike}
-          count={reactions.length}
+          count={reactionTotal(reactions)}
         >
           <Heart
             className={cn('size-5', liked && 'fill-destructive text-destructive')}

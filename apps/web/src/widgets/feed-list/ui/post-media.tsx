@@ -1,9 +1,14 @@
 'use client'
 
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { ImageOff, Loader2 } from 'lucide-react'
-import { fetchPostMediaLink, postKeys, type PostMedia } from '../../../entities/post'
+import {
+  fetchPostMediaLink,
+  inlineMediaLink,
+  postKeys,
+  type PostMedia,
+} from '../../../entities/post'
 import { VideoPlayer } from '../../../shared/ui'
 import { pickSource, srcSetOf } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
@@ -29,8 +34,10 @@ interface Props {
 // Колонка ленты — до 42rem: на телефоне во всю ширину, на десктопе 672px.
 const FEED_SIZES = '(max-width: 768px) 100vw, 672px'
 
-// Медиа поста: ссылка и варианты (медиа-система) берутся лениво по (postId, fileId) и
-// кэшируются на 10 мин. Заглушка (LQIP) приходит в самой ленте — силуэт снимка виден сразу.
+// Медиа поста: ссылка и варианты (медиа-система) приходят в самой ленте — сервер подписывает
+// их пачкой на страницу. Отдельный запрос по (postId, fileId) — только когда ссылки в выдаче
+// нет или она истекла (лента пролежала в кэше дольше подписи); его ответ кэшируется на 10 мин.
+// Раньше запрос шёл за каждой плиткой, и пролистанная лента упиралась в лимит запросов.
 export function PostMediaView({
   postId,
   media,
@@ -42,23 +49,35 @@ export function PostMediaView({
 }: Props) {
   const isVideo = media.mime.startsWith('video/')
   const [broken, setBroken] = useState(false)
+  // Ссылка из выдачи не загрузилась (истекла между отрисовкой и ленивой загрузкой) —
+  // берём свежую у ручки продления, и только если и та не помогла, медиа «битое».
+  const [refresh, setRefresh] = useState(false)
+  // Срок проверяется при получении выдачи, а не на каждой перерисовке: иначе показанная
+  // картинка на истечении подписи сменилась бы спиннером.
+  const fromFeed = useMemo(() => inlineMediaLink(media), [media])
+  const inline = refresh ? null : fromFeed
   // Размытому фону хватает самой заглушки: 16 пикселей под blur-2xl неотличимы от размытого
   // снимка, а второй загрузки того же файла ради подложки нет вовсе.
   const backdropFromPlaceholder = decorative && !!media.placeholder
   const {
-    data: link,
+    data: fetched,
     isLoading,
     isError,
   } = useQuery({
     queryKey: postKeys.media(media.id),
     queryFn: () => fetchPostMediaLink(postId, media.id),
-    enabled: !backdropFromPlaceholder,
+    enabled: !backdropFromPlaceholder && !inline,
     staleTime: 10 * 60 * 1000,
     gcTime: 15 * 60 * 1000,
   })
+  const link = inline ?? fetched
+  const fail = (): void => (inline ? setRefresh(true) : setBroken(true))
 
   // Сброс состояния «битое медиа» при смене элемента (в карусели инстанс переиспользуется).
-  useEffect(() => setBroken(false), [media.id])
+  useEffect(() => {
+    setBroken(false)
+    setRefresh(false)
+  }, [media.id])
 
   const objectFit = fit === 'cover' ? 'object-cover' : 'object-contain'
 
@@ -141,7 +160,7 @@ export function PostMediaView({
           width={media.width ?? undefined}
           height={media.height ?? undefined}
           style={lqip}
-          onError={() => setBroken(true)}
+          onError={fail}
           className={cn(objectFit, className)}
         />
       )
@@ -152,7 +171,7 @@ export function PostMediaView({
         muted
         playsInline
         preload="metadata"
-        onError={() => setBroken(true)}
+        onError={fail}
         className={cn(objectFit, className)}
       />
     )
@@ -175,7 +194,7 @@ export function PostMediaView({
       width={media.width ?? undefined}
       height={media.height ?? undefined}
       style={lqip}
-      onError={() => setBroken(true)}
+      onError={fail}
       className={cn(objectFit, className)}
     />
   )

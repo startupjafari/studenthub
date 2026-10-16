@@ -26,7 +26,10 @@ export interface FeedPage {
 }
 
 export async function fetchFeed(query: FeedQueryInput = { limit: 20 }): Promise<FeedPage> {
-  const res = (await api.get<FeedPost[]>('/posts', { params: query })) as ResponseWithMeta & {
+  // Реакции — только сводкой (`reactionSummary`): построчный список «кто что поставил»
+  // на популярном посте — тысячи строк ради одного числа у сердечка.
+  const params: FeedQueryInput = { ...query, reactions: 'summary' }
+  const res = (await api.get<FeedPost[]>('/posts', { params })) as ResponseWithMeta & {
     data: FeedPost[]
   }
   return {
@@ -106,7 +109,8 @@ export async function incrementPostView(id: string): Promise<number> {
 }
 
 // Ссылка на медиа поста и его варианты (по видимости поста, TTL 15 мин): копии для srcset,
-// постер и HLS видео. Файл авторизуется через сам пост.
+// постер и HLS видео. Файл авторизуется через сам пост. Лента и пост по id приносят ссылки
+// сами (`inlineMediaLink`); сюда — только когда их нет или они истекли.
 export async function fetchPostMediaLink(postId: string, fileId: string): Promise<MediaLink> {
   const { data } = await api.get<MediaLink>(`/posts/${postId}/media/${fileId}/url`)
   return toMediaLink(data)

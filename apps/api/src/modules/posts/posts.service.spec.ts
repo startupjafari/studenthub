@@ -7,6 +7,8 @@ import type { ConfigService } from '@nestjs/config'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { EnvVars } from '../../config/env.schema'
 import { AppException } from '../../common/exceptions/app.exception'
+import { POST_REACTION_EMOJIS, ReactionSchema } from '@studenthub/shared-schemas'
+import { MEDIA_FILE_SELECT } from '../media/media.types'
 
 const ctx = { ip: '127.0.0.1', userAgent: 'jest' }
 
@@ -23,6 +25,9 @@ function setup() {
     reaction: {
       upsert: jest.fn().mockResolvedValue({}),
       deleteMany: jest.fn().mockResolvedValue({}),
+      // Сводка реакций выдачи: счётчики groupBy + свои реакции зрителя (decorate).
+      groupBy: jest.fn().mockResolvedValue([]),
+      findMany: jest.fn().mockResolvedValue([]),
     },
     postBookmark: {
       findMany: jest.fn().mockResolvedValue([]),
@@ -50,8 +55,19 @@ function setup() {
   )
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const config = { get: jest.fn().mockReturnValue('posts-media') }
-  const files = { getPresignedUrl: jest.fn().mockResolvedValue('https://minio/signed') }
-  const media = { describeOne: jest.fn().mockResolvedValue({ status: 'READY', sources: [] }) }
+  const files = {
+    getPresignedUrl: jest.fn().mockResolvedValue('https://minio/signed'),
+    // Пачка ссылок на медиа выдачи: по ссылке на каждый переданный id.
+    getPresignedUrls: jest.fn(
+      async (ids: string[]) => new Map(ids.map((id) => [id, `https://minio/${id}`])),
+    ),
+  }
+  const media = {
+    describeOne: jest.fn().mockResolvedValue({ status: 'READY', sources: [] }),
+    describe: jest.fn(
+      async (list: Array<{ id: string }>) => new Map(list.map((f) => [f.id, describedMedia(f.id)])),
+    ),
+  }
   const service = new PostsService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
@@ -60,6 +76,44 @@ function setup() {
     media as never,
   )
   return { service, prisma, audit, files, media }
+}
+
+function describedMedia(id: string) {
+  return {
+    status: 'READY',
+    placeholder: 'data:image/webp;base64,xx',
+    width: 1200,
+    height: 800,
+    durationMs: null,
+    sources: [{ width: 640, height: 427, url: `https://minio/${id}-640` }],
+    poster: [],
+    hls: null,
+    expiresAt: '2026-10-17T10:15:00.000Z',
+  }
+}
+
+// Строка медиа поста так, как её отдаёт выборка (MEDIA_FILE_SELECT): с бакетом и вариантами.
+function mediaRow(id: string) {
+  return {
+    id,
+    bucket: 'posts-media',
+    mime: 'image/jpeg',
+    width: 1200,
+    height: 800,
+    mediaStatus: 'READY',
+    placeholder: 'data:image/webp;base64,xx',
+    durationMs: null,
+    variants: [
+      {
+        kind: 'IMAGE',
+        width: 640,
+        height: 427,
+        key: `v/${id}/640.webp`,
+        mime: 'image/webp',
+        bitrate: null,
+      },
+    ],
+  }
 }
 
 function viewer(role: Role, scope: Partial<JwtPayload> = {}): JwtPayload {
@@ -857,7 +911,7 @@ describe('PostsService.update — правка только своей публ�
 
   it('свой пост: меняются заголовок и текст, пишется аудит', async () => {
     const { service, prisma, audit } = setup()
-    prisma.post.findFirst.mockResolvedValue({ id: 'p1', authorId: 'u-1' })
+    prisma.post.findFirst.mockResolvedValue(postRow({ id: 'p1', authorId: 'u-1' }))
     await service.update(viewer(Role.STUDENT), 'p1', { title: '  Итоги  ', content: 'текст' }, ctx)
     expect(prisma.post.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: { title: 'Итоги', content: 'текст' } }),
@@ -867,7 +921,7 @@ describe('PostsService.update — правка только своей публ�
 
   it('пустой заголовок сохраняется как null, а не пустой строкой', async () => {
     const { service, prisma } = setup()
-    prisma.post.findFirst.mockResolvedValue({ id: 'p1', authorId: 'u-1' })
+    prisma.post.findFirst.mockResolvedValue(postRow({ id: 'p1', authorId: 'u-1' }))
     await service.update(viewer(Role.STUDENT), 'p1', { title: '   ' }, ctx)
     expect(prisma.post.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: { title: null } }),
@@ -1023,6 +1077,130 @@ describe('PostsService.create — медиа', () => {
     expect(prisma.file.updateMany).toHaveBeenCalledWith({
       where: { id: { in: ['f1', 'f2'] }, ownerId: 'u-1', bucket: 'posts-media', postId: null },
       data: { postId: 'p-new' },
+    })
+  })
+})
+
+// ── Реакции и медиа выдачи (E-F04, E-F05) ───────────────────────────────────
+describe('PostsService — сводка реакций вместо всех строк', () => {
+  it('реакция — только из белого списка: произвольная строка не проходит валидацию', () => {
+    expect(ReactionSchema.safeParse({ emoji: '❤️' }).success).toBe(true)
+    // Все реакции мобильных клиентов (👍 🔥 ❤️) проходят.
+    for (const emoji of ['👍', '🔥']) {
+      expect(ReactionSchema.safeParse({ emoji }).success).toBe(true)
+    }
+    expect(ReactionSchema.safeParse({ emoji: 'a1' }).success).toBe(false)
+    expect(ReactionSchema.safeParse({ emoji: '💩' }).success).toBe(false)
+  })
+
+  it('лента: счётчики groupBy по id страницы, свои — отдельным запросом за зрителя', async () => {
+    const { service, prisma } = setup()
+    prisma.post.findMany.mockResolvedValue([postRow({ id: 'p1' }), postRow({ id: 'p2' })])
+    prisma.reaction.groupBy.mockResolvedValue([
+      { postId: 'p1', emoji: '🔥', _count: { _all: 2 } },
+      { postId: 'p1', emoji: '❤️', _count: { _all: 1200 } },
+    ])
+    prisma.reaction.findMany.mockResolvedValue([{ postId: 'p1', emoji: '❤️' }])
+
+    const res = await service.feed(viewer(Role.STUDENT, { sub: 's1', groupId: 'grp-1' }), {
+      limit: 20,
+    })
+
+    const groupBy = prisma.reaction.groupBy.mock.calls[0][0]
+    expect(groupBy.by).toEqual(['postId', 'emoji'])
+    expect(groupBy.where.postId).toEqual({ in: ['p1', 'p2'] })
+    expect(groupBy.where.emoji.in).toEqual([...POST_REACTION_EMOJIS])
+    const mine = prisma.reaction.findMany.mock.calls[0][0]
+    expect(mine.where).toMatchObject({ userId: 's1', postId: { in: ['p1', 'p2'] } })
+    expect(mine.take).toBe(2 * POST_REACTION_EMOJIS.length)
+    // Порядок — как в белом списке, а не как вернул groupBy.
+    expect(res.items[0]?.reactionSummary).toEqual([
+      { emoji: '❤️', count: 1200, mine: true },
+      { emoji: '🔥', count: 2, mine: false },
+    ])
+    expect(res.items[1]?.reactionSummary).toEqual([])
+  })
+
+  it('построчные реакции — по умолчанию (мобильные клиенты), но только из белого списка', async () => {
+    const { service, prisma } = setup()
+    await service.feed(viewer(Role.STUDENT, { groupId: 'grp-1' }), { limit: 20 })
+    expect(prisma.post.findMany.mock.calls[0][0].select.reactions).toEqual({
+      where: { emoji: { in: [...POST_REACTION_EMOJIS] } },
+      select: { emoji: true, userId: true },
+    })
+  })
+
+  it('reactions=summary: строки реакций в выборку не попадают вовсе', async () => {
+    const { service, prisma } = setup()
+    await service.feed(viewer(Role.STUDENT, { groupId: 'grp-1' }), {
+      limit: 20,
+      reactions: 'summary',
+    })
+    expect(prisma.post.findMany.mock.calls[0][0].select.reactions).toBeUndefined()
+  })
+
+  it('пост по id: тоже сводка, а счётчик комментариев не считается второй раз', async () => {
+    const { service, prisma } = setup()
+    prisma.post.findFirst.mockResolvedValue(postRow({ id: 'p1', _count: { comments: 3 } }))
+    prisma.reaction.groupBy.mockResolvedValue([{ postId: 'p1', emoji: '👍', _count: { _all: 4 } }])
+
+    const res = await service.getById(viewer(Role.STUDENT, { groupId: 'grp-1' }), 'p1')
+
+    expect(res.reactionSummary).toEqual([{ emoji: '👍', count: 4, mine: false }])
+    expect(res._count.comments).toBe(3)
+    expect(prisma.comment.groupBy).not.toHaveBeenCalled()
+  })
+})
+
+describe('PostsService — ссылки на медиа прямо в выдаче', () => {
+  it('лента подписывает медиа всей страницы одной пачкой', async () => {
+    const { service, prisma, files, media } = setup()
+    prisma.post.findMany.mockResolvedValue([
+      postRow({ id: 'p1', media: [mediaRow('f1'), mediaRow('f2')] }),
+      postRow({ id: 'p2', media: [mediaRow('f3')] }),
+      postRow({ id: 'p3' }),
+    ])
+
+    const res = await service.feed(viewer(Role.STUDENT, { groupId: 'grp-1' }), { limit: 20 })
+
+    expect(files.getPresignedUrls).toHaveBeenCalledTimes(1)
+    expect(files.getPresignedUrls).toHaveBeenCalledWith(['f1', 'f2', 'f3'])
+    expect(media.describe).toHaveBeenCalledTimes(1)
+    expect(files.getPresignedUrl).not.toHaveBeenCalled()
+    const first = res.items[0]?.media[0]
+    expect(first).toMatchObject({
+      id: 'f1',
+      mime: 'image/jpeg',
+      width: 1200,
+      height: 800,
+      mediaStatus: 'READY',
+      status: 'READY',
+      url: 'https://minio/f1',
+      sources: [{ width: 640, height: 427, url: 'https://minio/f1-640' }],
+    })
+    expect(typeof first?.expiresAt).toBe('string')
+    // Бакет и ключи вариантов — внутреннее хранилища, наружу не уходят.
+    expect(first).not.toHaveProperty('bucket')
+    expect(first).not.toHaveProperty('variants')
+    expect(res.items[2]?.media).toEqual([])
+  })
+
+  it('файл исчез до подписи — медиа без url, клиент спросит ссылку отдельно', async () => {
+    const { service, prisma, files } = setup()
+    prisma.post.findMany.mockResolvedValue([postRow({ id: 'p1', media: [mediaRow('f1')] })])
+    files.getPresignedUrls.mockResolvedValueOnce(new Map())
+
+    const res = await service.feed(viewer(Role.STUDENT, { groupId: 'grp-1' }), { limit: 20 })
+
+    expect(res.items[0]?.media[0]?.id).toBe('f1')
+    expect(res.items[0]?.media[0]).not.toHaveProperty('url')
+  })
+
+  it('выборка медиа берёт поля описания с вариантами (MEDIA_FILE_SELECT)', async () => {
+    const { service, prisma } = setup()
+    await service.feed(viewer(Role.STUDENT, { groupId: 'grp-1' }), { limit: 20 })
+    expect(prisma.post.findMany.mock.calls[0][0].select.media).toEqual({
+      select: MEDIA_FILE_SELECT,
     })
   })
 })

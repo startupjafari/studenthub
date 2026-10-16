@@ -4,7 +4,13 @@ import { useEffect, useMemo, useState } from 'react'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { Newspaper } from 'lucide-react'
-import { fetchAuthorPosts, postKeys, type FeedPost } from '../../../entities/post'
+import {
+  fetchAuthorPosts,
+  postKeys,
+  reactionSummaryOf,
+  reactionTotal,
+  type FeedPost,
+} from '../../../entities/post'
 import { PostGrid } from '../../feed-list'
 import { EmptyState, MosaicGrid, MosaicTile, Skeleton } from '../../../shared/ui'
 import { useInfiniteScroll } from '../../../shared/lib'
@@ -149,7 +155,7 @@ export function ProfilePosts({ userId, isOwner, openCreate, onConsumed }: Props)
 
 // Популярность = лайки + комментарии; закреплённые всегда сверху (сохраняем поведение ленты).
 function sortPosts(posts: FeedPost[], mode: SortMode): FeedPost[] {
-  const score = (p: FeedPost) => p.reactions.length + p._count.comments
+  const score = (p: FeedPost) => reactionTotal(reactionSummaryOf(p)) + p._count.comments
   return [...posts].sort((a, b) => {
     const pin = Number(Boolean(b.pinnedAt)) - Number(Boolean(a.pinnedAt))
     if (pin !== 0) return pin

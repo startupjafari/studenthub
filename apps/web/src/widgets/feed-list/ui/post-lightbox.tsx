@@ -27,18 +27,22 @@ import {
 import { Role } from '@studenthub/shared-types'
 import { useAppSelector } from '../../../shared/store'
 import {
+  LIKE_EMOJI,
   addCommentRequest,
   addReactionRequest,
   canRepost,
   deleteCommentRequest,
   fetchComments,
+  hasMyReaction,
   incrementPostView,
   postKeys,
+  reactionSummaryOf,
+  reactionTotal,
   removeReactionRequest,
+  withMyReaction,
   type FeedPage,
   type FeedPost,
   type PostComment,
-  type PostReaction,
 } from '../../../entities/post'
 import { ProfileLink } from '../../../entities/user'
 import { RepostDialog, useRepost } from '../../../features/repost-post'
@@ -54,8 +58,6 @@ import { MediaFrame } from './media-frame'
 import { RepostBanner, RepostUnavailable } from './repost-banner'
 import { useRepostSource } from '../lib/use-repost-source'
 import { MentionSuggest, applyMention, mentionQuery } from './mention-suggest'
-
-const LIKE = '❤️'
 
 // Быстрый набор эмодзи для комментариев (как в чате).
 const EMOJI_SET = [
@@ -307,7 +309,7 @@ function PostView({
   const [mi, setMi] = useState(0)
   const [zoomed, setZoomed] = useState(false)
   const [views, setViews] = useState(post.views)
-  const [reactions, setReactions] = useState<PostReaction[]>(post.reactions)
+  const [reactions, setReactions] = useState(() => reactionSummaryOf(post, myId))
 
   // Засчитываем просмотр один раз при открытии поста (PostView ремонтируется по key={post.id}).
   useEffect(() => {
@@ -428,7 +430,7 @@ function PostView({
   const canDelete = menuPost.authorId === myId || canModerate
   // Репост репоста ссылается на исходник — а он зрителю недоступен, сервер откажет.
   const showRepost = !originalUnavailable && canRepost(myRole, post)
-  const liked = reactions.some((r) => r.emoji === LIKE && r.userId === myId)
+  const liked = hasMyReaction(reactions, LIKE_EMOJI)
   const { bookmarked, toggle: toggleBookmark } = useBookmark(post.id, post.bookmarked)
 
   const comments = useQuery({
@@ -481,19 +483,12 @@ function PostView({
   function toggleLike(): void {
     if (!myId) return
     const prev = reactions
-    if (liked) {
-      setReactions(prev.filter((r) => !(r.emoji === LIKE && r.userId === myId)))
-      removeReactionRequest(post.id, LIKE).catch(() => {
-        setReactions(prev)
-        toast.error(tErr('INTERNAL_ERROR'))
-      })
-    } else {
-      setReactions([...prev, { emoji: LIKE, userId: myId }])
-      addReactionRequest(post.id, LIKE).catch(() => {
-        setReactions(prev)
-        toast.error(tErr('INTERNAL_ERROR'))
-      })
-    }
+    setReactions(withMyReaction(prev, LIKE_EMOJI, !liked))
+    const request = liked ? removeReactionRequest : addReactionRequest
+    request(post.id, LIKE_EMOJI).catch(() => {
+      setReactions(prev)
+      toast.error(tErr('INTERNAL_ERROR'))
+    })
   }
 
   // Точная дата — в подсказке к относительному времени в панели действий.
@@ -813,7 +808,7 @@ function PostView({
               </div>
             </div>
             <p className="px-2 text-sm font-semibold">
-              {t('likesCount', { count: reactions.length })}
+              {t('likesCount', { count: reactionTotal(reactions) })}
             </p>
             <p className="flex items-center gap-1.5 px-2 text-xs text-muted-foreground">
               <time dateTime={post.createdAt}>{exactDate}</time>

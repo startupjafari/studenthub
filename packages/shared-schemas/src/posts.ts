@@ -70,8 +70,23 @@ export const CreateCommentSchema = z
   .strict()
 export type CreateCommentInput = z.infer<typeof CreateCommentSchema>
 
-export const ReactionSchema = z.object({ emoji: z.string().min(1).max(16) }).strict()
+// Реакции на пост — только из белого списка. Произвольная строка позволяла одному человеку
+// поставить на пост сколько угодно «реакций» (`a1`, `a2`, …): счётчик накручивался, а ответ
+// ленты раздувался у всех читателей. В списке всё, что ставят клиенты (веб — ❤️, iOS и
+// Android — 👍 🔥 ❤️), и то, что уже лежит в данных стенда (prisma/seed: 👏 😮 🎉).
+export const POST_REACTION_EMOJIS = ['❤️', '👍', '🔥', '👏', '😮', '🎉'] as const
+export type PostReactionEmoji = (typeof POST_REACTION_EMOJIS)[number]
+
+export const ReactionSchema = z.object({ emoji: z.enum(POST_REACTION_EMOJIS) }).strict()
 export type ReactionInput = z.infer<typeof ReactionSchema>
+
+// Сводка реакций поста в ответе API (`reactionSummary`): сколько каждой и стоит ли среди
+// них своя. Только реакции из белого списка; порядок — как в POST_REACTION_EMOJIS.
+export interface PostReactionSummary {
+  emoji: string
+  count: number
+  mine: boolean
+}
 
 // Закрепление/открепление поста (задача 8.6).
 export const PinPostSchema = z.object({ pinned: z.boolean() }).strict()
@@ -99,8 +114,13 @@ export type FeedFilterValue = z.infer<typeof FeedFilterSchema>
 // authorId — опциональный фильтр по автору (вкладка «Посты» в профиле); всегда пересекается
 // с видимостью зрителя на сервере (нельзя увидеть чужие посты в обход прав).
 // filter — таб ленты; сужает выдачу поверх видимости (нельзя увидеть скрытое в обход прав).
+// reactions — форма реакций в выдаче. `list` (по умолчанию, как было) — построчный
+// `reactions` «кто что поставил» рядом со сводкой `reactionSummary`; на популярном посте это
+// тысячи строк ради одного числа. `summary` — только сводка: так ходит клиент, который
+// читает `reactionSummary` (веб); мобильные клиенты, считающие по строкам, ничего не шлют.
 export const FeedQuerySchema = CursorPaginationSchema.extend({
   authorId: z.string().min(1).optional(),
   filter: FeedFilterSchema.optional(),
+  reactions: z.enum(['list', 'summary']).optional(),
 })
 export type FeedQueryInput = z.infer<typeof FeedQuerySchema>

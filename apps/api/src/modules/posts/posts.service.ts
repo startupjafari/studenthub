@@ -2,19 +2,21 @@ import { Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { PostAudience, Prisma } from '@prisma/client'
 import { Role, isHigherRole } from '@studenthub/shared-types'
-import type {
-  UpdatePostInput,
-  CreateCommentInput,
-  CreatePostInput,
-  FeedFilterValue,
-  FeedQueryInput,
-  ReactionInput,
-  RepostInput,
+import {
+  POST_REACTION_EMOJIS,
+  type UpdatePostInput,
+  type CreateCommentInput,
+  type CreatePostInput,
+  type FeedFilterValue,
+  type FeedQueryInput,
+  type PostReactionSummary,
+  type ReactionInput,
+  type RepostInput,
 } from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { FileService } from '../files/file.service'
 import { MediaService } from '../media/media.service'
-import { MEDIA_FILE_SELECT, MEDIA_PREVIEW_SELECT, type MediaInfo } from '../media/media.types'
+import { MEDIA_FILE_SELECT, type MediaFile, type MediaInfo } from '../media/media.types'
 import { signingWindow } from '../../common/minio/stable-sign'
 import { AuditService } from '../../common/audit/audit.service'
 import { AppException } from '../../common/exceptions/app.exception'
@@ -72,7 +74,11 @@ const AUTHOR_SELECT = {
   select: { id: true, firstName: true, lastName: true, role: true, avatarUrl: true },
 }
 
-// Поля поста без счётчика комментариев — то, что читает лента.
+// Реакции из белого списка (ReactionSchema). Строки с произвольным текстом, поставленные до
+// списка, не считаются нигде: ни в сводке, ни в построчном `reactions`.
+const REACTION_EMOJI_WHERE = { emoji: { in: [...POST_REACTION_EMOJIS] } }
+
+// Поля поста без реакций и счётчика комментариев — то, что читает лента.
 //
 // `_count` отношением Prisma превращает в LEFT JOIN с агрегатом по ВСЕЙ таблице
 // комментариев. Планировщик из-за него перестаёт брать индекс порядка ленты: агрегат
@@ -81,9 +87,9 @@ const AUTHOR_SELECT = {
 // постов и 500 тыс. комментариев: 115 мс со счётчиком против 0,04 мс без него.
 //
 // Поэтому в ленте счётчики берутся отдельным groupBy по двум десяткам id страницы —
-// ровно так же, как закладки (см. decorateFeed). Одиночному посту это не нужно: там
-// агрегат считается по одному id и стоит ничего, а select проще держать общим.
-const POST_SELECT_BASE = {
+// ровно так же, как закладки и реакции (см. decorate). Одиночному посту это не нужно:
+// там агрегат считается по одному id и стоит ничего, а select проще держать общим.
+const POST_SELECT_CORE = {
   id: true,
   audience: true,
   title: true,
@@ -103,13 +109,23 @@ const POST_SELECT_BASE = {
   publishedAt: true,
   createdAt: true,
   author: AUTHOR_SELECT,
-  // Размеры и LQIP — чтобы лента держала место под снимок и показывала силуэт до байтов;
-  // ссылки и варианты выдаёт GET /posts/:id/media/:fileId/url.
-  media: { select: { id: true, mime: true, width: true, height: true, ...MEDIA_PREVIEW_SELECT } },
-  reactions: { select: { emoji: true, userId: true } },
+  // Поля описания медиа с вариантами: ссылки и srcset подписываются пачкой на всю выдачу
+  // (decorate). Наружу из этих строк уходит только публичная часть (toPostMedia).
+  media: { select: MEDIA_FILE_SELECT },
   original: {
     select: { id: true, title: true, content: true, author: AUTHOR_SELECT },
   },
+} satisfies Prisma.PostSelect
+
+/**
+ * Построчные реакции «кто что поставил» — устаревшее поле ответа: его читает Android-клиент
+ * (считает строки по эмодзи и ищет свою по userId). Новые клиенты берут `reactionSummary`
+ * и просят ленту без строк (`reactions=summary`). Убрать поле можно, когда мобильные
+ * клиенты перейдут на сводку.
+ */
+const POST_SELECT_BASE = {
+  ...POST_SELECT_CORE,
+  reactions: { where: REACTION_EMOJI_WHERE, select: { emoji: true, userId: true } },
 } satisfies Prisma.PostSelect
 
 const POST_SELECT = {
@@ -117,16 +133,34 @@ const POST_SELECT = {
   _count: { select: { comments: { where: { deletedAt: null } } } },
 } satisfies Prisma.PostSelect
 
-type PostRow = Prisma.PostGetPayload<{ select: typeof POST_SELECT }>
-/** Строка ленты до того, как к ней приписали счётчик комментариев. */
-type FeedRow = Prisma.PostGetPayload<{ select: typeof POST_SELECT_BASE }>
+type LegacyReaction = { emoji: string; userId: string }
+/** Строка выдачи до оформления: без счётчика комментариев, построчные реакции — по запросу. */
+type FeedRow = Prisma.PostGetPayload<{ select: typeof POST_SELECT_CORE }> & {
+  reactions?: LegacyReaction[]
+}
+
+/** Медиа поста в ответе: превью, описание вариантов и подписанная ссылка на оригинал. */
+type PostMediaView = Pick<
+  MediaFile,
+  'id' | 'mime' | 'width' | 'height' | 'mediaStatus' | 'placeholder' | 'durationMs'
+> &
+  Pick<MediaInfo, 'status' | 'sources' | 'poster' | 'hls' | 'expiresAt'> & {
+    /** Нет — файл исчез между выборкой и подписью; клиент спросит ссылку отдельно. */
+    url?: string
+  }
 
 /**
- * Пост с личным признаком зрителя. Сохранён ли пост — вопрос про ПАРУ «зритель + пост»,
- * поэтому признак не лежит в POST_SELECT: включать закладки отношением значило бы отдать
- * наружу, КТО ещё сохранил пост. Считается отдельным запросом на страницу выдачи.
+ * Пост в ответе API с личными признаками зрителя. Сохранён ли пост и какие реакции свои —
+ * вопрос про ПАРУ «зритель + пост», поэтому признаки не лежат в select: включать закладки
+ * отношением значило бы отдать наружу, КТО ещё сохранил пост. Считаются отдельными
+ * запросами на страницу выдачи.
  */
-type ViewerPost = PostRow & { bookmarked: boolean }
+type ViewerPost = Omit<FeedRow, 'media'> & {
+  media: PostMediaView[]
+  reactionSummary: PostReactionSummary[]
+  _count: { comments: number }
+  bookmarked: boolean
+}
 
 // Поля scope для проверки прав (без тяжёлых relation'ов).
 const POST_SCOPE_SELECT = {
@@ -171,6 +205,35 @@ const MODERATOR_ROLES: ReadonlySet<Role> = new Set([
 
 // Ни один пост не подходит: scope роли не заполнен (декан без факультета и т. п.).
 const NOTHING: Prisma.PostWhereInput = { id: { in: [] } }
+
+/**
+ * Медиа поста в ответе: превью (как раньше), описание вариантов и подписанная ссылка на
+ * оригинал. Собирается явно, а не разбором строки: в строке лежат бакет и ключи вариантов,
+ * наружу им незачем.
+ */
+function toPostMedia(
+  file: MediaFile,
+  url: string | undefined,
+  info: MediaInfo | undefined,
+  expiresAt: string,
+): PostMediaView {
+  return {
+    id: file.id,
+    mime: file.mime,
+    width: file.width,
+    height: file.height,
+    mediaStatus: file.mediaStatus,
+    placeholder: file.placeholder,
+    durationMs: file.durationMs,
+    status: info?.status ?? file.mediaStatus,
+    sources: info?.sources ?? [],
+    poster: info?.poster ?? [],
+    hls: info?.hls ?? null,
+    // Срок — у подписанной ссылки на оригинал; без неё — срок вариантов, как в MediaInfo.
+    expiresAt: url ? expiresAt : (info?.expiresAt ?? null),
+    ...(url ? { url } : {}),
+  }
+}
 
 @Injectable()
 export class PostsService {
@@ -296,51 +359,109 @@ export class PostsService {
 
   // ── Лента (задача 8.3) — cursor-пагинация + приоритет ──────────────────────
 
-  /** Отмечает посты страницы личной закладкой зрителя: один индексный запрос на выдачу. */
-  private async withBookmarks(viewerId: string, rows: PostRow[]): Promise<ViewerPost[]> {
-    if (rows.length === 0) return []
-    const saved = await this.prisma.postBookmark.findMany({
-      where: { userId: viewerId, postId: { in: rows.map((row) => row.id) } },
-      select: { postId: true },
-    })
-    const ids = new Set(saved.map((row) => row.postId))
-    return rows.map((row) => ({ ...row, bookmarked: ids.has(row.id) }))
-  }
-
   /**
-   * Дописывает странице ленты счётчик комментариев и личную закладку зрителя — два
-   * индексных запроса по двум десяткам id, параллельно.
+   * Дописывает выдаче всё, что считается по списку id или зависит от зрителя: закладку,
+   * счётчик комментариев, доступность цитаты оригинала, сводку реакций и подписанные ссылки
+   * на медиа. Запросы индексные, по двум десяткам id страницы, и идут параллельно.
    *
-   * Счётчик именно здесь, а не отношением в select: `_count` внутри выборки заставляет
+   * Счётчик комментариев здесь, а не отношением в select: `_count` внутри выборки заставляет
    * Postgres считать агрегат по всей таблице комментариев ДО сортировки, и ради этого
-   * планировщик бросает индекс порядка ленты (см. комментарий у POST_SELECT_BASE).
+   * планировщик бросает индекс порядка ленты (см. комментарий у POST_SELECT_CORE). У
+   * одиночного поста счётчик уже пришёл в select (`counted`) — второй раз его не считаем.
    *
    * Удалённые комментарии не считаются: в обсуждении их не видно, и счётчик «5» над
    * тремя видимыми комментариями выглядел ошибкой. Карточка поста считает так же.
    */
-  private async decorateFeed(viewer: JwtPayload, rows: FeedRow[]): Promise<ViewerPost[]> {
+  private async decorate(
+    viewer: JwtPayload,
+    rows: Array<FeedRow & { _count?: { comments: number } }>,
+    { counted = false }: { counted?: boolean } = {},
+  ): Promise<ViewerPost[]> {
     if (rows.length === 0) return []
     const ids = rows.map((row) => row.id)
-    const [saved, counts, originals] = await Promise.all([
+    const [saved, counts, originals, reactions, mediaView] = await Promise.all([
       this.prisma.postBookmark.findMany({
         where: { userId: viewer.sub, postId: { in: ids } },
         select: { postId: true },
+        take: ids.length,
       }),
-      this.prisma.comment.groupBy({
-        by: ['postId'],
-        where: { postId: { in: ids }, deletedAt: null },
-        _count: { _all: true },
-      }),
+      counted
+        ? Promise.resolve([])
+        : this.prisma.comment.groupBy({
+            by: ['postId'],
+            where: { postId: { in: ids }, deletedAt: null },
+            _count: { _all: true },
+          }),
       this.availableOriginals(viewer, rows),
+      this.reactionSummaries(viewer.sub, ids),
+      this.signMedia(rows.flatMap((row) => row.media)),
     ])
     const savedIds = new Set(saved.map((row) => row.postId))
     const countByPost = new Map(counts.map((row) => [row.postId, row._count._all]))
     return rows.map((row) => ({
       ...row,
+      media: row.media.map(mediaView),
+      reactionSummary: reactions.get(row.id) ?? [],
       original: row.original && originals.has(row.original.id) ? row.original : null,
-      _count: { comments: countByPost.get(row.id) ?? 0 },
+      _count: counted && row._count ? row._count : { comments: countByPost.get(row.id) ?? 0 },
       bookmarked: savedIds.has(row.id),
     }))
+  }
+
+  /**
+   * Сводка реакций выдачи — как у сторис: сколько каждой (groupBy по id страницы) и какие из
+   * них свои (отдельный запрос за зрителя). Раньше лента везла отношением ВСЕ строки реакций
+   * каждого поста вместе с userId: объявление вуза с тысячами лайков — тысячи объектов на
+   * страницу ради одного числа на экране.
+   */
+  private async reactionSummaries(
+    viewerId: string,
+    ids: string[],
+  ): Promise<Map<string, PostReactionSummary[]>> {
+    const [counts, mine] = await Promise.all([
+      this.prisma.reaction.groupBy({
+        by: ['postId', 'emoji'],
+        where: { postId: { in: ids }, ...REACTION_EMOJI_WHERE },
+        _count: { _all: true },
+      }),
+      this.prisma.reaction.findMany({
+        where: { userId: viewerId, postId: { in: ids }, ...REACTION_EMOJI_WHERE },
+        select: { postId: true, emoji: true },
+        // Уникальность [postId, userId, emoji] и белый список дают точный потолок.
+        take: ids.length * POST_REACTION_EMOJIS.length,
+      }),
+    ])
+    const mineKeys = new Set(mine.map((row) => `${row.postId}:${row.emoji}`))
+    // Порядок — как в белом списке: groupBy его не гарантирует, а сводка не должна прыгать.
+    const rank = (emoji: string) => (POST_REACTION_EMOJIS as readonly string[]).indexOf(emoji)
+    const byPost = new Map<string, PostReactionSummary[]>()
+    for (const row of [...counts].sort((a, b) => rank(a.emoji) - rank(b.emoji))) {
+      const list = byPost.get(row.postId) ?? []
+      list.push({
+        emoji: row.emoji,
+        count: row._count._all,
+        mine: mineKeys.has(`${row.postId}:${row.emoji}`),
+      })
+      byPost.set(row.postId, list)
+    }
+    return byPost
+  }
+
+  /**
+   * Ссылки на медиа выдачи и их варианты — одной пачкой, как у сторис. Раньше клиент
+   * спрашивал ссылку на каждую плитку отдельно (`GET /posts/:id/media/:fileId/url`): страница
+   * из двадцати постов давала до восьмидесяти запросов, каждый с проверкой видимости, и лента
+   * упиралась в лимит 100 запросов в минуту. Видимость здесь уже проверила выборка самой
+   * выдачи; отдельная ручка осталась для продления истёкшей ссылки.
+   */
+  private async signMedia(files: MediaFile[]): Promise<(file: MediaFile) => PostMediaView> {
+    const now = Date.now()
+    const [urls, described] = await Promise.all([
+      this.files.getPresignedUrls(files.map((file) => file.id)),
+      this.media.describe(files, now),
+    ])
+    const expiresAt = signingWindow(now).expiresAt.toISOString()
+    return (file) => toPostMedia(file, urls.get(file.id), described.get(file.id), expiresAt)
   }
 
   /**
@@ -378,9 +499,10 @@ export class PostsService {
     const where = moderation
       ? this.moderationFeedWhere(viewer, query)
       : this.feedWhere(viewer, query)
-    const rows = await this.prisma.post.findMany({
+    const rows: FeedRow[] = await this.prisma.post.findMany({
       where,
-      select: POST_SELECT_BASE,
+      // Построчные реакции — только клиентам, которые их читают (см. POST_SELECT_BASE).
+      select: query.reactions === 'summary' ? POST_SELECT_CORE : POST_SELECT_BASE,
       // Закреплённые сверху, затем по приоритету и времени; id — стабильный tiebreaker для cursor.
       // Модерации нужен поток свежего, а не порядок чтения: там просто новые сверху.
       orderBy: moderation
@@ -397,7 +519,7 @@ export class PostsService {
     const hasNext = rows.length > query.limit
     const page = hasNext ? rows.slice(0, query.limit) : rows
     const nextCursor = hasNext ? page[page.length - 1]?.id : undefined
-    const items = await this.decorateFeed(viewer, page)
+    const items = await this.decorate(viewer, page)
     // Для вкладки «Посты» в профиле (authorId) отдаём общий счётчик — для бейджа на табе.
     // В общей ленте счётчик не считаем (лишний COUNT на горячем пути).
     const total = query.authorId ? await this.prisma.post.count({ where }) : undefined
@@ -442,13 +564,8 @@ export class PostsService {
 
   async getById(viewer: JwtPayload, id: string): Promise<ViewerPost> {
     const post = await this.findVisibleOrThrow(viewer, id, POST_SELECT, { moderation: true })
-    const [[withFlag], originals] = await Promise.all([
-      this.withBookmarks(viewer.sub, [post]),
-      this.availableOriginals(viewer, [post]),
-    ])
-    const result = withFlag as ViewerPost
-    if (result.original && !originals.has(result.original.id)) result.original = null
-    return result
+    const [result] = await this.decorate(viewer, [post], { counted: true })
+    return result as ViewerPost
   }
 
   /**
@@ -498,6 +615,8 @@ export class PostsService {
   /**
    * Ссылка на медиа поста и его варианты (srcset, постер, HLS) — по видимости поста.
    * `url` — оригинал, как и раньше; поля описания медиа (MediaInfo) лежат рядом.
+   * Лента и пост по id отдают то же самое прямо в `media[]`; ручка — для продления ссылки,
+   * истёкшей, пока выдача лежала в кэше клиента.
    */
   async getMediaUrl(
     viewer: JwtPayload,
@@ -520,7 +639,11 @@ export class PostsService {
 
   // ── Создание (задачи 8.2, 8.7) ─────────────────────────────────────────────
 
-  async create(actor: JwtPayload, input: CreatePostInput, ctx: RequestContext): Promise<PostRow> {
+  async create(
+    actor: JwtPayload,
+    input: CreatePostInput,
+    ctx: RequestContext,
+  ): Promise<ViewerPost> {
     const target = await this.resolveTarget(actor, input.audience as PostAudience, input)
     // Пост и привязка медиа — одной транзакцией: раньше пост публиковался, а следом
     // linkMedia отвечал 400, клиент повторял отправку — и в ленте оказывалось два поста.
@@ -584,7 +707,7 @@ export class PostsService {
     id: string,
     input: RepostInput,
     ctx: RequestContext,
-  ): Promise<PostRow> {
+  ): Promise<ViewerPost> {
     // Репостить можно только видимый пост — по видимости самого зрителя, без scope
     // модерации: право снимать пост не даёт права выносить его к новой аудитории.
     const original = await this.findVisibleOrThrow(actor, id, {
@@ -650,7 +773,7 @@ export class PostsService {
     id: string,
     input: UpdatePostInput,
     ctx: RequestContext,
-  ): Promise<PostRow> {
+  ): Promise<ViewerPost> {
     const post = await this.prisma.post.findFirst({
       where: { id, deletedAt: null },
       select: { id: true, authorId: true },
@@ -683,7 +806,7 @@ export class PostsService {
    * Отложенный пост сюда не попадает: у него есть свой срок и крон (`publishDueScheduled`),
    * а досрочная публикация по кнопке «Опубликовать» противоречила бы выставленному времени.
    */
-  async publish(actor: JwtPayload, id: string, ctx: RequestContext): Promise<PostRow> {
+  async publish(actor: JwtPayload, id: string, ctx: RequestContext): Promise<ViewerPost> {
     const post = await this.prisma.post.findFirst({
       where: { id, deletedAt: null },
       select: { id: true, authorId: true, status: true },
@@ -739,7 +862,7 @@ export class PostsService {
     id: string,
     pinned: boolean,
     ctx: RequestContext,
-  ): Promise<PostRow> {
+  ): Promise<ViewerPost> {
     const post = await this.prisma.post.findFirst({
       where: { id, deletedAt: null },
       select: { ...POST_SCOPE_SELECT, author: { select: { role: true } } },

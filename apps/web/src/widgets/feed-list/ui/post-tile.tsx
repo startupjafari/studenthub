@@ -4,7 +4,7 @@ import { useTranslations } from 'next-intl'
 import { Eye, Heart, Images, MessageCircle, Pin, Play, Repeat2 } from 'lucide-react'
 import { Role } from '@studenthub/shared-types'
 import { useAppSelector } from '../../../shared/store'
-import type { FeedPost } from '../../../entities/post'
+import { reactionSummaryOf, reactionTotal, type FeedPost } from '../../../entities/post'
 import { cn } from '../../../shared/lib/utils'
 import { plainPreview } from '../../../shared/lib'
 import { BRAND_GRADIENT } from '../../../shared/config'
@@ -134,7 +134,7 @@ function PostTileView({
           <span className="flex items-center gap-3 text-xs font-medium text-white/90 tabular-nums">
             <span className="inline-flex items-center gap-1">
               <Heart className="size-3.5" aria-hidden />
-              {post.reactions.length}
+              {reactionTotal(reactionSummaryOf(post))}
             </span>
             <span className="inline-flex items-center gap-1">
               <MessageCircle className="size-3.5" aria-hidden />
