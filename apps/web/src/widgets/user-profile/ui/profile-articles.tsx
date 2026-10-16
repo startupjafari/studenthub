@@ -32,7 +32,17 @@ import {
   toggleArticleBookmark,
   type ProfileArticle,
 } from '../../../entities/profile-content'
-import { Badge, Button, EmptyState, MarkdownImage, Skeleton, useConfirm } from '../../../shared/ui'
+import {
+  Badge,
+  Button,
+  EmptyState,
+  MarkdownImage,
+  MosaicGrid,
+  MosaicTile,
+  Skeleton,
+  mosaicShape,
+  useConfirm,
+} from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { useBodyScrollLock } from '../../../shared/lib'
 import { ArticleEditorModal } from './article-editor-modal'
@@ -126,24 +136,13 @@ export function ProfileArticles({ userId, isOwner, openCreate, onConsumed }: Pro
       <>
         {modals}
         <ContentLayout sidebar={<FilterSkeleton groups={3} />}>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <article
-                key={i}
-                className="flex flex-col overflow-hidden rounded-2xl border border-border bg-card"
-              >
-                <Skeleton className="aspect-video w-full rounded-none" />
-                <div className="flex flex-col gap-2 p-4">
-                  <Skeleton className="h-4 w-1/3" />
-                  <Skeleton className="h-5 w-3/4" />
-                  <Skeleton className="h-4 w-full" />
-                  <div className="mt-1 border-t border-border pt-3">
-                    <Skeleton className="h-3 w-1/2" />
-                  </div>
-                </div>
-              </article>
+          <MosaicGrid aria-hidden>
+            {Array.from({ length: 14 }).map((_, i) => (
+              <MosaicTile key={i} index={i}>
+                <Skeleton className="size-full rounded-none" />
+              </MosaicTile>
             ))}
-          </div>
+          </MosaicGrid>
         </ContentLayout>
       </>
     )
@@ -220,11 +219,11 @@ export function ProfileArticles({ userId, isOwner, openCreate, onConsumed }: Pro
               {t('nothingFound')}
             </p>
           ) : (
-            // Сетка статей: до 3 карточек в ряд.
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {visible.map((a) => (
+            <MosaicGrid>
+              {visible.map((a, i) => (
                 <ArticleCard
                   key={a.id}
+                  index={i}
                   article={a}
                   isOwner={isOwner}
                   onRead={() => setReading(a)}
@@ -238,7 +237,7 @@ export function ProfileArticles({ userId, isOwner, openCreate, onConsumed }: Pro
                   }}
                 />
               ))}
-            </div>
+            </MosaicGrid>
           )}
         </div>
       </ContentLayout>
@@ -246,13 +245,17 @@ export function ProfileArticles({ userId, isOwner, openCreate, onConsumed }: Pro
   )
 }
 
+// Плитка статьи в мозаике: обложка во всю плитку, рубрика, заголовок и мета — на затемнении
+// снизу (читаются поверх любого снимка). Подзаголовок помещается только в высокую плитку.
 function ArticleCard({
+  index,
   article: a,
   isOwner,
   onRead,
   onEdit,
   onDelete,
 }: {
+  index: number
   article: ProfileArticle
   isOwner: boolean
   onRead: () => void
@@ -260,51 +263,50 @@ function ArticleCard({
   onDelete: () => void
 }) {
   const t = useTranslations('Profile')
-  const locale = useLocale()
-  const date = new Date(a.publishedAt ?? a.createdAt).toLocaleDateString(locale)
+  const shape = mosaicShape(index)
 
   return (
-    <article className="group relative flex flex-col overflow-hidden rounded-2xl border border-border bg-card transition-shadow hover:border-ring/50">
+    <MosaicTile index={index}>
       <button
         type="button"
         onClick={onRead}
-        className="flex w-full flex-1 flex-col text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+        className="absolute inset-0 text-left outline-none focus-visible:ring-4 focus-visible:ring-ring/30 focus-visible:ring-inset"
       >
-        {(a.coverUrl || a.coverGradient) && (
-          <ArticleCover
-            coverUrl={a.coverUrl}
-            coverGradient={a.coverGradient}
-            title={a.title}
-            className="aspect-video w-full"
-          />
-        )}
-        <div className="flex flex-1 flex-col gap-2 p-4">
-          <div className="flex flex-wrap items-center gap-2">
-            {a.status === 'DRAFT' && <Badge variant="secondary">{t('draft')}</Badge>}
-            {a.category && <Badge variant="default">{t(`cat_${a.category}`)}</Badge>}
-          </div>
-          <h3 className="line-clamp-2 text-lg font-bold leading-snug tracking-tight transition-colors group-hover:text-primary">
+        <ArticleCover
+          coverUrl={a.coverUrl}
+          coverGradient={a.coverGradient}
+          title={a.title}
+          // Заголовок и так стоит внизу плитки — градиентной обложке хватает буквы.
+          letter
+          className="size-full transition-transform duration-300 ease-out group-hover/tile:scale-105"
+        />
+        <span className="absolute inset-x-0 bottom-0 flex flex-col gap-1.5 bg-gradient-to-t from-black/80 via-black/45 to-transparent px-3 pt-10 pb-3 text-white">
+          <span className="flex flex-wrap items-center gap-1.5 max-sm:hidden">
+            {a.status === 'DRAFT' && (
+              <span className="rounded-full bg-warning px-2 py-0.5 text-[11px] font-medium text-warning-foreground">
+                {t('draft')}
+              </span>
+            )}
+            {a.category && (
+              <span className="rounded-full bg-white/20 px-2 py-0.5 text-[11px] font-medium backdrop-blur-sm">
+                {t(`cat_${a.category}`)}
+              </span>
+            )}
+          </span>
+          <span
+            className={cn(
+              'font-semibold leading-snug',
+              shape === 'square' ? 'line-clamp-2 text-sm max-sm:text-xs' : 'line-clamp-3 text-base',
+            )}
+          >
             {a.title}
-          </h3>
-          {a.description && (
-            <p className="line-clamp-2 text-sm leading-relaxed text-muted-foreground">
+          </span>
+          {shape === 'tall' && a.description && (
+            <span className="line-clamp-3 text-xs leading-relaxed text-white/80">
               {a.description}
-            </p>
+            </span>
           )}
-          {a.tags.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
-              {a.tags.slice(0, 3).map((tag) => (
-                <span
-                  key={tag}
-                  className="truncate rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground"
-                >
-                  #{tag}
-                </span>
-              ))}
-            </div>
-          )}
-          <div className="mt-auto flex flex-wrap items-center gap-x-3.5 gap-y-1.5 border-t border-border pt-3 text-[13px] text-muted-foreground">
-            <time>{date}</time>
+          <span className="flex items-center gap-3 text-xs font-medium text-white/85 tabular-nums max-sm:hidden">
             {a.readingMinutes ? (
               <span className="inline-flex items-center gap-1">
                 <Clock className="size-3.5" aria-hidden />
@@ -320,14 +322,14 @@ function ArticleCard({
               {a.commentCount}
             </span>
             {a.bookmarked && (
-              <Bookmark className="ml-auto size-3.5 fill-primary text-primary" aria-hidden />
+              <Bookmark className="ml-auto size-3.5 fill-current" aria-label={t('bookmarked')} />
             )}
-          </div>
-        </div>
+          </span>
+        </span>
       </button>
 
       {isOwner && (
-        <div className="absolute right-3 top-3 z-10 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+        <div className="absolute right-2 top-2 z-10 flex gap-1 opacity-0 transition-opacity group-hover/tile:opacity-100 focus-within:opacity-100 max-lg:opacity-100">
           <Button
             type="button"
             variant="secondary"
@@ -350,7 +352,7 @@ function ArticleCard({
           </Button>
         </div>
       )}
-    </article>
+    </MosaicTile>
   )
 }
 
