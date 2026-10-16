@@ -13,6 +13,9 @@ import type {
 } from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { FileService } from '../files/file.service'
+import { MediaService } from '../media/media.service'
+import { MEDIA_FILE_SELECT, MEDIA_PREVIEW_SELECT, type MediaInfo } from '../media/media.types'
+import { signingWindow } from '../../common/minio/stable-sign'
 import { AuditService } from '../../common/audit/audit.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import { Paginated } from '../../common/http/paginated'
@@ -100,7 +103,9 @@ const POST_SELECT_BASE = {
   publishedAt: true,
   createdAt: true,
   author: AUTHOR_SELECT,
-  media: { select: { id: true, mime: true } },
+  // Размеры и LQIP — чтобы лента держала место под снимок и показывала силуэт до байтов;
+  // ссылки и варианты выдаёт GET /posts/:id/media/:fileId/url.
+  media: { select: { id: true, mime: true, width: true, height: true, ...MEDIA_PREVIEW_SELECT } },
   reactions: { select: { emoji: true, userId: true } },
   original: {
     select: { id: true, title: true, content: true, author: AUTHOR_SELECT },
@@ -164,6 +169,7 @@ export class PostsService {
     private readonly audit: AuditService,
     private readonly config: ConfigService<EnvVars, true>,
     private readonly files: FileService,
+    private readonly media: MediaService,
   ) {}
 
   // ── Видимость (задача 8.2) ──────────────────────────────────────────────────
@@ -375,14 +381,27 @@ export class PostsService {
    * Presigned-GET к медиа поста: доступ по видимости поста зрителю (не по владению файлом) —
    * иначе чужие посты нельзя было бы показать. Файл обязан принадлежать именно этому посту.
    */
-  async getMediaUrl(viewer: JwtPayload, postId: string, fileId: string): Promise<string> {
+  /**
+   * Ссылка на медиа поста и его варианты (srcset, постер, HLS) — по видимости поста.
+   * `url` — оригинал, как и раньше; поля описания медиа (MediaInfo) лежат рядом.
+   */
+  async getMediaUrl(
+    viewer: JwtPayload,
+    postId: string,
+    fileId: string,
+  ): Promise<MediaInfo & { url: string; expiresAt: string }> {
     await this.findVisibleOrThrow(viewer, postId, { id: true })
     const file = await this.prisma.file.findFirst({
       where: { id: fileId, postId },
-      select: { id: true },
+      select: MEDIA_FILE_SELECT,
     })
     if (!file) throw new AppException('NOT_FOUND', 'Медиа не найдено')
-    return this.files.getPresignedUrl(fileId)
+    const now = Date.now()
+    const [url, media] = await Promise.all([
+      this.files.getPresignedUrl(fileId),
+      this.media.describeOne(file, now),
+    ])
+    return { ...media, url, expiresAt: signingWindow(now).expiresAt.toISOString() }
   }
 
   // ── Создание (задачи 8.2, 8.7) ─────────────────────────────────────────────

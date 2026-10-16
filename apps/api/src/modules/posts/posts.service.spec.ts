@@ -51,13 +51,15 @@ function setup() {
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const config = { get: jest.fn().mockReturnValue('posts-media') }
   const files = { getPresignedUrl: jest.fn().mockResolvedValue('https://minio/signed') }
+  const media = { describeOne: jest.fn().mockResolvedValue({ status: 'READY', sources: [] }) }
   const service = new PostsService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
     config as unknown as ConfigService<EnvVars, true>,
     files as unknown as import('../files/file.service').FileService,
+    media as never,
   )
-  return { service, prisma, audit, files }
+  return { service, prisma, audit, files, media }
 }
 
 function viewer(role: Role, scope: Partial<JwtPayload> = {}): JwtPayload {
@@ -455,8 +457,9 @@ describe('PostsService.getMediaUrl', () => {
     const { service, prisma, files } = setup()
     prisma.post.findFirst.mockResolvedValue({ id: 'p1' })
     prisma.file.findFirst.mockResolvedValue({ id: 'f1' })
-    const url = await service.getMediaUrl(viewer(Role.STUDENT, { sub: 's1' }), 'p1', 'f1')
-    expect(url).toBe('https://minio/signed')
+    const link = await service.getMediaUrl(viewer(Role.STUDENT, { sub: 's1' }), 'p1', 'f1')
+    expect(link.url).toBe('https://minio/signed')
+    expect(link.status).toBe('READY')
     expect(prisma.file.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: 'f1', postId: 'p1' } }),
     )

@@ -80,15 +80,14 @@ export class PostsController {
 
   @Get(':id/media/:fileId/url')
   @ApiOperation({ summary: 'Presigned URL к медиа поста (по видимости поста)' })
-  @ApiResponse({ status: 200, description: 'Временный URL' })
+  @ApiResponse({ status: 200, description: '{ url, expiresAt, …MediaInfo } — оригинал и варианты' })
   @ApiResponse({ status: 404, description: 'NOT_FOUND — пост не видим или медиа не найдено' })
-  async mediaUrl(
+  mediaUrl(
     @CurrentUser() user: CurrentUserData,
     @Param('id') id: string,
     @Param('fileId') fileId: string,
   ) {
-    const url = await this.posts.getMediaUrl(user, id, fileId)
-    return { url }
+    return this.posts.getMediaUrl(user, id, fileId)
   }
 
   @Patch(':id')
