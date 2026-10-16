@@ -60,6 +60,10 @@ RUN pnpm --filter api --prod deploy /app --legacy --config.minimumReleaseAge=0
 FROM node:24-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
+# ffmpeg/ffprobe — для воркера медиа (постеры и HLS видео, src/modules/media). Ставится из
+# apk, а не npm-обёрткой: бинарник собран под musl этого же образа и обновляется вместе с
+# базовым слоем. Тот же образ запускается и как API, и как воркер (`node dist/worker.js`).
+RUN apk add --no-cache ffmpeg
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /repo/apps/api/dist ./dist
 COPY --from=build /repo/prisma ./prisma
