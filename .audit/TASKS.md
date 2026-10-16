@@ -19,9 +19,9 @@
 
 - [done] AUD-A · группа A → .audit/findings/A.md
 - [done] AUD-B · группа B → .audit/findings/B.md
-- [in_progress] AUD-C · группа C → .audit/findings/C.md
+- [done] AUD-C · группа C → .audit/findings/C.md
 - [in_progress] AUD-D · группа D → .audit/findings/D.md
 - [in_progress] AUD-E · группа E → .audit/findings/E.md
-- [todo] AUD-F · группа F → .audit/findings/F.md
+- [in_progress] AUD-F · группа F → .audit/findings/F.md
 
 ## Фаза 3 — исправления (появится после отчёта)
