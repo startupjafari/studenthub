@@ -12670,6 +12670,26 @@
         ]
       }
     },
+    "/materials/subjects": {
+      "get": {
+        "operationId": "MaterialsController_subjects",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Число материалов по дисциплинам (тот же scope, что у списка)",
+        "tags": [
+          "Материалы"
+        ]
+      }
+    },
     "/materials/{id}/files/presign": {
       "post": {
         "operationId": "MaterialsController_presignFile",

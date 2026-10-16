@@ -71,6 +71,60 @@ describe('MaterialsService.list — scope', () => {
   })
 })
 
+describe('MaterialsService.list — фильтры и страницы', () => {
+  const teacher = user(Role.TEACHER, { sub: 't1', universityId: 'uni1' })
+
+  it('mine — только свои материалы, а не поток всего вуза', async () => {
+    const { service, prisma } = setup()
+    await service.list(teacher, { mine: true })
+    const and = prisma.material.findMany.mock.calls[0][0].where.AND
+    expect(and[0]).toEqual({ group: { is: { faculty: { is: { universityId: 'uni1' } } } } })
+    expect(and).toContainEqual({ teacherId: 't1' })
+  })
+
+  it('subject — материалы дисциплины выбираются на сервере', async () => {
+    const { service, prisma } = setup()
+    await service.list(user(Role.STUDENT, { groupId: 'g1' }), { subject: 'Математика' })
+    expect(prisma.material.findMany.mock.calls[0][0].where.AND).toContainEqual({
+      subject: 'Математика',
+    })
+  })
+
+  it('свежие сверху, следующая страница — по cursor, limit не выше потолка', async () => {
+    const { service, prisma } = setup()
+    await service.list(teacher, { cursor: 'm-9', limit: 50 })
+    expect(prisma.material.findMany.mock.calls[0][0]).toMatchObject({
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: 50,
+      cursor: { id: 'm-9' },
+      skip: 1,
+    })
+  })
+
+  it('без limit — потолок 200', async () => {
+    const { service, prisma } = setup()
+    await service.list(teacher, {})
+    expect(prisma.material.findMany.mock.calls[0][0].take).toBe(200)
+  })
+})
+
+describe('MaterialsService.subjects — счётчики по дисциплинам', () => {
+  it('считает по всей выборке scope, а не по странице списка', async () => {
+    const { service, prisma } = setup()
+    const groupBy = jest.fn().mockResolvedValue([
+      { subject: 'Математика', _count: { _all: 240 } },
+      { subject: null, _count: { _all: 3 } },
+    ])
+    ;(prisma.material as unknown as { groupBy: jest.Mock }).groupBy = groupBy
+    const res = await service.subjects(user(Role.STUDENT, { groupId: 'g1' }), {})
+    expect(res).toEqual([
+      { subject: 'Математика', count: 240 },
+      { subject: null, count: 3 },
+    ])
+    expect(groupBy.mock.calls[0][0].where.AND[0]).toEqual({ groupId: 'g1' })
+  })
+})
+
 describe('MaterialsService.create — scope группы', () => {
   it('преподаватель чужого вуза → WRONG_SCOPE', async () => {
     const { service, prisma } = setup()

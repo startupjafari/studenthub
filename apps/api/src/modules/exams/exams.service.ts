@@ -1,11 +1,12 @@
 import { Injectable } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
-import type {
-  CreateExamInput,
-  ExamListQueryInput,
-  SetExamResultsInput,
-  UpdateExamInput,
+import {
+  EXAM_LIST_LIMIT,
+  type CreateExamInput,
+  type ExamListQueryInput,
+  type SetExamResultsInput,
+  type UpdateExamInput,
 } from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AuditService } from '../../common/audit/audit.service'
@@ -20,6 +21,29 @@ const STUDENT_ROLES: Role[] = [Role.STUDENT, Role.STAROSTA]
 
 function isPlatform(role: Role): boolean {
   return role === Role.PLATFORM_ADMIN || role === Role.PLATFORM_MODERATOR
+}
+
+/**
+ * Слияние двух сторон от `now`, каждая отсортирована от ближайшего к `now`: берёт `limit`
+ * ближайших в обе стороны и возвращает их по возрастанию даты.
+ */
+function nearestToNow<T extends { date: Date }>(
+  upcoming: T[],
+  past: T[],
+  now: Date,
+  limit: number,
+): T[] {
+  let u = 0
+  let p = 0
+  while (u + p < limit && (u < upcoming.length || p < past.length)) {
+    const next = upcoming[u]
+    const prev = past[p]
+    const nextGap = next ? next.date.getTime() - now.getTime() : Infinity
+    const prevGap = prev ? now.getTime() - prev.date.getTime() : Infinity
+    if (nextGap <= prevGap) u++
+    else p++
+  }
+  return [...past.slice(0, p).reverse(), ...upcoming.slice(0, u)]
 }
 
 const RESULT_SELECT = {
@@ -53,25 +77,43 @@ export class ExamsService {
     private readonly audit: AuditService,
   ) {}
 
+  /**
+   * Экзамены по scope. В выдачу попадают `EXAM_LIST_LIMIT` экзаменов, БЛИЖАЙШИХ к текущему
+   * моменту (предстоящие и недавно прошедшие), порядок ответа — по возрастанию даты.
+   * Раньше брались первые по дате: у декана и админа, где за год набираются сотни экзаменов,
+   * в ответ попадали самые старые, а текущая сессия не попадала вовсе.
+   */
   async list(viewer: JwtPayload, query: ExamListQueryInput) {
     // AND, не spread: ?groupId= обязан СУЖАТЬ scope (у студента scope keys на groupId —
     // spread дал бы чтение экзаменов чужой группы). См. §14.
-    const where: Prisma.ExamWhereInput = {
-      AND: [
-        this.scopeWhere(viewer),
-        ...(query.groupId ? [{ groupId: query.groupId }] : []),
-        ...(query.courseId ? [{ courseId: query.courseId }] : []),
-        ...(query.mine ? [{ OR: [{ examinerId: viewer.sub }, { createdById: viewer.sub }] }] : []),
-      ],
-    }
+    const filters: Prisma.ExamWhereInput[] = [
+      this.scopeWhere(viewer),
+      ...(query.groupId ? [{ groupId: query.groupId }] : []),
+      ...(query.courseId ? [{ courseId: query.courseId }] : []),
+      ...(query.mine ? [{ OR: [{ examinerId: viewer.sub }, { createdById: viewer.sub }] }] : []),
+      ...(query.from ? [{ date: { gte: new Date(query.from) } }] : []),
+      ...(query.to ? [{ date: { lt: new Date(query.to) } }] : []),
+    ]
     const withMine = STUDENT_ROLES.includes(viewer.role)
-    const rows = await this.prisma.exam.findMany({
-      where,
-      select: withMine ? this.selectWithMine(viewer.sub) : EXAM_SELECT,
-      orderBy: { date: 'asc' },
-      take: 200,
-    })
-    return rows.map((r) => this.mapMine(r))
+    const select = withMine ? this.selectWithMine(viewer.sub) : EXAM_SELECT
+    const now = new Date()
+    // Две стороны от «сейчас», каждая — от ближайшего. Ближайшие N экзаменов всегда лежат
+    // среди первых N каждой стороны, поэтому слияние ниже точное.
+    const [upcoming, past] = await Promise.all([
+      this.prisma.exam.findMany({
+        where: { AND: [...filters, { date: { gte: now } }] },
+        select,
+        orderBy: [{ date: 'asc' }, { id: 'asc' }],
+        take: EXAM_LIST_LIMIT,
+      }),
+      this.prisma.exam.findMany({
+        where: { AND: [...filters, { date: { lt: now } }] },
+        select,
+        orderBy: [{ date: 'desc' }, { id: 'desc' }],
+        take: EXAM_LIST_LIMIT,
+      }),
+    ])
+    return nearestToNow(upcoming, past, now, EXAM_LIST_LIMIT).map((r) => this.mapMine(r))
   }
 
   async getById(viewer: JwtPayload, id: string) {

@@ -122,7 +122,12 @@ export function CourseView({ subject }: CourseViewProps) {
   const [tab, setTab] = useState<TabId>('overview')
 
   const schedule = useQuery({ queryKey: scheduleKeys.view({}), queryFn: () => fetchSchedule({}) })
-  const materials = useQuery({ queryKey: materialKeys.list(), queryFn: () => fetchMaterials() })
+  // Материалы дисциплины выбираются на сервере: раньше страница искала их среди последних
+  // 200 материалов группы, и к середине второго семестра материалы первого пропадали.
+  const materials = useQuery({
+    queryKey: materialKeys.list({ subject }),
+    queryFn: () => fetchMaterials({ subject }),
+  })
   const apiCourses = useQuery({
     queryKey: courseKeys.list(),
     queryFn: () => fetchCourses(),
@@ -132,14 +137,12 @@ export function CourseView({ subject }: CourseViewProps) {
   const summary = useMemo(() => {
     if (!schedule.data) return null
     const now = nowInTz(schedule.data.timezone ?? null)
-    const base = buildCourses(schedule.data.pairs, materials.data ?? [], now)
+    const counts = [{ subject, count: materials.data?.length ?? 0 }]
+    const base = buildCourses(schedule.data.pairs, counts, now)
     return mergeApiCourses(base, apiCourses.data ?? []).find((c) => c.subject === subject)
   }, [schedule.data, materials.data, apiCourses.data, subject])
 
-  const subjectMaterials = useMemo(
-    () => (materials.data ?? []).filter((m) => m.subject === subject),
-    [materials.data, subject],
-  )
+  const subjectMaterials = useMemo(() => materials.data ?? [], [materials.data])
 
   // Workspace дисциплины (docs/UNIFIED_UX.md PR-3): единая дисциплина = расписание +
   // задания + материалы + оценки + посещаемость + чат. Всё из существующих сущностей.

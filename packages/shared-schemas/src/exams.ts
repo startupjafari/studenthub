@@ -36,11 +36,19 @@ export const UpdateExamSchema = z
   .strict()
 export type UpdateExamInput = z.infer<typeof UpdateExamSchema>
 
+// Потолок списка экзаменов. Сервер отбирает экзамены, ближайшие к текущему моменту в обе
+// стороны (предстоящие и недавно прошедшие), и отдаёт их по возрастанию даты. Получив ровно
+// столько строк, клиент знает, что список обрезан, и предлагает сузить период.
+export const EXAM_LIST_LIMIT = 200
+
 export const ExamListQuerySchema = z
   .object({
     groupId: z.string().min(1).optional(),
     courseId: z.string().min(1).optional(),
     mine: z.coerce.boolean().optional(),
+    // Период по дате экзамена: `from` — включительно, `to` — не включая.
+    from: isoDateTime.optional(),
+    to: isoDateTime.optional(),
   })
   .strict()
 export type ExamListQueryInput = z.infer<typeof ExamListQuerySchema>

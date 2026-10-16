@@ -1,5 +1,5 @@
 import type { Pair, PairTeacher } from '../../../entities/schedule'
-import type { Material } from '../../../entities/material'
+import type { MaterialSubjectCount } from '../../../entities/material'
 import type { CourseItem } from '../../../entities/course'
 import { isoWeekParity, type NowInTz } from '../../../shared/lib'
 
@@ -57,7 +57,13 @@ function nextLessonFor(subjectPairs: Pair[], now: NowInTz): CourseNextLesson | n
   return null
 }
 
-export function buildCourses(pairs: Pair[], materials: Material[], now: NowInTz): CourseSummary[] {
+// `materialCounts` — счётчики с сервера (`GET /materials/subjects`): посчитанные по странице
+// списка материалов, они занижались, как только материалов становилось больше страницы.
+export function buildCourses(
+  pairs: Pair[],
+  materialCounts: MaterialSubjectCount[],
+  now: NowInTz,
+): CourseSummary[] {
   const bySubject = new Map<string, Pair[]>()
   for (const p of pairs) {
     const list = bySubject.get(p.subject) ?? []
@@ -66,9 +72,8 @@ export function buildCourses(pairs: Pair[], materials: Material[], now: NowInTz)
   }
 
   const materialCount = new Map<string, number>()
-  for (const m of materials) {
-    if (!m.subject) continue
-    materialCount.set(m.subject, (materialCount.get(m.subject) ?? 0) + 1)
+  for (const c of materialCounts) {
+    if (c.subject) materialCount.set(c.subject, c.count)
   }
 
   const courses: CourseSummary[] = []

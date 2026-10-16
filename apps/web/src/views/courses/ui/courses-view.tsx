@@ -16,7 +16,7 @@ import {
 } from '../../../shared/ui'
 import { nowInTz } from '../../../shared/lib'
 import { scheduleKeys, fetchSchedule } from '../../../entities/schedule'
-import { materialKeys, fetchMaterials } from '../../../entities/material'
+import { materialKeys, fetchMaterials, fetchMaterialSubjects } from '../../../entities/material'
 import { courseKeys, fetchCourses } from '../../../entities/course'
 import { buildCourses, mergeApiCourses, type CourseNextLesson } from '../lib/build-courses'
 import { MaterialRow } from './material-row'
@@ -27,7 +27,13 @@ export function CoursesView() {
   const locale = useLocale()
 
   const schedule = useQuery({ queryKey: scheduleKeys.view({}), queryFn: () => fetchSchedule({}) })
+  // Свежие материалы — только для «Прочих» ниже; счётчики на карточках считает сервер по всей
+  // выборке, иначе они занижались, как только материалов становилось больше одной страницы.
   const materials = useQuery({ queryKey: materialKeys.list(), queryFn: () => fetchMaterials() })
+  const materialCounts = useQuery({
+    queryKey: materialKeys.subjects(),
+    queryFn: () => fetchMaterialSubjects(),
+  })
   // Backend-домен «Дисциплины»: до применения миграции эндпоинт может быть недоступен —
   // не ретраим и мягко откатываемся на агрегацию из расписания/материалов.
   const apiCourses = useQuery({
@@ -39,9 +45,9 @@ export function CoursesView() {
   const courses = useMemo(() => {
     if (!schedule.data) return []
     const now = nowInTz(schedule.data.timezone ?? null)
-    const base = buildCourses(schedule.data.pairs, materials.data ?? [], now)
+    const base = buildCourses(schedule.data.pairs, materialCounts.data ?? [], now)
     return mergeApiCourses(base, apiCourses.data ?? [])
-  }, [schedule.data, materials.data, apiCourses.data])
+  }, [schedule.data, materialCounts.data, apiCourses.data])
 
   // Материалы, которые не попали ни в одну дисциплину: без предмета или с предметом, которого
   // нет в расписании студента. Во вкладке дисциплины их не найти — показываем здесь, иначе

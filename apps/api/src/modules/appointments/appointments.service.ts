@@ -1,10 +1,13 @@
 import { Injectable } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
-import type {
-  AppointmentListQueryInput,
-  ConfirmAppointmentInput,
-  CreateAppointmentInput,
+import {
+  ACTIVE_APPOINTMENT_STATUSES,
+  APPOINTMENT_QUEUE_LIMIT,
+  CLOSED_APPOINTMENT_STATUSES,
+  type AppointmentListQueryInput,
+  type ConfirmAppointmentInput,
+  type CreateAppointmentInput,
 } from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AuditService } from '../../common/audit/audit.service'
@@ -34,6 +37,8 @@ function assertTransition(from: string, to: string): void {
 }
 
 const STUDENT_ROLES: Role[] = [Role.STUDENT, Role.STAROSTA]
+
+const ACTIVE_STATUSES: ReadonlySet<string> = new Set(ACTIVE_APPOINTMENT_STATUSES)
 
 function isPlatform(role: Role): boolean {
   return role === Role.PLATFORM_ADMIN || role === Role.PLATFORM_MODERATOR
@@ -110,16 +115,33 @@ export class AppointmentsService {
     return updated
   }
 
+  /**
+   * Очередь деканата. По умолчанию — только открытые записи: раньше выборка шла «по статусу»
+   * строкой, где CANCELLED и COMPLETED алфавитно раньше REQUESTED, и накопленный архив
+   * вытеснял из потолка новые записи. Дальше потолка — по `cursor`.
+   */
   async listQueue(viewer: JwtPayload, query: AppointmentListQueryInput) {
+    const statuses: readonly string[] | null = query.status
+      ? [query.status]
+      : query.view === 'all'
+        ? null
+        : query.view === 'closed'
+          ? CLOSED_APPOINTMENT_STATUSES
+          : ACTIVE_APPOINTMENT_STATUSES
+    // Открытые разбирают по желаемому времени — ближайшие и просроченные сверху; архив и
+    // общий список читают с конца — свежие сверху.
+    const openOnly = statuses !== null && statuses.every((s) => ACTIVE_STATUSES.has(s))
+    const dir = openOnly ? 'asc' : 'desc'
     const where: Prisma.DeaneryAppointmentWhereInput = {
       ...this.scopeWhere(viewer),
-      ...(query.status ? { status: query.status } : {}),
+      ...(statuses ? { status: { in: [...statuses] } } : {}),
     }
     return this.prisma.deaneryAppointment.findMany({
       where,
       select: SELECT,
-      orderBy: [{ status: 'asc' }, { requestedAt: 'asc' }],
-      take: 300,
+      orderBy: [{ requestedAt: dir }, { id: dir }],
+      take: query.limit ?? APPOINTMENT_QUEUE_LIMIT,
+      ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
     })
   }
 

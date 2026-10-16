@@ -140,3 +140,66 @@ describe('ExamsService.setResults — ведомость без противор
     expect(prisma.examResult.upsert).toHaveBeenCalled()
   })
 })
+
+describe('ExamsService.list — ближайшие экзамены, а не самые старые', () => {
+  const DAY = 24 * 60 * 60 * 1000
+  const dean: JwtPayload = {
+    sub: 'dean-1',
+    role: Role.DEAN,
+    universityId: 'uni-1',
+    facultyId: 'fac-1',
+    groupId: null,
+  }
+  const exam = (id: string, offsetDays: number) => ({
+    id,
+    date: new Date(Date.now() + offsetDays * DAY),
+  })
+
+  // Сторона «после сейчас» отсортирована по возрастанию даты, «до сейчас» — по убыванию;
+  // мок отвечает на каждый запрос своей стороной, обрезанной по take.
+  function setupList(upcoming: { id: string; date: Date }[], past: { id: string; date: Date }[]) {
+    const findMany = jest.fn(async (args: { orderBy: { date: string }[]; take: number }) =>
+      (args.orderBy[0]?.date === 'asc' ? upcoming : past).slice(0, args.take),
+    )
+    const service = new ExamsService(
+      { exam: { findMany } } as unknown as PrismaService,
+      { record: jest.fn() } as unknown as AuditService,
+    )
+    return { service, findMany }
+  }
+
+  it('после сотен прошедших экзаменов текущая сессия всё равно в выдаче', async () => {
+    // Год работы факультета: 300 прошедших экзаменов и 150 предстоящих.
+    const past = Array.from({ length: 300 }, (_, i) => exam(`p${i}`, -(i + 1)))
+    const upcoming = Array.from({ length: 150 }, (_, i) => exam(`u${i}`, i + 1))
+    const { service } = setupList(upcoming, past)
+
+    const rows = (await service.list(dean, {})) as unknown as { id: string; date: Date }[]
+
+    expect(rows).toHaveLength(200)
+    // Ближайшие в обе стороны на месте, самые старые — нет.
+    expect(rows.map((r) => r.id)).toEqual(expect.arrayContaining(['u0', 'p0']))
+    expect(rows.map((r) => r.id)).not.toContain('p299')
+    // Ответ — по возрастанию даты, как и раньше.
+    const times = rows.map((r) => r.date.getTime())
+    expect(times).toEqual([...times].sort((a, b) => a - b))
+  })
+
+  it('меньше потолка — отдаёт всё по возрастанию даты', async () => {
+    const { service } = setupList([exam('u0', 1), exam('u1', 3)], [exam('p0', -2)])
+    const rows = (await service.list(dean, {})) as unknown as { id: string }[]
+    expect(rows.map((r) => r.id)).toEqual(['p0', 'u0', 'u1'])
+  })
+
+  it('период from/to сужает выборку, scope остаётся первым условием', async () => {
+    const { service, findMany } = setupList([], [])
+    await service.list(dean, {
+      from: '2026-01-01T00:00:00.000Z',
+      to: '2026-02-01T00:00:00.000Z',
+    })
+    const where = (findMany.mock.calls[0]?.[0] as unknown as { where: { AND: unknown[] } }).where
+    expect(where.AND[0]).toEqual({ group: { is: { facultyId: 'fac-1' } } })
+    expect(where.AND).toContainEqual({ date: { gte: new Date('2026-01-01T00:00:00.000Z') } })
+    expect(where.AND).toContainEqual({ date: { lt: new Date('2026-02-01T00:00:00.000Z') } })
+  })
+})

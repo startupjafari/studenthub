@@ -157,15 +157,15 @@
   - Суть: Баллы не сверяются с максимумом: журнал и задания принимают «150 из 10», средний процент студента и аналитика декана уезжают за 100 %
   - Файлы: apps/api/src/modules/assignments/assignments.service.ts, apps/api/src/modules/exams/exams.service.ts, apps/api/src/modules/gradebook/gradebook.service.ts, apps/web/src/views/assignments/ui/grade-submission-modal.tsx, apps/web/src/views/exams/ui/exam-results-roster.tsx, apps/web/src/views/gradebook/ui/gradebook-table.tsx
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F08; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [in_progress] FIX-C-F09 · P1 · проблемы: C-F09 · после: FIX-C-F08 · стоп: контракт
+- [done] FIX-C-F09 · P1 · проблемы: C-F09 · после: FIX-C-F08 · стоп: контракт
   - Суть: Список экзаменов декана/админа: `take: 200` по возрастанию даты — после пары сессий ближайшие экзамены пропадают
   - Файлы: apps/api/src/modules/exams/exams.service.ts, apps/web/src/entities/exam/api/exam-api.ts, apps/web/src/views/exams/ui/exam-management-view.tsx, apps/web/src/views/exams/ui/student-exams-view.tsx, packages/shared-schemas/src/exams.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F09; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [todo] FIX-C-F12 · P1 · проблемы: C-F12 · после: FIX-C-F11
+- [in_progress] FIX-C-F12 · P1 · проблемы: C-F12 · после: FIX-C-F11
   - Суть: Замена преподавателя не доходит до заменяющего: пары нет в его расписании, отметить посещаемость он не может
   - Файлы: apps/api/src/modules/attendance/attendance.service.ts, apps/api/src/modules/me/me.service.ts, apps/api/src/modules/schedules/schedules.service.ts, apps/web/src/views/attendance/ui/teacher-attendance-view.tsx, apps/web/src/widgets/today/ui/teacher-today.tsx
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F12; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [todo] FIX-C-F13 · P1 · проблемы: C-F13 · после: FIX-C-F11, FIX-C-F12
+- [in_progress] FIX-C-F13 · P1 · проблемы: C-F13 · после: FIX-C-F11, FIX-C-F12
   - Суть: «Новая версия расписания» сразу становится активной и гасит текущую — группа видит пустую сетку
   - Файлы: apps/api/src/modules/schedules/schedules.service.spec.ts, apps/api/src/modules/schedules/schedules.service.ts, apps/web/src/features/manage-schedule/ui/create-version-modal.tsx
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F13; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
@@ -177,11 +177,11 @@
   - Суть: Со второго семестра студент не видит новых заданий: список — 100 самых ранних по сроку за всё время
   - Файлы: apps/api/src/modules/assignments/assignments.service.ts, apps/api/src/modules/me/me.service.ts, apps/web/src/entities/assignment/api/assignment-api.ts, apps/web/src/views/academic/ui/academic-view.tsx, apps/web/src/views/assignments/ui/student-assignments-view.tsx, apps/web/src/views/calendar/ui/calendar-view.tsx, apps/web/src/views/tasks/ui/tasks-view.tsx, packages/shared-schemas/src/assignments.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F17; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [in_progress] FIX-C-F18 · P1 · проблемы: C-F18 · после: FIX-C-F14 · стоп: контракт
+- [done] FIX-C-F18 · P1 · проблемы: C-F18 · после: FIX-C-F14 · стоп: контракт
   - Суть: Материалы: преподаватель видит 200 последних материалов всего вуза, а не свои; у студента старые материалы исчезают
   - Файлы: apps/api/src/modules/materials/materials.service.ts, apps/web/src/entities/material/api/material-api.ts, apps/web/src/views/courses/ui/course-view.tsx, apps/web/src/views/courses/ui/courses-view.tsx, apps/web/src/views/materials/ui/materials-view.tsx, packages/shared-schemas/src/materials.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F18; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [in_progress] FIX-C-F19 · P1 · проблемы: C-F19 · стоп: контракт
+- [done] FIX-C-F19 · P1 · проблемы: C-F19 · стоп: контракт
   - Суть: Очередь записи в деканат: закрытые записи вытесняют новые после 300 строк
   - Файлы: apps/api/src/modules/appointments/appointments.service.spec.ts, apps/api/src/modules/appointments/appointments.service.ts, apps/web/src/entities/appointment/api/appointment-api.ts, apps/web/src/views/appointments/ui/dean-appointments-view.tsx, packages/shared-schemas/src/appointments.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F19; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
@@ -297,15 +297,15 @@
   - Суть: `DELETE /files/:id` снимает вложение с любой сущности: сообщения, документа на проверке, материала, сториса
   - Файлы: apps/api/src/modules/files/file.service.spec.ts, apps/api/src/modules/files/file.service.ts, apps/api/src/modules/files/files.controller.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для F-F06; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [todo] FIX-F-F07 · P1 · проблемы: F-F07 · после: FIX-F-F03, FIX-F-F04, FIX-F-F05 · стоп: миграция
+- [in_progress] FIX-F-F07 · P1 · проблемы: F-F07 · после: FIX-F-F03, FIX-F-F04, FIX-F-F05 · стоп: миграция
   - Суть: Каждое сообщение чата — строка Notification для каждого участника, которая не гасится прочтением чата и никогда не удаляется
   - Файлы: apps/api/src/modules/chats/chats.service.ts, apps/api/src/modules/cleanup/cleanup.service.ts, apps/api/src/modules/notifications/notifications.processor.ts, apps/api/src/modules/notifications/notifications.service.ts, apps/web/src/widgets/notifications-bell/ui/notifications-bell.tsx
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для F-F07; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [todo] FIX-F-F08 · P1 · проблемы: F-F08 · после: FIX-F-F04, FIX-F-F05, FIX-F-F07
+- [in_progress] FIX-F-F08 · P1 · проблемы: F-F08 · после: FIX-F-F04, FIX-F-F05, FIX-F-F07
   - Суть: Письмо на каждое сообщение чата каждому офлайн-участнику; транзакционные письма стоят в той же однопоточной очереди
   - Файлы: apps/api/src/common/queue/queue.constants.ts, apps/api/src/modules/chats/chats.service.ts, apps/api/src/modules/cleanup/cleanup.service.ts, apps/api/src/modules/email/email.processor.ts, apps/api/src/modules/email/mailer.service.ts, apps/api/src/modules/notifications/notifications.processor.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для F-F08; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [todo] FIX-F-F10 · P1 · проблемы: F-F10 · после: FIX-F-F09, FIX-F-F07, FIX-F-F08
+- [in_progress] FIX-F-F10 · P1 · проблемы: F-F10 · после: FIX-F-F09, FIX-F-F07, FIX-F-F08
   - Суть: Зависший push-провайдер останавливает всю очередь уведомлений
   - Файлы: apps/api/src/common/queue/queue.constants.ts, apps/api/src/modules/notifications/notifications.processor.ts, apps/api/src/modules/push/apns.service.ts, apps/api/src/modules/push/fcm.service.ts, apps/api/src/modules/push/push.service.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для F-F10; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.

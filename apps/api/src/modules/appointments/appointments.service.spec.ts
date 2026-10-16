@@ -77,3 +77,46 @@ describe('AppointmentsService — переходы статусов', () => {
     expect(payload.dedupeKey).toContain('2026-10-02 09:00')
   })
 })
+
+describe('AppointmentsService.listQueue — архив не вытесняет новые записи', () => {
+  function setupQueue() {
+    const findMany = jest.fn().mockResolvedValue([])
+    const service = new AppointmentsService(
+      { deaneryAppointment: { findMany } } as unknown as PrismaService,
+      { record: jest.fn() } as unknown as AuditService,
+      { enqueue: jest.fn() } as unknown as QueueService,
+    )
+    return { service, findMany }
+  }
+
+  it('по умолчанию — только открытые записи, ближайшие сверху', async () => {
+    const { service, findMany } = setupQueue()
+    await service.listQueue(dean, {})
+    const args = findMany.mock.calls[0][0]
+    expect(args.where).toEqual({
+      facultyId: 'fac-1',
+      status: { in: ['REQUESTED', 'CONFIRMED', 'RESCHEDULED'] },
+    })
+    // Без сортировки по строке статуса: она ставила CANCELLED/COMPLETED в начало.
+    expect(args.orderBy).toEqual([{ requestedAt: 'asc' }, { id: 'asc' }])
+    expect(args.take).toBe(300)
+  })
+
+  it('архив — закрытые записи, свежие сверху, следующая страница по cursor', async () => {
+    const { service, findMany } = setupQueue()
+    await service.listQueue(dean, { view: 'closed', cursor: 'ap-9', limit: 50 })
+    const args = findMany.mock.calls[0][0]
+    expect(args.where.status).toEqual({ in: ['COMPLETED', 'CANCELLED'] })
+    expect(args.orderBy).toEqual([{ requestedAt: 'desc' }, { id: 'desc' }])
+    expect(args).toMatchObject({ take: 50, cursor: { id: 'ap-9' }, skip: 1 })
+  })
+
+  it('явный статус важнее среза, scope факультета сохраняется', async () => {
+    const { service, findMany } = setupQueue()
+    await service.listQueue(dean, { status: 'CANCELLED', view: 'active' })
+    expect(findMany.mock.calls[0][0].where).toEqual({
+      facultyId: 'fac-1',
+      status: { in: ['CANCELLED'] },
+    })
+  })
+})

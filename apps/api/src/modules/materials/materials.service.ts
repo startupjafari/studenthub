@@ -2,7 +2,12 @@ import { Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
-import type { CreateMaterialInput, MaterialListQueryInput } from '@studenthub/shared-schemas'
+import {
+  MATERIAL_LIST_LIMIT,
+  type CreateMaterialInput,
+  type MaterialListQueryInput,
+  type MaterialSubjectsQueryInput,
+} from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AuditService } from '../../common/audit/audit.service'
 import { AppException } from '../../common/exceptions/app.exception'
@@ -38,6 +43,9 @@ const MATERIAL_SELECT = {
 } satisfies Prisma.MaterialSelect
 
 type MaterialRow = Prisma.MaterialGetPayload<{ select: typeof MATERIAL_SELECT }>
+
+// Потолок счётчиков по дисциплинам: у группы их десятки, у вуза — сотни.
+const MATERIAL_SUBJECTS_LIMIT = 500
 
 function isPlatform(role: Role): boolean {
   return role === Role.PLATFORM_ADMIN || role === Role.PLATFORM_MODERATOR
@@ -83,20 +91,35 @@ export class MaterialsService {
     return material
   }
 
-  /** Список материалов, видимых смотрящему: студент/староста — своя группа, персонал — по scope. */
+  /**
+   * Список материалов, видимых смотрящему: студент/староста — своя группа, персонал — по scope.
+   * Свежие сверху, страница — до `MATERIAL_LIST_LIMIT`, дальше — по `cursor`. Фильтры `mine`
+   * и `subject` сужают выборку на сервере: без них преподаватель получал общий поток вуза,
+   * а страница дисциплины искала свои материалы в последних 200 материалах группы.
+   */
   async list(viewer: JwtPayload, query: MaterialListQueryInput): Promise<MaterialRow[]> {
-    // scope и ?groupId= — через AND: клиентский groupId обязан СУЖАТЬ scope, а не
-    // перезаписывать его (spread по общему ключу groupId открыл бы студенту метаданные
-    // материалов любой чужой группы). См. §14.
-    const where: Prisma.MaterialWhereInput = {
-      AND: [this.scopeWhere(viewer), ...(query.groupId ? [{ groupId: query.groupId }] : [])],
-    }
     return this.prisma.material.findMany({
-      where,
+      where: this.listWhere(viewer, query),
       select: MATERIAL_SELECT,
-      orderBy: { createdAt: 'desc' },
-      take: 200,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: query.limit ?? MATERIAL_LIST_LIMIT,
+      ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
     })
+  }
+
+  /** Сколько материалов у каждой дисциплины — по всей выборке scope, а не по странице списка. */
+  async subjects(
+    viewer: JwtPayload,
+    query: MaterialSubjectsQueryInput,
+  ): Promise<{ subject: string | null; count: number }[]> {
+    const rows = await this.prisma.material.groupBy({
+      by: ['subject'],
+      where: this.listWhere(viewer, query),
+      _count: { _all: true },
+      orderBy: { subject: 'asc' },
+      take: MATERIAL_SUBJECTS_LIMIT,
+    })
+    return rows.map((r) => ({ subject: r.subject, count: r._count._all }))
   }
 
   /** Прикрепить файл к материалу (автор или админ). Файл → приватный бакет materials. */
@@ -199,6 +222,24 @@ export class MaterialsService {
   }
 
   // ── scope ────────────────────────────────────────────────────────────────
+
+  private listWhere(
+    viewer: JwtPayload,
+    query: MaterialListQueryInput | MaterialSubjectsQueryInput,
+  ): Prisma.MaterialWhereInput {
+    // scope и фильтры — через AND: клиентский groupId обязан СУЖАТЬ scope, а не
+    // перезаписывать его (spread по общему ключу groupId открыл бы студенту метаданные
+    // материалов любой чужой группы). См. §14.
+    const subject = 'subject' in query ? query.subject : undefined
+    return {
+      AND: [
+        this.scopeWhere(viewer),
+        ...(query.groupId ? [{ groupId: query.groupId }] : []),
+        ...(query.mine ? [{ teacherId: viewer.sub }] : []),
+        ...(subject ? [{ subject }] : []),
+      ],
+    }
+  }
 
   private scopeWhere(viewer: JwtPayload): Prisma.MaterialWhereInput {
     if (isPlatform(viewer.role)) return {}
