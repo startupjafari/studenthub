@@ -6,40 +6,23 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { CreateCourseSchema, type CreateCourseInput } from '@studenthub/shared-schemas'
-import {
-  Button,
-  FieldError,
-  Input,
-  Label,
-  Modal,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '../../../shared/ui'
+import { Button, FieldError, Input, Label, Modal } from '../../../shared/ui'
 import { toApiError } from '../../../shared/lib'
-import {
-  courseKeys,
-  createCourseRequest,
-  type SubjectItem,
-  type TermItem,
-} from '../../../entities/course'
-import type { Group } from '../../../entities/group'
+import { courseKeys, createCourseRequest } from '../../../entities/course'
+import { GroupSelect } from './group-select'
+import { SubjectSelect } from './subject-select'
 import { TeacherSelect } from './teacher-select'
+import { TermSelect } from './term-select'
 
 interface Props {
-  subjects: SubjectItem[]
-  groups: Group[]
-  terms: TermItem[]
   onClose: () => void
 }
 
-const NO_TERM = '__none__'
-
 // Модалка назначения дисциплины группе (декан/админ вуза). Преподавателя можно выбрать сразу:
 // без него дисциплина не появляется у ведущего в журнале, заданиях и экзаменах.
-export function CreateCourseModal({ subjects, groups, terms, onClose }: Props) {
+// Дисциплина, группа и семестр грузятся пикерами сами — из всего справочника вуза, а не
+// из текущей страницы вкладок.
+export function CreateCourseModal({ onClose }: Props) {
   const t = useTranslations('CourseAdmin')
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
@@ -65,19 +48,11 @@ export function CreateCourseModal({ subjects, groups, terms, onClose }: Props) {
             control={form.control}
             name="subjectId"
             render={({ field }) => (
-              <Select value={field.value ?? ''} onValueChange={field.onChange}>
-                <SelectTrigger id="course-subject" aria-invalid={!!form.formState.errors.subjectId}>
-                  <SelectValue placeholder={t('selectSubject')} />
-                </SelectTrigger>
-                <SelectContent>
-                  {subjects.map((s) => (
-                    <SelectItem key={s.id} value={s.id}>
-                      {s.name}
-                      {s.code ? ` (${s.code})` : ''}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <SubjectSelect
+                id="course-subject"
+                value={field.value ?? null}
+                onChange={(next) => field.onChange(next ?? undefined)}
+              />
             )}
           />
           <FieldError>{form.formState.errors.subjectId && t('required')}</FieldError>
@@ -89,18 +64,11 @@ export function CreateCourseModal({ subjects, groups, terms, onClose }: Props) {
             control={form.control}
             name="groupId"
             render={({ field }) => (
-              <Select value={field.value ?? ''} onValueChange={field.onChange}>
-                <SelectTrigger id="course-group" aria-invalid={!!form.formState.errors.groupId}>
-                  <SelectValue placeholder={t('selectGroup')} />
-                </SelectTrigger>
-                <SelectContent>
-                  {groups.map((g) => (
-                    <SelectItem key={g.id} value={g.id}>
-                      {g.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <GroupSelect
+                id="course-group"
+                value={field.value ?? null}
+                onChange={(next) => field.onChange(next ?? undefined)}
+              />
             )}
           />
           <FieldError>{form.formState.errors.groupId && t('required')}</FieldError>
@@ -128,22 +96,11 @@ export function CreateCourseModal({ subjects, groups, terms, onClose }: Props) {
               control={form.control}
               name="termId"
               render={({ field }) => (
-                <Select
-                  value={field.value ?? NO_TERM}
-                  onValueChange={(v) => field.onChange(v === NO_TERM ? undefined : v)}
-                >
-                  <SelectTrigger id="course-term">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={NO_TERM}>{t('noTerm')}</SelectItem>
-                    {terms.map((tm) => (
-                      <SelectItem key={tm.id} value={tm.id}>
-                        {tm.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <TermSelect
+                  id="course-term"
+                  value={field.value ?? null}
+                  onChange={(next) => field.onChange(next ?? undefined)}
+                />
               )}
             />
           </div>

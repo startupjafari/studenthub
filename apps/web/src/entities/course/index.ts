@@ -5,8 +5,6 @@ export {
   fetchTermsPaged,
   fetchSubjectsPaged,
   fetchCourse,
-  fetchSubjects,
-  fetchTerms,
   createSubjectRequest,
   deleteSubjectRequest,
   createTermRequest,

@@ -6,39 +6,21 @@ import { useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { UpdateCourseSchema, type UpdateCourseInput } from '@studenthub/shared-schemas'
-import {
-  Button,
-  FieldError,
-  Input,
-  Label,
-  Modal,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '../../../shared/ui'
+import { Button, FieldError, Input, Label, Modal } from '../../../shared/ui'
 import { toApiError } from '../../../shared/lib'
-import {
-  courseKeys,
-  updateCourseRequest,
-  type CourseItem,
-  type CourseTermRef,
-} from '../../../entities/course'
+import { courseKeys, updateCourseRequest, type CourseItem } from '../../../entities/course'
 import { buildCoursePatch, courseEditDefaults } from '../lib/course-patch'
 import { TeacherSelect } from './teacher-select'
+import { TermSelect } from './term-select'
 
 interface Props {
   course: CourseItem
-  terms: CourseTermRef[]
   onClose: () => void
 }
 
-const NO_TERM = '__none__'
-
 // Правка назначенной дисциплины (декан/админ вуза): преподаватель, семестр, кредиты.
 // Предмет и группу сервер не меняет — они показаны строкой над формой.
-export function EditCourseModal({ course, terms, onClose }: Props) {
+export function EditCourseModal({ course, onClose }: Props) {
   const t = useTranslations('CourseAdmin')
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
@@ -46,11 +28,6 @@ export function EditCourseModal({ course, terms, onClose }: Props) {
     resolver: zodResolver(UpdateCourseSchema),
     defaultValues: courseEditDefaults(course),
   })
-  // Семестр курса может не попасть в переданный список (он постраничный) — без него
-  // селект показал бы пустое значение, будто семестра нет.
-  const termOptions =
-    course.term && !terms.some((tm) => tm.id === course.term?.id) ? [course.term, ...terms] : terms
-
   async function onSubmit(values: UpdateCourseInput) {
     const patch = buildCoursePatch(course, values)
     if (Object.keys(patch).length === 0) {
@@ -97,22 +74,12 @@ export function EditCourseModal({ course, terms, onClose }: Props) {
               control={form.control}
               name="termId"
               render={({ field }) => (
-                <Select
-                  value={field.value ?? NO_TERM}
-                  onValueChange={(v) => field.onChange(v === NO_TERM ? null : v)}
-                >
-                  <SelectTrigger id="edit-course-term">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={NO_TERM}>{t('noTerm')}</SelectItem>
-                    {termOptions.map((tm) => (
-                      <SelectItem key={tm.id} value={tm.id}>
-                        {tm.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <TermSelect
+                  id="edit-course-term"
+                  value={field.value ?? null}
+                  onChange={field.onChange}
+                  initial={course.term}
+                />
               )}
             />
           </div>

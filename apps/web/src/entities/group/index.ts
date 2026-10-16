@@ -1,6 +1,7 @@
 export {
   groupKeys,
   fetchGroups,
+  fetchAllGroups,
   fetchGroupMembers,
   createGroupRequest,
   updateGroupRequest,

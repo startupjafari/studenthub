@@ -345,6 +345,17 @@ export class CoursesService {
     return updated
   }
 
+  /**
+   * Удаление дисциплины — только без академических записей.
+   *
+   * Задания, колонки журнала и экзамены висят на дисциплине каскадом: удаление стёрло бы
+   * оценки, сданные работы и результаты экзаменов без следа. Такую дисциплину не удаляем.
+   *
+   * Подсчёт и удаление — одна транзакция под блокировкой строки курса (FOR UPDATE).
+   * Вставка задания, колонки журнала или экзамена проверяет внешний ключ и берёт на строку
+   * курса FOR KEY SHARE, несовместимую с FOR UPDATE: заведённое параллельно либо попадает
+   * в подсчёт, либо ждёт удаления и падает на внешнем ключе — каскадом не исчезает.
+   */
   async deleteCourse(actor: JwtPayload, id: string, ctx: RequestContext): Promise<void> {
     const course = await this.prisma.course.findUnique({
       where: { id },
@@ -352,23 +363,45 @@ export class CoursesService {
     })
     if (!course) throw new AppException('NOT_FOUND', 'Дисциплина не найдена')
     await this.assertGroupManage(actor, course.groupId)
-    // Задания, колонки журнала и экзамены висят на дисциплине каскадом: удаление стёрло бы
-    // оценки, сданные работы и результаты экзаменов без следа. Такую дисциплину не удаляем.
-    const [grades, submissions, results] = await Promise.all([
-      this.prisma.grade.count({ where: { column: { courseId: id }, score: { not: null } } }),
-      this.prisma.submission.count({
-        where: { assignment: { courseId: id }, status: { not: 'DRAFT' } },
-      }),
-      this.prisma.examResult.count({ where: { exam: { courseId: id }, score: { not: null } } }),
-    ])
-    if (grades + submissions + results > 0) {
-      throw new AppException(
-        'CONFLICT',
-        'У дисциплины есть оценки, сданные работы или результаты экзаменов',
-      )
-    }
-    await this.prisma.course.delete({ where: { id } })
+    await this.prisma.$transaction(async (tx) => {
+      const locked = await tx.$queryRaw<{ id: string }[]>`
+        SELECT id FROM "courses" WHERE id = ${id} FOR UPDATE`
+      if (locked.length === 0) throw new AppException('NOT_FOUND', 'Дисциплина не найдена')
+      if ((await this.academicRecordCount(tx, id)) > 0) {
+        throw new AppException(
+          'CONFLICT',
+          'У дисциплины есть оценки, сданные работы или результаты экзаменов',
+        )
+      }
+      await tx.course.delete({ where: { id } })
+    })
     await this.record(actor, 'course_deleted', 'Course', id, ctx)
+  }
+
+  /**
+   * Сколько записей дисциплины пропало бы при удалении каскадом.
+   *
+   * Результат экзамена — запись и без балла: зачёт («сдал» / «не сдал»), неявка и
+   * недопуск ставятся статусом и флагом `admitted`, балл у них пустой. Раньше считались
+   * только строки с баллом, и курс с заполненной ведомостью зачёта удалялся вместе с ней.
+   * Пустой не считается лишь строка «назначен, допущен, без балла» — её ещё никто
+   * не заполнял. Оценка журнала без балла — не запись: `null` в ней означает «снята».
+   */
+  private async academicRecordCount(
+    tx: Prisma.TransactionClient,
+    courseId: string,
+  ): Promise<number> {
+    const grades = await tx.grade.count({ where: { column: { courseId }, score: { not: null } } })
+    const submissions = await tx.submission.count({
+      where: { assignment: { courseId }, status: { not: 'DRAFT' } },
+    })
+    const results = await tx.examResult.count({
+      where: {
+        exam: { courseId },
+        OR: [{ status: { not: 'SCHEDULED' } }, { score: { not: null } }, { admitted: false }],
+      },
+    })
+    return grades + submissions + results
   }
 
   // ── scope helpers ─────────────────────────────────────────────────────────

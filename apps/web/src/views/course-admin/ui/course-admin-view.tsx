@@ -32,7 +32,6 @@ import type { CourseSortValue, SubjectSortValue, TermSortValue } from '@studenth
 import { toApiError } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 import { useAppSelector } from '../../../shared/store'
-import { groupKeys, fetchGroups } from '../../../entities/group'
 import {
   courseKeys,
   fetchCoursesPaged,
@@ -122,7 +121,6 @@ export function CourseAdminView() {
     retry: false,
     placeholderData: (prev) => prev,
   })
-  const groups = useQuery({ queryKey: groupKeys.list(), queryFn: () => fetchGroups() })
 
   const del = useMutation({
     mutationFn: async (task: { kind: Exclude<ModalKind, null>; id: string }) => {
@@ -433,17 +431,8 @@ export function CourseAdminView() {
       {modal === 'term' && universityId && (
         <CreateTermModal universityId={universityId} onClose={() => setModal(null)} />
       )}
-      {modal === 'course' && (
-        <CreateCourseModal
-          subjects={subjectRows}
-          groups={groups.data ?? []}
-          terms={termRows}
-          onClose={() => setModal(null)}
-        />
-      )}
-      {editing && (
-        <EditCourseModal course={editing} terms={termRows} onClose={() => setEditing(null)} />
-      )}
+      {modal === 'course' && <CreateCourseModal onClose={() => setModal(null)} />}
+      {editing && <EditCourseModal course={editing} onClose={() => setEditing(null)} />}
     </div>
   )
 }

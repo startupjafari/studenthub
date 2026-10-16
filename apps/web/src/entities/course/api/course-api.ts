@@ -56,16 +56,6 @@ export async function fetchTermsPaged(
   return getPaged<TermItem>('/terms', { page: 1, limit: 20, ...filters })
 }
 
-export async function fetchSubjects(universityId?: string): Promise<SubjectItem[]> {
-  const { data } = await api.get<SubjectItem[]>('/subjects', { params: { universityId } })
-  return data
-}
-
-export async function fetchTerms(universityId?: string): Promise<TermItem[]> {
-  const { data } = await api.get<TermItem[]>('/terms', { params: { universityId } })
-  return data
-}
-
 // ── Мутации (декан/админ вуза) ───────────────────────────────────────────────
 
 export async function createSubjectRequest(input: CreateSubjectInput): Promise<SubjectItem> {

@@ -28,7 +28,13 @@ function setup(counts: { grades?: number; submissions?: number; results?: number
     submission: { count: jest.fn().mockResolvedValue(counts.submissions ?? 0) },
     examResult: { count: jest.fn().mockResolvedValue(counts.results ?? 0) },
     user: { findFirst: jest.fn() },
+    $queryRaw: jest.fn().mockResolvedValue([{ id: 'c-1' }]),
+    $transaction: jest.fn(),
   }
+  // Колбэк-транзакция: в tx — тот же мок, чтобы проверять вызовы как обычно.
+  prisma.$transaction.mockImplementation(async (arg: unknown) =>
+    typeof arg === 'function' ? (arg as (tx: typeof prisma) => unknown)(prisma) : arg,
+  )
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const service = new CoursesService(
     prisma as unknown as PrismaService,
@@ -48,10 +54,35 @@ describe('CoursesService.deleteCourse — академические запис�
     },
   )
 
-  it('пустая дисциплина удаляется', async () => {
+  it('пустая дисциплина удаляется — в той же транзакции, что и подсчёт', async () => {
     const { service, prisma } = setup()
     await service.deleteCourse(admin, 'c-1', ctx)
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1)
+    expect(prisma.$queryRaw).toHaveBeenCalled()
     expect(prisma.course.delete).toHaveBeenCalledWith({ where: { id: 'c-1' } })
+  })
+
+  it('ведомость зачёта без баллов (сдал, неявка, недопуск) держит дисциплину', async () => {
+    const { service, prisma } = setup({ results: 3 })
+    const err = await service.deleteCourse(admin, 'c-1', ctx).catch((e) => e)
+    expect(err.code).toBe('CONFLICT')
+    expect(prisma.course.delete).not.toHaveBeenCalled()
+    // Считаются не только строки с баллом: статус, отличный от «назначен», и недопуск —
+    // тоже записи ведомости.
+    expect(prisma.examResult.count).toHaveBeenCalledWith({
+      where: {
+        exam: { courseId: 'c-1' },
+        OR: [{ status: { not: 'SCHEDULED' } }, { score: { not: null } }, { admitted: false }],
+      },
+    })
+  })
+
+  it('дисциплину успели удалить параллельно — NOT_FOUND, без повторного delete', async () => {
+    const { service, prisma } = setup()
+    prisma.$queryRaw.mockResolvedValue([])
+    const err = await service.deleteCourse(admin, 'c-1', ctx).catch((e) => e)
+    expect(err.code).toBe('NOT_FOUND')
+    expect(prisma.course.delete).not.toHaveBeenCalled()
   })
 })
 
