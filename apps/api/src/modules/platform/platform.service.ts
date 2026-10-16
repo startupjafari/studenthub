@@ -132,9 +132,11 @@ export class PlatformService {
   async maintenanceActive(now: Date = new Date()): Promise<boolean> {
     if (this.memo === null || Date.now() - this.memo.readAt > MAINTENANCE_MEMO_MS) {
       const row = await this.read()
+      // Через toDate, а не как есть: этот ответ читает каждый запрос к API, и строка вместо
+      // даты здесь — уже не кривой ответ одной функции, а 500 на всей платформе.
       this.memo = {
-        from: row?.maintenanceFrom ?? null,
-        until: row?.maintenanceUntil ?? null,
+        from: toDate(row?.maintenanceFrom),
+        until: toDate(row?.maintenanceUntil),
         readAt: Date.now(),
       }
     }
@@ -631,12 +633,36 @@ function localized(ru: string | null, kk: string | null, en: string | null): Loc
   return ru && kk && en ? { ru, kk, en } : null
 }
 
+/**
+ * Все поля-даты строки состояния. Тип заставляет перечислить их целиком: новая колонка
+ * DateTime без записи здесь не соберётся. Список руками однажды забыл `maintenanceFrom` —
+ * он возвращался из кэша строкой, и плановые техработы роняли весь API.
+ */
+type DateField = {
+  [K in keyof PlatformState]-?: PlatformState[K] extends Date | null ? K : never
+}[keyof PlatformState]
+
+const DATE_FIELDS: Record<DateField, true> = {
+  maintenanceFrom: true,
+  maintenanceUntil: true,
+  bannerUntil: true,
+  updatedAt: true,
+}
+
 /** JSON.parse возвращает даты строками — восстанавливаем, иначе сроки не сравнить. */
 function reviveDates(row: PlatformState): PlatformState {
-  return {
-    ...row,
-    maintenanceUntil: row.maintenanceUntil ? new Date(row.maintenanceUntil) : null,
-    bannerUntil: row.bannerUntil ? new Date(row.bannerUntil) : null,
-    updatedAt: new Date(row.updatedAt),
-  }
+  const revived: Record<string, unknown> = { ...row }
+  for (const key of Object.keys(DATE_FIELDS)) revived[key] = toDate(revived[key])
+  return revived as unknown as PlatformState
+}
+
+/** Дата из кэша или из памяти. Пусто или не разбирается — `null`, а не Invalid Date. */
+function toDate(value: unknown): Date | null {
+  const date =
+    value instanceof Date
+      ? value
+      : typeof value === 'string' || typeof value === 'number'
+        ? new Date(value)
+        : null
+  return date && !Number.isNaN(date.getTime()) ? date : null
 }

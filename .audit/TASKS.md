@@ -41,11 +41,11 @@
   статус здесь, коммит. Две неудачи подряд — [blocked] + причина в QUESTIONS.md.
 - Задача FIX-E-F01 включает D-F14 (одна и та же утечка портфолио).
 
-- [todo] FIX-B-F01 · P0 · проблемы: B-F01
+- [done] FIX-B-F01 · P0 · проблемы: B-F01
   - Суть: Плановые техработы роняют весь API: `maintenanceFrom` из Redis-кэша не превращается обратно в Date
   - Файлы: apps/api/src/common/guards/maintenance.guard.ts, apps/api/src/modules/platform/platform.service.spec.ts, apps/api/src/modules/platform/platform.service.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для B-F01; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [todo] FIX-C-F01 · P0 · проблемы: C-F01
+- [in_progress] FIX-C-F01 · P0 · проблемы: C-F01
   - Суть: Преподавателя нельзя назначить на дисциплину ни из одного клиента — преподавательские сценарии на новых курсах мертвы
   - Файлы: apps/web/src/views/course-admin/ui/course-admin-view.tsx, apps/web/src/views/course-admin/ui/create-course-modal.tsx, apps/web/src/views/course-admin/ui/edit-course-modal.tsx
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F01; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
@@ -53,11 +53,11 @@
   - Суть: Удаление пары (и версии расписания) каскадом стирает всю историю посещаемости по ней
   - Файлы: apps/api/src/modules/schedules/schedules.service.spec.ts, apps/api/src/modules/schedules/schedules.service.ts, apps/web/src/features/manage-schedule/ui/pair-details-modal.tsx, prisma/schema/19-attendance.prisma
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F11; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [todo] FIX-E-F01 · P0 · проблемы: E-F01, D-F14
+- [in_progress] FIX-E-F01 · P0 · проблемы: E-F01, D-F14
   - Суть: PRIVATE- и UNIVERSITY-записи портфолио уходят в публичное резюме и в карточку работодателя
   - Файлы: apps/api/src/modules/career/career-profile.service.ts, apps/api/src/modules/career/resume.service.ts, apps/api/src/modules/portfolio/portfolio.service.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для E-F01, D-F14; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [todo] FIX-F-F01 · P0 · проблемы: F-F01
+- [in_progress] FIX-F-F01 · P0 · проблемы: F-F01
   - Суть: Забаненный участник группы продолжает читать её переписку через глобальный поиск по сообщениям
   - Файлы: apps/api/src/modules/chats/chats.service.spec.ts, apps/api/src/modules/chats/chats.service.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для F-F01; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.

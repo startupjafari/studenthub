@@ -389,6 +389,83 @@ describe('PlatformService — плановые техработы', () => {
   })
 })
 
+/**
+ * Регрессия B-F01: `maintenanceFrom` возвращался из Redis строкой, MaintenanceGuard падал
+ * с TypeError на каждом запросе, и API лежал у всех ролей — даже после конца окна, пока
+ * режим не сняли руками. Кэш здесь настоящий по смыслу: первое чтение кладёт строку
+ * через JSON.stringify, следующие получают её обратно из JSON, как от Redis.
+ */
+describe('PlatformService — плановые техработы из кэша', () => {
+  function roundTrip(stored: PlatformState) {
+    const ctx = setup(stored)
+    let cache: string | null = null
+    ctx.redis.get.mockImplementation(() => Promise.resolve(cache))
+    ctx.redis.set.mockImplementation((_key: string, value: string) => {
+      cache = value
+      return Promise.resolve('OK')
+    })
+    return ctx
+  }
+
+  it('назначенные на будущее: из кэша видны и платформу не закрывают', async () => {
+    const from = new Date(NOW.getTime() + 60 * 60_000)
+    const until = new Date(NOW.getTime() + 120 * 60_000)
+    const { service, prisma } = roundTrip(row({ maintenanceFrom: from, maintenanceUntil: until }))
+
+    await service.publicState(NOW) // из БД, кладёт строку в кэш
+    const state = await service.publicState(NOW)
+    const active = await service.maintenanceActive(NOW)
+
+    expect(prisma.platformState.findUnique).toHaveBeenCalledTimes(1)
+    expect(state.maintenance).toMatchObject({
+      active: false,
+      startsAt: from.toISOString(),
+      until: until.toISOString(),
+    })
+    expect(active).toBe(false)
+  })
+
+  it('начавшиеся: из кэша закрывают платформу', async () => {
+    const from = new Date(NOW.getTime() - 10 * 60_000)
+    const until = new Date(NOW.getTime() + 60 * 60_000)
+    const { service, prisma } = roundTrip(row({ maintenanceFrom: from, maintenanceUntil: until }))
+
+    await service.publicState(NOW)
+    const state = await service.publicState(NOW)
+    const active = await service.maintenanceActive(NOW)
+
+    expect(prisma.platformState.findUnique).toHaveBeenCalledTimes(1)
+    expect(state.maintenance).toMatchObject({ active: true, startsAt: from.toISOString() })
+    expect(active).toBe(true)
+  })
+
+  // Окно кончилось, а `maintenanceFrom` в строке остался: платформа обязана вернуться сама.
+  it('после конца окна платформа открыта и без ручного снятия', async () => {
+    const from = new Date(NOW.getTime() - 120 * 60_000)
+    const until = new Date(NOW.getTime() - 60 * 60_000)
+    const { service } = setup(
+      null,
+      JSON.stringify(row({ maintenanceFrom: from, maintenanceUntil: until })),
+    )
+
+    await expect(service.publicState(NOW)).resolves.toMatchObject({ maintenance: null })
+    await expect(service.maintenanceActive(NOW)).resolves.toBe(false)
+  })
+
+  it('битая дата в кэше не роняет проверку', async () => {
+    const until = new Date(NOW.getTime() + 60 * 60_000)
+    const { service } = setup(
+      null,
+      JSON.stringify({ ...row({ maintenanceUntil: until }), maintenanceFrom: 'не дата' }),
+    )
+
+    await expect(service.maintenanceActive(NOW)).resolves.toEqual(expect.any(Boolean))
+    await expect(service.publicState(NOW)).resolves.toMatchObject({
+      maintenance: expect.objectContaining({ startsAt: null }),
+    })
+  })
+})
+
 describe('PlatformService — адресный баннер', () => {
   it('отдаёт аудиторию вместе с баннером', async () => {
     const { service } = setup(
