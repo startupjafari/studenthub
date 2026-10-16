@@ -166,7 +166,7 @@ export function MediaViewer({
       // Маркер для глобального Esc (shared/lib/use-escape-back): пока слой открыт,
       // Esc закрывает его, а не уводит на предыдущую страницу.
       data-overlay
-      className="pointer-events-auto fixed inset-0 z-[100] flex select-none flex-col bg-black/80"
+      className="pointer-events-auto fixed inset-0 z-[100] flex select-none flex-col bg-black/80 animate-in fade-in-0 duration-200"
       onClick={(e) => {
         e.stopPropagation()
         onClose()

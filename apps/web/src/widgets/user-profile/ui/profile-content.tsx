@@ -422,20 +422,22 @@ function ChipsCard({
 }) {
   const t = useTranslations('Profile')
   const [expanded, setExpanded] = useState(false)
-  // Не влезает ли список в свёрнутую высоту — замер, а не догадка: от него зависят и
-  // затухание, и кнопка. Пересчитывается на ресайз (ширина колонки меняет число рядов).
+  // Полная высота списка — замер, а не догадка: от неё зависят затухание, кнопка и цель
+  // анимации раскрытия. Наблюдаем внутренний блок: его высота меняется вместе с шириной
+  // колонки (другое число рядов), а внешний обрезан и сам не растёт.
   const listRef = useRef<HTMLDivElement>(null)
-  const [overflows, setOverflows] = useState(false)
+  const [fullHeight, setFullHeight] = useState(0)
   useEffect(() => {
     const el = listRef.current
     if (!el) return
-    const check = () => setOverflows(el.scrollHeight > CHIPS_COLLAPSED_PX + 1)
-    check()
+    const measure = () => setFullHeight(el.offsetHeight)
+    measure()
     if (typeof ResizeObserver === 'undefined') return
-    const ro = new ResizeObserver(check)
+    const ro = new ResizeObserver(measure)
     ro.observe(el)
     return () => ro.disconnect()
   }, [items])
+  const overflows = fullHeight > CHIPS_COLLAPSED_PX + 1
 
   const chipTone =
     tone === 'primary'
@@ -461,22 +463,28 @@ function ChipsCard({
         {items.length === 0 ? (
           <span className="text-sm text-muted-foreground/60">{t('noData')}</span>
         ) : (
+          // Раскрытие — плавный рост max-height до замеренной высоты (300 мс, раскрытие
+          // блока по §7), а не скачок. Свёрнутый список растворяется к нижнему краю (маска,
+          // а не наложенный градиент: фон карточки под ней знать не нужно).
           <div
-            ref={listRef}
-            // Свёрнутый список растворяется к нижнему краю (маска, а не наложенный градиент:
-            // фон карточки под ним не нужно знать) — видно, что значения продолжаются.
             className={cn(
-              'flex flex-wrap gap-2',
-              collapsed &&
-                'overflow-hidden [mask-image:linear-gradient(to_bottom,black_45%,transparent)]',
+              'overflow-hidden transition-[max-height] duration-300 ease-out motion-reduce:transition-none',
+              collapsed && '[mask-image:linear-gradient(to_bottom,black_45%,transparent)]',
             )}
-            style={collapsed ? { maxHeight: CHIPS_COLLAPSED_PX } : undefined}
+            style={
+              overflows ? { maxHeight: collapsed ? CHIPS_COLLAPSED_PX : fullHeight } : undefined
+            }
           >
-            {items.map((it) => (
-              <span key={it} className={cn('rounded-full px-3 py-1 text-sm font-medium', chipTone)}>
-                {renderItem ? renderItem(it) : it}
-              </span>
-            ))}
+            <div ref={listRef} className="flex flex-wrap gap-2">
+              {items.map((it) => (
+                <span
+                  key={it}
+                  className={cn('rounded-full px-3 py-1 text-sm font-medium', chipTone)}
+                >
+                  {renderItem ? renderItem(it) : it}
+                </span>
+              ))}
+            </div>
           </div>
         )}
         {overflows && (

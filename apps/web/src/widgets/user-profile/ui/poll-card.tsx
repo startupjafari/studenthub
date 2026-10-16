@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useLocale, useTranslations } from 'next-intl'
@@ -38,6 +38,13 @@ export function PollCard({ poll, isOwner }: Props) {
   const confirm = useConfirm()
   const [selected, setSelected] = useState<string[]>([])
   const [ownerVoting, setOwnerVoting] = useState(false)
+  // Полосы итогов растут от нуля после первого кадра: на первом рендере их ширина 0,
+  // и переход до доли виден как «оживление данных», а не как готовая картинка.
+  const [grown, setGrown] = useState(false)
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setGrown(true))
+    return () => cancelAnimationFrame(id)
+  }, [])
 
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: pollKeys.byUser(poll.author.id) })
@@ -213,9 +220,13 @@ export function PollCard({ poll, isOwner }: Props) {
                     </span>
                   </div>
                   <Progress
-                    value={pct}
+                    value={grown ? pct : 0}
                     aria-label={`${o.text}: ${pct}%`}
-                    indicatorClassName={leader ? 'bg-primary' : 'bg-muted-foreground/40'}
+                    // Полоса растёт за 500 мс — оживление данных (DESIGN_SYSTEM §7).
+                    indicatorClassName={cn(
+                      'duration-500 ease-out motion-reduce:transition-none',
+                      leader ? 'bg-primary' : 'bg-muted-foreground/40',
+                    )}
                   />
                 </li>
               )

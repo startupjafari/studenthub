@@ -187,7 +187,9 @@ export function PostLightbox({
       onClick={onClose}
       // Нижнее поле — под счётчик «2 из 8»; у одиночного поста его нет, и поле не нужно.
       className={cn(
-        'fixed inset-0 z-[100] flex items-center justify-center bg-black/85 p-0 backdrop-blur-sm animate-in fade-in-0 duration-150 sm:px-16 sm:pt-6',
+        // Без backdrop-blur: под 85% чёрного он не виден, а его пересчёт по всей странице в
+        // каждом кадре проявления давал рывок при открытии.
+        'fixed inset-0 z-[100] flex items-center justify-center bg-black/85 p-0 animate-in fade-in-0 duration-200 sm:px-16 sm:pt-6',
         posts.length > 1 ? 'sm:pb-16' : 'sm:pb-6',
       )}
     >

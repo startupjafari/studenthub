@@ -401,7 +401,7 @@ export function ProfileMediaGrid({
                         alt=""
                         sizes={tileSizes(i)}
                         className="size-full"
-                        imgClassName="transition-transform duration-300 ease-out group-hover/tile:scale-105"
+                        imgClassName="transition-[opacity,transform] duration-500 ease-out group-hover/tile:scale-[1.03] motion-reduce:transition-none"
                       />
                     </button>
                     {isOwner && (
@@ -519,7 +519,7 @@ function DeleteButton({ label, onClick }: { label: string; onClick: () => void }
       type="button"
       aria-label={label}
       onClick={onClick}
-      className="absolute right-1.5 top-1.5 z-10 flex size-7 items-center justify-center rounded-lg bg-foreground/50 text-background opacity-0 backdrop-blur transition-opacity hover:bg-destructive focus-visible:opacity-100 group-hover/tile:opacity-100"
+      className="absolute right-1.5 top-1.5 z-10 flex size-7 items-center justify-center rounded-lg bg-black/55 text-white opacity-0 transition-opacity hover:bg-destructive focus-visible:opacity-100 group-hover/tile:opacity-100"
     >
       <Trash2 className="size-3.5" aria-hidden />
     </button>
@@ -567,7 +567,7 @@ function VideoTile({
             alt=""
             sizes={tileSizes(index)}
             className="size-full bg-neutral-900"
-            imgClassName="transition-transform duration-300 ease-out group-hover/tile:scale-105"
+            imgClassName="transition-[opacity,transform] duration-500 ease-out group-hover/tile:scale-[1.03] motion-reduce:transition-none"
           />
         ) : (
           <video

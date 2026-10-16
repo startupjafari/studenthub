@@ -295,7 +295,7 @@ function ArticleCard({
           title={a.title}
           // Заголовок и так стоит внизу плитки — градиентной обложке хватает буквы.
           letter
-          className="size-full transition-transform duration-300 ease-out group-hover/tile:scale-105"
+          className="size-full transition-transform duration-500 ease-out group-hover/tile:scale-[1.03] motion-reduce:transition-none"
         />
         <span className="absolute inset-x-0 bottom-0 flex flex-col gap-1.5 bg-gradient-to-t from-black/80 via-black/45 to-transparent px-3 pt-10 pb-3 text-white">
           <span className="flex flex-wrap items-center gap-1.5 max-sm:hidden">
@@ -305,7 +305,7 @@ function ArticleCard({
               </span>
             )}
             {a.category && (
-              <span className="rounded-full bg-white/20 px-2 py-0.5 text-[11px] font-medium backdrop-blur-sm">
+              <span className="rounded-full bg-black/40 px-2 py-0.5 text-[11px] font-medium">
                 {t(`cat_${a.category}`)}
               </span>
             )}
@@ -475,7 +475,7 @@ function ArticleReader({
       role="dialog"
       aria-modal="true"
       onClick={onClose}
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-0 backdrop-blur-sm animate-in fade-in-0 duration-150 sm:px-6 sm:pt-6 sm:pb-16"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-0 animate-in fade-in-0 duration-200 sm:px-6 sm:pt-6 sm:pb-16"
     >
       <button
         type="button"
@@ -488,7 +488,7 @@ function ArticleReader({
 
       <div
         onClick={(e) => e.stopPropagation()}
-        className="flex h-full max-h-[88vh] w-full max-w-6xl flex-col overflow-hidden bg-background shadow-2xl sm:rounded-2xl md:flex-row"
+        className="flex h-full max-h-[88vh] w-full max-w-6xl flex-col overflow-hidden bg-background shadow-2xl animate-in fade-in-0 zoom-in-95 duration-200 sm:rounded-2xl md:flex-row"
       >
         {/* Левая колонка — статья (скролл) */}
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
