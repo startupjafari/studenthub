@@ -281,6 +281,34 @@ describe('CleanupService', () => {
       expect(minio.removeObject).toHaveBeenCalledWith('MINIO_BUCKET_AVATARS', 'orphan.png')
     })
 
+    it('не трогает постеры видео и обложки пользователей в profile-covers', async () => {
+      const { service, prisma, minio } = makeService()
+      const old = new Date(Date.now() - 2 * 60 * 60 * 1000)
+      minio.listObjectsV2.mockImplementation((bucket: string) =>
+        bucket === 'MINIO_BUCKET_PROFILE_COVERS'
+          ? objectStream([
+              { name: 'poster.jpg', lastModified: old },
+              { name: 'cover.jpg', lastModified: old },
+              { name: 'junk.jpg', lastModified: old },
+            ])
+          : objectStream([]),
+      )
+      // Ни у одного из трёх нет File.key — это raw-объекты putAuxImage.
+      prisma.file.findMany.mockImplementation(async (args: { where: { posterKey?: unknown } }) =>
+        args.where.posterKey ? [{ posterKey: 'poster.jpg' }] : [],
+      )
+      prisma.user.findMany.mockResolvedValue([
+        { coverUrl: 'https://old-minio.example/profile-covers/cover.jpg' },
+      ])
+      minio.removeObject.mockResolvedValue(undefined)
+
+      const removed = await service.cleanOrphanFiles()
+
+      expect(removed).toBe(1)
+      expect(minio.removeObject).toHaveBeenCalledTimes(1)
+      expect(minio.removeObject).toHaveBeenCalledWith('MINIO_BUCKET_PROFILE_COVERS', 'junk.jpg')
+    })
+
     it('недоступный бакет не роняет задачу', async () => {
       const { service, minio } = makeService()
       minio.listObjectsV2.mockImplementation(() => errorStream('minio down'))

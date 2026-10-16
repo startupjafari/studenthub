@@ -403,6 +403,12 @@ export class CleanupService {
             take: chunk.length,
           })
           const known = new Set(existing.map((e) => e.key))
+          for (const key of await this.auxReferencedKeys(
+            bucket,
+            chunk.map((c) => c.name),
+          )) {
+            known.add(key)
+          }
           const orphans = chunk.filter((c) => !known.has(c.name))
           for (const orphan of orphans) {
             await this.minio.removeObject(bucket, orphan.name)
@@ -475,6 +481,39 @@ export class CleanupService {
     }
     this.logger.log(`sweepIncompleteUploads: отменено брошенных загрузок ${aborted}`)
     return aborted
+  }
+
+  /**
+   * Ключи из `keys`, на которые ссылаются НЕ через `File.key`.
+   *
+   * В `profile-covers` `putAuxImage` кладёт объекты без записи File: постер видео профиля
+   * (его ключ — в `File.posterKey`) и обложку пользователя (в `User.coverUrl` хранится
+   * публичный URL, ключ — его последний сегмент). Без этой сверки чистка удаляла их через
+   * час после загрузки. Сравниваем по окончанию URL, а не по целому адресу: домен MinIO
+   * мог смениться, и старые URL с прежним хостом всё равно указывают на живой объект.
+   */
+  private async auxReferencedKeys(bucket: string, keys: string[]): Promise<string[]> {
+    if (bucket !== this.config.get('MINIO_BUCKET_PROFILE_COVERS', { infer: true })) return []
+    if (keys.length === 0) return []
+    const [posters, covers] = await Promise.all([
+      this.prisma.file.findMany({
+        where: { posterKey: { in: keys } },
+        select: { posterKey: true },
+        take: keys.length,
+      }),
+      this.prisma.user.findMany({
+        where: { OR: keys.map((key) => ({ coverUrl: { endsWith: `/${key}` } })) },
+        select: { coverUrl: true },
+        take: keys.length,
+      }),
+    ])
+    const referenced: string[] = []
+    for (const p of posters) if (p.posterKey) referenced.push(p.posterKey)
+    for (const c of covers) {
+      const key = c.coverUrl?.split('?')[0]?.split('/').pop()
+      if (key) referenced.push(key)
+    }
+    return referenced
   }
 
   /**

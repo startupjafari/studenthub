@@ -591,7 +591,8 @@ export class FileService {
   /**
    * Кладёт вспомогательный ОБЪЕКТ-изображение в бакет БЕЗ записи File (напр. постер видео).
    * Валидирует тип (только изображения) и размер. Возвращает ключ. Управление жизненным циклом
-   * (удаление) — на вызывающем модуле; бакет должен быть исключён из cleanOrphanFiles.
+   * (удаление) — на вызывающем модуле; `cleanOrphanFiles` узнаёт такие ключи по `File.posterKey`
+   * и `User.coverUrl` — новый вид ссылки на raw-объект обязан попасть туда же.
    */
   async putAuxImage(bucket: string, buffer: Buffer): Promise<string> {
     const detected = await detectAllowedFileType(buffer)
