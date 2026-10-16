@@ -3223,7 +3223,14 @@
     "noTerm": "No term",
     "credits": "Credits",
     "courseCreated": "Course assigned",
-    "deleteCourseHasRecords": "This course has grades, submitted work or exam results, so it can't be deleted"
+    "deleteCourseHasRecords": "This course has grades, submitted work or exam results, so it can't be deleted",
+    "teacher": "Teacher",
+    "edit": "Edit",
+    "actions": "Actions",
+    "editCourse": "Edit course",
+    "save": "Save",
+    "courseUpdated": "Changes saved",
+    "creditsRange": "A whole number from 0 to 60"
   },
   "Assignments": {
     "title": "Assignments",

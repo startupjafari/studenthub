@@ -45,7 +45,7 @@
   - Суть: Плановые техработы роняют весь API: `maintenanceFrom` из Redis-кэша не превращается обратно в Date
   - Файлы: apps/api/src/common/guards/maintenance.guard.ts, apps/api/src/modules/platform/platform.service.spec.ts, apps/api/src/modules/platform/platform.service.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для B-F01; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [in_progress] FIX-C-F01 · P0 · проблемы: C-F01
+- [done] FIX-C-F01 · P0 · проблемы: C-F01
   - Суть: Преподавателя нельзя назначить на дисциплину ни из одного клиента — преподавательские сценарии на новых курсах мертвы
   - Файлы: apps/web/src/views/course-admin/ui/course-admin-view.tsx, apps/web/src/views/course-admin/ui/create-course-modal.tsx, apps/web/src/views/course-admin/ui/edit-course-modal.tsx
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F01; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.

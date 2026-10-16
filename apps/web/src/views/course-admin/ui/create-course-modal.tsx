@@ -8,6 +8,7 @@ import { toast } from 'sonner'
 import { CreateCourseSchema, type CreateCourseInput } from '@studenthub/shared-schemas'
 import {
   Button,
+  FieldError,
   Input,
   Label,
   Modal,
@@ -25,6 +26,7 @@ import {
   type TermItem,
 } from '../../../entities/course'
 import type { Group } from '../../../entities/group'
+import { TeacherSelect } from './teacher-select'
 
 interface Props {
   subjects: SubjectItem[]
@@ -35,7 +37,8 @@ interface Props {
 
 const NO_TERM = '__none__'
 
-// Модалка назначения дисциплины группе (декан/админ вуза).
+// Модалка назначения дисциплины группе (декан/админ вуза). Преподавателя можно выбрать сразу:
+// без него дисциплина не появляется у ведущего в журнале, заданиях и экзаменах.
 export function CreateCourseModal({ subjects, groups, terms, onClose }: Props) {
   const t = useTranslations('CourseAdmin')
   const tErr = useTranslations('Errors')
@@ -57,13 +60,13 @@ export function CreateCourseModal({ subjects, groups, terms, onClose }: Props) {
     <Modal onClose={onClose} title={t('newCourse')}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="flex flex-col gap-4">
         <div className="flex flex-col gap-1.5">
-          <Label>{t('subject')}</Label>
+          <Label htmlFor="course-subject">{t('subject')}</Label>
           <Controller
             control={form.control}
             name="subjectId"
             render={({ field }) => (
               <Select value={field.value ?? ''} onValueChange={field.onChange}>
-                <SelectTrigger>
+                <SelectTrigger id="course-subject" aria-invalid={!!form.formState.errors.subjectId}>
                   <SelectValue placeholder={t('selectSubject')} />
                 </SelectTrigger>
                 <SelectContent>
@@ -77,19 +80,17 @@ export function CreateCourseModal({ subjects, groups, terms, onClose }: Props) {
               </Select>
             )}
           />
-          {form.formState.errors.subjectId && (
-            <p className="text-sm text-destructive">{t('required')}</p>
-          )}
+          <FieldError>{form.formState.errors.subjectId && t('required')}</FieldError>
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <Label>{t('group')}</Label>
+          <Label htmlFor="course-group">{t('group')}</Label>
           <Controller
             control={form.control}
             name="groupId"
             render={({ field }) => (
               <Select value={field.value ?? ''} onValueChange={field.onChange}>
-                <SelectTrigger>
+                <SelectTrigger id="course-group" aria-invalid={!!form.formState.errors.groupId}>
                   <SelectValue placeholder={t('selectGroup')} />
                 </SelectTrigger>
                 <SelectContent>
@@ -102,14 +103,27 @@ export function CreateCourseModal({ subjects, groups, terms, onClose }: Props) {
               </Select>
             )}
           />
-          {form.formState.errors.groupId && (
-            <p className="text-sm text-destructive">{t('required')}</p>
-          )}
+          <FieldError>{form.formState.errors.groupId && t('required')}</FieldError>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="course-teacher">{t('teacher')}</Label>
+          <Controller
+            control={form.control}
+            name="teacherId"
+            render={({ field }) => (
+              <TeacherSelect
+                id="course-teacher"
+                value={field.value ?? null}
+                onChange={(next) => field.onChange(next ?? undefined)}
+              />
+            )}
+          />
         </div>
 
         <div className="grid grid-cols-2 gap-3">
           <div className="flex flex-col gap-1.5">
-            <Label>{t('term')}</Label>
+            <Label htmlFor="course-term">{t('term')}</Label>
             <Controller
               control={form.control}
               name="termId"
@@ -118,7 +132,7 @@ export function CreateCourseModal({ subjects, groups, terms, onClose }: Props) {
                   value={field.value ?? NO_TERM}
                   onValueChange={(v) => field.onChange(v === NO_TERM ? undefined : v)}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger id="course-term">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -138,10 +152,12 @@ export function CreateCourseModal({ subjects, groups, terms, onClose }: Props) {
             <Input
               id="course-credits"
               type="number"
+              aria-invalid={!!form.formState.errors.credits}
               {...form.register('credits', {
                 setValueAs: (v) => (v === '' ? undefined : Number(v)),
               })}
             />
+            <FieldError>{form.formState.errors.credits && t('creditsRange')}</FieldError>
           </div>
         </div>
 

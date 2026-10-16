@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { BookOpen, CalendarRange, GraduationCap, Plus, Trash2 } from 'lucide-react'
+import { BookOpen, CalendarRange, GraduationCap, Pencil, Plus, Trash2 } from 'lucide-react'
 import {
   Badge,
   Button,
@@ -41,22 +41,25 @@ import {
   deleteCourseRequest,
   deleteSubjectRequest,
   deleteTermRequest,
+  type CourseItem,
 } from '../../../entities/course'
 import { CreateSubjectModal } from './create-subject-modal'
 import { CreateTermModal } from './create-term-modal'
 import { CreateCourseModal } from './create-course-modal'
+import { EditCourseModal } from './edit-course-modal'
 
 type ModalKind = 'subject' | 'term' | 'course' | null
 type TabKind = 'courses' | 'subjects' | 'terms'
 
 // Потолок 100 — столько разрешает OffsetPaginationSchema, на которой построен GET /courses.
 const PAGE_SIZES = [20, 50, 100] as const
-// Ширины колонок: дисциплина · группа · семестр · преподаватель · кредиты · «удалить».
-const COURSE_COLS = ['26%', '14%', '16%', '24%', '10%', '3.5rem'] as const
+// Ширины колонок: дисциплина · группа · семестр · преподаватель · кредиты · действия
+// (изменить, удалить).
+const COURSE_COLS = ['26%', '14%', '16%', '24%', '10%', '6.5rem'] as const
 // Узкий экран: доли пересчитаны на колонки, которые остаются видимыми (остальные скрыты
 // классами HIDE). Без этого им доставалось по 30–40px и заголовок обрезался в многоточие.
-// Остаются дисциплина, группа и удаление.
-const COURSE_COLS_NARROW = ['52%', '32%', '0', '0', '0', '3.5rem'] as const
+// Остаются дисциплина, группа и действия.
+const COURSE_COLS_NARROW = ['44%', '28%', '0', '0', '0', '5.5rem'] as const
 // Справочник: дисциплина · код · удаление.
 const SUBJECT_COLS = ['60%', '30%', '3.5rem'] as const
 // Семестры: название · начало · конец · статус · удаление.
@@ -89,6 +92,8 @@ export function CourseAdminView() {
   const qc = useQueryClient()
   const universityId = useAppSelector((s) => s.auth.universityId)
   const [modal, setModal] = useState<ModalKind>(null)
+  // Курс, открытый на правку (преподаватель, семестр, кредиты).
+  const [editing, setEditing] = useState<CourseItem | null>(null)
   // Вкладка стала управляемой: её переключатель уехал в шапку страницы, а кнопка
   // действия справа зависит от того, какая вкладка открыта.
   const [tab, setTab] = useState<TabKind>('courses')
@@ -232,7 +237,7 @@ export function CourseAdminView() {
                       {t('colCredits')}
                     </TableHead>
                     <TableHead>
-                      <span className="sr-only">{t('delete')}</span>
+                      <span className="sr-only">{t('actions')}</span>
                     </TableHead>
                   </TableRow>
                 </TableHeader>
@@ -260,10 +265,22 @@ export function CourseAdminView() {
                         {c.credits != null ? c.credits : <TableEmpty />}
                       </TableCell>
                       <TableCell>
-                        <DeleteButton
-                          onClick={() => onDelete('course', c.id, c.subject.name)}
-                          label={t('delete')}
-                        />
+                        <div className="flex items-center justify-end gap-1">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            icon
+                            onClick={() => setEditing(c)}
+                            aria-label={t('edit')}
+                            title={t('edit')}
+                          >
+                            <Pencil className="size-4 text-muted-foreground" aria-hidden />
+                          </Button>
+                          <DeleteButton
+                            onClick={() => onDelete('course', c.id, c.subject.name)}
+                            label={t('delete')}
+                          />
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}
@@ -423,6 +440,9 @@ export function CourseAdminView() {
           terms={termRows}
           onClose={() => setModal(null)}
         />
+      )}
+      {editing && (
+        <EditCourseModal course={editing} terms={termRows} onClose={() => setEditing(null)} />
       )}
     </div>
   )
