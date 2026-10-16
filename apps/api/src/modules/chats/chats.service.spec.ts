@@ -41,6 +41,12 @@ function setup() {
       findFirst: jest.fn(),
       findMany: jest.fn().mockResolvedValue([]),
       findUniqueOrThrow: jest.fn().mockResolvedValue({ id: 'f1', variants: [] }),
+      // Привязка вложений к сообщению: по умолчанию все запрошенные строки на месте.
+      updateMany: jest
+        .fn()
+        .mockImplementation(({ where }: { where: { id?: { in?: string[] } } }) =>
+          Promise.resolve({ count: where.id?.in?.length ?? 0 }),
+        ),
     },
     chat: {
       findMany: jest.fn().mockResolvedValue([]),
@@ -83,6 +89,8 @@ function setup() {
     $transaction: jest.fn(),
     // Аллокатор Message.seq — сырой UPDATE ... RETURNING. По умолчанию выдаёт первый номер.
     $queryRaw: jest.fn().mockResolvedValue([{ last_seq: 1 }]),
+    // Транзакционный advisory-лок (advisoryXactLock): вторым аргументом шаблона — ключ.
+    $executeRaw: jest.fn().mockResolvedValue(1),
   }
   // $transaction(cb) прогоняет колбэк с тем же prisma-моком в роли tx.
   prisma.$transaction.mockImplementation((cb: (tx: typeof prisma) => unknown) => cb(prisma))
@@ -94,10 +102,13 @@ function setup() {
     usersInRoom: jest.fn().mockResolvedValue(new Set<string>()),
   }
   const files = {
-    upload: jest.fn(),
+    upload: jest.fn().mockResolvedValue({ id: 'f1' }),
+    confirmDirectUpload: jest.fn().mockResolvedValue({ id: 'f1' }),
+    completeMultipart: jest.fn().mockResolvedValue({ id: 'f1' }),
+    delete: jest.fn().mockResolvedValue(undefined),
     getPresignedUrl: jest.fn(),
     findOrThrow: jest.fn(),
-    copyToMessage: jest.fn(),
+    copyToMessage: jest.fn().mockResolvedValue({ id: 'copy-1' }),
   }
   const posts = { assertVisibleToViewer: jest.fn().mockResolvedValue(undefined) }
   const config = { get: jest.fn().mockReturnValue('chat-media') }
@@ -193,6 +204,52 @@ describe('ChatsService.createMessage', () => {
     expect(jobData.type).toBe('MESSAGE')
     expect(jobData.dedupeKey).toBe('new-message:msg1')
     expect(new Set(jobData.recipientIds)).toEqual(new Set(['u2', 'u3']))
+  })
+})
+
+// F-F03: автор обращения дописывает из окна чата обычной отправкой — правила обращения
+// (переоткрыть, разбудить команду) обязаны сработать и на этом пути.
+describe('ChatsService — сообщения в обращениях поддержки', () => {
+  const row = (senderId: string) => ({
+    id: 'msg1',
+    chatId: 'ticket-1',
+    seq: 7,
+    senderId,
+    content: 'скриншот',
+    createdAt: new Date(),
+    sender: { id: senderId, firstName: 'A', lastName: 'B', avatarUrl: null },
+  })
+
+  it('сообщение в SUPPORT_PLATFORM уходит в правила обращения; команда без уведомления', async () => {
+    const { service, prisma, queue } = setup()
+    const hook = jest.fn().mockResolvedValue(new Set(['staff-1']))
+    service.registerSupportHook(hook)
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1' })
+    prisma.chat.findUnique.mockResolvedValue({
+      type: 'SUPPORT_PLATFORM',
+      members: [],
+      requestPendingForId: null,
+    })
+    prisma.message.create.mockResolvedValue(row('author-1'))
+    prisma.chatMember.findMany.mockResolvedValue([{ userId: 'staff-1' }, { userId: 'staff-2' }])
+
+    const res = await service.createMessage('author-1', { chatId: 'ticket-1', content: 'скриншот' })
+
+    expect(hook).toHaveBeenCalledWith({ chatId: 'ticket-1', senderId: 'author-1', seq: 7 })
+    expect(res.recipientIds).toEqual(['staff-2'])
+    expect(queue.enqueue.mock.calls[0][2].recipientIds).toEqual(['staff-2'])
+  })
+
+  it('в обычных чатах правила обращения не зовутся', async () => {
+    const { service, prisma } = setup()
+    const hook = jest.fn().mockResolvedValue(new Set())
+    service.registerSupportHook(hook)
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1' })
+    prisma.message.create.mockResolvedValue(row('u1'))
+
+    await service.createMessage('u1', { chatId: 'c1', content: 'hi' })
+
+    expect(hook).not.toHaveBeenCalled()
   })
 })
 
@@ -561,7 +618,7 @@ describe('ChatsService.sendMessageRest — сообщение с вложени�
     expect(parsed.success && parsed.data.content).toBe('')
   })
 
-  it('файлы загружаются с messageId и message:new эмитится один раз', async () => {
+  it('файлы загружаются до сообщения и привязываются к нему в той же транзакции', async () => {
     const { service, prisma, realtime, files } = setup()
     prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1' })
     prisma.message.create.mockResolvedValue({ id: 'msg1' })
@@ -579,11 +636,144 @@ describe('ChatsService.sendMessageRest — сообщение с вложени�
       { buffer: Buffer.from('x') },
     ])
     expect(files.upload).toHaveBeenCalledTimes(1)
-    expect(files.upload.mock.calls[0][0].messageId).toBe('msg1')
+    // Сообщения на момент загрузки ещё нет — запись File создаётся непривязанной.
+    expect(files.upload.mock.calls[0][0].messageId).toBeUndefined()
     expect(files.upload.mock.calls[0][0].bucket).toBe('chat-media')
+    expect(files.upload.mock.invocationCallOrder[0]).toBeLessThan(
+      prisma.message.create.mock.invocationCallOrder[0] ?? 0,
+    )
+    expect(prisma.file.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ['f1'] }, messageId: null },
+      data: { messageId: 'msg1' },
+    })
     expect(realtime.emitToRoom).toHaveBeenCalledTimes(1)
     expect(realtime.emitToRoom).toHaveBeenCalledWith('chat:c1', 'message:new', expect.anything())
     expect(res.id).toBe('msg1')
+  })
+
+  it('спойлер по номеру и «без сжатия» доезжают до привязанных файлов', async () => {
+    const { service, prisma, files } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1' })
+    prisma.message.create.mockResolvedValue({ id: 'msg1' })
+    prisma.message.findUniqueOrThrow.mockResolvedValue({
+      id: 'msg1',
+      chatId: 'c1',
+      senderId: 'u1',
+      sender: { lastName: 'B', firstName: 'A' },
+    })
+    files.upload.mockResolvedValueOnce({ id: 'f1' }).mockResolvedValueOnce({ id: 'f2' })
+
+    await service.sendMessageRest('u1', { chatId: 'c1', spoilerIndexes: '1', asFiles: true }, [
+      { buffer: Buffer.from('a') },
+      { buffer: Buffer.from('b') },
+    ])
+
+    expect(prisma.file.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ['f1', 'f2'] }, messageId: null },
+      data: { messageId: 'msg1', asDocument: true },
+    })
+    expect(prisma.file.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ['f2'] } },
+      data: { spoiler: true },
+    })
+  })
+
+  // F-F04: раньше сообщение создавалось до файлов, и отказ второго вложения оставлял в чате
+  // пустой пузырь с занятым seq — его видели все при следующей загрузке истории.
+  it('отказ второго вложения не оставляет ни сообщения, ни уже загруженного файла', async () => {
+    const { service, prisma, realtime, queue, files } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1' })
+    files.upload
+      .mockResolvedValueOnce({ id: 'f1' })
+      .mockRejectedValueOnce(new AppException('FILE_TYPE_NOT_ALLOWED', 'нельзя'))
+
+    const err = await service
+      .sendMessageRest('u1', { chatId: 'c1' }, [
+        { buffer: Buffer.from('a') },
+        { buffer: Buffer.from('b') },
+      ])
+      .catch((e) => e)
+
+    expect(err.code).toBe('FILE_TYPE_NOT_ALLOWED')
+    expect(prisma.message.create).not.toHaveBeenCalled()
+    expect(prisma.$queryRaw).not.toHaveBeenCalled() // seq не выдан
+    expect(files.delete).toHaveBeenCalledWith('f1')
+    expect(realtime.emitToRoom).not.toHaveBeenCalled()
+    expect(queue.enqueue).not.toHaveBeenCalled()
+  })
+
+  it('файл исчез до привязки — транзакция откатывается, загруженное убирается', async () => {
+    const { service, prisma, realtime, files } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1' })
+    prisma.message.create.mockResolvedValue({ id: 'msg1' })
+    files.upload.mockResolvedValueOnce({ id: 'f1' }).mockResolvedValueOnce({ id: 'f2' })
+    prisma.file.updateMany.mockResolvedValueOnce({ count: 1 })
+
+    const err = await service
+      .sendMessageRest('u1', { chatId: 'c1' }, [
+        { buffer: Buffer.from('a') },
+        { buffer: Buffer.from('b') },
+      ])
+      .catch((e) => e)
+
+    expect(err.code).toBe('NOT_FOUND')
+    expect(files.delete).toHaveBeenCalledWith('f1')
+    expect(files.delete).toHaveBeenCalledWith('f2')
+    expect(prisma.message.findUniqueOrThrow).not.toHaveBeenCalled()
+    expect(realtime.emitToRoom).not.toHaveBeenCalled()
+  })
+})
+
+describe('ChatsService.sendMessageFromUploads — сообщение по загруженным объектам', () => {
+  it('отказ подтверждения второго объекта не оставляет сообщения-призрака', async () => {
+    const { service, prisma, realtime, queue, files } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1' })
+    files.confirmDirectUpload
+      .mockResolvedValueOnce({ id: 'f1' })
+      .mockRejectedValueOnce(new AppException('FILE_TOO_LARGE', 'много'))
+
+    const err = await service
+      .sendMessageFromUploads('u1', 'c1', {
+        attachments: [{ key: 'u1/a.png' }, { key: 'u1/b.exe' }],
+      })
+      .catch((e) => e)
+
+    expect(err.code).toBe('FILE_TOO_LARGE')
+    expect(prisma.message.create).not.toHaveBeenCalled()
+    expect(files.delete).toHaveBeenCalledWith('f1')
+    expect(realtime.emitToRoom).not.toHaveBeenCalled()
+    expect(queue.enqueue).not.toHaveBeenCalled()
+  })
+
+  it('подтверждает без messageId и привязывает одной транзакцией', async () => {
+    const { service, prisma, files } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1' })
+    prisma.message.create.mockResolvedValue({ id: 'msg1' })
+    prisma.message.findUniqueOrThrow.mockResolvedValue({
+      id: 'msg1',
+      chatId: 'c1',
+      senderId: 'u1',
+      sender: { lastName: 'B', firstName: 'A' },
+    })
+    files.completeMultipart.mockResolvedValueOnce({ id: 'f-big' })
+
+    await service.sendMessageFromUploads('u1', 'c1', {
+      attachments: [
+        { key: 'u1/a.png', spoiler: true },
+        { key: 'u1/b.mp4', uploadId: 'up1', parts: [{ part: 1, etag: 'e1' }] },
+      ],
+    })
+
+    expect(files.confirmDirectUpload.mock.calls[0][0].messageId).toBeUndefined()
+    expect(files.completeMultipart.mock.calls[0][0].messageId).toBeUndefined()
+    expect(prisma.file.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ['f1', 'f-big'] }, messageId: null },
+      data: { messageId: 'msg1' },
+    })
+    expect(prisma.file.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ['f1'] } },
+      data: { spoiler: true },
+    })
   })
 })
 
@@ -674,9 +864,38 @@ describe('ChatsService.forwardMessage', () => {
     const res = await service.forwardMessage('u1', 'c1', 'src')
     expect(prisma.message.create.mock.calls[0][0].data.forwardedFromId).toBe('src')
     expect(files.copyToMessage).toHaveBeenCalledTimes(1)
-    expect(files.copyToMessage.mock.calls[0][2]).toBe('fwd1')
+    // Копия делается до сообщения и привязывается к нему в транзакции создания.
+    expect(files.copyToMessage.mock.calls[0][2]).toBeUndefined()
+    expect(prisma.file.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ['copy-1'] }, messageId: null },
+      data: { messageId: 'fwd1' },
+    })
     expect(realtime.emitToRoom).toHaveBeenCalledWith('chat:c1', 'message:new', expect.anything())
     expect(res.id).toBe('fwd1')
+  })
+
+  it('сбой копирования вложения не оставляет пересылку без вложений', async () => {
+    const { service, prisma, realtime, files } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'mem1' })
+    prisma.message.findFirst.mockResolvedValue({
+      id: 'src',
+      chatId: 'c0',
+      content: 'hi',
+      linkPreview: null,
+      media: [
+        { bucket: 'chat-media', key: 'k1', mime: 'image/png', size: 10 },
+        { bucket: 'chat-media', key: 'k2', mime: 'image/png', size: 10 },
+      ],
+    })
+    files.copyToMessage
+      .mockResolvedValueOnce({ id: 'copy-1' })
+      .mockRejectedValueOnce(new Error('minio down'))
+
+    await expect(service.forwardMessage('u1', 'c1', 'src')).rejects.toThrow('minio down')
+
+    expect(prisma.message.create).not.toHaveBeenCalled()
+    expect(files.delete).toHaveBeenCalledWith('copy-1')
+    expect(realtime.emitToRoom).not.toHaveBeenCalled()
   })
 
   it('исходное сообщение не найдено → NOT_FOUND', async () => {
@@ -1081,6 +1300,72 @@ describe('ChatsService — официальные чаты (9.6)', () => {
     await service.ensureOfficialChatsForUser(fullScopeUser())
 
     expect(prisma.chat.create).not.toHaveBeenCalled()
+  })
+
+  // F-F05: группа открывает «Чаты» в одну минуту, два запроса видят «чата нет». Создание
+  // идёт под локом по ключу будущего чата, и повторный поиск под ним находит чат первого.
+  it('гонка создания: под локом находится чат параллельного запроса, второй не создаётся', async () => {
+    const { service, prisma } = setup()
+    const groupOnly: JwtPayload = { ...fullScopeUser(), facultyId: null, universityId: null }
+    // «Сохранённые» находятся сразу; чата группы до лока нет, под локом — уже есть.
+    prisma.chat.findFirst
+      .mockResolvedValueOnce({ id: 'saved-1' })
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: 'off-winner' })
+    prisma.chatMember.findUnique.mockResolvedValue(null)
+    prisma.chatMember.create.mockResolvedValue({ id: 'm' })
+
+    await service.ensureOfficialChatsForUser(groupOnly)
+
+    expect(prisma.chat.create).not.toHaveBeenCalled()
+    expect(prisma.$executeRaw.mock.calls[0][1]).toBe('chat-create:GROUP_OFFICIAL:::grp1:')
+    // Пользователь добавлен в чат победителя.
+    expect(prisma.chatMember.create).toHaveBeenCalledWith({
+      data: { chatId: 'off-winner', userId: 'stu1', lastReadAt: expect.any(Date) },
+    })
+    // Поиск — самый ранний: дубли, накопившиеся до лока, остаются в данных.
+    expect(prisma.chat.findFirst.mock.calls[2][0]).toMatchObject({
+      where: { type: 'GROUP_OFFICIAL', groupId: 'grp1' },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    })
+  })
+
+  it('лок берётся до создания, и только когда чата нет', async () => {
+    const { service, prisma } = setup()
+    prisma.chat.findFirst.mockResolvedValue(null)
+    prisma.chat.create.mockResolvedValue({ id: 'saved-new' })
+
+    await expect(service.getSavedChat('u1')).resolves.toEqual({ id: 'saved-new' })
+    expect(prisma.$executeRaw.mock.calls[0][1]).toBe('chat-create:SAVED:u1')
+    expect(prisma.$executeRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      prisma.chat.create.mock.invocationCallOrder[0] ?? 0,
+    )
+
+    // Чат уже есть — ни транзакции, ни лока: ensure ищет так на каждый тип и предмет.
+    prisma.$transaction.mockClear()
+    prisma.chat.findFirst.mockResolvedValue({ id: 'saved-new' })
+    await service.getSavedChat('u1')
+    expect(prisma.$transaction).not.toHaveBeenCalled()
+  })
+
+  it('ключ лока чата предмета включает группу и предмет', async () => {
+    const { service, prisma } = setup()
+    const teacher: JwtPayload = {
+      sub: 'tch1',
+      role: Role.TEACHER,
+      universityId: null,
+      facultyId: null,
+      groupId: null,
+    }
+    prisma.chat.findFirst.mockResolvedValueOnce({ id: 'saved-1' }).mockResolvedValue(null)
+    prisma.chat.create.mockResolvedValue({ id: 'subj-1' })
+    prisma.chatMember.findUnique.mockResolvedValue(null)
+    prisma.chatMember.create.mockResolvedValue({ id: 'm' })
+    prisma.pair.findMany.mockResolvedValue([{ groupId: 'grpX', subject: 'Физика' }])
+
+    await service.ensureOfficialChatsForUser(teacher)
+
+    expect(prisma.$executeRaw.mock.calls[0][1]).toBe('chat-create:SUBJECT:::grpX:Физика')
   })
 })
 
@@ -1559,6 +1844,50 @@ describe('ChatsService.createChat — один личный чат на пару
     )
 
     expect(queue.enqueue).not.toHaveBeenCalled()
+  })
+
+  it('новый личный чат создаётся под локом пары — одним и тем же с любой стороны', async () => {
+    const { service, prisma } = setup()
+    prisma.chat.findFirst.mockResolvedValue(null)
+    prisma.user.findFirst.mockResolvedValue({ universityId: 'uni1' })
+    prisma.chat.create.mockResolvedValue({ id: 'c-new', type: 'PRIVATE', title: null })
+
+    await service.createChat(
+      { ...user('u2'), universityId: 'uni1' },
+      {
+        type: 'PRIVATE',
+        memberIds: ['u1'],
+      },
+    )
+    await service.createChat(
+      { ...user('u1'), universityId: 'uni1' },
+      {
+        type: 'PRIVATE',
+        memberIds: ['u2'],
+      },
+    )
+
+    expect(prisma.$executeRaw.mock.calls.map((call) => call[1])).toEqual([
+      'chat-create:PRIVATE:u1:u2',
+      'chat-create:PRIVATE:u1:u2',
+    ])
+  })
+
+  // F-F05: двойной клик «Написать» из двух вкладок — оба запроса видят «чата нет».
+  it('гонка: под локом пары находится чат первого запроса, второй не создаётся', async () => {
+    const { service, prisma } = setup()
+    prisma.chat.findFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: 'c-first', type: 'PRIVATE', title: null })
+    prisma.user.findFirst.mockResolvedValueOnce({ universityId: 'uni1' })
+
+    const res = await service.createChat(
+      { ...user('u1'), universityId: 'uni1' },
+      { type: 'PRIVATE', memberIds: ['u2'] },
+    )
+
+    expect(res).toEqual({ id: 'c-first', type: 'PRIVATE', title: null })
+    expect(prisma.chat.create).not.toHaveBeenCalled()
   })
 
   it('группу не ищем — её создают явно, с собственным названием', async () => {

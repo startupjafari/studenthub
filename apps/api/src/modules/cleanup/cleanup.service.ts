@@ -78,6 +78,9 @@ const REFRESH_TOKEN_PURGE_MAX_BATCHES = 100
 const DEMO_REQUEST_UNCONFIRMED_DAYS = 7
 // Не трогаем свежие объекты MinIO — они могут быть в процессе загрузки (запись File ещё не создана).
 const ORPHAN_SAFETY_MINUTES = 60
+// Не трогаем свежие непривязанные вложения чата: запись File уже есть, а сообщения ещё нет —
+// чат принимает все файлы альбома и только потом заводит сообщение и привязывает их.
+const DETACHED_CHAT_FILE_SAFETY_MINUTES = 60
 
 // Через сколько часов брошенная многочастная загрузка считается мусором (Фаза 19).
 //
@@ -389,17 +392,27 @@ export class CleanupService {
   }
 
   /**
-   * Вложения чатов и файлы материалов создаются сразу привязанными (`messageId`,
-   * `materialId`), а связь объявлена `onDelete: SetNull`. Удалили чат или материал — строка
-   * File остаётся без владельца, и `cleanOrphanFiles` её объект не трогает: он убирает только
-   * объекты БЕЗ строки. Так вложения удалённых чатов лежали в хранилище вечно.
+   * Связь вложений чатов и файлов материалов с владельцем (`messageId`, `materialId`)
+   * объявлена `onDelete: SetNull`. Удалили чат или материал — строка File остаётся без
+   * владельца, и `cleanOrphanFiles` её объект не трогает: он убирает только объекты БЕЗ
+   * строки. Так вложения удалённых чатов лежали в хранилище вечно.
    *
    * Здесь удаляются такие строки; их объекты снимет `cleanOrphanFiles` в 04:00. Бакеты —
    * только эти два: в остальных (аватары, медиа профиля) строка без связей — норма.
+   *
+   * Вложение чата живёт без `messageId` и законно: чат сначала принимает все файлы
+   * сообщения и только потом одной транзакцией заводит сообщение и привязывает их (отказ
+   * любого файла не оставляет пустого сообщения). Свежие строки поэтому не трогаем — иначе
+   * чистка, пришедшаяся на этот миг, срывала бы отправку.
    */
   private async cleanDetachedFilesTask(): Promise<number> {
+    const freshChatSince = new Date(Date.now() - DETACHED_CHAT_FILE_SAFETY_MINUTES * 60 * 1000)
     const targets: Prisma.FileWhereInput[] = [
-      { bucket: this.config.get('MINIO_BUCKET_CHAT', { infer: true }), messageId: null },
+      {
+        bucket: this.config.get('MINIO_BUCKET_CHAT', { infer: true }),
+        messageId: null,
+        createdAt: { lt: freshChatSince },
+      },
       { bucket: this.config.get('MINIO_BUCKET_MATERIALS', { infer: true }), materialId: null },
     ]
     let total = 0

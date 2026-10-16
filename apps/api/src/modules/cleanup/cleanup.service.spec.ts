@@ -305,9 +305,29 @@ describe('CleanupService', () => {
       await expect(service.cleanDetachedFiles()).resolves.toBe(3)
       const wheres = prisma.file.findMany.mock.calls.map((c: [{ where: unknown }]) => c[0].where)
       expect(wheres).toEqual([
-        { bucket: 'MINIO_BUCKET_CHAT', messageId: null },
+        { bucket: 'MINIO_BUCKET_CHAT', messageId: null, createdAt: { lt: expect.any(Date) } },
         { bucket: 'MINIO_BUCKET_MATERIALS', materialId: null },
       ])
+    })
+
+    // Чат принимает файлы альбома до сообщения и привязывает их одной транзакцией: строка
+    // без messageId в эти секунды — не сирота, и чистка в этот миг сорвала бы отправку.
+    it('не трогает вложения чата моложе часа — они ждут привязки к сообщению', async () => {
+      const { service, prisma } = makeService()
+      prisma.file.findMany.mockResolvedValue([])
+      const before = Date.now()
+
+      await service.cleanDetachedFiles()
+      const after = Date.now()
+
+      const chatWhere = prisma.file.findMany.mock.calls[0][0].where as {
+        createdAt: { lt: Date }
+      }
+      const cutoff = chatWhere.createdAt.lt.getTime()
+      const hour = 60 * 60 * 1000
+      expect(cutoff).toBeGreaterThanOrEqual(before - hour)
+      expect(cutoff).toBeLessThanOrEqual(after - hour)
+      expect(prisma.file.deleteMany).not.toHaveBeenCalled()
     })
   })
 

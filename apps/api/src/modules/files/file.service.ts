@@ -505,6 +505,10 @@ export class FileService {
    * (Ф9+, пересылка вложений). Копия остаётся копией и после снятия @@unique([bucket, key]):
    * пересланное вложение живёт своей жизнью, и удаление исходного сообщения не должно гасить
    * вложение у получателя. Ссылки на общий объект — приём сида, а не поведение продукта.
+   *
+   * Без `messageId` копия создаётся непривязанной: пересылка сначала копирует вложения, а
+   * сообщение заводит и привязывает их одной транзакцией — сбой копирования не оставляет
+   * в чате пересылку без вложений.
    */
   async copyToMessage(
     source: {
@@ -520,7 +524,7 @@ export class FileService {
       height?: number | null
     },
     ownerId: string,
-    messageId: string,
+    messageId?: string,
   ) {
     const ext = source.key.includes('.') ? source.key.split('.').pop() : undefined
     const newKey = ext ? `${randomUUID()}.${ext}` : randomUUID()

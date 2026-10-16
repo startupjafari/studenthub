@@ -281,15 +281,15 @@
   - Суть: Каждое событие в чате стоит N полных перезапросов списка, а каждый запрос списка читает ВСЕ сообщения чатов страницы
   - Файлы: apps/api/src/modules/chats/chats.service.ts, apps/api/src/modules/chats/support.service.ts, apps/web/src/entities/chat/api/chat-api.ts, apps/web/src/entities/chat/lib/use-chats-unread.ts, apps/web/src/widgets/chat-window/ui/chat-window.tsx
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для F-F02; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [in_progress] FIX-F-F03 · P1 · проблемы: F-F03 · после: FIX-F-F01, FIX-E-F09, FIX-F-F02
+- [done] FIX-F-F03 · P1 · проблемы: F-F03 · после: FIX-F-F01, FIX-E-F09, FIX-F-F02
   - Суть: Дописка автора обращения из окна чата не открывает закрытое обращение и не будит команду
   - Файлы: apps/api/src/modules/chats/chats.service.ts, apps/api/src/modules/chats/support.service.spec.ts, apps/api/src/modules/chats/support.service.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для F-F03; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [in_progress] FIX-F-F04 · P1 · проблемы: F-F04 · после: FIX-E-F09, FIX-F-F02, FIX-F-F03
+- [done] FIX-F-F04 · P1 · проблемы: F-F04 · после: FIX-E-F09, FIX-F-F02, FIX-F-F03
   - Суть: Пустое «сообщение-призрак» с занятым seq при отказе загрузки вложения
   - Файлы: apps/api/src/modules/chats/chats.service.spec.ts, apps/api/src/modules/chats/chats.service.ts, apps/api/src/modules/files/file.service.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для F-F04; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [in_progress] FIX-F-F05 · P1 · проблемы: F-F05 · после: FIX-F-F02, FIX-F-F03, FIX-F-F04 · стоп: миграция
+- [done] FIX-F-F05 · P1 · проблемы: F-F05 · после: FIX-F-F02, FIX-F-F03, FIX-F-F04 · стоп: миграция
   - Суть: Дубли официальных чатов при одновременной первой загрузке: уникального ограничения на (тип, scope) нет
   - Файлы: apps/api/src/modules/chats/chats.service.spec.ts, apps/api/src/modules/chats/chats.service.ts, prisma/schema/06-chats.prisma
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для F-F05; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.

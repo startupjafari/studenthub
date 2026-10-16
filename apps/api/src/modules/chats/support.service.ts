@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common'
+import { Injectable, Logger, type OnModuleInit } from '@nestjs/common'
 import { ChatType, Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
 import type {
@@ -44,14 +44,107 @@ const TICKET_SELECT = {
   },
 } satisfies Prisma.ChatSelect
 
+/** Потолок сотрудников в одном обращении, которых читаем, чтобы решить, кого не уведомлять. */
+const TICKET_STAFF_SCAN = 500
+
 @Injectable()
-export class SupportService {
+export class SupportService implements OnModuleInit {
+  private readonly logger = new Logger(SupportService.name)
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly chats: ChatsService,
     private readonly audit: AuditService,
     private readonly telegram: TelegramNotifyService,
   ) {}
+
+  onModuleInit(): void {
+    this.chats.registerSupportHook((event) => this.onTicketMessage(event))
+  }
+
+  /**
+   * Правила обращения для КАЖДОГО нового сообщения в нём — каким бы путём оно ни пришло.
+   *
+   * Автору сказано: «ответ придёт в „Чаты“ — там же можно дослать скриншот». И дописывает он
+   * обычной отправкой из окна чата, а не ручкой поддержки. Пока правила жили только в
+   * `reply`, дописка в закрытое обращение оставляла его закрытым: в очереди открытых его не
+   * было, команде ничего не приходило, и вопрос лежал, пока кто-то случайно не откроет
+   * закрытую ветку. Поэтому их зовёт домен чатов — из той точки, где сходятся все пути
+   * отправки: окно чата, вложения, пересылка, `open`, `reply`, голосовой ответ.
+   *
+   * - Любое сообщение открывает закрытое обращение снова: закрытие — про очередь, и раз в
+   *   ветке снова разговор, ей место среди открытых. Склеенную ветку не открываем — в
+   *   очереди её нет, и открытой она стала бы невидимой; открываем ту, в которую склеили.
+   * - Сообщение автора будит команду, но только когда мяч переходит к ней: обращение было
+   *   закрыто или последнее слово было за командой. Дописка следом за собственным
+   *   сообщением уже кого-то ждёт — второе уведомление о той же ветке ничего не добавляет.
+   * - Ответ команды проставляет время первого ответа — один раз.
+   *
+   * Возвращает сотрудников, которым обычное уведомление о сообщении не нужно: все, кроме
+   * разбирающего. Команда узнаёт об обращениях из очереди и Telegram, а сотня уведомлений
+   * на каждую строчку автора — это шум, в котором тонет сам сигнал.
+   */
+  async onTicketMessage(event: {
+    chatId: string
+    senderId: string
+    seq: number
+  }): Promise<ReadonlySet<string>> {
+    const [ticket, staffRows] = await Promise.all([
+      this.prisma.chat.findUnique({
+        where: { id: event.chatId },
+        select: { supportMergedIntoId: true, supportAssigneeId: true },
+      }),
+      this.prisma.chatMember.findMany({
+        where: { chatId: event.chatId, user: { role: { in: [...STAFF_ROLES] } } },
+        select: { userId: true },
+        take: TICKET_STAFF_SCAN,
+      }),
+    ])
+    if (!ticket) return new Set()
+    const staff = new Set(staffRows.map((row) => row.userId))
+    const fromStaff = staff.has(event.senderId)
+    const targetId = ticket.supportMergedIntoId ?? event.chatId
+
+    const { count: reopened } = await this.prisma.chat.updateMany({
+      where: { id: targetId, supportClosedAt: { not: null } },
+      data: { supportClosedAt: null },
+    })
+
+    if (fromStaff) {
+      // `supportFirstReplyAt: null` в условии — чтобы отметка проставилась ровно один раз:
+      // повторное открытие не делает первый ответ быстрее, а переписывать её значило бы
+      // улучшать метрику задним числом.
+      await this.prisma.chat.updateMany({
+        where: { id: event.chatId, supportFirstReplyAt: null },
+        data: { supportFirstReplyAt: new Date() },
+      })
+    } else if (reopened > 0 || (await this.lastWordIsStaff(event, staff))) {
+      // Отправку сообщения Telegram не задерживает: уведомление — побочный сигнал, и
+      // человек, приславший скриншот, не должен ждать ответа чужого API.
+      void this.telegram
+        .notifyStaff('reply', 'Ответ в обращении поддержки', `support_${targetId}`)
+        .catch((error: unknown) => {
+          this.logger.warn(`Не удалось уведомить команду об ответе: ${String(error)}`)
+        })
+    }
+
+    staff.delete(event.senderId)
+    if (ticket.supportAssigneeId) staff.delete(ticket.supportAssigneeId)
+    return staff
+  }
+
+  /** Последнее сообщение перед этим — от команды: значит, автор отвечает на её ответ. */
+  private async lastWordIsStaff(
+    event: { chatId: string; seq: number },
+    staff: ReadonlySet<string>,
+  ): Promise<boolean> {
+    const previous = await this.prisma.message.findFirst({
+      where: { chatId: event.chatId, seq: { lt: event.seq }, deletedAt: null, systemType: null },
+      orderBy: { seq: Prisma.SortOrder.desc },
+      select: { senderId: true },
+    })
+    return previous !== null && staff.has(previous.senderId)
+  }
 
   /**
    * Открыть обращение или дописать в уже открытое.
@@ -91,7 +184,8 @@ export class SupportService {
       ...ctx,
     })
     // Только о новом обращении: дописка в открытое уже кого-то ждёт, и второе
-    // уведомление о той же ветке ничего не добавляет.
+    // уведомление о той же ветке ничего не добавляет. Дописку в ответ на слово команды
+    // отмечает `onTicketMessage` — для неё мяч снова на стороне поддержки.
     if (!existing) {
       // Размер очереди прямо в уведомлении: одно обращение в спокойный день и одно
       // поверх десяти неразобранных требуют разной срочности, а по голому «пришло
@@ -287,6 +381,9 @@ export class SupportService {
   /**
    * Ответить. Ответ в закрытое обращение открывает его снова: человек с уточняющим
    * вопросом иначе остался бы без канала и завёл бы второе обращение о том же.
+   *
+   * Само переоткрытие, отметка первого ответа и уведомление команды — в `onTicketMessage`:
+   * они срабатывают на любом сообщении в обращении, в том числе отправленном из окна чата.
    */
   async reply(
     viewer: JwtPayload,
@@ -302,19 +399,6 @@ export class SupportService {
     // Ответ уходит в комнату чата: у человека с открытым обращением он появляется сразу
     // (уведомление ему при этом не создаётся — он «смотрит чат»).
     this.chats.publishNewMessage(chatId, message)
-    await this.prisma.chat.updateMany({
-      where: { id: chatId, supportClosedAt: { not: null } },
-      data: { supportClosedAt: null },
-    })
-    // Первый ответ команды. `supportFirstReplyAt: null` в условии — чтобы отметка
-    // проставилась ровно один раз: повторное открытие обращения не делает первый
-    // ответ быстрее, и переписывать её значило бы улучшать метрику задним числом.
-    if (STAFF_ROLES.includes(viewer.role)) {
-      await this.prisma.chat.updateMany({
-        where: { id: chatId, supportFirstReplyAt: null },
-        data: { supportFirstReplyAt: new Date() },
-      })
-    }
     await this.audit.record({
       userId: viewer.sub,
       action: 'support.ticket.reply',
@@ -322,12 +406,6 @@ export class SupportService {
       entityId: chatId,
       ...ctx,
     })
-    // Ответ АВТОРА будит команду, ответ команды — нет: иначе поддержка уведомляла бы
-    // сама себя. Без этого человек, дописавший в открытое обращение, ждал молча, а
-    // узнавали о нём, только зайдя в очередь.
-    if (!STAFF_ROLES.includes(viewer.role)) {
-      await this.telegram.notifyStaff('reply', 'Ответ в обращении поддержки', `support_${chatId}`)
-    }
     return message
   }
 
@@ -357,16 +435,8 @@ export class SupportService {
     ])
 
     // Всё остальное — как у текстового ответа: закрытое обращение открывается снова,
-    // отметка первого ответа ставится один раз. Дублировать правила нельзя: иначе
-    // «первый ответ голосом» не попадал бы в метрику, а обращение оставалось закрытым.
-    await this.prisma.chat.updateMany({
-      where: { id: chatId, supportClosedAt: { not: null } },
-      data: { supportClosedAt: null },
-    })
-    await this.prisma.chat.updateMany({
-      where: { id: chatId, supportFirstReplyAt: null },
-      data: { supportFirstReplyAt: new Date() },
-    })
+    // отметка первого ответа ставится один раз. Правила не дублируются здесь — их
+    // применяет `onTicketMessage` к любому сообщению в обращении, голосовому тоже.
     await this.audit.record({
       userId: viewer.sub,
       action: 'support.ticket.reply.voice',
