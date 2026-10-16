@@ -1306,6 +1306,8 @@
     "pollDaysLeft": "{days, plural, one {# day left} other {# days left}}",
     "pollCancelVote": "Cancel vote",
     "pollClosed": "Poll closed",
+    "chipsShowAll": "Show all ({count})",
+    "chipsCollapse": "Show less",
     "pollStatusActive": "Open",
     "pollStatusClosed": "Closed",
     "pollMultipleAnswers": "Multiple answers",

@@ -24,11 +24,12 @@ import {
   UserRound,
   type LucideIcon,
 } from 'lucide-react'
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import type { Role } from '@studenthub/shared-types'
 import { websiteHref, type ProfileFieldKey } from '@studenthub/shared-schemas'
 import {
   Badge,
+  Button,
   Card,
   CardContent,
   CardHeader,
@@ -399,6 +400,10 @@ function ContactsCard({ data }: { data: ProfileData }) {
 }
 
 // ── Карточка чипов (навыки / интересы / языки) ──────────────────────────────
+// Сколько чипов видно сразу. Списки навыков и интересов бывают по 30 пунктов — целиком
+// они вытягивали колонку на экран вниз, и карточки под ними уходили за край.
+const CHIPS_PREVIEW = 10
+
 function ChipsCard({
   title,
   icon: Icon,
@@ -413,29 +418,53 @@ function ChipsCard({
   tone: 'primary' | 'accent' | 'muted'
 }) {
   const t = useTranslations('Profile')
+  const [expanded, setExpanded] = useState(false)
   const chipTone =
     tone === 'primary'
       ? 'bg-primary/10 text-primary'
       : tone === 'accent'
         ? 'bg-info/10 text-info'
         : 'bg-muted text-foreground'
+  // Сворачиваем, только когда скрыто хотя бы два пункта: кнопка «показать ещё один» длиннее
+  // самого пункта.
+  const collapsible = items.length > CHIPS_PREVIEW + 1
+  const shown = collapsible && !expanded ? items.slice(0, CHIPS_PREVIEW) : items
   return (
     <Card className={cn(CARD_LIFT, ENTER)}>
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <Icon className="size-4 text-primary" aria-hidden />
           {title}
+          {items.length > 0 && (
+            <span className="text-sm font-normal text-muted-foreground tabular-nums">
+              {items.length}
+            </span>
+          )}
         </CardTitle>
       </CardHeader>
-      <CardContent className="flex flex-wrap gap-2">
+      <CardContent className="flex flex-col items-start gap-3">
         {items.length === 0 ? (
           <span className="text-sm text-muted-foreground/60">{t('noData')}</span>
         ) : (
-          items.map((it) => (
-            <span key={it} className={cn('rounded-full px-3 py-1 text-sm font-medium', chipTone)}>
-              {renderItem ? renderItem(it) : it}
-            </span>
-          ))
+          <div className="flex flex-wrap gap-2">
+            {shown.map((it) => (
+              <span key={it} className={cn('rounded-full px-3 py-1 text-sm font-medium', chipTone)}>
+                {renderItem ? renderItem(it) : it}
+              </span>
+            ))}
+          </div>
+        )}
+        {collapsible && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            aria-expanded={expanded}
+            className="-ml-2"
+            onClick={() => setExpanded((v) => !v)}
+          >
+            {expanded ? t('chipsCollapse') : t('chipsShowAll', { count: items.length })}
+          </Button>
         )}
       </CardContent>
     </Card>
@@ -503,7 +532,12 @@ function InfoCard({
             return (
               <div
                 key={f.key}
-                className="group -mx-2 flex items-start gap-2 rounded-lg px-2 py-0.5 transition-colors hover:bg-muted/60"
+                className={cn(
+                  'group -mx-2 flex items-start gap-2 rounded-lg px-2 py-0.5 transition-colors hover:bg-muted/60',
+                  // Многострочное поле (обязанности, зона ответственности) — на всю ширину:
+                  // в половине колонки список превращался в узкую ленту.
+                  f.type === 'textarea' && 'sm:col-span-2',
+                )}
               >
                 <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                   <dt className="text-xs text-muted-foreground">{fieldLabel(f.key)}</dt>
@@ -525,6 +559,10 @@ function InfoCard({
                       <CountryFlag code={countryCodeOf(String(v))!} />
                       {v}
                     </dd>
+                  ) : f.type === 'textarea' ? (
+                    // Переносы строк из поля ввода сохраняются: иначе пункты списка
+                    // слипались в один абзац.
+                    <dd className="whitespace-pre-line break-words text-sm leading-relaxed">{v}</dd>
                   ) : (
                     <dd className="break-words text-sm font-medium">{v}</dd>
                   )}

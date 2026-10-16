@@ -1306,6 +1306,8 @@
     "pollDaysLeft": "{days} күн қалды",
     "pollCancelVote": "Дауысты болдырмау",
     "pollClosed": "Сауалнама аяқталды",
+    "chipsShowAll": "Барлығын көрсету ({count})",
+    "chipsCollapse": "Жию",
     "pollStatusActive": "Жүріп жатыр",
     "pollStatusClosed": "Аяқталды",
     "pollMultipleAnswers": "Бірнеше жауап",

@@ -1306,6 +1306,8 @@
     "pollDaysLeft": "Осталось {days, plural, one {# день} few {# дня} many {# дней} other {# дня}}",
     "pollCancelVote": "Отменить голос",
     "pollClosed": "Опрос завершён",
+    "chipsShowAll": "Показать все ({count})",
+    "chipsCollapse": "Свернуть",
     "pollStatusActive": "Идёт",
     "pollStatusClosed": "Завершён",
     "pollMultipleAnswers": "Несколько ответов",
