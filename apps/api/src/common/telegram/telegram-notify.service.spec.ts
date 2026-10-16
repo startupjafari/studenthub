@@ -174,6 +174,22 @@ describe('TelegramNotifyService — политика уведомлений', ()
     )
   })
 
+  // Роль удалённому сохраняется — без условия по deletedAt привязка, пережившая удаление,
+  // получала бы уведомления о жалобах и обращениях.
+  it('удалённым и заблокированным не пишет', async () => {
+    const { service, prisma } = setup({ TELEGRAM_BOT_TOKEN: 'tok' })
+
+    await service.notifyStaff('complaint', 'Срочная жалоба')
+    await service.notifyStaff('ticket', 'Эскалация', undefined, new Date(), true)
+
+    for (const [args] of prisma.telegramAccount.findMany.mock.calls) {
+      expect(args).toMatchObject({
+        where: { revokedAt: null, user: { isBlocked: false, deletedAt: null } },
+      })
+    }
+    expect(prisma.telegramAccount.findMany).toHaveBeenCalledTimes(2)
+  })
+
   // Настройки — не условие доступа: их недоступность не должна глушить уведомления.
   it('при отказе чтения настроек всё равно отправляет', async () => {
     const { service, fetchMock, platform } = setup({ TELEGRAM_BOT_TOKEN: 'tok' })

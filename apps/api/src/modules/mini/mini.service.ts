@@ -115,9 +115,17 @@ export class MiniService {
 
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, firstName: true, role: true, isBlocked: true, twoFactorEnabled: true },
+      select: {
+        id: true,
+        firstName: true,
+        role: true,
+        isBlocked: true,
+        deletedAt: true,
+        twoFactorEnabled: true,
+      },
     })
-    if (!user || user.isBlocked || !ALLOWED_ROLES.includes(user.role as Role)) {
+    // Код живёт пять минут — аккаунт за это время могли удалить или заблокировать.
+    if (!user || user.deletedAt || user.isBlocked || !ALLOWED_ROLES.includes(user.role as Role)) {
       throw this.denied(`link: роль ${user?.role ?? 'нет пользователя'}`)
     }
 
@@ -183,6 +191,7 @@ export class MiniService {
             firstName: true,
             role: true,
             isBlocked: true,
+            deletedAt: true,
             twoFactorEnabled: true,
           },
         },
@@ -191,6 +200,10 @@ export class MiniService {
 
     if (!account || account.revokedAt) throw this.denied('session: привязки нет или отозвана')
     const user = account.user
+    // Удаление аккаунта снимает привязку само (UserService.softDeleteSelf), но доступ
+    // проверяем и здесь: роль удалённому сохраняется, и забытая привязка — от сбоя или
+    // старых данных — иначе выдавала бы ему рабочий токен при выключенном форсе 2FA.
+    if (user.deletedAt) throw this.denied('session: аккаунт удалён')
     if (user.isBlocked) throw this.denied('session: пользователь заблокирован')
     if (!ALLOWED_ROLES.includes(user.role as Role)) {
       throw this.denied(`session: роль ${user.role} больше не допущена`)
@@ -228,7 +241,9 @@ export class MiniService {
     }[]
   > {
     const rows = await this.prisma.telegramAccount.findMany({
-      where: { revokedAt: null },
+      // Привязки удалённых аккаунтов, оставшиеся с прежних времён, — не команда и не пул
+      // дежурства: удаление снимает привязку, но старые строки могли пережить его.
+      where: { revokedAt: null, user: { deletedAt: null } },
       select: {
         userId: true,
         username: true,

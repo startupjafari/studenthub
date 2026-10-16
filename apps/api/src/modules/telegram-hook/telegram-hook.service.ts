@@ -449,6 +449,12 @@ export class TelegramHookService implements OnModuleInit {
   /**
    * Кто нажал. Никаких данных из тела обновления, кроме telegramId: роль и scope читаются
    * из нашей базы — иначе достаточно было бы прислать «я админ» вместе с нажатием.
+   *
+   * Допуск — тот же, что у веба и мини-аппа. Удалённый аккаунт сохраняет роль, и
+   * привязка, пережившая удаление (сбой, старые данные), пускала бы его брать жалобы и
+   * читать очередь; удаление снимает её само, здесь — вторая линия. Форс 2FA — как у
+   * TwoFactorGuard: платформенной роли без второго фактора веб и мини-апп отказывают, и
+   * бот, который её пускает, был бы обходом.
    */
   private async actorFor(telegramId: number | string | undefined): Promise<JwtPayload | null> {
     if (telegramId === undefined) return null
@@ -460,6 +466,8 @@ export class TelegramHookService implements OnModuleInit {
             id: true,
             role: true,
             isBlocked: true,
+            deletedAt: true,
+            twoFactorEnabled: true,
             universityId: true,
             facultyId: true,
             groupId: true,
@@ -468,8 +476,12 @@ export class TelegramHookService implements OnModuleInit {
       },
     })
     const user = account?.user
-    if (!user || user.isBlocked) return null
+    if (!user || user.isBlocked || user.deletedAt) return null
     if (!STAFF_ROLES.includes(user.role as Role)) return null
+    if (this.config.get('TWO_FACTOR_ENFORCE', { infer: true }) && !user.twoFactorEnabled) {
+      this.logger.warn(`Бот: отказ — роль ${user.role} без включённой 2FA (user=${user.id})`)
+      return null
+    }
 
     return {
       sub: user.id,
@@ -477,6 +489,7 @@ export class TelegramHookService implements OnModuleInit {
       universityId: user.universityId,
       facultyId: user.facultyId,
       groupId: user.groupId,
+      tfa: user.twoFactorEnabled,
     } as JwtPayload
   }
 

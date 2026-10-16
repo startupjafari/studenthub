@@ -28,6 +28,7 @@ function setup() {
     file: { findMany: jest.fn().mockResolvedValue([]), delete: jest.fn() },
     chat: { findMany: jest.fn().mockResolvedValue([]) },
     group: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    telegramAccount: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
     complaint: { count: jest.fn().mockResolvedValue(0) },
     moderationWarning: {
       create: jest.fn().mockResolvedValue({ id: 'w1' }),
@@ -498,6 +499,20 @@ describe('UserService — softDeleteSelf', () => {
       where: { starostaId: 'u' },
       data: { starostaId: null },
     })
+  })
+
+  // Бот и мини-апп узнают человека по telegramId, а не по сессии: разлогин этот канал
+  // не гасит, и удалённый сотрудник платформы продолжал бы работать через Telegram.
+  it('снимает привязку Telegram в той же транзакции', async () => {
+    const { service, prisma, passwords, config } = setup()
+    withBuckets(config)
+    passwords.hash.mockResolvedValue('anon')
+    prisma.user.findUnique.mockResolvedValue({ role: Role.PLATFORM_MODERATOR })
+    prisma.user.update.mockResolvedValue({})
+    await service.softDeleteSelf('u')
+    expect(prisma.telegramAccount.deleteMany).toHaveBeenCalledWith({ where: { userId: 'u' } })
+    const ops = prisma.$transaction.mock.calls[0]?.[0] as unknown[]
+    expect(ops).toHaveLength(3)
   })
 
   it('сносит объекты аватара и обложки в MinIO', async () => {

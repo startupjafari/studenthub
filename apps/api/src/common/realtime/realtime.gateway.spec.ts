@@ -172,6 +172,51 @@ describe('RealtimeGateway — второй фактор в handshake', () => {
   })
 })
 
+// Токен мини-аппа по HTTP пускает только на @MiniAllowed (MiniAppGuard), а handshake
+// guard'ы не проходит: без отказа здесь он открывал бы весь realtime администратора.
+describe('RealtimeGateway — токен мини-аппа', () => {
+  it('handshake с токеном мини-аппа — разрыв, без комнат и без онлайна', async () => {
+    const { gateway, jwt } = setup()
+    jwt.verifyAsync.mockResolvedValue({
+      sub: 'a1',
+      role: 'PLATFORM_ADMIN',
+      universityId: null,
+      tfa: true,
+      client: 'mini',
+    })
+    const client = socket('mini')
+    await gateway.handleConnection(client)
+    expect(client.disconnect).toHaveBeenCalled()
+    expect(client.join).not.toHaveBeenCalled()
+    expect(client.data.userId).toBeUndefined()
+    expect(gateway.isOnline('a1')).toBe(false)
+  })
+
+  it('отказ не зависит от аварийного выключателя 2FA', async () => {
+    const { gateway, jwt } = setup(false)
+    jwt.verifyAsync.mockResolvedValue({ sub: 'a1', role: 'PLATFORM_ADMIN', client: 'mini' })
+    const client = socket('mini')
+    await gateway.handleConnection(client)
+    expect(client.disconnect).toHaveBeenCalled()
+    expect(client.join).not.toHaveBeenCalled()
+  })
+
+  it('auth:refresh токеном мини-аппа рвёт соединение, а не продлевает его', async () => {
+    const { gateway, jwt } = setup()
+    jwt.verifyAsync.mockResolvedValue({
+      sub: 'a1',
+      role: 'PLATFORM_ADMIN',
+      tfa: true,
+      client: 'mini',
+    })
+    const client = socket()
+    client.data.userId = 'prev'
+    await gateway.handleAuthRefresh(client, { token: 'mini' })
+    expect(client.disconnect).toHaveBeenCalled()
+    expect(client.data.userId).toBe('prev')
+  })
+})
+
 describe('RealtimeGateway — отозванные сессии', () => {
   it('токен, выданный до блокировки, не открывает соединение', async () => {
     const { gateway, jwt, revocation } = setup(false)

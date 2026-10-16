@@ -9,7 +9,7 @@ import type { PlatformStateReader } from '../platform/platform.constants'
 // Вебхук — единственное место, куда пишет чужая система. Проверяем ровно то, что делает
 // его безопасным: секрет, отсутствие доверия к телу запроса и молчание при отказах.
 
-function setup(env: Record<string, string | undefined> = {}) {
+function setup(env: Record<string, string | boolean | undefined> = {}) {
   const prisma = {
     user: { findMany: jest.fn().mockResolvedValue([]) },
     $queryRaw: jest.fn().mockResolvedValue([{ '?column?': 1 }]),
@@ -145,6 +145,69 @@ describe('TelegramHookService — нажатие', () => {
     expect(support.assign).not.toHaveBeenCalled()
   })
 
+  // Роль удалённому сохраняется, а привязка могла пережить удаление (старые данные):
+  // аккаунт «Удалённый пользователь» не должен брать жалобы и обращения кнопкой.
+  it('удалённого не подпускает', async () => {
+    const { service, prisma, support, complaints } = setup()
+    prisma.telegramAccount.findFirst.mockResolvedValue({
+      user: {
+        id: 'staff-1',
+        role: Role.PLATFORM_MODERATOR,
+        isBlocked: false,
+        deletedAt: new Date('2026-10-01'),
+        twoFactorEnabled: false,
+        universityId: null,
+        facultyId: null,
+        groupId: null,
+      },
+    })
+    await service.handleCallback(query('take:ticket:chat-1'))
+    await service.handleCallback(query('take:complaint:c-1'))
+    expect(support.assign).not.toHaveBeenCalled()
+    expect(complaints.take).not.toHaveBeenCalled()
+  })
+
+  // Веб и мини-апп отказывают платформенной роли без второго фактора — бот не обход.
+  it('при форсе 2FA сотрудника без второго фактора не подпускает', async () => {
+    const { service, prisma, support } = setup({ TWO_FACTOR_ENFORCE: true })
+    prisma.telegramAccount.findFirst.mockResolvedValue({
+      user: {
+        id: 'staff-1',
+        role: Role.PLATFORM_ADMIN,
+        isBlocked: false,
+        deletedAt: null,
+        twoFactorEnabled: false,
+        universityId: null,
+        facultyId: null,
+        groupId: null,
+      },
+    })
+    await service.handleCallback(query('take:ticket:chat-1'))
+    expect(support.assign).not.toHaveBeenCalled()
+  })
+
+  it('при форсе 2FA сотрудника со вторым фактором пускает', async () => {
+    const { service, prisma, support } = setup({ TWO_FACTOR_ENFORCE: true })
+    prisma.telegramAccount.findFirst.mockResolvedValue({
+      user: {
+        id: 'staff-1',
+        role: Role.PLATFORM_ADMIN,
+        isBlocked: false,
+        deletedAt: null,
+        twoFactorEnabled: true,
+        universityId: null,
+        facultyId: null,
+        groupId: null,
+      },
+    })
+    await service.handleCallback(query('take:ticket:chat-1'))
+    expect(support.assign).toHaveBeenCalledWith(
+      expect.objectContaining({ sub: 'staff-1' }),
+      'chat-1',
+      true,
+    )
+  })
+
   // Обновление, на которое не ответили 200, Telegram повторяет часами: отказ сервиса —
   // это текст человеку, а не исключение наружу.
   it('отказ сервиса не превращается в исключение', async () => {
@@ -219,6 +282,34 @@ describe('TelegramHookService — команды', () => {
     await service.handleMessage(privateMsg('/queue'))
 
     // Очередь даже не спрашивали: незачем, ответ всё равно один.
+    expect(complaints.queueStats).not.toHaveBeenCalled()
+    expect(support.queueStats).not.toHaveBeenCalled()
+    expect(String(cap.sent[0]?.body.text)).toContain('не привязан')
+    cap.restore()
+  })
+
+  // Удалённому — тот же ответ, что постороннему: ни очереди, ни дежурства, ни состояния.
+  it('удалённому аккаунту отвечает как постороннему', async () => {
+    const { service, prisma, complaints, support } = setup({ TELEGRAM_BOT_TOKEN: 't' })
+    prisma.telegramAccount.findFirst.mockResolvedValue({
+      linkedAt: new Date('2026-09-12T10:00:00Z'),
+      user: {
+        id: 'staff-1',
+        role: Role.PLATFORM_ADMIN,
+        isBlocked: false,
+        deletedAt: new Date('2026-10-01'),
+        twoFactorEnabled: false,
+        universityId: null,
+        facultyId: null,
+        groupId: null,
+        firstName: 'Удалённый',
+        lastName: 'пользователь',
+      },
+    })
+    const cap = captureSend()
+
+    await service.handleMessage(privateMsg('/queue'))
+
     expect(complaints.queueStats).not.toHaveBeenCalled()
     expect(support.queueStats).not.toHaveBeenCalled()
     expect(String(cap.sent[0]?.body.text)).toContain('не привязан')

@@ -1637,6 +1637,13 @@ export class UserService {
     await this.prisma.$transaction([
       anonymize,
       this.prisma.group.updateMany({ where: { starostaId: userId }, data: { starostaId: null } }),
+      // Привязка Telegram — отдельный канал доступа, и разлогин его не гасит: бот и
+      // мини-апп узнают человека по telegramId, а не по сессии. Без этого удалённый
+      // сотрудник платформы продолжал бы получать уведомления, брать жалобы кнопкой и
+      // читать очередь командами. Строку удаляем, а не отзываем: telegramId и username —
+      // тоже ПДн, а история «этот Telegram здесь уже был» у удалённого аккаунта никому
+      // не нужна и только держала бы уникальный telegramId занятым.
+      this.prisma.telegramAccount.deleteMany({ where: { userId } }),
     ])
     await this.authService.revokeAllUserSessions(userId)
   }

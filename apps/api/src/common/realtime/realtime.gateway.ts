@@ -125,8 +125,9 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     if (typeof token !== 'string' || token.length === 0) return
     try {
       const p = await this.jwt.verifyAsync<JwtPayload & { iat?: number }>(token)
-      // Те же требования, что и в handshake: промежуточный токен 2FA, непройденный
-      // второй фактор и отозванная сессия не должны продлевать уже открытое соединение.
+      // Те же требования, что и в handshake: промежуточный токен 2FA, токен мини-аппа,
+      // непройденный второй фактор и отозванная сессия не должны продлевать уже открытое
+      // соединение.
       if (!this.isUsableAccessToken(p) || (await this.isRevoked(p))) {
         client.disconnect()
         return
@@ -138,6 +139,13 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     }
   }
 
+  /** Токен выдан до отзыва сессий пользователя (блокировка, удаление, смена пароля). */
+  private async isRevoked(payload: JwtPayload & { iat?: number }): Promise<boolean> {
+    if (!(await this.revocation.isRevoked(payload.sub, payload.iat))) return false
+    this.logger.warn(`WS отклонён: сессии пользователя отозваны (user=${payload.sub})`)
+    return true
+  }
+
   /**
    * Годится ли проверенный по подписи токен для доступа к реальному времени.
    *
@@ -146,20 +154,23 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
    * JwtStrategy.validate, и без такой же проверки здесь пароля было бы достаточно, чтобы
    * открыть WS и получать уведомления и сообщения жертвы, не зная её второго фактора.
    *
+   * Тем же секретом подписан и токен админского мини-аппа (`client='mini'`). По HTTP его
+   * держит MiniAppGuard — только маршруты с @MiniAllowed(), — а к handshake guard не
+   * применяется: без отказа здесь телефон с открытым Telegram получал бы весь realtime
+   * администратора, а через события чатов — писать, править и удалять от его имени.
+   * Мини-аппу WS не нужен; понадобится — отдельный namespace с белым списком событий.
+   *
    * Тем же барьером закрываем и форс 2FA: TwoFactorGuard — HTTP-guard, к handshake он не
    * применяется, и привилегированная роль, которой HTTP отвечает TWO_FACTOR_SETUP_REQUIRED,
    * подключалась бы по WS свободно.
    */
-  /** Токен выдан до отзыва сессий пользователя (блокировка, удаление, смена пароля). */
-  private async isRevoked(payload: JwtPayload & { iat?: number }): Promise<boolean> {
-    if (!(await this.revocation.isRevoked(payload.sub, payload.iat))) return false
-    this.logger.warn(`WS отклонён: сессии пользователя отозваны (user=${payload.sub})`)
-    return true
-  }
-
   private isUsableAccessToken(payload: JwtPayload & { typ?: string }): boolean {
     if (payload.typ) {
       this.logger.warn(`WS отклонён: токен типа ${payload.typ} не является access-токеном`)
+      return false
+    }
+    if (payload.client === 'mini') {
+      this.logger.warn(`WS отклонён: токен мини-аппа не пускает в realtime (user=${payload.sub})`)
       return false
     }
     if (!this.config.get('TWO_FACTOR_ENFORCE', { infer: true })) return true

@@ -38,6 +38,7 @@ function setup(twoFactorEnabled: boolean) {
           firstName: 'Админ',
           role: Role.PLATFORM_ADMIN,
           isBlocked: false,
+          deletedAt: null,
           twoFactorEnabled,
         },
       }),
@@ -63,7 +64,7 @@ function setup(twoFactorEnabled: boolean) {
     redis as unknown as Redis,
     telegram as unknown as TelegramNotifyService,
   )
-  return { service, signed }
+  return { service, signed, prisma }
 }
 
 describe('MiniService.session — признак 2FA в токене', () => {
@@ -88,6 +89,45 @@ describe('MiniService.session — признак 2FA в токене', () => {
     await service.session(initData())
 
     expect(signed[0]).toMatchObject({ tfa: false })
+  })
+})
+
+describe('MiniService.session — кому сессия не выдаётся', () => {
+  function withUser(patch: Record<string, unknown>) {
+    const ctx = setup(true)
+    ctx.prisma.telegramAccount.findUnique.mockResolvedValue({
+      id: 'acc-1',
+      revokedAt: null,
+      user: {
+        id: 'admin-1',
+        firstName: 'Удалённый',
+        role: Role.PLATFORM_ADMIN,
+        isBlocked: false,
+        deletedAt: null,
+        twoFactorEnabled: true,
+        ...patch,
+      },
+    })
+    return ctx
+  }
+
+  /**
+   * Удаление снимает привязку само, но роль удалённому сохраняется: забытая привязка
+   * выдавала бы ему рабочий токен при выключенном форсе 2FA. Отказ — тот же 401.
+   */
+  it('удалённому аккаунту — отказ, токен не подписывается', async () => {
+    const { service, signed, prisma } = withUser({ deletedAt: new Date('2026-10-01') })
+
+    await expect(service.session(initData())).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
+    expect(signed).toHaveLength(0)
+    expect(prisma.telegramAccount.update).not.toHaveBeenCalled()
+  })
+
+  it('заблокированному — отказ', async () => {
+    const { service, signed } = withUser({ isBlocked: true })
+
+    await expect(service.session(initData())).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
+    expect(signed).toHaveLength(0)
   })
 })
 

@@ -73,11 +73,11 @@
   - Суть: Лимиты публичных auth-маршрутов считаются по IP: кампус за NAT упирается в 429 на входе, регистрации и refresh
   - Файлы: apps/api/src/common/guards/user-throttler.guard.ts, apps/api/src/modules/auth/auth.controller.ts, apps/api/src/modules/invites/invites.controller.ts, apps/web/src/shared/api/instance.ts, docs/BACKEND_RULES.md
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для A-F02; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [in_progress] FIX-A-F03 · P1 · проблемы: A-F03
+- [done] FIX-A-F03 · P1 · проблемы: A-F03
   - Суть: Токен мини-аппа открывает WebSocket без ограничений белого списка
   - Файлы: apps/api/src/common/realtime/realtime.gateway.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для A-F03; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [in_progress] FIX-A-F04 · P1 · проблемы: A-F04 · после: FIX-A-F01
+- [done] FIX-A-F04 · P1 · проблемы: A-F04 · после: FIX-A-F01
   - Суть: Удалённый аккаунт сотрудника платформы сохраняет доступ через Telegram (бот, уведомления, мини-апп)
   - Файлы: apps/api/src/common/telegram/telegram-notify.service.ts, apps/api/src/modules/mini/mini.service.ts, apps/api/src/modules/telegram-hook/telegram-hook.service.ts, apps/api/src/modules/users/users.service.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для A-F04; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
@@ -130,7 +130,7 @@
   - Файлы: apps/api/src/common/telegram/telegram-notify.service.spec.ts, apps/api/src/common/telegram/telegram-notify.service.ts, apps/api/src/modules/cleanup/cleanup.service.ts, apps/mini-app/src/screens/control.tsx
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для B-F08; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
 - [todo] FIX-B-F09 · P1 · проблемы: B-F09 · после: FIX-B-F01, FIX-A-F04, FIX-B-F08
-  - Суть: Если у дежурного нет активной привязки Telegram, сигналы команде теряются молча
+  - Суть: Если у дежурного нет активной привязки Telegram, сигналы команде теряются молча + из FIX-A-F04: исключать удалённых/заблокированных из дежурства и ротации
   - Файлы: apps/api/src/common/telegram/telegram-notify.service.spec.ts, apps/api/src/common/telegram/telegram-notify.service.ts, apps/api/src/modules/platform/platform.service.spec.ts, apps/api/src/modules/platform/platform.service.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для B-F09; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
 - [todo] FIX-B-F10 · P1 · проблемы: B-F10
@@ -281,15 +281,15 @@
   - Суть: Каждое событие в чате стоит N полных перезапросов списка, а каждый запрос списка читает ВСЕ сообщения чатов страницы
   - Файлы: apps/api/src/modules/chats/chats.service.ts, apps/api/src/modules/chats/support.service.ts, apps/web/src/entities/chat/api/chat-api.ts, apps/web/src/entities/chat/lib/use-chats-unread.ts, apps/web/src/widgets/chat-window/ui/chat-window.tsx
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для F-F02; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [todo] FIX-F-F03 · P1 · проблемы: F-F03 · после: FIX-F-F01, FIX-E-F09, FIX-F-F02
+- [in_progress] FIX-F-F03 · P1 · проблемы: F-F03 · после: FIX-F-F01, FIX-E-F09, FIX-F-F02
   - Суть: Дописка автора обращения из окна чата не открывает закрытое обращение и не будит команду
   - Файлы: apps/api/src/modules/chats/chats.service.ts, apps/api/src/modules/chats/support.service.spec.ts, apps/api/src/modules/chats/support.service.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для F-F03; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [todo] FIX-F-F04 · P1 · проблемы: F-F04 · после: FIX-E-F09, FIX-F-F02, FIX-F-F03
+- [in_progress] FIX-F-F04 · P1 · проблемы: F-F04 · после: FIX-E-F09, FIX-F-F02, FIX-F-F03
   - Суть: Пустое «сообщение-призрак» с занятым seq при отказе загрузки вложения
   - Файлы: apps/api/src/modules/chats/chats.service.spec.ts, apps/api/src/modules/chats/chats.service.ts, apps/api/src/modules/files/file.service.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для F-F04; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [todo] FIX-F-F05 · P1 · проблемы: F-F05 · после: FIX-F-F02, FIX-F-F03, FIX-F-F04 · стоп: миграция
+- [in_progress] FIX-F-F05 · P1 · проблемы: F-F05 · после: FIX-F-F02, FIX-F-F03, FIX-F-F04 · стоп: миграция
   - Суть: Дубли официальных чатов при одновременной первой загрузке: уникального ограничения на (тип, scope) нет
   - Файлы: apps/api/src/modules/chats/chats.service.spec.ts, apps/api/src/modules/chats/chats.service.ts, prisma/schema/06-chats.prisma
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для F-F05; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
