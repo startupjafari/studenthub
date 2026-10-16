@@ -61,7 +61,7 @@
   - Суть: Забаненный участник группы продолжает читать её переписку через глобальный поиск по сообщениям
   - Файлы: apps/api/src/modules/chats/chats.service.spec.ts, apps/api/src/modules/chats/chats.service.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для F-F01; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [in_progress] FIX-F-F09 · P0 · проблемы: F-F09 · стоп: контракт
+- [done] FIX-F-F09 · P0 · проблемы: F-F09 · стоп: контракт
   - Суть: Мобильные пуши по умолчанию выключены, а iOS-клиент не может их включить — контракт настроек расходится
   - Файлы: apps/api/src/modules/notifications/notifications.service.ts, apps/api/src/modules/push/push.service.ts, apps/ios/Sources/Core/Feed/FeedAPI.swift, apps/ios/Sources/Features/Feed/FeedModel.swift
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для F-F09; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.

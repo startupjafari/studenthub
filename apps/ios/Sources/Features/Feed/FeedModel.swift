@@ -236,11 +236,10 @@ final class NotificationsModel {
     }
 
     @MainActor
-    func update(push: Bool? = nil, email: Bool? = nil, inApp: Bool? = nil) async {
+    func update(push: Bool? = nil, email: Bool? = nil) async {
         let next = NotificationSettingsDTO(
-            push: push ?? settings?.push,
-            email: email ?? settings?.email,
-            inApp: inApp ?? settings?.inApp
+            pushEnabled: push ?? settings?.pushEnabled,
+            emailEnabled: email ?? settings?.emailEnabled
         )
         settings = next
         do {

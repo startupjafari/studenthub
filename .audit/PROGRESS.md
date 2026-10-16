@@ -75,3 +75,4 @@
 17. прочее: A-F01 (миграция+контракт), A-F02, A-F06, A-F07 (новый эндпоинт), B-F08, B-F09, D-F02, D-F05, D-F06, D-F09, E-F11, F-F06, F-F11
 
 - FIX-C-F11 done: removePair/removeSchedule отказывают 409 при наличии отметок (+гонка → тот же 409), веб предупреждает; FK attendance→pair RESTRICT — миграция создана, НЕ применена (Q1). schedules 30/30, typecheck чистый.
+- FIX-F-F09 done: registerDevice включает pushEnabled на новом/перехваченном токене (повторная регистрация не трогает); iOS DTO pushEnabled/emailEnabled; Android уже верный; push spec 3 кейса, 51 тест, typecheck чистый. Вопрос Q2. ВСЕ P0 ЗАКРЫТЫ (6/6).

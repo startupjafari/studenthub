@@ -61,10 +61,12 @@ struct NotificationDTO: Decodable, Equatable, Identifiable {
     let data: [String: String]?
 }
 
+/// Каналы доставки. Имена полей — как в контракте API (`UpdateNotificationSettingsSchema`):
+/// схема строгая, и чужое поле в PATCH — это `400`. В колокольчик уведомления
+/// приходят всегда, отдельного флага у него нет.
 struct NotificationSettingsDTO: Codable, Equatable {
-    let push: Bool?
-    let email: Bool?
-    let inApp: Bool?
+    let pushEnabled: Bool?
+    let emailEnabled: Bool?
 }
 
 struct UserProfileDTO: Decodable, Equatable {

@@ -33,6 +33,8 @@ const NOTIFICATION_SELECT = {
 // Дефолты настроек — совпадают с @default в схеме Prisma.
 const DEFAULT_SETTINGS = {
   emailEnabled: true,
+  // Выключен до согласия: в вебе — тумблер с разрешением браузера, на телефоне —
+  // первая регистрация устройства (PushService.registerDevice включает флаг сама).
   pushEnabled: false,
   scheduleChangeEnabled: true,
   appUpdateEnabled: true,

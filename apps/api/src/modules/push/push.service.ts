@@ -82,17 +82,44 @@ export class PushService implements OnModuleInit {
    * пользователем: одно и то же устройство может сменить владельца — человек вышел
    * и вошёл под другим аккаунтом, — и пуши обязаны уйти за ним, а не остаться у
    * прежнего.
+   *
+   * Новая привязка устройства включает человеку `pushEnabled`. Флаг по умолчанию
+   * выключен, и без этого шага телефон молчал бы, пока человек не найдёт тумблер в
+   * веб-настройках. Регистрация устройства и есть согласие: iOS отдаёт токен только
+   * после разрешения в системном диалоге, на Android без разрешения плашку не
+   * покажет сама система — так же, как в вебе тумблер включается вместе с
+   * разрешением браузера.
+   *
+   * Только при новой привязке — токена не было или он был у другого аккаунта
+   * (установка, новый телефон, вход после выхода). Тот же токен приложение
+   * подтверждает на каждом запуске, и включай мы флаг каждый раз, выключенные
+   * пуши не продержались бы до следующего открытия. Цена — вход после выхода
+   * включит пуши снова: «выключил сам» от «ещё не трогал» без отдельного поля не
+   * отличить, а тумблер на том же экране приложения.
    */
   async registerDevice(userId: string, input: RegisterDeviceInput): Promise<void> {
-    await this.prisma.deviceToken.upsert({
-      where: { token: input.token },
-      create: {
-        userId,
-        token: input.token,
-        platform: input.platform,
-        appVersion: input.appVersion,
-      },
-      update: { userId, appVersion: input.appVersion, lastSeenAt: new Date() },
+    await this.prisma.$transaction(async (tx) => {
+      const previous = await tx.deviceToken.findUnique({
+        where: { token: input.token },
+        select: { userId: true },
+      })
+      await tx.deviceToken.upsert({
+        where: { token: input.token },
+        create: {
+          userId,
+          token: input.token,
+          platform: input.platform,
+          appVersion: input.appVersion,
+        },
+        update: { userId, appVersion: input.appVersion, lastSeenAt: new Date() },
+      })
+      if (previous?.userId === userId) return
+      // Остальные поля новой строки — дефолты схемы (они же DEFAULT_SETTINGS уведомлений).
+      await tx.notificationSettings.upsert({
+        where: { userId },
+        update: { pushEnabled: true },
+        create: { userId, pushEnabled: true },
+      })
     })
   }
 
