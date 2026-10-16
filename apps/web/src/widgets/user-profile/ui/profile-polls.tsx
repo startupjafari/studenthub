@@ -50,6 +50,15 @@ export function ProfilePolls({ userId, isOwner, openCreate, onConsumed }: Props)
         : new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
     )
   }, [polls, filter, sort])
+  const counts = useMemo(
+    () => ({
+      all: polls.length,
+      active: polls.filter((p) => !p.closed && p.status === 'PUBLISHED').length,
+      closed: polls.filter((p) => p.closed).length,
+      DRAFT: polls.filter((p) => p.status === 'DRAFT').length,
+    }),
+    [polls],
+  )
 
   const modal = creating && <PollCreateModal userId={userId} onClose={() => setCreating(false)} />
 
@@ -103,22 +112,26 @@ export function ProfilePolls({ userId, isOwner, openCreate, onConsumed }: Props)
           active={filter === 'all'}
           onClick={() => setFilter('all')}
           label={t('filterAll')}
+          count={counts.all}
         />
         <FilterOption
           active={filter === 'active'}
           onClick={() => setFilter('active')}
           label={t('pollActive')}
+          count={counts.active}
         />
         <FilterOption
           active={filter === 'closed'}
           onClick={() => setFilter('closed')}
           label={t('pollClosed')}
+          count={counts.closed}
         />
         {isOwner && (
           <FilterOption
             active={filter === 'DRAFT'}
             onClick={() => setFilter('DRAFT')}
             label={t('filterDrafts')}
+            count={counts.DRAFT}
           />
         )}
       </FilterGroup>
@@ -142,7 +155,8 @@ export function ProfilePolls({ userId, isOwner, openCreate, onConsumed }: Props)
             {t('nothingFound')}
           </p>
         ) : (
-          <div className="grid items-start gap-4 xl:grid-cols-2">
+          // Карточки ряда — одной высоты: подвал с участниками стоит на одной линии.
+          <div className="grid gap-4 xl:grid-cols-2">
             {visible.map((poll) => (
               <PollCard key={poll.id} poll={poll} isOwner={isOwner} />
             ))}

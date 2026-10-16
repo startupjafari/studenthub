@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useLocale, useTranslations } from 'next-intl'
-import { Check, RotateCcw, Trash2 } from 'lucide-react'
+import { Check, Clock, EyeOff, ListChecks, RotateCcw, Trash2, Users } from 'lucide-react'
 import {
   cancelPollVote,
   deletePoll,
@@ -12,25 +12,11 @@ import {
   votePoll,
   type PollView,
 } from '../../../entities/poll'
-import { ProfileLink } from '../../../entities/user'
-import {
-  Avatar,
-  AvatarFallback,
-  AvatarImage,
-  Badge,
-  Button,
-  Card,
-  CardContent,
-  useConfirm,
-} from '../../../shared/ui'
+import { Badge, Button, Card, CardContent, Progress, useConfirm } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 
 function errCode(e: unknown): string {
   return (e as { code?: string }).code ?? 'INTERNAL_ERROR'
-}
-
-function initials(a: { firstName: string; lastName: string }): string {
-  return `${a.lastName[0] ?? ''}${a.firstName[0] ?? ''}`.toUpperCase()
 }
 
 interface Props {
@@ -38,6 +24,12 @@ interface Props {
   isOwner: boolean
 }
 
+// Карточка опроса во вкладке профиля. Автора на карточке нет: вкладка уже внутри его профиля,
+// и одинаковые аватар с именем на каждой карточке были шумом. Вместо них сверху — то, что
+// нужно, чтобы решить, голосовать ли: статус, сколько осталось и правила опроса.
+//
+// Автор видит итоги сразу (свои результаты ему важнее формы голосования) и может перейти к
+// голосованию кнопкой в подвале; остальные сначала голосуют, итоги — по настройке опроса.
 export function PollCard({ poll, isOwner }: Props) {
   const t = useTranslations('Profile')
   const tErr = useTranslations('Errors')
@@ -45,6 +37,7 @@ export function PollCard({ poll, isOwner }: Props) {
   const qc = useQueryClient()
   const confirm = useConfirm()
   const [selected, setSelected] = useState<string[]>([])
+  const [ownerVoting, setOwnerVoting] = useState(false)
 
   const invalidate = () => {
     void qc.invalidateQueries({ queryKey: pollKeys.byUser(poll.author.id) })
@@ -53,7 +46,10 @@ export function PollCard({ poll, isOwner }: Props) {
 
   const voteMut = useMutation({
     mutationFn: (ids: string[]) => votePoll(poll.id, ids),
-    onSuccess: invalidate,
+    onSuccess: () => {
+      setOwnerVoting(false)
+      invalidate()
+    },
     onError: (e) => toast.error(tErr(errCode(e))),
   })
   const cancelMut = useMutation({
@@ -68,7 +64,9 @@ export function PollCard({ poll, isOwner }: Props) {
   })
 
   const voted = poll.myVotes.length > 0
-  const votingMode = !voted && poll.canVote
+  const canVoteNow = !voted && poll.canVote
+  const votingMode = canVoteNow && (!isOwner || ownerVoting)
+  const draft = isOwner && poll.status === 'DRAFT'
 
   function toggle(id: string) {
     if (poll.multiple) {
@@ -82,35 +80,46 @@ export function PollCard({ poll, isOwner }: Props) {
     ? Math.ceil((new Date(poll.closesAt).getTime() - Date.now()) / 86_400_000)
     : null
   const date = new Date(poll.createdAt).toLocaleDateString(locale, {
-    day: '2-digit',
-    month: 'long',
-    year: 'numeric',
+    day: 'numeric',
+    month: 'short',
   })
+  const maxVotes = Math.max(0, ...poll.options.map((o) => o.votes))
 
   return (
-    <Card
-      className={cn(
-        'group flex flex-col rounded-2xl transition-shadow hover:ring-ring/50',
-        poll.closed && 'opacity-95',
-      )}
-    >
-      <CardContent className="flex flex-1 flex-col gap-3 p-4">
-        {/* Автор + дата */}
-        <div className="flex items-center gap-2">
-          <ProfileLink userId={poll.author.id} className="shrink-0">
-            <Avatar className="size-9">
-              {poll.author.avatarUrl && <AvatarImage src={poll.author.avatarUrl} alt="" />}
-              <AvatarFallback>{initials(poll.author)}</AvatarFallback>
-            </Avatar>
-          </ProfileLink>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-semibold">
-              <ProfileLink userId={poll.author.id} className="hover:text-primary hover:underline">
-                {poll.author.lastName} {poll.author.firstName}
-              </ProfileLink>
-            </p>
-            <p className="text-xs text-muted-foreground">{date}</p>
+    <Card className="group h-full transition-shadow hover:ring-ring/50">
+      <CardContent className="flex flex-1 flex-col gap-4">
+        {/* Статус и правила опроса — одной строкой мета-данных; дата и удаление справа. */}
+        <div className="flex items-start gap-2">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1.5 text-xs text-muted-foreground">
+            {draft ? (
+              <Badge variant="outline">{t('draft')}</Badge>
+            ) : poll.closed ? (
+              <Badge variant="secondary">{t('pollStatusClosed')}</Badge>
+            ) : (
+              <Badge variant="success">{t('pollStatusActive')}</Badge>
+            )}
+            {!poll.closed && daysLeft !== null && daysLeft > 0 && (
+              <span className="inline-flex items-center gap-1">
+                <Clock className="size-3.5" aria-hidden />
+                {t('pollDaysLeft', { days: daysLeft })}
+              </span>
+            )}
+            {poll.anonymous && (
+              <span className="inline-flex items-center gap-1">
+                <EyeOff className="size-3.5" aria-hidden />
+                {t('pollAnonymous')}
+              </span>
+            )}
+            {poll.multiple && (
+              <span className="inline-flex items-center gap-1">
+                <ListChecks className="size-3.5" aria-hidden />
+                {t('pollMultipleAnswers')}
+              </span>
+            )}
           </div>
+          <time dateTime={poll.createdAt} className="shrink-0 pt-0.5 text-xs text-muted-foreground">
+            {date}
+          </time>
           {isOwner && (
             <Button
               type="button"
@@ -118,7 +127,7 @@ export function PollCard({ poll, isOwner }: Props) {
               size="sm"
               icon
               aria-label={t('delete')}
-              className="shrink-0 opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100"
+              className="-my-1 shrink-0 opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100 max-lg:opacity-100"
               onClick={() => {
                 void confirm({ title: t('pollDeleteConfirm'), destructive: true }).then((ok) => {
                   if (ok) delMut.mutate()
@@ -130,46 +139,55 @@ export function PollCard({ poll, isOwner }: Props) {
           )}
         </div>
 
-        <div className="flex flex-col gap-1.5">
-          <div className="flex flex-wrap items-center gap-1.5">
-            {isOwner && poll.status === 'DRAFT' && <Badge variant="secondary">{t('draft')}</Badge>}
-            {poll.closed && <Badge variant="secondary">{t('pollClosed')}</Badge>}
-            {poll.multiple && <Badge variant="outline">{t('pollMultiple')}</Badge>}
-            {poll.anonymous && <Badge variant="outline">{t('pollAnonymous')}</Badge>}
-          </div>
-          <p className="text-base font-semibold leading-snug">{poll.question}</p>
+        <div className="flex flex-col gap-1">
+          <h3 className="text-base font-semibold leading-snug">{poll.question}</h3>
+          {votingMode && (
+            <p className="text-xs text-muted-foreground">
+              {poll.multiple ? t('pollPickMany') : t('pollPickOne')}
+            </p>
+          )}
         </div>
 
         {votingMode ? (
-          <div className="flex flex-col gap-2">
-            {poll.options.map((o) => {
-              const active = selected.includes(o.id)
-              return (
-                <button
-                  key={o.id}
-                  type="button"
-                  onClick={() => toggle(o.id)}
-                  className={cn(
-                    'flex items-center gap-3 rounded-xl border px-3.5 py-2.5 text-left text-sm transition-colors',
-                    active ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted/50',
-                  )}
-                >
-                  <span
+          <div className="flex flex-col gap-3">
+            <div
+              role={poll.multiple ? 'group' : 'radiogroup'}
+              aria-label={poll.question}
+              className="flex flex-col gap-2"
+            >
+              {poll.options.map((o) => {
+                const active = selected.includes(o.id)
+                return (
+                  <button
+                    key={o.id}
+                    type="button"
+                    role={poll.multiple ? 'checkbox' : 'radio'}
+                    aria-checked={active}
+                    onClick={() => toggle(o.id)}
                     className={cn(
-                      'flex size-4 shrink-0 items-center justify-center border border-input',
-                      poll.multiple ? 'rounded' : 'rounded-full',
-                      active && 'border-primary bg-primary text-primary-foreground',
+                      'flex min-h-10 items-center gap-3 rounded-xl border px-3 py-2 text-left text-sm transition-colors outline-none focus-visible:ring-4 focus-visible:ring-ring/20',
+                      active
+                        ? 'border-primary bg-primary/10 font-medium'
+                        : 'border-border hover:bg-muted/50',
                     )}
                   >
-                    {active && <Check className="size-3" aria-hidden />}
-                  </span>
-                  {o.text}
-                </button>
-              )
-            })}
+                    <span
+                      className={cn(
+                        'flex size-4 shrink-0 items-center justify-center border border-input',
+                        poll.multiple ? 'rounded-md' : 'rounded-full',
+                        active && 'border-primary bg-primary text-primary-foreground',
+                      )}
+                    >
+                      {active && <Check className="size-3" aria-hidden />}
+                    </span>
+                    {o.text}
+                  </button>
+                )
+              })}
+            </div>
             <Button
               type="button"
-              size="sm"
+              size="md"
               className="w-fit"
               loading={voteMut.isPending}
               disabled={selected.length === 0}
@@ -179,70 +197,80 @@ export function PollCard({ poll, isOwner }: Props) {
             </Button>
           </div>
         ) : poll.canSeeResults ? (
-          // Результаты: процент показан ВНУТРИ прогресс-бара (компактно, без отдельной строки).
-          <div className="flex flex-col gap-2">
+          // Итоги: подпись целиком (без обрезки), справа доля и число голосов, под ней полоса.
+          // Лидер выделен цветом полосы и весом шрифта — и цифрой, не только цветом.
+          <ul className="flex flex-col gap-3">
             {poll.options.map((o) => {
               const pct = poll.totalVotes > 0 ? Math.round((o.votes / poll.totalVotes) * 100) : 0
               const mine = poll.myVotes.includes(o.id)
+              const leader = maxVotes > 0 && o.votes === maxVotes
               return (
-                <div
-                  key={o.id}
-                  className={cn(
-                    'relative overflow-hidden rounded-xl border',
-                    mine ? 'border-primary/40' : 'border-border',
-                  )}
-                  title={t('pollVotesCount', { count: o.votes })}
-                >
-                  <div
-                    className={cn(
-                      'absolute inset-y-0 left-0 transition-[width] duration-500 ease-out',
-                      mine ? 'bg-primary/20' : 'bg-muted',
-                    )}
-                    style={{ width: `${pct}%` }}
-                  />
-                  <div className="relative flex items-center justify-between gap-2 px-3.5 py-2.5 text-sm">
+                <li key={o.id} className="flex flex-col gap-1.5">
+                  <div className="flex items-baseline justify-between gap-3 text-sm">
                     <span
                       className={cn(
-                        'flex min-w-0 items-center gap-1.5 truncate',
-                        mine && 'font-semibold text-primary',
+                        'flex min-w-0 items-center gap-1.5',
+                        leader && 'font-semibold',
+                        mine && 'text-primary',
                       )}
                     >
-                      {mine && <Check className="size-4 shrink-0" aria-hidden />}
-                      <span className="truncate">{o.text}</span>
+                      {mine && <Check className="size-4 shrink-0" aria-label={t('pollYourVote')} />}
+                      <span className="min-w-0 break-words">{o.text}</span>
                     </span>
-                    <span
-                      className={cn('shrink-0 font-semibold tabular-nums', mine && 'text-primary')}
-                    >
-                      {pct}%
+                    <span className="flex shrink-0 items-baseline gap-1.5 tabular-nums">
+                      <span className={cn('font-semibold', leader && 'text-primary')}>{pct}%</span>
+                      <span className="text-xs text-muted-foreground">
+                        {t('pollVotesCount', { count: o.votes })}
+                      </span>
                     </span>
                   </div>
-                </div>
+                  <Progress
+                    value={pct}
+                    aria-label={`${o.text}: ${pct}%`}
+                    indicatorClassName={leader ? 'bg-primary' : 'bg-muted-foreground/40'}
+                  />
+                </li>
               )
             })}
-          </div>
+          </ul>
         ) : (
-          <p className="rounded-xl bg-muted/50 px-3 py-3 text-sm text-muted-foreground">
+          <p className="flex items-center gap-2 rounded-xl bg-muted/50 px-3 py-3 text-sm text-muted-foreground">
+            <EyeOff className="size-4 shrink-0" aria-hidden />
             {voted ? t('pollVotedHidden') : t('pollResultsHidden')}
           </p>
         )}
 
         <div className="mt-auto flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-border pt-3 text-xs text-muted-foreground">
-          <span>{t('pollParticipants', { count: poll.participants })}</span>
-          {poll.multiple && <span>· {t('pollVotesCount', { count: poll.totalVotes })}</span>}
-          {poll.closed ? (
-            <span>· {t('pollClosed')}</span>
-          ) : daysLeft !== null && daysLeft > 0 ? (
-            <span>· {t('pollDaysLeft', { days: daysLeft })}</span>
-          ) : null}
+          <span className="inline-flex items-center gap-1 tabular-nums">
+            <Users className="size-3.5" aria-hidden />
+            {t('pollParticipants', { count: poll.participants })}
+          </span>
+          {poll.multiple && (
+            <span className="tabular-nums">{t('pollVotesCount', { count: poll.totalVotes })}</span>
+          )}
           {voted && poll.allowRevote && !poll.closed && (
-            <button
+            <Button
               type="button"
+              variant="ghost"
+              size="sm"
+              className="-my-1 ml-auto"
+              loading={cancelMut.isPending}
               onClick={() => cancelMut.mutate()}
-              className="ml-auto inline-flex items-center gap-1 text-primary hover:underline"
             >
-              <RotateCcw className="size-3" aria-hidden />
+              <RotateCcw className="size-3.5" aria-hidden />
               {t('pollCancelVote')}
-            </button>
+            </Button>
+          )}
+          {isOwner && canVoteNow && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="-my-1 ml-auto"
+              onClick={() => setOwnerVoting((v) => !v)}
+            >
+              {ownerVoting ? t('pollShowResults') : t('pollVote')}
+            </Button>
           )}
         </div>
       </CardContent>
