@@ -40,6 +40,7 @@ import { MediaLightbox } from './media-lightbox'
 import { PhotoAlbumMenu, type AlbumFilter } from './album-controls'
 import { ContentLayout, FilterGroup, FilterOption, FilterSkeleton } from './filter-sidebar'
 import { useRetryOnError } from './use-retry-on-error'
+import { useProgressive } from './use-progressive'
 
 function errCode(e: unknown): string {
   return (e as { code?: string }).code ?? 'INTERNAL_ERROR'
@@ -173,6 +174,17 @@ export function ProfileMediaGrid({
     return sort === 'new' ? d : -d
   })
   const activeAlbumId = albumFilter !== 'all' ? albumFilter : null
+  // Порция — полный цикл мозаики (14 плиток): каждая догрузка достраивает узор до конца.
+  const { shown, pending, sentinelRef } = useProgressive(
+    items.length,
+    14,
+    `${kind}|${albumFilter}|${sort}`,
+  )
+  const skeletonTail = Array.from({ length: pending }, (_, j) => (
+    <MosaicTile key={`pending-${j}`} index={shown + j} aria-hidden>
+      <Skeleton className="size-full rounded-none" />
+    </MosaicTile>
+  ))
 
   function onPick(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -368,7 +380,7 @@ export function ProfileMediaGrid({
               </p>
             ) : isPhoto ? (
               <MosaicGrid>
-                {items.map((m, i) => (
+                {items.slice(0, shown).map((m, i) => (
                   <MosaicTile key={m.id} index={i}>
                     <button
                       type="button"
@@ -405,10 +417,11 @@ export function ProfileMediaGrid({
                     )}
                   </MosaicTile>
                 ))}
+                {skeletonTail}
               </MosaicGrid>
             ) : (
               <MosaicGrid>
-                {items.map((m, i) => (
+                {items.slice(0, shown).map((m, i) => (
                   <VideoTile
                     key={m.id}
                     index={i}
@@ -419,8 +432,10 @@ export function ProfileMediaGrid({
                     deleteLabel={t('delete')}
                   />
                 ))}
+                {skeletonTail}
               </MosaicGrid>
             )}
+            <div ref={sentinelRef} aria-hidden />
 
             {lightbox !== null && (
               <MediaLightbox

@@ -6,7 +6,8 @@ import { useTranslations } from 'next-intl'
 import { Newspaper } from 'lucide-react'
 import { fetchAuthorPosts, postKeys, type FeedPost } from '../../../entities/post'
 import { PostGrid } from '../../feed-list'
-import { Button, EmptyState, MosaicGrid, MosaicTile, Skeleton } from '../../../shared/ui'
+import { EmptyState, MosaicGrid, MosaicTile, Skeleton } from '../../../shared/ui'
+import { useInfiniteScroll } from '../../../shared/lib'
 import { PostCreateModal } from './post-create-modal'
 import { ContentLayout, FilterGroup, FilterOption, FilterSkeleton } from './filter-sidebar'
 import { useRetryOnError } from './use-retry-on-error'
@@ -21,6 +22,8 @@ interface Props {
 
 type SortMode = 'new' | 'popular'
 type StatusFilter = 'all' | 'PUBLISHED' | 'DRAFT' | 'SCHEDULED'
+
+const PAGE_SIZE = 20
 
 // Вкладка «Посты»: слева — сортировка и быстрые фильтры, справа — мозаика публикаций.
 export function ProfilePosts({ userId, isOwner, openCreate, onConsumed }: Props) {
@@ -37,12 +40,23 @@ export function ProfilePosts({ userId, isOwner, openCreate, onConsumed }: Props)
 
   const q = useInfiniteQuery({
     queryKey: postKeys.author(userId),
-    queryFn: ({ pageParam }) => fetchAuthorPosts(userId, { limit: 20, cursor: pageParam }),
+    queryFn: ({ pageParam }) => fetchAuthorPosts(userId, { limit: PAGE_SIZE, cursor: pageParam }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => (last.hasNext ? last.cursor : undefined),
   })
 
   const posts = (q.data?.pages ?? []).flatMap((p) => p.items)
+  // Следующая страница подгружается сама, когда низ мозаики подходит к экрану; пока она в
+  // пути, её места заняты скелетонами (сколько осталось, но не больше страницы).
+  const loadMoreRef = useInfiniteScroll<HTMLDivElement>({
+    hasNext: !!q.hasNextPage,
+    loading: q.isFetchingNextPage,
+    onLoad: () => void q.fetchNextPage(),
+  })
+  const total = q.data?.pages[0]?.total
+  const pending = q.hasNextPage
+    ? Math.min(PAGE_SIZE, total !== undefined ? Math.max(0, total - posts.length) : PAGE_SIZE)
+    : 0
   const sorted = useMemo(() => {
     const filtered =
       isOwner && statusFilter !== 'all' ? posts.filter((p) => p.status === statusFilter) : posts
@@ -124,19 +138,9 @@ export function ProfilePosts({ userId, isOwner, openCreate, onConsumed }: Props)
     <>
       {modal}
       <ContentLayout sidebar={sidebar}>
-        <div className="flex flex-col gap-4">
-          <PostGrid posts={sorted} />
-          {q.hasNextPage && (
-            <Button
-              type="button"
-              variant="outline"
-              className="mx-auto w-fit"
-              loading={q.isFetchingNextPage}
-              onClick={() => void q.fetchNextPage()}
-            >
-              {t('loadMorePosts')}
-            </Button>
-          )}
+        <div className="flex flex-col">
+          <PostGrid posts={sorted} pending={pending} />
+          <div ref={loadMoreRef} aria-hidden />
         </div>
       </ContentLayout>
     </>

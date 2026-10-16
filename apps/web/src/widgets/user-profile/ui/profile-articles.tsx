@@ -50,6 +50,7 @@ import { ArticleCover } from './article-cover'
 import { ContentComments } from './content-comments'
 import { ContentLayout, FilterGroup, FilterOption, FilterSkeleton } from './filter-sidebar'
 import { useRetryOnError } from './use-retry-on-error'
+import { useProgressive } from './use-progressive'
 
 function errCode(e: unknown): string {
   return (e as { code?: string }).code ?? 'INTERNAL_ERROR'
@@ -115,6 +116,12 @@ export function ProfileArticles({ userId, isOwner, openCreate, onConsumed }: Pro
       return db - da
     })
   }, [articles, isOwner, statusFilter, category, sort])
+  // Порция — полный цикл мозаики: догрузка достраивает узор, а не обрывает его.
+  const { shown, pending, sentinelRef } = useProgressive(
+    visible.length,
+    14,
+    `${statusFilter}|${category}|${sort}`,
+  )
 
   const modals = (
     <>
@@ -220,7 +227,7 @@ export function ProfileArticles({ userId, isOwner, openCreate, onConsumed }: Pro
             </p>
           ) : (
             <MosaicGrid>
-              {visible.map((a, i) => (
+              {visible.slice(0, shown).map((a, i) => (
                 <ArticleCard
                   key={a.id}
                   index={i}
@@ -237,8 +244,14 @@ export function ProfileArticles({ userId, isOwner, openCreate, onConsumed }: Pro
                   }}
                 />
               ))}
+              {Array.from({ length: pending }, (_, j) => (
+                <MosaicTile key={`pending-${j}`} index={shown + j} aria-hidden>
+                  <Skeleton className="size-full rounded-none" />
+                </MosaicTile>
+              ))}
             </MosaicGrid>
           )}
+          <div ref={sentinelRef} aria-hidden />
         </div>
       </ContentLayout>
     </>
