@@ -7,9 +7,14 @@ import type {
 import { api } from '../../../shared/api'
 import type { EventComment, EventItem, EventParticipant } from '../model/types'
 
+const DEFAULT_EVENTS_LIMIT = 50
+
 export const eventKeys = {
   all: ['events'] as const,
-  list: (filter: string, mine?: boolean) => ['events', 'list', filter, mine ?? false] as const,
+  // limit — часть ключа: главная берёт 4 ближайших, «Мероприятия» и календарь — 50. С общим
+  // ключом экран, открытый следом за главной, показывал из кэша её четыре события (E-F11).
+  list: (filter: string, mine?: boolean, limit = DEFAULT_EVENTS_LIMIT) =>
+    ['events', 'list', filter, mine ?? false, limit] as const,
   detail: (id: string) => ['events', 'detail', id] as const,
   participants: (id: string) => ['events', id, 'participants'] as const,
   meeting: (id: string) => ['events', id, 'meeting'] as const,
@@ -18,7 +23,7 @@ export const eventKeys = {
 
 export async function fetchEvents(query: Partial<EventListQueryInput> = {}): Promise<EventItem[]> {
   const { data } = await api.get<EventItem[]>('/events', {
-    params: { page: 1, limit: 50, filter: 'upcoming', ...query },
+    params: { page: 1, limit: DEFAULT_EVENTS_LIMIT, filter: 'upcoming', ...query },
   })
   return data
 }

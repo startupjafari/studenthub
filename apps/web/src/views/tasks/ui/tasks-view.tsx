@@ -73,7 +73,7 @@ export function TasksView() {
     queryFn: () => fetchApplications({ limit: 50 }),
   })
   const events = useQuery({
-    queryKey: eventKeys.list('upcoming'),
+    queryKey: eventKeys.list('upcoming', false, 30),
     queryFn: () => fetchEvents({ limit: 30, filter: 'upcoming' }),
   })
   const assignments = useQuery({
