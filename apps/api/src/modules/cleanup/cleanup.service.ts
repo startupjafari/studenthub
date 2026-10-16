@@ -18,6 +18,7 @@ import { ChatsService } from '../chats/chats.service'
 import { SupportService } from '../chats/support.service'
 import { ComplaintsService } from '../complaints/complaints.service'
 import { DemoRequestsService } from '../onboarding/demo-requests.service'
+import { CompaniesService } from '../career/companies.service'
 import { countServerErrors } from '../../common/monitoring/error-rate'
 import { TelegramNotifyService } from '../../common/telegram/telegram-notify.service'
 import { digestText, humanAge } from '../../common/telegram/digest'
@@ -55,6 +56,7 @@ const LOCK_TTL_MS = {
   alertQueueBacklog: 10 * 60 * 1000,
   closeStaleTickets: 10 * 60 * 1000,
   purgeUnconfirmedDemoRequests: 10 * 60 * 1000,
+  expireCompanyAccess: 10 * 60 * 1000,
   liftExpiredBlocks: 4 * 60 * 1000,
   rotateDuty: 10 * 60 * 1000,
   watchServices: 4 * 60 * 1000,
@@ -148,6 +150,7 @@ export class CleanupService {
     private readonly telegram: TelegramNotifyService,
     @Inject(PLATFORM_STATE) private readonly platform: PlatformStateReader,
     private readonly media: MediaService,
+    private readonly companies: CompaniesService,
   ) {}
 
   // Напоминания за час до события (docs/BACKEND_RULES.md §9.3): каждые 15 мин, окно [now+55, now+70],
@@ -719,6 +722,17 @@ export class CleanupService {
         this.logger.log(`purgeUnconfirmedDemoRequests: удалено ${removed}`)
         return removed
       },
+    )
+  }
+
+  // Допуски компаний к вузам с истёкшим сроком → REVOKED с каскадом на вакансии. Ежечасно,
+  // в :40. Доступ к студентам по сроку закрывается и без задачи (проверка в каждом запросе),
+  // она приводит в порядок состояние: решения по вакансиям, статус у компании, сводки вуза.
+  // Логика — в CompaniesService.expireAccess (владелец домена).
+  @Cron('40 * * * *', { name: 'expireCompanyAccess' })
+  async expireCompanyAccess(): Promise<number | null> {
+    return this.locks.run('expireCompanyAccess', LOCK_TTL_MS.expireCompanyAccess, () =>
+      this.companies.expireAccess(),
     )
   }
 

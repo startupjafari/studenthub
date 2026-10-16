@@ -73,11 +73,11 @@
   - Суть: Лимиты публичных auth-маршрутов считаются по IP: кампус за NAT упирается в 429 на входе, регистрации и refresh
   - Файлы: apps/api/src/common/guards/user-throttler.guard.ts, apps/api/src/modules/auth/auth.controller.ts, apps/api/src/modules/invites/invites.controller.ts, apps/web/src/shared/api/instance.ts, docs/BACKEND_RULES.md
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для A-F02; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [todo] FIX-A-F03 · P1 · проблемы: A-F03
+- [in_progress] FIX-A-F03 · P1 · проблемы: A-F03
   - Суть: Токен мини-аппа открывает WebSocket без ограничений белого списка
   - Файлы: apps/api/src/common/realtime/realtime.gateway.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для A-F03; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [todo] FIX-A-F04 · P1 · проблемы: A-F04 · после: FIX-A-F01
+- [in_progress] FIX-A-F04 · P1 · проблемы: A-F04 · после: FIX-A-F01
   - Суть: Удалённый аккаунт сотрудника платформы сохраняет доступ через Telegram (бот, уведомления, мини-апп)
   - Файлы: apps/api/src/common/telegram/telegram-notify.service.ts, apps/api/src/modules/mini/mini.service.ts, apps/api/src/modules/telegram-hook/telegram-hook.service.ts, apps/api/src/modules/users/users.service.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для A-F04; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
@@ -229,11 +229,11 @@
   - Суть: Два одновременных решения по жалобе применяют меру дважды
   - Файлы: apps/api/src/modules/complaints/complaints.service.spec.ts, apps/api/src/modules/complaints/complaints.service.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для D-F11; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [in_progress] FIX-D-F12 · P1 · проблемы: D-F12 · после: FIX-B-F07, FIX-D-F09, FIX-D-F10
+- [done] FIX-D-F12 · P1 · проблемы: D-F12 · после: FIX-B-F07, FIX-D-F09, FIX-D-F10
   - Суть: Правка одобренной вакансии сразу видна студентам без повторной модерации
   - Файлы: apps/api/src/modules/career/vacancies.service.spec.ts, apps/api/src/modules/career/vacancies.service.ts, docs/PROJECT.md
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для D-F12; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [in_progress] FIX-D-F13 · P1 · проблемы: D-F13 · после: FIX-A-F08, FIX-B-F08, FIX-D-F12 · стоп: миграция
+- [done] FIX-D-F13 · P1 · проблемы: D-F13 · после: FIX-A-F08, FIX-B-F08, FIX-D-F12 · стоп: миграция
   - Суть: Истёкший допуск компании не снимает её вакансии: студенты продолжают откликаться, компания получает новых кандидатов
   - Файлы: apps/api/src/modules/career/applications.service.ts, apps/api/src/modules/career/companies.service.ts, apps/api/src/modules/career/vacancies.service.ts, apps/api/src/modules/cleanup/cleanup.service.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для D-F13; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
@@ -577,6 +577,10 @@
 <!-- задач: 133; P0/P1: 69; P2-пакетов: 64 -->
 
 ### Дополнительные задачи (хвосты исправлений)
+
+- [todo] P2-D-career-web-followup · P2 · из FIX-D-F12: форма правки вакансии работодателя предупреждает, что сохранение содержательных полей вернёт вакансию на модерацию
+  - Файлы: apps/web/src/views/employer/**
+  - Готово, когда: предупреждение в форме (i18n ru/kk/en), тесты зелёные.
 
 - [todo] P2-D-applications-web-followup · P2 · из FIX-D-F03: в вебе (и iOS/Android) скрыть «Убрать» у ACCEPTED-документа, пока ждут исправление (сервер отвечает 400); выполнить вместе с FIX-D-F02/D-F05/D-F06
   - Файлы: apps/web/src/views/applications/**, apps/web/src/entities/applications/**

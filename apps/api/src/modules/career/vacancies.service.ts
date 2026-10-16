@@ -17,7 +17,43 @@ import { AuditService } from '../../common/audit/audit.service'
 import { Paginated } from '../../common/http/paginated'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
-import { CareerAccessService } from './career-access.service'
+import { CareerAccessService, vacancyVisibleWhere } from './career-access.service'
+
+/**
+ * Поля, которые читает студент и одобрял вуз. Правка любого из них возвращает вакансию на
+ * модерацию: вуз пропускал конкретный текст и условия, а не вакансию навсегда, и без этого
+ * одобренную безобидную вакансию можно было бы переписать во что угодно мимо модерации.
+ *
+ * Срок приёма откликов (`deadline`) сюда не входит: продление или сокращение срока не
+ * меняет прочитанного вузом, а витрина и отклик сверяются с ним сами.
+ */
+const REVIEWED_FIELDS = [
+  'title',
+  'description',
+  'employmentType',
+  'workFormat',
+  'experienceLevel',
+  'city',
+  'salaryMin',
+  'salaryMax',
+  'salaryCurrency',
+  'skills',
+  'languages',
+] as const satisfies readonly (keyof UpdateVacancyInput)[]
+
+const REVIEWED_SELECT = Object.fromEntries(REVIEWED_FIELDS.map((f) => [f, true])) as Record<
+  (typeof REVIEWED_FIELDS)[number],
+  true
+>
+
+/** Значение поля изменилось. Массивы — поэлементно: форма присылает их целиком. */
+function changed(next: unknown, prev: unknown): boolean {
+  if (next === undefined) return false
+  if (Array.isArray(next) && Array.isArray(prev)) {
+    return next.length !== prev.length || next.some((v, i) => v !== prev[i])
+  }
+  return (next ?? null) !== (prev ?? null)
+}
 
 /** Карточка вакансии для студента — без служебных полей компании. */
 const PUBLIC_SELECT = {
@@ -102,19 +138,40 @@ export class VacanciesService {
     return vacancy
   }
 
+  /**
+   * Правка вакансии. Если меняется что-то из прочитанного вузом (REVIEWED_FIELDS), её
+   * одобрения тем же шагом возвращаются в PENDING — вакансия уходит с витрины и снова
+   * встаёт в очередь модерации. Как в `publish`, но гасим только APPROVED: отклонённую
+   * вакансию правка в очередь не возвращает (для этого есть повторная публикация), а
+   * ожидающая и так покажет модератору новый текст.
+   */
   async update(viewer: JwtPayload, id: string, input: UpdateVacancyInput, ctx: RequestContext) {
     const companyId = this.access.requireCompany(viewer)
-    const existing = await this.ownVacancy(companyId, id)
+    const existing = await this.prisma.vacancy.findFirst({
+      where: { id, companyId, deletedAt: null },
+      select: REVIEWED_SELECT,
+    })
+    if (!existing) throw new AppException('NOT_FOUND', 'Вакансия не найдена')
     this.assertSalaryRange({ ...existing, ...input })
 
-    await this.prisma.vacancy.update({
-      where: { id },
-      data: {
-        ...input,
-        ...(input.deadline !== undefined
-          ? { deadline: input.deadline ? new Date(input.deadline) : null }
-          : {}),
-      },
+    const reReview = REVIEWED_FIELDS.some((field) => changed(input[field], existing[field]))
+
+    const reset = await this.prisma.$transaction(async (tx) => {
+      await tx.vacancy.update({
+        where: { id },
+        data: {
+          ...input,
+          ...(input.deadline !== undefined
+            ? { deadline: input.deadline ? new Date(input.deadline) : null }
+            : {}),
+        },
+      })
+      if (!reReview) return 0
+      const { count } = await tx.vacancyUniversityReview.updateMany({
+        where: { vacancyId: id, status: 'APPROVED' },
+        data: { status: 'PENDING', reason: null, decidedById: null, decidedAt: null },
+      })
+      return count
     })
 
     await this.audit.record({
@@ -122,6 +179,7 @@ export class VacanciesService {
       action: 'vacancy_updated',
       entity: 'Vacancy',
       entityId: id,
+      ...(reset > 0 ? { metadata: { reReview: reset } } : {}),
       ...ctx,
     })
   }
@@ -204,10 +262,9 @@ export class VacanciesService {
     const universityId = resolveUniversityScope(viewer, query.universityId)
 
     const where: Prisma.VacancyWhereInput = {
-      deletedAt: null,
-      status: 'PUBLISHED',
-      // Ключевое условие видимости: вакансия одобрена вузом этого студента.
-      reviews: { some: { universityId, status: 'APPROVED' } },
+      // Ключевое условие видимости: вакансия одобрена вузом этого студента, и допуск
+      // компании в этот вуз действует прямо сейчас.
+      ...vacancyVisibleWhere(universityId),
       ...(query.employmentType ? { employmentType: query.employmentType } : {}),
       ...(query.workFormat ? { workFormat: query.workFormat } : {}),
       ...(query.experienceLevel ? { experienceLevel: query.experienceLevel } : {}),
@@ -268,12 +325,7 @@ export class VacanciesService {
     const universityId = resolveUniversityScope(viewer, universityIdParam)
 
     const vacancy = await this.prisma.vacancy.findFirst({
-      where: {
-        id,
-        deletedAt: null,
-        status: 'PUBLISHED',
-        reviews: { some: { universityId, status: 'APPROVED' } },
-      },
+      where: { id, ...vacancyVisibleWhere(universityId) },
       select: { ...PUBLIC_SELECT, company: { select: PUBLIC_SELECT.company.select } },
     })
     if (!vacancy) throw new AppException('NOT_FOUND', 'Вакансия не найдена')

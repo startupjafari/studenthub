@@ -33,6 +33,13 @@ const VERIFY_TTL_MS = 24 * 60 * 60 * 1000
  */
 const REVOKED_REVIEW_REASON = 'Университет отозвал допуск компании'
 
+/** То же для допуска, закрытого по сроку (`expireAccess`), — и причина самого допуска. */
+const EXPIRED_REVIEW_REASON = 'Истёк срок допуска компании в университет'
+const EXPIRED_ACCESS_REASON = 'Истёк срок допуска'
+
+/** Сколько истёкших допусков разбирается за один проход cron. */
+const EXPIRE_BATCH = 200
+
 export interface RequestContext {
   ip?: string
   userAgent?: string
@@ -493,18 +500,10 @@ export class CompaniesService {
       // AGENTS.md §3). REJECTED с явной причиной читается так же и корректно переигрывается —
       // вернут допуск, компания опубликует заново, вуз рассмотрит с чистого листа.
       if (input.status === 'REVOKED') {
-        await tx.vacancyUniversityReview.updateMany({
-          where: {
-            universityId,
-            vacancy: { companyId: record.companyId },
-            status: { in: ['PENDING', 'APPROVED'] },
-          },
-          data: {
-            status: 'REJECTED',
-            reason: REVOKED_REVIEW_REASON,
-            decidedById: viewer.sub,
-            decidedAt: new Date(),
-          },
+        await this.closeVacancyReviews(tx, record.companyId, universityId, {
+          reason: REVOKED_REVIEW_REASON,
+          decidedById: viewer.sub,
+          decidedAt: new Date(),
         })
       }
     })
@@ -522,7 +521,86 @@ export class CompaniesService {
     })
   }
 
+  /**
+   * Истёкшие допуски → REVOKED с тем же каскадом, что у ручного отзыва. Расписание — cron
+   * `expireCompanyAccess` в cleanup.service.ts, логика — здесь, у владельца допусков.
+   *
+   * Доступ по сроку закрывается и без этой задачи: каждая проверка (`allowedUniversityIds`,
+   * `vacancyVisibleWhere`) смотрит на `expiresAt`. Задача превращает истечение в обычный
+   * отзыв: решения по вакансиям гаснут (вернут допуск — вуз рассмотрит заново, а не оживит
+   * старое одобрение), компания видит «отозван» с причиной и может подать заявку повторно
+   * (из APPROVED перехода в REQUESTED нет), а сводки вуза перестают считать вакансии,
+   * которых на витрине уже нет. `expiresAt` не стираем — по нему видно, когда допуск кончился.
+   */
+  async expireAccess(now: Date = new Date()): Promise<number> {
+    let total = 0
+    for (;;) {
+      const batch = await this.prisma.companyUniversityAccess.findMany({
+        where: { status: 'APPROVED', expiresAt: { lte: now } },
+        select: { id: true, companyId: true, universityId: true },
+        orderBy: { expiresAt: 'asc' },
+        take: EXPIRE_BATCH,
+      })
+      if (batch.length === 0) break
+
+      for (const record of batch) {
+        const expired = await this.prisma.$transaction(async (tx) => {
+          // Условие повторяем в записи: между выборкой и ней вуз мог отозвать допуск сам.
+          const { count } = await tx.companyUniversityAccess.updateMany({
+            where: { id: record.id, status: 'APPROVED', expiresAt: { lte: now } },
+            data: {
+              status: 'REVOKED',
+              reason: EXPIRED_ACCESS_REASON,
+              decidedById: null,
+              decidedAt: now,
+            },
+          })
+          if (count === 0) return false
+          await this.closeVacancyReviews(tx, record.companyId, record.universityId, {
+            reason: EXPIRED_REVIEW_REASON,
+            decidedById: null,
+            decidedAt: now,
+          })
+          return true
+        })
+        if (!expired) continue
+
+        total += 1
+        await this.access.invalidate(record.companyId)
+        await this.audit.record({
+          action: 'company_access_expired',
+          entity: 'CompanyUniversityAccess',
+          entityId: record.id,
+          metadata: { companyId: record.companyId, universityId: record.universityId },
+        })
+      }
+      if (batch.length < EXPIRE_BATCH) break
+    }
+    if (total > 0) this.logger.log(`expireAccess: закрыто допусков по сроку ${total}`)
+    return total
+  }
+
   // ── Служебное ──────────────────────────────────────────────────────────────
+
+  /**
+   * Закрыть вакансии компании в вузе: её решения там (и APPROVED, и PENDING) → REJECTED с
+   * причиной. Общий шаг отзыва и истечения допуска; вызывается внутри их транзакции.
+   */
+  private closeVacancyReviews(
+    tx: Prisma.TransactionClient,
+    companyId: string,
+    universityId: string,
+    decision: { reason: string; decidedById: string | null; decidedAt: Date },
+  ) {
+    return tx.vacancyUniversityReview.updateMany({
+      where: {
+        universityId,
+        vacancy: { companyId },
+        status: { in: ['PENDING', 'APPROVED'] },
+      },
+      data: { status: 'REJECTED', ...decision },
+    })
+  }
 
   private async companyCard(companyId: string) {
     const company = await this.prisma.company.findFirst({

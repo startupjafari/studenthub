@@ -93,6 +93,8 @@ function makeService() {
   const media = {
     resumeAndBackfill: jest.fn(async () => ({ resumed: 1, backfilled: 2 })) as Mock,
   }
+  // Истечение допусков компаний: cron только делегирует, каскад — в companies.service.spec.ts.
+  const companies = { expireAccess: jest.fn(async () => 0) as Mock }
   const service = new CleanupService(
     prisma as never,
     minio as never,
@@ -111,8 +113,10 @@ function makeService() {
     telegram as never,
     platform as never,
     media as never,
+    companies as never,
   )
   return {
+    companies,
     service,
     media,
     prisma,
@@ -660,5 +664,17 @@ describe('reportStorageUsage', () => {
     // Второй прогон упирается в SET NX по ключу паузы.
     expect(telegram.notifyStaff).toHaveBeenCalledTimes(1)
     expect(telegram.notifyStaff.mock.calls[0][1]).toContain('13.0 ГБ')
+  })
+})
+
+describe('CleanupService.expireCompanyAccess', () => {
+  it('делегирует истечение допусков владельцу домена под своим локом', async () => {
+    const { service, companies, locks } = makeService()
+    companies.expireAccess.mockResolvedValue(3)
+
+    await expect(service.expireCompanyAccess()).resolves.toBe(3)
+
+    expect(companies.expireAccess).toHaveBeenCalledTimes(1)
+    expect(locks.run.mock.calls[0][0]).toBe('expireCompanyAccess')
   })
 })

@@ -16,7 +16,7 @@ import { NOTIFICATION_JOBS, QUEUES, QueueService } from '../../common/queue'
 import type { NotificationMessageKey } from '@studenthub/shared-config'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
-import { CareerAccessService } from './career-access.service'
+import { CareerAccessService, vacancyVisibleWhere } from './career-access.service'
 import { rethrowStaleStatus } from '../../common/prisma/stale-status'
 
 /** Что видит студент в списке своих откликов. */
@@ -73,8 +73,9 @@ export class ApplicationsService {
    * Отклик на вакансию.
    *
    * Вакансия должна быть видима именно этому студенту — та же проверка, что в витрине:
-   * опубликована и одобрена его вузом. Иначе отклик стал бы обходом модерации: угадал id —
-   * откликнулся на то, что вуз не пропустил.
+   * опубликована, одобрена его вузом, и допуск компании в вуз действует. Иначе отклик стал
+   * бы обходом модерации (угадал id — откликнулся на то, что вуз не пропустил), а компания с
+   * истёкшим допуском продолжала бы получать кандидатов вуза.
    */
   async apply(viewer: JwtPayload, input: CreateApplicationInput, ctx: RequestContext) {
     const universityId = viewer.universityId
@@ -83,12 +84,7 @@ export class ApplicationsService {
     }
 
     const vacancy = await this.prisma.vacancy.findFirst({
-      where: {
-        id: input.vacancyId,
-        deletedAt: null,
-        status: 'PUBLISHED',
-        reviews: { some: { universityId, status: 'APPROVED' } },
-      },
+      where: { id: input.vacancyId, ...vacancyVisibleWhere(universityId) },
       select: { id: true, companyId: true, deadline: true },
     })
     if (!vacancy) throw new AppException('NOT_FOUND', 'Вакансия не найдена')
@@ -199,9 +195,9 @@ export class ApplicationsService {
    * Воронка кандидатов компании.
    *
    * Обратите внимание на universityId в выборке: он зафиксирован на момент отклика.
-   * Если вуз отозвал допуск, компания перестаёт видеть новых студентов, но уже поданные
-   * отклики остаются — иначе диалог обрывался бы на середине, а человек не понимал, куда
-   * делась его заявка.
+   * Если допуск в вуз отозван или истёк, компания перестаёт видеть новых студентов, но уже
+   * поданные отклики остаются — иначе диалог обрывался бы на середине, а человек не
+   * понимал, куда делась его заявка. Границу проводит `applicationScopeWhere`.
    */
   async pipeline(viewer: JwtPayload, query: ApplicationListQueryInput) {
     const companyId = this.access.requireCompany(viewer)
@@ -209,6 +205,7 @@ export class ApplicationsService {
       companyId,
       ...(query.status ? { status: query.status } : {}),
       ...(query.vacancyId ? { vacancyId: query.vacancyId } : {}),
+      AND: [await this.access.applicationScopeWhere(companyId)],
     }
 
     const [items, total] = await Promise.all([
@@ -251,8 +248,10 @@ export class ApplicationsService {
     ctx: RequestContext,
   ) {
     const companyId = this.access.requireCompany(viewer)
+    // Двигать можно только то, что компания видит в воронке: отклик, поданный уже без
+    // допуска, для неё не существует.
     const application = await this.prisma.careerApplication.findFirst({
-      where: { id, companyId },
+      where: { id, companyId, AND: [await this.access.applicationScopeWhere(companyId)] },
       select: {
         id: true,
         status: true,

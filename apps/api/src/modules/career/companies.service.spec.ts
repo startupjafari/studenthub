@@ -23,7 +23,10 @@ function setup() {
     companyMember: { create: jest.fn() },
     // Решение по заявке тоже идёт транзакцией: отзыв допуска обязан погасить решения
     // по вакансиям этого вуза тем же атомарным шагом.
-    companyUniversityAccess: { update: jest.fn() },
+    companyUniversityAccess: {
+      update: jest.fn(),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
     vacancyUniversityReview: { updateMany: jest.fn() },
   }
   const prisma = {
@@ -388,5 +391,66 @@ describe('CompaniesService — решение вуза', () => {
     await expect(
       service.decideAccess(staff(null), 'a-1', { status: 'APPROVED' }, ctx),
     ).rejects.toBeInstanceOf(AppException)
+  })
+})
+
+describe('CompaniesService — истечение допуска по сроку', () => {
+  const now = new Date('2026-10-17T12:40:00Z')
+  const expired = { id: 'a-1', companyId: 'co-1', universityId: 'uni-1' }
+
+  it('истёкший допуск становится отзывом с тем же каскадом на вакансии', async () => {
+    const { service, prisma, tx, access, audit } = setup()
+    prisma.companyUniversityAccess.findMany.mockResolvedValueOnce([expired])
+
+    await expect(service.expireAccess(now)).resolves.toBe(1)
+
+    // Выборка — только одобренные с наступившим сроком, с пределом.
+    expect(prisma.companyUniversityAccess.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { status: 'APPROVED', expiresAt: { lte: now } },
+        take: expect.any(Number),
+      }),
+    )
+    const update = tx.companyUniversityAccess.updateMany.mock.calls[0][0]
+    // Условие повторено в записи: вуз мог успеть отозвать допуск сам.
+    expect(update.where).toEqual({ id: 'a-1', status: 'APPROVED', expiresAt: { lte: now } })
+    expect(update.data).toMatchObject({ status: 'REVOKED', decidedById: null, decidedAt: now })
+    expect(update.data.reason).toContain('срок')
+    // expiresAt не стирается — по нему видно, когда допуск кончился.
+    expect(update.data).not.toHaveProperty('expiresAt')
+
+    const cascade = tx.vacancyUniversityReview.updateMany.mock.calls[0][0]
+    expect(cascade.where).toMatchObject({
+      universityId: 'uni-1',
+      vacancy: { companyId: 'co-1' },
+      status: { in: ['PENDING', 'APPROVED'] },
+    })
+    expect(cascade.data).toMatchObject({ status: 'REJECTED', decidedById: null })
+    expect(cascade.data.reason).toContain('Истёк срок допуска')
+
+    expect(access.invalidate).toHaveBeenCalledWith('co-1')
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'company_access_expired', entityId: 'a-1' }),
+    )
+  })
+
+  it('допуск, который вуз уже отозвал сам, второй раз не закрывается', async () => {
+    const { service, prisma, tx, access } = setup()
+    prisma.companyUniversityAccess.findMany.mockResolvedValueOnce([expired])
+    tx.companyUniversityAccess.updateMany.mockResolvedValueOnce({ count: 0 })
+
+    await expect(service.expireAccess(now)).resolves.toBe(0)
+
+    expect(tx.vacancyUniversityReview.updateMany).not.toHaveBeenCalled()
+    expect(access.invalidate).not.toHaveBeenCalled()
+  })
+
+  it('нечего закрывать — ни транзакций, ни сброса кэша', async () => {
+    const { service, prisma, access } = setup()
+
+    await expect(service.expireAccess(now)).resolves.toBe(0)
+
+    expect(prisma.$transaction).not.toHaveBeenCalled()
+    expect(access.invalidate).not.toHaveBeenCalled()
   })
 })

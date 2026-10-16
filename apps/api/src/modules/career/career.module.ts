@@ -50,7 +50,8 @@ import { CareerEventsController } from './career-events.controller'
     CareerEventsService,
   ],
   // CareerAccessService понадобится всем будущим карьерным сервисам, которые читают
-  // данные студентов, — экспортируем сразу.
-  exports: [CareerAccessService, CareerProfileService],
+  // данные студентов, — экспортируем сразу. CompaniesService — для cron истечения допусков
+  // (расписание живёт в CleanupModule, логика — здесь).
+  exports: [CareerAccessService, CareerProfileService, CompaniesService],
 })
 export class CareerModule {}

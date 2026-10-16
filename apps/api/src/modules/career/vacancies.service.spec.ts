@@ -37,7 +37,10 @@ const staff = (universityId: string | null = 'uni-1'): JwtPayload => ({
 function setup(allowedUniversities: string[] = ['uni-1']) {
   const tx = {
     vacancy: { update: jest.fn() },
-    vacancyUniversityReview: { upsert: jest.fn() },
+    vacancyUniversityReview: {
+      upsert: jest.fn(),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
   }
   const prisma = {
     vacancy: {
@@ -127,6 +130,90 @@ describe('VacanciesService — публикация', () => {
   })
 })
 
+describe('VacanciesService — правка опубликованной вакансии', () => {
+  // Вакансия в том виде, в каком её одобрил вуз.
+  const approved = {
+    title: 'Frontend-стажёр',
+    description: 'x'.repeat(50),
+    employmentType: 'INTERNSHIP',
+    workFormat: 'REMOTE',
+    experienceLevel: 'NO_EXPERIENCE',
+    city: null,
+    salaryMin: 100_000,
+    salaryMax: 200_000,
+    salaryCurrency: 'KZT',
+    skills: ['React', 'TypeScript'],
+    languages: ['ru'],
+  }
+
+  it('правка текста одобренной вакансии возвращает её на модерацию тем же шагом', async () => {
+    const { service, prisma, tx } = setup()
+    prisma.vacancy.findFirst.mockResolvedValue(approved)
+
+    await service.update(
+      employer,
+      'v-1',
+      { description: 'Пишите на мой telegram, оплата вперёд' },
+      ctx,
+    )
+
+    // Одобрение снимается в той же транзакции, что и запись текста: иначе между ними новый
+    // текст уже висел бы на витрине с чужим одобрением.
+    expect(tx.vacancy.update).toHaveBeenCalled()
+    expect(tx.vacancyUniversityReview.updateMany).toHaveBeenCalledWith({
+      where: { vacancyId: 'v-1', status: 'APPROVED' },
+      data: { status: 'PENDING', reason: null, decidedById: null, decidedAt: null },
+    })
+  })
+
+  it('смена условий тоже содержательна: зарплата, формат, навыки', async () => {
+    const edits = [
+      { salaryMax: 900_000 },
+      { workFormat: 'ONSITE' as const },
+      { skills: ['React', 'TypeScript', 'Ссылка на оплату'] },
+    ]
+    for (const edit of edits) {
+      const { service, prisma, tx } = setup()
+      prisma.vacancy.findFirst.mockResolvedValue(approved)
+
+      await service.update(employer, 'v-1', edit, ctx)
+
+      expect(tx.vacancyUniversityReview.updateMany).toHaveBeenCalledTimes(1)
+    }
+  })
+
+  it('форма с прежними значениями и перенос срока модерацию не сбрасывают', async () => {
+    const { service, prisma, tx } = setup()
+    prisma.vacancy.findFirst.mockResolvedValue(approved)
+
+    // Форма присылает вакансию целиком — без изменений одобрение должно остаться.
+    await service.update(
+      employer,
+      'v-1',
+      {
+        title: approved.title,
+        skills: [...approved.skills],
+        salaryMin: approved.salaryMin,
+        deadline: new Date(Date.now() + 86_400_000).toISOString(),
+      },
+      ctx,
+    )
+
+    expect(tx.vacancy.update).toHaveBeenCalled()
+    expect(tx.vacancyUniversityReview.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('чужую вакансию править нельзя', async () => {
+    const { service, prisma, tx } = setup()
+    prisma.vacancy.findFirst.mockResolvedValue(null)
+
+    await expect(service.update(employer, 'v-1', { title: 'Чужая' }, ctx)).rejects.toBeInstanceOf(
+      AppException,
+    )
+    expect(tx.vacancy.update).not.toHaveBeenCalled()
+  })
+})
+
 describe('VacanciesService — видимость для студента', () => {
   const query = { page: 1, limit: 20, sort: 'publishedAt' as const, order: 'desc' as const }
 
@@ -143,6 +230,28 @@ describe('VacanciesService — видимость для студента', () =
         }),
       }),
     )
+  })
+
+  it('вакансия компании с истёкшим или отозванным допуском в вуз не показывается', async () => {
+    const { service, prisma } = setup()
+
+    await service.search(student('uni-7'), query)
+    await expect(service.byIdForStudent(student('uni-7'), 'v-1')).resolves.toBeDefined()
+
+    // Одобрение вуза не переживает конец допуска: условие на допуск — в той же выборке.
+    const activeAccess = {
+      company: {
+        universityAccess: {
+          some: {
+            universityId: 'uni-7',
+            status: 'APPROVED',
+            OR: [{ expiresAt: null }, { expiresAt: { gt: expect.any(Date) } }],
+          },
+        },
+      },
+    }
+    expect(prisma.vacancy.findMany.mock.calls[0][0].where).toMatchObject(activeAccess)
+    expect(prisma.vacancy.findFirst.mock.calls[0][0].where).toMatchObject(activeAccess)
   })
 
   it('поиск по тексту не теряется рядом с фильтром по сроку', async () => {
