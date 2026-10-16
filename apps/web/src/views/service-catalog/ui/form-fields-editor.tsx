@@ -6,11 +6,8 @@ import { ListPlus, Plus, Trash2 } from 'lucide-react'
 import { FormFieldTypeSchema, type FormFieldType } from '@studenthub/shared-schemas'
 import {
   Button,
-  Checkbox,
-  EmptyState,
   FieldError,
   Input,
-  Label,
   Select,
   SelectContent,
   SelectItem,
@@ -18,6 +15,7 @@ import {
   SelectValue,
 } from '../../../shared/ui'
 import { emptyFormField, type Lang, type ServiceFormValues } from '../lib/form-values'
+import { Field, ItemCard, ItemList, RequiredToggle } from './form-parts'
 
 const CHOICE_TYPES: FormFieldType[] = ['SELECT', 'RADIO']
 
@@ -45,108 +43,85 @@ export function FormFieldsEditor({ lang, readOnly }: FormFieldsEditorProps) {
   }
 
   return (
-    <div className="flex flex-col gap-3">
-      {fields.length === 0 ? (
-        <EmptyState
-          icon={<ListPlus className="size-6" aria-hidden />}
-          title={t('fieldsEmpty')}
-          description={t('fieldsEmptyHint')}
-          className="border-0 p-6"
-        />
-      ) : (
-        <ol className="flex flex-col gap-3">
-          {fields.map((field, index) => (
-            <li key={field.id} className="flex flex-col gap-3 rounded-xl border border-border p-3">
-              <div className="flex items-start gap-2">
-                <div className="grid min-w-0 flex-1 gap-3 sm:grid-cols-[1fr_11rem]">
-                  <div className="flex flex-col gap-1.5">
-                    <Label htmlFor={`field-${index}-label`}>{t('fieldLabel')}</Label>
-                    <Input
-                      id={`field-${index}-label`}
-                      aria-invalid={!!errors?.[index]?.[`label${lang}`]}
-                      {...register(`formFields.${index}.label${lang}`)}
-                    />
-                    <FieldError>
-                      {errors?.[index]?.[`label${lang}`] ? t('translationRequired') : null}
-                    </FieldError>
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <Label>{t('fieldType')}</Label>
-                    <Controller
-                      control={control}
-                      name={`formFields.${index}.type`}
-                      render={({ field: f }) => (
-                        <Select value={f.value} onValueChange={f.onChange} disabled={readOnly}>
-                          <SelectTrigger size="md" aria-label={t('fieldType')}>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {FormFieldTypeSchema.options.map((type) => (
-                              <SelectItem key={type} value={type}>
-                                {typeLabel[type]}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      )}
-                    />
-                  </div>
-                </div>
-                {!readOnly && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    icon
-                    className="mt-6"
-                    aria-label={t('remove')}
-                    onClick={() => remove(index)}
-                  >
-                    <Trash2 className="size-4" aria-hidden />
-                  </Button>
-                )}
-              </div>
-
-              <div className="flex flex-col gap-1.5">
-                <Label htmlFor={`field-${index}-ph`}>{t('fieldPlaceholder')}</Label>
-                <Input
-                  id={`field-${index}-ph`}
-                  {...register(`formFields.${index}.placeholder${lang}`)}
+    <ItemList
+      empty={
+        fields.length === 0
+          ? {
+              icon: <ListPlus className="size-6" aria-hidden />,
+              title: t('fieldsEmpty'),
+              description: t('fieldsEmptyHint'),
+            }
+          : null
+      }
+      addLabel={t('addField')}
+      onAdd={() => append(emptyFormField())}
+      readOnly={readOnly}
+    >
+      {fields.map((field, index) => (
+        <ItemCard
+          key={field.id}
+          removeLabel={t('remove')}
+          onRemove={readOnly ? undefined : () => remove(index)}
+          required={
+            <Controller
+              control={control}
+              name={`formFields.${index}.required`}
+              render={({ field: f }) => (
+                <RequiredToggle
+                  label={t('fieldRequired')}
+                  checked={f.value ?? false}
+                  onChange={f.onChange}
+                  disabled={readOnly}
                 />
-              </div>
-
-              <FieldOptions index={index} lang={lang} readOnly={readOnly} />
-
+              )}
+            />
+          }
+        >
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field
+              label={t('fieldLabel')}
+              htmlFor={`field-${index}-label`}
+              error={errors?.[index]?.[`label${lang}`] ? t('translationRequired') : null}
+            >
+              <Input
+                id={`field-${index}-label`}
+                aria-invalid={!!errors?.[index]?.[`label${lang}`]}
+                {...register(`formFields.${index}.label${lang}`)}
+              />
+            </Field>
+            <Field label={t('fieldType')} htmlFor={`field-${index}-type`}>
               <Controller
                 control={control}
-                name={`formFields.${index}.required`}
+                name={`formFields.${index}.type`}
                 render={({ field: f }) => (
-                  <label className="flex items-center gap-2 text-sm">
-                    <Checkbox
-                      checked={f.value ?? false}
-                      onCheckedChange={(v) => f.onChange(v === true)}
-                      disabled={readOnly}
-                    />
-                    {t('fieldRequired')}
-                  </label>
+                  <Select value={f.value} onValueChange={f.onChange} disabled={readOnly}>
+                    <SelectTrigger id={`field-${index}-type`}>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {FormFieldTypeSchema.options.map((type) => (
+                        <SelectItem key={type} value={type}>
+                          {typeLabel[type]}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 )}
               />
-            </li>
-          ))}
-        </ol>
-      )}
+            </Field>
+          </div>
 
-      {!readOnly && (
-        <Button
-          type="button"
-          variant="outline"
-          className="self-start"
-          onClick={() => append(emptyFormField())}
-        >
-          <Plus className="size-4" aria-hidden /> {t('addField')}
-        </Button>
-      )}
-    </div>
+          <Field label={t('fieldPlaceholder')} htmlFor={`field-${index}-ph`}>
+            <Input
+              id={`field-${index}-ph`}
+              {...register(`formFields.${index}.placeholder${lang}`)}
+            />
+          </Field>
+
+          <FieldOptions index={index} lang={lang} readOnly={readOnly} />
+        </ItemCard>
+      ))}
+    </ItemList>
   )
 }
 
@@ -166,10 +141,24 @@ function FieldOptions({ index, lang, readOnly }: { index: number; lang: Lang; re
   const errors = fieldErrors?.options
 
   return (
-    <div className="flex flex-col gap-2 rounded-lg bg-muted/40 p-3">
-      <p className="text-sm font-medium">{t('options')}</p>
+    <div className="flex flex-col gap-3 rounded-lg bg-muted/40 p-3">
+      {/* Шапка блока: заголовок слева, добавление справа — как у панелей системы. */}
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm font-medium">{t('options')}</p>
+        {!readOnly && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => append({ value: '', labelRu: '', labelKk: '', labelEn: '' })}
+          >
+            <Plus className="size-4" aria-hidden /> {t('addOption')}
+          </Button>
+        )}
+      </div>
+      {/* Значение и подпись — две равные колонки, удаление — квадрат той же высоты. */}
       {fields.map((option, optionIndex) => (
-        <div key={option.id} className="grid items-start gap-2 sm:grid-cols-[9rem_1fr_auto]">
+        <div key={option.id} className="grid items-center gap-2 sm:grid-cols-[1fr_1fr_auto]">
           <Input
             placeholder={t('optionValue')}
             aria-label={t('optionValue')}
@@ -186,10 +175,11 @@ function FieldOptions({ index, lang, readOnly }: { index: number; lang: Lang; re
             <Button
               type="button"
               variant="ghost"
-              size="sm"
               icon
               aria-label={t('remove')}
+              title={t('remove')}
               onClick={() => remove(optionIndex)}
+              className="text-muted-foreground hover:text-destructive"
             >
               <Trash2 className="size-4" aria-hidden />
             </Button>
@@ -200,17 +190,6 @@ function FieldOptions({ index, lang, readOnly }: { index: number; lang: Lang; re
       <FieldError>
         {errors?.message || errors?.root?.message ? t('optionsRequired') : null}
       </FieldError>
-      {!readOnly && (
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="self-start"
-          onClick={() => append({ value: '', labelRu: '', labelKk: '', labelEn: '' })}
-        >
-          <Plus className="size-4" aria-hidden /> {t('addOption')}
-        </Button>
-      )}
     </div>
   )
 }
