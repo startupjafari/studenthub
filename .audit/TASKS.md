@@ -17,11 +17,11 @@
 Каждый агент читает `.audit/processes/<группа>.md`, проверяет процессы по коду и пишет
 `.audit/findings/<группа>.md` (таблица статусов процессов + проблемы P0/P1/P2 со ссылками на строки).
 
-- [in_progress] AUD-A · группа A → .audit/findings/A.md
+- [done] AUD-A · группа A → .audit/findings/A.md
 - [done] AUD-B · группа B → .audit/findings/B.md
 - [in_progress] AUD-C · группа C → .audit/findings/C.md
 - [in_progress] AUD-D · группа D → .audit/findings/D.md
-- [todo] AUD-E · группа E → .audit/findings/E.md
+- [in_progress] AUD-E · группа E → .audit/findings/E.md
 - [todo] AUD-F · группа F → .audit/findings/F.md
 
 ## Фаза 3 — исправления (появится после отчёта)
