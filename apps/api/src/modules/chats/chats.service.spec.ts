@@ -66,6 +66,7 @@ function setup() {
     friendship: {
       findFirst: jest.fn().mockResolvedValue(null),
       findMany: jest.fn().mockResolvedValue([]),
+      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
     notification: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
     userBlock: {
@@ -2260,6 +2261,48 @@ describe('ChatsService — общие условия отправки (assertCan
 
 // Прочтение — «до этого сообщения», а не «всё на сейчас»: иначе счётчик непрочитанного
 // обнулялся от любого прочтения, и дочитать переписку до середины было нельзя.
+// Дружба открывает закрытый профиль: без разрыва заблокированный бывший друг продолжал бы
+// видеть фото и альбомы того, кто от него закрылся, а висящую заявку можно было принять.
+describe('ChatsService.blockUser — рвёт дружбу', () => {
+  it('удаляет дружбу и заявки в обе стороны и гасит уведомление-заявку — в одной транзакции', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findFirst.mockResolvedValue({ id: 'u2' })
+    prisma.friendship.findMany.mockResolvedValue([{ id: 'f1' }])
+
+    await service.blockUser('u1', 'u2')
+
+    expect(prisma.$transaction).toHaveBeenCalled()
+    expect(prisma.userBlock.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ create: { blockerId: 'u1', blockedId: 'u2' } }),
+    )
+    expect(prisma.friendship.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          OR: [
+            { requesterId: 'u1', addresseeId: 'u2' },
+            { requesterId: 'u2', addresseeId: 'u1' },
+          ],
+        },
+      }),
+    )
+    expect(prisma.friendship.deleteMany).toHaveBeenCalledWith({ where: { id: { in: ['f1'] } } })
+    expect(prisma.notification.deleteMany).toHaveBeenCalledWith({
+      where: { dedupeKey: { in: ['friend-request:f1'] } },
+    })
+  })
+
+  it('без дружбы — только блокировка', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findFirst.mockResolvedValue({ id: 'u2' })
+
+    const res = await service.blockUser('u1', 'u2')
+
+    expect(res).toEqual({ userId: 'u2', blocked: true })
+    expect(prisma.userBlock.upsert).toHaveBeenCalled()
+    expect(prisma.friendship.deleteMany).not.toHaveBeenCalled()
+  })
+})
+
 describe('ChatsService.markRead', () => {
   const at = new Date('2026-09-01T10:00:00.000Z')
 

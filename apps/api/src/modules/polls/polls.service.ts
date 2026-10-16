@@ -11,6 +11,7 @@ import { PrismaService } from '../../common/prisma/prisma.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import { advisoryXactLock } from '../../common/prisma/advisory-lock'
+import { PROFILE_CONTENT_OWNER_SELECT, UserService } from '../users/users.service'
 
 // Потолки на выборки (BACKEND_RULES §7.2). Голоса одного пользователя ограничены числом
 // вариантов опроса, поэтому здесь потолок — честная граница, а не обрезка данных.
@@ -29,15 +30,14 @@ const POLL_SELECT = {
   closesAt: true,
   createdAt: true,
   options: { select: { id: true, text: true, order: true }, orderBy: { order: 'asc' } },
+  // Поля видимости профиля автора — вместе с опросом, без отдельного запроса за автором.
+  // Наружу из них уходят только id/имя/аватар (toView).
   user: {
     select: {
-      id: true,
+      ...PROFILE_CONTENT_OWNER_SELECT,
       firstName: true,
       lastName: true,
       avatarUrl: true,
-      universityId: true,
-      facultyId: true,
-      groupId: true,
     },
   },
   _count: { select: { comments: true } },
@@ -84,7 +84,10 @@ export interface PollView {
 export class PollsService {
   private readonly logger = new Logger(PollsService.name)
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly users: UserService,
+  ) {}
 
   async create(actor: JwtPayload, dto: CreatePollInput): Promise<PollView> {
     const poll = await this.prisma.poll.create({
@@ -105,9 +108,14 @@ export class PollsService {
     return this.toView(poll, actor, {}, [], 0)
   }
 
-  /** Опросы пользователя, видимые смотрящему (черновики — только автору). */
+  /**
+   * Опросы пользователя, видимые смотрящему (черновики — только автору). Первым шагом —
+   * видимость профиля, как у статей и медиа: закрытый профиль скрывает и опросы, а опрос с
+   * видимостью ALL раньше отдавался по прямому запросу любому вошедшему (§14.7).
+   */
   async listByUser(viewer: JwtPayload, userId: string): Promise<PollView[]> {
     const isOwner = viewer.sub === userId
+    if (!(await this.users.canViewProfileContent(viewer, userId))) return []
     const polls = await this.prisma.poll.findMany({
       where: { userId },
       select: POLL_SELECT,
@@ -124,9 +132,7 @@ export class PollsService {
 
   async get(viewer: JwtPayload, id: string): Promise<PollView> {
     const poll = await this.prisma.poll.findUnique({ where: { id }, select: POLL_SELECT })
-    if (!poll) throw new AppException('NOT_FOUND', 'Опрос не найден')
-    const isOwner = viewer.sub === poll.userId
-    if (!isOwner && (poll.status !== 'PUBLISHED' || !this.visibleTo(viewer, poll))) {
+    if (!poll || !(await this.canSee(viewer, poll))) {
       throw new AppException('NOT_FOUND', 'Опрос не найден')
     }
     const views = await this.withResults([poll], viewer)
@@ -135,11 +141,8 @@ export class PollsService {
 
   async vote(actor: JwtPayload, id: string, dto: VotePollInput): Promise<PollView> {
     const poll = await this.prisma.poll.findUnique({ where: { id }, select: POLL_SELECT })
-    if (!poll) throw new AppException('NOT_FOUND', 'Опрос не найден')
-    if (
-      poll.status !== 'PUBLISHED' ||
-      (actor.sub !== poll.userId && !this.visibleTo(actor, poll))
-    ) {
+    // Свой черновик тоже не голосуется — поэтому статус проверяем и для автора.
+    if (!poll || poll.status !== 'PUBLISHED' || !(await this.canSee(actor, poll))) {
       throw new AppException('NOT_FOUND', 'Опрос не найден')
     }
     if (this.isClosed(poll)) throw new AppException('CONFLICT', 'Опрос завершён')
@@ -225,6 +228,16 @@ export class PollsService {
 
   private isClosed(poll: { closesAt: Date | null }): boolean {
     return poll.closesAt !== null && poll.closesAt.getTime() < Date.now()
+  }
+
+  /**
+   * Опрос виден смотрящему: автору — всегда (и черновик); остальным — опубликованный, по
+   * visibility опроса и по видимости профиля автора (закрытый профиль, удалённый аккаунт).
+   */
+  private async canSee(viewer: JwtPayload, poll: PollRow): Promise<boolean> {
+    if (viewer.sub === poll.userId) return true
+    if (poll.status !== 'PUBLISHED' || !this.visibleTo(viewer, poll)) return false
+    return this.users.canViewProfileContentOf(viewer, poll.user)
   }
 
   private visibleTo(viewer: JwtPayload, poll: PollRow): boolean {

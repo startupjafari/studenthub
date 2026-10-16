@@ -34,11 +34,26 @@ function setup() {
       create: jest.fn().mockResolvedValue({ id: 'w1' }),
       count: jest.fn().mockResolvedValue(1),
     },
-    friendship: { findFirst: jest.fn().mockResolvedValue(null) },
+    friendship: {
+      findFirst: jest.fn().mockResolvedValue(null),
+      findMany: jest.fn().mockResolvedValue([]),
+    },
+    userBlock: { findMany: jest.fn().mockResolvedValue([]) },
+    // Контент профиля, удаляемый вместе с аккаунтом (softDeleteSelf).
+    profileArticle: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    poll: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    album: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    portfolioItem: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    bookmark: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
     $transaction: jest.fn((ops: unknown) => Promise.all(ops as Promise<unknown>[])),
   }
   const passwords = { hash: jest.fn(), compare: jest.fn() }
-  const files = { upload: jest.fn(), delete: jest.fn(), removeRawObject: jest.fn() }
+  const files = {
+    upload: jest.fn(),
+    delete: jest.fn(),
+    removeRawObject: jest.fn(),
+    listByOwnerAndBucket: jest.fn().mockResolvedValue([]),
+  }
   const queue = { enqueue: jest.fn().mockResolvedValue(undefined) }
   const config = { get: jest.fn() }
   const authService = { revokeAllUserSessions: jest.fn().mockResolvedValue(undefined) }
@@ -408,6 +423,62 @@ describe('UserService — закрытый профиль (видимость п
   })
 })
 
+describe('UserService — дружба и личная блокировка (контент профиля)', () => {
+  const priv = { ...target, profileVisibility: 'PRIVATE', deletedAt: null }
+  const friend = viewer(Role.STUDENT, { universityId: 'uni-B' }, 'friend')
+
+  it('принятая дружба открывает закрытый профиль', async () => {
+    const { service, prisma } = setup()
+    prisma.friendship.findMany.mockResolvedValue([
+      { requesterId: 'friend', addresseeId: 'target-1' },
+    ])
+    expect(await service.canViewProfileContentOf(friend, priv)).toBe(true)
+  })
+
+  // Сценарий травли: человек блокирует бывшего друга, а дружба продолжала открывать ему всё.
+  it('блокировка в любую сторону гасит дружбу: закрытый профиль не открывается', async () => {
+    const { service, prisma } = setup()
+    prisma.friendship.findMany.mockResolvedValue([
+      { requesterId: 'friend', addresseeId: 'target-1' },
+    ])
+    prisma.userBlock.findMany.mockResolvedValue([{ blockerId: 'target-1', blockedId: 'friend' }])
+    expect(await service.canViewProfileContentOf(friend, priv)).toBe(false)
+
+    prisma.user.findFirst.mockResolvedValue(priv)
+    const card = await service.getProfileForViewer('target-1', friend)
+    expect(card.access).toBe('limited')
+  })
+
+  it('контент удалённого аккаунта не виден никому, даже платформе', async () => {
+    const { service } = setup()
+    const deleted = { ...target, deletedAt: new Date() }
+    expect(await service.canViewProfileContentOf(viewer(Role.PLATFORM_ADMIN), deleted)).toBe(false)
+  })
+
+  it('пачкой: дружба и блокировки — по одному запросу на всех авторов', async () => {
+    const { service, prisma } = setup()
+    const open = { ...target, id: 'open', deletedAt: null }
+    const closedFriend = { ...priv, id: 'closed-friend' }
+    const closedBlocked = { ...priv, id: 'closed-blocked' }
+    prisma.friendship.findMany.mockResolvedValue([
+      { requesterId: 'friend', addresseeId: 'closed-friend' },
+      { requesterId: 'closed-blocked', addresseeId: 'friend' },
+    ])
+    prisma.userBlock.findMany.mockResolvedValue([
+      { blockerId: 'friend', blockedId: 'closed-blocked' },
+    ])
+    const visible = await service.viewableProfileContentOwners(friend, [
+      open,
+      closedFriend,
+      closedBlocked,
+      closedFriend,
+    ])
+    expect([...visible].sort()).toEqual(['closed-friend', 'open'])
+    expect(prisma.friendship.findMany).toHaveBeenCalledTimes(1)
+    expect(prisma.userBlock.findMany).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('UserService — changePassword', () => {
   it('неверный текущий → BAD_REQUEST, пароль не меняется', async () => {
     const { service, prisma, passwords } = setup()
@@ -441,7 +512,9 @@ describe('UserService — softDeleteSelf', () => {
         ? 'avatars'
         : key === 'MINIO_BUCKET_PROFILE_COVERS'
           ? 'profile-covers'
-          : undefined,
+          : key === 'MINIO_BUCKET_PROFILE_MEDIA'
+            ? 'profile-media'
+            : undefined,
     )
   }
 
@@ -512,7 +585,61 @@ describe('UserService — softDeleteSelf', () => {
     await service.softDeleteSelf('u')
     expect(prisma.telegramAccount.deleteMany).toHaveBeenCalledWith({ where: { userId: 'u' } })
     const ops = prisma.$transaction.mock.calls[0]?.[0] as unknown[]
-    expect(ops).toHaveLength(3)
+    // Анонимизация, староста, Telegram и пять видов контента профиля — одной транзакцией.
+    expect(ops).toHaveLength(8)
+  })
+
+  // Статьи, опросы, альбомы и портфолио после удаления продолжали отдаваться с исходным
+  // текстом под «Удалённым пользователем».
+  it('удаляет статьи, опросы, альбомы, портфолио и закладки в той же транзакции', async () => {
+    const { service, prisma, passwords, config } = setup()
+    withBuckets(config)
+    passwords.hash.mockResolvedValue('anon')
+    prisma.user.update.mockResolvedValue({})
+    await service.softDeleteSelf('u')
+    for (const model of [
+      prisma.profileArticle,
+      prisma.poll,
+      prisma.album,
+      prisma.portfolioItem,
+      prisma.bookmark,
+    ]) {
+      expect(model.deleteMany).toHaveBeenCalledWith({ where: { userId: 'u' } })
+    }
+  })
+
+  // Бакеты профиля публичные: без удаления объектов фото и видео оставались доступны по
+  // разошедшимся прямым ссылкам навсегда.
+  it('сносит фото/видео профиля и обложки статей вместе с постерами видео', async () => {
+    const { service, prisma, passwords, files, config } = setup()
+    withBuckets(config)
+    passwords.hash.mockResolvedValue('anon')
+    prisma.user.update.mockResolvedValue({})
+    files.listByOwnerAndBucket.mockImplementation(async (_owner: string, bucket: string) =>
+      bucket === 'profile-media' ? [{ id: 'vid-1', posterKey: 'poster.webp' }] : [],
+    )
+    // После удаления пачка пуста — цикл заканчивается.
+    files.delete.mockImplementation(async () => {
+      files.listByOwnerAndBucket.mockResolvedValue([])
+    })
+    await service.softDeleteSelf('u')
+    expect(files.listByOwnerAndBucket).toHaveBeenCalledWith('u', 'profile-media', 100)
+    expect(files.listByOwnerAndBucket).toHaveBeenCalledWith('u', 'profile-covers', 100)
+    expect(files.delete).toHaveBeenCalledWith('vid-1')
+    expect(files.removeRawObject).toHaveBeenCalledWith('profile-covers', 'poster.webp')
+  })
+
+  it('файл, который не удаётся снести, не зацикливает удаление аккаунта', async () => {
+    const { service, prisma, passwords, files, config } = setup()
+    withBuckets(config)
+    passwords.hash.mockResolvedValue('anon')
+    prisma.user.update.mockResolvedValue({})
+    files.listByOwnerAndBucket.mockResolvedValue([{ id: 'stuck', posterKey: null }])
+    files.delete.mockRejectedValue(new Error('minio down'))
+    await expect(service.softDeleteSelf('u')).resolves.toBeUndefined()
+    // По одному кругу на бакет: пачка без единого удаления дальше не крутится.
+    expect(files.delete).toHaveBeenCalledTimes(2)
+    expect(prisma.user.update).toHaveBeenCalled()
   })
 
   it('сносит объекты аватара и обложки в MinIO', async () => {

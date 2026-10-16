@@ -257,7 +257,7 @@
   - Суть: Порядок ленты: свежий пост тонет — приоритет аудитории раньше времени, отложенные и черновики по дате создания
   - Файлы: apps/api/src/modules/posts/posts.service.ts, docs/PROJECT.md, prisma/schema/05-posts.prisma
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для E-F06; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [in_progress] FIX-E-F07 · P1 · проблемы: E-F07
+- [done] FIX-E-F07 · P1 · проблемы: E-F07
   - Суть: Статьи и опросы закрытого профиля доступны всем по прямому запросу, включая работодателей и другие вузы
   - Файлы: apps/api/src/modules/polls/polls.service.ts, apps/api/src/modules/profile-content/profile-content.service.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для E-F07; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
@@ -265,11 +265,11 @@
   - Суть: Контент профиля нельзя ни обжаловать, ни снять модератором
   - Файлы: apps/api/src/modules/complaints/complaints.service.ts, packages/shared-schemas/src/complaints.ts, prisma/schema/_enums.prisma
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для E-F08; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [in_progress] FIX-E-F09 · P1 · проблемы: E-F09 · после: FIX-A-F01, FIX-A-F04, FIX-A-F05
+- [done] FIX-E-F09 · P1 · проблемы: E-F09 · после: FIX-A-F01, FIX-A-F04, FIX-A-F05
   - Суть: Блокировка не действует на соцчасть: дружба остаётся и продолжает открывать закрытый профиль
   - Файлы: apps/api/src/modules/chats/chats.service.ts, apps/api/src/modules/friends/friends.service.ts, apps/api/src/modules/users/users.service.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для E-F09; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [in_progress] FIX-E-F10 · P1 · проблемы: E-F10 · после: FIX-A-F04, FIX-A-F05, FIX-E-F09
+- [done] FIX-E-F10 · P1 · проблемы: E-F10 · после: FIX-A-F04, FIX-A-F05, FIX-E-F09
   - Суть: Удаление аккаунта оставляет соцконтент: фото и видео в публичном бакете, статьи, опросы, портфолио
   - Файлы: apps/api/src/modules/users/users.service.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для E-F10; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.

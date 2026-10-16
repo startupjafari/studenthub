@@ -2993,7 +2993,14 @@ export class ChatsService {
     return block !== null
   }
 
-  /** Заблокировать пользователя (личная блокировка). Идемпотентно. */
+  /**
+   * Заблокировать пользователя (личная блокировка). Идемпотентно.
+   *
+   * Вместе с блокировкой рвётся и дружба — принятая и висящие заявки в обе стороны: дружба
+   * открывает закрытый профиль, фото и альбомы, и заблокированный бывший друг продолжал бы
+   * их видеть. Уведомление-заявку гасим, чтобы её нельзя было принять из колокольчика.
+   * Разблокировка дружбу не возвращает — это новая заявка.
+   */
   async blockUser(
     actorId: string,
     targetUserId: string,
@@ -3004,10 +3011,29 @@ export class ChatsService {
       select: { id: true },
     })
     if (!exists) throw new AppException('NOT_FOUND', 'Пользователь не найден')
-    await this.prisma.userBlock.upsert({
-      where: { blockerId_blockedId: { blockerId: actorId, blockedId: targetUserId } },
-      create: { blockerId: actorId, blockedId: targetUserId },
-      update: {},
+    await this.prisma.$transaction(async (tx) => {
+      await tx.userBlock.upsert({
+        where: { blockerId_blockedId: { blockerId: actorId, blockedId: targetUserId } },
+        create: { blockerId: actorId, blockedId: targetUserId },
+        update: {},
+      })
+      const links = await tx.friendship.findMany({
+        where: {
+          OR: [
+            { requesterId: actorId, addresseeId: targetUserId },
+            { requesterId: targetUserId, addresseeId: actorId },
+          ],
+        },
+        select: { id: true },
+        // По паре — не больше двух строк (по одной в каждую сторону, @@unique).
+        take: 2,
+      })
+      if (links.length === 0) return
+      const ids = links.map((l) => l.id)
+      await tx.friendship.deleteMany({ where: { id: { in: ids } } })
+      await tx.notification.deleteMany({
+        where: { dedupeKey: { in: ids.map((id) => `friend-request:${id}`) } },
+      })
     })
     this.emitBlockChanged(actorId, targetUserId)
     return { userId: targetUserId, blocked: true }

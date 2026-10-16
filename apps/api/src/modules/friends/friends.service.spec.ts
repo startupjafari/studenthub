@@ -13,10 +13,15 @@ function setup() {
       create: jest.fn(),
       update: jest.fn(),
       delete: jest.fn(),
-      count: jest.fn(),
+      count: jest.fn().mockResolvedValue(0),
+      findMany: jest.fn().mockResolvedValue([]),
     },
     notification: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
-    userBlock: { findFirst: jest.fn().mockResolvedValue(null) },
+    userBlock: {
+      findFirst: jest.fn().mockResolvedValue(null),
+      findMany: jest.fn().mockResolvedValue([]),
+    },
+    $transaction: jest.fn((ops: unknown) => Promise.all(ops as Promise<unknown>[])),
   }
   const queue = { enqueue: jest.fn().mockResolvedValue(undefined) }
   const service = new FriendsService(
@@ -196,6 +201,31 @@ describe('FriendsService.accept / remove', () => {
     })
   })
 
+  // Висящая заявка от заблокированного превращалась в дружбу, а дружба открывает закрытый профиль.
+  it('принять заявку при личной блокировке в любую сторону → FORBIDDEN, дружбы нет', async () => {
+    const { service, prisma, queue } = setup()
+    prisma.friendship.findUnique.mockResolvedValue({
+      id: 'f1',
+      requesterId: 'a',
+      addresseeId: 'me',
+      status: 'PENDING',
+    })
+    prisma.userBlock.findFirst.mockResolvedValue({ id: 'b1' })
+    await expect(service.accept(me, 'f1')).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(prisma.userBlock.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          OR: [
+            { blockerId: 'me', blockedId: 'a' },
+            { blockerId: 'a', blockedId: 'me' },
+          ],
+        },
+      }),
+    )
+    expect(prisma.friendship.update).not.toHaveBeenCalled()
+    expect(queue.enqueue).not.toHaveBeenCalled()
+  })
+
   it('отклонение/отмена (remove) — гасит уведомление и НЕ шлёт ничего отправителю', async () => {
     const { service, prisma, queue } = setup()
     prisma.friendship.findUnique.mockResolvedValue({
@@ -265,5 +295,44 @@ describe('FriendsService.statusFor', () => {
       status: 'PENDING_INCOMING',
       friendshipId: 'f2',
     })
+  })
+})
+
+// Блокировка сама удаляет дружбу, но пары, заблокированные до этого, остались друзьями в базе.
+describe('FriendsService — заблокированные не в списках и счётчиках', () => {
+  it('без блокировок фильтр не добавляется', async () => {
+    const { service, prisma } = setup()
+    await service.listFriends(me, { limit: 20 })
+    expect(prisma.friendship.findMany.mock.calls[0][0].where).not.toHaveProperty('AND')
+  })
+
+  it('список друзей, заявки и счётчики исключают заблокированных в обе стороны', async () => {
+    const { service, prisma } = setup()
+    prisma.userBlock.findMany.mockResolvedValue([
+      { blockerId: 'me', blockedId: 'ex' },
+      { blockerId: 'troll', blockedId: 'me' },
+    ])
+    const excluded = {
+      AND: [
+        { requesterId: { notIn: ['ex', 'troll'] } },
+        { addresseeId: { notIn: ['ex', 'troll'] } },
+      ],
+    }
+    await service.listFriends(me, { limit: 20 })
+    expect(prisma.friendship.findMany.mock.calls[0][0].where).toMatchObject(excluded)
+
+    await service.listRequests(me, { direction: 'outgoing', limit: 20 })
+    // Фильтр не затирает собственное условие запроса («мои исходящие»).
+    expect(prisma.friendship.findMany.mock.calls[1][0].where).toMatchObject({
+      status: 'PENDING',
+      requesterId: 'me',
+      ...excluded,
+    })
+
+    await service.counts(me)
+    for (const [arg] of prisma.friendship.count.mock.calls) {
+      expect(arg.where).toMatchObject(excluded)
+    }
+    expect(prisma.friendship.count.mock.calls[1][0].where.addresseeId).toBe('me')
   })
 })

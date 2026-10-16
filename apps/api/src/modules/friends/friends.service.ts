@@ -30,6 +30,9 @@ const FRIEND_USER_SELECT = {
 
 type FriendUser = Prisma.UserGetPayload<{ select: typeof FRIEND_USER_SELECT }>
 
+// Личных блокировок у человека единицы-десятки, но take обязателен (§7.2).
+const BLOCKS_SCAN_LIMIT = 1000
+
 export interface FriendshipStatusResult {
   status: FriendshipStatusValue
   friendshipId?: string
@@ -66,18 +69,7 @@ export class FriendsService {
     }
     // Личная блокировка в любую сторону закрывает и заявки: иначе заблокированный продолжал
     // бы стучаться уведомлениями «хочет добавить вас в друзья».
-    const blocked = await this.prisma.userBlock.findFirst({
-      where: {
-        OR: [
-          { blockerId: viewer.sub, blockedId: targetId },
-          { blockerId: targetId, blockedId: viewer.sub },
-        ],
-      },
-      select: { id: true },
-    })
-    if (blocked) {
-      throw new AppException('FORBIDDEN', 'Заявка недоступна: пользователь заблокирован')
-    }
+    await this.assertNotBlocked(viewer.sub, targetId)
 
     const existing = await this.findBetween(viewer.sub, targetId)
     if (existing) {
@@ -141,6 +133,9 @@ export class FriendsService {
     if (f.status !== 'PENDING') {
       throw new AppException('CONFLICT', 'Заявка уже обработана')
     }
+    // Заявку от того, кто заблокирован (или кто заблокировал), не принять: висящая заявка
+    // от заблокированного иначе превращалась в дружбу, а дружба открывает закрытый профиль.
+    await this.assertNotBlocked(viewer.sub, f.requesterId)
     await this.acceptRow(f.id, f.requesterId, viewer.sub)
   }
 
@@ -168,6 +163,7 @@ export class FriendsService {
       where: {
         status: 'ACCEPTED',
         OR: [{ requesterId: viewer.sub }, { addresseeId: viewer.sub }],
+        ...(await this.notBlockedWhere(viewer.sub)),
       },
       select: {
         id: true,
@@ -195,10 +191,14 @@ export class FriendsService {
     viewer: JwtPayload,
     query: FriendRequestsQueryInput,
   ): Promise<Paginated<unknown>> {
-    const where: Prisma.FriendshipWhereInput =
+    const direction: Prisma.FriendshipWhereInput =
       query.direction === 'outgoing'
         ? { status: 'PENDING', requesterId: viewer.sub }
         : { status: 'PENDING', addresseeId: viewer.sub }
+    const where: Prisma.FriendshipWhereInput = {
+      ...direction,
+      ...(await this.notBlockedWhere(viewer.sub)),
+    }
     const rows = await this.prisma.friendship.findMany({
       where,
       select: {
@@ -224,15 +224,17 @@ export class FriendsService {
 
   /** Счётчики для бейджей: друзей всего + входящих заявок. */
   async counts(viewer: JwtPayload): Promise<{ friends: number; incomingRequests: number }> {
+    const notBlocked = await this.notBlockedWhere(viewer.sub)
     const [friends, incomingRequests] = await this.prisma.$transaction([
       this.prisma.friendship.count({
         where: {
           status: 'ACCEPTED',
           OR: [{ requesterId: viewer.sub }, { addresseeId: viewer.sub }],
+          ...notBlocked,
         },
       }),
       this.prisma.friendship.count({
-        where: { status: 'PENDING', addresseeId: viewer.sub },
+        where: { status: 'PENDING', addresseeId: viewer.sub, ...notBlocked },
       }),
     ])
     return { friends, incomingRequests }
@@ -251,6 +253,41 @@ export class FriendsService {
   }
 
   // ── helpers ────────────────────────────────────────────────────────────────
+
+  /** Личная блокировка между двумя пользователями в любую сторону → FORBIDDEN. */
+  private async assertNotBlocked(a: string, b: string): Promise<void> {
+    const blocked = await this.prisma.userBlock.findFirst({
+      where: {
+        OR: [
+          { blockerId: a, blockedId: b },
+          { blockerId: b, blockedId: a },
+        ],
+      },
+      select: { id: true },
+    })
+    if (blocked) {
+      throw new AppException('FORBIDDEN', 'Заявка недоступна: пользователь заблокирован')
+    }
+  }
+
+  /**
+   * Фильтр связей, исключающий тех, с кем у смотрящего личная блокировка. Блокировка сама
+   * удаляет дружбу и заявки (ChatsService.blockUser), но пары, заблокированные раньше, остались
+   * друзьями в базе — в списках и счётчиках их не показываем. Сам смотрящий в списке не
+   * встречается (себя не заблокировать), поэтому условие на обе стороны связи корректно.
+   */
+  private async notBlockedWhere(viewerId: string): Promise<Prisma.FriendshipWhereInput> {
+    const blocks = await this.prisma.userBlock.findMany({
+      where: { OR: [{ blockerId: viewerId }, { blockedId: viewerId }] },
+      select: { blockerId: true, blockedId: true },
+      take: BLOCKS_SCAN_LIMIT,
+    })
+    if (blocks.length === 0) return {}
+    const ids = blocks.map((b) => (b.blockerId === viewerId ? b.blockedId : b.blockerId))
+    // Через AND, а не полями верхнего уровня: иначе спред затёр бы requesterId/addresseeId
+    // самого запроса («мои исходящие», «мне входящие»).
+    return { AND: [{ requesterId: { notIn: ids } }, { addresseeId: { notIn: ids } }] }
+  }
 
   private findBetween(a: string, b: string) {
     return this.prisma.friendship.findFirst({

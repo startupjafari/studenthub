@@ -171,6 +171,30 @@ const PROFILE_SELECT = {
   moderationAreas: true,
 } satisfies Prisma.UserSelect
 
+/**
+ * Поля владельца, по которым решается видимость контента профиля (статьи, опросы, медиа).
+ * Модули контента выбирают их вместе с объектом — без отдельного запроса за автором.
+ */
+export const PROFILE_CONTENT_OWNER_SELECT = {
+  id: true,
+  role: true,
+  profileVisibility: true,
+  universityId: true,
+  facultyId: true,
+  groupId: true,
+  deletedAt: true,
+} satisfies Prisma.UserSelect
+
+export type ProfileContentOwner = Prisma.UserGetPayload<{
+  select: typeof PROFILE_CONTENT_OWNER_SELECT
+}>
+
+// Контент профиля, удаляемый вместе с аккаунтом, выбирается пачками (§7.2: take обязателен).
+const ACCOUNT_CONTENT_BATCH = 100
+// Потолок кругов: файл, который не удалось снести, вернётся в следующей пачке — без потолка
+// цикл не закончился бы. Остаток подберёт ночная чистка осиротевших объектов.
+const ACCOUNT_CONTENT_MAX_ROUNDS = 50
+
 // Полный профиль (собственный) выводится из select. Публичный — прячет чувствительное.
 export type UserProfile = Prisma.UserGetPayload<{ select: typeof PROFILE_SELECT }>
 // access: 'full' — карточка целиком (по правам), 'limited' — только «визитка» закрытого профиля.
@@ -1091,42 +1115,99 @@ export class UserService {
   ): Promise<{ level: ProfileAccessLevel; audit: boolean }> {
     const access = this.resolveAccess(viewer, target)
     if (access.level !== 'limited' || viewer.sub === target.id) return access
-    const link = await this.prisma.friendship.findFirst({
-      where: {
-        OR: [
-          { requesterId: viewer.sub, addresseeId: target.id },
-          { requesterId: target.id, addresseeId: viewer.sub },
-        ],
-      },
-      select: { status: true, requesterId: true },
-    })
-    const opened =
-      link?.status === 'ACCEPTED' || (link?.status === 'PENDING' && link.requesterId === target.id)
-    return opened ? { level: 'full', audit: false } : access
+    const opened = await this.openedByFriendship(viewer.sub, [target.id])
+    return opened.has(target.id) ? { level: 'full', audit: false } : access
   }
 
   /**
-   * Виден ли смотрящему КОНТЕНТ профиля (медиа, альбомы) — по тому же правилу, что решает, отдать
-   * полную карточку или «визитку». Отдельный метод нужен модулю profile-content: фото и альбомы —
-   * такие же персональные данные, как поля карточки, и закрытый профиль обязан скрывать и их
-   * (docs/BACKEND_RULES.md §14.7).
+   * Кому из targetIds смотрящего открывает дружба: принятая — взаимно, заявка ОТ владельца — до
+   * ответа. Личная блокировка в любую сторону дружбу гасит: иначе заблокированный бывший друг
+   * продолжал бы видеть закрытый профиль, фото и альбомы того, кто от него закрылся. Блокировка
+   * и так удаляет дружбу (ChatsService.blockUser), проверка здесь — для пар, заблокированных
+   * раньше, и на случай гонки «заявку приняли одновременно с блокировкой».
+   * Пачкой: два запроса на любое число владельцев (закладки читают статьи разных авторов).
+   */
+  private async openedByFriendship(viewerId: string, targetIds: string[]): Promise<Set<string>> {
+    const ids = [...new Set(targetIds)].filter((id) => id !== viewerId)
+    if (ids.length === 0) return new Set()
+    const links = await this.prisma.friendship.findMany({
+      where: {
+        OR: [
+          { status: 'ACCEPTED', requesterId: viewerId, addresseeId: { in: ids } },
+          { requesterId: { in: ids }, addresseeId: viewerId },
+        ],
+      },
+      select: { requesterId: true, addresseeId: true },
+      // По паре — не больше двух строк (по одной в каждую сторону, @@unique).
+      take: ids.length * 2,
+    })
+    const opened = new Set(
+      links.map((l) => (l.requesterId === viewerId ? l.addresseeId : l.requesterId)),
+    )
+    if (opened.size === 0) return opened
+    const candidates = [...opened]
+    const blocks = await this.prisma.userBlock.findMany({
+      where: {
+        OR: [
+          { blockerId: viewerId, blockedId: { in: candidates } },
+          { blockerId: { in: candidates }, blockedId: viewerId },
+        ],
+      },
+      select: { blockerId: true, blockedId: true },
+      take: candidates.length * 2,
+    })
+    for (const b of blocks) opened.delete(b.blockerId === viewerId ? b.blockedId : b.blockerId)
+    return opened
+  }
+
+  /**
+   * Виден ли смотрящему КОНТЕНТ профиля (медиа, альбомы, статьи, опросы) — по тому же правилу,
+   * что решает, отдать полную карточку или «визитку». Отдельный метод нужен модулям контента:
+   * фото, статьи и опросы — такие же персональные данные, как поля карточки, и закрытый профиль
+   * обязан скрывать и их (docs/BACKEND_RULES.md §14.7). Контент удалённого аккаунта не виден никому.
    */
   async canViewProfileContent(viewer: JwtPayload, targetId: string): Promise<boolean> {
     if (viewer.sub === targetId) return true
     const target = await this.prisma.user.findFirst({
       where: { id: targetId, deletedAt: null },
-      select: {
-        id: true,
-        role: true,
-        profileVisibility: true,
-        universityId: true,
-        facultyId: true,
-        groupId: true,
-      },
+      select: PROFILE_CONTENT_OWNER_SELECT,
     })
     if (!target) return false
-    const access = await this.resolveAccessWithFriendship(viewer, target)
+    return this.canViewProfileContentOf(viewer, target)
+  }
+
+  /**
+   * То же, что canViewProfileContent, по уже выбранному владельцу (PROFILE_CONTENT_OWNER_SELECT
+   * вместе со статьёй или опросом) — без лишнего запроса за автором.
+   */
+  async canViewProfileContentOf(viewer: JwtPayload, owner: ProfileContentOwner): Promise<boolean> {
+    if (owner.deletedAt) return false
+    if (viewer.sub === owner.id) return true
+    const access = await this.resolveAccessWithFriendship(viewer, owner)
     return access.level === 'full'
+  }
+
+  /**
+   * Пакетный canViewProfileContentOf: id владельцев, чей контент смотрящему виден. Для списков
+   * со статьями разных авторов (закладки) — дружба и блокировки проверяются одним запросом на
+   * всю пачку, а не по запросу на автора.
+   */
+  async viewableProfileContentOwners(
+    viewer: JwtPayload,
+    owners: ProfileContentOwner[],
+  ): Promise<Set<string>> {
+    const visible = new Set<string>()
+    const viaFriendship: string[] = []
+    for (const owner of owners) {
+      if (owner.deletedAt || visible.has(owner.id)) continue
+      if (viewer.sub === owner.id || this.resolveAccess(viewer, owner).level === 'full') {
+        visible.add(owner.id)
+      } else {
+        viaFriendship.push(owner.id)
+      }
+    }
+    for (const id of await this.openedByFriendship(viewer.sub, viaFriendship)) visible.add(id)
+    return visible
   }
 
   // Академические записи (gpa) видят только владелец и надзорные роли — не одногруппники/староста.
@@ -1546,13 +1627,15 @@ export class UserService {
   /**
    * Мягкое удаление + анонимизация ПДн (§11.3) + разлогин всех устройств.
    * Затираем ВСЕ персональные поля (не только email/имя), гасим 2FA и приватность,
-   * а также сносим объекты аватара и обложки в MinIO. Структурные поля (role, scope,
+   * сносим объекты аватара и обложки в MinIO, а также контент профиля: фото/видео, статьи,
+   * опросы, альбомы, портфолио и закладки. Структурные поля (role, scope,
    * createdAt) сохраняем: строка нужна для целостности FK контента (посты/сообщения
    * остаются с автором-«tombstone»). Очистка файлов — best-effort: недоступность MinIO
    * не должна блокировать удаление аккаунта (ПДн в БД затираются в любом случае).
    */
   async softDeleteSelf(userId: string): Promise<void> {
     await this.deleteUserMedia(userId)
+    await this.deleteProfileMedia(userId)
     const anonymizedEmail = `deleted+${userId}@studenthub.invalid`
     // Пароль забиваем невосстановимым хешем случайной строки.
     const anonymizedHash = await this.passwords.hash(`${userId}-${Date.now()}-deleted`)
@@ -1644,8 +1727,53 @@ export class UserService {
       // тоже ПДн, а история «этот Telegram здесь уже был» у удалённого аккаунта никому
       // не нужна и только держала бы уникальный telegramId занятым.
       this.prisma.telegramAccount.deleteMany({ where: { userId } }),
+      // Контент профиля — личное, а не общее: статьи, опросы, альбомы и портфолио после
+      // удаления продолжали отдаваться с исходным текстом под «Удалённым пользователем».
+      // Чужие комментарии к ним, голоса и закладки уходят каскадом. Посты, комментарии
+      // и сообщения остаются tombstone-ом — так решено для общих лент и переписки.
+      this.prisma.profileArticle.deleteMany({ where: { userId } }),
+      this.prisma.poll.deleteMany({ where: { userId } }),
+      this.prisma.album.deleteMany({ where: { userId } }),
+      this.prisma.portfolioItem.deleteMany({ where: { userId } }),
+      this.prisma.bookmark.deleteMany({ where: { userId } }),
     ])
     await this.authService.revokeAllUserSessions(userId)
+  }
+
+  /**
+   * Фото и видео профиля и обложки статей удаляемого аккаунта (§11.3). Бакеты публичные, ссылки
+   * постоянные и уже разошлись (лайтбокс, обложки статей) — затёртое имя в карточке их не прячет.
+   * Сносим записи File владельца вместе с объектами: FileService.delete не трогает объект, на
+   * который ещё ссылаются другие записи (общий пул сида). Постер видео — raw-объект без записи,
+   * его убираем точечно по ключу. Best-effort, как и аватар: недоступность MinIO не должна
+   * блокировать удаление аккаунта; что не снеслось, подберёт ночная чистка осиротевших объектов.
+   */
+  private async deleteProfileMedia(userId: string): Promise<void> {
+    const covers = this.coversBucket
+    for (const bucket of [this.config.get('MINIO_BUCKET_PROFILE_MEDIA', { infer: true }), covers]) {
+      try {
+        for (let round = 0; round < ACCOUNT_CONTENT_MAX_ROUNDS; round++) {
+          const batch = await this.files.listByOwnerAndBucket(userId, bucket, ACCOUNT_CONTENT_BATCH)
+          if (batch.length === 0) break
+          let removed = 0
+          for (const file of batch) {
+            try {
+              if (file.posterKey) await this.files.removeRawObject(covers, file.posterKey)
+              await this.files.delete(file.id)
+              removed++
+            } catch (err) {
+              this.logger.warn(
+                `Не удалось снести файл ${file.id} пользователя ${userId}: ${String(err)}`,
+              )
+            }
+          }
+          // Ни один файл пачки не снёсся — дальше те же самые, крутить незачем.
+          if (removed === 0) break
+        }
+      } catch (err) {
+        this.logger.warn(`Не удалось снести медиа профиля пользователя ${userId}: ${String(err)}`)
+      }
+    }
   }
 
   /** Best-effort снос объектов аватара (+превью) и обложки в MinIO при удалении аккаунта. */

@@ -20,7 +20,11 @@ import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import { FileService } from '../files/file.service'
 import { MediaService } from '../media/media.service'
 import { MEDIA_FILE_SELECT, type MediaFile, type MediaInfo } from '../media/media.types'
-import { UserService } from '../users/users.service'
+import {
+  PROFILE_CONTENT_OWNER_SELECT,
+  UserService,
+  type ProfileContentOwner,
+} from '../users/users.service'
 
 // Что принимаем в медиа профиля — из белого списка категорий shared-config, а не по
 // префиксу строки: проверка идёт против РЕАЛЬНОГО типа объекта (magic bytes).
@@ -454,24 +458,20 @@ export class ProfileContentService {
     }))
   }
 
-  /** Статьи пользователя, видимые смотрящему: черновики — только автору; visibility по scope. */
+  /**
+   * Статьи пользователя, видимые смотрящему: черновики — только автору; visibility по scope.
+   * Первым шагом — видимость профиля, как у медиа и альбомов: закрытый профиль скрывает и
+   * статьи. Раньше статья с видимостью ALL отдавалась по прямому запросу кому угодно, хотя
+   * «визитка» владельца была закрыта (§14.7). Статьи удалённого аккаунта не отдаются.
+   */
   async listArticles(viewer: JwtPayload, targetUserId: string) {
     const author = await this.prisma.user.findUnique({
       where: { id: targetUserId },
-      select: { universityId: true, facultyId: true, groupId: true },
+      select: PROFILE_CONTENT_OWNER_SELECT,
     })
-    if (!author) return []
-    const where: Prisma.ProfileArticleWhereInput = { userId: targetUserId }
-    if (viewer.sub !== targetUserId && !isPlatform(viewer.role)) {
-      where.status = 'PUBLISHED'
-      const vis = ['ALL']
-      if (author.universityId && viewer.universityId === author.universityId) vis.push('UNIVERSITY')
-      if (author.facultyId && viewer.facultyId === author.facultyId) vis.push('FACULTY')
-      if (author.groupId && viewer.groupId === author.groupId) vis.push('GROUP')
-      where.visibility = { in: vis }
-    }
+    if (!author || !(await this.users.canViewProfileContentOf(viewer, author))) return []
     const rows = await this.prisma.profileArticle.findMany({
-      where,
+      where: { userId: targetUserId, ...this.viewerVisibilityWhere(viewer, author) },
       select: ARTICLE_SELECT,
       orderBy: { createdAt: 'desc' },
       take: 100,
@@ -518,19 +518,25 @@ export class ProfileContentService {
   async relatedArticles(viewer: JwtPayload, id: string) {
     const base = await this.prisma.profileArticle.findUnique({
       where: { id },
-      select: { userId: true, category: true, tags: true },
+      select: {
+        userId: true,
+        category: true,
+        tags: true,
+        user: { select: PROFILE_CONTENT_OWNER_SELECT },
+      },
     })
     if (!base) return []
     const similar: Prisma.ProfileArticleWhereInput[] = []
     if (base.category) similar.push({ category: base.category })
     if (base.tags.length > 0) similar.push({ tags: { hasSome: base.tags } })
     if (similar.length === 0) return []
+    if (!(await this.users.canViewProfileContentOf(viewer, base.user))) return []
 
     const where: Prisma.ProfileArticleWhereInput = {
       userId: base.userId,
       id: { not: id },
       OR: similar,
-      ...(await this.viewerVisibilityWhere(viewer, base.userId)),
+      ...this.viewerVisibilityWhere(viewer, base.user),
     }
     const rows = await this.prisma.profileArticle.findMany({
       where,
@@ -542,23 +548,42 @@ export class ProfileContentService {
   }
 
   // Ограничение видимости для чужого смотрящего (черновики скрыты, visibility по scope). Для
-  // владельца/платформы — пусто (видно всё). Общая логика для listArticles/related.
-  private async viewerVisibilityWhere(
+  // владельца/платформы — пусто (видно всё). Общая логика для listArticles/related. Закрытый
+  // профиль решает users.canViewProfileContentOf — до этого фильтра.
+  private viewerVisibilityWhere(
     viewer: JwtPayload,
-    authorId: string,
-  ): Promise<Prisma.ProfileArticleWhereInput> {
-    if (viewer.sub === authorId || isPlatform(viewer.role)) return {}
-    const author = await this.prisma.user.findUnique({
-      where: { id: authorId },
-      select: { universityId: true, facultyId: true, groupId: true },
-    })
+    author: ProfileContentOwner,
+  ): Prisma.ProfileArticleWhereInput {
+    if (viewer.sub === author.id || isPlatform(viewer.role)) return {}
     const vis = ['ALL']
-    if (author?.universityId && viewer.universityId === author.universityId) vis.push('UNIVERSITY')
-    if (author?.facultyId && viewer.facultyId === author.facultyId) vis.push('FACULTY')
-    if (author?.groupId && viewer.groupId === author.groupId) vis.push('GROUP')
+    if (author.universityId && viewer.universityId === author.universityId) vis.push('UNIVERSITY')
+    if (author.facultyId && viewer.facultyId === author.facultyId) vis.push('FACULTY')
+    if (author.groupId && viewer.groupId === author.groupId) vis.push('GROUP')
     return { status: 'PUBLISHED', visibility: { in: vis } }
   }
 
+  // Статус и видимость самой статьи — та же логика, что viewerVisibilityWhere, для одной строки.
+  private articleScopeOk(
+    viewer: JwtPayload,
+    a: { userId: string; status: string; visibility: string },
+    author: ProfileContentOwner,
+  ): boolean {
+    if (viewer.sub === a.userId || isPlatform(viewer.role)) return true
+    if (a.status !== 'PUBLISHED') return false
+    return (
+      a.visibility === 'ALL' ||
+      (a.visibility === 'UNIVERSITY' &&
+        !!author.universityId &&
+        viewer.universityId === author.universityId) ||
+      (a.visibility === 'FACULTY' && !!author.facultyId && viewer.facultyId === author.facultyId) ||
+      (a.visibility === 'GROUP' && !!author.groupId && viewer.groupId === author.groupId)
+    )
+  }
+
+  /**
+   * Статья видна смотрящему: и сама (статус, visibility), и профиль автора (закрытый профиль,
+   * удалённый аккаунт). Общая точка для читалки, просмотров, комментариев и закладок.
+   */
   private async assertArticleVisible(viewer: JwtPayload, id: string): Promise<void> {
     const a = await this.prisma.profileArticle.findUnique({
       where: { id },
@@ -566,20 +591,16 @@ export class ProfileContentService {
         userId: true,
         status: true,
         visibility: true,
-        user: { select: { universityId: true, facultyId: true, groupId: true } },
+        user: { select: PROFILE_CONTENT_OWNER_SELECT },
       },
     })
-    if (!a) throw new AppException('NOT_FOUND', 'Статья не найдена')
-    if (viewer.sub === a.userId || isPlatform(viewer.role)) return
-    const scopeOk =
-      a.visibility === 'ALL' ||
-      (a.visibility === 'UNIVERSITY' &&
-        !!a.user.universityId &&
-        viewer.universityId === a.user.universityId) ||
-      (a.visibility === 'FACULTY' && !!a.user.facultyId && viewer.facultyId === a.user.facultyId) ||
-      (a.visibility === 'GROUP' && !!a.user.groupId && viewer.groupId === a.user.groupId)
-    if (a.status !== 'PUBLISHED' || !scopeOk)
+    if (
+      !a ||
+      !this.articleScopeOk(viewer, a, a.user) ||
+      !(await this.users.canViewProfileContentOf(viewer, a.user))
+    ) {
       throw new AppException('NOT_FOUND', 'Статья не найдена')
+    }
   }
 
   private async assertArticleOwner(actor: JwtPayload, id: string): Promise<void> {
@@ -652,17 +673,30 @@ export class ProfileContentService {
     return { bookmarked: true }
   }
 
+  /**
+   * Мои закладки — только статьи, видимые сейчас: автор мог закрыть профиль, снять статью в
+   * черновик, сузить видимость или удалить аккаунт, а закладка на это не смотрела и продолжала
+   * отдавать полный текст. Видимость профилей авторов проверяется пачкой, не по статье.
+   */
   async listBookmarks(viewer: JwtPayload) {
     const marks = await this.prisma.bookmark.findMany({
       where: { userId: viewer.sub },
-      select: { article: { select: ARTICLE_SELECT } },
+      select: {
+        article: { select: { ...ARTICLE_SELECT, user: { select: PROFILE_CONTENT_OWNER_SELECT } } },
+      },
       orderBy: { createdAt: 'desc' },
       take: 100,
     })
-    return this.decorateArticles(
-      marks.map((m) => m.article),
-      viewer.sub,
+    const viewable = await this.users.viewableProfileContentOwners(
+      viewer,
+      marks.map((m) => m.article.user),
     )
+    const visible = marks
+      .map((m) => m.article)
+      .filter((a) => viewable.has(a.userId) && this.articleScopeOk(viewer, a, a.user))
+      // Поля автора нужны только для проверки — наружу уходит прежняя форма статьи.
+      .map(({ user, ...article }) => article)
+    return this.decorateArticles(visible, viewer.sub)
   }
 
   // ── util ─────────────────────────────────────────────────────────────────────

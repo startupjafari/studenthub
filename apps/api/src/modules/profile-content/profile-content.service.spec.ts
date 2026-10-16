@@ -20,6 +20,7 @@ const CONFIG: Record<string, unknown> = {
 
 function setup() {
   const prisma = {
+    user: { findUnique: jest.fn() },
     profileArticle: {
       create: jest.fn(),
       findMany: jest.fn(),
@@ -59,7 +60,14 @@ function setup() {
   }
   const config = { get: (k: string) => CONFIG[k] }
   // По умолчанию профиль открыт смотрящему; закрытый проверяется отдельным тестом.
-  const users = { canViewProfileContent: jest.fn().mockResolvedValue(true) }
+  const users = {
+    canViewProfileContent: jest.fn().mockResolvedValue(true),
+    canViewProfileContentOf: jest.fn().mockResolvedValue(true),
+    // По умолчанию виден контент всех переданных владельцев.
+    viewableProfileContentOwners: jest.fn(
+      async (_viewer: JwtPayload, owners: { id: string }[]) => new Set(owners.map((o) => o.id)),
+    ),
+  }
   // Описание медиа — media.service.spec.ts; здесь — «ещё не обработано», без вариантов.
   const media = {
     describeOne: jest.fn(async (f: { mediaStatus?: string; placeholder?: string | null }) => ({
@@ -83,6 +91,18 @@ function setup() {
   )
   return { service, prisma, files, users, media }
 }
+
+// Владелец контента — поля PROFILE_CONTENT_OWNER_SELECT.
+const owner = (id: string, over: Record<string, unknown> = {}) => ({
+  id,
+  role: Role.STUDENT,
+  profileVisibility: 'UNIVERSITY',
+  universityId: 'u',
+  facultyId: 'f',
+  groupId: 'g',
+  deletedAt: null,
+  ...over,
+})
 
 const file = (over: Record<string, unknown> = {}) => ({
   id: 'file1',
@@ -246,6 +266,7 @@ describe('ProfileContentService — статьи владение', () => {
       userId: 'me',
       category: 'GUIDE',
       tags: [],
+      user: owner('me'),
     })
     prisma.profileArticle.findMany.mockResolvedValue([
       { id: 'a2', _count: { comments: 0, bookmarks: 0 } },
@@ -329,5 +350,92 @@ describe('ProfileContentService — видимость контента проф
       expect.objectContaining({ sub: 'friend' }),
       'owner',
     )
+  })
+})
+
+// Статьи закрытого профиля отдавались по прямому запросу, хотя «визитка» владельца была закрыта.
+describe('ProfileContentService — статьи и закрытый профиль (§14.7)', () => {
+  const stranger: JwtPayload = {
+    sub: 'stranger',
+    role: Role.EMPLOYER,
+    universityId: null,
+    facultyId: null,
+    groupId: null,
+  }
+
+  it('статьи закрытого профиля списком не отдаются — до запроса статей', async () => {
+    const { service, prisma, users } = setup()
+    prisma.user.findUnique.mockResolvedValue(owner('owner'))
+    users.canViewProfileContentOf.mockResolvedValue(false)
+
+    expect(await service.listArticles(stranger, 'owner')).toEqual([])
+    expect(prisma.profileArticle.findMany).not.toHaveBeenCalled()
+  })
+
+  it('открытый профиль — прежний фильтр: опубликованные, visibility по scope', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findUnique.mockResolvedValue(owner('owner'))
+    prisma.profileArticle.findMany.mockResolvedValue([])
+
+    await service.listArticles(user('peer'), 'owner')
+    expect(prisma.profileArticle.findMany.mock.calls[0][0].where).toEqual({
+      userId: 'owner',
+      status: 'PUBLISHED',
+      visibility: { in: ['ALL', 'UNIVERSITY', 'FACULTY', 'GROUP'] },
+    })
+  })
+
+  it('читалка, комментарии, закладка и просмотр статьи закрытого профиля → NOT_FOUND', async () => {
+    const { service, prisma, users } = setup()
+    prisma.profileArticle.findUnique.mockResolvedValue({
+      userId: 'owner',
+      status: 'PUBLISHED',
+      visibility: 'ALL',
+      user: owner('owner'),
+    })
+    users.canViewProfileContentOf.mockResolvedValue(false)
+
+    for (const call of [
+      () => service.listArticleComments(stranger, 'a1'),
+      () => service.addArticleComment(stranger, 'a1', { content: 'x' }),
+      () => service.toggleBookmark(stranger, 'a1'),
+      () => service.incrementArticleView(stranger, 'a1'),
+    ]) {
+      const err = await call().catch((e) => e)
+      expect(err.code).toBe('NOT_FOUND')
+    }
+    expect(prisma.contentComment.findMany).not.toHaveBeenCalled()
+    expect(prisma.contentComment.create).not.toHaveBeenCalled()
+    expect(prisma.bookmark.create).not.toHaveBeenCalled()
+    expect(prisma.profileArticle.update).not.toHaveBeenCalled()
+  })
+
+  it('закладки отдают только статьи, видимые сейчас, и без полей автора', async () => {
+    const { service, prisma, users } = setup()
+    const article = (id: string, author: ReturnType<typeof owner>, over = {}) => ({
+      id,
+      userId: author.id,
+      status: 'PUBLISHED',
+      visibility: 'ALL',
+      _count: { comments: 0, bookmarks: 1 },
+      user: author,
+      ...over,
+    })
+    prisma.bookmark.findMany.mockResolvedValueOnce([
+      { article: article('ok', owner('open')) },
+      { article: article('closed', owner('closed')) },
+      { article: article('draft', owner('open'), { status: 'DRAFT' }) },
+      {
+        article: article('other-uni', owner('open', { universityId: 'x' }), {
+          visibility: 'UNIVERSITY',
+        }),
+      },
+    ])
+    users.viewableProfileContentOwners.mockResolvedValue(new Set(['open']))
+
+    const list = await service.listBookmarks(user('me'))
+
+    expect(list.map((a) => a.id)).toEqual(['ok'])
+    expect(list[0]).not.toHaveProperty('user')
   })
 })
