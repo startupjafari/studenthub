@@ -1,12 +1,13 @@
 'use client'
 
-import { useMemo, useRef, useState, type RefObject } from 'react'
+import { useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
 import { useTranslations } from 'next-intl'
 import {
   Archive,
   ArchiveRestore,
   ArrowLeft,
   BadgeCheck,
+  BarChart3,
   Bell,
   BellOff,
   Bookmark,
@@ -23,12 +24,14 @@ import {
   Loader2,
   Mic,
   MessagesSquare,
+  Newspaper,
   Pin,
   PinOff,
   Search,
   Settings,
   ShieldBan,
   Trash2,
+  UserRound,
   UserRoundSearch,
   Users,
   Video,
@@ -57,9 +60,12 @@ import {
   chatTitle,
   isOfficialChat,
   listTime,
+  plainPreview,
   senderName,
   TYPE_TAG,
 } from '../lib/format'
+import { parseProfileShare } from './shared-cards'
+import { SYSTEM_KEY } from './message-item'
 import { buildFolderTabs, filterChatsByTab, folderTabLabel } from '../lib/folders'
 import { summarizeActors, type ActionsByChat } from '../lib/chat-actions'
 import { useChatActionLabel } from '../lib/use-chat-action-label'
@@ -173,32 +179,78 @@ const PREVIEW_KEY: Record<AttachmentKind, string> = {
  * Подпись к вложению вытесняет название вида: у снимка с текстом в списке стоит сам
  * текст, а не слово «Фото», — он содержательнее. Значок тогда тоже не нужен, иначе
  * строка начинается с картинки и обрывается на середине слова.
+ *
+ * Сообщения, которые в окне чата рисуются карточкой, и в списке называются по-человечески:
+ * пересланный профиль — «Профиль: Имя» (а не имя со ссылкой), репост — «Публикация»,
+ * опрос — «Опрос: вопрос», служебное событие — его текстом («Мехман закрепил(а) сообщение»),
+ * а не общим словом. Разметка из текста снимается.
  */
 function MessagePreview({
   message,
   t,
 }: {
   // Структурный тип, а не ChatMessage: тем же превью подписываются найденные сообщения,
-  // а они приходят урезанными. Нужны ровно три поля — остальное к превью отношения не
-  // имеет, и требовать их значило бы запретить переиспользование на ровном месте.
+  // а они приходят урезанными. Поля карточек необязательны по той же причине.
   message: {
     systemType?: string | null
+    systemMeta?: { targetName?: string; title?: string } | null
     content?: string | null
     media?: readonly MessageAttachment[]
+    sharedPost?: unknown
+    poll?: unknown
+    sender?: { firstName: string } | null
   } | null
   t: ReturnType<typeof useTranslations<'Chats'>>
 }) {
   if (!message) return null
-  if (message.systemType) return <>{t('systemEvent')}</>
-  if (message.content) return <>{message.content}</>
+  if (message.systemType) {
+    return (
+      <>
+        {t(SYSTEM_KEY[message.systemType] ?? 'systemEvent', {
+          actor: message.sender?.firstName ?? '',
+          target: message.systemMeta?.targetName ?? '',
+          title: message.systemMeta?.title ?? '',
+        })}
+      </>
+    )
+  }
+  const profile =
+    message.sharedPost || message.poll ? null : parseProfileShare(message.content ?? null)
+  if (profile) {
+    return (
+      <PreviewWithIcon icon={UserRound}>
+        {t('previewProfile', { name: profile.name })}
+      </PreviewWithIcon>
+    )
+  }
+  if (message.poll) {
+    return (
+      <PreviewWithIcon icon={BarChart3}>
+        {t('previewPoll', { question: plainPreview(message.content ?? '') })}
+      </PreviewWithIcon>
+    )
+  }
+  if (message.sharedPost) {
+    const comment = plainPreview(message.content ?? '')
+    return <PreviewWithIcon icon={Newspaper}>{comment || t('previewPost')}</PreviewWithIcon>
+  }
+  const text = plainPreview(message.content ?? '')
+  if (text) return <>{text}</>
   const media = mediaPreview(message.media ?? [])
   if (!media) return null
-  const Icon = PREVIEW_ICON[media.kind]
+  return (
+    <PreviewWithIcon icon={PREVIEW_ICON[media.kind]}>
+      {t(PREVIEW_KEY[media.kind], { n: media.count })}
+    </PreviewWithIcon>
+  )
+}
+
+function PreviewWithIcon({ icon: Icon, children }: { icon: LucideIcon; children: ReactNode }) {
   return (
     <>
       {/* `-mt-px`: оптический центр значка на пол-пикселя выше базовой линии строки. */}
       <Icon className="-mt-px mr-1 inline size-3.5 shrink-0 align-text-bottom" aria-hidden />
-      {t(PREVIEW_KEY[media.kind], { n: media.count })}
+      {children}
     </>
   )
 }
@@ -730,7 +782,7 @@ export function ConversationList({
             const title = chatTitle(c, t)
             const lm = c.lastMessage
             const previewWho =
-              lm && c.type !== 'PRIVATE'
+              lm && c.type !== 'PRIVATE' && !lm.systemType
                 ? lm.senderId === myId
                   ? `${t('you')}: `
                   : `${lm.sender.firstName}: `

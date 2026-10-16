@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useTranslations } from 'next-intl'
 import { Copy, Send, Share2 } from 'lucide-react'
@@ -87,13 +87,23 @@ export function ShareProfileButton({
     }
   }, [open])
 
+  const qc = useQueryClient()
   const chats = useQuery({ queryKey: chatKeys.list(), queryFn: fetchChats, enabled: picking })
+  // Все выбранные чаты — одной мутацией: одно подтверждение вместо N одинаковых тостов.
   const sendMut = useMutation({
-    mutationFn: (chatId: string) =>
-      sendMessageWithAttachments(chatId, { content: `${name}\n${url}` }, []),
+    mutationFn: (chatIds: string[]) =>
+      Promise.all(
+        chatIds.map((chatId) =>
+          sendMessageWithAttachments(chatId, { content: `${name}\n${url}` }, []),
+        ),
+      ),
     onSuccess: () => {
       setPicking(false)
       toast.success(t('sharedProfileToChat'))
+      // Список чатов, загруженный для выбора минуту назад, считался свежим (staleTime), и
+      // после отправки в нём оставалось прежнее последнее сообщение — сбрасываем.
+      void qc.invalidateQueries({ queryKey: chatKeys.list() })
+      void qc.invalidateQueries({ queryKey: chatKeys.unread() })
     },
     onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
   })
@@ -167,7 +177,7 @@ export function ShareProfileButton({
           chats={chats.data ?? []}
           currentChatId={null}
           titleOf={(c) => chatLabel(c, tChats)}
-          onSubmit={(ids) => ids.forEach((id) => sendMut.mutate(id))}
+          onSubmit={(ids) => sendMut.mutate(ids)}
           onClose={() => setPicking(false)}
         />
       )}

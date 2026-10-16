@@ -21,7 +21,8 @@ import { cn } from '../../../shared/lib/utils'
 const QUICK_REACTION = '🔥'
 
 // Системные события группы (§20) → i18n-ключ. Текст строит клиент из actor/target/title.
-const SYSTEM_KEY: Record<string, string> = {
+// Ключ текста служебного сообщения по его типу — общий для пузыря и превью в списке чатов.
+export const SYSTEM_KEY: Record<string, string> = {
   member_added: 'sysMemberAdded',
   member_removed: 'sysMemberRemoved',
   member_left: 'sysMemberLeft',
