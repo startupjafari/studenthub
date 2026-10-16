@@ -6,6 +6,7 @@ import { Role } from '@studenthub/shared-types'
 import { useAppSelector } from '../../../shared/store'
 import type { FeedPost } from '../../../entities/post'
 import { cn } from '../../../shared/lib/utils'
+import { plainPreview } from '../../../shared/lib'
 import { BRAND_GRADIENT } from '../../../shared/config'
 import { MosaicTile, Skeleton, mosaicShape } from '../../../shared/ui'
 import { PostMediaView } from './post-media'
@@ -63,7 +64,8 @@ function PostTileView({
 
   const shape = mosaicShape(index)
   const first = post.media[0]
-  const text = post.title || post.content
+  // Подпись плитки — без разметки: «**Совет дня.**» иначе показывался со звёздочками.
+  const text = post.title || plainPreview(post.content)
   const canModerate = myRole !== null && MODERATOR_ROLES.includes(myRole)
   // Меню «•••» — про ту публикацию, что лежит в профиле: у репоста это сам репост
   // (удалить его), а не чужой исходник, который трогать нельзя.

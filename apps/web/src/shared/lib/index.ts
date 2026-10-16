@@ -80,3 +80,4 @@ export {
 } from './file-download'
 export { srcSetOf, pickSource } from './media-source'
 export { useHls, type HlsLevel, type HlsQuality } from './use-hls'
+export { plainPreview } from './plain-text'
