@@ -339,6 +339,28 @@ export function ChatWindow() {
   const [newerCursor, setNewerCursor] = useState<string | undefined>(undefined)
   const [canLoadNewer, setCanLoadNewer] = useState(false)
   const loadingNewerRef = useRef(false)
+  // Курсоры истории живут ПО ЧАТУ. Кэш сообщений у каждого чата свой и переживает
+  // переключение, а курсоры были одни на окно: A → B → A — и A догружал старые по курсору B,
+  // сервер не находил его в чате A, отвечал пустой страницей с hasNext=false, и история A
+  // дальше не листалась. Окно вокруг найденного сообщения тоже возвращалось как «низ».
+  type Pager = { older?: string; canOlder: boolean; newer?: string; canNewer: boolean }
+  const pagerByChatRef = useRef(new Map<string, Pager>())
+  const activeIdRef = useRef(activeId)
+  activeIdRef.current = activeId
+  function setPager(chatId: string, patch: Partial<Pager>): void {
+    const next: Pager = {
+      canOlder: false,
+      canNewer: false,
+      ...pagerByChatRef.current.get(chatId),
+      ...patch,
+    }
+    pagerByChatRef.current.set(chatId, next)
+    if (chatId !== activeIdRef.current) return
+    setOlderCursor(next.older)
+    setCanLoadOlder(next.canOlder)
+    setNewerCursor(next.newer)
+    setCanLoadNewer(next.canNewer)
+  }
   // Ф9+: ответ, вложения, поиск.
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null)
   // Процитированный фрагмент отвечаемого сообщения: заполняется, если в момент нажатия
@@ -485,6 +507,9 @@ export function ChatWindow() {
   const loadingOlderRef = useRef(false)
   // Был ли пользователь у нижнего края при прошлом событии скролла (для отметки прочтения по факту).
   const wasAtBottomRef = useRef(true)
+  // Кадр и таймер доводки первичного скролла — гасятся при смене чата.
+  const openRafRef = useRef<number | null>(null)
+  const openTimeoutRef = useRef<number | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const composerRef = useRef<RichTextHandle>(null)
   // Автодополнение @-упоминаний: активный запрос после @ (null — попап скрыт).
@@ -497,12 +522,15 @@ export function ChatWindow() {
   const messages = useQuery({
     queryKey: chatKeys.messages(activeId ?? ''),
     queryFn: async () => {
-      const page = await fetchMessages(activeId as string, { limit: 30 })
-      setOlderCursor(page.cursor)
-      setCanLoadOlder(page.hasNext)
+      const chatId = activeId as string
+      const page = await fetchMessages(chatId, { limit: 30 })
       // Первичная загрузка — у низа истории: более новых нет.
-      setNewerCursor(undefined)
-      setCanLoadNewer(false)
+      setPager(chatId, {
+        older: page.cursor,
+        canOlder: page.hasNext,
+        newer: undefined,
+        canNewer: false,
+      })
       // API отдаёт новые первыми — разворачиваем в хронологический порядок.
       return [...page.items].reverse()
     },
@@ -1551,7 +1579,7 @@ export function ChatWindow() {
           return listOld.some((m) => m.id === message.id) ? listOld : [...listOld, message]
         })
       }
-      void qc.invalidateQueries({ queryKey: chatKeys.list() })
+      refreshChatList(chatId)
     },
   )
   // Сообщения в НЕактивные чаты приходят в комнату chat:{id}, куда мы не входим; но их уведомление
@@ -1564,8 +1592,8 @@ export function ChatWindow() {
   useRealtimeEvent('poll:updated', (p: { pollId: string }) => {
     void qc.invalidateQueries({ queryKey: chatKeys.poll(p.pollId) })
   })
-  useRealtimeEvent('chat:activity', () => {
-    void qc.invalidateQueries({ queryKey: chatKeys.list() })
+  useRealtimeEvent<{ chatId?: string }>('chat:activity', (p) => {
+    refreshChatList(p?.chatId)
   })
   // Блокировка изменилась (я/меня) — обновляем список: флаги blocked/blockedBy определяют поле ввода
   // и баннер у обоих участников в реальном времени.
@@ -1635,7 +1663,9 @@ export function ChatWindow() {
         // #6: обновляем «кто прочитал» для счётчика у своих сообщений.
         void qc.invalidateQueries({ queryKey: chatKeys.reads(chatId) })
       }
-      void qc.invalidateQueries({ queryKey: chatKeys.list() })
+      // Галочки в превью — не срочно: в большой группе прочтения идут потоком, и полный
+      // перезапрос списка на каждое забивал сеть и перерисовывал боковую колонку.
+      scheduleListRefresh()
     },
   )
   // Своё прочтение с другого устройства (или подтверждение этого): сервер шлёт его в личную
@@ -1643,13 +1673,34 @@ export function ChatWindow() {
   // сохранена. Список перезапрашиваем с задержкой: при быстром чтении отметки идут одна за
   // другой, и дёргать список на каждую незачем.
   const listRefreshRef = useRef<number | null>(null)
-  useRealtimeEvent<{ chatId: string; readAt: string }>('chat:read', () => {
-    void qc.invalidateQueries({ queryKey: chatKeys.unread() })
+  function scheduleListRefresh(): void {
     if (listRefreshRef.current) window.clearTimeout(listRefreshRef.current)
     listRefreshRef.current = window.setTimeout(() => {
       listRefreshRef.current = null
       void qc.invalidateQueries({ queryKey: chatKeys.list() })
     }, 1500)
+  }
+  /**
+   * Обновить список чатов по событию в чате `chatId`.
+   *
+   * Событие в чате, который человек сейчас читает, — с задержкой: сервер ещё считает новое
+   * сообщение непрочитанным (отметка уйдёт через ~1 с), и немедленный перезапрос перетирал
+   * локальный 0 — счётчик мигал 0 → 1 → 0. К моменту отложенного запроса отметка уже на
+   * сервере. Остальные чаты — сразу.
+   */
+  function refreshChatList(chatId?: string): void {
+    const reading =
+      !!chatId &&
+      chatId === activeId &&
+      typeof document !== 'undefined' &&
+      !document.hidden &&
+      peekChatIdRef.current !== chatId
+    if (reading) scheduleListRefresh()
+    else void qc.invalidateQueries({ queryKey: chatKeys.list() })
+  }
+  useRealtimeEvent<{ chatId: string; readAt: string }>('chat:read', () => {
+    void qc.invalidateQueries({ queryKey: chatKeys.unread() })
+    scheduleListRefresh()
   })
   useRealtimeEvent<{ messageId: string; chatId: string }>(
     'message:deleted',
@@ -1715,10 +1766,39 @@ export function ChatWindow() {
   // Новый чат — прочтение начинается заново: плашку «Непрочитанные» и отметку «прочитано до»
   // ставит первичный скролл, когда лента загрузится. Недоотправленную отметку прошлого чата
   // отправляем сразу, а не теряем при переключении.
+  // Курсоры истории этого чата: сохранённые — как были; кэш без сохранённых (чат открыт в
+  // этой вкладке впервые после перезагрузки страницы) — старее самого старого загруженного.
+  useEffect(() => {
+    if (!activeId) return
+    const saved = pagerByChatRef.current.get(activeId)
+    if (saved) {
+      setOlderCursor(saved.older)
+      setCanLoadOlder(saved.canOlder)
+      setNewerCursor(saved.newer)
+      setCanLoadNewer(saved.canNewer)
+      return
+    }
+    const cached = qc.getQueryData<ChatMessage[]>(chatKeys.messages(activeId))
+    setOlderCursor(cached?.[0]?.id)
+    setCanLoadOlder(!!cached?.length)
+    setNewerCursor(undefined)
+    setCanLoadNewer(false)
+    // qc стабилен; эффект — ровно на смену чата.
+  }, [activeId])
+
   useEffect(() => {
     setUnreadDividerId(null)
     readUpToRef.current = null
     setReadUpTo(null)
+    // Лента перемонтирована (key={activeId}) и стоит наверху: первичный скролл нужен заново,
+    // в том числе при повторном открытии ТОГО ЖЕ чата (на телефоне «назад» и снова в чат —
+    // раньше он открывался в самом верху истории).
+    scrolledForRef.current = null
+    // Отложенная доводка прошлого чата не должна сработать по индексам нового.
+    if (openRafRef.current !== null) cancelAnimationFrame(openRafRef.current)
+    if (openTimeoutRef.current !== null) window.clearTimeout(openTimeoutRef.current)
+    openRafRef.current = null
+    openTimeoutRef.current = null
     return () => flushRead()
     // flushRead читает refs — актуальный на момент ухода из чата, пересоздавать эффект незачем.
   }, [activeId])
@@ -1761,9 +1841,16 @@ export function ChatWindow() {
       setUnreadDividerId(firstUnread === null ? null : (list[firstUnread]?.id ?? null))
       // Всё, что выше первого непрочитанного, уже прочитано; пустая строка — «ничего», если
       // непрочитанным оказалось всё загруженное.
+      //
+      // Непрочитанных по списку нет — всё до ПОСЛЕДНЕГО считаем прочитанным, а само последнее
+      // отправим по факту показа. Раньше прочитанным сразу считалось и оно: отметка не уходила
+      // вовсе, и если список ошибался (открыли по ссылке, пока он не загрузился; последним
+      // было своё сообщение), сервер так и считал чат непрочитанным.
       readUpToRef.current =
         firstUnread === null
-          ? (last?.createdAt ?? null)
+          ? list.length > 1
+            ? (list[list.length - 2]?.createdAt ?? '')
+            : ''
           : firstUnread > 0
             ? (list[firstUnread - 1]?.createdAt ?? '')
             : ''
@@ -1772,12 +1859,16 @@ export function ChatWindow() {
         if (firstUnread === null) toBottom('auto')
         else virtualizerRef.current?.scrollToIndex(firstUnread, { align: 'start' })
       }
-      requestAnimationFrame(() => {
+      openRafRef.current = requestAnimationFrame(() => {
+        openRafRef.current = null
         position()
         // Второй проход — после того как virtua измерила строки: первая раскладка идёт по
         // оценке высот. Прочтение отмечаем уже по настоящему кадру.
-        window.setTimeout(() => {
+        openTimeoutRef.current = window.setTimeout(() => {
+          openTimeoutRef.current = null
           position()
+          // Открыт в самом низу — держимся низа, пока догружаются снимки и карточки.
+          wasAtBottomRef.current = firstUnread === null
           markVisibleReadRef.current()
         }, 120)
       })
@@ -1803,6 +1894,27 @@ export function ChatWindow() {
     const el = messagesScrollRef.current
     if (el) el.scrollTop = el.scrollHeight
   }, [composerH])
+
+  // Догрузились снимок, видео, превью ссылки или карточка — строка выросла уже после
+  // первичного скролла, и последнее сообщение уезжало под панель ввода. Стоявшего внизу
+  // держим внизу. Новое сообщение сюда не относится: его доводит эффект выше, плавно, —
+  // поэтому рост из-за смены последнего сообщения пропускаем.
+  const isLoadingMessages = messages.isLoading
+  useEffect(() => {
+    const el = messagesScrollRef.current
+    const content = el?.firstElementChild
+    if (!el || !content || typeof ResizeObserver === 'undefined') return
+    let seenLastId = lastMsgIdRef.current
+    const ro = new ResizeObserver(() => {
+      if (seenLastId !== lastMsgIdRef.current) {
+        seenLastId = lastMsgIdRef.current
+        return
+      }
+      if (wasAtBottomRef.current && !loadingOlderRef.current) el.scrollTop = el.scrollHeight
+    })
+    ro.observe(content)
+    return () => ro.disconnect()
+  }, [activeId, isLoadingMessages])
 
   // Пометка дня (§6). Она живёт в потоке ленты, перед первым сообщением дня, и
   // прокручивается вместе с ним. Прилипший заголовок наверху — её подмена на время,
@@ -1895,13 +2007,17 @@ export function ChatWindow() {
     if (canLoadNewer && id) {
       // В «прыгнутом» окне последнее загруженное ≠ реальный низ — перезагружаем новейшие
       // (эффект первичного скролла проскроллит к низу, т.к. scrolledForRef сброшен).
-      setNewerCursor(undefined)
-      setCanLoadNewer(false)
+      setPager(id, { newer: undefined, canNewer: false })
       scrolledForRef.current = null
       void qc.invalidateQueries({ queryKey: chatKeys.messages(id) })
     } else {
       const len = messages.data?.length ?? 0
-      if (len > 0) virtualizerRef.current?.scrollToIndex(len - 1, { align: 'end', smooth: true })
+      const el = messagesScrollRef.current
+      // Плавно — только последний экран-другой. Издалека плавная прокрутка через
+      // неизмеренные строки шла долго и часто не доезжала: высоты по пути уточнялись.
+      const far = !!el && el.scrollHeight - el.scrollTop - el.clientHeight > el.clientHeight * 2
+      if (len > 0) virtualizerRef.current?.scrollToIndex(len - 1, { align: 'end', smooth: !far })
+      wasAtBottomRef.current = true
     }
     setShowScrollDown(false)
   }
@@ -1985,7 +2101,11 @@ export function ChatWindow() {
     if (!chatId || !data?.length || !vh) return
     if (typeof document !== 'undefined' && document.hidden) return
     if (peekChatIdRef.current === chatId) return
-    const bottom = Math.max(0, vh.scrollOffset + vh.viewportSize - composerH)
+    // viewportSize у virtua — высота БЕЗ отступов контейнера (contentRect), а нижний отступ
+    // ленты и есть место под панелью ввода. Вычитать composerH ещё раз значило поднять
+    // границу на высоту панели: короткое последнее сообщение так и не считалось прочитанным,
+    // а бейдж в навигации висел.
+    const bottom = Math.max(0, vh.scrollOffset + vh.viewportSize)
     let idx = Math.min(Math.max(vh.findItemIndex(bottom), 0), data.length - 1)
     // Своё недоотправленное сообщение (временный id) сервер не знает — берём ближайшее
     // настоящее выше него.
@@ -2529,8 +2649,7 @@ export function ChatWindow() {
         ...older,
         ...(old ?? []),
       ])
-      setOlderCursor(page.cursor)
-      setCanLoadOlder(page.hasNext)
+      setPager(activeId, { older: page.cursor, canOlder: page.hasNext })
     } finally {
       setLoadingOlder(false)
     }
@@ -2555,8 +2674,7 @@ export function ChatWindow() {
       // Догрузка вниз — не «новое входящее»: не даём эффекту автоскролла увести к низу.
       const updated = qc.getQueryData<ChatMessage[]>(chatKeys.messages(activeId))
       lastMsgIdRef.current = updated?.[updated.length - 1]?.id ?? lastMsgIdRef.current
-      setNewerCursor(page.prevCursor)
-      setCanLoadNewer(page.hasPrev)
+      setPager(activeId, { newer: page.prevCursor, canNewer: page.hasPrev })
     } finally {
       loadingNewerRef.current = false
     }
@@ -2571,10 +2689,12 @@ export function ChatWindow() {
     if (!activeId) return win
     qc.setQueryData<ChatMessage[]>(chatKeys.messages(activeId), win)
     lastMsgIdRef.current = win[win.length - 1]?.id ?? null
-    setOlderCursor(page.cursor)
-    setCanLoadOlder(page.hasNext)
-    setNewerCursor(page.prevCursor)
-    setCanLoadNewer(page.hasPrev)
+    setPager(activeId, {
+      older: page.cursor,
+      canOlder: page.hasNext,
+      newer: page.prevCursor,
+      canNewer: page.hasPrev,
+    })
     return win
   }
 

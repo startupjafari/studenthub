@@ -26,5 +26,10 @@ export function useChatsUnread(): number {
   useRealtimeEvent('chat:activity', () => {
     void qc.invalidateQueries({ queryKey: chatKeys.unread() })
   })
+  // Своё прочтение (на этом или другом устройстве, а также своя отправка — она тоже
+  // прочтение): без этого вне раздела чатов бейдж не уменьшался, пока не придёт новое сообщение.
+  useRealtimeEvent('chat:read', () => {
+    void qc.invalidateQueries({ queryKey: chatKeys.unread() })
+  })
   return data?.messages ?? 0
 }

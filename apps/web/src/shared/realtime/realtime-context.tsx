@@ -118,7 +118,8 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
       const socket = io(wsOrigin(), {
         auth: { token: tokenRef.current },
         transports: ['websocket'],
-        // Переподключение при обрыве связи; сервер восстановит комнаты в handleConnection.
+        // Переподключение при обрыве связи. Личную комнату user:{id} сервер выдаёт сам в
+        // handleConnection, а комнаты чатов — нет: в них заново входит клиент (realtime-client).
         reconnection: true,
       })
       socketRef.current = socket

@@ -75,7 +75,13 @@ export class SupportService {
     })
 
     const chatId = existing ? existing.id : await this.createTicket(user.sub)
-    await this.chats.createMessage(user.sub, { chatId, content: input.text })
+    const { message: opened } = await this.chats.createMessage(user.sub, {
+      chatId,
+      content: input.text,
+    })
+    // createMessage в комнату чата не шлёт (это делает шлюз), а обращение пишется по REST:
+    // без рассылки у сотрудника с открытым обращением сообщение не появлялось вживую.
+    this.chats.publishNewMessage(chatId, opened)
 
     await this.audit.record({
       userId: user.sub,
@@ -293,6 +299,9 @@ export class SupportService {
       chatId,
       content: input.text,
     })
+    // Ответ уходит в комнату чата: у человека с открытым обращением он появляется сразу
+    // (уведомление ему при этом не создаётся — он «смотрит чат»).
+    this.chats.publishNewMessage(chatId, message)
     await this.prisma.chat.updateMany({
       where: { id: chatId, supportClosedAt: { not: null } },
       data: { supportClosedAt: null },

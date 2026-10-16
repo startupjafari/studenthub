@@ -84,10 +84,18 @@ export function createLeaderClient(
   }
   const relayConnected = (): void => bus?.post({ kind: 'conn', connected: true })
   const relayDisconnected = (): void => bus?.post({ kind: 'conn', connected: false })
+  // После переподключения у сервера новый сокет, и о комнатах он не помнит — входим заново во
+  // все, что держат вкладки. Раньше повторный join открытого чата глушился рефкаунтом («мы уже
+  // в комнате»), и чат после обрыва связи переставал получать сообщения вживую, пока человек
+  // не переключится на другой чат. При первом подключении комнат ещё нет — цикл пустой.
+  const rejoinRooms = (): void => {
+    rooms.forEach((_holders, chatId) => socket.emit(ROOM_JOIN, { chatId }))
+  }
 
   // `onAny` ловит только события сервера — connect/disconnect сокет генерирует сам, их шлём явно.
   socket.onAny(relayAny)
   socket.on('connect', relayConnected)
+  socket.on('connect', rejoinRooms)
   socket.on('disconnect', relayDisconnected)
 
   const unsubscribe = bus?.subscribe((message) => {
@@ -117,6 +125,7 @@ export function createLeaderClient(
       unsubscribe?.()
       socket.offAny(relayAny)
       socket.off('connect', relayConnected)
+      socket.off('connect', rejoinRooms)
       socket.off('disconnect', relayDisconnected)
       rooms.clear()
     },
