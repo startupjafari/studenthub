@@ -46,6 +46,7 @@ export class PostsController {
   @Get()
   @ApiOperation({ summary: 'Лента постов по видимости (cursor-пагинация)' })
   @ApiResponse({ status: 200, description: 'Страница ленты' })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN — filter=MODERATION не у роли модерации' })
   feed(@CurrentUser() user: CurrentUserData, @Query() query: FeedQueryDto) {
     return this.posts.feed(user, query)
   }

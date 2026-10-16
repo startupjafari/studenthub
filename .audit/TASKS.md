@@ -101,7 +101,7 @@
   - Суть: Два bcrypt cost 12 на каждый refresh — узкое место пула потоков при утреннем пике
   - Файлы: apps/api/src/modules/auth/auth.service.ts, apps/api/src/modules/auth/refresh-secret.spec.ts, docs/BACKEND_RULES.md
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для A-F09; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [todo] FIX-B-F02 · P1 · проблемы: B-F02 · после: FIX-A-F01
+- [in_progress] FIX-B-F02 · P1 · проблемы: B-F02 · после: FIX-A-F01
   - Суть: Одобрение демо-заявки не атомарно: двойной клик или сбой инвайта даёт вуз-дубликат
   - Файлы: apps/api/src/modules/invites/invites.service.ts, apps/api/src/modules/onboarding/demo-requests.service.spec.ts, apps/api/src/modules/onboarding/demo-requests.service.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для B-F02; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
@@ -109,7 +109,7 @@
   - Суть: Статус вуза BLOCKED (и PENDING) ничего не ограничивает
   - Файлы: apps/api/src/modules/auth/auth.service.ts, apps/api/src/modules/auth/strategies/jwt.strategy.ts, apps/api/src/modules/invites/invites.service.ts, apps/api/src/modules/universities/universities.service.ts, docs/PROJECT.md
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для B-F03; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [todo] FIX-B-F04 · P1 · проблемы: B-F04
+- [in_progress] FIX-B-F04 · P1 · проблемы: B-F04
   - Суть: Админ заблокированного вуза сам переводит его в ACTIVE через мастер
   - Файлы: apps/api/src/modules/onboarding/onboarding.service.spec.ts, apps/api/src/modules/onboarding/onboarding.service.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для B-F04; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
@@ -237,11 +237,11 @@
   - Суть: Истёкший допуск компании не снимает её вакансии: студенты продолжают откликаться, компания получает новых кандидатов
   - Файлы: apps/api/src/modules/career/applications.service.ts, apps/api/src/modules/career/companies.service.ts, apps/api/src/modules/career/vacancies.service.ts, apps/api/src/modules/cleanup/cleanup.service.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для D-F13; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [in_progress] FIX-E-F02 · P1 · проблемы: E-F02
+- [done] FIX-E-F02 · P1 · проблемы: E-F02
   - Суть: Цитата оригинала в репосте отдаётся без проверки видимости — и после удаления оригинала модератором
   - Файлы: apps/api/src/modules/posts/posts.service.ts, apps/web/src/widgets/feed-list/ui/post-card.tsx
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для E-F02; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [in_progress] FIX-E-F03 · P1 · проблемы: E-F03 · после: FIX-E-F02 · стоп: контракт
+- [done] FIX-E-F03 · P1 · проблемы: E-F03 · после: FIX-E-F02 · стоп: контракт
   - Суть: Модераторы и админы не видят в ленте посты, которые вправе снимать и закреплять
   - Файлы: apps/api/src/modules/posts/posts.service.ts, apps/web/src/views/feed/ui/feed-view.tsx, packages/shared-schemas/src/posts.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для E-F03; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.

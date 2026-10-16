@@ -33,7 +33,8 @@ interface PostTileProps {
 // репост и закладка живут в лайтбоксе: на плитке они мельчили сетку и спорили с обложкой.
 //
 // Репост показывается исходным постом: его обложка и счётчики, а в углу — «↻ Имя». Пока
-// исходник грузится — скелетон плитки; исходник недоступен — плитка самого репоста.
+// исходник грузится — скелетон плитки; исходник недоступен — плитка самого репоста, и без
+// своей заметки на ней «Публикация недоступна».
 export function PostTile(props: PostTileProps) {
   const source = useRepostSource(props.post)
   if (source.kind === 'loading') {
@@ -46,17 +47,20 @@ export function PostTile(props: PostTileProps) {
   if (source.kind === 'ready') {
     return <PostTileView {...props} key={source.source.id} post={source.source} via={props.post} />
   }
-  return <PostTileView {...props} />
+  return <PostTileView {...props} originalUnavailable={source.kind === 'unavailable'} />
 }
 
 function PostTileView({
   post,
   index,
   via,
+  originalUnavailable = false,
   onOpen,
 }: PostTileProps & {
   /** Репост, через который показан `post` (исходник). Его меню — удалить свой репост. */
   via?: FeedPost
+  /** `post` — репост, чей исходник зрителю недоступен (удалён или чужой аудитории). */
+  originalUnavailable?: boolean
 }) {
   const t = useTranslations('Feed')
   const myId = useAppSelector((s) => s.auth.user?.id)
@@ -65,7 +69,10 @@ function PostTileView({
   const shape = mosaicShape(index)
   const first = post.media[0]
   // Подпись плитки — без разметки: «**Совет дня.**» иначе показывался со звёздочками.
-  const text = post.title || plainPreview(post.content)
+  const text =
+    post.title ||
+    plainPreview(post.content) ||
+    (originalUnavailable ? t('postUnavailableTitle') : '')
   const canModerate = myRole !== null && MODERATOR_ROLES.includes(myRole)
   // Меню «•••» — про ту публикацию, что лежит в профиле: у репоста это сам репост
   // (удалить его), а не чужой исходник, который трогать нельзя.

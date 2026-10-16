@@ -8675,6 +8675,9 @@
         "responses": {
           "200": {
             "description": "Страница ленты"
+          },
+          "403": {
+            "description": "FORBIDDEN — filter=MODERATION не у роли модерации"
           }
         },
         "security": [

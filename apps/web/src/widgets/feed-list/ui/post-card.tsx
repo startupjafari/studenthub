@@ -24,7 +24,7 @@ import { SharePostMenu } from '../../../features/share-post'
 import { useBookmark } from '../../../features/bookmark-post'
 import { MediaFrame } from './media-frame'
 import { PostTileMenu } from './post-tile-menu'
-import { RepostBanner } from './repost-banner'
+import { RepostBanner, RepostUnavailable } from './repost-banner'
 import { useRepostSource } from '../lib/use-repost-source'
 
 const LIKE = '❤️'
@@ -66,7 +66,8 @@ interface PostCardProps {
 /**
  * Репост — как в Instagram: в ленте стоит сам исходный пост (медиа, лайки, комментарии
  * его автора), а над ним пометка «↻ Репост от …» с заметкой. Пока исходник грузится —
- * скелетон карточки; недоступен зрителю — прежняя карточка репоста с цитатой.
+ * скелетон карточки; недоступен зрителю — карточка репоста с пометкой «Публикация
+ * недоступна» вместо цитаты.
  */
 export function PostCard(props: PostCardProps) {
   const source = useRepostSource(props.post)
@@ -85,17 +86,20 @@ export function PostCard(props: PostCardProps) {
   if (source.kind === 'ready') {
     return <PostCardView {...props} key={source.source.id} post={source.source} via={props.post} />
   }
-  return <PostCardView {...props} />
+  return <PostCardView {...props} originalUnavailable={source.kind === 'unavailable'} />
 }
 
 function PostCardView({
   post,
   via,
+  originalUnavailable = false,
   onOpenMedia,
   onOpenComments,
 }: PostCardProps & {
   /** Репост, через который показан `post` (исходник): его меню и его пометка сверху. */
   via?: FeedPost
+  /** `post` — репост, чей исходник зрителю недоступен (удалён или чужой аудитории). */
+  originalUnavailable?: boolean
 }) {
   const t = useTranslations('Feed')
   const tErr = useTranslations('Errors')
@@ -113,7 +117,8 @@ function PostCardView({
   // Меню — про публикацию в ленте: у репоста это сам репост, а не чужой исходник.
   const menuPost = via ?? post
   const canDelete = menuPost.authorId === myId || canModerate
-  const showRepost = canRepost(myRole, post)
+  // Репост репоста ссылается на исходник — а он зрителю недоступен, сервер откажет.
+  const showRepost = !originalUnavailable && canRepost(myRole, post)
   const liked = reactions.some((r) => r.emoji === LIKE && r.userId === myId)
   const { bookmarked, toggle: toggleBookmark } = useBookmark(post.id, post.bookmarked)
 
@@ -210,21 +215,7 @@ function PostCardView({
 
       {(post.title || post.content) && <PostBody title={post.title} text={post.content} />}
 
-      {post.original && (
-        <div className="mx-4 mt-3 rounded-xl border-l-2 border-l-primary bg-muted/30 p-3 text-sm">
-          <p className="mb-1 flex items-center gap-1 text-xs text-muted-foreground">
-            <Repeat2 className="size-3.5" aria-hidden />
-            <ProfileLink
-              userId={post.original.author.id}
-              className="hover:text-primary hover:underline"
-            >
-              {post.original.author.lastName} {post.original.author.firstName}
-            </ProfileLink>
-          </p>
-          {post.original.title && <p className="font-semibold">{post.original.title}</p>}
-          <Markdown source={post.original.content} />
-        </div>
-      )}
+      {originalUnavailable && <RepostUnavailable className="mx-4 mt-3" />}
 
       {/* Панель действий — как во «ВКонтакте»: лайк, комментарии, репост и «поделиться»
           слева, просмотры справа. Подписи видны с `sm`: голые иконки читаются

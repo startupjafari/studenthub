@@ -81,6 +81,9 @@ export type PinPostInput = z.infer<typeof PinPostSchema>
 // ALL — без фильтра; GROUP/UNIVERSITY/TEACHERS — по audience поста; IMPORTANT — закреплённые.
 // SAVED — личная полка: посты, которые зритель сам сохранил. Он единственный, кто её видит,
 // и отдельной ручки для неё нет намеренно — это тот же список с тем же правом видеть.
+// MODERATION — не срез личной ленты, а всё, что роль вправе снимать: платформа — все вузы,
+// админ и модератор вуза — свой вуз, декан — свой факультет (без личных постов). Только
+// для ролей модерации, остальным — FORBIDDEN.
 export const FeedFilterSchema = z.enum([
   'ALL',
   'GROUP',
@@ -88,6 +91,7 @@ export const FeedFilterSchema = z.enum([
   'TEACHERS',
   'IMPORTANT',
   'SAVED',
+  'MODERATION',
 ])
 export type FeedFilterValue = z.infer<typeof FeedFilterSchema>
 

@@ -1860,6 +1860,7 @@
     "viewReplies": "{count, plural, one {View # reply} other {View # replies}}",
     "hideReplies": "Hide replies",
     "filterSaved": "Saved",
+    "filterModeration": "Moderation",
     "bookmark": "Save"
   },
   "Stories": {

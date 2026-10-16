@@ -378,6 +378,8 @@ describe('PostsService.repost — что репостить нельзя', () =>
         audience: PostAudience.GROUP,
         status: 'PUBLISHED',
       })
+      // Первоисточник доступен самому репостящему.
+      .mockResolvedValueOnce({ id: 'p1' })
       .mockResolvedValueOnce(postRow({ originalPostId: 'p1' }))
     prisma.group.findUnique.mockResolvedValue({
       facultyId: 'fac-1',
@@ -394,6 +396,209 @@ describe('PostsService.repost — что репостить нельзя', () =>
         data: expect.objectContaining({ originalPostId: 'p1', content: 'мой комментарий' }),
       }),
     )
+  })
+
+  it('репост репоста, чей первоисточник снят или не виден → NOT_FOUND, репост не создаётся', async () => {
+    const { service, prisma } = setup()
+    prisma.post.findFirst
+      .mockResolvedValueOnce({
+        id: 'p2',
+        originalPostId: 'p1',
+        audience: PostAudience.GROUP,
+        status: 'PUBLISHED',
+      })
+      // Первоисточник удалён модератором или адресован чужой аудитории.
+      .mockResolvedValueOnce(null)
+    const err = await service
+      .repost(viewer(Role.STUDENT, { groupId: 'grp-1' }), 'p2', { audience: 'GROUP' }, ctx)
+      .catch((e: AppException) => e)
+    expect((err as AppException).code).toBe('NOT_FOUND')
+    const sourceWhere = prisma.post.findFirst.mock.calls[1][0].where
+    expect(sourceWhere).toMatchObject({ id: 'p1', status: 'PUBLISHED', deletedAt: null })
+    expect(prisma.post.create).not.toHaveBeenCalled()
+  })
+
+  it('видимость репостящего — без scope модерации: снимать пост ≠ распространять его', async () => {
+    const { service, prisma } = setup()
+    prisma.post.findFirst.mockResolvedValue(null)
+    await service
+      .repost(
+        viewer(Role.UNIVERSITY_ADMIN, { universityId: 'uni-1' }),
+        'p1',
+        { audience: 'UNIVERSITY' },
+        ctx,
+      )
+      .catch(() => undefined)
+    const where = prisma.post.findFirst.mock.calls[0][0].where
+    expect(hasClause(where, { universityId: 'uni-1', status: 'PUBLISHED' })).toBe(false)
+  })
+})
+
+// ── Цитата оригинала у репоста (E-F02) ──────────────────────────────────────
+describe('PostsService — цитата оригинала только для того, кто вправе его открыть', () => {
+  const quote = (id: string) => ({
+    id,
+    title: 'Снятый пост',
+    content: 'текст оригинала',
+    author: { id: 't1', firstName: 'A', lastName: 'B', role: Role.TEACHER, avatarUrl: null },
+  })
+
+  it('лента: оригинал удалён или чужой аудитории → original: null, originalPostId остаётся', async () => {
+    const { service, prisma } = setup()
+    prisma.post.findMany
+      .mockResolvedValueOnce([
+        postRow({ id: 'r1', originalPostId: 'o-hidden', original: quote('o-hidden') }),
+        postRow({ id: 'r2', originalPostId: 'o-ok', original: quote('o-ok') }),
+        postRow({ id: 'p3' }),
+      ])
+      // Проверка оригиналов: из двух виден только один.
+      .mockResolvedValueOnce([{ id: 'o-ok' }])
+
+    const res = await service.feed(
+      viewer(Role.STUDENT, { sub: 's1', universityId: 'uni-1', groupId: 'grp-1' }),
+      { limit: 20 },
+    )
+
+    const byId = Object.fromEntries(res.items.map((p) => [p.id, p]))
+    expect(byId.r1?.original).toBeNull()
+    expect(byId.r1?.originalPostId).toBe('o-hidden')
+    expect(byId.r2?.original?.content).toBe('текст оригинала')
+    // Один запрос на страницу: только id оригиналов, только опубликованные, по видимости
+    // зрителя (снятый пост отсекает deletedAt: null внутри видимости).
+    const check = prisma.post.findMany.mock.calls[1][0]
+    expect(check.select).toEqual({ id: true })
+    expect(check.take).toBe(2)
+    expect(check.where.AND[0]).toEqual({ id: { in: ['o-hidden', 'o-ok'] } })
+    expect(check.where.AND).toContainEqual({ status: 'PUBLISHED' })
+    expect(check.where.AND[2].deletedAt).toBeNull()
+    // Студент не видит постов для преподавателей — и их цитаты тоже.
+    expect(hasClause(check.where.AND[2], { audience: 'TEACHERS' })).toBe(false)
+  })
+
+  it('страница без репостов не делает лишнего запроса', async () => {
+    const { service, prisma } = setup()
+    prisma.post.findMany.mockResolvedValueOnce([postRow({ id: 'p1' })])
+    await service.feed(viewer(Role.STUDENT, { groupId: 'grp-1' }), { limit: 20 })
+    expect(prisma.post.findMany).toHaveBeenCalledTimes(1)
+  })
+
+  it('пост по id: недоступный оригинал → original: null', async () => {
+    const { service, prisma } = setup()
+    prisma.post.findFirst.mockResolvedValue(
+      postRow({ id: 'r1', originalPostId: 'o1', original: quote('o1') }),
+    )
+    prisma.post.findMany.mockResolvedValueOnce([])
+    const res = await service.getById(viewer(Role.STUDENT, { groupId: 'grp-1' }), 'r1')
+    expect(res.original).toBeNull()
+    expect(res.originalPostId).toBe('o1')
+  })
+
+  it('пост по id: доступный оригинал остаётся в ответе', async () => {
+    const { service, prisma } = setup()
+    prisma.post.findFirst.mockResolvedValue(
+      postRow({ id: 'r1', originalPostId: 'o1', original: quote('o1') }),
+    )
+    prisma.post.findMany.mockResolvedValueOnce([{ id: 'o1' }])
+    const res = await service.getById(viewer(Role.STUDENT, { groupId: 'grp-1' }), 'r1')
+    expect(res.original?.id).toBe('o1')
+  })
+})
+
+// ── Лента модерации (E-F03) ─────────────────────────────────────────────────
+describe('PostsService.feed — filter=MODERATION', () => {
+  async function moderationWhere(v: JwtPayload) {
+    const { service, prisma } = setup()
+    await service.feed(v, { limit: 20, filter: 'MODERATION' })
+    return prisma.post.findMany.mock.calls[0][0]
+  }
+
+  it('модератор платформы видит посты всех вузов, кроме личных, только опубликованные', async () => {
+    const arg = await moderationWhere(viewer(Role.PLATFORM_MODERATOR))
+    expect(arg.where).toEqual({
+      deletedAt: null,
+      status: 'PUBLISHED',
+      audience: { not: 'PERSONAL' },
+    })
+    // Модерации нужен поток свежего: новые сверху, без закреплённых впереди.
+    expect(arg.orderBy).toEqual([{ createdAt: 'desc' }, { id: 'desc' }])
+  })
+
+  it('админ и модератор вуза — все аудитории своего вуза, включая группы и преподавателей', async () => {
+    for (const role of [Role.UNIVERSITY_ADMIN, Role.UNIVERSITY_MODERATOR]) {
+      const arg = await moderationWhere(viewer(role, { universityId: 'uni-1' }))
+      expect(arg.where).toMatchObject({ universityId: 'uni-1', audience: { not: 'PERSONAL' } })
+    }
+  })
+
+  it('декан — свой факультет', async () => {
+    const arg = await moderationWhere(
+      viewer(Role.DEAN, { universityId: 'uni-1', facultyId: 'fac-1' }),
+    )
+    expect(arg.where).toMatchObject({ facultyId: 'fac-1', status: 'PUBLISHED' })
+    expect(arg.where.universityId).toBeUndefined()
+  })
+
+  it('декан без факультета получает пустую выдачу, а не всю платформу', async () => {
+    const arg = await moderationWhere(viewer(Role.DEAN, { universityId: 'uni-1' }))
+    expect(arg.where).toMatchObject({ id: { in: [] } })
+  })
+
+  it('authorId сужает выдачу модерации, не расширяя её', async () => {
+    const { service, prisma } = setup()
+    await service.feed(viewer(Role.UNIVERSITY_MODERATOR, { universityId: 'uni-1' }), {
+      limit: 20,
+      filter: 'MODERATION',
+      authorId: 's1',
+    })
+    const where = prisma.post.findMany.mock.calls[0][0].where
+    expect(where.AND[0]).toEqual({ authorId: 's1' })
+    expect(where.AND[1]).toMatchObject({ universityId: 'uni-1' })
+  })
+
+  it('не модератор → FORBIDDEN, в базу не идём', async () => {
+    for (const role of [Role.STUDENT, Role.TEACHER, Role.STAROSTA, Role.EMPLOYER]) {
+      const { service, prisma } = setup()
+      const err = await service
+        .feed(viewer(role, { universityId: 'uni-1', groupId: 'grp-1' }), {
+          limit: 20,
+          filter: 'MODERATION',
+        })
+        .catch((e: AppException) => e)
+      expect((err as AppException).code).toBe('FORBIDDEN')
+      expect(prisma.post.findMany).not.toHaveBeenCalled()
+    }
+  })
+
+  it('личная лента модератора не превращается в поток всего вуза', async () => {
+    const { service, prisma } = setup()
+    await service.feed(viewer(Role.UNIVERSITY_ADMIN, { universityId: 'uni-1' }), { limit: 20 })
+    const where = prisma.post.findMany.mock.calls[0][0].where
+    expect(hasClause(where, { universityId: 'uni-1', status: 'PUBLISHED' })).toBe(false)
+  })
+
+  it('пост по id: модератору открывается в его scope (медиа и комментарии того же права)', async () => {
+    const { service, prisma } = setup()
+    prisma.post.findFirst.mockResolvedValue(postRow({ id: 'p1' }))
+    await service.getById(viewer(Role.UNIVERSITY_MODERATOR, { universityId: 'uni-1' }), 'p1')
+    const where = prisma.post.findFirst.mock.calls[0][0].where
+    expect(
+      hasClause(where, {
+        universityId: 'uni-1',
+        status: 'PUBLISHED',
+        deletedAt: null,
+      }),
+    ).toBe(true)
+  })
+
+  it('пересылка в чат — по видимости зрителя, без scope модерации', async () => {
+    const { service, prisma } = setup()
+    prisma.post.findFirst.mockResolvedValue({ id: 'p1' })
+    await service.assertVisibleToViewer(
+      viewer(Role.UNIVERSITY_MODERATOR, { universityId: 'uni-1' }),
+      'p1',
+    )
+    const where = prisma.post.findFirst.mock.calls[0][0].where
+    expect(hasClause(where, { universityId: 'uni-1', status: 'PUBLISHED' })).toBe(false)
   })
 })
 

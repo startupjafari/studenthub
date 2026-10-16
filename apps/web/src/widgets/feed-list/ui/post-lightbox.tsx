@@ -51,7 +51,7 @@ import { SharePostMenu } from '../../../features/share-post'
 import { useBookmark } from '../../../features/bookmark-post'
 import { PostTileMenu } from './post-tile-menu'
 import { MediaFrame } from './media-frame'
-import { RepostBanner } from './repost-banner'
+import { RepostBanner, RepostUnavailable } from './repost-banner'
 import { useRepostSource } from '../lib/use-repost-source'
 import { MentionSuggest, applyMention, mentionQuery } from './mention-suggest'
 
@@ -268,6 +268,7 @@ export function PostLightbox({
             key={`${post.id}:${shown.id}`}
             post={shown}
             via={repost}
+            originalUnavailable={source.kind === 'unavailable'}
             onClose={onClose}
             focusComment={focusComment}
           />
@@ -283,12 +284,15 @@ export function PostLightbox({
 function PostView({
   post,
   via,
+  originalUnavailable = false,
   onClose,
   focusComment = false,
 }: {
   post: FeedPost
   /** Репост, через который открыт `post` (исходник): его пометка сверху и его меню. */
   via?: FeedPost
+  /** `post` — репост, чей исходник зрителю недоступен (удалён или чужой аудитории). */
+  originalUnavailable?: boolean
   onClose: () => void
   focusComment?: boolean
 }) {
@@ -422,7 +426,8 @@ function PostView({
   // чужой исходник. Лайки, комментарии и просмотры при этом — исходника, как в Instagram.
   const menuPost = via ?? post
   const canDelete = menuPost.authorId === myId || canModerate
-  const showRepost = canRepost(myRole, post)
+  // Репост репоста ссылается на исходник — а он зрителю недоступен, сервер откажет.
+  const showRepost = !originalUnavailable && canRepost(myRole, post)
   const liked = reactions.some((r) => r.emoji === LIKE && r.userId === myId)
   const { bookmarked, toggle: toggleBookmark } = useBookmark(post.id, post.bookmarked)
 
@@ -514,7 +519,7 @@ function PostView({
     )
   const repliesOf = (id: string) => loaded.filter((c) => c.parentId === id)
 
-  const hasCaption = Boolean(post.title || post.content || post.original)
+  const hasCaption = Boolean(post.title || post.content || originalUnavailable)
 
   // Порядок блоков на телефоне задаётся через `order`: правая колонка там — `contents`,
   // её части встают в общий столбец как в мобильном Instagram: шапка, медиа, действия,
@@ -675,25 +680,10 @@ function PostView({
                   </p>
                   {post.content && <Markdown source={post.content} />}
 
-                  {/* Репост: цитата первоисточника — иначе в полном просмотре не видно,
-                      что это репост */}
-                  {post.original && (
-                    <div className="mt-1 rounded-xl border-l-2 border-l-primary bg-muted/30 p-3">
-                      <p className="mb-1 flex items-center gap-1 text-xs text-muted-foreground">
-                        <Repeat2 className="size-3.5" aria-hidden />
-                        <ProfileLink
-                          userId={post.original.author.id}
-                          className="hover:text-primary hover:underline"
-                        >
-                          {post.original.author.lastName} {post.original.author.firstName}
-                        </ProfileLink>
-                      </p>
-                      {post.original.title && (
-                        <p className="font-semibold">{post.original.title}</p>
-                      )}
-                      <Markdown source={post.original.content} />
-                    </div>
-                  )}
+                  {/* Репост, чей исходник зрителю недоступен: без пометки в полном
+                      просмотре не видно, что это репост. Доступный исходник открывается
+                      сам, с пометкой «Репост от …» сверху. */}
+                  {originalUnavailable && <RepostUnavailable className="mt-1" />}
                   <time
                     dateTime={post.createdAt}
                     title={exactDate}

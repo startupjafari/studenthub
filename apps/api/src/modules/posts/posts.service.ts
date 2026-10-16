@@ -160,6 +160,18 @@ function isPlatform(role: Role): boolean {
   return role === Role.PLATFORM_ADMIN || role === Role.PLATFORM_MODERATOR
 }
 
+// Роли, которые снимают и закрепляют чужие посты в своём scope (см. assertModerator).
+const MODERATOR_ROLES: ReadonlySet<Role> = new Set([
+  Role.PLATFORM_ADMIN,
+  Role.PLATFORM_MODERATOR,
+  Role.UNIVERSITY_ADMIN,
+  Role.UNIVERSITY_MODERATOR,
+  Role.DEAN,
+])
+
+// Ни один пост не подходит: scope роли не заполнен (декан без факультета и т. п.).
+const NOTHING: Prisma.PostWhereInput = { id: { in: [] } }
+
 @Injectable()
 export class PostsService {
   private readonly logger = new Logger(PostsService.name)
@@ -177,8 +189,17 @@ export class PostsService {
   /**
    * Пользователь видит: ALL + свои посты + свой вуз (UNIVERSITY/SUBJECT/TEACHERS-для-препода)
    * + свой факультет + свою группу + адресованное лично (docs/PROJECT.md §3.3).
+   *
+   * `moderation` добавляет scope модерации роли (moderationWhere) — для действий с постом
+   * по id: открыть, медиа, комментарии, реакция, закладка. Иначе модератор, нашедший пост
+   * на экране модерации, получал бы NOT_FOUND на его медиа и обсуждение. Личная лента и
+   * всё, что выносит пост к новым читателям (репост, пересылка в чат), идут без флага —
+   * по видимости самого зрителя.
    */
-  private visibilityWhere(viewer: JwtPayload): Prisma.PostWhereInput {
+  private visibilityWhere(
+    viewer: JwtPayload,
+    opts: { moderation?: boolean } = {},
+  ): Prisma.PostWhereInput {
     const or: Prisma.PostWhereInput[] = [
       { audience: PostAudience.ALL },
       { authorId: viewer.sub },
@@ -197,11 +218,37 @@ export class PostsService {
     if (viewer.groupId) {
       or.push({ audience: PostAudience.GROUP, groupId: viewer.groupId })
     }
+    const moderated = opts.moderation ? this.moderationWhere(viewer) : null
+    if (moderated) or.push(moderated)
     // Черновики/отложенные (status ≠ PUBLISHED) видит только автор; остальным — лишь опубликованные.
     return {
       deletedAt: null,
       OR: or,
       AND: [{ OR: [{ status: 'PUBLISHED' }, { authorId: viewer.sub }] }],
+    }
+  }
+
+  /**
+   * Scope модерации — посты, которые роль вправе снимать (assertModerator): платформа —
+   * любые, админ и модератор вуза — своего вуза, декан — своего факультета. Без личных:
+   * они адресованы одному человеку, и читать их наперёд модератору незачем. Только
+   * опубликованные — черновик ещё никому не показан.
+   *
+   * null — роль не модерирует. Пустой scope (декан без факультета) не значит «вся платформа».
+   */
+  private moderationWhere(viewer: JwtPayload): Prisma.PostWhereInput | null {
+    if (!MODERATOR_ROLES.has(viewer.role)) return null
+    let scope: Prisma.PostWhereInput = {}
+    if (viewer.role === Role.DEAN) {
+      scope = viewer.facultyId ? { facultyId: viewer.facultyId } : NOTHING
+    } else if (!isPlatform(viewer.role)) {
+      scope = viewer.universityId ? { universityId: viewer.universityId } : NOTHING
+    }
+    return {
+      deletedAt: null,
+      status: 'PUBLISHED',
+      audience: { not: PostAudience.PERSONAL },
+      ...scope,
     }
   }
 
@@ -235,9 +282,10 @@ export class PostsService {
     viewer: JwtPayload,
     id: string,
     select: S,
+    opts: { moderation?: boolean } = {},
   ): Promise<Prisma.PostGetPayload<{ select: S }>> {
     const post = await this.prisma.post.findFirst({
-      where: { id, ...this.visibilityWhere(viewer) },
+      where: { id, ...this.visibilityWhere(viewer, opts) },
       select,
     })
     if (!post) {
@@ -270,12 +318,12 @@ export class PostsService {
    * Удалённые комментарии не считаются: в обсуждении их не видно, и счётчик «5» над
    * тремя видимыми комментариями выглядел ошибкой. Карточка поста считает так же.
    */
-  private async decorateFeed(viewerId: string, rows: FeedRow[]): Promise<ViewerPost[]> {
+  private async decorateFeed(viewer: JwtPayload, rows: FeedRow[]): Promise<ViewerPost[]> {
     if (rows.length === 0) return []
     const ids = rows.map((row) => row.id)
-    const [saved, counts] = await Promise.all([
+    const [saved, counts, originals] = await Promise.all([
       this.prisma.postBookmark.findMany({
-        where: { userId: viewerId, postId: { in: ids } },
+        where: { userId: viewer.sub, postId: { in: ids } },
         select: { postId: true },
       }),
       this.prisma.comment.groupBy({
@@ -283,48 +331,73 @@ export class PostsService {
         where: { postId: { in: ids }, deletedAt: null },
         _count: { _all: true },
       }),
+      this.availableOriginals(viewer, rows),
     ])
     const savedIds = new Set(saved.map((row) => row.postId))
     const countByPost = new Map(counts.map((row) => [row.postId, row._count._all]))
     return rows.map((row) => ({
       ...row,
+      original: row.original && originals.has(row.original.id) ? row.original : null,
       _count: { comments: countByPost.get(row.id) ?? 0 },
       bookmarked: savedIds.has(row.id),
     }))
   }
 
+  /**
+   * Какие оригиналы репостов зритель вправе прочитать в цитате: не удалённые, опубликованные
+   * и открываемые им по id (то же право, что у getById, — клиент догружает исходник им же).
+   * Один индексный запрос на страницу, и только если на ней есть репосты.
+   *
+   * Цитата неподходящего оригинала обнуляется (`original: null`), а `originalPostId`
+   * остаётся — клиент рисует «Публикация недоступна». Раньше цитата уходила любому зрителю
+   * репоста: снятый модератором пост жил дальше во всех репостах, а пост для преподавателей
+   * доходил до студентов через репост в группу.
+   */
+  private async availableOriginals(
+    viewer: JwtPayload,
+    rows: Array<{ original: { id: string } | null }>,
+  ): Promise<Set<string>> {
+    const ids = [...new Set(rows.flatMap((row) => (row.original ? [row.original.id] : [])))]
+    if (ids.length === 0) return new Set()
+    const visible = await this.prisma.post.findMany({
+      where: {
+        AND: [
+          { id: { in: ids } },
+          { status: 'PUBLISHED' },
+          this.visibilityWhere(viewer, { moderation: true }),
+        ],
+      },
+      select: { id: true },
+      take: ids.length,
+    })
+    return new Set(visible.map((row) => row.id))
+  }
+
   async feed(viewer: JwtPayload, query: FeedQueryInput): Promise<Paginated<ViewerPost>> {
-    // authorId (вкладка «Посты» в профиле) всегда пересекается с видимостью зрителя —
-    // нельзя увидеть чужие посты в обход прав (IDOR-защита).
-    const base = this.visibilityWhere(viewer)
-    // Черновики/отложенные показываем ТОЛЬКО на своей вкладке профиля (authorId === зритель).
-    // В общей ленте и в чужом профиле — только опубликованные (скрываем и свои черновики из ленты).
-    if (!query.authorId || query.authorId !== viewer.sub) {
-      ;(base.AND as Prisma.PostWhereInput[]).push({ status: 'PUBLISHED' })
-    }
-    // Таб ленты сужает выдачу поверх видимости (через AND) — обойти права нельзя.
-    const filterWhere = this.feedFilterWhere(query.filter, viewer.sub)
-    if (filterWhere) (base.AND as Prisma.PostWhereInput[]).push(filterWhere)
-    const where: Prisma.PostWhereInput = query.authorId
-      ? { AND: [{ authorId: query.authorId }, base] }
-      : base
+    const moderation = query.filter === 'MODERATION'
+    const where = moderation
+      ? this.moderationFeedWhere(viewer, query)
+      : this.feedWhere(viewer, query)
     const rows = await this.prisma.post.findMany({
       where,
       select: POST_SELECT_BASE,
       // Закреплённые сверху, затем по приоритету и времени; id — стабильный tiebreaker для cursor.
-      orderBy: [
-        { pinnedAt: { sort: 'desc', nulls: 'last' } },
-        { priority: 'desc' },
-        { createdAt: 'desc' },
-        { id: 'desc' },
-      ],
+      // Модерации нужен поток свежего, а не порядок чтения: там просто новые сверху.
+      orderBy: moderation
+        ? [{ createdAt: 'desc' }, { id: 'desc' }]
+        : [
+            { pinnedAt: { sort: 'desc', nulls: 'last' } },
+            { priority: 'desc' },
+            { createdAt: 'desc' },
+            { id: 'desc' },
+          ],
       take: query.limit + 1,
       ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
     })
     const hasNext = rows.length > query.limit
     const page = hasNext ? rows.slice(0, query.limit) : rows
     const nextCursor = hasNext ? page[page.length - 1]?.id : undefined
-    const items = await this.decorateFeed(viewer.sub, page)
+    const items = await this.decorateFeed(viewer, page)
     // Для вкладки «Посты» в профиле (authorId) отдаём общий счётчик — для бейджа на табе.
     // В общей ленте счётчик не считаем (лишний COUNT на горячем пути).
     const total = query.authorId ? await this.prisma.post.count({ where }) : undefined
@@ -335,10 +408,47 @@ export class PostsService {
     })
   }
 
+  /** Личная лента зрителя: его видимость, сужаемая табом. */
+  private feedWhere(viewer: JwtPayload, query: FeedQueryInput): Prisma.PostWhereInput {
+    // authorId (вкладка «Посты» в профиле) всегда пересекается с видимостью зрителя —
+    // нельзя увидеть чужие посты в обход прав (IDOR-защита). Полка «Сохранённое» берёт и
+    // scope модерации: сохранить пост модератор может и с экрана модерации (toggleBookmark).
+    const base = this.visibilityWhere(viewer, { moderation: query.filter === 'SAVED' })
+    // Черновики/отложенные показываем ТОЛЬКО на своей вкладке профиля (authorId === зритель).
+    // В общей ленте и в чужом профиле — только опубликованные (скрываем и свои черновики из ленты).
+    if (!query.authorId || query.authorId !== viewer.sub) {
+      ;(base.AND as Prisma.PostWhereInput[]).push({ status: 'PUBLISHED' })
+    }
+    // Таб ленты сужает выдачу поверх видимости (через AND) — обойти права нельзя.
+    const filterWhere = this.feedFilterWhere(query.filter, viewer.sub)
+    if (filterWhere) (base.AND as Prisma.PostWhereInput[]).push(filterWhere)
+    return query.authorId ? { AND: [{ authorId: query.authorId }, base] } : base
+  }
+
+  /**
+   * Экран модерации: не личная лента, а всё, что роль вправе снимать. Личная лента
+   * модератору для этого не годилась — у модератора платформы нет вуза, и он видел
+   * только посты для всех (их пишет лишь админ платформы, которого он снимать не вправе),
+   * а админ вуза не видел ни одного студенческого поста. Отдельным значением фильтра, а не
+   * расширением видимости: обычные табы остаются личной лентой, а не потоком всего вуза.
+   */
+  private moderationFeedWhere(viewer: JwtPayload, query: FeedQueryInput): Prisma.PostWhereInput {
+    const scope = this.moderationWhere(viewer)
+    if (!scope) {
+      throw new AppException('FORBIDDEN', 'Лента модерации доступна только модераторам')
+    }
+    return query.authorId ? { AND: [{ authorId: query.authorId }, scope] } : scope
+  }
+
   async getById(viewer: JwtPayload, id: string): Promise<ViewerPost> {
-    const post = await this.findVisibleOrThrow(viewer, id, POST_SELECT)
-    const [withFlag] = await this.withBookmarks(viewer.sub, [post])
-    return withFlag as ViewerPost
+    const post = await this.findVisibleOrThrow(viewer, id, POST_SELECT, { moderation: true })
+    const [[withFlag], originals] = await Promise.all([
+      this.withBookmarks(viewer.sub, [post]),
+      this.availableOriginals(viewer, [post]),
+    ])
+    const result = withFlag as ViewerPost
+    if (result.original && !originals.has(result.original.id)) result.original = null
+    return result
   }
 
   /**
@@ -348,8 +458,8 @@ export class PostsService {
    */
   async toggleBookmark(viewer: JwtPayload, id: string): Promise<{ bookmarked: boolean }> {
     // Сохранить можно только то, что зритель имеет право видеть: иначе закладка становится
-    // способом проверить существование чужого поста по id.
-    await this.findVisibleOrThrow(viewer, id, { id: true })
+    // способом проверить существование чужого поста по id. Модератору — и в его scope.
+    await this.findVisibleOrThrow(viewer, id, { id: true }, { moderation: true })
     const existing = await this.prisma.postBookmark.findUnique({
       where: { userId_postId: { userId: viewer.sub, postId: id } },
       select: { id: true },
@@ -362,14 +472,18 @@ export class PostsService {
     return { bookmarked: true }
   }
 
-  /** Бросает NOT_FOUND, если пост не виден зрителю. Используется share-to-chat (ChatsService). */
+  /**
+   * Бросает NOT_FOUND, если пост не виден зрителю. Используется share-to-chat (ChatsService).
+   * Без scope модерации: пересылка выносит пост к новым читателям, и право модератора
+   * снимать пост не даёт права его распространять.
+   */
   async assertVisibleToViewer(viewer: JwtPayload, id: string): Promise<void> {
     await this.findVisibleOrThrow(viewer, id, { id: true })
   }
 
   /** Инкремент просмотров поста (при открытии в лайтбоксе). Только если пост виден зрителю. */
   async incrementView(viewer: JwtPayload, id: string): Promise<{ views: number }> {
-    await this.findVisibleOrThrow(viewer, id, { id: true })
+    await this.findVisibleOrThrow(viewer, id, { id: true }, { moderation: true })
     return this.prisma.post.update({
       where: { id },
       data: { views: { increment: 1 } },
@@ -390,7 +504,7 @@ export class PostsService {
     postId: string,
     fileId: string,
   ): Promise<MediaInfo & { url: string; expiresAt: string }> {
-    await this.findVisibleOrThrow(viewer, postId, { id: true })
+    await this.findVisibleOrThrow(viewer, postId, { id: true }, { moderation: true })
     const file = await this.prisma.file.findFirst({
       where: { id: fileId, postId },
       select: MEDIA_FILE_SELECT,
@@ -471,7 +585,8 @@ export class PostsService {
     input: RepostInput,
     ctx: RequestContext,
   ): Promise<PostRow> {
-    // Репостить можно только видимый пост.
+    // Репостить можно только видимый пост — по видимости самого зрителя, без scope
+    // модерации: право снимать пост не даёт права выносить его к новой аудитории.
     const original = await this.findVisibleOrThrow(actor, id, {
       id: true,
       originalPostId: true,
@@ -488,7 +603,16 @@ export class PostsService {
     if (original.status !== 'PUBLISHED') {
       throw new AppException('BAD_REQUEST', 'Нельзя репостить неопубликованный пост')
     }
-    // Репост репоста ссылается на первоисточник.
+    // Репост репоста ссылается на первоисточник — и тот обязан быть доступен самому
+    // репостящему: иначе через чужой репост можно сослаться на снятый модератором пост
+    // или на пост аудитории, которой он сам не видит.
+    if (original.originalPostId) {
+      const source = await this.prisma.post.findFirst({
+        where: { id: original.originalPostId, status: 'PUBLISHED', ...this.visibilityWhere(actor) },
+        select: { id: true },
+      })
+      if (!source) throw new AppException('NOT_FOUND', 'Исходная публикация недоступна')
+    }
     const originalPostId = original.originalPostId ?? original.id
     const target = await this.resolveTarget(actor, input.audience as PostAudience, input)
     const post = await this.prisma.post.create({
@@ -644,7 +768,7 @@ export class PostsService {
   // ── Реакции (задача 8.5) ────────────────────────────────────────────────────
 
   async addReaction(actor: JwtPayload, id: string, input: ReactionInput): Promise<void> {
-    await this.findVisibleOrThrow(actor, id, { id: true })
+    await this.findVisibleOrThrow(actor, id, { id: true }, { moderation: true })
     // Идемпотентно: повтор той же реакции не создаёт дубликат (unique [postId,userId,emoji]).
     await this.prisma.reaction.upsert({
       where: { postId_userId_emoji: { postId: id, userId: actor.sub, emoji: input.emoji } },
@@ -660,7 +784,7 @@ export class PostsService {
   // ── Комментарии (задача 8.5) ────────────────────────────────────────────────
 
   async listComments(viewer: JwtPayload, id: string) {
-    await this.findVisibleOrThrow(viewer, id, { id: true })
+    await this.findVisibleOrThrow(viewer, id, { id: true }, { moderation: true })
     return this.prisma.comment.findMany({
       where: { postId: id, deletedAt: null },
       select: COMMENT_SELECT,
@@ -670,7 +794,7 @@ export class PostsService {
   }
 
   async addComment(actor: JwtPayload, id: string, input: CreateCommentInput) {
-    await this.findVisibleOrThrow(actor, id, { id: true })
+    await this.findVisibleOrThrow(actor, id, { id: true }, { moderation: true })
     let parentId = input.parentId ?? null
     if (parentId) {
       const parent = await this.prisma.comment.findFirst({
