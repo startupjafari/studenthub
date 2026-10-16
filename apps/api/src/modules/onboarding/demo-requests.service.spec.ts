@@ -29,6 +29,11 @@ const form = {
 
 function setup() {
   const tx = {
+    universityDemoRequest: {
+      // Условный перевод NEW → решение: 1 — заявка наша, 0 — решение уже принял другой.
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      update: jest.fn().mockResolvedValue({ id: 'req-1', status: 'APPROVED' }),
+    },
     university: { create: jest.fn().mockResolvedValue({ id: 'uni-1', name: 'Университет' }) },
     universityOnboarding: { create: jest.fn() },
   }
@@ -39,8 +44,10 @@ function setup() {
       create: jest.fn().mockResolvedValue({ id: 'req-1', universityName: form.universityName }),
       findFirst: jest.fn(),
       findUnique: jest.fn(),
+      findUniqueOrThrow: jest.fn().mockResolvedValue({ id: 'req-1', status: 'REJECTED' }),
       findMany: jest.fn().mockResolvedValue([]),
       update: jest.fn().mockResolvedValue({ id: 'req-1', status: 'APPROVED' }),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     $transaction: jest.fn(async (arg: unknown) =>
       typeof arg === 'function' ? (arg as (t: typeof tx) => unknown)(tx) : arg,
@@ -49,11 +56,13 @@ function setup() {
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const queue = { enqueue: jest.fn().mockResolvedValue(undefined) }
   const invites = {
-    create: jest.fn().mockResolvedValue({
+    createInTransaction: jest.fn().mockResolvedValue({
       id: 'inv-1',
       token: 'raw-token',
+      role: Role.UNIVERSITY_ADMIN,
       expiresAt: new Date('2026-10-01T10:00:00Z'),
     }),
+    recordCreated: jest.fn().mockResolvedValue(undefined),
   }
   const config = { get: jest.fn().mockReturnValue('https://app.studenthub.kz') }
 
@@ -207,20 +216,49 @@ describe('DemoRequestsService.approve', () => {
     })
   })
 
-  it('выдаёт обычное приглашение UNIVERSITY_ADMIN и не шлёт второго письма', async () => {
-    const { service, prisma, invites, queue } = setup()
+  it('выдаёт обычное приглашение UNIVERSITY_ADMIN в той же транзакции и не шлёт второго письма', async () => {
+    const { service, prisma, tx, invites, queue } = setup()
     prisma.universityDemoRequest.findUnique.mockResolvedValue(approved)
 
     await service.approve(admin, 'req-1', {}, ctx)
 
-    expect(invites.create).toHaveBeenCalledWith(
+    expect(invites.createInTransaction).toHaveBeenCalledWith(tx, admin, {
+      role: Role.UNIVERSITY_ADMIN,
+      email: approved.email,
+      universityId: 'uni-1',
+    })
+    expect(tx.universityDemoRequest.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { universityId: 'uni-1', inviteId: 'inv-1' } }),
+    )
+    // Аудит выдачи — после коммита, а не изнутри транзакции.
+    expect(invites.recordCreated).toHaveBeenCalledWith(
       admin,
-      { role: Role.UNIVERSITY_ADMIN, email: approved.email, universityId: 'uni-1' },
+      expect.objectContaining({ id: 'inv-1' }),
       ctx,
-      { notify: false },
     )
     const jobs = queue.enqueue.mock.calls.map((call) => call[1])
     expect(jobs).toEqual([EMAIL_JOBS.SEND_DEMO_APPROVED])
+  })
+
+  it('переводит заявку в APPROVED условно — только из NEW и первым шагом транзакции', async () => {
+    const { service, prisma, tx } = setup()
+    prisma.universityDemoRequest.findUnique.mockResolvedValue(approved)
+
+    await service.approve(admin, 'req-1', { note: 'ок' }, ctx)
+
+    expect(tx.universityDemoRequest.updateMany).toHaveBeenCalledWith({
+      where: { id: 'req-1', status: 'NEW' },
+      data: expect.objectContaining({
+        status: 'APPROVED',
+        reviewedById: admin.sub,
+        reviewNote: 'ок',
+      }),
+    })
+    expect(Math.min(...tx.universityDemoRequest.updateMany.mock.invocationCallOrder)).toBeLessThan(
+      Math.min(...tx.university.create.mock.invocationCallOrder),
+    )
+    // Безусловного update снаружи транзакции больше нет.
+    expect(prisma.universityDemoRequest.update).not.toHaveBeenCalled()
   })
 
   it('второе одобрение той же заявки не заводит второй вуз', async () => {
@@ -229,6 +267,35 @@ describe('DemoRequestsService.approve', () => {
 
     await expect(service.approve(admin, 'req-1', {}, ctx)).rejects.toBeInstanceOf(AppException)
     expect(tx.university.create).not.toHaveBeenCalled()
+  })
+
+  it('параллельное одобрение: проверку прошли оба, вуз заводит только первый', async () => {
+    const { service, prisma, tx, invites, queue, audit } = setup()
+    // Чтение до транзакции видело NEW, но условный перевод уже не нашёл заявку в очереди.
+    prisma.universityDemoRequest.findUnique.mockResolvedValue(approved)
+    tx.universityDemoRequest.updateMany.mockResolvedValue({ count: 0 })
+
+    await expect(service.approve(admin, 'req-1', {}, ctx)).rejects.toMatchObject({
+      code: 'CONFLICT',
+    })
+    expect(tx.university.create).not.toHaveBeenCalled()
+    expect(invites.createInTransaction).not.toHaveBeenCalled()
+    expect(queue.enqueue).not.toHaveBeenCalled()
+    expect(audit.record).not.toHaveBeenCalled()
+  })
+
+  it('сбой приглашения роняет всю транзакцию — без письма, аудита и записи снаружи', async () => {
+    const { service, prisma, invites, queue, audit } = setup()
+    prisma.universityDemoRequest.findUnique.mockResolvedValue(approved)
+    invites.createInTransaction.mockRejectedValue(new Error('db down'))
+
+    // Ошибка выходит из колбэка $transaction — Prisma откатывает вуз, мастер и статус
+    // заявки, и повторное «Одобрить» начинает с NEW, а не заводит второй вуз.
+    await expect(service.approve(admin, 'req-1', {}, ctx)).rejects.toThrow('db down')
+    expect(prisma.universityDemoRequest.update).not.toHaveBeenCalled()
+    expect(invites.recordCreated).not.toHaveBeenCalled()
+    expect(queue.enqueue).not.toHaveBeenCalled()
+    expect(audit.record).not.toHaveBeenCalled()
   })
 })
 
@@ -263,6 +330,25 @@ describe('DemoRequestsService.reject', () => {
     await service.reject(admin, 'req-1', { reason: 'NOT_ELIGIBLE' }, ctx)
 
     expect(queue.enqueue.mock.calls[0][2]).toMatchObject({ canReapply: false })
+  })
+
+  it('отклоняет условно: заявку, одобренную параллельно, не трогает и письма не шлёт', async () => {
+    const { service, prisma, queue } = setup()
+    prisma.universityDemoRequest.findUnique.mockResolvedValue({
+      id: 'req-1',
+      status: 'NEW',
+      universityName: form.universityName,
+      email: form.email,
+    })
+    prisma.universityDemoRequest.updateMany.mockResolvedValue({ count: 0 })
+
+    await expect(
+      service.reject(admin, 'req-1', { reason: 'NO_CAPACITY' }, ctx),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(prisma.universityDemoRequest.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'req-1', status: 'NEW' } }),
+    )
+    expect(queue.enqueue).not.toHaveBeenCalled()
   })
 })
 

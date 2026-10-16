@@ -88,12 +88,64 @@ export class InviteService {
     ctx: RequestContext,
     options: { notify?: boolean } = {},
   ) {
+    const invite = await this.insert(this.prisma, issuer, input)
+    await this.recordCreated(issuer, invite, ctx)
+
+    // Письмо со ссылкой-приглашением (docs/PROJECT.md §7.3, §10.1) — только если известен
+    // адрес получателя. Отправка асинхронна (§9.1): HTTP-ответ её не ждёт.
+    if (input.email && options.notify !== false) {
+      await this.enqueueInviteEmail(
+        input.email,
+        invite.token,
+        invite.role,
+        invite.expiresAt,
+        await this.issuerLocale(issuer.sub),
+      )
+    }
+
+    return invite
+  }
+
+  /**
+   * Создание инвайта внутри транзакции вызывающего — без аудита и без письма.
+   *
+   * Для случаев, когда приглашение — часть решения, которое записывается целиком или
+   * никак. Одобрение заявки вуза (§31) заводит вуз и приглашение его админу: вуз без
+   * приглашения — сирота, в который никто не войдёт, а повторное «Одобрить» после такого
+   * сбоя заводило второй вуз. Аудит и письма — побочные эффекты, им место после коммита:
+   * вызывающий зовёт `recordCreated`, когда транзакция прошла.
+   */
+  createInTransaction(tx: Prisma.TransactionClient, issuer: JwtPayload, input: CreateInviteInput) {
+    return this.insert(tx, issuer, input)
+  }
+
+  /** Запись о выдаче приглашения в аудит. Для инвайта из чужой транзакции — после её коммита. */
+  async recordCreated(
+    issuer: JwtPayload,
+    invite: { id: string; role: string },
+    ctx: RequestContext,
+  ): Promise<void> {
+    await this.audit.record({
+      userId: issuer.sub,
+      action: 'invite_created',
+      entity: 'Invite',
+      entityId: invite.id,
+      metadata: { role: invite.role },
+      ...ctx,
+    })
+  }
+
+  /**
+   * Проверка иерархии и scope, одноразовый токен, срок 48ч, запись в базу через `db` —
+   * основной клиент или клиент чужой транзакции.
+   */
+  private async insert(db: Prisma.TransactionClient, issuer: JwtPayload, input: CreateInviteInput) {
     const scope = resolveInviteTarget(issuer, input)
-    await this.assertScopeExists(scope)
+    await this.assertScopeExists(scope, db)
     const token = randomUUID()
     const expiresAt = new Date(Date.now() + TTL.INVITE_HOURS * 3_600_000)
 
-    const invite = await this.prisma.invite.create({
+    const invite = await db.invite.create({
       data: {
         // В базу идёт ХЭШ; сырой токен возвращается вызывающему и уходит в письмо.
         token: hashInviteToken(token),
@@ -117,30 +169,9 @@ export class InviteService {
       },
     })
 
-    await this.audit.record({
-      userId: issuer.sub,
-      action: 'invite_created',
-      entity: 'Invite',
-      entityId: invite.id,
-      metadata: { role: invite.role },
-      ...ctx,
-    })
-
-    // Письмо со ссылкой-приглашением (docs/PROJECT.md §7.3, §10.1) — только если известен
-    // адрес получателя. Отправка асинхронна (§9.1): HTTP-ответ её не ждёт.
-    if (input.email && options.notify !== false) {
-      await this.enqueueInviteEmail(
-        input.email,
-        token,
-        invite.role,
-        expiresAt,
-        await this.issuerLocale(issuer.sub),
-      )
-    }
-
     // Токен возвращается ТОЛЬКО здесь — создателю в момент выдачи (§11.9). Подменяем на
     // сырой: в `invite.token` из базы лежит хэш, по нему зарегистрироваться нельзя.
-    return { ...invite, token }
+    return { ...invite, token, expiresAt }
   }
 
   /**
@@ -213,10 +244,16 @@ export class InviteService {
    * этого декан прямым запросом приглашал студента в группу чужого факультета или вуза, а
    * админ вуза — декана на факультет другого вуза: человек получал роль с правами там, где
    * у пригласившего их нет. Несуществующий id даёт тот же отказ, что чужой — не оракул.
+   *
+   * `db` — клиент транзакции, если инвайт пишется в ней: вуз, заведённый в той же
+   * транзакции, снаружи ещё не виден.
    */
-  private async assertScopeExists(scope: InviteScope): Promise<void> {
+  private async assertScopeExists(
+    scope: InviteScope,
+    db: Prisma.TransactionClient = this.prisma,
+  ): Promise<void> {
     if (scope.groupId) {
-      const group = await this.prisma.group.findUnique({
+      const group = await db.group.findUnique({
         where: { id: scope.groupId },
         select: { facultyId: true, faculty: { select: { universityId: true } } },
       })
@@ -230,7 +267,7 @@ export class InviteService {
       return
     }
     if (scope.facultyId) {
-      const faculty = await this.prisma.faculty.findUnique({
+      const faculty = await db.faculty.findUnique({
         where: { id: scope.facultyId },
         select: { universityId: true },
       })
@@ -240,7 +277,7 @@ export class InviteService {
       return
     }
     if (scope.universityId) {
-      const university = await this.prisma.university.findUnique({
+      const university = await db.university.findUnique({
         where: { id: scope.universityId },
         select: { id: true },
       })

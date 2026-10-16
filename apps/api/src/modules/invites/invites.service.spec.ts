@@ -1,4 +1,4 @@
-import { InviteStatus } from '@prisma/client'
+import { InviteStatus, type Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
 import { InviteService } from './invites.service'
 import { AppException } from '../../common/exceptions/app.exception'
@@ -216,6 +216,48 @@ describe('InviteService', () => {
       prisma.invite.create.mockResolvedValue({ id: 'inv-1', token: 'x', role: Role.DEAN })
       await service.create(uniAdminA, { role: Role.DEAN, facultyId: 'fac-A' }, ctx)
       expect(prisma.invite.create).toHaveBeenCalled()
+    })
+  })
+
+  // Одобрение заявки вуза (§31): вуз и приглашение его админу пишутся одной транзакцией.
+  describe('createInTransaction', () => {
+    const platformAdmin: JwtPayload = {
+      sub: 'pa-1',
+      role: Role.PLATFORM_ADMIN,
+      universityId: null,
+      facultyId: null,
+      groupId: null,
+    }
+
+    it('проверяет scope и пишет через клиент транзакции, без аудита и письма', async () => {
+      const { service, prisma, audit, queue } = setup()
+      // Вуз заведён в той же транзакции: основной клиент его ещё не видит.
+      prisma.university.findUnique.mockResolvedValue(null)
+      const tx = {
+        university: { findUnique: jest.fn().mockResolvedValue({ id: 'uni-new' }) },
+        invite: {
+          create: jest
+            .fn()
+            .mockResolvedValue({ id: 'inv-1', token: 'хэш', role: Role.UNIVERSITY_ADMIN }),
+        },
+      }
+
+      const res = await service.createInTransaction(
+        tx as unknown as Prisma.TransactionClient,
+        platformAdmin,
+        { role: Role.UNIVERSITY_ADMIN, email: 'rector@example.edu', universityId: 'uni-new' },
+      )
+
+      expect(tx.university.findUnique).toHaveBeenCalled()
+      expect(tx.invite.create.mock.calls[0][0].data).toMatchObject({
+        role: Role.UNIVERSITY_ADMIN,
+        universityId: 'uni-new',
+        token: hashInviteToken(res.token),
+      })
+      expect(prisma.invite.create).not.toHaveBeenCalled()
+      // Побочные эффекты — после коммита, их делает вызывающий.
+      expect(audit.record).not.toHaveBeenCalled()
+      expect(queue.enqueue).not.toHaveBeenCalled()
     })
   })
 

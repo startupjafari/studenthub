@@ -101,7 +101,7 @@
   - Суть: Два bcrypt cost 12 на каждый refresh — узкое место пула потоков при утреннем пике
   - Файлы: apps/api/src/modules/auth/auth.service.ts, apps/api/src/modules/auth/refresh-secret.spec.ts, docs/BACKEND_RULES.md
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для A-F09; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [in_progress] FIX-B-F02 · P1 · проблемы: B-F02 · после: FIX-A-F01
+- [done] FIX-B-F02 · P1 · проблемы: B-F02 · после: FIX-A-F01
   - Суть: Одобрение демо-заявки не атомарно: двойной клик или сбой инвайта даёт вуз-дубликат
   - Файлы: apps/api/src/modules/invites/invites.service.ts, apps/api/src/modules/onboarding/demo-requests.service.spec.ts, apps/api/src/modules/onboarding/demo-requests.service.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для B-F02; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
@@ -109,7 +109,7 @@
   - Суть: Статус вуза BLOCKED (и PENDING) ничего не ограничивает
   - Файлы: apps/api/src/modules/auth/auth.service.ts, apps/api/src/modules/auth/strategies/jwt.strategy.ts, apps/api/src/modules/invites/invites.service.ts, apps/api/src/modules/universities/universities.service.ts, docs/PROJECT.md
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для B-F03; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [in_progress] FIX-B-F04 · P1 · проблемы: B-F04
+- [done] FIX-B-F04 · P1 · проблемы: B-F04
   - Суть: Админ заблокированного вуза сам переводит его в ACTIVE через мастер
   - Файлы: apps/api/src/modules/onboarding/onboarding.service.spec.ts, apps/api/src/modules/onboarding/onboarding.service.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для B-F04; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
@@ -121,7 +121,7 @@
   - Суть: Веб видит только первые 100 групп и 100 аудиторий вуза — выбор остальных невозможен
   - Файлы: apps/api/src/modules/groups/groups.service.ts, apps/web/src/entities/group/api/group-api.ts, apps/web/src/entities/room/api/room-api.ts, apps/web/src/features/create-invite/ui/create-invite-modal.tsx, apps/web/src/features/manage-schedule/ui/manage-schedule.tsx, apps/web/src/views/university-admin/ui/groups-view.tsx, packages/shared-schemas/src/groups.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для B-F06; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [todo] FIX-B-F07 · P1 · проблемы: B-F07 · после: FIX-A-F07, FIX-B-F03 · стоп: контракт
+- [in_progress] FIX-B-F07 · P1 · проблемы: B-F07 · после: FIX-A-F07, FIX-B-F03 · стоп: контракт
   - Суть: `/platform-admin/stats` шлёт по запросу на вуз и при ~100 вузах упирается в rate-limit, блокируя админа на минуту
   - Файлы: apps/api/src/modules/analytics/platform-analytics.controller.ts, apps/api/src/modules/analytics/platform-analytics.service.ts, apps/web/src/entities/analytics/api/analytics-api.ts, apps/web/src/views/platform-admin/ui/platform-stats-view.tsx, docs/PROJECT.md
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для B-F07; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
@@ -133,7 +133,7 @@
   - Суть: Если у дежурного нет активной привязки Telegram, сигналы команде теряются молча + из FIX-A-F04: исключать удалённых/заблокированных из дежурства и ротации
   - Файлы: apps/api/src/common/telegram/telegram-notify.service.spec.ts, apps/api/src/common/telegram/telegram-notify.service.ts, apps/api/src/modules/platform/platform.service.spec.ts, apps/api/src/modules/platform/platform.service.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для B-F09; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [todo] FIX-B-F10 · P1 · проблемы: B-F10
+- [in_progress] FIX-B-F10 · P1 · проблемы: B-F10
   - Суть: Drill-down посещаемости группы грузит до 20 000 отметок в Node и молча обрезает их
   - Файлы: apps/api/src/modules/analytics/analytics.service.spec.ts, apps/api/src/modules/analytics/analytics.service.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для B-F10; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
@@ -257,7 +257,7 @@
   - Суть: Порядок ленты: свежий пост тонет — приоритет аудитории раньше времени, отложенные и черновики по дате создания
   - Файлы: apps/api/src/modules/posts/posts.service.ts, docs/PROJECT.md, prisma/schema/05-posts.prisma
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для E-F06; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [todo] FIX-E-F07 · P1 · проблемы: E-F07
+- [in_progress] FIX-E-F07 · P1 · проблемы: E-F07
   - Суть: Статьи и опросы закрытого профиля доступны всем по прямому запросу, включая работодателей и другие вузы
   - Файлы: apps/api/src/modules/polls/polls.service.ts, apps/api/src/modules/profile-content/profile-content.service.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для E-F07; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
@@ -265,11 +265,11 @@
   - Суть: Контент профиля нельзя ни обжаловать, ни снять модератором
   - Файлы: apps/api/src/modules/complaints/complaints.service.ts, packages/shared-schemas/src/complaints.ts, prisma/schema/_enums.prisma
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для E-F08; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [todo] FIX-E-F09 · P1 · проблемы: E-F09 · после: FIX-A-F01, FIX-A-F04, FIX-A-F05
+- [in_progress] FIX-E-F09 · P1 · проблемы: E-F09 · после: FIX-A-F01, FIX-A-F04, FIX-A-F05
   - Суть: Блокировка не действует на соцчасть: дружба остаётся и продолжает открывать закрытый профиль
   - Файлы: apps/api/src/modules/chats/chats.service.ts, apps/api/src/modules/friends/friends.service.ts, apps/api/src/modules/users/users.service.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для E-F09; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [todo] FIX-E-F10 · P1 · проблемы: E-F10 · после: FIX-A-F04, FIX-A-F05, FIX-E-F09
+- [in_progress] FIX-E-F10 · P1 · проблемы: E-F10 · после: FIX-A-F04, FIX-A-F05, FIX-E-F09
   - Суть: Удаление аккаунта оставляет соцконтент: фото и видео в публичном бакете, статьи, опросы, портфолио
   - Файлы: apps/api/src/modules/users/users.service.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для E-F10; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.

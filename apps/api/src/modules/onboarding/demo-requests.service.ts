@@ -379,8 +379,16 @@ export class DemoRequestsService {
    * вузе нет ни факультета, ни группы, показывать его рабочим нечестно — в ACTIVE его
    * переведёт сам админ вуза в конце мастера, когда структура заполнена.
    *
-   * Всё, что меняет состояние, идёт одной транзакцией. Письмо — после: сбой почты не
-   * должен отменять уже принятое решение, ссылку в этом случае можно выслать повторно.
+   * Всё, что меняет состояние, идёт одной транзакцией, и первым её шагом — условный
+   * перевод заявки NEW → APPROVED. Проверка статуса до транзакции от гонки не спасает:
+   * два «Одобрить» подряд (двойной клик, вторая вкладка, повтор после таймаута) оба её
+   * проходили и заводили два вуза с двумя приглашениями на один адрес. Условный
+   * `updateMany` берёт блокировку строки: второй запрос ждёт первого, видит APPROVED и
+   * получает CONFLICT. Приглашение пишется в той же транзакции — его сбой откатывает и
+   * вуз, и статус, и повторное нажатие начинает с чистого листа, а не заводит второй вуз.
+   *
+   * Письмо и аудит — после коммита: сбой почты не должен отменять уже принятое решение,
+   * ссылку в этом случае можно выслать повторно.
    */
   async approve(
     actor: JwtPayload,
@@ -403,12 +411,20 @@ export class DemoRequestsService {
     if (!request) {
       throw new AppException('NOT_FOUND', 'Заявка не найдена')
     }
+    // Быстрый отказ без транзакции. Решает не он, а условный перевод ниже.
     if (request.status !== 'NEW') {
       throw new AppException('CONFLICT', 'Решение по этой заявке уже принято')
     }
 
-    const university = await this.prisma.$transaction(async (tx) => {
-      const created = await tx.university.create({
+    const { university, invite, updated } = await this.prisma.$transaction(async (tx) => {
+      await this.claimForDecision(tx, id, {
+        status: 'APPROVED',
+        reviewedAt: new Date(),
+        reviewedById: actor.sub,
+        reviewNote: input.note,
+      })
+
+      const university = await tx.university.create({
         data: {
           name: input.name ?? request.universityName,
           shortName: input.shortName,
@@ -421,32 +437,26 @@ export class DemoRequestsService {
       })
       // Мастер заводится вместе с вузом: админ вуза входит уже в начатый процесс,
       // а не в пустую платформу, где непонятно, с чего начинать.
-      await tx.universityOnboarding.create({ data: { universityId: created.id } })
-      return created
-    })
+      await tx.universityOnboarding.create({ data: { universityId: university.id } })
 
-    // Приглашение — обычное, по той же цепочке, что и все остальные на платформе
-    // (PLATFORM_ADMIN → UNIVERSITY_ADMIN). Своего письма не шлёт: ссылка уйдёт в
-    // письме об одобрении, одном на всё событие.
-    const invite = await this.invites.create(
-      actor,
-      { role: Role.UNIVERSITY_ADMIN, email: request.email, universityId: university.id },
-      ctx,
-      { notify: false },
-    )
-
-    const updated = await this.prisma.universityDemoRequest.update({
-      where: { id },
-      data: {
-        status: 'APPROVED',
-        reviewedAt: new Date(),
-        reviewedById: actor.sub,
-        reviewNote: input.note,
+      // Приглашение — обычное, по той же цепочке, что и все остальные на платформе
+      // (PLATFORM_ADMIN → UNIVERSITY_ADMIN). Своего письма не шлёт: ссылка уйдёт в
+      // письме об одобрении, одном на всё событие.
+      const invite = await this.invites.createInTransaction(tx, actor, {
+        role: Role.UNIVERSITY_ADMIN,
+        email: request.email,
         universityId: university.id,
-        inviteId: invite.id,
-      },
-      select: REQUEST_SELECT,
+      })
+
+      const updated = await tx.universityDemoRequest.update({
+        where: { id },
+        data: { universityId: university.id, inviteId: invite.id },
+        select: REQUEST_SELECT,
+      })
+      return { university, invite, updated }
     })
+
+    await this.invites.recordCreated(actor, invite, ctx)
 
     await this.enqueueQuietly(
       EMAIL_JOBS.SEND_DEMO_APPROVED,
@@ -472,7 +482,13 @@ export class DemoRequestsService {
     return updated
   }
 
-  /** Отказ. Письмо уходит всегда: молчание заявитель читает как «письмо потерялось». */
+  /**
+   * Отказ. Письмо уходит всегда: молчание заявитель читает как «письмо потерялось».
+   *
+   * Перевод в REJECTED — тем же условным `updateMany`, что и одобрение: при параллельных
+   * «Одобрить» и «Отклонить» выигрывает один, и заявитель не получает письмо об отказе
+   * при уже заведённом вузе.
+   */
   async reject(actor: JwtPayload, id: string, input: RejectDemoRequestInput, ctx: RequestContext) {
     const request = await this.prisma.universityDemoRequest.findUnique({
       where: { id },
@@ -485,15 +501,15 @@ export class DemoRequestsService {
       throw new AppException('CONFLICT', 'Решение по этой заявке уже принято')
     }
 
-    const updated = await this.prisma.universityDemoRequest.update({
+    await this.claimForDecision(this.prisma, id, {
+      status: 'REJECTED',
+      reviewedAt: new Date(),
+      reviewedById: actor.sub,
+      rejectionReason: input.reason,
+      reviewNote: input.note,
+    })
+    const updated = await this.prisma.universityDemoRequest.findUniqueOrThrow({
       where: { id },
-      data: {
-        status: 'REJECTED',
-        reviewedAt: new Date(),
-        reviewedById: actor.sub,
-        rejectionReason: input.reason,
-        reviewNote: input.note,
-      },
       select: REQUEST_SELECT,
     })
 
@@ -522,6 +538,27 @@ export class DemoRequestsService {
   }
 
   // ── Вспомогательное ────────────────────────────────────────────────────────
+
+  /**
+   * Условный перевод заявки из очереди в решение: строка меняется, только если она ещё NEW.
+   *
+   * Решение по заявке принимается один раз. Под READ COMMITTED второй такой же запрос
+   * ждёт блокировку строки, после коммита первого перечитывает условие, не находит NEW и
+   * получает CONFLICT — вместо второго вуза или письма об отказе одобренному.
+   */
+  private async claimForDecision(
+    db: Prisma.TransactionClient,
+    id: string,
+    data: Prisma.UniversityDemoRequestUncheckedUpdateManyInput,
+  ): Promise<void> {
+    const { count } = await db.universityDemoRequest.updateMany({
+      where: { id, status: 'NEW' },
+      data,
+    })
+    if (count === 0) {
+      throw new AppException('CONFLICT', 'Решение по этой заявке уже принято')
+    }
+  }
 
   /**
    * Постановка письма в очередь после того, как решение уже записано. Сбой Redis не

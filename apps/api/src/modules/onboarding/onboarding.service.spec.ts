@@ -60,6 +60,11 @@ function setup(
     completedAt: null,
     ...options.record,
   }
+  // Транзакция запуска: условный перевод PENDING → ACTIVE и отметка о прохождении мастера.
+  const tx = {
+    university: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    universityOnboarding: { update: jest.fn().mockResolvedValue(record) },
+  }
   const prisma = {
     universityOnboarding: {
       upsert: jest.fn().mockResolvedValue(record),
@@ -84,7 +89,12 @@ function setup(
     subject: { count: jest.fn() },
     user: { count: jest.fn() },
     invite: { count: jest.fn() },
-    $transaction: jest.fn().mockResolvedValue(options.tally ?? counts()),
+    // Массив — чтение счётчиков, функция — транзакция запуска.
+    $transaction: jest.fn(async (arg: unknown) =>
+      typeof arg === 'function'
+        ? (arg as (t: typeof tx) => unknown)(tx)
+        : (options.tally ?? counts()),
+    ),
   }
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const universities = { invalidateStats: jest.fn().mockResolvedValue(undefined) }
@@ -94,7 +104,7 @@ function setup(
     audit as unknown as AuditService,
     universities as unknown as UniversityService,
   )
-  return { service, prisma, audit, universities }
+  return { service, prisma, tx, audit, universities }
 }
 
 describe('OnboardingService.state', () => {
@@ -145,28 +155,59 @@ describe('OnboardingService.state', () => {
     expect(state.steps.find((s) => s.step === 'launch')?.done).toBe(true)
     expect(state.canLaunch).toBe(false)
   })
+
+  it('заблокированному вузу запуск не предлагается, хоть шаги и заполнены', async () => {
+    const { service } = setup({ status: 'BLOCKED' })
+    const state = await service.state(uniAdmin)
+
+    expect(state.blocking).toEqual([])
+    expect(state.canLaunch).toBe(false)
+  })
 })
 
 describe('OnboardingService.launch', () => {
   it('не запускает вуз с незаполненными обязательными шагами', async () => {
-    const { service, prisma } = setup({ tally: counts({ groups: 0 }) })
+    const { service, prisma, tx } = setup({ tally: counts({ groups: 0 }) })
 
     await expect(service.launch(uniAdmin, ctx)).rejects.toBeInstanceOf(AppException)
+    expect(tx.university.updateMany).not.toHaveBeenCalled()
     expect(prisma.university.update).not.toHaveBeenCalled()
   })
 
-  it('переводит вуз в ACTIVE и сбрасывает кэш статистики', async () => {
-    const { service, prisma, universities } = setup()
-    // Первый вызов — счётчики, второй — сама транзакция запуска.
-    prisma.$transaction.mockResolvedValueOnce(counts()).mockResolvedValue([])
+  it('переводит вуз в ACTIVE только из PENDING и сбрасывает кэш статистики', async () => {
+    const { service, tx, universities } = setup()
 
     await service.launch(uniAdmin, ctx)
 
-    expect(prisma.university.update).toHaveBeenCalledWith({
-      where: { id: 'uni-1' },
+    expect(tx.university.updateMany).toHaveBeenCalledWith({
+      where: { id: 'uni-1', status: 'PENDING' },
       data: { status: 'ACTIVE' },
     })
+    expect(tx.universityOnboarding.update).toHaveBeenCalledWith({
+      where: { universityId: 'uni-1' },
+      data: { completedAt: expect.any(Date) },
+    })
     expect(universities.invalidateStats).toHaveBeenCalledWith('uni-1')
+  })
+
+  it('админ заблокированного вуза не снимает блокировку запуском', async () => {
+    const { service, prisma, tx, audit } = setup({ status: 'BLOCKED' })
+
+    await expect(service.launch(uniAdmin, ctx)).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(tx.university.updateMany).not.toHaveBeenCalled()
+    expect(prisma.university.update).not.toHaveBeenCalled()
+    expect(audit.record).not.toHaveBeenCalled()
+  })
+
+  it('блокировка между чтением и записью: условие в запросе не даёт перезаписать статус', async () => {
+    const { service, tx, universities, audit } = setup()
+    // Состояние читалось ещё в PENDING, а к записи вуз уже заблокировали.
+    tx.university.updateMany.mockResolvedValue({ count: 0 })
+
+    await expect(service.launch(uniAdmin, ctx)).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(tx.universityOnboarding.update).not.toHaveBeenCalled()
+    expect(universities.invalidateStats).not.toHaveBeenCalled()
+    expect(audit.record).not.toHaveBeenCalled()
   })
 })
 
