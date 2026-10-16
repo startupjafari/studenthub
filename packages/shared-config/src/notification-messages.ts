@@ -57,6 +57,9 @@ const RU = {
   'documents.expired.title': 'Срок документа истёк',
   'documents.expiring.title': 'Документ скоро истекает',
   'documents.named.body': '«{title}»',
+  // Владелец открыл документ получателю (грант «пользователь» или «деканат факультета»).
+  'documents.shared.title': 'Вам открыт доступ к документу',
+  'documents.shared.body': '{name}: «{title}»',
 
   'applications.needsAction.title': 'Требуется ваше действие',
   'applications.needsAction.body': 'Заявка {number}: требуется исправление',
@@ -128,6 +131,8 @@ const KK: Record<NotificationMessageKey, string> = {
   'documents.expired.title': 'Құжаттың мерзімі өтті',
   'documents.expiring.title': 'Құжаттың мерзімі жақында бітеді',
   'documents.named.body': '«{title}»',
+  'documents.shared.title': 'Сізге құжатқа қолжетімділік ашылды',
+  'documents.shared.body': '{name}: «{title}»',
 
   'applications.needsAction.title': 'Сіздің әрекетіңіз қажет',
   'applications.needsAction.body': '{number} өтініші: түзету қажет',
@@ -196,6 +201,8 @@ const EN: Record<NotificationMessageKey, string> = {
   'documents.expired.title': 'Document has expired',
   'documents.expiring.title': 'Document expires soon',
   'documents.named.body': '“{title}”',
+  'documents.shared.title': 'A document was shared with you',
+  'documents.shared.body': '{name}: “{title}”',
 
   'applications.needsAction.title': 'Your action is required',
   'applications.needsAction.body': 'Application {number}: correction required',

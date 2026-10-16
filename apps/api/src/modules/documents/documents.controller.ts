@@ -34,6 +34,7 @@ import { DocumentListQueryDto } from './dto/document-list-query.dto'
 import { DocumentFilesDto } from './dto/document-files.dto'
 import { GrantAccessDto } from './dto/grant-access.dto'
 import { PlatformAccessDto } from './dto/platform-access.dto'
+import { SharedWithMeQueryDto } from './dto/shared-with-me-query.dto'
 
 // Модуль «Документы» (Ф15): личное защищённое хранилище. Полный номер наружу не отдаётся.
 @ApiTags('Документы')
@@ -97,6 +98,21 @@ export class DocumentsController {
   })
   overview(@CurrentUser() user: CurrentUserData) {
     return this.documents.overview(user)
+  }
+
+  // Статический маршрут — до `:id`, иначе его перехватит «документ по id».
+  @Get('shared-with-me')
+  @ApiOperation({
+    summary:
+      'Документы, открытые мне по активному гранту (на меня, мой факультет — декану, мой вуз — администрации)',
+  })
+  @ApiResponse({
+    status: 200,
+    description:
+      'Гранты с метаданными документа (номер — маской) и страницами; meta.cursor/hasNext',
+  })
+  sharedWithMe(@CurrentUser() user: CurrentUserData, @Query() query: SharedWithMeQueryDto) {
+    return this.documents.listSharedWithMe(user, query)
   }
 
   @Get(':id')

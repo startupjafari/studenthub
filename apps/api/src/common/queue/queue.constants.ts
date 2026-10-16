@@ -56,6 +56,8 @@ export const NOTIFICATION_JOBS = {
   DOCUMENT_EXPIRING: 'document-expiring',
   DOCUMENT_REQUEST: 'document-request',
   DOCUMENT_RESULT: 'document-result',
+  // Владелец открыл документ получателю (грант USER / DEPARTMENT).
+  DOCUMENT_SHARED: 'document-shared',
   FRIEND_REQUEST: 'friend-request',
   FRIEND_ACCEPTED: 'friend-accepted',
   // Запрос на переписку (§50): единственное уведомление до принятия — сами сообщения

@@ -26,6 +26,36 @@ const REQUEST_STAFF_ROLES: ReadonlySet<Role> = new Set([
   Role.TEACHER,
 ])
 
+// Позиций в запросе не больше, чем разрешает схема создания (30).
+const REQUEST_ITEMS_LIMIT = 30
+
+// Кто сейчас ведёт комплект. Студент меняет и отправляет его, пока комплект не отправлен
+// (DRAFT) или возвращён ему после проверки (REJECTED; PARTIAL — проверены не все позиции).
+// Отправленный и принятый комплект студенту не изменить: раньше замена документа после
+// ACCEPTED оставляла комплект «принятым» уже с другим файлом внутри.
+const STUDENT_EDITABLE = ['DRAFT', 'REJECTED', 'PARTIAL']
+// Сотрудник проверяет только отправленный комплект: черновик студент ещё не сдавал, а
+// принятый или отклонённый ждёт повторной отправки. PARTIAL — проверку можно продолжить.
+const STAFF_REVIEWABLE = ['SUBMITTED', 'PARTIAL']
+
+const DAY_MS = 24 * 60 * 60 * 1000
+
+/**
+ * Принимает ли запрос ответы: открыт и срок не истёк. Срок из веба приходит датой без
+ * времени (полночь UTC), а «до 20.10» значит весь день 20-го, поэтому такой срок длится
+ * до конца дня. Срок с явным временем действует до этой минуты.
+ */
+export function acceptsSubmissions(
+  req: { status: string; dueAt: Date | null },
+  now: Date = new Date(),
+): boolean {
+  if (req.status !== 'OPEN') return false
+  if (!req.dueAt) return true
+  const due = req.dueAt.getTime()
+  const deadline = due % DAY_MS === 0 ? due + DAY_MS : due
+  return now.getTime() < deadline
+}
+
 /**
  * Запросы вуза на документы (Ф15, под-фаза C: задачи 15.14–15.16).
  * Сотрудник создаёт запрос (позиции + адресаты + срок); студент отвечает комплектом,
@@ -160,6 +190,33 @@ export class DocumentRequestsService {
     await this.prisma.documentEvent.create({
       data: { actorId, requestId, action, metadata: metadata as Prisma.InputJsonValue | undefined },
     })
+  }
+
+  // Сдача закрыта: запрос закрыт автором или истёк срок.
+  private assertAcceptsSubmissions(req: { status: string; dueAt: Date | null }): void {
+    if (req.status !== 'OPEN') {
+      throw new AppException('CONFLICT', 'Запрос закрыт — ответы больше не принимаются')
+    }
+    if (!acceptsSubmissions(req)) {
+      throw new AppException('CONFLICT', 'Срок сдачи истёк — ответы больше не принимаются')
+    }
+  }
+
+  private assertStudentEditable(status: string): void {
+    if (!STUDENT_EDITABLE.includes(status)) {
+      throw new AppException('CONFLICT', 'Комплект уже отправлен на проверку или принят')
+    }
+  }
+
+  private assertReviewable(status: string): void {
+    if (!STAFF_REVIEWABLE.includes(status)) {
+      throw new AppException(
+        'CONFLICT',
+        status === 'DRAFT'
+          ? 'Комплект ещё не отправлен студентом'
+          : 'Проверка комплекта уже завершена',
+      )
+    }
   }
 
   // Условие «запрос адресован этому студенту» (весь вуз / факультет / группа / персонально).
@@ -433,11 +490,14 @@ export class DocumentRequestsService {
     this.assertStaff(actor)
     const item = await this.prisma.documentSubmissionItem.findFirst({
       where: { id: submissionItemId, submission: { request: { createdById: actor.sub } } },
-      select: { id: true, submission: { select: { id: true, requestId: true } } },
+      select: { id: true, submission: { select: { id: true, requestId: true, status: true } } },
     })
     if (!item) throw new AppException('NOT_FOUND', 'Позиция не найдена')
-    await this.prisma.documentSubmissionItem.update({
-      where: { id: submissionItemId },
+    this.assertReviewable(item.submission.status)
+    // Условие на статус комплекта — в самом UPDATE: студент мог вернуть комплект в черновик
+    // и заменить документ между чтением и записью — тогда вердикт относился бы к другому файлу.
+    const updated = await this.prisma.documentSubmissionItem.updateMany({
+      where: { id: submissionItemId, submission: { status: { in: STAFF_REVIEWABLE } } },
       data: {
         status: input.status,
         rejectionReason: input.status === 'REJECTED' ? (input.rejectionReason ?? null) : null,
@@ -445,6 +505,9 @@ export class DocumentRequestsService {
         reviewedAt: new Date(),
       },
     })
+    if (updated.count === 0) {
+      throw new AppException('CONFLICT', 'Комплект изменился — обновите страницу')
+    }
     await this.logEvent(
       actor.sub,
       item.submission.requestId,
@@ -463,6 +526,7 @@ export class DocumentRequestsService {
       where: { id: submissionId, request: { createdById: actor.sub } },
       select: {
         id: true,
+        status: true,
         requestId: true,
         studentId: true,
         request: { select: { title: true } },
@@ -470,14 +534,20 @@ export class DocumentRequestsService {
       },
     })
     if (!sub) throw new AppException('NOT_FOUND', 'Комплект не найден')
+    this.assertReviewable(sub.status)
     const statuses = sub.items.map((i) => i.status)
     const hasRejected = statuses.includes('REJECTED')
     const allAccepted = statuses.length > 0 && statuses.every((s) => s === 'ACCEPTED')
     const status = hasRejected ? 'REJECTED' : allAccepted ? 'ACCEPTED' : 'PARTIAL'
-    await this.prisma.documentSubmission.update({
-      where: { id: submissionId },
+    // Условный UPDATE: если студент успел вернуть комплект в черновик (заменить документ),
+    // итог по прочитанным вердиктам уже неверен — отвечаем 409, а не «принимаем» новый файл.
+    const updated = await this.prisma.documentSubmission.updateMany({
+      where: { id: submissionId, status: { in: STAFF_REVIEWABLE } },
       data: { status, reviewedById: actor.sub, reviewedAt: new Date() },
     })
+    if (updated.count === 0) {
+      throw new AppException('CONFLICT', 'Комплект изменился — обновите страницу')
+    }
     await this.logEvent(actor.sub, sub.requestId, 'REVIEW', { status })
     // Уведомляем студента о результате проверки (§15.19). dedupeKey включает статус,
     // чтобы повторная проверка (изменение вердикта) дошла новым уведомлением.
@@ -538,6 +608,7 @@ export class DocumentRequestsService {
         requiredCount: requiredIds.size,
         filledRequired,
         submissionStatus: sub?.status ?? null,
+        acceptsSubmissions: acceptsSubmissions(r),
       }
     })
   }
@@ -583,6 +654,8 @@ export class DocumentRequestsService {
       dueAt: req.dueAt,
       status: req.status,
       createdAt: req.createdAt,
+      // Можно ли ещё сдавать: запрос открыт и срок не истёк (клиент блокирует форму).
+      acceptsSubmissions: acceptsSubmissions(req),
       items: req.items,
       submission: sub
         ? {
@@ -600,13 +673,33 @@ export class DocumentRequestsService {
     }
   }
 
-  /** Сохранить черновик ответа: привязать выбранные документы к позициям запроса. */
+  /**
+   * Сохранить черновик ответа: привязать выбранные документы к позициям запроса.
+   * Менять можно только свой комплект в черновике или возвращённый после проверки, и только
+   * пока запрос принимает ответы (D-F07).
+   */
   async saveSubmission(actor: JwtPayload, requestId: string, input: SaveSubmissionInput) {
     const req = await this.prisma.documentRequest.findFirst({
-      where: { id: requestId, status: 'OPEN', ...this.studentTargetWhere(actor) },
-      select: { id: true, items: { select: { id: true } } },
+      where: { id: requestId, ...this.studentTargetWhere(actor) },
+      select: {
+        id: true,
+        status: true,
+        dueAt: true,
+        items: { select: { id: true } },
+        submissions: {
+          where: { studentId: actor.sub },
+          select: {
+            id: true,
+            status: true,
+            items: { select: { requestItemId: true, documentId: true } },
+          },
+        },
+      },
     })
     if (!req) throw new AppException('NOT_FOUND', 'Запрос не найден')
+    this.assertAcceptsSubmissions(req)
+    const existing = req.submissions[0] ?? null
+    if (existing) this.assertStudentEditable(existing.status)
     const itemIds = new Set(req.items.map((i) => i.id))
     for (const it of input.items) {
       if (!itemIds.has(it.requestItemId)) {
@@ -623,72 +716,113 @@ export class DocumentRequestsService {
         throw new AppException('BAD_REQUEST', 'Некоторые документы недоступны')
       }
     }
-    const submission = await this.prisma.documentSubmission.upsert({
-      where: { requestId_studentId: { requestId, studentId: actor.sub } },
-      create: { requestId, studentId: actor.sub, status: 'DRAFT' },
-      update: {},
-      select: { id: true },
-    })
-    // Апсертим позиции; отвязка при documentId=null.
-    await this.prisma.$transaction(
-      input.items.map((it) =>
-        it.documentId === null
-          ? this.prisma.documentSubmissionItem.deleteMany({
-              where: { submissionId: submission.id, requestItemId: it.requestItemId },
-            })
-          : this.prisma.documentSubmissionItem.upsert({
-              where: {
-                submissionId_requestItemId: {
-                  submissionId: submission.id,
-                  requestItemId: it.requestItemId,
-                },
-              },
-              create: {
+    // Пишем только позиции, где выбран другой документ: веб присылает весь чек-лист при
+    // каждом сохранении, и у нетронутых позиций сохраняются вердикт и причина отклонения.
+    const current = new Map((existing?.items ?? []).map((i) => [i.requestItemId, i.documentId]))
+    const changes = input.items.filter(
+      (it) => (current.get(it.requestItemId) ?? null) !== it.documentId,
+    )
+    if (existing && changes.length === 0) return this.getForStudent(actor, requestId)
+
+    await this.prisma.$transaction(async (tx) => {
+      const submission = await tx.documentSubmission.upsert({
+        where: { requestId_studentId: { requestId, studentId: actor.sub } },
+        create: { requestId, studentId: actor.sub, status: 'DRAFT' },
+        update: {},
+        select: { id: true },
+      })
+      // Правка возвращает комплект в черновик до повторной отправки: сотрудник не проверит
+      // и не примет состав, который студент меняет. Условие на статус — в самом UPDATE:
+      // если комплект тем временем отправили или приняли, он не меняется (409).
+      const reopened = await tx.documentSubmission.updateMany({
+        where: { id: submission.id, status: { in: STUDENT_EDITABLE } },
+        data: { status: 'DRAFT' },
+      })
+      if (reopened.count === 0) {
+        throw new AppException('CONFLICT', 'Комплект уже отправлен на проверку или принят')
+      }
+      // Отвязка при documentId=null; новый документ в позиции ждёт проверки заново.
+      for (const it of changes) {
+        if (it.documentId === null) {
+          await tx.documentSubmissionItem.deleteMany({
+            where: { submissionId: submission.id, requestItemId: it.requestItemId },
+          })
+        } else {
+          await tx.documentSubmissionItem.upsert({
+            where: {
+              submissionId_requestItemId: {
                 submissionId: submission.id,
                 requestItemId: it.requestItemId,
-                documentId: it.documentId,
-                status: 'PENDING',
               },
-              update: { documentId: it.documentId, status: 'PENDING', rejectionReason: null },
-            }),
-      ),
-    )
+            },
+            create: {
+              submissionId: submission.id,
+              requestItemId: it.requestItemId,
+              documentId: it.documentId,
+              status: 'PENDING',
+            },
+            update: {
+              documentId: it.documentId,
+              status: 'PENDING',
+              rejectionReason: null,
+              reviewedById: null,
+              reviewedAt: null,
+            },
+          })
+        }
+      }
+    })
     return this.getForStudent(actor, requestId)
   }
 
   /** Отправить комплект на проверку: все обязательные позиции должны быть заполнены. */
   async submitSubmission(actor: JwtPayload, requestId: string) {
     const req = await this.prisma.documentRequest.findFirst({
-      where: { id: requestId, status: 'OPEN', ...this.studentTargetWhere(actor) },
+      where: { id: requestId, ...this.studentTargetWhere(actor) },
       select: {
         id: true,
+        status: true,
+        dueAt: true,
         items: { where: { required: true }, select: { id: true } },
-        submissions: {
-          where: { studentId: actor.sub },
-          select: {
-            id: true,
-            items: { where: { documentId: { not: null } }, select: { requestItemId: true } },
-          },
-        },
+        submissions: { where: { studentId: actor.sub }, select: { id: true, status: true } },
       },
     })
     if (!req) throw new AppException('NOT_FOUND', 'Запрос не найден')
+    this.assertAcceptsSubmissions(req)
     const sub = req.submissions[0]
     if (!sub) throw new AppException('BAD_REQUEST', 'Черновик ответа не создан')
-    const filled = new Set(sub.items.map((i) => i.requestItemId))
-    const missing = req.items.filter((i) => !filled.has(i.id))
-    if (missing.length > 0) {
-      throw new AppException('BAD_REQUEST', 'Заполните все обязательные позиции')
-    }
-    await this.prisma.documentSubmission.update({
-      where: { id: sub.id },
-      data: {
-        status: 'SUBMITTED',
-        submittedAt: new Date(),
-        reviewedById: null,
-        reviewedAt: null,
-        items: { updateMany: { where: {}, data: { status: 'PENDING', rejectionReason: null } } },
-      },
+    this.assertStudentEditable(sub.status)
+    await this.prisma.$transaction(async (tx) => {
+      // Условный UPDATE: двойная отправка и отправка уже отправленного или принятого
+      // комплекта отвечают 409, а не сбрасывают вердикты проверяющего. Он же блокирует строку
+      // комплекта, поэтому параллельное сохранение черновика ждёт, и проверка обязательных
+      // позиций ниже видит ровно тот состав, что уходит на проверку.
+      const moved = await tx.documentSubmission.updateMany({
+        where: { id: sub.id, status: { in: STUDENT_EDITABLE } },
+        data: {
+          status: 'SUBMITTED',
+          submittedAt: new Date(),
+          reviewedById: null,
+          reviewedAt: null,
+        },
+      })
+      if (moved.count === 0) {
+        throw new AppException('CONFLICT', 'Комплект уже отправлен на проверку или принят')
+      }
+      const filled = await tx.documentSubmissionItem.findMany({
+        where: { submissionId: sub.id, documentId: { not: null } },
+        select: { requestItemId: true },
+        take: REQUEST_ITEMS_LIMIT,
+      })
+      const have = new Set(filled.map((i) => i.requestItemId))
+      if (req.items.some((i) => !have.has(i.id))) {
+        throw new AppException('BAD_REQUEST', 'Заполните все обязательные позиции')
+      }
+      // Отправка — новая проверка всего комплекта: прежние вердикты сбрасываются.
+      await tx.documentSubmissionItem.updateMany({
+        where: { submissionId: sub.id },
+        data: { status: 'PENDING', rejectionReason: null },
+      })
     })
     await this.logEvent(actor.sub, requestId, 'SUBMIT', { submissionId: sub.id })
     return this.getForStudent(actor, requestId)

@@ -145,15 +145,15 @@
   - Суть: Удаление курса стирает результаты экзаменов без балла (зачёт «сдал», «неявка», «не сдал»)
   - Файлы: apps/api/src/modules/courses/courses.service.spec.ts, apps/api/src/modules/courses/courses.service.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F03; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [todo] FIX-C-F06 · P1 · проблемы: C-F06 · стоп: контракт, миграция
+- [in_progress] FIX-C-F06 · P1 · проблемы: C-F06 · стоп: контракт, миграция
   - Суть: Задание с типом сдачи «Файл» сдать невозможно
   - Файлы: apps/api/src/modules/assignments/assignments.service.ts, apps/web/src/views/assignments/ui/create-assignment-modal.tsx, apps/web/src/views/assignments/ui/student-assignment-detail.tsx, packages/shared-schemas/src/assignments.ts, prisma/schema/18-assignments.prisma
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F06; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [todo] FIX-C-F07 · P1 · проблемы: C-F07 · после: FIX-C-F06
+- [in_progress] FIX-C-F07 · P1 · проблемы: C-F07 · после: FIX-C-F06
   - Суть: Удаление задания одним кликом стирает все сданные и оценённые работы
   - Файлы: apps/api/src/modules/assignments/assignments.service.ts, apps/web/src/views/assignments/ui/teacher-assignments-view.tsx
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F07; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [todo] FIX-C-F08 · P1 · проблемы: C-F08 · после: FIX-C-F06, FIX-C-F07
+- [in_progress] FIX-C-F08 · P1 · проблемы: C-F08 · после: FIX-C-F06, FIX-C-F07
   - Суть: Баллы не сверяются с максимумом: журнал и задания принимают «150 из 10», средний процент студента и аналитика декана уезжают за 100 %
   - Файлы: apps/api/src/modules/assignments/assignments.service.ts, apps/api/src/modules/exams/exams.service.ts, apps/api/src/modules/gradebook/gradebook.service.ts, apps/web/src/views/assignments/ui/grade-submission-modal.tsx, apps/web/src/views/exams/ui/exam-results-roster.tsx, apps/web/src/views/gradebook/ui/gradebook-table.tsx
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F08; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
@@ -209,11 +209,11 @@
   - Суть: Сотрудник видит только первую страницу документа заявки, просмотр не попадает в журнал документа
   - Файлы: apps/api/src/modules/application-services/application-documents.service.ts, apps/web/src/widgets/applications/ui/staff-workspace.tsx
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для D-F06; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [in_progress] FIX-D-F07 · P1 · проблемы: D-F07
+- [done] FIX-D-F07 · P1 · проблемы: D-F07
   - Суть: Комплект по запросу документов меняется после проверки: принятый комплект с подменённым документом остаётся ACCEPTED
   - Файлы: apps/api/src/modules/documents/document-requests.service.spec.ts, apps/api/src/modules/documents/document-requests.service.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для D-F07; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [in_progress] FIX-D-F08 · P1 · проблемы: D-F08
+- [done] FIX-D-F08 · P1 · проблемы: D-F08
   - Суть: Архивация по сроку хранения останавливается навсегда, как только накопится 500 «просроченных, но ещё не к архиву» документов
   - Файлы: apps/api/src/modules/documents/document-types.service.ts, apps/api/src/modules/documents/documents.service.spec.ts, apps/api/src/modules/documents/documents.service.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для D-F08; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
@@ -221,7 +221,7 @@
   - Суть: Каталог типов документов вуза не доходит до клиентов: выключенный тип ломает загрузку, собственные типы недоступны
   - Файлы: apps/api/src/modules/documents/document-types.controller.ts, apps/web/src/entities/document-type/api/document-type-api.ts, apps/web/src/views/documents/ui/upload-wizard.tsx, apps/web/src/widgets/applications/ui/result-modal.tsx, docs/PROJECT.md
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для D-F09; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [in_progress] FIX-D-F10 · P1 · проблемы: D-F10 · после: FIX-B-F03, FIX-B-F07, FIX-D-F09 · стоп: контракт
+- [done] FIX-D-F10 · P1 · проблемы: D-F10 · после: FIX-B-F03, FIX-B-F07, FIX-D-F09 · стоп: контракт
   - Суть: Доступ к документу третьим лицам не доходит до получателя
   - Файлы: apps/api/src/modules/documents/documents.controller.ts, apps/web/src/views/documents/ui/, docs/PROJECT.md
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для D-F10; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.

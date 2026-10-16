@@ -7519,6 +7519,26 @@
         ]
       }
     },
+    "/documents/shared-with-me": {
+      "get": {
+        "operationId": "DocumentsController_sharedWithMe",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Гранты с метаданными документа (номер — маской) и страницами; meta.cursor/hasNext"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Документы, открытые мне по активному гранту (на меня, мой факультет — декану, мой вуз — администрации)",
+        "tags": [
+          "Документы"
+        ]
+      }
+    },
     "/documents/{id}": {
       "get": {
         "operationId": "DocumentsController_getById",

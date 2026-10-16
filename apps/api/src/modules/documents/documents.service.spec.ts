@@ -44,14 +44,21 @@ function setup() {
       findMany: jest.fn().mockResolvedValue([]),
       update: jest.fn().mockResolvedValue({}),
       updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+      updateManyAndReturn: jest.fn().mockResolvedValue([]),
+      findUnique: jest.fn().mockResolvedValue({
+        title: 'Паспорт',
+        owner: { firstName: 'Айгерим', lastName: 'Садыкова' },
+      }),
       count: jest.fn().mockResolvedValue(0),
     },
+    user: { findMany: jest.fn().mockResolvedValue([]) },
     documentEvent: {
       create: jest.fn().mockResolvedValue({}),
+      createMany: jest.fn().mockResolvedValue({ count: 0 }),
       findMany: jest.fn().mockResolvedValue([]),
     },
     documentAccess: {
-      create: jest.fn().mockResolvedValue({}),
+      create: jest.fn().mockResolvedValue({ id: 'a1' }),
       findMany: jest.fn().mockResolvedValue([]),
       findFirst: jest.fn(),
       update: jest.fn().mockResolvedValue({}),
@@ -164,6 +171,88 @@ describe('DocumentsService', () => {
     expect(payload.recipientIds).toEqual(['u1'])
     expect(payload.dedupeKey).toBe('doc-expired:d1')
     expect(payload.type).toBe('SYSTEM')
+  })
+
+  // Правило срока хранения вуза: тип ID_CARD, 30 дней после истечения.
+  const RULE = { id: 't1', universityId: 'uni-1', typeId: 'ID_CARD', retentionDays: 30 }
+  // Выборка документов к архиву (у неё в where есть тип) отдельно от стадий EXPIRED/EXPIRING.
+  type FindArgs = { where: { type?: string; id?: { gt: string } } }
+
+  it('sweepExpiry: архивация идёт от правил вуза — в выборке только документы с прошедшим сроком хранения', async () => {
+    const { service, prisma } = setup()
+    prisma.documentType.findMany.mockResolvedValue([RULE])
+    prisma.document.findMany.mockImplementation(async (args: FindArgs) =>
+      args.where.type ? [{ id: 'd9' }] : [],
+    )
+    prisma.document.updateManyAndReturn.mockResolvedValue([{ id: 'd9', ownerId: 'u1' }])
+    const before = Date.now()
+    const res = await service.sweepExpiry()
+    expect(res.archived).toBe(1)
+    // Правила — только типы с заданным сроком.
+    expect(prisma.documentType.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { retentionDays: { not: null } } }),
+    )
+    // Документы без срока хранения и с ненаступившим сроком в выборку не попадают вовсе:
+    // раньше они занимали первую пачку из 500 и блокировали архивацию остальных.
+    const archiveCall = prisma.document.findMany.mock.calls.find(
+      ([args]: [FindArgs]) => args.where.type,
+    )![0]
+    expect(archiveCall.where).toEqual(
+      expect.objectContaining({
+        universityId: 'uni-1',
+        type: 'ID_CARD',
+        status: 'EXPIRED',
+        deletedAt: null,
+        archivedAt: null,
+      }),
+    )
+    const cutoff = archiveCall.where.expiresAt.lt.getTime()
+    expect(cutoff).toBeLessThanOrEqual(before - 30 * 24 * 60 * 60 * 1000 + 1000)
+    expect(prisma.document.updateManyAndReturn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: { in: ['d9'] }, status: 'EXPIRED' }),
+        data: expect.objectContaining({ status: 'ARCHIVED' }),
+      }),
+    )
+    expect(prisma.documentEvent.createMany).toHaveBeenCalledWith({
+      data: [expect.objectContaining({ documentId: 'd9', actorId: 'u1', action: 'ARCHIVE' })],
+    })
+  })
+
+  it('sweepExpiry: архивация проходит все пачки курсором по id, а не одну первую', async () => {
+    const { service, prisma } = setup()
+    prisma.documentType.findMany.mockResolvedValue([RULE])
+    const first = Array.from({ length: 500 }, (_, i) => ({ id: `d${String(i).padStart(3, '0')}` }))
+    prisma.document.findMany.mockImplementation(async (args: FindArgs) => {
+      if (!args.where.type) return []
+      return args.where.id ? [{ id: 'd500' }] : first
+    })
+    // Часть первой пачки не обновилась (документ продлили) — курсор всё равно идёт дальше.
+    prisma.document.updateManyAndReturn
+      .mockResolvedValueOnce(first.slice(1).map((d) => ({ ...d, ownerId: 'u1' })))
+      .mockResolvedValueOnce([{ id: 'd500', ownerId: 'u1' }])
+    const res = await service.sweepExpiry()
+    expect(res.archived).toBe(500)
+    const archiveCalls = prisma.document.findMany.mock.calls.filter(
+      ([args]: [FindArgs]) => args.where.type,
+    )
+    expect(archiveCalls).toHaveLength(2)
+    expect(archiveCalls[1][0].where.id).toEqual({ gt: 'd499' })
+  })
+
+  it('sweepExpiry: правила сроков читаются страницами до исчерпания', async () => {
+    const { service, prisma } = setup()
+    const page = Array.from({ length: 500 }, (_, i) => ({
+      ...RULE,
+      id: `t${String(i).padStart(3, '0')}`,
+    }))
+    prisma.documentType.findMany.mockResolvedValueOnce(page).mockResolvedValueOnce([])
+    await service.sweepExpiry()
+    expect(prisma.documentType.findMany).toHaveBeenCalledTimes(2)
+    expect(prisma.documentType.findMany.mock.calls[1][0].where).toEqual({
+      retentionDays: { not: null },
+      id: { gt: 't499' },
+    })
   })
 
   const platformActor: JwtPayload = {
@@ -336,5 +425,132 @@ describe('DocumentsService — доступ (15.11)', () => {
     const err = await service.getFileUrl(actor(), 'd1', 'f1').catch((e) => e)
     expect(err.code).toBe('NOT_FOUND')
     expect(files.getPresignedUrl).not.toHaveBeenCalled()
+  })
+})
+
+describe('DocumentsService — открытые мне документы (D-F10)', () => {
+  const dean: JwtPayload = {
+    sub: 'dean-1',
+    role: Role.DEAN,
+    universityId: 'uni-1',
+    facultyId: 'fac-1',
+    groupId: null,
+  }
+
+  function grantRow(id: string) {
+    return {
+      id,
+      granteeType: 'DEPARTMENT',
+      reason: 'личное дело',
+      grantedAt: new Date(),
+      expiresAt: null,
+      document: {
+        id: `doc-${id}`,
+        category: 'PERSONAL',
+        type: 'PASSPORT',
+        title: 'Паспорт',
+        numberLast4: '4821',
+        issuedBy: null,
+        issuedAt: null,
+        expiresAt: null,
+        status: 'UPLOADED',
+        files: [{ id: 'f1', mime: 'application/pdf', size: 10, order: 0 }],
+        owner: { id: 'stu-1', firstName: 'Айгерим', lastName: 'Садыкова' },
+      },
+    }
+  }
+
+  it('декан видит гранты на себя, свой факультет и свой вуз; номер — только маской', async () => {
+    const { service, prisma } = setup()
+    prisma.documentAccess.findMany.mockResolvedValue([grantRow('a1')])
+    const res = await service.listSharedWithMe(dean, { limit: 20 })
+    const where = prisma.documentAccess.findMany.mock.calls[0][0].where
+    expect(where.revokedAt).toBeNull()
+    expect(where.document).toEqual({ deletedAt: null, ownerId: { not: 'dean-1' } })
+    expect(where.AND[1].OR).toEqual([
+      { granteeType: 'USER', granteeId: 'dean-1' },
+      { granteeType: 'DEPARTMENT', granteeId: 'fac-1' },
+      // Грант «Университет» — только на документы своего вуза.
+      { granteeType: 'UNIVERSITY', document: { universityId: 'uni-1' } },
+    ])
+    expect(res.items).toHaveLength(1)
+    const item = res.items[0]!
+    expect(item.owner).toEqual({ id: 'stu-1', name: 'Садыкова Айгерим' })
+    expect(item.document.numberMasked).toBe('******4821')
+    expect((item.document as unknown as Record<string, unknown>).numberLast4).toBeUndefined()
+    expect(item.document.fileCount).toBe(1)
+    expect(res.meta).toEqual({ cursor: undefined, hasNext: false })
+  })
+
+  it('студенту — только персональные гранты', async () => {
+    const { service, prisma } = setup()
+    await service.listSharedWithMe({ ...actor(), facultyId: 'fac-1' }, { limit: 20 })
+    const where = prisma.documentAccess.findMany.mock.calls[0][0].where
+    expect(where.AND[1].OR).toEqual([{ granteeType: 'USER', granteeId: 'me' }])
+  })
+
+  it('cursor-пагинация: limit + 1 строк → hasNext и курсор на последний грант страницы', async () => {
+    const { service, prisma } = setup()
+    prisma.documentAccess.findMany.mockResolvedValue([grantRow('a1'), grantRow('a2')])
+    const res = await service.listSharedWithMe(dean, { limit: 1, cursor: 'a0' })
+    const args = prisma.documentAccess.findMany.mock.calls[0][0]
+    expect(args.take).toBe(2)
+    expect(args.cursor).toEqual({ id: 'a0' })
+    expect(args.skip).toBe(1)
+    expect(res.items).toHaveLength(1)
+    expect(res.meta).toEqual({ cursor: 'a1', hasNext: true })
+  })
+
+  it('grantAccess DEPARTMENT: уведомление деканам факультета в вузе владельца', async () => {
+    const { service, prisma, queue } = setup()
+    prisma.document.findFirst.mockResolvedValue({ id: 'd1' })
+    prisma.user.findMany.mockResolvedValue([{ id: 'dean-1' }])
+    await service.grantAccess({ ...actor(), facultyId: 'fac-1' }, 'd1', {
+      granteeType: 'DEPARTMENT',
+      granteeId: 'fac-1',
+      reason: 'личное дело',
+    })
+    expect(prisma.user.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          universityId: 'uni-1',
+          role: Role.DEAN,
+          facultyId: 'fac-1',
+          deletedAt: null,
+          isBlocked: false,
+        }),
+      }),
+    )
+    const [, jobName, payload] = queue.enqueue.mock.calls[0]
+    expect(jobName).toBe('document-shared')
+    expect(payload.recipientIds).toEqual(['dean-1'])
+    expect(payload.titleKey).toBe('documents.shared.title')
+    expect(payload.params).toEqual({ name: 'Айгерим Садыкова', title: 'Паспорт' })
+    expect(payload.dedupeKey).toBe('doc-shared:a1')
+  })
+
+  it('grantAccess USER: получатель вне вуза владельца не уведомляется', async () => {
+    const { service, prisma, queue } = setup()
+    prisma.document.findFirst.mockResolvedValue({ id: 'd1' })
+    prisma.user.findMany.mockResolvedValue([])
+    await service.grantAccess(actor(), 'd1', {
+      granteeType: 'USER',
+      granteeId: 'stranger',
+      reason: 'проверка',
+    })
+    expect(prisma.user.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ universityId: 'uni-1', id: 'stranger' }),
+      }),
+    )
+    expect(queue.enqueue).not.toHaveBeenCalled()
+  })
+
+  it('grantAccess UNIVERSITY: без рассылки — грант виден администрации в «Открытых мне»', async () => {
+    const { service, prisma, queue } = setup()
+    prisma.document.findFirst.mockResolvedValue({ id: 'd1' })
+    await service.grantAccess(actor(), 'd1', { granteeType: 'UNIVERSITY', reason: 'личное дело' })
+    expect(prisma.user.findMany).not.toHaveBeenCalled()
+    expect(queue.enqueue).not.toHaveBeenCalled()
   })
 })

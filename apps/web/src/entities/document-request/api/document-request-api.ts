@@ -100,6 +100,8 @@ export interface StudentRequestSummary {
   requiredCount: number
   filledRequired: number
   submissionStatus: string | null
+  /** Запрос открыт и срок сдачи не истёк. */
+  acceptsSubmissions: boolean
 }
 export interface StudentSubmissionItem {
   requestItemId: string
@@ -120,6 +122,8 @@ export interface StudentRequestDetail {
   dueAt: string | null
   status: string
   createdAt: string
+  /** Запрос открыт и срок сдачи не истёк — иначе ответ не сохранить и не отправить. */
+  acceptsSubmissions: boolean
   items: RequestItem[]
   submission: StudentSubmission | null
 }
