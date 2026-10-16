@@ -18,9 +18,9 @@
 `.audit/findings/<группа>.md` (таблица статусов процессов + проблемы P0/P1/P2 со ссылками на строки).
 
 - [in_progress] AUD-A · группа A → .audit/findings/A.md
-- [in_progress] AUD-B · группа B → .audit/findings/B.md
+- [done] AUD-B · группа B → .audit/findings/B.md
 - [in_progress] AUD-C · группа C → .audit/findings/C.md
-- [todo] AUD-D · группа D → .audit/findings/D.md
+- [in_progress] AUD-D · группа D → .audit/findings/D.md
 - [todo] AUD-E · группа E → .audit/findings/E.md
 - [todo] AUD-F · группа F → .audit/findings/F.md
 
