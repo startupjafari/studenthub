@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { Client as MinioClient } from 'minio'
 import { PrismaService } from '../src/common/prisma/prisma.service'
 import { FileService } from '../src/modules/files/file.service'
+import type { MediaService } from '../src/modules/media/media.service'
 
 // Integration-тест (docs/PROJECT.md §17 «FilesService — integration»): реальный MinIO из
 // dev-инфраструктуры + тестовая БД. Проверяем round-trip, определение типа по magic bytes,
@@ -34,7 +35,15 @@ describe('FileService (integration, реальный MinIO)', () => {
       secretKey: process.env.MINIO_SECRET_KEY ?? '',
     })
     // В тесте внутренний и «публичный» клиент совпадают (presigned на тот же MinIO).
-    service = new FileService(prisma, minio, minio)
+    // Медиа-обработку здесь не проверяем (тестовый бакет не медийный): заглушка вместо
+    // MediaService, иначе тест тянул бы за собой очереди и Redis.
+    const media = {
+      initialStatus: () => 'NONE',
+      schedule: async () => undefined,
+      scheduleCopy: async () => undefined,
+      purgeVariants: async () => undefined,
+    } as unknown as MediaService
+    service = new FileService(prisma, minio, minio, media)
 
     if (!(await minio.bucketExists(TEST_BUCKET))) {
       await minio.makeBucket(TEST_BUCKET)

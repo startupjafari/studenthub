@@ -3,7 +3,13 @@ import type {
   CreateChatInput,
   CreateChatPollInput,
 } from '@studenthub/shared-schemas'
-import { api, type MultipartTarget, type PresignedTarget } from '../../../shared/api'
+import {
+  api,
+  toMediaLink,
+  type MediaLink,
+  type MultipartTarget,
+  type PresignedTarget,
+} from '../../../shared/api'
 import { requestFile, type DownloadedFile } from '../../../shared/lib'
 import { sortChats } from '../lib/sort-chats'
 import type { ResponseWithMeta } from '../../../shared/api/instance'
@@ -246,9 +252,15 @@ export async function unpinMessageRequest(messageId: string): Promise<ChatMessag
   return data
 }
 
-export async function fetchAttachmentUrl(fileId: string): Promise<string> {
-  const { data } = await api.get<string>(`/chats/attachments/${fileId}/url`)
-  return data
+/**
+ * Ссылка на вложение и описание его вариантов (медиа-система): заглушка, srcset, постер, HLS.
+ *
+ * Голая строка — ответ API до медиа-системы, пока бэкенд выкатывается позже фронта:
+ * оборачиваем её в описание «вариантов нет», и вложение показывается оригиналом.
+ */
+export async function fetchAttachmentLink(fileId: string): Promise<MediaLink> {
+  const { data } = await api.get<MediaLink | string>(`/chats/attachments/${fileId}/url`)
+  return toMediaLink(data)
 }
 
 // Опросы в чате (§38–39).

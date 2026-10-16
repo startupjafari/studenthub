@@ -20,7 +20,7 @@ export {
   fetchPinned,
   pinMessageRequest,
   unpinMessageRequest,
-  fetchAttachmentUrl,
+  fetchAttachmentLink,
   toggleReactionRequest,
   forwardMessageRequest,
   sharePostRequest,

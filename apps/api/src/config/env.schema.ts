@@ -94,6 +94,30 @@ export const envSchema = z.object({
     .default('true')
     .transform((v) => v === 'true'),
 
+  // ── Единая медиа-система (варианты изображений, постеры, HLS) ──
+  /**
+   * Где работают обработчики очередей `media-image` и `media-video`.
+   *
+   * `inline` — в процессе API: dev и деплой, где отдельного воркера ещё нет. `worker` — API
+   * только ставит задачи, обрабатывает `node dist/worker.js` (отдельный сервис): ffmpeg и
+   * sharp тогда не делят CPU и память с HTTP-запросами (BACKEND_RULES §9.2).
+   */
+  MEDIA_PROCESSING: z.enum(['inline', 'worker']).default('inline'),
+  /** Сколько изображений воркер обрабатывает одновременно. */
+  MEDIA_IMAGE_CONCURRENCY: z.coerce.number().int().min(1).max(16).default(2),
+  /** Сколько видео перекодируется одновременно: каждое — отдельный процесс ffmpeg. */
+  MEDIA_VIDEO_CONCURRENCY: z.coerce.number().int().min(1).max(8).default(1),
+  /** Бинарники ffmpeg/ffprobe. В образе API ставятся из apk и лежат в PATH. */
+  FFMPEG_PATH: z.string().min(1).default('ffmpeg'),
+  FFPROBE_PATH: z.string().min(1).default('ffprobe'),
+  /** Каталог временных файлов перекодирования. Не задан — системный tmp. */
+  MEDIA_TMP_DIR: optionalEnv(z.string().min(1)),
+  /**
+   * Секрет токенов доступа к HLS-плейлистам. Не задан — выводится из JWT_ACCESS_SECRET
+   * с отдельной солью, так что токен плейлиста не проходит проверку как access-токен.
+   */
+  MEDIA_TOKEN_SECRET: optionalEnv(z.string().min(32)),
+
   // SMTP используется с Фазы 3 — пока необязателен.
   /**
    * Порог сигнала о росте хранилища, гигабайты. Не задан — сводка только пишется в лог.

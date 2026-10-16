@@ -11,13 +11,25 @@ import {
   useFileDownload,
   useMediaGestures,
 } from '../lib'
+import type { MediaSource } from '../api/media'
 import { ProgressRing } from './progress-ring'
 import { cn } from '../lib/utils'
+import { srcSetOf, pickSource } from '../lib/media-source'
 import { VideoPlayer } from './video-player'
 
 export interface MediaViewerItem {
   mime: string
   name?: string | null
+}
+
+/** Варианты текущего элемента из медиа-системы: заглушка, srcset, постер и HLS. */
+export interface MediaViewerMedia {
+  placeholder?: string | null
+  width?: number | null
+  height?: number | null
+  sources?: readonly MediaSource[]
+  poster?: readonly MediaSource[]
+  hls?: string | null
 }
 
 // Единый полноэкранный просмотрщик фото/видео (стиль чата): тёмный оверлей, медиа по центру,
@@ -31,6 +43,7 @@ export function MediaViewer({
   items,
   index,
   src,
+  media,
   onIndexChange,
   onClose,
   topLeft,
@@ -45,6 +58,11 @@ export function MediaViewer({
   index: number
   /** Готовый URL текущего элемента; undefined — показываем спиннер (ленивая загрузка). */
   src?: string
+  /**
+   * Варианты текущего элемента. Заглушка (LQIP) показывается сразу — даже пока едет `src`;
+   * снимок выбирается из копий по размеру экрана, видео играет через HLS. Нет — как раньше.
+   */
+  media?: MediaViewerMedia | null
   onIndexChange: (i: number) => void
   onClose: () => void
   topLeft?: ReactNode
@@ -215,10 +233,24 @@ export function MediaViewer({
             className="flex h-full w-full items-center justify-center will-change-transform"
           >
             {!src ? (
-              <Loader2 className="size-8 animate-spin text-white/70" aria-hidden />
+              media?.placeholder && !isVideo ? (
+                // Ссылка ещё едет, а силуэт снимка уже есть — показываем его, а не спиннер.
+                <img
+                  src={media.placeholder}
+                  alt=""
+                  aria-hidden
+                  width={media.width ?? undefined}
+                  height={media.height ?? undefined}
+                  className="h-full max-h-full w-auto max-w-full scale-105 object-contain blur-xl"
+                />
+              ) : (
+                <Loader2 className="size-8 animate-spin text-white/70" aria-hidden />
+              )
             ) : isVideo ? (
               <VideoPlayer
                 src={src}
+                hls={media?.hls}
+                poster={pickSource(media?.poster, 1280)?.url}
                 autoPlay
                 onVideoRef={setMedia}
                 onLoadedMetadata={measureFit}
@@ -232,9 +264,25 @@ export function MediaViewer({
               <img
                 ref={setMedia}
                 src={src}
+                // Копия по размеру экрана: 2048 на большом мониторе, оригинал — только если он
+                // шире всех копий. Скачивание по-прежнему отдаёт оригинал (downloadUrl).
+                srcSet={srcSetOf(media?.sources, { url: src, width: media?.width })}
+                sizes="100vw"
                 alt={cur.name ?? ''}
                 draggable={false}
-                style={transform}
+                // width/height задают пропорцию до загрузки — заглушка фоном ложится ровно в
+                // будущий кадр, а не на всю область.
+                width={media?.width ?? undefined}
+                height={media?.height ?? undefined}
+                style={
+                  media?.placeholder
+                    ? {
+                        ...transform,
+                        backgroundImage: `url("${media.placeholder}")`,
+                        backgroundSize: '100% 100%',
+                      }
+                    : transform
+                }
                 onLoad={measureFit}
                 className="h-full max-h-full w-auto max-w-full object-contain transition-transform"
                 onClick={(e) => e.stopPropagation()}

@@ -44,7 +44,7 @@ import {
   blockUserRequest,
   chatKeys,
   createChatRequest,
-  fetchAttachmentUrl,
+  fetchAttachmentLink,
   fetchBlockedUsers,
   fetchChatLinks,
   fetchChatMedia,
@@ -76,6 +76,7 @@ import {
   TabsList,
   TabsTrigger,
   useConfirm,
+  MediaImage,
   MediaViewer as PlainMediaViewer,
   ProgressRing,
 } from '../../../shared/ui'
@@ -167,11 +168,24 @@ function lastSeenText(iso: string, t: (k: string, v?: Record<string, number>) =>
   return t('lastSeenDay', { count: Math.floor(hr / 24) })
 }
 
-// presigned-URL вложения (кэш общий с сообщениями: тот же ключ ['chat-attachment', id]).
+// Ссылка на вложение и его варианты (кэш общий с сообщениями: тот же ключ ['chat-attachment', id]).
+function useFileLink(fileId: string, enabled = true) {
+  return useQuery({
+    queryKey: ['chat-attachment', fileId],
+    queryFn: () => fetchAttachmentLink(fileId),
+    enabled,
+    staleTime: 10 * 60 * 1000,
+    gcTime: 15 * 60 * 1000,
+  })
+}
+
+// Только presigned-URL оригинала (аудио, скачивание): в кэше лежит всё описание, `select`
+// отдаёт из него ссылку, не заводя второй записи.
 function useFileUrl(fileId: string, enabled = true) {
   return useQuery({
     queryKey: ['chat-attachment', fileId],
-    queryFn: () => fetchAttachmentUrl(fileId),
+    queryFn: () => fetchAttachmentLink(fileId),
+    select: (link) => link.url,
     enabled,
     staleTime: 10 * 60 * 1000,
     gcTime: 15 * 60 * 1000,
@@ -209,19 +223,34 @@ function LoadMore({
 // ── Медиа: сетка миниатюр → fullscreen viewer (§42) ──────────────────────────
 function MediaThumb({ item, onOpen }: { item: ChatMediaItem; onOpen: () => void }) {
   const isVideo = item.mime.startsWith('video/')
-  const url = useFileUrl(item.id)
+  const link = useFileLink(item.id)
+  // Миниатюра сетки — копия 320 (или постер видео), а не оригинал: вкладка показывает
+  // десятки снимков разом. Нет копий — оригинал, как раньше; у видео без постера — <video>.
+  const poster = link.data?.poster ?? []
   return (
     <button
       type="button"
       onClick={onOpen}
       className="relative aspect-square overflow-hidden rounded-md bg-muted"
     >
-      {url.data ? (
-        isVideo ? (
-          <video src={url.data} muted preload="metadata" className="size-full object-cover" />
+      {link.data ? (
+        isVideo && poster.length === 0 ? (
+          <video src={link.data.url} muted preload="metadata" className="size-full object-cover" />
         ) : (
-          <img src={url.data} alt="" loading="lazy" className="size-full object-cover" />
+          <MediaImage
+            src={isVideo ? poster[poster.length - 1]?.url : link.data.url}
+            media={{
+              placeholder: item.placeholder,
+              sources: isVideo ? poster : link.data.sources,
+              width: isVideo ? null : item.width,
+            }}
+            alt=""
+            sizes="120px"
+            className="size-full"
+          />
         )
+      ) : item.placeholder ? (
+        <MediaImage media={{ placeholder: item.placeholder }} alt="" className="size-full" />
       ) : (
         <div className="size-full animate-pulse bg-muted" />
       )}
@@ -255,6 +284,11 @@ function MediaTab({ chatId }: { chatId: string }) {
     mime: it.mime,
     size: it.size,
     name: it.name,
+    // Заглушка и размеры — чтобы просмотрщик показал силуэт снимка, не дожидаясь ссылки.
+    width: it.width,
+    height: it.height,
+    placeholder: it.placeholder,
+    durationMs: it.durationMs,
   }))
   return (
     <>

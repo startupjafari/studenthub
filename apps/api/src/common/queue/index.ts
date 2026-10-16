@@ -9,5 +9,6 @@ export {
   NOTIFICATION_JOBS,
   FILE_JOBS,
   LINK_PREVIEW_JOBS,
+  MEDIA_JOBS,
   type QueueName,
 } from './queue.constants'

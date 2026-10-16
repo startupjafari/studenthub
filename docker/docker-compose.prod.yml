@@ -95,6 +95,9 @@ services:
     restart: always
     logging: *logging
     env_file: [.env]
+    environment:
+      # Медиа обрабатывает сервис worker ниже; API только ставит задачи.
+      MEDIA_PROCESSING: worker
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -109,6 +112,24 @@ services:
           '-e',
           "require('net').connect(3001,'127.0.0.1').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))",
         ]
+
+  # Воркер медиа (варианты изображений, постеры, HLS): тот же образ, другая команда.
+  # API в этой конфигурации запускается с MEDIA_PROCESSING=worker и только ставит задачи —
+  # ffmpeg не делит CPU с HTTP-запросами. Порт не слушает, поэтому healthcheck нет.
+  worker:
+    build:
+      context: ..
+      dockerfile: apps/api/Dockerfile
+    command: ['node', 'dist/worker.js']
+    restart: always
+    logging: *logging
+    env_file: [.env]
+    environment:
+      MEDIA_PROCESSING: worker
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      minio: { condition: service_healthy }
 
   web:
     build:

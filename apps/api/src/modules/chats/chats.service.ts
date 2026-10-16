@@ -32,6 +32,9 @@ import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import { LINK_PREVIEW_JOBS, NOTIFICATION_JOBS, QUEUES, QueueService } from '../../common/queue'
 import { RealtimeGateway } from '../../common/realtime'
 import { FileService } from '../files/file.service'
+import { MediaService } from '../media/media.service'
+import { MEDIA_FILE_SELECT, MEDIA_PREVIEW_SELECT, type MediaInfo } from '../media/media.types'
+import { signingWindow } from '../../common/minio/stable-sign'
 import { PostsService } from '../posts/posts.service'
 import type { EnvVars } from '../../config/env.schema'
 import { ExportRegistryService } from '../../common/export/export-registry.service'
@@ -195,6 +198,10 @@ type ChatMediaRow = {
   mime: string
   size: number
   hasPoster: boolean
+  width: number | null
+  height: number | null
+  placeholder: string | null
+  durationMs: number | null
   createdAt: Date
   sender: MediaSenderRow | null
 }
@@ -222,6 +229,8 @@ const MESSAGE_SELECT = {
   systemMeta: true,
   sender: SENDER_SELECT,
   // width/height — размеры изображения: клиент держит под снимок точное место, пока идут байты.
+  // placeholder (LQIP) рисуется сразу, ещё до запроса ссылки; mediaStatus и durationMs —
+  // из медиа-системы (варианты и HLS выдаёт ссылка на вложение).
   media: {
     select: {
       id: true,
@@ -232,6 +241,7 @@ const MESSAGE_SELECT = {
       asDocument: true,
       width: true,
       height: true,
+      ...MEDIA_PREVIEW_SELECT,
     },
   },
   // Процитированный фрагмент: клиент рисует его вместо начала исходного сообщения.
@@ -365,6 +375,7 @@ export class ChatsService {
     private readonly config: ConfigService<EnvVars, true>,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
     private readonly exports: ExportRegistryService,
+    private readonly media: MediaService,
   ) {}
 
   // ── Членство ────────────────────────────────────────────────────────────────
@@ -1231,6 +1242,11 @@ export class ChatsService {
         mime: true,
         size: true,
         posterKey: true,
+        width: true,
+        height: true,
+        placeholder: true,
+        durationMs: true,
+        mediaStatus: true,
         createdAt: true,
         messageId: true,
         message: { select: { createdAt: true, senderId: true, sender: SENDER_SELECT } },
@@ -1247,7 +1263,12 @@ export class ChatsService {
       name: f.name,
       mime: f.mime,
       size: f.size,
-      hasPoster: !!f.posterKey,
+      // Постер у видео чата готовит медиа-система; posterKey — прежний путь медиа профиля.
+      hasPoster: !!f.posterKey || (f.mediaStatus === 'READY' && f.mime.startsWith('video/')),
+      width: f.width,
+      height: f.height,
+      placeholder: f.placeholder,
+      durationMs: f.durationMs,
       createdAt: f.message?.createdAt ?? f.createdAt,
       sender: f.message?.sender ?? null,
     }))
@@ -2282,8 +2303,16 @@ export class ChatsService {
 
   // ── Вложения (Ф9+) ───────────────────────────────────────────────────────────
 
-  /** Presigned-GET к вложению: доступ по членству в чате сообщения (не по владению файлом). */
-  async getAttachmentUrl(userId: string, fileId: string): Promise<string> {
+  /**
+   * Presigned-GET к вложению: доступ по членству в чате сообщения (не по владению файлом).
+   *
+   * Объект, а не голая строка: клиенты кешируют ссылку и обязаны знать, когда она протухнет
+   * (iOS и Android изначально декодировали именно `{ url, expiresAt }`).
+   */
+  async getAttachmentUrl(
+    userId: string,
+    fileId: string,
+  ): Promise<MediaInfo & { url: string; expiresAt: string }> {
     const file = await this.files.findOrThrow(fileId)
     if (!file.messageId) throw new AppException('NOT_FOUND', 'Файл не является вложением сообщения')
     const msg = await this.prisma.message.findUnique({
@@ -2301,7 +2330,20 @@ export class ChatsService {
     if (member?.clearedAt && msg.createdAt <= member.clearedAt) {
       throw new AppException('NOT_FOUND', 'Сообщение не найдено')
     }
-    return this.files.getPresignedUrl(fileId)
+    // Срок — конец окна подписи (common/minio/stable-sign): подпись округлена к его началу,
+    // и ссылка живёт меньше номинальных 15 минут — клиент должен знать настоящий срок.
+    const now = Date.now()
+    const [url, mediaFile] = await Promise.all([
+      this.files.getPresignedUrl(fileId),
+      this.prisma.file.findUniqueOrThrow({ where: { id: fileId }, select: MEDIA_FILE_SELECT }),
+    ])
+    // Варианты (srcset, постер, HLS) — той же проверкой доступа, что и оригинал; поля
+    // описания лежат рядом с `url`, одной формой для всех модулей.
+    return {
+      ...(await this.media.describeOne(mediaFile, now)),
+      url,
+      expiresAt: signingWindow(now).expiresAt.toISOString(),
+    }
   }
 
   /**
@@ -2347,10 +2389,22 @@ export class ChatsService {
       const day = localDayKey(row.createdAt, query.tzOffset)
       if (!perDay.has(day)) perDay.set(day, row.id)
     }
-    const urls = await this.files.getPresignedUrls([...perDay.values()])
+    // Кружок дня — миниатюра, а не оригинал: календарь показывает до месяца снимков разом,
+    // и тянуть ради кружка в 40 пикселей мегабайтные фото незачем. Нет миниатюры (ещё не
+    // готова или файл старше медиа-системы) — оригинал, как раньше.
+    const ids = [...perDay.values()]
+    const [urls, files] = await Promise.all([
+      this.files.getPresignedUrls(ids),
+      this.prisma.file.findMany({
+        where: { id: { in: ids } },
+        select: MEDIA_FILE_SELECT,
+        take: ids.length,
+      }),
+    ])
+    const media = await this.media.describe(files)
     const items: { day: string; url: string }[] = []
     for (const [day, fileId] of perDay) {
-      const url = urls.get(fileId)
+      const url = media.get(fileId)?.sources[0]?.url ?? urls.get(fileId)
       if (url) items.push({ day, url })
     }
     return { items }
@@ -2455,6 +2509,8 @@ export class ChatsService {
         linkPreview: true,
         media: {
           select: {
+            // id — чтобы копия забрала готовые варианты медиа, а не готовила их заново.
+            id: true,
             bucket: true,
             key: true,
             mime: true,

@@ -1,4 +1,5 @@
 // Типы постов — зеркало ответов API (docs/PROJECT.md §3.3, Ф8).
+import type { MediaPreview } from '../../../shared/api'
 import type { PostAudienceValue } from '@studenthub/shared-schemas'
 import type { Role } from '@studenthub/shared-types'
 
@@ -12,7 +13,7 @@ export interface PostAuthor {
   avatarUrl: string | null
 }
 
-export interface PostMedia {
+export interface PostMedia extends MediaPreview {
   id: string
   mime: string
 }

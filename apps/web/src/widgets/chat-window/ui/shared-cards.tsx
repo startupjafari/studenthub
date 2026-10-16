@@ -5,10 +5,10 @@ import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { ChevronRight, Heart, Images, MessageCircle, Play, UserRound } from 'lucide-react'
 import type { SharedPostPreview } from '../../../entities/chat'
-import { fetchPostMediaUrl, postKeys } from '../../../entities/post'
+import { fetchPostMediaLink, postKeys } from '../../../entities/post'
 import { fetchUserById, userKeys } from '../../../entities/user'
 import { Avatar, AvatarFallback, AvatarImage, Markdown } from '../../../shared/ui'
-import { identityColor, identityInitials } from '../../../shared/lib'
+import { identityColor, identityInitials, srcSetOf } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 
 // Карточки того, чем поделились в чате: пост и профиль. Живут в виджете, а не в
@@ -92,16 +92,19 @@ function PostCover({ postId, media }: { postId: string; media: { id: string; mim
   const isVideo = media.mime.startsWith('video/')
   const url = useQuery({
     queryKey: postKeys.media(media.id),
-    queryFn: () => fetchPostMediaUrl(postId, media.id),
+    queryFn: () => fetchPostMediaLink(postId, media.id),
     staleTime: 10 * 60 * 1000,
   })
+  const link = url.data
+  // Обложка карточки шириной с пузырь: копия 640 (или постер видео), а не оригинал.
+  const poster = link?.poster ?? []
 
   return (
     <div className="relative aspect-video w-full overflow-hidden bg-muted">
-      {url.data ? (
-        isVideo ? (
+      {link ? (
+        isVideo && poster.length === 0 ? (
           <video
-            src={url.data}
+            src={link.url}
             muted
             playsInline
             preload="metadata"
@@ -110,7 +113,9 @@ function PostCover({ postId, media }: { postId: string; media: { id: string; mim
         ) : (
           // Подписанный адрес хранилища — обычный img, не next/image: оптимизатор его не знает.
           <img
-            src={url.data}
+            src={isVideo ? poster[poster.length - 1]?.url : link.url}
+            srcSet={srcSetOf(isVideo ? poster : link.sources, isVideo ? undefined : link)}
+            sizes="320px"
             alt=""
             loading="lazy"
             className="size-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
@@ -121,7 +126,7 @@ function PostCover({ postId, media }: { postId: string; media: { id: string; mim
           <Images className={cn('size-6', url.isLoading && 'animate-pulse')} aria-hidden />
         </div>
       )}
-      {isVideo && url.data && (
+      {isVideo && link && (
         <span className="absolute inset-0 flex items-center justify-center">
           <span className="flex size-11 items-center justify-center rounded-full bg-black/55 text-white">
             <Play className="size-5 translate-x-0.5 fill-current" aria-hidden />

@@ -70,6 +70,8 @@ import { ClientVersionModule } from './modules/client-version/client-version.mod
 import { PlatformModule } from './modules/platform/platform.module'
 // Вход в админский мини-апп Telegram (docs/PROJECT.md §8.3).
 import { MiniModule } from './modules/mini/mini.module'
+// Единая медиа-система: варианты изображений, постеры и HLS (docs/PROJECT.md «Медиа»).
+import { MediaModule } from './modules/media/media.module'
 import { AppController } from './app.controller'
 
 @Module({
@@ -170,6 +172,10 @@ import { AppController } from './app.controller'
     ClientVersionModule,
     PlatformModule,
     MiniModule,
+    // Обработчики очередей медиа — в процессе API, только пока отдельного воркера нет
+    // (MEDIA_PROCESSING=inline). Читается из process.env: состав модулей фиксируется до
+    // поднятия ConfigModule; само значение валидирует схема окружения на старте.
+    MediaModule.register({ http: true, processors: process.env.MEDIA_PROCESSING !== 'worker' }),
   ],
   controllers: [AppController],
   providers: [{ provide: APP_GUARD, useClass: UserThrottlerGuard }],

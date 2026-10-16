@@ -9,6 +9,9 @@ import { AppException } from '../../common/exceptions/app.exception'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
 import { FileService } from '../files/file.service'
+import { MediaService } from '../media/media.service'
+import { MEDIA_FILE_SELECT, MEDIA_PREVIEW_SELECT, type MediaInfo } from '../media/media.types'
+import { signingWindow } from '../../common/minio/stable-sign'
 import type { EnvVars } from '../../config/env.schema'
 
 const MATERIAL_SELECT = {
@@ -20,7 +23,18 @@ const MATERIAL_SELECT = {
   url: true,
   createdAt: true,
   teacher: { select: { id: true, firstName: true, lastName: true } },
-  media: { select: { id: true, mime: true, size: true, createdAt: true } },
+  // Размеры и LQIP — превью фото и видео в карточке материала до запроса ссылки.
+  media: {
+    select: {
+      id: true,
+      mime: true,
+      size: true,
+      createdAt: true,
+      width: true,
+      height: true,
+      ...MEDIA_PREVIEW_SELECT,
+    },
+  },
 } satisfies Prisma.MaterialSelect
 
 type MaterialRow = Prisma.MaterialGetPayload<{ select: typeof MATERIAL_SELECT }>
@@ -38,6 +52,7 @@ export class MaterialsService {
     private readonly audit: AuditService,
     private readonly files: FileService,
     private readonly config: ConfigService<EnvVars, true>,
+    private readonly media: MediaService,
   ) {}
 
   async create(
@@ -144,17 +159,29 @@ export class MaterialsService {
     return { id: file.id, mime: file.mime, size: file.size, createdAt: file.createdAt }
   }
 
-  async getFileUrl(viewer: JwtPayload, id: string, fileId: string): Promise<{ url: string }> {
+  /** Ссылка на файл материала и, для фото и видео, описание вариантов — по scope группы. */
+  async getFileUrl(
+    viewer: JwtPayload,
+    id: string,
+    fileId: string,
+  ): Promise<MediaInfo & { url: string; expiresAt: string }> {
     const material = await this.prisma.material.findUnique({
       where: { id },
       select: MATERIAL_SELECT,
     })
     if (!material) throw new AppException('NOT_FOUND', 'Материал не найден')
     await this.assertRead(viewer, material.groupId)
-    const file = await this.files.findOrThrow(fileId)
-    if (file.materialId !== id) throw new AppException('NOT_FOUND', 'Файл не найден')
-    const url = await this.files.getPresignedUrl(fileId)
-    return { url }
+    const file = await this.prisma.file.findFirst({
+      where: { id: fileId, materialId: id },
+      select: MEDIA_FILE_SELECT,
+    })
+    if (!file) throw new AppException('NOT_FOUND', 'Файл не найден')
+    const now = Date.now()
+    const [url, media] = await Promise.all([
+      this.files.getPresignedUrl(fileId),
+      this.media.describeOne(file, now),
+    ])
+    return { ...media, url, expiresAt: signingWindow(now).expiresAt.toISOString() }
   }
 
   async remove(actor: JwtPayload, id: string, ctx: RequestContext): Promise<void> {

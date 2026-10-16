@@ -1,6 +1,7 @@
 import { Readable } from 'node:stream'
 import type { Client as MinioClient } from 'minio'
 import { FILE_UPLOAD } from '@studenthub/shared-config'
+import type { MediaService } from '../media/media.service'
 import { FileService } from './file.service'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 
@@ -74,12 +75,20 @@ function setup(
       count: jest.fn().mockResolvedValue(options.refsLeft ?? 0),
     },
   }
+  // Медиа-система: постановку в обработку проверяем как вызов, сама она — в media.service.spec.ts.
+  const media = {
+    initialStatus: jest.fn().mockReturnValue('NONE'),
+    schedule: jest.fn().mockResolvedValue(undefined),
+    scheduleCopy: jest.fn().mockResolvedValue(undefined),
+    purgeVariants: jest.fn().mockResolvedValue(undefined),
+  }
   const service = new FileService(
     prisma as unknown as PrismaService,
     minio as unknown as MinioClient,
     minio as unknown as MinioClient,
+    media as unknown as MediaService,
   )
-  return { service, minio, prisma }
+  return { service, minio, prisma, media }
 }
 
 const base = { bucket: 'documents', ownerId: 'user-1' }

@@ -88,6 +88,10 @@ function makeService() {
       digestHour: null,
     })) as Mock,
   }
+  // Медиа-система: cron только ставит догонялку, сама постановка — в media.service.spec.ts.
+  const media = {
+    resumeAndBackfill: jest.fn(async () => ({ resumed: 1, backfilled: 2 })) as Mock,
+  }
   const service = new CleanupService(
     prisma as never,
     minio as never,
@@ -105,9 +109,11 @@ function makeService() {
     demoRequests as never,
     telegram as never,
     platform as never,
+    media as never,
   )
   return {
     service,
+    media,
     prisma,
     audit,
     minio,
@@ -281,10 +287,79 @@ describe('CleanupService', () => {
       expect(minio.removeObject).toHaveBeenCalledWith('MINIO_BUCKET_AVATARS', 'orphan.png')
     })
 
+    it('не трогает постеры видео и обложки пользователей в profile-covers', async () => {
+      const { service, prisma, minio } = makeService()
+      const old = new Date(Date.now() - 2 * 60 * 60 * 1000)
+      minio.listObjectsV2.mockImplementation((bucket: string) =>
+        bucket === 'MINIO_BUCKET_PROFILE_COVERS'
+          ? objectStream([
+              { name: 'poster.jpg', lastModified: old },
+              { name: 'cover.jpg', lastModified: old },
+              { name: 'junk.jpg', lastModified: old },
+            ])
+          : objectStream([]),
+      )
+      // Ни у одного из трёх нет File.key — это raw-объекты putAuxImage.
+      prisma.file.findMany.mockImplementation(async (args: { where: { posterKey?: unknown } }) =>
+        args.where.posterKey ? [{ posterKey: 'poster.jpg' }] : [],
+      )
+      prisma.user.findMany.mockResolvedValue([
+        { coverUrl: 'https://old-minio.example/profile-covers/cover.jpg' },
+      ])
+      minio.removeObject.mockResolvedValue(undefined)
+
+      const removed = await service.cleanOrphanFiles()
+
+      expect(removed).toBe(1)
+      expect(minio.removeObject).toHaveBeenCalledTimes(1)
+      expect(minio.removeObject).toHaveBeenCalledWith('MINIO_BUCKET_PROFILE_COVERS', 'junk.jpg')
+    })
+
+    it('варианты медиа живут, пока жива запись File-владельца', async () => {
+      const { service, prisma, minio } = makeService()
+      const old = new Date(Date.now() - 2 * 60 * 60 * 1000)
+      const alive = '11111111-1111-4111-8111-111111111111'
+      const gone = '22222222-2222-4222-8222-222222222222'
+      minio.listObjectsV2.mockImplementation((bucket: string) =>
+        bucket === 'MINIO_BUCKET_CHAT'
+          ? objectStream([
+              { name: `variants/${alive}/w640.webp`, lastModified: old },
+              { name: `variants/${alive}/hls/720/seg-0001.ts`, lastModified: old },
+              { name: `variants/${gone}/w640.webp`, lastModified: old },
+            ])
+          : objectStream([]),
+      )
+      prisma.file.findMany.mockImplementation(async (args: { where: { id?: unknown } }) =>
+        args.where.id ? [{ id: alive }] : [],
+      )
+      minio.removeObject.mockResolvedValue(undefined)
+
+      const removed = await service.cleanOrphanFiles()
+
+      expect(removed).toBe(1)
+      expect(minio.removeObject).toHaveBeenCalledWith(
+        'MINIO_BUCKET_CHAT',
+        `variants/${gone}/w640.webp`,
+      )
+    })
+
     it('недоступный бакет не роняет задачу', async () => {
       const { service, minio } = makeService()
       minio.listObjectsV2.mockImplementation(() => errorStream('minio down'))
       await expect(service.cleanOrphanFiles()).resolves.toBe(0)
+    })
+  })
+
+  describe('resumeMediaProcessing', () => {
+    it('делегирует догонялку медиа-системе под локом', async () => {
+      const { service, media, locks } = makeService()
+      await expect(service.resumeMediaProcessing()).resolves.toEqual({ resumed: 1, backfilled: 2 })
+      expect(media.resumeAndBackfill).toHaveBeenCalledTimes(1)
+      expect(locks.run).toHaveBeenCalledWith(
+        'resumeMediaProcessing',
+        expect.any(Number),
+        expect.any(Function),
+      )
     })
   })
 

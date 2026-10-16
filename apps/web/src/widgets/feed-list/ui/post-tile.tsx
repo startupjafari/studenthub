@@ -131,6 +131,7 @@ function PostTileView({
             postId={post.id}
             media={first}
             fit="cover"
+            sizes="(max-width: 640px) 50vw, 320px"
             className="size-full transition-transform duration-300 group-hover:scale-105"
           />
         ) : (

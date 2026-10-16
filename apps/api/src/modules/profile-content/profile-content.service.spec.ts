@@ -60,13 +60,28 @@ function setup() {
   const config = { get: (k: string) => CONFIG[k] }
   // По умолчанию профиль открыт смотрящему; закрытый проверяется отдельным тестом.
   const users = { canViewProfileContent: jest.fn().mockResolvedValue(true) }
+  // Описание медиа — media.service.spec.ts; здесь — «ещё не обработано», без вариантов.
+  const media = {
+    describeOne: jest.fn(async (f: { mediaStatus?: string; placeholder?: string | null }) => ({
+      status: f.mediaStatus ?? 'NONE',
+      placeholder: f.placeholder ?? null,
+      width: null,
+      height: null,
+      durationMs: null,
+      sources: [],
+      poster: [],
+      hls: null,
+      expiresAt: null,
+    })),
+  }
   const service = new ProfileContentService(
     prisma as unknown as PrismaService,
     files as unknown as FileService,
     config as unknown as ConfigService<EnvVars, true>,
     users as unknown as UserService,
+    media as never,
   )
-  return { service, prisma, files, users }
+  return { service, prisma, files, users, media }
 }
 
 const file = (over: Record<string, unknown> = {}) => ({

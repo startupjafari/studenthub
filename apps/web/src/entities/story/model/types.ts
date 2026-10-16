@@ -1,4 +1,5 @@
 // Типы сторис — зеркало ответов API (docs/PROJECT.md §3.4, Ф14.1).
+import type { MediaInfo } from '../../../shared/api'
 import type { StoryAudienceValue, StoryBackgroundValue } from '@studenthub/shared-schemas'
 import type { Role } from '@studenthub/shared-types'
 
@@ -17,7 +18,7 @@ export interface StoryAuthor {
  * сразу после открытия ленты, и отдельный запрос за URL на каждый кадр был бы
  * задержкой ровно там, где её видно.
  */
-export interface StoryMedia {
+export interface StoryMedia extends MediaInfo {
   id: string
   mime: string
   width: number | null

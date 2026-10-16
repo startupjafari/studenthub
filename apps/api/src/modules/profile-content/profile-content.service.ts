@@ -18,6 +18,8 @@ import { buildPublicObjectUrl } from '../../common/minio/public-url'
 import { AppException } from '../../common/exceptions/app.exception'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import { FileService } from '../files/file.service'
+import { MediaService } from '../media/media.service'
+import { MEDIA_FILE_SELECT, type MediaFile, type MediaInfo } from '../media/media.types'
 import { UserService } from '../users/users.service'
 
 // Что принимаем в медиа профиля — из белого списка категорий shared-config, а не по
@@ -67,7 +69,11 @@ function readingMinutes(content: string): number {
   return Math.max(1, Math.ceil(words / 200))
 }
 
-export interface ProfileMediaDto {
+/**
+ * Медиа профиля. Поля описания медиа (MediaInfo: заглушка, srcset, постер, HLS) — рядом с
+ * прежними; бакет публичный, поэтому ссылки вариантов постоянные.
+ */
+export interface ProfileMediaDto extends MediaInfo {
   id: string
   type: 'PHOTO' | 'VIDEO'
   mime: string
@@ -77,6 +83,19 @@ export interface ProfileMediaDto {
   albumId: string | null
   createdAt: Date
 }
+
+// Ширина обложки альбома: плитка сетки, на ретине 640 с запасом.
+const ALBUM_COVER_WIDTH = 640
+
+// Поля файла для DTO медиа профиля: варианты собираются тем же запросом.
+const PROFILE_MEDIA_SELECT = {
+  ...MEDIA_FILE_SELECT,
+  key: true,
+  size: true,
+  albumId: true,
+  posterKey: true,
+  createdAt: true,
+} as const
 
 export interface AlbumDto {
   id: string
@@ -100,6 +119,7 @@ export class ProfileContentService {
     private readonly files: FileService,
     private readonly config: ConfigService<EnvVars, true>,
     private readonly users: UserService,
+    private readonly media: MediaService,
   ) {}
 
   private get bucket(): string {
@@ -133,7 +153,7 @@ export class ProfileContentService {
       )
     }
     this.logger.log(`Медиа профиля ${file.id} загружено пользователем ${actor.sub}`)
-    return this.toMediaDto(file)
+    return this.toMediaDto({ ...file, variants: [] })
   }
 
   /**
@@ -145,20 +165,11 @@ export class ProfileContentService {
     if (!(await this.users.canViewProfileContent(viewer, userId))) return []
     const files = await this.prisma.file.findMany({
       where: { ownerId: userId, bucket: this.bucket },
-      select: {
-        id: true,
-        bucket: true,
-        key: true,
-        mime: true,
-        size: true,
-        albumId: true,
-        posterKey: true,
-        createdAt: true,
-      },
+      select: PROFILE_MEDIA_SELECT,
       orderBy: { createdAt: 'desc' },
       take: 300,
     })
-    return files.map((f) => this.toMediaDto(f))
+    return Promise.all(files.map((f) => this.toMediaDto(f)))
   }
 
   /** Удаление своего медиа. Проверяем и владение, и бакет (нельзя удалить аватар этим эндпоинтом). */
@@ -196,29 +207,40 @@ export class ProfileContentService {
       allowedMimes: PROFILE_MEDIA_MIMES,
     })
     this.logger.log(`Медиа профиля ${file.id} подтверждено (presigned) пользователем ${actor.sub}`)
-    return this.toMediaDto(file)
+    return this.toMediaDto({ ...file, variants: [] })
   }
 
-  private toMediaDto(file: {
-    id: string
-    bucket: string
-    key: string
-    mime: string
-    size: number
-    createdAt: Date
-    albumId?: string | null
-    posterKey?: string | null
-  }): ProfileMediaDto {
+  private async toMediaDto(
+    file: MediaFile & {
+      key: string
+      size: number
+      createdAt: Date
+      albumId?: string | null
+      posterKey?: string | null
+    },
+  ): Promise<ProfileMediaDto> {
+    const info = await this.media.describeOne(file)
+    // Обложка, выбранная владельцем, важнее кадра, который взял воркер.
+    const chosen = file.posterKey ? this.buildPublicUrl(this.coversBucket, file.posterKey) : null
     return {
+      ...info,
       id: file.id,
       type: file.mime.startsWith('video/') ? 'VIDEO' : 'PHOTO',
       mime: file.mime,
       size: file.size,
       url: this.buildPublicUrl(file.bucket, file.key),
-      posterUrl: file.posterKey ? this.buildPublicUrl(this.coversBucket, file.posterKey) : null,
+      posterUrl: chosen ?? info.poster.at(-1)?.url ?? null,
       albumId: file.albumId ?? null,
       createdAt: file.createdAt,
     }
+  }
+
+  /** Обложка альбома: миниатюра плитки, если готова, иначе оригинал. */
+  private async albumCoverUrl(cover: (MediaFile & { key: string }) | null): Promise<string | null> {
+    if (!cover) return null
+    const { sources } = await this.media.describeOne(cover)
+    const tile = sources.find((s) => s.width >= ALBUM_COVER_WIDTH) ?? sources.at(-1)
+    return tile?.url ?? this.buildPublicUrl(cover.bucket, cover.key)
   }
 
   /** Прикрепить обложку к видео профиля: постер-кадр хранится объектом в бакете profile-covers. */
@@ -236,16 +258,7 @@ export class ProfileContentService {
     const updated = await this.prisma.file.update({
       where: { id: fileId },
       data: { posterKey },
-      select: {
-        id: true,
-        bucket: true,
-        key: true,
-        mime: true,
-        size: true,
-        albumId: true,
-        posterKey: true,
-        createdAt: true,
-      },
+      select: PROFILE_MEDIA_SELECT,
     })
     return this.toMediaDto(updated)
   }
@@ -269,19 +282,21 @@ export class ProfileContentService {
         id: true,
         title: true,
         createdAt: true,
-        cover: { select: { bucket: true, key: true } },
+        cover: { select: { ...MEDIA_FILE_SELECT, key: true } },
         _count: { select: { files: true } },
       },
       orderBy: { createdAt: 'desc' },
       take: 100,
     })
-    return albums.map((a) => ({
-      id: a.id,
-      title: a.title,
-      createdAt: a.createdAt,
-      count: a._count.files,
-      coverUrl: a.cover ? this.buildPublicUrl(a.cover.bucket, a.cover.key) : null,
-    }))
+    return Promise.all(
+      albums.map(async (a) => ({
+        id: a.id,
+        title: a.title,
+        createdAt: a.createdAt,
+        count: a._count.files,
+        coverUrl: await this.albumCoverUrl(a.cover),
+      })),
+    )
   }
 
   async updateAlbum(actor: JwtPayload, id: string, input: UpdateAlbumInput): Promise<AlbumDto> {
@@ -304,7 +319,7 @@ export class ProfileContentService {
         id: true,
         title: true,
         createdAt: true,
-        cover: { select: { bucket: true, key: true } },
+        cover: { select: { ...MEDIA_FILE_SELECT, key: true } },
         _count: { select: { files: true } },
       },
     })
@@ -313,7 +328,7 @@ export class ProfileContentService {
       title: album.title,
       createdAt: album.createdAt,
       count: album._count.files,
-      coverUrl: album.cover ? this.buildPublicUrl(album.cover.bucket, album.cover.key) : null,
+      coverUrl: await this.albumCoverUrl(album.cover),
     }
   }
 

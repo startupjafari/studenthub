@@ -5,8 +5,10 @@ import sharp from 'sharp'
 import { FILE_UPLOAD, TTL, type FileCategory } from '@studenthub/shared-config'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { MINIO_CLIENT, MINIO_PUBLIC_CLIENT } from '../../common/minio/minio.constants'
+import { presignStableGet } from '../../common/minio/stable-sign'
 import { AppException } from '../../common/exceptions/app.exception'
 import { attachmentHeader } from '../../common/http/content-disposition'
+import { MediaService } from '../media/media.service'
 import { detectAllowedFileType } from './mime-detector'
 
 export interface UploadFileParams {
@@ -59,6 +61,11 @@ const FILE_SELECT = {
   // Размеры изображения: клиент резервирует под снимок точное место (иначе вёрстка прыгает).
   width: true,
   height: true,
+  // Медиа-система: PENDING у свежей загрузки — варианты в работе, клиент пока показывает
+  // оригинал; заглушка и длительность появятся после обработки.
+  mediaStatus: true,
+  placeholder: true,
+  durationMs: true,
   createdAt: true,
 } as const
 
@@ -94,6 +101,9 @@ export class FileService {
     @Inject(MINIO_CLIENT) private readonly minio: MinioClient,
     // Отдельный клиент на публичный адрес — только для presigned-ссылок в браузер.
     @Inject(MINIO_PUBLIC_CLIENT) private readonly minioPublic: MinioClient,
+    // Единая медиа-система: каждый новый файл-медиа уходит в обработку (варианты, LQIP,
+    // HLS) прямо отсюда — модулям не нужно помнить об этом в каждом месте загрузки.
+    private readonly media: MediaService,
   ) {}
 
   /**
@@ -159,10 +169,12 @@ export class FileService {
         height: dims?.height,
         // Обрезаем до лимита колонки; пустое имя не сохраняем.
         name: name?.slice(0, 255) || null,
+        mediaStatus: this.media.initialStatus(bucket, detected.mime),
       },
       select: FILE_SELECT,
     })
     this.logger.log(`Загружен файл ${file.id} (${detected.mime}, ${size} байт) → ${bucket}`)
+    await this.media.schedule(file)
     return file
   }
 
@@ -443,12 +455,16 @@ export class FileService {
         materialId: params.materialId,
         messageId: params.messageId,
         name: params.name?.slice(0, 255) || null,
+        mediaStatus: this.media.initialStatus(params.bucket, detected.mime),
       },
       select: FILE_SELECT,
     })
     this.logger.log(
       `Подтверждена прямая загрузка ${file.id} (${detected.mime}, ${size} байт) → ${params.bucket}`,
     )
+    // Здесь же доезжают размеры снимка: при прямой загрузке API не видел байтов, и
+    // width/height у такого файла проставит обработчик медиа.
+    await this.media.schedule(file)
     return file
   }
 
@@ -492,6 +508,8 @@ export class FileService {
    */
   async copyToMessage(
     source: {
+      /** id исходной записи — чтобы скопировать её готовые варианты. */
+      id?: string
       bucket: string
       key: string
       mime: string
@@ -507,7 +525,7 @@ export class FileService {
     const ext = source.key.includes('.') ? source.key.split('.').pop() : undefined
     const newKey = ext ? `${randomUUID()}.${ext}` : randomUUID()
     await this.minio.copyObject(source.bucket, newKey, `/${source.bucket}/${source.key}`)
-    return this.prisma.file.create({
+    const copy = await this.prisma.file.create({
       data: {
         bucket: source.bucket,
         key: newKey,
@@ -518,9 +536,14 @@ export class FileService {
         width: source.width ?? null,
         height: source.height ?? null,
         name: source.name ?? null,
+        mediaStatus: this.media.initialStatus(source.bucket, source.mime),
       },
       select: FILE_SELECT,
     })
+    // Варианты копируются, а не готовятся заново: пересланное видео не перекодируется.
+    if (source.id) await this.media.scheduleCopy(source.id, copy)
+    else await this.media.schedule(copy)
+    return copy
   }
 
   /**
@@ -556,12 +579,9 @@ export class FileService {
       files.map(async (f) => {
         out.set(
           f.id,
-          await this.minioPublic.presignedGetObject(
-            f.bucket,
-            f.key,
-            TTL.PRESIGNED_URL_MINUTES * 60,
-            { 'response-content-type': f.mime },
-          ),
+          await presignStableGet(this.minioPublic, f.bucket, f.key, {
+            'response-content-type': f.mime,
+          }),
         )
       }),
     )
@@ -577,21 +597,19 @@ export class FileService {
     this.assertOwnership(file, requesterId)
     // Тип ответа задаёт сервер (определён по содержимому при загрузке): метаданные объекта,
     // залитого до закрепления типа на confirm, могли остаться клиентскими.
-    return this.minioPublic.presignedGetObject(
-      file.bucket,
-      file.key,
-      TTL.PRESIGNED_URL_MINUTES * 60,
-      {
-        'response-content-type': file.mime,
-        ...(asAttachment ? { 'response-content-disposition': attachmentHeader(file.name) } : {}),
-      },
-    )
+    // Подпись стабильна в пределах окна (common/minio/stable-sign): повторная выдача ссылки
+    // на тот же файл даёт тот же URL, и браузер берёт байты из кеша, а не качает заново.
+    return presignStableGet(this.minioPublic, file.bucket, file.key, {
+      'response-content-type': file.mime,
+      ...(asAttachment ? { 'response-content-disposition': attachmentHeader(file.name) } : {}),
+    })
   }
 
   /**
    * Кладёт вспомогательный ОБЪЕКТ-изображение в бакет БЕЗ записи File (напр. постер видео).
    * Валидирует тип (только изображения) и размер. Возвращает ключ. Управление жизненным циклом
-   * (удаление) — на вызывающем модуле; бакет должен быть исключён из cleanOrphanFiles.
+   * (удаление) — на вызывающем модуле; `cleanOrphanFiles` узнаёт такие ключи по `File.posterKey`
+   * и `User.coverUrl` — новый вид ссылки на raw-объект обязан попасть туда же.
    */
   async putAuxImage(bucket: string, buffer: Buffer): Promise<string> {
     const detected = await detectAllowedFileType(buffer)
@@ -640,6 +658,11 @@ export class FileService {
     const file = await this.findOrThrow(fileId)
     this.assertOwnership(file, requesterId)
     await this.prisma.file.delete({ where: { id: file.id } })
+    // Варианты принадлежат записи, а не объекту: у копий и у записей общего пула сида
+    // префикс свой, поэтому сносим его всегда. Не вышло — подберёт ночная чистка.
+    await this.media.purgeVariants(file.bucket, file.id).catch((err: unknown) => {
+      this.logger.warn({ err, fileId: file.id }, 'Не удалось удалить варианты медиа')
+    })
     const refs = await this.prisma.file.count({
       where: { bucket: file.bucket, key: file.key },
     })

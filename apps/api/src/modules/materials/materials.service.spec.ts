@@ -18,17 +18,20 @@ function setup() {
       delete: jest.fn(),
     },
     group: { findUnique: jest.fn() },
+    file: { findFirst: jest.fn().mockResolvedValue(null) },
   }
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const files = { upload: jest.fn(), findOrThrow: jest.fn(), getPresignedUrl: jest.fn() }
   const config = { get: jest.fn().mockReturnValue('materials') }
+  const media = { describeOne: jest.fn().mockResolvedValue({ status: 'READY', sources: [] }) }
   const service = new MaterialsService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
     files as unknown as FileService,
     config as unknown as ConfigService<EnvVars, true>,
+    media as never,
   )
-  return { service, prisma, files }
+  return { service, prisma, files, media }
 }
 
 const user = (role: Role, scope: Partial<JwtPayload> = {}): JwtPayload => ({
@@ -124,10 +127,30 @@ describe('MaterialsService — управление своими', () => {
       teacher: {},
       media: [],
     })
-    files.findOrThrow.mockResolvedValue({ materialId: 'other' })
+    // Выборка ищет файл ВНУТРИ материала: чужой файл просто не находится.
+    prisma.file.findFirst.mockResolvedValue(null)
     const err = await service
       .getFileUrl(user(Role.STUDENT, { groupId: 'g1' }), 'm1', 'f1')
       .catch((e) => e)
     expect(err.code).toBe('NOT_FOUND')
+    expect(prisma.file.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'f1', materialId: 'm1' } }),
+    )
+    expect(files.getPresignedUrl).not.toHaveBeenCalled()
+  })
+
+  it('getFileUrl: свой файл → ссылка и описание медиа', async () => {
+    const { service, prisma, files } = setup()
+    prisma.material.findUnique.mockResolvedValue({
+      id: 'm1',
+      groupId: 'g1',
+      teacher: {},
+      media: [],
+    })
+    prisma.file.findFirst.mockResolvedValue({ id: 'f1', variants: [] })
+    files.getPresignedUrl.mockResolvedValue('https://minio/f1')
+    const link = await service.getFileUrl(user(Role.STUDENT, { groupId: 'g1' }), 'm1', 'f1')
+    expect(link).toMatchObject({ url: 'https://minio/f1', status: 'READY' })
+    expect(Date.parse(link.expiresAt)).toBeGreaterThan(Date.now())
   })
 })

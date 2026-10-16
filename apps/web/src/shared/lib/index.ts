@@ -78,3 +78,5 @@ export {
   type DownloadSource,
   type FileDownload,
 } from './file-download'
+export { srcSetOf, pickSource } from './media-source'
+export { useHls, type HlsLevel, type HlsQuality } from './use-hls'
