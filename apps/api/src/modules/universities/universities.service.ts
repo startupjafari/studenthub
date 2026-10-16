@@ -15,6 +15,7 @@ import { AppException } from '../../common/exceptions/app.exception'
 import { Paginated } from '../../common/http/paginated'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
+import { UniversityAccessService } from './university-access.service'
 
 const UNIVERSITY_SELECT = {
   id: true,
@@ -42,6 +43,7 @@ export class UniversityService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    private readonly access: UniversityAccessService,
   ) {}
 
   /** Создание вуза (PLATFORM_ADMIN). Статус по умолчанию PENDING. */
@@ -133,7 +135,14 @@ export class UniversityService {
     return university
   }
 
-  /** Смена статуса PENDING/ACTIVE/BLOCKED (только PLATFORM_ADMIN). */
+  /**
+   * Смена статуса PENDING/ACTIVE/BLOCKED (только PLATFORM_ADMIN).
+   *
+   * Статус — не подпись в таблице: по нему пускают пользователей вуза
+   * (UniversityAccessService). BLOCKED закрывает вход, refresh, регистрацию по инвайту и
+   * запросы с уже выданными токенами. Сессии при блокировке не гасятся, а перестают
+   * приниматься: после разблокировки люди продолжают работу без повторного входа.
+   */
   async setStatus(
     actor: JwtPayload,
     id: string,
@@ -146,6 +155,8 @@ export class UniversityService {
       data: { status: input.status },
       select: UNIVERSITY_SELECT,
     })
+    // Этот инстанс начинает пускать по новому статусу сразу, остальные — по истечении памяти.
+    this.access.remember(id, university.status)
     await this.audit.record({
       userId: actor.sub,
       action: 'university_status_changed',

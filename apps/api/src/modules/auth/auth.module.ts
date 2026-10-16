@@ -14,6 +14,7 @@ import { ScopeGuard } from '../../common/guards/scope.guard'
 import { TwoFactorGuard } from '../../common/guards/two-factor.guard'
 import { UsersModule } from '../users/users.module'
 import { InvitesModule } from '../invites/invites.module'
+import { UniversitiesModule } from '../universities/universities.module'
 import { AuthController } from './auth.controller'
 import { TwoFactorController } from './two-factor.controller'
 import { AuthService } from './auth.service'
@@ -32,6 +33,8 @@ import { LocalStrategy } from './strategies/local.strategy'
     PassportModule,
     forwardRef(() => UsersModule),
     InvitesModule,
+    // Допуск по статусу вуза: вход, refresh, регистрация по инвайту и JwtStrategy.
+    UniversitiesModule,
     JwtModule.registerAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService<EnvVars, true>) => ({

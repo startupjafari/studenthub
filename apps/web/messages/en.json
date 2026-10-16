@@ -1421,6 +1421,7 @@
     "INVALID_2FA_CODE": "Invalid code",
     "TWO_FACTOR_SETUP_REQUIRED": "Two-factor authentication setup is required",
     "USERNAME_TAKEN": "This username is already taken",
+    "UNIVERSITY_BLOCKED": "The university is blocked on the platform. Please contact your university administration",
     "retryHint": "Could not load the data. Refresh the page or try again later."
   },
   "Notifications": {

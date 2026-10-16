@@ -57,6 +57,7 @@ describe('AuthService: попытки ввода кода 2FA', () => {
       {} as never,
       redis as unknown as Redis,
       {} as never,
+      { assertAllowed: jest.fn() } as never,
     )
     // Выдача сессии — не предмет этого теста: она тянет Prisma и подпись токенов.
     const withPrivate = service as unknown as {

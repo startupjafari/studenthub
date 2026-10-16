@@ -17,6 +17,7 @@ import type { EnvVars } from '../../config/env.schema'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import { UserService, type UserProfile } from '../users/users.service'
 import { InviteService } from '../invites/invites.service'
+import { UniversityAccessService } from '../universities/university-access.service'
 import { TwoFactorService } from './two-factor.service'
 import { LoginAttemptsService } from './login-attempts.service'
 import { parseDurationMs } from './auth.constants'
@@ -88,6 +89,7 @@ export class AuthService {
     private readonly realtime: RealtimeGateway,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
     private readonly revocation: SessionRevocationService,
+    private readonly universityAccess: UniversityAccessService,
   ) {}
 
   /** Проверка идентификатор (email/username) + пароль для LocalStrategy. Не раскрывает, что именно неверно. */
@@ -113,6 +115,9 @@ export class AuthService {
     if (user.isBlocked) {
       throw new AppException('FORBIDDEN', 'Учётная запись заблокирована')
     }
+    // Вуз заблокирован платформой — отказ. После сверки пароля: статус вуза не должен
+    // узнаваться перебором чужих логинов.
+    await this.universityAccess.assertAllowed(user)
     return this.toPayload(user)
   }
 
@@ -147,6 +152,9 @@ export class AuthService {
 
     const user = await this.prisma.$transaction(async (tx) => {
       const invite = await this.invites.claimInvite(tx, input.token)
+      // Вуз из инвайта заблокирован — отказ откатывает и захват инвайта: ссылка остаётся
+      // действительной до разблокировки.
+      await this.universityAccess.assertAllowed(invite)
       const email = invite.email ?? input.email
       if (!email) {
         throw new AppException('BAD_REQUEST', 'Для регистрации нужен email')
@@ -211,6 +219,7 @@ export class AuthService {
     if (user.isBlocked) {
       throw new AppException('FORBIDDEN', 'Учётная запись заблокирована')
     }
+    await this.universityAccess.assertAllowed(user)
     const session = await this.issueSession(this.toPayload(user), randomUUID())
     await this.audit.record({ userId, action: 'login', ...ctx })
     return session
@@ -233,6 +242,8 @@ export class AuthService {
     if (rec.isBlocked) {
       throw new AppException('FORBIDDEN', 'Учётная запись заблокирована')
     }
+    // Первый шаг вуз уже проверил, но между шагами до пяти минут — блокировка могла успеть.
+    await this.universityAccess.assertAllowed(rec)
     const ok = await this.twoFactor.verifyCode(rec, code)
     if (!ok) {
       // Опечатка в шестизначном коде дело обычное, и сжигать за неё весь вход незачем —
@@ -406,6 +417,9 @@ export class AuthService {
       await this.revokeFamily(record.familyId)
       throw new AppException('UNAUTHORIZED', 'Учётная запись недоступна')
     }
+    // Вуз заблокирован — новую сессию не выдаём, но и цепочку не гасим: решение платформы
+    // обратимо, и после разблокировки сессия продолжается без нового входа.
+    await this.universityAccess.assertAllowed(user)
 
     // Ротация атомарно: старый revoked + новый в той же цепочке. Гасим и остальные живые токены
     // цепочки — на пути грации там остаётся успешно выданный ранее «преемник», а инвариант

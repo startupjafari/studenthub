@@ -5,6 +5,7 @@ import { UniversityService } from './universities.service'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { AuditService } from '../../common/audit/audit.service'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
+import type { UniversityAccessService } from './university-access.service'
 
 const ctx = { ip: '127.0.0.1', userAgent: 'jest' }
 
@@ -26,12 +27,14 @@ function setup() {
   }
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const redis = { get: jest.fn(), set: jest.fn(), del: jest.fn() }
+  const access = { remember: jest.fn() }
   const service = new UniversityService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
     redis as unknown as Redis,
+    access as unknown as UniversityAccessService,
   )
-  return { service, prisma, audit, redis }
+  return { service, prisma, audit, redis, access }
 }
 
 function viewer(role: Role, universityId: string | null = null, sub = 'u'): JwtPayload {
@@ -99,6 +102,15 @@ describe('UniversityService — status/create/delete', () => {
     expect(audit.record).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'university_status_changed' }),
     )
+  })
+
+  // Блокировка должна действовать сразу, а не когда истечёт память допуска.
+  it('setStatus: новый статус сразу уходит в допуск пользователей', async () => {
+    const { service, prisma, access } = setup()
+    prisma.university.findUnique.mockResolvedValue(UNI)
+    prisma.university.update.mockResolvedValue({ ...UNI, status: 'BLOCKED' })
+    await service.setStatus(viewer(Role.PLATFORM_ADMIN), 'uni-1', { status: 'BLOCKED' }, ctx)
+    expect(access.remember).toHaveBeenCalledWith('uni-1', 'BLOCKED')
   })
 
   it('remove: FK-нарушение (P2003) → CONFLICT', async () => {

@@ -33,6 +33,10 @@ export const ErrorCode = {
   // закрыт, даже с верным паролем. Отдельно от RATE_LIMIT: тот про частоту запросов с
   // адреса, а этот про конкретный аккаунт, и сказать пользователю нужно разное.
   LOGIN_LOCKED: 'LOGIN_LOCKED',
+  // Вуз пользователя заблокирован платформой (статус BLOCKED): вход, обновление сессии,
+  // регистрация по инвайту и запросы с уже выданным токеном закрыты. Отдельно от FORBIDDEN:
+  // дело не в правах человека, и сказать ему нужно, к кому идти.
+  UNIVERSITY_BLOCKED: 'UNIVERSITY_BLOCKED',
 } as const
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode]
@@ -67,6 +71,8 @@ export const ERROR_CODE_STATUS: Record<ErrorCode, number> = {
   MAINTENANCE: 503,
   // 429 — как и RATE_LIMIT: запросов было слишком много, приходите позже.
   LOGIN_LOCKED: 429,
+  // 403 — человек опознан, но вуз закрыт: повтор входа или refresh ничего не изменит.
+  UNIVERSITY_BLOCKED: 403,
 }
 
 /** Код по умолчанию для HTTP-статуса (для стандартных Nest-исключений без явного кода). */
