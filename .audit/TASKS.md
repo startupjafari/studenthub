@@ -10,7 +10,7 @@
 - [done] INV-C · группа C → .audit/processes/C.md
 - [done] INV-D · группа D → .audit/processes/D.md
 - [done] INV-E · группа E → .audit/processes/E.md
-- [in_progress] INV-F · группа F → .audit/processes/F.md
+- [done] INV-F · группа F → .audit/processes/F.md
 
 ## Фаза 2 — аудит
 
@@ -19,7 +19,7 @@
 
 - [in_progress] AUD-A · группа A → .audit/findings/A.md
 - [in_progress] AUD-B · группа B → .audit/findings/B.md
-- [todo] AUD-C · группа C → .audit/findings/C.md
+- [in_progress] AUD-C · группа C → .audit/findings/C.md
 - [todo] AUD-D · группа D → .audit/findings/D.md
 - [todo] AUD-E · группа E → .audit/findings/E.md
 - [todo] AUD-F · группа F → .audit/findings/F.md
