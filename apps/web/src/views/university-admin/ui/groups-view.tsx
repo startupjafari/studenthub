@@ -1,10 +1,10 @@
 'use client'
 
-import { useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useEffect, useState } from 'react'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useTranslations } from 'next-intl'
-import { ChevronDown, Pencil, Plus, Trash2, Users } from 'lucide-react'
+import { ChevronDown, Pencil, Plus, Search, Trash2, Users } from 'lucide-react'
 import {
   Avatar,
   AvatarFallback,
@@ -13,8 +13,10 @@ import {
   Button,
   Card,
   EmptyState,
+  Input,
   PageHeader,
   Skeleton,
+  TablePagination,
   useConfirm,
 } from '../../../shared/ui'
 import { fetchFaculties, facultyKeys, type Faculty } from '../../../entities/faculty'
@@ -24,12 +26,18 @@ import { EditGroupModal } from './edit-group-modal'
 import {
   deleteGroupRequest,
   fetchGroupMembers,
-  fetchGroups,
+  fetchGroupsPaged,
   groupKeys,
   type Group,
 } from '../../../entities/group'
 import { ProfileLink } from '../../../entities/user'
 import { cn } from '../../../shared/lib/utils'
+
+// Потолок 100 — столько разрешает OffsetPaginationSchema, на которой построен GET /groups.
+const PAGE_SIZES = [20, 50, 100] as const
+const DEBOUNCE_MS = 250
+// Предел `search` в GroupListQuerySchema: длиннее сервер отвечает 400.
+const SEARCH_MAX = 100
 
 function errCode(e: unknown): string {
   return (e as { code?: string }).code ?? 'INTERNAL_ERROR'
@@ -188,12 +196,49 @@ function GroupRow({ group, facultyName }: { group: Group; facultyName?: string }
   )
 }
 
+/**
+ * Группы вуза. Страницы и поиск — на сервере: раньше экран брал первые 100 групп по
+ * алфавиту и молча обрезал остальные, а у вуза на 10 000 студентов их около 400.
+ */
 export function GroupsAdminView() {
   const t = useTranslations('UniAdmin')
   const tErr = useTranslations('Errors')
+  const tCommon = useTranslations('Common')
+
+  const [search, setSearch] = useState('')
+  const [debounced, setDebounced] = useState('')
+  const [page, setPage] = useState(1)
+  const [limit, setLimit] = useState<number>(PAGE_SIZES[0])
+
+  // Запрос — после паузы в наборе, со сбросом на первую страницу: иначе каждая буква
+  // уходила бы отдельным запросом, а пятая страница нового поиска могла оказаться пустой.
+  useEffect(() => {
+    const next = search.trim().slice(0, SEARCH_MAX)
+    if (next === debounced) return
+    const timer = setTimeout(() => {
+      setDebounced(next)
+      setPage(1)
+    }, DEBOUNCE_MS)
+    return () => clearTimeout(timer)
+  }, [search, debounced])
 
   const faculties = useQuery({ queryKey: facultyKeys.list(), queryFn: () => fetchFaculties() })
-  const groups = useQuery({ queryKey: groupKeys.list(), queryFn: () => fetchGroups() })
+  const params = { page, limit, ...(debounced ? { search: debounced } : {}) }
+  const groups = useQuery({
+    queryKey: groupKeys.page(params),
+    queryFn: () => fetchGroupsPaged(params),
+    placeholderData: keepPreviousData,
+  })
+
+  const items = groups.data?.items ?? []
+  const total = groups.data?.total ?? 0
+
+  // Удалили последнюю группу на последней странице — встаём на ту, что теперь последняя.
+  useEffect(() => {
+    if (!groups.data) return
+    const pages = Math.max(1, Math.ceil(groups.data.total / limit))
+    if (page > pages) setPage(pages)
+  }, [groups.data, limit, page])
 
   const facultyName = (id: string): string | undefined =>
     faculties.data?.find((f: Faculty) => f.id === id)?.name
@@ -212,18 +257,34 @@ export function GroupsAdminView() {
       <PageHeader
         title={t('groupsTitle')}
         actions={
-          // Без факультетов группу создать нельзя — у неё обязательный facultyId.
-          // Кнопка заблокирована, а причина написана в пустом состоянии ниже.
-          <Button
-            type="button"
-            size="md"
-            disabled={noFaculties}
-            title={noFaculties ? t('needFacultyFirst') : undefined}
-            onClick={() => setCreateOpen(true)}
-          >
-            <Plus className="size-4" aria-hidden />
-            {t('addGroup')}
-          </Button>
+          <>
+            <div className="relative w-full sm:w-56">
+              <Search
+                className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+                aria-hidden
+              />
+              <Input
+                size="md"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder={t('searchGroups')}
+                aria-label={t('searchGroups')}
+                className="pl-9"
+              />
+            </div>
+            {/* Без факультетов группу создать нельзя — у неё обязательный facultyId.
+                Кнопка заблокирована, а причина написана в пустом состоянии ниже. */}
+            <Button
+              type="button"
+              size="md"
+              disabled={noFaculties}
+              title={noFaculties ? t('needFacultyFirst') : undefined}
+              onClick={() => setCreateOpen(true)}
+            >
+              <Plus className="size-4" aria-hidden />
+              {t('addGroup')}
+            </Button>
+          </>
         }
       />
 
@@ -234,12 +295,35 @@ export function GroupsAdminView() {
         </div>
       ) : groups.isError ? (
         <EmptyState title={tErr('INTERNAL_ERROR')} />
-      ) : groups.data && groups.data.length > 0 ? (
-        <div className="flex flex-col gap-2">
-          {groups.data.map((g) => (
-            <GroupRow key={g.id} group={g} facultyName={facultyName(g.facultyId)} />
-          ))}
-        </div>
+      ) : total > 0 ? (
+        // Пустая страница при total > 0 — удалили последнюю группу на последней
+        // странице; эффект выше уже переводит на предыдущую.
+        <>
+          <div className="flex flex-col gap-2">
+            {items.map((g) => (
+              <GroupRow key={g.id} group={g} facultyName={facultyName(g.facultyId)} />
+            ))}
+          </div>
+          <Card className="gap-0 py-0">
+            <TablePagination
+              className="border-t-0"
+              page={page}
+              total={total}
+              limit={limit}
+              onPageChange={setPage}
+              limitOptions={PAGE_SIZES}
+              onLimitChange={(n) => {
+                setLimit(n)
+                setPage(1)
+              }}
+            />
+          </Card>
+        </>
+      ) : debounced ? (
+        <EmptyState
+          icon={<Search className="size-6" aria-hidden />}
+          title={tCommon('nothingFound')}
+        />
       ) : (
         <EmptyState
           icon={<Users className="size-6" aria-hidden />}

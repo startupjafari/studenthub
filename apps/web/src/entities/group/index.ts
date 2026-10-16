@@ -1,7 +1,7 @@
 export {
   groupKeys,
   fetchGroups,
-  fetchAllGroups,
+  fetchGroupsPaged,
   fetchGroupMembers,
   createGroupRequest,
   updateGroupRequest,
@@ -9,4 +9,6 @@ export {
   deleteGroupRequest,
   type Group,
   type GroupMember,
+  type GroupListParams,
 } from './api/group-api'
+export { GroupSelect } from './ui/group-select'

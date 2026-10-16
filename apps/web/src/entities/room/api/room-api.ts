@@ -1,6 +1,5 @@
 import type {
   CreateRoomInput,
-  RoomKind,
   RoomListQueryInput,
   UpdateRoomInput,
 } from '@studenthub/shared-schemas'
@@ -14,17 +13,10 @@ export const roomKeys = {
   status: (code: string) => ['rooms', 'status', code] as const,
 }
 
-export async function fetchRooms(universityId?: string, kind?: RoomKind): Promise<Room[]> {
-  const { data } = await api.get<Room[]>('/rooms', {
-    params: { page: 1, limit: 100, universityId, kind },
-  })
-  return data
-}
-
 /**
- * То же, но с сортировкой и счётчиком — для таблицы администратора. Отдельной функцией,
- * а не заменой `fetchRooms`: тот отдаёт массив селектам в расписании и модалках, и форма
- * ответа им не нужна.
+ * Страница помещений с сортировкой и счётчиком — для таблицы администратора и выбора
+ * аудитории (`RoomSelect`, поиск `search` по названию). Массива «всех помещений» нет
+ * намеренно: сервер отдаёт не больше 100 за раз, и такой массив молча обрезал бы вуз.
  */
 export async function fetchRoomsSorted(
   params: Partial<RoomListQueryInput> = {},

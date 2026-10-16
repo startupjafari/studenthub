@@ -4,6 +4,7 @@ import { Role } from '@studenthub/shared-types'
 import type {
   AssignStarostaInput,
   CreateGroupInput,
+  GroupListQueryInput,
   UpdateGroupInput,
 } from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
@@ -111,13 +112,22 @@ export class GroupService {
     return mapGroup(group)
   }
 
-  /** Список групп, отфильтрованный по scope смотрящего. */
-  async list(viewer: JwtPayload, page: number, limit: number, facultyId?: string) {
-    const where = this.listWhere(viewer, facultyId)
+  /**
+   * Список групп, отфильтрованный по scope смотрящего. `search` — подстрока названия без
+   * учёта регистра. Вторичный ключ `id`: одноимённые группы разных факультетов иначе
+   * менялись бы местами между запросами, и на стыке страниц одна приходила бы дважды,
+   * а другая терялась.
+   */
+  async list(viewer: JwtPayload, query: GroupListQueryInput) {
+    const { page, limit, facultyId, search } = query
+    const where: Prisma.GroupWhereInput = {
+      ...this.listWhere(viewer, facultyId),
+      ...(search ? { name: { contains: search, mode: 'insensitive' } } : {}),
+    }
     const [rows, total] = await this.prisma.$transaction([
       this.prisma.group.findMany({
         where,
-        orderBy: { name: 'asc' },
+        orderBy: [{ name: 'asc' }, { id: 'asc' }],
         skip: (page - 1) * limit,
         take: limit,
         select: GROUP_SELECT,

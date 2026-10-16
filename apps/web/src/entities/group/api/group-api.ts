@@ -1,10 +1,11 @@
 import type {
   AssignStarostaInput,
   CreateGroupInput,
+  GroupListQueryInput,
   UpdateGroupInput,
 } from '@studenthub/shared-schemas'
 import type { Role } from '@studenthub/shared-types'
-import { api, getPaged } from '../../../shared/api'
+import { api, getPaged, type Paged } from '../../../shared/api'
 
 export interface Group {
   id: string
@@ -24,44 +25,29 @@ export interface GroupMember {
   avatarUrl: string | null
 }
 
+export type GroupListParams = Partial<GroupListQueryInput>
+
 export const groupKeys = {
   all: ['groups'] as const,
   list: (facultyId?: string) => ['groups', 'list', facultyId ?? 'all'] as const,
-  // Все группы смотрящего, без потолка в 100 (`fetchAllGroups`).
-  listAll: () => ['groups', 'list-all'] as const,
+  // Страница или выдача поиска — под ключом `list(facultyId)`: правки групп сбрасывают
+  // `list()`, и по префиксу заодно уходят страницы экрана групп и выдачи пикеров.
+  page: (params: GroupListParams) => ['groups', 'list', params.facultyId ?? 'all', params] as const,
   members: (id: string) => ['groups', id, 'members'] as const,
 }
 
+/**
+ * Первые 100 групп одним массивом. Большому вузу этого мало: экран групп листает
+ * страницы (`fetchGroupsPaged`), выбор группы ищет на сервере (`GroupSelect`).
+ */
 export async function fetchGroups(facultyId?: string): Promise<Group[]> {
   const { data } = await api.get<Group[]>('/groups', { params: { page: 1, limit: 100, facultyId } })
   return data
 }
 
-// Страница GET /groups — предел OffsetPaginationSchema.
-const GROUPS_PAGE = 100
-// Потолок — 2000 групп: предохранитель от лавины запросов (лимит — 100 запросов в минуту
-// на пользователя), если total разойдётся с выдачей.
-const GROUPS_MAX_PAGES = 20
-
-/**
- * Все группы, видимые смотрящему (декан — свой факультет, вуз-роли — свой вуз): страницы
- * по 100, после первой — параллельно. Для пикеров с поиском: у GET /groups нет поиска
- * по названию, а первых 100 групп (`fetchGroups`) большому вузу мало.
- */
-export async function fetchAllGroups(facultyId?: string): Promise<Group[]> {
-  const params = { limit: GROUPS_PAGE, facultyId }
-  const first = await getPaged<Group>('/groups', { ...params, page: 1 })
-  const pages = Math.min(Math.ceil(first.total / GROUPS_PAGE), GROUPS_MAX_PAGES)
-  const rest = await Promise.all(
-    Array.from({ length: Math.max(0, pages - 1) }, (_, i) =>
-      getPaged<Group>('/groups', { ...params, page: i + 2 }).then((p) => p.items),
-    ),
-  )
-  // Сервер сортирует только по названию, без вторичного ключа: одноимённая группа другого
-  // факультета на стыке страниц может прийти дважды — дубль убираем.
-  const byId = new Map<string, Group>()
-  for (const g of [first.items, ...rest].flat()) byId.set(g.id, g)
-  return [...byId.values()]
+/** Страница групп со счётчиком; `search` — подстрока названия без учёта регистра. */
+export async function fetchGroupsPaged(params: GroupListParams = {}): Promise<Paged<Group>> {
+  return getPaged<Group>('/groups', { page: 1, limit: 20, ...params })
 }
 
 export async function fetchGroupMembers(id: string): Promise<GroupMember[]> {

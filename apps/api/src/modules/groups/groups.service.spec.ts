@@ -148,11 +148,53 @@ describe('GroupService — read scope', () => {
   it('list: декан фильтруется своим факультетом, студент — своей группой', async () => {
     const { service, prisma } = setup()
     prisma.$transaction.mockResolvedValue([[], 0])
-    await service.list(viewer(Role.DEAN, { facultyId: 'fac-7' }), 1, 20)
+    await service.list(viewer(Role.DEAN, { facultyId: 'fac-7' }), { page: 1, limit: 20 })
     expect(prisma.group.findMany.mock.calls[0][0].where).toEqual({ facultyId: 'fac-7' })
 
-    await service.list(viewer(Role.STUDENT, { groupId: 'grp-3' }), 1, 20)
+    await service.list(viewer(Role.STUDENT, { groupId: 'grp-3' }), { page: 1, limit: 20 })
     expect(prisma.group.findMany.mock.calls[1][0].where).toEqual({ id: 'grp-3' })
+  })
+})
+
+describe('GroupService — list: поиск и страницы', () => {
+  it('search — подстрока названия без учёта регистра, поверх scope смотрящего', async () => {
+    const { service, prisma } = setup()
+    prisma.$transaction.mockResolvedValue([[], 0])
+    await service.list(viewer(Role.UNIVERSITY_ADMIN, { universityId: 'uni-1' }), {
+      page: 3,
+      limit: 100,
+      search: 'ит-23',
+    })
+    const where = {
+      faculty: { universityId: 'uni-1' },
+      name: { contains: 'ит-23', mode: 'insensitive' },
+    }
+    expect(prisma.group.findMany.mock.calls[0][0]).toMatchObject({ where, skip: 200, take: 100 })
+    // Счётчик — по тому же фильтру: иначе пагинация показала бы страницы без строк.
+    expect(prisma.group.count).toHaveBeenCalledWith({ where })
+  })
+
+  it('поиск не расширяет scope: декан ищет только в своём факультете', async () => {
+    const { service, prisma } = setup()
+    prisma.$transaction.mockResolvedValue([[], 0])
+    await service.list(viewer(Role.DEAN, { facultyId: 'fac-7' }), {
+      page: 1,
+      limit: 20,
+      facultyId: 'fac-other',
+      search: 'A',
+    })
+    expect(prisma.group.findMany.mock.calls[0][0].where).toEqual({
+      facultyId: 'fac-7',
+      name: { contains: 'A', mode: 'insensitive' },
+    })
+  })
+
+  it('порядок — по названию, затем по id: одноимённые группы не прыгают между страницами', async () => {
+    const { service, prisma } = setup()
+    prisma.$transaction.mockResolvedValue([[], 0])
+    await service.list(viewer(Role.PLATFORM_ADMIN), { page: 1, limit: 20 })
+    expect(prisma.group.findMany.mock.calls[0][0].orderBy).toEqual([{ name: 'asc' }, { id: 'asc' }])
+    expect(prisma.group.findMany.mock.calls[0][0].where).toEqual({})
   })
 })
 

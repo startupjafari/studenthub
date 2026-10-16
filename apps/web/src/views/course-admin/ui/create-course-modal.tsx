@@ -9,7 +9,7 @@ import { CreateCourseSchema, type CreateCourseInput } from '@studenthub/shared-s
 import { Button, FieldError, Input, Label, Modal } from '../../../shared/ui'
 import { toApiError } from '../../../shared/lib'
 import { courseKeys, createCourseRequest } from '../../../entities/course'
-import { GroupSelect } from './group-select'
+import { GroupSelect } from '../../../entities/group'
 import { SubjectSelect } from './subject-select'
 import { TeacherSelect } from './teacher-select'
 import { TermSelect } from './term-select'

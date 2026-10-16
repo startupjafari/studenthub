@@ -22,6 +22,8 @@ import type { RequestContext } from '../auth/auth.service'
  * этих данных всегда в конце, а не всплывают наверх при сортировке по возрастанию.
  * Внутри одинаковых значений — по названию: иначе строки с равным этажом на каждой
  * перезагрузке шли бы в произвольном порядке (у Postgres нет стабильной сортировки).
+ * Последний ключ — `id`: названия не уникальны (две «101» в разных корпусах), и без
+ * него такие строки на стыке страниц дублировались бы или терялись.
  */
 function roomOrderBy(
   sort: RoomSortValue | undefined,
@@ -29,21 +31,22 @@ function roomOrderBy(
 ): Prisma.RoomOrderByWithRelationInput[] {
   const dir = order ?? 'asc'
   const byName: Prisma.RoomOrderByWithRelationInput = { name: 'asc' }
+  const byId: Prisma.RoomOrderByWithRelationInput = { id: 'asc' }
   switch (sort) {
     case 'kind':
-      return [{ kind: dir }, byName]
+      return [{ kind: dir }, byName, byId]
     case 'building':
-      return [{ building: { sort: dir, nulls: 'last' } }, byName]
+      return [{ building: { sort: dir, nulls: 'last' } }, byName, byId]
     case 'floor':
-      return [{ floor: { sort: dir, nulls: 'last' } }, byName]
+      return [{ floor: { sort: dir, nulls: 'last' } }, byName, byId]
     case 'capacity':
-      return [{ capacity: { sort: dir, nulls: 'last' } }, byName]
+      return [{ capacity: { sort: dir, nulls: 'last' } }, byName, byId]
     case 'qr':
-      return [{ qrCode: { sort: dir, nulls: 'first' } }, byName]
+      return [{ qrCode: { sort: dir, nulls: 'first' } }, byName, byId]
     case 'name':
-      return [{ name: dir }]
+      return [{ name: dir }, byId]
     default:
-      return [byName]
+      return [byName, byId]
   }
 }
 
@@ -119,10 +122,14 @@ export class RoomService {
     return room
   }
 
-  /** Список аудиторий по scope смотрящего. */
+  /** Список аудиторий по scope смотрящего. `search` — подстрока названия без учёта регистра. */
   async list(viewer: JwtPayload, query: RoomListQueryInput): Promise<Paginated<RoomDto>> {
-    const { page, limit, universityId, kind } = query
-    const where = { ...this.listWhere(viewer, universityId), ...(kind ? { kind } : {}) }
+    const { page, limit, universityId, kind, search } = query
+    const where: Prisma.RoomWhereInput = {
+      ...this.listWhere(viewer, universityId),
+      ...(kind ? { kind } : {}),
+      ...(search ? { name: { contains: search, mode: 'insensitive' } } : {}),
+    }
     const [rows, total] = await this.prisma.$transaction([
       this.prisma.room.findMany({
         where,

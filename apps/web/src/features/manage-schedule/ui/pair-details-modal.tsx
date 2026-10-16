@@ -23,7 +23,7 @@ import {
   updatePairRequest,
   type Pair,
 } from '../../../entities/schedule'
-import type { Room } from '../../../entities/room'
+import { RoomSelect } from '../../../entities/room'
 import {
   Button,
   DatePicker,
@@ -60,14 +60,15 @@ function apiErr(e: unknown): ApiErrorBody {
  */
 export function PairDetailsModal({
   pair,
-  rooms,
+  universityId,
   canEdit,
   isTeacher,
   containerId,
   onClose,
 }: {
   pair: Pair
-  rooms: Room[]
+  // Вуз для выбора аудитории (платформенной роли; вуз-ролям сервер подставит свой).
+  universityId?: string
   canEdit: boolean
   isTeacher: boolean
   containerId: string
@@ -242,26 +243,18 @@ export function PairDetailsModal({
             </div>
 
             <div className="flex flex-col gap-1.5">
-              <Label>{t('room')}</Label>
+              <Label htmlFor="e-room">{t('roomOptional')}</Label>
               <Controller
                 control={editForm.control}
                 name="roomId"
                 render={({ field }) => (
-                  <Select
-                    value={field.value ?? ''}
-                    onValueChange={(v) => field.onChange(v || null)}
-                  >
-                    <SelectTrigger aria-label={t('room')}>
-                      <SelectValue placeholder={t('roomOptional')} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {rooms.map((r) => (
-                        <SelectItem key={r.id} value={r.id}>
-                          {r.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <RoomSelect
+                    id="e-room"
+                    universityId={universityId}
+                    value={field.value ?? null}
+                    onChange={field.onChange}
+                    initialLabel={pair.room?.name ?? null}
+                  />
                 )}
               />
             </div>
@@ -366,26 +359,17 @@ export function PairDetailsModal({
 
               {changeType === 'ROOM_CHANGED' && (
                 <div className="flex flex-col gap-1.5">
-                  <Label>{t('newRoom')}</Label>
+                  <Label htmlFor="c-room">{t('newRoom')}</Label>
                   <Controller
                     control={changeForm.control}
                     name="newRoomId"
                     render={({ field }) => (
-                      <Select
-                        value={field.value ?? ''}
-                        onValueChange={(v) => field.onChange(v || null)}
-                      >
-                        <SelectTrigger aria-label={t('newRoom')}>
-                          <SelectValue placeholder={t('selectRoom')} />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {rooms.map((r) => (
-                            <SelectItem key={r.id} value={r.id}>
-                              {r.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <RoomSelect
+                        id="c-room"
+                        universityId={universityId}
+                        value={field.value ?? null}
+                        onChange={field.onChange}
+                      />
                     )}
                   />
                 </div>

@@ -12,7 +12,7 @@ import type { ApiErrorBody } from '@studenthub/shared-types'
 import { Role } from '@studenthub/shared-types'
 import { UserPicker, type PickedUser } from '../../../entities/user'
 import { createPairRequest, scheduleKeys } from '../../../entities/schedule'
-import type { Room } from '../../../entities/room'
+import { RoomSelect } from '../../../entities/room'
 import {
   Button,
   FieldError,
@@ -43,14 +43,14 @@ function apiErr(e: unknown): ApiErrorBody {
  */
 export function AddPairModal({
   scheduleId,
-  rooms,
+  universityId,
   isTeacher,
   meId,
   initial,
   onClose,
 }: {
   scheduleId: string
-  rooms: Room[]
+  universityId?: string
   isTeacher: boolean
   meId?: string
   initial: { dayOfWeek: number; startTime: string; endTime: string }
@@ -167,23 +167,17 @@ export function AddPairModal({
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <Label>{t('room')}</Label>
+          <Label htmlFor="p-room">{t('roomOptional')}</Label>
           <Controller
             control={form.control}
             name="roomId"
             render={({ field }) => (
-              <Select value={field.value ?? ''} onValueChange={(v) => field.onChange(v || null)}>
-                <SelectTrigger aria-label={t('room')}>
-                  <SelectValue placeholder={t('roomOptional')} />
-                </SelectTrigger>
-                <SelectContent>
-                  {rooms.map((r) => (
-                    <SelectItem key={r.id} value={r.id}>
-                      {r.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <RoomSelect
+                id="p-room"
+                universityId={universityId}
+                value={field.value ?? null}
+                onChange={field.onChange}
+              />
             )}
           />
         </div>

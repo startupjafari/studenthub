@@ -21,8 +21,7 @@ import {
   PageHeader,
 } from '../../../shared/ui'
 import { useFormAlert } from '../../../shared/lib'
-import { fetchGroups, groupKeys } from '../../../entities/group'
-import { fetchRooms, roomKeys } from '../../../entities/room'
+import { GroupSelect } from '../../../entities/group'
 import { fetchMe, userKeys } from '../../../entities/user'
 import {
   fetchScheduleContainer,
@@ -59,12 +58,9 @@ export function ManageSchedule({ mode = 'admin' }: { mode?: 'admin' | 'teacher' 
   const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
 
   const me = useQuery({ queryKey: userKeys.me(), queryFn: fetchMe })
-  const groups = useQuery({ queryKey: groupKeys.list(), queryFn: () => fetchGroups() })
-  const rooms = useQuery({
-    queryKey: roomKeys.list({ universityId: me.data?.universityId ?? undefined }),
-    queryFn: () => fetchRooms(me.data?.universityId ?? undefined),
-    enabled: !!me.data,
-  })
+  // Вуз для выбора аудитории: платформенной роли его надо указать, вуз-ролям сервер
+  // подставит свой из JWT.
+  const universityId = me.data?.universityId ?? undefined
 
   const [groupId, setGroupId] = useState<string>('')
   const [containerId, setContainerId] = useState<string>('')
@@ -144,7 +140,6 @@ export function ManageSchedule({ mode = 'admin' }: { mode?: 'admin' | 'teacher' 
     },
   })
 
-  const roomItems = rooms.data ?? []
   const pairs = container.data?.pairs ?? []
   // Преподаватель правит только свои пары (бэк это enforce'ит; здесь — прячем действия
   // и запрещаем перетаскивание, чтобы не предлагать заведомо отказной запрос).
@@ -192,29 +187,22 @@ export function ManageSchedule({ mode = 'admin' }: { mode?: 'admin' | 'teacher' 
         actions={
           <div className="flex flex-wrap items-center gap-2">
             {/* Группа и версия — в шапке: это выбор области, а не настройка внутри
-                экрана, и отдельный тулбар под заголовком дублировал полосу. */}
-            {groups.isLoading ? (
-              <Skeleton className="h-9 w-40" />
-            ) : (
-              <Select
-                value={groupId}
-                onValueChange={(v) => {
-                  setGroupId(v)
+                экрана, и отдельный тулбар под заголовком дублировал полосу. Группа —
+                с поиском на сервере: в списке первых 100 групп хвоста алфавита не было. */}
+            <div className="w-48">
+              <label htmlFor="schedule-group" className="sr-only">
+                {t('selectGroup')}
+              </label>
+              <GroupSelect
+                id="schedule-group"
+                size="md"
+                value={groupId || null}
+                onChange={(next) => {
+                  setGroupId(next ?? '')
                   setSelectedPair(null)
                 }}
-              >
-                <SelectTrigger size="md" className="w-40" aria-label={t('selectGroup')}>
-                  <SelectValue placeholder={t('selectGroupPlaceholder')} />
-                </SelectTrigger>
-                <SelectContent>
-                  {(groups.data ?? []).map((g) => (
-                    <SelectItem key={g.id} value={g.id}>
-                      {g.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
+              />
+            </div>
 
             {groupId && (
               <Select value={containerId} onValueChange={setContainerId}>
@@ -343,7 +331,7 @@ export function ManageSchedule({ mode = 'admin' }: { mode?: 'admin' | 'teacher' 
       {selectedPair && (
         <PairDetailsModal
           pair={selectedPair}
-          rooms={roomItems}
+          universityId={universityId}
           canEdit={canEditPair(selectedPair)}
           isTeacher={isTeacher}
           containerId={containerId}
@@ -354,7 +342,7 @@ export function ManageSchedule({ mode = 'admin' }: { mode?: 'admin' | 'teacher' 
       {addDraft && containerId && (
         <AddPairModal
           scheduleId={containerId}
-          rooms={roomItems}
+          universityId={universityId}
           isTeacher={isTeacher}
           meId={me.data?.id}
           initial={addDraft}

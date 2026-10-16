@@ -25,7 +25,10 @@ export const AssignStarostaSchema = z.object({ starostaId: z.string().min(1).nul
 export type AssignStarostaInput = z.infer<typeof AssignStarostaSchema>
 
 // Список групп: пагинация + опциональный фильтр по факультету.
+// search — подстрока названия без учёта регистра: пикеры ищут группу на сервере, а не
+// выгружают все страницы (у большого вуза групп больше, чем помещается в одну).
 export const GroupListQuerySchema = OffsetPaginationSchema.extend({
   facultyId: z.string().min(1).optional(),
+  search: z.string().trim().min(1).max(100).optional(),
 })
 export type GroupListQueryInput = z.infer<typeof GroupListQuerySchema>
