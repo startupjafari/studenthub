@@ -98,6 +98,31 @@ export function SupportDeskView() {
       <PageHeader
         title={t('title')}
         subtitle={t('subtitle')}
+        // Фильтры очереди — в шапке, как переключатели разделов на других экранах: отдельной
+        // строкой над списком они отнимали высоту у самих обращений.
+        tabs={
+          <>
+            <SegmentedTabs<StatusTab>
+              aria-label={t('statusFilter')}
+              value={status}
+              onChange={(v) => refilter(() => setStatus(v))}
+              items={[
+                { value: 'open', label: t('statusOpen') },
+                { value: 'closed', label: t('statusClosed') },
+              ]}
+            />
+            <SegmentedTabs<Assignee>
+              aria-label={t('assigneeFilter')}
+              value={assignee}
+              onChange={(v) => refilter(() => setAssignee(v))}
+              items={[
+                { value: 'any', label: t('assigneeAny') },
+                { value: 'mine', label: t('assigneeMine') },
+                { value: 'free', label: t('assigneeFree') },
+              ]}
+            />
+          </>
+        }
         actions={
           <>
             <div className="relative w-full sm:w-56">
@@ -135,30 +160,6 @@ export function SupportDeskView() {
           </>
         }
       />
-
-      <div className="flex flex-wrap items-center gap-2">
-        <SegmentedTabs<StatusTab>
-          aria-label={t('statusFilter')}
-          compact
-          value={status}
-          onChange={(v) => refilter(() => setStatus(v))}
-          items={[
-            { value: 'open', label: t('statusOpen') },
-            { value: 'closed', label: t('statusClosed') },
-          ]}
-        />
-        <SegmentedTabs<Assignee>
-          aria-label={t('assigneeFilter')}
-          compact
-          value={assignee}
-          onChange={(v) => refilter(() => setAssignee(v))}
-          items={[
-            { value: 'any', label: t('assigneeAny') },
-            { value: 'mine', label: t('assigneeMine') },
-            { value: 'free', label: t('assigneeFree') },
-          ]}
-        />
-      </div>
 
       {queue.isError ? (
         <EmptyState title={tErr(toApiError(queue.error).code)} description={tErr('retryHint')} />
