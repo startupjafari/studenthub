@@ -247,8 +247,12 @@ export async function unpinMessageRequest(messageId: string): Promise<ChatMessag
 }
 
 export async function fetchAttachmentUrl(fileId: string): Promise<string> {
-  const { data } = await api.get<string>(`/chats/attachments/${fileId}/url`)
-  return data
+  // API отдаёт `{ url, expiresAt }`; голая строка — ответ API до этой правки, пока на проде
+  // старый бэкенд выкатывается позже фронта.
+  const { data } = await api.get<{ url: string; expiresAt: string } | string>(
+    `/chats/attachments/${fileId}/url`,
+  )
+  return typeof data === 'string' ? data : data.url
 }
 
 // Опросы в чате (§38–39).

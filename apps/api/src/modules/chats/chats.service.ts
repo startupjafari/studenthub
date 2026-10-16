@@ -22,7 +22,7 @@ import type {
   UpdateScheduledMessageInput,
 } from '@studenthub/shared-schemas'
 import { CLEARED_RANGES_MAX } from '@studenthub/shared-schemas'
-import { MESSAGE_EDIT_WINDOW_MS } from '@studenthub/shared-config'
+import { MESSAGE_EDIT_WINDOW_MS, TTL } from '@studenthub/shared-config'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { REDIS_CLIENT } from '../../common/redis/redis.module'
 import { buildPublicObjectUrl } from '../../common/minio/public-url'
@@ -2282,8 +2282,16 @@ export class ChatsService {
 
   // ── Вложения (Ф9+) ───────────────────────────────────────────────────────────
 
-  /** Presigned-GET к вложению: доступ по членству в чате сообщения (не по владению файлом). */
-  async getAttachmentUrl(userId: string, fileId: string): Promise<string> {
+  /**
+   * Presigned-GET к вложению: доступ по членству в чате сообщения (не по владению файлом).
+   *
+   * Объект, а не голая строка: клиенты кешируют ссылку и обязаны знать, когда она протухнет
+   * (iOS и Android изначально декодировали именно `{ url, expiresAt }`).
+   */
+  async getAttachmentUrl(
+    userId: string,
+    fileId: string,
+  ): Promise<{ url: string; expiresAt: string }> {
     const file = await this.files.findOrThrow(fileId)
     if (!file.messageId) throw new AppException('NOT_FOUND', 'Файл не является вложением сообщения')
     const msg = await this.prisma.message.findUnique({
@@ -2301,7 +2309,9 @@ export class ChatsService {
     if (member?.clearedAt && msg.createdAt <= member.clearedAt) {
       throw new AppException('NOT_FOUND', 'Сообщение не найдено')
     }
-    return this.files.getPresignedUrl(fileId)
+    // Срок считаем ДО подписи: ссылка не может прожить дольше, чем мы обещаем клиенту.
+    const expiresAt = new Date(Date.now() + TTL.PRESIGNED_URL_MINUTES * 60 * 1000).toISOString()
+    return { url: await this.files.getPresignedUrl(fileId), expiresAt }
   }
 
   /**
