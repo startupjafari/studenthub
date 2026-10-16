@@ -112,7 +112,9 @@ export class PollsService {
       where: { userId },
       select: POLL_SELECT,
       orderBy: { createdAt: 'desc' },
-      take: 50,
+      // Тот же потолок, что у статей профиля (listArticles): вкладки «Статьи» и «Опросы»
+      // показывают число на бейдже по длине ответа, и разные потолки давали разные цифры.
+      take: 100,
     })
     const visible = polls.filter(
       (p) => isOwner || (p.status === 'PUBLISHED' && this.visibleTo(viewer, p)),
