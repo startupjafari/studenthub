@@ -16,7 +16,7 @@ import type {
   PlatformInterval,
   PlatformOverview,
   TopActions,
-  UniversitySize,
+  UniversitiesSize,
 } from '../model/types'
 
 export const analyticsKeys = {
@@ -132,8 +132,13 @@ export const fetchUsersGrowth = (r: PlatformRange): Promise<MultiSeries> =>
 export const fetchActiveUsers = (r: PlatformRange): Promise<MultiSeries> =>
   getPlatform<MultiSeries>('active-users', r)
 
-export const fetchUniversitiesSize = (): Promise<{ items: UniversitySize[] }> =>
-  getPlatform<{ items: UniversitySize[] }>('universities-size')
+/**
+ * Вузы с людьми, факультетами, группами и аудиториями + итоги платформы — одним
+ * запросом. Им же живёт таблица «Статистика платформы»: запрос на каждый вуз упирался
+ * в пользовательский лимит API уже на сотне вузов.
+ */
+export const fetchUniversitiesSize = (): Promise<UniversitiesSize> =>
+  getPlatform<UniversitiesSize>('universities-size')
 
 export const fetchComplaintsFlow = (r: PlatformRange): Promise<MultiSeries> =>
   getPlatform<MultiSeries>('complaints-flow', r)

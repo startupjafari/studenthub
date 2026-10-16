@@ -91,10 +91,36 @@ export interface PlatformOverview {
 export interface UniversitySize {
   id: string
   name: string
+  shortName: string | null
   status: string
+  /** Код КАТО — имя города резолвит useKatoNames. */
+  city: string | null
+  /** Студенты вместе со старостами. */
+  students: number
+  teachers: number
+  /** Все пользователи вуза, любой роли. */
+  total: number
+  faculties: number
+  groups: number
+  rooms: number
+}
+
+/** Итоги по всей платформе — не сумма `items`: сервер отдаёт не больше 200 вузов. */
+export interface UniversitiesTotals {
+  universities: number
+  active: number
+  faculties: number
+  groups: number
+  rooms: number
   students: number
   teachers: number
   total: number
+}
+
+export interface UniversitiesSize {
+  /** Крупнейшие первыми. */
+  items: UniversitySize[]
+  totals: UniversitiesTotals
 }
 
 export interface ComplaintsLatency {

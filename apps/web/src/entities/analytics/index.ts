@@ -38,6 +38,8 @@ export type {
   MultiSeries,
   PlatformOverview,
   UniversitySize,
+  UniversitiesSize,
+  UniversitiesTotals,
   ComplaintsLatency,
   InvitesFunnel,
   ActivityHeatmap,

@@ -46,7 +46,7 @@ export class AnalyticsService {
 
   // ── Агрегаты считает база (Ф13.6) ──────────────────────────────────────────
   //
-  // Эти четыре запроса были обычными findMany с потолком в 50–200 тысяч строк: вся
+  // Эти запросы были обычными findMany с потолком в 20–200 тысяч строк: вся
   // посещаемость факультета, все сдачи и все оценки приезжали в Node и сворачивались
   // там в Map'ы. На стенде одного вуза (52 200 отметок, 1450 студентов) обзор факультета
   // отвечал 266 мс против 18 мс у самого тяжёлого из остальных экранов, и рос линейно
@@ -96,6 +96,30 @@ export class AnalyticsService {
       JOIN pairs p ON p.id = a.pair_id
       JOIN groups g ON g.id = p.group_id
       WHERE g.faculty_id = ${facultyId}
+      GROUP BY a.student_id`
+    return rows.map((r) => ({
+      studentId: r.studentId,
+      total: Number(r.total),
+      absent: Number(r.absent),
+    }))
+  }
+
+  /**
+   * Посещаемость группы, свёрнутая по студентам, — для drill-down декана. Строк столько,
+   * сколько студентов когда-либо отмечали в парах группы, а не по строке на отметку.
+   */
+  private async attendanceByStudentInGroup(
+    groupId: string,
+  ): Promise<{ studentId: string; total: number; absent: number }[]> {
+    const rows = await this.prisma.$queryRaw<
+      { studentId: string; total: bigint; absent: bigint }[]
+    >`
+      SELECT a.student_id AS "studentId",
+             count(*) AS total,
+             count(*) FILTER (WHERE a.status = 'ABSENT') AS absent
+      FROM attendance a
+      JOIN pairs p ON p.id = a.pair_id
+      WHERE p.group_id = ${groupId}
       GROUP BY a.student_id`
     return rows.map((r) => ({
       studentId: r.studentId,
@@ -230,7 +254,15 @@ export class AnalyticsService {
     }
   }
 
-  /** Drill-down: посещаемость по студентам группы. */
+  /**
+   * Drill-down: посещаемость по студентам группы.
+   *
+   * Сворачивает база (attendanceByStudentInGroup). Раньше сюда приезжали сырые отметки
+   * с потолком в 20 000 строк без порядка: к середине второго курса у группы их больше,
+   * и Postgres отдавал произвольное подмножество — проценты считались по случайной
+   * выборке без признака обрезки. Период тот же, что у обзора факультета (вся история),
+   * иначе процент группы в обзоре и в drill-down расходился бы.
+   */
   async groupAttendance(viewer: JwtPayload, groupId: string) {
     await this.assertGroupScope(viewer, groupId)
     const [students, attendance] = await Promise.all([
@@ -243,21 +275,11 @@ export class AnalyticsService {
         },
         select: { id: true, firstName: true, lastName: true },
         orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
-        take: 500,
+        take: GROUP_STUDENTS_LIMIT,
       }),
-      this.prisma.attendance.findMany({
-        where: { pair: { groupId } },
-        select: { studentId: true, status: true },
-        take: 20000,
-      }),
+      this.attendanceByStudentInGroup(groupId),
     ])
-    const byStudent = new Map<string, { total: number; absent: number }>()
-    for (const a of attendance) {
-      const cur = byStudent.get(a.studentId) ?? { total: 0, absent: 0 }
-      cur.total += 1
-      if (a.status === 'ABSENT') cur.absent += 1
-      byStudent.set(a.studentId, cur)
-    }
+    const byStudent = new Map(attendance.map((row) => [row.studentId, row]))
     return {
       groupId,
       students: students.map((s) => {

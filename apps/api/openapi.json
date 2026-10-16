@@ -4575,6 +4575,7 @@
     },
     "/analytics/platform/universities-size": {
       "get": {
+        "description": "`items` — не больше 200 вузов, крупнейшие первыми. `totals` — итоги по всей платформе, а не сумма `items`.",
         "operationId": "PlatformAnalyticsController_universitiesSize",
         "parameters": [],
         "responses": {
@@ -4587,7 +4588,7 @@
             "bearer": []
           }
         ],
-        "summary": "Размер вузов: студенты и преподаватели по каждому",
+        "summary": "Размер вузов: люди, факультеты, группы и аудитории по каждому",
         "tags": [
           "Аналитика платформы"
         ]

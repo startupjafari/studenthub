@@ -2448,6 +2448,7 @@
     "searchUniversity": "Search university",
     "nothingFound": "Nothing found",
     "universitiesCount": "Universities: {n}",
+    "universitiesShown": "Showing {n} of {total} universities, largest first",
     "totalPeople": "People total: {n}",
     "trendTitle": "Attendance trend",
     "trendHint": "The three faculties with the lowest attendance, week by week — shows whether it is improving",

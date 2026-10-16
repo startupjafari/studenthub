@@ -121,7 +121,7 @@
   - Суть: Веб видит только первые 100 групп и 100 аудиторий вуза — выбор остальных невозможен
   - Файлы: apps/api/src/modules/groups/groups.service.ts, apps/web/src/entities/group/api/group-api.ts, apps/web/src/entities/room/api/room-api.ts, apps/web/src/features/create-invite/ui/create-invite-modal.tsx, apps/web/src/features/manage-schedule/ui/manage-schedule.tsx, apps/web/src/views/university-admin/ui/groups-view.tsx, packages/shared-schemas/src/groups.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для B-F06; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [in_progress] FIX-B-F07 · P1 · проблемы: B-F07 · после: FIX-A-F07, FIX-B-F03 · стоп: контракт
+- [done] FIX-B-F07 · P1 · проблемы: B-F07 · после: FIX-A-F07, FIX-B-F03 · стоп: контракт
   - Суть: `/platform-admin/stats` шлёт по запросу на вуз и при ~100 вузах упирается в rate-limit, блокируя админа на минуту
   - Файлы: apps/api/src/modules/analytics/platform-analytics.controller.ts, apps/api/src/modules/analytics/platform-analytics.service.ts, apps/web/src/entities/analytics/api/analytics-api.ts, apps/web/src/views/platform-admin/ui/platform-stats-view.tsx, docs/PROJECT.md
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для B-F07; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
@@ -133,7 +133,7 @@
   - Суть: Если у дежурного нет активной привязки Telegram, сигналы команде теряются молча + из FIX-A-F04: исключать удалённых/заблокированных из дежурства и ротации
   - Файлы: apps/api/src/common/telegram/telegram-notify.service.spec.ts, apps/api/src/common/telegram/telegram-notify.service.ts, apps/api/src/modules/platform/platform.service.spec.ts, apps/api/src/modules/platform/platform.service.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для B-F09; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [in_progress] FIX-B-F10 · P1 · проблемы: B-F10
+- [done] FIX-B-F10 · P1 · проблемы: B-F10
   - Суть: Drill-down посещаемости группы грузит до 20 000 отметок в Node и молча обрезает их
   - Файлы: apps/api/src/modules/analytics/analytics.service.spec.ts, apps/api/src/modules/analytics/analytics.service.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для B-F10; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
@@ -157,7 +157,7 @@
   - Суть: Баллы не сверяются с максимумом: журнал и задания принимают «150 из 10», средний процент студента и аналитика декана уезжают за 100 %
   - Файлы: apps/api/src/modules/assignments/assignments.service.ts, apps/api/src/modules/exams/exams.service.ts, apps/api/src/modules/gradebook/gradebook.service.ts, apps/web/src/views/assignments/ui/grade-submission-modal.tsx, apps/web/src/views/exams/ui/exam-results-roster.tsx, apps/web/src/views/gradebook/ui/gradebook-table.tsx
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F08; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [todo] FIX-C-F09 · P1 · проблемы: C-F09 · после: FIX-C-F08 · стоп: контракт
+- [in_progress] FIX-C-F09 · P1 · проблемы: C-F09 · после: FIX-C-F08 · стоп: контракт
   - Суть: Список экзаменов декана/админа: `take: 200` по возрастанию даты — после пары сессий ближайшие экзамены пропадают
   - Файлы: apps/api/src/modules/exams/exams.service.ts, apps/web/src/entities/exam/api/exam-api.ts, apps/web/src/views/exams/ui/exam-management-view.tsx, apps/web/src/views/exams/ui/student-exams-view.tsx, packages/shared-schemas/src/exams.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F09; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
@@ -177,11 +177,11 @@
   - Суть: Со второго семестра студент не видит новых заданий: список — 100 самых ранних по сроку за всё время
   - Файлы: apps/api/src/modules/assignments/assignments.service.ts, apps/api/src/modules/me/me.service.ts, apps/web/src/entities/assignment/api/assignment-api.ts, apps/web/src/views/academic/ui/academic-view.tsx, apps/web/src/views/assignments/ui/student-assignments-view.tsx, apps/web/src/views/calendar/ui/calendar-view.tsx, apps/web/src/views/tasks/ui/tasks-view.tsx, packages/shared-schemas/src/assignments.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F17; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [todo] FIX-C-F18 · P1 · проблемы: C-F18 · после: FIX-C-F14 · стоп: контракт
+- [in_progress] FIX-C-F18 · P1 · проблемы: C-F18 · после: FIX-C-F14 · стоп: контракт
   - Суть: Материалы: преподаватель видит 200 последних материалов всего вуза, а не свои; у студента старые материалы исчезают
   - Файлы: apps/api/src/modules/materials/materials.service.ts, apps/web/src/entities/material/api/material-api.ts, apps/web/src/views/courses/ui/course-view.tsx, apps/web/src/views/courses/ui/courses-view.tsx, apps/web/src/views/materials/ui/materials-view.tsx, packages/shared-schemas/src/materials.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F18; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [todo] FIX-C-F19 · P1 · проблемы: C-F19 · стоп: контракт
+- [in_progress] FIX-C-F19 · P1 · проблемы: C-F19 · стоп: контракт
   - Суть: Очередь записи в деканат: закрытые записи вытесняют новые после 300 строк
   - Файлы: apps/api/src/modules/appointments/appointments.service.spec.ts, apps/api/src/modules/appointments/appointments.service.ts, apps/web/src/entities/appointment/api/appointment-api.ts, apps/web/src/views/appointments/ui/dean-appointments-view.tsx, packages/shared-schemas/src/appointments.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F19; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.

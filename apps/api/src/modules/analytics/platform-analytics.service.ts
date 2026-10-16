@@ -84,6 +84,55 @@ interface ResolvedRange {
   interval: PlatformInterval
 }
 
+/** Вуз в разрезе размеров. Поля после `total` добавлены для таблицы «Статистика платформы». */
+export interface UniversitySizeItem {
+  id: string
+  name: string
+  shortName: string | null
+  status: string
+  /** Код КАТО — имя города резолвит клиент. */
+  city: string | null
+  /** Студенты вместе со старостами: староста — студенческая роль. */
+  students: number
+  teachers: number
+  /** Все живые пользователи вуза, любой роли. */
+  total: number
+  faculties: number
+  groups: number
+  rooms: number
+}
+
+export interface UniversitiesSize {
+  /** Не больше UNIVERSITIES_LIMIT строк, крупнейшие первыми. */
+  items: UniversitySizeItem[]
+  /** Итоги по всей платформе, а не сумма `items`: список обрезан потолком. */
+  totals: {
+    universities: number
+    active: number
+    faculties: number
+    groups: number
+    rooms: number
+    students: number
+    teachers: number
+    total: number
+  }
+}
+
+/** Строка SQL: COUNT в Postgres — bigint, наружу уходит обычным числом. */
+interface UniversitySizeRow {
+  id: string
+  name: string
+  shortName: string | null
+  status: string
+  city: string | null
+  students: bigint
+  teachers: bigint
+  total: bigint
+  faculties: bigint
+  groups: bigint
+  rooms: bigint
+}
+
 @Injectable()
 export class PlatformAnalyticsService {
   constructor(
@@ -217,49 +266,108 @@ export class PlatformAnalyticsService {
     })
   }
 
-  /** Размер вузов: студенты/преподаватели по каждому вузу, один запрос вместо N+1. */
-  universitiesSize(): Promise<{
-    items: {
-      id: string
-      name: string
-      status: string
-      students: number
-      teachers: number
-      total: number
-    }[]
-  }> {
-    return this.cached('universities-size', {}, async () => {
-      const [universities, grouped] = await Promise.all([
-        this.prisma.university.findMany({
-          select: { id: true, name: true, status: true },
-          take: UNIVERSITIES_LIMIT,
-          orderBy: { name: 'asc' },
-        }),
+  /**
+   * Размер вузов: люди, факультеты, группы и аудитории по каждому вузу — одним запросом.
+   *
+   * Отсюда же читает таблица «Статистика платформы». Раньше она слала
+   * `GET /universities/:id/stats` на каждый вуз: при сотне вузов это сотня запросов
+   * за раз, пользовательский лимит (100 в минуту) кончался на хвосте таблицы, и админ
+   * на минуту получал 429 на всех экранах.
+   *
+   * Строк не больше UNIVERSITIES_LIMIT, крупнейшие первыми: потолок срезает мелкие
+   * вузы, а не случайные по алфавиту. `totals` считается по всей платформе отдельно —
+   * сумма обрезанного списка молча занижала бы итоги.
+   */
+  universitiesSize(): Promise<UniversitiesSize> {
+    // Версия в имени ключа: ответ дополнился полями, и прежняя запись кэша без них
+    // ещё пять минут отдавала бы таблице пустые колонки.
+    return this.cached('universities-size.v2', {}, async () => {
+      const [rows, statuses, faculties, groups, rooms, people] = await Promise.all([
+        // Группы привязаны к вузу через факультет — Prisma так группировать не умеет,
+        // поэтому счётчики собирает один SQL. Подставляется только потолок (§4.4).
+        this.prisma.$queryRaw<UniversitySizeRow[]>`
+          WITH people AS (
+            SELECT university_id,
+                   COUNT(*) FILTER (WHERE role IN ('STUDENT', 'STAROSTA')) AS students,
+                   COUNT(*) FILTER (WHERE role = 'TEACHER') AS teachers,
+                   COUNT(*) AS total
+              FROM users
+             WHERE deleted_at IS NULL AND university_id IS NOT NULL
+             GROUP BY university_id
+          ),
+          facs AS (
+            SELECT university_id, COUNT(*) AS n FROM faculties GROUP BY university_id
+          ),
+          grps AS (
+            SELECT f.university_id, COUNT(*) AS n
+              FROM groups g
+              JOIN faculties f ON f.id = g.faculty_id
+             GROUP BY f.university_id
+          ),
+          rms AS (
+            SELECT university_id, COUNT(*) AS n FROM rooms GROUP BY university_id
+          )
+          SELECT u.id,
+                 u.name,
+                 u.short_name AS "shortName",
+                 u.status::text AS status,
+                 u.city,
+                 COALESCE(p.students, 0) AS students,
+                 COALESCE(p.teachers, 0) AS teachers,
+                 COALESCE(p.total, 0) AS total,
+                 COALESCE(f.n, 0) AS faculties,
+                 COALESCE(g.n, 0) AS "groups",
+                 COALESCE(r.n, 0) AS rooms
+            FROM universities u
+            LEFT JOIN people p ON p.university_id = u.id
+            LEFT JOIN facs f ON f.university_id = u.id
+            LEFT JOIN grps g ON g.university_id = u.id
+            LEFT JOIN rms r ON r.university_id = u.id
+           ORDER BY total DESC, u.name ASC
+           LIMIT ${UNIVERSITIES_LIMIT}
+        `,
+        this.prisma.university.groupBy({ by: ['status'], _count: { _all: true } }),
+        this.prisma.faculty.count(),
+        this.prisma.group.count(),
+        this.prisma.room.count(),
         this.prisma.user.groupBy({
-          by: ['universityId', 'role'],
+          by: ['role'],
           where: { deletedAt: null, universityId: { not: null } },
           _count: { _all: true },
         }),
       ])
 
-      const items = universities.map((u) => {
-        const mine = grouped.filter((g) => g.universityId === u.id)
-        const countOf = (roles: Role[]): number =>
-          mine.filter((g) => roles.includes(g.role)).reduce((sum, g) => sum + g._count._all, 0)
-        const students = countOf(STUDENT_ROLES)
-        const teachers = countOf([Role.TEACHER])
-        return {
-          id: u.id,
-          name: u.name,
-          status: u.status,
-          students,
-          teachers,
-          total: mine.reduce((sum, g) => sum + g._count._all, 0),
-        }
-      })
-      // Сортировка по убыванию: горизонтальный бар читается сверху вниз.
-      items.sort((a, b) => b.total - a.total)
-      return { items }
+      const peopleOf = (roles?: Role[]): number =>
+        people
+          .filter((g) => !roles || roles.includes(g.role))
+          .reduce((sum, g) => sum + g._count._all, 0)
+
+      return {
+        // Порядок задал SQL: по убыванию размера — горизонтальный бар читается сверху вниз.
+        items: rows.map((r) => ({
+          id: r.id,
+          name: r.name,
+          shortName: r.shortName,
+          status: r.status,
+          city: r.city,
+          students: Number(r.students),
+          teachers: Number(r.teachers),
+          total: Number(r.total),
+          faculties: Number(r.faculties),
+          groups: Number(r.groups),
+          rooms: Number(r.rooms),
+        })),
+        totals: {
+          universities: statuses.reduce((sum, s) => sum + s._count._all, 0),
+          active: statuses.find((s) => s.status === 'ACTIVE')?._count._all ?? 0,
+          faculties,
+          groups,
+          rooms,
+          students: peopleOf(STUDENT_ROLES),
+          teachers: peopleOf([Role.TEACHER]),
+          total: peopleOf(),
+        },
+      }
     })
   }
 
