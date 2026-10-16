@@ -60,13 +60,15 @@ export type ApplicationServiceStatus = z.infer<typeof ApplicationServiceStatusSc
 
 // Единый граф допустимых переходов (SSOT). Бэкенд — финальный источник истины: любой переход
 // проверяется здесь, даже если фронт скрыл кнопку. Business-action → целевой статус решает сервис.
+// CANCELLED — отзыв студентом, «до начала подготовки» (§9): в том числе пока заявку
+// проверяют (IN_REVIEW) и после повторной отправки (RESUBMITTED).
 export const APPLICATION_TRANSITIONS: Record<ApplicationServiceStatus, ApplicationServiceStatus[]> =
   {
     DRAFT: ['SUBMITTED', 'CANCELLED'],
     SUBMITTED: ['IN_REVIEW', 'CANCELLED', 'REJECTED'],
-    IN_REVIEW: ['NEEDS_CORRECTION', 'IN_PREPARATION', 'REJECTED'],
+    IN_REVIEW: ['NEEDS_CORRECTION', 'IN_PREPARATION', 'REJECTED', 'CANCELLED'],
     NEEDS_CORRECTION: ['RESUBMITTED', 'CANCELLED'],
-    RESUBMITTED: ['IN_REVIEW'],
+    RESUBMITTED: ['IN_REVIEW', 'CANCELLED'],
     IN_PREPARATION: ['READY', 'READY_FOR_PICKUP', 'REJECTED'],
     READY: ['DELIVERED', 'READY_FOR_PICKUP'],
     READY_FOR_PICKUP: ['ISSUED', 'DELIVERED'],
@@ -84,21 +86,19 @@ export const TERMINAL_STATUSES: ApplicationServiceStatus[] = [
   'CANCELLED',
 ]
 
-// До этих статусов заявку редактирует/отзывает студент; после — данные фиксируются.
-export const STUDENT_CANCELLABLE_STATUSES: ApplicationServiceStatus[] = [
-  'DRAFT',
-  'SUBMITTED',
-  'IN_REVIEW',
-  'NEEDS_CORRECTION',
-  'RESUBMITTED',
-]
-
 export function canTransition(
   from: ApplicationServiceStatus,
   to: ApplicationServiceStatus,
 ): boolean {
   return APPLICATION_TRANSITIONS[from].includes(to)
 }
+
+// Статусы, из которых студент может отозвать заявку. Выводятся из графа, а не перечисляются
+// отдельно: раньше это был самостоятельный список, он разошёлся с графом, и кнопка
+// «Отозвать» в IN_REVIEW/RESUBMITTED упиралась в «Недопустимый переход».
+export const STUDENT_CANCELLABLE_STATUSES: ApplicationServiceStatus[] = APPLICATION_STATUSES.filter(
+  (status) => canTransition(status, 'CANCELLED'),
+)
 
 // ── Тело запросов ────────────────────────────────────────────────────────────
 // Создание черновика: только выбор услуги; остальное заполняется правкой черновика (§8, §30).

@@ -266,9 +266,8 @@ describe('ComplaintsService.resolve (11.4)', () => {
   it('DISMISS → статус DISMISSED + уведомление автору', async () => {
     const { service, prisma, queue } = setup()
     prisma.complaint.findUnique.mockResolvedValue(complaint())
-    prisma.complaint.update.mockResolvedValue(complaint({ status: 'DISMISSED' }))
     await service.resolve(admin, 'c1', { action: 'DISMISS' }, ctx)
-    expect(prisma.complaint.update.mock.calls[0][0].data.status).toBe('DISMISSED')
+    expect(prisma.complaint.updateMany.mock.calls[0][0].data.status).toBe('DISMISSED')
     expect(queue.enqueue.mock.calls[0][2].recipientIds).toEqual(['r1'])
   })
 
@@ -281,12 +280,11 @@ describe('ComplaintsService.resolve (11.4)', () => {
       universityId: 'uni1',
       author: { universityId: 'uni1' },
     })
-    prisma.complaint.update.mockResolvedValue(complaint({ status: 'RESOLVED' }))
 
     await service.resolve(admin, 'c1', { action: 'WARN_USER' }, ctx)
     expect(users.warn).toHaveBeenCalledWith(admin, 'author1', 'c1')
     expect(users.setBlocked).not.toHaveBeenCalled()
-    expect(prisma.complaint.update.mock.calls[0][0].data.status).toBe('RESOLVED')
+    expect(prisma.complaint.updateMany.mock.calls[0][0].data.status).toBe('RESOLVED')
   })
 
   // Срок считается от решения: «на семь дней», выданное вечером, кончается вечером.
@@ -298,7 +296,6 @@ describe('ComplaintsService.resolve (11.4)', () => {
       universityId: 'uni1',
       author: { universityId: 'uni1' },
     })
-    prisma.complaint.update.mockResolvedValue(complaint({ status: 'RESOLVED' }))
 
     await service.resolve(admin, 'c1', { action: 'BLOCK_USER', blockDays: 7 }, ctx)
     const until = users.setBlocked.mock.calls[0][3] as Date
@@ -314,7 +311,6 @@ describe('ComplaintsService.resolve (11.4)', () => {
       universityId: 'uni1',
       author: { universityId: 'uni1' },
     })
-    prisma.complaint.update.mockResolvedValue(complaint({ status: 'RESOLVED' }))
 
     await service.resolve(admin, 'c1', { action: 'BLOCK_USER' }, ctx)
     expect(users.setBlocked.mock.calls[0][3]).toBeNull()
@@ -323,7 +319,6 @@ describe('ComplaintsService.resolve (11.4)', () => {
   it('DELETE_CONTENT (пост) → soft delete поста + RESOLVED', async () => {
     const { service, prisma } = setup()
     prisma.complaint.findUnique.mockResolvedValue(complaint({ targetType: 'POST', targetId: 'p1' }))
-    prisma.complaint.update.mockResolvedValue(complaint({ status: 'RESOLVED' }))
     await service.resolve(admin, 'c1', { action: 'DELETE_CONTENT' }, ctx)
     expect(prisma.post.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -331,7 +326,7 @@ describe('ComplaintsService.resolve (11.4)', () => {
         data: expect.objectContaining({ deletedAt: expect.any(Date) }),
       }),
     )
-    expect(prisma.complaint.update.mock.calls[0][0].data.status).toBe('RESOLVED')
+    expect(prisma.complaint.updateMany.mock.calls[0][0].data.status).toBe('RESOLVED')
   })
 
   it('DELETE_CONTENT на USER → BAD_REQUEST', async () => {
@@ -351,7 +346,6 @@ describe('ComplaintsService.resolve (11.4)', () => {
       universityId: 'uni1',
       author: { universityId: 'uni1' },
     })
-    prisma.complaint.update.mockResolvedValue(complaint({ status: 'RESOLVED' }))
     await service.resolve(admin, 'c1', { action: 'BLOCK_USER' }, ctx)
     // Четвёртый аргумент — срок: без него блокировка бессрочная, как была до сроков.
     expect(users.setBlocked).toHaveBeenCalledWith(admin, 'a1', true, null)
@@ -362,6 +356,81 @@ describe('ComplaintsService.resolve (11.4)', () => {
     prisma.complaint.findUnique.mockResolvedValue(complaint({ status: 'RESOLVED' }))
     const err = await service.resolve(admin, 'c1', { action: 'DISMISS' }, ctx).catch((e) => e)
     expect(err.code).toBe('CONFLICT')
+  })
+
+  // Захват жалобы — условная запись ДО меры: статус «в очереди» стоит в самом UPDATE.
+  it('решение захватывает жалобу условием на статус и только потом применяет меру', async () => {
+    const { service, prisma, users } = setup()
+    prisma.complaint.findUnique.mockResolvedValue(complaint())
+    prisma.post.findFirst.mockResolvedValue({
+      authorId: 'author1',
+      universityId: 'uni1',
+      author: { universityId: 'uni1' },
+    })
+    await service.resolve(admin, 'c1', { action: 'WARN_USER' }, ctx)
+    expect(prisma.complaint.updateMany.mock.calls[0][0].where).toEqual({
+      id: 'c1',
+      status: { in: ['PENDING', 'REVIEWING'] },
+    })
+    const [claimedAt] = prisma.complaint.updateMany.mock.invocationCallOrder
+    const [warnedAt] = users.warn.mock.invocationCallOrder
+    expect(claimedAt).toBeLessThan(warnedAt!)
+  })
+
+  // Два одновременных решения (веб + мини-апп, двойной клик): оба прочитали PENDING, но
+  // захват достаётся одному. Второе — CONFLICT без второго предупреждения и уведомлений.
+  it('повторное решение, проигравшее захват, меру не применяет → CONFLICT', async () => {
+    const { service, prisma, users, queue, audit } = setup()
+    prisma.complaint.findUnique.mockResolvedValue(complaint())
+    prisma.post.findFirst.mockResolvedValue({
+      authorId: 'author1',
+      universityId: 'uni1',
+      author: { universityId: 'uni1' },
+    })
+    prisma.complaint.updateMany
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValueOnce({ count: 0 })
+
+    const [first, second] = await Promise.allSettled([
+      service.resolve(admin, 'c1', { action: 'WARN_USER' }, ctx),
+      service.resolve(admin, 'c1', { action: 'WARN_USER' }, ctx),
+    ])
+    expect(first.status).toBe('fulfilled')
+    expect(second.status).toBe('rejected')
+    expect((second as PromiseRejectedResult).reason.code).toBe('CONFLICT')
+    expect(users.warn).toHaveBeenCalledTimes(1)
+    expect(queue.enqueue).toHaveBeenCalledTimes(1)
+    expect(audit.record).toHaveBeenCalledTimes(1)
+  })
+
+  // Мера не прошла после захвата (например, scope нарушителя) — жалоба не должна остаться
+  // «решённой» без меры: она возвращается в прежнее состояние, ошибка уходит наверх.
+  it('мера упала после захвата → жалоба возвращается в очередь', async () => {
+    const { service, prisma, users, queue } = setup()
+    prisma.complaint.findUnique.mockResolvedValue(complaint({ status: 'REVIEWING' }))
+    prisma.post.findFirst.mockResolvedValue({
+      authorId: 'author1',
+      universityId: 'uni1',
+      author: { universityId: 'uni1' },
+    })
+    users.setBlocked.mockRejectedValue(new AppException('FORBIDDEN', 'нельзя'))
+
+    const err = await service.resolve(admin, 'c1', { action: 'BLOCK_USER' }, ctx).catch((e) => e)
+    expect(err.code).toBe('FORBIDDEN')
+    const rollback = prisma.complaint.updateMany.mock.calls[1][0]
+    expect(rollback.where).toMatchObject({ id: 'c1', status: 'RESOLVED', resolvedById: 'u1' })
+    expect(rollback.data).toMatchObject({ status: 'REVIEWING', resolvedById: null })
+    expect(queue.enqueue).not.toHaveBeenCalled()
+  })
+
+  // Отказ по существу — до захвата: жалоба ни на миг не становится «решённой».
+  it('нарушитель не найден → BAD_REQUEST без захвата жалобы', async () => {
+    const { service, prisma } = setup()
+    prisma.complaint.findUnique.mockResolvedValue(complaint())
+    prisma.post.findFirst.mockResolvedValue(null)
+    const err = await service.resolve(admin, 'c1', { action: 'WARN_USER' }, ctx).catch((e) => e)
+    expect(err.code).toBe('BAD_REQUEST')
+    expect(prisma.complaint.updateMany).not.toHaveBeenCalled()
   })
 })
 
@@ -600,8 +669,10 @@ describe('ComplaintsService.take', () => {
     const { service, prisma } = setup()
     prisma.complaint.findUnique.mockResolvedValue(complaint())
     await expect(service.take(admin, 'c1')).resolves.toEqual({ takenBy: 'u1' })
+    // Статус — в условии записи: решение, успевшее между чтением и записью, не
+    // возвращается в REVIEWING.
     expect(prisma.complaint.updateMany).toHaveBeenCalledWith({
-      where: { id: 'c1', reviewingById: null },
+      where: { id: 'c1', reviewingById: null, status: { in: ['PENDING', 'REVIEWING'] } },
       data: { reviewingById: 'u1', status: 'REVIEWING' },
     })
   })

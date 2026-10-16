@@ -983,6 +983,180 @@
         ]
       }
     },
+    "/universities": {
+      "post": {
+        "operationId": "UniversitiesController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateUniversityDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Создать университет (PLATFORM_ADMIN)",
+        "tags": [
+          "Университеты"
+        ]
+      },
+      "get": {
+        "operationId": "UniversitiesController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Список университетов (платформа)",
+        "tags": [
+          "Университеты"
+        ]
+      }
+    },
+    "/universities/{id}": {
+      "get": {
+        "operationId": "UniversitiesController_getById",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Профиль вуза (платформа — любой, иначе свой)",
+        "tags": [
+          "Университеты"
+        ]
+      },
+      "patch": {
+        "operationId": "UniversitiesController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateUniversityDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Обновить реквизиты вуза (PLATFORM_ADMIN)",
+        "tags": [
+          "Университеты"
+        ]
+      },
+      "delete": {
+        "operationId": "UniversitiesController_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "summary": "Удалить вуз (только пустой)",
+        "tags": [
+          "Университеты"
+        ]
+      }
+    },
+    "/universities/{id}/stats": {
+      "get": {
+        "operationId": "UniversitiesController_stats",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Статистика вуза (кэш 5 мин)",
+        "tags": [
+          "Университеты"
+        ]
+      }
+    },
+    "/universities/{id}/status": {
+      "patch": {
+        "operationId": "UniversitiesController_setStatus",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateUniversityStatusDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Сменить статус вуза (PLATFORM_ADMIN)",
+        "tags": [
+          "Университеты"
+        ]
+      }
+    },
     "/files/upload": {
       "post": {
         "operationId": "FilesController_upload",
@@ -1236,180 +1410,6 @@
         "summary": "Удалить свой файл (объект в MinIO + запись)",
         "tags": [
           "Файлы"
-        ]
-      }
-    },
-    "/universities": {
-      "post": {
-        "operationId": "UniversitiesController_create",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateUniversityDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "summary": "Создать университет (PLATFORM_ADMIN)",
-        "tags": [
-          "Университеты"
-        ]
-      },
-      "get": {
-        "operationId": "UniversitiesController_list",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "summary": "Список университетов (платформа)",
-        "tags": [
-          "Университеты"
-        ]
-      }
-    },
-    "/universities/{id}": {
-      "get": {
-        "operationId": "UniversitiesController_getById",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "summary": "Профиль вуза (платформа — любой, иначе свой)",
-        "tags": [
-          "Университеты"
-        ]
-      },
-      "patch": {
-        "operationId": "UniversitiesController_update",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateUniversityDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "summary": "Обновить реквизиты вуза (PLATFORM_ADMIN)",
-        "tags": [
-          "Университеты"
-        ]
-      },
-      "delete": {
-        "operationId": "UniversitiesController_remove",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": ""
-          }
-        },
-        "summary": "Удалить вуз (только пустой)",
-        "tags": [
-          "Университеты"
-        ]
-      }
-    },
-    "/universities/{id}/stats": {
-      "get": {
-        "operationId": "UniversitiesController_stats",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "summary": "Статистика вуза (кэш 5 мин)",
-        "tags": [
-          "Университеты"
-        ]
-      }
-    },
-    "/universities/{id}/status": {
-      "patch": {
-        "operationId": "UniversitiesController_setStatus",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateUniversityStatusDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "summary": "Сменить статус вуза (PLATFORM_ADMIN)",
-        "tags": [
-          "Университеты"
         ]
       }
     },
@@ -7075,6 +7075,15 @@
             "name": "docId",
             "required": true,
             "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "fileId",
+            "required": false,
+            "in": "query",
+            "description": "Страница документа из `documents[].files` карточки заявки. Без него — первая страница",
             "schema": {
               "type": "string"
             }
@@ -15425,6 +15434,18 @@
         "type": "object",
         "properties": {}
       },
+      "CreateUniversityDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "UpdateUniversityDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "UpdateUniversityStatusDto": {
+        "type": "object",
+        "properties": {}
+      },
       "PresignUploadDto": {
         "type": "object",
         "properties": {}
@@ -15446,18 +15467,6 @@
         "properties": {}
       },
       "MultipartAbortDto": {
-        "type": "object",
-        "properties": {}
-      },
-      "CreateUniversityDto": {
-        "type": "object",
-        "properties": {}
-      },
-      "UpdateUniversityDto": {
-        "type": "object",
-        "properties": {}
-      },
-      "UpdateUniversityStatusDto": {
         "type": "object",
         "properties": {}
       },

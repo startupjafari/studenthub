@@ -16,10 +16,7 @@ import {
   type ApplicationDocumentItem,
   type ApplicationResultItem,
 } from '../../../entities/application-service'
-import {
-  STUDENT_CANCELLABLE_STATUSES,
-  type ApplicationServiceStatus,
-} from '@studenthub/shared-schemas'
+import { canTransition, type ApplicationServiceStatus } from '@studenthub/shared-schemas'
 import {
   Button,
   Card,
@@ -95,7 +92,9 @@ export function ApplicationDetail({
   const serviceName = app
     ? pickLocale(app.service as unknown as Record<string, unknown>, 'name', locale)
     : ''
-  const cancellable = app ? STUDENT_CANCELLABLE_STATUSES.includes(app.status) : false
+  // «Отозвать» — по тому же графу переходов, которым сервер проверяет отзыв (SSOT):
+  // отдельный список отзываемых статусов разошёлся с графом, и кнопка вела в отказ.
+  const cancellable = app ? canTransition(app.status, 'CANCELLED') : false
   const isDraft = app?.status === 'DRAFT'
 
   const body = (

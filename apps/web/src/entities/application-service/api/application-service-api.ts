@@ -125,6 +125,13 @@ export interface TimelineEvent {
   createdAt: string
 }
 
+/** Страница приложенного документа (паспорт — разворот и прописка, диплом — с приложением). */
+export interface ApplicationDocumentFile {
+  id: string
+  mime: string
+  order: number | null
+}
+
 export interface ApplicationDocumentItem {
   id: string
   requirementId: string
@@ -140,6 +147,8 @@ export interface ApplicationDocumentItem {
     titleEn: string
     required: boolean
   }
+  // Есть только в деталях заявки (GET /applications/:id); у старого API поля нет.
+  files?: ApplicationDocumentFile[]
 }
 
 export interface ApplicationResultItem {
@@ -279,8 +288,15 @@ export async function removeApplicationDocument(
   await api.delete(`/applications/${appId}/documents/${requirementId}`)
 }
 
-export async function fetchApplicationDocumentUrl(appId: string, docId: string): Promise<string> {
-  const { data } = await api.get<{ url: string }>(`/applications/${appId}/documents/${docId}/url`)
+// `fileId` — конкретная страница документа; без него сервер отдаёт первую.
+export async function fetchApplicationDocumentUrl(
+  appId: string,
+  docId: string,
+  fileId?: string,
+): Promise<string> {
+  const { data } = await api.get<{ url: string }>(`/applications/${appId}/documents/${docId}/url`, {
+    params: fileId ? { fileId } : undefined,
+  })
   return data.url
 }
 

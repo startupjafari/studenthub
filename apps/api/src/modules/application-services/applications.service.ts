@@ -1,8 +1,7 @@
 import { Injectable } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import {
-  APPLICATION_TRANSITIONS,
-  STUDENT_CANCELLABLE_STATUSES,
+  canTransition,
   type DeliveryType,
   type ApplicationServiceStatus,
   type UpdateDraftInput,
@@ -22,6 +21,8 @@ import { localDateString, localDayRange } from '../../common/time/local-label'
 // справочники, которые заводит вуз: они малы, но не ограничены схемой.
 const SERVICE_FORM_FIELDS_LIMIT = 100
 const SERVICE_REQUIREMENTS_LIMIT = 100
+// Страниц у одного документа — тот же потолок, что в домене «Документы».
+const DOCUMENT_FILES_LIMIT = 30
 
 const SCOPE_SELECT = {
   studentId: true,
@@ -188,11 +189,10 @@ export class ApplicationsService {
   async cancel(viewer: JwtPayload, id: string, reason?: string) {
     const app = await this.loadOwned(viewer, id)
     const status = app.status as ApplicationServiceStatus
-    if (!STUDENT_CANCELLABLE_STATUSES.includes(status)) {
+    // Одна проверка по графу (SSOT): тот же canTransition, по которому клиенты решают,
+    // показывать ли «Отозвать». Два списка раньше расходились, и кнопка вела в отказ.
+    if (!canTransition(status, 'CANCELLED')) {
       throw new AppException('BAD_REQUEST', 'Эту заявку уже нельзя отозвать')
-    }
-    if (!APPLICATION_TRANSITIONS[status].includes('CANCELLED')) {
-      throw new AppException('BAD_REQUEST', 'Недопустимый переход')
     }
     return this.prisma.$transaction(async (tx) => {
       const updated = await tx.application
@@ -311,7 +311,7 @@ export class ApplicationsService {
       throw new AppException('NOT_FOUND', 'Заявка не найдена')
     }
     this.policy.assertCanRead(viewer, scope)
-    return this.prisma.application.findUnique({
+    const app = await this.prisma.application.findUnique({
       where: { id },
       select: {
         ...APP_SELECT,
@@ -362,6 +362,17 @@ export class ApplicationsService {
                 required: true,
               },
             },
+            // Страницы документа (паспорт — разворот и прописка, диплом — с приложением):
+            // обработчик открывает каждую, а не только первую.
+            document: {
+              select: {
+                files: {
+                  orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
+                  select: { id: true, mime: true, order: true },
+                  take: DOCUMENT_FILES_LIMIT,
+                },
+              },
+            },
           },
         },
         results: {
@@ -377,6 +388,16 @@ export class ApplicationsService {
         },
       },
     })
+    if (!app) return app
+    // Поле `files` у строки документа — добавочное: прежние поля ответа не меняются (тот же
+    // ответ читают веб, iOS, Android). Ссылку на страницу выдаёт GET …/documents/:docId/url?fileId=.
+    return {
+      ...app,
+      documents: app.documents.map(({ document, ...doc }) => ({
+        ...doc,
+        files: document?.files ?? [],
+      })),
+    }
   }
 
   // ── helpers ────────────────────────────────────────────────────────────────

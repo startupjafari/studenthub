@@ -34,6 +34,7 @@ function setup() {
   }
   const applicationEvent = { create: jest.fn().mockResolvedValue({ id: 'ev1' }) }
   const file = { findFirst: jest.fn() }
+  const documentEvent = { create: jest.fn().mockResolvedValue({}) }
   const tx = {
     application,
     serviceRequirement,
@@ -44,6 +45,7 @@ function setup() {
   }
   const prisma = {
     ...tx,
+    documentEvent,
     $transaction: jest.fn((arg: unknown) =>
       typeof arg === 'function'
         ? (arg as (t: typeof tx) => unknown)(tx)
@@ -71,6 +73,7 @@ function setup() {
     realtime,
     file,
     files,
+    documentEvent,
   }
 }
 
@@ -302,5 +305,70 @@ describe('ApplicationDocumentsService.presignedUrl — черновик (D-F01)'
       }),
     )
     expect(files.getPresignedUrl).not.toHaveBeenCalled()
+  })
+})
+
+// Регрессия D-F06: обработчик видел только первую страницу, и просмотр не попадал в журнал.
+describe('ApplicationDocumentsService.presignedUrl — страницы и журнал (D-F06)', () => {
+  const submitted = { studentId: 'stud', facultyId: 'fac', universityId: 'uni' }
+
+  it('fileId выбирает страницу — только среди файлов приложенного документа', async () => {
+    const { service, application, applicationDocument, file, files } = setup()
+    application.findFirst.mockResolvedValue(submitted)
+    applicationDocument.findFirst.mockResolvedValue({ documentId: 'doc1' })
+    file.findFirst.mockResolvedValue({ id: 'f2' })
+    await expect(service.presignedUrl(dean, 'a1', 'ad1', 'f2')).resolves.toEqual({
+      url: 'https://url',
+    })
+    expect(file.findFirst.mock.calls[0][0].where).toEqual({ id: 'f2', documentId: 'doc1' })
+    expect(files.getPresignedUrl).toHaveBeenCalledWith('f2')
+  })
+
+  it('fileId чужого документа → NOT_FOUND, ссылки и записи в журнал нет', async () => {
+    const { service, application, applicationDocument, file, files, documentEvent } = setup()
+    application.findFirst.mockResolvedValue(submitted)
+    applicationDocument.findFirst.mockResolvedValue({ documentId: 'doc1' })
+    file.findFirst.mockResolvedValue(null)
+    await expect(service.presignedUrl(dean, 'a1', 'ad1', 'foreign')).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    })
+    expect(files.getPresignedUrl).not.toHaveBeenCalled()
+    expect(documentEvent.create).not.toHaveBeenCalled()
+  })
+
+  it('без fileId — первая страница, как у прежних клиентов', async () => {
+    const { service, application, applicationDocument, file } = setup()
+    application.findFirst.mockResolvedValue(submitted)
+    applicationDocument.findFirst.mockResolvedValue({ documentId: 'doc1' })
+    file.findFirst.mockResolvedValue({ id: 'f1' })
+    await service.presignedUrl(dean, 'a1', 'ad1')
+    expect(file.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { documentId: 'doc1' }, orderBy: { order: 'asc' } }),
+    )
+  })
+
+  it('просмотр сотрудником пишется в журнал документа VIEW с viaApplication', async () => {
+    const { service, application, applicationDocument, file, documentEvent } = setup()
+    application.findFirst.mockResolvedValue(submitted)
+    applicationDocument.findFirst.mockResolvedValue({ documentId: 'doc1' })
+    file.findFirst.mockResolvedValue({ id: 'f2' })
+    await service.presignedUrl(dean, 'a1', 'ad1', 'f2')
+    expect(documentEvent.create).toHaveBeenCalledWith({
+      data: {
+        actorId: 'dean',
+        documentId: 'doc1',
+        action: 'VIEW',
+        metadata: { fileId: 'f2', viaApplication: 'a1', applicationDocumentId: 'ad1' },
+      },
+    })
+  })
+
+  it('свой документ студент открывает без записи в журнал «кто открывал»', async () => {
+    const { service, application, applicationDocument, file, documentEvent } = setup()
+    application.findFirst.mockResolvedValue(submitted)
+    applicationDocument.findFirst.mockResolvedValue({ documentId: 'doc1' })
+    file.findFirst.mockResolvedValue({ id: 'f1' })
+    await service.presignedUrl(student, 'a1', 'ad1')
+    expect(documentEvent.create).not.toHaveBeenCalled()
   })
 })

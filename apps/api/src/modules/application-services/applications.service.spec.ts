@@ -1,5 +1,10 @@
 import { Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
+import {
+  APPLICATION_STATUSES,
+  STUDENT_CANCELLABLE_STATUSES,
+  canTransition,
+} from '@studenthub/shared-schemas'
 import { ApplicationsService } from './applications.service'
 import { ApplicationPolicy } from './application.policy'
 import type { PrismaService } from '../../common/prisma/prisma.service'
@@ -21,7 +26,7 @@ const staleStatus = () =>
 function setup(overrides: Record<string, jest.Mock> = {}) {
   const application = {
     findFirst: jest.fn(),
-    findUnique: jest.fn().mockResolvedValue({}),
+    findUnique: jest.fn().mockResolvedValue({ documents: [] }),
     findMany: jest.fn().mockResolvedValue([]),
     update: jest.fn().mockResolvedValue({}),
     create: jest.fn().mockResolvedValue({ id: 'new' }),
@@ -164,6 +169,32 @@ describe('ApplicationsService.cancel / resubmit', () => {
     await service.cancel(student, 'a1')
     expect(application.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ status: 'CANCELLED' }) }),
+    )
+  })
+
+  // «До начала подготовки» (§9): декан уже взял заявку или студент только что отправил
+  // исправление — кнопка «Отозвать» видна, и сервер обязан её пропустить.
+  it.each(['IN_REVIEW', 'RESUBMITTED'])('cancel из %s → CANCELLED', async (status) => {
+    const { service, application } = setup()
+    application.findFirst.mockResolvedValue({ id: 'a1', studentId: 'stud', status })
+    await service.cancel(student, 'a1')
+    expect(application.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'a1', status },
+        data: expect.objectContaining({ status: 'CANCELLED' }),
+      }),
+    )
+  })
+
+  // Сервер и клиенты решают про отзыв по одному правилу: что отзываемо по списку, то и
+  // проходит граф переходов, и наоборот. Расхождение двух констант и было причиной бага.
+  it.each(APPLICATION_STATUSES)('статус %s: список отзываемых совпадает с графом', (status) => {
+    expect(STUDENT_CANCELLABLE_STATUSES.includes(status)).toBe(canTransition(status, 'CANCELLED'))
+  })
+
+  it('отзыв возможен только до начала подготовки', () => {
+    expect([...STUDENT_CANCELLABLE_STATUSES].sort()).toEqual(
+      ['DRAFT', 'IN_REVIEW', 'NEEDS_CORRECTION', 'RESUBMITTED', 'SUBMITTED'].sort(),
     )
   })
 
@@ -316,6 +347,36 @@ describe('ApplicationsService — неподанные заявки видит �
     expect(application.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: 'a1', deletedAt: null, AND: [{}] } }),
     )
+  })
+})
+
+// Регрессия D-F06: обработчик видел только первую страницу документа заявки.
+describe('ApplicationsService.getById — страницы документов', () => {
+  it('отдаёт все страницы документа плоским списком files, прежние поля не меняются', async () => {
+    const { service, application } = setup()
+    application.findFirst.mockResolvedValue({
+      studentId: 'stud',
+      facultyId: 'fac',
+      universityId: 'uni',
+    })
+    const pages = [
+      { id: 'f1', mime: 'image/jpeg', order: 0 },
+      { id: 'f2', mime: 'image/jpeg', order: 1 },
+    ]
+    application.findUnique.mockResolvedValue({
+      id: 'a1',
+      documents: [
+        { id: 'ad1', documentId: 'doc1', status: 'PENDING', document: { files: pages } },
+        { id: 'ad2', documentId: null, status: 'PENDING', document: null },
+      ],
+    })
+    const app = await service.getById(dean, 'a1')
+    expect(app?.documents).toEqual([
+      { id: 'ad1', documentId: 'doc1', status: 'PENDING', files: pages },
+      { id: 'ad2', documentId: null, status: 'PENDING', files: [] },
+    ])
+    const select = application.findUnique.mock.calls[0][0].select.documents.select
+    expect(select.document.select.files.take).toBeGreaterThan(0)
   })
 })
 

@@ -212,8 +212,21 @@ export class ApplicationDocumentsService {
     return null
   }
 
-  /** Presigned-ссылка на файл документа заявки: владелец или обработчик (§26, scope перед выдачей). */
-  async presignedUrl(viewer: JwtPayload, appId: string, docId: string): Promise<{ url: string }> {
+  /**
+   * Presigned-ссылка на страницу документа заявки: владелец или обработчик (§26, scope перед
+   * выдачей). `fileId` — конкретная страница из `documents[].files` карточки заявки; без него —
+   * первая (так работали клиенты до списка страниц). Страница обязана принадлежать именно
+   * приложенному документу: чужой fileId по этой ссылке не открывается.
+   *
+   * Просмотр сотрудником пишется в журнал документа (DocumentEvent VIEW, `viaApplication`):
+   * студент видит, кто открывал его паспорт, как и для запросов документов и грантов.
+   */
+  async presignedUrl(
+    viewer: JwtPayload,
+    appId: string,
+    docId: string,
+    fileId?: string,
+  ): Promise<{ url: string }> {
     // Документы чужого черновика сотруднику не открываются — заявку ему ещё не подавали.
     const scope = await this.prisma.application.findFirst({
       where: { id: appId, deletedAt: null, AND: [this.policy.submittedOnlyWhere(viewer)] },
@@ -222,7 +235,8 @@ export class ApplicationDocumentsService {
     if (!scope) {
       throw new AppException('NOT_FOUND', 'Заявка не найдена')
     }
-    if (scope.studentId !== viewer.sub && !this.policy.canProcess(viewer, scope)) {
+    const isOwner = scope.studentId === viewer.sub
+    if (!isOwner && !this.policy.canProcess(viewer, scope)) {
       throw new AppException('FORBIDDEN', 'Нет доступа к документу заявки')
     }
     const ad = await this.prisma.applicationDocument.findFirst({
@@ -233,12 +247,24 @@ export class ApplicationDocumentsService {
       throw new AppException('NOT_FOUND', 'Документ не приложен')
     }
     const file = await this.prisma.file.findFirst({
-      where: { documentId: ad.documentId },
+      where: fileId ? { id: fileId, documentId: ad.documentId } : { documentId: ad.documentId },
       orderBy: { order: 'asc' },
       select: { id: true },
     })
     if (!file) {
       throw new AppException('NOT_FOUND', 'Файл документа не найден')
+    }
+    // Журнал — до выдачи ссылки: без записи ссылки нет. Собственный просмотр владельца сюда
+    // не пишем — журнал отвечает на вопрос «кто ещё открывал мой документ».
+    if (!isOwner) {
+      await this.prisma.documentEvent.create({
+        data: {
+          actorId: viewer.sub,
+          documentId: ad.documentId,
+          action: 'VIEW',
+          metadata: { fileId: file.id, viaApplication: appId, applicationDocumentId: docId },
+        },
+      })
     }
     return { url: await this.files.getPresignedUrl(file.id) }
   }

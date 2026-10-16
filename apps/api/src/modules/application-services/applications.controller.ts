@@ -145,12 +145,19 @@ export class ApplicationsController {
 
   @Get(':id/documents/:docId/url')
   @ApiOperation({ summary: 'Presigned-ссылка на файл документа заявки (владелец/обработчик)' })
+  @ApiQuery({
+    name: 'fileId',
+    required: false,
+    description:
+      'Страница документа из `documents[].files` карточки заявки. Без него — первая страница',
+  })
   documentUrl(
     @CurrentUser() user: CurrentUserData,
     @Param('id') id: string,
     @Param('docId') docId: string,
+    @Query('fileId') fileId?: string,
   ) {
-    return this.documents.presignedUrl(user, id, docId)
+    return this.documents.presignedUrl(user, id, docId, fileId || undefined)
   }
 
   // ── Обработка сотрудником (§15–§17, §39) ────────────────────────────────────
