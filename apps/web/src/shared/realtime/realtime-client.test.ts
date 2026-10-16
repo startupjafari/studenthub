@@ -169,6 +169,23 @@ describe('createLeaderClient', () => {
       expect(socket.emit).toHaveBeenCalledExactlyOnceWith('chat:leave', { chatId: 'c2' })
       leader.dispose()
     })
+
+    it('после переподключения входит заново во все удерживаемые комнаты', () => {
+      const hub = createBusHub()
+      const socket = createSocketStub()
+      const leader = createLeaderClient(socket as unknown as Socket, hub.openPort(), 'tab-a')
+      leader.emit('chat:join', { chatId: 'c1' })
+      leader.emit('chat:join', { chatId: 'c2' })
+      leader.emit('chat:leave', { chatId: 'c2' })
+      socket.emit.mockClear()
+
+      // Новый сокет на сервере о комнатах не знает; повторный join той же вкладки рефкаунт
+      // глушит, поэтому вход заново — забота клиента при connect.
+      socket.fire('connect')
+
+      expect(socket.emit).toHaveBeenCalledExactlyOnceWith('chat:join', { chatId: 'c1' })
+      leader.dispose()
+    })
   })
 })
 
