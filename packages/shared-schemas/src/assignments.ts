@@ -67,7 +67,12 @@ export const AssignmentListQuerySchema = OffsetPaginationSchema.extend({
   groupId: z.string().min(1).optional(),
   status: AssignmentStatusSchema.optional(),
   mine: z.coerce.boolean().optional(),
-  // Необязательные: без них остаётся прежний порядок «ближайший срок сверху».
+  // Период по сроку сдачи (календарь, «Сегодня»): `dueFrom` — включительно, `dueTo` — не
+  // включая. Задания без срока в период не попадают.
+  dueFrom: isoDateTime.optional(),
+  dueTo: isoDateTime.optional(),
+  // Необязательные. Без них студент получает «актуальные сверху» (открытые по ближайшему
+  // сроку, затем прошедшие от свежих к старым), остальные роли — «ближайший срок сверху».
   sort: AssignmentSortSchema.optional(),
   order: SortOrderSchema.optional(),
 })

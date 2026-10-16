@@ -162,7 +162,14 @@ export class AttendanceService {
     return this.roster(actor, { pairId: input.pairId, date: input.date })
   }
 
-  /** Сводка посещаемости студента (свои данные). */
+  /**
+   * Сводка посещаемости студента (свои данные).
+   *
+   * Счётчики считает БД (`GROUP BY status`), а не выборка: прежние 2000 строк без порядка
+   * к третьему-четвёртому курсу покрывали произвольную часть истории, и процент «плыл».
+   * `subject` сужает сводку до дисциплины — страница курса раньше считала её в браузере
+   * по последним 100 отметкам за все предметы, то есть за пару недель, а не за семестр.
+   */
   async studentSummary(viewer: JwtPayload, query: AttendanceSummaryQueryInput) {
     if (!STUDENT_ROLES.includes(viewer.role)) {
       throw new AppException('FORBIDDEN', 'Только для студентов')
@@ -177,9 +184,12 @@ export class AttendanceService {
             },
           }
         : {}),
+      ...(query.subject ? { pair: { is: { subject: query.subject } } } : {}),
     }
-    const [all, records] = await this.prisma.$transaction([
-      this.prisma.attendance.findMany({ where, select: { status: true }, take: 2000 }),
+    // Promise.all, а не $transaction: groupBy в пакетной транзакции Prisma не типизирует.
+    const [byStatus, records] = await Promise.all([
+      // Строк в ответе не больше, чем статусов: потолок `take` здесь не нужен.
+      this.prisma.attendance.groupBy({ by: ['status'], where, _count: { _all: true } }),
       this.prisma.attendance.findMany({
         where,
         select: {
@@ -194,8 +204,8 @@ export class AttendanceService {
       }),
     ])
     const counts = { PRESENT: 0, LATE: 0, ABSENT: 0, EXCUSED: 0 }
-    for (const a of all) {
-      if (a.status in counts) counts[a.status as keyof typeof counts] += 1
+    for (const g of byStatus) {
+      if (g.status in counts) counts[g.status as keyof typeof counts] += g._count._all
     }
     const total = counts.PRESENT + counts.LATE + counts.ABSENT + counts.EXCUSED
     // «Посещаемость» = доля не-пропусков (присутствовал/опоздал/уважительная).

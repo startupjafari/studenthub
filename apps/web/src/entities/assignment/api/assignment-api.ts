@@ -24,10 +24,19 @@ export const assignmentKeys = {
     ['assignments', 'list-paged', filters] as const,
   list: (filters: Partial<AssignmentListQueryInput> = {}) =>
     ['assignments', 'list', filters] as const,
+  // Постраничный список студента («Показать ещё»). Под префиксом `list`, чтобы его
+  // освежала та же инвалидация `list()`, что и остальные списки после сдачи работы.
+  listPages: () => ['assignments', 'list', { pages: true }] as const,
   detail: (id: string) => ['assignments', 'detail', id] as const,
   submissions: (id: string) => ['assignments', id, 'submissions'] as const,
 }
 
+/**
+ * Первые 100 заданий одним массивом — для экранов, которым хватает «актуальных»:
+ * студенту сервер без `sort` отдаёт открытые по ближайшему сроку, затем прошедшие от
+ * свежих к старым, так что текущий семестр не отсекается заданиями первого курса.
+ * Календарю нужен период — `dueFrom`/`dueTo`.
+ */
 export async function fetchAssignments(
   filters: Partial<AssignmentListQueryInput> = {},
 ): Promise<AssignmentItem[]> {
@@ -40,9 +49,10 @@ export async function fetchAssignments(
 /**
  * Страница заданий с общим числом — для таблицы преподавателя.
  *
- * Отдельно от `fetchAssignments`: тот отдаёт массив и используется ещё на четырёх
- * экранах (календарь, задачи, курс, список студента), которым ни `total`, ни
+ * Отдельно от `fetchAssignments`: тот отдаёт массив и используется ещё на нескольких
+ * экранах (календарь, задачи, курс, академический профиль), которым ни `total`, ни
  * сортировка не нужны. Менять его форму значило бы править их все ради одной таблицы.
+ * Список студента читает этот же эндпоинт страницами — по `total` он знает, есть ли ещё.
  */
 export async function fetchAssignmentsPaged(
   query: Partial<AssignmentListQueryInput> = {},

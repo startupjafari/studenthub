@@ -244,3 +244,85 @@ describe('AssignmentsService — балл не больше максимума (
     expect(prisma.assignment.update).not.toHaveBeenCalled()
   })
 })
+
+// ── C-F17: список студента «актуальные сверху» ──────────────────────────────
+describe('AssignmentsService.list — порядок для студента (C-F17)', () => {
+  // Части списка различаем по условию: у «остальных» есть status: { not: 'PUBLISHED' }.
+  const isRest = (where: unknown): boolean => JSON.stringify(where).includes('"not":"PUBLISHED"')
+
+  function listSetup(openTotal: number, restTotal: number) {
+    const { service, prisma } = setup()
+    const count = jest.fn(({ where }: { where: unknown }) =>
+      Promise.resolve(isRest(where) ? restTotal : openTotal),
+    )
+    const findMany = jest.fn(({ where, take }: { where: unknown; take: number }) =>
+      Promise.resolve(
+        Array.from({ length: take }, (_, i) => ({
+          id: `${isRest(where) ? 'rest' : 'open'}-${i}`,
+          submissions: [],
+        })),
+      ),
+    )
+    const $transaction = jest.fn((ops: Promise<unknown>[]) => Promise.all(ops))
+    Object.assign(prisma.assignment, { count, findMany })
+    Object.assign(prisma, { $transaction })
+    return { service, count, findMany }
+  }
+
+  it('первая страница: открытые по ближайшему сроку, затем прошедшие от свежих', async () => {
+    const { service, findMany } = listSetup(2, 5)
+    const res = await service.list(student, { page: 1, limit: 3 })
+
+    expect(res.items.map((r) => (r as { id: string }).id)).toEqual(['open-0', 'open-1', 'rest-0'])
+    expect(res.meta).toEqual({ total: 7 })
+    const [open = {}, rest = {}] = findMany.mock.calls.map((c) => c[0] as Record<string, unknown>)
+    expect(open).toMatchObject({
+      skip: 0,
+      take: 2,
+      orderBy: [{ dueAt: { sort: 'asc', nulls: 'last' } }, { createdAt: 'desc' }],
+    })
+    expect(rest).toMatchObject({
+      skip: 0,
+      take: 1,
+      orderBy: [{ dueAt: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }],
+    })
+    // Открытые — опубликованные со сроком впереди или без срока; scope студента сохранён.
+    expect(JSON.stringify(open.where)).toContain('"status":"PUBLISHED"')
+    expect(JSON.stringify(open.where)).toContain('"dueAt":null')
+    expect(JSON.stringify(rest.where)).toContain('"groupId":"grp-1"')
+  })
+
+  it('страница за открытыми читает только прошедшие со сдвигом', async () => {
+    const { service, findMany } = listSetup(2, 5)
+    const res = await service.list(student, { page: 2, limit: 3 })
+
+    expect(findMany).toHaveBeenCalledTimes(1)
+    expect(findMany.mock.calls[0]?.[0]).toMatchObject({ skip: 1, take: 3 })
+    expect(res.items).toHaveLength(3)
+  })
+
+  it('явная сортировка и роль преподавателя — прежний порядок одним запросом', async () => {
+    const { service, findMany } = listSetup(0, 0)
+    await service.list(student, { page: 1, limit: 10, sort: 'dueAt', order: 'asc' })
+    await service.list(teacher, { page: 1, limit: 10 })
+
+    expect(findMany).toHaveBeenCalledTimes(2)
+    for (const [args] of findMany.mock.calls) {
+      expect(args).toMatchObject({ orderBy: [{ dueAt: 'asc' }, { createdAt: 'desc' }] })
+    }
+  })
+
+  it('dueFrom/dueTo сужают выборку по сроку: от включительно, до — не включая', async () => {
+    const { service, count } = listSetup(0, 0)
+    await service.list(student, {
+      page: 1,
+      limit: 10,
+      dueFrom: '2026-10-01T00:00:00.000Z',
+      dueTo: '2026-11-01T00:00:00.000Z',
+    })
+
+    const where = JSON.stringify((count.mock.calls[0]?.[0] as { where: unknown }).where)
+    expect(where).toContain('"gte":"2026-10-01T00:00:00.000Z"')
+    expect(where).toContain('"lt":"2026-11-01T00:00:00.000Z"')
+  })
+})

@@ -98,6 +98,21 @@ describe('MeService.today', () => {
     expect(applications.list).toHaveBeenCalledTimes(1)
   })
 
+  it('задания — окно по сроку на неделю вперёд, а не первые 20 за все семестры (C-F17)', async () => {
+    const { service, assignments } = setup()
+    const before = Date.now()
+    await service.today(student)
+
+    expect(assignments.list).toHaveBeenCalledTimes(1)
+    const [, query] = assignments.list.mock.calls[0] as [JwtPayload, Record<string, unknown>]
+    expect(query).toMatchObject({ page: 1, limit: 50 })
+    // Сортировку не задаём: студенту list сам отдаёт «актуальные сверху».
+    expect(query.sort).toBeUndefined()
+    const dueTo = new Date(query.dueTo as string).getTime()
+    expect(dueTo - before).toBeGreaterThanOrEqual(9 * 86_400_000)
+    expect(dueTo - before).toBeLessThan(10 * 86_400_000)
+  })
+
   it('не запрашивает заявки для не-студенческих ролей', async () => {
     const { service, applications } = setup()
     const res = await service.today(teacher)

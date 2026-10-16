@@ -12,6 +12,11 @@ import { localDateString } from '../../common/time/local-label'
 
 const STUDENT_ROLES: readonly Role[] = [Role.STUDENT, Role.STAROSTA]
 
+// Задания «Сегодня»: блок «требует внимания» показывает сроки на неделю вперёд (по дате
+// вуза), поэтому окно — 9 суток, с запасом на сдвиг часового пояса относительно UTC.
+const ASSIGNMENTS_LIMIT = 50
+const ASSIGNMENTS_DAYS_AHEAD = 9
+
 // Ответ агрегатора «мой день». Вложенные коллекции — как их отдают доменные сервисы
 // (формы живут в своих доменах, здесь не переобъявляются).
 export interface MeTodayResponse {
@@ -99,9 +104,20 @@ export class MeService {
         () => this.items(this.events.list(viewer, { filter: 'upcoming', page: 1, limit: 20 })),
         { items: [] },
       ),
-      this.safe('assignments', () => this.items(this.assignments.list(viewer, this.q(20))), {
-        items: [],
-      }),
+      // Дедлайны недели и свежие прошедшие (просрочка, возврат на доработку): студенту
+      // список отдаётся «актуальные сверху», а окно по сроку не пускает вперёд задания
+      // на месяц вперёд. Раньше здесь были 20 самых ранних сроков за все семестры.
+      this.safe(
+        'assignments',
+        () =>
+          this.items(
+            this.assignments.list(
+              viewer,
+              this.q(ASSIGNMENTS_LIMIT, { dueTo: this.inDays(ASSIGNMENTS_DAYS_AHEAD) }),
+            ),
+          ),
+        { items: [] },
+      ),
       this.safe(
         'notifications',
         () => this.items(this.notifications.list(viewer.sub, { limit: 20 })),
@@ -212,6 +228,11 @@ export class MeService {
   // output z.infer, где поля обязательны; передаём явно).
   private q<E extends object>(limit: number, extra?: E): { page: number; limit: number } & E {
     return { page: 1, limit, ...(extra ?? ({} as E)) }
+  }
+
+  // Момент через `days` суток — ISO-строка, как граница периода в query-схемах.
+  private inDays(days: number): string {
+    return new Date(Date.now() + days * 86_400_000).toISOString()
   }
 
   // Разворачиваем Paginated в { items }, чтобы дефолт при сбое (`{ items: [] }`) был совместим по типу.

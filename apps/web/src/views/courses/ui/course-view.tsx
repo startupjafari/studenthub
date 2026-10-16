@@ -147,9 +147,11 @@ export function CourseView({ subject }: CourseViewProps) {
   // Workspace дисциплины (docs/UNIFIED_UX.md PR-3): единая дисциплина = расписание +
   // задания + материалы + оценки + посещаемость + чат. Всё из существующих сущностей.
   const myGrades = useQuery({ queryKey: gradebookKeys.me(), queryFn: fetchMyGrades, retry: false })
+  // Сводка по дисциплине считается на сервере за всё время: раньше страница фильтровала
+  // последние 100 отметок по всем предметам и показывала долю за пару недель.
   const myAttendance = useQuery({
-    queryKey: attendanceKeys.me(),
-    queryFn: () => fetchMyAttendance(),
+    queryKey: attendanceKeys.me({ subject }),
+    queryFn: () => fetchMyAttendance({ subject }),
     retry: false,
   })
 
@@ -175,20 +177,17 @@ export function CourseView({ subject }: CourseViewProps) {
     [schedule.data?.pairs, subject],
   )
 
-  const subjectAttendance = useMemo(
-    () => (myAttendance.data?.records ?? []).filter((r) => r.pair.subject === subject),
-    [myAttendance.data, subject],
-  )
-  const attStats = useMemo(() => {
-    const s = { present: 0, late: 0, absent: 0, excused: 0 }
-    for (const r of subjectAttendance) {
-      const k = r.status.toLowerCase() as keyof typeof s
-      if (k in s) s[k] += 1
-    }
-    const total = subjectAttendance.length
-    const rate = total ? Math.round(((s.present + s.late) / total) * 100) : 0
-    return { ...s, total, rate }
-  }, [subjectAttendance])
+  // Отметки — последние занятия этой дисциплины; счётчики и процент — серверные, по той
+  // же формуле, что и общая сводка на «Посещаемости».
+  const subjectAttendance = myAttendance.data?.records ?? []
+  const attStats = myAttendance.data ?? {
+    present: 0,
+    late: 0,
+    absent: 0,
+    excused: 0,
+    total: 0,
+    rate: 0,
+  }
 
   // Средний процент по опубликованным оценкам дисциплины.
   const gradesAverage = useMemo(() => {
@@ -455,7 +454,7 @@ export function CourseView({ subject }: CourseViewProps) {
 
       {tab === 'attendance' && (
         <>
-          {subjectAttendance.length === 0 ? (
+          {attStats.total === 0 ? (
             <EmptyState icon={<Clock />} title={t('noAttendanceData')} />
           ) : (
             <div className="flex flex-col gap-4">

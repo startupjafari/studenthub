@@ -181,11 +181,16 @@ export class AssignmentsService {
         ...(query.groupId ? [{ course: { is: { groupId: query.groupId } } }] : []),
         ...(query.status ? [{ status: query.status }] : []),
         ...(query.mine ? [{ createdById: viewer.sub }] : []),
+        ...(query.dueFrom ? [{ dueAt: { gte: new Date(query.dueFrom) } }] : []),
+        ...(query.dueTo ? [{ dueAt: { lt: new Date(query.dueTo) } }] : []),
       ],
     }
     const page = query.page ?? 1
     const limit = query.limit ?? 20
     const withMine = STUDENT_ROLES.includes(viewer.role)
+    if (withMine && !query.sort) {
+      return this.listByRelevance(viewer, where, page, limit)
+    }
     const [rows, total] = await this.prisma.$transaction([
       this.prisma.assignment.findMany({
         where,
@@ -199,6 +204,68 @@ export class AssignmentsService {
     return new Paginated(
       rows.map((r) => this.mapMine(r)),
       { total },
+    )
+  }
+
+  /**
+   * Список студента «актуальные сверху» — порядок по умолчанию, когда `sort` не задан.
+   *
+   * Scope студента — задания группы за все семестры, и прежний порядок «срок по
+   * возрастанию» без нижней границы ставил первыми задания первого курса: со второго
+   * семестра первая сотня (и двадцатка «Сегодня») состояла из давно прошедших, а новые
+   * отсекались — без всякого признака обрезки.
+   *
+   * Порядок из двух частей, страница режется поверх их склейки:
+   *  1) открытые — опубликованные со сроком впереди или без срока, ближайший срок сверху;
+   *  2) остальные — прошедшие и закрытые, от свежих к старым.
+   * Prisma не умеет `ORDER BY CASE`, поэтому части читаются отдельно; вместе они делят
+   * выборку без пересечений, и `total` равен тому же числу, что и без сортировки.
+   */
+  private async listByRelevance(
+    viewer: JwtPayload,
+    where: Prisma.AssignmentWhereInput,
+    page: number,
+    limit: number,
+  ) {
+    const now = new Date()
+    const open: Prisma.AssignmentWhereInput = {
+      AND: [where, { status: 'PUBLISHED' }, { OR: [{ dueAt: { gte: now } }, { dueAt: null }] }],
+    }
+    const rest: Prisma.AssignmentWhereInput = {
+      AND: [where, { OR: [{ status: { not: 'PUBLISHED' } }, { dueAt: { lt: now } }] }],
+    }
+    const [openTotal, restTotal] = await this.prisma.$transaction([
+      this.prisma.assignment.count({ where: open }),
+      this.prisma.assignment.count({ where: rest }),
+    ])
+    const skip = (page - 1) * limit
+    const openTake = Math.min(limit, Math.max(0, openTotal - skip))
+    const restSkip = Math.max(0, skip - openTotal)
+    const restTake = limit - openTake
+    const select = this.selectWithMine(viewer.sub)
+    const [openRows, restRows] = await Promise.all([
+      openTake > 0
+        ? this.prisma.assignment.findMany({
+            where: open,
+            select,
+            orderBy: [{ dueAt: { sort: 'asc', nulls: 'last' } }, { createdAt: 'desc' }],
+            skip,
+            take: openTake,
+          })
+        : [],
+      restTake > 0 && restSkip < restTotal
+        ? this.prisma.assignment.findMany({
+            where: rest,
+            select,
+            orderBy: [{ dueAt: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }],
+            skip: restSkip,
+            take: restTake,
+          })
+        : [],
+    ])
+    return new Paginated(
+      [...openRows, ...restRows].map((r) => this.mapMine(r)),
+      { total: openTotal + restTotal },
     )
   }
 
@@ -874,8 +941,9 @@ export class AssignmentsService {
 /**
  * Порядок списка заданий.
  *
- * Без явной сортировки — прежний порядок «ближайший срок сверху»: это то, что нужно
- * и студенту в ленте задач, и преподавателю при первом открытии.
+ * Без явной сортировки — прежний порядок «ближайший срок сверху» для преподавателя при
+ * первом открытии. Студент без `sort` сюда не попадает: у него «актуальные сверху»
+ * (`listByRelevance`).
  *
  * Вторым ключом всегда `createdAt`: заданий с одинаковым сроком или статусом много,
  * и без него СУБД вправе вернуть их в любом порядке — строки перемешивались бы между

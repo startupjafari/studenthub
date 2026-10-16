@@ -74,9 +74,20 @@ export function CalendarView() {
     queryKey: eventKeys.list('upcoming'),
     queryFn: () => fetchEvents({ limit: 50, filter: 'upcoming' }),
   })
+  // Дедлайны — за видимые недели сетки: без периода приходили первые 100 заданий за все
+  // семестры, и свежие месяцы оставались пустыми. Границы — местная полночь, как и
+  // раскладка заданий по дням (`mapAssignments`); `dueTo` не включается.
+  const dueRange = useMemo(() => {
+    const first = cells[0] ?? anchor
+    const last = cells[cells.length - 1] ?? anchor
+    return {
+      dueFrom: first.toISOString(),
+      dueTo: new Date(last.getFullYear(), last.getMonth(), last.getDate() + 1).toISOString(),
+    }
+  }, [cells, anchor])
   const assignments = useQuery({
-    queryKey: assignmentKeys.list(),
-    queryFn: () => fetchAssignments(),
+    queryKey: assignmentKeys.list(dueRange),
+    queryFn: () => fetchAssignments(dueRange),
     retry: false,
   })
 

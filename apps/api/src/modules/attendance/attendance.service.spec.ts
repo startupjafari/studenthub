@@ -105,3 +105,72 @@ describe('AttendanceService — право вести журнал при зам
     expect(prisma.scheduleChange.findFirst).not.toHaveBeenCalled()
   })
 })
+
+// ── C-F14: сводка студента считается в БД, а не по обрезанной выборке ─────────
+describe('AttendanceService.studentSummary (C-F14)', () => {
+  const student: JwtPayload = {
+    sub: 'stu-1',
+    role: Role.STUDENT,
+    universityId: 'uni-1',
+    facultyId: 'fac-1',
+    groupId: 'grp-1',
+  }
+
+  function summarySetup(groups: { status: string; n: number }[]) {
+    const { service, prisma } = setup()
+    const groupBy = jest
+      .fn()
+      .mockResolvedValue(groups.map((g) => ({ status: g.status, _count: { _all: g.n } })))
+    Object.assign(prisma.attendance, { groupBy })
+    prisma.attendance.findMany.mockResolvedValue([{ id: 'a-1' }])
+    return { service, prisma, groupBy }
+  }
+
+  it('счётчики — из GROUP BY без потолка строк, процент — доля не-пропусков', async () => {
+    // 3000 отметок: прежний take: 2000 потерял бы треть истории.
+    const { service, groupBy } = summarySetup([
+      { status: 'PRESENT', n: 2400 },
+      { status: 'LATE', n: 150 },
+      { status: 'ABSENT', n: 300 },
+      { status: 'EXCUSED', n: 150 },
+    ])
+    const res = await service.studentSummary(student, {})
+
+    expect(res).toMatchObject({
+      total: 3000,
+      present: 2400,
+      late: 150,
+      absent: 300,
+      excused: 150,
+      rate: 90,
+      records: [{ id: 'a-1' }],
+    })
+    expect(groupBy).toHaveBeenCalledWith({
+      by: ['status'],
+      where: { studentId: 'stu-1' },
+      _count: { _all: true },
+    })
+  })
+
+  it('subject сужает и счётчики, и последние отметки до дисциплины', async () => {
+    const { service, prisma, groupBy } = summarySetup([{ status: 'ABSENT', n: 1 }])
+    const res = await service.studentSummary(student, { subject: 'Матанализ', from: DATE })
+
+    const where = {
+      studentId: 'stu-1',
+      date: { gte: new Date(DATE) },
+      pair: { is: { subject: 'Матанализ' } },
+    }
+    expect(groupBy).toHaveBeenCalledWith(expect.objectContaining({ where }))
+    expect(prisma.attendance.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where, orderBy: { date: 'desc' }, take: 100 }),
+    )
+    expect(res).toMatchObject({ total: 1, absent: 1, rate: 0 })
+  })
+
+  it('не студенту сводка недоступна', async () => {
+    const { service } = summarySetup([])
+    const err = await service.studentSummary(teacher(MAIN), {}).catch((e) => e)
+    expect(err.code).toBe('FORBIDDEN')
+  })
+})
