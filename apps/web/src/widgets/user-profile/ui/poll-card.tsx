@@ -149,52 +149,40 @@ export function PollCard({ poll, isOwner }: Props) {
         </div>
 
         {votingMode ? (
-          <div className="flex flex-col gap-3">
-            <div
-              role={poll.multiple ? 'group' : 'radiogroup'}
-              aria-label={poll.question}
-              className="flex flex-col gap-2"
-            >
-              {poll.options.map((o) => {
-                const active = selected.includes(o.id)
-                return (
-                  <button
-                    key={o.id}
-                    type="button"
-                    role={poll.multiple ? 'checkbox' : 'radio'}
-                    aria-checked={active}
-                    onClick={() => toggle(o.id)}
+          <div
+            role={poll.multiple ? 'group' : 'radiogroup'}
+            aria-label={poll.question}
+            className="flex flex-col gap-2"
+          >
+            {poll.options.map((o) => {
+              const active = selected.includes(o.id)
+              return (
+                <button
+                  key={o.id}
+                  type="button"
+                  role={poll.multiple ? 'checkbox' : 'radio'}
+                  aria-checked={active}
+                  onClick={() => toggle(o.id)}
+                  className={cn(
+                    'flex min-h-10 items-center gap-3 rounded-xl border px-3 py-2 text-left text-sm transition-colors outline-none focus-visible:ring-4 focus-visible:ring-ring/20',
+                    active
+                      ? 'border-primary bg-primary/10 font-medium'
+                      : 'border-border hover:bg-muted/50',
+                  )}
+                >
+                  <span
                     className={cn(
-                      'flex min-h-10 items-center gap-3 rounded-xl border px-3 py-2 text-left text-sm transition-colors outline-none focus-visible:ring-4 focus-visible:ring-ring/20',
-                      active
-                        ? 'border-primary bg-primary/10 font-medium'
-                        : 'border-border hover:bg-muted/50',
+                      'flex size-4 shrink-0 items-center justify-center border border-input',
+                      poll.multiple ? 'rounded-md' : 'rounded-full',
+                      active && 'border-primary bg-primary text-primary-foreground',
                     )}
                   >
-                    <span
-                      className={cn(
-                        'flex size-4 shrink-0 items-center justify-center border border-input',
-                        poll.multiple ? 'rounded-md' : 'rounded-full',
-                        active && 'border-primary bg-primary text-primary-foreground',
-                      )}
-                    >
-                      {active && <Check className="size-3" aria-hidden />}
-                    </span>
-                    {o.text}
-                  </button>
-                )
-              })}
-            </div>
-            <Button
-              type="button"
-              size="md"
-              className="w-fit"
-              loading={voteMut.isPending}
-              disabled={selected.length === 0}
-              onClick={() => voteMut.mutate(selected)}
-            >
-              {t('pollVote')}
-            </Button>
+                    {active && <Check className="size-3" aria-hidden />}
+                  </span>
+                  {o.text}
+                </button>
+              )
+            })}
           </div>
         ) : poll.canSeeResults ? (
           // Итоги: подпись целиком (без обрезки), справа доля и число голосов, под ней полоса.
@@ -248,7 +236,31 @@ export function PollCard({ poll, isOwner }: Props) {
           {poll.multiple && (
             <span className="tabular-nums">{t('pollVotesCount', { count: poll.totalVotes })}</span>
           )}
-          {voted && poll.allowRevote && !poll.closed && (
+          {/* Действия — справа в подвале. При голосовании главная кнопка крайняя справа,
+              «К результатам» (у автора) — слева от неё. */}
+          {votingMode ? (
+            <div className="-my-1 ml-auto flex items-center gap-2">
+              {isOwner && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setOwnerVoting(false)}
+                >
+                  {t('pollShowResults')}
+                </Button>
+              )}
+              <Button
+                type="button"
+                size="sm"
+                loading={voteMut.isPending}
+                disabled={selected.length === 0}
+                onClick={() => voteMut.mutate(selected)}
+              >
+                {t('pollVote')}
+              </Button>
+            </div>
+          ) : voted && poll.allowRevote && !poll.closed ? (
             <Button
               type="button"
               variant="ghost"
@@ -260,18 +272,17 @@ export function PollCard({ poll, isOwner }: Props) {
               <RotateCcw className="size-3.5" aria-hidden />
               {t('pollCancelVote')}
             </Button>
-          )}
-          {isOwner && canVoteNow && (
+          ) : isOwner && canVoteNow ? (
             <Button
               type="button"
               variant="ghost"
               size="sm"
               className="-my-1 ml-auto"
-              onClick={() => setOwnerVoting((v) => !v)}
+              onClick={() => setOwnerVoting(true)}
             >
-              {ownerVoting ? t('pollShowResults') : t('pollVote')}
+              {t('pollVote')}
             </Button>
-          )}
+          ) : null}
         </div>
       </CardContent>
     </Card>
