@@ -6,7 +6,7 @@ import { useTranslations } from 'next-intl'
 import { Newspaper } from 'lucide-react'
 import { fetchAuthorPosts, postKeys, type FeedPost } from '../../../entities/post'
 import { PostGrid } from '../../feed-list'
-import { Button, EmptyState, Skeleton } from '../../../shared/ui'
+import { Button, EmptyState, MosaicGrid, MosaicTile, Skeleton } from '../../../shared/ui'
 import { PostCreateModal } from './post-create-modal'
 import { ContentLayout, FilterGroup, FilterOption, FilterSkeleton } from './filter-sidebar'
 import { useRetryOnError } from './use-retry-on-error'
@@ -22,7 +22,7 @@ interface Props {
 type SortMode = 'new' | 'popular'
 type StatusFilter = 'all' | 'PUBLISHED' | 'DRAFT' | 'SCHEDULED'
 
-// Вкладка «Посты»: слева — сортировка и быстрые фильтры, справа — сетка карточек-публикаций.
+// Вкладка «Посты»: слева — сортировка и быстрые фильтры, справа — мозаика публикаций.
 export function ProfilePosts({ userId, isOwner, openCreate, onConsumed }: Props) {
   const t = useTranslations('Profile')
   const [creating, setCreating] = useState(false)
@@ -59,28 +59,13 @@ export function ProfilePosts({ userId, isOwner, openCreate, onConsumed }: Props)
       <>
         {modal}
         <ContentLayout sidebar={<FilterSkeleton />}>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {Array.from({ length: 9 }).map((_, i) => (
-              <article
-                key={i}
-                className="flex flex-col overflow-hidden rounded-2xl border border-border bg-card"
-              >
-                <Skeleton className="aspect-[4/3] w-full rounded-none" />
-                <div className="flex flex-col gap-3 p-4">
-                  <div className="flex items-center justify-between gap-2">
-                    <Skeleton className="h-4 w-2/3" />
-                    <Skeleton className="h-3 w-14" />
-                  </div>
-                  <div className="flex items-center gap-4 border-t border-border pt-3">
-                    <Skeleton className="h-5 w-10 rounded-full" />
-                    <Skeleton className="h-5 w-10 rounded-full" />
-                    <Skeleton className="size-5 rounded-full" />
-                    <Skeleton className="ml-auto h-5 w-10 rounded-full" />
-                  </div>
-                </div>
-              </article>
+          <MosaicGrid aria-hidden>
+            {Array.from({ length: 14 }).map((_, i) => (
+              <MosaicTile key={i} index={i}>
+                <Skeleton className="size-full rounded-none" />
+              </MosaicTile>
             ))}
-          </div>
+          </MosaicGrid>
         </ContentLayout>
       </>
     )
