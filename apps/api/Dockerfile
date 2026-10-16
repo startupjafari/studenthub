@@ -63,6 +63,12 @@ ENV NODE_ENV=production
 # ffmpeg/ffprobe — для воркера медиа (постеры и HLS видео, src/modules/media). Ставится из
 # apk, а не npm-обёрткой: бинарник собран под musl этого же образа и обновляется вместе с
 # базовым слоем. Тот же образ запускается и как API, и как воркер (`node dist/worker.js`).
+#
+# Версия не закреплена намеренно (DL3018): базовый `node:24-alpine` — плавающий тег, а
+# репозиторий Alpine хранит только последнюю сборку пакета. Пин вида `ffmpeg=8.1.2-r0`
+# сломал бы сборку образа при первом же патче безопасности ffmpeg или смене минорной
+# версии Alpine под тегом — то есть ровно тогда, когда обновление и нужно.
+# hadolint ignore=DL3018
 RUN apk add --no-cache ffmpeg
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /repo/apps/api/dist ./dist
