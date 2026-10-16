@@ -1,12 +1,13 @@
 import { forwardRef, Inject, Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { JwtService } from '@nestjs/jwt'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { Prisma } from '@prisma/client'
 import type Redis from 'ioredis'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AuditService } from '../../common/audit/audit.service'
 import { PasswordService } from '../../common/security/password.service'
+import { equalsConstantTime } from '../../common/security/constant-time'
 import { RealtimeGateway } from '../../common/realtime'
 import { REDIS_CLIENT } from '../../common/redis/redis.constants'
 import { SessionRevocationService } from '../../common/redis/session-revocation.service'
@@ -30,6 +31,22 @@ const TWO_FACTOR_CHALLENGE_TTL_SECONDS = 5 * 60
 // опечатку и на рассинхрон часов (TOTP принимает соседнее окно), но не на перебор:
 // шанс угадать шестизначный код за три попытки — три на миллион.
 const TWO_FACTOR_MAX_ATTEMPTS = 3
+
+// Секрет refresh хранится в БД как SHA-256, а не bcrypt. Секрет — `randomUUID()`, 122 бита
+// случайности: перебирать там нечего, и медленный хэш ничего не защищал, зато каждый обмен
+// стоил два bcrypt cost 12 (сверка старого, хэш нового) — ~0,5 с работы пула libuv, куда ходят
+// и вход по паролю, и fs, и zlib. Тот же выбор уже сделан для инвайтов, ссылок сброса пароля
+// и QR-входа.
+//
+// Переходный период: токены, выданные до перехода, лежат bcrypt-хэшем (`$2a$`/`$2b$`…) и
+// сверяются bcrypt, пока живут, — иначе разлогинились бы все разом. Первый же refresh такой
+// сессии выдаёт преемника уже с SHA-256. Refresh живёт 30 дней (JWT_REFRESH_EXPIRES_IN), так
+// что через месяц после выката bcrypt-ветку нужно убрать — вместе с этим комментарием.
+const LEGACY_BCRYPT_HASH_PREFIX = '$2'
+
+function hashRefreshSecret(secret: string): string {
+  return createHash('sha256').update(secret).digest('hex')
+}
 
 export interface RequestContext {
   ip?: string
@@ -337,13 +354,13 @@ export class AuthService {
     }
 
     // Попал ли повтор в окно грации — решаем по моменту прихода запроса, до сверки секрета:
-    // bcrypt занимает сотни миллисекунд, и, считай мы окно после него, честный повтор мог
-    // вылететь за окно только из-за собственной проверки.
+    // сверка старых bcrypt-записей занимает сотни миллисекунд, и, считай мы окно после неё,
+    // честный повтор мог вылететь за окно только из-за собственной проверки.
     const reuseInGrace = await this.withinReuseGrace(record)
 
     // Секрет — до детектора повтора: иначе одного id (без секрета) хватало, чтобы объявить
     // «повтор» и погасить чужую цепочку сессий.
-    const secretOk = await this.passwords.compare(parsed.secret, record.tokenHash)
+    const secretOk = await this.refreshSecretMatches(parsed.secret, record.tokenHash)
     if (!secretOk) {
       throw new AppException('UNAUTHORIZED', 'Некорректный refresh-токен')
     }
@@ -393,7 +410,11 @@ export class AuthService {
     // Ротация атомарно: старый revoked + новый в той же цепочке. Гасим и остальные живые токены
     // цепочки — на пути грации там остаётся успешно выданный ранее «преемник», а инвариант
     // «один активный токен на цепочку» терять нельзя.
-    const session = await this.prisma.$transaction(async (tx) => {
+    //
+    // В AuditLog обычный обмен не пишется: активная вкладка меняет токен каждые 15 минут, и
+    // журнал на 90% состоял из «refresh», вытесняя то, ради чего его читают. Значимые события
+    // сессии — вход, выход и повтор погашенного токена — пишутся по-прежнему.
+    return this.prisma.$transaction(async (tx) => {
       await tx.refreshToken.updateMany({
         where: { familyId: record.familyId, revokedAt: null },
         data: { revokedAt: new Date() },
@@ -401,9 +422,6 @@ export class AuthService {
       await tx.refreshToken.update({ where: { id: record.id }, data: { revokedAt: new Date() } })
       return this.issueSession(this.toPayload(user), record.familyId, tx)
     })
-
-    await this.audit.record({ userId: user.id, action: 'refresh', ...ctx })
-    return session
   }
 
   /** Logout: инвалидирует всю цепочку текущей сессии. */
@@ -415,7 +433,7 @@ export class AuthService {
     const record = await this.prisma.refreshToken.findUnique({ where: { id: parsed.id } })
     // Без верного секрета выход ничего не гасит: id токена сам по себе не доказывает, что
     // это та же сессия.
-    if (!record || !(await this.passwords.compare(parsed.secret, record.tokenHash))) {
+    if (!record || !(await this.refreshSecretMatches(parsed.secret, record.tokenHash))) {
       return
     }
     await this.revokeFamily(record.familyId)
@@ -476,7 +494,7 @@ export class AuthService {
     const accessToken = this.jwt.sign(payload)
 
     const secret = randomUUID()
-    const tokenHash = await this.passwords.hash(secret)
+    const tokenHash = hashRefreshSecret(secret)
     const ttlMs = parseDurationMs(this.config.get('JWT_REFRESH_EXPIRES_IN', { infer: true }))
     const refreshExpiresAt = new Date(Date.now() + ttlMs)
 
@@ -491,6 +509,17 @@ export class AuthService {
       refreshExpiresAt,
       payload,
     }
+  }
+
+  /**
+   * Сверка секрета refresh с хэшем из БД. SHA-256 сравнивается за постоянное время; записи,
+   * выданные до перехода с bcrypt, — bcrypt'ом (переходная ветка, см. LEGACY_BCRYPT_HASH_PREFIX).
+   */
+  private async refreshSecretMatches(secret: string, tokenHash: string): Promise<boolean> {
+    if (tokenHash.startsWith(LEGACY_BCRYPT_HASH_PREFIX)) {
+      return this.passwords.compare(secret, tokenHash)
+    }
+    return equalsConstantTime(hashRefreshSecret(secret), tokenHash)
   }
 
   private parseRawToken(raw: string | undefined): { id: string; secret: string } | null {

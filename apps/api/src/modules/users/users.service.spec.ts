@@ -126,6 +126,26 @@ describe('UserService — auth-выборки несут twoFactorEnabled (дл�
   })
 })
 
+// Регрессия: компания работодателя попадает в токен на ЛЮБОМ пути выдачи сессии. Второй шаг
+// входа с 2FA её не выбирал — работодатель до первого refresh видел «не привязан к компании».
+describe('UserService — auth-выборки несут компанию работодателя (companyId в токене)', () => {
+  it.each([
+    [
+      'findByLoginIdentifierForAuth (логин)',
+      (s: UserService) => s.findByLoginIdentifierForAuth('a@b.io'),
+    ],
+    ['findByIdForAuth (refresh)', (s: UserService) => s.findByIdForAuth('u1')],
+    ['getTwoFactorForLogin (вход с 2FA)', (s: UserService) => s.getTwoFactorForLogin('u1')],
+  ])('%s выбирает companyMembership', async (_name, call) => {
+    const { service, prisma } = setup()
+    prisma.user.findFirst.mockResolvedValue(null)
+    await call(service)
+    expect(prisma.user.findFirst.mock.calls[0][0].select.companyMembership).toEqual({
+      select: { companyId: true },
+    })
+  })
+})
+
 describe('UserService — приватность профиля', () => {
   it('сам себя — email виден', async () => {
     const { service, prisma } = setup()

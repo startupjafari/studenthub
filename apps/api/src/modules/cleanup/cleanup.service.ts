@@ -45,6 +45,7 @@ const LOCK_TTL_MS = {
   sweepDocumentExpiry: 15 * 60 * 1000,
   expireInvites: 10 * 60 * 1000,
   purgePasswordResetTokens: 10 * 60 * 1000,
+  purgeRefreshTokens: 10 * 60 * 1000,
   cleanOldNotifications: 30 * 60 * 1000,
   cleanAuditLogs: 30 * 60 * 1000,
   cleanDetachedFiles: 10 * 60 * 1000,
@@ -62,6 +63,11 @@ const LOCK_TTL_MS = {
 } as const
 const NOTIFICATION_RETENTION_DAYS = 30
 const AUDIT_RETENTION_DAYS = 90
+// Потолок удаления refresh-сессий за один прогон: 100 батчей, 50 тысяч строк. Каждый refresh
+// пишет строку, и хвост, накопленный до появления задачи, может исчисляться миллионами — он
+// уходит за несколько ежечасных прогонов, а не одним многоминутным циклом под локом. Обычный
+// суточный приток в разы меньше пропускной способности 24 прогонов.
+const REFRESH_TOKEN_PURGE_MAX_BATCHES = 100
 // Сколько ждём подтверждения адреса в заявке вуза, прежде чем удалить её (§31).
 //
 // Неделя, а не сутки: ссылка живёт 24 часа, но человек мог подать заявку в пятницу и
@@ -287,6 +293,41 @@ export class CleanupService {
       (ids) => this.prisma.passwordResetToken.deleteMany({ where: { id: { in: ids } } }),
     )
     this.logger.log(`purgePasswordResetTokens: удалено ${total}`)
+    return total
+  }
+
+  // Refresh-сессии, истёкшие больше суток назад. Ежечасно, в :25. Без этой задачи таблица
+  // росла вечно: каждый refresh добавляет строку, а старая лишь помечается `revokedAt`.
+  @Cron('25 * * * *', { name: 'purgeRefreshTokens' })
+  async purgeRefreshTokens(): Promise<number | null> {
+    return this.locks.run('purgeRefreshTokens', LOCK_TTL_MS.purgeRefreshTokens, () =>
+      this.purgeRefreshTokensTask(),
+    )
+  }
+
+  /**
+   * Критерий — только срок, а не `revokedAt`, и это намеренно. Погашенный токен живой цепочки —
+   * улика для детектора повтора (BACKEND_RULES §6.2): укравший токен ротирует его первым, а
+   * жертва, вернувшись через неделю со старой cookie, предъявляет погашенный — и цепочка вора
+   * рвётся. Удали мы погашенные через сутки, жертва получила бы «сессия не найдена», а сессия
+   * вора жила бы дальше. Строка перестаёт быть нужна, когда истекла и cookie с ней — после
+   * `expiresAt`; сутки сверху — запас на разбор жалоб «выкинуло из системы».
+   *
+   * Размер таблицы так ограничен сроком жизни refresh (30 дней ротаций), а не растёт вечно.
+   */
+  private async purgeRefreshTokensTask(): Promise<number> {
+    const cutoff = new Date(Date.now() - DAY_MS)
+    const total = await this.deleteInBatches(
+      () =>
+        this.prisma.refreshToken.findMany({
+          where: { expiresAt: { lt: cutoff } },
+          select: { id: true },
+          take: BATCH_SIZE,
+        }),
+      (ids) => this.prisma.refreshToken.deleteMany({ where: { id: { in: ids } } }),
+      REFRESH_TOKEN_PURGE_MAX_BATCHES,
+    )
+    this.logger.log(`purgeRefreshTokens: удалено ${total}`)
     return total
   }
 
@@ -805,13 +846,17 @@ export class CleanupService {
     return bytes
   }
 
-  /** Удаление батчами по BATCH_SIZE: находим id → deleteMany → повторяем, пока есть записи. */
+  /**
+   * Удаление батчами по BATCH_SIZE: находим id → deleteMany → повторяем, пока есть записи.
+   * `maxBatches` — потолок за один прогон; остаток доберёт следующий.
+   */
   private async deleteInBatches(
     findBatch: () => Promise<{ id: string }[]>,
     deleteByIds: (ids: string[]) => Promise<{ count: number }>,
+    maxBatches = Number.POSITIVE_INFINITY,
   ): Promise<number> {
     let total = 0
-    for (;;) {
+    for (let batches = 0; batches < maxBatches; batches++) {
       const batch = await findBatch()
       if (batch.length === 0) break
       const { count } = await deleteByIds(batch.map((b) => b.id))

@@ -62,9 +62,11 @@ describe('AuthService: попытки ввода кода 2FA', () => {
     const withPrivate = service as unknown as {
       issueSession: () => Promise<{ accessToken: string }>
     }
-    jest.spyOn(withPrivate, 'issueSession').mockResolvedValue({ accessToken: 'a' })
+    const issueSession = jest
+      .spyOn(withPrivate, 'issueSession')
+      .mockResolvedValue({ accessToken: 'a' })
 
-    return { service, redis, store, twoFactor }
+    return { service, redis, store, twoFactor, users, issueSession }
   }
 
   const verify = (service: AuthService) => service.loginVerifyTwoFactor(CHALLENGE, '000000', {})
@@ -122,5 +124,28 @@ describe('AuthService: попытки ввода кода 2FA', () => {
     redis.incr.mockRejectedValue(new Error('ECONNREFUSED'))
 
     await expect(verify(service)).rejects.toMatchObject({ code: 'INVALID_2FA_CODE' })
+  })
+
+  // Регрессия: токен после второго шага нёс companyId: null, и работодатель с 2FA до
+  // первого refresh получал «аккаунт не привязан к компании» на всех экранах карьеры.
+  it('вход с 2FA сохраняет companyId работодателя в токене', async () => {
+    const { service, users, issueSession } = setup(true)
+    users.getTwoFactorForLogin.mockResolvedValue({
+      id: 'user-1',
+      role: 'EMPLOYER',
+      universityId: null,
+      facultyId: null,
+      groupId: null,
+      twoFactorEnabled: true,
+      isBlocked: false,
+      companyMembership: { companyId: 'company-1' },
+    })
+
+    await verify(service)
+
+    expect(issueSession).toHaveBeenCalledWith(
+      expect.objectContaining({ sub: 'user-1', role: 'EMPLOYER', companyId: 'company-1' }),
+      expect.any(String),
+    )
   })
 })

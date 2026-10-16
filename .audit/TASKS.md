@@ -81,7 +81,7 @@
   - Суть: Удалённый аккаунт сотрудника платформы сохраняет доступ через Telegram (бот, уведомления, мини-апп)
   - Файлы: apps/api/src/common/telegram/telegram-notify.service.ts, apps/api/src/modules/mini/mini.service.ts, apps/api/src/modules/telegram-hook/telegram-hook.service.ts, apps/api/src/modules/users/users.service.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для A-F04; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [in_progress] FIX-A-F05 · P1 · проблемы: A-F05 · после: FIX-A-F01, FIX-A-F04
+- [done] FIX-A-F05 · P1 · проблемы: A-F05 · после: FIX-A-F01, FIX-A-F04
   - Суть: После входа с 2FA у работодателя в токене нет companyId — экраны карьеры сломаны до первого refresh
   - Файлы: apps/api/src/modules/auth/auth.service.ts, apps/api/src/modules/users/users.service.ts, apps/api/test/auth.e2e-spec.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для A-F05; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
@@ -93,11 +93,11 @@
   - Суть: Нет процесса восстановления доступа при потере аутентификатора 2FA
   - Файлы: apps/api/src/modules/auth/two-factor.service.ts, apps/api/src/modules/users/, apps/web/src/widgets/account-settings, apps/web/src/widgets/users-table, docs/PROJECT.md
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для A-F07; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [in_progress] FIX-A-F08 · P1 · проблемы: A-F08 · после: FIX-A-F02, FIX-A-F05
+- [done] FIX-A-F08 · P1 · проблемы: A-F08 · после: FIX-A-F02, FIX-A-F05
   - Суть: Таблица refresh_tokens растёт без очистки, а каждый refresh пишет строку в AuditLog
   - Файлы: apps/api/src/modules/auth/auth.service.ts, apps/api/src/modules/cleanup/cleanup.service.ts, docs/BACKEND_RULES.md
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для A-F08; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [in_progress] FIX-A-F09 · P1 · проблемы: A-F09 · после: FIX-A-F02, FIX-A-F05, FIX-A-F08
+- [done] FIX-A-F09 · P1 · проблемы: A-F09 · после: FIX-A-F02, FIX-A-F05, FIX-A-F08
   - Суть: Два bcrypt cost 12 на каждый refresh — узкое место пула потоков при утреннем пике
   - Файлы: apps/api/src/modules/auth/auth.service.ts, apps/api/src/modules/auth/refresh-secret.spec.ts, docs/BACKEND_RULES.md
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для A-F09; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.

@@ -60,6 +60,9 @@ export interface TwoFactorLoginRecord {
   twoFactorEnabled: boolean
   twoFactorSecret: string | null
   twoFactorBackupCodes: string[]
+  // Компания работодателя уходит в токен (JwtPayload.companyId) так же, как при входе без 2FA:
+  // без неё работодатель с 2FA до первого refresh получал «аккаунт не привязан к компании».
+  companyMembership: { companyId: string } | null
 }
 
 // Потолок выборки старост одной группы при смене старосты (§5.3: findMany без take нельзя).
@@ -1260,6 +1263,7 @@ export class UserService {
         twoFactorEnabled: true,
         twoFactorSecret: true,
         twoFactorBackupCodes: true,
+        companyMembership: { select: { companyId: true } },
       },
     })
   }

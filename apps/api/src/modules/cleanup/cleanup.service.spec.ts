@@ -7,6 +7,7 @@ function makeService() {
   const prisma = {
     invite: { findMany: jest.fn() as Mock, updateMany: jest.fn() as Mock },
     passwordResetToken: { findMany: jest.fn() as Mock, deleteMany: jest.fn() as Mock },
+    refreshToken: { findMany: jest.fn() as Mock, deleteMany: jest.fn() as Mock },
     notification: { findMany: jest.fn() as Mock, deleteMany: jest.fn() as Mock },
     auditLog: { findMany: jest.fn() as Mock, deleteMany: jest.fn() as Mock },
     file: {
@@ -211,6 +212,51 @@ describe('CleanupService', () => {
       expect(prisma.passwordResetToken.deleteMany).toHaveBeenCalledWith({
         where: { id: { in: ['t1'] } },
       })
+    })
+  })
+
+  describe('purgeRefreshTokens', () => {
+    it('удаляет сессии, истёкшие больше суток назад', async () => {
+      const { service, prisma } = makeService()
+      prisma.refreshToken.findMany
+        .mockResolvedValueOnce([{ id: 'r1' }, { id: 'r2' }])
+        .mockResolvedValueOnce([])
+      prisma.refreshToken.deleteMany.mockResolvedValue({ count: 2 })
+
+      const total = await service.purgeRefreshTokens()
+
+      expect(total).toBe(2)
+      const query = prisma.refreshToken.findMany.mock.calls[0][0]
+      expect(query.take).toBe(500)
+      expect(query.where.expiresAt.lt.getTime()).toBeLessThan(Date.now() - 23 * 60 * 60 * 1000)
+      expect(prisma.refreshToken.deleteMany).toHaveBeenCalledWith({
+        where: { id: { in: ['r1', 'r2'] } },
+      })
+    })
+
+    it('погашенные, но не истёкшие не трогает: на них держится детектор повтора', async () => {
+      const { service, prisma } = makeService()
+      prisma.refreshToken.findMany.mockResolvedValueOnce([])
+
+      await service.purgeRefreshTokens()
+
+      // Единственный критерий — срок; по revokedAt строки живой цепочки не удаляются.
+      expect(prisma.refreshToken.findMany.mock.calls[0][0].where).toEqual({
+        expiresAt: { lt: expect.any(Date) },
+      })
+      expect(prisma.refreshToken.deleteMany).not.toHaveBeenCalled()
+    })
+
+    it('за один прогон удаляет не больше 100 батчей — хвост доберёт следующий', async () => {
+      const { service, prisma } = makeService()
+      const full = Array.from({ length: 500 }, (_, i) => ({ id: `r${i}` }))
+      prisma.refreshToken.findMany.mockResolvedValue(full)
+      prisma.refreshToken.deleteMany.mockResolvedValue({ count: 500 })
+
+      const total = await service.purgeRefreshTokens()
+
+      expect(prisma.refreshToken.findMany).toHaveBeenCalledTimes(100)
+      expect(total).toBe(50_000)
     })
   })
 
@@ -439,6 +485,7 @@ describe('CleanupService — Redis-лок задач (Ф13.9)', () => {
     await service.publishScheduledPosts()
     await service.sweepDocumentExpiry()
     await service.expireInvites()
+    await service.purgeRefreshTokens()
     await service.cleanOldNotifications()
     await service.cleanAuditLogs()
     await service.cleanOrphanFiles()
@@ -448,6 +495,7 @@ describe('CleanupService — Redis-лок задач (Ф13.9)', () => {
       'publishScheduledPosts',
       'sweepDocumentExpiry',
       'expireInvites',
+      'purgeRefreshTokens',
       'cleanOldNotifications',
       'cleanAuditLogs',
       'cleanOrphanFiles',

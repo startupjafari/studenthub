@@ -66,6 +66,7 @@ function loginRecord(over: Partial<TwoFactorLoginRecord> = {}): TwoFactorLoginRe
     twoFactorEnabled: true,
     twoFactorSecret: null,
     twoFactorBackupCodes: [],
+    companyMembership: null,
     ...over,
   }
 }
