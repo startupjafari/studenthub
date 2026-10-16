@@ -22,6 +22,8 @@ import { countServerErrors } from '../../common/monitoring/error-rate'
 import { TelegramNotifyService } from '../../common/telegram/telegram-notify.service'
 import { digestText, humanAge } from '../../common/telegram/digest'
 import { PLATFORM_STATE, type PlatformStateReader } from '../platform/platform.constants'
+import { MediaService } from '../media/media.service'
+import { variantOwnerId } from '../media/media-keys'
 
 // Единственный дом для cron-задач (docs/PROJECT.md §10.2, docs/BACKEND_RULES.md §9.3).
 // Разбрасывать @Cron по модулям запрещено. Все задачи работают батчами и логируют счётчик.
@@ -56,6 +58,7 @@ const LOCK_TTL_MS = {
   rotateDuty: 10 * 60 * 1000,
   watchServices: 4 * 60 * 1000,
   reportStorageUsage: 10 * 60 * 1000,
+  resumeMediaProcessing: 9 * 60 * 1000,
 } as const
 const NOTIFICATION_RETENTION_DAYS = 30
 const AUDIT_RETENTION_DAYS = 90
@@ -138,6 +141,7 @@ export class CleanupService {
     private readonly demoRequests: DemoRequestsService,
     private readonly telegram: TelegramNotifyService,
     @Inject(PLATFORM_STATE) private readonly platform: PlatformStateReader,
+    private readonly media: MediaService,
   ) {}
 
   // Напоминания за час до события (docs/BACKEND_RULES.md §9.3): каждые 15 мин, окно [now+55, now+70],
@@ -403,12 +407,9 @@ export class CleanupService {
             take: chunk.length,
           })
           const known = new Set(existing.map((e) => e.key))
-          for (const key of await this.auxReferencedKeys(
-            bucket,
-            chunk.map((c) => c.name),
-          )) {
-            known.add(key)
-          }
+          const names = chunk.map((c) => c.name)
+          for (const key of await this.auxReferencedKeys(bucket, names)) known.add(key)
+          for (const key of await this.liveVariantKeys(bucket, names)) known.add(key)
           const orphans = chunk.filter((c) => !known.has(c.name))
           for (const orphan of orphans) {
             await this.minio.removeObject(bucket, orphan.name)
@@ -514,6 +515,46 @@ export class CleanupService {
       if (key) referenced.push(key)
     }
     return referenced
+  }
+
+  /**
+   * Варианты медиа (`variants/<fileId>/…`) из `keys`, чья запись File ещё жива.
+   *
+   * У вариантов нет своей строки на каждый объект (сегментов HLS — сотни), владелец читается
+   * из префикса ключа. Запись удалена, а префикс остался (удаление вариантов best-effort) —
+   * объекты становятся сиротами и уходят здесь же.
+   */
+  private async liveVariantKeys(bucket: string, keys: string[]): Promise<string[]> {
+    const owners = new Map<string, string>()
+    for (const key of keys) {
+      const owner = variantOwnerId(key)
+      if (owner) owners.set(key, owner)
+    }
+    if (owners.size === 0) return []
+    const ids = [...new Set(owners.values())]
+    const alive = await this.prisma.file.findMany({
+      where: { bucket, id: { in: ids } },
+      select: { id: true },
+      take: ids.length,
+    })
+    const aliveIds = new Set(alive.map((f) => f.id))
+    return [...owners].filter(([, owner]) => aliveIds.has(owner)).map(([key]) => key)
+  }
+
+  /**
+   * Догонялка медиа-обработки, каждые 10 минут: задачи, не дошедшие до очереди (постановка
+   * best effort), и файлы, загруженные до появления медиа-системы (backfill, свежие первыми).
+   * Сама обработка — в воркере; здесь только постановка, по 200 файлов за проход.
+   */
+  @Cron('*/10 * * * *', { name: 'resumeMediaProcessing' })
+  async resumeMediaProcessing(): Promise<{ resumed: number; backfilled: number } | null> {
+    return this.locks.run('resumeMediaProcessing', LOCK_TTL_MS.resumeMediaProcessing, async () => {
+      const result = await this.media.resumeAndBackfill()
+      this.logger.log(
+        `resumeMediaProcessing: возвращено в очередь ${result.resumed}, поставлено впервые ${result.backfilled}`,
+      )
+      return result
+    })
   }
 
   /**

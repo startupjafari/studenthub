@@ -2455,6 +2455,8 @@ export class ChatsService {
         linkPreview: true,
         media: {
           select: {
+            // id — чтобы копия забрала готовые варианты медиа, а не готовила их заново.
+            id: true,
             bucket: true,
             key: true,
             mime: true,
