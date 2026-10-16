@@ -16,6 +16,9 @@ export { layoutColumns, type TimeSpan, type Placed } from './lib/layout-columns'
 export {
   buildDayPairs,
   nextPair,
+  substitutionOn,
+  isSubstitutedAway,
+  substitutionPairs,
   nowInTz,
   isoWeekParity,
   type DayPair,

@@ -105,7 +105,7 @@
   - Суть: Одобрение демо-заявки не атомарно: двойной клик или сбой инвайта даёт вуз-дубликат
   - Файлы: apps/api/src/modules/invites/invites.service.ts, apps/api/src/modules/onboarding/demo-requests.service.spec.ts, apps/api/src/modules/onboarding/demo-requests.service.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для B-F02; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [todo] FIX-B-F03 · P1 · проблемы: B-F03 · после: FIX-A-F08, FIX-A-F09, FIX-B-F02 · стоп: контракт
+- [in_progress] FIX-B-F03 · P1 · проблемы: B-F03 · после: FIX-A-F08, FIX-A-F09, FIX-B-F02 · стоп: контракт
   - Суть: Статус вуза BLOCKED (и PENDING) ничего не ограничивает
   - Файлы: apps/api/src/modules/auth/auth.service.ts, apps/api/src/modules/auth/strategies/jwt.strategy.ts, apps/api/src/modules/invites/invites.service.ts, apps/api/src/modules/universities/universities.service.ts, docs/PROJECT.md
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для B-F03; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
@@ -113,7 +113,7 @@
   - Суть: Админ заблокированного вуза сам переводит его в ACTIVE через мастер
   - Файлы: apps/api/src/modules/onboarding/onboarding.service.spec.ts, apps/api/src/modules/onboarding/onboarding.service.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для B-F04; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [todo] FIX-B-F05 · P1 · проблемы: B-F05 · стоп: миграция
+- [in_progress] FIX-B-F05 · P1 · проблемы: B-F05 · стоп: миграция
   - Суть: Удаление «пустой» группы каскадом стирает курсы, задания, оценки, экзамены и материалы
   - Файлы: apps/api/src/modules/groups/groups.service.spec.ts, apps/api/src/modules/groups/groups.service.ts, prisma/schema/12-materials.prisma, prisma/schema/17-courses.prisma, prisma/schema/21-exams.prisma
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для B-F05; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
@@ -161,11 +161,11 @@
   - Суть: Список экзаменов декана/админа: `take: 200` по возрастанию даты — после пары сессий ближайшие экзамены пропадают
   - Файлы: apps/api/src/modules/exams/exams.service.ts, apps/web/src/entities/exam/api/exam-api.ts, apps/web/src/views/exams/ui/exam-management-view.tsx, apps/web/src/views/exams/ui/student-exams-view.tsx, packages/shared-schemas/src/exams.ts
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F09; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [in_progress] FIX-C-F12 · P1 · проблемы: C-F12 · после: FIX-C-F11
+- [done] FIX-C-F12 · P1 · проблемы: C-F12 · после: FIX-C-F11
   - Суть: Замена преподавателя не доходит до заменяющего: пары нет в его расписании, отметить посещаемость он не может
   - Файлы: apps/api/src/modules/attendance/attendance.service.ts, apps/api/src/modules/me/me.service.ts, apps/api/src/modules/schedules/schedules.service.ts, apps/web/src/views/attendance/ui/teacher-attendance-view.tsx, apps/web/src/widgets/today/ui/teacher-today.tsx
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F12; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.
-- [in_progress] FIX-C-F13 · P1 · проблемы: C-F13 · после: FIX-C-F11, FIX-C-F12
+- [done] FIX-C-F13 · P1 · проблемы: C-F13 · после: FIX-C-F11, FIX-C-F12
   - Суть: «Новая версия расписания» сразу становится активной и гасит текущую — группа видит пустую сетку
   - Файлы: apps/api/src/modules/schedules/schedules.service.spec.ts, apps/api/src/modules/schedules/schedules.service.ts, apps/web/src/features/manage-schedule/ui/create-version-modal.tsx
   - Готово, когда: исправлено по «Решение» из AUDIT_REPORT.md для C-F13; связанные тесты и eslint зелёные; на сценарий добавлен тест, где это возможно.

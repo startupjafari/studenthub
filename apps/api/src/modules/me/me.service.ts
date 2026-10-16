@@ -55,51 +55,66 @@ export class MeService {
     const date = localDateString(new Date(), university?.timezone)
     const isStudent = STUDENT_ROLES.includes(viewer.role)
 
-    const [schedule, scheduleChanges, applications, events, assignments, notifications] =
-      await Promise.all([
-        this.safe('schedule', () => this.schedules.getSchedule(viewer, {}), {
-          timezone: null as string | null,
-          pairs: [] as MeTodayResponse['pairs'],
-        }),
-        this.safe(
-          'scheduleChanges',
-          () => this.schedules.listChanges(viewer, { from: date, to: date }),
-          [] as MeTodayResponse['scheduleChanges'],
-        ),
-        // Заявки актуальны только студенту/старосте; остальным — пусто (у них своя очередь).
-        isStudent
-          ? this.safe(
-              'applications',
-              () =>
-                this.items(
-                  this.applications.list(
-                    viewer,
-                    this.q(50, { sortBy: 'createdAt', sortOrder: 'desc' }),
-                  ),
+    const [
+      schedule,
+      substitutions,
+      scheduleChanges,
+      applications,
+      events,
+      assignments,
+      notifications,
+    ] = await Promise.all([
+      this.safe('schedule', () => this.schedules.getSchedule(viewer, {}), {
+        timezone: null as string | null,
+        pairs: [] as MeTodayResponse['pairs'],
+      }),
+      // Чужие пары, которые преподаватель ведёт сегодня по замене (C-F12): в недельной
+      // выборке их нет, а провести и отметить занятие должен именно он.
+      this.safe(
+        'substitutions',
+        () => this.schedules.substitutionPairs(viewer, date),
+        [] as MeTodayResponse['pairs'],
+      ),
+      this.safe(
+        'scheduleChanges',
+        () => this.schedules.listChanges(viewer, { from: date, to: date }),
+        [] as MeTodayResponse['scheduleChanges'],
+      ),
+      // Заявки актуальны только студенту/старосте; остальным — пусто (у них своя очередь).
+      isStudent
+        ? this.safe(
+            'applications',
+            () =>
+              this.items(
+                this.applications.list(
+                  viewer,
+                  this.q(50, { sortBy: 'createdAt', sortOrder: 'desc' }),
                 ),
-              { items: [] },
-            )
-          : Promise.resolve({ items: [] as unknown[] }),
-        this.safe(
-          'events',
-          () => this.items(this.events.list(viewer, { filter: 'upcoming', page: 1, limit: 20 })),
-          { items: [] },
-        ),
-        this.safe('assignments', () => this.items(this.assignments.list(viewer, this.q(20))), {
-          items: [],
-        }),
-        this.safe(
-          'notifications',
-          () => this.items(this.notifications.list(viewer.sub, { limit: 20 })),
-          { items: [] },
-        ),
-      ])
+              ),
+            { items: [] },
+          )
+        : Promise.resolve({ items: [] as unknown[] }),
+      this.safe(
+        'events',
+        () => this.items(this.events.list(viewer, { filter: 'upcoming', page: 1, limit: 20 })),
+        { items: [] },
+      ),
+      this.safe('assignments', () => this.items(this.assignments.list(viewer, this.q(20))), {
+        items: [],
+      }),
+      this.safe(
+        'notifications',
+        () => this.items(this.notifications.list(viewer.sub, { limit: 20 })),
+        { items: [] },
+      ),
+    ])
 
+    const ownIds = new Set(schedule.pairs.map((p) => p.id))
     return {
       role: viewer.role,
       date,
       timezone: schedule.timezone,
-      pairs: schedule.pairs,
+      pairs: [...schedule.pairs, ...substitutions.filter((p) => !ownIds.has(p.id))],
       scheduleChanges,
       applications: applications.items,
       events: events.items,

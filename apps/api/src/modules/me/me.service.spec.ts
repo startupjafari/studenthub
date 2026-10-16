@@ -12,6 +12,7 @@ function setup() {
   const schedules = {
     getSchedule: jest.fn().mockResolvedValue({ timezone: 'Asia/Almaty', pairs: [{ id: 'p1' }] }),
     listChanges: jest.fn().mockResolvedValue([{ id: 'c1' }]),
+    substitutionPairs: jest.fn().mockResolvedValue([]),
   }
   const events = {
     list: jest.fn().mockResolvedValue({ items: [{ id: 'e1' }], meta: { total: 1 } }),
@@ -104,6 +105,24 @@ describe('MeService.today', () => {
     expect(applications.list).not.toHaveBeenCalled()
     expect(res.applications).toEqual([])
     expect(res.assignments).toEqual([{ id: 'a1' }])
+  })
+
+  it('преподавателю добавляет пары, которые он сегодня ведёт по замене (C-F12)', async () => {
+    const { service, schedules } = setup()
+    schedules.substitutionPairs.mockResolvedValueOnce([{ id: 'p-sub' }, { id: 'p1' }])
+    const res = await service.today(teacher)
+
+    // Своя пара p1 не дублируется, чужая по замене — добавлена.
+    expect(res.pairs.map((p) => p.id)).toEqual(['p1', 'p-sub'])
+    expect(schedules.substitutionPairs).toHaveBeenCalledWith(teacher, res.date)
+  })
+
+  it('сбой выборки замен не роняет расписание дня', async () => {
+    const { service, schedules } = setup()
+    schedules.substitutionPairs.mockRejectedValueOnce(new Error('db down'))
+    const res = await service.today(teacher)
+
+    expect(res.pairs.map((p) => p.id)).toEqual(['p1'])
   })
 
   it('устойчив к сбою одного источника (возвращает дефолт, остальное цело)', async () => {

@@ -86,10 +86,16 @@ export function ManageSchedule({ mode = 'admin' }: { mode?: 'admin' | 'teacher' 
     enabled: !!groupId,
   })
 
+  // Выбранную версию не сбрасываем на активную при обновлении списка: только что созданный
+  // черновик (C-F13) остаётся открытым. На активную переключаемся, когда выбранной в списке
+  // нет — другая группа или версию удалили.
   useEffect(() => {
-    if (!containers.data) return
-    const active = containers.data.find((c) => c.isActive) ?? containers.data[0]
-    setContainerId(active?.id ?? '')
+    const list = containers.data
+    if (!list) return
+    setContainerId((current) => {
+      if (list.some((c) => c.id === current)) return current
+      return (list.find((c) => c.isActive) ?? list[0])?.id ?? ''
+    })
   }, [containers.data])
 
   const container = useQuery({
@@ -110,7 +116,15 @@ export function ManageSchedule({ mode = 'admin' }: { mode?: 'admin' | 'teacher' 
       void qc.invalidateQueries({ queryKey: scheduleKeys.containers(groupId) })
       toast.success(t('containerActivated'))
     },
-    onError: (e) => showApiError(e),
+    // Пары версии сверяются с активными сетками других групп (C-F13): конфликт — с перечнем.
+    onError: (e) => {
+      const err = apiErr(e)
+      if (err.code === 'CONFLICT') {
+        toast.error(t('conflictTitle'), {
+          description: err.details?.map((d) => d.message).join('; ') ?? t('conflictGeneric'),
+        })
+      } else showApiError(e)
+    },
   })
 
   const movePair = useMutation({
@@ -351,6 +365,7 @@ export function ManageSchedule({ mode = 'admin' }: { mode?: 'admin' | 'teacher' 
       {versionOpen && groupId && (
         <CreateVersionModal
           groupId={groupId}
+          hasActive={containers.data?.some((c) => c.isActive) ?? false}
           onCreated={setContainerId}
           onClose={() => setVersionOpen(false)}
         />

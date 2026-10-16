@@ -74,7 +74,7 @@ export class AttendanceService {
 
   async roster(viewer: JwtPayload, query: AttendanceRosterQueryInput) {
     const pair = await this.resolvePair(query.pairId)
-    this.assertManagePair(viewer, pair)
+    await this.assertManagePair(viewer, pair, query.date)
     const [students, marks] = await this.prisma.$transaction([
       this.prisma.user.findMany({
         where: {
@@ -113,7 +113,7 @@ export class AttendanceService {
   /** Массовая простановка отметок занятия (преподаватель). */
   async mark(actor: JwtPayload, input: MarkAttendanceInput, ctx: RequestContext) {
     const pair = await this.resolvePair(input.pairId)
-    this.assertManagePair(actor, pair)
+    await this.assertManagePair(actor, pair, input.date)
 
     const groupStudents = await this.prisma.user.findMany({
       where: { groupId: pair.groupId, role: { in: ['STUDENT', 'STAROSTA'] }, deletedAt: null },
@@ -214,7 +214,7 @@ export class AttendanceService {
   /** Преподаватель: сгенерировать QR занятия (подписанный короткоживущий токен + картинка). */
   async createQrToken(actor: JwtPayload, query: QrTokenQueryInput) {
     const pair = await this.resolvePair(query.pairId)
-    this.assertManagePair(actor, pair)
+    await this.assertManagePair(actor, pair, query.date)
     const exp = Date.now() + QR_TTL_MS
     const token = signToken<QrPayload>(
       { typ: QR_TYP, p: pair.id, d: query.date, exp },
@@ -340,13 +340,20 @@ export class AttendanceService {
 
   // ── scope ─────────────────────────────────────────────────────────────────
 
-  private assertManagePair(
+  /**
+   * Право вести журнал занятия (пара + дата). Преподаватель — только своё занятие, причём
+   * «своё» решается на дату: при замене (C-F12) его ведёт заменяющий, а основной на эту дату
+   * журнал не трогает — он отсутствует, отмечал бы занятие, которого не проводил.
+   */
+  private async assertManagePair(
     actor: JwtPayload,
-    pair: { teacherId: string | null; facultyId: string; universityId: string },
-  ): void {
+    pair: { id: string; teacherId: string | null; facultyId: string; universityId: string },
+    date: string,
+  ): Promise<void> {
     if (isPlatform(actor.role)) return
     if (actor.role === Role.TEACHER) {
-      if (pair.teacherId === actor.sub) return
+      const teacherId = (await this.substituteOn(pair.id, date)) ?? pair.teacherId
+      if (teacherId === actor.sub) return
       throw new AppException('FORBIDDEN', 'Можно отмечать только свои занятия')
     }
     if (actor.role === Role.DEAN) {
@@ -358,6 +365,20 @@ export class AttendanceService {
       throw new AppException('WRONG_SCOPE', 'Другой университет')
     }
     throw new AppException('FORBIDDEN', 'Недостаточно прав')
+  }
+
+  /**
+   * Заменяющий преподаватель занятия на дату или null, если замены нет (или аккаунт
+   * заменяющего удалён — тогда занятие снова за основным). Решает последняя замена:
+   * ошибочную деканат исправляет новой, отдельного редактирования замен нет.
+   */
+  private async substituteOn(pairId: string, date: string): Promise<string | null> {
+    const substitution = await this.prisma.scheduleChange.findFirst({
+      where: { pairId, date: new Date(date), type: 'SUBSTITUTED' },
+      select: { newTeacherId: true },
+      orderBy: { createdAt: 'desc' },
+    })
+    return substitution?.newTeacherId ?? null
   }
 
   private async resolvePair(pairId: string): Promise<{

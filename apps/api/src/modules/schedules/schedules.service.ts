@@ -25,6 +25,15 @@ import { RoomService } from '../rooms/rooms.service'
 // единицы, студентов в группе — десятки; лимит фиксируем в запросе.
 const PAIR_CONFLICT_LIMIT = 500
 const GROUP_MEMBERS_LIMIT = 500
+// Активация версии сверяет все её пары разом: кандидатов — пары активных сеток других групп
+// у тех же преподавателей и аудиторий, это сотни, а не тысячи.
+const ACTIVATION_CONFLICT_LIMIT = 5000
+// Подробностей конфликта в ответе — сколько дочитают глазами; остальное ясно из первых.
+const CONFLICT_DETAILS_LIMIT = 20
+// Замен у преподавателя на один день — единицы.
+const SUBSTITUTION_LIMIT = 100
+
+const DAY_SHORT = ['', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'вс']
 
 const PAIR_SELECT = {
   id: true,
@@ -76,8 +85,20 @@ const CHANGE_SELECT = {
   createdAt: true,
   newRoom: { select: { id: true, name: true } },
   newTeacher: { select: { id: true, firstName: true, lastName: true } },
+  // Полные данные пары (scheduleId/weekType/teacher/room добавлены для C-F12): заменяющий
+  // не видит эту пару в своей выборке GET /schedule, и клиент строит её из изменения.
   pair: {
-    select: { groupId: true, subject: true, dayOfWeek: true, startTime: true, endTime: true },
+    select: {
+      scheduleId: true,
+      groupId: true,
+      subject: true,
+      dayOfWeek: true,
+      startTime: true,
+      endTime: true,
+      weekType: true,
+      teacher: { select: { id: true, firstName: true, lastName: true } },
+      room: { select: { id: true, name: true } },
+    },
   },
 } satisfies Prisma.ScheduleChangeSelect
 
@@ -116,6 +137,11 @@ interface PairSlot {
 
 function isPlatform(role: Role): boolean {
   return role === Role.PLATFORM_ADMIN || role === Role.PLATFORM_MODERATOR
+}
+
+// Календарная дата "YYYY-MM-DD" → значение колонки @db.Date (полночь UTC).
+function dateOnly(date: string): Date {
+  return new Date(`${date}T00:00:00.000Z`)
 }
 
 // Пересечение по чётности недели: BOTH пересекается с любым; иначе — только с равным.
@@ -182,6 +208,41 @@ export class SchedulesService {
     })
     const timezone = await this.resolveViewerTimezone(viewer, query.groupId)
     return { timezone, pairs: pairs.map(mapPair) }
+  }
+
+  /**
+   * Чужие пары, которые преподаватель ведёт на дату по замене (C-F12).
+   *
+   * В недельную выборку `getSchedule` они не входят — это шаблон без дат, и пара на каждой
+   * неделе показывалась бы как его. Поэтому их отдаёт отдельный вызов на конкретный день
+   * («Сегодня»). Решает ПОСЛЕДНЯЯ замена пары на эту дату: деканат исправляет ошибочную замену
+   * новой, и прежний заменяющий занятие больше не ведёт.
+   */
+  async substitutionPairs(viewer: JwtPayload, date: string): Promise<PairDto[]> {
+    if (viewer.role !== Role.TEACHER) return []
+    const day = dateOnly(date)
+    const substitutions = await this.prisma.scheduleChange.findMany({
+      where: {
+        date: day,
+        type: ScheduleChangeType.SUBSTITUTED,
+        pair: {
+          is: {
+            schedule: { is: { isActive: true } },
+            changes: {
+              some: { date: day, type: ScheduleChangeType.SUBSTITUTED, newTeacherId: viewer.sub },
+            },
+          },
+        },
+      },
+      select: { pairId: true, newTeacherId: true, pair: { select: PAIR_SELECT } },
+      orderBy: { createdAt: 'asc' },
+      take: SUBSTITUTION_LIMIT,
+    })
+    const latest = new Map<string, (typeof substitutions)[number]>()
+    for (const s of substitutions) latest.set(s.pairId, s)
+    return [...latest.values()]
+      .filter((s) => s.newTeacherId === viewer.sub && s.pair.teacher?.id !== viewer.sub)
+      .map((s) => mapPair(s.pair))
   }
 
   private buildReadWhere(viewer: JwtPayload, q: ScheduleQueryInput): Prisma.PairWhereInput {
@@ -285,13 +346,18 @@ export class SchedulesService {
   ) {
     const existing = await this.prisma.schedule.findUnique({
       where: { id },
-      select: { id: true, groupId: true },
+      select: { id: true, groupId: true, isActive: true },
     })
     if (!existing) {
       throw new AppException('NOT_FOUND', 'Расписание не найдено')
     }
     const gctx = await this.resolveGroupContext(existing.groupId)
     this.assertManageScopeForGroup(actor, gctx)
+    // Пары черновика проверялись на конфликты с сеткой, действовавшей на момент добавления;
+    // с тех пор другие группы могли занять тех же преподавателей и аудитории (C-F13).
+    if (input.isActive === true && !existing.isActive) {
+      await this.assertActivationNoConflict(existing.id, existing.groupId)
+    }
     const schedule = await this.prisma.$transaction(async (tx) => {
       if (input.isActive === true) {
         await tx.schedule.updateMany({
@@ -584,6 +650,77 @@ export class SchedulesService {
     }
   }
 
+  /**
+   * Перед активацией версии — её пары против активных расписаний ДРУГИХ групп (C-F13).
+   * Действующая версия своей группы при активации гаснет, поэтому с ней конфликт не считаем;
+   * пары версии между собой проверены при добавлении (тот же контейнер). Один запрос на всю
+   * версию: кандидаты — пары тех же дней у тех же преподавателей и аудиторий.
+   */
+  private async assertActivationNoConflict(scheduleId: string, groupId: string): Promise<void> {
+    const pairs = await this.prisma.pair.findMany({
+      where: { scheduleId },
+      select: {
+        subject: true,
+        dayOfWeek: true,
+        startTime: true,
+        endTime: true,
+        weekType: true,
+        teacherId: true,
+        roomId: true,
+      },
+      take: 500,
+    })
+    const teacherIds = [...new Set(pairs.map((p) => p.teacherId).filter((v): v is string => !!v))]
+    const roomIds = [...new Set(pairs.map((p) => p.roomId).filter((v): v is string => !!v))]
+    if (teacherIds.length === 0 && roomIds.length === 0) return
+
+    const orResource: Prisma.PairWhereInput[] = []
+    if (teacherIds.length > 0) orResource.push({ teacherId: { in: teacherIds } })
+    if (roomIds.length > 0) orResource.push({ roomId: { in: roomIds } })
+    const candidates = await this.prisma.pair.findMany({
+      where: {
+        groupId: { not: groupId },
+        dayOfWeek: { in: [...new Set(pairs.map((p) => p.dayOfWeek))] },
+        schedule: { is: { isActive: true } },
+        OR: orResource,
+      },
+      take: ACTIVATION_CONFLICT_LIMIT,
+      select: {
+        subject: true,
+        dayOfWeek: true,
+        startTime: true,
+        endTime: true,
+        weekType: true,
+        teacherId: true,
+        roomId: true,
+      },
+    })
+
+    const conflicts: { field: string; message: string }[] = []
+    for (const p of pairs) {
+      const own = `${p.subject} (${DAY_SHORT[p.dayOfWeek] ?? ''} ${p.startTime}–${p.endTime})`
+      for (const c of candidates) {
+        if (c.dayOfWeek !== p.dayOfWeek) continue
+        if (!weekTypesOverlap(p.weekType, c.weekType)) continue
+        if (!timeOverlap(p.startTime, p.endTime, c.startTime, c.endTime)) continue
+        const at = `${c.subject} (${c.startTime}–${c.endTime})`
+        if (p.teacherId && c.teacherId === p.teacherId) {
+          conflicts.push({ field: 'teacherId', message: `${own}: преподаватель уже занят — ${at}` })
+        }
+        if (p.roomId && c.roomId === p.roomId) {
+          conflicts.push({ field: 'roomId', message: `${own}: аудитория уже занята — ${at}` })
+        }
+      }
+    }
+    if (conflicts.length > 0) {
+      throw new AppException(
+        'CONFLICT',
+        'Конфликт в расписании',
+        conflicts.slice(0, CONFLICT_DETAILS_LIMIT),
+      )
+    }
+  }
+
   // ── Разовые изменения (ScheduleChange) + WS + уведомление (задача 6.5) ──────
 
   async createChange(actor: JwtPayload, input: CreateScheduleChangeInput, ctx: RequestContext) {
@@ -606,7 +743,7 @@ export class SchedulesService {
       data: {
         pairId: pair.id,
         type: input.type as ScheduleChangeType,
-        date: new Date(`${input.date}T00:00:00.000Z`),
+        date: dateOnly(input.date),
         newRoomId,
         newTeacherId,
         newStartTime: input.newStartTime,
@@ -627,15 +764,22 @@ export class SchedulesService {
     })
 
     // §10: сначала БД (выше), затем трансляция. WS-событие живого обновления сетки — в комнату группы.
-    this.realtime.emitToRoom(`group:${pair.groupId}`, 'schedule:changed', {
-      change,
-      groupId: pair.groupId,
-    })
+    const payload = { change, groupId: pair.groupId }
+    this.realtime.emitToRoom(`group:${pair.groupId}`, 'schedule:changed', payload)
     // Параллельно — единый конверт (PR-8/#12); старое событие выше не трогаем.
-    this.realtime.emitEventToRoom(`group:${pair.groupId}`, 'schedule.lesson.updated', change.id, {
-      change,
-      groupId: pair.groupId,
-    })
+    this.realtime.emitEventToRoom(
+      `group:${pair.groupId}`,
+      'schedule.lesson.updated',
+      change.id,
+      payload,
+    )
+    // Преподаватели в комнате группы не состоят (C-F12): основной и заменяющий получают
+    // событие в личные комнаты, иначе их «Сегодня» не узнавало о замене до перезагрузки.
+    for (const teacherId of new Set([pair.teacherId, newTeacherId])) {
+      if (!teacherId) continue
+      this.realtime.emitToUser(teacherId, 'schedule:changed', payload)
+      this.realtime.emitEventToUser(teacherId, 'schedule.lesson.updated', change.id, payload)
+    }
 
     // Уведомление участникам группы (+ преподавателям пары/замены) через очередь `notifications`.
     await this.enqueueChangeNotification(pair, change.id, input)
@@ -644,11 +788,10 @@ export class SchedulesService {
   }
 
   async listChanges(viewer: JwtPayload, query: ScheduleChangeQueryInput) {
-    const pairWhere = this.changePairScope(viewer, query)
-    const from = new Date(`${query.from}T00:00:00.000Z`)
-    const to = new Date(`${query.to}T00:00:00.000Z`)
+    const range = { gte: dateOnly(query.from), lte: dateOnly(query.to) }
+    const pairWhere = this.changePairScope(viewer, query, range)
     return this.prisma.scheduleChange.findMany({
-      where: { date: { gte: from, lte: to }, pair: { is: pairWhere } },
+      where: { date: range, pair: { is: pairWhere } },
       select: CHANGE_SELECT,
       orderBy: [{ date: 'asc' }, { createdAt: 'asc' }],
       take: 500,
@@ -829,12 +972,29 @@ export class SchedulesService {
   private changePairScope(
     viewer: JwtPayload,
     query: ScheduleChangeQueryInput,
+    range: Prisma.DateTimeFilter,
   ): Prisma.PairWhereInput {
     if (viewer.role === Role.STUDENT || viewer.role === Role.STAROSTA) {
       return { groupId: viewer.groupId ?? '__none__' }
     }
     if (viewer.role === Role.TEACHER) {
-      const where: Prisma.PairWhereInput = { teacherId: viewer.sub }
+      // Свои пары + чужие, где он заменяющий в этом периоде (C-F12). По таким парам отдаём все
+      // изменения периода, а не только замену на него: отмена той же пары или новая замена
+      // другим преподавателем тоже его касаются — клиент берёт последнюю.
+      const where: Prisma.PairWhereInput = {
+        OR: [
+          { teacherId: viewer.sub },
+          {
+            changes: {
+              some: {
+                type: ScheduleChangeType.SUBSTITUTED,
+                newTeacherId: viewer.sub,
+                date: range,
+              },
+            },
+          },
+        ],
+      }
       if (query.groupId) where.groupId = query.groupId
       return where
     }

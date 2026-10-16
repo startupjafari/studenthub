@@ -28,7 +28,7 @@ function setup() {
       updateMany: jest.fn(),
       delete: jest.fn(),
     },
-    scheduleChange: { create: jest.fn(), findMany: jest.fn() },
+    scheduleChange: { create: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
     attendance: { findFirst: jest.fn().mockResolvedValue(null) },
     group: { findUnique: jest.fn() },
     course: { findFirst: jest.fn().mockResolvedValue({ id: 'c-1' }) },
@@ -38,7 +38,12 @@ function setup() {
   }
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const rooms = { assertRoomInUniversity: jest.fn().mockResolvedValue(undefined) }
-  const realtime = { emitToRoom: jest.fn(), emitEventToRoom: jest.fn() }
+  const realtime = {
+    emitToRoom: jest.fn(),
+    emitEventToRoom: jest.fn(),
+    emitToUser: jest.fn(),
+    emitEventToUser: jest.fn(),
+  }
   const queue = { enqueue: jest.fn().mockResolvedValue(undefined) }
   const service = new SchedulesService(
     prisma as unknown as PrismaService,
@@ -539,5 +544,143 @@ describe('SchedulesService — удаление при наличии посещ
     prisma.schedule.delete.mockRejectedValue(fkError)
     const err = await service.removeSchedule(dean, 'sch-1', ctx).catch((e) => e)
     expect(err.code).toBe('CONFLICT')
+  })
+})
+
+// ── C-F12: замена доходит до заменяющего ───────────────────────────────────
+describe('SchedulesService — замена преподавателя (C-F12)', () => {
+  const admin = viewer(Role.UNIVERSITY_ADMIN, { universityId: 'uni-1' })
+  const SUB = 'teacher-sub'
+  const substitute = viewer(Role.TEACHER, { sub: SUB, universityId: 'uni-1' })
+
+  it('замена: WS schedule:changed уходит и основному, и заменяющему в личные комнаты', async () => {
+    const { service, prisma, realtime } = setup()
+    prisma.pair.findUnique.mockResolvedValue({
+      id: 'pair-1',
+      groupId: 'grp-1',
+      subject: 'Матанализ',
+      teacherId: 't-1',
+    })
+    prisma.group.findUnique.mockResolvedValue(GROUP_CTX)
+    prisma.user.findFirst.mockResolvedValue({ universityId: 'uni-1' })
+    prisma.scheduleChange.create.mockResolvedValue({ id: 'chg-1', pairId: 'pair-1' })
+
+    await service.createChange(
+      admin,
+      { pairId: 'pair-1', type: 'SUBSTITUTED', date: '2026-09-15', newTeacherId: SUB },
+      ctx,
+    )
+    const payload = { change: expect.objectContaining({ id: 'chg-1' }), groupId: 'grp-1' }
+    expect(realtime.emitToRoom).toHaveBeenCalledWith('group:grp-1', 'schedule:changed', payload)
+    expect(realtime.emitToUser).toHaveBeenCalledWith('t-1', 'schedule:changed', payload)
+    expect(realtime.emitToUser).toHaveBeenCalledWith(SUB, 'schedule:changed', payload)
+    expect(realtime.emitEventToUser).toHaveBeenCalledWith(
+      SUB,
+      'schedule.lesson.updated',
+      'chg-1',
+      payload,
+    )
+  })
+
+  it('изменения: преподавателю — свои пары и пары, где он заменяющий в периоде', async () => {
+    const { service, prisma } = setup()
+    await service.listChanges(substitute, { from: '2026-09-14', to: '2026-09-20' })
+    const where = prisma.scheduleChange.findMany.mock.calls[0][0].where
+    const range = {
+      gte: new Date('2026-09-14T00:00:00.000Z'),
+      lte: new Date('2026-09-20T00:00:00.000Z'),
+    }
+    expect(where.date).toEqual(range)
+    expect(where.pair.is.OR).toEqual([
+      { teacherId: SUB },
+      { changes: { some: { type: 'SUBSTITUTED', newTeacherId: SUB, date: range } } },
+    ])
+  })
+
+  it('пары по замене на дату: решает последняя замена пары', async () => {
+    const { service, prisma } = setup()
+    prisma.scheduleChange.findMany.mockResolvedValue([
+      // pair-1: замена на него — его пара на этот день.
+      {
+        pairId: 'pair-1',
+        newTeacherId: SUB,
+        pair: createdPair({ id: 'pair-1', teacher: { id: 't-1', firstName: 'А', lastName: 'Б' } }),
+      },
+      // pair-2: сначала на него, потом деканат переназначил на другого — уже не его.
+      { pairId: 'pair-2', newTeacherId: SUB, pair: createdPair({ id: 'pair-2' }) },
+      { pairId: 'pair-2', newTeacherId: 'other', pair: createdPair({ id: 'pair-2' }) },
+    ])
+    const pairs = await service.substitutionPairs(substitute, '2026-09-15')
+    expect(pairs.map((p) => p.id)).toEqual(['pair-1'])
+    const args = prisma.scheduleChange.findMany.mock.calls[0][0]
+    expect(args.where.date).toEqual(new Date('2026-09-15T00:00:00.000Z'))
+    expect(args.where.pair.is.schedule).toEqual({ is: { isActive: true } })
+    expect(args.orderBy).toEqual({ createdAt: 'asc' })
+  })
+
+  it('пары по замене — только для преподавателя', async () => {
+    const { service, prisma } = setup()
+    expect(await service.substitutionPairs(admin, '2026-09-15')).toEqual([])
+    expect(prisma.scheduleChange.findMany).not.toHaveBeenCalled()
+  })
+})
+
+// ── C-F13: активация версии перепроверяет конфликты ────────────────────────
+describe('SchedulesService.updateSchedule — активация версии (C-F13)', () => {
+  const dean = viewer(Role.DEAN, { facultyId: 'fac-1', universityId: 'uni-1' })
+  const draftPair = {
+    subject: 'Матанализ',
+    dayOfWeek: 1,
+    startTime: '09:00',
+    endTime: '10:30',
+    weekType: 'BOTH',
+    teacherId: 't-1',
+    roomId: 'r-1',
+  }
+
+  function prime(prisma: ReturnType<typeof setup>['prisma'], isActive = false): void {
+    prisma.schedule.findUnique.mockResolvedValue({ id: 'sch-2', groupId: 'grp-1', isActive })
+    prisma.group.findUnique.mockResolvedValue(GROUP_CTX)
+    prisma.$transaction.mockImplementation((fn: (tx: unknown) => unknown) => fn(prisma))
+    prisma.schedule.update.mockResolvedValue({ id: 'sch-2', isActive: true })
+  }
+
+  it('аудитория занята активной сеткой другой группы → CONFLICT с details, версия не активируется', async () => {
+    const { service, prisma } = setup()
+    prime(prisma)
+    prisma.pair.findMany
+      .mockResolvedValueOnce([draftPair])
+      .mockResolvedValueOnce([
+        { ...draftPair, subject: 'Физика', startTime: '10:00', endTime: '11:30', teacherId: 't-9' },
+      ])
+    const err = await service.updateSchedule(dean, 'sch-2', { isActive: true }, ctx).catch((e) => e)
+    expect(err).toBeInstanceOf(AppException)
+    expect(err.code).toBe('CONFLICT')
+    expect(err.details).toEqual([expect.objectContaining({ field: 'roomId' })])
+    expect(prisma.schedule.updateMany).not.toHaveBeenCalled()
+    expect(prisma.schedule.update).not.toHaveBeenCalled()
+    // Кандидаты — только активные сетки ДРУГИХ групп: своя действующая версия гаснет.
+    const candidatesWhere = prisma.pair.findMany.mock.calls[1][0].where
+    expect(candidatesWhere.groupId).toEqual({ not: 'grp-1' })
+    expect(candidatesWhere.schedule).toEqual({ is: { isActive: true } })
+  })
+
+  it('без пересечений → версия активируется, прежняя гаснет', async () => {
+    const { service, prisma } = setup()
+    prime(prisma)
+    prisma.pair.findMany
+      .mockResolvedValueOnce([draftPair])
+      .mockResolvedValueOnce([{ ...draftPair, startTime: '11:00', endTime: '12:30' }])
+    await service.updateSchedule(dean, 'sch-2', { isActive: true }, ctx)
+    expect(prisma.schedule.updateMany).toHaveBeenCalled()
+    expect(prisma.schedule.update).toHaveBeenCalled()
+  })
+
+  it('уже активная версия (переименование) — без перепроверки', async () => {
+    const { service, prisma } = setup()
+    prime(prisma, true)
+    await service.updateSchedule(dean, 'sch-2', { name: 'Весна', isActive: true }, ctx)
+    expect(prisma.pair.findMany).not.toHaveBeenCalled()
+    expect(prisma.schedule.update).toHaveBeenCalled()
   })
 })
