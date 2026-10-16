@@ -59,6 +59,12 @@ const SETTINGS_SELECT = {
 const UNREAD_TTL_SECONDS = 300
 const unreadKey = (userId: string): string => `notif:unread:${userId}`
 
+// Письмо-зеркало свёрнутого уведомления (сообщения чата) — не чаще раза в 6 часов на ключ.
+// Само сворачивание шлёт письмо, только когда строка заново стала непрочитанной; окно —
+// потолок сверху для того, кто то и дело заглядывает в колокольчик и снова уходит.
+const COLLAPSED_EMAIL_WINDOW_SECONDS = 6 * 60 * 60
+const emailSlotKey = (userId: string, key: string): string => `notif:email:${userId}:${key}`
+
 @Injectable()
 export class NotificationsService {
   private readonly logger = new Logger(NotificationsService.name)
@@ -182,6 +188,30 @@ export class NotificationsService {
       await this.redis.del(unreadKey(userId))
     } catch (error) {
       this.logger.warn({ err: error, userId }, 'Redis недоступен — пропуск инвалидации кэша')
+    }
+  }
+
+  /**
+   * Занять окно письма о свёрнутом уведомлении: true — письмо слать можно, следующее по
+   * этому ключу пройдёт не раньше чем через COLLAPSED_EMAIL_WINDOW_SECONDS.
+   *
+   * Недоступный Redis — false: письмо о сообщении не транзакционное, и пропустить его
+   * лучше, чем слать без ограничителя. Очередь писем живёт в том же Redis, так что
+   * поставить письмо в этот момент всё равно не вышло бы.
+   */
+  async claimEmailSlot(userId: string, key: string): Promise<boolean> {
+    try {
+      const claimed = await this.redis.set(
+        emailSlotKey(userId, key),
+        '1',
+        'EX',
+        COLLAPSED_EMAIL_WINDOW_SECONDS,
+        'NX',
+      )
+      return claimed === 'OK'
+    } catch (error) {
+      this.logger.warn({ err: error, userId }, 'Redis недоступен — письмо-зеркало пропущено')
+      return false
     }
   }
 }

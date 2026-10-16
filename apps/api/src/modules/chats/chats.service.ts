@@ -36,6 +36,7 @@ import { MediaService } from '../media/media.service'
 import { MEDIA_FILE_SELECT, MEDIA_PREVIEW_SELECT, type MediaInfo } from '../media/media.types'
 import { signingWindow } from '../../common/minio/stable-sign'
 import { PostsService } from '../posts/posts.service'
+import { chatMessagesCollapseKey } from '../notifications/notification-job.type'
 import type { EnvVars } from '../../config/env.schema'
 import { ExportRegistryService } from '../../common/export/export-registry.service'
 import type { ExportContext } from '../../common/export/export-branding.types'
@@ -2256,7 +2257,25 @@ export class ChatsService {
     })
     const readAt = member?.lastReadAt ?? at
     this.realtime.emitToUser(userId, 'chat:read', { chatId, readAt })
+    await this.readChatNotification(chatId, userId)
     return readAt
+  }
+
+  /**
+   * Прочитал чат — гасим его свёрнутую строку в колокольчике (F-F07). Иначе она висела
+   * непрочитанной до открытия колокольчика, а следующее сообщение не считалось «снова
+   * непрочитанным» и письмо о нём не уходило.
+   */
+  private async readChatNotification(chatId: string, userId: string): Promise<void> {
+    const { count } = await this.prisma.notification.updateMany({
+      where: { userId, dedupeKey: chatMessagesCollapseKey(chatId), isRead: false },
+      data: { isRead: true, readAt: new Date() },
+    })
+    if (count === 0) return
+    // Кэш счётчика колокольчика (NotificationsService.invalidateUnread) — best-effort.
+    await this.redis.del(`notif:unread:${userId}`).catch((error: unknown) => {
+      this.logger.warn({ err: error, userId }, 'Redis недоступен — пропуск инвалидации кэша')
+    })
   }
 
   /**
@@ -2374,6 +2393,8 @@ export class ChatsService {
           bodyKey: 'chats.message.body',
           data: { chatId, messageId: message.id, url: `/chats?c=${chatId}` },
           dedupeKey: `new-message:${message.id}`,
+          // Одна строка колокольчика на чат, а не на сообщение; письмо — не на каждое (F-F07/08).
+          collapseKey: chatMessagesCollapseKey(chatId),
         },
         { jobId: `new-message:${message.id}` },
       )

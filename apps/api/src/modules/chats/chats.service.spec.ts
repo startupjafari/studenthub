@@ -68,7 +68,10 @@ function setup() {
       findMany: jest.fn().mockResolvedValue([]),
       deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
-    notification: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    notification: {
+      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
     userBlock: {
       findFirst: jest.fn().mockResolvedValue(null),
       findMany: jest.fn().mockResolvedValue([]),
@@ -2355,6 +2358,22 @@ describe('ChatsService.markRead', () => {
       chatId: 'c1',
       readAt: at,
     })
+  })
+
+  it('гасит свёрнутую строку чата в колокольчике и сбрасывает кэш счётчика', async () => {
+    const { service, prisma, redis } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1', bannedAt: null })
+    prisma.message.findFirst.mockResolvedValue({ createdAt: at })
+    prisma.chatMember.findFirst.mockResolvedValue({ lastReadAt: at })
+    prisma.notification.updateMany.mockResolvedValue({ count: 1 })
+
+    await service.markRead('u1', 'c1', 'msg-1')
+
+    expect(prisma.notification.updateMany).toHaveBeenCalledWith({
+      where: { userId: 'u1', dedupeKey: 'new-message:chat:c1', isRead: false },
+      data: { isRead: true, readAt: expect.any(Date) },
+    })
+    expect(redis.del).toHaveBeenCalledWith('notif:unread:u1')
   })
 
   it('сообщение из другого чата — NOT_FOUND, отметка не трогается', async () => {

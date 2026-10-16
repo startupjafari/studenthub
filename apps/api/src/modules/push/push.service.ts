@@ -15,6 +15,10 @@ export interface PushPayload {
   url?: string
 }
 
+// Таймаут простоя сокета запроса к push-сервису браузера. Без него зависший сервис держал
+// отправку, а с ней job и всю очередь уведомлений, до перезапуска процесса.
+const WEB_PUSH_TIMEOUT_MS = 10_000
+
 interface SubscriptionInput {
   endpoint: string
   keys: { p256dh: string; auth: string }
@@ -178,6 +182,7 @@ export class PushService implements OnModuleInit {
           await webpush.sendNotification(
             { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth } },
             body,
+            { timeout: WEB_PUSH_TIMEOUT_MS },
           )
         } catch (err) {
           const statusCode = (err as { statusCode?: number }).statusCode

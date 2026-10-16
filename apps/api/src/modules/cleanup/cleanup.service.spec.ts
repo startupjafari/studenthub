@@ -265,17 +265,28 @@ describe('CleanupService', () => {
   })
 
   describe('cleanOldNotifications', () => {
-    it('удаляет прочитанные старше 30 дней с cutoff в прошлом', async () => {
+    it('удаляет прочитанные старше 30 дней и непрочитанные старше 90', async () => {
       const { service, prisma } = makeService()
-      prisma.notification.findMany.mockResolvedValueOnce([{ id: 'n1' }]).mockResolvedValueOnce([])
+      prisma.notification.findMany
+        .mockResolvedValueOnce([{ id: 'n1' }]) // прочитанные
+        .mockResolvedValueOnce([{ id: 'n2' }]) // непрочитанные
       prisma.notification.deleteMany.mockResolvedValue({ count: 1 })
 
       const total = await service.cleanOldNotifications()
 
-      expect(total).toBe(1)
-      const where = prisma.notification.findMany.mock.calls[0][0].where
-      expect(where.isRead).toBe(true)
-      expect(where.createdAt.lt.getTime()).toBeLessThan(Date.now())
+      expect(total).toBe(2)
+      const day = 24 * 60 * 60 * 1000
+      const read = prisma.notification.findMany.mock.calls[0][0].where
+      expect(read.isRead).toBe(true)
+      expect(Date.now() - read.createdAt.lt.getTime()).toBeGreaterThanOrEqual(30 * day)
+      const unread = prisma.notification.findMany.mock.calls[1][0].where
+      expect(unread.isRead).toBe(false)
+      expect(Date.now() - unread.createdAt.lt.getTime()).toBeGreaterThanOrEqual(90 * day)
+      // Удаление перепроверяет условие: поднятое тем временем уведомление не теряется.
+      expect(prisma.notification.deleteMany.mock.calls[1][0].where).toMatchObject({
+        id: { in: ['n2'] },
+        isRead: false,
+      })
     })
   })
 

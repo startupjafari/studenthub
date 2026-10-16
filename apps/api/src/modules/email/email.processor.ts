@@ -31,10 +31,21 @@ import {
   type WelcomePayload,
 } from './templates'
 
+// Сколько писем отправляем одновременно — по числу соединений в пуле SMTP (MailerService).
+// По одному тысяча писем рассылки шла десятки минут, и инвайт со сбросом пароля ждали
+// в том же хвосте.
+const EMAIL_CONCURRENCY = 5
+
+// Потолок темпа на очередь (на все инстансы сразу): провайдеры SMTP режут отправителя,
+// превысившего лимит, а то и вносят в спам-листы — и тогда перестают доходить и инвайты.
+const EMAIL_RATE_LIMIT = { max: 10, duration: 1000 }
+
 // Воркер очереди `email`: рендерит шаблон по имени job'а и отправляет письмо.
 // Идемпотентность отправки обеспечивается детерминированным jobId на стороне продюсера
 // (BullMQ отбрасывает дубликат) — сам процессор писем не хранит состояние.
-@Processor(QUEUES.EMAIL)
+// Порядок: транзакционные письма ставятся без приоритета и идут раньше писем-зеркал
+// уведомлений, которые ставятся с приоритетом (NotificationsProcessor).
+@Processor(QUEUES.EMAIL, { concurrency: EMAIL_CONCURRENCY, limiter: EMAIL_RATE_LIMIT })
 export class EmailProcessor extends WorkerHost {
   private readonly logger = new Logger(EmailProcessor.name)
 

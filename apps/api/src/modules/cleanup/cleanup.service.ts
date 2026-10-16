@@ -64,6 +64,11 @@ const LOCK_TTL_MS = {
   resumeMediaProcessing: 9 * 60 * 1000,
 } as const
 const NOTIFICATION_RETENTION_DAYS = 30
+// Непрочитанные живут дольше прочитанных, но не вечно: кто три месяца не открывал
+// колокольчик, тому старые записи уже не нужны, а таблица без этого росла без границы.
+// Свёрнутое уведомление чата при каждом сообщении получает свежее время — живой чат
+// своё уведомление не теряет.
+const UNREAD_NOTIFICATION_RETENTION_DAYS = 90
 const AUDIT_RETENTION_DAYS = 90
 // Потолок удаления refresh-сессий за один прогон: 100 батчей, 50 тысяч строк. Каждый refresh
 // пишет строку, и хвост, накопленный до появления задачи, может исчисляться миллионами — он
@@ -337,7 +342,7 @@ export class CleanupService {
     return total
   }
 
-  // Прочитанные уведомления старше 30 дней. Еженедельно (вс, 02:00).
+  // Прочитанные уведомления старше 30 дней, непрочитанные — старше 90. Еженедельно (вс, 02:00).
   @Cron('0 2 * * 0', { name: 'cleanOldNotifications' })
   async cleanOldNotifications(): Promise<number | null> {
     return this.locks.run('cleanOldNotifications', LOCK_TTL_MS.cleanOldNotifications, () =>
@@ -346,16 +351,27 @@ export class CleanupService {
   }
 
   private async cleanOldNotificationsTask(): Promise<number> {
-    const cutoff = new Date(Date.now() - NOTIFICATION_RETENTION_DAYS * DAY_MS)
-    const total = await this.deleteInBatches(
-      () =>
-        this.prisma.notification.findMany({
-          where: { isRead: true, createdAt: { lt: cutoff } },
-          select: { id: true },
-          take: BATCH_SIZE,
-        }),
-      (ids) => this.prisma.notification.deleteMany({ where: { id: { in: ids } } }),
-    )
+    // Два прохода, а не OR: каждый идёт своим диапазоном индекса [isRead, createdAt].
+    let total = 0
+    for (const [isRead, days] of [
+      [true, NOTIFICATION_RETENTION_DAYS],
+      [false, UNREAD_NOTIFICATION_RETENTION_DAYS],
+    ] as const) {
+      const cutoff = new Date(Date.now() - days * DAY_MS)
+      total += await this.deleteInBatches(
+        () =>
+          this.prisma.notification.findMany({
+            where: { isRead, createdAt: { lt: cutoff } },
+            select: { id: true },
+            take: BATCH_SIZE,
+          }),
+        // Условие повторяем: свёрнутое уведомление могло подняться между выборкой и удалением.
+        (ids) =>
+          this.prisma.notification.deleteMany({
+            where: { id: { in: ids }, isRead, createdAt: { lt: cutoff } },
+          }),
+      )
+    }
     this.logger.log(`cleanOldNotifications: удалено ${total}`)
     return total
   }
