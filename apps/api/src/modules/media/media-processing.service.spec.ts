@@ -1,6 +1,7 @@
 import { Readable } from 'node:stream'
 import { MediaStatus, MediaVariantKind, Prisma } from '@prisma/client'
 import sharp from 'sharp'
+import * as ffmpeg from './ffmpeg'
 import { MediaProcessingService } from './media-processing.service'
 
 type Mock = jest.Mock
@@ -111,6 +112,43 @@ describe('MediaProcessingService.process — изображение', () => {
     expect(minio.removeObjects).toHaveBeenCalledWith('chat-media', [
       `variants/${FILE_ID}/w320.webp`,
     ])
+  })
+})
+
+describe('MediaProcessingService.process — видео без ffmpeg', () => {
+  const videoFile = { ...imageFile, key: 'u/clip.mp4', mime: 'video/mp4' }
+
+  afterEach(() => jest.restoreAllMocks())
+
+  it('остаётся в PENDING, а не FAILED: cron вернёт его в очередь, когда ffmpeg появится', async () => {
+    jest.spyOn(ffmpeg, 'isAvailable').mockResolvedValue(false)
+    const { service, prisma, minio } = setup(videoFile)
+
+    await service.process(FILE_ID)
+
+    expect(prisma.file.updateMany).toHaveBeenCalledWith({
+      where: { id: FILE_ID },
+      data: { mediaStatus: MediaStatus.PENDING },
+    })
+    expect(prisma.file.updateMany).not.toHaveBeenCalledWith(
+      expect.objectContaining({ data: { mediaStatus: MediaStatus.FAILED } }),
+    )
+    expect(minio.getObject).not.toHaveBeenCalled()
+  })
+
+  it('отсутствие ffmpeg перепроверяется — установка подхватывается без перезапуска', async () => {
+    const available = jest.spyOn(ffmpeg, 'isAvailable').mockResolvedValue(false)
+    const now = jest.spyOn(Date, 'now').mockReturnValue(1_000_000)
+    const { service } = setup(videoFile)
+
+    await service.process(FILE_ID)
+    await service.process(FILE_ID)
+    // В пределах минуты — из памяти, без лишних запусков бинарника.
+    expect(available).toHaveBeenCalledTimes(2)
+
+    now.mockReturnValue(1_000_000 + 61_000)
+    await service.process(FILE_ID)
+    expect(available).toHaveBeenCalledTimes(4)
   })
 })
 

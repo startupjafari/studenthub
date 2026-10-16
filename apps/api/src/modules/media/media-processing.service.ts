@@ -28,6 +28,9 @@ const TRANSCODE_SPEED_FACTOR = 4
 // долгое перекодирование: ссылка никуда не уходит из воркера.
 const SOURCE_URL_TTL_SECONDS = 6 * 60 * 60
 
+// Через сколько перепроверять отсутствующий ffmpeg (см. hasFfmpeg).
+const FFMPEG_RECHECK_MS = 60 * 1000
+
 // Временные каталоги старше этого — остатки упавшего процесса, их можно сносить.
 const STALE_TMP_MS = 12 * 60 * 60 * 1000
 const TMP_DIR_NAME = 'studenthub-media'
@@ -61,6 +64,8 @@ export class MediaProcessingService implements OnModuleInit {
   private readonly ffprobe: string
   private readonly tmpRoot: string
   private ffmpegReady: Promise<boolean> | null = null
+  private ffmpegKnown = false
+  private ffmpegRecheckAt = 0
 
   constructor(
     private readonly prisma: PrismaService,
@@ -88,15 +93,26 @@ export class MediaProcessingService implements OnModuleInit {
     }
   }
 
+  /**
+   * Есть ли ffmpeg и ffprobe. Положительный ответ запоминается навсегда, отрицательный — на
+   * минуту: ffmpeg могут доставить в работающее окружение (`apt install` на машине
+   * разработчика), и подхватить его надо без перезапуска процесса.
+   */
   private hasFfmpeg(): Promise<boolean> {
-    this.ffmpegReady ??= Promise.all([isAvailable(this.ffmpeg), isAvailable(this.ffprobe)]).then(
+    const now = Date.now()
+    if (this.ffmpegReady && (this.ffmpegKnown || now < this.ffmpegRecheckAt)) {
+      return this.ffmpegReady
+    }
+    this.ffmpegRecheckAt = now + FFMPEG_RECHECK_MS
+    this.ffmpegReady = Promise.all([isAvailable(this.ffmpeg), isAvailable(this.ffprobe)]).then(
       ([a, b]) => {
-        if (!(a && b)) {
+        this.ffmpegKnown = a && b
+        if (!this.ffmpegKnown) {
           this.logger.warn(
-            `ffmpeg/ffprobe недоступны (${this.ffmpeg}, ${this.ffprobe}) — видео остаются без HLS`,
+            `ffmpeg/ffprobe недоступны (${this.ffmpeg}, ${this.ffprobe}) — видео ждут в PENDING, оригинал играет как раньше`,
           )
         }
-        return a && b
+        return this.ffmpegKnown
       },
     )
     return this.ffmpegReady
@@ -136,8 +152,16 @@ export class MediaProcessingService implements OnModuleInit {
       await this.copy(sibling.id, file.id)
       return
     }
+    const isVideo = file.mime.startsWith('video/')
+    if (isVideo && !(await this.hasFfmpeg())) {
+      // Не FAILED: это не беда файла, а неготовность окружения. Видео ждёт в PENDING (пока
+      // играет оригинал), и cron resumeMediaProcessing вернёт его в очередь, когда ffmpeg
+      // появится. FAILED cron не повторяет — такие видео остались бы без HLS навсегда.
+      await this.setStatus(file.id, MediaStatus.PENDING)
+      return
+    }
     await this.setStatus(file.id, MediaStatus.PROCESSING)
-    if (file.mime.startsWith('video/')) await this.processVideo(file)
+    if (isVideo) await this.processVideo(file)
     else await this.processImage(file)
   }
 
@@ -247,11 +271,6 @@ export class MediaProcessingService implements OnModuleInit {
   // ── Видео ──
 
   private async processVideo(file: SourceFile): Promise<void> {
-    if (!(await this.hasFfmpeg())) {
-      // Без ffmpeg повторять бессмысленно: оригинал проигрывается как раньше.
-      await this.setStatus(file.id, MediaStatus.FAILED)
-      return
-    }
     // ffmpeg читает исходник по ссылке из внутреннего MinIO: 500 МБ не идут через память
     // воркера и не ложатся вторым экземпляром на диск — перекодирование потоковое.
     const input = await this.minio.presignedGetObject(file.bucket, file.key, SOURCE_URL_TTL_SECONDS)
