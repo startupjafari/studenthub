@@ -109,7 +109,7 @@ export class ChatsController {
 
   @Get('attachments/:fileId/url')
   @ApiOperation({ summary: 'Presigned URL к вложению сообщения (по членству в чате)' })
-  @ApiResponse({ status: 200, description: '{ url, expiresAt } — временная ссылка' })
+  @ApiResponse({ status: 200, description: '{ url, expiresAt, …MediaInfo } — оригинал и варианты' })
   @ApiResponse({ status: 403, description: 'WRONG_SCOPE — не участник чата' })
   attachmentUrl(@CurrentUser() user: CurrentUserData, @Param('fileId') fileId: string) {
     return this.chats.getAttachmentUrl(user.sub, fileId)

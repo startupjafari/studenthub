@@ -105,6 +105,7 @@ export class MaterialsController {
 
   @Get(':id/files/:fileId/presigned')
   @ApiOperation({ summary: 'Presigned URL к файлу материала (по scope)' })
+  @ApiResponse({ status: 200, description: '{ url, expiresAt, …MediaInfo } — оригинал и варианты' })
   fileUrl(
     @CurrentUser() user: CurrentUserData,
     @Param('id') id: string,

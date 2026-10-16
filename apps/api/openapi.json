@@ -8638,7 +8638,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Временный URL"
+            "description": "{ url, expiresAt, …MediaInfo } — оригинал и варианты"
           },
           "404": {
             "description": "NOT_FOUND — пост не видим или медиа не найдено"
@@ -9529,7 +9529,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Временный URL"
+            "description": "{ url, expiresAt, …MediaInfo } — оригинал и варианты"
           },
           "403": {
             "description": "WRONG_SCOPE — не участник чата"
@@ -12589,7 +12589,7 @@
         ],
         "responses": {
           "200": {
-            "description": ""
+            "description": "{ url, expiresAt, …MediaInfo } — оригинал и варианты"
           }
         },
         "security": [
@@ -14987,6 +14987,111 @@
         "summary": "Обменять initData на короткий токен мини-аппа",
         "tags": [
           "Мини-апп"
+        ]
+      }
+    },
+    "/media/{fileId}/hls/master.m3u8": {
+      "get": {
+        "operationId": "MediaHlsController_master",
+        "parameters": [
+          {
+            "name": "fileId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Список рендишнов, application/vnd.apple.mpegurl"
+          },
+          "403": {
+            "description": "FORBIDDEN — токен недействителен или истёк"
+          }
+        },
+        "summary": "Мастер-плейлист HLS (по токену из описания медиа)",
+        "tags": [
+          "Медиа"
+        ]
+      }
+    },
+    "/media/{fileId}/hls/{rendition}/index.m3u8": {
+      "get": {
+        "operationId": "MediaHlsController_rendition",
+        "parameters": [
+          {
+            "name": "fileId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "rendition",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Список сегментов, application/vnd.apple.mpegurl"
+          },
+          "403": {
+            "description": "FORBIDDEN — токен недействителен или истёк"
+          }
+        },
+        "summary": "Плейлист рендишна HLS (по play-токену из мастер-плейлиста)",
+        "tags": [
+          "Медиа"
+        ]
+      }
+    },
+    "/media/{fileId}/hls/{rendition}/{segment}": {
+      "get": {
+        "operationId": "MediaHlsController_segment",
+        "parameters": [
+          {
+            "name": "fileId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "rendition",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "segment",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "302": {
+            "description": "Location — presigned URL сегмента"
+          },
+          "403": {
+            "description": "FORBIDDEN — токен недействителен или истёк"
+          }
+        },
+        "summary": "Сегмент HLS — редирект на подписанную ссылку хранилища",
+        "tags": [
+          "Медиа"
         ]
       }
     }
