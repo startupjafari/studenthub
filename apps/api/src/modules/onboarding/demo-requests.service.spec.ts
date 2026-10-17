@@ -81,6 +81,8 @@ const openRequest = (over: Record<string, unknown> = {}) => ({
   id: 'req-open',
   status: 'PENDING_EMAIL',
   universityName: form.universityName,
+  // Хэш есть — письмо со ссылкой ушло в очередь.
+  emailVerificationHash: 'a'.repeat(64),
   // Письмо ушло час назад: пауза между переотправками уже прошла.
   emailVerificationExpiresAt: new Date(Date.now() + 23 * 3_600_000),
   ...over,
@@ -133,6 +135,53 @@ describe('DemoRequestsService.submit', () => {
     expect(prisma.universityDemoRequest.update).not.toHaveBeenCalled()
   })
 
+  // Redis лежит: строка заявки уже создана, и 500 человек прочитал бы как «форма сломана».
+  it('сбой очереди при первой подаче — ответ тот же, ссылка без письма гасится', async () => {
+    const { service, prisma, queue, audit } = setup()
+    prisma.universityDemoRequest.findFirst.mockResolvedValue(null)
+    queue.enqueue.mockRejectedValue(new Error('ECONNREFUSED'))
+
+    await expect(service.submit(form, ctx)).resolves.toEqual({ email: form.email })
+
+    expect(prisma.universityDemoRequest.update).toHaveBeenCalledWith({
+      where: { id: 'req-1' },
+      data: { emailVerificationHash: null },
+    })
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'demo_request_submitted' }),
+    )
+  })
+
+  // Письмо не ушло — пауза не держит: иначе пять минут «письмо отправлено» было бы неправдой.
+  it('письмо не ушло (хэша нет) — повтор шлёт сразу, без паузы', async () => {
+    const { service, prisma, queue } = setup()
+    prisma.universityDemoRequest.findFirst.mockResolvedValue(
+      openRequest({
+        emailVerificationHash: null,
+        emailVerificationExpiresAt: new Date(Date.now() + 24 * 3_600_000),
+      }),
+    )
+
+    await service.submit(form, ctx)
+
+    expect(queue.enqueue).toHaveBeenCalledTimes(1)
+    const data = prisma.universityDemoRequest.update.mock.calls[0][0].data
+    expect(data.emailVerificationHash).toMatch(/^[0-9a-f]{64}$/)
+  })
+
+  it('повтор тоже не ушёл в очередь — ссылка снова гасится', async () => {
+    const { service, prisma, queue } = setup()
+    prisma.universityDemoRequest.findFirst.mockResolvedValue(openRequest())
+    queue.enqueue.mockRejectedValue(new Error('ECONNREFUSED'))
+
+    await expect(service.submit(form, ctx)).resolves.toEqual({ email: form.email })
+
+    expect(prisma.universityDemoRequest.update).toHaveBeenLastCalledWith({
+      where: { id: 'req-open' },
+      data: { emailVerificationHash: null },
+    })
+  })
+
   it('протухшая неподтверждённая заявка адрес больше не занимает', async () => {
     const { service, prisma } = setup()
     // findOpen отсекает её условием по сроку — сюда приходит null.
@@ -158,8 +207,21 @@ describe('DemoRequestsService.purgeUnconfirmed', () => {
     await service.purgeUnconfirmed(cutoff)
 
     expect(prisma.universityDemoRequest.deleteMany).toHaveBeenCalledWith({
-      where: { status: 'PENDING_EMAIL', createdAt: { lt: cutoff } },
+      where: expect.objectContaining({ status: 'PENDING_EMAIL', createdAt: { lt: cutoff } }),
     })
+  })
+
+  // Повторная отправка продлевает только срок ссылки: по одному createdAt крон удалял заявку,
+  // письмо по которой пришло вчера.
+  it('не удаляет заявку с ещё живой ссылкой', async () => {
+    const { service, prisma } = setup()
+    await service.purgeUnconfirmed(new Date('2026-09-01T00:00:00Z'))
+
+    const where = prisma.universityDemoRequest.deleteMany.mock.calls[0][0].where
+    expect(where.OR).toEqual([
+      { emailVerificationExpiresAt: null },
+      { emailVerificationExpiresAt: { lt: expect.any(Date) } },
+    ])
   })
 })
 

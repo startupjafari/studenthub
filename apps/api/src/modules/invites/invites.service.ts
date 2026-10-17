@@ -587,6 +587,9 @@ export class InviteService {
       throw new AppException('NOT_FOUND', 'Инвайт не найден')
     }
     this.assertUsable(invite.status, invite.expiresAt)
+    // Ссылка в группу или на факультет, которых уже нет: сказать об этом сразу, а не после
+    // заполненной формы регистрации.
+    await this.assertScopeAlive(this.prisma, invite)
 
     return {
       role: invite.role,
@@ -689,7 +692,61 @@ export class InviteService {
       }
       throw new AppException('INVITE_EXPIRED', 'Срок инвайта истёк')
     }
-    return tx.invite.findFirstOrThrow({ where: { token: { in: lookups } } })
+    const invite = await tx.invite.findFirstOrThrow({ where: { token: { in: lookups } } })
+    // Захват откатится вместе с транзакцией регистрации — ссылка не станет «использованной».
+    await this.assertScopeAlive(tx, invite)
+    return invite
+  }
+
+  /**
+   * Отзыв ожидающих приглашений в удаляемый вуз, факультет или группу.
+   *
+   * Вызывается в транзакции удаления, ДО блокировки самой строки вуза/факультета/группы.
+   * У инвайта нет внешних ключей на scope, и без отзыва ссылка жила дальше: человек
+   * заполнял форму и получал 400 «Нарушение ссылочной целостности» на вставке
+   * пользователя, а инвайт оставался PENDING и считался живым в воронках.
+   *
+   * Порядок важен. Регистрация захватывает инвайт (блокировка его строки), а потом
+   * вставляет пользователя со ссылкой на группу (FOR KEY SHARE строки группы). Если бы
+   * удаление сначала держало группу FOR UPDATE, а потом ждало строку инвайта, они
+   * заклинили бы друг друга. Отзыв первым шагом: либо регистрация успела занять инвайт —
+   * удаление ждёт её и видит студента, либо инвайт уже отозван — регистрация получает
+   * INVITE_REVOKED.
+   */
+  async revokePendingInScope(
+    tx: Prisma.TransactionClient,
+    scope: { universityId: string } | { facultyId: string } | { groupId: string },
+  ): Promise<number> {
+    const { count } = await tx.invite.updateMany({
+      where: { ...scope, status: InviteStatus.PENDING },
+      data: { status: InviteStatus.REVOKED },
+    })
+    return count
+  }
+
+  /**
+   * Вуз, факультет и группа инвайта ещё существуют. Нет — для приглашённого это отзыв:
+   * зарегистрироваться туда уже нельзя. Ловит ссылки, выданные до того, как удаление
+   * стало отзывать инвайты, и инвайт, выписанный параллельно с удалением.
+   */
+  private async assertScopeAlive(
+    db: Prisma.TransactionClient,
+    scope: { universityId: string | null; facultyId: string | null; groupId: string | null },
+  ): Promise<void> {
+    // По очереди, а не Promise.all: в транзакции запросы всё равно идут по одному соединению.
+    const alive =
+      (!scope.universityId ||
+        (await db.university.findUnique({
+          where: { id: scope.universityId },
+          select: { id: true },
+        }))) &&
+      (!scope.facultyId ||
+        (await db.faculty.findUnique({ where: { id: scope.facultyId }, select: { id: true } }))) &&
+      (!scope.groupId ||
+        (await db.group.findUnique({ where: { id: scope.groupId }, select: { id: true } })))
+    if (!alive) {
+      throw new AppException('INVITE_REVOKED', 'Инвайт отозван: группа, факультет или вуз удалены')
+    }
   }
 
   /** Привязывает созданного пользователя к использованному инвайту (аудит). */

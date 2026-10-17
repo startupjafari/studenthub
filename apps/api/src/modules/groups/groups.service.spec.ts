@@ -5,6 +5,7 @@ import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { AuditService } from '../../common/audit/audit.service'
 import type { UniversityService } from '../universities/universities.service'
 import type { UserService } from '../users/users.service'
+import type { InviteService } from '../invites/invites.service'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 
 const ctx = { ip: '127.0.0.1', userAgent: 'jest' }
@@ -17,6 +18,7 @@ function setup() {
       update: jest.fn(),
       delete: jest.fn(),
       findMany: jest.fn(),
+      findFirst: jest.fn().mockResolvedValue(null),
       count: jest.fn(),
     },
     faculty: { findUnique: jest.fn() },
@@ -26,6 +28,7 @@ function setup() {
     exam: { count: jest.fn().mockResolvedValue(0) },
     material: { count: jest.fn().mockResolvedValue(0) },
     $queryRaw: jest.fn().mockResolvedValue([{ id: 'grp-1' }]),
+    $executeRaw: jest.fn().mockResolvedValue(0),
     $transaction: jest.fn(),
   }
   // Колбэк-транзакция: в tx — тот же мок, чтобы проверять вызовы как обычно.
@@ -38,13 +41,15 @@ function setup() {
     syncGroupStarosta: jest.fn().mockResolvedValue([]),
     afterStarostaChange: jest.fn().mockResolvedValue(undefined),
   }
+  const invites = { revokePendingInScope: jest.fn().mockResolvedValue(0) }
   const service = new GroupService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
     universities as unknown as UniversityService,
     users as unknown as UserService,
+    invites as unknown as InviteService,
   )
-  return { service, prisma, audit, universities, users }
+  return { service, prisma, audit, universities, users, invites }
 }
 
 function viewer(role: Role, scope: Partial<JwtPayload> = {}): JwtPayload {
@@ -100,6 +105,74 @@ describe('GroupService — create scope', () => {
     await expect(
       service.create(viewer(Role.PLATFORM_ADMIN), { name: 'X', facultyId: 'nope' }, ctx),
     ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+  })
+})
+
+describe('GroupService — название уникально на факультете', () => {
+  // Двойной клик в мастере заводил «ИТ-21» дважды — их потом не различить в выборе группы.
+  it('create: такое название на факультете уже есть (без учёта регистра) → CONFLICT', async () => {
+    const { service, prisma } = setup()
+    prisma.faculty.findUnique.mockResolvedValue({ id: 'fac-1', universityId: 'uni-1' })
+    prisma.group.findFirst.mockResolvedValue({ id: 'grp-old' })
+    await expect(
+      service.create(
+        viewer(Role.UNIVERSITY_ADMIN, { universityId: 'uni-1' }),
+        { name: ' ит-23-1 ', facultyId: 'fac-1' },
+        ctx,
+      ),
+    ).rejects.toMatchObject({ code: 'CONFLICT', details: [{ field: 'name' }] })
+    expect(prisma.group.findFirst).toHaveBeenCalledWith({
+      where: { facultyId: 'fac-1', name: { in: ['ит-23-1'], mode: 'insensitive' } },
+      select: { id: true },
+    })
+    expect(prisma.group.create).not.toHaveBeenCalled()
+  })
+
+  it('create: проверка под локом на факультет, название без пробелов по краям', async () => {
+    const { service, prisma } = setup()
+    prisma.faculty.findUnique.mockResolvedValue({ id: 'fac-1', universityId: 'uni-1' })
+    prisma.group.create.mockResolvedValue(GROUP)
+    await service.create(
+      viewer(Role.UNIVERSITY_ADMIN, { universityId: 'uni-1' }),
+      { name: ' ИТ-23-1 ', facultyId: 'fac-1', year: 2023 },
+      ctx,
+    )
+    expect(prisma.$executeRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      prisma.group.findFirst.mock.invocationCallOrder[0] as number,
+    )
+    expect(prisma.group.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { name: 'ИТ-23-1', year: 2023, facultyId: 'fac-1' } }),
+    )
+  })
+
+  it('update: занятое название → CONFLICT; без смены названия проверки нет', async () => {
+    const { service, prisma } = setup()
+    prisma.group.findUnique.mockResolvedValue(GROUP)
+    prisma.group.findFirst.mockResolvedValue({ id: 'grp-2' })
+    await expect(
+      service.update(
+        viewer(Role.UNIVERSITY_ADMIN, { universityId: 'uni-1' }),
+        'grp-1',
+        { name: 'ИТ-23-2' },
+        ctx,
+      ),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(prisma.group.findFirst.mock.calls[0][0].where).toEqual({
+      facultyId: 'fac-1',
+      name: { in: ['ИТ-23-2'], mode: 'insensitive' },
+      id: { not: 'grp-1' },
+    })
+    expect(prisma.group.update).not.toHaveBeenCalled()
+
+    prisma.group.findFirst.mockClear()
+    prisma.group.update.mockResolvedValue({ ...GROUP, year: 2024 })
+    await service.update(
+      viewer(Role.UNIVERSITY_ADMIN, { universityId: 'uni-1' }),
+      'grp-1',
+      { year: 2024 },
+      ctx,
+    )
+    expect(prisma.group.findFirst).not.toHaveBeenCalled()
   })
 })
 
@@ -331,6 +404,25 @@ describe('GroupService — remove', () => {
     expect(prisma.group.delete).toHaveBeenCalledWith({ where: { id: 'grp-1' } })
     expect(universities.invalidateStats).toHaveBeenCalledWith('uni-1')
     expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'group_deleted' }))
+  })
+
+  // Иначе ссылка-приглашение в удалённую группу жила дальше и падала на регистрации
+  // невнятным «нарушением ссылочной целостности».
+  it('ожидающие приглашения в группу отзываются первым шагом той же транзакции', async () => {
+    const { service, prisma, invites, audit } = setup()
+    prisma.group.findUnique.mockResolvedValue(GROUP)
+    prisma.group.delete.mockResolvedValue(GROUP)
+    invites.revokePendingInScope.mockResolvedValue(4)
+    await service.remove(viewer(Role.UNIVERSITY_ADMIN, { universityId: 'uni-1' }), 'grp-1', ctx)
+    expect(invites.revokePendingInScope).toHaveBeenCalledWith(prisma, { groupId: 'grp-1' })
+    // До блокировки группы: иначе встречная регистрация по этому инвайту и удаление
+    // заклинили бы друг друга (см. InviteService.revokePendingInScope).
+    expect(invites.revokePendingInScope.mock.invocationCallOrder[0]).toBeLessThan(
+      prisma.$queryRaw.mock.invocationCallOrder[0] as number,
+    )
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'group_deleted', metadata: { revokedInvites: 4 } }),
+    )
   })
 
   // Студентов перевели, а курсы с оценками, экзамены и материалы остались: раньше всё это

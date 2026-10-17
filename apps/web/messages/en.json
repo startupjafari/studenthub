@@ -3903,7 +3903,13 @@
     "created": "Room added",
     "deleted": "Room deleted",
     "delete": "Delete",
-    "deleteBlocked": "The room is used in the schedule — free up its classes first",
+    "deleteBlocked": "The room can’t be deleted — it’s still in use",
+    "deleteBlockedList": "Used by: {list}",
+    "deleteBlockers": {
+      "pairs": "classes in the schedule",
+      "exams": "upcoming exams",
+      "changes": "schedule changes"
+    },
     "deleteConfirmTitle": "Delete the room?",
     "deleteConfirmDesc": "Room “{room}” will be deleted. Its printed QR will stop working.",
     "emptyTitle": "No rooms yet",

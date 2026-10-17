@@ -392,4 +392,73 @@ describe('InviteService', () => {
       await expect(service.revoke(deanA, 'inv', ctx)).rejects.toMatchObject({ code: 'CONFLICT' })
     })
   })
+
+  // Удаление вуза, факультета или группы: ссылка на них больше не регистрирует.
+  describe('scope удалён', () => {
+    const pending = {
+      role: Role.STUDENT,
+      email: null,
+      universityId: 'uni-A',
+      facultyId: 'fac-A',
+      groupId: 'grp-A',
+      status: InviteStatus.PENDING,
+      expiresAt: new Date(Date.now() + HOUR),
+    }
+
+    it('preview: группы уже нет → INVITE_REVOKED, а не форма регистрации', async () => {
+      const { service, prisma } = setup()
+      prisma.invite.findFirst.mockResolvedValue(pending)
+      prisma.group.findUnique.mockResolvedValue(null)
+      await expect(service.preview('x')).rejects.toMatchObject({ code: 'INVITE_REVOKED' })
+    })
+
+    it('claimInvite: факультета уже нет → INVITE_REVOKED (захват откатится с транзакцией)', async () => {
+      const { service, prisma } = setup()
+      const tx = {
+        ...prisma,
+        invite: {
+          ...prisma.invite,
+          updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+          findFirstOrThrow: jest.fn().mockResolvedValue({ id: 'inv-1', ...pending }),
+        },
+      }
+      tx.faculty.findUnique.mockResolvedValue(null)
+      await expect(
+        service.claimInvite(tx as unknown as Prisma.TransactionClient, 'tok'),
+      ).rejects.toMatchObject({ code: 'INVITE_REVOKED' })
+    })
+
+    it('claimInvite: scope на месте — инвайт занят и возвращён', async () => {
+      const { service, prisma } = setup()
+      const tx = {
+        ...prisma,
+        invite: {
+          ...prisma.invite,
+          updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+          findFirstOrThrow: jest.fn().mockResolvedValue({ id: 'inv-1', ...pending }),
+        },
+      }
+      await expect(
+        service.claimInvite(tx as unknown as Prisma.TransactionClient, 'tok'),
+      ).resolves.toMatchObject({ id: 'inv-1' })
+      expect(tx.group.findUnique).toHaveBeenCalledWith({
+        where: { id: 'grp-A' },
+        select: { id: true },
+      })
+    })
+
+    it('revokePendingInScope: только PENDING этого scope переводятся в REVOKED', async () => {
+      const { service } = setup()
+      const tx = { invite: { updateMany: jest.fn().mockResolvedValue({ count: 3 }) } }
+      await expect(
+        service.revokePendingInScope(tx as unknown as Prisma.TransactionClient, {
+          groupId: 'grp-A',
+        }),
+      ).resolves.toBe(3)
+      expect(tx.invite.updateMany).toHaveBeenCalledWith({
+        where: { groupId: 'grp-A', status: InviteStatus.PENDING },
+        data: { status: InviteStatus.REVOKED },
+      })
+    })
+  })
 })

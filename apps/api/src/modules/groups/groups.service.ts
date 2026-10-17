@@ -8,6 +8,7 @@ import type {
   UpdateGroupInput,
 } from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
+import { advisoryXactLock } from '../../common/prisma/advisory-lock'
 import { AuditService } from '../../common/audit/audit.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import { Paginated } from '../../common/http/paginated'
@@ -15,6 +16,7 @@ import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
 import { UserService } from '../users/users.service'
 import { UniversityService } from '../universities/universities.service'
+import { InviteService } from '../invites/invites.service'
 
 // Внутренняя выборка для scope: год/факультет + universityId факультета.
 const GROUP_SELECT = {
@@ -60,6 +62,17 @@ const GROUP_DELETION_LABELS: Record<GroupDeletionBlocker, string> = {
   materials: 'материалы',
 }
 
+/** Название без пробелов по краям; одни пробелы — не название. */
+function groupName(raw: string): string {
+  const name = raw.trim()
+  if (!name) {
+    throw new AppException('VALIDATION_ERROR', 'Укажите название группы', [
+      { field: 'name', message: 'Укажите название группы' },
+    ])
+  }
+  return name
+}
+
 function isPlatform(role: Role): boolean {
   return role === Role.PLATFORM_ADMIN || role === Role.PLATFORM_MODERATOR
 }
@@ -83,6 +96,7 @@ export class GroupService {
     private readonly audit: AuditService,
     private readonly universities: UniversityService,
     private readonly users: UserService,
+    private readonly invites: InviteService,
   ) {}
 
   /** Создание группы (PLATFORM_ADMIN / UNIVERSITY_ADMIN своего вуза). */
@@ -96,9 +110,13 @@ export class GroupService {
     }
     this.assertUniversityScope(actor, faculty.universityId)
 
-    const group = await this.prisma.group.create({
-      data: { name: input.name, year: input.year, facultyId: input.facultyId },
-      select: GROUP_SELECT,
+    const name = groupName(input.name)
+    const group = await this.prisma.$transaction(async (tx) => {
+      await this.assertNameFree(tx, input.facultyId, name)
+      return tx.group.create({
+        data: { name, year: input.year, facultyId: input.facultyId },
+        select: GROUP_SELECT,
+      })
     })
     await this.universities.invalidateStats(faculty.universityId)
     await this.audit.record({
@@ -163,10 +181,16 @@ export class GroupService {
   ): Promise<GroupDto> {
     const group = await this.findOrThrow(id)
     this.assertUniversityScope(actor, group.universityId)
-    const updated = await this.prisma.group.update({
-      where: { id },
-      data: { name: input.name, year: input.year },
-      select: GROUP_SELECT,
+    const name = input.name === undefined ? undefined : groupName(input.name)
+    const updated = await this.prisma.$transaction(async (tx) => {
+      if (name !== undefined) {
+        await this.assertNameFree(tx, group.facultyId, name, id)
+      }
+      return tx.group.update({
+        where: { id },
+        data: { name, year: input.year },
+        select: GROUP_SELECT,
+      })
     })
     await this.audit.record({
       userId: actor.sub,
@@ -253,12 +277,18 @@ export class GroupService {
    * Вставка курса, экзамена или материала проверяет внешний ключ и берёт на строку группы
    * FOR KEY SHARE, несовместимую с FOR UPDATE: заведённое параллельно либо попадает
    * в подсчёт, либо ждёт удаления и падает на внешнем ключе — каскадом не исчезает.
+   *
+   * Ожидающие приглашения в группу отзываются в той же транзакции первым шагом, до
+   * блокировки группы (порядок — см. InviteService.revokePendingInScope). Отказ в удалении
+   * откатывает и отзыв.
    */
   async remove(actor: JwtPayload, id: string, ctx: RequestContext): Promise<void> {
     const group = await this.findOrThrow(id)
     this.assertUniversityScope(actor, group.universityId)
+    let revokedInvites = 0
     try {
-      await this.prisma.$transaction(async (tx) => {
+      revokedInvites = await this.prisma.$transaction(async (tx) => {
+        const revoked = await this.invites.revokePendingInScope(tx, { groupId: id })
         await tx.$queryRaw`SELECT id FROM "groups" WHERE id = ${id} FOR UPDATE`
         const blockers = await this.deletionBlockers(tx, id)
         if (blockers.length > 0) {
@@ -269,6 +299,7 @@ export class GroupService {
           )
         }
         await tx.group.delete({ where: { id } })
+        return revoked
       })
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
@@ -283,6 +314,7 @@ export class GroupService {
       action: 'group_deleted',
       entity: 'Group',
       entityId: id,
+      metadata: { revokedInvites },
       ...ctx,
     })
   }
@@ -312,6 +344,39 @@ export class GroupService {
       field,
       message: `${GROUP_DELETION_LABELS[field]} (${counts[field]})`,
     }))
+  }
+
+  /**
+   * Название группы свободно на факультете — без учёта регистра.
+   *
+   * Уникального индекса `(facultyId, name)` в схеме нет, а двойной клик и быстрый ввод
+   * в мастере заводили «ИТ-21» дважды — потом их не различить в выборе группы для
+   * инвайта и расписания. Поэтому проверка в коде, под advisory-локом на факультет: два
+   * параллельных создания идут по очереди, и второе видит первое.
+   *
+   * `in`, а не `equals` с `mode: 'insensitive'`: equals Prisma строит через ILIKE, где
+   * `_` и `%` — шаблоны, и «ИТ_21» совпало бы с «ИТ-21».
+   */
+  private async assertNameFree(
+    tx: Prisma.TransactionClient,
+    facultyId: string,
+    name: string,
+    exceptId?: string,
+  ): Promise<void> {
+    await advisoryXactLock(tx, `group-name:${facultyId}`)
+    const taken = await tx.group.findFirst({
+      where: {
+        facultyId,
+        name: { in: [name], mode: 'insensitive' },
+        ...(exceptId ? { id: { not: exceptId } } : {}),
+      },
+      select: { id: true },
+    })
+    if (taken) {
+      throw new AppException('CONFLICT', 'Группа с таким названием на факультете уже есть', [
+        { field: 'name', message: 'Группа с таким названием на факультете уже есть' },
+      ])
+    }
   }
 
   private async findOrThrow(id: string): Promise<GroupDto> {

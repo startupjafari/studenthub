@@ -14,6 +14,7 @@ import { AppException } from '../../common/exceptions/app.exception'
 import { Paginated } from '../../common/http/paginated'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
+import { UniversityService } from '../universities/universities.service'
 
 /**
  * Порядок выборки помещений по колонке таблицы.
@@ -70,6 +71,16 @@ const ROOM_SELECT = {
 
 type RoomDto = Prisma.RoomGetPayload<{ select: typeof ROOM_SELECT }>
 
+// Что не даёт удалить помещение. Ключ уходит клиенту в details.field.
+const ROOM_DELETION_BLOCKERS = ['pairs', 'exams', 'changes'] as const
+type RoomDeletionBlocker = (typeof ROOM_DELETION_BLOCKERS)[number]
+
+const ROOM_DELETION_LABELS: Record<RoomDeletionBlocker, string> = {
+  pairs: 'пары в расписании',
+  exams: 'предстоящие экзамены',
+  changes: 'замены в расписании',
+}
+
 function isPlatform(role: Role): boolean {
   return role === Role.PLATFORM_ADMIN || role === Role.PLATFORM_MODERATOR
 }
@@ -79,6 +90,7 @@ export class RoomService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly universities: UniversityService,
   ) {}
 
   /** Создание помещения (PLATFORM_ADMIN / UNIVERSITY_ADMIN своего вуза). */
@@ -111,6 +123,9 @@ export class RoomService {
       },
       select: ROOM_SELECT,
     })
+    // Счётчик «аудиторий» на дашбордах вуза — из кэша статистики; без сброса он отставал
+    // до пяти минут.
+    await this.universities.invalidateStats(universityId)
     await this.audit.record({
       userId: actor.sub,
       action: 'room_created',
@@ -183,15 +198,35 @@ export class RoomService {
     return updated
   }
 
-  /** Удаление аудитории — запрещено, пока она используется в парах (иначе SET NULL «потеряет» аудиторию). */
+  /**
+   * Удаление помещения — только неиспользуемого: без пар в расписании, предстоящих
+   * экзаменов и замен «перенос в ауд. X» на сегодня и дальше.
+   *
+   * Пары, экзамены и замены ссылаются на помещение с SET NULL: без проверки удаление молча
+   * стирало аудиторию из будущих экзаменов и замен, и студенты не знали, куда идти. Прошедшие
+   * экзамены и замены не мешают — им пустая аудитория уже ничего не ломает. В ответе — что
+   * именно мешает (details.field — вид записей).
+   *
+   * Подсчёт и удаление — одна транзакция под блокировкой строки помещения (FOR UPDATE):
+   * пара, экзамен или замена, заведённые параллельно, проверяют внешний ключ (FOR KEY SHARE
+   * на строку помещения) и либо попадают в подсчёт, либо ждут удаления и падают на ключе.
+   */
   async remove(actor: JwtPayload, id: string, ctx: RequestContext): Promise<void> {
     const room = await this.findOrThrow(id)
     this.assertManageScope(actor, room.universityId)
-    const usedBy = await this.prisma.pair.count({ where: { roomId: id } })
-    if (usedBy > 0) {
-      throw new AppException('CONFLICT', 'Нельзя удалить аудиторию, занятую в расписании')
-    }
-    await this.prisma.room.delete({ where: { id } })
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM "rooms" WHERE id = ${id} FOR UPDATE`
+      const blockers = await this.deletionBlockers(tx, id)
+      if (blockers.length > 0) {
+        throw new AppException(
+          'CONFLICT',
+          `Нельзя удалить помещение, пока его используют: ${blockers.map((b) => b.message).join(', ')}`,
+          blockers,
+        )
+      }
+      await tx.room.delete({ where: { id } })
+    })
+    await this.universities.invalidateStats(room.universityId)
     await this.audit.record({
       userId: actor.sub,
       action: 'room_deleted',
@@ -216,6 +251,33 @@ export class RoomService {
     if (room.universityId !== universityId) {
       throw new AppException('WRONG_SCOPE', 'Аудитория другого университета')
     }
+  }
+
+  /**
+   * Что держит помещение от удаления. «Предстоящее» — с начала сегодняшних суток по UTC:
+   * для вузов восточнее Гринвича это захватывает и часть вчерашнего дня — лишний отказ
+   * лучше, чем потерянная аудитория у сегодняшнего экзамена.
+   *
+   * Счётчики по чужим таблицам — напрямую, как и прежняя проверка пар (и как
+   * `GroupService.deletionBlockers`): подсчёт обязан идти в транзакции удаления, под
+   * блокировкой строки помещения. Наружу отсюда идут только числа.
+   */
+  private async deletionBlockers(
+    tx: Prisma.TransactionClient,
+    roomId: string,
+  ): Promise<{ field: RoomDeletionBlocker; message: string }[]> {
+    const today = new Date(new Date().toISOString().slice(0, 10))
+    const counts: Record<RoomDeletionBlocker, number> = {
+      pairs: await tx.pair.count({ where: { roomId } }),
+      exams: await tx.exam.count({ where: { roomId, date: { gte: today } } }),
+      changes: await tx.scheduleChange.count({
+        where: { newRoomId: roomId, date: { gte: today } },
+      }),
+    }
+    return ROOM_DELETION_BLOCKERS.filter((field) => counts[field] > 0).map((field) => ({
+      field,
+      message: `${ROOM_DELETION_LABELS[field]} (${counts[field]})`,
+    }))
   }
 
   private async findOrThrow(id: string): Promise<RoomDto> {

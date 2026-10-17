@@ -28,6 +28,8 @@ function setup() {
       count: jest.fn().mockResolvedValue(0),
     },
     file: { findMany: jest.fn().mockResolvedValue([]), delete: jest.fn() },
+    // Справочник специальностей вуза: проверка специальности в учебных данных.
+    specialty: { findFirst: jest.fn().mockResolvedValue(null) },
     chat: { findMany: jest.fn().mockResolvedValue([]) },
     group: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
     telegramAccount: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
@@ -1637,6 +1639,84 @@ describe('UserService — учебные данные ведёт вуз', () => 
         course: 1,
       }),
     ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+  })
+})
+
+describe('UserService — специальность из справочника вуза', () => {
+  const student = {
+    id: 's1',
+    role: Role.STUDENT,
+    universityId: 'uni-A',
+    facultyId: 'fac-A',
+    specialty: 'Старое название',
+  }
+  const admin = viewer(Role.UNIVERSITY_ADMIN, { universityId: 'uni-A' })
+
+  it('название из справочника сохраняется в его написании', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findFirst.mockResolvedValue(student)
+    prisma.user.update.mockResolvedValue({ id: 's1' })
+    prisma.specialty.findFirst.mockResolvedValueOnce({ id: 'sp-1', name: 'Информатика' })
+    await service.updateAcademicRecord(admin, 's1', { specialty: 'информатика' })
+    expect(prisma.specialty.findFirst).toHaveBeenCalledWith({
+      where: { universityId: 'uni-A', name: { in: ['информатика'], mode: 'insensitive' } },
+      select: { id: true, name: true },
+    })
+    expect(prisma.user.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { specialty: 'Информатика' } }),
+    )
+  })
+
+  it('справочник заведён, а такой специальности нет — VALIDATION_ERROR по полю', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findFirst.mockResolvedValue(student)
+    prisma.specialty.findFirst
+      .mockResolvedValueOnce(null) // совпадения по названию нет
+      .mockResolvedValueOnce({ id: 'sp-1' }) // но справочник у вуза есть
+    await expect(
+      service.updateAcademicRecord(admin, 's1', { specialty: 'Что-то своё' }),
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR', details: [{ field: 'specialty' }] })
+    expect(prisma.user.update).not.toHaveBeenCalled()
+  })
+
+  it('у вуза без справочника — свободный текст, как раньше', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findFirst.mockResolvedValue(student)
+    prisma.user.update.mockResolvedValue({ id: 's1' })
+    await service.updateAcademicRecord(admin, 's1', { specialty: 'Что-то своё' })
+    expect(prisma.user.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { specialty: 'Что-то своё' } }),
+    )
+  })
+
+  // Правка курса не должна упираться в специальность, вписанную до справочника.
+  it('прежнее значение и очистка поля проходят без справочника', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findFirst.mockResolvedValue(student)
+    prisma.user.update.mockResolvedValue({ id: 's1' })
+    await service.updateAcademicRecord(admin, 's1', { specialty: 'Старое название', course: 2 })
+    await service.updateAcademicRecord(admin, 's1', { specialty: '' })
+    expect(prisma.specialty.findFirst).not.toHaveBeenCalled()
+    expect(prisma.user.update).toHaveBeenLastCalledWith(
+      expect.objectContaining({ data: { specialty: '' } }),
+    )
+  })
+
+  it('renameSpecialty: переименование доходит до студентов вуза, без учёта регистра', async () => {
+    const { service } = setup()
+    const tx = { user: { updateMany: jest.fn().mockResolvedValue({ count: 7 }) } }
+    await expect(
+      service.renameSpecialty(
+        tx as unknown as Prisma.TransactionClient,
+        'uni-A',
+        'Информатика',
+        'Информатика и ВТ',
+      ),
+    ).resolves.toBe(7)
+    expect(tx.user.updateMany).toHaveBeenCalledWith({
+      where: { universityId: 'uni-A', specialty: { in: ['Информатика'], mode: 'insensitive' } },
+      data: { specialty: 'Информатика и ВТ' },
+    })
   })
 })
 

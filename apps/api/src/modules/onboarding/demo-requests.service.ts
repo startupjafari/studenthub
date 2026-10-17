@@ -177,8 +177,10 @@ export class DemoRequestsService {
       select: { id: true, universityName: true },
     })
 
-    await this.queue.enqueue(
-      QUEUES.EMAIL,
+    // Тихо, как и повторная отправка: заявка уже записана, и сбой Redis не повод отвечать
+    // 500 — человек нажал бы ещё раз и упёрся в паузу без письма. Не ушло — гасим ссылку
+    // (`markUndelivered`), и следующая отправка формы вышлет письмо сразу.
+    const queued = await this.enqueueQuietly(
       EMAIL_JOBS.SEND_DEMO_VERIFICATION,
       {
         to: input.email,
@@ -186,8 +188,11 @@ export class DemoRequestsService {
         verifyUrl: `${this.webBase()}/demo/verify?token=${rawToken}`,
         expiresAt: DATE_FORMAT.format(expiresAt),
       },
-      { jobId: `demo-verify:${request.id}` },
+      `demo-verify:${request.id}`,
     )
+    if (!queued) {
+      await this.markUndelivered(request.id)
+    }
 
     await this.audit.record({
       action: 'demo_request_submitted',
@@ -223,6 +228,7 @@ export class DemoRequestsService {
         id: true,
         status: true,
         universityName: true,
+        emailVerificationHash: true,
         emailVerificationExpiresAt: true,
       },
     })
@@ -236,16 +242,26 @@ export class DemoRequestsService {
    * должна быть одна.
    *
    * Пауза между письмами обязательна: адрес в форме пишет кто угодно, и без неё повтор
-   * отправки превращается в способ засыпать чужой ящик.
+   * отправки превращается в способ засыпать чужой ящик. Но пауза — только после письма,
+   * которое действительно ушло в очередь. Не ушло (Redis лежал) — хэша ссылки нет
+   * (`markUndelivered`), и повтор шлёт письмо сразу: иначе ответ «письмо отправлено»
+   * пять минут был бы неправдой.
    */
   private async resendVerification(
-    existing: { id: string; universityName: string; emailVerificationExpiresAt: Date | null },
+    existing: {
+      id: string
+      universityName: string
+      emailVerificationHash: string | null
+      emailVerificationExpiresAt: Date | null
+    },
     email: string,
   ): Promise<void> {
+    // Момент последней отправки — срок ссылки минус её TTL: срок ставится ровно при отправке.
     const sentAt = existing.emailVerificationExpiresAt
       ? existing.emailVerificationExpiresAt.getTime() - VERIFY_TTL_MS
       : 0
-    if (Date.now() - sentAt < RESEND_COOLDOWN_MS) {
+    const delivered = existing.emailVerificationHash !== null
+    if (delivered && Date.now() - sentAt < RESEND_COOLDOWN_MS) {
       this.logger.warn('Повторная заявка: письмо отправляли только что, ждём паузу')
       return
     }
@@ -260,7 +276,7 @@ export class DemoRequestsService {
       },
     })
 
-    await this.enqueueQuietly(
+    const queued = await this.enqueueQuietly(
       EMAIL_JOBS.SEND_DEMO_VERIFICATION,
       {
         to: email,
@@ -272,7 +288,32 @@ export class DemoRequestsService {
       // молча не ушло бы — а оно и есть смысл этой ветки.
       `demo-verify:${existing.id}:${expiresAt.getTime()}`,
     )
+    if (!queued) {
+      await this.markUndelivered(existing.id)
+      return
+    }
     this.logger.log('Повторная заявка: письмо подтверждения выслано заново')
+  }
+
+  /**
+   * Письмо подтверждения не ушло в очередь: гасим хэш ссылки. Ссылки, которую никто не
+   * получил, не должно быть в базе, а пустой хэш у неподтверждённой заявки — признак «письма
+   * не было», по которому следующая отправка формы шлёт его без паузы. Новой колонки
+   * «последняя отправка» для этого не нужно.
+   */
+  private async markUndelivered(id: string): Promise<void> {
+    try {
+      await this.prisma.universityDemoRequest.update({
+        where: { id },
+        data: { emailVerificationHash: null },
+      })
+    } catch (error) {
+      this.logger.warn(
+        `Не удалось отметить неотправленное письмо заявки ${id}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      )
+    }
   }
 
   /**
@@ -285,10 +326,21 @@ export class DemoRequestsService {
    *
    * Подтверждённые заявки не трогаются никогда: по ним принимали решение, и запись о том,
    * кто и на каком основании получил доступ, переживает саму заявку.
+   *
+   * Заявка с ещё живой ссылкой не удаляется, даже если подана давно: повторная отправка
+   * формы продлевает только срок ссылки, и по `createdAt` крон удалял заявку, письмо по
+   * которой пришло вчера, — человек получал «ссылка недействительна».
    */
   async purgeUnconfirmed(olderThan: Date): Promise<number> {
     const { count } = await this.prisma.universityDemoRequest.deleteMany({
-      where: { status: 'PENDING_EMAIL', createdAt: { lt: olderThan } },
+      where: {
+        status: 'PENDING_EMAIL',
+        createdAt: { lt: olderThan },
+        OR: [
+          { emailVerificationExpiresAt: null },
+          { emailVerificationExpiresAt: { lt: new Date() } },
+        ],
+      },
     })
     return count
   }
@@ -564,21 +616,24 @@ export class DemoRequestsService {
    * Постановка письма в очередь после того, как решение уже записано. Сбой Redis не
    * должен ронять ответ и тем более откатывать решение: заявку можно переслать
    * повторно, а вот «одобрено, но ответ 500» модератор прочитает как «не одобрено» и
-   * нажмёт ещё раз — на уже заведённом вузе.
+   * нажмёт ещё раз — на уже заведённом вузе. То же для заявки с публичной формы: строка
+   * уже создана. Возвращает, ушло ли письмо в очередь.
    */
   private async enqueueQuietly(
     job: string,
     payload: Record<string, unknown>,
     jobId: string,
-  ): Promise<void> {
+  ): Promise<boolean> {
     try {
       await this.queue.enqueue(QUEUES.EMAIL, job, payload, { jobId })
+      return true
     } catch (error) {
       this.logger.warn(
-        `Не удалось поставить письмо ${job} в очередь (решение уже записано): ${
+        `Не удалось поставить письмо ${job} в очередь (запись уже сделана): ${
           error instanceof Error ? error.message : String(error)
         }`,
       )
+      return false
     }
   }
 

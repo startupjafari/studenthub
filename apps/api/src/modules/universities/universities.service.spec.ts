@@ -6,6 +6,7 @@ import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { AuditService } from '../../common/audit/audit.service'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { UniversityAccessService } from './university-access.service'
+import type { InviteService } from '../invites/invites.service'
 
 const ctx = { ip: '127.0.0.1', userAgent: 'jest' }
 
@@ -25,16 +26,22 @@ function setup() {
     user: { count: jest.fn() },
     $transaction: jest.fn(),
   }
+  // Колбэк-транзакция (удаление): в tx — тот же мок. Пакетная (статистика) задаётся в тесте.
+  prisma.$transaction.mockImplementation(async (arg: unknown) =>
+    typeof arg === 'function' ? (arg as (tx: typeof prisma) => unknown)(prisma) : arg,
+  )
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const redis = { get: jest.fn(), set: jest.fn(), del: jest.fn() }
   const access = { remember: jest.fn() }
+  const invites = { revokePendingInScope: jest.fn().mockResolvedValue(0) }
   const service = new UniversityService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
     redis as unknown as Redis,
     access as unknown as UniversityAccessService,
+    invites as unknown as InviteService,
   )
-  return { service, prisma, audit, redis, access }
+  return { service, prisma, audit, redis, access, invites }
 }
 
 function viewer(role: Role, universityId: string | null = null, sub = 'u'): JwtPayload {
@@ -123,6 +130,25 @@ describe('UniversityService — status/create/delete', () => {
       code: 'CONFLICT',
     })
   })
+
+  // Иначе ссылка-приглашение в удалённый вуз жила дальше и падала на регистрации
+  // невнятным «нарушением ссылочной целостности».
+  it('remove: ожидающие приглашения в вуз отзываются той же транзакцией, до удаления', async () => {
+    const { service, prisma, invites, audit } = setup()
+    prisma.university.findUnique.mockResolvedValue(UNI)
+    prisma.university.delete.mockResolvedValue(UNI)
+    invites.revokePendingInScope.mockResolvedValue(3)
+
+    await service.remove(viewer(Role.PLATFORM_ADMIN), 'uni-1', ctx)
+
+    expect(invites.revokePendingInScope).toHaveBeenCalledWith(prisma, { universityId: 'uni-1' })
+    expect(invites.revokePendingInScope.mock.invocationCallOrder[0]).toBeLessThan(
+      prisma.university.delete.mock.invocationCallOrder[0] as number,
+    )
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'university_deleted', metadata: { revokedInvites: 3 } }),
+    )
+  })
 })
 
 describe('UniversityService — stats cache', () => {
@@ -145,6 +171,32 @@ describe('UniversityService — stats cache', () => {
     const stats = await service.getStats(viewer(Role.PLATFORM_ADMIN), 'uni-1')
     expect(stats).toEqual({ faculties: 1, groups: 2, rooms: 3, students: 4, teachers: 5 })
     expect(redis.set).toHaveBeenCalledWith('stats:university:uni-1', expect.any(String), 'EX', 300)
+  })
+
+  // Кэш — ускорение: без Redis плитки дашборда считаются из БД, а не отвечают 500.
+  it('Redis недоступен на чтении и записи — статистика из БД', async () => {
+    const { service, prisma, redis } = setup()
+    prisma.university.findUnique.mockResolvedValue(UNI)
+    redis.get.mockRejectedValue(new Error('ECONNREFUSED'))
+    redis.set.mockRejectedValue(new Error('ECONNREFUSED'))
+    prisma.$transaction.mockResolvedValue([1, 2, 3, 4, 5])
+    await expect(service.getStats(viewer(Role.PLATFORM_ADMIN), 'uni-1')).resolves.toEqual({
+      faculties: 1,
+      groups: 2,
+      rooms: 3,
+      students: 4,
+      teachers: 5,
+    })
+  })
+
+  it('испорченная запись в кэше — промах, а не 500', async () => {
+    const { service, prisma, redis } = setup()
+    prisma.university.findUnique.mockResolvedValue(UNI)
+    redis.get.mockResolvedValue('{не json')
+    prisma.$transaction.mockResolvedValue([1, 0, 0, 0, 0])
+    await expect(service.getStats(viewer(Role.PLATFORM_ADMIN), 'uni-1')).resolves.toMatchObject({
+      faculties: 1,
+    })
   })
 })
 

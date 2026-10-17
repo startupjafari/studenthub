@@ -35,6 +35,7 @@ import { REDIS_CLIENT } from '../../common/redis/redis.constants'
 // forwardRef: единственное разрешённое кольцо AuthModule ↔ UsersModule (§2.1) —
 // смена пароля/удаление/блокировка обязаны погасить сессии, которыми владеет AuthService.
 import { AuthService } from '../auth/auth.service'
+import { canonicalSpecialtyName } from '../specialties/specialty-name'
 
 type PrismaTx = Prisma.TransactionClient
 
@@ -1728,7 +1729,7 @@ export class UserService {
   ): Promise<UserProfile> {
     const target = await this.prisma.user.findFirst({
       where: { id: userId, deletedAt: null },
-      select: { id: true, role: true, universityId: true, facultyId: true },
+      select: { id: true, role: true, universityId: true, facultyId: true, specialty: true },
     })
     if (!target) throw new AppException('NOT_FOUND', 'Пользователь не найден')
     if (target.role !== Role.STUDENT && target.role !== Role.STAROSTA) {
@@ -1744,7 +1745,7 @@ export class UserService {
 
     const updated = await this.prisma.user.update({
       where: { id: userId },
-      data,
+      data: await this.withDictionarySpecialty(target, data),
       select: PROFILE_SELECT,
     })
     await this.audit.record({
@@ -1756,6 +1757,48 @@ export class UserService {
       ...ctx,
     })
     return updated
+  }
+
+  /**
+   * Специальность в учебных данных — из справочника вуза, в его написании: иначе после
+   * переименования в справочнике (каскад — `renameSpecialty`) студент со «своим» текстом
+   * остался бы со старым названием в справке. Прежнее значение пропускается как есть —
+   * правка курса не должна упираться в специальность, вписанную до справочника. У вуза без
+   * справочника — свободный текст, как раньше.
+   */
+  private async withDictionarySpecialty(
+    target: { universityId: string | null; specialty: string | null },
+    data: UpdateAcademicRecordInput,
+  ): Promise<UpdateAcademicRecordInput> {
+    if (data.specialty === undefined || data.specialty === target.specialty) return data
+    if (!target.universityId) return data
+    const specialty = await canonicalSpecialtyName(this.prisma, target.universityId, data.specialty)
+    if (specialty === null) {
+      throw new AppException('VALIDATION_ERROR', 'Специальности нет в справочнике вуза', [
+        { field: 'specialty', message: 'Выберите специальность из справочника вуза' },
+      ])
+    }
+    return { ...data, specialty }
+  }
+
+  /**
+   * Переименование специальности в справочнике вуза доходит до учебных данных студентов
+   * (зовёт SpecialtiesService.update в своей транзакции). Специальность в профиле —
+   * строка-название, а не ссылка на справочник, поэтому без каскада в справках и
+   * студенческих оставалось старое название. Сравнение без учёта регистра — как и выбор
+   * из справочника.
+   */
+  async renameSpecialty(
+    tx: PrismaTx,
+    universityId: string,
+    from: string,
+    to: string,
+  ): Promise<number> {
+    const { count } = await tx.user.updateMany({
+      where: { universityId, specialty: { in: [from], mode: 'insensitive' } },
+      data: { specialty: to },
+    })
+    return count
   }
 
   /**
