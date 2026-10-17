@@ -14,8 +14,13 @@ const ctx = { ip: '127.0.0.1', userAgent: 'jest' }
 function setup() {
   // Создание идёт транзакцией: сторис и её опрос появляются вместе или не появляются вовсе.
   const tx = {
-    story: { create: jest.fn().mockResolvedValue({ id: 's-new' }) },
+    story: {
+      create: jest.fn().mockResolvedValue({ id: 's-new' }),
+      count: jest.fn().mockResolvedValue(0),
+    },
     storyPoll: { create: jest.fn().mockResolvedValue({ id: 'poll-1' }) },
+    // Лок занятости файла (pg_advisory_xact_lock) — порядок вызовов проверяется по нему.
+    $executeRaw: jest.fn().mockResolvedValue(0),
   }
   const prisma = {
     story: {
@@ -302,12 +307,12 @@ describe('StoriesService.create', () => {
   })
 
   it('файл, уже занятый другой сторис, — CONFLICT', async () => {
-    const { service, prisma } = setup()
+    const { service, prisma, tx } = setup()
     prisma.group.findUnique.mockResolvedValue({
       facultyId: 'fac-1',
       faculty: { universityId: 'uni-1' },
     })
-    prisma.story.count.mockResolvedValue(1)
+    tx.story.count.mockResolvedValue(1)
     const err = await service
       .create(
         viewer(Role.STUDENT, { sub: 'u-1', universityId: 'uni-1', groupId: 'grp-1' }),
@@ -316,6 +321,48 @@ describe('StoriesService.create', () => {
       )
       .catch((e) => e)
     expect(err.code).toBe('CONFLICT')
+    expect(tx.story.create).not.toHaveBeenCalled()
+  })
+
+  it('занятость файла проверяется под локом файла внутри транзакции вставки (E-F19)', async () => {
+    const { service, prisma, tx } = setup()
+    prisma.group.findUnique.mockResolvedValue({
+      facultyId: 'fac-1',
+      faculty: { universityId: 'uni-1' },
+    })
+    prisma.story.findFirst.mockResolvedValue(storyRow())
+    await service.create(
+      viewer(Role.STUDENT, { sub: 'u-1', universityId: 'uni-1', groupId: 'grp-1' }),
+      { audience: 'GROUP' as const, fileId: 'f-1' },
+      ctx,
+    )
+    // Лок → подсчёт → вставка, всё на клиенте транзакции; снаружи занятость не проверяется,
+    // иначе два параллельных запроса снова увидели бы «свободен».
+    const lockAt = tx.$executeRaw.mock.invocationCallOrder[0] ?? 0
+    const countAt = tx.story.count.mock.invocationCallOrder[0] ?? 0
+    const createAt = tx.story.create.mock.invocationCallOrder[0] ?? 0
+    expect(lockAt).toBeGreaterThan(0)
+    expect(lockAt).toBeLessThan(countAt)
+    expect(countAt).toBeLessThan(createAt)
+    expect(tx.$executeRaw.mock.calls[0]?.slice(1)).toEqual(['story-file:f-1'])
+    expect(tx.story.count).toHaveBeenCalledWith({ where: { fileId: 'f-1' } })
+    expect(prisma.story.count).not.toHaveBeenCalled()
+  })
+
+  it('текстовая сторис без файла лок не берёт', async () => {
+    const { service, prisma, tx } = setup()
+    prisma.group.findUnique.mockResolvedValue({
+      facultyId: 'fac-1',
+      faculty: { universityId: 'uni-1' },
+    })
+    prisma.story.findFirst.mockResolvedValue(storyRow())
+    await service.create(
+      viewer(Role.STUDENT, { sub: 'u-1', universityId: 'uni-1', groupId: 'grp-1' }),
+      { audience: 'GROUP' as const, text: 'Привет' },
+      ctx,
+    )
+    expect(tx.$executeRaw).not.toHaveBeenCalled()
+    expect(tx.story.create).toHaveBeenCalledTimes(1)
   })
 })
 

@@ -4,6 +4,7 @@
 // разбирается ЗАГРУЖЕННЫЙ пользователем файл, то есть ровно тот путь, по которому эти
 // уязвимости и срабатывают. Следствие: сборке (CI, Docker) нужен доступ к cdn.sheetjs.com.
 import * as XLSX from 'xlsx'
+import { BULK_INVITE_MAX_ROWS } from '@studenthub/shared-schemas'
 import { AppException } from '../../common/exceptions/app.exception'
 
 // Разбор загруженного файла массового приглашения в нормализованные строки.
@@ -19,6 +20,16 @@ export interface RawBulkRow {
 }
 
 type BulkColumn = 'email' | 'group' | 'role' | 'faculty'
+
+// Потолок разбора: заголовок и вдвое больше строк, чем принимает импорт. Файл до 10 МБ
+// (сжатый XLSX тем более) разворачивался целиком — миллион строк синхронно, в event loop, —
+// хотя лимит в 500 строк проверялся уже после. Запас вдвое — на пустые строки внутри списка:
+// всё, что больше 500 непустых, импорт отклонит и так (InviteService.bulkPreview), а дальше
+// этой строки файл не читается вовсе.
+const MAX_PARSED_ROWS = BULK_INVITE_MAX_ROWS * 2 + 1
+// Нужны четыре колонки, читаем не дальше пятидесятой: одна ячейка в столбце XFD иначе
+// разворачивала каждую строку листа в 16 тысяч значений.
+const MAX_PARSED_COLUMNS = 50
 
 // Синонимы заголовков (ru/en). Ключи — что ищем, значения — допустимые заголовки.
 const HEADER_ALIASES: Record<BulkColumn, string[]> = {
@@ -90,6 +101,7 @@ function parseCsv(text: string): string[][] {
       rows.push(row)
       row = []
       field = ''
+      if (rows.length >= MAX_PARSED_ROWS) return rows
     } else if (c !== '\r') {
       field += c
     }
@@ -103,13 +115,22 @@ function parseCsv(text: string): string[][] {
 
 // ── XLSX: первый лист → матрица строк ──
 function parseXlsx(buffer: Buffer): string[][] {
-  const wb = XLSX.read(buffer, { type: 'buffer' })
+  // sheetRows — строки дальше потолка парсер пропускает, не создавая ячеек; dense — лист
+  // массивом строк, а не объектом с ключом на каждую ячейку.
+  const wb = XLSX.read(buffer, { type: 'buffer', sheetRows: MAX_PARSED_ROWS, dense: true })
   const sheetName = wb.SheetNames[0]
   if (!sheetName) throw new AppException('BAD_REQUEST', 'В книге нет листов')
   const sheet = wb.Sheets[sheetName]
-  if (!sheet) throw new AppException('BAD_REQUEST', 'Первый лист книги пуст')
+  if (!sheet?.['!ref']) throw new AppException('BAD_REQUEST', 'Первый лист книги пуст')
+  const range = XLSX.utils.decode_range(sheet['!ref'])
+  range.e.c = Math.min(range.e.c, range.s.c + MAX_PARSED_COLUMNS - 1)
   // header:1 → массив массивов; defval гарантирует одинаковую длину строк.
-  return XLSX.utils.sheet_to_json<string[]>(sheet, { header: 1, defval: '', blankrows: false })
+  return XLSX.utils.sheet_to_json<string[]>(sheet, {
+    header: 1,
+    defval: '',
+    blankrows: false,
+    range,
+  })
 }
 
 // Матрица (первая строка — заголовки) → нормализованные строки email/group/role/faculty.

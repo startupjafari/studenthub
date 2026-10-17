@@ -133,7 +133,7 @@ private final class StubFeed: FeedFetching, @unchecked Sendable {
     func markRead(notificationID: String) async throws {}
     func markAllRead() async throws {}
     func notificationSettings() async throws -> NotificationSettingsDTO {
-        NotificationSettingsDTO(push: true, email: true, inApp: true)
+        NotificationSettingsDTO(pushEnabled: true, emailEnabled: true)
     }
     func updateNotificationSettings(_ settings: NotificationSettingsDTO) async throws {}
     func me() async throws -> UserProfileDTO {

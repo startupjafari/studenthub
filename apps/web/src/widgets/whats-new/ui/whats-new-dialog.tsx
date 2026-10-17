@@ -3,6 +3,7 @@
 import { useEffect, useRef } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAppSelector } from '../../../shared/store'
+import { useLoadedPlatformState } from '../../../entities/platform'
 import {
   RELEASE_NOTES,
   ReleaseNoteModal,
@@ -38,7 +39,14 @@ export function WhatsNewDialog() {
     retry: false,
   })
 
-  const decision = pickReleaseNote(RELEASE_NOTES, authed ? state : undefined)
+  // Объявленная версия — потолок для окна (B-F18). Пока состояние платформы не пришло,
+  // молчим так же, как без состояния релизов: иначе окно новее объявленной мигнуло бы.
+  const platform = useLoadedPlatformState()
+  const decision = pickReleaseNote(
+    RELEASE_NOTES,
+    authed && platform ? state : undefined,
+    platform?.announcedVersion ?? null,
+  )
 
   const seen = useMutation({
     mutationFn: markReleaseSeen,

@@ -81,7 +81,9 @@ export function CreateExamModal({ mine, onClose }: Props) {
       toast.success(t('created'))
       onClose()
     } catch (e) {
-      toast.error(tErr(toApiError(e).code))
+      const code = toApiError(e).code
+      // CONFLICT — у группы, аудитории или экзаменатора в это время другой экзамен (C-F22).
+      toast.error(code === 'CONFLICT' ? t('scheduleConflict') : tErr(code))
     } finally {
       setPending(false)
     }

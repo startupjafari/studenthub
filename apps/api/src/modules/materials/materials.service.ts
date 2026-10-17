@@ -1,12 +1,18 @@
-import { Injectable, Logger } from '@nestjs/common'
+import { Injectable } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
-import type { CreateMaterialInput, MaterialListQueryInput } from '@studenthub/shared-schemas'
+import {
+  MATERIAL_LIST_LIMIT,
+  type CreateMaterialInput,
+  type MaterialListQueryInput,
+  type MaterialSubjectsQueryInput,
+} from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AuditService } from '../../common/audit/audit.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
+import { isPlatformRole, resolveGroupScope } from '../../common/auth/group-scope'
 import type { RequestContext } from '../auth/auth.service'
 import { FileService } from '../files/file.service'
 import { MediaService } from '../media/media.service'
@@ -39,14 +45,11 @@ const MATERIAL_SELECT = {
 
 type MaterialRow = Prisma.MaterialGetPayload<{ select: typeof MATERIAL_SELECT }>
 
-function isPlatform(role: Role): boolean {
-  return role === Role.PLATFORM_ADMIN || role === Role.PLATFORM_MODERATOR
-}
+// Потолок счётчиков по дисциплинам: у группы их десятки, у вуза — сотни.
+const MATERIAL_SUBJECTS_LIMIT = 500
 
 @Injectable()
 export class MaterialsService {
-  private readonly logger = new Logger(MaterialsService.name)
-
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
@@ -61,6 +64,7 @@ export class MaterialsService {
     ctx: RequestContext,
   ): Promise<MaterialRow> {
     await this.assertGroupManage(actor, input.groupId)
+    if (actor.role === Role.TEACHER) await this.assertTeachesGroup(actor.sub, input.groupId)
     const material = await this.prisma.material.create({
       data: {
         teacherId: actor.sub,
@@ -83,20 +87,35 @@ export class MaterialsService {
     return material
   }
 
-  /** Список материалов, видимых смотрящему: студент/староста — своя группа, персонал — по scope. */
+  /**
+   * Список материалов, видимых смотрящему: студент/староста — своя группа, персонал — по scope.
+   * Свежие сверху, страница — до `MATERIAL_LIST_LIMIT`, дальше — по `cursor`. Фильтры `mine`
+   * и `subject` сужают выборку на сервере: без них преподаватель получал общий поток вуза,
+   * а страница дисциплины искала свои материалы в последних 200 материалах группы.
+   */
   async list(viewer: JwtPayload, query: MaterialListQueryInput): Promise<MaterialRow[]> {
-    // scope и ?groupId= — через AND: клиентский groupId обязан СУЖАТЬ scope, а не
-    // перезаписывать его (spread по общему ключу groupId открыл бы студенту метаданные
-    // материалов любой чужой группы). См. §14.
-    const where: Prisma.MaterialWhereInput = {
-      AND: [this.scopeWhere(viewer), ...(query.groupId ? [{ groupId: query.groupId }] : [])],
-    }
     return this.prisma.material.findMany({
-      where,
+      where: this.listWhere(viewer, query),
       select: MATERIAL_SELECT,
-      orderBy: { createdAt: 'desc' },
-      take: 200,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: query.limit ?? MATERIAL_LIST_LIMIT,
+      ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
     })
+  }
+
+  /** Сколько материалов у каждой дисциплины — по всей выборке scope, а не по странице списка. */
+  async subjects(
+    viewer: JwtPayload,
+    query: MaterialSubjectsQueryInput,
+  ): Promise<{ subject: string | null; count: number }[]> {
+    const rows = await this.prisma.material.groupBy({
+      by: ['subject'],
+      where: this.listWhere(viewer, query),
+      _count: { _all: true },
+      orderBy: { subject: 'asc' },
+      take: MATERIAL_SUBJECTS_LIMIT,
+    })
+    return rows.map((r) => ({ subject: r.subject, count: r._count._all }))
   }
 
   /** Прикрепить файл к материалу (автор или админ). Файл → приватный бакет materials. */
@@ -200,8 +219,26 @@ export class MaterialsService {
 
   // ── scope ────────────────────────────────────────────────────────────────
 
+  private listWhere(
+    viewer: JwtPayload,
+    query: MaterialListQueryInput | MaterialSubjectsQueryInput,
+  ): Prisma.MaterialWhereInput {
+    // scope и фильтры — через AND: клиентский groupId обязан СУЖАТЬ scope, а не
+    // перезаписывать его (spread по общему ключу groupId открыл бы студенту метаданные
+    // материалов любой чужой группы). См. §14.
+    const subject = 'subject' in query ? query.subject : undefined
+    return {
+      AND: [
+        this.scopeWhere(viewer),
+        ...(query.groupId ? [{ groupId: query.groupId }] : []),
+        ...(query.mine ? [{ teacherId: viewer.sub }] : []),
+        ...(subject ? [{ subject }] : []),
+      ],
+    }
+  }
+
   private scopeWhere(viewer: JwtPayload): Prisma.MaterialWhereInput {
-    if (isPlatform(viewer.role)) return {}
+    if (isPlatformRole(viewer.role)) return {}
     if (viewer.role === Role.STUDENT || viewer.role === Role.STAROSTA) {
       return { groupId: viewer.groupId ?? '__none__' }
     }
@@ -215,12 +252,12 @@ export class MaterialsService {
   }
 
   private async assertRead(viewer: JwtPayload, groupId: string): Promise<void> {
-    if (isPlatform(viewer.role)) return
+    if (isPlatformRole(viewer.role)) return
     if (viewer.role === Role.STUDENT || viewer.role === Role.STAROSTA) {
       if (viewer.groupId === groupId) return
       throw new AppException('WRONG_SCOPE', 'Материал другой группы')
     }
-    const group = await this.resolveGroup(groupId)
+    const group = await resolveGroupScope(this.prisma, groupId)
     if (viewer.role === Role.DEAN) {
       if (viewer.facultyId === group.facultyId) return
       throw new AppException('WRONG_SCOPE', 'Материал другого факультета')
@@ -230,8 +267,8 @@ export class MaterialsService {
   }
 
   private async assertGroupManage(actor: JwtPayload, groupId: string): Promise<void> {
-    if (isPlatform(actor.role)) return
-    const group = await this.resolveGroup(groupId)
+    if (isPlatformRole(actor.role)) return
+    const group = await resolveGroupScope(this.prisma, groupId)
     if (actor.role === Role.DEAN) {
       if (actor.facultyId !== group.facultyId)
         throw new AppException('WRONG_SCOPE', 'Чужой факультет')
@@ -251,7 +288,7 @@ export class MaterialsService {
       select: { id: true, teacherId: true, groupId: true },
     })
     if (!material) throw new AppException('NOT_FOUND', 'Материал не найден')
-    if (material.teacherId === actor.sub || isPlatform(actor.role)) return material
+    if (material.teacherId === actor.sub || isPlatformRole(actor.role)) return material
     // Не автор — только админ/декан своего scope.
     await this.assertGroupManage(actor, material.groupId).catch(() => {
       throw new AppException('FORBIDDEN', 'Нет прав на материал')
@@ -261,14 +298,23 @@ export class MaterialsService {
     return material
   }
 
-  private async resolveGroup(
-    groupId: string,
-  ): Promise<{ facultyId: string; universityId: string }> {
-    const group = await this.prisma.group.findUnique({
-      where: { id: groupId },
-      select: { facultyId: true, faculty: { select: { universityId: true } } },
+  /**
+   * Преподаватель выкладывает материалы только группам, где ведёт занятия (C-F27): раньше
+   * материал уходил любой группе вуза, хотя ставить себе пары он может лишь там, где ведёт
+   * дисциплину. Основание — дисциплина группы или пара действующего расписания: пара даёт
+   * ему ростер и посещаемость группы, и материалы своим студентам — то же право.
+   */
+  private async assertTeachesGroup(teacherId: string, groupId: string): Promise<void> {
+    const course = await this.prisma.course.findFirst({
+      where: { teacherId, groupId },
+      select: { id: true },
     })
-    if (!group) throw new AppException('NOT_FOUND', 'Группа не найдена')
-    return { facultyId: group.facultyId, universityId: group.faculty.universityId }
+    if (course) return
+    const pair = await this.prisma.pair.findFirst({
+      where: { teacherId, groupId, schedule: { is: { isActive: true } } },
+      select: { id: true },
+    })
+    if (pair) return
+    throw new AppException('WRONG_SCOPE', 'Вы не ведёте занятий в этой группе')
   }
 }

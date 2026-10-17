@@ -1,8 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
+import { advisoryXactLock } from '../prisma/advisory-lock'
 import { readableCode } from '../crypto/readable-code'
-import type { ExportContext, ExportFormat } from './export-branding.types'
+import type { ExportContext, ExportFormat, ExportKind } from './export-branding.types'
 
 export interface ExportRecord {
   /** Внутренний идентификатор записи журнала. */
@@ -28,6 +29,14 @@ export interface RegisterExportInput {
   ip?: string
   userAgent?: string
 }
+
+/**
+ * Виды выгрузок, которые проверяются по коду публично. Только официальные документы: их код
+ * печатается в бланке (ExportContext.shortId). Рабочие выгрузки (списки, переписка, резюме,
+ * «мои данные») лежат в том же журнале, но кода в файле не несут — и раскрывать по их коду
+ * анонимному посетителю вид выгрузки и её дату незачем.
+ */
+export const VERIFIABLE_EXPORT_KINDS: readonly ExportKind[] = ['certificate']
 
 /** Что показывает публичная страница проверки. Персональных данных — минимум (см. ниже). */
 export interface VerifiedExport {
@@ -70,35 +79,76 @@ export class ExportRegistryService {
    * Вызывающая сторона обязана проверить `null` и отказать.
    */
   async register(input: RegisterExportInput): Promise<ExportRecord | null> {
-    const shortId = readableCode()
     try {
-      const created = await this.prisma.documentExport.create({
-        data: {
-          shortId,
-          userId: input.context.actor.id,
-          kind: input.context.kind,
-          format: input.format,
-          // `undefined`, а не `null`: Prisma для nullable-Json ждёт либо значение, либо
-          // отсутствие поля (plain null у неё зарезервирован под JsonNull).
-          params: cleanParams(input.context.params) ?? undefined,
-          rows: input.rows ?? null,
-          subjectName: input.document?.subjectName ?? null,
-          documentNumber: input.document?.documentNumber ?? null,
-          issuerName: input.document?.issuerName ?? null,
-          ip: input.ip ?? null,
-          userAgent: input.userAgent ?? null,
-        },
-        select: { id: true, shortId: true },
-      })
-      return created
+      return await this.create(this.prisma, input)
     } catch (error) {
-      this.logger.error(
-        `Не удалось записать выгрузку ${input.context.kind}/${input.format} в журнал: ${
-          error instanceof Error ? error.message : String(error)
-        }`,
-      )
+      this.logFailure(input, error)
       return null
     }
+  }
+
+  /**
+   * Зарегистрировать официальный документ, только если по его номеру нет действующего.
+   *
+   * Проверка «действующего нет» и запись — под транзакционным advisory-локом по номеру:
+   * два одновременных «Сформировать справку» раньше оба проходили проверку чтением и
+   * выпускали две действующие справки с разными кодами. Под локом второй запрос ждёт
+   * первого и видит его запись. Лок держится только на эти два запроса — рендер и выдача
+   * идут уже после, без открытой транзакции.
+   *
+   * `'active'` — действующий документ с этим номером уже есть; `null` — сбой журнала (как
+   * у `register`: официальный документ без записи выдавать нельзя, решает вызывающий).
+   */
+  async registerExclusive(
+    input: RegisterExportInput & { document: { documentNumber: string } },
+  ): Promise<ExportRecord | 'active' | null> {
+    const { documentNumber } = input.document
+    const kind = input.context.kind
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        await advisoryXactLock(tx, `export-document:${kind}:${documentNumber}`)
+        const active = await tx.documentExport.count({
+          where: { documentNumber, kind, revokedAt: null },
+        })
+        if (active > 0) return 'active' as const
+        return this.create(tx, input)
+      })
+    } catch (error) {
+      this.logFailure(input, error)
+      return null
+    }
+  }
+
+  private create(
+    db: Pick<Prisma.TransactionClient, 'documentExport'>,
+    input: RegisterExportInput,
+  ): Promise<ExportRecord> {
+    return db.documentExport.create({
+      data: {
+        shortId: readableCode(),
+        userId: input.context.actor.id,
+        kind: input.context.kind,
+        format: input.format,
+        // `undefined`, а не `null`: Prisma для nullable-Json ждёт либо значение, либо
+        // отсутствие поля (plain null у неё зарезервирован под JsonNull).
+        params: cleanParams(input.context.params) ?? undefined,
+        rows: input.rows ?? null,
+        subjectName: input.document?.subjectName ?? null,
+        documentNumber: input.document?.documentNumber ?? null,
+        issuerName: input.document?.issuerName ?? null,
+        ip: input.ip ?? null,
+        userAgent: input.userAgent ?? null,
+      },
+      select: { id: true, shortId: true },
+    })
+  }
+
+  private logFailure(input: RegisterExportInput, error: unknown): void {
+    this.logger.error(
+      `Не удалось записать выгрузку ${input.context.kind}/${input.format} в журнал: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    )
   }
 
   /**
@@ -111,8 +161,13 @@ export class ExportRegistryService {
    * Возвращает число отозванных: ноль означает «нечего отзывать», и вызывающая сторона
    * решает, ошибка это или нет.
    */
-  async revokeByDocumentNumber(documentNumber: string, kind = 'certificate'): Promise<number> {
-    const { count } = await this.prisma.documentExport.updateMany({
+  async revokeByDocumentNumber(
+    documentNumber: string,
+    kind = 'certificate',
+    // Транзакция вызывающего: отзыв в журнале и отметка на документе студента — одна операция.
+    db: Pick<Prisma.TransactionClient, 'documentExport'> = this.prisma,
+  ): Promise<number> {
+    const { count } = await db.documentExport.updateMany({
       where: { documentNumber, kind, revokedAt: null },
       data: { revokedAt: new Date() },
     })
@@ -147,11 +202,11 @@ export class ExportRegistryService {
    * узнать.
    *
    * Рабочие выгрузки (списки, чаты) тоже лежат в этой таблице, но проверять там нечего:
-   * отдаём их так же скупо, страница покажет «это не официальный документ».
+   * по их коду ответ тот же, что по несуществующему, — null (VERIFIABLE_EXPORT_KINDS).
    */
   async findByShortId(shortId: string): Promise<VerifiedExport | null> {
-    const found = await this.prisma.documentExport.findUnique({
-      where: { shortId },
+    const found = await this.prisma.documentExport.findFirst({
+      where: { shortId, kind: { in: [...VERIFIABLE_EXPORT_KINDS] } },
       select: {
         shortId: true,
         kind: true,

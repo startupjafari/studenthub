@@ -99,6 +99,10 @@ export class RoomQrService {
    * Выдать QR пачкой (печать наклеек на этаж/корпус). Идемпотентно: у помещения с уже
    * выданным кодом код НЕ меняется — иначе печать одной наклейки обесценила бы все
    * висящие. Новый код только через `rotate`.
+   *
+   * Идемпотентно и при гонке: два одновременных «Печать QR» по одним помещениям оба видят
+   * «кода нет», но записывает код только первый (`assignCodeIfMissing`), а второй берёт
+   * его — иначе первая распечатка сразу оказывалась недействительной.
    */
   async issueBatch(actor: JwtPayload, roomIds: string[], ctx: RequestContext) {
     const rooms = await this.prisma.room.findMany({
@@ -116,10 +120,10 @@ export class RoomQrService {
     const issued: string[] = []
     for (const room of rooms) {
       if (!room.qrCode) {
-        const code = await this.assignCode(room.id)
-        room.qrCode = code
-        room.qrIssuedAt = new Date()
-        issued.push(room.id)
+        const result = await this.assignCodeIfMissing(room.id)
+        room.qrCode = result.code
+        room.qrIssuedAt = result.issuedAt
+        if (result.issued) issued.push(room.id)
       }
     }
     if (issued.length > 0) {
@@ -254,6 +258,48 @@ export class RoomQrService {
           })
 
     return { pairs, changes }
+  }
+
+  /**
+   * Код помещению, у которого его ещё нет: условная запись `qrCode IS NULL`, а не
+   * «прочитали — записали». Проиграли гонку параллельному запросу — возвращаем его код
+   * (`issued: false`), а не перезаписываем. Коллизия случайного кода (unique-индекс
+   * на qr_code) — повтор с новым кодом.
+   */
+  private async assignCodeIfMissing(
+    roomId: string,
+  ): Promise<{ code: string; issuedAt: Date | null; issued: boolean }> {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const code = randomCode()
+      const issuedAt = new Date()
+      let count: number
+      try {
+        ;({ count } = await this.prisma.room.updateMany({
+          where: { id: roomId, qrCode: null },
+          data: { qrCode: code, qrIssuedAt: issuedAt },
+        }))
+      } catch (error) {
+        // P2002 — код уже занят: пробуем ещё раз. Остальное — не наша ошибка.
+        if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') {
+          throw error
+        }
+        continue
+      }
+      if (count === 1) {
+        return { code, issuedAt, issued: true }
+      }
+      const current = await this.prisma.room.findUnique({
+        where: { id: roomId },
+        select: { qrCode: true, qrIssuedAt: true },
+      })
+      if (!current) {
+        throw new AppException('NOT_FOUND', 'Помещение не найдено')
+      }
+      if (current.qrCode) {
+        return { code: current.qrCode, issuedAt: current.qrIssuedAt, issued: false }
+      }
+    }
+    throw new AppException('INTERNAL_ERROR', 'Не удалось выдать код — повторите')
   }
 
   /** Уникальный короткий код с повтором при коллизии (unique-индекс на qr_code). */

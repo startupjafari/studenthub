@@ -4,8 +4,19 @@ import type { ReactNode } from 'react'
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
-import { Building2, CheckCircle2, Clock, GraduationCap, ShieldAlert } from 'lucide-react'
+import {
+  Briefcase,
+  Building2,
+  CheckCircle2,
+  Clock,
+  Eye,
+  GraduationCap,
+  ShieldAlert,
+  UserCheck,
+  Users,
+} from 'lucide-react'
 import { isAccessActive } from '@studenthub/shared-schemas'
+import { careerEventKeys, fetchCompanyCareerAnalytics } from '../../../entities/career-event'
 import { companyKeys, fetchMyCompany, fetchMyCompanyAccess } from '../../../entities/company'
 import { fetchMe, userKeys } from '../../../entities/user'
 import { ResendVerificationButton } from '../../../features/resend-company-verification'
@@ -26,6 +37,14 @@ export function EmployerHomeView() {
   // Почта нужна только для «отправить письмо ещё раз», пока адрес не подтверждён.
   const unverified = company.data?.status === 'PENDING_EMAIL'
   const me = useQuery({ queryKey: userKeys.me(), queryFn: fetchMe, enabled: unverified })
+  // Метрики подбора (D-F30): ручка была, экрана не было. Пока почта не подтверждена или
+  // компания заблокирована, считать нечего — запрос не шлём.
+  const active = company.data?.status === 'ACTIVE'
+  const metrics = useQuery({
+    queryKey: careerEventKeys.companyAnalytics(),
+    queryFn: fetchCompanyCareerAnalytics,
+    enabled: active,
+  })
 
   if (company.isLoading) return <PageLoader label={tCommon('loading')} />
 
@@ -76,6 +95,44 @@ export function EmployerHomeView() {
           loading={access.isLoading}
         />
       </div>
+
+      {active && (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <MetricTile
+            index={2}
+            icon={Briefcase}
+            value={metrics.data?.vacancies.PUBLISHED ?? 0}
+            label={t('metricsPublished')}
+            loading={metrics.isLoading}
+            href="/employer/vacancies"
+          />
+          <MetricTile
+            index={3}
+            icon={Eye}
+            value={metrics.data?.views ?? 0}
+            label={t('metricsViews')}
+            loading={metrics.isLoading}
+          />
+          <MetricTile
+            index={4}
+            icon={Users}
+            value={
+              metrics.data ? Object.values(metrics.data.funnel).reduce((sum, n) => sum + n, 0) : 0
+            }
+            label={t('metricsApplications')}
+            loading={metrics.isLoading}
+            href="/employer/candidates"
+          />
+          <MetricTile
+            index={5}
+            icon={UserCheck}
+            tone="text-success"
+            value={metrics.data?.funnel.HIRED ?? 0}
+            label={t('metricsHired')}
+            loading={metrics.isLoading}
+          />
+        </div>
+      )}
 
       {approved.length === 0 && !unverified && !blocked && (
         <Notice

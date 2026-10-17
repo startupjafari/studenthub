@@ -255,6 +255,8 @@ export const PLATFORM_MODERATOR_NAV: NavItem[] = [
 export const UNIVERSITY_MODERATOR_NAV: NavItem[] = [
   { key: 'dashboard', href: '/moderator/university', icon: LayoutDashboard, exact: true },
   { key: 'complaints', href: '/moderator/university/complaints', icon: ShieldAlert },
+  // Заявки вуза: модератор обрабатывает их наравне с админом (ApplicationPolicy).
+  { key: 'applications', href: '/moderator/university/applications', icon: FileText },
   { key: 'posts', href: '/moderator/university/posts', icon: Newspaper },
   { key: 'users', href: '/moderator/university/users', icon: Users },
   { key: 'audit', href: '/moderator/university/audit', icon: ScrollText },

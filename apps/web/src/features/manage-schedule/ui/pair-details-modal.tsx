@@ -1,12 +1,12 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { useTranslations } from 'next-intl'
-import { CalendarPlus, Save, Trash2 } from 'lucide-react'
+import { useLocale, useTranslations } from 'next-intl'
+import { CalendarPlus, History, Save, Trash2, Undo2 } from 'lucide-react'
 import {
   CreateScheduleChangeSchema,
   UpdatePairSchema,
@@ -19,11 +19,15 @@ import { UserPicker, type PickedUser } from '../../../entities/user'
 import {
   createScheduleChangeRequest,
   deletePairRequest,
+  deleteScheduleChangeRequest,
+  fetchScheduleChanges,
+  nowInTz,
   scheduleKeys,
   updatePairRequest,
   type Pair,
+  type ScheduleChange,
 } from '../../../entities/schedule'
-import type { Room } from '../../../entities/room'
+import { RoomSelect } from '../../../entities/room'
 import {
   Button,
   DatePicker,
@@ -47,6 +51,24 @@ function apiErr(e: unknown): ApiErrorBody {
   return e as ApiErrorBody
 }
 
+// Окно разовых изменений пары в карточке: неделя назад (исправить свежую ошибку) и
+// на семестр вперёд.
+const CHANGES_PAST_DAYS = 7
+const CHANGES_AHEAD_DAYS = 120
+
+// «YYYY-MM-DD» ± дни — календарная арифметика в UTC, без сдвига поясом браузера.
+function shiftDate(date: string, days: number): string {
+  const d = new Date(`${date}T00:00:00Z`)
+  d.setUTCDate(d.getUTCDate() + days)
+  return d.toISOString().slice(0, 10)
+}
+
+// ISO-день недели даты «YYYY-MM-DD» (1 — понедельник), как его считает сервер.
+function isoDayOfWeek(date: string): number {
+  const day = new Date(`${date}T00:00:00Z`).getUTCDay()
+  return day === 0 ? 7 : day
+}
+
 /**
  * Карточка пары: правка постоянного расписания сверху, разовое изменение снизу.
  *
@@ -60,14 +82,15 @@ function apiErr(e: unknown): ApiErrorBody {
  */
 export function PairDetailsModal({
   pair,
-  rooms,
+  universityId,
   canEdit,
   isTeacher,
   containerId,
   onClose,
 }: {
   pair: Pair
-  rooms: Room[]
+  // Вуз для выбора аудитории (платформенной роли; вуз-ролям сервер подставит свой).
+  universityId?: string
   canEdit: boolean
   isTeacher: boolean
   containerId: string
@@ -75,6 +98,7 @@ export function PairDetailsModal({
 }) {
   const t = useTranslations('Schedule')
   const tPeople = useTranslations('People')
+  const locale = useLocale()
   const qc = useQueryClient()
   const confirm = useConfirm()
   const { show: showApiError } = useErrorToast('pair-details')
@@ -129,7 +153,16 @@ export function PairDetailsModal({
       toast.success(t('pairDeleted'))
       onClose()
     },
-    onError: (e) => showApiError(e),
+    onError: (e) => {
+      // CONFLICT при удалении — по паре уже отмечена посещаемость: сервер её бережёт
+      // и предлагает перенос вместо удаления.
+      if (apiErr(e).code === 'CONFLICT') {
+        toast.error(t('deletePairHasAttendance'), {
+          id: 'pair-details',
+          description: t('deletePairHasAttendanceHint'),
+        })
+      } else showApiError(e)
+    },
   })
 
   // ── разовое изменение ────────────────────────────────────────────────────
@@ -148,8 +181,63 @@ export function PairDetailsModal({
       setChangeTeacher(null)
       toast.success(t('changeCreated'))
     },
+    onError: (e) => {
+      // Сервер сверяет изменение с фактической сеткой даты: занятый преподаватель или
+      // аудитория, отменённое занятие — показываем, с чем столкнулись.
+      const err = apiErr(e)
+      if (err.code === 'CONFLICT') {
+        toast.error(t('conflictTitle'), {
+          id: 'pair-details',
+          description: err.details?.map((d) => d.message).join('; ') ?? t('conflictGeneric'),
+        })
+      } else showApiError(e)
+    },
+  })
+
+  function onCreateChange(values: CreateScheduleChangeInput): void {
+    // Изменение на день, когда пары нет, никто не увидит — сервер его тоже отклонит.
+    if (isoDayOfWeek(values.date) !== pair.dayOfWeek) {
+      changeForm.setError('date', { type: 'wrongDay' })
+      return
+    }
+    createChange.mutate(values)
+  }
+
+  // ── разовые изменения этой пары: убрать ошибочное (C-F16) ────────────────
+  const changesRange = useMemo(() => {
+    const today = nowInTz(null).date
+    return {
+      from: shiftDate(today, -CHANGES_PAST_DAYS),
+      to: shiftDate(today, CHANGES_AHEAD_DAYS),
+      groupId: pair.groupId,
+    }
+  }, [pair.groupId])
+  const changes = useQuery({
+    queryKey: scheduleKeys.changes(changesRange),
+    queryFn: () => fetchScheduleChanges(changesRange),
+    enabled: !isTeacher,
+  })
+  const pairChanges = (changes.data ?? []).filter((c) => c.pairId === pair.id)
+
+  const removeChange = useMutation({
+    mutationFn: (id: string) => deleteScheduleChangeRequest(id),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: scheduleKeys.all })
+      toast.success(t('changeRemoved'))
+    },
     onError: (e) => showApiError(e),
   })
+
+  function changeDetail(c: ScheduleChange): string | null {
+    if (c.type === 'MOVED' && c.newStartTime && c.newEndTime) {
+      return `${c.newStartTime}–${c.newEndTime}`
+    }
+    if (c.type === 'ROOM_CHANGED') return c.newRoom?.name ?? null
+    if (c.type === 'SUBSTITUTED' && c.newTeacher) {
+      return `${c.newTeacher.lastName} ${c.newTeacher.firstName}`
+    }
+    return null
+  }
 
   return (
     <Modal onClose={onClose} title={pair.subject} size="lg">
@@ -233,26 +321,18 @@ export function PairDetailsModal({
             </div>
 
             <div className="flex flex-col gap-1.5">
-              <Label>{t('room')}</Label>
+              <Label htmlFor="e-room">{t('roomOptional')}</Label>
               <Controller
                 control={editForm.control}
                 name="roomId"
                 render={({ field }) => (
-                  <Select
-                    value={field.value ?? ''}
-                    onValueChange={(v) => field.onChange(v || null)}
-                  >
-                    <SelectTrigger aria-label={t('room')}>
-                      <SelectValue placeholder={t('roomOptional')} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {rooms.map((r) => (
-                        <SelectItem key={r.id} value={r.id}>
-                          {r.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <RoomSelect
+                    id="e-room"
+                    universityId={universityId}
+                    value={field.value ?? null}
+                    onChange={field.onChange}
+                    initialLabel={pair.room?.name ?? null}
+                  />
                 )}
               />
             </div>
@@ -279,7 +359,11 @@ export function PairDetailsModal({
                 className="text-destructive hover:bg-destructive/10"
                 loading={deletePair.isPending}
                 onClick={() => {
-                  void confirm({ title: t('deletePairConfirm'), destructive: true }).then((ok) => {
+                  void confirm({
+                    title: t('deletePairConfirm'),
+                    description: t('deletePairConfirmHint'),
+                    destructive: true,
+                  }).then((ok) => {
                     if (ok) deletePair.mutate()
                   })
                 }}
@@ -306,8 +390,56 @@ export function PairDetailsModal({
               </h3>
               <p className="text-xs text-muted-foreground">{t('createChangeHint')}</p>
             </div>
+            {pairChanges.length > 0 && (
+              <div className="flex flex-col gap-2">
+                <h3 className="flex items-center gap-1.5 text-sm font-semibold">
+                  <History className="size-4" aria-hidden />
+                  {t('pairChanges')}
+                </h3>
+                <ul className="flex flex-col divide-y divide-border rounded-lg border border-border">
+                  {pairChanges.map((c) => {
+                    const detail = changeDetail(c)
+                    return (
+                      <li key={c.id} className="flex items-center gap-3 px-3 py-2 text-sm">
+                        <span className="w-24 shrink-0 tabular-nums text-muted-foreground">
+                          {new Date(`${c.date.slice(0, 10)}T00:00:00`).toLocaleDateString(locale, {
+                            day: '2-digit',
+                            month: 'short',
+                          })}
+                        </span>
+                        <span className="min-w-0 flex-1 truncate">
+                          {t(`changeTypeLabel${c.type}`)}
+                          {detail ? ` · ${detail}` : ''}
+                          {c.note ? ` · ${c.note}` : ''}
+                        </span>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          icon
+                          aria-label={t('removeChange')}
+                          title={t('removeChange')}
+                          loading={removeChange.isPending && removeChange.variables === c.id}
+                          onClick={() => {
+                            void confirm({
+                              title: t('removeChangeConfirm'),
+                              description: t('removeChangeConfirmHint'),
+                              destructive: true,
+                            }).then((ok) => {
+                              if (ok) removeChange.mutate(c.id)
+                            })
+                          }}
+                        >
+                          <Undo2 className="size-4 text-muted-foreground" aria-hidden />
+                        </Button>
+                      </li>
+                    )
+                  })}
+                </ul>
+              </div>
+            )}
             <form
-              onSubmit={changeForm.handleSubmit((v) => createChange.mutate(v))}
+              onSubmit={changeForm.handleSubmit(onCreateChange)}
               className="flex flex-col gap-3"
             >
               <div className="grid gap-3 sm:grid-cols-2">
@@ -346,33 +478,28 @@ export function PairDetailsModal({
                     )}
                   />
                   {changeForm.formState.errors.date && (
-                    <p className="text-xs text-destructive">{t('required')}</p>
+                    <p className="text-xs text-destructive">
+                      {changeForm.formState.errors.date.type === 'wrongDay'
+                        ? t('changeWrongDay', { day: t(`day${pair.dayOfWeek}`) })
+                        : t('required')}
+                    </p>
                   )}
                 </div>
               </div>
 
               {changeType === 'ROOM_CHANGED' && (
                 <div className="flex flex-col gap-1.5">
-                  <Label>{t('newRoom')}</Label>
+                  <Label htmlFor="c-room">{t('newRoom')}</Label>
                   <Controller
                     control={changeForm.control}
                     name="newRoomId"
                     render={({ field }) => (
-                      <Select
-                        value={field.value ?? ''}
-                        onValueChange={(v) => field.onChange(v || null)}
-                      >
-                        <SelectTrigger aria-label={t('newRoom')}>
-                          <SelectValue placeholder={t('selectRoom')} />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {rooms.map((r) => (
-                            <SelectItem key={r.id} value={r.id}>
-                              {r.name}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <RoomSelect
+                        id="c-room"
+                        universityId={universityId}
+                        value={field.value ?? null}
+                        onChange={field.onChange}
+                      />
                     )}
                   />
                 </div>

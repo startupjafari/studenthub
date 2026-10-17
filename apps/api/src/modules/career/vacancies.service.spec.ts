@@ -2,6 +2,7 @@ import { Role } from '@studenthub/shared-types'
 import { matchVacancy } from '@studenthub/shared-schemas'
 import { VacanciesService } from './vacancies.service'
 import { CareerAccessService } from './career-access.service'
+import type { CareerNotifier } from './career-notifier'
 import { AppException } from '../../common/exceptions/app.exception'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { AuditService } from '../../common/audit/audit.service'
@@ -36,22 +37,29 @@ const staff = (universityId: string | null = 'uni-1'): JwtPayload => ({
 
 function setup(allowedUniversities: string[] = ['uni-1']) {
   const tx = {
-    vacancy: { update: jest.fn() },
-    vacancyUniversityReview: { upsert: jest.fn() },
+    vacancy: { update: jest.fn(), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    vacancyUniversityReview: {
+      upsert: jest.fn(),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
   }
   const prisma = {
     vacancy: {
-      findFirst: jest.fn().mockResolvedValue({ id: 'v-1', salaryMin: null, salaryMax: null }),
+      findFirst: jest
+        .fn()
+        .mockResolvedValue({ id: 'v-1', status: 'DRAFT', salaryMin: null, salaryMax: null }),
       findMany: jest.fn().mockResolvedValue([]),
       count: jest.fn().mockResolvedValue(0),
       create: jest.fn().mockResolvedValue({ id: 'v-1' }),
       update: jest.fn(),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     vacancyUniversityReview: {
       findUnique: jest.fn(),
       findMany: jest.fn().mockResolvedValue([]),
       count: jest.fn().mockResolvedValue(0),
       update: jest.fn(),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     user: { findFirst: jest.fn().mockResolvedValue(null) },
     $transaction: jest.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
@@ -61,12 +69,15 @@ function setup(allowedUniversities: string[] = ['uni-1']) {
     requireCompany: jest.fn().mockReturnValue('co-1'),
     allowedUniversityIds: jest.fn().mockResolvedValue(allowedUniversities),
   }
+  // Уведомления компании о решениях вуза: сборка и доставка — в career-notifier.spec.ts.
+  const notifier = { vacancyDecided: jest.fn().mockResolvedValue(undefined) }
   const service = new VacanciesService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
     access as unknown as CareerAccessService,
+    notifier as unknown as CareerNotifier,
   )
-  return { service, prisma, tx, audit, access }
+  return { service, prisma, tx, audit, access, notifier }
 }
 
 describe('VacanciesService — публикация', () => {
@@ -76,8 +87,11 @@ describe('VacanciesService — публикация', () => {
     await service.publish(employer, 'v-1', ctx)
 
     expect(tx.vacancyUniversityReview.upsert).toHaveBeenCalledTimes(2)
-    expect(tx.vacancy.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ status: 'PUBLISHED' }) }),
+    expect(tx.vacancy.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'v-1', status: 'DRAFT', deletedAt: null },
+        data: expect.objectContaining({ status: 'PUBLISHED' }),
+      }),
     )
   })
 
@@ -127,6 +141,90 @@ describe('VacanciesService — публикация', () => {
   })
 })
 
+describe('VacanciesService — правка опубликованной вакансии', () => {
+  // Вакансия в том виде, в каком её одобрил вуз.
+  const approved = {
+    title: 'Frontend-стажёр',
+    description: 'x'.repeat(50),
+    employmentType: 'INTERNSHIP',
+    workFormat: 'REMOTE',
+    experienceLevel: 'NO_EXPERIENCE',
+    city: null,
+    salaryMin: 100_000,
+    salaryMax: 200_000,
+    salaryCurrency: 'KZT',
+    skills: ['React', 'TypeScript'],
+    languages: ['ru'],
+  }
+
+  it('правка текста одобренной вакансии возвращает её на модерацию тем же шагом', async () => {
+    const { service, prisma, tx } = setup()
+    prisma.vacancy.findFirst.mockResolvedValue(approved)
+
+    await service.update(
+      employer,
+      'v-1',
+      { description: 'Пишите на мой telegram, оплата вперёд' },
+      ctx,
+    )
+
+    // Одобрение снимается в той же транзакции, что и запись текста: иначе между ними новый
+    // текст уже висел бы на витрине с чужим одобрением.
+    expect(tx.vacancy.update).toHaveBeenCalled()
+    expect(tx.vacancyUniversityReview.updateMany).toHaveBeenCalledWith({
+      where: { vacancyId: 'v-1', status: 'APPROVED' },
+      data: { status: 'PENDING', reason: null, decidedById: null, decidedAt: null },
+    })
+  })
+
+  it('смена условий тоже содержательна: зарплата, формат, навыки', async () => {
+    const edits = [
+      { salaryMax: 900_000 },
+      { workFormat: 'ONSITE' as const },
+      { skills: ['React', 'TypeScript', 'Ссылка на оплату'] },
+    ]
+    for (const edit of edits) {
+      const { service, prisma, tx } = setup()
+      prisma.vacancy.findFirst.mockResolvedValue(approved)
+
+      await service.update(employer, 'v-1', edit, ctx)
+
+      expect(tx.vacancyUniversityReview.updateMany).toHaveBeenCalledTimes(1)
+    }
+  })
+
+  it('форма с прежними значениями и перенос срока модерацию не сбрасывают', async () => {
+    const { service, prisma, tx } = setup()
+    prisma.vacancy.findFirst.mockResolvedValue(approved)
+
+    // Форма присылает вакансию целиком — без изменений одобрение должно остаться.
+    await service.update(
+      employer,
+      'v-1',
+      {
+        title: approved.title,
+        skills: [...approved.skills],
+        salaryMin: approved.salaryMin,
+        deadline: new Date(Date.now() + 86_400_000).toISOString(),
+      },
+      ctx,
+    )
+
+    expect(tx.vacancy.update).toHaveBeenCalled()
+    expect(tx.vacancyUniversityReview.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('чужую вакансию править нельзя', async () => {
+    const { service, prisma, tx } = setup()
+    prisma.vacancy.findFirst.mockResolvedValue(null)
+
+    await expect(service.update(employer, 'v-1', { title: 'Чужая' }, ctx)).rejects.toBeInstanceOf(
+      AppException,
+    )
+    expect(tx.vacancy.update).not.toHaveBeenCalled()
+  })
+})
+
 describe('VacanciesService — видимость для студента', () => {
   const query = { page: 1, limit: 20, sort: 'publishedAt' as const, order: 'desc' as const }
 
@@ -143,6 +241,28 @@ describe('VacanciesService — видимость для студента', () =
         }),
       }),
     )
+  })
+
+  it('вакансия компании с истёкшим или отозванным допуском в вуз не показывается', async () => {
+    const { service, prisma } = setup()
+
+    await service.search(student('uni-7'), query)
+    await expect(service.byIdForStudent(student('uni-7'), 'v-1')).resolves.toBeDefined()
+
+    // Одобрение вуза не переживает конец допуска: условие на допуск — в той же выборке.
+    const activeAccess = {
+      company: {
+        universityAccess: {
+          some: {
+            universityId: 'uni-7',
+            status: 'APPROVED',
+            OR: [{ expiresAt: null }, { expiresAt: { gt: expect.any(Date) } }],
+          },
+        },
+      },
+    }
+    expect(prisma.vacancy.findMany.mock.calls[0][0].where).toMatchObject(activeAccess)
+    expect(prisma.vacancy.findFirst.mock.calls[0][0].where).toMatchObject(activeAccess)
   })
 
   it('поиск по тексту не теряется рядом с фильтром по сроку', async () => {
@@ -187,12 +307,15 @@ describe('VacanciesService — модерация вузом', () => {
       id: 'r-1',
       universityId: 'uni-1',
       vacancyId: 'v-1',
+      status: 'PENDING',
+      vacancy: { title: 'Стажёр-аналитик', companyId: 'co-1' },
     })
 
     await service.decide(staff(), 'r-1', { status: 'REJECTED', reason: 'не по профилю' }, ctx)
 
-    expect(prisma.vacancyUniversityReview.update).toHaveBeenCalledWith(
+    expect(prisma.vacancyUniversityReview.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
+        where: { id: 'r-1', status: 'PENDING' },
         data: expect.objectContaining({
           status: 'REJECTED',
           reason: 'не по профилю',
@@ -200,6 +323,117 @@ describe('VacanciesService — модерация вузом', () => {
         }),
       }),
     )
+  })
+
+  // D-F28: компания узнавала о решении по вакансии, только заглянув в кабинет.
+  it('решение уходит компании уведомлением; проигравшее гонку — нет', async () => {
+    const { service, prisma, notifier } = setup()
+    prisma.vacancyUniversityReview.findUnique.mockResolvedValue({
+      id: 'r-1',
+      universityId: 'uni-1',
+      vacancyId: 'v-1',
+      status: 'PENDING',
+      vacancy: { title: 'Стажёр-аналитик', companyId: 'co-1' },
+    })
+
+    await service.decide(staff(), 'r-1', { status: 'REJECTED', reason: 'не по профилю' }, ctx)
+
+    const decidedAt = prisma.vacancyUniversityReview.updateMany.mock.calls[0][0].data.decidedAt
+    expect(notifier.vacancyDecided).toHaveBeenCalledWith({
+      reviewId: 'r-1',
+      companyId: 'co-1',
+      vacancyTitle: 'Стажёр-аналитик',
+      universityId: 'uni-1',
+      status: 'REJECTED',
+      reason: 'не по профилю',
+      decidedAt,
+    })
+
+    notifier.vacancyDecided.mockClear()
+    prisma.vacancyUniversityReview.updateMany.mockResolvedValue({ count: 0 })
+    await expect(
+      service.decide(staff(), 'r-1', { status: 'APPROVED' }, ctx),
+    ).rejects.toBeInstanceOf(AppException)
+    expect(notifier.vacancyDecided).not.toHaveBeenCalled()
+  })
+})
+
+describe('VacanciesService — переходы по графу (D-F29)', () => {
+  const review = (status: string) => ({
+    id: 'r-1',
+    universityId: 'uni-1',
+    vacancyId: 'v-1',
+    status,
+    vacancy: { title: 'Стажёр-аналитик', companyId: 'co-1' },
+  })
+
+  it('отклонённое (в т.ч. отзывом допуска) решение вуз обратно не одобряет → 409', async () => {
+    const { service, prisma, audit } = setup()
+    prisma.vacancyUniversityReview.findUnique.mockResolvedValue(review('REJECTED'))
+    const err = (await service
+      .decide(staff(), 'r-1', { status: 'APPROVED' }, ctx)
+      .catch((e: unknown) => e)) as AppException
+    expect(err.code).toBe('CONFLICT')
+    expect(prisma.vacancyUniversityReview.updateMany).not.toHaveBeenCalled()
+    expect(audit.record).not.toHaveBeenCalled()
+  })
+
+  it('одобрение пишется только при действующем допуске и опубликованной вакансии', async () => {
+    const { service, prisma } = setup()
+    prisma.vacancyUniversityReview.findUnique.mockResolvedValue(review('PENDING'))
+    await service.decide(staff(), 'r-1', { status: 'APPROVED' }, ctx)
+    const where = prisma.vacancyUniversityReview.updateMany.mock.calls[0][0].where
+    expect(where).toMatchObject({
+      id: 'r-1',
+      status: 'PENDING',
+      vacancy: {
+        deletedAt: null,
+        status: 'PUBLISHED',
+        company: { universityAccess: { some: { universityId: 'uni-1', status: 'APPROVED' } } },
+      },
+    })
+  })
+
+  it('параллельное решение или отзыв допуска между чтением и записью → 409, без аудита', async () => {
+    const { service, prisma, audit } = setup()
+    prisma.vacancyUniversityReview.findUnique.mockResolvedValue(review('PENDING'))
+    prisma.vacancyUniversityReview.updateMany.mockResolvedValue({ count: 0 })
+    const err = (await service
+      .decide(staff(), 'r-1', { status: 'APPROVED' }, ctx)
+      .catch((e: unknown) => e)) as AppException
+    expect(err.code).toBe('CONFLICT')
+    expect(audit.record).not.toHaveBeenCalled()
+  })
+
+  it('статус вакансии — только по графу: DRAFT → PAUSED и публикация закрытой → 409', async () => {
+    const draft = setup()
+    const pause = (await draft.service
+      .setStatus(employer, 'v-1', 'PAUSED', ctx)
+      .catch((e: unknown) => e)) as AppException
+    expect(pause.code).toBe('CONFLICT')
+    expect(draft.prisma.vacancy.updateMany).not.toHaveBeenCalled()
+
+    const closed = setup()
+    closed.prisma.vacancy.findFirst.mockResolvedValue({ id: 'v-1', status: 'CLOSED' })
+    const publish = (await closed.service
+      .publish(employer, 'v-1', ctx)
+      .catch((e: unknown) => e)) as AppException
+    expect(publish.code).toBe('CONFLICT')
+    expect(closed.tx.vacancy.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('пауза опубликованной: условие на прочитанный статус в записи; гонка → 409', async () => {
+    const { service, prisma } = setup()
+    prisma.vacancy.findFirst.mockResolvedValue({ id: 'v-1', status: 'PUBLISHED' })
+    prisma.vacancy.updateMany.mockResolvedValue({ count: 0 })
+    const err = (await service
+      .setStatus(employer, 'v-1', 'PAUSED', ctx)
+      .catch((e: unknown) => e)) as AppException
+    expect(prisma.vacancy.updateMany).toHaveBeenCalledWith({
+      where: { id: 'v-1', status: 'PUBLISHED', deletedAt: null },
+      data: { status: 'PAUSED' },
+    })
+    expect(err.code).toBe('CONFLICT')
   })
 })
 

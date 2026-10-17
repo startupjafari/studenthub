@@ -14,6 +14,7 @@ import { DocumentTypesController } from './document-types.controller'
   imports: [FilesModule],
   controllers: [DocumentsController, DocumentRequestsController, DocumentTypesController],
   providers: [DocumentsService, DocumentRequestsService, DocumentTypesService],
-  exports: [DocumentsService],
+  // DocumentRequestsService — для ночного закрытия запросов по сроку (closeOverdue) из cleanup.
+  exports: [DocumentsService, DocumentRequestsService],
 })
 export class DocumentsModule {}

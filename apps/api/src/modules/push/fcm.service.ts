@@ -8,6 +8,9 @@ export type { FcmOutcome }
 
 const OAUTH_URL = 'https://oauth2.googleapis.com/token'
 const FCM_SCOPE = 'https://www.googleapis.com/auth/firebase.messaging'
+// Дедлайн каждого запроса к Google — вместе с чтением тела. Без него зависший ответ держал
+// отправку, а с ней job и всю очередь уведомлений, до перезапуска процесса.
+const FCM_TIMEOUT_MS = 10_000
 
 /**
  * Отправка пушей на Android через FCM HTTP v1 (план Android, Задача АБ1).
@@ -52,6 +55,7 @@ export class FcmService {
             'content-type': 'application/json',
           },
           body: buildFcmMessage(deviceToken, message),
+          signal: AbortSignal.timeout(FCM_TIMEOUT_MS),
         },
       )
       const body = await response.text()
@@ -65,7 +69,7 @@ export class FcmService {
       }
       return outcome
     } catch (error) {
-      // Сеть или обмен токена — повод попробовать позже, а не выбрасывать устройство.
+      // Сеть, таймаут или обмен токена — повод попробовать позже, а не выбрасывать устройство.
       this.logger.warn(`FCM: запрос не прошёл (${String(error)})`)
       return 'retry'
     }
@@ -85,6 +89,7 @@ export class FcmService {
         grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
         assertion: this.assertion(now),
       }),
+      signal: AbortSignal.timeout(FCM_TIMEOUT_MS),
     })
     if (!response.ok) {
       throw new Error(`обмен токена: ${response.status}`)

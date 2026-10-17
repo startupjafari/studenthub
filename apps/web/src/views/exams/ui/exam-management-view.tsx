@@ -1,14 +1,16 @@
 'use client'
 
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { GraduationCap, Inbox, MoreHorizontal, Plus, Trash2, Users } from 'lucide-react'
+import { EXAM_LIST_LIMIT, type ExamListQueryInput } from '@studenthub/shared-schemas'
 import {
   Badge,
   Button,
   Card,
+  DateRangePicker,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -16,6 +18,7 @@ import {
   DropdownMenuTrigger,
   EmptyState,
   PageHeader,
+  SegmentedTabs,
   Table,
   TableBody,
   TableCell,
@@ -25,7 +28,9 @@ import {
   TableRow,
   TableSkeletonRows,
   TableText,
+  parseYmd,
   useTableSort,
+  type DateRange,
 } from '../../../shared/ui'
 import { toApiError } from '../../../shared/lib'
 import { useAppSelector } from '../../../shared/store'
@@ -50,6 +55,38 @@ const HIDE = { group: 'hidden md:table-cell', room: 'hidden lg:table-cell' } as 
 // геометрия таблицы не меняется.
 const EXAM_SKELETON_COLS = [undefined, undefined, HIDE.group, HIDE.room, undefined, undefined]
 
+type TabId = 'upcoming' | 'past'
+const TAB_ORDER: TabId[] = ['upcoming', 'past']
+
+/** Начало дня "YYYY-MM-DD" по местному времени в ISO; `nextDay` — начало следующего дня. */
+function dayStartIso(ymd: string, nextDay = false): string | undefined {
+  const d = parseYmd(ymd)
+  if (!d) return undefined
+  if (nextDay) d.setDate(d.getDate() + 1)
+  return d.toISOString()
+}
+
+/**
+ * Параметры запроса вкладки. Граница вкладок — начало сегодняшнего дня: сегодняшние
+ * экзамены, в том числе уже прошедшие утром, остаются в «предстоящих», где по ним и
+ * заполняют ведомость. Период сужает вкладку. ISO-строки одного формата сравниваются
+ * как даты.
+ */
+function examParams(tab: TabId, today: string, period: DateRange): Partial<ExamListQueryInput> {
+  const from = period.from ? dayStartIso(period.from) : undefined
+  const to = period.to ? dayStartIso(period.to, true) : undefined
+  if (tab === 'upcoming') {
+    return { from: from && from > today ? from : today, ...(to ? { to } : {}) }
+  }
+  return { ...(from ? { from } : {}), to: to && to < today ? to : today }
+}
+
+function startOfToday(): string {
+  const d = new Date()
+  d.setHours(0, 0, 0, 0)
+  return d.toISOString()
+}
+
 export function ExamManagementView({ mine }: { mine: boolean }) {
   const t = useTranslations('Exams')
   const tErr = useTranslations('Errors')
@@ -63,7 +100,16 @@ export function ExamManagementView({ mine }: { mine: boolean }) {
   // преподаватель дисциплины или деканат (так же решает сервер).
   const canDelete = (e: ExamItem): boolean => role !== Role.TEACHER || e.course.teacherId === myId
 
-  const q = useQuery({ queryKey: examKeys.list(), queryFn: () => fetchExams() })
+  const [tab, setTab] = useState<TabId>('upcoming')
+  const [period, setPeriod] = useState<DateRange>({ from: '', to: '' })
+  // Граница вкладок фиксируется на время жизни экрана: «сейчас» в ключе запроса менялось бы
+  // на каждом рендере.
+  const [today] = useState(startOfToday)
+  const params = useMemo(() => examParams(tab, today, period), [tab, today, period])
+
+  // Сервер отдаёт экзамены вкладки, ближайшие к сегодняшнему дню, по возрастанию даты:
+  // раньше у декана с сотнями экзаменов в выдачу попадали самые старые, без текущей сессии.
+  const q = useQuery({ queryKey: examKeys.list(params), queryFn: () => fetchExams(params) })
 
   const remove = useMutation({
     mutationFn: (id: string) => deleteExamRequest(id),
@@ -77,38 +123,62 @@ export function ExamManagementView({ mine }: { mine: boolean }) {
     },
   })
 
-  const rows = q.data ?? []
-  // По умолчанию — ближайший экзамен сверху: сессию читают по датам.
+  // Предстоящие — ближайший сверху, прошедшие — свежий сверху: до нажатия на заголовок
+  // таблица показывает то, что ближе всего к сегодняшнему дню.
+  const rows = useMemo(() => {
+    const list = q.data ?? []
+    return tab === 'past' ? [...list].reverse() : list
+  }, [q.data, tab])
+  // Без начальной сортировки: порядок задаёт вкладка (см. `rows`).
   const {
     rows: sorted,
     sort,
     toggle,
-  } = useTableSort<ExamItem>(
-    rows,
-    (e, key) => {
-      if (key === 'subject') return e.course.subject.name
-      if (key === 'date') return e.date
-      if (key === 'group') return e.group.name
-      if (key === 'room') return e.room?.name ?? null
-      if (key === 'format') return e.format
-      return null
-    },
-    { key: 'date', dir: 'asc' },
-  )
+  } = useTableSort<ExamItem>(rows, (e, key) => {
+    if (key === 'subject') return e.course.subject.name
+    if (key === 'date') return e.date
+    if (key === 'group') return e.group.name
+    if (key === 'room') return e.room?.name ?? null
+    if (key === 'format') return e.format
+    return null
+  })
 
   if (rosterId) {
-    return <ExamResultsRoster examId={rosterId} onBack={() => setRosterId(null)} />
+    return (
+      <ExamResultsRoster
+        examId={rosterId}
+        maxScore={rows.find((e) => e.id === rosterId)?.maxScore ?? null}
+        onBack={() => setRosterId(null)}
+      />
+    )
   }
 
   return (
     <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
       <PageHeader
         title={t('manageTitle')}
+        tabs={
+          <SegmentedTabs
+            aria-label={t('manageTitle')}
+            value={tab}
+            onChange={setTab}
+            items={TAB_ORDER.map((id) => ({ value: id, label: t(id) }))}
+          />
+        }
         actions={
-          <Button size="sm" className="gap-1.5" onClick={() => setCreating(true)}>
-            <Plus className="size-4" aria-hidden />
-            {t('newExam')}
-          </Button>
+          <>
+            <DateRangePicker
+              size="sm"
+              className="w-60"
+              value={period}
+              onChange={setPeriod}
+              aria-label={t('period')}
+            />
+            <Button size="sm" className="gap-1.5" onClick={() => setCreating(true)}>
+              <Plus className="size-4" aria-hidden />
+              {t('newExam')}
+            </Button>
+          </>
         }
       />
 
@@ -117,6 +187,11 @@ export function ExamManagementView({ mine }: { mine: boolean }) {
           icon={<Inbox className="size-6" aria-hidden />}
           title={t('loadError')}
           action={<Button onClick={() => q.refetch()}>{t('retry')}</Button>}
+        />
+      ) : !q.isLoading && rows.length === 0 && tab === 'past' ? (
+        <EmptyState
+          icon={<GraduationCap className="size-6" aria-hidden />}
+          title={t('pastEmpty')}
         />
       ) : !q.isLoading && rows.length === 0 ? (
         <EmptyState
@@ -225,6 +300,13 @@ export function ExamManagementView({ mine }: { mine: boolean }) {
             </TableBody>
           </Table>
         </Card>
+      )}
+
+      {/* Список упёрся в потолок выдачи — честно говорим, что показана только часть. */}
+      {rows.length >= EXAM_LIST_LIMIT && (
+        <p className="text-xs text-muted-foreground">
+          {t('listCapped', { count: EXAM_LIST_LIMIT })}
+        </p>
       )}
 
       {creating && <CreateExamModal mine={mine} onClose={() => setCreating(false)} />}

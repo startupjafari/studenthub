@@ -38,7 +38,12 @@ vi.mock('@tanstack/react-query', () => ({
 
 import { REALTIME_CHANNEL } from '@studenthub/shared-schemas'
 // Импорт после vi.mock — провайдер увидит замоканные модули.
-import { RealtimeProvider, useRealtimeEvent, useRealtimeEnvelope } from './realtime-context'
+import {
+  RealtimeProvider,
+  SELF_RESYNC_META,
+  useRealtimeEvent,
+  useRealtimeEnvelope,
+} from './realtime-context'
 
 beforeEach(() => {
   socketMock.on.mockClear()
@@ -151,15 +156,97 @@ describe('RealtimeProvider — жизненный цикл соединения'
   // Регрессия реконнект-ресинка: первый connect кэш не трогает, повторный (реконнект после
   // обрыва) инвалидирует react-query, чтобы подтянуть пропущенные события.
   it('реконнект инвалидирует кэш, первый connect — нет', () => {
-    state.token = 't1'
-    render(<RealtimeProvider>x</RealtimeProvider>)
-    const onConnect = socketMock.on.mock.calls.find((c) => c[0] === 'connect')?.[1] as
-      (() => void) | undefined
-    expect(onConnect).toBeTypeOf('function')
-    onConnect?.() // первый connect — ресинк не нужен
-    expect(invalidateMock).not.toHaveBeenCalled()
-    onConnect?.() // реконнект — инвалидируем
-    expect(invalidateMock).toHaveBeenCalledTimes(1)
+    vi.useFakeTimers()
+    try {
+      state.token = 't1'
+      render(<RealtimeProvider>x</RealtimeProvider>)
+      const onConnect = socketMock.on.mock.calls.find((c) => c[0] === 'connect')?.[1] as
+        (() => void) | undefined
+      expect(onConnect).toBeTypeOf('function')
+      onConnect?.() // первый connect — ресинк не нужен
+      vi.runAllTimers()
+      expect(invalidateMock).not.toHaveBeenCalled()
+      onConnect?.() // реконнект — инвалидируем
+      vi.runAllTimers()
+      expect(invalidateMock).toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  // F-F13: после деплоя переподключаются все клиенты разом — ресинк разносится во времени.
+  it('ресинк идёт с разбросом, а серия реконнектов даёт один ресинк', () => {
+    vi.useFakeTimers()
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0.5)
+    try {
+      state.token = 't1'
+      render(<RealtimeProvider>x</RealtimeProvider>)
+      fireSocket('connect') // первый
+      fireSocket('connect')
+      fireSocket('connect')
+      expect(invalidateMock).not.toHaveBeenCalled()
+      vi.advanceTimersByTime(1_499)
+      expect(invalidateMock).not.toHaveBeenCalled()
+      vi.advanceTimersByTime(1)
+      // Два вызова на один ресинк: активные запросы и пометка закрытых «самодогоняющихся».
+      expect(invalidateMock).toHaveBeenCalledTimes(2)
+    } finally {
+      random.mockRestore()
+      vi.useRealTimers()
+    }
+  })
+
+  // F-F13: лента открытого чата догоняется по seq — перезапрос первой страницы сбрасывал
+  // подгруженную историю.
+  it('запросы, догоняющие себя сами, на экране не перезапрашиваются, закрытые — помечаются', () => {
+    vi.useFakeTimers()
+    try {
+      state.token = 't1'
+      render(<RealtimeProvider>x</RealtimeProvider>)
+      fireSocket('connect')
+      fireSocket('connect')
+      vi.runAllTimers()
+
+      type Filters = {
+        predicate: (q: unknown) => boolean
+        refetchType?: string
+      }
+      const [active, closed] = invalidateMock.mock.calls.map((c) => c[0] as Filters)
+      const query = (meta: unknown, observers: number) => ({
+        meta,
+        getObserversCount: () => observers,
+      })
+      const openChat = query(SELF_RESYNC_META, 1)
+      const closedChat = query(SELF_RESYNC_META, 0)
+      const badge = query(undefined, 1)
+
+      expect(active!.refetchType).toBeUndefined()
+      expect(active!.predicate(badge)).toBe(true)
+      expect(active!.predicate(openChat)).toBe(false)
+      expect(active!.predicate(closedChat)).toBe(false)
+
+      expect(closed!.refetchType).toBe('none')
+      expect(closed!.predicate(closedChat)).toBe(true)
+      expect(closed!.predicate(openChat)).toBe(false)
+      expect(closed!.predicate(badge)).toBe(false)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('размонтирование снимает назначенный ресинк', () => {
+    vi.useFakeTimers()
+    try {
+      state.token = 't1'
+      const { unmount } = render(<RealtimeProvider>x</RealtimeProvider>)
+      fireSocket('connect')
+      fireSocket('connect')
+      unmount()
+      vi.runAllTimers()
+      expect(invalidateMock).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

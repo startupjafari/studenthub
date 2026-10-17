@@ -5,6 +5,8 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import {
+  ArrowDown,
+  ArrowUp,
   Eye,
   EyeOff,
   Globe,
@@ -35,11 +37,13 @@ import {
   deletePortfolioItem,
   fetchMyPortfolio,
   portfolioKeys,
+  reorderPortfolio,
   type PortfolioItem,
   type PortfolioKind,
   type PortfolioVisibility,
 } from '../../../entities/portfolio'
-import { KIND_ICON, PORTFOLIO_KINDS, kindKey, visibilityKey } from '../lib/visuals'
+import { KIND_ICON, kindKey, visibilityKey } from '../lib/visuals'
+import { applyOrder, displayOrder, moveWithinKind } from '../lib/reorder'
 import { PortfolioItemModal } from './portfolio-item-modal'
 
 const VIS_ICON: Record<PortfolioVisibility, typeof Globe> = {
@@ -49,6 +53,8 @@ const VIS_ICON: Record<PortfolioVisibility, typeof Globe> = {
 }
 
 type ModalState = { mode: 'create'; kind?: PortfolioKind } | { mode: 'edit'; item: PortfolioItem }
+
+const REORDER_KEY = ['portfolio', 'reorder'] as const
 
 // «Портфолио» студента (задача 21): секции по видам, приватность, CRUD.
 export function PortfolioView() {
@@ -70,13 +76,39 @@ export function PortfolioView() {
     onError: (e) => toast.error(tErr(toApiError(e).code)),
   })
 
+  // Перестановка — сразу на экране, с откатом при отказе. Порядок общий для всего
+  // портфолио: его видят резюме и карточка кандидата у работодателя.
+  const reorder = useMutation({
+    mutationKey: REORDER_KEY,
+    mutationFn: (ids: string[]) => reorderPortfolio(ids),
+    onMutate: async (ids) => {
+      await qc.cancelQueries({ queryKey: portfolioKeys.mine() })
+      const previous = qc.getQueryData<PortfolioItem[]>(portfolioKeys.mine())
+      if (previous) qc.setQueryData(portfolioKeys.mine(), applyOrder(previous, ids))
+      return { previous }
+    },
+    onError: (e, _ids, ctx) => {
+      if (ctx?.previous) qc.setQueryData(portfolioKeys.mine(), ctx.previous)
+      toast.error(tErr(toApiError(e).code))
+    },
+    onSuccess: (data) => {
+      // Ответ — всё портфолио в новом порядке. Если следом уже ушла ещё одна перестановка,
+      // её порядок на экране не перетираем: ответ на неё придёт следующим.
+      if (qc.isMutating({ mutationKey: REORDER_KEY }) <= 1) {
+        qc.setQueryData(portfolioKeys.mine(), data)
+      }
+    },
+  })
+
   // Заголовков секций больше нет — записи идут одной сеткой плиток, как события.
-  // Порядок сохраняем прежний, по видам: одинаковые записи стоят рядом, а сам вид
-  // теперь виден на карточке (иконка и подпись), а не только в шапке секции.
-  const items = useMemo(() => {
-    const order = (k: PortfolioKind): number => PORTFOLIO_KINDS.indexOf(k)
-    return [...(q.data ?? [])].sort((a, b) => order(a.kind) - order(b.kind))
-  }, [q.data])
+  // Порядок по видам: одинаковые записи стоят рядом, а сам вид виден на карточке (иконка
+  // и подпись), а не только в шапке секции. Внутри вида — порядок владельца.
+  const items = useMemo(() => displayOrder(q.data ?? []), [q.data])
+
+  function move(index: number, delta: -1 | 1): (() => void) | undefined {
+    const ids = moveWithinKind(items, index, delta)
+    return ids ? () => reorder.mutate(ids) : undefined
+  }
 
   async function onDelete(item: PortfolioItem) {
     const ok = await confirm({
@@ -126,13 +158,15 @@ export function PortfolioView() {
         // Плитками, а не списком во всю ширину: у записи портфолио мало текста, и
         // растянутая на весь экран строка оставляла справа пустоту в пол-экрана.
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {items.map((item) => (
+          {items.map((item, i) => (
             <ItemCard
               key={item.id}
               item={item}
               locale={locale}
               onEdit={() => setModal({ mode: 'edit', item })}
               onDelete={() => onDelete(item)}
+              onMoveUp={move(i, -1)}
+              onMoveDown={move(i, 1)}
               t={t}
             />
           ))}
@@ -163,12 +197,17 @@ function ItemCard({
   locale,
   onEdit,
   onDelete,
+  onMoveUp,
+  onMoveDown,
   t,
 }: {
   item: PortfolioItem
   locale: string
   onEdit: () => void
   onDelete: () => void
+  // Сдвиг на место внутри своего вида; undefined — край вида, пункт неактивен.
+  onMoveUp?: () => void
+  onMoveDown?: () => void
   t: ReturnType<typeof useTranslations>
 }) {
   const VisIcon = VIS_ICON[item.visibility]
@@ -211,6 +250,15 @@ function ItemCard({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
+                <DropdownMenuItem disabled={!onMoveUp} onClick={onMoveUp}>
+                  <ArrowUp aria-hidden />
+                  {t('moveUp')}
+                </DropdownMenuItem>
+                <DropdownMenuItem disabled={!onMoveDown} onClick={onMoveDown}>
+                  <ArrowDown aria-hidden />
+                  {t('moveDown')}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={onEdit}>
                   <Pencil aria-hidden />
                   {t('edit')}

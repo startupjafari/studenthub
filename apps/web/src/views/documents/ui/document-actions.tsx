@@ -218,10 +218,17 @@ function EditModal({ doc, onClose }: { doc: DocumentDto; onClose: () => void }) 
   const [comment, setComment] = useState(doc.comment ?? '')
   const [submitted, setSubmitted] = useState(false)
   const titleError = !title.trim() ? tCommon('fieldRequired') : null
+  // Данные выданного вузом документа меняет только вуз; владельцу остаётся своя заметка.
+  const locked = doc.issuedByUniversity
 
   const mut = useMutation({
     mutationFn: () =>
-      updateDocument(doc.id, { title, issuedBy: issuedBy || null, comment: comment || null }),
+      updateDocument(
+        doc.id,
+        locked
+          ? { comment: comment || null }
+          : { title, issuedBy: issuedBy || null, comment: comment || null },
+      ),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: documentKeys.all })
       toast.success(t('saved'))
@@ -257,19 +264,22 @@ function EditModal({ doc, onClose }: { doc: DocumentDto; onClose: () => void }) 
         <Input
           value={title}
           onChange={(e) => setTitle(e.target.value)}
+          disabled={locked}
           aria-invalid={submitted && !!titleError}
         />
         <FieldError>{submitted ? titleError : null}</FieldError>
       </label>
       <label className="flex flex-col gap-1 text-sm">
         {t('fieldIssuedBy')}
-        <Input value={issuedBy} onChange={(e) => setIssuedBy(e.target.value)} />
+        <Input value={issuedBy} onChange={(e) => setIssuedBy(e.target.value)} disabled={locked} />
       </label>
       <label className="flex flex-col gap-1 text-sm">
         {t('fieldComment')}
         <Input value={comment} onChange={(e) => setComment(e.target.value)} />
       </label>
-      <p className="text-xs text-muted-foreground">{t('numberEditHint')}</p>
+      <p className="text-xs text-muted-foreground">
+        {t(locked ? 'issuedLockedHint' : 'numberEditHint')}
+      </p>
     </DocModal>
   )
 }

@@ -10,6 +10,7 @@ import { ApplicationsService } from './applications.service'
 import { ApplicationDocumentsService } from './application-documents.service'
 import { ApplicationProcessService } from './application-process.service'
 import { ApplicationPolicy } from './application.policy'
+import { ApplicationNotifier } from './application-notifier'
 
 // Домен «Услуги университета» (переработка «Заявок»). PrismaService доступен глобально.
 // FilesModule — presigned для файлов документов заявки. DocumentsModule — выдача готового
@@ -25,7 +26,9 @@ import { ApplicationPolicy } from './application.policy'
     ApplicationDocumentsService,
     ApplicationProcessService,
     ApplicationPolicy,
+    ApplicationNotifier,
   ],
-  exports: [ApplicationPolicy, CatalogService, ApplicationsService],
+  // ApplicationNotifier — для ежедневной сводки просрочки (cron в CleanupModule).
+  exports: [ApplicationPolicy, CatalogService, ApplicationsService, ApplicationNotifier],
 })
 export class ApplicationServicesModule {}

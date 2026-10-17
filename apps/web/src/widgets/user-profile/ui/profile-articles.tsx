@@ -25,12 +25,13 @@ import {
   deleteArticleComment,
   deleteProfileArticle,
   fetchArticleComments,
+  fetchProfileArticle,
   fetchProfileArticles,
   fetchRelatedArticles,
   incrementArticleView,
   profileContentKeys,
   toggleArticleBookmark,
-  type ProfileArticle,
+  type ProfileArticleCard,
 } from '../../../entities/profile-content'
 import {
   Badge,
@@ -47,10 +48,13 @@ import { cn } from '../../../shared/lib/utils'
 import { useBodyScrollLock } from '../../../shared/lib'
 import { ArticleEditorModal } from './article-editor-modal'
 import { ArticleCover } from './article-cover'
+import { ContentModal } from './content-modal'
 import { ContentComments } from './content-comments'
 import { ContentLayout, FilterGroup, FilterOption, FilterSkeleton } from './filter-sidebar'
 import { useRetryOnError } from './use-retry-on-error'
+import { LoadFailed } from './load-failed'
 import { useProgressive } from './use-progressive'
+import type { ContentModeration } from '../lib/content-moderation'
 
 function errCode(e: unknown): string {
   return (e as { code?: string }).code ?? 'INTERNAL_ERROR'
@@ -62,17 +66,18 @@ const MD_CLASS =
 interface Props {
   userId: string
   isOwner: boolean
+  moderation?: ContentModeration
   openCreate?: number
   onConsumed?: () => void
 }
 
-export function ProfileArticles({ userId, isOwner, openCreate, onConsumed }: Props) {
+export function ProfileArticles({ userId, isOwner, moderation, openCreate, onConsumed }: Props) {
   const t = useTranslations('Profile')
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
   const confirm = useConfirm()
-  const [editing, setEditing] = useState<ProfileArticle | 'new' | null>(null)
-  const [reading, setReading] = useState<ProfileArticle | null>(null)
+  const [editing, setEditing] = useState<ProfileArticleCard | 'new' | null>(null)
+  const [reading, setReading] = useState<ProfileArticleCard | null>(null)
 
   useEffect(() => {
     if (openCreate === undefined) return
@@ -84,8 +89,8 @@ export function ProfileArticles({ userId, isOwner, openCreate, onConsumed }: Pro
     queryKey: profileContentKeys.articles(userId),
     queryFn: () => fetchProfileArticles(userId),
   })
-  // При ошибке — держим скелетон, тост каждые 5 сек и повтор запроса.
-  useRetryOnError(q.isError, q.refetch, t('loadRetry'))
+  // Ошибка — один тост и повторы с растущей паузой; не помогло — ошибка на месте вкладки.
+  const loadState = useRetryOnError(q, t('loadRetry'))
 
   const delMut = useMutation({
     mutationFn: deleteProfileArticle,
@@ -125,20 +130,32 @@ export function ProfileArticles({ userId, isOwner, openCreate, onConsumed }: Pro
 
   const modals = (
     <>
-      {editing !== null && (
-        <ArticleEditorModal
-          userId={userId}
-          initial={editing === 'new' ? null : editing}
-          onClose={() => setEditing(null)}
-        />
+      {editing === 'new' && (
+        <ArticleEditorModal userId={userId} initial={null} onClose={() => setEditing(null)} />
+      )}
+      {editing !== null && editing !== 'new' && (
+        <ArticleEditLoader userId={userId} card={editing} onClose={() => setEditing(null)} />
       )}
       {reading && (
-        <ArticleReader article={reading} onClose={() => setReading(null)} onOpen={setReading} />
+        <ArticleReader
+          article={reading}
+          onClose={() => setReading(null)}
+          onOpen={setReading}
+          moderateComments={!isOwner && !!moderation?.comments}
+        />
       )}
     </>
   )
 
-  if (q.isLoading || q.isError) {
+  if (!q.data && loadState.failed) {
+    return (
+      <>
+        {modals}
+        <LoadFailed onRetry={loadState.retry} busy={q.isFetching} />
+      </>
+    )
+  }
+  if (!q.data) {
     return (
       <>
         {modals}
@@ -233,6 +250,7 @@ export function ProfileArticles({ userId, isOwner, openCreate, onConsumed }: Pro
                   index={i}
                   article={a}
                   isOwner={isOwner}
+                  canModerate={!isOwner && !!moderation?.content}
                   onRead={() => setReading(a)}
                   onEdit={() => setEditing(a)}
                   onDelete={() => {
@@ -241,6 +259,16 @@ export function ProfileArticles({ userId, isOwner, openCreate, onConsumed }: Pro
                         if (ok) delMut.mutate(a.id)
                       },
                     )
+                  }}
+                  onModerate={() => {
+                    void confirm({
+                      title: t('articleDeleteConfirm'),
+                      description: t('moderationDeleteHint'),
+                      confirmLabel: t('deleteModeration'),
+                      destructive: true,
+                    }).then((ok) => {
+                      if (ok) delMut.mutate(a.id)
+                    })
                   }}
                 />
               ))}
@@ -268,16 +296,21 @@ function ArticleCard({
   index,
   article: a,
   isOwner,
+  canModerate,
   onRead,
   onEdit,
   onDelete,
+  onModerate,
 }: {
   index: number
-  article: ProfileArticle
+  article: ProfileArticleCard
   isOwner: boolean
+  // Модератор scope: вместо «Изменить/Удалить» владельца — один пункт «Удалить (модерация)».
+  canModerate: boolean
   onRead: () => void
   onEdit: () => void
   onDelete: () => void
+  onModerate: () => void
 }) {
   const t = useTranslations('Profile')
   const shape = mosaicShape(index)
@@ -369,6 +402,21 @@ function ArticleCard({
           </Button>
         </div>
       )}
+      {canModerate && (
+        <div className="absolute right-2 top-2 z-10 flex opacity-0 transition-opacity group-hover/tile:opacity-100 focus-within:opacity-100 max-lg:opacity-100">
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            icon
+            aria-label={t('deleteModeration')}
+            title={t('deleteModeration')}
+            onClick={onModerate}
+          >
+            <Trash2 className="size-4 text-destructive" aria-hidden />
+          </Button>
+        </div>
+      )}
     </MosaicTile>
   )
 }
@@ -406,23 +454,68 @@ function extractToc(md: string): { level: number; text: string; slug: string }[]
   return out
 }
 
-// Читалка статьи: обложка + мета + оглавление + полный markdown + похожие статьи.
+/** Статья целиком (с текстом) — по id; список профиля несёт только плитки без текста. */
+function useFullArticle(id: string) {
+  return useQuery({
+    queryKey: profileContentKeys.article(id),
+    queryFn: () => fetchProfileArticle(id),
+  })
+}
+
+// Редактор существующей статьи открывается с полным текстом: в плитке списка его нет.
+// Пока текст грузится — то же окно со скелетоном, чтобы нажатие отозвалось сразу.
+function ArticleEditLoader({
+  userId,
+  card,
+  onClose,
+}: {
+  userId: string
+  card: ProfileArticleCard
+  onClose: () => void
+}) {
+  const t = useTranslations('Profile')
+  const tErr = useTranslations('Errors')
+  const full = useFullArticle(card.id)
+  useEffect(() => {
+    if (!full.isError) return
+    toast.error(tErr(errCode(full.error)))
+    onClose()
+  }, [full.isError, full.error, onClose, tErr])
+  if (full.data) return <ArticleEditorModal userId={userId} initial={full.data} onClose={onClose} />
+  return (
+    <ContentModal title={t('editArticle')} onClose={onClose} size="xl">
+      <div className="flex flex-col gap-3" aria-busy="true">
+        <Skeleton className="h-10 w-full" />
+        <Skeleton className="h-10 w-2/3" />
+        <Skeleton className="h-64 w-full" />
+      </div>
+    </ContentModal>
+  )
+}
+
+// Читалка статьи: обложка + мета + оглавление + полный markdown + похожие статьи. Плитка
+// открывает читалку сразу, текст догружается отдельным запросом (в списке его нет).
 function ArticleReader({
   article: a,
   onClose,
   onOpen,
+  moderateComments,
 }: {
-  article: ProfileArticle
+  article: ProfileArticleCard
   onClose: () => void
-  onOpen: (article: ProfileArticle) => void
+  onOpen: (article: ProfileArticleCard) => void
+  moderateComments: boolean
 }) {
   const t = useTranslations('Profile')
   const tErr = useTranslations('Errors')
   const locale = useLocale()
+  const qc = useQueryClient()
   useBodyScrollLock()
   const [views, setViews] = useState(a.views)
   const [bookmarked, setBookmarked] = useState(a.bookmarked)
-  const toc = useMemo(() => extractToc(a.content), [a.content])
+  const full = useFullArticle(a.id)
+  const content = full.data?.content
+  const toc = useMemo(() => (content ? extractToc(content) : []), [content])
   const related = useQuery({
     queryKey: [...profileContentKeys.articles(a.userId), 'related', a.id],
     queryFn: () => fetchRelatedArticles(a.id),
@@ -557,11 +650,23 @@ function ArticleReader({
             {a.description && (
               <p className="text-base leading-relaxed text-muted-foreground">{a.description}</p>
             )}
-            <div className={MD_CLASS}>
-              <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
-                {a.content}
-              </ReactMarkdown>
-            </div>
+            {content !== undefined ? (
+              <div className={MD_CLASS}>
+                <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+                  {content}
+                </ReactMarkdown>
+              </div>
+            ) : full.isError ? (
+              <p className="text-sm text-muted-foreground">{tErr(errCode(full.error))}</p>
+            ) : (
+              <div className="flex flex-col gap-2" aria-busy="true">
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-11/12" />
+                <Skeleton className="h-4 w-4/5" />
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-2/3" />
+              </div>
+            )}
             {a.tags.length > 0 && (
               <div className="flex flex-wrap gap-1.5">
                 {a.tags.map((tag) => (
@@ -583,7 +688,11 @@ function ArticleReader({
                   <button
                     key={r.id}
                     type="button"
-                    onClick={() => onOpen(r)}
+                    onClick={() => {
+                      // Похожие приходят с текстом — читалке не нужно просить его заново.
+                      qc.setQueryData(profileContentKeys.article(r.id), r)
+                      onOpen(r)
+                    }}
                     className="flex items-center gap-3 rounded-lg border border-border p-2 text-left transition-colors hover:bg-muted/50"
                   >
                     <ArticleCover
@@ -618,10 +727,11 @@ function ArticleReader({
             <div className="flex min-h-0 flex-1 flex-col px-4 py-3">
               <ContentComments
                 queryKey={profileContentKeys.articles(a.userId).concat('comments', a.id)}
-                fetchFn={() => fetchArticleComments(a.id)}
+                fetchPage={(cursor) => fetchArticleComments(a.id, cursor)}
                 addFn={(content) => addArticleComment(a.id, content)}
                 deleteFn={(commentId) => deleteArticleComment(a.id, commentId)}
                 ownerId={a.userId}
+                moderate={moderateComments}
               />
             </div>
           </div>

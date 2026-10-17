@@ -24,7 +24,7 @@ import {
 import { OPTIONAL_TEXT, useErrorToast } from '../../../shared/lib'
 import { fetchMe, userKeys } from '../../../entities/user'
 import { fetchFaculties, facultyKeys } from '../../../entities/faculty'
-import { fetchGroups, groupKeys } from '../../../entities/group'
+import { GroupSelect } from '../../../entities/group'
 import { fetchUniversityOptions, universityKeys } from '../../../entities/university'
 import { createInviteRequest, inviteKeys, type CreatedInvite } from '../../../entities/invite'
 import {
@@ -56,7 +56,6 @@ export function CreateInviteModal({ onClose }: Props) {
 
   const me = useQuery({ queryKey: userKeys.me(), queryFn: fetchMe })
   const faculties = useQuery({ queryKey: facultyKeys.list(), queryFn: () => fetchFaculties() })
-  const groups = useQuery({ queryKey: groupKeys.list(), queryFn: () => fetchGroups() })
 
   const invitable = me.data ? (INVITABLE_ROLES[me.data.role] ?? []) : []
 
@@ -231,23 +230,18 @@ export function CreateInviteModal({ onClose }: Props) {
 
         {needsGroup && (
           <div className="flex flex-col gap-1.5">
-            <Label>{t('group')}</Label>
+            <Label htmlFor="inv-group">{t('group')}</Label>
+            {/* Поиск по названию на сервере: в списке первых 100 групп большого вуза
+                группы из конца алфавита не было, и инвайт в неё выписать было нельзя. */}
             <Controller
               control={form.control}
               name="groupId"
               render={({ field }) => (
-                <Select value={field.value ?? ''} onValueChange={field.onChange}>
-                  <SelectTrigger aria-invalid={!!form.formState.errors.groupId}>
-                    <SelectValue placeholder={t('selectGroup')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {groups.data?.map((g) => (
-                      <SelectItem key={g.id} value={g.id}>
-                        {g.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <GroupSelect
+                  id="inv-group"
+                  value={field.value ?? null}
+                  onChange={(next) => field.onChange(next ?? undefined)}
+                />
               )}
             />
             {form.formState.errors.groupId && <FieldError>{t('groupRequired')}</FieldError>}

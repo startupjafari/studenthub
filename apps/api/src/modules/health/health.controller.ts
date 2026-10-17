@@ -22,6 +22,10 @@ export class HealthController {
   @Public()
   @HealthCheck()
   @ApiOperation({ summary: 'Проверка живости зависимостей: Prisma, Redis, MinIO' })
+  // Формат terminus прежний (`status`, `info`, `error`, `details` по ключам database/redis/
+  // minio): его читают Railway, uptime-проверка и мини-апп. У каждой зависимости — только
+  // `status`: маршрут публичный, причины отказа пишутся в журнал (B-F23). Каждая проба
+  // ограничена HEALTH_PROBE_TIMEOUT_MS, и пробы идут параллельно.
   check() {
     return this.health.check([
       () => this.prisma.isHealthy('database'),

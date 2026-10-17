@@ -26,6 +26,8 @@ export const SYSTEM_KEY: Record<string, string> = {
   member_added: 'sysMemberAdded',
   member_removed: 'sysMemberRemoved',
   member_left: 'sysMemberLeft',
+  member_joined: 'sysMemberJoined',
+  member_banned: 'sysMemberBanned',
   admin_granted: 'sysAdminGranted',
   admin_revoked: 'sysAdminRevoked',
   title_changed: 'sysTitleChanged',

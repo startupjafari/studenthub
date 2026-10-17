@@ -1,11 +1,13 @@
 import { Module } from '@nestjs/common'
+import { InvitesModule } from '../invites/invites.module'
 import { UniversitiesModule } from '../universities/universities.module'
 import { FacultyService } from './faculties.service'
 import { FacultiesController } from './faculties.controller'
 
 // UniversitiesModule — для UniversityService (сброс кэша stats при изменении факультетов).
+// InvitesModule — отзыв ожидающих приглашений на удаляемый факультет.
 @Module({
-  imports: [UniversitiesModule],
+  imports: [UniversitiesModule, InvitesModule],
   controllers: [FacultiesController],
   providers: [FacultyService],
   exports: [FacultyService],

@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { OptionalCursorPaginationSchema } from './pagination.js'
 
 // Контент профиля: статьи (расширенные) и опросы. Медиа (фото/видео) грузятся файлами.
 
@@ -39,6 +40,15 @@ export type CreateProfileArticleInput = z.infer<typeof CreateProfileArticleSchem
 export const UpdateProfileArticleSchema = CreateProfileArticleSchema
 export type UpdateProfileArticleInput = z.infer<typeof UpdateProfileArticleSchema>
 
+// Список статей автора (`GET /profile/:userId/articles`). `view=card` — без полного текста
+// (`content`): плитке профиля и бейджу вкладки он не нужен, а статья — до 20 000 символов, и
+// сотня статей превращала открытие профиля в мегабайты текста. Полный текст для читалки и
+// редактора — `GET /profile/articles/:id`. Без параметра — как раньше, с текстом.
+export const ProfileArticlesQuerySchema = z.object({
+  view: z.enum(['full', 'card']).optional(),
+})
+export type ProfileArticlesQueryInput = z.infer<typeof ProfileArticlesQuerySchema>
+
 // ── Опросы ────────────────────────────────────────────────────────────────────
 export const POLL_RESULTS_VISIBILITY = ['AFTER_VOTE', 'AFTER_END', 'HIDDEN'] as const
 export type PollResultsVisibility = (typeof POLL_RESULTS_VISIBILITY)[number]
@@ -60,6 +70,11 @@ export type CreatePollInput = z.infer<typeof CreatePollSchema>
 
 export const UpdatePollSchema = CreatePollSchema
 export type UpdatePollInput = z.infer<typeof UpdatePollSchema>
+
+// Опросы автора (`GET /polls/by-user/:userId`): свежие сверху. Без `limit`/`cursor` — прежний
+// ответ, массив (до сотни видимых смотрящему); с ними — страница с `meta.cursor`/`hasNext`.
+export const PollsListQuerySchema = OptionalCursorPaginationSchema
+export type PollsListQueryInput = z.infer<typeof PollsListQuerySchema>
 
 export const VotePollSchema = z
   .object({
@@ -108,3 +123,17 @@ export type AssignAlbumMediaInput = z.infer<typeof AssignAlbumMediaSchema>
 // ── Комментарии к контенту профиля (статьи/опросы) ────────────────────────────
 export const ContentCommentSchema = z.object({ content: z.string().min(1).max(2000) }).strict()
 export type ContentCommentInput = z.infer<typeof ContentCommentSchema>
+
+// ── Счётчики вкладок профиля ──────────────────────────────────────────────────
+// Медиа (фото и видео вместе), статьи и опросы автора отдаются одним массивом с потолком.
+// Длина такого массива — не итог: у автора с тысячей фото бейдж вкладки показывал бы 300.
+// Клиент берёт число из списка, пока он короче потолка, а дойдя до потолка — настоящие
+// итоги из `GET /profile/:userId/counts` (по тем же правам видимости, что и списки).
+export const PROFILE_LIST_LIMITS = { media: 300, articles: 100, polls: 100 } as const
+
+export interface ProfileContentCounts {
+  photos: number
+  videos: number
+  articles: number
+  polls: number
+}

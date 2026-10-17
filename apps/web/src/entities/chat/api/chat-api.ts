@@ -49,8 +49,11 @@ export const chatKeys = {
 // Сводка непрочитанного для бейджа в навигации. Отдельный лёгкий запрос: тянуть ради
 // числа весь список чатов на каждом экране приложения незачем.
 export interface ChatUnreadSummary {
+  /** Без заглушённых чатов: бейдж зовёт только туда, где человек ждёт сообщений. */
   chats: number
   messages: number
+  /** Заглушённые отдельно — для серой цифры, как в Telegram. Старый сервер поля не отдаёт. */
+  muted?: { chats: number; messages: number }
 }
 
 export async function fetchChatsUnread(): Promise<ChatUnreadSummary> {
@@ -84,6 +87,18 @@ export async function fetchChats(): Promise<ChatListItem[]> {
   }
   // Закреплённые наверх — здесь, а не на сервере: порядок сквозной по всем страницам.
   return sortChats(out)
+}
+
+/**
+ * Только первая страница списка — для обновления по событию (F-F02). Событие поднимает чат
+ * наверх (страницы идут по времени активности), поэтому его строка — в первой странице, и
+ * перекачивать ради неё все остальные незачем. `complete` — других страниц нет, это весь список.
+ */
+export async function fetchChatsHead(): Promise<{ items: ChatListItem[]; complete: boolean }> {
+  const res = (await api.get<ChatListItem[]>('/chats', {
+    params: { limit: CHAT_PAGE_LIMIT },
+  })) as ResponseWithMeta & { data: ChatListItem[] }
+  return { items: res.data, complete: !res.meta?.hasNext }
 }
 
 // requestPendingForId — кому адресован непринятый запрос на переписку (§50); null —

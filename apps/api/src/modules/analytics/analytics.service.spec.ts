@@ -152,3 +152,73 @@ describe('AnalyticsService.atRiskStudents — причины риска', () => 
     expect(s1?.severity).toBe(2)
   })
 })
+
+describe('AnalyticsService.groupAttendance — drill-down из агрегата', () => {
+  const students = [
+    { id: 's1', firstName: 'Асем', lastName: 'Абишева' },
+    { id: 's2', firstName: 'Ержан', lastName: 'Бектуров' },
+  ]
+
+  // Сырые отметки читать нельзя — шпион ловит возврат к findMany по attendance.
+  const attendanceFindMany = jest.fn()
+
+  function groupSetup(raw: jest.Mock) {
+    return setup(raw, {
+      user: { findMany: jest.fn().mockResolvedValue(students) },
+      group: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValue({ facultyId: 'fac-1', faculty: { universityId: 'uni-1' } }),
+      },
+      attendance: { findMany: attendanceFindMany },
+    })
+  }
+
+  it('проценты считаются по свёрнутым базой строкам, отметки в Node не грузятся', async () => {
+    // 30 000 отметок у s1 — больше прежнего потолка в 20 000: агрегат их не обрезает.
+    const raw = rawMock({
+      'p.group_id =': [{ studentId: 's1', total: 30_000n, absent: 3_000n }],
+    })
+    const { service } = groupSetup(raw)
+
+    const res = await service.groupAttendance(dean, 'g1')
+
+    expect(res.students).toEqual([
+      {
+        studentId: 's1',
+        firstName: 'Асем',
+        lastName: 'Абишева',
+        attendanceRate: 90,
+        tracked: 30_000,
+      },
+      // Без отметок — ноль отмеченных, а не пропуск строки.
+      { studentId: 's2', firstName: 'Ержан', lastName: 'Бектуров', attendanceRate: 0, tracked: 0 },
+    ])
+    expect(attendanceFindMany).not.toHaveBeenCalled()
+  })
+
+  it('группа — подставляемое значение SQL, а не кусок строки', async () => {
+    const raw = rawMock({ 'p.group_id =': [] })
+    const { service } = groupSetup(raw)
+
+    await service.groupAttendance(dean, 'g1')
+
+    expect(raw.mock.calls[0]?.slice(1)).toEqual(['g1'])
+  })
+
+  it('чужой факультет декану не отдаётся', async () => {
+    const raw = rawMock({})
+    const { service } = setup(raw, {
+      group: {
+        findUnique: jest
+          .fn()
+          .mockResolvedValue({ facultyId: 'fac-2', faculty: { universityId: 'uni-1' } }),
+      },
+    })
+
+    await expect(service.groupAttendance(dean, 'g9')).rejects.toMatchObject({
+      code: 'WRONG_SCOPE',
+    })
+    expect(raw).not.toHaveBeenCalled()
+  })
+})

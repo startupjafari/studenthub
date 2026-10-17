@@ -74,6 +74,15 @@ function errCode(e: unknown): string {
   return (e as { code?: string }).code ?? 'INTERNAL_ERROR'
 }
 
+// Что мешает удалить помещение — сервер кладёт вид записей в details.field (rooms.service.ts).
+const ROOM_BLOCKERS = ['pairs', 'exams', 'changes'] as const
+type RoomBlocker = (typeof ROOM_BLOCKERS)[number]
+
+function roomBlockers(e: unknown): RoomBlocker[] {
+  const details = (e as { details?: { field?: string }[] }).details ?? []
+  return ROOM_BLOCKERS.filter((b) => details.some((d) => d.field === b))
+}
+
 export function RoomsAdminView() {
   const t = useTranslations('Rooms')
   const tErr = useTranslations('Errors')
@@ -109,9 +118,21 @@ export function RoomsAdminView() {
       toast.success(t('deleted'))
     },
     onError: (e) => {
-      // Помещение занято в расписании — удалять нельзя (иначе пары «потеряют» аудиторию).
       const code = errCode(e)
-      toast.error(code === 'CONFLICT' ? t('deleteBlocked') : tErr(code))
+      if (code !== 'CONFLICT') {
+        toast.error(tErr(code))
+        return
+      }
+      // Помещение ещё используют — пары, предстоящие экзамены, замены: удаление стёрло бы
+      // из них аудиторию. Сервер перечислил, что именно, — показываем, что разбирать.
+      const blockers = roomBlockers(e)
+      toast.error(t('deleteBlocked'), {
+        description: blockers.length
+          ? t('deleteBlockedList', {
+              list: blockers.map((b) => t(`deleteBlockers.${b}`)).join(', '),
+            })
+          : undefined,
+      })
     },
   })
 

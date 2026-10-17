@@ -4,6 +4,9 @@ import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { AuditService } from '../../common/audit/audit.service'
 import type { QueueService } from '../../common/queue'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
+import type { FileService } from '../files/file.service'
+import type { ConfigService } from '@nestjs/config'
+import type { EnvVars } from '../../config/env.schema'
 
 const student: JwtPayload = {
   sub: 'stu-1',
@@ -32,6 +35,7 @@ function setup(status: string) {
         text: 'исправлено',
         linkUrl: null,
         attemptNumber: 1,
+        _count: { files: 0 },
       }),
       update: jest.fn().mockResolvedValue({ id: 'sub-1' }),
     },
@@ -40,6 +44,8 @@ function setup(status: string) {
     prisma as unknown as PrismaService,
     {} as AuditService,
     {} as QueueService,
+    {} as FileService,
+    {} as ConfigService<EnvVars, true>,
   )
   return { service, prisma }
 }

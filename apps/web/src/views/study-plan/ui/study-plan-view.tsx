@@ -24,33 +24,15 @@ import {
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { courseKeys, fetchCourses, type CourseItem } from '../../../entities/course'
-import { gradebookKeys, fetchMyGrades, type MyGradesCourse } from '../../../entities/gradebook'
-
-type PlanStatus = 'completed' | 'studying' | 'upcoming' | 'notPassed'
+import { gradebookKeys, fetchMyGrades } from '../../../entities/gradebook'
+import { examKeys, fetchExams } from '../../../entities/exam'
+import { gradePercent, planStatus, type PlanExamResult, type PlanStatus } from '../lib/plan-status'
 
 const STATUS_BADGE: Record<PlanStatus, 'success' | 'info' | 'secondary' | 'destructive'> = {
   completed: 'success',
   studying: 'info',
   upcoming: 'secondary',
   notPassed: 'destructive',
-}
-
-const PASS_THRESHOLD = 50
-
-// Процент по дисциплине из опубликованных оценок (avg score/maxScore).
-function gradePercent(mg: MyGradesCourse | undefined): number | null {
-  if (!mg) return null
-  const scored = mg.columns
-    .filter((c) => c.maxScore != null && c.score != null)
-    .map((c) => (c.score as number) / (c.maxScore as number))
-  if (scored.length === 0) return null
-  return Math.round((scored.reduce((a, b) => a + b, 0) / scored.length) * 100)
-}
-
-function statusOf(course: CourseItem, pct: number | null): PlanStatus {
-  if (pct !== null) return pct >= PASS_THRESHOLD ? 'completed' : 'notPassed'
-  if (course.term?.isActive) return 'studying'
-  return 'upcoming'
 }
 
 interface PlanCourse {
@@ -81,18 +63,38 @@ export function StudyPlanView() {
     queryFn: () => fetchMyGrades(),
     retry: false,
   })
+  // Итог экзамена — главный признак «пройдена / не сдана» (C-F26). Тот же запрос, что у
+  // экрана «Экзамены» студента: кеш общий.
+  const exams = useQuery({
+    queryKey: examKeys.list(),
+    queryFn: () => fetchExams(),
+    retry: false,
+  })
 
   const model = useMemo(() => {
     const list = courses.data ?? []
     const gradeByCourse = new Map((grades.data ?? []).map((g) => [g.courseId, g]))
+    const examsByCourse = new Map<string, PlanExamResult[]>()
+    for (const e of exams.data ?? []) {
+      if (!e.myResult) continue
+      const results = examsByCourse.get(e.course.id) ?? []
+      results.push({ date: e.date, status: e.myResult.status })
+      examsByCourse.set(e.course.id, results)
+    }
     const plan: PlanCourse[] = list.map((course) => {
-      const pct = gradePercent(gradeByCourse.get(course.id))
+      const columns = gradeByCourse.get(course.id)?.columns ?? []
       return {
         course,
         term: course.term?.name ?? t('noTerm'),
         termOrder: course.term?.number ?? 9999,
-        pct,
-        status: statusOf(course, pct),
+        // Процент — справочно по всем опубликованным оценкам; статус считается отдельно.
+        pct: gradePercent(columns),
+        status: planStatus({
+          termActive: course.term?.isActive ?? false,
+          hasTerm: course.term != null,
+          columns,
+          exams: examsByCourse.get(course.id) ?? [],
+        }),
       }
     })
 
@@ -113,7 +115,7 @@ export function StudyPlanView() {
     const progress = totalCredits === 0 ? 0 : Math.round((doneCredits / totalCredits) * 100)
 
     return { rows, totalCredits, doneCredits, progress }
-  }, [courses.data, grades.data, t])
+  }, [courses.data, grades.data, exams.data, t])
 
   // Сортировка клиентская: весь план приходит одним запросом, сервер здесь ни при чём.
   // Статус сравниваем по переводу — алфавит языка интерфейса, а не порядок значений.

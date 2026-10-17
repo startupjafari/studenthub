@@ -11,6 +11,8 @@ import { QrLoginGateway } from './qr-login.gateway'
 const TTL_SECONDS = 120
 const key = (qrId: string): string => `qrlogin:${qrId}`
 const tokKey = (approveToken: string): string => `qrlogin:tok:${approveToken}`
+// Кто подтвердил вход: одноразовая отметка SET NX — подтверждает ровно один человек.
+const approverKey = (qrId: string): string => `qrlogin:approver:${qrId}`
 
 interface QrState {
   approveToken: string
@@ -85,7 +87,15 @@ export class QrLoginService {
     }
   }
 
-  /** Телефон (авторизован) подтверждает вход: помечаем approved + userId, шлём WS-событие. */
+  /**
+   * Телефон (авторизован) подтверждает вход: помечаем approved + userId, шлём WS-событие.
+   *
+   * Подтверждает ровно один человек. Раньше повторный approve перезаписывал `userId`: пока
+   * десктоп не забрал сессию, второй видевший QR подтверждал его своим аккаунтом, и
+   * компьютер входил под чужим (жертва потом пишет личное в аккаунт злоумышленника).
+   * Первым считается тот, чей `SET NX` поставил отметку, — гонку решает Redis. Повтор тем
+   * же человеком (двойное нажатие) — не ошибка; другим — 409.
+   */
   async approve(approveToken: string, userId: string): Promise<void> {
     const qrId = await this.redis.get(tokKey(approveToken))
     if (!qrId) {
@@ -95,11 +105,27 @@ export class QrLoginService {
     if (!state || state.approveToken !== approveToken) {
       throw new AppException('NOT_FOUND', 'QR-сессия не найдена или истекла')
     }
+    if (state.status !== 'pending') {
+      if (state.userId === userId) return
+      throw new AppException('CONFLICT', 'Вход по этому QR уже подтверждён')
+    }
+    // Оставшийся TTL: отметка живёт не дольше сессии, а у десктопа остаётся время забрать её.
+    const ttl = await this.redis.ttl(key(qrId))
+    if (ttl <= 0) {
+      throw new AppException('NOT_FOUND', 'QR-сессия не найдена или истекла')
+    }
+    const first = await this.redis.set(approverKey(qrId), userId, 'EX', ttl, 'NX')
+    if (first !== 'OK') {
+      if ((await this.redis.get(approverKey(qrId))) === userId) return
+      throw new AppException('CONFLICT', 'Вход по этому QR уже подтверждён')
+    }
     state.status = 'approved'
     state.userId = userId
-    // Сохраняем оставшийся TTL, чтобы у десктопа было время забрать сессию.
-    const ttl = await this.redis.ttl(key(qrId))
-    await this.redis.set(key(qrId), JSON.stringify(state), 'EX', ttl > 0 ? ttl : TTL_SECONDS)
+    // XX: истёкшую за это время сессию не воскрешаем.
+    const saved = await this.redis.set(key(qrId), JSON.stringify(state), 'EX', ttl, 'XX')
+    if (saved !== 'OK') {
+      throw new AppException('NOT_FOUND', 'QR-сессия не найдена или истекла')
+    }
     this.gateway.emitApproved(qrId)
   }
 

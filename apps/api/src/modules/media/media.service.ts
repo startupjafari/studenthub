@@ -26,6 +26,8 @@ const RENDITION_RE = /^\d{2,4}$/
 
 // Сколько файлов за проход берёт догонялка обработки (cron в CleanupService).
 const RESUME_BATCH = 200
+// Через сколько после загрузки файл в PROCESSING считается потерявшим свой job.
+const PROCESSING_STUCK_MS = 60 * 60 * 1000
 
 type TokenKind = 'master' | 'play'
 
@@ -153,16 +155,28 @@ export class MediaService {
    * Догонялка: файлы, застрявшие в PENDING (постановка в очередь — best effort и могла
    * не дойти до Redis), и ещё не обработанные старые медиа (backfill). Повторная постановка
    * безопасна: живая задача с тем же jobId BullMQ просто не продублирует.
+   *
+   * И застрявшие в PROCESSING (F-F26): job мог пропасть уже после смены статуса — сброс
+   * Redis, ручная чистка очереди, — и такой файл оставался «в обработке» навсегда. Окно
+   * больше, чем у PENDING: настоящее перекодирование длинного видео идёт долго. Отметки
+   * начала обработки у файла нет, поэтому меряем от загрузки — и это безопасно: идущий
+   * job с тем же jobId постановка не продублирует, вернётся только потерянный.
    */
   async resumeAndBackfill(): Promise<{ resumed: number; backfilled: number }> {
     const stuckBefore = new Date(Date.now() - 10 * 60 * 1000)
+    const processingStuckBefore = new Date(Date.now() - PROCESSING_STUCK_MS)
     const mediaMime = {
       OR: [{ mime: { startsWith: 'image/' } }, { mime: { startsWith: 'video/' } }],
     }
     const select = { id: true, bucket: true, mime: true } as const
     const [stuck, fresh] = await Promise.all([
       this.prisma.file.findMany({
-        where: { mediaStatus: MediaStatus.PENDING, createdAt: { lt: stuckBefore } },
+        where: {
+          OR: [
+            { mediaStatus: MediaStatus.PENDING, createdAt: { lt: stuckBefore } },
+            { mediaStatus: MediaStatus.PROCESSING, createdAt: { lt: processingStuckBefore } },
+          ],
+        },
         select,
         orderBy: { createdAt: 'asc' },
         take: RESUME_BATCH,

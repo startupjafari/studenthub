@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
 import { ApplicationDocumentsService } from './application-documents.service'
 import { ApplicationPolicy } from './application.policy'
@@ -33,6 +34,7 @@ function setup() {
   }
   const applicationEvent = { create: jest.fn().mockResolvedValue({ id: 'ev1' }) }
   const file = { findFirst: jest.fn() }
+  const documentEvent = { create: jest.fn().mockResolvedValue({}) }
   const tx = {
     application,
     serviceRequirement,
@@ -43,6 +45,7 @@ function setup() {
   }
   const prisma = {
     ...tx,
+    documentEvent,
     $transaction: jest.fn((arg: unknown) =>
       typeof arg === 'function'
         ? (arg as (t: typeof tx) => unknown)(tx)
@@ -68,8 +71,14 @@ function setup() {
     applicationEvent,
     queue,
     realtime,
+    file,
+    files,
+    documentEvent,
   }
 }
+
+// Заявка обработчика в IN_REVIEW — исходная точка для запроса замены документа.
+const inReview = { studentId: 'stud', facultyId: 'fac', universityId: 'uni', status: 'IN_REVIEW' }
 
 describe('ApplicationDocumentsService.attach', () => {
   it('чужая заявка → WRONG_SCOPE', async () => {
@@ -217,5 +226,173 @@ describe('ApplicationDocumentsService.review', () => {
       service.review(dean, 'a1', 'ad1', 'request-replacement', 'причина'),
     ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
     expect(queue.enqueue).not.toHaveBeenCalled()
+  })
+})
+
+describe('ApplicationDocumentsService.review — условие на статус заявки (D-F04)', () => {
+  it('request-replacement пишет переход с условием на прочитанный статус', async () => {
+    const { service, application, applicationDocument } = setup()
+    application.findFirst.mockResolvedValue(inReview)
+    applicationDocument.findFirst.mockResolvedValue({ id: 'ad1', requirement: { titleRu: 'ID' } })
+    await service.review(dean, 'a1', 'ad1', 'request-replacement', 'нужен новый скан')
+    expect(application.update).toHaveBeenCalledWith({
+      where: { id: 'a1', status: 'IN_REVIEW' },
+      data: { status: 'NEEDS_CORRECTION' },
+    })
+  })
+
+  // Параллельно заявку перевели (начали подготовку, отклонили, студент отозвал): откат в
+  // NEEDS_CORRECTION не должен затереть этот переход.
+  it('статус успели сменить → CONFLICT, документ не помечается и студент не уведомляется', async () => {
+    const { service, application, applicationDocument, queue, realtime } = setup()
+    application.findFirst.mockResolvedValue(inReview)
+    applicationDocument.findFirst.mockResolvedValue({ id: 'ad1', requirement: { titleRu: 'ID' } })
+    application.update.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError('not found', { code: 'P2025', clientVersion: '6' }),
+    )
+    await expect(
+      service.review(dean, 'a1', 'ad1', 'request-replacement', 'причина'),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(applicationDocument.update).not.toHaveBeenCalled()
+    expect(queue.enqueue).not.toHaveBeenCalled()
+    expect(realtime.emitEventToUser).not.toHaveBeenCalled()
+  })
+})
+
+describe('ApplicationDocumentsService.remove (D-F03)', () => {
+  const owned = (status: string) => ({ id: 'a1', studentId: 'stud', status, serviceId: 's' })
+
+  it('в черновике убирает документ без условий', async () => {
+    const { service, application, applicationDocument } = setup()
+    application.findFirst.mockResolvedValue(owned('DRAFT'))
+    await service.remove(student, 'a1', 'r1')
+    expect(applicationDocument.deleteMany).toHaveBeenCalledWith({
+      where: { applicationId: 'a1', requirementId: 'r1' },
+    })
+  })
+
+  it('в исправлении принятый документ убрать нельзя → BAD_REQUEST', async () => {
+    const { service, application, applicationDocument } = setup()
+    application.findFirst.mockResolvedValue(owned('NEEDS_CORRECTION'))
+    applicationDocument.findFirst.mockResolvedValue({ status: 'ACCEPTED' })
+    await expect(service.remove(student, 'a1', 'r1')).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+    })
+    expect(applicationDocument.deleteMany).not.toHaveBeenCalled()
+  })
+
+  it('в исправлении документ «к замене» убирается, но не принятый между проверкой и записью', async () => {
+    const { service, application, applicationDocument } = setup()
+    application.findFirst.mockResolvedValue(owned('NEEDS_CORRECTION'))
+    applicationDocument.findFirst.mockResolvedValue({ status: 'REPLACEMENT_REQUIRED' })
+    await service.remove(student, 'a1', 'r1')
+    expect(applicationDocument.deleteMany).toHaveBeenCalledWith({
+      where: { applicationId: 'a1', requirementId: 'r1', status: { not: 'ACCEPTED' } },
+    })
+  })
+})
+
+describe('ApplicationDocumentsService.presignedUrl — черновик (D-F01)', () => {
+  it('обработчику документы неподанной заявки не открываются → NOT_FOUND', async () => {
+    const { service, application, files } = setup()
+    application.findFirst.mockResolvedValue(null)
+    await expect(service.presignedUrl(dean, 'a1', 'ad1')).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    })
+    expect(application.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'a1', deletedAt: null, AND: [{ submittedAt: { not: null } }] },
+      }),
+    )
+    expect(files.getPresignedUrl).not.toHaveBeenCalled()
+  })
+})
+
+// Регрессия D-F06: обработчик видел только первую страницу, и просмотр не попадал в журнал.
+describe('ApplicationDocumentsService.presignedUrl — страницы и журнал (D-F06)', () => {
+  const submitted = { studentId: 'stud', facultyId: 'fac', universityId: 'uni' }
+
+  it('fileId выбирает страницу — только среди файлов приложенного документа', async () => {
+    const { service, application, applicationDocument, file, files } = setup()
+    application.findFirst.mockResolvedValue(submitted)
+    applicationDocument.findFirst.mockResolvedValue({ documentId: 'doc1' })
+    file.findFirst.mockResolvedValue({ id: 'f2' })
+    await expect(service.presignedUrl(dean, 'a1', 'ad1', 'f2')).resolves.toEqual({
+      url: 'https://url',
+    })
+    expect(file.findFirst.mock.calls[0][0].where).toEqual({
+      id: 'f2',
+      documentId: 'doc1',
+      document: { is: { deletedAt: null } },
+    })
+    expect(files.getPresignedUrl).toHaveBeenCalledWith('f2')
+  })
+
+  it('fileId чужого документа → NOT_FOUND, ссылки и записи в журнал нет', async () => {
+    const { service, application, applicationDocument, file, files, documentEvent } = setup()
+    application.findFirst.mockResolvedValue(submitted)
+    applicationDocument.findFirst.mockResolvedValue({ documentId: 'doc1' })
+    file.findFirst.mockResolvedValue(null)
+    await expect(service.presignedUrl(dean, 'a1', 'ad1', 'foreign')).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    })
+    expect(files.getPresignedUrl).not.toHaveBeenCalled()
+    expect(documentEvent.create).not.toHaveBeenCalled()
+  })
+
+  it('без fileId — первая страница, как у прежних клиентов', async () => {
+    const { service, application, applicationDocument, file } = setup()
+    application.findFirst.mockResolvedValue(submitted)
+    applicationDocument.findFirst.mockResolvedValue({ documentId: 'doc1' })
+    file.findFirst.mockResolvedValue({ id: 'f1' })
+    await service.presignedUrl(dean, 'a1', 'ad1')
+    expect(file.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { documentId: 'doc1', document: { is: { deletedAt: null } } },
+        orderBy: { order: 'asc' },
+      }),
+    )
+  })
+
+  // D-F21: студент удалил паспорт из кабинета, а сотрудник по заявке продолжал его открывать.
+  it('документ, удалённый владельцем, по заявке не открывается → NOT_FOUND', async () => {
+    const { service, application, applicationDocument, file, files, documentEvent } = setup()
+    application.findFirst.mockResolvedValue(submitted)
+    applicationDocument.findFirst.mockResolvedValue({ documentId: 'doc1' })
+    // Файл есть, но его документ удалён — условие `document.deletedAt: null` его не находит.
+    file.findFirst.mockResolvedValue(null)
+    await expect(service.presignedUrl(dean, 'a1', 'ad1', 'f2')).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    })
+    expect(file.findFirst.mock.calls[0][0].where).toMatchObject({
+      document: { is: { deletedAt: null } },
+    })
+    expect(files.getPresignedUrl).not.toHaveBeenCalled()
+    expect(documentEvent.create).not.toHaveBeenCalled()
+  })
+
+  it('просмотр сотрудником пишется в журнал документа VIEW с viaApplication', async () => {
+    const { service, application, applicationDocument, file, documentEvent } = setup()
+    application.findFirst.mockResolvedValue(submitted)
+    applicationDocument.findFirst.mockResolvedValue({ documentId: 'doc1' })
+    file.findFirst.mockResolvedValue({ id: 'f2' })
+    await service.presignedUrl(dean, 'a1', 'ad1', 'f2')
+    expect(documentEvent.create).toHaveBeenCalledWith({
+      data: {
+        actorId: 'dean',
+        documentId: 'doc1',
+        action: 'VIEW',
+        metadata: { fileId: 'f2', viaApplication: 'a1', applicationDocumentId: 'ad1' },
+      },
+    })
+  })
+
+  it('свой документ студент открывает без записи в журнал «кто открывал»', async () => {
+    const { service, application, applicationDocument, file, documentEvent } = setup()
+    application.findFirst.mockResolvedValue(submitted)
+    applicationDocument.findFirst.mockResolvedValue({ documentId: 'doc1' })
+    file.findFirst.mockResolvedValue({ id: 'f1' })
+    await service.presignedUrl(student, 'a1', 'ad1')
+    expect(documentEvent.create).not.toHaveBeenCalled()
   })
 })

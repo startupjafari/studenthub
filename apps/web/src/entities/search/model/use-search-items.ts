@@ -17,7 +17,7 @@ import { fetchSearch, searchKeys } from '../api/search-api'
 /** Короче двух символов не ищем: выдача по одной букве — это весь вуз. */
 export const SEARCH_MIN_QUERY = 2
 /** Пауза после последнего нажатия: запрос уходит один, а не на каждую букву. */
-const DEBOUNCE_MS = 250
+export const SEARCH_DEBOUNCE_MS = 250
 
 export interface SearchItem {
   id: string
@@ -59,7 +59,7 @@ export function useSearchItems(query: string): SearchItemsState {
       setDebounced('')
       return
     }
-    const id = setTimeout(() => setDebounced(typed), DEBOUNCE_MS)
+    const id = setTimeout(() => setDebounced(typed), SEARCH_DEBOUNCE_MS)
     return () => clearTimeout(id)
   }, [typed])
 

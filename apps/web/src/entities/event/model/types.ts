@@ -37,6 +37,12 @@ export interface EventItem {
   organizer: EventOrganizer
   _count: { participants: number }
   isRegistered: boolean
+  /**
+   * Может ли зритель управлять событием (правка, удаление, участники) — считает сервер по
+   * своему правилу (организатор, платформа, декан факультета события, админ вуза события).
+   * Необязательное: старый ответ без поля — запасной расчёт по роли.
+   */
+  canManage?: boolean
 }
 
 export interface EventParticipant {
@@ -50,4 +56,15 @@ export interface EventComment {
   content: string
   createdAt: string
   author: EventOrganizer & { avatarThumbUrl: string | null }
+  /** Может ли зритель удалить комментарий (автор или модерация по правилам сервера). */
+  canDelete?: boolean
+}
+
+/** Страница обсуждения: свежие сверху, `cursor` — самый старый комментарий страницы. */
+export interface EventCommentsPage {
+  items: EventComment[]
+  cursor?: string
+  hasNext: boolean
+  /** Сколько комментариев всего — для заголовка, не зависит от догруженных страниц. */
+  total?: number
 }

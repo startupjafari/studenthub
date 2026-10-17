@@ -4,12 +4,19 @@ import type {
   EventMeeting,
   UpdateEventInput,
 } from '@studenthub/shared-schemas'
-import { api } from '../../../shared/api'
-import type { EventComment, EventItem, EventParticipant } from '../model/types'
+import { api, type ResponseWithMeta } from '../../../shared/api'
+import type { EventComment, EventCommentsPage, EventItem, EventParticipant } from '../model/types'
+
+const DEFAULT_EVENTS_LIMIT = 50
+// Страница обсуждения под событием: ровно столько, сколько помещается на экран-другой.
+const EVENT_COMMENTS_PAGE_SIZE = 20
 
 export const eventKeys = {
   all: ['events'] as const,
-  list: (filter: string, mine?: boolean) => ['events', 'list', filter, mine ?? false] as const,
+  // limit — часть ключа: главная берёт 4 ближайших, «Мероприятия» и календарь — 50. С общим
+  // ключом экран, открытый следом за главной, показывал из кэша её четыре события (E-F11).
+  list: (filter: string, mine?: boolean, limit = DEFAULT_EVENTS_LIMIT) =>
+    ['events', 'list', filter, mine ?? false, limit] as const,
   detail: (id: string) => ['events', 'detail', id] as const,
   participants: (id: string) => ['events', id, 'participants'] as const,
   meeting: (id: string) => ['events', id, 'meeting'] as const,
@@ -18,7 +25,7 @@ export const eventKeys = {
 
 export async function fetchEvents(query: Partial<EventListQueryInput> = {}): Promise<EventItem[]> {
   const { data } = await api.get<EventItem[]>('/events', {
-    params: { page: 1, limit: 50, filter: 'upcoming', ...query },
+    params: { page: 1, limit: DEFAULT_EVENTS_LIMIT, filter: 'upcoming', ...query },
   })
   return data
 }
@@ -65,10 +72,21 @@ export async function fetchEventParticipants(id: string): Promise<EventParticipa
   return data
 }
 
-// Комментарии видит вся аудитория события; сервер отдаёт последние по порядку написания.
-export async function fetchEventComments(id: string): Promise<EventComment[]> {
-  const { data } = await api.get<EventComment[]>(`/events/${id}/comments`)
-  return data
+/**
+ * Страница обсуждения: свежие сверху, `cursor` — по нему просят более ранние. Комментарии
+ * видит вся аудитория события. Без `limit` сервер отдал бы прежний массив последних ста —
+ * так читают мобильные клиенты; веб листает страницами (E-F12).
+ */
+export async function fetchEventComments(id: string, cursor?: string): Promise<EventCommentsPage> {
+  const res = (await api.get<EventComment[]>(`/events/${id}/comments`, {
+    params: { limit: EVENT_COMMENTS_PAGE_SIZE, cursor },
+  })) as ResponseWithMeta & { data: EventComment[] }
+  return {
+    items: res.data,
+    cursor: res.meta?.cursor,
+    hasNext: res.meta?.hasNext ?? false,
+    total: res.meta?.total,
+  }
 }
 
 export async function addEventCommentRequest(id: string, content: string): Promise<EventComment> {

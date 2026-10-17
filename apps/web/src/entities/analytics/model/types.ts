@@ -91,10 +91,36 @@ export interface PlatformOverview {
 export interface UniversitySize {
   id: string
   name: string
+  shortName: string | null
   status: string
+  /** Код КАТО — имя города резолвит useKatoNames. */
+  city: string | null
+  /** Студенты вместе со старостами. */
+  students: number
+  teachers: number
+  /** Все пользователи вуза, любой роли. */
+  total: number
+  faculties: number
+  groups: number
+  rooms: number
+}
+
+/** Итоги по всей платформе — не сумма `items`: сервер отдаёт не больше 200 вузов. */
+export interface UniversitiesTotals {
+  universities: number
+  active: number
+  faculties: number
+  groups: number
+  rooms: number
   students: number
   teachers: number
   total: number
+}
+
+export interface UniversitiesSize {
+  /** Крупнейшие первыми. */
+  items: UniversitySize[]
+  totals: UniversitiesTotals
 }
 
 export interface ComplaintsLatency {
@@ -139,6 +165,28 @@ export interface TopActions {
 // ── Аналитика вуза (дашборд UNIVERSITY_ADMIN) ────────────────────────────────
 // Всё считает сервер: клиент не досчитывает и не усредняет, иначе цифра в плитке
 // и цифра на графике начинают расходиться.
+
+/**
+ * Плитки дашборда вуза — `GET /analytics/university/overview`, одним запросом с кэшем.
+ * Посещаемость считает сервер по всем отметкам вуза; клиент её не усредняет.
+ */
+export interface UniversityOverview {
+  /** Доля не-пропусков, проценты; null — посещаемость ещё не отмечали. */
+  attendanceRate: number | null
+  attendanceTracked: number
+  submissionsPending: number
+  examsUpcoming: number
+  /** Группы с отмеченной посещаемостью, худшие первыми (не больше 100). */
+  groups: {
+    groupId: string
+    name: string
+    facultyId: string
+    attendanceRate: number
+    attendanceTracked: number
+  }[]
+  /** Группы ниже порога «требует внимания». */
+  atRisk: AtRiskGroup[]
+}
 
 export interface WeeklyPoint {
   /** Понедельник недели, ISO. */

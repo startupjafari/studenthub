@@ -25,6 +25,14 @@ export interface EffectiveDocumentType {
   label: string | null // задан только у custom-типов (у статических берётся из i18n на фронте)
 }
 
+/** Срок хранения типа в вузе: EXPIRED-документ архивируется через `retentionDays` после истечения. */
+export interface RetentionRule {
+  id: string
+  universityId: string
+  typeId: string
+  retentionDays: number
+}
+
 /**
  * Гибридный каталог типов документов (задача 15.20): статические 25 типов из shared-config
  * + правки/добавления вуза из таблицы document_types. Валидацию типов при создании документа
@@ -91,14 +99,20 @@ export class DocumentTypesService {
     return def.category
   }
 
-  /** Срок хранения (дни) для типа в вузе, если задан. */
-  async retentionDays(universityId: string | null, typeId: string): Promise<number | null> {
-    if (!universityId) return null
-    const o = await this.prisma.documentType.findUnique({
-      where: { universityId_typeId: { universityId, typeId } },
-      select: { retentionDays: true },
+  /**
+   * Правила срока хранения — типы вузов с заданным `retentionDays`, страница после `afterId`
+   * (keyset по id). Архивация идёт от них: у типа без срока архивировать нечего.
+   */
+  async retentionRules(afterId: string | null, take: number): Promise<RetentionRule[]> {
+    const rows = await this.prisma.documentType.findMany({
+      where: { retentionDays: { not: null }, ...(afterId ? { id: { gt: afterId } } : {}) },
+      orderBy: { id: 'asc' },
+      select: { id: true, universityId: true, typeId: true, retentionDays: true },
+      take,
     })
-    return o?.retentionDays ?? null
+    return rows.flatMap((r) =>
+      r.retentionDays === null ? [] : [{ ...r, retentionDays: r.retentionDays }],
+    )
   }
 
   // ── Админ вуза ────────────────────────────────────────────────────────────

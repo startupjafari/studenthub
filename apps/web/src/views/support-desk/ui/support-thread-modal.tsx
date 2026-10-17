@@ -23,7 +23,8 @@ import {
   setSupportTagsRequest,
   supportKeys,
 } from '../../../entities/support-ticket'
-import { ProfileLink } from '../../../entities/user'
+import { ProfileLink, UserPicker, type PickedUser } from '../../../entities/user'
+import { complaintKeys, createComplaintFromSupportRequest } from '../../../entities/complaint'
 import {
   Badge,
   Button,
@@ -62,6 +63,10 @@ export function SupportThreadModal({ ticketId, onClose, onOpen }: SupportThreadM
   const myId = useAppSelector((s) => s.auth.user?.id)
   const labels = tagLabels(t)
   const [mergeInto, setMergeInto] = useState<string | null>(null)
+  // Жалоба из обращения: люди жалуются на других через поддержку, и передать это модерации
+  // в вебе было нечем — только из мини-аппа. null — панель закрыта.
+  const [complaintTarget, setComplaintTarget] = useState<PickedUser | null>(null)
+  const [complaintOpen, setComplaintOpen] = useState(false)
 
   const thread = useQuery({
     queryKey: supportKeys.thread(ticketId),
@@ -110,6 +115,20 @@ export function SupportThreadModal({ ticketId, onClose, onOpen }: SupportThreadM
       onClose()
     },
     onError,
+  })
+  const fileComplaint = useMutation({
+    mutationFn: (target: PickedUser) =>
+      createComplaintFromSupportRequest({ chatId: ticketId, targetId: target.id }),
+    onSuccess: async () => {
+      toast.success(t('complaintCreated'))
+      setComplaintOpen(false)
+      setComplaintTarget(null)
+      await qc.invalidateQueries({ queryKey: complaintKeys.all })
+    },
+    onError: (e: unknown) => {
+      const code = toApiError(e).code
+      toast.error(code === 'CONFLICT' ? t('complaintDuplicate') : tErr(code))
+    },
   })
   const merge = useMutation({
     mutationFn: (intoId: string) => mergeSupportRequest(ticketId, intoId),
@@ -247,6 +266,35 @@ export function SupportThreadModal({ ticketId, onClose, onOpen }: SupportThreadM
             </form>
           )}
 
+          {complaintOpen && (
+            <div className="flex flex-col gap-2 rounded-xl border border-border p-3">
+              <span className="text-sm font-medium">{t('complaintTarget')}</span>
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="min-w-0 flex-1">
+                  <UserPicker
+                    value={complaintTarget}
+                    onSelect={setComplaintTarget}
+                    placeholder={t('complaintTargetPlaceholder')}
+                  />
+                </div>
+                <Button
+                  size="sm"
+                  disabled={!complaintTarget}
+                  loading={fileComplaint.isPending}
+                  onClick={async () => {
+                    if (!complaintTarget) return
+                    const name = `${complaintTarget.lastName} ${complaintTarget.firstName}`
+                    if (await confirm({ title: t('confirmComplaint', { name }) })) {
+                      fileComplaint.mutate(complaintTarget)
+                    }
+                  }}
+                >
+                  {t('complaintSubmit')}
+                </Button>
+              </div>
+            </div>
+          )}
+
           <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
             <div className="flex flex-wrap gap-2">
               {!ticket.assigneeId && (
@@ -298,6 +346,16 @@ export function SupportThreadModal({ ticketId, onClose, onOpen }: SupportThreadM
               )}
             </div>
             <div className="flex flex-wrap gap-2">
+              {author && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  aria-expanded={complaintOpen}
+                  onClick={() => setComplaintOpen((open) => !open)}
+                >
+                  {t('fileComplaint')}
+                </Button>
+              )}
               <Button
                 variant="ghost"
                 size="sm"

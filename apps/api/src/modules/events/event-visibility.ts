@@ -11,6 +11,9 @@ export function eventVisibilityWhere(viewer: JwtPayload): Prisma.EventWhereInput
   const or: Prisma.EventWhereInput[] = [{ audience: PostAudience.ALL }, { organizerId: viewer.sub }]
   if (viewer.universityId) {
     or.push({ audience: PostAudience.UNIVERSITY, universityId: viewer.universityId })
+    // SUBJECT — событие преподавателя всему вузу: ни предмета, ни курса у события нет, и
+    // интерфейс так и подписывает аудиторию («Весь вуз (от преподавателя)», E-F28). Сузить
+    // до студентов курса можно только привязкой к курсу (courseId) — это миграция.
     or.push({ audience: PostAudience.SUBJECT, universityId: viewer.universityId })
     if (viewer.role === Role.TEACHER) {
       or.push({ audience: PostAudience.TEACHERS, universityId: viewer.universityId })

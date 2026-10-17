@@ -46,6 +46,11 @@ export async function createScheduleChangeRequest(
   return data
 }
 
+// Убрать ошибочное разовое изменение (C-F16): группе и преподавателям — WS и уведомление.
+export async function deleteScheduleChangeRequest(id: string): Promise<void> {
+  await api.delete(`/schedule/changes/${id}`)
+}
+
 // ── Контейнеры (6.4) ───────────────────────────────────────────────────────
 
 export async function fetchScheduleContainers(groupId?: string): Promise<ScheduleContainer[]> {
@@ -71,10 +76,6 @@ export async function updateScheduleRequest(
 ): Promise<ScheduleContainer> {
   const { data } = await api.patch<ScheduleContainer>(`/schedules/${id}`, input)
   return data
-}
-
-export async function deleteScheduleRequest(id: string): Promise<void> {
-  await api.delete(`/schedules/${id}`)
 }
 
 // ── Пары (6.4) ─────────────────────────────────────────────────────────────

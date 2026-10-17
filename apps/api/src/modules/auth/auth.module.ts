@@ -14,6 +14,8 @@ import { ScopeGuard } from '../../common/guards/scope.guard'
 import { TwoFactorGuard } from '../../common/guards/two-factor.guard'
 import { UsersModule } from '../users/users.module'
 import { InvitesModule } from '../invites/invites.module'
+import { UniversitiesModule } from '../universities/universities.module'
+import { CareerModule } from '../career/career.module'
 import { AuthController } from './auth.controller'
 import { TwoFactorController } from './two-factor.controller'
 import { AuthService } from './auth.service'
@@ -32,6 +34,11 @@ import { LocalStrategy } from './strategies/local.strategy'
     PassportModule,
     forwardRef(() => UsersModule),
     InvitesModule,
+    // Допуск по статусу вуза: вход, refresh, регистрация по инвайту и JwtStrategy.
+    UniversitiesModule,
+    // Вход работодателя ждёт подтверждения почты компании (CompaniesService.loginDenial).
+    // Кольца нет: CareerModule сам ничего не импортирует.
+    CareerModule,
     JwtModule.registerAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService<EnvVars, true>) => ({
@@ -66,6 +73,8 @@ import { LocalStrategy } from './strategies/local.strategy'
     { provide: APP_GUARD, useClass: ScopeGuard },
     { provide: APP_GUARD, useClass: TwoFactorGuard },
   ],
-  exports: [AuthService, TwoFactorService, JwtModule],
+  // ACTION_CONFIRMATION — для UsersController (сброс 2FA другому с кодом администратора):
+  // по токену, чтобы файлы users не импортировали TwoFactorService.
+  exports: [AuthService, TwoFactorService, JwtModule, ACTION_CONFIRMATION],
 })
 export class AuthModule {}

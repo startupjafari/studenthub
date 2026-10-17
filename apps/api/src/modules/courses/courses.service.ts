@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common'
+import { Injectable } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
 import type {
@@ -17,10 +17,12 @@ import type {
   UpdateTermInput,
 } from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
+import { advisoryXactLock } from '../../common/prisma/advisory-lock'
 import { AuditService } from '../../common/audit/audit.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import { Paginated } from '../../common/http/paginated'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
+import { isPlatformRole, resolveGroupScope } from '../../common/auth/group-scope'
 import type { RequestContext } from '../auth/auth.service'
 
 const SUBJECT_SELECT = {
@@ -53,10 +55,6 @@ const COURSE_SELECT = {
 
 type CourseRow = Prisma.CourseGetPayload<{ select: typeof COURSE_SELECT }>
 
-function isPlatform(role: Role): boolean {
-  return role === Role.PLATFORM_ADMIN || role === Role.PLATFORM_MODERATOR
-}
-
 /**
  * Порядок выборки по колонке таблицы. Общее для трёх списков модуля.
  *
@@ -65,6 +63,15 @@ function isPlatform(role: Role): boolean {
  * пропустить.
  */
 function courseOrderBy(
+  sort: CourseSortValue | undefined,
+  order: SortOrderValue | undefined,
+): Prisma.CourseOrderByWithRelationInput[] {
+  // Последний ключ — id: у курсов одной дисциплины в разных семестрах совпадают и название,
+  // и группа, и без него их взаимный порядок от запроса к запросу менялся (C-F25).
+  return [...courseSortKeys(sort, order), { id: 'asc' }]
+}
+
+function courseSortKeys(
   sort: CourseSortValue | undefined,
   order: SortOrderValue | undefined,
 ): Prisma.CourseOrderByWithRelationInput[] {
@@ -118,8 +125,6 @@ function termOrderBy(
 
 @Injectable()
 export class CoursesService {
-  private readonly logger = new Logger(CoursesService.name)
-
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
@@ -188,8 +193,13 @@ export class CoursesService {
     })
     if (!existing) throw new AppException('NOT_FOUND', 'Дисциплина не найдена')
     this.assertUniversityManage(actor, existing.universityId)
-    await this.prisma.subject.delete({ where: { id } }).catch(() => {
-      throw new AppException('CONFLICT', 'Дисциплина используется в курсах')
+    // CONFLICT — только нарушение внешнего ключа (Course.subject = Restrict). Раньше в него
+    // превращалась любая ошибка БД, и сбой соединения выглядел как «используется в курсах».
+    await this.prisma.subject.delete({ where: { id } }).catch((e: unknown) => {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2003') {
+        throw new AppException('CONFLICT', 'Дисциплина используется в курсах')
+      }
+      throw e
     })
     await this.record(actor, 'subject_deleted', 'Subject', id, ctx)
   }
@@ -212,19 +222,28 @@ export class CoursesService {
     return new Paginated(rows, { total })
   }
 
+  /**
+   * Активный семестр в вузе один (C-F05): учебный план считает «изучается» по
+   * `term.isActive`, и два активных семестра делали текущими дисциплины обоих.
+   * Включение флага снимает его с остальных семестров вуза в той же транзакции.
+   */
   async createTerm(actor: JwtPayload, input: CreateTermInput, ctx: RequestContext) {
     this.assertUniversityManage(actor, input.universityId)
-    const term = await this.prisma.term
-      .create({
-        data: {
-          universityId: input.universityId,
-          name: input.name,
-          number: input.number,
-          startsOn: new Date(input.startsOn),
-          endsOn: new Date(input.endsOn),
-          isActive: input.isActive ?? false,
-        },
-        select: TERM_SELECT,
+    const isActive = input.isActive ?? false
+    const term = await this.prisma
+      .$transaction(async (tx) => {
+        if (isActive) await this.deactivateOtherTerms(tx, input.universityId)
+        return tx.term.create({
+          data: {
+            universityId: input.universityId,
+            name: input.name,
+            number: input.number,
+            startsOn: new Date(input.startsOn),
+            endsOn: new Date(input.endsOn),
+            isActive,
+          },
+          select: TERM_SELECT,
+        })
       })
       .catch(this.handleUnique('Семестр с таким названием уже существует'))
     await this.record(actor, 'term_created', 'Term', term.id, ctx)
@@ -234,21 +253,33 @@ export class CoursesService {
   async updateTerm(actor: JwtPayload, id: string, input: UpdateTermInput, ctx: RequestContext) {
     const existing = await this.prisma.term.findUnique({
       where: { id },
-      select: { id: true, universityId: true },
+      select: { id: true, universityId: true, startsOn: true, endsOn: true },
     })
     if (!existing) throw new AppException('NOT_FOUND', 'Семестр не найден')
     this.assertUniversityManage(actor, existing.universityId)
-    const term = await this.prisma.term
-      .update({
-        where: { id },
-        data: {
-          name: input.name,
-          number: input.number,
-          startsOn: input.startsOn ? new Date(input.startsOn) : undefined,
-          endsOn: input.endsOn ? new Date(input.endsOn) : undefined,
-          isActive: input.isActive,
-        },
-        select: TERM_SELECT,
+    // Схема сверяет даты, только когда пришли обе; правка одной даты сверяется с
+    // сохранённой второй — иначе семестр мог кончиться раньше, чем начался (C-F05).
+    const startsOn = input.startsOn ? new Date(input.startsOn) : existing.startsOn
+    const endsOn = input.endsOn ? new Date(input.endsOn) : existing.endsOn
+    if (endsOn < startsOn) {
+      throw new AppException('VALIDATION_ERROR', 'Семестр не может закончиться раньше начала', [
+        { field: input.endsOn ? 'endsOn' : 'startsOn', message: 'Конец раньше начала' },
+      ])
+    }
+    const term = await this.prisma
+      .$transaction(async (tx) => {
+        if (input.isActive === true) await this.deactivateOtherTerms(tx, existing.universityId, id)
+        return tx.term.update({
+          where: { id },
+          data: {
+            name: input.name,
+            number: input.number,
+            startsOn: input.startsOn ? startsOn : undefined,
+            endsOn: input.endsOn ? endsOn : undefined,
+            isActive: input.isActive,
+          },
+          select: TERM_SELECT,
+        })
       })
       .catch(this.handleUnique('Семестр с таким названием уже существует'))
     await this.record(actor, 'term_updated', 'Term', id, ctx)
@@ -262,9 +293,37 @@ export class CoursesService {
     })
     if (!existing) throw new AppException('NOT_FOUND', 'Семестр не найден')
     this.assertUniversityManage(actor, existing.universityId)
-    // Course.term_id → SetNull: удаление семестра не удаляет курсы.
-    await this.prisma.term.delete({ where: { id } })
+    // Course.term_id → SetNull: удаление семестра не удаляет курсы, а делает их курсами
+    // «без семестра». Если у группы такая дисциплина без семестра уже есть, получился бы
+    // дубль (C-F04) — такой семестр не удаляем, пока дисциплины не разведут.
+    const clash = await this.prisma.$queryRaw<{ id: string }[]>`
+      SELECT a.id FROM "courses" a
+      JOIN "courses" b ON b.subject_id = a.subject_id AND b.group_id = a.group_id
+      WHERE a.term_id = ${id} AND b.term_id IS NULL
+      LIMIT 1`
+    if (clash.length > 0) {
+      throw new AppException(
+        'CONFLICT',
+        'После удаления семестра у группы окажутся две одинаковые дисциплины без семестра',
+      )
+    }
+    await this.prisma.term
+      .delete({ where: { id } })
+      .catch(this.handleUnique('У группы уже есть такая дисциплина без семестра'))
     await this.record(actor, 'term_deleted', 'Term', id, ctx)
+  }
+
+  /** Снять «активный» с остальных семестров вуза; лок — чтобы две активации не прошли обе. */
+  private async deactivateOtherTerms(
+    tx: Prisma.TransactionClient,
+    universityId: string,
+    exceptId?: string,
+  ): Promise<void> {
+    await advisoryXactLock(tx, `term-active:${universityId}`)
+    await tx.term.updateMany({
+      where: { universityId, isActive: true, ...(exceptId ? { id: { not: exceptId } } : {}) },
+      data: { isActive: false },
+    })
   }
 
   // ── Courses ──────────────────────────────────────────────────────────────
@@ -311,16 +370,19 @@ export class CoursesService {
     await this.assertSubjectSameUniversity(input.subjectId, group.universityId)
     if (input.termId) await this.assertTermSameUniversity(input.termId, group.universityId)
     if (input.teacherId) await this.assertTeacherSameUniversity(input.teacherId, group.universityId)
-    const course = await this.prisma.course
-      .create({
-        data: {
-          subjectId: input.subjectId,
-          groupId: input.groupId,
-          teacherId: input.teacherId,
-          termId: input.termId,
-          credits: input.credits,
-        },
-        select: COURSE_SELECT,
+    const course = await this.prisma
+      .$transaction(async (tx) => {
+        if (!input.termId) await this.assertNoTermlessTwin(tx, input.subjectId, input.groupId)
+        return tx.course.create({
+          data: {
+            subjectId: input.subjectId,
+            groupId: input.groupId,
+            teacherId: input.teacherId,
+            termId: input.termId,
+            credits: input.credits,
+          },
+          select: COURSE_SELECT,
+        })
       })
       .catch(this.handleUnique('Такая дисциплина уже назначена группе в этом семестре'))
     await this.record(actor, 'course_created', 'Course', course.id, ctx)
@@ -330,21 +392,74 @@ export class CoursesService {
   async updateCourse(actor: JwtPayload, id: string, input: UpdateCourseInput, ctx: RequestContext) {
     const course = await this.prisma.course.findUnique({
       where: { id },
-      select: { id: true, groupId: true },
+      select: { id: true, groupId: true, subjectId: true, termId: true },
     })
     if (!course) throw new AppException('NOT_FOUND', 'Дисциплина не найдена')
     const group = await this.assertGroupManage(actor, course.groupId)
     if (input.termId) await this.assertTermSameUniversity(input.termId, group.universityId)
     if (input.teacherId) await this.assertTeacherSameUniversity(input.teacherId, group.universityId)
-    const updated = await this.prisma.course.update({
-      where: { id },
-      data: { teacherId: input.teacherId, termId: input.termId, credits: input.credits },
-      select: COURSE_SELECT,
-    })
+    // Снять семестр — значит стать дисциплиной «без семестра», а такая у группы одна.
+    const becomesTermless = input.termId === null && course.termId !== null
+    const updated = await this.prisma
+      .$transaction(async (tx) => {
+        if (becomesTermless) {
+          await this.assertNoTermlessTwin(tx, course.subjectId, course.groupId, id)
+        }
+        return tx.course.update({
+          where: { id },
+          data: { teacherId: input.teacherId, termId: input.termId, credits: input.credits },
+          select: COURSE_SELECT,
+        })
+      })
+      // Перенос в семестр, где группе эта дисциплина уже назначена, — тот же уникальный
+      // ключ, что и при создании; раньше он уходил наружу ошибкой 500.
+      .catch(this.handleUnique('Такая дисциплина уже назначена группе в этом семестре'))
     await this.record(actor, 'course_updated', 'Course', id, ctx)
     return updated
   }
 
+  /**
+   * Дисциплина без семестра — одна на (предмет, группа) (C-F04).
+   *
+   * Уникальный индекс `[subjectId, groupId, termId]` её не держит: в Postgres NULL-ы
+   * различны, и двойной клик «Создать» с вариантом «без семестра» (он в модалке по
+   * умолчанию) давал студенту две одинаковые карточки, а задания и журнал расползались
+   * по ним. Пока частичного уникального индекса нет, правило держит код: проверка и
+   * запись — в одной транзакции под advisory-локом пары (предмет, группа), так что
+   * параллельный запрос ждёт и видит уже созданную дисциплину.
+   */
+  private async assertNoTermlessTwin(
+    tx: Prisma.TransactionClient,
+    subjectId: string,
+    groupId: string,
+    exceptId?: string,
+  ): Promise<void> {
+    await advisoryXactLock(tx, `course-termless:${subjectId}:${groupId}`)
+    const twin = await tx.course.findFirst({
+      where: {
+        subjectId,
+        groupId,
+        termId: null,
+        ...(exceptId ? { id: { not: exceptId } } : {}),
+      },
+      select: { id: true },
+    })
+    if (twin) {
+      throw new AppException('CONFLICT', 'Такая дисциплина уже назначена группе без семестра')
+    }
+  }
+
+  /**
+   * Удаление дисциплины — только без академических записей.
+   *
+   * Задания, колонки журнала и экзамены висят на дисциплине каскадом: удаление стёрло бы
+   * оценки, сданные работы и результаты экзаменов без следа. Такую дисциплину не удаляем.
+   *
+   * Подсчёт и удаление — одна транзакция под блокировкой строки курса (FOR UPDATE).
+   * Вставка задания, колонки журнала или экзамена проверяет внешний ключ и берёт на строку
+   * курса FOR KEY SHARE, несовместимую с FOR UPDATE: заведённое параллельно либо попадает
+   * в подсчёт, либо ждёт удаления и падает на внешнем ключе — каскадом не исчезает.
+   */
   async deleteCourse(actor: JwtPayload, id: string, ctx: RequestContext): Promise<void> {
     const course = await this.prisma.course.findUnique({
       where: { id },
@@ -352,40 +467,62 @@ export class CoursesService {
     })
     if (!course) throw new AppException('NOT_FOUND', 'Дисциплина не найдена')
     await this.assertGroupManage(actor, course.groupId)
-    // Задания, колонки журнала и экзамены висят на дисциплине каскадом: удаление стёрло бы
-    // оценки, сданные работы и результаты экзаменов без следа. Такую дисциплину не удаляем.
-    const [grades, submissions, results] = await Promise.all([
-      this.prisma.grade.count({ where: { column: { courseId: id }, score: { not: null } } }),
-      this.prisma.submission.count({
-        where: { assignment: { courseId: id }, status: { not: 'DRAFT' } },
-      }),
-      this.prisma.examResult.count({ where: { exam: { courseId: id }, score: { not: null } } }),
-    ])
-    if (grades + submissions + results > 0) {
-      throw new AppException(
-        'CONFLICT',
-        'У дисциплины есть оценки, сданные работы или результаты экзаменов',
-      )
-    }
-    await this.prisma.course.delete({ where: { id } })
+    await this.prisma.$transaction(async (tx) => {
+      const locked = await tx.$queryRaw<{ id: string }[]>`
+        SELECT id FROM "courses" WHERE id = ${id} FOR UPDATE`
+      if (locked.length === 0) throw new AppException('NOT_FOUND', 'Дисциплина не найдена')
+      if ((await this.academicRecordCount(tx, id)) > 0) {
+        throw new AppException(
+          'CONFLICT',
+          'У дисциплины есть оценки, сданные работы или результаты экзаменов',
+        )
+      }
+      await tx.course.delete({ where: { id } })
+    })
     await this.record(actor, 'course_deleted', 'Course', id, ctx)
+  }
+
+  /**
+   * Сколько записей дисциплины пропало бы при удалении каскадом.
+   *
+   * Результат экзамена — запись и без балла: зачёт («сдал» / «не сдал»), неявка и
+   * недопуск ставятся статусом и флагом `admitted`, балл у них пустой. Раньше считались
+   * только строки с баллом, и курс с заполненной ведомостью зачёта удалялся вместе с ней.
+   * Пустой не считается лишь строка «назначен, допущен, без балла» — её ещё никто
+   * не заполнял. Оценка журнала без балла — не запись: `null` в ней означает «снята».
+   */
+  private async academicRecordCount(
+    tx: Prisma.TransactionClient,
+    courseId: string,
+  ): Promise<number> {
+    const grades = await tx.grade.count({ where: { column: { courseId }, score: { not: null } } })
+    const submissions = await tx.submission.count({
+      where: { assignment: { courseId }, status: { not: 'DRAFT' } },
+    })
+    const results = await tx.examResult.count({
+      where: {
+        exam: { courseId },
+        OR: [{ status: { not: 'SCHEDULED' } }, { score: { not: null } }, { admitted: false }],
+      },
+    })
+    return grades + submissions + results
   }
 
   // ── scope helpers ─────────────────────────────────────────────────────────
 
   private readUniversityScope(viewer: JwtPayload, requested?: string): string {
-    if (isPlatform(viewer.role)) return requested ?? viewer.universityId ?? '__none__'
+    if (isPlatformRole(viewer.role)) return requested ?? viewer.universityId ?? '__none__'
     return viewer.universityId ?? '__none__'
   }
 
   private assertUniversityManage(actor: JwtPayload, universityId: string): void {
-    if (isPlatform(actor.role)) return
+    if (isPlatformRole(actor.role)) return
     if (actor.role === Role.UNIVERSITY_ADMIN && actor.universityId === universityId) return
     throw new AppException('WRONG_SCOPE', 'Другой университет')
   }
 
   private courseScopeWhere(viewer: JwtPayload): Prisma.CourseWhereInput {
-    if (isPlatform(viewer.role)) return {}
+    if (isPlatformRole(viewer.role)) return {}
     if (viewer.role === Role.STUDENT || viewer.role === Role.STAROSTA) {
       return { groupId: viewer.groupId ?? '__none__' }
     }
@@ -399,12 +536,12 @@ export class CoursesService {
   }
 
   private async assertReadGroup(viewer: JwtPayload, groupId: string): Promise<void> {
-    if (isPlatform(viewer.role)) return
+    if (isPlatformRole(viewer.role)) return
     if (viewer.role === Role.STUDENT || viewer.role === Role.STAROSTA) {
       if (viewer.groupId === groupId) return
       throw new AppException('WRONG_SCOPE', 'Дисциплина другой группы')
     }
-    const group = await this.resolveGroup(groupId)
+    const group = await resolveGroupScope(this.prisma, groupId)
     if (viewer.role === Role.DEAN) {
       if (viewer.facultyId === group.facultyId) return
       throw new AppException('WRONG_SCOPE', 'Дисциплина другого факультета')
@@ -417,8 +554,8 @@ export class CoursesService {
     actor: JwtPayload,
     groupId: string,
   ): Promise<{ facultyId: string; universityId: string }> {
-    const group = await this.resolveGroup(groupId)
-    if (isPlatform(actor.role)) return group
+    const group = await resolveGroupScope(this.prisma, groupId)
+    if (isPlatformRole(actor.role)) return group
     if (actor.role === Role.DEAN) {
       if (actor.facultyId !== group.facultyId)
         throw new AppException('WRONG_SCOPE', 'Чужой факультет')
@@ -471,17 +608,6 @@ export class CoursesService {
     if (teacher.role !== Role.TEACHER && teacher.role !== Role.DEAN) {
       throw new AppException('BAD_REQUEST', 'Назначить можно только преподавателя или декана')
     }
-  }
-
-  private async resolveGroup(
-    groupId: string,
-  ): Promise<{ facultyId: string; universityId: string }> {
-    const group = await this.prisma.group.findUnique({
-      where: { id: groupId },
-      select: { facultyId: true, faculty: { select: { universityId: true } } },
-    })
-    if (!group) throw new AppException('NOT_FOUND', 'Группа не найдена')
-    return { facultyId: group.facultyId, universityId: group.faculty.universityId }
   }
 
   private handleUnique(message: string) {

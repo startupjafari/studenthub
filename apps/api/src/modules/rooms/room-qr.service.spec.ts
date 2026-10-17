@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
 import { RoomQrService, wallClockNow } from './room-qr.service'
 import { formatCode, randomCode } from './room-code'
@@ -26,7 +27,12 @@ const ctx = { ip: '127.0.0.1', userAgent: 'jest' }
 
 function setup() {
   const prisma = {
-    room: { findUnique: jest.fn(), findMany: jest.fn(), update: jest.fn() },
+    room: {
+      findUnique: jest.fn(),
+      findMany: jest.fn(),
+      update: jest.fn(),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
     pair: { findMany: jest.fn().mockResolvedValue([]) },
     scheduleChange: { findMany: jest.fn().mockResolvedValue([]) },
     $transaction: jest.fn(),
@@ -182,16 +188,21 @@ describe('RoomQrService.issueBatch', () => {
 
     expect(dto?.code).toBe('ABCD2345')
     expect(prisma.room.update).not.toHaveBeenCalled()
+    expect(prisma.room.updateMany).not.toHaveBeenCalled()
     expect(audit.record).not.toHaveBeenCalled()
   })
 
   it('выдаёт код помещению без кода и пишет в аудит', async () => {
     const { service, prisma, audit } = setup()
     prisma.room.findMany.mockResolvedValue([room({ qrCode: null, qrIssuedAt: null })])
-    prisma.room.update.mockResolvedValue({ id: 'room-1' })
 
     const [dto] = await service.issueBatch(viewer(Role.UNIVERSITY_ADMIN), ['room-1'], ctx)
 
+    // Условная запись: код ставится, только если его у помещения всё ещё нет.
+    expect(prisma.room.updateMany).toHaveBeenCalledWith({
+      where: { id: 'room-1', qrCode: null },
+      data: { qrCode: dto?.code, qrIssuedAt: expect.any(Date) },
+    })
     expect(dto?.code).toMatch(/^[2-9A-HJKMNP-Z]{8}$/)
     expect(dto?.url).toBe(`https://app.studenthub.kz/r/${dto?.code}`)
     // Картинка для печати генерируется на сервере (qrcode уже есть в зависимостях).
@@ -202,6 +213,39 @@ describe('RoomQrService.issueBatch', () => {
       expect.objectContaining({ width: 600, margin: 1 }),
     )
     expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'room_qr_issued' }))
+  })
+
+  // Два «Печать QR» одновременно: оба прочли «кода нет», но код записал только первый.
+  // Второй печатает тот же код — иначе первая распечатка сразу стала бы недействительной.
+  it('гонка: код уже выдал параллельный запрос — берём его, не перезаписываем', async () => {
+    const { service, prisma, audit } = setup()
+    prisma.room.findMany.mockResolvedValue([room({ qrCode: null, qrIssuedAt: null })])
+    prisma.room.updateMany.mockResolvedValue({ count: 0 })
+    const issuedAt = new Date('2026-10-17T09:00:00Z')
+    prisma.room.findUnique.mockResolvedValue({ qrCode: 'WXYZ6789', qrIssuedAt: issuedAt })
+
+    const [dto] = await service.issueBatch(viewer(Role.UNIVERSITY_ADMIN), ['room-1'], ctx)
+
+    expect(dto?.code).toBe('WXYZ6789')
+    expect(dto?.issuedAt).toBe(issuedAt.toISOString())
+    expect(prisma.room.update).not.toHaveBeenCalled()
+    // Выдал не этот запрос — и в аудит не пишет.
+    expect(audit.record).not.toHaveBeenCalled()
+  })
+
+  it('коллизия случайного кода (P2002) — повтор с новым кодом', async () => {
+    const { service, prisma } = setup()
+    prisma.room.findMany.mockResolvedValue([room({ qrCode: null, qrIssuedAt: null })])
+    prisma.room.updateMany
+      .mockRejectedValueOnce(
+        new Prisma.PrismaClientKnownRequestError('u', { code: 'P2002', clientVersion: '6' }),
+      )
+      .mockResolvedValueOnce({ count: 1 })
+
+    const [dto] = await service.issueBatch(viewer(Role.UNIVERSITY_ADMIN), ['room-1'], ctx)
+
+    expect(prisma.room.updateMany).toHaveBeenCalledTimes(2)
+    expect(dto?.code).toBe(prisma.room.updateMany.mock.calls[1][0].data.qrCode)
   })
 
   it('админ чужого вуза получает WRONG_SCOPE', async () => {

@@ -1,7 +1,6 @@
 export {
   examKeys,
   fetchExams,
-  fetchExam,
   fetchExamResults,
   createExamRequest,
   updateExamRequest,

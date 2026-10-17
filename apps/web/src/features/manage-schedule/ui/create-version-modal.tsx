@@ -14,13 +14,21 @@ import { useErrorToast } from '../../../shared/lib'
  * Раньше форма разворачивалась полосой под шапкой и сдвигала календарь вниз — ради
  * действия, которое делают раз в семестр. Теперь это модалка, как и остальные
  * создания в системе.
+ *
+ * Если у группы уже есть активное расписание, новая версия создаётся черновиком (C-F13):
+ * сетку следующего семестра готовят заранее, и сразу активная пустая версия снимала бы
+ * действующее расписание у студентов и преподавателей. Публикует её «Сделать активным».
+ * Первая версия группы становится активной сразу — заменять ей нечего.
  */
 export function CreateVersionModal({
   groupId,
+  hasActive,
   onCreated,
   onClose,
 }: {
   groupId: string
+  /** У группы уже есть активная версия — новую создаём черновиком. */
+  hasActive: boolean
   onCreated: (id: string) => void
   onClose: () => void
 }) {
@@ -31,7 +39,7 @@ export function CreateVersionModal({
   const [name, setName] = useState('')
 
   const createVersion = useMutation({
-    mutationFn: () => createScheduleRequest({ groupId, name: name.trim() }),
+    mutationFn: () => createScheduleRequest({ groupId, name: name.trim(), isActive: !hasActive }),
     onSuccess: (created) => {
       void qc.invalidateQueries({ queryKey: scheduleKeys.containers(groupId) })
       onCreated(created.id)
@@ -59,6 +67,9 @@ export function CreateVersionModal({
             onChange={(e) => setName(e.target.value)}
             placeholder={t('newContainerPlaceholder')}
           />
+          {hasActive && (
+            <p className="text-xs text-muted-foreground">{t('newContainerDraftHint')}</p>
+          )}
         </div>
         <div className="flex items-center justify-between gap-2">
           <Button type="button" variant="outline" onClick={onClose}>

@@ -22,6 +22,8 @@ function errCode(e: unknown): string {
 interface Props {
   poll: PollView
   isOwner: boolean
+  // Модератор scope снимает чужой опрос (пункт «Удалить (модерация)»; решает сервер).
+  canModerate?: boolean
 }
 
 // Карточка опроса во вкладке профиля. Автора на карточке нет: вкладка уже внутри его профиля,
@@ -30,7 +32,7 @@ interface Props {
 //
 // Автор видит итоги сразу (свои результаты ему важнее формы голосования) и может перейти к
 // голосованию кнопкой в подвале; остальные сначала голосуют, итоги — по настройке опроса.
-export function PollCard({ poll, isOwner }: Props) {
+export function PollCard({ poll, isOwner, canModerate = false }: Props) {
   const t = useTranslations('Profile')
   const tErr = useTranslations('Errors')
   const locale = useLocale()
@@ -127,16 +129,26 @@ export function PollCard({ poll, isOwner }: Props) {
           <time dateTime={poll.createdAt} className="shrink-0 pt-0.5 text-xs text-muted-foreground">
             {date}
           </time>
-          {isOwner && (
+          {(isOwner || canModerate) && (
             <Button
               type="button"
               variant="ghost"
               size="sm"
               icon
-              aria-label={t('delete')}
+              aria-label={isOwner ? t('delete') : t('deleteModeration')}
+              title={isOwner ? undefined : t('deleteModeration')}
               className="-my-1 shrink-0 opacity-0 transition-opacity focus-visible:opacity-100 group-hover:opacity-100 max-lg:opacity-100"
               onClick={() => {
-                void confirm({ title: t('pollDeleteConfirm'), destructive: true }).then((ok) => {
+                void confirm(
+                  isOwner
+                    ? { title: t('pollDeleteConfirm'), destructive: true }
+                    : {
+                        title: t('pollDeleteConfirm'),
+                        description: t('moderationDeleteHint'),
+                        confirmLabel: t('deleteModeration'),
+                        destructive: true,
+                      },
+                ).then((ok) => {
                   if (ok) delMut.mutate()
                 })
               }}

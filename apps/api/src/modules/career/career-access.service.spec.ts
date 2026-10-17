@@ -1,6 +1,6 @@
 import type Redis from 'ioredis'
 import { Role } from '@studenthub/shared-types'
-import { CareerAccessService } from './career-access.service'
+import { CareerAccessService, activeAccessWhere } from './career-access.service'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import { AppException } from '../../common/exceptions/app.exception'
@@ -114,6 +114,68 @@ describe('CareerAccessService — барьер запроса', () => {
       companyId: 'co-1',
     }
     expect(() => service.requireCompany(student)).toThrow(AppException)
+  })
+})
+
+describe('activeAccessWhere — правило «допуск действует» для Prisma', () => {
+  it('совпадает с isAccessActive: одобрен и срок ещё не наступил', () => {
+    const now = new Date('2026-10-17T12:00:00Z')
+    expect(activeAccessWhere('uni-1', now)).toEqual({
+      universityId: 'uni-1',
+      status: 'APPROVED',
+      // Строго больше: в момент истечения допуск уже не действует, как и в isAccessActive.
+      OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+    })
+  })
+})
+
+describe('CareerAccessService — граница воронки откликов', () => {
+  const now = new Date('2026-10-17T12:00:00Z')
+  const at = (iso: string) => new Date(iso)
+
+  function withRows(rows: Array<Record<string, unknown>>) {
+    const ctx = setup()
+    ctx.prisma.companyUniversityAccess.findMany.mockResolvedValue(
+      rows.map((r) => ({ expiresAt: null, decidedAt: null, requestedAt: at('2026-01-01'), ...r })),
+    )
+    return ctx
+  }
+
+  it('вуз с действующим допуском — все отклики, без допуска — только поданные до его конца', async () => {
+    const { service } = withRows([
+      { universityId: 'uni-active', status: 'APPROVED', expiresAt: at('2027-01-01') },
+      // Истёк, cron ещё не дошёл: граница — срок.
+      { universityId: 'uni-expired', status: 'APPROVED', expiresAt: at('2026-10-01') },
+      // Отозван вузом вручную: граница — момент решения.
+      { universityId: 'uni-revoked', status: 'REVOKED', decidedAt: at('2026-09-01') },
+      // Закрыт cron по сроку: срок сохранён и точнее момента обработки.
+      {
+        universityId: 'uni-cron',
+        status: 'REVOKED',
+        expiresAt: at('2026-08-01'),
+        decidedAt: at('2026-08-01T00:40:00Z'),
+      },
+      // Повторная заявка после потери допуска: к её подаче допуска уже не было.
+      { universityId: 'uni-again', status: 'REQUESTED', requestedAt: at('2026-07-01') },
+    ])
+
+    await expect(service.applicationScopeWhere('co-1', now)).resolves.toEqual({
+      OR: [
+        { universityId: { in: ['uni-active'] } },
+        { universityId: 'uni-expired', createdAt: { lte: at('2026-10-01') } },
+        { universityId: 'uni-revoked', createdAt: { lte: at('2026-09-01') } },
+        { universityId: 'uni-cron', createdAt: { lte: at('2026-08-01') } },
+        { universityId: 'uni-again', createdAt: { lte: at('2026-07-01') } },
+      ],
+    })
+  })
+
+  it('компания без единого допуска откликов не видит вовсе', async () => {
+    const { service, prisma } = withRows([])
+    await expect(service.applicationScopeWhere('co-1', now)).resolves.toEqual({ id: { in: [] } })
+    expect(prisma.companyUniversityAccess.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { companyId: 'co-1' }, take: expect.any(Number) }),
+    )
   })
 })
 

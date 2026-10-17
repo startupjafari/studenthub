@@ -16,6 +16,7 @@ export {
   setup2faRequest,
   enable2faRequest,
   disable2faRequest,
+  regenerateBackupCodesRequest,
   qrCreateRequest,
   qrClaimRequest,
   qrApproveRequest,

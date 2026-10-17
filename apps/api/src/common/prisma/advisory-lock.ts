@@ -14,3 +14,16 @@ import type { Prisma } from '@prisma/client'
 export async function advisoryXactLock(tx: Prisma.TransactionClient, key: string): Promise<void> {
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))`
 }
+
+/**
+ * Разделяемый вариант того же лока: держатели разделяемого не мешают друг другу, но ждут
+ * исключительного (`advisoryXactLock` по тому же ключу) и задерживают его. Нужен, когда
+ * много частых операций (голоса в опросе) не должны пересекаться с редкой перестройкой
+ * сущности (правка опроса с заменой вариантов), но между собой идут параллельно.
+ */
+export async function advisoryXactLockShared(
+  tx: Prisma.TransactionClient,
+  key: string,
+): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock_shared(hashtextextended(${key}, 0))`
+}

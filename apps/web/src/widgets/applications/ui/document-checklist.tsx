@@ -211,7 +211,9 @@ export function DocumentChecklist({
                         t('attachFromStorage')
                       )}
                     </Button>
-                    {attached && !needsReplace && (
+                    {/* Принятый сотрудником документ из комплекта не убирается (сервер
+                        отвечает 400) — только заменяется: новый снова уйдёт на проверку. */}
+                    {attached && !needsReplace && attached.status !== 'ACCEPTED' && (
                       <Button
                         variant="ghost"
                         size="sm"

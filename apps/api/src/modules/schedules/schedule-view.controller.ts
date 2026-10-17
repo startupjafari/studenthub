@@ -1,4 +1,15 @@
-import { Body, Controller, Get, Post, Query, Req } from '@nestjs/common'
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Post,
+  Query,
+  Req,
+} from '@nestjs/common'
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger'
 import { Role } from '@studenthub/shared-types'
 import type { FastifyRequest } from 'fastify'
@@ -40,13 +51,34 @@ export class ScheduleViewController {
   @ApiResponse({ status: 201, description: 'Изменение создано' })
   @ApiResponse({ status: 403, description: 'FORBIDDEN / WRONG_SCOPE' })
   @ApiResponse({ status: 404, description: 'NOT_FOUND — пара не найдена' })
-  @ApiResponse({ status: 422, description: 'VALIDATION_ERROR' })
+  @ApiResponse({
+    status: 409,
+    description: 'CONFLICT — занятие на дату отменено; преподаватель, аудитория или группа заняты',
+  })
+  @ApiResponse({ status: 422, description: 'VALIDATION_ERROR — в т.ч. дата не в день пары' })
   createChange(
     @CurrentUser() user: CurrentUserData,
     @Body() dto: CreateScheduleChangeDto,
     @Req() req: FastifyRequest,
   ) {
     return this.schedules.createChange(user, dto, this.ctx(req))
+  }
+
+  @Delete('changes/:id')
+  @Roles(Role.PLATFORM_ADMIN, Role.UNIVERSITY_ADMIN, Role.DEAN)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({
+    summary: 'Убрать ошибочное разовое изменение (WS schedule:changed + уведомление)',
+  })
+  @ApiResponse({ status: 204, description: 'Изменение удалено' })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN / WRONG_SCOPE' })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND — изменение не найдено' })
+  async removeChange(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Req() req: FastifyRequest,
+  ): Promise<void> {
+    await this.schedules.removeChange(user, id, this.ctx(req))
   }
 
   private ctx(req: FastifyRequest): RequestContext {

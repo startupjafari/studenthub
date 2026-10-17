@@ -34,6 +34,8 @@ export function buildFcmMessage(token: string, message: DeviceMessage): string {
   }
   if (message.url) data.url = message.url
   if (message.badge !== undefined) data.badge = String(message.badge)
+  // Плашку собирает приложение — ключ группы ему для стопки по источнику (как thread-id у APNs).
+  if (message.tag && !message.silent) data.tag = message.tag
 
   return JSON.stringify({
     message: {

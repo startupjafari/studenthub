@@ -14,6 +14,7 @@ import { createGroupRequest, groupKeys } from '../../../entities/group'
 import { createRoomRequest, roomKeys } from '../../../entities/room'
 import { courseKeys, createSubjectRequest, createTermRequest } from '../../../entities/course'
 import { createInviteRequest, inviteKeys, type CreatedInvite } from '../../../entities/invite'
+import { useKatoNames } from '../../../entities/kato'
 import { onboardingKeys, type OnboardingState, type OnboardingStepState } from '../../../entities/onboarding' // prettier-ignore
 import {
   Button,
@@ -76,13 +77,16 @@ export function StepBody(props: Props) {
  */
 function ProfileStep({ step, state, onConfirmProfile, confirming }: Props) {
   const t = useTranslations('Setup')
+  // Город вуза — код КАТО («751110000»), у зарубежного вуза — текст. Код показываем
+  // названием из справочника, текст — как есть.
+  const { nameOf: cityName } = useKatoNames([state.university.city])
 
   return (
     <div className="flex flex-col gap-3">
       <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
         <Fact label={t('profileName')} value={state.university.name} />
         <Fact label={t('profileShortName')} value={state.university.shortName} />
-        <Fact label={t('profileCity')} value={state.university.city} />
+        <Fact label={t('profileCity')} value={cityName(state.university.city)} />
         <Fact label={t('profileTimezone')} value={state.university.timezone} />
       </dl>
       <p className="text-xs text-muted-foreground">{t('profileFix')}</p>

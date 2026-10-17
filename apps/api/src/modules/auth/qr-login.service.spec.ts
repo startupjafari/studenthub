@@ -4,12 +4,15 @@ import { QrLoginService } from './qr-login.service'
 import type { QrLoginGateway } from './qr-login.gateway'
 import type { EnvVars } from '../../config/env.schema'
 
-// Мок Redis: обычная Map (TTL игнорируем — в тестах не истекает).
+// Мок Redis: обычная Map (TTL игнорируем — в тестах не истекает). NX/XX соблюдаются:
+// на них держится «подтверждает ровно один».
 function makeRedis() {
   const store = new Map<string, string>()
   return {
     store,
-    set: jest.fn(async (k: string, v: string) => {
+    set: jest.fn(async (k: string, v: string, ...args: unknown[]) => {
+      if (args.includes('NX') && store.has(k)) return null
+      if (args.includes('XX') && !store.has(k)) return null
       store.set(k, v)
       return 'OK'
     }),
@@ -85,6 +88,57 @@ describe('QrLoginService', () => {
   it('approve с неизвестным токеном → NOT_FOUND', async () => {
     const { service } = setup()
     await expect(service.approve('nope', 'user-1')).rejects.toMatchObject({ code: 'NOT_FOUND' })
+  })
+
+  // Подмена сессии: второй, видевший QR, подтверждал его своим аккаунтом, и десктоп
+  // входил под чужим. Подтверждение — одно; повтор другим → 409, userId прежний.
+  it('повторный approve другим пользователем → CONFLICT, сессия остаётся за первым', async () => {
+    const { service, redis, gateway } = setup()
+    const { qrId, claimSecret } = await service.create()
+    const approveToken = await approveTokenOf(redis, qrId)
+
+    await service.approve(approveToken, 'victim')
+    await expect(service.approve(approveToken, 'attacker')).rejects.toMatchObject({
+      code: 'CONFLICT',
+    })
+
+    expect(gateway.emitApproved).toHaveBeenCalledTimes(1)
+    await expect(service.claim(qrId, claimSecret)).resolves.toBe('victim')
+  })
+
+  it('повторное нажатие тем же пользователем — не ошибка', async () => {
+    const { service, redis } = setup()
+    const { qrId } = await service.create()
+    const approveToken = await approveTokenOf(redis, qrId)
+
+    await service.approve(approveToken, 'user-1')
+    await expect(service.approve(approveToken, 'user-1')).resolves.toBeUndefined()
+  })
+
+  it('два одновременных approve разными людьми — проходит ровно один', async () => {
+    const { service, redis } = setup()
+    const { qrId, claimSecret } = await service.create()
+    const approveToken = await approveTokenOf(redis, qrId)
+
+    const results = await Promise.allSettled([
+      service.approve(approveToken, 'a'),
+      service.approve(approveToken, 'b'),
+    ])
+
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1)
+    const winner = results[0]?.status === 'fulfilled' ? 'a' : 'b'
+    await expect(service.claim(qrId, claimSecret)).resolves.toBe(winner)
+  })
+
+  it('approve истёкшей сессии не воскрешает её', async () => {
+    const { service, redis } = setup()
+    const { qrId } = await service.create()
+    const approveToken = await approveTokenOf(redis, qrId)
+    redis.ttl.mockResolvedValueOnce(-2)
+
+    await expect(service.approve(approveToken, 'user-1')).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    })
   })
 })
 

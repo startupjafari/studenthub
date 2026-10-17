@@ -2,6 +2,13 @@ import { Role } from '@studenthub/shared-types'
 import { AppException } from '../../common/exceptions/app.exception'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 
+/**
+ * Кто в карьерных метриках считается студентом: староста — тоже студент, у него есть
+ * карьерный профиль и отклики. Раньше знаменатель брал только STUDENT, числитель — всех,
+ * и доля «открытых профилей» завышалась, в маленькой группе — выше 100 % (D-F31).
+ */
+export const CAREER_STUDENT_ROLES = [Role.STUDENT, Role.STAROSTA]
+
 /** Роли платформы: своего университета у них нет, область данных выбирается вручную. */
 function isPlatformRole(role: Role): boolean {
   return role === Role.PLATFORM_ADMIN || role === Role.PLATFORM_MODERATOR

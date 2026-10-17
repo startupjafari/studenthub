@@ -22,6 +22,7 @@ import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { EnvVars } from '../../config/env.schema'
 import { webBaseUrl } from '../../config/web-base'
 import { CareerAccessService } from './career-access.service'
+import { CareerNotifier } from './career-notifier'
 
 /** Срок жизни ссылки подтверждения email. Сутки: письмо могут открыть на следующий день. */
 const VERIFY_TTL_MS = 24 * 60 * 60 * 1000
@@ -32,6 +33,17 @@ const VERIFY_TTL_MS = 24 * 60 * 60 * 1000
  * — иначе это выглядит как самопроизвольный отказ модератора.
  */
 const REVOKED_REVIEW_REASON = 'Университет отозвал допуск компании'
+
+/** То же для допуска, закрытого по сроку (`expireAccess`), — и причина самого допуска. */
+const EXPIRED_REVIEW_REASON = 'Истёк срок допуска компании в университет'
+const EXPIRED_ACCESS_REASON = 'Истёк срок допуска'
+
+/** Сколько истёкших допусков разбирается за один проход cron. */
+const EXPIRE_BATCH = 200
+
+/** Неподтверждённые компании — пачкой за проход cron; у каждой единицы участников. */
+const PURGE_BATCH = 100
+const PURGE_MEMBERS_LIMIT = 100
 
 export interface RequestContext {
   ip?: string
@@ -49,6 +61,7 @@ export class CompaniesService {
     private readonly queue: QueueService,
     private readonly access: CareerAccessService,
     private readonly config: ConfigService<EnvVars, true>,
+    private readonly notifier: CareerNotifier,
   ) {}
 
   // ── Регистрация ────────────────────────────────────────────────────────────
@@ -243,6 +256,27 @@ export class CompaniesService {
     return { companyId: company.id }
   }
 
+  /**
+   * Почему работодатель этой компании не может войти, или null — может (D-F28). Спрашивает
+   * AuthService при входе и обновлении сессии.
+   *
+   * До подтверждения адреса аккаунт, созданный публичной регистрацией, пользовался общими
+   * ручками платформы (загрузкой файлов и т.п.) под непроверенной почтой. Теперь вход ждёт
+   * перехода по ссылке. Заблокированную платформой компанию вход пускает: владелец должен
+   * увидеть причину блокировки в кабинете, а действия компании закрывает assertCompanyActive.
+   */
+  async loginDenial(companyId: string): Promise<AppException | null> {
+    const company = await this.prisma.company.findFirst({
+      where: { id: companyId, deletedAt: null },
+      select: { status: true },
+    })
+    if (company?.status !== 'PENDING_EMAIL') return null
+    return new AppException(
+      'EMAIL_NOT_VERIFIED',
+      'Подтвердите email компании — ссылка пришла в письме после регистрации',
+    )
+  }
+
   // ── Профиль компании ───────────────────────────────────────────────────────
 
   async myCompany(viewer: JwtPayload) {
@@ -289,6 +323,7 @@ export class CompaniesService {
       where: { companyId_universityId: { companyId, universityId: input.universityId } },
       select: { id: true, status: true },
     })
+    const requestedAt = new Date()
 
     if (existing) {
       const from = existing.status as CompanyAccessStatus
@@ -301,19 +336,24 @@ export class CompaniesService {
       if (!canTransitionAccess(from, 'REQUESTED')) {
         throw new AppException('CONFLICT', 'Повторная заявка сейчас невозможна')
       }
-      await this.prisma.companyUniversityAccess.update({
-        where: { id: existing.id },
+      // Условие на прочитанный статус — в самой записи (D-F29): вуз мог решить заявку между
+      // чтением и записью, и повторная подача не должна затирать его решение.
+      const { count } = await this.prisma.companyUniversityAccess.updateMany({
+        where: { id: existing.id, status: from },
         data: {
           status: 'REQUESTED',
           message: input.message,
           requestedById: viewer.sub,
-          requestedAt: new Date(),
+          requestedAt,
           decidedById: null,
           decidedAt: null,
           reason: null,
           expiresAt: null,
         },
       })
+      if (count === 0) {
+        throw new AppException('CONFLICT', 'Статус заявки уже изменился — обновите страницу')
+      }
     } else {
       await this.prisma.companyUniversityAccess.create({
         data: {
@@ -322,6 +362,7 @@ export class CompaniesService {
           status: 'REQUESTED',
           message: input.message,
           requestedById: viewer.sub,
+          requestedAt,
         },
       })
     }
@@ -332,6 +373,12 @@ export class CompaniesService {
       entity: 'CompanyUniversityAccess',
       entityId: `${companyId}:${input.universityId}`,
       ...ctx,
+    })
+    // Администрация вуза узнаёт о заявке сразу, а не при следующем заходе в очередь (D-F28).
+    await this.notifier.accessRequested({
+      companyId,
+      universityId: input.universityId,
+      requestedAt,
     })
     return this.myAccessList(viewer)
   }
@@ -469,18 +516,25 @@ export class CompaniesService {
       throw new AppException('CONFLICT', `Переход ${from} → ${input.status} недопустим`)
     }
 
+    const decidedAt = new Date()
     await this.prisma.$transaction(async (tx) => {
-      await tx.companyUniversityAccess.update({
-        where: { id: record.id },
+      // Условие на ожидаемый статус — в самой записи (D-F29). Без него два админа, параллельно
+      // одобряющий и отклоняющий, оставляли последнее слово за записавшим позже, а в аудите
+      // оказывались оба решения. Проигравший получает 409, транзакция откатывается.
+      const { count } = await tx.companyUniversityAccess.updateMany({
+        where: { id: record.id, status: from },
         data: {
           status: input.status,
           reason: input.reason,
           decidedById: viewer.sub,
-          decidedAt: new Date(),
+          decidedAt,
           expiresAt:
             input.status === 'APPROVED' && input.expiresAt ? new Date(input.expiresAt) : null,
         },
       })
+      if (count === 0) {
+        throw new AppException('CONFLICT', 'Заявку уже рассмотрели — обновите страницу')
+      }
 
       // Отзыв допуска закрывает вакансии компании В ЭТОМ вузе. Видимость витрины считается
       // по решению вуза (VacancyUniversityReview), а не по допуску, поэтому без этого шага
@@ -493,18 +547,10 @@ export class CompaniesService {
       // AGENTS.md §3). REJECTED с явной причиной читается так же и корректно переигрывается —
       // вернут допуск, компания опубликует заново, вуз рассмотрит с чистого листа.
       if (input.status === 'REVOKED') {
-        await tx.vacancyUniversityReview.updateMany({
-          where: {
-            universityId,
-            vacancy: { companyId: record.companyId },
-            status: { in: ['PENDING', 'APPROVED'] },
-          },
-          data: {
-            status: 'REJECTED',
-            reason: REVOKED_REVIEW_REASON,
-            decidedById: viewer.sub,
-            decidedAt: new Date(),
-          },
+        await this.closeVacancyReviews(tx, record.companyId, universityId, {
+          reason: REVOKED_REVIEW_REASON,
+          decidedById: viewer.sub,
+          decidedAt,
         })
       }
     })
@@ -520,9 +566,191 @@ export class CompaniesService {
       metadata: { companyId: record.companyId, universityId },
       ...ctx,
     })
+    // Компания узнаёт о решении сразу, а не заглянув в кабинет (D-F28).
+    await this.notifier.accessDecided({
+      accessId: record.id,
+      companyId: record.companyId,
+      universityId,
+      status: input.status,
+      reason: input.reason,
+      decidedAt,
+    })
+  }
+
+  /**
+   * Истёкшие допуски → REVOKED с тем же каскадом, что у ручного отзыва. Расписание — cron
+   * `expireCompanyAccess` в cleanup.service.ts, логика — здесь, у владельца допусков.
+   *
+   * Доступ по сроку закрывается и без этой задачи: каждая проверка (`allowedUniversityIds`,
+   * `vacancyVisibleWhere`) смотрит на `expiresAt`. Задача превращает истечение в обычный
+   * отзыв: решения по вакансиям гаснут (вернут допуск — вуз рассмотрит заново, а не оживит
+   * старое одобрение), компания видит «отозван» с причиной и может подать заявку повторно
+   * (из APPROVED перехода в REQUESTED нет), а сводки вуза перестают считать вакансии,
+   * которых на витрине уже нет. `expiresAt` не стираем — по нему видно, когда допуск кончился.
+   */
+  async expireAccess(now: Date = new Date()): Promise<number> {
+    let total = 0
+    for (;;) {
+      const batch = await this.prisma.companyUniversityAccess.findMany({
+        where: { status: 'APPROVED', expiresAt: { lte: now } },
+        select: { id: true, companyId: true, universityId: true },
+        orderBy: { expiresAt: 'asc' },
+        take: EXPIRE_BATCH,
+      })
+      if (batch.length === 0) break
+
+      for (const record of batch) {
+        const expired = await this.prisma.$transaction(async (tx) => {
+          // Условие повторяем в записи: между выборкой и ней вуз мог отозвать допуск сам.
+          const { count } = await tx.companyUniversityAccess.updateMany({
+            where: { id: record.id, status: 'APPROVED', expiresAt: { lte: now } },
+            data: {
+              status: 'REVOKED',
+              reason: EXPIRED_ACCESS_REASON,
+              decidedById: null,
+              decidedAt: now,
+            },
+          })
+          if (count === 0) return false
+          await this.closeVacancyReviews(tx, record.companyId, record.universityId, {
+            reason: EXPIRED_REVIEW_REASON,
+            decidedById: null,
+            decidedAt: now,
+          })
+          return true
+        })
+        if (!expired) continue
+
+        total += 1
+        await this.access.invalidate(record.companyId)
+        await this.audit.record({
+          action: 'company_access_expired',
+          entity: 'CompanyUniversityAccess',
+          entityId: record.id,
+          metadata: { companyId: record.companyId, universityId: record.universityId },
+        })
+      }
+      if (batch.length < EXPIRE_BATCH) break
+    }
+    if (total > 0) this.logger.log(`expireAccess: закрыто допусков по сроку ${total}`)
+    return total
+  }
+
+  /**
+   * Компании, не подтвердившие почту до `cutoff` (D-F28): компания помечается удалённой,
+   * аккаунты её участников удаляются штатным путём удаления аккаунта (`deleteAccount` —
+   * анонимизация ПДн и разлогин, UserService.softDeleteSelf). Расписание — cron
+   * `purgeUnverifiedEmployers` в cleanup.service.ts; путь удаления аккаунта передаёт он же,
+   * чтобы карьера не тянула модуль пользователей (кольцо Auth → Career).
+   *
+   * Без этого неподтверждённый аккаунт держал адрес занятым бессрочно: повторная регистрация
+   * на него молча ничего не делает, а данные из публичной формы так никто и не подтвердил.
+   *
+   * Компания «захватывается» условной записью (статус, срок, не удалена): подтвердивший
+   * почту между выборкой и записью остаётся нетронутым, а ссылка из письма после захвата
+   * уже не сработает — verifyEmail ищет только неудалённые. В выборку попадают и удалённые
+   * компании с живыми участниками: прошлый прогон мог упасть между захватом и удалением
+   * аккаунтов, и без этого они остались бы навсегда. Курсор по id — продвижение даже при
+   * сбое удаления отдельного аккаунта.
+   */
+  async purgeUnverified(
+    cutoff: Date,
+    deleteAccount: (userId: string) => Promise<void>,
+  ): Promise<number> {
+    const where: Prisma.CompanyWhereInput = {
+      status: 'PENDING_EMAIL',
+      createdAt: { lt: cutoff },
+      OR: [{ deletedAt: null }, { members: { some: { user: { deletedAt: null } } } }],
+    }
+    let purged = 0
+    let afterId: string | null = null
+    for (;;) {
+      const batch: { id: string; deletedAt: Date | null }[] = await this.prisma.company.findMany({
+        where: { ...where, ...(afterId ? { id: { gt: afterId } } : {}) },
+        select: { id: true, deletedAt: true },
+        orderBy: { id: 'asc' },
+        take: PURGE_BATCH,
+      })
+      if (batch.length === 0) break
+      for (const company of batch) {
+        if (await this.purgeOne(company, cutoff, deleteAccount)) purged += 1
+      }
+      if (batch.length < PURGE_BATCH) break
+      afterId = batch[batch.length - 1]!.id
+    }
+    if (purged > 0) this.logger.log(`purgeUnverified: удалено неподтверждённых компаний ${purged}`)
+    return purged
+  }
+
+  /** Одна компания из purgeUnverified. false — её успели подтвердить или удаление сорвалось. */
+  private async purgeOne(
+    company: { id: string; deletedAt: Date | null },
+    cutoff: Date,
+    deleteAccount: (userId: string) => Promise<void>,
+  ): Promise<boolean> {
+    if (!company.deletedAt) {
+      const { count } = await this.prisma.company.updateMany({
+        where: {
+          id: company.id,
+          status: 'PENDING_EMAIL',
+          deletedAt: null,
+          createdAt: { lt: cutoff },
+        },
+        data: {
+          deletedAt: new Date(),
+          emailVerificationHash: null,
+          emailVerificationExpiresAt: null,
+        },
+      })
+      if (count === 0) return false
+    }
+    const members = await this.prisma.companyMember.findMany({
+      where: { companyId: company.id, user: { deletedAt: null } },
+      select: { userId: true },
+      take: PURGE_MEMBERS_LIMIT,
+    })
+    const userIds = members.map((m) => m.userId)
+    try {
+      for (const userId of userIds) await deleteAccount(userId)
+    } catch (error) {
+      // Компания уже помечена удалённой — следующий прогон доберёт участников.
+      this.logger.warn(
+        `purgeUnverified: компания ${company.id} — аккаунт не удалён: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      )
+      return false
+    }
+    await this.audit.record({
+      action: 'company_unverified_purged',
+      entity: 'Company',
+      entityId: company.id,
+      metadata: { userIds },
+    })
+    return true
   }
 
   // ── Служебное ──────────────────────────────────────────────────────────────
+
+  /**
+   * Закрыть вакансии компании в вузе: её решения там (и APPROVED, и PENDING) → REJECTED с
+   * причиной. Общий шаг отзыва и истечения допуска; вызывается внутри их транзакции.
+   */
+  private closeVacancyReviews(
+    tx: Prisma.TransactionClient,
+    companyId: string,
+    universityId: string,
+    decision: { reason: string; decidedById: string | null; decidedAt: Date },
+  ) {
+    return tx.vacancyUniversityReview.updateMany({
+      where: {
+        universityId,
+        vacancy: { companyId },
+        status: { in: ['PENDING', 'APPROVED'] },
+      },
+      data: { status: 'REJECTED', ...decision },
+    })
+  }
 
   private async companyCard(companyId: string) {
     const company = await this.prisma.company.findFirst({

@@ -59,6 +59,7 @@ import {
   initialsOf,
 } from './profile-content'
 import { ProfileTabs, type ProfileTabId } from './profile-tabs'
+import { useMediaQuota } from '../lib/media-quota'
 import { PostFromUrl } from '../../feed-list'
 import { ProfileCompletion } from './profile-completion'
 import { ShareProfileButton } from './share-profile-button'
@@ -103,6 +104,7 @@ export function UserProfile() {
   const qc = useQueryClient()
 
   const me = useQuery({ queryKey: userKeys.me(), queryFn: fetchMe })
+  const quota = useMediaQuota(me.data?.id ?? '')
   const [editing, setEditing] = useState(false)
   const [tab, setTab] = useState<ProfileTabId>('profile')
   const [createModal, setCreateModal] = useState<CreateKind | null>(null)
@@ -130,7 +132,8 @@ export function UserProfile() {
       const f = e.target.files?.[0]
       // Сброс — чтобы тот же файл можно было выбрать повторно после отмены.
       e.target.value = ''
-      if (!f) return
+      // Квота исчерпана — сразу тост, а не кадрирование и выбор обложки впустую.
+      if (!f || !quota.fits(f)) return
       setPickedFile(f)
       setCreateModal(kind)
     }

@@ -1,5 +1,18 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, Res } from '@nestjs/common'
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Inject,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Req,
+  Res,
+} from '@nestjs/common'
 import { ApiBody, ApiConsumes, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger'
+import { Throttle } from '@nestjs/throttler'
 import { Role } from '@studenthub/shared-types'
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import { Roles } from '../../common/decorators/roles.decorator'
@@ -7,6 +20,10 @@ import { MiniAllowed } from '../../common/decorators/mini-allowed.decorator'
 import { RequiresConfirmation } from '../../common/decorators/requires-confirmation.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
+import {
+  ACTION_CONFIRMATION,
+  type ActionConfirmation,
+} from '../../common/auth/confirmation.constants'
 import { readSingleUpload } from '../../common/http/read-upload'
 import { ExportBrandingService } from '../../common/export/export-branding.service'
 import { UserService } from './users.service'
@@ -17,6 +34,8 @@ import { UserListQueryDto } from './dto/user-list-query.dto'
 import { UserDirectoryQueryDto } from './dto/user-directory-query.dto'
 import { BlockUserDto } from './dto/block-user.dto'
 import { UpdateAcademicRecordDto } from './dto/update-academic-record.dto'
+import { ResetTwoFactorDto } from './dto/reset-two-factor.dto'
+import { DeleteAccountDto } from './dto/delete-account.dto'
 
 @ApiTags('Пользователи')
 @Controller('users')
@@ -24,6 +43,9 @@ export class UsersController {
   constructor(
     private readonly users: UserService,
     private readonly branding: ExportBrandingService,
+    // Проверка кода второго фактора — по токену, а не классом TwoFactorService: прямой
+    // импорт замыкает кольцо файлов auth ↔ users и валит запуск (confirmation.constants.ts).
+    @Inject(ACTION_CONFIRMATION) private readonly confirmation: ActionConfirmation,
   ) {}
 
   @Get('me')
@@ -46,11 +68,21 @@ export class UsersController {
 
   @Patch('me/password')
   @ApiOperation({ summary: 'Сменить пароль (разлогинивает все устройства)' })
+  @ApiResponse({ status: 200, description: 'Пароль изменён, все сессии погашены' })
+  @ApiResponse({ status: 400, description: 'BAD_REQUEST — неверный текущий пароль' })
+  @ApiResponse({
+    status: 429,
+    description: 'RATE_LIMIT — 5 неверных текущих паролей за 15 минут, проверка закрыта',
+  })
   async changePassword(
     @CurrentUser() user: CurrentUserData,
     @Body() dto: ChangePasswordDto,
+    @Req() req: FastifyRequest,
   ): Promise<null> {
-    await this.users.changePassword(user.sub, dto.currentPassword, dto.newPassword)
+    await this.users.changePassword(user.sub, dto.currentPassword, dto.newPassword, {
+      ip: req.ip,
+      userAgent: req.headers['user-agent'],
+    })
     return null
   }
 
@@ -99,10 +131,55 @@ export class UsersController {
     return this.users.removeCover(user.sub)
   }
 
+  /**
+   * Удаление своего аккаунта — только с повторной аутентификацией: текущий пароль и, если
+   * включена 2FA, её код (TOTP или резервный). Необратимое действие раньше выполнял любой,
+   * у кого в руках открытая вкладка или access-токен. Последнего администратора платформы
+   * удалить нельзя: его выдаёт только сид, инвайтом нового не завести.
+   */
   @Delete('me')
-  @ApiOperation({ summary: 'Удалить свой аккаунт (soft delete + анонимизация)' })
-  async deleteMe(@CurrentUser() user: CurrentUserData): Promise<null> {
-    await this.users.softDeleteSelf(user.sub)
+  @ApiOperation({
+    summary:
+      'Удалить свой аккаунт (soft delete + анонимизация); в теле — текущий пароль и код 2FA, если она включена',
+  })
+  // Схема тела — явно: DTO с `.default({})` (запрос без тела) Swagger разбирает в пустой объект.
+  @ApiBody({
+    required: false,
+    schema: {
+      type: 'object',
+      properties: {
+        password: { type: 'string', description: 'Текущий пароль (обязателен)' },
+        code: {
+          type: 'string',
+          description: 'Код 2FA — TOTP или резервный (обязателен, если 2FA включена)',
+        },
+      },
+    },
+  })
+  @ApiResponse({ status: 200, description: 'Аккаунт удалён, сессии погашены' })
+  @ApiResponse({
+    status: 400,
+    description: 'BAD_REQUEST — пароль не передан или неверен; не передан код 2FA',
+  })
+  @ApiResponse({ status: 401, description: 'INVALID_2FA_CODE — неверный код 2FA' })
+  @ApiResponse({ status: 409, description: 'CONFLICT — последний администратор платформы' })
+  @ApiResponse({
+    status: 429,
+    description: 'RATE_LIMIT — слишком много неверных паролей или кодов',
+  })
+  async deleteMe(
+    @CurrentUser() user: CurrentUserData,
+    // Тип — сам DTO, без `| undefined`: объединение уходит в метаданные как Object, и
+    // ZodValidationPipe пропускал бы тело без проверки. Запрос без тела схема превращает в {}.
+    @Body() dto: DeleteAccountDto,
+    @Req() req: FastifyRequest,
+  ): Promise<null> {
+    await this.users.deleteOwnAccount(
+      user.sub,
+      { password: dto.password, code: dto.code },
+      (code) => this.confirmation.verifyForUser(user.sub, code),
+      { ip: req.ip, userAgent: req.headers['user-agent'] },
+    )
     return null
   }
 
@@ -140,9 +217,13 @@ export class UsersController {
     Role.UNIVERSITY_MODERATOR,
     Role.DEAN,
   )
+  // Книга до 5000 строк собирается синхронно, в event loop: несколько выгрузок подряд держали
+  // процесс. Пять в минуту с пользователя хватает человеку и не хватает на такой залп.
+  @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @ApiOperation({ summary: 'Выгрузить список пользователей (XLSX/CSV, по scope и фильтрам)' })
   @ApiResponse({ status: 200, description: 'Файл выгрузки' })
   @ApiResponse({ status: 400, description: 'BAD_REQUEST — строк больше предела выгрузки' })
+  @ApiResponse({ status: 429, description: 'RATE_LIMIT — больше 5 выгрузок в минуту' })
   async export(
     @CurrentUser() user: CurrentUserData,
     @Query() query: UserListQueryDto,
@@ -242,14 +323,26 @@ export class UsersController {
   @ApiOperation({
     summary: 'Заблокировать пользователя (из мини-аппа — с кодом 2FA; blockDays — срок)',
   })
+  @ApiBody({
+    required: false,
+    schema: {
+      type: 'object',
+      properties: {
+        blockDays: { type: 'integer', minimum: 1, maximum: 365, description: 'Срок, дней' },
+        code: { type: 'string', description: 'Код 2FA (мини-апп)' },
+      },
+    },
+  })
   async block(
     @CurrentUser() user: CurrentUserData,
     @Param('id') id: string,
-    @Body() dto: BlockUserDto | undefined,
+    // Без `| undefined`: объединение уходило в метаданные как Object, и срок (1–365 дней)
+    // не проверялся вовсе. Запрос без тела (веб) схема превращает в {} — `.default({})`.
+    @Body() dto: BlockUserDto,
   ): Promise<null> {
     // Со сроком блокировка снимется сама, без него — бессрочная, как была. Считаем срок
     // от момента блокировки: «на три дня», выданное вечером, кончается вечером через три дня.
-    const until = dto?.blockDays ? new Date(Date.now() + dto.blockDays * 24 * 60 * 60 * 1000) : null
+    const until = dto.blockDays ? new Date(Date.now() + dto.blockDays * 24 * 60 * 60 * 1000) : null
     await this.users.setBlocked(user, id, true, until)
     return null
   }
@@ -267,6 +360,46 @@ export class UsersController {
   @ApiOperation({ summary: 'Завершить все сессии пользователя (в своём scope)' })
   async logout(@CurrentUser() user: CurrentUserData, @Param('id') id: string): Promise<null> {
     await this.users.revokeSessions(user, id)
+    return null
+  }
+
+  /**
+   * Сброс 2FA человеку, потерявшему аутентификатор (и backup-коды). Только строго старший
+   * по роли в своём охвате и только с кодом СВОЕГО второго фактора — в любом клиенте, а не
+   * лишь в мини-аппе, как у @RequiresConfirmation: сброс снимает с чужой учётки защиту.
+   * В мини-апп маршрут не открыт.
+   */
+  @Post(':id/2fa/reset')
+  @Roles(
+    Role.PLATFORM_ADMIN,
+    Role.PLATFORM_MODERATOR,
+    Role.UNIVERSITY_ADMIN,
+    Role.UNIVERSITY_MODERATOR,
+  )
+  @ApiOperation({
+    summary:
+      'Сбросить 2FA пользователя (роль строго ниже, свой scope; код своей 2FA): выключает 2FA, гасит сессии, письмо владельцу',
+  })
+  @ApiResponse({ status: 201, description: 'Сброшено' })
+  @ApiResponse({ status: 400, description: 'BAD_REQUEST — у пользователя 2FA не включена / свою' })
+  @ApiResponse({ status: 401, description: 'INVALID_2FA_CODE — неверный код администратора' })
+  @ApiResponse({
+    status: 403,
+    description: 'FORBIDDEN — роль не ниже вашей или у вас нет 2FA; WRONG_SCOPE — другой вуз',
+  })
+  @ApiResponse({ status: 429, description: 'RATE_LIMIT — слишком много неверных кодов' })
+  async resetTwoFactor(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: ResetTwoFactorDto,
+    @Req() req: FastifyRequest,
+  ): Promise<null> {
+    await this.users.resetTwoFactor(
+      user,
+      id,
+      () => this.confirmation.verifyForUser(user.sub, dto.code),
+      { ip: req.ip, userAgent: req.headers['user-agent'] },
+    )
     return null
   }
 

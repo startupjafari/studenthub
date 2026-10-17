@@ -1,6 +1,7 @@
 export {
   chatKeys,
   fetchChats,
+  fetchChatsHead,
   fetchChatsUnread,
   type ChatUnreadSummary,
   fetchSavedChat,
@@ -112,4 +113,5 @@ export {
 } from './lib/attachment-kind'
 export { compressImage, compressImages, convertUnsupportedImages } from './lib/compress-image'
 export { sortChats } from './lib/sort-chats'
-export { useChatsUnread } from './lib/use-chats-unread'
+export { useChatsUnread, scheduleChatsUnreadRefresh } from './lib/use-chats-unread'
+export { createRefreshCoalescer, type RefreshCoalescer } from './lib/refresh-coalescer'

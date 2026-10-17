@@ -1,21 +1,25 @@
 import { forwardRef, Inject, Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { JwtService } from '@nestjs/jwt'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { Prisma } from '@prisma/client'
 import type Redis from 'ioredis'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AuditService } from '../../common/audit/audit.service'
 import { PasswordService } from '../../common/security/password.service'
+import { equalsConstantTime } from '../../common/security/constant-time'
 import { RealtimeGateway } from '../../common/realtime'
 import { REDIS_CLIENT } from '../../common/redis/redis.constants'
 import { SessionRevocationService } from '../../common/redis/session-revocation.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import { isAdult, LEGAL_VERSION } from '@studenthub/shared-schemas'
+import { Role } from '@studenthub/shared-types'
 import type { EnvVars } from '../../config/env.schema'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import { UserService, type UserProfile } from '../users/users.service'
 import { InviteService } from '../invites/invites.service'
+import { UniversityAccessService } from '../universities/university-access.service'
+import { CompaniesService } from '../career/companies.service'
 import { TwoFactorService } from './two-factor.service'
 import { LoginAttemptsService } from './login-attempts.service'
 import { parseDurationMs } from './auth.constants'
@@ -30,6 +34,22 @@ const TWO_FACTOR_CHALLENGE_TTL_SECONDS = 5 * 60
 // опечатку и на рассинхрон часов (TOTP принимает соседнее окно), но не на перебор:
 // шанс угадать шестизначный код за три попытки — три на миллион.
 const TWO_FACTOR_MAX_ATTEMPTS = 3
+
+// Секрет refresh хранится в БД как SHA-256, а не bcrypt. Секрет — `randomUUID()`, 122 бита
+// случайности: перебирать там нечего, и медленный хэш ничего не защищал, зато каждый обмен
+// стоил два bcrypt cost 12 (сверка старого, хэш нового) — ~0,5 с работы пула libuv, куда ходят
+// и вход по паролю, и fs, и zlib. Тот же выбор уже сделан для инвайтов, ссылок сброса пароля
+// и QR-входа.
+//
+// Переходный период: токены, выданные до перехода, лежат bcrypt-хэшем (`$2a$`/`$2b$`…) и
+// сверяются bcrypt, пока живут, — иначе разлогинились бы все разом. Первый же refresh такой
+// сессии выдаёт преемника уже с SHA-256. Refresh живёт 30 дней (JWT_REFRESH_EXPIRES_IN), так
+// что через месяц после выката bcrypt-ветку нужно убрать — вместе с этим комментарием.
+const LEGACY_BCRYPT_HASH_PREFIX = '$2'
+
+function hashRefreshSecret(secret: string): string {
+  return createHash('sha256').update(secret).digest('hex')
+}
 
 export interface RequestContext {
   ip?: string
@@ -71,6 +91,8 @@ export class AuthService {
     private readonly realtime: RealtimeGateway,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
     private readonly revocation: SessionRevocationService,
+    private readonly universityAccess: UniversityAccessService,
+    private readonly companies: CompaniesService,
   ) {}
 
   /** Проверка идентификатор (email/username) + пароль для LocalStrategy. Не раскрывает, что именно неверно. */
@@ -96,6 +118,11 @@ export class AuthService {
     if (user.isBlocked) {
       throw new AppException('FORBIDDEN', 'Учётная запись заблокирована')
     }
+    // Вуз заблокирован платформой — отказ. После сверки пароля: статус вуза не должен
+    // узнаваться перебором чужих логинов.
+    await this.universityAccess.assertAllowed(user)
+    // Так же после пароля: работодатель с неподтверждённой почтой компании (D-F28).
+    await this.assertEmployerVerified(user)
     return this.toPayload(user)
   }
 
@@ -128,11 +155,21 @@ export class AuthService {
     }
     const passwordHash = await this.passwords.hash(input.password)
 
-    const user = await this.prisma.$transaction(async (tx) => {
+    const { user, starosta } = await this.prisma.$transaction(async (tx) => {
       const invite = await this.invites.claimInvite(tx, input.token)
-      const email = invite.email ?? input.email
+      // Вуз из инвайта заблокирован — отказ откатывает и захват инвайта: ссылка остаётся
+      // действительной до разблокировки.
+      await this.universityAccess.assertAllowed(invite)
+      // Нижний регистр — и для адреса из инвайта: выданные до нормализации хранят его как
+      // пришёл («Ivanov@Uni.kz»), а email сравнивается на платформе без учёта регистра.
+      const email = (invite.email ?? input.email)?.trim().toLowerCase()
       if (!email) {
         throw new AppException('BAD_REQUEST', 'Для регистрации нужен email')
+      }
+      // Уникальный индекс email различает регистр: учётку, заведённую до нормализации как
+      // «Ivanov@Uni.kz», он от «ivanov@uni.kz» не защищает — вторая учётка того же человека.
+      if (await this.users.findEmailOwnerId(email)) {
+        throw new AppException('CONFLICT', 'Пользователь с таким email уже существует')
       }
       const created = await this.users.createInvitedUser(tx, {
         email,
@@ -152,8 +189,30 @@ export class AuthService {
         consentByGuardian: minor,
       })
       await this.invites.markUsed(tx, invite.id, created.sub)
-      return created
+      // Инвайт старосты ставит его старостой своей группы — той же транзакцией, что и
+      // назначение деканом: отметка в группе и единственная старостинская роль в ней.
+      // Без этого в группе со старостой их становилось два, а `Group.starostaId` указывал
+      // на прежнего; права старосты были у обоих, пока декан не переназначит руками.
+      const starosta =
+        invite.role === Role.STAROSTA && invite.groupId
+          ? {
+              groupId: invite.groupId,
+              issuerId: invite.createdById,
+              demoted: await this.users.assignInvitedStarosta(tx, invite.groupId, created.sub),
+            }
+          : null
+      return { user: created, starosta }
     })
+
+    if (starosta) {
+      // Разжалованным — гашение сессий и аудит смены роли; решение принял выдавший инвайт.
+      await this.users.afterStarostaChange(
+        starosta.issuerId,
+        starosta.groupId,
+        null,
+        starosta.demoted,
+      )
+    }
 
     await this.audit.record({
       userId: user.sub,
@@ -194,6 +253,8 @@ export class AuthService {
     if (user.isBlocked) {
       throw new AppException('FORBIDDEN', 'Учётная запись заблокирована')
     }
+    await this.universityAccess.assertAllowed(user)
+    await this.assertEmployerVerified(user)
     const session = await this.issueSession(this.toPayload(user), randomUUID())
     await this.audit.record({ userId, action: 'login', ...ctx })
     return session
@@ -209,6 +270,10 @@ export class AuthService {
     ctx: RequestContext,
   ): Promise<SessionResult> {
     const { userId, jti } = this.verifyTwoFactorChallenge(challengeToken)
+    // Сгоревший (три промаха) или уже обменянный challenge — отказ ДО проверки кода. Иначе
+    // верный backup-код списывался навсегда, а вход всё равно отвечал «уже использован»,
+    // и сгоревший challenge служил оракулом «код верен» без всякого счётчика.
+    await this.assertChallengeUnused(jti)
     const rec = await this.users.getTwoFactorForLogin(userId)
     if (!rec || !rec.twoFactorEnabled) {
       throw new AppException('UNAUTHORIZED', 'Сессия входа недействительна')
@@ -216,8 +281,11 @@ export class AuthService {
     if (rec.isBlocked) {
       throw new AppException('FORBIDDEN', 'Учётная запись заблокирована')
     }
-    const ok = await this.twoFactor.verifyCode(rec, code)
-    if (!ok) {
+    // Первый шаг вуз уже проверил, но между шагами до пяти минут — блокировка могла успеть.
+    await this.universityAccess.assertAllowed(rec)
+    await this.assertEmployerVerified(rec)
+    const consume = await this.twoFactor.checkCode(rec, code)
+    if (!consume) {
       // Опечатка в шестизначном коде дело обычное, и сжигать за неё весь вход незачем —
       // но и бесконечно принимать коды по одному challenge нельзя: 6 цифр перебираются,
       // а throttle на эндпоинте считает по IP и обходится их сменой. Отсюда счётчик на
@@ -227,6 +295,12 @@ export class AuthService {
     }
     // Гасим challenge ИМЕННО здесь — после верного кода, а не до проверки.
     await this.consumeChallengeId(jti)
+    // Backup-код списывается только после того, как challenge погашен ЭТИМ запросом: при
+    // гонке двух обменов одного challenge код теряет лишь тот, кто получит сессию. Не
+    // списался — тот же код только что ушёл параллельным входом.
+    if (!(await consume())) {
+      throw new AppException('INVALID_2FA_CODE', 'Неверный код')
+    }
     const session = await this.issueSession(this.toPayload(rec), randomUUID())
     await this.audit.record({ userId, action: 'login', ...ctx })
     return session
@@ -251,6 +325,26 @@ export class AuthService {
       return { userId: payload.sub, jti: payload.jti }
     } catch {
       throw new AppException('UNAUTHORIZED', 'Сессия входа истекла — войдите заново')
+    }
+  }
+
+  /**
+   * Challenge ещё не обменян и не сгорел. Та же пометка `2fa:challenge:<jti>`, что ставят
+   * `consumeChallengeId` и `countFailedTwoFactorAttempt`. Гонку не закрывает (её закрывает
+   * SET NX при обмене), но код по мёртвому challenge больше не проверяется и не тратится.
+   * Redis недоступен — пропускаем, как и остальные проверки challenge.
+   */
+  private async assertChallengeUnused(jti: string | undefined): Promise<void> {
+    if (!jti) return
+    let used: number
+    try {
+      used = await this.redis.exists(`2fa:challenge:${jti}`)
+    } catch (error) {
+      this.logger.warn({ err: error }, 'Redis недоступен — состояние challenge 2FA не проверено')
+      return
+    }
+    if (used > 0) {
+      throw new AppException('UNAUTHORIZED', 'Этот код входа уже использован — войдите заново')
     }
   }
 
@@ -337,13 +431,13 @@ export class AuthService {
     }
 
     // Попал ли повтор в окно грации — решаем по моменту прихода запроса, до сверки секрета:
-    // bcrypt занимает сотни миллисекунд, и, считай мы окно после него, честный повтор мог
-    // вылететь за окно только из-за собственной проверки.
+    // сверка старых bcrypt-записей занимает сотни миллисекунд, и, считай мы окно после неё,
+    // честный повтор мог вылететь за окно только из-за собственной проверки.
     const reuseInGrace = await this.withinReuseGrace(record)
 
     // Секрет — до детектора повтора: иначе одного id (без секрета) хватало, чтобы объявить
     // «повтор» и погасить чужую цепочку сессий.
-    const secretOk = await this.passwords.compare(parsed.secret, record.tokenHash)
+    const secretOk = await this.refreshSecretMatches(parsed.secret, record.tokenHash)
     if (!secretOk) {
       throw new AppException('UNAUTHORIZED', 'Некорректный refresh-токен')
     }
@@ -389,11 +483,21 @@ export class AuthService {
       await this.revokeFamily(record.familyId)
       throw new AppException('UNAUTHORIZED', 'Учётная запись недоступна')
     }
+    // Вуз заблокирован — новую сессию не выдаём, но и цепочку не гасим: решение платформы
+    // обратимо, и после разблокировки сессия продолжается без нового входа.
+    await this.universityAccess.assertAllowed(user)
+    // Сессия работодателя, выданная до подтверждения почты (раньше вход его не ждал), —
+    // тот же принцип: новой не выдаём, цепочку не гасим.
+    await this.assertEmployerVerified(user)
 
     // Ротация атомарно: старый revoked + новый в той же цепочке. Гасим и остальные живые токены
     // цепочки — на пути грации там остаётся успешно выданный ранее «преемник», а инвариант
     // «один активный токен на цепочку» терять нельзя.
-    const session = await this.prisma.$transaction(async (tx) => {
+    //
+    // В AuditLog обычный обмен не пишется: активная вкладка меняет токен каждые 15 минут, и
+    // журнал на 90% состоял из «refresh», вытесняя то, ради чего его читают. Значимые события
+    // сессии — вход, выход и повтор погашенного токена — пишутся по-прежнему.
+    return this.prisma.$transaction(async (tx) => {
       await tx.refreshToken.updateMany({
         where: { familyId: record.familyId, revokedAt: null },
         data: { revokedAt: new Date() },
@@ -401,9 +505,6 @@ export class AuthService {
       await tx.refreshToken.update({ where: { id: record.id }, data: { revokedAt: new Date() } })
       return this.issueSession(this.toPayload(user), record.familyId, tx)
     })
-
-    await this.audit.record({ userId: user.id, action: 'refresh', ...ctx })
-    return session
   }
 
   /** Logout: инвалидирует всю цепочку текущей сессии. */
@@ -415,7 +516,7 @@ export class AuthService {
     const record = await this.prisma.refreshToken.findUnique({ where: { id: parsed.id } })
     // Без верного секрета выход ничего не гасит: id токена сам по себе не доказывает, что
     // это та же сессия.
-    if (!record || !(await this.passwords.compare(parsed.secret, record.tokenHash))) {
+    if (!record || !(await this.refreshSecretMatches(parsed.secret, record.tokenHash))) {
       return
     }
     await this.revokeFamily(record.familyId)
@@ -476,7 +577,7 @@ export class AuthService {
     const accessToken = this.jwt.sign(payload)
 
     const secret = randomUUID()
-    const tokenHash = await this.passwords.hash(secret)
+    const tokenHash = hashRefreshSecret(secret)
     const ttlMs = parseDurationMs(this.config.get('JWT_REFRESH_EXPIRES_IN', { infer: true }))
     const refreshExpiresAt = new Date(Date.now() + ttlMs)
 
@@ -493,6 +594,17 @@ export class AuthService {
     }
   }
 
+  /**
+   * Сверка секрета refresh с хэшем из БД. SHA-256 сравнивается за постоянное время; записи,
+   * выданные до перехода с bcrypt, — bcrypt'ом (переходная ветка, см. LEGACY_BCRYPT_HASH_PREFIX).
+   */
+  private async refreshSecretMatches(secret: string, tokenHash: string): Promise<boolean> {
+    if (tokenHash.startsWith(LEGACY_BCRYPT_HASH_PREFIX)) {
+      return this.passwords.compare(secret, tokenHash)
+    }
+    return equalsConstantTime(hashRefreshSecret(secret), tokenHash)
+  }
+
   private parseRawToken(raw: string | undefined): { id: string; secret: string } | null {
     if (!raw) {
       return null
@@ -502,6 +614,20 @@ export class AuthService {
       return null
     }
     return { id: raw.slice(0, dot), secret: raw.slice(dot + 1) }
+  }
+
+  /**
+   * Работодатель входит только после подтверждения почты компании (D-F28): до неё аккаунт из
+   * публичной регистрации пользовался общими ручками платформы под непроверенным адресом.
+   * Остальных ролей проверка не касается — запроса к базе у них нет.
+   */
+  private async assertEmployerVerified(user: {
+    role: JwtPayload['role']
+    companyMembership?: { companyId: string } | null
+  }): Promise<void> {
+    if (user.role !== Role.EMPLOYER || !user.companyMembership) return
+    const denial = await this.companies.loginDenial(user.companyMembership.companyId)
+    if (denial) throw denial
   }
 
   private toPayload(user: {

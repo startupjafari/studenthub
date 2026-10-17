@@ -1,7 +1,7 @@
 // Домен «Задания» (docs/ACADEMIC_CORE.md, задача 3). Assignment — задание по дисциплине
 // (Course); Submission — сдача студента (одна запись на пару assignment+student, попытки —
 // через attemptNumber). Статусы/типы — строки, SSOT в @studenthub/shared-schemas (как в
-// applications). Файловые вложения сдач — отдельной миграцией (сейчас текст + ссылка).
+// applications). Сдача — текст, ссылка и/или файлы (File.submissionId, аудит C-F06).
 
 model Assignment {
   id             String    @id @default(uuid())
@@ -53,6 +53,8 @@ model Submission {
   assignment Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   student    User       @relation("SubmissionStudent", fields: [studentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   gradedBy   User?      @relation("SubmissionGrader", fields: [gradedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  // Файлы работы (бакет applications). Удаление сдачи уносит строки File каскадом.
+  files      File[]
 
   @@unique([assignmentId, studentId])
   @@index([assignmentId])

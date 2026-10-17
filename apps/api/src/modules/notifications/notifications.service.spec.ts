@@ -112,4 +112,30 @@ describe('NotificationsService', () => {
       expect(arg.update).toEqual({ emailEnabled: false })
     })
   })
+
+  // F-F08: письмо о сообщениях чата — не чаще раза в окно на ключ свёрнутого уведомления.
+  describe('claimEmailSlot', () => {
+    it('свободное окно занимается атомарно (SET NX с TTL)', async () => {
+      const { service, redis } = makeService()
+      redis.set.mockResolvedValue('OK')
+      await expect(service.claimEmailSlot('u1', 'new-message:chat:c1')).resolves.toBe(true)
+      const [key, , ex, ttl, nx] = redis.set.mock.calls[0]
+      expect(key).toBe('notif:email:u1:new-message:chat:c1')
+      expect(ex).toBe('EX')
+      expect(ttl).toBeGreaterThan(0)
+      expect(nx).toBe('NX')
+    })
+
+    it('окно занято — письма нет', async () => {
+      const { service, redis } = makeService()
+      redis.set.mockResolvedValue(null)
+      await expect(service.claimEmailSlot('u1', 'k')).resolves.toBe(false)
+    })
+
+    it('Redis недоступен — письма нет, без исключения', async () => {
+      const { service, redis } = makeService()
+      redis.set.mockRejectedValue(new Error('down'))
+      await expect(service.claimEmailSlot('u1', 'k')).resolves.toBe(false)
+    })
+  })
 })

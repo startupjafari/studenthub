@@ -348,6 +348,45 @@ export const VACANCY_REVIEW_STATUSES = ['PENDING', 'APPROVED', 'REJECTED'] as co
 export const VacancyReviewStatusSchema = z.enum(VACANCY_REVIEW_STATUSES)
 export type VacancyReviewStatus = z.infer<typeof VacancyReviewStatusSchema>
 
+/**
+ * Граф статусов вакансии (D-F29). Черновик публикуют или закрывают; опубликованную снимают
+ * на паузу, закрывают или публикуют повторно — после правок, чтобы вернуть отклонённое
+ * решение на модерацию; с паузы — снова публикуют или закрывают. Закрытая вакансия —
+ * конечное состояние: для нового набора заводится новая. Раньше статус переходил в любой,
+ * в том числе DRAFT → PAUSED и CLOSED → PUBLISHED.
+ */
+export const VACANCY_TRANSITIONS: Record<VacancyStatus, readonly VacancyStatus[]> = {
+  DRAFT: ['PUBLISHED', 'CLOSED'],
+  PUBLISHED: ['PUBLISHED', 'PAUSED', 'CLOSED'],
+  PAUSED: ['PUBLISHED', 'CLOSED'],
+  CLOSED: [],
+}
+
+export function canTransitionVacancy(from: VacancyStatus, to: VacancyStatus): boolean {
+  return VACANCY_TRANSITIONS[from].includes(to)
+}
+
+/**
+ * Решения вуза по вакансии (D-F29). Ожидающую одобряют или отклоняют, одобренную можно
+ * снять отказом. Отклонённая — в том числе погашенная отзывом допуска — вузом обратно не
+ * одобряется: на модерацию её возвращает повторная публикация компанией (→ PENDING).
+ */
+export const VACANCY_REVIEW_TRANSITIONS: Record<
+  VacancyReviewStatus,
+  readonly VacancyReviewStatus[]
+> = {
+  PENDING: ['APPROVED', 'REJECTED'],
+  APPROVED: ['REJECTED'],
+  REJECTED: [],
+}
+
+export function canTransitionVacancyReview(
+  from: VacancyReviewStatus,
+  to: VacancyReviewStatus,
+): boolean {
+  return VACANCY_REVIEW_TRANSITIONS[from].includes(to)
+}
+
 export const EXPERIENCE_LEVELS = ['NO_EXPERIENCE', 'INTERN', 'JUNIOR', 'MIDDLE'] as const
 export const ExperienceLevelSchema = z.enum(EXPERIENCE_LEVELS)
 export type ExperienceLevel = z.infer<typeof ExperienceLevelSchema>
@@ -372,6 +411,25 @@ export type VacancyInput = z.infer<typeof VacancyInputSchema>
 
 export const UpdateVacancySchema = VacancyInputSchema.partial()
 export type UpdateVacancyInput = z.infer<typeof UpdateVacancySchema>
+
+/**
+ * Поля вакансии, которые читает студент и одобрял вуз. Правка любого из них возвращает
+ * одобренную вакансию на модерацию (D-F12): сервер сбрасывает решения, форма компании
+ * предупреждает об этом заранее. Срок приёма откликов (`deadline`) сюда не входит.
+ */
+export const VACANCY_REVIEWED_FIELDS = [
+  'title',
+  'description',
+  'employmentType',
+  'workFormat',
+  'experienceLevel',
+  'city',
+  'salaryMin',
+  'salaryMax',
+  'salaryCurrency',
+  'skills',
+  'languages',
+] as const satisfies readonly (keyof UpdateVacancyInput)[]
 
 /** Решение вуза по вакансии: отказ требует причины — её видит компания. */
 export const DecideVacancySchema = z

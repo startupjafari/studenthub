@@ -4,6 +4,7 @@ import { PrismaService } from '../../common/prisma/prisma.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import { REDIS_CLIENT } from '../../common/redis/redis.module'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
+import { AT_RISK_THRESHOLD } from './analytics.service'
 
 // Аналитика вуза: read-only агрегаты для дашборда UNIVERSITY_ADMIN. Роль гейтится
 // @Roles на контроллере, а scope — universityId из токена: вуз видит только себя.
@@ -20,6 +21,12 @@ const DEFAULT_WEEKS = 12
 const MAX_WEEKS = 52
 /** Потолок на разрезы по факультетам: их у вуза единицы, но потолок обязателен. */
 const FACULTY_LIMIT = 100
+/**
+ * Групп в плитке «посещаемость по группам»: худшие первыми. Дашборд рисует дюжину и
+ * список «требует внимания» — сотни с запасом хватает обоим, а вуз на 400 групп не
+ * гонит наружу всю таблицу.
+ */
+const OVERVIEW_GROUPS_LIMIT = 100
 /** Пары начинаются не чаще, чем раз в час — в теплокарте 7 дней × 24 часа. */
 const HOURS = 24
 const DAYS = 7
@@ -36,12 +43,130 @@ export interface FacultySeries {
   points: WeeklyPoint[]
 }
 
+/** Группа в плитке посещаемости вуза. */
+export interface OverviewGroup {
+  groupId: string
+  name: string
+  facultyId: string
+  /** Доля не-пропусков, проценты. */
+  attendanceRate: number
+  /** Сколько отметок посещаемости легло в расчёт. */
+  attendanceTracked: number
+}
+
+export interface UniversityOverview {
+  /**
+   * Посещаемость вуза: доля не-пропусков по ВСЕМ отметкам, а не среднее процентов групп.
+   * null — посещаемость ещё не отмечали ни в одной группе.
+   */
+  attendanceRate: number | null
+  attendanceTracked: number
+  /** Работы студентов, сданные и ещё не проверенные. */
+  submissionsPending: number
+  /** Экзамены с датой в будущем. */
+  examsUpcoming: number
+  /** Группы с отмеченной посещаемостью, худшие первыми; не больше OVERVIEW_GROUPS_LIMIT. */
+  groups: OverviewGroup[]
+  /** Группы ниже порога «требует внимания» — префикс `groups`. */
+  atRisk: { groupId: string; name: string; attendanceRate: number }[]
+}
+
+/** Доля не-пропусков в процентах — та же формула, что в обзоре факультета. */
+function rateOf(total: number, absent: number): number {
+  return total === 0 ? 0 : Math.round(((total - absent) / total) * 100)
+}
+
 @Injectable()
 export class UniversityAnalyticsService {
   constructor(
     private readonly prisma: PrismaService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {}
+
+  /**
+   * Плитки дашборда вуза одним запросом с кэшем: посещаемость, работы на проверке,
+   * экзамены впереди и группы с худшей посещаемостью.
+   *
+   * Раньше дашборд собирал их сам — по `GET /analytics/faculty` на каждый факультет:
+   * N тяжёлых агрегатов по всей истории посещаемости мимо Redis на каждое открытие
+   * главной. И посещаемость вуза считалась на клиенте невзвешенным средним групп — группа
+   * из пяти отметок весила столько же, сколько группа из пяти тысяч, и цифра расходилась
+   * с `attendance-trend`. Здесь доля считается по всем отметкам сразу.
+   *
+   * Итоги вуза берутся оконной суммой ДО `LIMIT`: список групп обрезан потолком, а
+   * посещаемость вуза обязана учитывать все группы, а не сотню худших.
+   */
+  overview(viewer: JwtPayload): Promise<UniversityOverview> {
+    const universityId = this.scope(viewer)
+    return this.cached('overview', { universityId }, async () => {
+      const [rows, submissionsPending, examsUpcoming] = await Promise.all([
+        this.prisma.$queryRaw<
+          {
+            groupId: string
+            name: string
+            facultyId: string
+            total: bigint
+            absent: bigint
+            allTotal: bigint
+            allAbsent: bigint
+          }[]
+        >`
+          WITH per_group AS (
+            SELECT p.group_id,
+                   COUNT(*) AS total,
+                   COUNT(*) FILTER (WHERE a.status = 'ABSENT') AS absent
+              FROM attendance a
+              JOIN pairs p ON p.id = a.pair_id
+              JOIN groups g ON g.id = p.group_id
+              JOIN faculties f ON f.id = g.faculty_id
+             WHERE f.university_id = ${universityId}
+             GROUP BY p.group_id
+          )
+          SELECT pg.group_id AS "groupId",
+                 g.name,
+                 g.faculty_id AS "facultyId",
+                 pg.total,
+                 pg.absent,
+                 (SUM(pg.total) OVER ())::bigint AS "allTotal",
+                 (SUM(pg.absent) OVER ())::bigint AS "allAbsent"
+            FROM per_group pg
+            JOIN groups g ON g.id = pg.group_id
+           ORDER BY (pg.total - pg.absent)::float / pg.total ASC, g.name ASC
+           LIMIT ${OVERVIEW_GROUPS_LIMIT}
+        `,
+        this.prisma.submission.count({
+          where: {
+            status: 'SUBMITTED',
+            assignment: { course: { group: { faculty: { universityId } } } },
+          },
+        }),
+        this.prisma.exam.count({
+          where: { group: { faculty: { universityId } }, date: { gte: new Date() } },
+        }),
+      ])
+
+      const groups: OverviewGroup[] = rows.map((r) => ({
+        groupId: r.groupId,
+        name: r.name,
+        facultyId: r.facultyId,
+        attendanceRate: rateOf(Number(r.total), Number(r.absent)),
+        attendanceTracked: Number(r.total),
+      }))
+      const allTotal = Number(rows[0]?.allTotal ?? 0)
+      const allAbsent = Number(rows[0]?.allAbsent ?? 0)
+
+      return {
+        attendanceRate: allTotal === 0 ? null : rateOf(allTotal, allAbsent),
+        attendanceTracked: allTotal,
+        submissionsPending,
+        examsUpcoming,
+        groups,
+        atRisk: groups
+          .filter((g) => g.attendanceRate < AT_RISK_THRESHOLD)
+          .map(({ groupId, name, attendanceRate }) => ({ groupId, name, attendanceRate })),
+      }
+    })
+  }
 
   /**
    * Динамика посещаемости по неделям, отдельным рядом на факультет.
@@ -131,17 +256,24 @@ export class UniversityAnalyticsService {
   /**
    * Загрузка аудиторий: сетка «день недели × час начала пары». Отвечает на вопрос
    * «хватает ли помещений» — им админ вуза и занимается.
+   *
+   * Считаются только пары АКТИВНЫХ расписаний: прежние версии при смене семестра не
+   * удаляются, а деактивируются (schedules.service), и без этого условия сетка росла бы
+   * на число старых расписаний с каждым семестром. Пара «по чётным» или «по нечётным»
+   * идёт раз в две недели — в средней неделе она весит половину пары.
    */
   roomLoad(viewer: JwtPayload) {
     const universityId = this.scope(viewer)
-    return this.cached('room-load', { universityId }, async () => {
+    // Версия в ключе: прежние записи кэша считали и старые расписания.
+    return this.cached('room-load.v2', { universityId }, async () => {
       const [rows, rooms] = await Promise.all([
-        this.prisma.$queryRaw<{ day: number; hour: number; count: bigint }[]>`
+        this.prisma.$queryRaw<{ day: number; hour: number; count: number }[]>`
           SELECT p.day_of_week AS day,
                  -- start_time хранится как "HH:mm" в таймзоне вуза — час берём из строки.
                  split_part(p.start_time, ':', 1)::int AS hour,
-                 COUNT(*) AS count
+                 SUM(CASE WHEN p.week_type = 'BOTH' THEN 1 ELSE 0.5 END)::float8 AS count
             FROM pairs p
+            JOIN schedules s ON s.id = p.schedule_id AND s.is_active
             JOIN rooms r ON r.id = p.room_id
            WHERE r.university_id = ${universityId}
            GROUP BY 1, 2

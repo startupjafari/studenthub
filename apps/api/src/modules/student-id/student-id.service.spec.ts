@@ -17,6 +17,8 @@ import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { ConfigService } from '@nestjs/config'
 import type { EnvVars } from '../../config/env.schema'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
+import type { AuditService } from '../../common/audit/audit.service'
+import type Redis from 'ioredis'
 
 const config = {
   get: (k: string) =>
@@ -65,8 +67,26 @@ function setup() {
     user: { findUnique: jest.fn().mockResolvedValue(student), findFirst: jest.fn() },
   }
   const crypto = new CryptoService(config)
-  const service = new StudentIdService(prisma as unknown as PrismaService, crypto, config)
-  return { service, prisma, crypto }
+  const audit = { record: jest.fn().mockResolvedValue(undefined) }
+  // Redis как Map: отметки «код уже проверен» (SET NX).
+  const store = new Map<string, string>()
+  const redis = {
+    store,
+    set: jest.fn(async (key: string, value: string, ...args: unknown[]) => {
+      if (args.includes('NX') && store.has(key)) return null
+      store.set(key, value)
+      return 'OK'
+    }),
+    get: jest.fn(async (key: string) => store.get(key) ?? null),
+  }
+  const service = new StudentIdService(
+    prisma as unknown as PrismaService,
+    crypto,
+    config,
+    audit as unknown as AuditService,
+    redis as unknown as Redis,
+  )
+  return { service, prisma, crypto, audit, redis }
 }
 
 describe('StudentIdService — непрозрачный токен', () => {
@@ -107,9 +127,29 @@ describe('StudentIdService — непрозрачный токен', () => {
     expect(teacher).toMatchObject({ birthDate: null, fundingType: null, dormitory: null })
     expect(teacher.course).toBe(2)
     prisma.user.findFirst.mockResolvedValue(student)
-    const dean = await service.verify({ ...viewer('d', 'uni-A'), role: Role.DEAN }, card.token)
+    // Код разовый: второму сотруднику студент показывает обновлённую карту.
+    const next = await service.myCard(viewer('stu-1', 'uni-A'))
+    const dean = await service.verify({ ...viewer('d', 'uni-A'), role: Role.DEAN }, next.token)
     expect(dean.fundingType).toBe('GRANT')
     expect(dean.dormitory).toBe(student.dormitory)
+  })
+
+  it('дата рождения — «со слов студента»: помечена в selfDeclared, если она есть в ответе', async () => {
+    const { service, prisma } = setup()
+    const card = await service.myCard(viewer('stu-1', 'uni-A'))
+    prisma.user.findFirst.mockResolvedValue(student)
+    const dean = await service.verify({ ...viewer('d', 'uni-A'), role: Role.DEAN }, card.token)
+    expect(dean.selfDeclared).toEqual(['birthDate'])
+    // Общежитие ведёт вуз — пометки у него нет.
+    expect(dean.selfDeclared).not.toContain('dormitory')
+    prisma.user.findFirst.mockResolvedValue(student)
+    const next = await service.myCard(viewer('stu-1', 'uni-A'))
+    const teacher = await service.verify(
+      { ...viewer('t', 'uni-A'), role: Role.TEACHER },
+      next.token,
+    )
+    // Преподавателю дату рождения не отдают — и помечать нечего.
+    expect(teacher.selfDeclared).toEqual([])
   })
 
   it('подделанный токен → UNAUTHORIZED', async () => {
@@ -136,5 +176,70 @@ describe('StudentIdService — непрозрачный токен', () => {
     await expect(service.verify(viewer('staff', 'uni-B'), card.token)).rejects.toMatchObject({
       code: 'WRONG_SCOPE',
     })
+  })
+})
+
+// A-F25: проверка отдаёт сотруднику ПДн студента — след в журнале обязателен; QR —
+// разовый пропуск, пересланный скриншот у второго сотрудника не проходит.
+describe('StudentIdService — журнал и разовый код', () => {
+  it('проверка пишется в аудит: кто и кого, без самих данных', async () => {
+    const { service, prisma, audit } = setup()
+    const card = await service.myCard(viewer('stu-1', 'uni-A'))
+    prisma.user.findFirst.mockResolvedValue(student)
+    await service.verify({ ...viewer('dean-1', 'uni-A'), role: Role.DEAN }, card.token, {
+      ip: '203.0.113.5',
+    })
+    expect(audit.record).toHaveBeenCalledWith({
+      userId: 'dean-1',
+      action: 'student_id_verified',
+      entity: 'User',
+      entityId: 'stu-1',
+      metadata: { role: Role.DEAN, scope: 'full' },
+      ip: '203.0.113.5',
+    })
+    const recorded = JSON.stringify(audit.record.mock.calls)
+    expect(recorded).not.toContain(student.dormitory)
+    expect(recorded).not.toContain(card.token)
+  })
+
+  it('второй сотрудник с тем же кодом → CONFLICT, в журнал не пишется', async () => {
+    const { service, prisma, audit } = setup()
+    const card = await service.myCard(viewer('stu-1', 'uni-A'))
+    prisma.user.findFirst.mockResolvedValue(student)
+    await service.verify({ ...viewer('dean-1', 'uni-A'), role: Role.DEAN }, card.token)
+
+    await expect(
+      service.verify({ ...viewer('dean-2', 'uni-A'), role: Role.DEAN }, card.token),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(audit.record).toHaveBeenCalledTimes(1)
+  })
+
+  it('тот же сотрудник может открыть результат повторно', async () => {
+    const { service, prisma } = setup()
+    const card = await service.myCard(viewer('stu-1', 'uni-A'))
+    prisma.user.findFirst.mockResolvedValue(student)
+    const dean = { ...viewer('dean-1', 'uni-A'), role: Role.DEAN }
+    await service.verify(dean, card.token)
+    await expect(service.verify(dean, card.token)).resolves.toMatchObject({ valid: true })
+  })
+
+  it('сотрудник чужого вуза код не «забирает»', async () => {
+    const { service, prisma, redis } = setup()
+    const card = await service.myCard(viewer('stu-1', 'uni-A'))
+    prisma.user.findFirst.mockResolvedValue(student)
+    await expect(
+      service.verify({ ...viewer('dean-b', 'uni-B'), role: Role.DEAN }, card.token),
+    ).rejects.toMatchObject({ code: 'WRONG_SCOPE' })
+    expect(redis.store.size).toBe(0)
+  })
+
+  it('недоступный Redis не мешает проверке на вахте', async () => {
+    const { service, prisma, redis } = setup()
+    const card = await service.myCard(viewer('stu-1', 'uni-A'))
+    prisma.user.findFirst.mockResolvedValue(student)
+    redis.set.mockRejectedValue(new Error('ECONNREFUSED'))
+    await expect(
+      service.verify({ ...viewer('dean-1', 'uni-A'), role: Role.DEAN }, card.token),
+    ).resolves.toMatchObject({ valid: true })
   })
 })

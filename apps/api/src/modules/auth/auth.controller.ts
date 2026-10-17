@@ -11,12 +11,14 @@ import {
   UseGuards,
 } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
+import { JwtService } from '@nestjs/jwt'
 import { Throttle } from '@nestjs/throttler'
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger'
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import { Public } from '../../common/decorators/public.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import { LocalAuthGuard } from '../../common/guards/local-auth.guard'
+import { AuthThrottle } from '../../common/guards/user-throttler.guard'
 import type { CurrentUserData, JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { EnvVars } from '../../config/env.schema'
 import { AuditService } from '../../common/audit/audit.service'
@@ -31,6 +33,16 @@ import { PasswordResetService } from './password-reset.service'
 import { ForgotPasswordDto } from './dto/forgot-password.dto'
 import { ResetPasswordDto } from './dto/reset-password.dto'
 import { MaintenanceExempt } from '../../common/decorators'
+import { AppException } from '../../common/exceptions/app.exception'
+
+const MINUTE = 60_000
+const HOUR = 60 * MINUTE
+// Подтверждение входа по QR выдаёт новому устройству собственную 30-дневную сессию. Без
+// требования свежести чужой access-токен (утёкший из логов, HAR-файла, расширения) все свои
+// 15 минут превращался в независимую долгую сессию. Свежесть — по `iat`: токен старше
+// получает TOKEN_EXPIRED, и клиенты (веб, iOS, Android) сами обновляют его и повторяют
+// запрос — для человека с телефоном в руке это незаметно.
+const QR_APPROVE_MAX_TOKEN_AGE_SEC = 5 * 60
 
 @ApiTags('Auth')
 // Без входа режим техработ не снять: администратор должен уметь войти в остановленную платформу.
@@ -45,11 +57,14 @@ export class AuthController {
     private readonly qrLogin: QrLoginService,
     private readonly audit: AuditService,
     private readonly passwordReset: PasswordResetService,
+    private readonly jwt: JwtService,
   ) {}
 
+  // §6.3: 5 / 15 мин на пару «адрес + логин» и потолок 50 / 15 мин с адреса — кампус за NAT
+  // входит одновременно. Перебор пароля к одной учётке закрывает счётчик неудач (LOGIN_LOCKED).
   @Public()
   @UseGuards(LocalAuthGuard)
-  @Throttle({ default: { limit: 5, ttl: 15 * 60_000 } }) // §6.3: 5 / 15 мин с IP
+  @AuthThrottle('login', { limit: 5, ttl: 15 * MINUTE }, { limit: 50, ttl: 15 * MINUTE })
   @Post('login')
   @ApiOperation({ summary: 'Вход по email и паролю' })
   async login(
@@ -66,8 +81,9 @@ export class AuthController {
     return { accessToken: result.accessToken }
   }
 
+  // §6.3: как /login, но ключ — владелец challenge-токена: перебирают код к одной учётке.
   @Public()
-  @Throttle({ default: { limit: 5, ttl: 15 * 60_000 } }) // §6.3: как /login — брутфорсим код
+  @AuthThrottle('login-2fa', { limit: 5, ttl: 15 * MINUTE }, { limit: 50, ttl: 15 * MINUTE })
   @Post('login/2fa')
   @ApiOperation({ summary: 'Второй шаг входа: проверка кода 2FA (TOTP или backup)' })
   async loginVerify(
@@ -107,12 +123,18 @@ export class AuthController {
   @Post('qr/approve')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Подтвердить вход по QR (с залогиненного устройства)' })
+  @ApiResponse({
+    status: 401,
+    description: 'TOKEN_EXPIRED — access-токен старше 5 минут: обновить его и повторить',
+  })
   @ApiResponse({ status: 404, description: 'QR-сессия не найдена или истекла' })
+  @ApiResponse({ status: 409, description: 'CONFLICT — вход по этому QR уже подтвердил другой' })
   async qrApprove(
     @CurrentUser() user: JwtPayload,
     @Body() dto: QrApproveDto,
     @Req() req: FastifyRequest,
   ): Promise<null> {
+    this.assertFreshAccess(req)
     await this.qrLogin.approve(dto.approveToken, user.sub)
     // Одобрение входа нового устройства — событие безопасности: фиксируем в аудите
     // (сам approveToken/секрет НЕ логируем).
@@ -135,8 +157,10 @@ export class AuthController {
     return { accessToken: session.accessToken }
   }
 
+  // §6.3: 10 / час на токен инвайта (токен одноразовый) и мягкий потолок 100 / час с адреса —
+  // группа регистрируется на паре с вузовского Wi-Fi.
   @Public()
-  @Throttle({ default: { limit: 3, ttl: 60 * 60_000 } }) // §6.3: 3 / час с IP
+  @AuthThrottle('invite-body', { limit: 10, ttl: HOUR }, { limit: 100, ttl: HOUR })
   @Post('register-by-invite')
   @ApiOperation({ summary: 'Регистрация по инвайту (роль и scope — из инвайта)' })
   async registerByInvite(
@@ -190,7 +214,10 @@ export class AuthController {
     await this.passwordReset.reset(dto, this.ctx(req))
   }
 
+  // §6.3: refresh шлют все вкладки кампуса раз в 15 минут — общий IP-лимит 100/мин выкидывал
+  // людей из сессии. Счёт по id refresh-токена (10/мин на токен) и щедрый потолок с адреса.
   @Public()
+  @AuthThrottle('refresh', { limit: 10, ttl: MINUTE }, { limit: 1000, ttl: MINUTE })
   @Post('refresh')
   @ApiOperation({ summary: 'Ротация refresh-токена (cookie) → новый access' })
   async refresh(
@@ -234,6 +261,15 @@ export class AuthController {
 
   private ctx(req: FastifyRequest): RequestContext {
     return { ip: req.ip, userAgent: req.headers['user-agent'] }
+  }
+
+  // Подпись и срок токена уже проверил JwtAuthGuard — здесь только возраст по `iat`.
+  private assertFreshAccess(req: FastifyRequest): void {
+    const raw = /^Bearer\s+(\S+)$/i.exec(req.headers.authorization ?? '')?.[1]
+    const iat = raw ? this.jwt.decode<{ iat?: number } | null>(raw)?.iat : undefined
+    if (typeof iat !== 'number' || Date.now() / 1000 - iat > QR_APPROVE_MAX_TOKEN_AGE_SEC) {
+      throw new AppException('TOKEN_EXPIRED', 'Обновите сессию и подтвердите вход ещё раз')
+    }
   }
 
   private isProd(): boolean {

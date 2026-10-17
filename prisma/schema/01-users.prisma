@@ -243,7 +243,8 @@ model RefreshToken {
   // familyId = цепочка одной сессии/устройства; повторное использование
   // инвалидированного токена рвёт всю цепочку (docs/BACKEND_RULES.md §6.2).
   familyId  String    @map("family_id")
-  // Только bcrypt-хэш секрета; сам refresh в открытом виде в БД не хранится.
+  // Только хэш секрета (SHA-256 hex; выданные до перехода — bcrypt, доживают свой срок);
+  // сам refresh в открытом виде в БД не хранится.
   tokenHash String    @map("token_hash")
   expiresAt DateTime  @map("expires_at")
   revokedAt DateTime? @map("revoked_at")

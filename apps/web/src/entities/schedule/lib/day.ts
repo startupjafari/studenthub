@@ -70,5 +70,67 @@ export function nextPair<T extends Pair>(dayPairs: DayPair<T>[], now: NowInTz): 
   return current ?? upcoming ?? null
 }
 
+// ── Замены преподавателя (C-F12) ────────────────────────────────────────────
+
+/**
+ * Последняя замена пары на дату — она решает, кто ведёт занятие: ошибочную замену деканат
+ * исправляет новой, отдельного редактирования нет. Изменения приходят по времени создания.
+ */
+export function substitutionOn(
+  changes: ScheduleChange[],
+  pairId: string,
+  date: string,
+): ScheduleChange | null {
+  let found: ScheduleChange | null = null
+  for (const c of changes) {
+    if (c.type === 'SUBSTITUTED' && c.pairId === pairId && c.date.slice(0, 10) === date) found = c
+  }
+  return found
+}
+
+/**
+ * Своё занятие на дату отдано другому преподавателю: вести и отмечать его будет заменяющий.
+ * Замена без заменяющего (его аккаунт удалён) занятие у основного не забирает — как на сервере.
+ */
+export function isSubstitutedAway(
+  changes: ScheduleChange[],
+  pairId: string,
+  date: string,
+  teacherId: string,
+): boolean {
+  const sub = substitutionOn(changes, pairId, date)
+  return !!sub?.newTeacher && sub.newTeacher.id !== teacherId
+}
+
+/**
+ * Чужие пары, которые преподаватель ведёт на дату по замене. В его недельной выборке
+ * (`GET /schedule`) их нет — пара строится из изменения, где API отдаёт её данные.
+ */
+export function substitutionPairs(
+  changes: ScheduleChange[],
+  date: string,
+  teacherId: string,
+): Pair[] {
+  const out = new Map<string, Pair>()
+  for (const c of changes) {
+    if (c.type !== 'SUBSTITUTED' || c.date.slice(0, 10) !== date || out.has(c.pairId)) continue
+    if (c.pair.teacher?.id === teacherId) continue
+    if (substitutionOn(changes, c.pairId, date)?.newTeacher?.id !== teacherId) continue
+    out.set(c.pairId, {
+      id: c.pairId,
+      scheduleId: c.pair.scheduleId ?? '',
+      groupId: c.pair.groupId,
+      subject: c.pair.subject,
+      dayOfWeek: c.pair.dayOfWeek,
+      startTime: c.pair.startTime,
+      endTime: c.pair.endTime,
+      weekType: c.pair.weekType ?? 'BOTH',
+      teacher: c.pair.teacher ?? null,
+      room: c.pair.room ?? null,
+    })
+  }
+  return [...out.values()]
+}
+
 export { nowInTz, isoWeekParity }
 export type { NowInTz }

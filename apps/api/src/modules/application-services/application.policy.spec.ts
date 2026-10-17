@@ -57,6 +57,21 @@ describe('ApplicationPolicy — scopeWhere', () => {
   })
 })
 
+describe('ApplicationPolicy — submittedOnlyWhere', () => {
+  it('сотрудникам и админу платформы — только поданные; студенту и старосте — свои черновики', () => {
+    for (const role of [
+      Role.DEAN,
+      Role.UNIVERSITY_ADMIN,
+      Role.UNIVERSITY_MODERATOR,
+      Role.PLATFORM_ADMIN,
+    ]) {
+      expect(policy.submittedOnlyWhere(viewer(role))).toEqual({ submittedAt: { not: null } })
+    }
+    expect(policy.submittedOnlyWhere(viewer(Role.STUDENT))).toEqual({})
+    expect(policy.submittedOnlyWhere(viewer(Role.STAROSTA))).toEqual({})
+  })
+})
+
 describe('ApplicationPolicy — canRead / canProcess', () => {
   it('студент видит только свою заявку', () => {
     expect(policy.canRead(viewer(Role.STUDENT, { sub: 'stud' }), app)).toBe(true)
@@ -64,8 +79,26 @@ describe('ApplicationPolicy — canRead / canProcess', () => {
   })
 
   it('декан обрабатывает свой факультет, но не чужой', () => {
-    expect(policy.canProcess(viewer(Role.DEAN, { facultyId: 'fac' }), app)).toBe(true)
-    expect(policy.canProcess(viewer(Role.DEAN, { facultyId: 'other' }), app)).toBe(false)
+    const own = { universityId: 'uni', facultyId: 'fac' }
+    expect(policy.canProcess(viewer(Role.DEAN, own), app)).toBe(true)
+    expect(policy.canProcess(viewer(Role.DEAN, { ...own, facultyId: 'other' }), app)).toBe(false)
+  })
+
+  // Регрессия D-F20: у вузовской услуги facultyId = null, и декан без факультета проходил
+  // сравнение `null === null` для таких заявок любого вуза.
+  it('декан без факультета не читает и не обрабатывает вузовские заявки', () => {
+    const uniLevel: AppScopeFields = { ...app, facultyId: null }
+    const orphan = viewer(Role.DEAN, { universityId: 'uni', facultyId: null })
+    expect(policy.canRead(orphan, uniLevel)).toBe(false)
+    expect(policy.canProcess(orphan, uniLevel)).toBe(false)
+    const foreign = viewer(Role.DEAN, { universityId: 'other-uni', facultyId: null })
+    expect(policy.canRead(foreign, uniLevel)).toBe(false)
+  })
+
+  it('декан с тем же факультетом, но из другого вуза — не обрабатывает', () => {
+    const mismatch = viewer(Role.DEAN, { universityId: 'other-uni', facultyId: 'fac' })
+    expect(policy.canRead(mismatch, app)).toBe(false)
+    expect(policy.canProcess(mismatch, app)).toBe(false)
   })
 
   it('вуз-админ обрабатывает свой вуз; PLATFORM_ADMIN — не обрабатывает вовсе', () => {

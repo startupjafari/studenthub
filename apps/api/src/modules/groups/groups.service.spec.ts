@@ -5,6 +5,7 @@ import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { AuditService } from '../../common/audit/audit.service'
 import type { UniversityService } from '../universities/universities.service'
 import type { UserService } from '../users/users.service'
+import type { InviteService } from '../invites/invites.service'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 
 const ctx = { ip: '127.0.0.1', userAgent: 'jest' }
@@ -17,10 +18,17 @@ function setup() {
       update: jest.fn(),
       delete: jest.fn(),
       findMany: jest.fn(),
+      findFirst: jest.fn().mockResolvedValue(null),
       count: jest.fn(),
     },
     faculty: { findUnique: jest.fn() },
-    user: { findFirst: jest.fn(), findMany: jest.fn() },
+    user: { findFirst: jest.fn(), findMany: jest.fn(), count: jest.fn().mockResolvedValue(0) },
+    schedule: { count: jest.fn().mockResolvedValue(0) },
+    course: { count: jest.fn().mockResolvedValue(0) },
+    exam: { count: jest.fn().mockResolvedValue(0) },
+    material: { count: jest.fn().mockResolvedValue(0) },
+    $queryRaw: jest.fn().mockResolvedValue([{ id: 'grp-1' }]),
+    $executeRaw: jest.fn().mockResolvedValue(0),
     $transaction: jest.fn(),
   }
   // Колбэк-транзакция: в tx — тот же мок, чтобы проверять вызовы как обычно.
@@ -33,13 +41,15 @@ function setup() {
     syncGroupStarosta: jest.fn().mockResolvedValue([]),
     afterStarostaChange: jest.fn().mockResolvedValue(undefined),
   }
+  const invites = { revokePendingInScope: jest.fn().mockResolvedValue(0) }
   const service = new GroupService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
     universities as unknown as UniversityService,
     users as unknown as UserService,
+    invites as unknown as InviteService,
   )
-  return { service, prisma, audit, universities, users }
+  return { service, prisma, audit, universities, users, invites }
 }
 
 function viewer(role: Role, scope: Partial<JwtPayload> = {}): JwtPayload {
@@ -98,6 +108,74 @@ describe('GroupService — create scope', () => {
   })
 })
 
+describe('GroupService — название уникально на факультете', () => {
+  // Двойной клик в мастере заводил «ИТ-21» дважды — их потом не различить в выборе группы.
+  it('create: такое название на факультете уже есть (без учёта регистра) → CONFLICT', async () => {
+    const { service, prisma } = setup()
+    prisma.faculty.findUnique.mockResolvedValue({ id: 'fac-1', universityId: 'uni-1' })
+    prisma.group.findFirst.mockResolvedValue({ id: 'grp-old' })
+    await expect(
+      service.create(
+        viewer(Role.UNIVERSITY_ADMIN, { universityId: 'uni-1' }),
+        { name: ' ит-23-1 ', facultyId: 'fac-1' },
+        ctx,
+      ),
+    ).rejects.toMatchObject({ code: 'CONFLICT', details: [{ field: 'name' }] })
+    expect(prisma.group.findFirst).toHaveBeenCalledWith({
+      where: { facultyId: 'fac-1', name: { in: ['ит-23-1'], mode: 'insensitive' } },
+      select: { id: true },
+    })
+    expect(prisma.group.create).not.toHaveBeenCalled()
+  })
+
+  it('create: проверка под локом на факультет, название без пробелов по краям', async () => {
+    const { service, prisma } = setup()
+    prisma.faculty.findUnique.mockResolvedValue({ id: 'fac-1', universityId: 'uni-1' })
+    prisma.group.create.mockResolvedValue(GROUP)
+    await service.create(
+      viewer(Role.UNIVERSITY_ADMIN, { universityId: 'uni-1' }),
+      { name: ' ИТ-23-1 ', facultyId: 'fac-1', year: 2023 },
+      ctx,
+    )
+    expect(prisma.$executeRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      prisma.group.findFirst.mock.invocationCallOrder[0] as number,
+    )
+    expect(prisma.group.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { name: 'ИТ-23-1', year: 2023, facultyId: 'fac-1' } }),
+    )
+  })
+
+  it('update: занятое название → CONFLICT; без смены названия проверки нет', async () => {
+    const { service, prisma } = setup()
+    prisma.group.findUnique.mockResolvedValue(GROUP)
+    prisma.group.findFirst.mockResolvedValue({ id: 'grp-2' })
+    await expect(
+      service.update(
+        viewer(Role.UNIVERSITY_ADMIN, { universityId: 'uni-1' }),
+        'grp-1',
+        { name: 'ИТ-23-2' },
+        ctx,
+      ),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(prisma.group.findFirst.mock.calls[0][0].where).toEqual({
+      facultyId: 'fac-1',
+      name: { in: ['ИТ-23-2'], mode: 'insensitive' },
+      id: { not: 'grp-1' },
+    })
+    expect(prisma.group.update).not.toHaveBeenCalled()
+
+    prisma.group.findFirst.mockClear()
+    prisma.group.update.mockResolvedValue({ ...GROUP, year: 2024 })
+    await service.update(
+      viewer(Role.UNIVERSITY_ADMIN, { universityId: 'uni-1' }),
+      'grp-1',
+      { year: 2024 },
+      ctx,
+    )
+    expect(prisma.group.findFirst).not.toHaveBeenCalled()
+  })
+})
+
 describe('GroupService — read scope', () => {
   it('студент видит свою группу, чужую — нет', async () => {
     const { service, prisma } = setup()
@@ -143,11 +221,53 @@ describe('GroupService — read scope', () => {
   it('list: декан фильтруется своим факультетом, студент — своей группой', async () => {
     const { service, prisma } = setup()
     prisma.$transaction.mockResolvedValue([[], 0])
-    await service.list(viewer(Role.DEAN, { facultyId: 'fac-7' }), 1, 20)
+    await service.list(viewer(Role.DEAN, { facultyId: 'fac-7' }), { page: 1, limit: 20 })
     expect(prisma.group.findMany.mock.calls[0][0].where).toEqual({ facultyId: 'fac-7' })
 
-    await service.list(viewer(Role.STUDENT, { groupId: 'grp-3' }), 1, 20)
+    await service.list(viewer(Role.STUDENT, { groupId: 'grp-3' }), { page: 1, limit: 20 })
     expect(prisma.group.findMany.mock.calls[1][0].where).toEqual({ id: 'grp-3' })
+  })
+})
+
+describe('GroupService — list: поиск и страницы', () => {
+  it('search — подстрока названия без учёта регистра, поверх scope смотрящего', async () => {
+    const { service, prisma } = setup()
+    prisma.$transaction.mockResolvedValue([[], 0])
+    await service.list(viewer(Role.UNIVERSITY_ADMIN, { universityId: 'uni-1' }), {
+      page: 3,
+      limit: 100,
+      search: 'ит-23',
+    })
+    const where = {
+      faculty: { universityId: 'uni-1' },
+      name: { contains: 'ит-23', mode: 'insensitive' },
+    }
+    expect(prisma.group.findMany.mock.calls[0][0]).toMatchObject({ where, skip: 200, take: 100 })
+    // Счётчик — по тому же фильтру: иначе пагинация показала бы страницы без строк.
+    expect(prisma.group.count).toHaveBeenCalledWith({ where })
+  })
+
+  it('поиск не расширяет scope: декан ищет только в своём факультете', async () => {
+    const { service, prisma } = setup()
+    prisma.$transaction.mockResolvedValue([[], 0])
+    await service.list(viewer(Role.DEAN, { facultyId: 'fac-7' }), {
+      page: 1,
+      limit: 20,
+      facultyId: 'fac-other',
+      search: 'A',
+    })
+    expect(prisma.group.findMany.mock.calls[0][0].where).toEqual({
+      facultyId: 'fac-7',
+      name: { contains: 'A', mode: 'insensitive' },
+    })
+  })
+
+  it('порядок — по названию, затем по id: одноимённые группы не прыгают между страницами', async () => {
+    const { service, prisma } = setup()
+    prisma.$transaction.mockResolvedValue([[], 0])
+    await service.list(viewer(Role.PLATFORM_ADMIN), { page: 1, limit: 20 })
+    expect(prisma.group.findMany.mock.calls[0][0].orderBy).toEqual([{ name: 'asc' }, { id: 'asc' }])
+    expect(prisma.group.findMany.mock.calls[0][0].where).toEqual({})
   })
 })
 
@@ -271,7 +391,87 @@ describe('GroupService — assignStarosta: роль, а не только отм
 })
 
 describe('GroupService — remove', () => {
-  it('есть студенты (P2003) → CONFLICT', async () => {
+  it('пустая группа удаляется под блокировкой строки, в одной транзакции с подсчётом', async () => {
+    const { service, prisma, universities, audit } = setup()
+    prisma.group.findUnique.mockResolvedValue(GROUP)
+    prisma.group.delete.mockResolvedValue(GROUP)
+    await service.remove(viewer(Role.UNIVERSITY_ADMIN, { universityId: 'uni-1' }), 'grp-1', ctx)
+    const lockSql = (prisma.$queryRaw.mock.calls[0]?.[0] as TemplateStringsArray).join('?')
+    expect(lockSql).toContain('FOR UPDATE')
+    expect(prisma.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      prisma.course.count.mock.invocationCallOrder[0] ?? 0,
+    )
+    expect(prisma.group.delete).toHaveBeenCalledWith({ where: { id: 'grp-1' } })
+    expect(universities.invalidateStats).toHaveBeenCalledWith('uni-1')
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'group_deleted' }))
+  })
+
+  // Иначе ссылка-приглашение в удалённую группу жила дальше и падала на регистрации
+  // невнятным «нарушением ссылочной целостности».
+  it('ожидающие приглашения в группу отзываются первым шагом той же транзакции', async () => {
+    const { service, prisma, invites, audit } = setup()
+    prisma.group.findUnique.mockResolvedValue(GROUP)
+    prisma.group.delete.mockResolvedValue(GROUP)
+    invites.revokePendingInScope.mockResolvedValue(4)
+    await service.remove(viewer(Role.UNIVERSITY_ADMIN, { universityId: 'uni-1' }), 'grp-1', ctx)
+    expect(invites.revokePendingInScope).toHaveBeenCalledWith(prisma, { groupId: 'grp-1' })
+    // До блокировки группы: иначе встречная регистрация по этому инвайту и удаление
+    // заклинили бы друг друга (см. InviteService.revokePendingInScope).
+    expect(invites.revokePendingInScope.mock.invocationCallOrder[0]).toBeLessThan(
+      prisma.$queryRaw.mock.invocationCallOrder[0] as number,
+    )
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'group_deleted', metadata: { revokedInvites: 4 } }),
+    )
+  })
+
+  // Студентов перевели, а курсы с оценками, экзамены и материалы остались: раньше всё это
+  // уходило каскадом вместе с группой.
+  it('курсы, экзамены, материалы без студентов → CONFLICT с перечнем, ничего не удалено', async () => {
+    const { service, prisma } = setup()
+    prisma.group.findUnique.mockResolvedValue(GROUP)
+    prisma.course.count.mockResolvedValue(3)
+    prisma.exam.count.mockResolvedValue(2)
+    prisma.material.count.mockResolvedValue(5)
+    const err = await service
+      .remove(viewer(Role.PLATFORM_ADMIN), 'grp-1', ctx)
+      .catch((e: unknown) => e)
+    expect(err).toMatchObject({
+      code: 'CONFLICT',
+      details: [
+        { field: 'courses', message: 'курсы (3)' },
+        { field: 'exams', message: 'экзамены (2)' },
+        { field: 'materials', message: 'материалы (5)' },
+      ],
+    })
+    expect((err as Error).message).toBe(
+      'Нельзя удалить группу, пока в ней есть: курсы (3), экзамены (2), материалы (5)',
+    )
+    expect(prisma.group.delete).not.toHaveBeenCalled()
+  })
+
+  it('причина — по факту: расписание без студентов называется расписанием', async () => {
+    const { service, prisma } = setup()
+    prisma.group.findUnique.mockResolvedValue(GROUP)
+    prisma.schedule.count.mockResolvedValue(1)
+    await expect(service.remove(viewer(Role.PLATFORM_ADMIN), 'grp-1', ctx)).rejects.toMatchObject({
+      code: 'CONFLICT',
+      details: [{ field: 'schedule', message: 'расписание (1)' }],
+    })
+  })
+
+  it('студенты в группе → CONFLICT «студенты»', async () => {
+    const { service, prisma } = setup()
+    prisma.group.findUnique.mockResolvedValue(GROUP)
+    prisma.user.count.mockResolvedValue(12)
+    await expect(service.remove(viewer(Role.PLATFORM_ADMIN), 'grp-1', ctx)).rejects.toMatchObject({
+      code: 'CONFLICT',
+      details: [{ field: 'students', message: 'студенты (12)' }],
+    })
+    expect(prisma.group.delete).not.toHaveBeenCalled()
+  })
+
+  it('связь Restrict сработала мимо подсчёта (P2003) → всё равно CONFLICT', async () => {
     const { service, prisma } = setup()
     prisma.group.findUnique.mockResolvedValue(GROUP)
     prisma.group.delete.mockRejectedValue(
@@ -280,5 +480,14 @@ describe('GroupService — remove', () => {
     await expect(service.remove(viewer(Role.PLATFORM_ADMIN), 'grp-1', ctx)).rejects.toMatchObject({
       code: 'CONFLICT',
     })
+  })
+
+  it('админ чужого вуза → WRONG_SCOPE, до подсчёта', async () => {
+    const { service, prisma } = setup()
+    prisma.group.findUnique.mockResolvedValue(GROUP)
+    await expect(
+      service.remove(viewer(Role.UNIVERSITY_ADMIN, { universityId: 'uni-2' }), 'grp-1', ctx),
+    ).rejects.toMatchObject({ code: 'WRONG_SCOPE' })
+    expect(prisma.$transaction).not.toHaveBeenCalled()
   })
 })

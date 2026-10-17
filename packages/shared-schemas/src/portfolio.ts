@@ -19,6 +19,10 @@ export type PortfolioVisibility = z.infer<typeof PortfolioVisibilitySchema>
 
 const isoDate = z.string().datetime({ offset: true })
 
+// Потолок записей портфолио на пользователя: список отдаётся целиком, без пагинации, и
+// резюме собирается из него же — бесконечный список здесь означал бы бесконечный ответ.
+export const PORTFOLIO_MAX_ITEMS = 200
+
 export const CreatePortfolioItemSchema = z
   .object({
     kind: PortfolioKindSchema,
@@ -55,3 +59,17 @@ export const UpdatePortfolioItemSchema = z
     path: ['endDate'],
   })
 export type UpdatePortfolioItemInput = z.infer<typeof UpdatePortfolioItemSchema>
+
+// Порядок записей (`PUT /portfolio/order`): id своих записей в нужном порядке, первая — выше
+// всех. Записи, которых нет в списке (добавлены с другого устройства, пока экран был открыт),
+// встают после перечисленных, сохраняя свой порядок, — устаревший список не ломает перестановку.
+export const ReorderPortfolioSchema = z
+  .object({
+    ids: z
+      .array(z.string().min(1))
+      .min(1)
+      .max(PORTFOLIO_MAX_ITEMS)
+      .refine((ids) => new Set(ids).size === ids.length, { message: 'ids must be unique' }),
+  })
+  .strict()
+export type ReorderPortfolioInput = z.infer<typeof ReorderPortfolioSchema>

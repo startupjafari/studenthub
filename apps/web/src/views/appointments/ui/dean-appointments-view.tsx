@@ -1,10 +1,19 @@
 'use client'
 
-import { useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMemo, useState } from 'react'
+import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { CalendarClock, CheckCircle2, Clock, Inbox, MoreHorizontal, XCircle } from 'lucide-react'
+import {
+  Archive,
+  CalendarClock,
+  CheckCircle2,
+  Clock,
+  Inbox,
+  MoreHorizontal,
+  XCircle,
+} from 'lucide-react'
+import type { AppointmentQueueView } from '@studenthub/shared-schemas'
 import {
   Badge,
   Button,
@@ -16,6 +25,7 @@ import {
   DropdownMenuTrigger,
   EmptyState,
   PageHeader,
+  SegmentedTabs,
   Table,
   TableBody,
   TableCell,
@@ -68,6 +78,14 @@ const APPOINTMENT_SKELETON_COLS = [
   undefined,
 ]
 
+// Открытые записи — рабочая очередь, закрытые — архив. Раньше обе шли одним списком с
+// потолком, и накопленный архив вытеснял из него новые записи.
+type TabId = Extract<AppointmentQueueView, 'active' | 'closed'>
+const TAB_ORDER: TabId[] = ['active', 'closed']
+const TAB_LABEL: Record<TabId, string> = { active: 'tabActive', closed: 'tabClosed' }
+// Страница выдачи; следующая — по кнопке «Показать ещё» (cursor = id последней записи).
+const PAGE = 100
+
 export function DeanAppointmentsView() {
   const t = useTranslations('Appointments')
   const tErr = useTranslations('Errors')
@@ -75,7 +93,16 @@ export function DeanAppointmentsView() {
   const qc = useQueryClient()
   const [modal, setModal] = useState<{ id: string; mode: 'confirm' | 'reschedule' } | null>(null)
 
-  const q = useQuery({ queryKey: appointmentKeys.queue(), queryFn: () => fetchAppointmentQueue() })
+  const [tab, setTab] = useState<TabId>('active')
+
+  const q = useInfiniteQuery({
+    queryKey: appointmentKeys.queue({ view: tab, limit: PAGE }),
+    queryFn: ({ pageParam }: { pageParam: string | undefined }) =>
+      fetchAppointmentQueue({ view: tab, limit: PAGE, cursor: pageParam }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last: Appointment[]) =>
+      last.length === PAGE ? last[last.length - 1]?.id : undefined,
+  })
 
   const complete = useMutation({
     mutationFn: (id: string) => completeAppointmentRequest(id),
@@ -94,24 +121,25 @@ export function DeanAppointmentsView() {
     onError: (e) => toast.error(tErr(toApiError(e).code)),
   })
 
-  const rows = q.data ?? []
-  // По умолчанию сверху ближайший приём: очередь разбирают по времени, а не по алфавиту.
+  // Очередь — ближайший приём сверху: её разбирают по времени, а не по алфавиту. Архив —
+  // свежий сверху. До нажатия на заголовок порядок задаёт вкладка.
+  const rows = useMemo(() => {
+    const list = q.data?.pages.flat() ?? []
+    const dir = tab === 'active' ? 1 : -1
+    return [...list].sort((a, b) => dir * whenOf(a).localeCompare(whenOf(b)))
+  }, [q.data, tab])
   const {
     rows: sorted,
     sort,
     toggle,
-  } = useTableSort<Appointment>(
-    rows,
-    (a, key) => {
-      if (key === 'student') return `${a.student.lastName} ${a.student.firstName}`
-      if (key === 'type') return a.type
-      if (key === 'when') return whenOf(a)
-      if (key === 'topic') return a.topic
-      if (key === 'status') return a.status
-      return null
-    },
-    { key: 'when', dir: 'asc' },
-  )
+  } = useTableSort<Appointment>(rows, (a, key) => {
+    if (key === 'student') return `${a.student.lastName} ${a.student.firstName}`
+    if (key === 'type') return a.type
+    if (key === 'when') return whenOf(a)
+    if (key === 'topic') return a.topic
+    if (key === 'status') return a.status
+    return null
+  })
 
   const fmt = (iso: string) =>
     new Date(iso).toLocaleString(locale, {
@@ -123,7 +151,17 @@ export function DeanAppointmentsView() {
 
   return (
     <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
-      <PageHeader title={t('queueTitle')} />
+      <PageHeader
+        title={t('queueTitle')}
+        tabs={
+          <SegmentedTabs
+            aria-label={t('queueTitle')}
+            value={tab}
+            onChange={setTab}
+            items={TAB_ORDER.map((id) => ({ value: id, label: t(TAB_LABEL[id]) }))}
+          />
+        }
+      />
 
       {q.isError ? (
         <EmptyState
@@ -131,6 +169,8 @@ export function DeanAppointmentsView() {
           title={t('loadError')}
           action={<Button onClick={() => q.refetch()}>{t('retry')}</Button>}
         />
+      ) : !q.isLoading && rows.length === 0 && tab === 'closed' ? (
+        <EmptyState icon={<Archive className="size-6" aria-hidden />} title={t('archiveEmpty')} />
       ) : !q.isLoading && rows.length === 0 ? (
         <EmptyState
           icon={<CalendarClock className="size-6" aria-hidden />}
@@ -233,6 +273,17 @@ export function DeanAppointmentsView() {
             </TableBody>
           </Table>
         </Card>
+      )}
+      {q.hasNextPage && (
+        <Button
+          type="button"
+          variant="ghost"
+          className="self-center"
+          loading={q.isFetchingNextPage}
+          onClick={() => void q.fetchNextPage()}
+        >
+          {t('showMore')}
+        </Button>
       )}
 
       {modal && (

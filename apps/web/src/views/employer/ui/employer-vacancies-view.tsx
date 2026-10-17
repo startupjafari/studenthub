@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { Briefcase, Eye } from 'lucide-react'
+import { Briefcase, Eye, Pencil, Plus } from 'lucide-react'
 import type { VacancyReviewStatus, VacancyStatus } from '@studenthub/shared-schemas'
 import {
   closeVacancy,
@@ -23,6 +23,7 @@ import {
   TablePagination,
 } from '../../../shared/ui'
 import { toApiError } from '../../../shared/lib'
+import { VacancyFormModal } from './vacancy-form-modal'
 
 /**
  * Вакансии компании.
@@ -37,6 +38,8 @@ export function EmployerVacanciesView() {
   const queryClient = useQueryClient()
   const [page, setPage] = useState(1)
   const limit = 20
+  // Открытая форма: `null` — новая вакансия, строка — правка этой вакансии.
+  const [form, setForm] = useState<{ vacancy: EmployerVacancy | null } | null>(null)
 
   const query = useQuery({
     queryKey: vacancyKeys.mine(page),
@@ -60,7 +63,15 @@ export function EmployerVacanciesView() {
 
   return (
     <div className="flex w-full flex-1 flex-col gap-4">
-      <PageHeader title={t('title')} subtitle={t('subtitle')} />
+      <PageHeader
+        title={t('title')}
+        subtitle={t('subtitle')}
+        actions={
+          <Button onClick={() => setForm({ vacancy: null })}>
+            <Plus className="size-4" aria-hidden /> {t('create')}
+          </Button>
+        }
+      />
 
       {query.isLoading ? (
         <ul className="flex flex-col gap-2" aria-busy>
@@ -89,6 +100,7 @@ export function EmployerVacanciesView() {
                 vacancy={vacancy}
                 busy={act.isPending}
                 onAct={(action) => act.mutate({ id: vacancy.id, action })}
+                onEdit={() => setForm({ vacancy })}
               />
             ))}
           </ul>
@@ -100,6 +112,8 @@ export function EmployerVacanciesView() {
           />
         </>
       )}
+
+      {form && <VacancyFormModal vacancy={form.vacancy} onClose={() => setForm(null)} />}
     </div>
   )
 }
@@ -108,10 +122,12 @@ function VacancyRow({
   vacancy,
   busy,
   onAct,
+  onEdit,
 }: {
   vacancy: EmployerVacancy
   busy: boolean
   onAct: (action: 'publish' | 'pause' | 'close') => void
+  onEdit: () => void
 }) {
   const t = useTranslations('EmployerVacancies')
 
@@ -144,6 +160,12 @@ function VacancyRow({
         </div>
 
         <div className="flex shrink-0 flex-wrap gap-2">
+          {/* Закрытая вакансия — конечное состояние: ни правки, ни публикации. */}
+          {vacancy.status !== 'CLOSED' && (
+            <Button size="sm" variant="outline" disabled={busy} onClick={onEdit}>
+              <Pencil className="size-4" aria-hidden /> {t('edit')}
+            </Button>
+          )}
           {(vacancy.status === 'DRAFT' || vacancy.status === 'PAUSED') && (
             <Button size="sm" disabled={busy} onClick={() => onAct('publish')}>
               {t('publish')}

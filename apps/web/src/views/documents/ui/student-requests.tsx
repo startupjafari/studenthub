@@ -14,6 +14,7 @@ import {
   type StudentRequestSummary,
 } from '../../../entities/document-request'
 import { documentKeys, fetchDocuments, type DocumentDto } from '../../../entities/document'
+import { useDocumentTypeCatalog } from '../../../entities/document-type'
 import {
   Badge,
   Button,
@@ -122,6 +123,8 @@ function RequestCard({ req, onOpen }: { req: StudentRequestSummary; onOpen: () =
 
 function StudentRequestModal({ id, onClose }: { id: string; onClose: () => void }) {
   const t = useTranslations('Documents')
+  // Название собственного типа вуза задаёт вуз — в словаре его нет.
+  const { labelOf } = useDocumentTypeCatalog()
   const tCommon = useTranslations('Common')
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
@@ -184,7 +187,11 @@ function StudentRequestModal({ id, onClose }: { id: string; onClose: () => void 
   })
 
   const d = detail.data
-  const locked = d?.submission?.status === 'SUBMITTED' || d?.submission?.status === 'ACCEPTED'
+  // Отправленный или принятый комплект студенту не изменить. Закрытый запрос и истёкший
+  // срок закрывают форму целиком: сервер такую сдачу всё равно отклонит.
+  const submissionLocked =
+    d?.submission?.status === 'SUBMITTED' || d?.submission?.status === 'ACCEPTED'
+  const locked = submissionLocked || d?.acceptsSubmissions === false
   const requiredFilled =
     d?.items.filter((it) => it.required).every((it) => !!current[it.id]) ?? false
   // Отправку не блокируем молча: по нажатию подсвечиваем незаполненные обязательные позиции.
@@ -232,7 +239,7 @@ function StudentRequestModal({ id, onClose }: { id: string; onClose: () => void 
           {d.description && <p className="text-sm text-muted-foreground">{d.description}</p>}
           {locked && (
             <div className="rounded-lg border border-border bg-muted/40 p-3 text-sm">
-              {t(`req_sub_${d.submission?.status}`)}
+              {submissionLocked ? t(`req_sub_${d.submission?.status}`) : t('req_closedNotice')}
             </div>
           )}
           <ul className="flex flex-col gap-3">
@@ -252,9 +259,7 @@ function StudentRequestModal({ id, onClose }: { id: string; onClose: () => void 
                       </Badge>
                     )}
                   </div>
-                  <p className="mb-2 text-xs text-muted-foreground">
-                    {t(`docType_${it.documentType}`)}
-                  </p>
+                  <p className="mb-2 text-xs text-muted-foreground">{labelOf(it.documentType)}</p>
                   {!locked ? (
                     <Select
                       value={current[it.id] ?? '__none__'}

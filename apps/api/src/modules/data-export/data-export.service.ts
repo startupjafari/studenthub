@@ -40,7 +40,11 @@ const AUDIT_LIMIT = 2000
  *
  * ЧУЖИЕ ДАННЫЕ: в архив попадают только собственные строки. Из переписки — свои
  * сообщения, но не ответы собеседников; из дружбы — имя друга (оно и так на экране),
- * но не его контакты.
+ * но не его контакты; из выданных приглашений — роль и статус, но не адрес приглашённого.
+ *
+ * ПОЛНОТА СВЕРЯЕТСЯ СО СХЕМОЙ (D-F26): каждая связь «таблица → User» перечислена в
+ * USER_RELATIONS — либо разделом архива, либо исключением с причиной. Тест проходит по
+ * схеме Prisma и падает на новой связи, которой там нет.
  */
 @Injectable()
 export class DataExportService {
@@ -149,6 +153,9 @@ export class DataExportService {
       storyReactions,
       storyPollVotes,
       auditLog,
+      social,
+      career,
+      services,
     ] = await Promise.all([
       this.prisma.file.findMany({
         where: { ownerId: userId },
@@ -369,10 +376,10 @@ export class DataExportService {
       }),
       this.prisma.invite.findMany({
         where: { createdById: userId },
-        // Токена приглашения здесь нет: он ключ регистрации, а не данные о человеке.
+        // Токена приглашения здесь нет: он ключ регистрации, а не данные о человеке. Адреса
+        // приглашённого — тоже: у декана или старосты это сотни чужих email (D-F26).
         select: {
           role: true,
-          email: true,
           status: true,
           expiresAt: true,
           usedAt: true,
@@ -431,6 +438,9 @@ export class DataExportService {
         orderBy: { createdAt: 'desc' },
         take: AUDIT_LIMIT + 1,
       }),
+      this.collectSocial(userId, take),
+      this.collectCareer(userId, take),
+      this.collectServices(userId, take),
     ])
 
     return {
@@ -460,7 +470,358 @@ export class DataExportService {
       storyViews: section(storyViews, SECTION_LIMIT),
       storyReactions: section(storyReactions, SECTION_LIMIT),
       storyPollVotes: section(storyPollVotes, SECTION_LIMIT),
+      ...social,
+      ...career,
+      ...services,
       auditLog: section(auditLog, AUDIT_LIMIT),
+    }
+  }
+
+  /** Профиль и общение вне ленты: статьи, опросы, альбомы, реакции и голоса в чатах. */
+  private async collectSocial(
+    userId: string,
+    take: number,
+  ): Promise<Record<string, ExportSection>> {
+    const [
+      chatReactions,
+      chatPollVotes,
+      chatFolders,
+      scheduledMessages,
+      eventsOrganized,
+      eventComments,
+      articles,
+      contentComments,
+      articleBookmarks,
+      albums,
+      polls,
+      pollVotes,
+    ] = await Promise.all([
+      this.prisma.messageReaction.findMany({
+        where: { userId },
+        select: { messageId: true, emoji: true, createdAt: true },
+        orderBy: { createdAt: 'desc' },
+        take,
+      }),
+      this.prisma.chatPollVote.findMany({
+        where: { userId },
+        select: { pollId: true, optionId: true, createdAt: true },
+        orderBy: { createdAt: 'desc' },
+        take,
+      }),
+      this.prisma.chatFolder.findMany({
+        where: { userId },
+        select: { name: true, position: true, createdAt: true },
+        orderBy: { position: 'asc' },
+        take,
+      }),
+      this.prisma.scheduledMessage.findMany({
+        // Отложенное сообщение — такое же своё сообщение, просто ещё не отправленное.
+        where: { senderId: userId },
+        select: { chatId: true, content: true, scheduledAt: true, createdAt: true },
+        orderBy: { scheduledAt: 'desc' },
+        take,
+      }),
+      this.prisma.event.findMany({
+        where: { organizerId: userId },
+        select: {
+          id: true,
+          audience: true,
+          title: true,
+          description: true,
+          location: true,
+          isOnline: true,
+          startsAt: true,
+          endsAt: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: 'desc' },
+        take,
+      }),
+      this.prisma.eventComment.findMany({
+        where: { authorId: userId },
+        select: { eventId: true, content: true, createdAt: true, deletedAt: true },
+        orderBy: { createdAt: 'desc' },
+        take,
+      }),
+      this.prisma.profileArticle.findMany({
+        where: { userId },
+        select: {
+          id: true,
+          title: true,
+          description: true,
+          content: true,
+          category: true,
+          tags: true,
+          visibility: true,
+          status: true,
+          views: true,
+          publishedAt: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: 'desc' },
+        take,
+      }),
+      this.prisma.contentComment.findMany({
+        where: { authorId: userId },
+        select: { articleId: true, pollId: true, content: true, createdAt: true },
+        orderBy: { createdAt: 'desc' },
+        take,
+      }),
+      this.prisma.bookmark.findMany({
+        where: { userId },
+        select: { articleId: true, createdAt: true },
+        orderBy: { createdAt: 'desc' },
+        take,
+      }),
+      this.prisma.album.findMany({
+        where: { userId },
+        select: { id: true, title: true, createdAt: true },
+        orderBy: { createdAt: 'desc' },
+        take,
+      }),
+      this.prisma.poll.findMany({
+        where: { userId },
+        select: {
+          id: true,
+          question: true,
+          multiple: true,
+          anonymous: true,
+          visibility: true,
+          status: true,
+          closesAt: true,
+          createdAt: true,
+          options: { select: { text: true, order: true }, orderBy: { order: 'asc' } },
+        },
+        orderBy: { createdAt: 'desc' },
+        take,
+      }),
+      this.prisma.pollVote.findMany({
+        where: { userId },
+        select: { pollId: true, optionId: true, createdAt: true },
+        orderBy: { createdAt: 'desc' },
+        take,
+      }),
+    ])
+    return {
+      chatReactions: section(chatReactions, SECTION_LIMIT),
+      chatPollVotes: section(chatPollVotes, SECTION_LIMIT),
+      chatFolders: section(chatFolders, SECTION_LIMIT),
+      scheduledMessages: section(scheduledMessages, SECTION_LIMIT),
+      eventsOrganized: section(eventsOrganized, SECTION_LIMIT),
+      eventComments: section(eventComments, SECTION_LIMIT),
+      articles: section(articles, SECTION_LIMIT),
+      contentComments: section(contentComments, SECTION_LIMIT),
+      articleBookmarks: section(articleBookmarks, SECTION_LIMIT),
+      albums: section(albums, SECTION_LIMIT),
+      polls: section(polls, SECTION_LIMIT),
+      pollVotes: section(pollVotes, SECTION_LIMIT),
+    }
+  }
+
+  /** Карьера: профиль, согласия, отклики, резюме и — у работодателя — его компания. */
+  private async collectCareer(
+    userId: string,
+    take: number,
+  ): Promise<Record<string, ExportSection>> {
+    const [profile, consents, applications, resume, companies] = await Promise.all([
+      this.prisma.careerProfile.findMany({
+        where: { userId },
+        select: {
+          visibility: true,
+          employmentStatus: true,
+          desiredPositions: true,
+          employmentTypes: true,
+          workFormats: true,
+          relocationReady: true,
+          desiredSalaryMin: true,
+          desiredSalaryMax: true,
+          salaryCurrency: true,
+          about: true,
+          readinessScore: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+        take: 1,
+      }),
+      this.prisma.careerConsent.findMany({
+        where: { userId },
+        select: { field: true, companyId: true, grantedAt: true, revokedAt: true },
+        orderBy: { grantedAt: 'desc' },
+        take,
+      }),
+      this.prisma.careerApplication.findMany({
+        where: { studentId: userId },
+        select: {
+          vacancyId: true,
+          status: true,
+          coverLetter: true,
+          createdAt: true,
+          updatedAt: true,
+          vacancy: { select: { title: true, company: { select: { name: true } } } },
+        },
+        orderBy: { createdAt: 'desc' },
+        take,
+      }),
+      this.prisma.resume.findMany({
+        where: { userId },
+        select: {
+          title: true,
+          publicSlug: true,
+          publishedAt: true,
+          includeContacts: true,
+          createdAt: true,
+        },
+        take: 1,
+      }),
+      this.prisma.companyMember.findMany({
+        where: { userId },
+        // Работодатель получает и сведения о своей компании — без хэша подтверждения почты.
+        select: {
+          role: true,
+          createdAt: true,
+          company: {
+            select: {
+              id: true,
+              name: true,
+              slug: true,
+              description: true,
+              website: true,
+              city: true,
+              status: true,
+              createdAt: true,
+            },
+          },
+        },
+        take,
+      }),
+    ])
+    return {
+      careerProfile: section(profile, SECTION_LIMIT),
+      careerConsents: section(consents, SECTION_LIMIT),
+      careerApplications: section(applications.map(careerApplicationView), SECTION_LIMIT),
+      resume: section(resume, SECTION_LIMIT),
+      companies: section(companies, SECTION_LIMIT),
+    }
+  }
+
+  /**
+   * Обращения к вузу и платформе: жалобы, предупреждения модерации, поддержка, записи в
+   * деканат, консультации, привязка Telegram, приглашение, по которому человек пришёл.
+   */
+  private async collectServices(
+    userId: string,
+    take: number,
+  ): Promise<Record<string, ExportSection>> {
+    const [
+      complaints,
+      warnings,
+      supportTickets,
+      appointments,
+      consultations,
+      telegram,
+      inviteUsed,
+      notificationSettings,
+    ] = await Promise.all([
+      this.prisma.complaint.findMany({
+        where: { reporterId: userId },
+        select: {
+          targetType: true,
+          targetId: true,
+          reason: true,
+          status: true,
+          resolution: true,
+          resolvedAt: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: 'desc' },
+        take,
+      }),
+      this.prisma.moderationWarning.findMany({
+        where: { userId },
+        select: { complaintId: true, createdAt: true },
+        orderBy: { createdAt: 'desc' },
+        take,
+      }),
+      this.prisma.chat.findMany({
+        // Обращение в поддержку платформы — чат, который человек открыл сам. Сообщения в нём
+        // уже в разделе messages; здесь — сами обращения и их закрытие.
+        where: { type: 'SUPPORT_PLATFORM', createdById: userId },
+        select: { id: true, title: true, createdAt: true, supportClosedAt: true },
+        orderBy: { createdAt: 'desc' },
+        take,
+      }),
+      this.prisma.deaneryAppointment.findMany({
+        // Служебная заметка сотрудника (staffNote) — его рабочая запись, не выгружается.
+        where: { studentId: userId },
+        select: {
+          type: true,
+          status: true,
+          topic: true,
+          requestedAt: true,
+          scheduledAt: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: 'desc' },
+        take,
+      }),
+      this.prisma.consultationSlot.findMany({
+        where: { studentId: userId },
+        select: {
+          startsAt: true,
+          endsAt: true,
+          location: true,
+          isOnline: true,
+          status: true,
+          topic: true,
+        },
+        orderBy: { startsAt: 'desc' },
+        take,
+      }),
+      this.prisma.telegramAccount.findMany({
+        where: { userId },
+        select: {
+          telegramId: true,
+          username: true,
+          linkedAt: true,
+          lastSeenAt: true,
+          revokedAt: true,
+        },
+        take: 1,
+      }),
+      this.prisma.invite.findMany({
+        where: { usedById: userId },
+        select: { role: true, createdAt: true, usedAt: true },
+        take: 1,
+      }),
+      this.prisma.notificationSettings.findMany({
+        where: { userId },
+        select: {
+          emailEnabled: true,
+          pushEnabled: true,
+          scheduleChangeEnabled: true,
+          appUpdateEnabled: true,
+          messageEnabled: true,
+          postEnabled: true,
+          eventEnabled: true,
+          systemEnabled: true,
+          updatedAt: true,
+        },
+        take: 1,
+      }),
+    ])
+    return {
+      complaintsFiled: section(complaints, SECTION_LIMIT),
+      moderationWarnings: section(warnings, SECTION_LIMIT),
+      supportTickets: section(supportTickets, SECTION_LIMIT),
+      deaneryAppointments: section(appointments, SECTION_LIMIT),
+      consultations: section(consultations, SECTION_LIMIT),
+      // telegramId — BigInt: JSON.stringify его не умеет, в архив — строкой.
+      telegram: section(
+        telegram.map((t) => ({ ...t, telegramId: t.telegramId.toString() })),
+        SECTION_LIMIT,
+      ),
+      inviteUsed: section(inviteUsed, SECTION_LIMIT),
+      notificationSettings: section(notificationSettings, SECTION_LIMIT),
     }
   }
 
@@ -492,7 +853,8 @@ function resolveTimezone(account: AccountRow): string {
 const NOTICE =
   'Это машинная выгрузка ваших персональных данных. В файле только ваши собственные ' +
   'записи: из переписки — отправленные вами сообщения, из дружбы — имена друзей без их ' +
-  'контактов. Не выгружаются ключи доступа (хэш пароля, секрет двухфакторной ' +
+  'контактов, из выданных приглашений — роль и статус без адреса приглашённого. ' +
+  'Не выгружаются ключи доступа (хэш пароля, секрет двухфакторной ' +
   'аутентификации, сессии, токены приглашений) и полный номер личного документа — ' +
   'в разделе documents остаются последние четыре цифры. Разделы с пометкой ' +
   '"truncated": true показаны не целиком: остаток можно запросить у вашего университета.'
@@ -561,6 +923,19 @@ function storyView<T extends { fileId: string | null }>(
 } {
   const { fileId, ...rest } = story
   return { ...rest, hasMedia: fileId !== null }
+}
+
+/** Отклик одной строкой: вакансия и компания по названию, без вложенного дерева (§5.3). */
+function careerApplicationView(row: {
+  vacancyId: string
+  status: string
+  coverLetter: string | null
+  createdAt: Date
+  updatedAt: Date
+  vacancy: { title: string; company: { name: string } } | null
+}): Record<string, unknown> {
+  const { vacancy, ...rest } = row
+  return { ...rest, vacancy: vacancy?.title ?? null, company: vacancy?.company.name ?? null }
 }
 
 /** Друг — это другая сторона связи; кто из двоих, зависит от того, кто звал. */
@@ -664,3 +1039,93 @@ type AccountRow = {
   faculty: { name: string } | null
   group: { name: string } | null
 } & Record<string, unknown>
+
+// Причины исключения — общие для нескольких связей.
+const ACCESS_KEY = 'ключ доступа или токен доставки, а не данные о человеке'
+const STAFF_WORK =
+  'рабочее действие сотрудника над чужими записями — данные вуза и других людей, не субъекта'
+
+/**
+ * Сверка выгрузки со схемой (D-F26). Ключ — «модель.поле» внешнего ключа на User; значение —
+ * раздел архива или причина исключения. Тест data-export.service.spec проходит по схеме
+ * Prisma и падает, если связь с User есть в схеме, но не названа здесь, — решение о новой
+ * таблице с персональными данными принимается осознанно, а не теряется молча.
+ */
+export const USER_RELATIONS: Readonly<Record<string, { section: string } | { excluded: string }>> =
+  {
+    'RefreshToken.userId': { excluded: ACCESS_KEY },
+    'PasswordResetToken.userId': { excluded: ACCESS_KEY },
+    'PushSubscription.userId': { excluded: ACCESS_KEY },
+    'DeviceToken.userId': { excluded: ACCESS_KEY },
+    'Invite.createdById': { section: 'invitesIssued' },
+    'Invite.usedById': { section: 'inviteUsed' },
+    'Group.starostaId': { excluded: 'староство отражено в account (group, starostaSince)' },
+    'Pair.teacherId': { excluded: STAFF_WORK },
+    'ScheduleChange.newTeacherId': { excluded: STAFF_WORK },
+    'ScheduleChange.createdById': { excluded: STAFF_WORK },
+    'Post.authorId': { section: 'posts' },
+    'Post.targetUserId': { excluded: 'публикация другого человека, адресованная субъекту' },
+    'Post.pinnedById': { excluded: STAFF_WORK },
+    'Reaction.userId': { section: 'reactions' },
+    'PostBookmark.userId': { section: 'bookmarks' },
+    'Comment.authorId': { section: 'comments' },
+    'ChatMember.userId': { section: 'chats' },
+    'Message.senderId': { section: 'messages' },
+    'Message.pinnedById': { excluded: STAFF_WORK },
+    'MessageReaction.userId': { section: 'chatReactions' },
+    'ChatFolder.userId': { section: 'chatFolders' },
+    'ChatPollVote.userId': { section: 'chatPollVotes' },
+    'ScheduledMessage.senderId': { section: 'scheduledMessages' },
+    'Event.organizerId': { section: 'eventsOrganized' },
+    'EventParticipant.userId': { section: 'events' },
+    'EventComment.authorId': { section: 'eventComments' },
+    'File.ownerId': { section: 'files' },
+    'Notification.userId': { section: 'notifications' },
+    'NotificationSettings.userId': { section: 'notificationSettings' },
+    'Complaint.reporterId': { section: 'complaintsFiled' },
+    'Complaint.reviewingById': { excluded: STAFF_WORK },
+    'Complaint.resolvedById': { excluded: STAFF_WORK },
+    'ModerationWarning.userId': { section: 'moderationWarnings' },
+    'ModerationWarning.issuedById': { excluded: STAFF_WORK },
+    'Material.teacherId': { excluded: STAFF_WORK },
+    'ProfileArticle.userId': { section: 'articles' },
+    'ContentComment.authorId': { section: 'contentComments' },
+    'Bookmark.userId': { section: 'articleBookmarks' },
+    'Album.userId': { section: 'albums' },
+    'Poll.userId': { section: 'polls' },
+    'PollVote.userId': { section: 'pollVotes' },
+    'Document.ownerId': { section: 'documents' },
+    'DocumentRequest.createdById': { excluded: STAFF_WORK },
+    'DocumentSubmission.studentId': { section: 'documentSubmissions' },
+    'Friendship.requesterId': { section: 'friends' },
+    'Friendship.addresseeId': { section: 'friends' },
+    'Application.studentId': { section: 'applications' },
+    'Course.teacherId': { excluded: STAFF_WORK },
+    'Assignment.createdById': { excluded: STAFF_WORK },
+    'Submission.studentId': { section: 'assignmentSubmissions' },
+    'Submission.gradedById': { excluded: STAFF_WORK },
+    'Attendance.studentId': { section: 'attendance' },
+    'Attendance.markedById': { excluded: STAFF_WORK },
+    'GradeColumn.createdById': { excluded: STAFF_WORK },
+    'Grade.studentId': { section: 'grades' },
+    'Exam.createdById': { excluded: STAFF_WORK },
+    'Exam.examinerId': { excluded: STAFF_WORK },
+    'ExamResult.studentId': { section: 'examResults' },
+    'ConsultationSlot.teacherId': { excluded: STAFF_WORK },
+    'ConsultationSlot.studentId': { section: 'consultations' },
+    'DeaneryAppointment.studentId': { section: 'deaneryAppointments' },
+    'DeaneryAppointment.assignedToId': { excluded: STAFF_WORK },
+    'PortfolioItem.userId': { section: 'portfolio' },
+    'CompanyMember.userId': { section: 'companies' },
+    'CareerProfile.userId': { section: 'careerProfile' },
+    'CareerConsent.userId': { section: 'careerConsents' },
+    'CareerApplication.studentId': { section: 'careerApplications' },
+    'Resume.userId': { section: 'resume' },
+    'ReleaseView.userId': { excluded: 'служебная отметка интерфейса «что нового» о версии' },
+    'TelegramAccount.userId': { section: 'telegram' },
+    'UniversityDemoRequest.reviewedById': { excluded: STAFF_WORK },
+    'Story.authorId': { section: 'stories' },
+    'StoryPollVote.userId': { section: 'storyPollVotes' },
+    'StoryView.userId': { section: 'storyViews' },
+    'StoryReaction.userId': { section: 'storyReactions' },
+  }

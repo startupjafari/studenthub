@@ -3,6 +3,7 @@ import { FriendsService } from './friends.service'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { QueueService } from '../../common/queue'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
+import type Redis from 'ioredis'
 
 function setup() {
   const prisma = {
@@ -11,19 +12,35 @@ function setup() {
       findFirst: jest.fn(),
       findUnique: jest.fn(),
       create: jest.fn(),
-      update: jest.fn(),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       delete: jest.fn(),
-      count: jest.fn(),
+      count: jest.fn().mockResolvedValue(0),
+      findMany: jest.fn().mockResolvedValue([]),
     },
     notification: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
-    userBlock: { findFirst: jest.fn().mockResolvedValue(null) },
+    userBlock: {
+      findFirst: jest.fn().mockResolvedValue(null),
+      findMany: jest.fn().mockResolvedValue([]),
+    },
+    // advisory-лок пары
+    $executeRaw: jest.fn().mockResolvedValue(1),
+    // Интерактивная транзакция получает тот же мок клиентом; массивная — Promise.all.
+    $transaction: jest.fn((arg: unknown): Promise<unknown> => {
+      if (typeof arg === 'function') return (arg as (tx: unknown) => Promise<unknown>)(prisma)
+      return Promise.all(arg as Promise<unknown>[])
+    }),
   }
   const queue = { enqueue: jest.fn().mockResolvedValue(undefined) }
+  const redis = {
+    exists: jest.fn().mockResolvedValue(0),
+    set: jest.fn().mockResolvedValue('OK'),
+  }
   const service = new FriendsService(
     prisma as unknown as PrismaService,
     queue as unknown as QueueService,
+    redis as unknown as Redis,
   )
-  return { service, prisma, queue }
+  return { service, prisma, queue, redis }
 }
 
 const me: JwtPayload = {
@@ -81,8 +98,8 @@ describe('FriendsService.sendRequest', () => {
     })
     const res = await service.sendRequest(me, 'target')
     expect(res).toEqual({ status: 'accepted' })
-    expect(prisma.friendship.update).toHaveBeenCalledWith({
-      where: { id: 'f1' },
+    expect(prisma.friendship.updateMany).toHaveBeenCalledWith({
+      where: { id: 'f1', status: 'PENDING' },
       data: expect.objectContaining({ status: 'ACCEPTED' }),
     })
     expect(queue.enqueue).toHaveBeenCalledWith(
@@ -180,10 +197,13 @@ describe('FriendsService.accept / remove', () => {
       status: 'PENDING',
     })
     await service.accept(me, 'f1')
-    expect(prisma.friendship.update).toHaveBeenCalledWith({
-      where: { id: 'f1' },
+    expect(prisma.friendship.updateMany).toHaveBeenCalledWith({
+      where: { id: 'f1', status: 'PENDING' },
       data: expect.objectContaining({ status: 'ACCEPTED' }),
     })
+    // Принятие идёт под локом пары, а строка — та же: дублем она себя не считает.
+    expect(prisma.$executeRaw).toHaveBeenCalled()
+    expect(prisma.friendship.delete).not.toHaveBeenCalled()
     expect(queue.enqueue).toHaveBeenCalledWith(
       'notifications',
       'friend-accepted',
@@ -194,6 +214,31 @@ describe('FriendsService.accept / remove', () => {
     expect(prisma.notification.deleteMany).toHaveBeenCalledWith({
       where: { dedupeKey: 'friend-request:f1' },
     })
+  })
+
+  // Висящая заявка от заблокированного превращалась в дружбу, а дружба открывает закрытый профиль.
+  it('принять заявку при личной блокировке в любую сторону → FORBIDDEN, дружбы нет', async () => {
+    const { service, prisma, queue } = setup()
+    prisma.friendship.findUnique.mockResolvedValue({
+      id: 'f1',
+      requesterId: 'a',
+      addresseeId: 'me',
+      status: 'PENDING',
+    })
+    prisma.userBlock.findFirst.mockResolvedValue({ id: 'b1' })
+    await expect(service.accept(me, 'f1')).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(prisma.userBlock.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          OR: [
+            { blockerId: 'me', blockedId: 'a' },
+            { blockerId: 'a', blockedId: 'me' },
+          ],
+        },
+      }),
+    )
+    expect(prisma.friendship.updateMany).not.toHaveBeenCalled()
+    expect(queue.enqueue).not.toHaveBeenCalled()
   })
 
   it('отклонение/отмена (remove) — гасит уведомление и НЕ шлёт ничего отправителю', async () => {
@@ -265,5 +310,241 @@ describe('FriendsService.statusFor', () => {
       status: 'PENDING_INCOMING',
       friendshipId: 'f2',
     })
+  })
+})
+
+// Блокировка сама удаляет дружбу, но пары, заблокированные до этого, остались друзьями в базе.
+describe('FriendsService — заблокированные не в списках и счётчиках', () => {
+  it('без блокировок фильтр не добавляется', async () => {
+    const { service, prisma } = setup()
+    await service.listFriends(me, { limit: 20 })
+    expect(prisma.friendship.findMany.mock.calls[0][0].where).not.toHaveProperty('AND')
+  })
+
+  it('список друзей, заявки и счётчики исключают заблокированных в обе стороны', async () => {
+    const { service, prisma } = setup()
+    prisma.userBlock.findMany.mockResolvedValue([
+      { blockerId: 'me', blockedId: 'ex' },
+      { blockerId: 'troll', blockedId: 'me' },
+    ])
+    const excluded = {
+      AND: [
+        { requesterId: { notIn: ['ex', 'troll'] } },
+        { addresseeId: { notIn: ['ex', 'troll'] } },
+      ],
+    }
+    await service.listFriends(me, { limit: 20 })
+    expect(prisma.friendship.findMany.mock.calls[0][0].where).toMatchObject(excluded)
+
+    await service.listRequests(me, { direction: 'outgoing', limit: 20 })
+    // Фильтр не затирает собственное условие запроса («мои исходящие»).
+    expect(prisma.friendship.findMany.mock.calls[1][0].where).toMatchObject({
+      status: 'PENDING',
+      requesterId: 'me',
+      ...excluded,
+    })
+
+    await service.counts(me)
+    for (const [arg] of prisma.friendship.count.mock.calls) {
+      expect(arg.where).toMatchObject(excluded)
+    }
+    expect(prisma.friendship.count.mock.calls[1][0].where.addresseeId).toBe('me')
+  })
+})
+
+// E-F20: встречные заявки одновременно, мёртвые аккаунты в списках, пауза после отклонения.
+describe('FriendsService — встречные заявки под локом пары', () => {
+  it('поиск связи и запись — в транзакции под локом пары; встречная → принятие', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findFirst.mockResolvedValue({ id: 'target' })
+    prisma.friendship.findFirst.mockResolvedValue({
+      id: 'f1',
+      requesterId: 'target',
+      addresseeId: 'me',
+      status: 'PENDING',
+    })
+    const order: string[] = []
+    prisma.$executeRaw.mockImplementation(async () => {
+      order.push('lock')
+      return 1
+    })
+    prisma.friendship.findFirst.mockImplementation(async () => {
+      order.push('find')
+      return { id: 'f1', requesterId: 'target', addresseeId: 'me', status: 'PENDING' }
+    })
+    expect(await service.sendRequest(me, 'target')).toEqual({ status: 'accepted' })
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function))
+    expect(order).toEqual(['lock', 'find'])
+    // Ключ лока не зависит от направления: «me» и «target» в порядке сортировки.
+    const [, key] = prisma.$executeRaw.mock.calls[0] as [unknown, string]
+    expect(key).toBe('friendship:me:target')
+    expect(prisma.friendship.create).not.toHaveBeenCalled()
+  })
+
+  it('ключ лока одинаков для A→B и B→A', async () => {
+    const a = setup()
+    a.prisma.user.findFirst.mockResolvedValue({ id: 'target' })
+    a.prisma.friendship.findFirst.mockResolvedValue(null)
+    a.prisma.friendship.create.mockResolvedValue({ id: 'f1' })
+    await a.service.sendRequest(me, 'target')
+    const b = setup()
+    b.prisma.user.findFirst.mockResolvedValue({ id: 'me' })
+    b.prisma.friendship.findFirst.mockResolvedValue(null)
+    b.prisma.friendship.create.mockResolvedValue({ id: 'f2' })
+    await b.service.sendRequest({ ...me, sub: 'target' }, 'me')
+    expect(a.prisma.$executeRaw.mock.calls[0][1]).toBe(b.prisma.$executeRaw.mock.calls[0][1])
+  })
+
+  it('связь ищется детерминированно: принятая главнее, из заявок — ранняя', async () => {
+    const { service, prisma } = setup()
+    prisma.friendship.findFirst.mockResolvedValue(null)
+    await service.statusFor('me', 'x')
+    expect(prisma.friendship.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orderBy: [{ status: 'desc' }, { createdAt: 'asc' }, { id: 'asc' }],
+      }),
+    )
+  })
+
+  it('принятие встречной удаляет дубль пары и гасит его уведомление', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findFirst.mockResolvedValue({ id: 'target' })
+    prisma.friendship.findFirst.mockResolvedValue({
+      id: 'f1',
+      requesterId: 'target',
+      addresseeId: 'me',
+      status: 'PENDING',
+    })
+    // Моя же старая заявка той же паре — след гонки до лока.
+    prisma.friendship.findUnique.mockResolvedValue({ id: 'dup' })
+    await service.sendRequest(me, 'target')
+    expect(prisma.friendship.findUnique).toHaveBeenCalledWith({
+      where: { requesterId_addresseeId: { requesterId: 'me', addresseeId: 'target' } },
+      select: { id: true },
+    })
+    expect(prisma.friendship.delete).toHaveBeenCalledWith({ where: { id: 'dup' } })
+    expect(prisma.notification.deleteMany).toHaveBeenCalledWith({
+      where: { dedupeKey: 'friend-request:dup' },
+    })
+  })
+
+  it('заявку успели обработать (UPDATE не задел строк) → CONFLICT, уведомлений нет', async () => {
+    const { service, prisma, queue } = setup()
+    prisma.friendship.findUnique.mockResolvedValue({
+      id: 'f1',
+      requesterId: 'a',
+      addresseeId: 'me',
+      status: 'PENDING',
+    })
+    prisma.friendship.updateMany.mockResolvedValue({ count: 0 })
+    await expect(service.accept(me, 'f1')).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(queue.enqueue).not.toHaveBeenCalled()
+  })
+})
+
+describe('FriendsService — удалённые и заблокированные платформой не в списках', () => {
+  const active = { deletedAt: null, isBlocked: false }
+
+  it('друзья: условие на второго участника стоит в where (до take)', async () => {
+    const { service, prisma } = setup()
+    await service.listFriends(me, { limit: 20 })
+    expect(prisma.friendship.findMany.mock.calls[0][0].where).toMatchObject({
+      status: 'ACCEPTED',
+      OR: [
+        { requesterId: 'me', addressee: active },
+        { addresseeId: 'me', requester: active },
+      ],
+    })
+  })
+
+  it('заявки: входящие — живой отправитель, исходящие — живой адресат', async () => {
+    const { service, prisma } = setup()
+    await service.listRequests(me, { direction: 'incoming', limit: 20 })
+    await service.listRequests(me, { direction: 'outgoing', limit: 20 })
+    expect(prisma.friendship.findMany.mock.calls[0][0].where).toMatchObject({
+      addresseeId: 'me',
+      requester: active,
+    })
+    expect(prisma.friendship.findMany.mock.calls[1][0].where).toMatchObject({
+      requesterId: 'me',
+      addressee: active,
+    })
+  })
+
+  it('счётчики считают только живых', async () => {
+    const { service, prisma } = setup()
+    await service.counts(me)
+    expect(prisma.friendship.count.mock.calls[0][0].where).toMatchObject({
+      OR: [
+        { requesterId: 'me', addressee: active },
+        { addresseeId: 'me', requester: active },
+      ],
+    })
+    expect(prisma.friendship.count.mock.calls[1][0].where).toMatchObject({
+      addresseeId: 'me',
+      requester: active,
+    })
+  })
+})
+
+describe('FriendsService — пауза на повторную заявку после отклонения', () => {
+  const pending = { id: 'f1', requesterId: 'a', addresseeId: 'me', status: 'PENDING' }
+
+  it('адресат отклоняет → ключ паузы на неделю для пары requester→addressee', async () => {
+    const { service, prisma, redis } = setup()
+    prisma.friendship.findUnique.mockResolvedValue(pending)
+    await service.remove(me, 'f1')
+    expect(redis.set).toHaveBeenCalledWith('friend-declined:a:me', '1', 'EX', 7 * 24 * 60 * 60)
+  })
+
+  it('отмена своей заявки и удаление из друзей паузы не ставят', async () => {
+    const { service, prisma, redis } = setup()
+    prisma.friendship.findUnique.mockResolvedValueOnce({
+      ...pending,
+      requesterId: 'me',
+      addresseeId: 'b',
+    })
+    await service.remove(me, 'f1')
+    prisma.friendship.findUnique.mockResolvedValueOnce({ ...pending, status: 'ACCEPTED' })
+    await service.remove(me, 'f1')
+    expect(redis.set).not.toHaveBeenCalled()
+  })
+
+  it('во время паузы новая заявка → CONFLICT, строка не создаётся', async () => {
+    const { service, prisma, redis, queue } = setup()
+    prisma.user.findFirst.mockResolvedValue({ id: 'target' })
+    prisma.friendship.findFirst.mockResolvedValue(null)
+    redis.exists.mockResolvedValue(1)
+    await expect(service.sendRequest(me, 'target')).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(redis.exists).toHaveBeenCalledWith('friend-declined:me:target')
+    expect(prisma.friendship.create).not.toHaveBeenCalled()
+    expect(queue.enqueue).not.toHaveBeenCalled()
+  })
+
+  it('пауза не мешает принять встречную заявку', async () => {
+    const { service, prisma, redis } = setup()
+    prisma.user.findFirst.mockResolvedValue({ id: 'target' })
+    prisma.friendship.findFirst.mockResolvedValue({
+      id: 'f1',
+      requesterId: 'target',
+      addresseeId: 'me',
+      status: 'PENDING',
+    })
+    redis.exists.mockResolvedValue(1)
+    expect(await service.sendRequest(me, 'target')).toEqual({ status: 'accepted' })
+  })
+
+  it('Redis недоступен: заявка уходит, отклонение проходит', async () => {
+    const { service, prisma, redis } = setup()
+    redis.exists.mockRejectedValue(new Error('ECONNREFUSED'))
+    redis.set.mockRejectedValue(new Error('ECONNREFUSED'))
+    prisma.user.findFirst.mockResolvedValue({ id: 'target' })
+    prisma.friendship.findFirst.mockResolvedValue(null)
+    prisma.friendship.create.mockResolvedValue({ id: 'f9' })
+    expect(await service.sendRequest(me, 'target')).toEqual({ status: 'pending' })
+
+    prisma.friendship.findUnique.mockResolvedValue(pending)
+    await expect(service.remove(me, 'f1')).resolves.toBeUndefined()
+    expect(prisma.friendship.delete).toHaveBeenCalledWith({ where: { id: 'f1' } })
   })
 })

@@ -1,12 +1,23 @@
 'use client'
 
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useFormatter, useTranslations } from 'next-intl'
-import { ArrowLeft, CalendarClock, Check, MapPin, Send, Trash2, Users, Video } from 'lucide-react'
+import {
+  ArrowLeft,
+  CalendarClock,
+  Check,
+  MapPin,
+  Pencil,
+  Send,
+  Trash2,
+  Users,
+  Video,
+} from 'lucide-react'
 import { Role } from '@studenthub/shared-types'
 import { CreateEventCommentSchema, type CreateEventCommentInput } from '@studenthub/shared-schemas'
 import {
@@ -19,9 +30,11 @@ import {
   fetchEventParticipants,
   registerEventRequest,
   MEETING_PROVIDER_NAME,
+  type EventCommentsPage,
   type EventItem,
 } from '../../../entities/event'
 import { ProfileLink } from '../../../entities/user'
+import { EditEventModal } from '../../../features/create-event'
 import { JoinMeetingButton } from '../../../features/join-meeting'
 import {
   Avatar,
@@ -35,13 +48,17 @@ import {
   PageHeader,
   Skeleton,
   Textarea,
+  useConfirm,
 } from '../../../shared/ui'
 import { toApiError } from '../../../shared/lib'
 import { useAppSelector } from '../../../shared/store'
 
-// Кто вправе смотреть участников и убирать чужие комментарии (сервер проверяет scope сам).
+// Запасной расчёт прав по роли — только для ответа без серверных флагов `canManage` /
+// `canDelete` (E-F16): роль не знает scope, и декан видел бы кнопки у чужих событий.
 const MANAGER_ROLES: Role[] = [Role.PLATFORM_ADMIN, Role.UNIVERSITY_ADMIN, Role.DEAN]
 const MODERATOR_ROLES: Role[] = [Role.PLATFORM_MODERATOR, Role.UNIVERSITY_MODERATOR]
+// Событие без указанного конца длится два часа — как считает сервер.
+const DEFAULT_DURATION_MS = 2 * 60 * 60 * 1000
 
 /**
  * Карточка события (docs/PROJECT.md §3.5): подробности, регистрация и вход во встречу,
@@ -59,18 +76,28 @@ export function EventDetailView({ eventId }: { eventId: string }) {
     queryKey: eventKeys.detail(eventId),
     queryFn: () => fetchEvent(eventId),
   })
+  const [editing, setEditing] = useState(false)
   const isOrganizer = event.data?.organizerId === myId
-  const canManage = isOrganizer || (role !== null && MANAGER_ROLES.includes(role))
+  const canManage =
+    event.data?.canManage ?? (isOrganizer || (role !== null && MANAGER_ROLES.includes(role)))
 
   return (
     <div className="flex w-full flex-1 flex-col gap-4">
       <PageHeader
         title={event.data?.title ?? t('title')}
         actions={
-          <Button variant="ghost" size="md" onClick={() => router.back()}>
-            <ArrowLeft className="size-4" aria-hidden />
-            {t('back')}
-          </Button>
+          <>
+            {event.data && canManage && (
+              <Button variant="outline" size="md" onClick={() => setEditing(true)}>
+                <Pencil className="size-4" aria-hidden />
+                {t('edit')}
+              </Button>
+            )}
+            <Button variant="ghost" size="md" onClick={() => router.back()}>
+              <ArrowLeft className="size-4" aria-hidden />
+              {t('back')}
+            </Button>
+          </>
         }
       />
 
@@ -86,6 +113,7 @@ export function EventDetailView({ eventId }: { eventId: string }) {
         <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
           <div className="flex min-w-0 flex-col gap-4">
             <EventInfo event={event.data} />
+            {/* canModerate — запасной расчёт для ответа без `canDelete` у комментариев. */}
             <Comments
               eventId={eventId}
               canModerate={canManage || (role !== null && MODERATOR_ROLES.includes(role))}
@@ -93,6 +121,10 @@ export function EventDetailView({ eventId }: { eventId: string }) {
           </div>
           {canManage && <Participants eventId={eventId} />}
         </div>
+      )}
+
+      {editing && event.data && (
+        <EditEventModal event={event.data} onClose={() => setEditing(false)} />
       )}
     </div>
   )
@@ -104,7 +136,12 @@ function EventInfo({ event }: { event: EventItem }) {
   const fmt = useFormatter()
   const qc = useQueryClient()
   const start = new Date(event.startsAt)
-  const past = start.getTime() < Date.now()
+  // Завершилось — по концу, а не по началу: к идущему событию ещё подключаются, и сервер
+  // принимает регистрацию до его конца.
+  const end = event.endsAt
+    ? new Date(event.endsAt)
+    : new Date(start.getTime() + DEFAULT_DURATION_MS)
+  const past = end.getTime() < Date.now()
 
   const registerMut = useMutation({
     mutationFn: () =>
@@ -226,15 +263,23 @@ function Comments({ eventId, canModerate }: { eventId: string; canModerate: bool
   const tErr = useTranslations('Errors')
   const fmt = useFormatter()
   const qc = useQueryClient()
+  const confirm = useConfirm()
   const myId = useAppSelector((s) => s.auth.user?.id)
-  const comments = useQuery({
+  // Страницы — свежие сверху; «Показать предыдущие» догружает более ранние (E-F12).
+  const comments = useInfiniteQuery({
     queryKey: eventKeys.comments(eventId),
-    queryFn: () => fetchEventComments(eventId),
+    queryFn: ({ pageParam }: { pageParam: string | undefined }) =>
+      fetchEventComments(eventId, pageParam),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last: EventCommentsPage) => (last.hasNext ? last.cursor : undefined),
   })
   const form = useForm<CreateEventCommentInput>({
     resolver: zodResolver(CreateEventCommentSchema),
   })
 
+  // После записи — перезапрос загруженных страниц: TanStack перечитывает их по порядку
+  // от первой с новыми курсорами, так что сдвиг страниц из-за нового комментария не теряет
+  // и не дублирует строки.
   const add = useMutation({
     mutationFn: (values: CreateEventCommentInput) =>
       addEventCommentRequest(eventId, values.content),
@@ -250,57 +295,103 @@ function Comments({ eventId, canModerate }: { eventId: string; canModerate: bool
     onError: (e) => toast.error(tErr(toApiError(e).code)),
   })
 
-  const items = comments.data ?? []
+  const pages = comments.data?.pages ?? []
+  // На экране — по порядку написания: самые старые сверху, свежие у поля ввода.
+  const items = pages.flatMap((p) => p.items).reverse()
+  // Счётчик — со всего обсуждения, а не с догруженных страниц.
+  const total = pages[0]?.total ?? items.length
 
   return (
     <Card className="flex flex-col gap-3 p-4">
-      <h2 className="text-sm font-semibold">{t('comments')}</h2>
+      <h2 className="flex items-baseline gap-2 text-sm font-semibold">
+        {t('comments')}
+        {total > 0 && (
+          <span className="text-xs font-normal text-muted-foreground tabular-nums">{total}</span>
+        )}
+      </h2>
       {comments.isLoading ? (
         <Skeleton className="h-20 w-full rounded-lg" />
+      ) : comments.isError ? (
+        <p className="text-sm text-muted-foreground">{tErr(toApiError(comments.error).code)}</p>
       ) : items.length === 0 ? (
         <p className="text-sm text-muted-foreground">{t('noComments')}</p>
       ) : (
         <ul className="flex flex-col gap-3">
-          {items.map((c) => (
-            <li key={c.id} className="flex gap-2.5">
-              <Avatar className="size-8">
-                {c.author.avatarThumbUrl && <AvatarImage src={c.author.avatarThumbUrl} alt="" />}
-                <AvatarFallback className="text-xs">
-                  {`${c.author.firstName[0] ?? ''}${c.author.lastName[0] ?? ''}`.toUpperCase()}
-                </AvatarFallback>
-              </Avatar>
-              <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                <div className="flex items-baseline gap-2">
-                  <ProfileLink userId={c.author.id} className="text-sm font-medium hover:underline">
-                    {c.author.lastName} {c.author.firstName}
-                  </ProfileLink>
-                  <span className="text-xs text-muted-foreground">
-                    {fmt.dateTime(new Date(c.createdAt), {
-                      day: 'numeric',
-                      month: 'short',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
-                  </span>
-                  {(c.author.id === myId || canModerate) && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      icon
-                      aria-label={t('deleteComment')}
-                      title={t('deleteComment')}
-                      loading={remove.isPending && remove.variables === c.id}
-                      onClick={() => remove.mutate(c.id)}
-                      className="ml-auto size-7 text-muted-foreground hover:text-destructive"
-                    >
-                      <Trash2 className="size-3.5" aria-hidden />
-                    </Button>
-                  )}
-                </div>
-                <p className="text-sm break-words whitespace-pre-line">{c.content}</p>
-              </div>
+          {comments.hasNextPage && (
+            <li>
+              <Button
+                type="button"
+                variant="link"
+                size="sm"
+                className="h-auto px-0"
+                loading={comments.isFetchingNextPage}
+                onClick={() => void comments.fetchNextPage()}
+              >
+                {t('showEarlierComments')}
+              </Button>
             </li>
-          ))}
+          )}
+          {items.map((c) => {
+            const own = c.author.id === myId
+            const canDelete = c.canDelete ?? (own || canModerate)
+            return (
+              <li key={c.id} className="flex gap-2.5">
+                <Avatar className="size-8">
+                  {c.author.avatarThumbUrl && <AvatarImage src={c.author.avatarThumbUrl} alt="" />}
+                  <AvatarFallback className="text-xs">
+                    {`${c.author.firstName[0] ?? ''}${c.author.lastName[0] ?? ''}`.toUpperCase()}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <div className="flex items-baseline gap-2">
+                    <ProfileLink
+                      userId={c.author.id}
+                      className="text-sm font-medium hover:underline"
+                    >
+                      {c.author.lastName} {c.author.firstName}
+                    </ProfileLink>
+                    <span className="text-xs text-muted-foreground">
+                      {fmt.dateTime(new Date(c.createdAt), {
+                        day: 'numeric',
+                        month: 'short',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </span>
+                    {canDelete && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        icon
+                        aria-label={own ? t('deleteComment') : t('deleteCommentModeration')}
+                        title={own ? t('deleteComment') : t('deleteCommentModeration')}
+                        loading={remove.isPending && remove.variables === c.id}
+                        onClick={() => {
+                          // Свой — сразу; чужой — решение модерации: с подтверждением, оно в аудите.
+                          if (own) {
+                            remove.mutate(c.id)
+                            return
+                          }
+                          void confirm({
+                            title: t('deleteCommentConfirm'),
+                            description: t('moderationDeleteHint'),
+                            confirmLabel: t('deleteCommentModeration'),
+                            destructive: true,
+                          }).then((ok) => {
+                            if (ok) remove.mutate(c.id)
+                          })
+                        }}
+                        className="ml-auto size-7 text-muted-foreground hover:text-destructive"
+                      >
+                        <Trash2 className="size-3.5" aria-hidden />
+                      </Button>
+                    )}
+                  </div>
+                  <p className="text-sm break-words whitespace-pre-line">{c.content}</p>
+                </div>
+              </li>
+            )
+          })}
         </ul>
       )}
 

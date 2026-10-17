@@ -12,7 +12,7 @@ export {
   addReactionRequest,
   removeReactionRequest,
   toggleBookmarkRequest,
-  fetchComments,
+  fetchCommentsPage,
   addCommentRequest,
   deleteCommentRequest,
   fetchPostMediaLink,
@@ -34,6 +34,16 @@ export {
   type PostAuthor,
   type PostMedia,
   type PostReaction,
+  type PostReactionSummary,
   type FeedPost,
   type PostComment,
+  type PostCommentsPage,
 } from './model/types'
+export {
+  LIKE_EMOJI,
+  reactionSummaryOf,
+  reactionTotal,
+  hasMyReaction,
+  withMyReaction,
+} from './model/reactions'
+export { inlineMediaLink } from './model/media'

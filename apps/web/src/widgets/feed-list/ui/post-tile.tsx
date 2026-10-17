@@ -4,7 +4,7 @@ import { useTranslations } from 'next-intl'
 import { Eye, Heart, Images, MessageCircle, Pin, Play, Repeat2 } from 'lucide-react'
 import { Role } from '@studenthub/shared-types'
 import { useAppSelector } from '../../../shared/store'
-import type { FeedPost } from '../../../entities/post'
+import { reactionSummaryOf, reactionTotal, type FeedPost } from '../../../entities/post'
 import { cn } from '../../../shared/lib/utils'
 import { plainPreview } from '../../../shared/lib'
 import { BRAND_GRADIENT } from '../../../shared/config'
@@ -33,7 +33,8 @@ interface PostTileProps {
 // репост и закладка живут в лайтбоксе: на плитке они мельчили сетку и спорили с обложкой.
 //
 // Репост показывается исходным постом: его обложка и счётчики, а в углу — «↻ Имя». Пока
-// исходник грузится — скелетон плитки; исходник недоступен — плитка самого репоста.
+// исходник грузится — скелетон плитки; исходник недоступен — плитка самого репоста, и без
+// своей заметки на ней «Публикация недоступна».
 export function PostTile(props: PostTileProps) {
   const source = useRepostSource(props.post)
   if (source.kind === 'loading') {
@@ -46,17 +47,20 @@ export function PostTile(props: PostTileProps) {
   if (source.kind === 'ready') {
     return <PostTileView {...props} key={source.source.id} post={source.source} via={props.post} />
   }
-  return <PostTileView {...props} />
+  return <PostTileView {...props} originalUnavailable={source.kind === 'unavailable'} />
 }
 
 function PostTileView({
   post,
   index,
   via,
+  originalUnavailable = false,
   onOpen,
 }: PostTileProps & {
   /** Репост, через который показан `post` (исходник). Его меню — удалить свой репост. */
   via?: FeedPost
+  /** `post` — репост, чей исходник зрителю недоступен (удалён или чужой аудитории). */
+  originalUnavailable?: boolean
 }) {
   const t = useTranslations('Feed')
   const myId = useAppSelector((s) => s.auth.user?.id)
@@ -65,12 +69,17 @@ function PostTileView({
   const shape = mosaicShape(index)
   const first = post.media[0]
   // Подпись плитки — без разметки: «**Совет дня.**» иначе показывался со звёздочками.
-  const text = post.title || plainPreview(post.content)
-  const canModerate = myRole !== null && MODERATOR_ROLES.includes(myRole)
+  const text =
+    post.title ||
+    plainPreview(post.content) ||
+    (originalUnavailable ? t('postUnavailableTitle') : '')
+  const byRole = myRole !== null && MODERATOR_ROLES.includes(myRole)
   // Меню «•••» — про ту публикацию, что лежит в профиле: у репоста это сам репост
   // (удалить его), а не чужой исходник, который трогать нельзя.
   const menuPost = via ?? post
-  const canDelete = menuPost.authorId === myId || canModerate
+  // Права считает сервер (ранг и scope); роль — только для ответа старого API.
+  const canModerate = menuPost.canPin ?? byRole
+  const canDelete = menuPost.canDelete ?? (menuPost.authorId === myId || byRole)
 
   return (
     // Плитка без обрезки: меню «•••» раскрывается за её край. Скругление обложки держит
@@ -127,7 +136,7 @@ function PostTileView({
           <span className="flex items-center gap-3 text-xs font-medium text-white/90 tabular-nums">
             <span className="inline-flex items-center gap-1">
               <Heart className="size-3.5" aria-hidden />
-              {post.reactions.length}
+              {reactionTotal(reactionSummaryOf(post))}
             </span>
             <span className="inline-flex items-center gap-1">
               <MessageCircle className="size-3.5" aria-hidden />

@@ -114,6 +114,24 @@ describe('resolveInviteTarget — матрица иерархии выдачи �
         facultyId: 'fac-A',
       })
     })
+    it('DEAN — только на свой факультет: чужой из тела → WRONG_SCOPE', () => {
+      expectCode(
+        () => resolveInviteTarget(deanA, { role: Role.TEACHER, facultyId: 'fac-B' }),
+        'WRONG_SCOPE',
+      )
+      expect(resolveInviteTarget(deanA, { role: Role.TEACHER, facultyId: 'fac-A' })).toEqual({
+        universityId: 'uni-A',
+        facultyId: 'fac-A',
+        groupId: null,
+      })
+    })
+    it('UNIVERSITY_ADMIN выбирает факультет в своём вузе', () => {
+      expect(resolveInviteTarget(uniAdminA, { role: Role.TEACHER, facultyId: 'fac-B' })).toEqual({
+        universityId: 'uni-A',
+        facultyId: 'fac-B',
+        groupId: null,
+      })
+    })
   })
 
   describe('STAROSTA', () => {

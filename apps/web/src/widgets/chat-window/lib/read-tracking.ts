@@ -46,3 +46,29 @@ export function unreadAfter(
   }
   return n
 }
+
+interface Receipt {
+  id: string
+  lastReadAt: string | null
+}
+
+/**
+ * Применить прочтение участника к уже загруженным статусам «кто прочитал» — из самого
+ * события `message:read`, без запроса.
+ *
+ * Раньше каждое чужое прочтение перезапрашивало `GET /chats/:id/reads` (до 500 строк) у
+ * всех, кто держит чат открытым: в группе во время пары прочтения идут потоком, и это
+ * давало N×M запросов (F-F22). Отметка только растёт — запоздавшее событие о более раннем
+ * прочтении её не откатывает. Участника нет в списке — список не меняется: новичка
+ * подтянет следующая загрузка, а придумывать ему строку без имени незачем.
+ */
+export function withReceipt<T extends Receipt>(list: T[], userId: string, readAt: string): T[] {
+  let changed = false
+  const next = list.map((r) => {
+    if (r.id !== userId) return r
+    if (r.lastReadAt && Date.parse(r.lastReadAt) >= Date.parse(readAt)) return r
+    changed = true
+    return { ...r, lastReadAt: readAt }
+  })
+  return changed ? next : list
+}
