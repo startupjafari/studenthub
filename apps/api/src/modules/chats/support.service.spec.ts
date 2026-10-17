@@ -395,11 +395,25 @@ describe('SupportService.onTicketMessage — правила обращения �
 describe('SupportService.closeStale', () => {
   function staleSetup(lastSenderRole: Role) {
     const base = setup()
-    base.prisma.chat.findMany.mockResolvedValue([
-      { id: 't1', messages: [{ sender: { role: lastSenderRole } }] },
-    ])
+    base.prisma.chat.findMany.mockResolvedValue([{ id: 't1' }])
+    // Последнее слово читается отдельно: id — одним запросом, строка — вторым.
+    base.prisma.$queryRaw.mockResolvedValue([{ chatId: 't1', id: 'm1' }])
+    Object.assign(base.prisma.message, {
+      findMany: jest.fn().mockResolvedValue([{ chatId: 't1', sender: { role: lastSenderRole } }]),
+    })
     return base
   }
+
+  // Вложенный `messages: { take: 1 }` Prisma обрезает в памяти — то есть читает всю
+  // переписку каждого из двухсот обращений ради одной строки.
+  it('не читает переписку обращений целиком', async () => {
+    const { service, prisma } = staleSetup(Role.PLATFORM_ADMIN)
+
+    await service.closeStale(new Date())
+
+    expect(prisma.chat.findMany.mock.calls[0]?.[0].select).toEqual({ id: true })
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(1)
+  })
 
   /**
    * Закрывается только то, где последнее слово было за КОМАНДОЙ: человек получил ответ и
@@ -494,6 +508,36 @@ describe('SupportService — теги', () => {
     // читается последним запросом.
     expect(prisma.chat.findMany.mock.calls.at(-1)?.[0].where).toMatchObject({
       supportTags: { has: 'ACCESS' },
+    })
+  })
+
+  it('последнее сообщение строки берёт отдельным запросом, а не всей перепиской', async () => {
+    const { service, prisma } = setup()
+    prisma.chat.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([
+      {
+        id: 't1',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        supportClosedAt: null,
+        supportAssigneeId: null,
+        supportFirstReplyAt: null,
+        supportTags: [],
+        members: [{ user: { id: 'u1', firstName: 'А', lastName: 'Б', role: Role.STUDENT } }],
+      },
+    ])
+    prisma.$queryRaw.mockResolvedValue([{ chatId: 't1', id: 'm1' }])
+    const createdAt = new Date()
+    Object.assign(prisma.message, {
+      findMany: jest
+        .fn()
+        .mockResolvedValue([{ chatId: 't1', content: 'Помогите', createdAt, senderId: 'u1' }]),
+    })
+
+    const page = await service.queue(staff, { status: 'open', assignee: 'any', page: 1, limit: 30 })
+
+    expect(prisma.chat.findMany.mock.calls.at(-1)?.[0].select).not.toHaveProperty('messages')
+    expect(page.items[0]).toMatchObject({
+      lastMessage: { text: 'Помогите', createdAt, fromAuthor: true },
     })
   })
 

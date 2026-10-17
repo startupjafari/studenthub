@@ -1095,6 +1095,119 @@ describe('ChatsService.getPresence', () => {
   })
 })
 
+// F-F12: присутствие уходит не всему вузу, а тем, кто человека видит.
+describe('ChatsService.presenceRooms — кому сообщать о присутствии', () => {
+  it('собеседникам личных чатов — в их личные комнаты, остальным чатам — в комнату чата', async () => {
+    const { service, prisma } = setup()
+    prisma.chatMember.findMany
+      .mockResolvedValueOnce([
+        { chatId: 'p1', chat: { type: 'PRIVATE' } },
+        { chatId: 'g1', chat: { type: 'GROUP' } },
+        { chatId: 'p2', chat: { type: 'PRIVATE' } },
+        { chatId: 'f1', chat: { type: 'FACULTY' } },
+      ])
+      .mockResolvedValueOnce([{ userId: 'u2' }, { userId: 'u3' }])
+
+    await expect(service.presenceRooms('u1')).resolves.toEqual([
+      'chat:g1',
+      'chat:f1',
+      'user:u2',
+      'user:u3',
+    ])
+    // Забаненного в группе её открытым окнам не показываем.
+    expect(prisma.chatMember.findMany.mock.calls[0]?.[0]).toMatchObject({
+      where: { userId: 'u1', bannedAt: null },
+      take: expect.any(Number),
+    })
+    expect(prisma.chatMember.findMany.mock.calls[1]?.[0]).toMatchObject({
+      where: { chatId: { in: ['p1', 'p2'] }, userId: { not: 'u1' } },
+      take: 2,
+    })
+  })
+
+  it('без личных чатов собеседников не ищет', async () => {
+    const { service, prisma } = setup()
+    prisma.chatMember.findMany.mockResolvedValueOnce([{ chatId: 'g1', chat: { type: 'GROUP' } }])
+
+    await expect(service.presenceRooms('u1')).resolves.toEqual(['chat:g1'])
+    expect(prisma.chatMember.findMany).toHaveBeenCalledTimes(1)
+  })
+
+  it('регистрируется в шлюзе как аудитория присутствия', async () => {
+    const { service, realtime, prisma } = setup()
+    const setPresenceAudience = jest.fn()
+    Object.assign(realtime, { setPresenceAudience })
+    prisma.chatMember.findMany.mockResolvedValueOnce([])
+
+    service.onModuleInit()
+
+    const audience = setPresenceAudience.mock.calls[0]?.[0] as (id: string) => Promise<string[]>
+    await expect(audience('u1')).resolves.toEqual([])
+  })
+})
+
+// F-F02: превью списка — по одной строке на чат, а не всей историей чатов страницы.
+describe('ChatsService.listChats — последнее сообщение', () => {
+  const at = new Date('2026-10-01T10:00:00Z')
+  const chatRow = (id: string) => ({
+    id,
+    type: 'GROUP',
+    title: id,
+    description: null,
+    avatarUrl: null,
+    createdById: null,
+    groupId: null,
+    facultyId: null,
+    universityId: null,
+    subject: null,
+    requestPendingForId: null,
+    updatedAt: at,
+    members: [
+      {
+        lastReadAt: null,
+        mutedAt: null,
+        mutedUntil: null,
+        muteImportantOnly: false,
+        isAdmin: false,
+        clearedAt: null,
+        draft: null,
+        pinnedAt: null,
+        archivedAt: null,
+      },
+    ],
+    _count: { members: 3 },
+  })
+
+  it('берёт его отдельным запросом и считает по нему непрочитанное', async () => {
+    const { service, prisma } = setup()
+    prisma.chat.findMany.mockResolvedValue([chatRow('c1'), chatRow('c2')])
+    prisma.$queryRaw.mockResolvedValue([{ chatId: 'c1', id: 'm1' }])
+    prisma.message.findMany.mockResolvedValue([
+      { id: 'm1', chatId: 'c1', senderId: 'u2', content: 'привет', createdAt: at },
+    ])
+    const messageGroupBy = jest.fn().mockResolvedValue([{ chatId: 'c1', _count: { _all: 2 } }])
+    Object.assign(prisma.message, { groupBy: messageGroupBy })
+    Object.assign(prisma.chatMember, { groupBy: jest.fn().mockResolvedValue([]) })
+
+    // С курсором: провижининг официальных чатов идёт только на первой странице.
+    const page = await service.listChats(user('u1'), { limit: 20, cursor: 'c0' })
+
+    expect(prisma.chat.findMany.mock.calls[0]?.[0].select).not.toHaveProperty('messages')
+    const sql = (prisma.$queryRaw.mock.calls[0]?.[0] as string[]).join('?')
+    expect(sql).toMatch(/LATERAL[\s\S]*LIMIT 1/)
+    expect(prisma.message.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: { in: ['m1'] } }, take: 1 }),
+    )
+    // Непрочитанное считается только там, где последнее сообщение есть.
+    expect(messageGroupBy.mock.calls[0]?.[0].where.OR).toEqual([{ chatId: 'c1' }])
+    expect(page.items).toEqual([
+      expect.objectContaining({ id: 'c1', lastMessage: expect.objectContaining({ id: 'm1' }) }),
+      expect.objectContaining({ id: 'c2', lastMessage: null, unreadCount: 0 }),
+    ])
+    expect(page.items[0]).toMatchObject({ unreadCount: 2, unread: true })
+  })
+})
+
 describe('ChatsService.deleteOrLeaveChat', () => {
   it('PRIVATE: прячет чат у себя (hiddenAt + clearedAt), не удаляя членство', async () => {
     const { service, prisma } = setup()

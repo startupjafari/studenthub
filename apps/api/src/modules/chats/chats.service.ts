@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from '@nestjs/common'
+import { Inject, Injectable, Logger, type OnModuleInit } from '@nestjs/common'
 import { randomBytes } from 'node:crypto'
 import { ConfigService } from '@nestjs/config'
 import type Redis from 'ioredis'
@@ -41,6 +41,7 @@ import type { EnvVars } from '../../config/env.schema'
 import { ExportRegistryService } from '../../common/export/export-registry.service'
 import type { ExportContext } from '../../common/export/export-branding.types'
 import { advisoryXactLock } from '../../common/prisma/advisory-lock'
+import { lastMessagesOf } from './last-message'
 
 /** Проголосовавший в неанонимном опросе (§39). */
 interface PollVoter {
@@ -76,6 +77,12 @@ const MEMBER_BATCH = 500
  * сотнями отправок каждые три секунды.
  */
 const TYPING_FANOUT_MAX = 64
+
+/**
+ * Сколько членств пользователя разбираем, решая, кому сообщить о его присутствии. Закрытые
+ * чаты стоят одну пустую комнату, так что потолок страховочный — от сломанных данных.
+ */
+const PRESENCE_CHATS_MAX = 1000
 
 /** Участник в контексте рассылки уведомлений: членство + режим заглушения (§17). */
 interface ChatMemberNotifyRow {
@@ -396,7 +403,7 @@ const SCHEDULED_SELECT = {
 } satisfies Prisma.ScheduledMessageSelect
 
 @Injectable()
-export class ChatsService {
+export class ChatsService implements OnModuleInit {
   private readonly logger = new Logger(ChatsService.name)
 
   constructor(
@@ -419,6 +426,14 @@ export class ChatsService {
 
   registerSupportHook(hook: SupportMessageHook): void {
     this.supportHook = hook
+  }
+
+  /**
+   * Кому сообщать о присутствии, решает домен чатов: транспорт про собеседников и комнаты
+   * ничего не знает, а обратная зависимость шлюза от этого сервиса замкнула бы кольцо.
+   */
+  onModuleInit(): void {
+    this.realtime.setPresenceAudience((userId) => this.presenceRooms(userId))
   }
 
   // ── Членство ────────────────────────────────────────────────────────────────
@@ -516,12 +531,6 @@ export class ChatsService {
             archivedAt: true,
           },
         },
-        messages: {
-          where: { deletedAt: null },
-          orderBy: { createdAt: 'desc' },
-          take: 1,
-          select: MESSAGE_SELECT,
-        },
         _count: { select: { members: true } },
       },
       // Стабильный порядок под курсор: id — вторая ступень, иначе чаты с одинаковым
@@ -533,11 +542,24 @@ export class ChatsService {
     })
     const hasNext = chats.length > query.limit
     if (hasNext) chats.length = query.limit
-    // Watermark прочтения другими участниками — для статусов доставки своих сообщений (Ф9+).
     const chatIds = chats.map((c) => c.id)
-    const reads =
+    const [lastByChat, reads] = await Promise.all([
+      // Превью — отдельным запросом по одной строке на чат, а не вложенным
+      // `messages: { take: 1 }`: тот читал всю историю чатов страницы (F-F02).
+      lastMessagesOf(
+        this.prisma,
+        chatIds,
+        (ids) =>
+          this.prisma.message.findMany({
+            where: { id: { in: ids } },
+            select: MESSAGE_SELECT,
+            take: ids.length,
+          }),
+        { by: 'createdAt' },
+      ),
+      // Watermark прочтения другими участниками — для статусов доставки своих сообщений (Ф9+).
       chatIds.length > 0
-        ? await this.prisma.chatMember.groupBy({
+        ? this.prisma.chatMember.groupBy({
             by: ['chatId'],
             where: {
               chatId: { in: chatIds },
@@ -546,7 +568,8 @@ export class ChatsService {
             },
             _max: { lastReadAt: true },
           })
-        : []
+        : [],
+    ])
     const readMap = new Map(reads.map((r) => [r.chatId, r._max.lastReadAt]))
 
     // Статус блокировки для PRIVATE-чатов: второй участник + наличие UserBlock в любую сторону.
@@ -603,7 +626,7 @@ export class ChatsService {
     // списке, когда после чужих непрочитанных последним шло своё сообщение, — а сводный
     // счётчик (getUnreadSummary) те же сообщения считал. Свои сообщения отсекает сам COUNT.
     const needCount = chats.filter((c) => {
-      const lm = c.messages[0]
+      const lm = lastByChat.get(c.id)
       const mem = c.members[0]
       if (!lm || !mem) return false
       const floor = unreadFloor(mem)
@@ -631,8 +654,8 @@ export class ChatsService {
       const mem = c.members[0]
       const cleared = mem?.clearedAt ?? null
       // Очищенную «для меня» историю не показываем в превью.
-      const lastMessage =
-        c.messages[0] && (!cleared || c.messages[0].createdAt > cleared) ? c.messages[0] : null
+      const last = lastByChat.get(c.id)
+      const lastMessage = last && (!cleared || last.createdAt > cleared) ? last : null
       const unreadCount = countMap.get(c.id) ?? 0
       const unread = unreadCount > 0
       const other = otherMap.get(c.id)
@@ -2996,6 +3019,44 @@ export class ChatsService {
     const ids = members.map((m) => m.userId)
     const online = new Set(this.realtime.onlineAmong(ids))
     return ids.map((id) => ({ userId: id, online: online.has(id) }))
+  }
+
+  /**
+   * Комнаты, которым сообщать, что пользователь появился в сети или ушёл (F-F12).
+   *
+   * Раньше переход уходил в комнату всего вуза: при пяти тысячах подключённых каждое
+   * открытие вкладки или обрыв Wi-Fi стоили пяти тысяч отправок. Присутствие нужно только
+   * тем, кто этого человека сейчас видит:
+   * - собеседникам личных чатов — в их личные комнаты: собеседников немного, и строка
+   *   личного чата у них может быть на экране в любой момент;
+   * - открытым групповым чатам — в `chat:{id}`: туда входят только те, у кого чат открыт,
+   *   и им нужен счётчик «в сети» в шапке.
+   * Остальное отдаёт снимок по запросу (`GET /chats/:id/presence`, `GET /users/:id/presence`).
+   *
+   * Утечки шире прежнего нет: присутствие участников своего чата и так отдаёт
+   * `GET /chats/:id/presence`.
+   */
+  async presenceRooms(userId: string): Promise<string[]> {
+    const memberships = await this.prisma.chatMember.findMany({
+      where: { userId, bannedAt: null },
+      select: { chatId: true, chat: { select: { type: true } } },
+      take: PRESENCE_CHATS_MAX,
+    })
+    const rooms: string[] = []
+    const privateIds: string[] = []
+    for (const m of memberships) {
+      if (m.chat.type === ChatType.PRIVATE) privateIds.push(m.chatId)
+      else rooms.push(`chat:${m.chatId}`)
+    }
+    if (privateIds.length > 0) {
+      const peers = await this.prisma.chatMember.findMany({
+        where: { chatId: { in: privateIds }, userId: { not: userId } },
+        select: { userId: true },
+        take: privateIds.length,
+      })
+      for (const peer of new Set(peers.map((p) => p.userId))) rooms.push(`user:${peer}`)
+    }
+    return rooms
   }
 
   // ── Блокировка пользователей (Ф9+) ─────────────────────────────────────────

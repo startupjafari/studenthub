@@ -60,6 +60,9 @@ import { ProfileTabs, type ProfileTabId } from './profile-tabs'
 import { PostFromUrl } from '../../feed-list'
 import { ShareProfileButton } from './share-profile-button'
 
+/** Как часто перезапрашивать «в сети» открытого профиля, если живого события нет. */
+const PRESENCE_REFRESH_MS = 60_000
+
 function errCode(e: unknown): string {
   return (e as { code?: string }).code ?? 'INTERNAL_ERROR'
 }
@@ -76,10 +79,13 @@ export function PublicUserProfile({ userId }: { userId: string }) {
     retry: false,
   })
 
-  // Присутствие: снапшот через REST + живые апдейты по WS (событие глобальное).
+  // Присутствие: снапшот через REST + живые апдейты по WS. Событие больше не вещается на весь
+  // вуз — его получают собеседники и открытые чаты человека (F-F12), — поэтому чужой профиль
+  // без общего диалога освежаем редким опросом, пока вкладка видна.
   const presenceQ = useQuery({
     queryKey: userKeys.presence(userId),
     queryFn: () => fetchUserPresence(userId),
+    refetchInterval: PRESENCE_REFRESH_MS,
   })
   const [online, setOnline] = useState(false)
   const [tab, setTab] = useState<ProfileTabId>('profile')

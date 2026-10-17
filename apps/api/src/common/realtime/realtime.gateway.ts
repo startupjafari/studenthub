@@ -21,6 +21,12 @@ import { SessionRevocationService } from '../redis/session-revocation.service'
 // CORS для WS читаем из env на этапе загрузки модуля (декоратор вычисляется при импорте).
 const WS_CORS_ORIGIN = (process.env.CORS_ORIGIN ?? 'http://localhost:3000').split(',')
 
+/**
+ * Комнаты, которым сообщать о присутствии пользователя. Решает домен чатов (собеседники
+ * личных чатов, открытые групповые чаты) — см. ChatsService.presenceRooms.
+ */
+export type PresenceAudience = (userId: string) => Promise<string[]>
+
 // Единый транспорт реального времени поверх socket.io (docs/PROJECT.md §9).
 // Отвечает за аутентификацию в handshake и автоматический вход в комнаты
 // user/group/university. События уведомлений (Ф3.4) рассылаются адресно по user-комнатам;
@@ -31,6 +37,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   private readonly logger = new Logger(RealtimeGateway.name)
   // Счётчик активных соединений на пользователя: онлайн, пока > 0 (несколько вкладок/устройств).
   private readonly connections = new Map<string, number>()
+  private presenceAudience: PresenceAudience | null = null
 
   constructor(
     private readonly jwt: JwtService,
@@ -78,7 +85,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   private trackOnline(userId: string, universityId: string | null): void {
     const next = (this.connections.get(userId) ?? 0) + 1
     this.connections.set(userId, next)
-    if (next === 1) this.emitPresence(userId, universityId, true)
+    if (next === 1) this.emitPresence(userId, universityId)
   }
 
   // Переход онлайн→оффлайн (последнее соединение закрыто).
@@ -86,7 +93,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     const next = (this.connections.get(userId) ?? 1) - 1
     if (next <= 0) {
       this.connections.delete(userId)
-      this.emitPresence(userId, universityId, false)
+      this.emitPresence(userId, universityId)
       // §49 last-seen: фиксируем момент ухода в оффлайн (fire-and-forget, не блокируем disconnect).
       void this.prisma.user
         .update({ where: { id: userId }, data: { lastSeenAt: new Date() } })
@@ -96,12 +103,33 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     }
   }
 
-  // Присутствие рассылаем ТОЛЬКО в комнату вуза пользователя, а не server.emit на всю
-  // платформу (§9.3): иначе студент чужого вуза видел бы онлайн/оффлайн любого пользователя
-  // (cross-tenant утечка присутствия) и каждый вход/выход стоил бы O(N) на всю платформу.
-  private emitPresence(userId: string, universityId: string | null, online: boolean): void {
+  /** Кому сообщать о присутствии — регистрирует домен чатов при старте модуля. */
+  setPresenceAudience(audience: PresenceAudience): void {
+    this.presenceAudience = audience
+  }
+
+  /**
+   * Присутствие — только тем, кто этого человека видит (F-F12): собеседникам личных чатов и
+   * открытым чатам, где он состоит. Ни server.emit на платформу (cross-tenant утечка, §9.3),
+   * ни комната вуза: там каждый вход/выход стоил отправки каждому подключённому, а после
+   * рестарта API все переподключаются разом — N² событий.
+   *
+   * Аудитория читается из базы асинхронно, поэтому отправляем состояние на момент отправки,
+   * а не перехода: быстрое «подключился — отключился» иначе могло прийти в обратном порядке
+   * и оставить человека «в сети».
+   */
+  private emitPresence(userId: string, universityId: string | null): void {
     if (!universityId) return // платформенные роли вне вуза — присутствие не рассылаем
-    this.server.to(`university:${universityId}`).emit('presence:changed', { userId, online })
+    const audience = this.presenceAudience
+    if (!audience) return
+    void audience(userId)
+      .then((rooms) => {
+        if (rooms.length === 0) return
+        this.server.to(rooms).emit('presence:changed', { userId, online: this.isOnline(userId) })
+      })
+      .catch((error: unknown) => {
+        this.logger.warn(`Присутствие user=${userId} не разослано: ${String(error)}`)
+      })
   }
 
   /** Онлайн ли пользователь (есть активные соединения). */

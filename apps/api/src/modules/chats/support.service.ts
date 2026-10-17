@@ -15,6 +15,7 @@ import { Paginated } from '../../common/http/paginated'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
 import { ChatsService } from './chats.service'
+import { lastMessagesOf } from './last-message'
 
 // Поддержка платформы (docs/PROJECT.md §Поддержка).
 //
@@ -36,13 +37,15 @@ const TICKET_SELECT = {
   members: {
     select: { user: { select: { id: true, firstName: true, lastName: true, role: true } } },
   },
-  messages: {
-    where: { deletedAt: null },
-    orderBy: { seq: Prisma.SortOrder.desc },
-    take: 1,
-    select: { content: true, createdAt: true, senderId: true },
-  },
 } satisfies Prisma.ChatSelect
+
+/** Последнее сообщение обращения для строки очереди — читается отдельно, см. lastTicketMessages. */
+interface TicketLastMessage {
+  chatId: string
+  content: string | null
+  createdAt: Date
+  senderId: string
+}
 
 /** Потолок сотрудников в одном обращении, которых читаем, чтобы решить, кого не уведомлять. */
 const TICKET_STAFF_SCAN = 500
@@ -250,8 +253,27 @@ export class SupportService implements OnModuleInit {
       }),
       this.prisma.chat.count({ where }),
     ])
+    const last = await this.lastTicketMessages(rows.map((row) => row.id))
 
-    return new Paginated(rows.map(toTicket), { total })
+    return new Paginated(
+      rows.map((row) => toTicket(row, last.get(row.id) ?? null)),
+      { total },
+    )
+  }
+
+  /**
+   * Последнее сообщение каждого обращения — по одной строке на обращение (F-F02). Вложенный
+   * `messages: { take: 1 }` в `findMany` Prisma обрезает в памяти: ради строки очереди
+   * читалась бы вся переписка обращений страницы.
+   */
+  private lastTicketMessages(chatIds: string[]): Promise<Map<string, TicketLastMessage>> {
+    return lastMessagesOf(this.prisma, chatIds, (ids) =>
+      this.prisma.message.findMany({
+        where: { id: { in: ids } },
+        select: { chatId: true, content: true, createdAt: true, senderId: true },
+        take: ids.length,
+      }),
+    )
   }
 
   /**
@@ -263,8 +285,9 @@ export class SupportService implements OnModuleInit {
    */
   async thread(viewer: JwtPayload, chatId: string) {
     await this.assertAccess(viewer, chatId)
-    const [row, messages, merged] = await Promise.all([
+    const [row, last, messages, merged] = await Promise.all([
       this.prisma.chat.findUniqueOrThrow({ where: { id: chatId }, select: TICKET_SELECT }),
+      this.lastTicketMessages([chatId]),
       this.chats.getMessages(viewer, chatId, { limit: 50 }),
       this.prisma.chat.findMany({
         where: { supportMergedIntoId: chatId },
@@ -302,7 +325,7 @@ export class SupportService implements OnModuleInit {
       : []
 
     return {
-      ticket: toTicket(row),
+      ticket: toTicket(row, last.get(chatId) ?? null),
       messages: all,
       mergedCount: merged.length,
       siblings: siblings.map((item) => ({
@@ -592,20 +615,26 @@ export class SupportService implements OnModuleInit {
         supportClosedAt: null,
         updatedAt: { lt: olderThan },
       },
-      select: {
-        id: true,
-        messages: {
-          orderBy: { seq: Prisma.SortOrder.desc },
-          take: 1,
-          select: { sender: { select: { role: true } } },
-        },
-      },
+      select: { id: true },
       take: 200,
     })
+    // Последнее слово — по одной строке на обращение, а не всей перепиской (F-F02).
+    // Удалённые сообщения тоже считаются: правило «кто ответил последним» не менялось.
+    const last = await lastMessagesOf(
+      this.prisma,
+      stale.map((chat) => chat.id),
+      (ids) =>
+        this.prisma.message.findMany({
+          where: { id: { in: ids } },
+          select: { chatId: true, sender: { select: { role: true } } },
+          take: ids.length,
+        }),
+      { includeDeleted: true },
+    )
 
     const ids = stale
       .filter((chat) => {
-        const lastRole = chat.messages[0]?.sender.role as Role | undefined
+        const lastRole = last.get(chat.id)?.sender.role as Role | undefined
         return lastRole !== undefined && STAFF_ROLES.includes(lastRole)
       })
       .map((chat) => chat.id)
@@ -722,21 +751,22 @@ export class SupportService implements OnModuleInit {
 }
 
 /** Строка очереди: кто написал, когда и чем закончилось — без лишнего для телефона. */
-function toTicket(row: {
-  id: string
-  createdAt: Date
-  updatedAt: Date
-  supportClosedAt: Date | null
-  supportAssigneeId: string | null
-  supportFirstReplyAt: Date | null
-  supportTags: string[]
-  members: { user: { id: string; firstName: string; lastName: string; role: string } }[]
-  messages: { content: string | null; createdAt: Date; senderId: string }[]
-}) {
+function toTicket(
+  row: {
+    id: string
+    createdAt: Date
+    updatedAt: Date
+    supportClosedAt: Date | null
+    supportAssigneeId: string | null
+    supportFirstReplyAt: Date | null
+    supportTags: string[]
+    members: { user: { id: string; firstName: string; lastName: string; role: string } }[]
+  },
+  last: TicketLastMessage | null,
+) {
   // Автор — единственный участник не из команды платформы: обращение заводится от него,
   // а сотрудники добавляются пачкой.
   const author = row.members.find((m) => !STAFF_ROLES.includes(m.user.role as Role))?.user ?? null
-  const last = row.messages[0] ?? null
   return {
     id: row.id,
     author: author && {

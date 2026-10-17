@@ -17,11 +17,16 @@ function setup(enforceTwoFactor = true) {
     config as unknown as ConfigService<EnvVars, true>,
     revocation as unknown as import('../redis/session-revocation.service').SessionRevocationService,
   )
-  // Присутствие рассылается адресно: server.to(room).emit(...). Мокаем цепочку to→emit.
+  // Присутствие рассылается адресно: server.to(rooms).emit(...). Мокаем цепочку to→emit.
   const roomEmit = jest.fn()
   const server = { emit: jest.fn(), to: jest.fn(() => ({ emit: roomEmit })) }
   ;(gateway as unknown as { server: Server }).server = server as unknown as Server
   return { gateway, jwt, server, roomEmit, revocation }
+}
+
+/** Дать отработать отложенной рассылке присутствия (аудитория читается асинхронно). */
+async function flush(): Promise<void> {
+  await new Promise((resolve) => setImmediate(resolve))
 }
 
 function socket(token?: string): Socket {
@@ -54,8 +59,10 @@ describe('RealtimeGateway — аутентификация handshake', () => {
     expect(client.join).not.toHaveBeenCalled()
   })
 
-  it('валидный токен — вход в user/group/university, онлайн и presence в комнату вуза', async () => {
+  it('валидный токен — вход в user/group/university, онлайн и presence адресатам', async () => {
     const { gateway, jwt, server, roomEmit } = setup()
+    const audience = jest.fn().mockResolvedValue(['user:u5', 'chat:c1'])
+    gateway.setPresenceAudience(audience)
     jwt.verifyAsync.mockResolvedValue({
       sub: 'u1',
       role: 'STUDENT',
@@ -64,25 +71,90 @@ describe('RealtimeGateway — аутентификация handshake', () => {
     })
     const client = socket('good')
     await gateway.handleConnection(client)
+    await flush()
     expect(client.disconnect).not.toHaveBeenCalled()
     expect(client.join).toHaveBeenCalledWith('user:u1')
     expect(client.join).toHaveBeenCalledWith('group:g1')
     expect(client.join).toHaveBeenCalledWith('university:uni1')
     expect(client.data.userId).toBe('u1')
     expect(gateway.isOnline('u1')).toBe(true)
-    // Присутствие адресно в комнату вуза, НЕ широковещательно (§9.3, регрессия cross-tenant).
+    // Присутствие — собеседникам и открытым чатам, НЕ широковещательно (§9.3, cross-tenant)
+    // и НЕ всему вузу (F-F12: каждый вход/выход стоил отправки каждому подключённому).
+    expect(audience).toHaveBeenCalledWith('u1')
     expect(server.emit).not.toHaveBeenCalled()
-    expect(server.to).toHaveBeenCalledWith('university:uni1')
+    expect(server.to).toHaveBeenCalledTimes(1)
+    expect(server.to).toHaveBeenCalledWith(['user:u5', 'chat:c1'])
     expect(roomEmit).toHaveBeenCalledWith('presence:changed', { userId: 'u1', online: true })
+  })
+
+  it('последнее соединение закрыто — адресатам уходит «не в сети»', async () => {
+    const { gateway, jwt, roomEmit } = setup()
+    gateway.setPresenceAudience(jest.fn().mockResolvedValue(['user:u5']))
+    jwt.verifyAsync.mockResolvedValue({ sub: 'u1', role: 'STUDENT', universityId: 'uni1' })
+    const first = socket('good')
+    const second = socket('good')
+    await gateway.handleConnection(first)
+    await gateway.handleConnection(second)
+    await flush()
+    // Вторая вкладка — не переход: рассылки нет.
+    expect(roomEmit).toHaveBeenCalledTimes(1)
+
+    gateway.handleDisconnect(first)
+    await flush()
+    expect(roomEmit).toHaveBeenCalledTimes(1)
+
+    gateway.handleDisconnect(second)
+    await flush()
+    expect(roomEmit).toHaveBeenLastCalledWith('presence:changed', { userId: 'u1', online: false })
+  })
+
+  // Аудитория читается из базы асинхронно: «подключился — сразу отключился» не должен
+  // оставить человека «в сети» у собеседника, если ответы базы пришли в обратном порядке.
+  it('шлёт состояние на момент отправки, а не перехода', async () => {
+    const { gateway, jwt, roomEmit } = setup()
+    let release: (rooms: string[]) => void = () => undefined
+    const audience = jest
+      .fn()
+      .mockImplementationOnce(() => new Promise<string[]>((resolve) => (release = resolve)))
+      .mockResolvedValue(['user:u5'])
+    gateway.setPresenceAudience(audience)
+    jwt.verifyAsync.mockResolvedValue({ sub: 'u1', role: 'STUDENT', universityId: 'uni1' })
+    const client = socket('good')
+    await gateway.handleConnection(client)
+    gateway.handleDisconnect(client)
+    await flush()
+    release(['user:u5'])
+    await flush()
+
+    expect(roomEmit).toHaveBeenCalledTimes(2)
+    for (const call of roomEmit.mock.calls) {
+      expect(call).toEqual(['presence:changed', { userId: 'u1', online: false }])
+    }
+  })
+
+  it('сбой чтения аудитории соединение не роняет и ничего не рассылает', async () => {
+    const { gateway, jwt, roomEmit } = setup()
+    gateway.setPresenceAudience(jest.fn().mockRejectedValue(new Error('db down')))
+    jwt.verifyAsync.mockResolvedValue({ sub: 'u1', role: 'STUDENT', universityId: 'uni1' })
+    const client = socket('good')
+    await gateway.handleConnection(client)
+    await flush()
+    expect(client.disconnect).not.toHaveBeenCalled()
+    expect(gateway.isOnline('u1')).toBe(true)
+    expect(roomEmit).not.toHaveBeenCalled()
   })
 
   it('без scope — личная комната, присутствие НЕ рассылается (нет вуза)', async () => {
     const { gateway, jwt, server, roomEmit } = setup()
+    const audience = jest.fn().mockResolvedValue(['user:u5'])
+    gateway.setPresenceAudience(audience)
     jwt.verifyAsync.mockResolvedValue({ sub: 'u2', role: 'PLATFORM_ADMIN', tfa: true })
     const client = socket('good')
     await gateway.handleConnection(client)
+    await flush()
     expect(client.join).toHaveBeenCalledWith('user:u2')
     expect(client.join).toHaveBeenCalledTimes(1)
+    expect(audience).not.toHaveBeenCalled()
     expect(server.emit).not.toHaveBeenCalled()
     expect(roomEmit).not.toHaveBeenCalled()
   })

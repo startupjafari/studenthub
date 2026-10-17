@@ -44,6 +44,7 @@ import {
   chatKeys,
   exportChatFile,
   fetchChats,
+  fetchChatsHead,
   fetchSavedChat,
   createChatPoll,
   fetchMessages,
@@ -86,6 +87,8 @@ import {
   updateChatFolderRequest,
   deleteChatFolderRequest,
   useVoiceRecorder,
+  createRefreshCoalescer,
+  scheduleChatsUnreadRefresh,
   type ChatFolder,
   type ChatListItem,
   type ChatMemberInfo,
@@ -103,6 +106,13 @@ import {
 import { firstUnreadIndex, unreadAfter } from '../lib/read-tracking'
 import { latestSeqOf, mergeUpdates } from '../lib/merge-updates'
 import {
+  mergeChatHead,
+  withEditedMessage,
+  withNewMessage,
+  withOthersRead,
+  withOwnRead,
+} from '../lib/list-refresh'
+import {
   applyAction,
   summarizeActors,
   sweepActions,
@@ -112,6 +122,13 @@ import {
 } from '../lib/chat-actions'
 import { useChatActionSender, useEndChatActionOnUnmount } from '../lib/use-chat-action'
 import { useChatActionLabel } from '../lib/use-chat-action-label'
+import {
+  createPresenceStore,
+  othersOnlineCount,
+  peerIdOf,
+  usePresence,
+  type PresenceStore,
+} from '../lib/presence-store'
 import { ChatDetailsPanel } from './chat-details-panel'
 import { ChatFoldersPanel } from './chat-folders-panel'
 import { MessageItem, type MessageActions, type MessageReadState } from './message-item'
@@ -217,6 +234,15 @@ const PINNED_SCALE_MAX = 6
 const DAY_LABEL_H = 36
 /** Как часто уходит отметка о прочтении при прокрутке: последним дочитанным сообщением. */
 const READ_EMIT_MS = 800
+
+// Обновление списка чатов по событиям (F-F02). Событие в другом чате — почти сразу, но
+// пачка событий (сообщение + `chat:activity` + уведомление, альбом, поток в группе) — одним
+// запросом. В читаемом чате ждём, пока уйдёт отметка о прочтении (READ_EMIT_MS), — иначе
+// счётчик мигал бы; поток событий не откладывает обновление дольше потолка.
+const LIST_REFRESH_MS = 300
+const LIST_REFRESH_READING_MS = 1500
+const LIST_REFRESH_MAX_WAIT_MS = 5000
+const LIST_REFRESH_MIN_INTERVAL_MS = 1000
 
 // Скелетон ленты сообщений: форма будущих пузырей (FRONTEND_RULES §13 — загрузка показывается
 // скелетоном, а не спиннером), чередование «чужой/свой» и разная ширина.
@@ -395,7 +421,9 @@ export function ChatWindow() {
   // Время, до которого другие участники прочитали чат — для статусов ✓/✓✓ своих сообщений.
   const [readWatermark, setReadWatermark] = useState<string | null>(null)
   const [forwardMsg, setForwardMsg] = useState<ChatMessage | null>(null)
-  const [presence, setPresence] = useState<Record<string, boolean>>({})
+  // Присутствие участников открытого чата — вне состояния окна: событие о человеке не
+  // перерисовывает ленту, а о постороннем для чата — вообще ничего (F-F12).
+  const [presenceStore] = useState(createPresenceStore)
   // Telegram-стиль: контекстное меню сообщения и режим правки.
   const [menu, setMenu] = useState<{
     message: ChatMessage
@@ -515,7 +543,16 @@ export function ChatWindow() {
   // Автодополнение @-упоминаний: активный запрос после @ (null — попап скрыт).
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
 
-  const chats = useQuery({ queryKey: chatKeys.list(), queryFn: fetchChats })
+  // Когда начался последний полный перезапрос списка: точечное обновление первой страницей
+  // не должно затирать более свежий полный ответ (см. refreshListHead).
+  const fullListFetchAtRef = useRef(0)
+  const chats = useQuery({
+    queryKey: chatKeys.list(),
+    queryFn: () => {
+      fullListFetchAtRef.current = Date.now()
+      return fetchChats()
+    },
+  })
   // Держим свежий список в ref — чтобы снять снимок непрочитанных РОВНО при открытии чата (до инвалидации).
   chatsRef.current = chats.data
 
@@ -1021,11 +1058,11 @@ export function ChatWindow() {
     queryFn: () => fetchReadReceipts(activeId as string),
     enabled: !!activeId,
   })
+  // Смена чата или свежий снимок — карта заменяется целиком: участники другого чата в ней
+  // не задерживаются.
   useEffect(() => {
-    if (presenceQuery.data) {
-      setPresence(Object.fromEntries(presenceQuery.data.map((p) => [p.userId, p.online])))
-    }
-  }, [presenceQuery.data])
+    presenceStore.reset(presenceQuery.data)
+  }, [activeId, presenceQuery.data, presenceStore])
 
   // Инициализация watermark прочтения при смене активного чата (из списка чатов).
   useEffect(() => {
@@ -1560,7 +1597,8 @@ export function ChatWindow() {
             delete next[taken.tempId]
             return next
           })
-          void qc.invalidateQueries({ queryKey: chatKeys.list() })
+          patchChatList((list) => withNewMessage(list, message))
+          refreshChatList(chatId)
           return
         }
       }
@@ -1579,14 +1617,24 @@ export function ChatWindow() {
           return listOld.some((m) => m.id === message.id) ? listOld : [...listOld, message]
         })
       }
+      // Сообщение в руках — превью и порядок строки сразу; счётчик принесёт сервер.
+      patchChatList((list) => withNewMessage(list, message))
       refreshChatList(chatId)
     },
   )
-  // Сообщения в НЕактивные чаты приходят в комнату chat:{id}, куда мы не входим; но их уведомление
-  // прилетает в комнату user:{id} — по нему обновляем список чатов в реальном времени (превью, счётчик, порядок).
-  useRealtimeEvent('notification:new', () => {
-    void qc.invalidateQueries({ queryKey: chatKeys.list() })
-  })
+  // Список чатов живёт на `chat:activity`: его получает каждый участник на каждое сообщение.
+  // Уведомление о сообщении (MESSAGE) приходит следом о том же самом — второй перезапрос
+  // ничего бы не добавил. Остальные уведомления о чатах (запрос на переписку и т. п.) —
+  // склеенно, по их чату; уведомления не о чатах список не трогают.
+  useRealtimeEvent<{ notification?: { type?: string; data?: Record<string, unknown> | null } }>(
+    'notification:new',
+    (p) => {
+      const n = p?.notification
+      const chatId = n?.data?.chatId
+      if (!n || n.type === 'MESSAGE' || typeof chatId !== 'string') return
+      refreshChatList(chatId)
+    },
+  )
   // Тихий сигнал активности в чате (в т.ч. по заглушённым чатам): держим список живым без уведомления.
   // Опрос обновился (кто-то проголосовал) — инвалидируем его результаты (§39, live).
   useRealtimeEvent('poll:updated', (p: { pollId: string }) => {
@@ -1630,8 +1678,9 @@ export function ChatWindow() {
     'message:updated',
     ({ message, chatId }) => {
       upsert(message, chatId)
-      // Правка последнего сообщения меняет превью в списке.
-      void qc.invalidateQueries({ queryKey: chatKeys.list() })
+      // Правка последнего сообщения (и подтянувшееся превью ссылки) — в превью строки на месте.
+      // Перезапрос не нужен: о правке последнего сервер и так шлёт `chat:activity`.
+      patchChatList((list) => withEditedMessage(list, message))
     },
   )
   useRealtimeEvent<{ message: ChatMessage; chatId: string }>(
@@ -1646,10 +1695,11 @@ export function ChatWindow() {
     'message:reaction',
     ({ message, chatId }) => upsert(message, chatId),
   )
+  // Посторонних для открытого чата хранилище отбрасывает само.
   useRealtimeEvent<{ userId: string; online: boolean }>(
     'presence:changed',
     ({ userId, online }) => {
-      setPresence((prev) => (prev[userId] === online ? prev : { ...prev, [userId]: online }))
+      presenceStore.apply(userId, online)
     },
   )
   // Прочтение другим участником — двигаем watermark активного чата вперёд (статус ✓✓ у своих сообщений)
@@ -1663,44 +1713,102 @@ export function ChatWindow() {
         // #6: обновляем «кто прочитал» для счётчика у своих сообщений.
         void qc.invalidateQueries({ queryKey: chatKeys.reads(chatId) })
       }
-      // Галочки в превью — не срочно: в большой группе прочтения идут потоком, и полный
+      // Галочки в превью — из самого события: в большой группе прочтения идут потоком, и
       // перезапрос списка на каждое забивал сеть и перерисовывал боковую колонку.
-      scheduleListRefresh()
+      patchChatList((list) => withOthersRead(list, chatId, readAt))
     },
   )
-  // Своё прочтение с другого устройства (или подтверждение этого): сервер шлёт его в личную
-  // комнату. Счётчик в списке и сводка в навигации берутся с сервера — там отметка уже
-  // сохранена. Список перезапрашиваем с задержкой: при быстром чтении отметки идут одна за
-  // другой, и дёргать список на каждую незачем.
-  const listRefreshRef = useRef<number | null>(null)
-  function scheduleListRefresh(): void {
-    if (listRefreshRef.current) window.clearTimeout(listRefreshRef.current)
-    listRefreshRef.current = window.setTimeout(() => {
-      listRefreshRef.current = null
-      void qc.invalidateQueries({ queryKey: chatKeys.list() })
-    }, 1500)
+
+  /** Поправить закэшированный список на месте (без запроса). */
+  function patchChatList(patch: (list: ChatListItem[]) => ChatListItem[]): void {
+    qc.setQueryData<ChatListItem[]>(chatKeys.list(), (old) => (old ? patch(old) : old))
   }
+
+  // Чаты, о которых пришли события с прошлого обновления списка. Нет какого-то в свежей
+  // первой странице — значит, событие не подняло его наверх, и нужен полный перезапрос.
+  const listPendingRef = useRef(new Set<string>())
+  const listNeedsFullRef = useRef(false)
+
   /**
-   * Обновить список чатов по событию в чате `chatId`.
+   * Обновление списка по событиям (F-F02): одна свежая первая страница поверх кэша вместо
+   * перекачки всех страниц. Полный перезапрос остаётся фолбэком — кэша ещё нет, чат события
+   * не в первой странице, страница не пришла.
+   */
+  async function refreshListHead(): Promise<void> {
+    const key = chatKeys.list()
+    const pending = [...listPendingRef.current]
+    const needsFull = listNeedsFullRef.current
+    listPendingRef.current.clear()
+    listNeedsFullRef.current = false
+    if (needsFull || !qc.getQueryData<ChatListItem[]>(key)) {
+      await qc.invalidateQueries({ queryKey: key })
+      return
+    }
+    const startedAt = Date.now()
+    let head: Awaited<ReturnType<typeof fetchChatsHead>>
+    try {
+      head = await fetchChatsHead()
+    } catch {
+      await qc.invalidateQueries({ queryKey: key })
+      return
+    }
+    // Полный перезапрос, начатый после нашего, свежее страницы — список обновит он.
+    if (fullListFetchAtRef.current >= startedAt) return
+    // Начатый раньше ещё идёт и затрёт слияние старыми данными — перезапускаем его.
+    if (qc.getQueryState(key)?.fetchStatus === 'fetching') {
+      await qc.invalidateQueries({ queryKey: key })
+      return
+    }
+    const inHead = new Set(head.items.map((c) => c.id))
+    const merged =
+      head.complete || pending.every((id) => inHead.has(id))
+        ? mergeChatHead(qc.getQueryData<ChatListItem[]>(key) ?? [], head.items, head.complete)
+        : null
+    if (merged) qc.setQueryData<ChatListItem[]>(key, merged)
+    else await qc.invalidateQueries({ queryKey: key })
+  }
+  const refreshListHeadRef = useRef(refreshListHead)
+  refreshListHeadRef.current = refreshListHead
+  const [listRefresher] = useState(() =>
+    createRefreshCoalescer(() => refreshListHeadRef.current(), {
+      minIntervalMs: LIST_REFRESH_MIN_INTERVAL_MS,
+      maxWaitMs: LIST_REFRESH_MAX_WAIT_MS,
+    }),
+  )
+  useEffect(() => () => listRefresher.cancel(), [listRefresher])
+
+  /**
+   * Обновить список чатов по событию в чате `chatId` — склеенно с остальными событиями.
    *
-   * Событие в чате, который человек сейчас читает, — с задержкой: сервер ещё считает новое
-   * сообщение непрочитанным (отметка уйдёт через ~1 с), и немедленный перезапрос перетирал
-   * локальный 0 — счётчик мигал 0 → 1 → 0. К моменту отложенного запроса отметка уже на
-   * сервере. Остальные чаты — сразу.
+   * Событие в чате, который человек сейчас читает, — когда события затихнут: сервер ещё
+   * считает новое сообщение непрочитанным (отметка уйдёт через ~1 с), и немедленный
+   * перезапрос перетирал локальный 0 — счётчик мигал 0 → 1 → 0. Остальные чаты — почти сразу.
    */
   function refreshChatList(chatId?: string): void {
+    if (chatId) listPendingRef.current.add(chatId)
+    else listNeedsFullRef.current = true
     const reading =
       !!chatId &&
       chatId === activeId &&
       typeof document !== 'undefined' &&
       !document.hidden &&
       peekChatIdRef.current !== chatId
-    if (reading) scheduleListRefresh()
-    else void qc.invalidateQueries({ queryKey: chatKeys.list() })
+    if (reading) listRefresher.settle(LIST_REFRESH_READING_MS)
+    else listRefresher.soon(LIST_REFRESH_MS)
   }
-  useRealtimeEvent<{ chatId: string; readAt: string }>('chat:read', () => {
-    void qc.invalidateQueries({ queryKey: chatKeys.unread() })
-    scheduleListRefresh()
+  // Своё прочтение с другого устройства (или подтверждение этого): сервер шлёт его в личную
+  // комнату. Дочитано до последнего сообщения — счётчик строки гасим на месте; иначе остаток
+  // знает только сервер, и список перезапрашивается, когда отметки затихнут.
+  useRealtimeEvent<{ chatId: string; readAt: string }>('chat:read', ({ chatId, readAt }) => {
+    scheduleChatsUnreadRefresh(qc, true)
+    const list = qc.getQueryData<ChatListItem[]>(chatKeys.list())
+    const next = list ? withOwnRead(list, chatId, readAt) : null
+    if (next) {
+      if (next !== list) qc.setQueryData<ChatListItem[]>(chatKeys.list(), next)
+      return
+    }
+    listPendingRef.current.add(chatId)
+    listRefresher.settle(LIST_REFRESH_READING_MS)
   })
   useRealtimeEvent<{ messageId: string; chatId: string }>(
     'message:deleted',
@@ -1710,8 +1818,8 @@ export function ChatWindow() {
           (old ?? []).filter((m) => m.id !== messageId),
         )
       }
-      // Удаление последнего сообщения меняет превью списка.
-      void qc.invalidateQueries({ queryKey: chatKeys.list() })
+      // Удаление последнего сообщения меняет превью списка, непрочитанного — счётчик.
+      refreshChatList(chatId)
     },
   )
   // Только `chat:action`: сервер шлёт рядом и старые typing:started/typing:stopped, но они
@@ -2876,10 +2984,14 @@ export function ChatWindow() {
   const isPrivate = activeChat?.type === 'PRIVATE'
   // Имя показываем только в групповом чате: в личном собеседник и так один.
   const actionLabel = actionLabelOf(actionSummary, { name: actorName, withName: !isPrivate })
-  const memberIds = Object.keys(presence)
-  const otherId = memberIds.find((id) => id !== myId)
-  const otherOnline = isPrivate && otherId ? presence[otherId] === true : false
-  const onlineOthers = memberIds.filter((id) => id !== myId && presence[id]).length
+  // Из присутствия окно берёт только то, что рисует само; число «в сети» группы читает
+  // подпись в шапке (MembersOnlineLabel) — его изменения окно не перерисовывают.
+  const otherId = usePresence(presenceStore, (m) => peerIdOf(m, myId))
+  const otherOnline = usePresence(presenceStore, (m) => {
+    const peer = isPrivate ? peerIdOf(m, myId) : undefined
+    return peer !== undefined && m.get(peer) === true
+  })
+  const anyOthersOnline = usePresence(presenceStore, (m) => othersOnlineCount(m, myId) > 0)
   // Личная блокировка: скрываем поле ввода (нельзя писать — я заблокировал или меня заблокировали).
   const blockedActive = isPrivate && !!activeChat && (activeChat.blocked || activeChat.blockedBy)
   // Запрос на переписку ушёл и ждёт ответа — поле ввода закрывает плашка. Уходит запрос
@@ -3524,7 +3636,7 @@ export function ChatWindow() {
                         t('offlineStatus')
                       )
                     ) : (
-                      t('membersOnline', { count: onlineOthers })
+                      <MembersOnlineLabel store={presenceStore} myId={myId} />
                     )}
                   </span>
                 </div>
@@ -3839,7 +3951,7 @@ export function ChatWindow() {
                         new Date(prevMsg.createdAt).toDateString() !==
                           new Date(m.createdAt).toDateString()
                       // Статус доставки своего сообщения (#51) считаем здесь — единый источник
-                      // readWatermark/onlineOthers/sendState; в MessageItem уходит примитивом.
+                      // readWatermark/anyOthersOnline/sendState; в MessageItem уходит примитивом.
                       let readState: MessageReadState = 'sent'
                       let readCount = 0
                       if (mine) {
@@ -3853,7 +3965,7 @@ export function ChatWindow() {
                           if (read) {
                             readState = 'read'
                             readCount = activeIsGroup ? readByCount(m.createdAt) : 0
-                          } else if (onlineOthers > 0) readState = 'delivered'
+                          } else if (anyOthersOnline) readState = 'delivered'
                         }
                       }
                       return (
@@ -4312,6 +4424,13 @@ export function ChatWindow() {
 }
 
 // Идентификаторы сущностей — uuid и токены сида: буквы, цифры, дефис и подчёркивание.
+/** «N в сети» в шапке группы: перерисовывается сама, не трогая окно (F-F12). */
+function MembersOnlineLabel({ store, myId }: { store: PresenceStore; myId?: string }) {
+  const t = useTranslations('Chats')
+  const count = usePresence(store, (m) => othersOnlineCount(m, myId))
+  return <>{t('membersOnline', { count })}</>
+}
+
 function safeParamId(value: string | null): string | null {
   return value && /^[A-Za-z0-9_-]{1,64}$/.test(value) ? value : null
 }

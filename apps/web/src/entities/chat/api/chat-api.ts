@@ -86,6 +86,18 @@ export async function fetchChats(): Promise<ChatListItem[]> {
   return sortChats(out)
 }
 
+/**
+ * Только первая страница списка — для обновления по событию (F-F02). Событие поднимает чат
+ * наверх (страницы идут по времени активности), поэтому его строка — в первой странице, и
+ * перекачивать ради неё все остальные незачем. `complete` — других страниц нет, это весь список.
+ */
+export async function fetchChatsHead(): Promise<{ items: ChatListItem[]; complete: boolean }> {
+  const res = (await api.get<ChatListItem[]>('/chats', {
+    params: { limit: CHAT_PAGE_LIMIT },
+  })) as ResponseWithMeta & { data: ChatListItem[] }
+  return { items: res.data, complete: !res.meta?.hasNext }
+}
+
 // requestPendingForId — кому адресован непринятый запрос на переписку (§50); null —
 // обычный чат (друзья или запрос уже принят). Возвращается и для существующего чата.
 export async function createChatRequest(
