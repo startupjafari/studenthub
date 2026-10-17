@@ -1,5 +1,6 @@
 import type { AxiosProgressEvent } from 'axios'
 import type {
+  AcceptConsentInput,
   UpdateProfileInput,
   UpdateUsernameInput,
   ChangePasswordInput,
@@ -16,6 +17,9 @@ import type { MeResponse, Paged } from '../../../shared/api'
 
 export const userKeys = {
   me: () => ['user', 'me'] as const,
+  // Под ключом `me`: инвалидация профиля перечитывает и согласие. Дата рождения — в ключе:
+  // её правка в профиле меняет основание согласия (A-F29), и состояние надо спросить заново.
+  consent: (birthDate: string | null) => ['user', 'me', 'consent', birthDate] as const,
   detail: (id: string) => ['user', 'detail', id] as const,
   presence: (id: string) => ['user', 'presence', id] as const,
 }
@@ -117,6 +121,32 @@ export async function changePasswordRequest(input: ChangePasswordInput): Promise
  */
 export async function deleteAccountRequest(input: DeleteAccountInput): Promise<void> {
   await api.delete('/users/me', { data: input })
+}
+
+/**
+ * Согласие на обработку ПДн (A-F29): нужно ли принять действующую редакцию документов.
+ * `reason`: VERSION — редакция сменилась; AGE_BASIS — дата рождения разошлась с тем, кто
+ * давал согласие (сам человек или законный представитель).
+ */
+export interface ConsentState {
+  required: boolean
+  reason: 'VERSION' | 'AGE_BASIS' | null
+  version: string
+  acceptedVersion: string | null
+  acceptedAt: string | null
+  byGuardian: boolean
+  guardianRequired: boolean
+  birthDateRequired: boolean
+}
+
+export async function fetchConsentState(): Promise<ConsentState> {
+  const { data } = await api.get<ConsentState>('/users/me/consent')
+  return data
+}
+
+export async function acceptConsentRequest(input: AcceptConsentInput): Promise<ConsentState> {
+  const { data } = await api.post<ConsentState>('/users/me/consent', input)
+  return data
 }
 
 export async function uploadAvatarRequest(

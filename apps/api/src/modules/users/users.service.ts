@@ -4,13 +4,19 @@ import { Prisma } from '@prisma/client'
 import type Redis from 'ioredis'
 import { Role, isHigherRole } from '@studenthub/shared-types'
 import type {
+  AcceptConsentInput,
   UserListQueryInput,
   UpdateProfileInput,
   UserDirectoryQueryInput,
   UserDirectorySectionValue,
   UpdateAcademicRecordInput,
 } from '@studenthub/shared-schemas'
-import { disallowedProfileFields, ignoredProfileFields } from '@studenthub/shared-schemas'
+import {
+  disallowedProfileFields,
+  ignoredProfileFields,
+  isAdult,
+  LEGAL_VERSION,
+} from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { advisoryXactLock } from '../../common/prisma/advisory-lock'
 import { buildPublicObjectUrl } from '../../common/minio/public-url'
@@ -37,6 +43,7 @@ import { REDIS_CLIENT } from '../../common/redis/redis.constants'
 // смена пароля/удаление/блокировка обязаны погасить сессии, которыми владеет AuthService.
 import { AuthService } from '../auth/auth.service'
 import { canonicalSpecialtyName } from '../specialties/specialty-name'
+import { birthDateIso, CONSENT_SELECT, consentStateOf, type ConsentState } from './consent'
 
 type PrismaTx = Prisma.TransactionClient
 
@@ -788,11 +795,88 @@ export class UserService {
             Object.entries(data).filter(([key]) => !ignored.has(key)),
           ) as UpdateProfileInput)
         : data
+    // Дата рождения решает основание согласия на обработку ПДн (сам человек или законный
+    // представитель). Правка не отклоняется, но пересматривает его: согласие хранится с
+    // основанием, и расхождение с новой датой делает `consentRequired` истинным, пока
+    // согласие не примут заново (consentState, A-F29).
     return this.prisma.user.update({
       where: { id: userId },
       data: writable,
       select: PROFILE_SELECT,
     })
+  }
+
+  /**
+   * Состояние согласия на обработку ПДн у владельца (A-F29): `GET /users/me/consent` и флаг
+   * `consentRequired` в `/auth/me`. Отдельно от профиля: поля согласия в PROFILE_SELECT не
+   * входят — карточка уходит и чужим, а им эти сведения ни к чему.
+   */
+  async consentState(userId: string): Promise<ConsentState> {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, deletedAt: null },
+      select: CONSENT_SELECT,
+    })
+    if (!user) {
+      throw new AppException('NOT_FOUND', 'Пользователь не найден')
+    }
+    return consentStateOf(user)
+  }
+
+  /**
+   * Повторное согласие на действующую редакцию документов (A-F29). Правила — те же, что при
+   * регистрации: возраст пересчитывается на сервере, и за несовершеннолетнего согласие даёт
+   * законный представитель. Дату рождения форма согласия только дополняет (учётки, заведённые
+   * до сентября 2026, её не имеют), а не меняет — её правят в профиле.
+   */
+  async acceptConsent(
+    userId: string,
+    input: AcceptConsentInput,
+    ctx: { ip?: string; userAgent?: string },
+  ): Promise<ConsentState> {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, deletedAt: null },
+      select: CONSENT_SELECT,
+    })
+    if (!user) {
+      throw new AppException('NOT_FOUND', 'Пользователь не найден')
+    }
+    if (input.birthDate && user.birthDate) {
+      throw new AppException('BAD_REQUEST', 'Дата рождения уже указана — её меняют в профиле', [
+        { field: 'birthDate', message: 'Дата рождения уже указана' },
+      ])
+    }
+    const birthDate = user.birthDate ? birthDateIso(user.birthDate) : input.birthDate
+    if (!birthDate) {
+      throw new AppException('BAD_REQUEST', 'Укажите дату рождения', [
+        { field: 'birthDate', message: 'Нужна, чтобы определить, чьё согласие требуется' },
+      ])
+    }
+    const minor = !isAdult(birthDate)
+    if (minor && input.guardianConsent !== true) {
+      throw new AppException('BAD_REQUEST', 'Нужно согласие законного представителя', [
+        { field: 'guardianConsent', message: 'Нужно согласие законного представителя' },
+      ])
+    }
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        // Что подписали и когда — вместе с основанием, как при регистрации.
+        consentAt: new Date(),
+        consentVersion: LEGAL_VERSION,
+        consentByGuardian: minor,
+        ...(user.birthDate ? {} : { birthDate: new Date(`${birthDate}T00:00:00Z`) }),
+      },
+      select: CONSENT_SELECT,
+    })
+    await this.audit.record({
+      userId,
+      action: 'consent_accepted',
+      entity: 'User',
+      entityId: userId,
+      metadata: { version: LEGAL_VERSION, byGuardian: minor },
+      ...ctx,
+    })
+    return consentStateOf(updated)
   }
 
   /**

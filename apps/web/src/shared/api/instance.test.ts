@@ -114,3 +114,56 @@ describe('refresh под лимитом запросов (429)', () => {
     )
   })
 })
+
+// A-F30: вкладки делят одну refresh-cookie — обмен идёт под межвкладочной блокировкой.
+describe('refresh под межвкладочной блокировкой (Web Locks)', () => {
+  const original = Object.getOwnPropertyDescriptor(navigator, 'locks')
+
+  beforeEach(() => {
+    h.refreshPost.mockReset()
+    h.dispatch.mockReset()
+  })
+
+  afterEach(() => {
+    if (original) Object.defineProperty(navigator, 'locks', original)
+    else Reflect.deleteProperty(navigator, 'locks')
+  })
+
+  function stubLocks(request: (...args: unknown[]) => Promise<unknown>) {
+    Object.defineProperty(navigator, 'locks', { configurable: true, value: { request } })
+  }
+
+  it('обмен идёт внутри блокировки sh-refresh', async () => {
+    const held: string[] = []
+    const request = vi.fn(async (name: string, _options: unknown, fn: () => Promise<unknown>) => {
+      held.push(name)
+      return fn()
+    })
+    stubLocks(request as never)
+    h.refreshPost.mockImplementation(async () => {
+      // Запрос уходит, когда блокировка уже взята.
+      expect(held).toEqual(['sh-refresh'])
+      return ok('locked')
+    })
+
+    await expect(refreshAccessToken()).resolves.toBe('locked')
+    expect(request).toHaveBeenCalledWith('sh-refresh', expect.any(Object), expect.any(Function))
+  })
+
+  it('соседняя вкладка держит блокировку слишком долго — обмен идёт без очереди', async () => {
+    stubLocks(async () => {
+      throw new DOMException('timeout', 'TimeoutError')
+    })
+    h.refreshPost.mockResolvedValue(ok('unlocked'))
+
+    await expect(refreshAccessToken()).resolves.toBe('unlocked')
+    expect(h.refreshPost).toHaveBeenCalledTimes(1)
+  })
+
+  it('отказ сервера внутри блокировки доходит до вызывающего как есть', async () => {
+    stubLocks(async (_name, _options, fn) => (fn as () => Promise<unknown>)())
+    h.refreshPost.mockRejectedValue(failure(401, 'UNAUTHORIZED'))
+
+    await expect(refreshAccessToken()).rejects.toMatchObject({ response: { status: 401 } })
+  })
+})

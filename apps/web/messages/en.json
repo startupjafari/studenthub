@@ -1061,6 +1061,18 @@
     "qrApproveRequester": "Sign-in requested from",
     "qrApproveUnknownBrowser": "Unknown browser"
   },
+  "Consent": {
+    "versionTitle": "Our legal documents have been updated",
+    "versionText": "We have updated the privacy policy and the terms of use. To keep using the platform, please review and accept the new version.",
+    "ageTitle": "Confirm your consent",
+    "minorText": "According to the date of birth in your profile, you are under 18. Consent to the processing of a minor's personal data is given by a legal representative — please confirm it.",
+    "adultText": "According to the date of birth in your profile, you are now 18 or older, but consent to the processing of your personal data was given by a legal representative. Please confirm it on your own behalf.",
+    "consentRequired": "You cannot continue without consent",
+    "guardianRequired": "Consent of a legal representative is required",
+    "birthDateRequired": "Enter your date of birth",
+    "accept": "Accept",
+    "logout": "Sign out"
+  },
   "Legal": {
     "privacyLink": "Privacy Policy",
     "termsLink": "Terms of Service",

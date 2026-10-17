@@ -36,6 +36,7 @@ import { BlockUserDto } from './dto/block-user.dto'
 import { UpdateAcademicRecordDto } from './dto/update-academic-record.dto'
 import { ResetTwoFactorDto } from './dto/reset-two-factor.dto'
 import { DeleteAccountDto } from './dto/delete-account.dto'
+import { AcceptConsentDto } from './dto/accept-consent.dto'
 
 @ApiTags('Пользователи')
 @Controller('users')
@@ -58,6 +59,37 @@ export class UsersController {
   @ApiOperation({ summary: 'Обновить свой профиль (имя, настройка приватности email)' })
   updateMe(@CurrentUser() user: CurrentUserData, @Body() dto: UpdateProfileDto) {
     return this.users.updateProfile(user.sub, user.role, dto)
+  }
+
+  @Get('me/consent')
+  @ApiOperation({
+    summary:
+      'Согласие на обработку ПДн: действующая редакция документов и нужно ли принять заново (required)',
+  })
+  @ApiResponse({ status: 200, description: 'Состояние согласия владельца' })
+  consent(@CurrentUser() user: CurrentUserData) {
+    return this.users.consentState(user.sub)
+  }
+
+  @Post('me/consent')
+  @ApiOperation({
+    summary:
+      'Принять действующую редакцию документов (повторное согласие; до 18 лет — законный представитель)',
+  })
+  @ApiResponse({ status: 201, description: 'Согласие записано; в ответе — новое состояние' })
+  @ApiResponse({
+    status: 400,
+    description: 'BAD_REQUEST — нет даты рождения или согласия законного представителя',
+  })
+  acceptConsent(
+    @CurrentUser() user: CurrentUserData,
+    @Body() dto: AcceptConsentDto,
+    @Req() req: FastifyRequest,
+  ) {
+    return this.users.acceptConsent(user.sub, dto, {
+      ip: req.ip,
+      userAgent: req.headers['user-agent'],
+    })
   }
 
   @Patch('me/username')

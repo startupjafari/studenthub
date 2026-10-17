@@ -43,11 +43,38 @@ let refreshPromise: Promise<string> | null = null
 export async function refreshAccessToken(): Promise<string> {
   if (!refreshPromise) {
     // Повторы после 429 — внутри общего промиса: ждущие запросы получают один итог.
-    refreshPromise = exchangeRefreshToken().finally(() => {
+    refreshPromise = withCrossTabRefreshLock(exchangeRefreshToken).finally(() => {
       refreshPromise = null
     })
   }
   return refreshPromise
+}
+
+// Межвкладочная очередь обмена (A-F30). Промис выше дедуплицирует обмен только внутри
+// вкладки, а cookie у вкладок общая: браузер, восстановив пять вкладок, слал пять обменов
+// одной cookie разом. Под Web Locks вкладки меняют её по очереди — каждая уже свежим
+// токеном соседки. Сервер такие гонки и сам сводит к одному преемнику, но очередь не
+// зависит от его кэша.
+const REFRESH_LOCK = 'sh-refresh'
+// Обмен с повторами после 429 укладывается в десяток секунд. Повисший запрос соседней
+// вкладки не должен держать остальные вечно: дольше этого ждём без очереди.
+const REFRESH_LOCK_WAIT_MS = 15_000
+
+async function withCrossTabRefreshLock<T>(exchange: () => Promise<T>): Promise<T> {
+  const locks = typeof navigator === 'undefined' ? undefined : navigator.locks
+  // Старый браузер без Web Locks или без таймаута ожидания — как раньше, без очереди.
+  if (!locks || typeof AbortSignal.timeout !== 'function') return exchange()
+  try {
+    return await locks.request(
+      REFRESH_LOCK,
+      { signal: AbortSignal.timeout(REFRESH_LOCK_WAIT_MS) },
+      exchange,
+    )
+  } catch (error) {
+    // Не дождались очереди — меняем сами: сессия важнее порядка.
+    if (error instanceof DOMException && error.name === 'TimeoutError') return exchange()
+    throw error
+  }
 }
 
 // Обмен refresh с повтором после 429 (правило выдержки — refreshRetryDelayMs в auth-retry.ts).

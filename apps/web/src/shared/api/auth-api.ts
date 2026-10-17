@@ -22,6 +22,9 @@ export interface MeResponse {
   // Имя входа (Telegram-стиль). Только у владельца: в чужой карточке бэкенд его вырезает.
   // null — у зарегистрированных до появления фичи; такие входят только по email.
   username?: string | null
+  // Только в /auth/me: согласие на ПДн надо принять заново (A-F29). Подробности и само
+  // принятие — /users/me/consent (entities/user, гейт — features/accept-consent).
+  consentRequired?: boolean
   universityId: string | null
   facultyId: string | null
   groupId: string | null
