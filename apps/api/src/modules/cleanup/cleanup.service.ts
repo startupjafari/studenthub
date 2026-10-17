@@ -474,26 +474,7 @@ export class CleanupService {
 
     for (const bucket of buckets) {
       try {
-        const objects = await this.listObjects(bucket)
-        // Только объекты старше окна безопасности (не мешаем незавершённым загрузкам).
-        const candidates = objects.filter((o) => o.lastModified < safetyBefore)
-        for (let i = 0; i < candidates.length; i += BATCH_SIZE) {
-          const chunk = candidates.slice(i, i + BATCH_SIZE)
-          const existing = await this.prisma.file.findMany({
-            where: { bucket, key: { in: chunk.map((c) => c.name) } },
-            select: { key: true },
-            take: chunk.length,
-          })
-          const known = new Set(existing.map((e) => e.key))
-          const names = chunk.map((c) => c.name)
-          for (const key of await this.auxReferencedKeys(bucket, names)) known.add(key)
-          for (const key of await this.liveVariantKeys(bucket, names)) known.add(key)
-          const orphans = chunk.filter((c) => !known.has(c.name))
-          for (const orphan of orphans) {
-            await this.minio.removeObject(bucket, orphan.name)
-          }
-          removed += orphans.length
-        }
+        removed += await this.sweepOrphansInBucket(bucket, safetyBefore)
       } catch (err) {
         // MinIO недоступен/бакета нет — логируем и продолжаем (graceful degradation).
         this.logger.warn(`cleanOrphanFiles: бакет ${bucket} пропущен: ${(err as Error).message}`)
@@ -501,6 +482,71 @@ export class CleanupService {
     }
     this.logger.log(`cleanOrphanFiles: удалено осиротевших объектов ${removed}`)
     return removed
+  }
+
+  /**
+   * Сироты одного бакета — по ходу чтения листинга, порциями по BATCH_SIZE.
+   *
+   * Листинг в память целиком не собирается: в медиа-бакетах у каждого видео постер и
+   * рендишны HLS по сотне-другой сегментов, и у бакета с тысячами видео это миллионы
+   * объектов — массив на них стоил бы сотен мегабайт кучи процессу, который в это же время
+   * обслуживает HTTP и WS. `for await` тянет поток по мере разбора: следующую страницу
+   * листинга MinIO отдаёт, когда разобрана текущая порция, так что в памяти — одна порция.
+   */
+  private async sweepOrphansInBucket(bucket: string, safetyBefore: Date): Promise<number> {
+    // Вердикт «жив ли файл-владелец» для вариантов, переносимый между порциями.
+    const variantOwners = new Map<string, boolean>()
+    let chunk: string[] = []
+    let removed = 0
+    const stream = this.minio.listObjectsV2(bucket, '', true)
+    for await (const obj of stream as AsyncIterable<{ name?: string; lastModified?: Date }>) {
+      // Только объекты старше окна безопасности (не мешаем незавершённым загрузкам).
+      if (!obj.name || (obj.lastModified ?? new Date(0)) >= safetyBefore) continue
+      chunk.push(obj.name)
+      if (chunk.length < BATCH_SIZE) continue
+      removed += await this.removeOrphans(bucket, chunk, variantOwners)
+      chunk = []
+    }
+    if (chunk.length > 0) removed += await this.removeOrphans(bucket, chunk, variantOwners)
+    return removed
+  }
+
+  /**
+   * Из порции ключей удаляет объекты, на которые никто не ссылается, одним запросом
+   * `removeObjects`. Возвращает число действительно удалённых.
+   *
+   * Варианты (`variants/<fileId>/…`) сверяются по владельцу, остальные ключи — по `File.key`
+   * и вспомогательным ссылкам: у варианта своей строки File нет, и гонять сотни ключей
+   * сегментов через `key IN (…)` незачем.
+   */
+  private async removeOrphans(
+    bucket: string,
+    names: string[],
+    variantOwners: Map<string, boolean>,
+  ): Promise<number> {
+    const plain = names.filter((name) => variantOwnerId(name) === null)
+    const known = new Set<string>()
+    if (plain.length > 0) {
+      const existing = await this.prisma.file.findMany({
+        where: { bucket, key: { in: plain } },
+        select: { key: true },
+        take: plain.length,
+      })
+      for (const e of existing) known.add(e.key)
+      for (const key of await this.auxReferencedKeys(bucket, plain)) known.add(key)
+    }
+    for (const key of await this.liveVariantKeys(bucket, names, variantOwners)) known.add(key)
+
+    const orphans = names.filter((name) => !known.has(name))
+    if (orphans.length === 0) return 0
+    // Ответ в «тихом» режиме — только ключи, которые удалить не удалось.
+    const failed = (await this.minio.removeObjects(bucket, orphans)).filter(Boolean)
+    if (failed.length > 0) {
+      this.logger.warn(
+        `cleanOrphanFiles: в ${bucket} не удалено ${failed.length} из ${orphans.length} объектов`,
+      )
+    }
+    return orphans.length - failed.length
   }
 
   // Брошенные многочастные загрузки (Фаза 19). Ежедневно, 04:30 — следом за чисткой сирот.
@@ -601,22 +647,42 @@ export class CleanupService {
    * У вариантов нет своей строки на каждый объект (сегментов HLS — сотни), владелец читается
    * из префикса ключа. Запись удалена, а префикс остался (удаление вариантов best-effort) —
    * объекты становятся сиротами и уходят здесь же.
+   *
+   * `verdicts` — память между порциями одного бакета: база спрашивается один раз на файл,
+   * а не на каждый сегмент. Листинг идёт по возрастанию ключа, варианты одного файла лежат
+   * подряд, и продолжиться в следующей порции может только префикс последнего владельца —
+   * его вердикт и переносится, остальные забываются, чтобы память не росла с бакетом.
    */
-  private async liveVariantKeys(bucket: string, keys: string[]): Promise<string[]> {
+  private async liveVariantKeys(
+    bucket: string,
+    keys: string[],
+    verdicts: Map<string, boolean>,
+  ): Promise<string[]> {
     const owners = new Map<string, string>()
+    let last: string | null = null
     for (const key of keys) {
       const owner = variantOwnerId(key)
-      if (owner) owners.set(key, owner)
+      if (!owner) continue
+      owners.set(key, owner)
+      last = owner
     }
-    if (owners.size === 0) return []
-    const ids = [...new Set(owners.values())]
-    const alive = await this.prisma.file.findMany({
-      where: { bucket, id: { in: ids } },
-      select: { id: true },
-      take: ids.length,
-    })
-    const aliveIds = new Set(alive.map((f) => f.id))
-    return [...owners].filter(([, owner]) => aliveIds.has(owner)).map(([key]) => key)
+    if (last === null) return []
+    const unknown = [...new Set(owners.values())].filter((id) => !verdicts.has(id))
+    if (unknown.length > 0) {
+      const alive = await this.prisma.file.findMany({
+        where: { bucket, id: { in: unknown } },
+        select: { id: true },
+        take: unknown.length,
+      })
+      const aliveIds = new Set(alive.map((f) => f.id))
+      for (const id of unknown) verdicts.set(id, aliveIds.has(id))
+    }
+    const live = [...owners].filter(([, owner]) => verdicts.get(owner)).map(([key]) => key)
+
+    const lastAlive = verdicts.get(last) ?? false
+    verdicts.clear()
+    verdicts.set(last, lastAlive)
+    return live
   }
 
   /**
@@ -913,19 +979,6 @@ export class CleanupService {
       if (batch.length < BATCH_SIZE) break
     }
     return total
-  }
-
-  /** Собирает список объектов бакета (рекурсивно) из потока MinIO в массив. */
-  private listObjects(bucket: string): Promise<{ name: string; lastModified: Date }[]> {
-    return new Promise((resolve, reject) => {
-      const out: { name: string; lastModified: Date }[] = []
-      const stream = this.minio.listObjectsV2(bucket, '', true)
-      stream.on('data', (obj) => {
-        if (obj.name) out.push({ name: obj.name, lastModified: obj.lastModified ?? new Date(0) })
-      })
-      stream.on('end', () => resolve(out))
-      stream.on('error', reject)
-    })
   }
 }
 

@@ -187,10 +187,22 @@ export class FilesController {
     return { url }
   }
 
+  /**
+   * Только свой НЕПРИКРЕПЛЁННЫЙ файл. Прикреплённый (к сообщению, посту, сторис, материалу,
+   * документу, сдаче работы, альбому) удаляется через свой раздел — там права и аудит
+   * модуля. Аватары — тоже: на них ссылается URL пользователя или чата, а не FK.
+   */
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Удалить свой файл (объект в MinIO + запись)' })
+  @ApiResponse({ status: 204, description: '' })
+  @ApiResponse({
+    status: 409,
+    description: 'CONFLICT — файл прикреплён к сущности, удаляется через её раздел',
+  })
   async remove(@CurrentUser() user: CurrentUserData, @Param('id') id: string): Promise<void> {
-    await this.files.delete(id, user.sub)
+    await this.files.deleteDetached(id, user.sub, [
+      this.config.get('MINIO_BUCKET_AVATARS', { infer: true }),
+    ])
   }
 }

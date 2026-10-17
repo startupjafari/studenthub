@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common'
 import { randomUUID } from 'node:crypto'
+import type { Prisma } from '@prisma/client'
 import { CopyDestinationOptions, CopySourceOptions, type Client as MinioClient } from 'minio'
 import sharp from 'sharp'
 import { FILE_UPLOAD, TTL, type FileCategory } from '@studenthub/shared-config'
@@ -68,6 +69,52 @@ const FILE_SELECT = {
   durationMs: true,
   createdAt: true,
 } as const
+
+// Файл свободен — ни одна сущность на него не ссылается: все FK владельцев пусты, и он не
+// медиа сториса и не обложка альбома (эти две связи объявлены со стороны Story/Album).
+// Новая связь File с сущностью обязана попасть сюда, иначе общий `DELETE /files/:id`
+// снова начнёт снимать вложения мимо модуля-владельца.
+const DETACHED_WHERE = {
+  postId: null,
+  messageId: null,
+  materialId: null,
+  albumId: null,
+  documentId: null,
+  submissionId: null,
+  stories: { none: {} },
+  albumsCovered: { none: {} },
+} satisfies Prisma.FileWhereInput
+
+const ATTACHMENT_SELECT = {
+  postId: true,
+  messageId: true,
+  materialId: true,
+  albumId: true,
+  documentId: true,
+  submissionId: true,
+  _count: { select: { stories: true, albumsCovered: true } },
+} satisfies Prisma.FileSelect
+
+/** Есть ли у файла сущность-владелец — та же проверка, что в DETACHED_WHERE, но по строке. */
+function isAttached(file: Prisma.FileGetPayload<{ select: typeof ATTACHMENT_SELECT }>): boolean {
+  return (
+    file.postId !== null ||
+    file.messageId !== null ||
+    file.materialId !== null ||
+    file.albumId !== null ||
+    file.documentId !== null ||
+    file.submissionId !== null ||
+    file._count.stories > 0 ||
+    file._count.albumsCovered > 0
+  )
+}
+
+function attachedConflict(): AppException {
+  return new AppException(
+    'CONFLICT',
+    'Файл используется — удалите его в разделе, к которому он прикреплён',
+  )
+}
 
 /**
  * Размеры изображения по содержимому: sharp читает только заголовок, декодировать не нужно.
@@ -662,6 +709,51 @@ export class FileService {
     const file = await this.findOrThrow(fileId)
     this.assertOwnership(file, requesterId)
     await this.prisma.file.delete({ where: { id: file.id } })
+    await this.purgeStorage(file)
+  }
+
+  /**
+   * Удаление через общий `DELETE /files/:id`: только своего файла, который ни к чему не
+   * прикреплён, — брошенной загрузки, неотправленного вложения, страницы ещё не созданного
+   * документа.
+   *
+   * Прикреплённый файл (вложение сообщения, медиа поста или сториса, файл материала,
+   * страница документа, файл сданной работы, фото альбома или его обложка) — `CONFLICT`:
+   * его снимает только модуль-владелец со своими проверками и аудитом. Иначе владелец
+   * файла убирал скан из документа на проверке, вложение из чата, где он забанен, медиа
+   * из чужого альбома, а сущность оставалась «битой» и об этом не знала.
+   *
+   * `lockedBuckets` — бакеты, где ссылка на файл живёт не в FK, а в URL сущности (аватары
+   * пользователя и чата): такие файлы общим маршрутом не удаляются вовсе.
+   *
+   * Удаление условное — та же проверка «свободен» стоит в WHERE: модуль мог прикрепить файл
+   * между чтением и удалением (отправка сообщения с этим вложением).
+   */
+  async deleteDetached(
+    fileId: string,
+    requesterId: string,
+    lockedBuckets: readonly string[] = [],
+  ): Promise<void> {
+    const file = await this.prisma.file.findUnique({
+      where: { id: fileId },
+      select: { ...FILE_SELECT, ...ATTACHMENT_SELECT },
+    })
+    if (!file) throw new AppException('NOT_FOUND', 'Файл не найден')
+    this.assertOwnership(file, requesterId)
+    if (lockedBuckets.includes(file.bucket) || isAttached(file)) throw attachedConflict()
+
+    const { count } = await this.prisma.file.deleteMany({
+      where: { id: file.id, ownerId: requesterId, ...DETACHED_WHERE },
+    })
+    if (count === 0) throw attachedConflict()
+    await this.purgeStorage(file)
+  }
+
+  /**
+   * Объект и варианты записи, которую только что удалили. Объект — только когда это была
+   * последняя ссылка на него (см. `delete`).
+   */
+  private async purgeStorage(file: { id: string; bucket: string; key: string }): Promise<void> {
     // Варианты принадлежат записи, а не объекту: у копий и у записей общего пула сида
     // префикс свой, поэтому сносим его всегда. Не вышло — подберёт ночная чистка.
     await this.media.purgeVariants(file.bucket, file.id).catch((err: unknown) => {

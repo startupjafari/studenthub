@@ -1,3 +1,4 @@
+import { Readable } from 'node:stream'
 import { InviteStatus } from '@prisma/client'
 import { CleanupService } from './cleanup.service'
 import { platformHour } from '../../common/telegram/telegram-notify.service'
@@ -30,6 +31,8 @@ function makeService() {
   const minio = {
     listObjectsV2: jest.fn() as Mock,
     removeObject: jest.fn() as Mock,
+    // Сироты удаляются пачкой; в «тихом» режиме ответ — только неудавшиеся ключи.
+    removeObjects: jest.fn(async () => []) as Mock,
     listIncompleteUploadsQuery: jest.fn() as Mock,
     abortMultipartUpload: jest.fn() as Mock,
   }
@@ -138,34 +141,19 @@ function makeService() {
   }
 }
 
-// Поток MinIO listObjectsV2 → синхронно эмитим data+end при подписке на 'end'
-// (сервис навешивает 'data' раньше 'end', так что к этому моменту все слушатели готовы).
-function objectStream(objects: { name: string; lastModified: Date }[]) {
-  const handlers: Record<string, (arg?: unknown) => void> = {}
-  const s = {
-    on(event: string, cb: (arg?: unknown) => void) {
-      handlers[event] = cb
-      if (event === 'end') {
-        for (const o of objects) handlers.data?.(o)
-        handlers.end?.()
-      }
-      return s
-    },
-  }
-  return s
+// Поток MinIO listObjectsV2: сервис читает его `for await`, как настоящий объектный Readable.
+function objectStream(objects: Iterable<{ name: string; lastModified: Date }>) {
+  return Readable.from(objects)
 }
 
-// Поток, немедленно эмитящий ошибку при подписке на 'error'.
+// Поток, падающий на первом чтении.
 function errorStream(message: string) {
-  const handlers: Record<string, (arg?: unknown) => void> = {}
-  const s = {
-    on(event: string, cb: (arg?: unknown) => void) {
-      handlers[event] = cb
-      if (event === 'error') cb(new Error(message))
-      return s
+  return new Readable({
+    objectMode: true,
+    read() {
+      this.destroy(new Error(message))
     },
-  }
-  return s
+  })
 }
 
 describe('CleanupService', () => {
@@ -348,7 +336,7 @@ describe('CleanupService', () => {
       const { service, prisma, minio } = makeService()
       const old = new Date(Date.now() - 2 * 60 * 60 * 1000) // 2ч назад — кандидат
       const fresh = new Date() // свежий — пропускаем
-      // 4 бакета: наполняем только первый, остальные пустые.
+      // Наполняем только первый бакет, остальные пустые.
       minio.listObjectsV2
         .mockReturnValueOnce(
           objectStream([
@@ -357,16 +345,16 @@ describe('CleanupService', () => {
             { name: 'inflight.png', lastModified: fresh },
           ]),
         )
-        .mockReturnValue(objectStream([]))
+        .mockImplementation(() => objectStream([]))
       // known.png есть в File, orphan.png — нет.
       prisma.file.findMany.mockResolvedValue([{ key: 'known.png' }])
-      minio.removeObject.mockResolvedValue(undefined)
 
       const removed = await service.cleanOrphanFiles()
 
       expect(removed).toBe(1)
-      expect(minio.removeObject).toHaveBeenCalledTimes(1)
-      expect(minio.removeObject).toHaveBeenCalledWith('MINIO_BUCKET_AVATARS', 'orphan.png')
+      expect(minio.removeObjects).toHaveBeenCalledTimes(1)
+      expect(minio.removeObjects).toHaveBeenCalledWith('MINIO_BUCKET_AVATARS', ['orphan.png'])
+      expect(minio.removeObject).not.toHaveBeenCalled()
     })
 
     it('не трогает постеры видео и обложки пользователей в profile-covers', async () => {
@@ -388,13 +376,12 @@ describe('CleanupService', () => {
       prisma.user.findMany.mockResolvedValue([
         { coverUrl: 'https://old-minio.example/profile-covers/cover.jpg' },
       ])
-      minio.removeObject.mockResolvedValue(undefined)
 
       const removed = await service.cleanOrphanFiles()
 
       expect(removed).toBe(1)
-      expect(minio.removeObject).toHaveBeenCalledTimes(1)
-      expect(minio.removeObject).toHaveBeenCalledWith('MINIO_BUCKET_PROFILE_COVERS', 'junk.jpg')
+      expect(minio.removeObjects).toHaveBeenCalledTimes(1)
+      expect(minio.removeObjects).toHaveBeenCalledWith('MINIO_BUCKET_PROFILE_COVERS', ['junk.jpg'])
     })
 
     it('варианты медиа живут, пока жива запись File-владельца', async () => {
@@ -414,21 +401,102 @@ describe('CleanupService', () => {
       prisma.file.findMany.mockImplementation(async (args: { where: { id?: unknown } }) =>
         args.where.id ? [{ id: alive }] : [],
       )
-      minio.removeObject.mockResolvedValue(undefined)
 
       const removed = await service.cleanOrphanFiles()
 
       expect(removed).toBe(1)
-      expect(minio.removeObject).toHaveBeenCalledWith(
-        'MINIO_BUCKET_CHAT',
+      expect(minio.removeObjects).toHaveBeenCalledWith('MINIO_BUCKET_CHAT', [
         `variants/${gone}/w640.webp`,
+      ])
+      // Ключи вариантов не гоняются через File.key — у них своей строки нет.
+      const byKey = prisma.file.findMany.mock.calls
+        .map(([args]) => (args as { where: { key?: { in: string[] } } }).where.key)
+        .filter(Boolean)
+      expect(byKey).toEqual([])
+    })
+
+    // Главное в F-F11: листинг не копится в память — порция разбирается и удаляется, пока
+    // остальной листинг ещё не прочитан.
+    it('разбирает листинг порциями по 500 по ходу чтения и удаляет их пачкой', async () => {
+      const { service, prisma, minio } = makeService()
+      const old = new Date(Date.now() - 2 * 60 * 60 * 1000)
+      let produced = 0
+      function* listing() {
+        for (let i = 0; i < 1200; i += 1) {
+          produced += 1
+          yield { name: `junk-${String(i).padStart(4, '0')}.png`, lastModified: old }
+        }
+      }
+      minio.listObjectsV2.mockImplementation((bucket: string) =>
+        bucket === 'MINIO_BUCKET_POSTS' ? objectStream(listing()) : objectStream([]),
       )
+      prisma.file.findMany.mockResolvedValue([])
+      const producedAtRemove: number[] = []
+      minio.removeObjects.mockImplementation(async () => {
+        producedAtRemove.push(produced)
+        return []
+      })
+
+      const removed = await service.cleanOrphanFiles()
+
+      expect(removed).toBe(1200)
+      const sizes = minio.removeObjects.mock.calls.map(([, keys]) => (keys as string[]).length)
+      expect(sizes).toEqual([500, 500, 200])
+      // Первая пачка ушла, когда поток выдал чуть больше одной порции, а не все 1200.
+      expect(producedAtRemove[0]).toBeLessThan(600)
+    })
+
+    it('владелец вариантов сверяется один раз на файл, а не на каждый сегмент', async () => {
+      const { service, prisma, minio } = makeService()
+      const old = new Date(Date.now() - 2 * 60 * 60 * 1000)
+      const alive = '11111111-1111-4111-8111-111111111111'
+      const gone = '22222222-2222-4222-8222-222222222222'
+      // 700 сегментов живого видео (две порции) и 300 — удалённого.
+      const segments = (id: string, n: number) =>
+        Array.from({ length: n }, (_, i) => ({
+          name: `variants/${id}/hls/720/seg-${String(i).padStart(4, '0')}.ts`,
+          lastModified: old,
+        }))
+      minio.listObjectsV2.mockImplementation((bucket: string) =>
+        bucket === 'MINIO_BUCKET_CHAT'
+          ? objectStream([...segments(alive, 700), ...segments(gone, 300)])
+          : objectStream([]),
+      )
+      prisma.file.findMany.mockImplementation(async (args: { where: { id?: { in: string[] } } }) =>
+        args.where.id?.in.includes(alive) ? [{ id: alive }] : [],
+      )
+
+      const removed = await service.cleanOrphanFiles()
+
+      expect(removed).toBe(300)
+      const asked = prisma.file.findMany.mock.calls
+        .map(([args]) => (args as { where: { id?: { in: string[] } } }).where.id?.in)
+        .filter(Boolean)
+      // Живой — один раз за две порции, удалённый — один раз.
+      expect(asked).toEqual([[alive], [gone]])
     })
 
     it('недоступный бакет не роняет задачу', async () => {
       const { service, minio } = makeService()
       minio.listObjectsV2.mockImplementation(() => errorStream('minio down'))
       await expect(service.cleanOrphanFiles()).resolves.toBe(0)
+    })
+
+    it('ключи, которые хранилище не удалило, не считаются удалёнными', async () => {
+      const { service, prisma, minio } = makeService()
+      const old = new Date(Date.now() - 2 * 60 * 60 * 1000)
+      minio.listObjectsV2
+        .mockReturnValueOnce(
+          objectStream([
+            { name: 'a.png', lastModified: old },
+            { name: 'b.png', lastModified: old },
+          ]),
+        )
+        .mockImplementation(() => objectStream([]))
+      prisma.file.findMany.mockResolvedValue([])
+      minio.removeObjects.mockResolvedValueOnce([{ Code: 'AccessDenied', Key: 'b.png' }])
+
+      await expect(service.cleanOrphanFiles()).resolves.toBe(1)
     })
   })
 
