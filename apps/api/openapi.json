@@ -8567,6 +8567,26 @@
         ]
       }
     },
+    "/document-types/effective": {
+      "get": {
+        "operationId": "DocumentTypesController_effective",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Каталог типов своего вуза для выбора (все роли; выключенные — с enabled=false)",
+        "tags": [
+          "Документы: типы"
+        ]
+      }
+    },
     "/document-types": {
       "get": {
         "operationId": "DocumentTypesController_list",

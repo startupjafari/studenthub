@@ -5,7 +5,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useLocale, useTranslations } from 'next-intl'
 import { ClipboardList, Plus, Trash2 } from 'lucide-react'
-import { DOCUMENT_TYPES } from '@studenthub/shared-config'
 import { Role } from '@studenthub/shared-types'
 import {
   createDocumentRequest,
@@ -20,6 +19,7 @@ import {
   type StaffSubmissionItem,
 } from '../../../entities/document-request'
 import { courseKeys, fetchCourses } from '../../../entities/course'
+import { useDocumentTypeCatalog } from '../../../entities/document-type'
 import { DocumentFileViewer, isViewableMedia } from '../../../entities/document'
 import { localId } from '../../../shared/lib'
 import { useAppSelector } from '../../../shared/store'
@@ -254,10 +254,14 @@ function CreateRequestModal({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient()
   const myFacultyId = useAppSelector((s) => s.auth.facultyId)
   const role = useAppSelector((s) => s.auth.role)
-  // §15.2: преподаватель вправе запрашивать только учебные типы.
+  // §15.2: преподаватель вправе запрашивать только учебные типы. Типы — из каталога вуза:
+  // выключенные вузом не предлагаем, собственные типы вуза — предлагаем.
+  const catalog = useDocumentTypeCatalog()
   const availableTypes =
-    role === Role.TEACHER ? DOCUMENT_TYPES.filter((d) => d.category === 'ACADEMIC') : DOCUMENT_TYPES
-  const firstType = availableTypes[0]!.id
+    role === Role.TEACHER ? catalog.types.filter((d) => d.category === 'ACADEMIC') : catalog.types
+  // Каталог приходит запросом: позиция, заведённая до его загрузки, получает первый тип.
+  const firstType = availableTypes[0]?.typeId ?? ''
+  const typeOfItem = (it: DraftItem): string => it.documentType || firstType
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [dueAt, setDueAt] = useState('')
@@ -295,8 +299,8 @@ function CreateRequestModal({ onClose }: { onClose: () => void }) {
         description: description.trim() || undefined,
         dueAt: dueAt ? new Date(dueAt) : undefined,
         items: items.map((it) => ({
-          documentType: it.documentType,
-          title: it.title.trim() || t(`docType_${it.documentType}`),
+          documentType: typeOfItem(it),
+          title: it.title.trim() || catalog.labelOf(typeOfItem(it)),
           required: it.required,
         })),
         targets,
@@ -336,6 +340,7 @@ function CreateRequestModal({ onClose }: { onClose: () => void }) {
               if (!Object.values(errors).some(Boolean)) mut.mutate()
             }}
             loading={mut.isPending}
+            disabled={!firstType}
           >
             {t('req_create')}
           </Button>
@@ -382,7 +387,7 @@ function CreateRequestModal({ onClose }: { onClose: () => void }) {
               className="flex flex-wrap items-center gap-2 rounded-lg border border-border p-2"
             >
               <Select
-                value={it.documentType}
+                value={typeOfItem(it)}
                 onValueChange={(v) =>
                   setItems(items.map((x) => (x.id === it.id ? { ...x, documentType: v } : x)))
                 }
@@ -392,8 +397,8 @@ function CreateRequestModal({ onClose }: { onClose: () => void }) {
                 </SelectTrigger>
                 <SelectContent>
                   {availableTypes.map((d) => (
-                    <SelectItem key={d.id} value={d.id}>
-                      {t(`docType_${d.id}`)}
+                    <SelectItem key={d.typeId} value={d.typeId}>
+                      {catalog.labelOf(d.typeId)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -403,7 +408,7 @@ function CreateRequestModal({ onClose }: { onClose: () => void }) {
                 onChange={(e) =>
                   setItems(items.map((x) => (x.id === it.id ? { ...x, title: e.target.value } : x)))
                 }
-                placeholder={t(`docType_${it.documentType}`)}
+                placeholder={catalog.labelOf(typeOfItem(it))}
                 className="min-w-[140px] flex-1"
               />
               <label className="flex items-center gap-1.5 text-sm">

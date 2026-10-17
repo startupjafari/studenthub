@@ -7,6 +7,7 @@ import { api } from '../../../shared/api'
 export const documentTypeKeys = {
   all: ['document-types'] as const,
   list: () => ['document-types', 'list'] as const,
+  effective: () => ['document-types', 'effective'] as const,
 }
 
 export interface EffectiveDocumentType {
@@ -19,8 +20,15 @@ export interface EffectiveDocumentType {
   label: string | null
 }
 
+// Управление каталогом — только админ вуза.
 export async function fetchDocumentTypes(): Promise<EffectiveDocumentType[]> {
   const { data } = await api.get<EffectiveDocumentType[]>('/document-types')
+  return data
+}
+
+// Каталог своего вуза для выбора типа — открыт любой роли; вуз сервер берёт из токена.
+export async function fetchEffectiveDocumentTypes(): Promise<EffectiveDocumentType[]> {
+  const { data } = await api.get<EffectiveDocumentType[]>('/document-types/effective')
   return data
 }
 

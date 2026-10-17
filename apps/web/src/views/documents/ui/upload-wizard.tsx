@@ -5,18 +5,14 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useTranslations } from 'next-intl'
 import { Camera, ChevronDown, ChevronUp, Lock, Upload, X } from 'lucide-react'
-import {
-  DOCUMENT_CATEGORIES,
-  DOCUMENT_TYPES,
-  documentTypeDef,
-  type DocumentField,
-} from '@studenthub/shared-config'
+import { DOCUMENT_CATEGORIES, type DocumentField } from '@studenthub/shared-config'
 import {
   attachDocumentFiles,
   createDocument,
   documentKeys,
   uploadDocumentFile,
 } from '../../../entities/document'
+import { useDocumentTypeCatalog } from '../../../entities/document-type'
 import {
   Button,
   DatePicker,
@@ -61,8 +57,14 @@ export function UploadWizard({ onClose }: { onClose: () => void }) {
   const [issuedBy, setIssuedBy] = useState('')
   const [comment, setComment] = useState('')
 
-  const typesForCategory = DOCUMENT_TYPES.filter((d) => d.category === category)
-  const fields: DocumentField[] = documentTypeDef(type)?.fields ?? []
+  // Типы — из каталога вуза: выключенный вузом тип в выборе не появляется (иначе сервер
+  // отклонит его уже после загрузки файлов), собственные типы вуза — появляются.
+  const catalog = useDocumentTypeCatalog()
+  const categories = DOCUMENT_CATEGORIES.filter(
+    (c) => catalog.isPending || catalog.types.some((d) => d.category === c),
+  )
+  const typesForCategory = catalog.types.filter((d) => d.category === category)
+  const fields = (catalog.typeOf(type)?.fields ?? []) as DocumentField[]
   const showField = (f: DocumentField) => fields.includes(f)
 
   async function onPick(list: FileList | null): Promise<void> {
@@ -207,7 +209,7 @@ export function UploadWizard({ onClose }: { onClose: () => void }) {
                 <SelectValue placeholder={t('chooseCategory')} />
               </SelectTrigger>
               <SelectContent>
-                {DOCUMENT_CATEGORIES.map((c) => (
+                {categories.map((c) => (
                   <SelectItem key={c} value={c}>
                     {t(`docCat_${c}`)}
                   </SelectItem>
@@ -219,14 +221,14 @@ export function UploadWizard({ onClose }: { onClose: () => void }) {
           {category && (
             <label className="flex flex-col gap-1 text-sm">
               {t('chooseType')}
-              <Select value={type} onValueChange={setType}>
+              <Select value={type} onValueChange={setType} disabled={catalog.isPending}>
                 <SelectTrigger aria-invalid={!!show('type')}>
                   <SelectValue placeholder={t('chooseType')} />
                 </SelectTrigger>
                 <SelectContent>
                   {typesForCategory.map((d) => (
-                    <SelectItem key={d.id} value={d.id}>
-                      {t(`docType_${d.id}`)}
+                    <SelectItem key={d.typeId} value={d.typeId}>
+                      {catalog.labelOf(d.typeId)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -338,7 +340,7 @@ export function UploadWizard({ onClose }: { onClose: () => void }) {
             <Input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder={type ? t(`docType_${type}`) : ''}
+              placeholder={type ? catalog.labelOf(type) : ''}
               aria-invalid={!!show('title')}
             />
             <FieldError>{show('title')}</FieldError>
