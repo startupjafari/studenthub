@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common'
 import type Redis from 'ioredis'
 import type { CareerReportPeriod } from '@studenthub/shared-schemas'
-import { resolveUniversityScope } from './career-scope'
+import { CAREER_STUDENT_ROLES, resolveUniversityScope } from './career-scope'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { REDIS_CLIENT } from '../../common/redis/redis.module'
 import { AuditService } from '../../common/audit/audit.service'
@@ -302,7 +302,8 @@ export class CareerReportService {
              COUNT(DISTINCT a.student_id) FILTER (WHERE a.status = 'HIRED') AS hired
         FROM faculties f
         LEFT JOIN users u
-               ON u.faculty_id = f.id AND u.role::text = 'STUDENT' AND u.deleted_at IS NULL
+               ON u.faculty_id = f.id AND u.role::text IN ('STUDENT', 'STAROSTA')
+              AND u.deleted_at IS NULL
         LEFT JOIN career_applications a
                ON a.student_id = u.id
               AND a.created_at >= ${range.from} AND a.created_at < ${range.to}
@@ -329,21 +330,35 @@ export class CareerReportService {
     }
   }
 
-  /** Выпускной курс: доля трудоустроенных среди тех, кто выпускается в этом учебном году. */
+  /**
+   * Выпускной курс: доля трудоустроенных среди тех, кто выпускается в этом учебном году.
+   * Трудоустроенные — COUNT(DISTINCT) запросом по тем же людям, что и знаменатель: выборка
+   * с потолком 10 000 строк молча упиралась в него в большом вузе (D-F31).
+   */
   private async graduates(universityId: string) {
     const year = graduationYear(new Date())
-    const [students, hired] = await Promise.all([
+    const [students, hiredRows] = await Promise.all([
       this.prisma.user.count({
-        where: { universityId, role: 'STUDENT', deletedAt: null, graduationYear: year },
+        where: {
+          universityId,
+          role: { in: CAREER_STUDENT_ROLES },
+          deletedAt: null,
+          graduationYear: year,
+        },
       }),
-      this.prisma.careerApplication.findMany({
-        where: { universityId, status: 'HIRED', student: { graduationYear: year } },
-        select: { studentId: true },
-        distinct: ['studentId'],
-        take: 10_000,
-      }),
+      this.prisma.$queryRaw<Array<{ n: bigint }>>`
+        SELECT COUNT(DISTINCT a.student_id) AS n
+          FROM career_applications a
+          JOIN users u ON u.id = a.student_id
+         WHERE a.university_id = ${universityId}
+           AND a.status = 'HIRED'
+           AND u.graduation_year = ${year}
+           AND u.role::text IN ('STUDENT', 'STAROSTA')
+           AND u.deleted_at IS NULL
+      `,
     ])
-    return { year, students, hired: hired.length, share: rate(hired.length, students) }
+    const hired = Number(hiredRows[0]?.n ?? 0)
+    return { year, students, hired, share: rate(hired, students) }
   }
 
   /** Кто из допущенных компаний реально берёт людей, а не просто публикует вакансии. */
@@ -502,17 +517,23 @@ export class CareerReportService {
       this.prisma.resume.count({
         where: { publishedAt: { not: null }, user: { universityId, deletedAt: null } },
       }),
+      // Числитель и знаменатель доли «открытых профилей» — по одним и тем же людям (D-F31).
       this.prisma.careerProfile.count({
-        where: { visibility: 'EMPLOYERS', user: { universityId, deletedAt: null } },
+        where: {
+          visibility: 'EMPLOYERS',
+          user: { universityId, deletedAt: null, role: { in: CAREER_STUDENT_ROLES } },
+        },
       }),
       this.prisma.careerProfile.count({
         where: {
           visibility: 'EMPLOYERS',
           createdAt: { gte: range.from, lt: range.to },
-          user: { universityId, deletedAt: null },
+          user: { universityId, deletedAt: null, role: { in: CAREER_STUDENT_ROLES } },
         },
       }),
-      this.prisma.user.count({ where: { universityId, role: 'STUDENT', deletedAt: null } }),
+      this.prisma.user.count({
+        where: { universityId, role: { in: CAREER_STUDENT_ROLES }, deletedAt: null },
+      }),
     ])
 
     // width_bucket отдаёт 1..4 (и 5 для ровно 100) — сворачиваем хвост в последнюю корзину.

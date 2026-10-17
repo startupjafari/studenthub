@@ -33,7 +33,7 @@ import { UpdateDocumentDto } from './dto/update-document.dto'
 import { DocumentListQueryDto } from './dto/document-list-query.dto'
 import { DocumentFilesDto } from './dto/document-files.dto'
 import { GrantAccessDto } from './dto/grant-access.dto'
-import { PlatformAccessDto } from './dto/platform-access.dto'
+import { PlatformAccessDto, PlatformMetaDto } from './dto/platform-access.dto'
 import { SharedWithMeQueryDto } from './dto/shared-with-me-query.dto'
 
 // Модуль «Документы» (Ф15): личное защищённое хранилище. Полный номер наружу не отдаётся.
@@ -215,10 +215,27 @@ export class DocumentsController {
   @Get(':id/platform')
   @Roles(Role.PLATFORM_ADMIN)
   @ApiOperation({
-    summary: 'Спец-режим: метаданные чужого документа (платформенный админ, с аудитом)',
+    summary:
+      'Спец-режим: метаданные чужого документа без причины (устарело — используйте POST с причиной)',
+    deprecated: true,
   })
   platformGet(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
     return this.documents.platformGet(user, id)
+  }
+
+  @Post(':id/platform')
+  @HttpCode(HttpStatus.OK)
+  @Roles(Role.PLATFORM_ADMIN)
+  @ApiOperation({
+    summary: 'Спец-режим: метаданные чужого документа с обязательной причиной (аудит + журнал)',
+  })
+  @ApiResponse({ status: 200, description: 'Документ (номер — маской)' })
+  platformGetWithReason(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: PlatformMetaDto,
+  ) {
+    return this.documents.platformGet(user, id, dto.reason)
   }
 
   @Post(':id/platform-access')

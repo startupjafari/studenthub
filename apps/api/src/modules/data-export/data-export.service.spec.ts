@@ -1,5 +1,6 @@
+import { Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
-import { DataExportService } from './data-export.service'
+import { DataExportService, USER_RELATIONS } from './data-export.service'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { AuditService } from '../../common/audit/audit.service'
 import type { ExportBrandingService } from '../../common/export/export-branding.service'
@@ -36,6 +37,30 @@ const MODELS = [
   'storyReaction',
   'storyPollVote',
   'auditLog',
+  'messageReaction',
+  'chatPollVote',
+  'chatFolder',
+  'scheduledMessage',
+  'event',
+  'eventComment',
+  'profileArticle',
+  'contentComment',
+  'bookmark',
+  'album',
+  'poll',
+  'pollVote',
+  'careerProfile',
+  'careerConsent',
+  'careerApplication',
+  'resume',
+  'companyMember',
+  'complaint',
+  'moderationWarning',
+  'chat',
+  'deaneryAppointment',
+  'consultationSlot',
+  'telegramAccount',
+  'notificationSettings',
 ] as const
 
 function account(over: Record<string, unknown> = {}) {
@@ -187,6 +212,76 @@ describe('DataExportService — что наружу не уходит', () => {
     const archive = JSON.parse(body) as { sections: { friends: { items: { id: string }[] } } }
 
     expect(archive.sections.friends.items[0]).toMatchObject({ id: 'u-2', firstName: 'Ержан' })
+  })
+})
+
+describe('DataExportService — полнота по схеме (D-F26)', () => {
+  // Все внешние ключи на User из схемы Prisma: «модель.поле».
+  const schemaRelations = Prisma.dmmf.datamodel.models.flatMap((model) =>
+    model.fields
+      .filter((f) => f.kind === 'object' && f.type === 'User' && f.relationFromFields?.length)
+      .map((f) => `${model.name}.${f.relationFromFields![0]}`),
+  )
+
+  it('каждая связь с User выгружается или исключена с причиной', () => {
+    const missing = schemaRelations.filter((key) => !(key in USER_RELATIONS))
+    expect(missing).toEqual([])
+    // И наоборот: в перечне нет связей, которых уже нет в схеме.
+    const stale = Object.keys(USER_RELATIONS).filter((key) => !schemaRelations.includes(key))
+    expect(stale).toEqual([])
+  })
+
+  it('каждый названный раздел действительно есть в архиве', async () => {
+    const { service } = setup()
+    const { body } = await service.exportPersonalData(viewer, 'ru', ctx)
+    const sections = Object.keys((JSON.parse(body) as { sections: object }).sections)
+    const named = Object.values(USER_RELATIONS).flatMap((v) => ('section' in v ? [v.section] : []))
+    expect(named.filter((name) => !sections.includes(name))).toEqual([])
+  })
+
+  it('выданные приглашения — без адресов приглашённых', async () => {
+    const { service, models } = setup()
+    await service.exportPersonalData(viewer, 'ru', ctx)
+    const issued = models.invite.findMany.mock.calls.find(
+      ([args]) => (args as { where: { createdById?: string } }).where.createdById === 'u-1',
+    )
+    expect(issued?.[0].select).not.toHaveProperty('email')
+  })
+
+  it('привязка Telegram выгружается: BigInt-идентификатор — строкой', async () => {
+    const { service, models } = setup()
+    models.telegramAccount.findMany.mockResolvedValue([
+      { telegramId: BigInt('900000000001'), username: 'asem', linkedAt: new Date('2026-01-01') },
+    ])
+    const { body } = await service.exportPersonalData(viewer, 'ru', ctx)
+    const archive = JSON.parse(body) as { sections: { telegram: { items: unknown[] } } }
+    expect(archive.sections.telegram.items[0]).toMatchObject({ telegramId: '900000000001' })
+  })
+
+  it('работодатель получает данные своей компании, студент — отклики с названием вакансии', async () => {
+    const { service, models } = setup()
+    models.companyMember.findMany.mockResolvedValue([
+      { role: 'OWNER', company: { id: 'c1', name: 'ТОО «Ромашка»', status: 'ACTIVE' } },
+    ])
+    models.careerApplication.findMany.mockResolvedValue([
+      {
+        vacancyId: 'v1',
+        status: 'SUBMITTED',
+        coverLetter: null,
+        vacancy: { title: 'Стажёр', company: { name: 'ТОО «Ромашка»' } },
+      },
+    ])
+    const { body } = await service.exportPersonalData(viewer, 'ru', ctx)
+    const archive = JSON.parse(body) as {
+      sections: { companies: { items: unknown[] }; careerApplications: { items: unknown[] } }
+    }
+    expect(archive.sections.companies.items[0]).toMatchObject({
+      company: { name: 'ТОО «Ромашка»' },
+    })
+    expect(archive.sections.careerApplications.items[0]).toMatchObject({
+      vacancy: 'Стажёр',
+      company: 'ТОО «Ромашка»',
+    })
   })
 })
 

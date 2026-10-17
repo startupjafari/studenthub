@@ -38,6 +38,7 @@ function setup() {
       findMany: jest.fn().mockResolvedValue([]),
       create: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       count: jest.fn().mockResolvedValue(0),
     },
     university: { findFirst: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
@@ -281,12 +282,23 @@ describe('CompaniesService — заявка на допуск', () => {
     await s.service.requestAccess(employer, { universityId: 'uni-1', message: 'снова' }, ctx)
 
     expect(s.prisma.companyUniversityAccess.create).not.toHaveBeenCalled()
-    expect(s.prisma.companyUniversityAccess.update).toHaveBeenCalledWith(
+    expect(s.prisma.companyUniversityAccess.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: 'a-1' },
+        where: { id: 'a-1', status: 'REJECTED' },
         data: expect.objectContaining({ status: 'REQUESTED', reason: null, expiresAt: null }),
       }),
     )
+  })
+
+  it('вуз успел решить заявку между чтением и повторной подачей → 409 (D-F29)', async () => {
+    const s = ownerSetup()
+    s.prisma.companyUniversityAccess.findUnique.mockResolvedValue({ id: 'a-1', status: 'REVOKED' })
+    s.prisma.companyUniversityAccess.updateMany.mockResolvedValue({ count: 0 })
+    const err = (await s.service
+      .requestAccess(employer, { universityId: 'uni-1', message: 'снова' }, ctx)
+      .catch((e: unknown) => e)) as AppException
+    expect(err.code).toBe('CONFLICT')
+    expect(s.audit.record).not.toHaveBeenCalled()
   })
 })
 
@@ -391,6 +403,28 @@ describe('CompaniesService — решение вуза', () => {
     await expect(
       service.decideAccess(staff(null), 'a-1', { status: 'APPROVED' }, ctx),
     ).rejects.toBeInstanceOf(AppException)
+  })
+
+  it('решение пишется с условием на ожидаемый статус; параллельное → 409 без аудита (D-F29)', async () => {
+    const { service, prisma, tx, audit, access } = setup()
+    prisma.companyUniversityAccess.findUnique.mockResolvedValue({
+      id: 'a-1',
+      status: 'REQUESTED',
+      companyId: 'co-1',
+      universityId: 'uni-1',
+    })
+    tx.companyUniversityAccess.updateMany.mockResolvedValue({ count: 0 })
+
+    const err = (await service
+      .decideAccess(staff(), 'a-1', { status: 'REJECTED', reason: 'нет' }, ctx)
+      .catch((e: unknown) => e)) as AppException
+
+    expect(tx.companyUniversityAccess.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'a-1', status: 'REQUESTED' } }),
+    )
+    expect(err.code).toBe('CONFLICT')
+    expect(audit.record).not.toHaveBeenCalled()
+    expect(access.invalidate).not.toHaveBeenCalled()
   })
 })
 

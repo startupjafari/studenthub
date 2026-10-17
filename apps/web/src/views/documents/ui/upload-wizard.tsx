@@ -60,8 +60,12 @@ export function UploadWizard({ onClose }: { onClose: () => void }) {
   // Типы — из каталога вуза: выключенный вузом тип в выборе не появляется (иначе сервер
   // отклонит его уже после загрузки файлов), собственные типы вуза — появляются.
   const catalog = useDocumentTypeCatalog()
+  // «Выданные университетом» в кабинет кладёт только вуз — самому их не завести (сервер
+  // отвечает 403), поэтому в мастере этой категории нет.
   const categories = DOCUMENT_CATEGORIES.filter(
-    (c) => catalog.isPending || catalog.types.some((d) => d.category === c),
+    (c) =>
+      c !== 'ISSUED_BY_UNIVERSITY' &&
+      (catalog.isPending || catalog.types.some((d) => d.category === c)),
   )
   const typesForCategory = catalog.types.filter((d) => d.category === category)
   const fields = (catalog.typeOf(type)?.fields ?? []) as DocumentField[]

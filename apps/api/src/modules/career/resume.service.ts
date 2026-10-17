@@ -142,10 +142,13 @@ export class ResumeService {
    * Ссылку могут переслать куда угодно, поэтому email по умолчанию наружу не уходит.
    * По той же причине из портфолио идут только PUBLIC-записи: читатель ссылки — аноним
    * вне вуза, и ни PRIVATE, ни UNIVERSITY ему не положены.
+   *
+   * Резюме заблокированного или удалённого пользователя по ссылке не открывается (D-F30):
+   * блокировка снимает человека с платформы, и публичная страница не должна жить дальше.
    */
   async publicBySlug(slug: string) {
     const resume = await this.prisma.resume.findFirst({
-      where: { publicSlug: slug },
+      where: { publicSlug: slug, user: { deletedAt: null, isBlocked: false } },
       select: { userId: true, title: true, includeContacts: true, updatedAt: true },
     })
     if (!resume) throw new AppException('NOT_FOUND', 'Резюме не найдено')

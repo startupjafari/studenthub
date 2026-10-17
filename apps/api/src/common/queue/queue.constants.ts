@@ -61,6 +61,8 @@ export const NOTIFICATION_JOBS = {
   DOCUMENT_RESULT: 'document-result',
   // Владелец открыл документ получателю (грант USER / DEPARTMENT).
   DOCUMENT_SHARED: 'document-shared',
+  // Автору запроса документов: студент отправил комплект на проверку.
+  DOCUMENT_SUBMITTED: 'document-submitted',
   FRIEND_REQUEST: 'friend-request',
   FRIEND_ACCEPTED: 'friend-accepted',
   // Запрос на переписку (§50): единственное уведомление до принятия — сами сообщения

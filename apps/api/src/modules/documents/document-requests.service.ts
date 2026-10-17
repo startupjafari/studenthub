@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
 import type {
   CreateDocumentRequestInput,
+  CursorPaginationInput,
   ReviewSubmissionItemInput,
   SaveSubmissionInput,
 } from '@studenthub/shared-schemas'
@@ -10,6 +11,7 @@ import { PrismaService } from '../../common/prisma/prisma.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import { NOTIFICATION_JOBS, QUEUES, QueueService } from '../../common/queue'
+import { Paginated } from '../../common/http/paginated'
 import { DocumentsService } from './documents.service'
 import { DocumentTypesService } from './document-types.service'
 
@@ -28,6 +30,14 @@ const REQUEST_STAFF_ROLES: ReadonlySet<Role> = new Set([
 
 // Позиций в запросе не больше, чем разрешает схема создания (30).
 const REQUEST_ITEMS_LIMIT = 30
+// Адресаты уведомления о новом запросе читаются и рассылаются пачками без общего потолка:
+// прежний `take: 5000` молча оставлял без уведомления студентов большого вуза (D-F25).
+const RECIPIENTS_BATCH = 1000
+// Комплектов в карточке запроса — первые N; остальные листаются отдельной ручкой
+// (`GET manage/:id/submissions`). Запрос «на весь вуз» иначе отдавался тысячами строк разом.
+const MANAGE_SUBMISSIONS_LIMIT = 200
+// Пачка крона закрытия запросов по сроку.
+const CLOSE_BATCH = 500
 
 // Кто сейчас ведёт комплект. Студент меняет и отправляет его, пока комплект не отправлен
 // (DRAFT) или возвращён ему после проверки (REJECTED; PARTIAL — проверены не все позиции).
@@ -39,6 +49,33 @@ const STUDENT_EDITABLE = ['DRAFT', 'REJECTED', 'PARTIAL']
 const STAFF_REVIEWABLE = ['SUBMITTED', 'PARTIAL']
 
 const DAY_MS = 24 * 60 * 60 * 1000
+// Из каких статусов принятый в запросе сертификат становится подтверждённым: просроченный,
+// отклонённый (в т.ч. отозванный вузом), архивный и черновик подтверждением не становятся.
+const VERIFIABLE_STATUSES = ['UPLOADED', 'IN_REVIEW', 'NEEDS_REPLACEMENT', 'ACCEPTED']
+
+// Строка комплекта в карточке запроса у сотрудника.
+const SUBMISSION_SUMMARY_SELECT = {
+  id: true,
+  status: true,
+  submittedAt: true,
+  reviewedAt: true,
+  student: { select: { id: true, firstName: true, lastName: true } },
+  _count: { select: { items: true } },
+} satisfies Prisma.DocumentSubmissionSelect
+
+function submissionSummary(
+  s: Prisma.DocumentSubmissionGetPayload<{ select: typeof SUBMISSION_SUMMARY_SELECT }>,
+) {
+  return {
+    id: s.id,
+    status: s.status,
+    submittedAt: s.submittedAt,
+    reviewedAt: s.reviewedAt,
+    studentId: s.student.id,
+    studentName: `${s.student.lastName} ${s.student.firstName}`.trim(),
+    itemCount: s._count.items,
+  }
+}
 
 /**
  * Принимает ли запрос ответы: открыт и срок не истёк. Срок из веба приходит датой без
@@ -73,11 +110,16 @@ export class DocumentRequestsService {
     private readonly types: DocumentTypesService,
   ) {}
 
-  // Кому адресован запрос — раскрываем адресатов в конкретных студентов вуза (§15.19 уведомления).
-  private async resolveTargetStudentIds(
+  /**
+   * Уведомить адресатов нового запроса (§15.19): адресаты раскрываются в студентов вуза и
+   * рассылаются пачками по курсору id — без потолка на весь запрос. Job на пачку: dedupeKey
+   * один (идемпотентность у получателя), jobId — с номером пачки.
+   */
+  private async notifyTargets(
     requestId: string,
     universityId: string,
-  ): Promise<string[]> {
+    title: string,
+  ): Promise<number> {
     const targets = await this.prisma.documentRequestTarget.findMany({
       where: { requestId },
       select: { targetType: true, targetId: true },
@@ -90,25 +132,71 @@ export class DocumentRequestsService {
       else if (t.targetType === 'GROUP' && t.targetId) or.push({ groupId: t.targetId })
       else if (t.targetType === 'USER' && t.targetId) or.push({ id: t.targetId })
     }
-    if (or.length === 0) return []
-    const students = await this.prisma.user.findMany({
-      where: {
-        universityId,
-        deletedAt: null,
-        isBlocked: false,
-        role: { in: [Role.STUDENT, Role.STAROSTA] },
-        OR: or,
-      },
-      select: { id: true },
-      take: 5000,
-    })
-    return students.map((s) => s.id)
+    if (or.length === 0) return 0
+    const where: Prisma.UserWhereInput = {
+      universityId,
+      deletedAt: null,
+      isBlocked: false,
+      role: { in: [Role.STUDENT, Role.STAROSTA] },
+      OR: or,
+    }
+    let total = 0
+    let afterId: string | null = null
+    for (let batch = 0; ; batch++) {
+      const page: { id: string }[] = await this.prisma.user.findMany({
+        where: afterId ? { AND: [where, { id: { gt: afterId } }] } : where,
+        orderBy: { id: 'asc' },
+        select: { id: true },
+        take: RECIPIENTS_BATCH,
+      })
+      if (page.length === 0) break
+      await this.queue.enqueue(
+        QUEUES.NOTIFICATIONS,
+        NOTIFICATION_JOBS.DOCUMENT_REQUEST,
+        {
+          recipientIds: page.map((u) => u.id),
+          type: 'SYSTEM',
+          titleKey: 'documents.request.title',
+          bodyKey: 'documents.named.body',
+          params: { title },
+          data: { requestId, url: '/documents' },
+          dedupeKey: `doc-request:${requestId}`,
+        },
+        { jobId: `doc-request:${requestId}:${batch}` },
+      )
+      total += page.length
+      if (page.length < RECIPIENTS_BATCH) break
+      afterId = page[page.length - 1]!.id
+    }
+    return total
   }
 
   private assertStaff(actor: JwtPayload): void {
     if (!REQUEST_STAFF_ROLES.has(actor.role) || !actor.universityId) {
       throw new AppException('FORBIDDEN', 'Недостаточно прав для запросов документов')
     }
+  }
+
+  /**
+   * Чьи запросы сотрудник видит и проверяет (D-F25). Раньше — только свои: сменившийся декан
+   * не видел и не мог проверить запросы предшественника, а ответы студентов повисали.
+   * Модератор вуза — весь вуз; декан — свои и запросы сотрудников своего факультета, кроме
+   * преподавательских (те — учебные запросы дисциплины, их ведёт сам преподаватель);
+   * преподаватель — только свои.
+   */
+  private staffScopeWhere(actor: JwtPayload): Prisma.DocumentRequestWhereInput {
+    const universityId = actor.universityId!
+    if (actor.role === Role.UNIVERSITY_MODERATOR) return { universityId }
+    if (actor.role === Role.DEAN && actor.facultyId) {
+      return {
+        universityId,
+        OR: [
+          { createdById: actor.sub },
+          { createdBy: { facultyId: actor.facultyId, role: { not: Role.TEACHER } } },
+        ],
+      }
+    }
+    return { universityId, createdById: actor.sub }
   }
 
   /**
@@ -279,30 +367,19 @@ export class DocumentRequestsService {
     })
     await this.logEvent(actor.sub, created.id, 'REQUEST_CREATE', { items: input.items.length })
     // Уведомляем адресованных студентов о новом запросе (§15.19).
-    const recipientIds = await this.resolveTargetStudentIds(created.id, actor.universityId!)
-    if (recipientIds.length > 0) {
-      await this.queue.enqueue(
-        QUEUES.NOTIFICATIONS,
-        NOTIFICATION_JOBS.DOCUMENT_REQUEST,
-        {
-          recipientIds,
-          type: 'SYSTEM',
-          titleKey: 'documents.request.title',
-          bodyKey: 'documents.named.body',
-          params: { title: input.title },
-          data: { requestId: created.id, url: '/documents' },
-          dedupeKey: `doc-request:${created.id}`,
-        },
-        { jobId: `doc-request:${created.id}` },
-      )
-    }
+    await this.notifyTargets(created.id, actor.universityId!, input.title)
     return this.getRequestForStaff(actor, created.id)
   }
 
+  /**
+   * Запросы в области сотрудника (свои и подразделения, см. staffScopeWhere). Имя ручки
+   * осталось прежним (`authored`); чужой запрос помечен `mine: false` и именем автора.
+   * Счётчики — агрегатами, а не статусами всех комплектов каждого из 200 запросов.
+   */
   async listAuthored(actor: JwtPayload) {
     this.assertStaff(actor)
     const rows = await this.prisma.documentRequest.findMany({
-      where: { universityId: actor.universityId!, createdById: actor.sub },
+      where: this.staffScopeWhere(actor),
       orderBy: { createdAt: 'desc' },
       take: 200,
       select: {
@@ -311,10 +388,18 @@ export class DocumentRequestsService {
         dueAt: true,
         status: true,
         createdAt: true,
+        createdBy: { select: { id: true, firstName: true, lastName: true } },
         _count: { select: { items: true, targets: true, submissions: true } },
-        submissions: { select: { status: true } },
       },
     })
+    const submitted = rows.length
+      ? await this.prisma.documentSubmission.groupBy({
+          by: ['requestId'],
+          where: { requestId: { in: rows.map((r) => r.id) }, status: { not: 'DRAFT' } },
+          _count: { _all: true },
+        })
+      : []
+    const submittedBy = new Map(submitted.map((g) => [g.requestId, g._count._all]))
     return rows.map((r) => ({
       id: r.id,
       title: r.title,
@@ -324,15 +409,17 @@ export class DocumentRequestsService {
       itemCount: r._count.items,
       targetCount: r._count.targets,
       submissionCount: r._count.submissions,
-      submittedCount: r.submissions.filter((s) => s.status !== 'DRAFT').length,
+      submittedCount: submittedBy.get(r.id) ?? 0,
+      mine: r.createdBy.id === actor.sub,
+      authorName: `${r.createdBy.lastName} ${r.createdBy.firstName}`.trim(),
     }))
   }
 
-  private async findAuthoredOrThrow(actor: JwtPayload, id: string): Promise<{ id: string }> {
-    // §15.2/15.18: сотрудник управляет и проверяет только СВОИ запросы (его подразделение),
-    // не заглядывая в чужие. Scope сужен с «того же вуза» до автора запроса.
+  private async findInScopeOrThrow(actor: JwtPayload, id: string): Promise<{ id: string }> {
+    // §15.2/15.18: сотрудник управляет и проверяет запросы своего подразделения, не
+    // заглядывая в чужие (staffScopeWhere).
     const req = await this.prisma.documentRequest.findFirst({
-      where: { id, createdById: actor.sub },
+      where: { id, ...this.staffScopeWhere(actor) },
       select: { id: true },
     })
     if (!req) throw new AppException('NOT_FOUND', 'Запрос не найден')
@@ -341,7 +428,7 @@ export class DocumentRequestsService {
 
   async getRequestForStaff(actor: JwtPayload, id: string) {
     this.assertStaff(actor)
-    await this.findAuthoredOrThrow(actor, id)
+    await this.findInScopeOrThrow(actor, id)
     const req = await this.prisma.documentRequest.findUnique({
       where: { id },
       select: {
@@ -351,37 +438,100 @@ export class DocumentRequestsService {
         dueAt: true,
         status: true,
         createdAt: true,
+        createdBy: { select: { id: true, firstName: true, lastName: true } },
         items: {
           orderBy: { order: 'asc' },
           select: { id: true, documentType: true, title: true, required: true, order: true },
         },
         targets: { select: { id: true, targetType: true, targetId: true } },
         submissions: {
-          orderBy: { createdAt: 'asc' },
-          select: {
-            id: true,
-            status: true,
-            submittedAt: true,
-            reviewedAt: true,
-            student: { select: { id: true, firstName: true, lastName: true } },
-            _count: { select: { items: true } },
-          },
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+          select: SUBMISSION_SUMMARY_SELECT,
+          take: MANAGE_SUBMISSIONS_LIMIT,
         },
+        _count: { select: { submissions: true } },
       },
     })
     if (!req) throw new AppException('NOT_FOUND', 'Запрос не найден')
+    const { createdBy, _count, submissions, ...rest } = req
     return {
-      ...req,
-      submissions: req.submissions.map((s) => ({
-        id: s.id,
-        status: s.status,
-        submittedAt: s.submittedAt,
-        reviewedAt: s.reviewedAt,
-        studentId: s.student.id,
-        studentName: `${s.student.lastName} ${s.student.firstName}`.trim(),
-        itemCount: s._count.items,
-      })),
+      ...rest,
+      mine: createdBy.id === actor.sub,
+      authorName: `${createdBy.lastName} ${createdBy.firstName}`.trim(),
+      // Всего комплектов: если больше, чем в `submissions`, остальные — постранично.
+      submissionCount: _count.submissions,
+      submissions: submissions.map(submissionSummary),
     }
+  }
+
+  /** Комплекты запроса постранично (cursor по id, в порядке создания). */
+  async listSubmissionsForStaff(actor: JwtPayload, id: string, query: CursorPaginationInput) {
+    this.assertStaff(actor)
+    await this.findInScopeOrThrow(actor, id)
+    const rows = await this.prisma.documentSubmission.findMany({
+      where: { requestId: id },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      select: SUBMISSION_SUMMARY_SELECT,
+      take: query.limit + 1,
+      ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
+    })
+    const hasNext = rows.length > query.limit
+    const page = hasNext ? rows.slice(0, query.limit) : rows
+    return new Paginated(page.map(submissionSummary), {
+      cursor: hasNext ? page[page.length - 1]?.id : undefined,
+      hasNext,
+    })
+  }
+
+  /**
+   * Закрыть запрос (D-F25): ответы больше не принимаются, у студентов он пропадает из списка.
+   * Повторное закрытие ничего не меняет.
+   */
+  async closeRequest(actor: JwtPayload, id: string) {
+    this.assertStaff(actor)
+    await this.findInScopeOrThrow(actor, id)
+    const { count } = await this.prisma.documentRequest.updateMany({
+      where: { id, status: 'OPEN' },
+      data: { status: 'CLOSED' },
+    })
+    if (count > 0) await this.logEvent(actor.sub, id, 'REQUEST_CLOSE')
+    return this.getRequestForStaff(actor, id)
+  }
+
+  /**
+   * Закрыть запросы с прошедшим сроком (для ночного крона; D-F25). Сдача после срока и так
+   * отклоняется (acceptsSubmissions), но статус OPEN держал такие запросы в списках студентов.
+   * Срок-дата длится до конца дня — ту же границу проверяет acceptsSubmissions.
+   */
+  async closeOverdue(now: Date = new Date()): Promise<number> {
+    let closed = 0
+    let afterId: string | null = null
+    for (;;) {
+      const batch: { id: string; status: string; dueAt: Date | null }[] =
+        await this.prisma.documentRequest.findMany({
+          where: {
+            status: 'OPEN',
+            dueAt: { lt: now },
+            ...(afterId ? { id: { gt: afterId } } : {}),
+          },
+          orderBy: { id: 'asc' },
+          select: { id: true, status: true, dueAt: true },
+          take: CLOSE_BATCH,
+        })
+      if (batch.length === 0) break
+      const due = batch.filter((r) => !acceptsSubmissions(r, now)).map((r) => r.id)
+      if (due.length > 0) {
+        const { count } = await this.prisma.documentRequest.updateMany({
+          where: { id: { in: due }, status: 'OPEN' },
+          data: { status: 'CLOSED' },
+        })
+        closed += count
+      }
+      if (batch.length < CLOSE_BATCH) break
+      afterId = batch[batch.length - 1]!.id
+    }
+    if (closed > 0) this.logger.log(`closeOverdue: закрыто запросов ${closed}`)
+    return closed
   }
 
   // ── Сотрудник: проверка комплекта (15.16) ───────────────────────────────────
@@ -389,7 +539,7 @@ export class DocumentRequestsService {
   async getSubmissionForStaff(actor: JwtPayload, submissionId: string) {
     this.assertStaff(actor)
     const sub = await this.prisma.documentSubmission.findFirst({
-      where: { id: submissionId, request: { createdById: actor.sub } },
+      where: { id: submissionId, request: this.staffScopeWhere(actor) },
       select: {
         id: true,
         status: true,
@@ -464,7 +614,7 @@ export class DocumentRequestsService {
       where: {
         id: submissionItemId,
         documentId: { not: null },
-        submission: { request: { createdById: actor.sub } },
+        submission: { request: this.staffScopeWhere(actor) },
       },
       select: { documentId: true, submission: { select: { requestId: true } } },
     })
@@ -489,15 +639,26 @@ export class DocumentRequestsService {
   async reviewItem(actor: JwtPayload, submissionItemId: string, input: ReviewSubmissionItemInput) {
     this.assertStaff(actor)
     const item = await this.prisma.documentSubmissionItem.findFirst({
-      where: { id: submissionItemId, submission: { request: { createdById: actor.sub } } },
-      select: { id: true, submission: { select: { id: true, requestId: true, status: true } } },
+      where: { id: submissionItemId, submission: { request: this.staffScopeWhere(actor) } },
+      select: {
+        id: true,
+        documentId: true,
+        submission: { select: { id: true, requestId: true, status: true } },
+        requestItem: { select: { documentType: true } },
+        document: { select: { category: true, type: true } },
+      },
     })
     if (!item) throw new AppException('NOT_FOUND', 'Позиция не найдена')
     this.assertReviewable(item.submission.status)
-    // Условие на статус комплекта — в самом UPDATE: студент мог вернуть комплект в черновик
-    // и заменить документ между чтением и записью — тогда вердикт относился бы к другому файлу.
+    // Условие на статус комплекта и документ — в самом UPDATE: студент мог вернуть комплект в
+    // черновик и заменить документ между чтением и записью — тогда вердикт относился бы к
+    // другому файлу.
     const updated = await this.prisma.documentSubmissionItem.updateMany({
-      where: { id: submissionItemId, submission: { status: { in: STAFF_REVIEWABLE } } },
+      where: {
+        id: submissionItemId,
+        documentId: item.documentId,
+        submission: { status: { in: STAFF_REVIEWABLE } },
+      },
       data: {
         status: input.status,
         rejectionReason: input.status === 'REJECTED' ? (input.rejectionReason ?? null) : null,
@@ -516,14 +677,51 @@ export class DocumentRequestsService {
         submissionItemId,
       },
     )
+    if (input.status === 'ACCEPTED') await this.verifyCertificate(actor, item)
     return this.getSubmissionForStaff(actor, item.submission.id)
+  }
+
+  /**
+   * Сценарий верификации сертификатов (D-F30): принятый сотрудником вуза в запросе документ
+   * категории «Сертификаты» становится VERIFIED — так он попадает в «подтверждённые
+   * сертификаты» резюме и карточки кандидата, которые раньше в продакшене были всегда пусты.
+   * Только если тип документа совпадает с требуемым в позиции: сертификат, приложенный не к
+   * своей позиции (например, к учебной позиции преподавателя), этим не подтверждается.
+   * Правка содержимого владельцем снимает отметку (DocumentsService).
+   */
+  private async verifyCertificate(
+    actor: JwtPayload,
+    item: {
+      documentId: string | null
+      submission: { requestId: string }
+      requestItem: { documentType: string }
+      document: { category: string; type: string } | null
+    },
+  ): Promise<void> {
+    const doc = item.document
+    if (!item.documentId || !doc || doc.category !== 'CERTIFICATE') return
+    if (doc.type !== item.requestItem.documentType) return
+    const { count } = await this.prisma.document.updateMany({
+      where: { id: item.documentId, deletedAt: null, status: { in: VERIFIABLE_STATUSES } },
+      data: { status: 'VERIFIED' },
+    })
+    if (count === 0) return
+    await this.prisma.documentEvent.create({
+      data: {
+        actorId: actor.sub,
+        documentId: item.documentId,
+        requestId: item.submission.requestId,
+        action: 'ACCEPT',
+        metadata: { verified: true },
+      },
+    })
   }
 
   /** Завершить проверку комплекта: статус выводится из вердиктов позиций. */
   async finalizeSubmission(actor: JwtPayload, submissionId: string) {
     this.assertStaff(actor)
     const sub = await this.prisma.documentSubmission.findFirst({
-      where: { id: submissionId, request: { createdById: actor.sub } },
+      where: { id: submissionId, request: this.staffScopeWhere(actor) },
       select: {
         id: true,
         status: true,
@@ -706,14 +904,21 @@ export class DocumentRequestsService {
         throw new AppException('BAD_REQUEST', 'Позиция не принадлежит запросу')
       }
     }
-    // Проверяем, что выбранные документы принадлежат студенту.
+    // Проверяем, что выбранные документы принадлежат студенту. Отозванная вузом справка
+    // (issuedByUniversity + REJECTED) в кабинете остаётся, но подтверждением уже не служит —
+    // приложить её к запросу нельзя, как и к заявке (P2-D-services-followup).
     const docIds = input.items.map((i) => i.documentId).filter((d): d is string => !!d)
     if (docIds.length > 0) {
-      const owned = await this.prisma.document.count({
+      const owned = await this.prisma.document.findMany({
         where: { id: { in: docIds }, ownerId: actor.sub, deletedAt: null },
+        select: { id: true, status: true, issuedByUniversity: true },
+        take: REQUEST_ITEMS_LIMIT,
       })
-      if (owned !== new Set(docIds).size) {
+      if (owned.length !== new Set(docIds).size) {
         throw new AppException('BAD_REQUEST', 'Некоторые документы недоступны')
+      }
+      if (owned.some((d) => d.issuedByUniversity && d.status === 'REJECTED')) {
+        throw new AppException('BAD_REQUEST', 'Документ отозван университетом')
       }
     }
     // Пишем только позиции, где выбран другой документ: веб присылает весь чек-лист при
@@ -781,8 +986,10 @@ export class DocumentRequestsService {
       where: { id: requestId, ...this.studentTargetWhere(actor) },
       select: {
         id: true,
+        title: true,
         status: true,
         dueAt: true,
+        createdById: true,
         items: { where: { required: true }, select: { id: true } },
         submissions: { where: { studentId: actor.sub }, select: { id: true, status: true } },
       },
@@ -825,6 +1032,41 @@ export class DocumentRequestsService {
       })
     })
     await this.logEvent(actor.sub, requestId, 'SUBMIT', { submissionId: sub.id })
+    await this.notifyAuthorSubmitted(actor, req, sub.id)
     return this.getForStudent(actor, requestId)
+  }
+
+  /**
+   * Автору запроса — о сданном комплекте (D-F25): иначе он узнавал о сдаче, только открыв
+   * запрос. Свёрнуто по запросу (одна строка в колокольчике на запрос, а не на каждого
+   * студента) и без письма-зеркала: запрос «на весь вуз» иначе засыпал бы почту.
+   */
+  private async notifyAuthorSubmitted(
+    actor: JwtPayload,
+    req: { id: string; title: string; createdById: string },
+    submissionId: string,
+  ): Promise<void> {
+    const student = await this.prisma.user.findUnique({
+      where: { id: actor.sub },
+      select: { firstName: true, lastName: true },
+    })
+    const name = student ? `${student.lastName} ${student.firstName}`.trim() : ''
+    const event = `doc-submitted:${submissionId}:${Date.now()}`
+    await this.queue.enqueue(
+      QUEUES.NOTIFICATIONS,
+      NOTIFICATION_JOBS.DOCUMENT_SUBMITTED,
+      {
+        recipientIds: [req.createdById],
+        type: 'SYSTEM',
+        titleKey: 'documents.submitted.title',
+        bodyKey: 'documents.submitted.body',
+        params: { name, title: req.title },
+        data: { requestId: req.id, submissionId, event, url: '/documents?section=requests' },
+        dedupeKey: event,
+        collapseKey: `doc-submitted:${req.id}`,
+        emailFallback: false,
+      },
+      { jobId: event },
+    )
   }
 }

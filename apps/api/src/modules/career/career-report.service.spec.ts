@@ -92,6 +92,8 @@ function rawRouter(over: Record<string, unknown[]> = {}) {
           { bucket: 5, n: 3n },
         ],
       )
+    if (sql.includes('COUNT(DISTINCT a.student_id) AS n'))
+      return Promise.resolve(over.graduatesHired ?? [{ n: 2n }])
     if (sql.includes('event_participants p'))
       return Promise.resolve([{ bucket: new Date(), n: 7n }])
     if (sql.includes('FROM events e'))
@@ -223,6 +225,25 @@ describe('CareerReportService', () => {
 })
 
 describe('Границы периода', () => {
+  it('выпускники: трудоустроенные — подсчётом запросом, а не выборкой с потолком (D-F31)', async () => {
+    const { service, prisma } = setup({ graduatesHired: [{ n: 12_345n }] })
+    const report = await service.forUniversity(staff(), 'year')
+    expect(report.graduates).toMatchObject({ students: 400, hired: 12_345 })
+    expect(prisma.careerApplication.findMany).not.toHaveBeenCalled()
+  })
+
+  it('доля открытых профилей: старосты и в числителе, и в знаменателе (D-F31)', async () => {
+    const { service, prisma } = setup()
+    await service.forUniversity(staff(), 'year')
+    const roles = { in: [Role.STUDENT, Role.STAROSTA] }
+    expect(prisma.user.count).toHaveBeenCalledWith({
+      where: { universityId: 'uni-1', role: roles, deletedAt: null },
+    })
+    for (const [args] of prisma.careerProfile.count.mock.calls) {
+      expect(args.where.user).toMatchObject({ role: roles })
+    }
+  })
+
   it('«учебный год» начинается 1 сентября, а не 1 января', () => {
     const range = resolveRange('year', new Date('2026-03-10T00:00:00.000Z'))
     // Март — это ещё учебный год, начавшийся в сентябре прошлого календарного.

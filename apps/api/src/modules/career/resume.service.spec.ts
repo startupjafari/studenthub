@@ -163,6 +163,16 @@ describe('ResumeService — публичная ссылка', () => {
     prisma.resume.findFirst.mockResolvedValue(null)
     await expect(service.publicBySlug('nope')).rejects.toBeInstanceOf(AppException)
   })
+
+  it('резюме заблокированного или удалённого не открывается по ссылке (D-F30)', async () => {
+    const { service, prisma } = setup(null)
+    prisma.resume.findFirst.mockResolvedValue(null)
+    await expect(service.publicBySlug('abc123')).rejects.toBeInstanceOf(AppException)
+    expect(prisma.resume.findFirst.mock.calls[0][0].where).toEqual({
+      publicSlug: 'abc123',
+      user: { deletedAt: null, isBlocked: false },
+    })
+  })
 })
 
 describe('ResumeService — контакты в публичном резюме', () => {

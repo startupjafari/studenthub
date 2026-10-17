@@ -8371,6 +8371,7 @@
     },
     "/documents/{id}/platform": {
       "get": {
+        "deprecated": true,
         "operationId": "DocumentsController_platformGet",
         "parameters": [
           {
@@ -8392,7 +8393,44 @@
             "bearer": []
           }
         ],
-        "summary": "Спец-режим: метаданные чужого документа (платформенный админ, с аудитом)",
+        "summary": "Спец-режим: метаданные чужого документа без причины (устарело — используйте POST с причиной)",
+        "tags": [
+          "Документы"
+        ]
+      },
+      "post": {
+        "operationId": "DocumentsController_platformGetWithReason",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlatformMetaDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Документ (номер — маской)"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Спец-режим: метаданные чужого документа с обязательной причиной (аудит + журнал)",
         "tags": [
           "Документы"
         ]
@@ -8499,7 +8537,7 @@
             "bearer": []
           }
         ],
-        "summary": "Мои созданные запросы (сотрудник)",
+        "summary": "Запросы в моей области (сотрудник): свои и подразделения; mine/authorName — чей запрос",
         "tags": [
           "Документы: запросы"
         ]
@@ -8528,7 +8566,65 @@
             "bearer": []
           }
         ],
-        "summary": "Запрос с комплектами для проверки (сотрудник)",
+        "summary": "Запрос с комплектами для проверки (сотрудник): первые 200 комплектов, всего — submissionCount",
+        "tags": [
+          "Документы: запросы"
+        ]
+      }
+    },
+    "/document-requests/manage/{id}/submissions": {
+      "get": {
+        "operationId": "DocumentRequestsController_manageSubmissions",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Комплекты; meta.cursor/hasNext"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Комплекты запроса постранично (сотрудник)",
+        "tags": [
+          "Документы: запросы"
+        ]
+      }
+    },
+    "/document-requests/manage/{id}/close": {
+      "post": {
+        "operationId": "DocumentRequestsController_close",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Закрыть запрос: ответы больше не принимаются (сотрудник)",
         "tags": [
           "Документы: запросы"
         ]
@@ -16083,6 +16179,10 @@
         "properties": {}
       },
       "GrantAccessDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "PlatformMetaDto": {
         "type": "object",
         "properties": {}
       },

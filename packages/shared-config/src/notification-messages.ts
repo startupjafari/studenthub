@@ -60,6 +60,9 @@ const RU = {
   // Владелец открыл документ получателю (грант «пользователь» или «деканат факультета»).
   'documents.shared.title': 'Вам открыт доступ к документу',
   'documents.shared.body': '{name}: «{title}»',
+  // Автору запроса документов: студент отправил комплект на проверку.
+  'documents.submitted.title': 'Комплект документов сдан на проверку',
+  'documents.submitted.body': '{name}: «{title}»',
 
   'applications.needsAction.title': 'Требуется ваше действие',
   'applications.needsAction.body': 'Заявка {number}: требуется исправление',
@@ -166,6 +169,8 @@ const KK: Record<NotificationMessageKey, string> = {
   'documents.named.body': '«{title}»',
   'documents.shared.title': 'Сізге құжатқа қолжетімділік ашылды',
   'documents.shared.body': '{name}: «{title}»',
+  'documents.submitted.title': 'Құжаттар жиынтығы тексеруге тапсырылды',
+  'documents.submitted.body': '{name}: «{title}»',
 
   'applications.needsAction.title': 'Сіздің әрекетіңіз қажет',
   'applications.needsAction.body': '{number} өтініші: түзету қажет',
@@ -261,6 +266,8 @@ const EN: Record<NotificationMessageKey, string> = {
   'documents.named.body': '“{title}”',
   'documents.shared.title': 'A document was shared with you',
   'documents.shared.body': '{name}: “{title}”',
+  'documents.submitted.title': 'Documents submitted for review',
+  'documents.submitted.body': '{name}: “{title}”',
 
   'applications.needsAction.title': 'Your action is required',
   'applications.needsAction.body': 'Application {number}: correction required',

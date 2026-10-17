@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import {
+  canTransitionVacancy,
+  canTransitionVacancyReview,
   matchVacancy,
   type DecideVacancyInput,
   type EmploymentType,
@@ -8,7 +10,9 @@ import {
   type VacancyInput,
   type VacancyReviewStatus,
   type VacancySearchInput,
+  type VacancyStatus,
   type WorkFormat,
+  VACANCY_REVIEWED_FIELDS,
 } from '@studenthub/shared-schemas'
 import { AppException } from '../../common/exceptions/app.exception'
 import { resolveUniversityScope } from './career-scope'
@@ -17,29 +21,22 @@ import { AuditService } from '../../common/audit/audit.service'
 import { Paginated } from '../../common/http/paginated'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
-import { CareerAccessService, vacancyVisibleWhere } from './career-access.service'
+import {
+  activeAccessWhere,
+  CareerAccessService,
+  vacancyVisibleWhere,
+} from './career-access.service'
 
 /**
- * Поля, которые читает студент и одобрял вуз. Правка любого из них возвращает вакансию на
- * модерацию: вуз пропускал конкретный текст и условия, а не вакансию навсегда, и без этого
- * одобренную безобидную вакансию можно было бы переписать во что угодно мимо модерации.
+ * Поля, которые читает студент и одобрял вуз (общий список с формой компании — shared-schemas).
+ * Правка любого из них возвращает вакансию на модерацию: вуз пропускал конкретный текст и
+ * условия, а не вакансию навсегда, и без этого одобренную безобидную вакансию можно было бы
+ * переписать во что угодно мимо модерации.
  *
  * Срок приёма откликов (`deadline`) сюда не входит: продление или сокращение срока не
  * меняет прочитанного вузом, а витрина и отклик сверяются с ним сами.
  */
-const REVIEWED_FIELDS = [
-  'title',
-  'description',
-  'employmentType',
-  'workFormat',
-  'experienceLevel',
-  'city',
-  'salaryMin',
-  'salaryMax',
-  'salaryCurrency',
-  'skills',
-  'languages',
-] as const satisfies readonly (keyof UpdateVacancyInput)[]
+const REVIEWED_FIELDS = VACANCY_REVIEWED_FIELDS
 
 const REVIEWED_SELECT = Object.fromEntries(REVIEWED_FIELDS.map((f) => [f, true])) as Record<
   (typeof REVIEWED_FIELDS)[number],
@@ -197,7 +194,8 @@ export class VacanciesService {
    */
   async publish(viewer: JwtPayload, id: string, ctx: RequestContext) {
     const companyId = this.access.requireCompany(viewer)
-    await this.ownVacancy(companyId, id)
+    const vacancy = await this.ownVacancy(companyId, id)
+    const from = this.assertTransition(vacancy.status, 'PUBLISHED')
 
     const universities = await this.access.allowedUniversityIds(companyId)
     if (universities.length === 0) {
@@ -208,10 +206,13 @@ export class VacanciesService {
     }
 
     await this.prisma.$transaction(async (tx) => {
-      await tx.vacancy.update({
-        where: { id },
+      // Условие на прочитанный статус — в самой записи: параллельное закрытие не должно
+      // превратиться в публикацию закрытой вакансии.
+      const { count } = await tx.vacancy.updateMany({
+        where: { id, status: from, deletedAt: null },
         data: { status: 'PUBLISHED', publishedAt: new Date() },
       })
+      if (count === 0) throw this.changedConflict()
       for (const universityId of universities) {
         await tx.vacancyUniversityReview.upsert({
           where: { vacancyId_universityId: { vacancyId: id, universityId } },
@@ -239,9 +240,14 @@ export class VacanciesService {
     ctx: RequestContext,
   ) {
     const companyId = this.access.requireCompany(viewer)
-    await this.ownVacancy(companyId, id)
+    const vacancy = await this.ownVacancy(companyId, id)
+    const from = this.assertTransition(vacancy.status, status)
 
-    await this.prisma.vacancy.update({ where: { id }, data: { status } })
+    const { count } = await this.prisma.vacancy.updateMany({
+      where: { id, status: from, deletedAt: null },
+      data: { status },
+    })
+    if (count === 0) throw this.changedConflict()
     await this.audit.record({
       userId: viewer.sub,
       action: `vacancy_${status.toLowerCase()}`,
@@ -381,15 +387,37 @@ export class VacanciesService {
     const universityId = resolveUniversityScope(viewer, universityIdParam)
     const review = await this.prisma.vacancyUniversityReview.findUnique({
       where: { id: reviewId },
-      select: { id: true, universityId: true, vacancyId: true },
+      select: { id: true, universityId: true, vacancyId: true, status: true },
     })
     if (!review) throw new AppException('NOT_FOUND', 'Заявка не найдена')
     if (review.universityId !== universityId) {
       throw new AppException('WRONG_SCOPE', 'Вакансия рассматривается другим университетом')
     }
 
-    await this.prisma.vacancyUniversityReview.update({
-      where: { id: reviewId },
+    // Решение — только по графу (D-F29): погашенное отзывом допуска одобрение вуз обратно
+    // не включает, на модерацию вакансию возвращает повторная публикация компанией.
+    const from = review.status as VacancyReviewStatus
+    if (!canTransitionVacancyReview(from, input.status)) {
+      throw new AppException('CONFLICT', `Решение ${from} → ${input.status} недопустимо`)
+    }
+    // Одобрить можно только опубликованную вакансию компании с действующим допуском в этот
+    // вуз. Условие — в самой записи вместе с ожидаемым статусом: параллельное решение
+    // другого модератора или отзыв допуска между чтением и записью дают 409, а не
+    // «последнее слово за тем, кто записал позже».
+    const { count } = await this.prisma.vacancyUniversityReview.updateMany({
+      where: {
+        id: reviewId,
+        status: from,
+        ...(input.status === 'APPROVED'
+          ? {
+              vacancy: {
+                deletedAt: null,
+                status: 'PUBLISHED',
+                company: { universityAccess: { some: activeAccessWhere(universityId) } },
+              },
+            }
+          : {}),
+      },
       data: {
         status: input.status,
         reason: input.reason,
@@ -397,6 +425,14 @@ export class VacanciesService {
         decidedAt: new Date(),
       },
     })
+    if (count === 0) {
+      throw new AppException(
+        'CONFLICT',
+        input.status === 'APPROVED'
+          ? 'Решение уже изменилось, вакансия снята или допуск компании не действует'
+          : 'Решение уже изменилось — обновите страницу',
+      )
+    }
 
     await this.audit.record({
       userId: viewer.sub,
@@ -441,10 +477,23 @@ export class VacanciesService {
   private async ownVacancy(companyId: string, id: string) {
     const vacancy = await this.prisma.vacancy.findFirst({
       where: { id, companyId, deletedAt: null },
-      select: { id: true, salaryMin: true, salaryMax: true },
+      select: { id: true, status: true, salaryMin: true, salaryMax: true },
     })
     if (!vacancy) throw new AppException('NOT_FOUND', 'Вакансия не найдена')
     return vacancy
+  }
+
+  /** Переход статуса вакансии по графу (shared-schemas); недопустимый — 409 (D-F29). */
+  private assertTransition(current: string, to: VacancyStatus): VacancyStatus {
+    const from = current as VacancyStatus
+    if (!canTransitionVacancy(from, to)) {
+      throw new AppException('CONFLICT', `Переход ${from} → ${to} недопустим`)
+    }
+    return from
+  }
+
+  private changedConflict(): AppException {
+    return new AppException('CONFLICT', 'Статус вакансии уже изменился — обновите страницу')
   }
 
   private assertSalaryRange(input: { salaryMin?: number | null; salaryMax?: number | null }): void {

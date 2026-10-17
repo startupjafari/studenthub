@@ -9,6 +9,8 @@ import type { QueueService } from '../../common/queue'
 import { DocumentTypesService } from './document-types.service'
 import type { AuditService } from '../../common/audit/audit.service'
 
+const DAY = 24 * 60 * 60 * 1000
+
 function actor(sub = 'me'): JwtPayload {
   return { sub, role: Role.STUDENT, universityId: 'uni-1', facultyId: null, groupId: null }
 }
@@ -56,6 +58,7 @@ function setup() {
       create: jest.fn().mockResolvedValue({}),
       createMany: jest.fn().mockResolvedValue({ count: 0 }),
       findMany: jest.fn().mockResolvedValue([]),
+      findFirst: jest.fn().mockResolvedValue(null),
     },
     documentAccess: {
       create: jest.fn().mockResolvedValue({ id: 'a1' }),
@@ -552,5 +555,145 @@ describe('DocumentsService — открытые мне документы (D-F10
     await service.grantAccess(actor(), 'd1', { granteeType: 'UNIVERSITY', reason: 'личное дело' })
     expect(prisma.user.findMany).not.toHaveBeenCalled()
     expect(queue.enqueue).not.toHaveBeenCalled()
+  })
+})
+
+describe('DocumentsService — выданные вузом и архив (D-F22)', () => {
+  it('create: категорию «Выданные университетом» сам не завести → FORBIDDEN', async () => {
+    const { service, prisma } = setup()
+    const err = await service
+      .create(actor(), { category: 'ISSUED_BY_UNIVERSITY', type: 'STUDY_PLACE_REF', title: 'x' })
+      .catch((e) => e)
+    expect(err.code).toBe('FORBIDDEN')
+    expect(prisma.document.create).not.toHaveBeenCalled()
+  })
+
+  it('update: данные выданного вузом документа не меняются; своя заметка — можно', async () => {
+    const { service, prisma } = setup()
+    prisma.document.findFirst.mockResolvedValue(row({ issuedByUniversity: true }))
+    const later = new Date('2030-01-01')
+    for (const input of [{ title: 'Другая' }, { number: '0000' }, { expiresAt: later }]) {
+      const err = await service.update(actor(), 'd1', input).catch((e) => e)
+      expect([input, err.code]).toEqual([input, 'FORBIDDEN'])
+    }
+    expect(prisma.document.update).not.toHaveBeenCalled()
+
+    await service.update(actor(), 'd1', { comment: 'для стипендии' })
+    expect(prisma.document.update).toHaveBeenCalledWith({
+      where: { id: 'd1' },
+      data: { comment: 'для стипендии' },
+    })
+  })
+
+  it('update: форма целиком с прежними данными у выданного вузом документа — не запрет', async () => {
+    const { service, prisma } = setup()
+    prisma.document.findFirst.mockResolvedValue(
+      row({ issuedByUniversity: true, number: null, issuedBy: null }),
+    )
+    // Веб присылает все поля формы, даже нетронутые: важна правка, а не присутствие поля.
+    await service.update(actor(), 'd1', { title: 'Удостоверение', issuedBy: '', comment: 'x' })
+    expect(prisma.document.update).toHaveBeenCalled()
+    expect(prisma.document.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('attachFiles/reorderFiles: к выданному вузом документу страницы не добавить → FORBIDDEN', async () => {
+    const { service, prisma } = setup()
+    prisma.document.findFirst.mockResolvedValue(row({ issuedByUniversity: true }))
+    const attach = await service.attachFiles(actor(), 'd1', { fileIds: ['f1'] }).catch((e) => e)
+    const reorder = await service.reorderFiles(actor(), 'd1', { fileIds: ['f1'] }).catch((e) => e)
+    expect([attach.code, reorder.code]).toEqual(['FORBIDDEN', 'FORBIDDEN'])
+    expect(prisma.file.update).not.toHaveBeenCalled()
+  })
+
+  it('архив запоминает прежний статус, возврат его восстанавливает', async () => {
+    const { service, prisma } = setup()
+    prisma.document.findFirst.mockResolvedValueOnce(row({ status: 'REJECTED' }))
+    prisma.document.updateMany.mockResolvedValue({ count: 1 })
+    await service.setArchived(actor(), 'd1', true)
+    expect(prisma.document.updateMany).toHaveBeenCalledWith({
+      where: { id: 'd1', archivedAt: null },
+      data: expect.objectContaining({ status: 'ARCHIVED' }),
+    })
+    expect(prisma.documentEvent.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          action: 'ARCHIVE',
+          metadata: { archived: true, previousStatus: 'REJECTED' },
+        }),
+      }),
+    )
+
+    // Отозванная вузом справка из архива возвращается отозванной, а не «загруженной».
+    prisma.document.findFirst.mockResolvedValueOnce(
+      row({ status: 'ARCHIVED', archivedAt: new Date() }),
+    )
+    prisma.documentEvent.findFirst.mockResolvedValue({
+      metadata: { archived: true, previousStatus: 'REJECTED' },
+    })
+    await service.setArchived(actor(), 'd1', false)
+    expect(prisma.document.updateMany).toHaveBeenLastCalledWith({
+      where: { id: 'd1', archivedAt: { not: null } },
+      data: { archivedAt: null, status: 'REJECTED' },
+    })
+  })
+
+  it('возврат без известного статуса — по сроку: просроченный остаётся EXPIRED', async () => {
+    const { service, prisma } = setup()
+    prisma.document.findFirst.mockResolvedValueOnce(
+      row({ status: 'ARCHIVED', archivedAt: new Date(), expiresAt: new Date(Date.now() - DAY) }),
+    )
+    prisma.documentEvent.findFirst.mockResolvedValue({ metadata: { retention: 30 } })
+    prisma.document.updateMany.mockResolvedValue({ count: 1 })
+    await service.setArchived(actor(), 'd1', false)
+    expect(prisma.document.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { archivedAt: null, status: 'EXPIRED' } }),
+    )
+  })
+
+  it('повторный архив ничего не меняет — прежний статус не затирается ARCHIVED', async () => {
+    const { service, prisma } = setup()
+    prisma.document.findFirst.mockResolvedValue(row({ status: 'ARCHIVED', archivedAt: new Date() }))
+    await service.setArchived(actor(), 'd1', true)
+    expect(prisma.document.updateMany).not.toHaveBeenCalled()
+    expect(prisma.documentEvent.create).not.toHaveBeenCalled()
+  })
+})
+
+describe('DocumentsService — подтверждение вуза снимается правкой (D-F30)', () => {
+  it('правка данных и порядка страниц возвращает VERIFIED в UPLOADED; заметка — нет', async () => {
+    const { service, prisma } = setup()
+    await service.update(actor(), 'd1', { comment: 'заметка' })
+    expect(prisma.document.updateMany).not.toHaveBeenCalled()
+
+    await service.update(actor(), 'd1', { title: 'IELTS 7.5' })
+    expect(prisma.document.updateMany).toHaveBeenCalledWith({
+      where: { id: 'd1', status: 'VERIFIED' },
+      data: { status: 'UPLOADED' },
+    })
+  })
+})
+
+describe('DocumentsService — спец-режим: метаданные с причиной (D-F24)', () => {
+  it('причина уходит в журнал документа и в аудит', async () => {
+    const { service, prisma, audit } = setup()
+    await service.platformGet(
+      { ...actor('admin'), role: Role.PLATFORM_ADMIN },
+      'd1',
+      'Обращение в поддержку №12',
+    )
+    expect(prisma.documentEvent.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          action: 'VIEW',
+          metadata: { platformMode: true, meta: true, reason: 'Обращение в поддержку №12' },
+        }),
+      }),
+    )
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'DOCUMENT_PLATFORM_VIEW',
+        metadata: { reason: 'Обращение в поддержку №12' },
+      }),
+    )
   })
 })

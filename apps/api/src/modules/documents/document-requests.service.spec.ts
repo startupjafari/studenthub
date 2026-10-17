@@ -32,17 +32,22 @@ function setup() {
         dueAt: null,
         status: 'OPEN',
         createdAt: new Date(),
+        createdBy: { id: 'staff-1', firstName: 'Дана', lastName: 'Ахметова' },
         items: [],
         targets: [],
         submissions: [],
+        _count: { submissions: 0 },
       }),
       findMany: jest.fn().mockResolvedValue([]),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     documentSubmission: {
       findFirst: jest.fn(),
       upsert: jest.fn().mockResolvedValue({ id: 's1' }),
       update: jest.fn().mockResolvedValue({}),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      findMany: jest.fn().mockResolvedValue([]),
+      groupBy: jest.fn().mockResolvedValue([]),
     },
     documentSubmissionItem: {
       findFirst: jest.fn(),
@@ -53,13 +58,20 @@ function setup() {
       deleteMany: jest.fn(),
     },
     documentRequestTarget: { findMany: jest.fn().mockResolvedValue([]) },
-    document: { count: jest.fn().mockResolvedValue(0) },
+    document: {
+      findMany: jest.fn().mockResolvedValue([]),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
     documentEvent: { create: jest.fn().mockResolvedValue({}) },
     documentType: {
       findMany: jest.fn().mockResolvedValue([]),
       findUnique: jest.fn().mockResolvedValue(null),
     },
-    user: { findMany: jest.fn().mockResolvedValue([]), findFirst: jest.fn() },
+    user: {
+      findMany: jest.fn().mockResolvedValue([]),
+      findFirst: jest.fn(),
+      findUnique: jest.fn().mockResolvedValue({ firstName: 'Асем', lastName: 'Абишева' }),
+    },
     faculty: { findFirst: jest.fn().mockResolvedValue({ id: 'fac-1' }) },
     group: { findFirst: jest.fn() },
     course: { findMany: jest.fn().mockResolvedValue([]) },
@@ -84,6 +96,11 @@ function setup() {
     types,
   )
   return { service, prisma, documents, queue }
+}
+
+// Документы студента, найденные проверкой владения в saveSubmission.
+function owned(...ids: string[]) {
+  return ids.map((id) => ({ id, status: 'UPLOADED', issuedByUniversity: false }))
 }
 
 const OK_ITEM = { documentType: 'ID_CARD', title: 'Удостоверение', required: true }
@@ -393,7 +410,7 @@ describe('DocumentRequestsService — ответ студента (15.15)', () =
   it('saveSubmission: чужой/несуществующий документ → BAD_REQUEST', async () => {
     const { service, prisma } = setup()
     prisma.documentRequest.findFirst.mockResolvedValue(forSave())
-    prisma.document.count.mockResolvedValue(0) // документ не принадлежит студенту
+    prisma.document.findMany.mockResolvedValue(owned()) // документ не принадлежит студенту
     const err = await service
       .saveSubmission(student(), 'r1', { items: [{ requestItemId: 'it1', documentId: 'doc-x' }] })
       .catch((e) => e)
@@ -406,7 +423,7 @@ describe('DocumentRequestsService — ответ студента (15.15)', () =
       prisma.documentRequest.findFirst.mockResolvedValue(
         forSave({}, { id: 's1', status, items: [{ requestItemId: 'it1', documentId: 'doc-1' }] }),
       )
-      prisma.document.count.mockResolvedValue(1)
+      prisma.document.findMany.mockResolvedValue(owned('doc-1'))
       const err = await service
         .saveSubmission(student(), 'r1', {
           items: [{ requestItemId: 'it1', documentId: 'doc-2' }],
@@ -433,7 +450,7 @@ describe('DocumentRequestsService — ответ студента (15.15)', () =
         },
       ),
     )
-    prisma.document.count.mockResolvedValue(2)
+    prisma.document.findMany.mockResolvedValue(owned('doc-1', 'doc-new'))
     await service.saveSubmission(student(), 'r1', {
       items: [
         { requestItemId: 'it1', documentId: 'doc-1' }, // без изменений
@@ -458,7 +475,7 @@ describe('DocumentRequestsService — ответ студента (15.15)', () =
     prisma.documentRequest.findFirst.mockResolvedValue(
       forSave({}, { id: 's1', status: 'DRAFT', items: [] }),
     )
-    prisma.document.count.mockResolvedValue(1)
+    prisma.document.findMany.mockResolvedValue(owned('doc-1'))
     prisma.documentSubmission.updateMany.mockResolvedValue({ count: 0 })
     const err = await service
       .saveSubmission(student(), 'r1', { items: [{ requestItemId: 'it1', documentId: 'doc-1' }] })
@@ -578,5 +595,267 @@ describe('acceptsSubmissions — срок сдачи', () => {
   it('закрытый запрос не принимает ответы, без срока — принимает', () => {
     expect(acceptsSubmissions({ status: 'CLOSED', dueAt: null }, now)).toBe(false)
     expect(acceptsSubmissions({ status: 'OPEN', dueAt: null }, now)).toBe(true)
+  })
+})
+
+describe('DocumentRequestsService — область сотрудника и сопровождение (D-F25)', () => {
+  it('декан видит свои запросы и запросы деканата факультета, но не преподавательские', async () => {
+    const { service, prisma } = setup()
+    await service.listAuthored(staff(Role.DEAN))
+    expect(prisma.documentRequest.findMany.mock.calls[0][0].where).toEqual({
+      universityId: 'uni-1',
+      OR: [
+        { createdById: 'staff-1' },
+        { createdBy: { facultyId: 'fac-1', role: { not: Role.TEACHER } } },
+      ],
+    })
+  })
+
+  it('модератор вуза видит весь вуз, преподаватель — только свои запросы', async () => {
+    const mod = setup()
+    await mod.service.listAuthored(staff(Role.UNIVERSITY_MODERATOR))
+    expect(mod.prisma.documentRequest.findMany.mock.calls[0][0].where).toEqual({
+      universityId: 'uni-1',
+    })
+    const teacher = setup()
+    await teacher.service.listAuthored(staff(Role.TEACHER))
+    expect(teacher.prisma.documentRequest.findMany.mock.calls[0][0].where).toEqual({
+      universityId: 'uni-1',
+      createdById: 'staff-1',
+    })
+  })
+
+  it('список: отправленные считаются агрегатом, чужой запрос помечен автором', async () => {
+    const { service, prisma } = setup()
+    prisma.documentRequest.findMany.mockResolvedValue([
+      {
+        id: 'r1',
+        title: 'Комплект',
+        dueAt: null,
+        status: 'OPEN',
+        createdAt: new Date(),
+        createdBy: { id: 'dean-old', firstName: 'Ерлан', lastName: 'Серикович' },
+        _count: { items: 2, targets: 1, submissions: 5 },
+      },
+    ])
+    prisma.documentSubmission.groupBy.mockResolvedValue([{ requestId: 'r1', _count: { _all: 3 } }])
+    const [row] = await service.listAuthored(staff(Role.DEAN))
+    expect(prisma.documentSubmission.groupBy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        by: ['requestId'],
+        where: { requestId: { in: ['r1'] }, status: { not: 'DRAFT' } },
+      }),
+    )
+    expect(row).toMatchObject({
+      submissionCount: 5,
+      submittedCount: 3,
+      mine: false,
+      authorName: 'Серикович Ерлан',
+    })
+  })
+
+  it('проверка комплекта ищется в области сотрудника, а не только по автору', async () => {
+    const { service, prisma } = setup()
+    prisma.documentSubmission.findFirst.mockResolvedValue(STAFF_VIEW)
+    await service.getSubmissionForStaff(staff(Role.UNIVERSITY_MODERATOR), 's1')
+    expect(prisma.documentSubmission.findFirst.mock.calls[0][0].where).toEqual({
+      id: 's1',
+      request: { universityId: 'uni-1' },
+    })
+  })
+
+  it('карточка запроса: первые 200 комплектов и общее число', async () => {
+    const { service, prisma } = setup()
+    prisma.documentRequest.findFirst.mockResolvedValue({ id: 'r1' })
+    prisma.documentRequest.findUnique.mockResolvedValue({
+      id: 'r1',
+      title: 'Комплект',
+      description: null,
+      dueAt: null,
+      status: 'OPEN',
+      createdAt: new Date(),
+      createdBy: { id: 'staff-1', firstName: 'Дана', lastName: 'Ахметова' },
+      items: [],
+      targets: [],
+      submissions: [],
+      _count: { submissions: 1200 },
+    })
+    const res = await service.getRequestForStaff(staff(), 'r1')
+    const select = prisma.documentRequest.findUnique.mock.calls[0][0].select
+    expect(select.submissions.take).toBe(200)
+    expect(res).toMatchObject({ mine: true, submissionCount: 1200 })
+  })
+
+  it('комплекты постранично: limit + 1 строк → hasNext и курсор на последний', async () => {
+    const { service, prisma } = setup()
+    prisma.documentRequest.findFirst.mockResolvedValue({ id: 'r1' })
+    const rows = ['s1', 's2', 's3'].map((id) => ({
+      id,
+      status: 'SUBMITTED',
+      submittedAt: null,
+      reviewedAt: null,
+      student: { id: `u-${id}`, firstName: 'И', lastName: 'И' },
+      _count: { items: 1 },
+    }))
+    prisma.documentSubmission.findMany.mockResolvedValue(rows)
+    const page = await service.listSubmissionsForStaff(staff(), 'r1', { limit: 2, cursor: 's0' })
+    expect(prisma.documentSubmission.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { requestId: 'r1' }, take: 3, cursor: { id: 's0' } }),
+    )
+    expect(page.items.map((s) => s.id)).toEqual(['s1', 's2'])
+    expect(page.meta).toMatchObject({ cursor: 's2', hasNext: true })
+  })
+
+  it('закрытие запроса: условный UPDATE и событие; повторное — без события', async () => {
+    const { service, prisma } = setup()
+    prisma.documentRequest.findFirst.mockResolvedValue({ id: 'r1' })
+    await service.closeRequest(staff(), 'r1')
+    expect(prisma.documentRequest.updateMany).toHaveBeenCalledWith({
+      where: { id: 'r1', status: 'OPEN' },
+      data: { status: 'CLOSED' },
+    })
+    expect(prisma.documentEvent.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ action: 'REQUEST_CLOSE' }) }),
+    )
+
+    const again = setup()
+    again.prisma.documentRequest.findFirst.mockResolvedValue({ id: 'r1' })
+    again.prisma.documentRequest.updateMany.mockResolvedValue({ count: 0 })
+    await again.service.closeRequest(staff(), 'r1')
+    expect(again.prisma.documentEvent.create).not.toHaveBeenCalled()
+  })
+
+  it('закрыть чужой запрос вне области нельзя → NOT_FOUND', async () => {
+    const { service, prisma } = setup()
+    prisma.documentRequest.findFirst.mockResolvedValue(null)
+    const err = await service.closeRequest(staff(Role.TEACHER), 'r1').catch((e) => e)
+    expect(err.code).toBe('NOT_FOUND')
+    expect(prisma.documentRequest.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('крон закрывает только запросы с прошедшим сроком: срок-дата длится весь день', async () => {
+    const { service, prisma } = setup()
+    const now = new Date('2026-10-20T12:00:00.000Z')
+    prisma.documentRequest.findMany.mockResolvedValue([
+      { id: 'r-old', status: 'OPEN', dueAt: new Date('2026-10-19T00:00:00.000Z') },
+      { id: 'r-today', status: 'OPEN', dueAt: new Date('2026-10-20T00:00:00.000Z') },
+      { id: 'r-hour', status: 'OPEN', dueAt: new Date('2026-10-20T09:00:00.000Z') },
+    ])
+    prisma.documentRequest.updateMany.mockResolvedValue({ count: 2 })
+    expect(await service.closeOverdue(now)).toBe(2)
+    expect(prisma.documentRequest.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ['r-old', 'r-hour'] }, status: 'OPEN' },
+      data: { status: 'CLOSED' },
+    })
+  })
+
+  it('уведомление о новом запросе уходит пачками без потолка', async () => {
+    const { service, prisma, queue } = setup()
+    prisma.documentRequest.findFirst.mockResolvedValue({ id: 'r1' })
+    prisma.documentRequestTarget.findMany.mockResolvedValue([
+      { targetType: 'UNIVERSITY', targetId: null },
+    ])
+    const ids = (from: number, n: number) =>
+      Array.from({ length: n }, (_, i) => ({ id: `u-${String(from + i).padStart(5, '0')}` }))
+    prisma.user.findMany.mockResolvedValueOnce(ids(0, 1000)).mockResolvedValueOnce(ids(1000, 1))
+    await service.createRequest(staff(Role.UNIVERSITY_MODERATOR), {
+      title: 'Комплект',
+      items: [OK_ITEM],
+      targets: [{ targetType: 'UNIVERSITY' }],
+    })
+    expect(queue.enqueue).toHaveBeenCalledTimes(2)
+    const [first, second] = queue.enqueue.mock.calls
+    expect(first[2].recipientIds).toHaveLength(1000)
+    expect(second[2].recipientIds).toEqual(['u-01000'])
+    expect(first[2].dedupeKey).toBe(second[2].dedupeKey)
+    expect(first[3].jobId).not.toBe(second[3].jobId)
+    // Вторая пачка читается после последнего id первой.
+    expect(JSON.stringify(prisma.user.findMany.mock.calls[1][0].where)).toContain('u-00999')
+  })
+
+  it('сдача комплекта уведомляет автора запроса: свёрнуто по запросу, без письма', async () => {
+    const { service, prisma, queue } = setup()
+    prisma.documentRequest.findFirst
+      .mockResolvedValueOnce(forSubmit('DRAFT', { title: 'Комплект', createdById: 'dean-1' }))
+      .mockResolvedValue({
+        ...forSubmit('SUBMITTED'),
+        description: null,
+        createdAt: new Date(),
+        submissions: [],
+      })
+    prisma.documentSubmissionItem.findMany.mockResolvedValue([{ requestItemId: 'req-required' }])
+    await service.submitSubmission(student(), 'r1')
+    const [, , job] = queue.enqueue.mock.calls[0]
+    expect(job).toMatchObject({
+      recipientIds: ['dean-1'],
+      titleKey: 'documents.submitted.title',
+      params: { name: 'Абишева Асем', title: 'Комплект' },
+      collapseKey: 'doc-submitted:r1',
+      emailFallback: false,
+    })
+  })
+
+  it('отозванную вузом справку к запросу не приложить → BAD_REQUEST', async () => {
+    const { service, prisma } = setup()
+    prisma.documentRequest.findFirst.mockResolvedValue(forSave())
+    prisma.document.findMany.mockResolvedValue([
+      { id: 'cert-1', status: 'REJECTED', issuedByUniversity: true },
+    ])
+    const err = await service
+      .saveSubmission(student(), 'r1', { items: [{ requestItemId: 'it1', documentId: 'cert-1' }] })
+      .catch((e) => e)
+    expect(err.code).toBe('BAD_REQUEST')
+    expect(prisma.documentSubmission.upsert).not.toHaveBeenCalled()
+  })
+})
+
+describe('DocumentRequestsService — подтверждение сертификатов (D-F30)', () => {
+  function certItem(documentType: string, doc = { category: 'CERTIFICATE', type: 'IELTS' }) {
+    return {
+      id: 'si1',
+      documentId: 'doc-cert',
+      submission: { id: 's1', requestId: 'r1', status: 'SUBMITTED' },
+      requestItem: { documentType },
+      document: doc,
+    }
+  }
+
+  it('принятый сертификат своего типа становится VERIFIED, в журнал документа — ACCEPT', async () => {
+    const { service, prisma } = setup()
+    prisma.documentSubmissionItem.findFirst.mockResolvedValue(certItem('IELTS'))
+    prisma.documentSubmission.findFirst.mockResolvedValue(STAFF_VIEW)
+    await service.reviewItem(staff(), 'si1', { status: 'ACCEPTED' })
+    expect(prisma.documentSubmissionItem.updateMany.mock.calls[0][0].where).toMatchObject({
+      id: 'si1',
+      documentId: 'doc-cert',
+    })
+    expect(prisma.document.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'doc-cert',
+        deletedAt: null,
+        status: { in: ['UPLOADED', 'IN_REVIEW', 'NEEDS_REPLACEMENT', 'ACCEPTED'] },
+      },
+      data: { status: 'VERIFIED' },
+    })
+    expect(prisma.documentEvent.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ documentId: 'doc-cert', metadata: { verified: true } }),
+      }),
+    )
+  })
+
+  it('сертификат не своей позиции, не сертификат и отклонение — без подтверждения', async () => {
+    const cases: [ReturnType<typeof certItem>, 'ACCEPTED' | 'REJECTED'][] = [
+      [certItem('DIPLOMA'), 'ACCEPTED'],
+      [certItem('ID_CARD', { category: 'PERSONAL', type: 'ID_CARD' }), 'ACCEPTED'],
+      [certItem('IELTS'), 'REJECTED'],
+    ]
+    for (const [item, status] of cases) {
+      const { service, prisma } = setup()
+      prisma.documentSubmissionItem.findFirst.mockResolvedValue(item)
+      prisma.documentSubmission.findFirst.mockResolvedValue(STAFF_VIEW)
+      await service.reviewItem(staff(), 'si1', { status, rejectionReason: 'нет' })
+      expect(prisma.document.updateMany).not.toHaveBeenCalled()
+    }
   })
 })

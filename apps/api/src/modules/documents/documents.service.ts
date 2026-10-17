@@ -41,6 +41,8 @@ const DOCUMENT_MIME = new Set(['application/pdf', 'image/jpeg', 'image/png'])
 // Порог «скоро истекает» — 30 дней.
 const EXPIRING_WINDOW_MS = 30 * 24 * 60 * 60 * 1000
 const DAY_MS = 24 * 60 * 60 * 1000
+// Статусы, которые выводятся из срока действия: при возврате из архива их пересчитываем.
+const EXPIRY_STATUSES: ReadonlySet<string> = new Set(['UPLOADED', 'EXPIRING', 'EXPIRED'])
 // Размер пачки ночного крона (правила сроков хранения, документы к архиву).
 const SWEEP_BATCH = 500
 
@@ -65,6 +67,30 @@ const DOCUMENT_SELECT = {
 } satisfies Prisma.DocumentSelect
 
 type DocumentRow = Prisma.DocumentGetPayload<{ select: typeof DOCUMENT_SELECT }>
+
+/**
+ * Меняет ли правка содержимое документа — то, что выдаёт вуз и что он проверял (D-F22, D-F30):
+ * название, номер, кем выдан и даты. Пустая строка и `null` — одно и то же «не указано».
+ */
+function changedContent(
+  input: UpdateDocumentInput,
+  doc: {
+    title: string
+    number: string | null
+    issuedBy: string | null
+    issuedAt: Date | null
+    expiresAt: Date | null
+  },
+): boolean {
+  const time = (d: Date | null | undefined) => d?.getTime() ?? null
+  return (
+    (input.title !== undefined && input.title !== doc.title) ||
+    (input.number !== undefined && (input.number || null) !== doc.number) ||
+    (input.issuedBy !== undefined && (input.issuedBy || null) !== doc.issuedBy) ||
+    (input.issuedAt !== undefined && time(input.issuedAt) !== time(doc.issuedAt)) ||
+    (input.expiresAt !== undefined && time(input.expiresAt) !== time(doc.expiresAt))
+  )
+}
 
 /**
  * Порядок выборки документов по колонке таблицы.
@@ -211,13 +237,38 @@ export class DocumentsService {
     })
   }
 
-  private async findOwnedOrThrow(actor: JwtPayload, id: string): Promise<{ id: string }> {
+  private async findOwnedOrThrow(
+    actor: JwtPayload,
+    id: string,
+  ): Promise<{ id: string; issuedByUniversity: boolean }> {
     const doc = await this.prisma.document.findFirst({
       where: { id, ownerId: actor.sub, deletedAt: null },
-      select: { id: true },
+      select: { id: true, issuedByUniversity: true },
     })
     if (!doc) throw new AppException('NOT_FOUND', 'Документ не найден')
     return doc
+  }
+
+  /**
+   * Подтверждение вуза (VERIFIED, D-F30) относится к проверенному содержимому: правка данных
+   * или страниц владельцем возвращает документ в «Загружен».
+   */
+  private async dropVerification(id: string): Promise<void> {
+    await this.prisma.document.updateMany({
+      where: { id, status: 'VERIFIED' },
+      data: { status: 'UPLOADED' },
+    })
+  }
+
+  /**
+   * Содержимое выданного вузом документа владельцу не правится (D-F22): справка уходит в
+   * заявки и запросы как выданная университетом, и дописанная страница или исправленный
+   * номер выдавались бы за подлинник. Владельцу остаются архив, удаление и личная заметка.
+   */
+  private assertContentEditable(doc: { issuedByUniversity: boolean }): void {
+    if (doc.issuedByUniversity) {
+      throw new AppException('FORBIDDEN', 'Документ выдан университетом — его данные не меняются')
+    }
   }
 
   private toDto(row: DocumentRow): DocumentDto {
@@ -294,7 +345,7 @@ export class DocumentsService {
     id: string,
     input: ReorderDocumentFilesInput,
   ): Promise<DocumentDto> {
-    await this.findOwnedOrThrow(actor, id)
+    this.assertContentEditable(await this.findOwnedOrThrow(actor, id))
     const files = await this.prisma.file.findMany({
       where: {
         id: { in: input.fileIds },
@@ -317,9 +368,10 @@ export class DocumentsService {
         }),
       ),
     )
-    // Черновик без файлов → «Загружен».
+    // Черновик без файлов → «Загружен»; подтверждённый вузом с новыми страницами — уже не
+    // тот, что проверяли (D-F30).
     await this.prisma.document.updateMany({
-      where: { id, status: 'DRAFT' },
+      where: { id, status: { in: ['DRAFT', 'VERIFIED'] } },
       data: { status: 'UPLOADED' },
     })
     await this.logEvent(actor.sub, id, existing === 0 ? 'UPLOAD' : 'REPLACE', {
@@ -334,7 +386,7 @@ export class DocumentsService {
     id: string,
     input: ReorderDocumentFilesInput,
   ): Promise<DocumentDto> {
-    await this.findOwnedOrThrow(actor, id)
+    this.assertContentEditable(await this.findOwnedOrThrow(actor, id))
     const files = await this.prisma.file.findMany({
       where: { documentId: id },
       select: { id: true },
@@ -349,6 +401,7 @@ export class DocumentsService {
         this.prisma.file.update({ where: { id: fileId }, data: { order: i } }),
       ),
     )
+    await this.dropVerification(id)
     await this.logEvent(actor.sub, id, 'EDIT', { reordered: true })
     return this.getOwnedDto(actor, id)
   }
@@ -611,6 +664,11 @@ export class DocumentsService {
   // ── Документы ───────────────────────────────────────────────────────────────
 
   async create(actor: JwtPayload, input: CreateDocumentInput): Promise<DocumentDto> {
+    // «Выданные университетом» кладёт в кабинет только вуз (issueToOwner): собственный
+    // документ этой категории стоял бы в каталоге рядом с настоящими справками (D-F22).
+    if (input.category === 'ISSUED_BY_UNIVERSITY') {
+      throw new AppException('FORBIDDEN', 'Документы этой категории выдаёт университет')
+    }
     await this.assertType(actor, input.category, input.type)
     const doc = await this.prisma.document.create({
       data: {
@@ -707,7 +765,25 @@ export class DocumentsService {
   }
 
   async update(actor: JwtPayload, id: string, input: UpdateDocumentInput): Promise<DocumentDto> {
-    await this.findOwnedOrThrow(actor, id)
+    const doc = await this.prisma.document.findFirst({
+      where: { id, ownerId: actor.sub, deletedAt: null },
+      select: {
+        id: true,
+        issuedByUniversity: true,
+        title: true,
+        number: true,
+        issuedBy: true,
+        issuedAt: true,
+        expiresAt: true,
+      },
+    })
+    if (!doc) throw new AppException('NOT_FOUND', 'Документ не найден')
+    // Изменилось ли содержимое, а не просто пришло ли поле: веб присылает форму целиком, и
+    // правка одной заметки не должна ни упираться в запрет, ни снимать подтверждение вуза.
+    const contentChanged = changedContent(input, doc)
+    // У выданного вузом документа владелец меняет только свою заметку (comment) — она
+    // никому, кроме него, не показывается.
+    if (contentChanged) this.assertContentEditable(doc)
     const data: Prisma.DocumentUpdateInput = {}
     if (input.title !== undefined) data.title = input.title
     if (input.number !== undefined) {
@@ -719,6 +795,7 @@ export class DocumentsService {
     if (input.expiresAt !== undefined) data.expiresAt = input.expiresAt
     if (input.comment !== undefined) data.comment = input.comment || null
     await this.prisma.document.update({ where: { id }, data })
+    if (contentChanged) await this.dropVerification(id)
     await this.logEvent(actor.sub, id, 'EDIT')
     return this.getOwnedDto(actor, id)
   }
@@ -758,17 +835,59 @@ export class DocumentsService {
     return this.getOwnedDto(actor, id)
   }
 
+  /**
+   * Архив и возврат из него. Прежний статус запоминается в событии ARCHIVE и при возврате
+   * восстанавливается (D-F22): раньше разархивация всегда ставила UPLOADED, и отозванная
+   * вузом справка (REJECTED) или просроченный документ возвращались «действующими».
+   * Повторный архив и возврат неархивного — без изменений: иначе запомнился бы ARCHIVED.
+   */
   async setArchived(actor: JwtPayload, id: string, archived: boolean): Promise<DocumentDto> {
-    await this.findOwnedOrThrow(actor, id)
-    await this.prisma.document.update({
-      where: { id },
-      data: {
-        archivedAt: archived ? new Date() : null,
-        status: archived ? 'ARCHIVED' : 'UPLOADED',
-      },
+    const doc = await this.prisma.document.findFirst({
+      where: { id, ownerId: actor.sub, deletedAt: null },
+      select: { id: true, status: true, archivedAt: true, expiresAt: true },
     })
-    await this.logEvent(actor.sub, id, 'ARCHIVE', { archived })
+    if (!doc) throw new AppException('NOT_FOUND', 'Документ не найден')
+    if (archived === (doc.archivedAt !== null)) return this.getOwnedDto(actor, id)
+
+    if (archived) {
+      const { count } = await this.prisma.document.updateMany({
+        where: { id, archivedAt: null },
+        data: { archivedAt: new Date(), status: 'ARCHIVED' },
+      })
+      if (count > 0) {
+        await this.logEvent(actor.sub, id, 'ARCHIVE', { archived, previousStatus: doc.status })
+      }
+    } else {
+      const status = await this.restoredStatus(doc)
+      const { count } = await this.prisma.document.updateMany({
+        where: { id, archivedAt: { not: null } },
+        data: { archivedAt: null, status },
+      })
+      if (count > 0) await this.logEvent(actor.sub, id, 'ARCHIVE', { archived, status })
+    }
     return this.getOwnedDto(actor, id)
+  }
+
+  /**
+   * Статус документа после возврата из архива: прежний из последнего события архивации.
+   * Статусы срока (UPLOADED/EXPIRING/EXPIRED) пересчитываются по `expiresAt` — за время в
+   * архиве срок мог пройти или владелец его продлил. Если прежний неизвестен (архив до
+   * этого правила, архивация кроном по сроку хранения) — тоже по сроку.
+   */
+  private async restoredStatus(doc: { id: string; expiresAt: Date | null }): Promise<string> {
+    const event = await this.prisma.documentEvent.findFirst({
+      where: { documentId: doc.id, action: 'ARCHIVE' },
+      orderBy: { createdAt: 'desc' },
+      select: { metadata: true },
+    })
+    const meta = (event?.metadata ?? null) as { previousStatus?: unknown } | null
+    const previous = typeof meta?.previousStatus === 'string' ? meta.previousStatus : null
+    if (previous && !EXPIRY_STATUSES.has(previous) && previous !== 'ARCHIVED') return previous
+    const now = Date.now()
+    const expires = doc.expiresAt?.getTime()
+    if (expires !== undefined && expires < now) return 'EXPIRED'
+    if (expires !== undefined && expires <= now + EXPIRING_WINDOW_MS) return 'EXPIRING'
+    return 'UPLOADED'
   }
 
   async remove(actor: JwtPayload, id: string): Promise<void> {
@@ -824,20 +943,26 @@ export class DocumentsService {
 
   /**
    * Метаданные любого документа для платформенного админа (без полного номера — только маска).
-   * Обращение фиксируется: журнал документа (VIEW, platformMode) + аудит.
+   * Обращение фиксируется: журнал документа (VIEW, platformMode) + аудит, с причиной (D-F24).
+   * `reason` не передаёт только прежний GET без тела — он оставлен для совместимости.
    */
-  async platformGet(actor: JwtPayload, id: string): Promise<DocumentDto> {
+  async platformGet(actor: JwtPayload, id: string, reason?: string): Promise<DocumentDto> {
     const doc = await this.prisma.document.findFirst({
       where: { id, deletedAt: null },
       select: DOCUMENT_SELECT,
     })
     if (!doc) throw new AppException('NOT_FOUND', 'Документ не найден')
-    await this.logEvent(actor.sub, id, 'VIEW', { platformMode: true, meta: true })
+    await this.logEvent(actor.sub, id, 'VIEW', {
+      platformMode: true,
+      meta: true,
+      ...(reason ? { reason } : {}),
+    })
     await this.audit.record({
       userId: actor.sub,
       action: 'DOCUMENT_PLATFORM_VIEW',
       entity: 'Document',
       entityId: id,
+      ...(reason ? { metadata: { reason } } : {}),
     })
     return this.toDto(doc)
   }
@@ -982,7 +1107,7 @@ export class DocumentsService {
             actorId: d.ownerId,
             documentId: d.id,
             action: 'ARCHIVE',
-            metadata: { retention: rule.retentionDays },
+            metadata: { retention: rule.retentionDays, previousStatus: 'EXPIRED' },
           })),
         })
       }

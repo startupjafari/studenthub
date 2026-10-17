@@ -308,8 +308,10 @@ export class CompaniesService {
       if (!canTransitionAccess(from, 'REQUESTED')) {
         throw new AppException('CONFLICT', 'Повторная заявка сейчас невозможна')
       }
-      await this.prisma.companyUniversityAccess.update({
-        where: { id: existing.id },
+      // Условие на прочитанный статус — в самой записи (D-F29): вуз мог решить заявку между
+      // чтением и записью, и повторная подача не должна затирать его решение.
+      const { count } = await this.prisma.companyUniversityAccess.updateMany({
+        where: { id: existing.id, status: from },
         data: {
           status: 'REQUESTED',
           message: input.message,
@@ -321,6 +323,9 @@ export class CompaniesService {
           expiresAt: null,
         },
       })
+      if (count === 0) {
+        throw new AppException('CONFLICT', 'Статус заявки уже изменился — обновите страницу')
+      }
     } else {
       await this.prisma.companyUniversityAccess.create({
         data: {
@@ -477,8 +482,11 @@ export class CompaniesService {
     }
 
     await this.prisma.$transaction(async (tx) => {
-      await tx.companyUniversityAccess.update({
-        where: { id: record.id },
+      // Условие на ожидаемый статус — в самой записи (D-F29). Без него два админа, параллельно
+      // одобряющий и отклоняющий, оставляли последнее слово за записавшим позже, а в аудите
+      // оказывались оба решения. Проигравший получает 409, транзакция откатывается.
+      const { count } = await tx.companyUniversityAccess.updateMany({
+        where: { id: record.id, status: from },
         data: {
           status: input.status,
           reason: input.reason,
@@ -488,6 +496,9 @@ export class CompaniesService {
             input.status === 'APPROVED' && input.expiresAt ? new Date(input.expiresAt) : null,
         },
       })
+      if (count === 0) {
+        throw new AppException('CONFLICT', 'Заявку уже рассмотрели — обновите страницу')
+      }
 
       // Отзыв допуска закрывает вакансии компании В ЭТОМ вузе. Видимость витрины считается
       // по решению вуза (VacancyUniversityReview), а не по допуску, поэтому без этого шага

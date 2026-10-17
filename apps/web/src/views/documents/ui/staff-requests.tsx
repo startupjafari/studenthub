@@ -7,16 +7,19 @@ import { useLocale, useTranslations } from 'next-intl'
 import { ClipboardList, Plus, Trash2 } from 'lucide-react'
 import { Role } from '@studenthub/shared-types'
 import {
+  closeDocumentRequest,
   createDocumentRequest,
   documentRequestKeys,
   fetchAuthoredRequests,
   fetchRequestManage,
+  fetchRequestSubmissions,
   fetchSubmission,
   fetchSubmissionFileUrl,
   finalizeSubmission,
   reviewSubmissionItem,
   type StaffRequestSummary,
   type StaffSubmissionItem,
+  type StaffSubmissionSummary,
 } from '../../../entities/document-request'
 import { courseKeys, fetchCourses } from '../../../entities/course'
 import { useDocumentTypeCatalog } from '../../../entities/document-type'
@@ -49,6 +52,7 @@ import {
   TableSkeletonRows,
   TableText,
   Textarea,
+  useConfirm,
   useTableSort,
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
@@ -198,6 +202,12 @@ function RequestsTable({
             >
               <TableCell className="font-medium">
                 <TableText value={r.title} />
+                {/* Запрос подразделения (предшественника, коллеги) — с именем автора. */}
+                {!r.mine && (
+                  <p className="truncate text-xs font-normal text-muted-foreground">
+                    {t('req_author', { name: r.authorName })}
+                  </p>
+                )}
               </TableCell>
               <TableCell className={cn(REQ_HIDE.items, 'text-right tabular-nums')}>
                 {r.itemCount}
@@ -498,21 +508,72 @@ function CreateRequestModal({ onClose }: { onClose: () => void }) {
 function ManageRequestModal({ id, onClose }: { id: string; onClose: () => void }) {
   const t = useTranslations('Documents')
   const tErr = useTranslations('Errors')
+  const qc = useQueryClient()
+  const confirm = useConfirm()
   const [reviewId, setReviewId] = useState<string | null>(null)
   const q = useQuery({
     queryKey: documentRequestKeys.manage(id),
     queryFn: () => fetchRequestManage(id),
   })
   const d = q.data
+  // Карточка приносит первые 200 комплектов; остальные — страницами по кнопке.
+  const [more, setMore] = useState<StaffSubmissionSummary[]>([])
+  const [moreHasNext, setMoreHasNext] = useState<boolean | null>(null)
+  const submissions = d ? [...d.submissions, ...more] : []
+  const hasMore =
+    !!d && (moreHasNext ?? d.submissionCount > d.submissions.length) && submissions.length > 0
+  const moreMut = useMutation({
+    mutationFn: () => fetchRequestSubmissions(id, submissions[submissions.length - 1]!.id),
+    onSuccess: (page) => {
+      setMore((prev) => [...prev, ...page.items])
+      setMoreHasNext(page.hasNext)
+    },
+    onError: (e) => toast.error(tErr(errCode(e))),
+  })
+  const closeMut = useMutation({
+    mutationFn: () => closeDocumentRequest(id),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: documentRequestKeys.all })
+      toast.success(t('req_closedToast'))
+    },
+    onError: (e) => toast.error(tErr(errCode(e))),
+  })
 
   return (
-    <DocModal title={d?.title ?? t('req_title')} size="xl" onClose={onClose}>
+    <DocModal
+      title={d?.title ?? t('req_title')}
+      size="xl"
+      onClose={onClose}
+      footer={
+        d?.status === 'OPEN' ? (
+          <Button
+            variant="outline"
+            loading={closeMut.isPending}
+            onClick={() => {
+              void confirm({ title: t('req_closeConfirm'), destructive: true }).then((ok) => {
+                if (ok) closeMut.mutate()
+              })
+            }}
+          >
+            {t('req_close')}
+          </Button>
+        ) : undefined
+      }
+    >
       {q.isLoading ? (
         <Skeleton className="h-40 w-full rounded-xl" />
       ) : !d ? (
         <p className="text-sm text-destructive">{tErr('NOT_FOUND')}</p>
       ) : (
         <div className="flex flex-col gap-4">
+          {!d.mine && (
+            <p className="text-sm text-muted-foreground">
+              {t('req_author', { name: d.authorName })}
+            </p>
+          )}
+          {d.status === 'CLOSED' && (
+            <p className="text-sm text-muted-foreground">{t('req_closedNotice')}</p>
+          )}
           {d.description && <p className="text-sm text-muted-foreground">{d.description}</p>}
           <div>
             <p className="mb-1 text-sm font-medium">{t('req_fieldItems')}</p>
@@ -527,11 +588,11 @@ function ManageRequestModal({ id, onClose }: { id: string; onClose: () => void }
           </div>
           <div>
             <p className="mb-2 text-sm font-medium">{t('req_submissions')}</p>
-            {d.submissions.length === 0 ? (
+            {submissions.length === 0 ? (
               <p className="text-sm text-muted-foreground">{t('req_noSubmissions')}</p>
             ) : (
               <ul className="flex flex-col gap-2">
-                {d.submissions.map((s) => (
+                {submissions.map((s) => (
                   <li
                     key={s.id}
                     className="flex items-center justify-between gap-2 rounded-lg border border-border p-3"
@@ -559,6 +620,17 @@ function ManageRequestModal({ id, onClose }: { id: string; onClose: () => void }
                   </li>
                 ))}
               </ul>
+            )}
+            {hasMore && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="mt-2"
+                loading={moreMut.isPending}
+                onClick={() => moreMut.mutate()}
+              >
+                {t('req_loadMore')}
+              </Button>
             )}
           </div>
         </div>

@@ -47,15 +47,16 @@ export function DocumentsView() {
   const role = useAppSelector((s) => s.auth.role)
   // Диплинк из уведомления о выданном доступе: /documents?section=shared. По нему раздел
   // открывается любой роли — персональный доступ можно выдать не только администрации.
+  // Автору запроса о сданном комплекте — /documents?section=requests.
   const requested = useSearchParams().get('section')
+  const deepLink: Section | null =
+    requested === 'shared' || requested === 'requests' ? requested : null
   const canReceive = requested === 'shared' || (!!role && SHARED_RECIPIENT_ROLES.has(role))
-  const [section, setSection] = useState<Section>(() =>
-    requested === 'shared' ? 'shared' : 'overview',
-  )
+  const [section, setSection] = useState<Section>(() => deepLink ?? 'overview')
   // Переход по уведомлению, когда раздел уже открыт: страница не пересоздаётся.
   useEffect(() => {
-    if (requested === 'shared') setSection('shared')
-  }, [requested])
+    if (deepLink) setSection(deepLink)
+  }, [deepLink])
   // Фильтр, с которым открывают «Мои документы» из обзора (клик по плитке/строке).
   const [listStatus, setListStatus] = useState<string | undefined>(undefined)
 

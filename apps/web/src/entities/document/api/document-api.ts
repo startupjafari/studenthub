@@ -263,8 +263,10 @@ export async function fetchSharedWithMe(cursor?: string): Promise<SharedDocument
 
 // ── Спец-режим платформенного админа (15.21) ──────────────────────────────────
 
-export async function fetchDocumentPlatform(id: string): Promise<DocumentDto> {
-  const { data } = await api.get<DocumentDto>(`/documents/${id}/platform`)
+// Причина уходит и с метаданными: карточка тоже раскрывает чужой документ, и обращение
+// без обоснования в журнале спец-доступа было бы «тихим».
+export async function fetchDocumentPlatform(id: string, reason: string): Promise<DocumentDto> {
+  const { data } = await api.post<DocumentDto>(`/documents/${id}/platform`, { reason })
   return data
 }
 

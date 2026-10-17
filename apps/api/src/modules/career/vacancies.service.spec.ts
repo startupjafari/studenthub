@@ -36,7 +36,7 @@ const staff = (universityId: string | null = 'uni-1'): JwtPayload => ({
 
 function setup(allowedUniversities: string[] = ['uni-1']) {
   const tx = {
-    vacancy: { update: jest.fn() },
+    vacancy: { update: jest.fn(), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
     vacancyUniversityReview: {
       upsert: jest.fn(),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
@@ -44,17 +44,21 @@ function setup(allowedUniversities: string[] = ['uni-1']) {
   }
   const prisma = {
     vacancy: {
-      findFirst: jest.fn().mockResolvedValue({ id: 'v-1', salaryMin: null, salaryMax: null }),
+      findFirst: jest
+        .fn()
+        .mockResolvedValue({ id: 'v-1', status: 'DRAFT', salaryMin: null, salaryMax: null }),
       findMany: jest.fn().mockResolvedValue([]),
       count: jest.fn().mockResolvedValue(0),
       create: jest.fn().mockResolvedValue({ id: 'v-1' }),
       update: jest.fn(),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     vacancyUniversityReview: {
       findUnique: jest.fn(),
       findMany: jest.fn().mockResolvedValue([]),
       count: jest.fn().mockResolvedValue(0),
       update: jest.fn(),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     user: { findFirst: jest.fn().mockResolvedValue(null) },
     $transaction: jest.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
@@ -79,8 +83,11 @@ describe('VacanciesService — публикация', () => {
     await service.publish(employer, 'v-1', ctx)
 
     expect(tx.vacancyUniversityReview.upsert).toHaveBeenCalledTimes(2)
-    expect(tx.vacancy.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ status: 'PUBLISHED' }) }),
+    expect(tx.vacancy.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'v-1', status: 'DRAFT', deletedAt: null },
+        data: expect.objectContaining({ status: 'PUBLISHED' }),
+      }),
     )
   })
 
@@ -296,12 +303,14 @@ describe('VacanciesService — модерация вузом', () => {
       id: 'r-1',
       universityId: 'uni-1',
       vacancyId: 'v-1',
+      status: 'PENDING',
     })
 
     await service.decide(staff(), 'r-1', { status: 'REJECTED', reason: 'не по профилю' }, ctx)
 
-    expect(prisma.vacancyUniversityReview.update).toHaveBeenCalledWith(
+    expect(prisma.vacancyUniversityReview.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
+        where: { id: 'r-1', status: 'PENDING' },
         data: expect.objectContaining({
           status: 'REJECTED',
           reason: 'не по профилю',
@@ -309,6 +318,84 @@ describe('VacanciesService — модерация вузом', () => {
         }),
       }),
     )
+  })
+})
+
+describe('VacanciesService — переходы по графу (D-F29)', () => {
+  const review = (status: string) => ({
+    id: 'r-1',
+    universityId: 'uni-1',
+    vacancyId: 'v-1',
+    status,
+  })
+
+  it('отклонённое (в т.ч. отзывом допуска) решение вуз обратно не одобряет → 409', async () => {
+    const { service, prisma, audit } = setup()
+    prisma.vacancyUniversityReview.findUnique.mockResolvedValue(review('REJECTED'))
+    const err = (await service
+      .decide(staff(), 'r-1', { status: 'APPROVED' }, ctx)
+      .catch((e: unknown) => e)) as AppException
+    expect(err.code).toBe('CONFLICT')
+    expect(prisma.vacancyUniversityReview.updateMany).not.toHaveBeenCalled()
+    expect(audit.record).not.toHaveBeenCalled()
+  })
+
+  it('одобрение пишется только при действующем допуске и опубликованной вакансии', async () => {
+    const { service, prisma } = setup()
+    prisma.vacancyUniversityReview.findUnique.mockResolvedValue(review('PENDING'))
+    await service.decide(staff(), 'r-1', { status: 'APPROVED' }, ctx)
+    const where = prisma.vacancyUniversityReview.updateMany.mock.calls[0][0].where
+    expect(where).toMatchObject({
+      id: 'r-1',
+      status: 'PENDING',
+      vacancy: {
+        deletedAt: null,
+        status: 'PUBLISHED',
+        company: { universityAccess: { some: { universityId: 'uni-1', status: 'APPROVED' } } },
+      },
+    })
+  })
+
+  it('параллельное решение или отзыв допуска между чтением и записью → 409, без аудита', async () => {
+    const { service, prisma, audit } = setup()
+    prisma.vacancyUniversityReview.findUnique.mockResolvedValue(review('PENDING'))
+    prisma.vacancyUniversityReview.updateMany.mockResolvedValue({ count: 0 })
+    const err = (await service
+      .decide(staff(), 'r-1', { status: 'APPROVED' }, ctx)
+      .catch((e: unknown) => e)) as AppException
+    expect(err.code).toBe('CONFLICT')
+    expect(audit.record).not.toHaveBeenCalled()
+  })
+
+  it('статус вакансии — только по графу: DRAFT → PAUSED и публикация закрытой → 409', async () => {
+    const draft = setup()
+    const pause = (await draft.service
+      .setStatus(employer, 'v-1', 'PAUSED', ctx)
+      .catch((e: unknown) => e)) as AppException
+    expect(pause.code).toBe('CONFLICT')
+    expect(draft.prisma.vacancy.updateMany).not.toHaveBeenCalled()
+
+    const closed = setup()
+    closed.prisma.vacancy.findFirst.mockResolvedValue({ id: 'v-1', status: 'CLOSED' })
+    const publish = (await closed.service
+      .publish(employer, 'v-1', ctx)
+      .catch((e: unknown) => e)) as AppException
+    expect(publish.code).toBe('CONFLICT')
+    expect(closed.tx.vacancy.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('пауза опубликованной: условие на прочитанный статус в записи; гонка → 409', async () => {
+    const { service, prisma } = setup()
+    prisma.vacancy.findFirst.mockResolvedValue({ id: 'v-1', status: 'PUBLISHED' })
+    prisma.vacancy.updateMany.mockResolvedValue({ count: 0 })
+    const err = (await service
+      .setStatus(employer, 'v-1', 'PAUSED', ctx)
+      .catch((e: unknown) => e)) as AppException
+    expect(prisma.vacancy.updateMany).toHaveBeenCalledWith({
+      where: { id: 'v-1', status: 'PUBLISHED', deletedAt: null },
+      data: { status: 'PAUSED' },
+    })
+    expect(err.code).toBe('CONFLICT')
   })
 })
 
