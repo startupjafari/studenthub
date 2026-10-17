@@ -45,3 +45,19 @@ describe('SearchService — события', () => {
     })
   })
 })
+
+// A-F16: логин — публичный @-хэндл для упоминаний, но перебирать логины вуза по
+// подстроке («admin» в любом месте) автодополнению не нужно: ищем только по началу.
+describe('SearchService — люди', () => {
+  it('по логину — только с начала, по имени и фамилии — по подстроке', async () => {
+    const { service, prisma } = setup()
+    await service.search(student, 'iva')
+    const where = prisma.user.findMany.mock.calls[0][0].where
+    expect(where.OR).toEqual([
+      { firstName: { contains: 'iva', mode: 'insensitive' } },
+      { lastName: { contains: 'iva', mode: 'insensitive' } },
+      { username: { startsWith: 'iva', mode: 'insensitive' } },
+    ])
+    expect(where.universityId).toBe('uni-1')
+  })
+})

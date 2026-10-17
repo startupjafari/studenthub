@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto'
 import type Redis from 'ioredis'
 import { authenticator } from 'otplib'
 import { REDIS_CLIENT } from '../../common/redis/redis.constants'
+import { AuditService } from '../../common/audit/audit.service'
 import { renderQrDataUrl } from '../../common/qr/qr-image'
 import { AppException } from '../../common/exceptions/app.exception'
 import { CryptoService } from '../../common/security/crypto.service'
@@ -25,6 +26,18 @@ export interface TwoFactorSetup {
   qr: string
 }
 
+/** Откуда пришёл запрос — для журнала аудита. */
+export interface TwoFactorRequestContext {
+  ip?: string
+  userAgent?: string
+}
+
+/**
+ * Списать проверенный код. Для backup-кода — условная запись в БД (true, если код списан
+ * этим вызовом); TOTP-шаг уже занят при проверке, списывать нечего.
+ */
+export type ConsumeTwoFactorCode = () => Promise<boolean>
+
 // TOTP-2FA: настройка (секрет+QR), подтверждение, отключение и проверка кода
 // (TOTP или backup). Секрет хранится зашифрованным (CryptoService), backup-коды — bcrypt.
 @Injectable()
@@ -34,6 +47,7 @@ export class TwoFactorService {
     private readonly crypto: CryptoService,
     private readonly passwords: PasswordService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    private readonly audit: AuditService,
   ) {
     // Допускаем расхождение часов на ±1 шаг (30 с) — стандартная практика.
     authenticator.options = { window: 1 }
@@ -79,7 +93,11 @@ export class TwoFactorService {
   }
 
   /** Шаг 2: подтвердить кодом → включить 2FA и выдать backup-коды (показываются один раз). */
-  async enable(userId: string, code: string): Promise<{ backupCodes: string[] }> {
+  async enable(
+    userId: string,
+    code: string,
+    ctx: TwoFactorRequestContext = {},
+  ): Promise<{ backupCodes: string[] }> {
     const state = await this.users.getTwoFactorState(userId)
     if (!state?.twoFactorSecret) {
       throw new AppException('BAD_REQUEST', 'Сначала запустите настройку 2FA')
@@ -93,6 +111,15 @@ export class TwoFactorService {
     }
     const { backupCodes, hashes } = await this.newBackupCodes()
     await this.users.enableTwoFactor(userId, hashes)
+    // Включение, отключение и перевыпуск кодов — то, что спрашивают при разборе угона
+    // учётки: кто и когда менял второй фактор. Без кодов и секрета — только факт.
+    await this.audit.record({
+      userId,
+      action: '2fa_enabled',
+      entity: 'User',
+      entityId: userId,
+      ...ctx,
+    })
     return { backupCodes }
   }
 
@@ -102,7 +129,11 @@ export class TwoFactorService {
    * новые только отключив и заново настроив 2FA. Прежний набор заменяется целиком: старые
    * коды, где бы они ни были записаны, больше не действуют.
    */
-  async regenerateBackupCodes(userId: string, code: string): Promise<{ backupCodes: string[] }> {
+  async regenerateBackupCodes(
+    userId: string,
+    code: string,
+    ctx: TwoFactorRequestContext = {},
+  ): Promise<{ backupCodes: string[] }> {
     const rec = await this.users.getTwoFactorForLogin(userId)
     if (!rec?.twoFactorEnabled) {
       throw new AppException('BAD_REQUEST', 'Двухфакторная аутентификация не включена')
@@ -113,6 +144,13 @@ export class TwoFactorService {
     }
     const { backupCodes, hashes } = await this.newBackupCodes()
     await this.users.setBackupCodes(userId, hashes)
+    await this.audit.record({
+      userId,
+      action: '2fa_backup_codes_regenerated',
+      entity: 'User',
+      entityId: userId,
+      ...ctx,
+    })
     return { backupCodes }
   }
 
@@ -124,7 +162,7 @@ export class TwoFactorService {
   }
 
   /** Отключить 2FA (требует действующий TOTP или backup-код). */
-  async disable(userId: string, code: string): Promise<void> {
+  async disable(userId: string, code: string, ctx: TwoFactorRequestContext = {}): Promise<void> {
     const rec = await this.users.getTwoFactorForLogin(userId)
     if (!rec?.twoFactorEnabled) {
       throw new AppException('BAD_REQUEST', 'Двухфакторная аутентификация не включена')
@@ -134,6 +172,13 @@ export class TwoFactorService {
       throw new AppException('INVALID_2FA_CODE', 'Неверный код')
     }
     await this.users.disableTwoFactor(userId)
+    await this.audit.record({
+      userId,
+      action: '2fa_disabled',
+      entity: 'User',
+      entityId: userId,
+      ...ctx,
+    })
   }
 
   /**
@@ -176,25 +221,40 @@ export class TwoFactorService {
   }
 
   /**
-   * Проверка кода на втором шаге входа / при отключении. 6 цифр → TOTP; иначе backup-код
-   * (сверяем с bcrypt-хэшами и «сжигаем» использованный). Возвращает true при успехе.
+   * Проверка кода при отключении, перевыпуске и подтверждении действия. 6 цифр → TOTP;
+   * иначе backup-код (сверяем с bcrypt-хэшами и «сжигаем» использованный). true при успехе.
    */
   async verifyCode(rec: TwoFactorLoginRecord, code: string): Promise<boolean> {
+    const consume = await this.checkCode(rec, code)
+    return consume ? consume() : false
+  }
+
+  /**
+   * Проверить код, не списывая backup-код: верный — функция списания, неверный — null.
+   * Нужна второму шагу входа: списывать backup-код до того, как погашен challenge, значит
+   * терять его на отказе («код входа уже использован»). TOTP-шаг занимается здесь же —
+   * повтор кода отсекается атомарно, а потерять шаг не страшно: через 30 с будет новый.
+   */
+  async checkCode(rec: TwoFactorLoginRecord, code: string): Promise<ConsumeTwoFactorCode | null> {
     if (/^\d{6}$/.test(code)) {
-      if (!rec.twoFactorSecret) return false
+      if (!rec.twoFactorSecret) return null
       const secret = this.crypto.decrypt(rec.twoFactorSecret)
       const delta = authenticator.checkDelta(code, secret)
-      if (delta === null) return false
-      return this.claimStep(rec.id, Math.floor(Date.now() / 1000 / TOTP_STEP_SEC) + delta)
+      if (delta === null) return null
+      const claimed = await this.claimStep(
+        rec.id,
+        Math.floor(Date.now() / 1000 / TOTP_STEP_SEC) + delta,
+      )
+      return claimed ? () => Promise.resolve(true) : null
     }
-    // Backup-код: ищем совпадающий хэш и сжигаем его условной записью — из двух
+    // Backup-код: ищем совпадающий хэш; сжигается он условной записью — из двух
     // одновременных входов с одним кодом пройдёт один.
     for (const hash of rec.twoFactorBackupCodes) {
       if (await this.passwords.compare(code, hash)) {
-        return this.users.consumeBackupCode(rec.id, hash)
+        return () => this.users.consumeBackupCode(rec.id, hash)
       }
     }
-    return false
+    return null
   }
 
   /**

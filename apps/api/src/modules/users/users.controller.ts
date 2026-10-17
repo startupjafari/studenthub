@@ -66,11 +66,21 @@ export class UsersController {
 
   @Patch('me/password')
   @ApiOperation({ summary: 'Сменить пароль (разлогинивает все устройства)' })
+  @ApiResponse({ status: 200, description: 'Пароль изменён, все сессии погашены' })
+  @ApiResponse({ status: 400, description: 'BAD_REQUEST — неверный текущий пароль' })
+  @ApiResponse({
+    status: 429,
+    description: 'RATE_LIMIT — 5 неверных текущих паролей за 15 минут, проверка закрыта',
+  })
   async changePassword(
     @CurrentUser() user: CurrentUserData,
     @Body() dto: ChangePasswordDto,
+    @Req() req: FastifyRequest,
   ): Promise<null> {
-    await this.users.changePassword(user.sub, dto.currentPassword, dto.newPassword)
+    await this.users.changePassword(user.sub, dto.currentPassword, dto.newPassword, {
+      ip: req.ip,
+      userAgent: req.headers['user-agent'],
+    })
     return null
   }
 
@@ -121,8 +131,8 @@ export class UsersController {
 
   @Delete('me')
   @ApiOperation({ summary: 'Удалить свой аккаунт (soft delete + анонимизация)' })
-  async deleteMe(@CurrentUser() user: CurrentUserData): Promise<null> {
-    await this.users.softDeleteSelf(user.sub)
+  async deleteMe(@CurrentUser() user: CurrentUserData, @Req() req: FastifyRequest): Promise<null> {
+    await this.users.softDeleteSelf(user.sub, { ip: req.ip, userAgent: req.headers['user-agent'] })
     return null
   }
 

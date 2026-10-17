@@ -11,6 +11,7 @@ import {
   UseGuards,
 } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
+import { JwtService } from '@nestjs/jwt'
 import { Throttle } from '@nestjs/throttler'
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger'
 import type { FastifyReply, FastifyRequest } from 'fastify'
@@ -32,9 +33,16 @@ import { PasswordResetService } from './password-reset.service'
 import { ForgotPasswordDto } from './dto/forgot-password.dto'
 import { ResetPasswordDto } from './dto/reset-password.dto'
 import { MaintenanceExempt } from '../../common/decorators'
+import { AppException } from '../../common/exceptions/app.exception'
 
 const MINUTE = 60_000
 const HOUR = 60 * MINUTE
+// Подтверждение входа по QR выдаёт новому устройству собственную 30-дневную сессию. Без
+// требования свежести чужой access-токен (утёкший из логов, HAR-файла, расширения) все свои
+// 15 минут превращался в независимую долгую сессию. Свежесть — по `iat`: токен старше
+// получает TOKEN_EXPIRED, и клиенты (веб, iOS, Android) сами обновляют его и повторяют
+// запрос — для человека с телефоном в руке это незаметно.
+const QR_APPROVE_MAX_TOKEN_AGE_SEC = 5 * 60
 
 @ApiTags('Auth')
 // Без входа режим техработ не снять: администратор должен уметь войти в остановленную платформу.
@@ -49,6 +57,7 @@ export class AuthController {
     private readonly qrLogin: QrLoginService,
     private readonly audit: AuditService,
     private readonly passwordReset: PasswordResetService,
+    private readonly jwt: JwtService,
   ) {}
 
   // §6.3: 5 / 15 мин на пару «адрес + логин» и потолок 50 / 15 мин с адреса — кампус за NAT
@@ -114,12 +123,18 @@ export class AuthController {
   @Post('qr/approve')
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Подтвердить вход по QR (с залогиненного устройства)' })
+  @ApiResponse({
+    status: 401,
+    description: 'TOKEN_EXPIRED — access-токен старше 5 минут: обновить его и повторить',
+  })
   @ApiResponse({ status: 404, description: 'QR-сессия не найдена или истекла' })
+  @ApiResponse({ status: 409, description: 'CONFLICT — вход по этому QR уже подтвердил другой' })
   async qrApprove(
     @CurrentUser() user: JwtPayload,
     @Body() dto: QrApproveDto,
     @Req() req: FastifyRequest,
   ): Promise<null> {
+    this.assertFreshAccess(req)
     await this.qrLogin.approve(dto.approveToken, user.sub)
     // Одобрение входа нового устройства — событие безопасности: фиксируем в аудите
     // (сам approveToken/секрет НЕ логируем).
@@ -246,6 +261,15 @@ export class AuthController {
 
   private ctx(req: FastifyRequest): RequestContext {
     return { ip: req.ip, userAgent: req.headers['user-agent'] }
+  }
+
+  // Подпись и срок токена уже проверил JwtAuthGuard — здесь только возраст по `iat`.
+  private assertFreshAccess(req: FastifyRequest): void {
+    const raw = /^Bearer\s+(\S+)$/i.exec(req.headers.authorization ?? '')?.[1]
+    const iat = raw ? this.jwt.decode<{ iat?: number } | null>(raw)?.iat : undefined
+    if (typeof iat !== 'number' || Date.now() / 1000 - iat > QR_APPROVE_MAX_TOKEN_AGE_SEC) {
+      throw new AppException('TOKEN_EXPIRED', 'Обновите сессию и подтвердите вход ещё раз')
+    }
   }
 
   private isProd(): boolean {

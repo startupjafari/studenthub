@@ -3,6 +3,7 @@ import { TwoFactorService } from './two-factor.service'
 import type { UserService, TwoFactorLoginRecord } from '../users/users.service'
 import type { CryptoService } from '../../common/security/crypto.service'
 import type { PasswordService } from '../../common/security/password.service'
+import type { AuditService } from '../../common/audit/audit.service'
 
 // Крипто мокаем «прозрачно»: encrypt(x)=enc(x), decrypt(enc(x))=x — секрет читается как есть.
 function setup() {
@@ -46,13 +47,15 @@ function setup() {
       return chain
     }),
   }
+  const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const service = new TwoFactorService(
     users as unknown as UserService,
     crypto as unknown as CryptoService,
     passwords as unknown as PasswordService,
     redis as unknown as import('ioredis').default,
+    audit as unknown as AuditService,
   )
-  return { service, users, crypto, passwords, redis, store }
+  return { service, users, crypto, passwords, redis, store, audit }
 }
 
 function loginRecord(over: Partial<TwoFactorLoginRecord> = {}): TwoFactorLoginRecord {
@@ -251,5 +254,84 @@ describe('TwoFactorService', () => {
     await expect(service.regenerateBackupCodes('u1', '123456')).rejects.toMatchObject({
       code: 'BAD_REQUEST',
     })
+  })
+})
+
+// A-F12: по журналу должно быть видно, кто и когда менял второй фактор — это первое, что
+// спрашивают при разборе угона учётки. Кодов и секрета в записи нет.
+describe('TwoFactorService — аудит смены второго фактора', () => {
+  const ctx = { ip: '203.0.113.5', userAgent: 'jest' }
+
+  it('enable пишет 2fa_enabled с адресом, без кодов', async () => {
+    const { service, users, audit } = setup()
+    const secret = authenticator.generateSecret()
+    users.getTwoFactorState.mockResolvedValue({
+      twoFactorEnabled: false,
+      twoFactorSecret: `enc(${secret})`,
+    })
+    const { backupCodes } = await service.enable('u1', authenticator.generate(secret), ctx)
+    expect(audit.record).toHaveBeenCalledWith({
+      userId: 'u1',
+      action: '2fa_enabled',
+      entity: 'User',
+      entityId: 'u1',
+      ...ctx,
+    })
+    expect(JSON.stringify(audit.record.mock.calls)).not.toContain(backupCodes[0])
+  })
+
+  it('disable пишет 2fa_disabled; неверный код — без записи', async () => {
+    const { service, users, audit } = setup()
+    users.getTwoFactorForLogin.mockResolvedValue(
+      loginRecord({ twoFactorBackupCodes: ['hash:ABCD1234'] }),
+    )
+    await expect(service.disable('u1', 'WRONGONE', ctx)).rejects.toMatchObject({
+      code: 'INVALID_2FA_CODE',
+    })
+    expect(audit.record).not.toHaveBeenCalled()
+
+    await service.disable('u1', 'ABCD1234', ctx)
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: 'u1', action: '2fa_disabled', ip: ctx.ip }),
+    )
+  })
+
+  it('перевыпуск backup-кодов пишет 2fa_backup_codes_regenerated', async () => {
+    const { service, users, audit } = setup()
+    users.getTwoFactorForLogin.mockResolvedValue(
+      loginRecord({ twoFactorBackupCodes: ['hash:ABCD1234'] }),
+    )
+    await service.regenerateBackupCodes('u1', 'ABCD1234', ctx)
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: '2fa_backup_codes_regenerated', entityId: 'u1' }),
+    )
+  })
+})
+
+describe('TwoFactorService.checkCode — проверка без списания', () => {
+  it('верный backup-код не списывается, пока не вызвано списание', async () => {
+    const { service, users } = setup()
+    const rec = loginRecord({ twoFactorBackupCodes: ['hash:ABCD1234'] })
+    const consume = await service.checkCode(rec, 'ABCD1234')
+    expect(consume).toEqual(expect.any(Function))
+    expect(users.consumeBackupCode).not.toHaveBeenCalled()
+
+    await expect(consume?.()).resolves.toBe(true)
+    expect(users.consumeBackupCode).toHaveBeenCalledWith('u1', 'hash:ABCD1234')
+  })
+
+  it('неверный код → null', async () => {
+    const { service } = setup()
+    const rec = loginRecord({ twoFactorBackupCodes: ['hash:ABCD1234'] })
+    expect(await service.checkCode(rec, 'WRONGONE')).toBeNull()
+  })
+
+  it('TOTP: шаг занимается сразу, повтор того же кода → null', async () => {
+    const { service } = setup()
+    const secret = authenticator.generateSecret()
+    const rec = loginRecord({ twoFactorSecret: `enc(${secret})` })
+    const token = authenticator.generate(secret)
+    expect(await service.checkCode(rec, token)).toEqual(expect.any(Function))
+    expect(await service.checkCode(rec, token)).toBeNull()
   })
 })

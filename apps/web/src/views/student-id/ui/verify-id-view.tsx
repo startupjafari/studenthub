@@ -81,12 +81,14 @@ export function VerifyIdView() {
   }
 
   if (q.isError || !q.data) {
+    const code = q.error ? toApiError(q.error).code : null
     return (
       <CenterCard>
         <TriangleAlert className="size-10 text-destructive" aria-hidden />
         <h1 className="text-lg font-semibold">{t('verifyFailed')}</h1>
         <p className="text-sm text-muted-foreground">
-          {q.error ? tErr(toApiError(q.error).code) : t('verifyFailedHint')}
+          {/* QR — разовый пропуск: код, уже проверенный другим сотрудником, отвечает 409. */}
+          {code === 'CONFLICT' ? t('verifyAlreadyUsed') : code ? tErr(code) : t('verifyFailedHint')}
         </p>
         {scanned && (
           <Button variant="outline" onClick={() => setScanned(null)}>

@@ -15,6 +15,7 @@ import type { ExportBrandingService } from '../../common/export/export-branding.
 import type { ExportRegistryService } from '../../common/export/export-registry.service'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { EnvVars } from '../../config/env.schema'
+import type Redis from 'ioredis'
 
 function setup() {
   const prisma = {
@@ -72,6 +73,24 @@ function setup() {
   const exportRegistry = {
     register: jest.fn().mockResolvedValue({ id: 'e-1', shortId: 'ABCD2345' }),
   }
+  // Redis как Map: счётчик неверных текущих паролей при смене пароля.
+  const store = new Map<string, string>()
+  const redis = {
+    store,
+    get: jest.fn(async (key: string) => store.get(key) ?? null),
+    del: jest.fn(async (key: string) => (store.delete(key) ? 1 : 0)),
+    multi: jest.fn(() => {
+      const chain = {
+        incr: (key: string) => {
+          store.set(key, String(Number(store.get(key) ?? 0) + 1))
+          return chain
+        },
+        expire: () => chain,
+        exec: async () => [],
+      }
+      return chain
+    }),
+  }
   const service = new UserService(
     prisma as unknown as PrismaService,
     passwords as unknown as PasswordService,
@@ -83,8 +102,10 @@ function setup() {
     audit as unknown as AuditService,
     branding as unknown as ExportBrandingService,
     exportRegistry as unknown as ExportRegistryService,
+    redis as unknown as Redis,
   )
   return {
+    redis,
     service,
     prisma,
     passwords,
@@ -575,6 +596,91 @@ describe('UserService — changePassword', () => {
     })
     expect(authService.revokeAllUserSessions).toHaveBeenCalledWith('u')
   })
+
+  // A-F12: с украденным access-токеном текущий пароль перебирался под общим лимитом
+  // 100/мин, а угаданный тут же менялся — захват учётки.
+  it('после пяти неверных текущих паролей — RATE_LIMIT даже с верным, пароль не меняется', async () => {
+    const { service, prisma, passwords } = setup()
+    prisma.user.findFirst.mockResolvedValue({ passwordHash: 'h' })
+    passwords.compare.mockResolvedValue(false)
+    for (let i = 0; i < 5; i++) {
+      await expect(service.changePassword('u', 'wrong', 'New1234!')).rejects.toMatchObject({
+        code: 'BAD_REQUEST',
+      })
+    }
+    passwords.compare.mockResolvedValue(true)
+    await expect(service.changePassword('u', 'Old1234!', 'New1234!')).rejects.toMatchObject({
+      code: 'RATE_LIMIT',
+    })
+    expect(prisma.user.update).not.toHaveBeenCalled()
+  })
+
+  it('верный пароль сбрасывает счётчик промахов', async () => {
+    const { service, prisma, passwords, redis } = setup()
+    prisma.user.findFirst.mockResolvedValue({ passwordHash: 'h' })
+    prisma.user.update.mockResolvedValue({})
+    passwords.compare.mockResolvedValueOnce(false).mockResolvedValue(true)
+    await service.changePassword('u', 'wrong', 'New1234!').catch(() => undefined)
+    expect(redis.store.get('password-change:fails:u')).toBe('1')
+
+    await service.changePassword('u', 'Old1234!', 'New1234!')
+    expect(redis.store.has('password-change:fails:u')).toBe(false)
+  })
+
+  it('недоступный Redis не мешает смене пароля', async () => {
+    const { service, prisma, passwords, redis } = setup()
+    prisma.user.findFirst.mockResolvedValue({ passwordHash: 'h' })
+    prisma.user.update.mockResolvedValue({})
+    passwords.compare.mockResolvedValue(true)
+    redis.get.mockRejectedValue(new Error('ECONNREFUSED'))
+    redis.del.mockRejectedValue(new Error('ECONNREFUSED'))
+    await expect(service.changePassword('u', 'Old1234!', 'New1234!')).resolves.toBeUndefined()
+  })
+
+  it('смена пароля пишется в аудит с адресом, без паролей', async () => {
+    const { service, prisma, passwords, audit } = setup()
+    prisma.user.findFirst.mockResolvedValue({ passwordHash: 'h' })
+    prisma.user.update.mockResolvedValue({})
+    passwords.compare.mockResolvedValue(true)
+    passwords.hash.mockResolvedValue('new-hash')
+    await service.changePassword('u', 'Old1234!', 'New1234!', { ip: '203.0.113.5' })
+    expect(audit.record).toHaveBeenCalledWith({
+      userId: 'u',
+      action: 'password_changed',
+      entity: 'User',
+      entityId: 'u',
+      ip: '203.0.113.5',
+    })
+  })
+})
+
+describe('UserService — староста по инвайту', () => {
+  it('ставит отметку в группе и оставляет в ней одного старосту', async () => {
+    const { service } = setup()
+    const tx = {
+      group: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+      user: {
+        findMany: jest.fn().mockResolvedValue([{ id: 'u-old' }]),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+    }
+    const demoted = await service.assignInvitedStarosta(tx as never, 'grp-1', 'u-new')
+    expect(tx.group.updateMany).toHaveBeenCalledWith({
+      where: { id: 'grp-1' },
+      data: { starostaId: 'u-new' },
+    })
+    // Прежний староста группы возвращается в студенты; новый в выборку не попадает.
+    expect(tx.user.findMany.mock.calls[0][0].where).toMatchObject({
+      groupId: 'grp-1',
+      role: Role.STAROSTA,
+      id: { not: 'u-new' },
+    })
+    expect(tx.user.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ['u-old'] } },
+      data: { role: Role.STUDENT, starostaSince: null },
+    })
+    expect(demoted).toEqual(['u-old'])
+  })
 })
 
 describe('UserService — softDeleteSelf', () => {
@@ -627,6 +733,21 @@ describe('UserService — softDeleteSelf', () => {
     expect(data.twoFactorBackupCodes).toEqual([])
     expect(data.interests).toEqual([])
     expect(authService.revokeAllUserSessions).toHaveBeenCalledWith('u')
+  })
+
+  it('удаление аккаунта пишется в аудит — только id, без ПДн', async () => {
+    const { service, prisma, passwords, audit, config } = setup()
+    withBuckets(config)
+    passwords.hash.mockResolvedValue('anon')
+    prisma.user.update.mockResolvedValue({})
+    await service.softDeleteSelf('u', { ip: '203.0.113.5' })
+    expect(audit.record).toHaveBeenCalledWith({
+      userId: 'u',
+      action: 'account_deleted',
+      entity: 'User',
+      entityId: 'u',
+      ip: '203.0.113.5',
+    })
   })
 
   it('староста: освобождает имя входа, выходит из группы и снимает отметку старосты', async () => {

@@ -188,3 +188,107 @@ describe('MiniService — отзыв привязки', () => {
     expect(audit.record).not.toHaveBeenCalled()
   })
 })
+
+// A-F23: telegramId уникален, и отозванная чужая привязка держала его навсегда — другой
+// админ получал 409 «запись уже существует», а одноразовый код при этом сгорал.
+describe('MiniService.link — перепривязка Telegram после отзыва', () => {
+  function linkSetup(existing: Record<string, unknown> | null) {
+    const tx = {
+      telegramAccount: {
+        deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
+        upsert: jest.fn().mockResolvedValue({}),
+      },
+    }
+    const prisma = {
+      user: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'admin-b',
+          firstName: 'Бэ',
+          role: Role.PLATFORM_ADMIN,
+          isBlocked: false,
+          deletedAt: null,
+          twoFactorEnabled: true,
+        }),
+      },
+      telegramAccount: { findUnique: jest.fn().mockResolvedValue(existing) },
+      $transaction: jest.fn((fn: (client: typeof tx) => Promise<unknown>) => fn(tx)),
+    }
+    // Код привязки читается и гасится одной MULTI: GET → владелец кода, DEL → 1.
+    const multi: { get: jest.Mock; del: jest.Mock; exec: jest.Mock } = {
+      get: jest.fn(() => multi),
+      del: jest.fn(() => multi),
+      exec: jest.fn().mockResolvedValue([
+        [null, 'admin-b'],
+        [null, 1],
+      ]),
+    }
+    const audit = { record: jest.fn().mockResolvedValue(undefined) }
+    const service = new MiniService(
+      prisma as unknown as PrismaService,
+      { sign: jest.fn(() => 'signed-token') } as unknown as JwtService,
+      audit as unknown as AuditService,
+      { get: jest.fn(() => BOT_TOKEN) } as unknown as ConfigService<EnvVars, true>,
+      { multi: jest.fn(() => multi) } as unknown as Redis,
+      { notifyOne: jest.fn().mockResolvedValue(undefined) } as unknown as TelegramNotifyService,
+    )
+    return { service, tx, audit }
+  }
+
+  const foreign = (patch: Record<string, unknown>) => ({
+    id: 'acc-a',
+    userId: 'admin-a',
+    revokedAt: null,
+    user: { deletedAt: null },
+    ...patch,
+  })
+
+  it('отозванная чужая привязка уступает место новому владельцу', async () => {
+    const { service, tx, audit } = linkSetup(foreign({ revokedAt: new Date('2026-10-01') }))
+
+    await expect(service.link(initData(), 'CODE2345')).resolves.toMatchObject({
+      token: 'signed-token',
+    })
+
+    expect(tx.telegramAccount.deleteMany).toHaveBeenCalledWith({
+      where: expect.objectContaining({ id: 'acc-a', userId: 'admin-a' }),
+    })
+    expect(tx.telegramAccount.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { userId: 'admin-b' } }),
+    )
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'telegram.linked',
+        metadata: { source: 'telegram', replacedUserId: 'admin-a' },
+      }),
+    )
+  })
+
+  it('привязка удалённого аккаунта тоже уступает место', async () => {
+    const { service, tx } = linkSetup(foreign({ user: { deletedAt: new Date('2026-10-01') } }))
+
+    await service.link(initData(), 'CODE2345')
+
+    expect(tx.telegramAccount.deleteMany).toHaveBeenCalled()
+  })
+
+  it('действующая чужая привязка — по-прежнему 409, ничего не трогаем', async () => {
+    const { service, tx } = linkSetup(foreign({}))
+
+    await expect(service.link(initData(), 'CODE2345')).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(tx.telegramAccount.deleteMany).not.toHaveBeenCalled()
+    expect(tx.telegramAccount.upsert).not.toHaveBeenCalled()
+  })
+
+  it('свою отозванную привязку перепривязывает без удаления строк', async () => {
+    const { service, tx } = linkSetup(
+      foreign({ userId: 'admin-b', revokedAt: new Date('2026-10-01') }),
+    )
+
+    await service.link(initData(), 'CODE2345')
+
+    expect(tx.telegramAccount.deleteMany).not.toHaveBeenCalled()
+    expect(tx.telegramAccount.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({ update: expect.objectContaining({ revokedAt: null }) }),
+    )
+  })
+})

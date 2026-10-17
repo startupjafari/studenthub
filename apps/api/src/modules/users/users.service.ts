@@ -1,6 +1,7 @@
 import { forwardRef, Inject, Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { Prisma } from '@prisma/client'
+import type Redis from 'ioredis'
 import { Role, isHigherRole } from '@studenthub/shared-types'
 import type {
   UserListQueryInput,
@@ -30,6 +31,7 @@ import sharp from 'sharp'
 import { FileService } from '../files/file.service'
 import { RealtimeGateway } from '../../common/realtime'
 import { QueueService, QUEUES, EMAIL_JOBS, FILE_JOBS, NOTIFICATION_JOBS } from '../../common/queue'
+import { REDIS_CLIENT } from '../../common/redis/redis.constants'
 // forwardRef: единственное разрешённое кольцо AuthModule ↔ UsersModule (§2.1) —
 // смена пароля/удаление/блокировка обязаны погасить сессии, которыми владеет AuthService.
 import { AuthService } from '../auth/auth.service'
@@ -67,6 +69,11 @@ export interface TwoFactorLoginRecord {
 
 // Потолок выборки старост одной группы при смене старосты (§5.3: findMany без take нельзя).
 const GROUP_STAROSTA_SCAN_LIMIT = 50
+
+// Смена пароля: столько неверных текущих паролей за окно — и проверка закрыта до конца окна
+// (как подтверждение кодом 2FA, TwoFactorService.verifyWithLimit).
+const PASSWORD_CHANGE_MAX_FAILS = 5
+const PASSWORD_CHANGE_FAIL_WINDOW_SEC = 15 * 60
 
 // Прежних аватаров у пользователя единицы (каждая замена удаляет предыдущие),
 // но потолок обязателен и здесь (BACKEND_RULES §7.2).
@@ -267,6 +274,7 @@ export class UserService {
     private readonly audit: AuditService,
     private readonly branding: ExportBrandingService,
     private readonly exports: ExportRegistryService,
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {}
 
   /** Статус присутствия пользователя (онлайн по активным WS-соединениям, docs/PROJECT.md §9). */
@@ -1430,11 +1438,19 @@ export class UserService {
     })
   }
 
-  /** Смена пароля: сверка текущего + инвалидация ВСЕХ сессий пользователя (§?). */
+  /**
+   * Смена пароля: сверка текущего + инвалидация ВСЕХ сессий пользователя (§?).
+   *
+   * Промахи по текущему паролю считаются по пользователю: с украденным access-токеном его
+   * перебирали под общим лимитом 100 запросов в минуту, а угаданный пароль тут же менялся —
+   * захват учётки. Пять промахов за 15 минут закрывают проверку до конца окна, даже с
+   * верным паролем. Redis недоступен — проверяем без счётчика, как и 2FA.
+   */
   async changePassword(
     userId: string,
     currentPassword: string,
     newPassword: string,
+    ctx: { ip?: string; userAgent?: string } = {},
   ): Promise<void> {
     const user = await this.prisma.user.findFirst({
       where: { id: userId, deletedAt: null },
@@ -1443,14 +1459,34 @@ export class UserService {
     if (!user) {
       throw new AppException('NOT_FOUND', 'Пользователь не найден')
     }
+    const failKey = `password-change:fails:${userId}`
+    const fails = Number((await this.redis.get(failKey).catch(() => null)) ?? 0)
+    if (fails >= PASSWORD_CHANGE_MAX_FAILS) {
+      throw new AppException('RATE_LIMIT', 'Слишком много неверных паролей — попробуйте позже')
+    }
     const ok = await this.passwords.compare(currentPassword, user.passwordHash)
     if (!ok) {
+      await this.redis
+        .multi()
+        .incr(failKey)
+        .expire(failKey, PASSWORD_CHANGE_FAIL_WINDOW_SEC)
+        .exec()
+        .catch(() => undefined)
       // 400, а не 401 — чтобы не триггерить авто-refresh на фронте.
       throw new AppException('BAD_REQUEST', 'Неверный текущий пароль')
     }
+    await this.redis.del(failKey).catch(() => undefined)
     const passwordHash = await this.passwords.hash(newPassword)
     await this.prisma.user.update({ where: { id: userId }, data: { passwordHash } })
     await this.authService.revokeAllUserSessions(userId)
+    // Кто и когда сменил пароль — первое, что спрашивают при разборе угона. Без паролей.
+    await this.audit.record({
+      userId,
+      action: 'password_changed',
+      entity: 'User',
+      entityId: userId,
+      ...ctx,
+    })
   }
 
   /**
@@ -1632,6 +1668,22 @@ export class UserService {
   }
 
   /**
+   * Староста, зарегистрировавшийся по инвайту (AuthService, в транзакции регистрации),
+   * становится старостой своей группы: отметка `Group.starostaId` и единственная
+   * старостинская роль в группе — как при назначении деканом (`syncGroupStarosta`).
+   * Возвращает разжалованных: после коммита им — `afterStarostaChange`.
+   */
+  async assignInvitedStarosta(
+    tx: Prisma.TransactionClient,
+    groupId: string,
+    userId: string,
+  ): Promise<string[]> {
+    // updateMany: группы уже может не быть — регистрацию это не роняет, отмечать некого.
+    await tx.group.updateMany({ where: { id: groupId }, data: { starostaId: userId } })
+    return this.syncGroupStarosta(tx, groupId, userId)
+  }
+
+  /**
    * После смены старосты: разжалованным гасим сессии. В их access-токене ещё 15 минут жила
    * бы роль старосты — с инвайтами в группу и списком её обращений. Новый староста получит
    * роль при ближайшем обновлении токена (refresh читает роль из БД).
@@ -1715,7 +1767,10 @@ export class UserService {
    * остаются с автором-«tombstone»). Очистка файлов — best-effort: недоступность MinIO
    * не должна блокировать удаление аккаунта (ПДн в БД затираются в любом случае).
    */
-  async softDeleteSelf(userId: string): Promise<void> {
+  async softDeleteSelf(
+    userId: string,
+    ctx: { ip?: string; userAgent?: string } = {},
+  ): Promise<void> {
     await this.deleteUserMedia(userId)
     await this.deleteProfileMedia(userId)
     const anonymizedEmail = `deleted+${userId}@studenthub.invalid`
@@ -1820,6 +1875,14 @@ export class UserService {
       this.prisma.bookmark.deleteMany({ where: { userId } }),
     ])
     await this.authService.revokeAllUserSessions(userId)
+    // Строка журнала переживает анонимизацию: в ней только id, без ПДн удалённого.
+    await this.audit.record({
+      userId,
+      action: 'account_deleted',
+      entity: 'User',
+      entityId: userId,
+      ...ctx,
+    })
   }
 
   /**

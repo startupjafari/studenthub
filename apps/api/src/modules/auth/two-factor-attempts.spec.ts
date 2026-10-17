@@ -25,6 +25,7 @@ describe('AuthService: попытки ввода кода 2FA', () => {
         store.set(key, value)
         return Promise.resolve('OK')
       }),
+      exists: jest.fn((key: string) => Promise.resolve(store.has(key) ? 1 : 0)),
     }
 
     const jwt = {
@@ -42,7 +43,9 @@ describe('AuthService: попытки ввода кода 2FA', () => {
       }),
     }
 
-    const twoFactor = { verifyCode: jest.fn().mockResolvedValue(codeValid) }
+    // Верный код — функция списания (для backup-кода — условная запись в БД).
+    const consume = jest.fn().mockResolvedValue(true)
+    const twoFactor = { checkCode: jest.fn().mockResolvedValue(codeValid ? consume : null) }
 
     const service = new AuthService(
       {} as never,
@@ -67,7 +70,7 @@ describe('AuthService: попытки ввода кода 2FA', () => {
       .spyOn(withPrivate, 'issueSession')
       .mockResolvedValue({ accessToken: 'a' })
 
-    return { service, redis, store, twoFactor, users, issueSession }
+    return { service, redis, store, twoFactor, users, issueSession, consume }
   }
 
   const verify = (service: AuthService) => service.loginVerifyTwoFactor(CHALLENGE, '000000', {})
@@ -110,6 +113,39 @@ describe('AuthService: попытки ввода кода 2FA', () => {
     await expect(second.loginVerifyTwoFactor(CHALLENGE, '111111', {})).rejects.toMatchObject({
       code: 'UNAUTHORIZED',
     })
+  })
+
+  // A-F11: раньше код проверялся до взгляда на challenge — верный backup-код после трёх
+  // промахов списывался навсегда, а вход всё равно отвечал «уже использован».
+  it('сгоревший challenge: код даже не проверяется, backup-код не списывается', async () => {
+    const { service, store } = setup(false)
+    for (let i = 0; i < 3; i++) await verify(service).catch(() => undefined)
+
+    const second = setup(true, store)
+
+    await expect(
+      second.service.loginVerifyTwoFactor(CHALLENGE, 'ABCD1234', {}),
+    ).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
+    expect(second.twoFactor.checkCode).not.toHaveBeenCalled()
+    expect(second.consume).not.toHaveBeenCalled()
+    expect(second.users.getTwoFactorForLogin).not.toHaveBeenCalled()
+  })
+
+  it('backup-код списывается только после того, как challenge погашен', async () => {
+    const { service, redis, consume } = setup(true)
+
+    await expect(verify(service)).resolves.toMatchObject({ accessToken: 'a' })
+
+    const challengeSet = redis.set.mock.invocationCallOrder[0] ?? Infinity
+    expect(consume.mock.invocationCallOrder[0]).toBeGreaterThan(challengeSet)
+  })
+
+  it('backup-код ушёл параллельным входом → отказ, сессия не выдаётся', async () => {
+    const { service, consume, issueSession } = setup(true)
+    consume.mockResolvedValue(false)
+
+    await expect(verify(service)).rejects.toMatchObject({ code: 'INVALID_2FA_CODE' })
+    expect(issueSession).not.toHaveBeenCalled()
   })
 
   it('верный код с первой попытки счётчик не трогает', async () => {

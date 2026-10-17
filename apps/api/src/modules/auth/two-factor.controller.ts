@@ -1,9 +1,10 @@
-import { Body, Controller, Post } from '@nestjs/common'
+import { Body, Controller, Post, Req } from '@nestjs/common'
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger'
+import type { FastifyRequest } from 'fastify'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
 import { TwoFactorExempt } from '../../common/decorators/two-factor-exempt.decorator'
-import { TwoFactorService } from './two-factor.service'
+import { TwoFactorService, type TwoFactorRequestContext } from './two-factor.service'
 import { TwoFactorEnableDto } from './dto/two-factor-enable.dto'
 import { TwoFactorDisableDto } from './dto/two-factor-disable.dto'
 import { TwoFactorConfirmDto } from './dto/two-factor-confirm.dto'
@@ -34,8 +35,12 @@ export class TwoFactorController {
   @ApiOperation({ summary: 'Подтвердить код и включить 2FA (возвращает backup-коды один раз)' })
   @ApiResponse({ status: 201, description: 'backupCodes' })
   @ApiResponse({ status: 401, description: 'INVALID_2FA_CODE' })
-  enable(@CurrentUser() user: CurrentUserData, @Body() dto: TwoFactorEnableDto) {
-    return this.twoFactor.enable(user.sub, dto.code)
+  enable(
+    @CurrentUser() user: CurrentUserData,
+    @Body() dto: TwoFactorEnableDto,
+    @Req() req: FastifyRequest,
+  ) {
+    return this.twoFactor.enable(user.sub, dto.code, ctx(req))
   }
 
   @Post('backup-codes')
@@ -46,8 +51,12 @@ export class TwoFactorController {
   @ApiResponse({ status: 400, description: 'BAD_REQUEST — 2FA не включена' })
   @ApiResponse({ status: 401, description: 'INVALID_2FA_CODE' })
   @ApiResponse({ status: 429, description: 'RATE_LIMIT — слишком много неверных кодов' })
-  regenerateBackupCodes(@CurrentUser() user: CurrentUserData, @Body() dto: TwoFactorConfirmDto) {
-    return this.twoFactor.regenerateBackupCodes(user.sub, dto.code)
+  regenerateBackupCodes(
+    @CurrentUser() user: CurrentUserData,
+    @Body() dto: TwoFactorConfirmDto,
+    @Req() req: FastifyRequest,
+  ) {
+    return this.twoFactor.regenerateBackupCodes(user.sub, dto.code, ctx(req))
   }
 
   @Post('disable')
@@ -56,8 +65,14 @@ export class TwoFactorController {
   async disable(
     @CurrentUser() user: CurrentUserData,
     @Body() dto: TwoFactorDisableDto,
+    @Req() req: FastifyRequest,
   ): Promise<null> {
-    await this.twoFactor.disable(user.sub, dto.code)
+    await this.twoFactor.disable(user.sub, dto.code, ctx(req))
     return null
   }
+}
+
+// Адрес и клиент — в журнал аудита рядом с фактом смены второго фактора.
+function ctx(req: FastifyRequest): TwoFactorRequestContext {
+  return { ip: req.ip, userAgent: req.headers['user-agent'] }
 }

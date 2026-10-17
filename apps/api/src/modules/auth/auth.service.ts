@@ -13,6 +13,7 @@ import { REDIS_CLIENT } from '../../common/redis/redis.constants'
 import { SessionRevocationService } from '../../common/redis/session-revocation.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import { isAdult, LEGAL_VERSION } from '@studenthub/shared-schemas'
+import { Role } from '@studenthub/shared-types'
 import type { EnvVars } from '../../config/env.schema'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import { UserService, type UserProfile } from '../users/users.service'
@@ -150,7 +151,7 @@ export class AuthService {
     }
     const passwordHash = await this.passwords.hash(input.password)
 
-    const user = await this.prisma.$transaction(async (tx) => {
+    const { user, starosta } = await this.prisma.$transaction(async (tx) => {
       const invite = await this.invites.claimInvite(tx, input.token)
       // Вуз из инвайта заблокирован — отказ откатывает и захват инвайта: ссылка остаётся
       // действительной до разблокировки.
@@ -184,8 +185,30 @@ export class AuthService {
         consentByGuardian: minor,
       })
       await this.invites.markUsed(tx, invite.id, created.sub)
-      return created
+      // Инвайт старосты ставит его старостой своей группы — той же транзакцией, что и
+      // назначение деканом: отметка в группе и единственная старостинская роль в ней.
+      // Без этого в группе со старостой их становилось два, а `Group.starostaId` указывал
+      // на прежнего; права старосты были у обоих, пока декан не переназначит руками.
+      const starosta =
+        invite.role === Role.STAROSTA && invite.groupId
+          ? {
+              groupId: invite.groupId,
+              issuerId: invite.createdById,
+              demoted: await this.users.assignInvitedStarosta(tx, invite.groupId, created.sub),
+            }
+          : null
+      return { user: created, starosta }
     })
+
+    if (starosta) {
+      // Разжалованным — гашение сессий и аудит смены роли; решение принял выдавший инвайт.
+      await this.users.afterStarostaChange(
+        starosta.issuerId,
+        starosta.groupId,
+        null,
+        starosta.demoted,
+      )
+    }
 
     await this.audit.record({
       userId: user.sub,
@@ -242,6 +265,10 @@ export class AuthService {
     ctx: RequestContext,
   ): Promise<SessionResult> {
     const { userId, jti } = this.verifyTwoFactorChallenge(challengeToken)
+    // Сгоревший (три промаха) или уже обменянный challenge — отказ ДО проверки кода. Иначе
+    // верный backup-код списывался навсегда, а вход всё равно отвечал «уже использован»,
+    // и сгоревший challenge служил оракулом «код верен» без всякого счётчика.
+    await this.assertChallengeUnused(jti)
     const rec = await this.users.getTwoFactorForLogin(userId)
     if (!rec || !rec.twoFactorEnabled) {
       throw new AppException('UNAUTHORIZED', 'Сессия входа недействительна')
@@ -251,8 +278,8 @@ export class AuthService {
     }
     // Первый шаг вуз уже проверил, но между шагами до пяти минут — блокировка могла успеть.
     await this.universityAccess.assertAllowed(rec)
-    const ok = await this.twoFactor.verifyCode(rec, code)
-    if (!ok) {
+    const consume = await this.twoFactor.checkCode(rec, code)
+    if (!consume) {
       // Опечатка в шестизначном коде дело обычное, и сжигать за неё весь вход незачем —
       // но и бесконечно принимать коды по одному challenge нельзя: 6 цифр перебираются,
       // а throttle на эндпоинте считает по IP и обходится их сменой. Отсюда счётчик на
@@ -262,6 +289,12 @@ export class AuthService {
     }
     // Гасим challenge ИМЕННО здесь — после верного кода, а не до проверки.
     await this.consumeChallengeId(jti)
+    // Backup-код списывается только после того, как challenge погашен ЭТИМ запросом: при
+    // гонке двух обменов одного challenge код теряет лишь тот, кто получит сессию. Не
+    // списался — тот же код только что ушёл параллельным входом.
+    if (!(await consume())) {
+      throw new AppException('INVALID_2FA_CODE', 'Неверный код')
+    }
     const session = await this.issueSession(this.toPayload(rec), randomUUID())
     await this.audit.record({ userId, action: 'login', ...ctx })
     return session
@@ -286,6 +319,26 @@ export class AuthService {
       return { userId: payload.sub, jti: payload.jti }
     } catch {
       throw new AppException('UNAUTHORIZED', 'Сессия входа истекла — войдите заново')
+    }
+  }
+
+  /**
+   * Challenge ещё не обменян и не сгорел. Та же пометка `2fa:challenge:<jti>`, что ставят
+   * `consumeChallengeId` и `countFailedTwoFactorAttempt`. Гонку не закрывает (её закрывает
+   * SET NX при обмене), но код по мёртвому challenge больше не проверяется и не тратится.
+   * Redis недоступен — пропускаем, как и остальные проверки challenge.
+   */
+  private async assertChallengeUnused(jti: string | undefined): Promise<void> {
+    if (!jti) return
+    let used: number
+    try {
+      used = await this.redis.exists(`2fa:challenge:${jti}`)
+    } catch (error) {
+      this.logger.warn({ err: error }, 'Redis недоступен — состояние challenge 2FA не проверено')
+      return
+    }
+    if (used > 0) {
+      throw new AppException('UNAUTHORIZED', 'Этот код входа уже использован — войдите заново')
     }
   }
 

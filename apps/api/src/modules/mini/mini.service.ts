@@ -130,22 +130,44 @@ export class MiniService {
     }
 
     const telegramId = verified.user.id
-    const existing = await this.prisma.telegramAccount.findUnique({ where: { telegramId } })
-    if (existing && existing.userId !== userId && !existing.revokedAt) {
+    const existing = await this.prisma.telegramAccount.findUnique({
+      where: { telegramId },
+      select: { id: true, userId: true, revokedAt: true, user: { select: { deletedAt: true } } },
+    })
+    // Чужая привязка этого Telegram, которая уже не даёт доступа: отозвана владельцем или
+    // осталась от удалённого аккаунта (сессию по ней мини-апп и так не выдаёт).
+    const foreign = existing && existing.userId !== userId ? existing : null
+    const staleForeign = foreign && (foreign.revokedAt || foreign.user.deletedAt) ? foreign : null
+    if (foreign && !staleForeign) {
       // Молчаливая перепривязка означала бы, что доступ администратора переехал на другой
       // телефон незаметно для него самого.
       throw new AppException('CONFLICT', 'Этот Telegram уже привязан к другому аккаунту')
     }
 
-    await this.prisma.telegramAccount.upsert({
-      where: { userId },
-      create: { userId, telegramId, username: verified.user.username ?? null },
-      update: {
-        telegramId,
-        username: verified.user.username ?? null,
-        revokedAt: null,
-        linkedAt: new Date(),
-      },
+    const link = {
+      telegramId,
+      username: verified.user.username ?? null,
+      revokedAt: null,
+      linkedAt: new Date(),
+    }
+    await this.prisma.$transaction(async (tx) => {
+      // telegramId уникален, и мёртвая чужая строка держала его навсегда: новый админ
+      // получал 409 «запись уже существует», хотя прежний доступ отозван. Строку снимаем
+      // условно (вдруг её только что вернули в работу) — история отзыва остаётся в журнале.
+      if (staleForeign) {
+        await tx.telegramAccount.deleteMany({
+          where: {
+            id: staleForeign.id,
+            userId: staleForeign.userId,
+            OR: [{ revokedAt: { not: null } }, { user: { deletedAt: { not: null } } }],
+          },
+        })
+      }
+      await tx.telegramAccount.upsert({
+        where: { userId },
+        create: { userId, ...link },
+        update: link,
+      })
     })
 
     await this.audit.record({
@@ -153,7 +175,11 @@ export class MiniService {
       action: 'telegram.linked',
       entity: 'TelegramAccount',
       entityId: userId,
-      metadata: { source: 'telegram' },
+      metadata: {
+        source: 'telegram',
+        // Чья отозванная привязка уступила место — для разбора «как мой Telegram ушёл».
+        ...(staleForeign ? { replacedUserId: staleForeign.userId } : {}),
+      },
     })
 
     // Подтверждение в сам привязанный Telegram: человек видит, что доступ появился

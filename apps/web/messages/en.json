@@ -3823,6 +3823,7 @@
     "verifyValid": "Student ID verified",
     "verifyFailed": "Verification failed",
     "verifyFailedHint": "The code is invalid or expired.",
+    "verifyAlreadyUsed": "Another staff member has already checked this code. Ask the student to refresh the card.",
     "verifyNoToken": "No code to verify",
     "verifyNoTokenHint": "Scan the QR on the student ID card.",
     "statusActive": "Active · Enrolled",
