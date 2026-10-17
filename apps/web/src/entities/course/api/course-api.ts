@@ -6,6 +6,8 @@ import type {
   SubjectListQueryInput,
   TermListQueryInput,
   UpdateCourseInput,
+  UpdateSubjectInput,
+  UpdateTermInput,
 } from '@studenthub/shared-schemas'
 import { api, getPaged, type Paged } from '../../../shared/api'
 import type { CourseItem, SubjectItem, TermItem } from '../model/types'
@@ -63,12 +65,26 @@ export async function createSubjectRequest(input: CreateSubjectInput): Promise<S
   return data
 }
 
+export async function updateSubjectRequest(
+  id: string,
+  input: UpdateSubjectInput,
+): Promise<SubjectItem> {
+  const { data } = await api.patch<SubjectItem>(`/subjects/${id}`, input)
+  return data
+}
+
 export async function deleteSubjectRequest(id: string): Promise<void> {
   await api.delete(`/subjects/${id}`)
 }
 
 export async function createTermRequest(input: CreateTermInput): Promise<TermItem> {
   const { data } = await api.post<TermItem>('/terms', input)
+  return data
+}
+
+// Сервер сверяет итоговые даты с сохранёнными и держит один активный семестр в вузе.
+export async function updateTermRequest(id: string, input: UpdateTermInput): Promise<TermItem> {
+  const { data } = await api.patch<TermItem>(`/terms/${id}`, input)
   return data
 }
 

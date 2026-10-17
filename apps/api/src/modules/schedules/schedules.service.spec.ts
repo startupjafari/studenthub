@@ -28,14 +28,24 @@ function setup() {
       updateMany: jest.fn(),
       delete: jest.fn(),
     },
-    scheduleChange: { create: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
+    scheduleChange: {
+      create: jest.fn(),
+      findMany: jest.fn().mockResolvedValue([]),
+      findUnique: jest.fn(),
+      deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
     attendance: { findFirst: jest.fn().mockResolvedValue(null) },
     group: { findUnique: jest.fn() },
     course: { findFirst: jest.fn().mockResolvedValue({ id: 'c-1' }) },
     user: { findFirst: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
     university: { findUnique: jest.fn().mockResolvedValue({ timezone: 'Asia/Almaty' }) },
     $transaction: jest.fn(),
+    $executeRaw: jest.fn().mockResolvedValue(0),
   }
+  // Колбэк-транзакция: в tx — тот же мок.
+  prisma.$transaction.mockImplementation((arg: unknown) =>
+    typeof arg === 'function' ? (arg as (tx: unknown) => unknown)(prisma) : arg,
+  )
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const rooms = { assertRoomInUniversity: jest.fn().mockResolvedValue(undefined) }
   const realtime = {
@@ -300,18 +310,27 @@ describe('SchedulesService.createPair — детектор конфликтов 
   })
 })
 
+// Пара по вторникам: 2026-09-15 — вторник.
+const changedPair = {
+  id: 'pair-1',
+  scheduleId: 'sch-1',
+  groupId: 'grp-1',
+  subject: 'Матанализ',
+  teacherId: 't-1',
+  roomId: 'r-1',
+  dayOfWeek: 2,
+  startTime: '09:00',
+  endTime: '10:30',
+  weekType: 'BOTH',
+}
+
 // ── 6.5 Замена → WS + уведомление ───────────────────────────────────────────
 describe('SchedulesService.createChange — WS + очередь (6.5)', () => {
   const admin = viewer(Role.UNIVERSITY_ADMIN, { universityId: 'uni-1' })
 
   it('пишет БД, шлёт WS schedule:changed в комнату группы и ставит job', async () => {
     const { service, prisma, realtime, queue } = setup()
-    prisma.pair.findUnique.mockResolvedValue({
-      id: 'pair-1',
-      groupId: 'grp-1',
-      subject: 'Матанализ',
-      teacherId: 't-1',
-    })
+    prisma.pair.findUnique.mockResolvedValue(changedPair)
     prisma.group.findUnique.mockResolvedValue(GROUP_CTX)
     prisma.scheduleChange.create.mockResolvedValue({
       id: 'chg-1',
@@ -363,6 +382,7 @@ describe('SchedulesService — scope преподавателя (свои пар
     weekType: 'BOTH',
     teacherId: T,
     roomId: null,
+    schedule: { isActive: true },
   }
 
   function primeCreate(prisma: ReturnType<typeof setup>['prisma']): void {
@@ -446,7 +466,12 @@ describe('SchedulesService — scope преподавателя (свои пар
 
   it('удаляет свою пару → успех; чужую → WRONG_SCOPE', async () => {
     const ok = setup()
-    ok.prisma.pair.findUnique.mockResolvedValue({ id: 'p-1', groupId: 'grp-1', teacherId: T })
+    ok.prisma.pair.findUnique.mockResolvedValue({
+      id: 'p-1',
+      groupId: 'grp-1',
+      teacherId: T,
+      schedule: { isActive: true },
+    })
     ok.prisma.group.findUnique.mockResolvedValue(GROUP_CTX)
     ok.prisma.pair.delete.mockResolvedValue({})
     await ok.service.removePair(teacher, 'p-1', ctx)
@@ -475,7 +500,12 @@ describe('SchedulesService — удаление при наличии посещ
   })
 
   function primePair(prisma: ReturnType<typeof setup>['prisma']): void {
-    prisma.pair.findUnique.mockResolvedValue({ id: 'p-1', groupId: 'grp-1', teacherId: null })
+    prisma.pair.findUnique.mockResolvedValue({
+      id: 'p-1',
+      groupId: 'grp-1',
+      teacherId: null,
+      schedule: { isActive: true },
+    })
     prisma.group.findUnique.mockResolvedValue(GROUP_CTX)
   }
 
@@ -555,12 +585,7 @@ describe('SchedulesService — замена преподавателя (C-F12)',
 
   it('замена: WS schedule:changed уходит и основному, и заменяющему в личные комнаты', async () => {
     const { service, prisma, realtime } = setup()
-    prisma.pair.findUnique.mockResolvedValue({
-      id: 'pair-1',
-      groupId: 'grp-1',
-      subject: 'Матанализ',
-      teacherId: 't-1',
-    })
+    prisma.pair.findUnique.mockResolvedValue(changedPair)
     prisma.group.findUnique.mockResolvedValue(GROUP_CTX)
     prisma.user.findFirst.mockResolvedValue({ universityId: 'uni-1' })
     prisma.scheduleChange.create.mockResolvedValue({ id: 'chg-1', pairId: 'pair-1' })
@@ -682,5 +707,311 @@ describe('SchedulesService.updateSchedule — активация версии (C
     await service.updateSchedule(dean, 'sch-2', { name: 'Весна', isActive: true }, ctx)
     expect(prisma.pair.findMany).not.toHaveBeenCalled()
     expect(prisma.schedule.update).toHaveBeenCalled()
+  })
+})
+
+// ── C-F16: разовые изменения — проверки, отмена изменения, живые обновления ────
+describe('SchedulesService — разовые изменения (C-F16)', () => {
+  const admin = viewer(Role.UNIVERSITY_ADMIN, { universityId: 'uni-1' })
+
+  function prime() {
+    const env = setup()
+    env.prisma.pair.findUnique.mockResolvedValue(changedPair)
+    env.prisma.group.findUnique.mockResolvedValue(GROUP_CTX)
+    env.prisma.user.findFirst.mockResolvedValue({ universityId: 'uni-1' })
+    env.prisma.scheduleChange.create.mockResolvedValue({ id: 'chg-1', pairId: 'pair-1' })
+    return env
+  }
+
+  // Пара другой группы того же дня, по умолчанию 09:30–11:00, преподаватель t-9, ауд. r-9.
+  function otherPair(over: Record<string, unknown> = {}) {
+    return {
+      subject: 'Физика',
+      startTime: '09:30',
+      endTime: '11:00',
+      weekType: 'BOTH',
+      groupId: 'grp-2',
+      teacherId: 't-9',
+      roomId: 'r-9',
+      changes: [],
+      ...over,
+    }
+  }
+
+  it('дата не в день пары → VALIDATION_ERROR(date), изменение не создаётся', async () => {
+    const { service, prisma, queue } = prime()
+    const err = await service
+      .createChange(admin, { pairId: 'pair-1', type: 'CANCELLED', date: '2026-09-16' }, ctx)
+      .catch((e) => e)
+    expect(err.code).toBe('VALIDATION_ERROR')
+    expect(err.details).toEqual([expect.objectContaining({ field: 'date' })])
+    expect(prisma.scheduleChange.create).not.toHaveBeenCalled()
+    expect(queue.enqueue).not.toHaveBeenCalled()
+  })
+
+  it('вторая отмена на ту же дату → CONFLICT, без второго уведомления', async () => {
+    const { service, prisma, queue } = prime()
+    prisma.scheduleChange.findMany.mockResolvedValue([{ type: 'CANCELLED' }])
+    const err = await service
+      .createChange(admin, { pairId: 'pair-1', type: 'CANCELLED', date: '2026-09-15' }, ctx)
+      .catch((e) => e)
+    expect(err.code).toBe('CONFLICT')
+    expect(prisma.$executeRaw).toHaveBeenCalled()
+    expect(prisma.scheduleChange.create).not.toHaveBeenCalled()
+    expect(queue.enqueue).not.toHaveBeenCalled()
+  })
+
+  it('перенос отменённого занятия → CONFLICT', async () => {
+    const { service, prisma } = prime()
+    prisma.scheduleChange.findMany.mockResolvedValue([{ type: 'CANCELLED' }])
+    const err = await service
+      .createChange(
+        admin,
+        {
+          pairId: 'pair-1',
+          type: 'MOVED',
+          date: '2026-09-15',
+          newStartTime: '12:00',
+          newEndTime: '13:30',
+        },
+        ctx,
+      )
+      .catch((e) => e)
+    expect(err.code).toBe('CONFLICT')
+    expect(prisma.scheduleChange.create).not.toHaveBeenCalled()
+  })
+
+  it('замена на преподавателя, занятого в это время → CONFLICT(newTeacherId)', async () => {
+    const { service, prisma } = prime()
+    prisma.pair.findMany.mockResolvedValue([otherPair()])
+    const err = await service
+      .createChange(
+        admin,
+        { pairId: 'pair-1', type: 'SUBSTITUTED', date: '2026-09-15', newTeacherId: 't-9' },
+        ctx,
+      )
+      .catch((e) => e)
+    expect(err.code).toBe('CONFLICT')
+    expect(err.details).toEqual([expect.objectContaining({ field: 'newTeacherId' })])
+    expect(prisma.scheduleChange.create).not.toHaveBeenCalled()
+    // Кандидаты — тот же день недели, действующие сетки; заменяющий — и по шаблону, и по
+    // заменам на эту дату.
+    const where = prisma.pair.findMany.mock.calls[0][0].where
+    expect(where.dayOfWeek).toBe(2)
+    expect(where.OR).toEqual(
+      expect.arrayContaining([
+        { teacherId: 't-9' },
+        {
+          changes: {
+            some: { date: new Date('2026-09-15T00:00:00.000Z'), newTeacherId: 't-9' },
+          },
+        },
+      ]),
+    )
+  })
+
+  it('аудиторию на эту дату уже заняла чужая смена аудитории → CONFLICT(newRoomId)', async () => {
+    const { service, prisma } = prime()
+    prisma.pair.findMany.mockResolvedValue([
+      otherPair({
+        roomId: 'r-5',
+        changes: [
+          {
+            type: 'ROOM_CHANGED',
+            newRoomId: 'r-7',
+            newTeacherId: null,
+            newStartTime: null,
+            newEndTime: null,
+          },
+        ],
+      }),
+    ])
+    const err = await service
+      .createChange(
+        admin,
+        { pairId: 'pair-1', type: 'ROOM_CHANGED', date: '2026-09-15', newRoomId: 'r-7' },
+        ctx,
+      )
+      .catch((e) => e)
+    expect(err.code).toBe('CONFLICT')
+    expect(err.details).toEqual([expect.objectContaining({ field: 'newRoomId' })])
+  })
+
+  it('пара, отменённая на эту дату, место не занимает — перенос проходит', async () => {
+    const { service, prisma } = prime()
+    prisma.pair.findMany.mockResolvedValue([
+      otherPair({
+        groupId: 'grp-1',
+        changes: [
+          {
+            type: 'CANCELLED',
+            newRoomId: null,
+            newTeacherId: null,
+            newStartTime: null,
+            newEndTime: null,
+          },
+        ],
+      }),
+    ])
+    await service.createChange(
+      admin,
+      {
+        pairId: 'pair-1',
+        type: 'MOVED',
+        date: '2026-09-15',
+        newStartTime: '10:00',
+        newEndTime: '11:30',
+      },
+      ctx,
+    )
+    expect(prisma.scheduleChange.create).toHaveBeenCalled()
+  })
+
+  it('перенос в время, где группа уже на другой паре → CONFLICT(groupId)', async () => {
+    const { service, prisma } = prime()
+    prisma.pair.findMany.mockResolvedValue([
+      otherPair({
+        groupId: 'grp-1',
+        teacherId: 't-3',
+        roomId: 'r-3',
+        startTime: '11:00',
+        endTime: '12:30',
+      }),
+    ])
+    const err = await service
+      .createChange(
+        admin,
+        {
+          pairId: 'pair-1',
+          type: 'MOVED',
+          date: '2026-09-15',
+          newStartTime: '11:30',
+          newEndTime: '13:00',
+        },
+        ctx,
+      )
+      .catch((e) => e)
+    expect(err.code).toBe('CONFLICT')
+    expect(err.details).toEqual([expect.objectContaining({ field: 'groupId' })])
+  })
+
+  describe('removeChange', () => {
+    function stored(date: string) {
+      return {
+        id: 'chg-1',
+        pairId: 'pair-1',
+        type: 'CANCELLED',
+        date: new Date(`${date}T00:00:00.000Z`),
+        newTeacher: null,
+        newRoom: null,
+        pair: {
+          scheduleId: 'sch-1',
+          groupId: 'grp-1',
+          subject: 'Матанализ',
+          teacher: { id: 't-1', firstName: 'А', lastName: 'Б' },
+        },
+      }
+    }
+
+    it('будущая дата: удаляет, пишет аудит, шлёт WS и уведомление «занятие состоится»', async () => {
+      const { service, prisma, realtime, queue, audit } = setup()
+      prisma.scheduleChange.findUnique.mockResolvedValue(stored('2999-01-05'))
+      prisma.group.findUnique.mockResolvedValue(GROUP_CTX)
+      prisma.user.findMany.mockResolvedValue([{ id: 's-1' }])
+      await service.removeChange(admin, 'chg-1', ctx)
+      expect(prisma.scheduleChange.deleteMany).toHaveBeenCalledWith({ where: { id: 'chg-1' } })
+      expect(audit.record).toHaveBeenCalledWith(
+        expect.objectContaining({ action: 'schedule_change_deleted', entityId: 'chg-1' }),
+      )
+      const payload = expect.objectContaining({ groupId: 'grp-1', removed: true })
+      expect(realtime.emitToRoom).toHaveBeenCalledWith('group:grp-1', 'schedule:changed', payload)
+      expect(realtime.emitToUser).toHaveBeenCalledWith('t-1', 'schedule:changed', payload)
+      const job = queue.enqueue.mock.calls[0][2]
+      expect(job.dedupeKey).toBe('schedule-change-removed:chg-1')
+      expect(job.params.change).toBe('занятие состоится')
+      expect(new Set(job.recipientIds)).toEqual(new Set(['s-1', 't-1']))
+    })
+
+    it('прошедшая дата: удаляет и обновляет сетку, но уведомление не шлёт', async () => {
+      const { service, prisma, realtime, queue } = setup()
+      prisma.scheduleChange.findUnique.mockResolvedValue(stored('2020-01-06'))
+      prisma.group.findUnique.mockResolvedValue(GROUP_CTX)
+      await service.removeChange(admin, 'chg-1', ctx)
+      expect(prisma.scheduleChange.deleteMany).toHaveBeenCalled()
+      expect(realtime.emitToRoom).toHaveBeenCalled()
+      expect(queue.enqueue).not.toHaveBeenCalled()
+    })
+
+    it('декан чужого факультета → WRONG_SCOPE, ничего не удаляется', async () => {
+      const { service, prisma } = setup()
+      prisma.scheduleChange.findUnique.mockResolvedValue(stored('2999-01-05'))
+      prisma.group.findUnique.mockResolvedValue(GROUP_CTX)
+      const dean = viewer(Role.DEAN, { facultyId: 'fac-2', universityId: 'uni-1' })
+      const err = await service.removeChange(dean, 'chg-1', ctx).catch((e) => e)
+      expect(err.code).toBe('WRONG_SCOPE')
+      expect(prisma.scheduleChange.deleteMany).not.toHaveBeenCalled()
+    })
+
+    it('уже удалено параллельно → NOT_FOUND', async () => {
+      const { service, prisma } = setup()
+      prisma.scheduleChange.findUnique.mockResolvedValue(stored('2999-01-05'))
+      prisma.group.findUnique.mockResolvedValue(GROUP_CTX)
+      prisma.scheduleChange.deleteMany.mockResolvedValue({ count: 0 })
+      const err = await service.removeChange(admin, 'chg-1', ctx).catch((e) => e)
+      expect(err.code).toBe('NOT_FOUND')
+    })
+  })
+
+  describe('правка и удаление пары — живое обновление', () => {
+    const dean = viewer(Role.DEAN, { facultyId: 'fac-1', universityId: 'uni-1' })
+    const existing = {
+      id: 'p-1',
+      scheduleId: 'sch-1',
+      groupId: 'grp-1',
+      dayOfWeek: 1,
+      startTime: '09:00',
+      endTime: '10:30',
+      weekType: 'BOTH',
+      teacherId: 't-1',
+      roomId: null,
+      schedule: { isActive: true },
+    }
+
+    it('смена преподавателя пары действующей сетки: группе и обоим преподавателям', async () => {
+      const { service, prisma, realtime } = setup()
+      prisma.pair.findUnique.mockResolvedValue(existing)
+      prisma.group.findUnique.mockResolvedValue(GROUP_CTX)
+      prisma.user.findFirst.mockResolvedValue({ universityId: 'uni-1' })
+      prisma.pair.update.mockResolvedValue(createdPair({ id: 'p-1' }))
+      await service.updatePair(dean, 'p-1', { teacherId: 't-2' }, ctx)
+      const payload = { change: null, groupId: 'grp-1', pairId: 'p-1' }
+      expect(realtime.emitToRoom).toHaveBeenCalledWith('group:grp-1', 'schedule:changed', payload)
+      expect(realtime.emitToUser).toHaveBeenCalledWith('t-1', 'schedule:changed', payload)
+      expect(realtime.emitToUser).toHaveBeenCalledWith('t-2', 'schedule:changed', payload)
+    })
+
+    it('черновик версии: правка без трансляции', async () => {
+      const { service, prisma, realtime } = setup()
+      prisma.pair.findUnique.mockResolvedValue({ ...existing, schedule: { isActive: false } })
+      prisma.group.findUnique.mockResolvedValue(GROUP_CTX)
+      prisma.user.findFirst.mockResolvedValue({ universityId: 'uni-1' })
+      prisma.pair.update.mockResolvedValue(createdPair({ id: 'p-1' }))
+      await service.updatePair(dean, 'p-1', { subject: 'Алгебра' }, ctx)
+      expect(realtime.emitToRoom).not.toHaveBeenCalled()
+    })
+
+    it('удаление пары действующей сетки: событие с removed', async () => {
+      const { service, prisma, realtime } = setup()
+      prisma.pair.findUnique.mockResolvedValue(existing)
+      prisma.group.findUnique.mockResolvedValue(GROUP_CTX)
+      prisma.pair.delete.mockResolvedValue({})
+      await service.removePair(dean, 'p-1', ctx)
+      expect(realtime.emitToUser).toHaveBeenCalledWith('t-1', 'schedule:changed', {
+        change: null,
+        groupId: 'grp-1',
+        pairId: 'p-1',
+        removed: true,
+      })
+    })
   })
 })

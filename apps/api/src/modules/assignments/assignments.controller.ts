@@ -87,7 +87,13 @@ export class AssignmentsController {
 
   @Patch(':id')
   @Roles(...TEACH_ROLES)
-  @ApiOperation({ summary: 'Изменить задание' })
+  @ApiOperation({
+    summary: 'Изменить задание (опубликованное — тоже, кроме publishAt; правка пишется в аудит)',
+  })
+  @ApiResponse({
+    status: 409,
+    description: 'CONFLICT — publishAt у опубликованного; maxScore ниже выставленного балла',
+  })
   update(
     @CurrentUser() user: CurrentUserData,
     @Param('id') id: string,
@@ -99,7 +105,8 @@ export class AssignmentsController {
 
   @Post(':id/publish')
   @Roles(...TEACH_ROLES)
-  @ApiOperation({ summary: 'Опубликовать задание' })
+  @ApiOperation({ summary: 'Опубликовать черновик или снова открыть закрытое задание' })
+  @ApiResponse({ status: 409, description: 'CONFLICT — задание уже опубликовано' })
   publish(
     @CurrentUser() user: CurrentUserData,
     @Param('id') id: string,
@@ -110,7 +117,8 @@ export class AssignmentsController {
 
   @Post(':id/close')
   @Roles(...TEACH_ROLES)
-  @ApiOperation({ summary: 'Закрыть задание' })
+  @ApiOperation({ summary: 'Закрыть опубликованное задание' })
+  @ApiResponse({ status: 409, description: 'CONFLICT — черновик или уже закрыто' })
   close(@CurrentUser() user: CurrentUserData, @Param('id') id: string, @Req() req: FastifyRequest) {
     return this.assignments.setStatus(user, id, 'CLOSED', this.ctx(req))
   }

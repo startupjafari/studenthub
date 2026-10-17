@@ -29,6 +29,7 @@ import {
   usePagedSort,
 } from '../../../shared/ui'
 import type { CourseSortValue, SubjectSortValue, TermSortValue } from '@studenthub/shared-schemas'
+import { Role } from '@studenthub/shared-types'
 import { toApiError } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 import { useAppSelector } from '../../../shared/store'
@@ -41,11 +42,15 @@ import {
   deleteSubjectRequest,
   deleteTermRequest,
   type CourseItem,
+  type SubjectItem,
+  type TermItem,
 } from '../../../entities/course'
 import { CreateSubjectModal } from './create-subject-modal'
 import { CreateTermModal } from './create-term-modal'
 import { CreateCourseModal } from './create-course-modal'
 import { EditCourseModal } from './edit-course-modal'
+import { EditSubjectModal } from './edit-subject-modal'
+import { EditTermModal } from './edit-term-modal'
 
 type ModalKind = 'subject' | 'term' | 'course' | null
 type TabKind = 'courses' | 'subjects' | 'terms'
@@ -59,10 +64,13 @@ const COURSE_COLS = ['26%', '14%', '16%', '24%', '10%', '6.5rem'] as const
 // классами HIDE). Без этого им доставалось по 30–40px и заголовок обрезался в многоточие.
 // Остаются дисциплина, группа и действия.
 const COURSE_COLS_NARROW = ['44%', '28%', '0', '0', '0', '5.5rem'] as const
-// Справочник: дисциплина · код · удаление.
-const SUBJECT_COLS = ['60%', '30%', '3.5rem'] as const
-// Семестры: название · начало · конец · статус · удаление.
-const TERM_COLS = ['32%', '18%', '18%', '18%', '3.5rem'] as const
+// Справочник: дисциплина · код · действия (изменить, удалить).
+const SUBJECT_COLS = ['60%', '30%', '6.5rem'] as const
+// Семестры: название · начало · конец · статус · действия.
+const TERM_COLS = ['32%', '18%', '18%', '18%', '6.5rem'] as const
+// Справочник и семестры ведёт админ вуза (API: MANAGE_ROLES subjects/terms); декану экран
+// открыт ради курсов, а кнопки справочников отвечали ему 403 (C-F28).
+const CATALOG_ROLES: readonly (Role | null)[] = [Role.PLATFORM_ADMIN, Role.UNIVERSITY_ADMIN]
 // На узком экране остаются дисциплина, группа и удаление — остальное дополняющее.
 const HIDE = {
   term: 'hidden lg:table-cell',
@@ -90,9 +98,13 @@ export function CourseAdminView() {
   const confirm = useConfirm()
   const qc = useQueryClient()
   const universityId = useAppSelector((s) => s.auth.universityId)
+  const role = useAppSelector((s) => s.auth.role)
+  const canManageCatalog = CATALOG_ROLES.includes(role)
   const [modal, setModal] = useState<ModalKind>(null)
   // Курс, открытый на правку (преподаватель, семестр, кредиты).
   const [editing, setEditing] = useState<CourseItem | null>(null)
+  const [editingSubject, setEditingSubject] = useState<SubjectItem | null>(null)
+  const [editingTerm, setEditingTerm] = useState<TermItem | null>(null)
   // Вкладка стала управляемой: её переключатель уехал в шапку страницы, а кнопка
   // действия справа зависит от того, какая вкладка открыта.
   const [tab, setTab] = useState<TabKind>('courses')
@@ -179,10 +191,13 @@ export function CourseAdminView() {
           }
           actions={
             // Действие своё у каждой вкладки: назначить курс, добавить дисциплину, семестр.
-            <Button size="md" onClick={() => setModal(ADD_ACTION[tab].modal)}>
-              <Plus className="size-4" aria-hidden />
-              {t(ADD_ACTION[tab].label)}
-            </Button>
+            // Справочник и семестры декан только смотрит.
+            tab === 'courses' || canManageCatalog ? (
+              <Button size="md" onClick={() => setModal(ADD_ACTION[tab].modal)}>
+                <Plus className="size-4" aria-hidden />
+                {t(ADD_ACTION[tab].label)}
+              </Button>
+            ) : undefined
           }
         />
 
@@ -316,7 +331,7 @@ export function CourseAdminView() {
                       {t('colCode')}
                     </TableHead>
                     <TableHead>
-                      <span className="sr-only">{t('delete')}</span>
+                      <span className="sr-only">{t('actions')}</span>
                     </TableHead>
                   </TableRow>
                 </TableHeader>
@@ -331,10 +346,14 @@ export function CourseAdminView() {
                         {sub.code ? <Badge variant="secondary">{sub.code}</Badge> : <TableEmpty />}
                       </TableCell>
                       <TableCell>
-                        <DeleteButton
-                          onClick={() => onDelete('subject', sub.id, sub.name)}
-                          label={t('delete')}
-                        />
+                        {canManageCatalog && (
+                          <RowActions
+                            onEdit={() => setEditingSubject(sub)}
+                            onDelete={() => onDelete('subject', sub.id, sub.name)}
+                            editLabel={t('edit')}
+                            deleteLabel={t('delete')}
+                          />
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -378,7 +397,7 @@ export function CourseAdminView() {
                       {t('colStatus')}
                     </TableHead>
                     <TableHead>
-                      <span className="sr-only">{t('delete')}</span>
+                      <span className="sr-only">{t('actions')}</span>
                     </TableHead>
                   </TableRow>
                 </TableHeader>
@@ -403,10 +422,14 @@ export function CourseAdminView() {
                         )}
                       </TableCell>
                       <TableCell>
-                        <DeleteButton
-                          onClick={() => onDelete('term', tm.id, tm.name)}
-                          label={t('delete')}
-                        />
+                        {canManageCatalog && (
+                          <RowActions
+                            onEdit={() => setEditingTerm(tm)}
+                            onDelete={() => onDelete('term', tm.id, tm.name)}
+                            editLabel={t('edit')}
+                            deleteLabel={t('delete')}
+                          />
+                        )}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -433,6 +456,38 @@ export function CourseAdminView() {
       )}
       {modal === 'course' && <CreateCourseModal onClose={() => setModal(null)} />}
       {editing && <EditCourseModal course={editing} onClose={() => setEditing(null)} />}
+      {editingSubject && (
+        <EditSubjectModal subject={editingSubject} onClose={() => setEditingSubject(null)} />
+      )}
+      {editingTerm && <EditTermModal term={editingTerm} onClose={() => setEditingTerm(null)} />}
+    </div>
+  )
+}
+
+function RowActions({
+  onEdit,
+  onDelete,
+  editLabel,
+  deleteLabel,
+}: {
+  onEdit: () => void
+  onDelete: () => void
+  editLabel: string
+  deleteLabel: string
+}) {
+  return (
+    <div className="flex items-center justify-end gap-1">
+      <Button
+        variant="ghost"
+        size="sm"
+        icon
+        onClick={onEdit}
+        aria-label={editLabel}
+        title={editLabel}
+      >
+        <Pencil className="size-4 text-muted-foreground" aria-hidden />
+      </Button>
+      <DeleteButton onClick={onDelete} label={deleteLabel} />
     </div>
   )
 }

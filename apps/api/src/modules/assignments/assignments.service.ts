@@ -13,6 +13,7 @@ import type {
 } from '@studenthub/shared-schemas'
 import type { NotificationMessageKey, NotificationParams } from '@studenthub/shared-config'
 import { PrismaService } from '../../common/prisma/prisma.service'
+import { rethrowStaleStatus } from '../../common/prisma/stale-status'
 import { AuditService } from '../../common/audit/audit.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import { Paginated } from '../../common/http/paginated'
@@ -32,6 +33,40 @@ const GROUP_STUDENTS_LIMIT = 500
 export const SUBMISSION_FILES_LIMIT = 10
 
 const STUDENT_ROLES: Role[] = [Role.STUDENT, Role.STAROSTA]
+
+type AssignmentStatus = 'DRAFT' | 'PUBLISHED' | 'CLOSED'
+
+/**
+ * Переходы статуса задания (C-F20): из каких статусов можно прийти в целевой. Раньше
+ * `publish`/`close` перезаписывали статус безусловно — черновик «закрывался», не побывав у
+ * студентов, а повторная публикация заново ставила время публикации. Закрытое задание
+ * можно открыть снова (закрыли по ошибке) — без повторной рассылки и с прежним временем
+ * публикации.
+ */
+const STATUS_FROM: Record<'PUBLISHED' | 'CLOSED', readonly AssignmentStatus[]> = {
+  PUBLISHED: ['DRAFT', 'CLOSED'],
+  CLOSED: ['PUBLISHED'],
+}
+
+const STATUS_CONFLICT: Record<'PUBLISHED' | 'CLOSED', Partial<Record<AssignmentStatus, string>>> = {
+  PUBLISHED: { PUBLISHED: 'Задание уже опубликовано' },
+  CLOSED: {
+    DRAFT: 'Черновик не публиковался — его можно удалить, а не закрыть',
+    CLOSED: 'Задание уже закрыто',
+  },
+}
+
+// Поля задания, правки которых пишутся в аудит значениями «было → стало» (C-F20):
+// опубликованное задание правят, а студенты уже видели прежние срок и условия.
+const AUDITED_FIELDS = [
+  'title',
+  'type',
+  'submissionType',
+  'maxScore',
+  'maxAttempts',
+  'allowLate',
+  'dueAt',
+] as const
 
 function isPlatform(role: Role): boolean {
   return role === Role.PLATFORM_ADMIN || role === Role.PLATFORM_MODERATOR
@@ -326,8 +361,21 @@ export class AssignmentsService {
     return assignment
   }
 
+  /**
+   * Правка задания. Опубликованное и закрытое править можно (продлить срок, исправить
+   * условие или максимум), кроме времени публикации: оно уже наступило, и его перенос
+   * ничего не публикует. Изменения опубликованного пишутся в аудит значениями — студенты
+   * видели прежние срок и условия, и спор «срок был другой» иначе нечем разрешить.
+   */
   async update(actor: JwtPayload, id: string, input: UpdateAssignmentInput, ctx: RequestContext) {
-    await this.findManageable(actor, id)
+    const current = await this.findManageable(actor, id)
+    if (current.status !== 'DRAFT' && input.publishAt !== undefined) {
+      throw new AppException(
+        'CONFLICT',
+        'Задание уже опубликовано — время публикации не меняется',
+        [{ field: 'publishAt', message: 'Задание уже опубликовано' }],
+      )
+    }
     // Максимум ниже уже выставленного балла сделал бы старые оценки «больше 100 %».
     if (input.maxScore != null) {
       const { _max } = await this.prisma.submission.aggregate({
@@ -362,7 +410,12 @@ export class AssignmentsService {
       },
       select: ASSIGNMENT_SELECT,
     })
-    await this.record(actor, 'assignment_updated', id, ctx)
+    await this.record(actor, 'assignment_updated', id, ctx, {
+      status: current.status,
+      changes: auditedChanges(current, assignment),
+      descriptionChanged:
+        input.description !== undefined && input.description !== current.description,
+    })
     return assignment
   }
 
@@ -372,17 +425,31 @@ export class AssignmentsService {
     status: 'PUBLISHED' | 'CLOSED',
     ctx: RequestContext,
   ) {
-    await this.findManageable(actor, id)
-    const assignment = await this.prisma.assignment.update({
-      where: { id },
-      data: {
-        status,
-        ...(status === 'PUBLISHED' ? { publishAt: new Date() } : {}),
-      },
-      select: ASSIGNMENT_SELECT,
-    })
-    await this.record(actor, `assignment_${status.toLowerCase()}`, id, ctx)
-    if (status === 'PUBLISHED') await this.notifyPublished(assignment)
+    const current = await this.findManageable(actor, id)
+    // Колонка статуса — строка; значения держит сервис (ASSIGNMENT_STATUSES в схемах).
+    const from = current.status as AssignmentStatus
+    if (!STATUS_FROM[status].includes(from)) {
+      throw new AppException(
+        'CONFLICT',
+        STATUS_CONFLICT[status][from] ?? 'Статус задания уже изменился',
+      )
+    }
+    const firstPublish = status === 'PUBLISHED' && from === 'DRAFT'
+    // Исходный статус — в условии записи: два одновременных «опубликовать» не пройдут оба
+    // (вторая запись не найдёт черновика → CONFLICT), и рассылка уйдёт один раз.
+    const assignment = await this.prisma.assignment
+      .update({
+        where: { id, status: from },
+        data: { status, ...(firstPublish ? { publishAt: new Date() } : {}) },
+        select: ASSIGNMENT_SELECT,
+      })
+      .catch(rethrowStaleStatus)
+    const action =
+      status === 'PUBLISHED' && !firstPublish
+        ? 'assignment_reopened'
+        : `assignment_${status.toLowerCase()}`
+    await this.record(actor, action, id, ctx, { from })
+    if (firstPublish) await this.notifyPublished(assignment)
     return assignment
   }
 
@@ -410,25 +477,39 @@ export class AssignmentsService {
 
   async saveDraft(actor: JwtPayload, assignmentId: string, input: SaveSubmissionDraftInput) {
     await this.assertStudentCanSubmit(actor, assignmentId)
-    const existing = await this.prisma.submission.findUnique({
-      where: { assignmentId_studentId: { assignmentId, studentId: actor.sub } },
-      select: { id: true, status: true },
+    const key = { assignmentId_studentId: { assignmentId, studentId: actor.sub } }
+    // Статус — в условии самой записи (C-F20): раньше проверка и upsert шли разными
+    // запросами, и сохранение из второй вкладки переписывало текст уже отправленной работы.
+    const { count } = await this.prisma.submission.updateMany({
+      where: { assignmentId, studentId: actor.sub, status: { in: ['DRAFT', 'RETURNED'] } },
+      data: { text: input.text, linkUrl: input.linkUrl },
     })
-    if (existing && (existing.status === 'SUBMITTED' || existing.status === 'GRADED')) {
-      throw new AppException('CONFLICT', 'Работа уже отправлена')
+    if (count === 0) {
+      // Строки нет — первое сохранение. Есть, но отправлена, — уникальный ключ не даст
+      // создать вторую, и это тот же отказ «уже отправлена».
+      await this.prisma.submission
+        .create({
+          data: {
+            assignmentId,
+            studentId: actor.sub,
+            status: 'DRAFT',
+            text: input.text ?? undefined,
+            linkUrl: input.linkUrl ?? undefined,
+          },
+          select: { id: true },
+        })
+        .catch((e: unknown) => {
+          if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+            throw new AppException('CONFLICT', 'Работа уже отправлена')
+          }
+          throw e
+        })
     }
-    const submission = await this.prisma.submission.upsert({
-      where: { assignmentId_studentId: { assignmentId, studentId: actor.sub } },
-      create: {
-        assignmentId,
-        studentId: actor.sub,
-        status: 'DRAFT',
-        text: input.text ?? undefined,
-        linkUrl: input.linkUrl ?? undefined,
-      },
-      update: { text: input.text, linkUrl: input.linkUrl },
+    const submission = await this.prisma.submission.findUnique({
+      where: key,
       select: SUBMISSION_SELECT,
     })
+    if (!submission) throw new AppException('NOT_FOUND', 'Работа не найдена')
     return submission
   }
 
@@ -465,11 +546,14 @@ export class AssignmentsService {
     }
     const nextAttempt =
       existing.status === 'RETURNED' ? existing.attemptNumber + 1 : existing.attemptNumber
-    return this.prisma.submission.update({
-      where: { id: existing.id },
-      data: { status: 'SUBMITTED', submittedAt: new Date(), attemptNumber: nextAttempt },
-      select: SUBMISSION_SELECT,
-    })
+    // Исходный статус — в условии: двойное нажатие «Отправить» не увеличит попытку дважды.
+    return this.prisma.submission
+      .update({
+        where: { id: existing.id, status: existing.status },
+        data: { status: 'SUBMITTED', submittedAt: new Date(), attemptNumber: nextAttempt },
+        select: SUBMISSION_SELECT,
+      })
+      .catch(rethrowStaleStatus)
   }
 
   // ── Файлы сдачи (студент) ─────────────────────────────────────────────────
@@ -563,6 +647,15 @@ export class AssignmentsService {
 
   // ── Submissions (преподаватель) ──────────────────────────────────────────
 
+  /**
+   * Оценка работы. Сданную — оценить, уже оценённую — переоценить (C-F20): ошибку в балле
+   * раньше исправить было нельзя (CONFLICT), только просить студента пересдать. Переоценка
+   * пишет в аудит прежний и новый балл и заново уведомляет студента.
+   *
+   * Запись условная: статус (и для переоценки — время прежней оценки) в `where`. Два
+   * преподавателя, одновременно нажавшие «оценить» и «вернуть», раньше оба проходили
+   * проверку, и итог решал последний; теперь второй получает CONFLICT и видит чужое решение.
+   */
   async grade(
     actor: JwtPayload,
     submissionId: string,
@@ -570,7 +663,10 @@ export class AssignmentsService {
     ctx: RequestContext,
   ) {
     const sub = await this.findGradableSubmission(actor, submissionId)
-    if (sub.status !== 'SUBMITTED') throw new AppException('CONFLICT', 'Работа не на проверке')
+    if (sub.status !== 'SUBMITTED' && sub.status !== 'GRADED') {
+      throw new AppException('CONFLICT', 'Работа не на проверке')
+    }
+    const regrade = sub.status === 'GRADED'
     // Схема держит только общий потолок 0..1000; «150 из 100» — опечатка, а не оценка, и
     // уводит процент студента и аналитику декана за 100 %.
     const max = sub.assignment.maxScore
@@ -579,25 +675,43 @@ export class AssignmentsService {
         { field: 'score', message: `Не больше ${max}` },
       ])
     }
-    const graded = await this.prisma.submission.update({
-      where: { id: submissionId },
-      data: {
-        status: 'GRADED',
-        score: input.score,
-        feedback: input.feedback,
-        gradedById: actor.sub,
-        gradedAt: new Date(),
-      },
-      select: SUBMISSION_SELECT,
-    })
-    await this.record(actor, 'submission_graded', submissionId, ctx)
+    const gradedAt = new Date()
+    const graded = await this.prisma.submission
+      .update({
+        where: {
+          id: submissionId,
+          status: sub.status,
+          ...(regrade ? { gradedAt: sub.gradedAt } : {}),
+        },
+        data: {
+          status: 'GRADED',
+          score: input.score,
+          feedback: input.feedback,
+          gradedById: actor.sub,
+          gradedAt,
+        },
+        select: SUBMISSION_SELECT,
+      })
+      .catch(rethrowStaleStatus)
+    await this.record(
+      actor,
+      regrade ? 'submission_regraded' : 'submission_graded',
+      submissionId,
+      ctx,
+      regrade
+        ? { previousScore: sub.score, score: input.score, previousGradedById: sub.gradedById }
+        : { score: input.score },
+    )
     await this.notifyStudent(
       graded.student.id,
       NOTIFICATION_JOBS.ASSIGNMENT_GRADED,
       'assignments.graded.title',
       { subject: sub.assignment.course.subject.name, title: sub.assignment.title },
       { url: '/assignments', submissionId },
-      `submission-graded:${submissionId}:${graded.attemptNumber}`,
+      // У переоценки свой ключ: прежний (на попытку) погасил бы повторное уведомление.
+      regrade
+        ? `submission-regraded:${submissionId}:${gradedAt.getTime()}`
+        : `submission-graded:${submissionId}:${graded.attemptNumber}`,
     )
     return graded
   }
@@ -610,16 +724,18 @@ export class AssignmentsService {
   ) {
     const sub = await this.findGradableSubmission(actor, submissionId)
     if (sub.status !== 'SUBMITTED') throw new AppException('CONFLICT', 'Работа не на проверке')
-    const returned = await this.prisma.submission.update({
-      where: { id: submissionId },
-      data: {
-        status: 'RETURNED',
-        feedback: input.feedback,
-        gradedById: actor.sub,
-        gradedAt: new Date(),
-      },
-      select: SUBMISSION_SELECT,
-    })
+    const returned = await this.prisma.submission
+      .update({
+        where: { id: submissionId, status: 'SUBMITTED' },
+        data: {
+          status: 'RETURNED',
+          feedback: input.feedback,
+          gradedById: actor.sub,
+          gradedAt: new Date(),
+        },
+        select: SUBMISSION_SELECT,
+      })
+      .catch(rethrowStaleStatus)
     await this.record(actor, 'submission_returned', submissionId, ctx)
     await this.notifyStudent(
       returned.student.id,
@@ -737,7 +853,19 @@ export class AssignmentsService {
   private async findManageable(actor: JwtPayload, id: string) {
     const assignment = await this.prisma.assignment.findUnique({
       where: { id },
-      select: { id: true, course: { select: COURSE_MINI } },
+      select: {
+        id: true,
+        status: true,
+        title: true,
+        description: true,
+        type: true,
+        submissionType: true,
+        maxScore: true,
+        maxAttempts: true,
+        allowLate: true,
+        dueAt: true,
+        course: { select: COURSE_MINI },
+      },
     })
     if (!assignment) throw new AppException('NOT_FOUND', 'Задание не найдено')
     await this.assertManage(actor, assignment.course)
@@ -777,6 +905,9 @@ export class AssignmentsService {
       select: {
         id: true,
         status: true,
+        score: true,
+        gradedAt: true,
+        gradedById: true,
         assignment: { select: { title: true, maxScore: true, course: { select: COURSE_MINI } } },
       },
     })
@@ -933,9 +1064,35 @@ export class AssignmentsService {
     action: string,
     entityId: string,
     ctx: RequestContext,
+    metadata?: Record<string, unknown>,
   ): Promise<void> {
-    await this.audit.record({ userId: actor.sub, action, entity: 'Assignment', entityId, ...ctx })
+    await this.audit.record({
+      userId: actor.sub,
+      action,
+      entity: 'Assignment',
+      entityId,
+      metadata,
+      ...ctx,
+    })
   }
+}
+
+/**
+ * Изменённые поля задания значениями «было → стало» для аудита правки. Описание сюда не
+ * входит (до 20 000 символов) — о нём в аудите только факт правки.
+ */
+function auditedChanges(
+  before: Record<(typeof AUDITED_FIELDS)[number], unknown>,
+  after: Record<(typeof AUDITED_FIELDS)[number], unknown>,
+): Record<string, { from: unknown; to: unknown }> {
+  const changes: Record<string, { from: unknown; to: unknown }> = {}
+  for (const field of AUDITED_FIELDS) {
+    const from =
+      before[field] instanceof Date ? (before[field] as Date).toISOString() : before[field]
+    const to = after[field] instanceof Date ? (after[field] as Date).toISOString() : after[field]
+    if (from !== to) changes[field] = { from: from ?? null, to: to ?? null }
+  }
+  return changes
 }
 
 /**

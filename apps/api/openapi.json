@@ -2806,8 +2806,11 @@
           "404": {
             "description": "NOT_FOUND — пара не найдена"
           },
+          "409": {
+            "description": "CONFLICT — занятие на дату отменено; преподаватель, аудитория или группа заняты"
+          },
           "422": {
-            "description": "VALIDATION_ERROR"
+            "description": "VALIDATION_ERROR — в т.ч. дата не в день пары"
           }
         },
         "security": [
@@ -2816,6 +2819,41 @@
           }
         ],
         "summary": "Создать замену/перенос/отмену (уведомление + WS schedule:changed)",
+        "tags": [
+          "Расписание"
+        ]
+      }
+    },
+    "/schedule/changes/{id}": {
+      "delete": {
+        "operationId": "ScheduleViewController_removeChange",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Изменение удалено"
+          },
+          "403": {
+            "description": "FORBIDDEN / WRONG_SCOPE"
+          },
+          "404": {
+            "description": "NOT_FOUND — изменение не найдено"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Убрать ошибочное разовое изменение (WS schedule:changed + уведомление)",
         "tags": [
           "Расписание"
         ]
@@ -3309,8 +3347,8 @@
           }
         },
         "responses": {
-          "200": {
-            "description": ""
+          "409": {
+            "description": "CONFLICT — publishAt у опубликованного; maxScore ниже выставленного балла"
           }
         },
         "security": [
@@ -3318,7 +3356,7 @@
             "bearer": []
           }
         ],
-        "summary": "Изменить задание",
+        "summary": "Изменить задание (опубликованное — тоже, кроме publishAt; правка пишется в аудит)",
         "tags": [
           "Задания"
         ]
@@ -3394,8 +3432,8 @@
           }
         ],
         "responses": {
-          "201": {
-            "description": ""
+          "409": {
+            "description": "CONFLICT — задание уже опубликовано"
           }
         },
         "security": [
@@ -3403,7 +3441,7 @@
             "bearer": []
           }
         ],
-        "summary": "Опубликовать задание",
+        "summary": "Опубликовать черновик или снова открыть закрытое задание",
         "tags": [
           "Задания"
         ]
@@ -3423,8 +3461,8 @@
           }
         ],
         "responses": {
-          "201": {
-            "description": ""
+          "409": {
+            "description": "CONFLICT — черновик или уже закрыто"
           }
         },
         "security": [
@@ -3432,7 +3470,7 @@
             "bearer": []
           }
         ],
-        "summary": "Закрыть задание",
+        "summary": "Закрыть опубликованное задание",
         "tags": [
           "Задания"
         ]
@@ -3742,8 +3780,8 @@
           }
         },
         "responses": {
-          "201": {
-            "description": ""
+          "409": {
+            "description": "CONFLICT — работа не на проверке или её уже изменили"
           }
         },
         "security": [
@@ -3751,7 +3789,7 @@
             "bearer": []
           }
         ],
-        "summary": "Поставить балл и опубликовать результат",
+        "summary": "Поставить балл (сданной работе) или переоценить (оценённой)",
         "tags": [
           "Задания: проверка"
         ]
@@ -3781,8 +3819,8 @@
           }
         },
         "responses": {
-          "201": {
-            "description": ""
+          "409": {
+            "description": "CONFLICT — работа не на проверке или её уже изменили"
           }
         },
         "security": [
@@ -3790,7 +3828,7 @@
             "bearer": []
           }
         ],
-        "summary": "Вернуть работу на исправление",
+        "summary": "Вернуть сданную работу на исправление",
         "tags": [
           "Задания: проверка"
         ]

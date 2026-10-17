@@ -3,6 +3,7 @@ export {
   fetchSchedule,
   fetchScheduleChanges,
   createScheduleChangeRequest,
+  deleteScheduleChangeRequest,
   fetchScheduleContainers,
   fetchScheduleContainer,
   createScheduleRequest,

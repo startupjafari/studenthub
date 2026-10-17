@@ -1560,7 +1560,13 @@
     "editorDragHint": "Click an empty spot to add a class. Drag a class to another day or time, or pull its bottom edge to change the duration",
     "showWeekend": "Show weekend",
     "hideWeekend": "Hide weekend",
-    "createChangeHint": "A one-off change for a specific date — the recurring schedule stays as it is"
+    "createChangeHint": "A one-off change for a specific date — the recurring schedule stays as it is",
+    "pairChanges": "One-off changes to this class",
+    "removeChange": "Remove change",
+    "removeChangeConfirm": "Remove this change?",
+    "removeChangeConfirmHint": "The regular schedule will apply on this date again. If the date is still ahead, the group and teachers will be notified.",
+    "changeRemoved": "Change removed",
+    "changeWrongDay": "This class is on {day}. Pick a date that falls on that day"
   },
   "Applications": {
     "title": "Applications",
@@ -3285,7 +3291,12 @@
     "editCourse": "Edit course",
     "save": "Save",
     "courseUpdated": "Changes saved",
-    "creditsRange": "A whole number from 0 to 60"
+    "creditsRange": "A whole number from 0 to 60",
+    "editSubject": "Edit catalog subject",
+    "subjectUpdated": "Subject saved",
+    "editTerm": "Edit term",
+    "termUpdated": "Term saved",
+    "termActiveHint": "Other terms of the university will no longer be current"
   },
   "Assignments": {
     "title": "Assignments",
@@ -3396,7 +3407,19 @@
     "filesLimit": "You can attach up to {n} files",
     "scoreOutOfRange": "Score from 0 to {max}",
     "confirmDeletePublished": "“{title}”: students' drafts will be deleted along with the assignment. If work has already been submitted, it can't be deleted — close the assignment instead.",
-    "deleteHasWork": "This assignment has submitted work, so it can't be deleted. Close it to stop accepting submissions."
+    "deleteHasWork": "This assignment has submitted work, so it can't be deleted. Close it to stop accepting submissions.",
+    "edit": "Edit",
+    "editAssignment": "Edit assignment",
+    "save": "Save",
+    "updated": "Assignment saved",
+    "editPublishedHint": "Students can already see this assignment — changes will show up for them right away",
+    "reopen": "Reopen",
+    "reopened": "Assignment reopened",
+    "statusChanged": "The assignment status has already changed — the list has been refreshed",
+    "regrade": "Change grade",
+    "saveGrade": "Save grade",
+    "regraded": "Grade updated",
+    "maxScoreBelowGraded": "Higher scores have already been given — the maximum can't be lower"
   },
   "Attendance": {
     "title": "Attendance",

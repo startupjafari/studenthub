@@ -33,7 +33,8 @@ export class SubmissionsController {
 
   @Post(':id/grade')
   @Roles(...TEACH_ROLES)
-  @ApiOperation({ summary: 'Поставить балл и опубликовать результат' })
+  @ApiOperation({ summary: 'Поставить балл (сданной работе) или переоценить (оценённой)' })
+  @ApiResponse({ status: 409, description: 'CONFLICT — работа не на проверке или её уже изменили' })
   grade(
     @CurrentUser() user: CurrentUserData,
     @Param('id') id: string,
@@ -45,7 +46,8 @@ export class SubmissionsController {
 
   @Post(':id/return')
   @Roles(...TEACH_ROLES)
-  @ApiOperation({ summary: 'Вернуть работу на исправление' })
+  @ApiOperation({ summary: 'Вернуть сданную работу на исправление' })
+  @ApiResponse({ status: 409, description: 'CONFLICT — работа не на проверке или её уже изменили' })
   returnForFix(
     @CurrentUser() user: CurrentUserData,
     @Param('id') id: string,

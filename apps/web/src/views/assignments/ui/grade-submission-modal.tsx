@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { CheckCircle2, Link2, RotateCcw } from 'lucide-react'
+import { CheckCircle2, Link2, Pencil, RotateCcw } from 'lucide-react'
 import { Badge, Button, FieldError, Input, Label, Modal, Textarea } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { toApiError, useErrorToast } from '../../../shared/lib'
@@ -57,7 +57,11 @@ export function GradeSubmissionModal({
 
   const invalidate = () =>
     qc.invalidateQueries({ queryKey: assignmentKeys.submissions(assignmentId) })
+  // Переоценка (C-F20): у оценённой работы балл и отзыв можно исправить. Вернуть её на
+  // доработку нельзя — это решение принимают до оценки.
+  const [regrading, setRegrading] = useState(false)
   const gradable = submission.status === 'SUBMITTED'
+  const formOpen = gradable || regrading
 
   const grade = useMutation({
     mutationFn: () =>
@@ -67,7 +71,7 @@ export function GradeSubmissionModal({
       }),
     onSuccess: () => {
       invalidate()
-      toast.success(t('graded'))
+      toast.success(regrading ? t('regraded') : t('graded'))
       onGraded()
     },
     onError: (e) => {
@@ -77,6 +81,8 @@ export function GradeSubmissionModal({
         setScoreError(t('scoreOutOfRange', { max: ceiling }))
         return
       }
+      // CONFLICT — работу уже оценил или вернул другой проверяющий: перечитываем список.
+      if (err.code === 'CONFLICT') invalidate()
       errorToast.show(e)
     },
   })
@@ -87,7 +93,10 @@ export function GradeSubmissionModal({
       toast.success(t('returned'))
       onGraded()
     },
-    onError: (e) => errorToast.show(e),
+    onError: (e) => {
+      if (toApiError(e).code === 'CONFLICT') invalidate()
+      errorToast.show(e)
+    },
   })
 
   function onGrade() {
@@ -156,7 +165,7 @@ export function GradeSubmissionModal({
             и рамка внутри рамки только добавляет уровней. */}
         <hr className="border-border" />
 
-        {gradable ? (
+        {formOpen ? (
           <>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="grade-score">
@@ -216,12 +225,24 @@ export function GradeSubmissionModal({
         <div
           className={cn(
             'flex flex-wrap items-center gap-2',
-            gradable ? 'justify-between' : 'justify-end',
+            gradable || submission.status === 'GRADED' ? 'justify-between' : 'justify-end',
           )}
         >
           <Button variant="outline" onClick={onClose}>
             {tCommon('close')}
           </Button>
+          {submission.status === 'GRADED' &&
+            (regrading ? (
+              <Button className="gap-1.5" onClick={onGrade} loading={grade.isPending}>
+                <CheckCircle2 className="size-4" aria-hidden />
+                {t('saveGrade')}
+              </Button>
+            ) : (
+              <Button variant="outline" className="gap-1.5" onClick={() => setRegrading(true)}>
+                <Pencil className="size-4" aria-hidden />
+                {t('regrade')}
+              </Button>
+            ))}
           {gradable && (
             <div className="flex flex-wrap gap-2">
               <Button
