@@ -20,6 +20,22 @@ import {
 import type { ZodSchema } from 'zod'
 import { captureUnexpected, isExpectedBusinessError } from '../../common/monitoring'
 import { ChatsService } from './chats.service'
+import { takeToken, type TokenBucketLimit } from './ws-rate-limit'
+
+/**
+ * Общий лимит событий одного сокета (F-F15). Запас корзины — под массовые действия самого
+ * человека: удаление выделенных сообщений шлёт по событию на сообщение разом. Устойчивый
+ * темп с большим запасом выше живого: прочтение уходит не чаще раза в секунду, «печатает» —
+ * раз в три секунды.
+ */
+const EVENT_LIMIT: TokenBucketLimit = { capacity: 120, refillPerSecond: 20 }
+
+/**
+ * Действия в чате («печатает», «записывает голосовое») — строже: каждое расходится веером до
+ * 64 сокетов, а живой клиент повторяет его раз в три секунды. Сверх лимита действие молча
+ * отбрасывается — подпись и так живёт по таймауту, ошибка клиенту тут ничего не даст.
+ */
+const ACTION_LIMIT: TokenBucketLimit = { capacity: 20, refillPerSecond: 2 }
 
 // WS-обработчики чата (docs/PROJECT.md §9, задачи 9.3–9.4). Подключение/handshake-аутентификацию
 // и авто-вход в user/group/university-комнаты делает RealtimeGateway; здесь — чат-события на том же
@@ -46,6 +62,28 @@ export class ChatGateway {
     return result.data
   }
 
+  /**
+   * Пропустить событие по лимиту сокета. Об отказе клиенту сообщаем один раз на серию: ответ
+   * на каждое отброшенное событие удвоил бы трафик флудера, а живому клиенту хватит одного.
+   */
+  private admit(client: Socket, event: string): boolean {
+    const store = this.socketStore(client)
+    if (takeToken(store, 'wsEvents', EVENT_LIMIT)) {
+      store.wsLimited = false
+      return true
+    }
+    if (store.wsLimited !== true) {
+      store.wsLimited = true
+      client.emit('error', { event, code: 'RATE_LIMIT' })
+    }
+    return false
+  }
+
+  private socketStore(client: Socket): Record<string, unknown> {
+    if (!client.data) client.data = {}
+    return client.data as Record<string, unknown>
+  }
+
   private fail(client: Socket, event: string, error: unknown): void {
     const code = (error as { code?: string }).code ?? 'INTERNAL_ERROR'
     client.emit('error', { event, code })
@@ -70,6 +108,7 @@ export class ChatGateway {
 
   @SubscribeMessage('chat:join')
   async onJoin(@ConnectedSocket() client: Socket, @MessageBody() raw: unknown): Promise<void> {
+    if (!this.admit(client, 'chat:join')) return
     const uid = this.userId(client)
     const data = this.parse(client, 'chat:join', ChatJoinSchema, raw)
     if (!uid || !data) return
@@ -81,6 +120,8 @@ export class ChatGateway {
     await client.join(`chat:${data.chatId}`)
   }
 
+  // Выход из комнаты не лимитируется: он ничего не стоит базе и только снимает нагрузку, а
+  // отброшенный выход оставил бы сокет слушать чат, который человек уже закрыл.
   @SubscribeMessage('chat:leave')
   async onLeave(@ConnectedSocket() client: Socket, @MessageBody() raw: unknown): Promise<void> {
     const data = this.parse(client, 'chat:leave', ChatJoinSchema, raw)
@@ -93,6 +134,7 @@ export class ChatGateway {
     @ConnectedSocket() client: Socket,
     @MessageBody() raw: unknown,
   ): Promise<void> {
+    if (!this.admit(client, 'message:send')) return
     const uid = this.userId(client)
     const data = this.parse(client, 'message:send', MessageSendSchema, raw)
     if (!uid || !data) return
@@ -113,6 +155,7 @@ export class ChatGateway {
     @ConnectedSocket() client: Socket,
     @MessageBody() raw: unknown,
   ): Promise<void> {
+    if (!this.admit(client, 'message:edit')) return
     const uid = this.userId(client)
     const data = this.parse(client, 'message:edit', MessageEditSchema, raw)
     if (!uid || !data) return
@@ -131,6 +174,7 @@ export class ChatGateway {
     @ConnectedSocket() client: Socket,
     @MessageBody() raw: unknown,
   ): Promise<void> {
+    if (!this.admit(client, 'message:delete')) return
     const uid = this.userId(client)
     const data = this.parse(client, 'message:delete', MessageDeleteSchema, raw)
     if (!uid || !data) return
@@ -149,6 +193,7 @@ export class ChatGateway {
     @ConnectedSocket() client: Socket,
     @MessageBody() raw: unknown,
   ): Promise<void> {
+    if (!this.admit(client, 'message:read')) return
     const uid = this.userId(client)
     const data = this.parse(client, 'message:read', MessageReadSchema, raw)
     if (!uid || !data) return
@@ -169,6 +214,7 @@ export class ChatGateway {
     @ConnectedSocket() client: Socket,
     @MessageBody() raw: unknown,
   ): Promise<void> {
+    if (!this.admit(client, 'chat:action')) return
     const data = this.parse(client, 'chat:action', ChatActionPayloadSchema, raw)
     if (!data) return
     await this.relayAction(client, 'chat:action', data.chatId, data.action)
@@ -181,6 +227,7 @@ export class ChatGateway {
     @ConnectedSocket() client: Socket,
     @MessageBody() raw: unknown,
   ): Promise<void> {
+    if (!this.admit(client, 'typing:start')) return
     const data = this.parse(client, 'typing:start', TypingSchema, raw)
     if (!data) return
     await this.relayAction(client, 'typing:start', data.chatId, 'TYPING')
@@ -191,6 +238,7 @@ export class ChatGateway {
     @ConnectedSocket() client: Socket,
     @MessageBody() raw: unknown,
   ): Promise<void> {
+    if (!this.admit(client, 'typing:stop')) return
     const data = this.parse(client, 'typing:stop', TypingSchema, raw)
     if (!data) return
     await this.relayAction(client, 'typing:stop', data.chatId, null)
@@ -218,6 +266,7 @@ export class ChatGateway {
   ): Promise<void> {
     const uid = this.userId(client)
     if (!uid) return
+    if (!takeToken(this.socketStore(client), 'wsActions', ACTION_LIMIT)) return
     try {
       const payload = { chatId, userId: uid, action }
       const audience = await this.chats.actionAudience(uid, chatId)

@@ -88,6 +88,46 @@ describe('SupportService.open', () => {
       content: 'ещё вопрос',
     })
   })
+
+  // F-F27: склеенной ветки нет в очереди — дописка в неё ушла бы туда, где её не увидят.
+  it('склеенную ветку за открытое обращение не принимает', async () => {
+    const { service, prisma } = setup()
+
+    await service.open(who(Role.STUDENT), { text: 'вопрос' })
+
+    expect(prisma.chat.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ supportClosedAt: null, supportMergedIntoId: null }),
+      }),
+    )
+  })
+
+  // F-F27: раньше в обращение попадали первые сто сотрудников в произвольном порядке.
+  it('кладёт в обращение всю команду — порциями по id, без потолка в сто человек', async () => {
+    const { service, prisma } = setup()
+    const team = Array.from({ length: 250 }, (_, i) => ({
+      id: `staff-${String(i).padStart(3, '0')}`,
+    }))
+    prisma.user.findMany
+      .mockResolvedValueOnce(team.slice(0, 200))
+      .mockResolvedValueOnce(team.slice(200))
+
+    await service.open(who(Role.STUDENT), { text: 'вопрос' })
+
+    const members = prisma.chat.create.mock.calls[0]?.[0]?.data?.members?.create as {
+      userId: string
+    }[]
+    expect(members).toHaveLength(251)
+    expect(prisma.user.findMany).toHaveBeenCalledTimes(2)
+    expect(prisma.user.findMany.mock.calls[0]?.[0]).toMatchObject({
+      orderBy: { id: 'asc' },
+      take: 200,
+    })
+    expect(prisma.user.findMany.mock.calls[1]?.[0]).toMatchObject({
+      cursor: { id: 'staff-199' },
+      skip: 1,
+    })
+  })
 })
 
 describe('SupportService.queue', () => {

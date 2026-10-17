@@ -39,7 +39,7 @@ import {
 } from '@studenthub/shared-schemas'
 import { directoryKeys, fetchUserDirectory } from '../../../entities/user'
 import { useAppSelector } from '../../../shared/store'
-import { useRealtimeSocket, useRealtimeEvent } from '../../../shared/realtime'
+import { useRealtimeSocket, useRealtimeEvent, SELF_RESYNC_META } from '../../../shared/realtime'
 import {
   chatKeys,
   exportChatFile,
@@ -177,6 +177,7 @@ import {
   senderName,
 } from '../lib/format'
 import { buildFolderTabs, filterChatsByTab, folderTabLabel } from '../lib/folders'
+import { canDeleteChat } from '../lib/chat-kind'
 
 // Сколько человек показывать в секции «Люди» единой строки поиска.
 const PEOPLE_IN_SEARCH = 20
@@ -558,6 +559,11 @@ export function ChatWindow() {
 
   const messages = useQuery({
     queryKey: chatKeys.messages(activeId ?? ''),
+    // После реконнекта лента догоняется по seq (catchUp ниже), а не перезапросом первой
+    // страницы: тот сбрасывал подгруженную вверх историю и позицию чтения (F-F13). То же
+    // делал и собственный рефетч React Query на возврат сети — он тоже выключен.
+    meta: SELF_RESYNC_META,
+    refetchOnReconnect: false,
     queryFn: async () => {
       const chatId = activeId as string
       const page = await fetchMessages(chatId, { limit: 30 })
@@ -878,7 +884,11 @@ export function ChatWindow() {
       if (ctx?.prev) qc.setQueryData(chatKeys.list(), ctx.prev)
       toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR'))
     },
-    onSettled: () => void qc.invalidateQueries({ queryKey: chatKeys.list() }),
+    // Заглушённые чаты в бейдж навигации не идут (F-F14) — он меняется вместе с флагом.
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: chatKeys.list() })
+      void qc.invalidateQueries({ queryKey: chatKeys.unread() })
+    },
   })
 
   // Закрепление чата «у себя» (Telegram-стиль): оптимистично ставим флаг и поднимаем закреплённые наверх.
@@ -966,11 +976,13 @@ export function ChatWindow() {
     },
   })
 
+  // Очищенное «у себя» непрочитанным больше не считается — бейдж тоже обновляем.
   const clearChat = useMutation({
     mutationFn: (chatId: string) => clearChatRequest(chatId),
     onSuccess: (_d, chatId) => {
       void qc.invalidateQueries({ queryKey: chatKeys.messages(chatId) })
       void qc.invalidateQueries({ queryKey: chatKeys.list() })
+      void qc.invalidateQueries({ queryKey: chatKeys.unread() })
       toast.success(t('historyCleared'))
     },
     onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
@@ -993,6 +1005,7 @@ export function ChatWindow() {
       if (!activeId) return
       void qc.invalidateQueries({ queryKey: chatKeys.messages(activeId) })
       void qc.invalidateQueries({ queryKey: chatKeys.list() })
+      void qc.invalidateQueries({ queryKey: chatKeys.unread() })
       void qc.invalidateQueries({ queryKey: ['chats', activeId, 'media-calendar'] })
       toast.success(t('historyCleared'))
     },
@@ -1025,6 +1038,7 @@ export function ChatWindow() {
     mutationFn: (chatId: string) => deleteChatRequest(chatId),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: chatKeys.list() })
+      void qc.invalidateQueries({ queryKey: chatKeys.unread() })
       setActiveId(null)
       toast.success(t('chatDeleted'))
     },
@@ -1545,13 +1559,14 @@ export function ChatWindow() {
       }
     }
 
+    // Список чатов здесь не перезапрашиваем: его обновит общий ресинк реконнекта — с
+    // разбросом во времени, а не всеми клиентами в одну секунду после деплоя (F-F13).
     const onConnect = (): void => {
       setConnected(true)
       if (activeId) {
         socket.emit('chat:join', { chatId: activeId })
         void catchUp(activeId)
       }
-      void qc.invalidateQueries({ queryKey: chatKeys.list() })
     }
     const onDisconnect = (): void => {
       setConnected(false)
@@ -3784,11 +3799,12 @@ export function ChatWindow() {
                             <span className="flex-1 text-left">{t('clearHistory')}</span>
                           </button>
                         )}
-                        {/* Красные пункты — в самом конце, за линией. «Удалить чат» есть
-                            всегда, когда есть чат, поэтому линия зависит только от него. */}
-                        {activeChat && <MenuSeparator />}
+                        {/* Красные пункты — в самом конце, за линией. «Удалить чат» есть у
+                            личного чата и группы (у официальных и «Сохранённых» его нет, F-F17),
+                            а блокировка бывает только в личном — линия зависит от «Удалить». */}
+                        {activeChat && canDeleteChat(activeChat.type) && <MenuSeparator />}
                         {!activeChat?.blocked && headerBlockItem}
-                        {activeChat && (
+                        {activeChat && canDeleteChat(activeChat.type) && (
                           <button
                             type="button"
                             onClick={() => {

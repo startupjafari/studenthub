@@ -330,3 +330,58 @@ describe('ChatGateway.onMessageSend — «пустой» текст', () => {
     })
   })
 })
+
+// F-F15: события сокета не ограничивались ничем — тысячи запросов в базу в секунду с одного.
+describe('ChatGateway — лимит событий сокета', () => {
+  // Время стоит на месте: корзина не успевает восполниться между событиями цикла.
+  beforeEach(() => jest.spyOn(Date, 'now').mockReturnValue(1_000_000))
+  afterEach(() => jest.restoreAllMocks())
+
+  it('сверх запаса событие отбрасывается, а отказ клиенту приходит один раз на серию', async () => {
+    const markRead = jest.fn().mockResolvedValue({ chatId: 'c1', messageId: 'm1', userId: 'u1' })
+    const { gateway } = setup({ markRead })
+    const { client } = makeClient('u1')
+    for (let i = 0; i < 125; i += 1) {
+      await gateway.onMessageRead(client as unknown as Socket, { chatId: 'c1', messageId: 'm1' })
+    }
+    expect(markRead).toHaveBeenCalledTimes(120)
+    const limited = client.emit.mock.calls.filter(
+      ([event, payload]) => event === 'error' && payload?.code === 'RATE_LIMIT',
+    )
+    expect(limited).toEqual([['error', { event: 'message:read', code: 'RATE_LIMIT' }]])
+  })
+
+  it('лимит у каждого сокета свой', async () => {
+    const isMember = jest.fn().mockResolvedValue(true)
+    const { gateway } = setup({ isMember })
+    const a = makeClient('u1').client
+    const b = makeClient('u2').client
+    for (let i = 0; i < 130; i += 1) {
+      await gateway.onJoin(a as unknown as Socket, { chatId: 'c1' })
+    }
+    await gateway.onJoin(b as unknown as Socket, { chatId: 'c1' })
+    expect(b.join).toHaveBeenCalledWith('chat:c1')
+    expect(isMember).toHaveBeenCalledTimes(121)
+  })
+
+  it('выход из комнаты не лимитируется', async () => {
+    const { gateway } = setup({ markRead: jest.fn().mockResolvedValue({}) })
+    const { client } = makeClient('u1')
+    for (let i = 0; i < 130; i += 1) {
+      await gateway.onMessageRead(client as unknown as Socket, { chatId: 'c1', messageId: 'm1' })
+    }
+    await gateway.onLeave(client as unknown as Socket, { chatId: 'c1' })
+    expect(client.leave).toHaveBeenCalledWith('chat:c1')
+  })
+
+  it('действия в чате — строже, лишние молча отбрасываются до запроса в базу', async () => {
+    const actionAudience = jest.fn().mockResolvedValue({ kind: 'users', userIds: ['u2'] })
+    const { gateway } = setup({ actionAudience })
+    const { client } = makeClient('u1')
+    for (let i = 0; i < 25; i += 1) {
+      await gateway.onChatAction(client as unknown as Socket, { chatId: 'c1', action: 'TYPING' })
+    }
+    expect(actionAudience).toHaveBeenCalledTimes(20)
+    expect(client.emit).not.toHaveBeenCalled()
+  })
+})

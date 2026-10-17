@@ -49,8 +49,11 @@ export const chatKeys = {
 // Сводка непрочитанного для бейджа в навигации. Отдельный лёгкий запрос: тянуть ради
 // числа весь список чатов на каждом экране приложения незачем.
 export interface ChatUnreadSummary {
+  /** Без заглушённых чатов: бейдж зовёт только туда, где человек ждёт сообщений. */
   chats: number
   messages: number
+  /** Заглушённые отдельно — для серой цифры, как в Telegram. Старый сервер поля не отдаёт. */
+  muted?: { chats: number; messages: number }
 }
 
 export async function fetchChatsUnread(): Promise<ChatUnreadSummary> {

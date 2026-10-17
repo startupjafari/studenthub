@@ -50,6 +50,9 @@ interface TicketLastMessage {
 /** Потолок сотрудников в одном обращении, которых читаем, чтобы решить, кого не уведомлять. */
 const TICKET_STAFF_SCAN = 500
 
+/** Порция чтения команды платформы при создании обращения. */
+const STAFF_BATCH = 200
+
 @Injectable()
 export class SupportService implements OnModuleInit {
   private readonly logger = new Logger(SupportService.name)
@@ -165,8 +168,13 @@ export class SupportService implements OnModuleInit {
       where: {
         type: ChatType.SUPPORT_PLATFORM,
         supportClosedAt: null,
+        // Склеенная ветка — не обращение (F-F27): в очереди её нет, и дописка в неё уходила
+        // туда, где её никто не увидит. Склеенную, открытую до правки правил, тоже обходим.
+        supportMergedIntoId: null,
         members: { some: { userId: user.sub } },
       },
+      // Самое свежее открытое: если открытых по старым данным несколько, пишем в последнее.
+      orderBy: { createdAt: 'desc' },
       select: { id: true },
     })
 
@@ -680,14 +688,17 @@ export class SupportService implements OnModuleInit {
     return { created, closed }
   }
 
-  /** Создаёт обращение с автором и всей текущей командой платформы в участниках. */
+  /**
+   * Создаёт обращение с автором и всей текущей командой платформы в участниках.
+   *
+   * Команда читается вся, порциями по порядку id (F-F27). Раньше брались первые сто без
+   * сортировки — кто именно, решала база, и сто первый сотрудник не видел новых обращений
+   * в своих чатах, пока не откроет очередь. Догон в `joinOpenTickets` остаётся — для тех,
+   * кто пришёл в команду уже после создания обращения.
+   */
   private async createTicket(authorId: string): Promise<string> {
-    const staff = await this.prisma.user.findMany({
-      where: { role: { in: [...STAFF_ROLES] }, deletedAt: null, isBlocked: false },
-      select: { id: true },
-      take: 100,
-    })
-    const userIds = [...new Set([authorId, ...staff.map((s) => s.id)])]
+    const staff = await this.activeStaffIds()
+    const userIds = [...new Set([authorId, ...staff])]
     const chat = await this.prisma.chat.create({
       data: {
         type: ChatType.SUPPORT_PLATFORM,
@@ -696,6 +707,24 @@ export class SupportService implements OnModuleInit {
       select: { id: true },
     })
     return chat.id
+  }
+
+  /** id действующих сотрудников платформы — все, порциями по курсору (BACKEND_RULES §7.2). */
+  private async activeStaffIds(): Promise<string[]> {
+    const ids: string[] = []
+    let cursor: string | undefined
+    for (;;) {
+      const batch = await this.prisma.user.findMany({
+        where: { role: { in: [...STAFF_ROLES] }, deletedAt: null, isBlocked: false },
+        select: { id: true },
+        orderBy: { id: 'asc' },
+        take: STAFF_BATCH,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      })
+      ids.push(...batch.map((row) => row.id))
+      if (batch.length < STAFF_BATCH) return ids
+      cursor = batch.at(-1)?.id
+    }
   }
 
   /** Добавляет сотрудника в обращения, где его ещё нет (батчем, без запроса на чат). */
