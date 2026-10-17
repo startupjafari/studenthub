@@ -225,3 +225,5 @@
 - Пачка P2-тесты done (B-F27, D-F32, F-F28): +93 теста (api 65, web 28), прод-код не тронут, багов не выявлено; e2e onboarding/moderator-access написаны, не запускались. api 348, web 36.
 - Документация внесена в docs/PROJECT.md (45 из 48 записей + A-F31 + комментарий 26-career.prisma). Не внесено: абзац про username (ждёт Q15); правки BACKEND_RULES §6.2/§6.3/§9.2/§9.3 и PERSONAL_DATA §5 — ждут подтверждения (Q11).
 - 17.10 ~12:00 — полный прогон на чистом HEAD (worktree): prisma validate ок; typecheck 11/11; lint чисто; api jest 145 наборов / 2571; web vitest 105 / 758; mini-app 79; openapi из HEAD совпадает с закоммиченным. E2E не запускались (нужны миграции Q4 и стенд). «Итог работ» добавлен в AUDIT_REPORT.md (раздел 5). P2-A-auth-2 ещё в работе — в PR не входит.
+- PR #360 audit/full-pass → develop создан (https://github.com/startupjafari/studenthub/pull/360); ветка запушена. P2-A-auth-2 — допушить отдельным коммитом после завершения агента.
+- P2-A-auth-2 done (A-F29, A-F30; A-F22 → Q23): коммит eaa6d1bc, docs/PROJECT.md дополнен. api 254, web 59, typecheck чистый. Допушено в PR #360.
