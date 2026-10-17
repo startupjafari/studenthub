@@ -223,15 +223,184 @@ describe('EventsService.remindDue — окно и дедуп (10.4)', () => {
     )
   })
 
-  it('окно запроса — [now+55м, now+70м], reminderSentAt null', async () => {
+  it('окно запроса — (now, now+70м], reminderSentAt null, с потолком', async () => {
     const { service, prisma } = setup()
-    prisma.event.findMany.mockResolvedValueOnce([]).mockResolvedValue([])
+    const now = new Date('2026-10-17T12:00:00.000Z')
+    jest.useFakeTimers().setSystemTime(now)
     await service.remindDue()
-    const where = prisma.event.findMany.mock.calls[0][0].where
-    expect(where.reminderSentAt).toBeNull()
-    const now = Date.now()
-    expect(where.startsAt.gte.getTime()).toBeGreaterThan(now + 54 * 60_000)
-    expect(where.startsAt.lte.getTime()).toBeLessThan(now + 71 * 60_000)
+    jest.useRealTimers()
+    const args = prisma.event.findMany.mock.calls[0][0]
+    expect(args.where).toEqual({
+      reminderSentAt: null,
+      startsAt: { gt: now, lte: new Date('2026-10-17T13:10:00.000Z') },
+    })
+    expect(args.take).toBe(500)
+  })
+})
+
+// ── E-F22: окно, а не щель шириной в тик — сценарии на мини-БД ───────────────
+describe('EventsService.remindDue — пропущенный тик, поздние и перенесённые события', () => {
+  const T0 = new Date('2026-10-17T12:00:00.000Z').getTime()
+  const min = (n: number) => new Date(T0 + n * 60_000)
+
+  interface StoredEvent {
+    id: string
+    title: string
+    startsAt: Date
+    reminderSentAt: Date | null
+  }
+
+  interface FindArgs {
+    where: { reminderSentAt: null; startsAt: { gt: Date; lte: Date }; id?: { gt: string } }
+    take: number
+  }
+
+  interface MarkArgs {
+    where: { reminderSentAt: null; OR: Array<{ id: string; startsAt: Date }> }
+    data: { reminderSentAt: Date }
+  }
+
+  /**
+   * Мини-БД: findMany/updateMany понимают ровно те условия, что строит remindDue, — тики
+   * можно гонять подряд и смотреть, что уходит в очередь. Участники — по одному на событие.
+   */
+  function store(rows: Array<Omit<StoredEvent, 'reminderSentAt' | 'title'>>) {
+    const base = setup()
+    const db: StoredEvent[] = rows.map((r) => ({ ...r, title: r.id, reminderSentAt: null }))
+    base.prisma.event.findMany.mockImplementation(async ({ where, take }: FindArgs) =>
+      db
+        .filter(
+          (e) =>
+            e.reminderSentAt === where.reminderSentAt &&
+            e.startsAt > where.startsAt.gt &&
+            e.startsAt <= where.startsAt.lte &&
+            (!where.id || e.id > where.id.gt),
+        )
+        .sort((a, b) => a.id.localeCompare(b.id))
+        .slice(0, take)
+        .map(({ id, title, startsAt }) => ({ id, title, startsAt })),
+    )
+    base.prisma.event.updateMany.mockImplementation(async ({ where, data }: MarkArgs) => {
+      let count = 0
+      for (const e of db) {
+        const hit = where.OR.some(
+          (c) => c.id === e.id && c.startsAt.getTime() === e.startsAt.getTime(),
+        )
+        if (hit && e.reminderSentAt === where.reminderSentAt) {
+          e.reminderSentAt = data.reminderSentAt
+          count += 1
+        }
+      }
+      return { count }
+    })
+    base.prisma.eventParticipant.findMany.mockImplementation(
+      async ({ where }: { where: { eventId: string } }) =>
+        db.some((e) => e.id === where.eventId)
+          ? [{ id: `p-${where.eventId}`, userId: `u-${where.eventId}` }]
+          : [],
+    )
+    // Тик крона в момент T0 + n минут.
+    const tick = async (n: number) => {
+      jest.useFakeTimers().setSystemTime(min(n))
+      try {
+        return await base.service.remindDue()
+      } finally {
+        jest.useRealTimers()
+      }
+    }
+    const keys = () => base.queue.enqueue.mock.calls.map((c) => c[2].dedupeKey as string)
+    // Строка мини-БД по id: перенос в тестах правит её на месте, как update в настоящей БД.
+    const row = (id: string): StoredEvent => {
+      const found = db.find((e) => e.id === id)
+      if (!found) throw new Error(`нет события ${id}`)
+      return found
+    }
+    return { ...base, db, row, tick, keys }
+  }
+
+  it('пропущенный тик: событие напоминает о себе на следующем, пока не началось', async () => {
+    // Тик в T0 (событие за 65 минут) пропущен — деплой. Раньше в T0+15 (за 50 минут) оно
+    // было вне [55, 70] и не напоминало никогда.
+    const s = store([{ id: 'e1', startsAt: min(65) }])
+    expect(await s.tick(15)).toBe(1)
+    expect(s.keys()).toEqual([`event-reminder:e1:${min(65).getTime()}`])
+    expect(s.row('e1').reminderSentAt).toEqual(min(15))
+  })
+
+  it('событие, созданное за 40 минут до начала, получает напоминание на ближайшем тике', async () => {
+    const s = store([])
+    expect(await s.tick(0)).toBe(0)
+    s.db.push({ id: 'late', title: 'late', startsAt: min(45), reminderSentAt: null })
+    expect(await s.tick(15)).toBe(1)
+    expect(s.keys()).toEqual([`event-reminder:late:${min(45).getTime()}`])
+  })
+
+  it('уже начавшемуся событию не напоминает', async () => {
+    const s = store([{ id: 'e1', startsAt: min(10) }])
+    expect(await s.tick(15)).toBe(0)
+    expect(s.queue.enqueue).not.toHaveBeenCalled()
+  })
+
+  it('два тика подряд (и два инстанса по очереди) — одно напоминание', async () => {
+    const s = store([{ id: 'e1', startsAt: min(65) }])
+    await s.tick(0)
+    await s.tick(15)
+    await s.tick(30)
+    expect(s.keys()).toEqual([`event-reminder:e1:${min(65).getTime()}`])
+  })
+
+  it('перенесённое после напоминания событие напоминает о новом времени заново', async () => {
+    const s = store([{ id: 'e1', startsAt: min(65) }])
+    await s.tick(0)
+    // Организатор перенёс на полчаса позже: update сбрасывает reminderSentAt.
+    s.row('e1').startsAt = min(95)
+    s.row('e1').reminderSentAt = null
+    await s.tick(15)
+    await s.tick(30)
+    expect(s.keys()).toEqual([
+      `event-reminder:e1:${min(65).getTime()}`,
+      `event-reminder:e1:${min(95).getTime()}`,
+    ])
+  })
+
+  it('перенос посреди прогона: отметка о старом времени не глушит напоминание о новом', async () => {
+    const s = store([{ id: 'e1', startsAt: min(65) }])
+    // Перенос ложится между чтением участников и отметкой.
+    s.prisma.eventParticipant.findMany.mockImplementationOnce(async () => {
+      s.row('e1').startsAt = min(50)
+      s.row('e1').reminderSentAt = null
+      return [{ id: 'p-e1', userId: 'u-e1' }]
+    })
+    await s.tick(0)
+    expect(s.row('e1').reminderSentAt).toBeNull()
+    await s.tick(15)
+    expect(s.keys()).toEqual([
+      `event-reminder:e1:${min(65).getTime()}`,
+      `event-reminder:e1:${min(50).getTime()}`,
+    ])
+  })
+
+  it('отменённое (удалённое) событие не напоминает', async () => {
+    const s = store([
+      { id: 'e1', startsAt: min(65) },
+      { id: 'e2', startsAt: min(60) },
+    ])
+    // remove удаляет событие вместе с регистрациями.
+    s.db.splice(0, 1)
+    await s.tick(0)
+    expect(s.keys()).toEqual([`event-reminder:e2:${min(60).getTime()}`])
+  })
+
+  it('больше пачки событий: всё разослано, каждое — один раз', async () => {
+    const s = store(
+      Array.from({ length: 501 }, (_, i) => ({
+        id: `e${String(i).padStart(3, '0')}`,
+        startsAt: min(60),
+      })),
+    )
+    expect(await s.tick(0)).toBe(501)
+    expect(new Set(s.keys()).size).toBe(501)
+    expect(s.prisma.event.findMany.mock.calls[1][0].where.id).toEqual({ gt: 'e499' })
   })
 })
 

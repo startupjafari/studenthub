@@ -52,8 +52,14 @@ const ALLOWED_AUDIENCES: Record<Role, PostAudience[]> = {
   [Role.STUDENT]: [PostAudience.GROUP],
 }
 
-// Окно напоминаний за час (docs/BACKEND_RULES.md §9.3): [now+55м, now+70м].
-const REMINDER_WINDOW_MIN = { from: 55, to: 70 }
+// Окно напоминаний за час (docs/BACKEND_RULES.md §9.3): (now, now+70м] — всё, что ещё не
+// началось и о чём ещё не напомнили. Раньше окно было щелью [now+55м, now+70м] шириной ровно
+// в шаг крона (15 минут): каждое событие попадало в один-единственный тик, и пропущенный тик
+// (деплой, рестарт, занятый лок) или событие, созданное или перенесённое на «через 40 минут»,
+// не получали напоминания никогда. Верхняя граница прежняя: обычное событие по-прежнему
+// напоминает о себе за 55–70 минут, а ближнее — на первом же тике. Повтор отсекает
+// reminderSentAt (и dedupeKey job'а).
+const REMINDER_AHEAD_MIN = 70
 const BATCH = 500
 // Участников у события может быть сколько угодно (событие вуза — это весь вуз), а напоминание
 // обязано дойти до каждого. Поэтому читаем участников страницами и на каждую ставим свой job:
@@ -577,17 +583,27 @@ export class EventsService {
   // ── Напоминания за час (задача 10.4, вызывается из CleanupService) ─────────
 
   async remindDue(): Promise<number> {
-    const now = Date.now()
-    const from = new Date(now + REMINDER_WINDOW_MIN.from * 60_000)
-    const to = new Date(now + REMINDER_WINDOW_MIN.to * 60_000)
+    const now = new Date()
+    const until = new Date(now.getTime() + REMINDER_AHEAD_MIN * 60_000)
     let total = 0
+    let lastId: string | undefined
     for (;;) {
       const events = await this.prisma.event.findMany({
-        where: { reminderSentAt: null, startsAt: { gte: from, lte: to } },
+        where: {
+          reminderSentAt: null,
+          // Начавшемуся не напоминаем: «начнётся примерно через час» об идущем — неправда.
+          // Отменённое событие удаляется целиком (remove) и сюда не попадает.
+          startsAt: { gt: now, lte: until },
+          // Keyset по id: помеченные события выпадают из выборки сами, а непомеченное
+          // (начало перенесли посреди прогона) не читается по кругу.
+          ...(lastId ? { id: { gt: lastId } } : {}),
+        },
         select: { id: true, title: true, startsAt: true },
+        orderBy: { id: 'asc' },
         take: BATCH,
       })
       if (events.length === 0) break
+      lastId = events.at(-1)?.id
       for (const event of events) {
         let cursor: string | undefined
         let page = 0
@@ -624,9 +640,15 @@ export class EventsService {
         }
         total += 1
       }
-      // Помечаем отправленными сразу (дедуп на уровне записи + dedupeKey job'а).
+      // Помечаем отправленными сразу (дедуп на уровне записи + dedupeKey job'а) — но только ту
+      // версию события, о которой напомнили. Если начало успели перенести посреди прогона,
+      // update уже сбросил reminderSentAt: отметка не ляжет, и следующий тик напомнит о новом
+      // времени под новым dedupeKey, а не проглотит его чужой отметкой.
       await this.prisma.event.updateMany({
-        where: { id: { in: events.map((e) => e.id) } },
+        where: {
+          reminderSentAt: null,
+          OR: events.map((e) => ({ id: e.id, startsAt: e.startsAt })),
+        },
         data: { reminderSentAt: new Date() },
       })
       if (events.length < BATCH) break

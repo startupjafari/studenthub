@@ -239,8 +239,9 @@ export class CleanupService {
     private readonly users: UserService,
   ) {}
 
-  // Напоминания за час до события (docs/BACKEND_RULES.md §9.3): каждые 15 мин, окно [now+55, now+70],
-  // дедуп через Event.reminderSentAt. Логика — в EventsService.remindDue (владелец домена).
+  // Напоминания за час до события (docs/BACKEND_RULES.md §9.3): каждые 15 мин, окно (now, now+70] —
+  // всё ещё не напомненное, так что пропущенный тик догоняет следующий; дедуп через
+  // Event.reminderSentAt. Логика — в EventsService.remindDue (владелец домена).
   @Cron('*/15 * * * *', { name: 'scheduleEventReminders' })
   async scheduleEventReminders(): Promise<number | null> {
     return this.locks.run('scheduleEventReminders', LOCK_TTL_MS.scheduleEventReminders, () =>
