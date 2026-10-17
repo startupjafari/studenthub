@@ -162,6 +162,77 @@ describe('UserService — auth-выборки несут компанию раб
   })
 })
 
+// A-F01: email сравнивается без учёта регистра. До нормализации адрес сохранялся как пришёл
+// («Ivanov@Uni.kz»), и форма «Забыли пароль» (она приводит адрес к нижнему регистру) такую
+// учётку не находила никогда, а вход по email требовал угадать регистр.
+describe('UserService — email без учёта регистра (вход, сброс пароля)', () => {
+  const legacy = { id: 'u-legacy', email: 'Ivanov@Uni.kz' }
+
+  it('вход: сначала точное совпадение в нижнем регистре — по индексу', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findFirst.mockResolvedValue({ id: 'u1' })
+    await expect(service.findByLoginIdentifierForAuth('  Ivanov@Uni.KZ ')).resolves.toEqual({
+      id: 'u1',
+    })
+    expect(prisma.user.findFirst.mock.calls[0][0].where.OR).toEqual([
+      { email: 'ivanov@uni.kz' },
+      { username: 'ivanov@uni.kz' },
+    ])
+    expect(prisma.user.findMany).not.toHaveBeenCalled()
+  })
+
+  it('вход: старая запись со смешанным регистром находится запасным поиском', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findFirst.mockResolvedValue(null)
+    prisma.user.findMany.mockResolvedValue([legacy])
+    await expect(service.findByLoginIdentifierForAuth('ivanov@uni.kz')).resolves.toBe(legacy)
+    // `in`, а не `equals`: insensitive-equals Prisma строит через ILIKE, где `_` — шаблон.
+    expect(prisma.user.findMany.mock.calls[0][0]).toMatchObject({
+      where: { deletedAt: null, email: { in: ['ivanov@uni.kz'], mode: 'insensitive' } },
+      take: 2,
+    })
+  })
+
+  it('вход по username запасным поиском email не ходит', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findFirst.mockResolvedValue(null)
+    await expect(service.findByLoginIdentifierForAuth('Ivanov')).resolves.toBeNull()
+    expect(prisma.user.findMany).not.toHaveBeenCalled()
+  })
+
+  it('несколько учёток с одним адресом в разном регистре — отказ и запись в лог', async () => {
+    const { service, prisma } = setup()
+    const { logger } = service as unknown as { logger: { warn: (message: string) => void } }
+    const warn = jest.spyOn(logger, 'warn').mockImplementation(() => undefined)
+    prisma.user.findFirst.mockResolvedValue(null)
+    prisma.user.findMany.mockResolvedValue([legacy, { id: 'u-dup', email: 'IVANOV@uni.kz' }])
+    await expect(service.findByLoginIdentifierForAuth('ivanov@uni.kz')).resolves.toBeNull()
+    await expect(service.findForPasswordReset('ivanov@uni.kz')).resolves.toBeNull()
+    expect(warn).toHaveBeenCalledTimes(2)
+    expect(String(warn.mock.calls[0]?.[0])).toContain('u-legacy, u-dup')
+  })
+
+  it('сброс пароля находит учётку, записанную до нормализации', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findFirst.mockResolvedValue(null)
+    prisma.user.findMany.mockResolvedValue([legacy])
+    await expect(service.findForPasswordReset('ivanov@uni.kz')).resolves.toBe(legacy)
+    expect(prisma.user.findFirst.mock.calls[0][0].where).toEqual({
+      email: 'ivanov@uni.kz',
+      deletedAt: null,
+    })
+  })
+
+  it('регистрация: адрес занят и в другом регистре', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce({ id: 'u-legacy' })
+    await expect(service.findEmailOwnerId('ivanov@uni.kz')).resolves.toBe('u-legacy')
+    expect(prisma.user.findFirst.mock.calls[1][0].where).toEqual({
+      email: { in: ['ivanov@uni.kz'], mode: 'insensitive' },
+    })
+  })
+})
+
 describe('UserService — приватность профиля', () => {
   it('сам себя — email виден', async () => {
     const { service, prisma } = setup()

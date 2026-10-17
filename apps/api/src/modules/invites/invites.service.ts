@@ -301,11 +301,12 @@ export class InviteService {
       this.loadScopedGroups(issuer),
       this.loadScopedFaculties(issuer),
     ])
-    const taken = await this.loadTakenEmails(rawRows.map((r) => r.email))
+    // Адреса — в нижнем регистре, как их сохранит подтверждение (BulkInviteCommitRowSchema).
+    const taken = await this.loadTakenEmails(rawRows.map((r) => r.email.trim().toLowerCase()))
     const seenInFile = new Set<string>()
 
     const rows: BulkInvitePreviewRow[] = rawRows.map((raw) => {
-      const email = raw.email.trim()
+      const email = raw.email.trim().toLowerCase()
       const role = this.parseRole(raw.role)
       const base = {
         line: raw.line,
@@ -353,8 +354,7 @@ export class InviteService {
         return err(e instanceof AppException ? e.message : 'Недопустимо для вашей роли')
       }
 
-      const key = email.toLowerCase()
-      if (taken.has(key) || seenInFile.has(key)) {
+      if (taken.has(email) || seenInFile.has(email)) {
         return {
           ...base,
           groupId,
@@ -363,7 +363,7 @@ export class InviteService {
           error: 'Уже приглашён или зарегистрирован',
         }
       }
-      seenInFile.add(key)
+      seenInFile.add(email)
       return { ...base, groupId, facultyId, status: 'READY', error: null }
     })
 
@@ -386,7 +386,7 @@ export class InviteService {
     input: BulkInviteCommitInput,
     ctx: RequestContext,
   ): Promise<BulkInviteResult> {
-    const taken = await this.loadTakenEmails(input.rows.map((r) => r.email))
+    const taken = await this.loadTakenEmails(input.rows.map((r) => r.email.trim().toLowerCase()))
     // id группы и факультета пришли от клиента: перепроверяем, что они в scope создателя.
     // resolveInviteTarget принадлежность не проверяет, и без этого прямым запросом можно
     // было выдать инвайт в группу чужого факультета или вуза.
@@ -405,9 +405,9 @@ export class InviteService {
     const emailsToSend: { email: string; token: string; role: Role }[] = []
 
     for (const row of input.rows) {
-      const email = row.email.trim()
-      const key = email.toLowerCase()
-      if (!email || taken.has(key) || seen.has(key)) {
+      // Схема уже привела адрес к нижнему регистру; повтор — на случай вызова не из HTTP.
+      const email = row.email.trim().toLowerCase()
+      if (!email || taken.has(email) || seen.has(email)) {
         skipped++
         continue
       }
@@ -453,7 +453,7 @@ export class InviteService {
         failed++
         continue
       }
-      seen.add(key)
+      seen.add(email)
       created++
       emailsToSend.push({ email, token, role })
     }
@@ -523,28 +523,42 @@ export class InviteService {
     return map
   }
 
-  // email'ы, уже занятые пользователем или ожидающим инвайтом — для пометки дублей.
+  /**
+   * email'ы, уже занятые пользователем или ожидающим инвайтом — для пометки дублей. Ключи
+   * множества — в нижнем регистре.
+   *
+   * Сначала точное совпадение (индексы по email), затем для ненайденных — без учёта регистра:
+   * строки, записанные до нормализации, хранят адрес как пришёл («Ivanov@Uni.kz»), и точный
+   * поиск их не видит — получался второй инвайт и вторая учётка того же человека. Запасной
+   * поиск — через `in` (точное `LOWER(email) IN (…)`), а не `equals`: тот Prisma строит через
+   * ILIKE, где `_` в адресе — шаблон.
+   */
   private async loadTakenEmails(emails: string[]): Promise<Set<string>> {
-    const list = [...new Set(emails.map((e) => e.trim()).filter(Boolean))].slice(
+    const list = [...new Set(emails.map((e) => e.trim().toLowerCase()).filter(Boolean))].slice(
       0,
       BULK_INVITE_MAX_ROWS,
     )
-    if (list.length === 0) return new Set()
-    const [users, invites] = await this.prisma.$transaction([
-      this.prisma.user.findMany({
-        where: { email: { in: list }, deletedAt: null },
-        select: { email: true },
-        take: BULK_INVITE_MAX_ROWS,
-      }),
-      this.prisma.invite.findMany({
-        where: { email: { in: list }, status: InviteStatus.PENDING },
-        select: { email: true },
-        take: BULK_INVITE_MAX_ROWS,
-      }),
-    ])
     const set = new Set<string>()
-    for (const u of users) if (u.email) set.add(u.email.toLowerCase())
-    for (const i of invites) if (i.email) set.add(i.email.toLowerCase())
+    const collect = async (filter: { in: string[]; mode?: Prisma.QueryMode }) => {
+      const [users, invites] = await this.prisma.$transaction([
+        this.prisma.user.findMany({
+          where: { email: filter, deletedAt: null },
+          select: { email: true },
+          take: BULK_INVITE_MAX_ROWS,
+        }),
+        this.prisma.invite.findMany({
+          where: { email: filter, status: InviteStatus.PENDING },
+          select: { email: true },
+          take: BULK_INVITE_MAX_ROWS,
+        }),
+      ])
+      for (const u of users) if (u.email) set.add(u.email.toLowerCase())
+      for (const i of invites) if (i.email) set.add(i.email.toLowerCase())
+    }
+    if (list.length === 0) return set
+    await collect({ in: list })
+    const rest = list.filter((email) => !set.has(email))
+    if (rest.length > 0) await collect({ in: rest, mode: 'insensitive' })
     return set
   }
 

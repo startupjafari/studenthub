@@ -46,3 +46,50 @@ export function isRecoverableAuthError(ctx: AuthErrorContext): boolean {
   if (ctx.code === 'TOKEN_EXPIRED') return true
   return ctx.code === 'UNAUTHORIZED' && !ctx.hasBearer
 }
+
+/**
+ * Ответ обмена refresh — отказ в сессии: cookie истекла, погашена реюз-детектором, подделана
+ * или вуз заблокирован. Только тогда сессию бросаем и ведём на /login.
+ *
+ * Остальное — временное, и сессия жива: 429 значит, что кампус за одним адресом упёрся в
+ * лимит (запрос отбит ДО обмена, cookie на сервере не тронута), 5xx и обрыв сети — сбой, а не
+ * решение сервера. Раньше любой провал refresh выкидывал человека на вход посреди пары.
+ */
+export function isSessionRefused(status: number | undefined): boolean {
+  return status === 401 || status === 403
+}
+
+/** Сколько раз повторить refresh, отбитый лимитом запросов (429). */
+export const REFRESH_RATE_LIMIT_RETRIES = 3
+const REFRESH_BACKOFF_BASE_MS = 1_000
+const REFRESH_BACKOFF_MAX_MS = 15_000
+
+export interface RefreshRetryContext {
+  status?: number
+  /** Заголовок `Retry-After` (секунды), если браузер дал его прочитать. */
+  retryAfter?: string | null
+  /** Сколько повторов уже было: 0 — первый провал. */
+  attempt: number
+  /** Источник случайности для разброса (в тестах — фиксированный). */
+  random?: () => number
+}
+
+/**
+ * Через сколько миллисекунд повторить refresh, или `null` — не повторять.
+ *
+ * Повторяем только 429: такой запрос отбит лимитом до обработки, одноразовый токен не
+ * потрачен, и повтор с той же cookie безопасен. 5xx и сеть не повторяем: неизвестно, дошёл ли
+ * обмен до сервера, а повтор уже ротированной cookie сервер принял бы за кражу и погасил
+ * сессию целиком.
+ *
+ * Выдержка растёт вдвое (1, 2, 4 с), `Retry-After` удлиняет её, если сервер просит дольше.
+ * Разброс до +50% — чтобы вкладки кампуса, отбитые одновременно, не вернулись тоже разом.
+ */
+export function refreshRetryDelayMs(ctx: RefreshRetryContext): number | null {
+  if (ctx.status !== 429 || ctx.attempt >= REFRESH_RATE_LIMIT_RETRIES) return null
+  const backoff = REFRESH_BACKOFF_BASE_MS * 2 ** ctx.attempt
+  const hinted = Number(ctx.retryAfter) * 1000
+  const base = Number.isFinite(hinted) && hinted > backoff ? hinted : backoff
+  const jitter = base * 0.5 * (ctx.random ?? Math.random)()
+  return Math.min(base + jitter, REFRESH_BACKOFF_MAX_MS)
+}

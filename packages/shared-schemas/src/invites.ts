@@ -20,10 +20,15 @@ export const InviteListQuerySchema = OffsetPaginationSchema.extend({
 })
 export type InviteListQueryInput = z.infer<typeof InviteListQuerySchema>
 
+// Адрес приглашения приводится к нижнему регистру: email на платформе сравнивается без учёта
+// регистра (вход, «Забыли пароль», проверка дублей), и «Ivanov@Uni.kz» из таблицы деканата
+// иначе давал вторую учётку того же человека.
+const InviteEmailSchema = z.string().trim().toLowerCase().email()
+
 export const CreateInviteSchema = z
   .object({
     role: RoleSchema,
-    email: z.string().email().optional(),
+    email: InviteEmailSchema.optional(),
     universityId: z.string().min(1).optional(),
     facultyId: z.string().min(1).optional(),
     groupId: z.string().min(1).optional(),
@@ -75,7 +80,7 @@ export type BulkInvitePreviewResponse = z.infer<typeof BulkInvitePreviewResponse
 // факультет — деканам; у преподавателя обязательного нет.
 export const BulkInviteCommitRowSchema = z
   .object({
-    email: z.string().email(),
+    email: InviteEmailSchema,
     groupId: z.string().min(1).nullish(),
     facultyId: z.string().min(1).nullish(),
     role: RoleSchema.optional(),

@@ -239,6 +239,19 @@ function userListOrderBy(query: UserListQueryInput): Prisma.UserOrderByWithRelat
   }
 }
 
+/**
+ * Фильтр email без учёта регистра — запасной путь для строк, записанных до нормализации:
+ * раньше адрес сохранялся как пришёл («Ivanov@Uni.kz» из таблицы деканата), теперь — в нижнем
+ * регистре (схемы shared-schemas). Ищем им, только когда точное совпадение не нашлось.
+ *
+ * `in`, а не `equals`: `equals` с `mode: 'insensitive'` Prisma строит через ILIKE, где `_` и `%`
+ * — шаблоны, и `ivan_ov@uni.kz` находил бы `ivanXov@uni.kz`. `in` даёт точное
+ * `LOWER(email) IN (LOWER($1))` — и индекс по `lower(email)`, когда он появится.
+ */
+function emailIgnoringCase(email: string) {
+  return { in: [email], mode: 'insensitive' as const }
+}
+
 @Injectable()
 export class UserService {
   private readonly logger = new Logger(UserService.name)
@@ -296,29 +309,37 @@ export class UserService {
 
   /**
    * Для AuthService (LocalStrategy): запись с passwordHash по email ИЛИ username (Telegram-стиль вход).
-   * username хранится в нижнем регистре — приводим идентификатор к нижнему для сопоставления.
+   * Оба сравниваются без учёта регистра (docs/PROJECT.md §7): username хранится в нижнем
+   * регистре, email — тоже, кроме строк, записанных до нормализации (см. emailIgnoringCase).
    * passwordHash не покидает auth-домен.
    */
-  findByLoginIdentifierForAuth(identifier: string): Promise<AuthUserRecord | null> {
+  async findByLoginIdentifierForAuth(identifier: string): Promise<AuthUserRecord | null> {
     const normalized = identifier.trim().toLowerCase()
-    return this.prisma.user.findFirst({
-      where: {
-        deletedAt: null,
-        OR: [{ email: identifier.trim() }, { username: normalized }],
-      },
-      select: {
-        id: true,
-        passwordHash: true,
-        role: true,
-        isBlocked: true,
-        universityId: true,
-        facultyId: true,
-        groupId: true,
-        twoFactorEnabled: true,
-        // Ф18: компания работодателя уходит в токен (см. JwtPayload.companyId).
-        companyMembership: { select: { companyId: true } },
-      },
+    const select = {
+      id: true,
+      passwordHash: true,
+      role: true,
+      isBlocked: true,
+      universityId: true,
+      facultyId: true,
+      groupId: true,
+      twoFactorEnabled: true,
+      // Ф18: компания работодателя уходит в токен (см. JwtPayload.companyId).
+      companyMembership: { select: { companyId: true } },
+    } satisfies Prisma.UserSelect
+    // Сначала точное совпадение — по уникальным индексам email и username.
+    const exact = await this.prisma.user.findFirst({
+      where: { deletedAt: null, OR: [{ email: normalized }, { username: normalized }] },
+      select,
     })
+    // В username «@» не бывает — без неё искать старый email незачем.
+    if (exact || !normalized.includes('@')) return exact
+    const legacy = await this.prisma.user.findMany({
+      where: { deletedAt: null, email: emailIgnoringCase(normalized) },
+      select,
+      take: 2,
+    })
+    return this.singleEmailOwner(legacy, 'Вход')
   }
 
   /** Для AuthService.refresh: актуальные роль/scope/блокировка/2FA по id (без passwordHash). */
@@ -1421,7 +1442,7 @@ export class UserService {
    * Кому слать ссылку сброса пароля (AuthModule, docs/PROJECT.md §7.2). Без passwordHash:
    * для письма нужны только адрес, имя и язык. Удалённые не находятся — их почта затёрта.
    */
-  findForPasswordReset(email: string): Promise<{
+  async findForPasswordReset(email: string): Promise<{
     id: string
     email: string
     username: string | null
@@ -1429,17 +1450,63 @@ export class UserService {
     locale: string
     isBlocked: boolean
   } | null> {
-    return this.prisma.user.findFirst({
-      where: { email, deletedAt: null },
-      select: {
-        id: true,
-        email: true,
-        username: true,
-        firstName: true,
-        locale: true,
-        isBlocked: true,
-      },
+    const normalized = email.trim().toLowerCase()
+    const select = {
+      id: true,
+      email: true,
+      username: true,
+      firstName: true,
+      locale: true,
+      isBlocked: true,
+    } satisfies Prisma.UserSelect
+    const exact = await this.prisma.user.findFirst({
+      where: { email: normalized, deletedAt: null },
+      select,
     })
+    if (exact) return exact
+    // Письмо уходит на адрес из базы (`email` записи), а не на введённый: найденная без учёта
+    // регистра учётка получает ссылку туда же, куда и всегда.
+    const legacy = await this.prisma.user.findMany({
+      where: { email: emailIgnoringCase(normalized), deletedAt: null },
+      select,
+      take: 2,
+    })
+    return this.singleEmailOwner(legacy, 'Сброс пароля')
+  }
+
+  /**
+   * Чей это email — без учёта регистра (регистрация по инвайту: проверка, что адрес не занят).
+   * Несколько совпадений здесь не отказ, а ответ «занят»: важно лишь, что адрес чей-то.
+   */
+  async findEmailOwnerId(email: string): Promise<string | null> {
+    const normalized = email.trim().toLowerCase()
+    const exact = await this.prisma.user.findFirst({
+      where: { email: normalized },
+      select: { id: true },
+    })
+    if (exact) return exact.id
+    const legacy = await this.prisma.user.findFirst({
+      where: { email: emailIgnoringCase(normalized) },
+      select: { id: true },
+    })
+    return legacy?.id ?? null
+  }
+
+  /**
+   * Единственный владелец email из запасного поиска без учёта регистра. Два и больше —
+   * `Ivanov@…` и `ivanov@…` заведены разными учётками ещё до нормализации: угадывать, чья
+   * это почта, нельзя, поэтому отказ (вход не проходит, письмо не уходит) и запись в лог —
+   * такие пары разводит владелец данных.
+   */
+  private singleEmailOwner<T extends { id: string }>(matches: T[], purpose: string): T | null {
+    if (matches.length > 1) {
+      this.logger.warn(
+        `${purpose}: email без учёта регистра совпал у нескольких учёток ` +
+          `(${matches.map((m) => m.id).join(', ')}) — отказ`,
+      )
+      return null
+    }
+    return matches[0] ?? null
   }
 
   /**

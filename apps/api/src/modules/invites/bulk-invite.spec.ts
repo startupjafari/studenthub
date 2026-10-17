@@ -140,6 +140,52 @@ describe('InviteService.bulkPreview', () => {
   })
 })
 
+// A-F01: адреса, записанные до нормализации («Ivanov@Uni.kz»), — тоже дубли. Раньше точный
+// поиск их не видел: второй инвайт, вторая учётка того же человека.
+describe('InviteService — дубли email без учёта регистра', () => {
+  // Точный поиск (без `mode`) старую запись не находит, запасной без учёта регистра — находит.
+  const legacyOnly = (row: { email: string }) =>
+    jest.fn((args: { where: { email: { mode?: string } } }) =>
+      Promise.resolve(args.where.email.mode === 'insensitive' ? [row] : []),
+    )
+
+  it('предпросмотр: учётка «Ivanov@Uni.kz» занимает «IVANOV@uni.kz» из файла', async () => {
+    const { service, user } = setup()
+    user.findMany = legacyOnly({ email: 'Ivanov@Uni.kz' })
+    const res = await service.bulkPreview(dean, [
+      { line: 2, email: ' IVANOV@uni.kz ', group: 'BT-101', role: '', faculty: '' },
+    ])
+    expect(res.rows[0]).toMatchObject({ email: 'ivanov@uni.kz', status: 'DUPLICATE' })
+    // Сначала точный поиск по нормализованным адресам, затем — только ненайденные.
+    expect(user.findMany.mock.calls[0]![0].where.email).toEqual({ in: ['ivanov@uni.kz'] })
+    expect(user.findMany.mock.calls[1]![0].where.email).toEqual({
+      in: ['ivanov@uni.kz'],
+      mode: 'insensitive',
+    })
+  })
+
+  it('подтверждение: ожидающий инвайт на старый адрес — строка пропускается', async () => {
+    const { service, invite } = setup()
+    invite.findMany = legacyOnly({ email: 'Petrov@Uni.kz' })
+    const res = await service.bulkCreate(
+      dean,
+      { rows: [{ email: 'petrov@uni.kz', groupId: 'grp-1', role: Role.STUDENT }] },
+      ctx,
+    )
+    expect(res).toEqual({ created: 0, skipped: 1, failed: 0 })
+    expect(invite.create).not.toHaveBeenCalled()
+  })
+
+  it('всё нашлось точным поиском — запасной не нужен', async () => {
+    const { service, user } = setup()
+    user.findMany.mockResolvedValue([{ email: 'known@x.kz' }])
+    await service.bulkPreview(dean, [
+      { line: 2, email: 'known@x.kz', group: 'BT-101', role: '', faculty: '' },
+    ])
+    expect(user.findMany).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('InviteService.bulkCreate', () => {
   it('создаёт READY-строки, пропускает дубли, пишет сводный аудит', async () => {
     const { service, invite, user, audit } = setup()

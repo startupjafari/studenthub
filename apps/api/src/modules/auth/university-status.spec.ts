@@ -51,6 +51,7 @@ function setup(status: 'ACTIVE' | 'BLOCKED' | 'PENDING') {
     findByLoginIdentifierForAuth: jest.fn().mockResolvedValue(STUDENT),
     findByIdForAuth: jest.fn().mockResolvedValue(STUDENT),
     createInvitedUser: jest.fn().mockResolvedValue({ sub: 'u-new' }),
+    findEmailOwnerId: jest.fn().mockResolvedValue(null),
   }
   const invites = {
     claimInvite: jest.fn().mockResolvedValue({

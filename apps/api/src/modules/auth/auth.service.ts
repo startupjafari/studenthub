@@ -155,9 +155,16 @@ export class AuthService {
       // Вуз из инвайта заблокирован — отказ откатывает и захват инвайта: ссылка остаётся
       // действительной до разблокировки.
       await this.universityAccess.assertAllowed(invite)
-      const email = invite.email ?? input.email
+      // Нижний регистр — и для адреса из инвайта: выданные до нормализации хранят его как
+      // пришёл («Ivanov@Uni.kz»), а email сравнивается на платформе без учёта регистра.
+      const email = (invite.email ?? input.email)?.trim().toLowerCase()
       if (!email) {
         throw new AppException('BAD_REQUEST', 'Для регистрации нужен email')
+      }
+      // Уникальный индекс email различает регистр: учётку, заведённую до нормализации как
+      // «Ivanov@Uni.kz», он от «ivanov@uni.kz» не защищает — вторая учётка того же человека.
+      if (await this.users.findEmailOwnerId(email)) {
+        throw new AppException('CONFLICT', 'Пользователь с таким email уже существует')
       }
       const created = await this.users.createInvitedUser(tx, {
         email,
