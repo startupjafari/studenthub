@@ -2463,7 +2463,12 @@
     "resetTwoFactorNeedOwn": "Turn on two-factor authentication for yourself in settings first — the reset is not available without it.",
     "resetTwoFactorCode": "Your confirmation code",
     "resetTwoFactorConfirm": "Reset",
-    "resetTwoFactorDone": "2FA reset, the user has been emailed"
+    "resetTwoFactorDone": "2FA reset, the user has been emailed",
+    "blockTitle": "Block {name}?",
+    "endSessions": "End sessions",
+    "endSessionsDesc": "{name} will be signed out on every device. Account access stays — they can sign in again. Use it when an account is hijacked: blocking would punish the owner.",
+    "endSessionsConfirm": "End sessions",
+    "endSessionsDone": "Sessions ended"
   },
   "Stats": {
     "attendanceRate": "Attendance",
@@ -2704,6 +2709,14 @@
     "language": "Interface language",
     "languageSaveFailed": "The interface language changed, but saving it to your profile failed — emails will still arrive in the previous language",
     "deleteConfirmTitle": "Delete account?",
+    "deleteReauthDesc": "Enter your current password to confirm.",
+    "deleteReauthDesc2fa": "Enter your current password and a code from your authenticator app or a backup code to confirm.",
+    "deleteCodeLabel": "2FA code or backup code",
+    "deleteWrongPassword": "Wrong password",
+    "deleteLastAdmin": "You are the last platform administrator, so the account can't be deleted.",
+    "logoutEverywhere": "Sign out everywhere",
+    "logoutEverywhereDesc": "Ends every session, including this one: you'll need to sign in again",
+    "logoutEverywhereConfirm": "Sign out everywhere",
     "visibilityTitle": "Profile visibility",
     "visibilityDesc": "Who can see your full profile. A closed profile shows others only your name, photo and role.",
     "visibilityPUBLIC": "Everyone on the platform",

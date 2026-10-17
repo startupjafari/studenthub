@@ -12,6 +12,7 @@ import type {
 } from '@studenthub/shared-schemas'
 import { disallowedProfileFields, ignoredProfileFields } from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
+import { advisoryXactLock } from '../../common/prisma/advisory-lock'
 import { buildPublicObjectUrl } from '../../common/minio/public-url'
 import { PasswordService } from '../../common/security/password.service'
 import { AuditService } from '../../common/audit/audit.service'
@@ -79,6 +80,10 @@ const PASSWORD_CHANGE_FAIL_WINDOW_SEC = 15 * 60
 // Прежних аватаров у пользователя единицы (каждая замена удаляет предыдущие),
 // но потолок обязателен и здесь (BACKEND_RULES §7.2).
 const OLD_AVATARS_LIMIT = 100
+
+// Ключ advisory-лока проверки «не последний ли администратор платформы» при удалении
+// аккаунта: двое последних, удаляющих себя одновременно, иначе оба видели бы друг друга.
+const LAST_PLATFORM_ADMIN_LOCK = 'users:last-platform-admin'
 
 // Справочник людей (§50). Друзей и блокировок у человека десятки, но `take` обязателен
 // везде (§18): при переполнении секция «друзья» просто не пометит хвост — выдача остаётся
@@ -830,7 +835,10 @@ export class UserService {
    */
   async setAvatar(userId: string, buffer: Buffer): Promise<UserProfile> {
     const bucket = this.config.get('MINIO_BUCKET_AVATARS', { infer: true })
-    await this.deleteExistingAvatars(userId, bucket)
+    // Сначала загрузка (проверка типа и размера — внутри), потом ссылка в профиле, и только
+    // затем снос прежних — как у обложки. Раньше прежние удалялись первыми: файл с подменённым
+    // расширением или сбой MinIO давали FILE_TYPE_NOT_ALLOWED, а avatarUrl в базе уже указывал
+    // на снесённый объект — «битая» аватарка.
     const file = await this.files.upload({
       buffer,
       bucket,
@@ -843,6 +851,7 @@ export class UserService {
       data: { avatarUrl, avatarThumbUrl: null },
       select: PROFILE_SELECT,
     })
+    await this.deleteExistingAvatars(userId, bucket, file.id)
     // Тяжёлый ресайз — в очередь (§9.1). Идемпотентность по jobId (один thumb на файл).
     await this.queue.enqueue(
       QUEUES.FILE_PROCESSING,
@@ -870,6 +879,11 @@ export class UserService {
    * в тот же бакет avatars (чтобы orphan-клинер его не удалил, а deleteExistingAvatars снёс при
    * смене аватара) и проставляет avatarThumbUrl. Если оригинал уже удалён (аватар сменили) —
    * getObjectBuffer бросит, джоба упадёт и не запишет устаревшее превью.
+   *
+   * Превью пишется, только пока avatarUrl — всё ещё этот оригинал: прежний аватар может
+   * пережить смену (снос объектов идёт после записи нового URL), и его превью, готовое позже,
+   * перезаписывало бы превью нового — в списках оставалось старое лицо. Опоздавшее превью
+   * сносится сразу, а не ждёт следующей смены аватара.
    */
   async generateAvatarThumbnail(data: {
     fileId: string
@@ -889,10 +903,15 @@ export class UserService {
       expectedCategory: 'IMAGE',
     })
     const avatarThumbUrl = this.buildPublicUrl(data.bucket, thumbFile.key)
-    await this.prisma.user.updateMany({
-      where: { id: data.userId, deletedAt: null },
+    const { count } = await this.prisma.user.updateMany({
+      where: {
+        id: data.userId,
+        deletedAt: null,
+        avatarUrl: { endsWith: `/${data.bucket}/${data.key}` },
+      },
       data: { avatarThumbUrl },
     })
+    if (count === 0) await this.files.delete(thumbFile.id)
   }
 
   /**
@@ -948,9 +967,14 @@ export class UserService {
   // Прежние аватары пользователя и их превью — все его файлы в бакете avatars, КРОМЕ аватаров
   // групп: их грузит админ группы (`setChatAvatar`), владельцем файла записан он же, и без
   // этого исключения смена своего аватара стирала картинки всех групп, где он их ставил.
-  private async deleteExistingAvatars(userId: string, bucket: string): Promise<void> {
+  // `keepFileId` — только что загруженный аватар: снос прежних идёт уже после его записи.
+  private async deleteExistingAvatars(
+    userId: string,
+    bucket: string,
+    keepFileId?: string,
+  ): Promise<void> {
     const existing = await this.prisma.file.findMany({
-      where: { ownerId: userId, bucket },
+      where: { ownerId: userId, bucket, ...(keepFileId ? { id: { not: keepFileId } } : {}) },
       select: { id: true, key: true },
       take: OLD_AVATARS_LIMIT,
     })
@@ -1018,8 +1042,14 @@ export class UserService {
       fundingType,
       academicStatus,
       dormitory,
+      locale,
       ...rest
     } = target
+    // Всё, что осталось в rest, уходит в карточку как есть. Поле, которое тип PublicProfile
+    // прячет, а разбор выше забыл вынуть (так утекал locale), не соберёт сборку.
+    const leaked: Exclude<keyof typeof rest, keyof PublicProfile> extends never ? true : never =
+      true
+    void leaked
     const academic = this.canSeeAcademicRecords(viewer, target)
     void showEmail
     void studentCardNumber
@@ -1029,6 +1059,8 @@ export class UserService {
     void twoFactorEnabled
     // Имя входа — тоже: это половина учётных данных, а не публичный хэндл.
     void username
+    // Язык интерфейса — настройка владельца, наружу только в /users/me.
+    void locale
     return {
       ...rest,
       email: this.canSeeEmail(viewer, target) ? email : null,
@@ -1460,23 +1492,7 @@ export class UserService {
     if (!user) {
       throw new AppException('NOT_FOUND', 'Пользователь не найден')
     }
-    const failKey = `password-change:fails:${userId}`
-    const fails = Number((await this.redis.get(failKey).catch(() => null)) ?? 0)
-    if (fails >= PASSWORD_CHANGE_MAX_FAILS) {
-      throw new AppException('RATE_LIMIT', 'Слишком много неверных паролей — попробуйте позже')
-    }
-    const ok = await this.passwords.compare(currentPassword, user.passwordHash)
-    if (!ok) {
-      await this.redis
-        .multi()
-        .incr(failKey)
-        .expire(failKey, PASSWORD_CHANGE_FAIL_WINDOW_SEC)
-        .exec()
-        .catch(() => undefined)
-      // 400, а не 401 — чтобы не триггерить авто-refresh на фронте.
-      throw new AppException('BAD_REQUEST', 'Неверный текущий пароль')
-    }
-    await this.redis.del(failKey).catch(() => undefined)
+    await this.assertCurrentPassword(userId, currentPassword, user.passwordHash)
     const passwordHash = await this.passwords.hash(newPassword)
     await this.prisma.user.update({ where: { id: userId }, data: { passwordHash } })
     await this.authService.revokeAllUserSessions(userId)
@@ -1488,6 +1504,36 @@ export class UserService {
       entityId: userId,
       ...ctx,
     })
+  }
+
+  /**
+   * Сверка текущего пароля — для смены пароля и удаления аккаунта. Счётчик промахов общий:
+   * перебирать пароль через удаление вместо смены ничего не даёт. Пять промахов за 15 минут
+   * закрывают проверку до конца окна, даже с верным паролем; Redis недоступен — проверяем
+   * без счётчика.
+   */
+  private async assertCurrentPassword(
+    userId: string,
+    password: string,
+    passwordHash: string,
+  ): Promise<void> {
+    const failKey = `password-change:fails:${userId}`
+    const fails = Number((await this.redis.get(failKey).catch(() => null)) ?? 0)
+    if (fails >= PASSWORD_CHANGE_MAX_FAILS) {
+      throw new AppException('RATE_LIMIT', 'Слишком много неверных паролей — попробуйте позже')
+    }
+    const ok = await this.passwords.compare(password, passwordHash)
+    if (!ok) {
+      await this.redis
+        .multi()
+        .incr(failKey)
+        .expire(failKey, PASSWORD_CHANGE_FAIL_WINDOW_SEC)
+        .exec()
+        .catch(() => undefined)
+      // 400, а не 401 — чтобы не триггерить авто-refresh на фронте.
+      throw new AppException('BAD_REQUEST', 'Неверный текущий пароль')
+    }
+    await this.redis.del(failKey).catch(() => undefined)
   }
 
   /**
@@ -1802,6 +1848,65 @@ export class UserService {
   }
 
   /**
+   * Удаление своего аккаунта по запросу владельца (DELETE /users/me) — с повторной
+   * аутентификацией: текущий пароль и, если включена 2FA, её код (`verifyCode` — проверка
+   * с общим счётчиком неверных кодов). Раньше необратимую анонимизацию запускал любой, у кого
+   * в руках открытая вкладка или access-токен.
+   *
+   * Порядок — от отказов, которые ничего не тратят, к тем, что тратят: последний админ
+   * платформы (409) → пароль (счётчик промахов) → код 2FA последним: резервный код при
+   * проверке сгорает, тратить его на запрос, который всё равно отклонён, незачем.
+   */
+  async deleteOwnAccount(
+    userId: string,
+    input: { password?: string; code?: string },
+    verifyCode: (code: string) => Promise<boolean>,
+    ctx: { ip?: string; userAgent?: string } = {},
+  ): Promise<void> {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, deletedAt: null },
+      select: { role: true, passwordHash: true, twoFactorEnabled: true },
+    })
+    if (!user) {
+      throw new AppException('NOT_FOUND', 'Пользователь не найден')
+    }
+    if (user.role === Role.PLATFORM_ADMIN) {
+      await this.assertNotLastPlatformAdmin(this.prisma, userId)
+    }
+    const { password, code } = input
+    if (!password) {
+      throw new AppException('BAD_REQUEST', 'Для удаления аккаунта введите текущий пароль')
+    }
+    if (user.twoFactorEnabled && !code) {
+      throw new AppException('BAD_REQUEST', 'Для удаления аккаунта введите код 2FA')
+    }
+    await this.assertCurrentPassword(userId, password, user.passwordHash)
+    if (user.twoFactorEnabled && !(await verifyCode(code ?? ''))) {
+      throw new AppException('INVALID_2FA_CODE', 'Неверный код подтверждения')
+    }
+    await this.softDeleteSelf(userId, ctx)
+  }
+
+  /**
+   * Не последний ли это действующий (не удалён, не заблокирован) администратор платформы.
+   * Нового выдаёт только сид — инвайтом PLATFORM_ADMIN не завести (ALLOWED_ISSUERS), — и
+   * платформа без него остаётся без управления.
+   */
+  private async assertNotLastPlatformAdmin(db: PrismaTx, userId: string): Promise<void> {
+    const others = await db.user.count({
+      where: {
+        role: Role.PLATFORM_ADMIN,
+        deletedAt: null,
+        isBlocked: false,
+        id: { not: userId },
+      },
+    })
+    if (others === 0) {
+      throw new AppException('CONFLICT', 'Нельзя удалить последнего администратора платформы')
+    }
+  }
+
+  /**
    * Мягкое удаление + анонимизация ПДн (§11.3) + разлогин всех устройств.
    * Затираем ВСЕ персональные поля (не только email/имя), гасим 2FA и приватность,
    * сносим объекты аватара и обложки в MinIO, а также контент профиля: фото/видео, статьи,
@@ -1809,23 +1914,29 @@ export class UserService {
    * createdAt) сохраняем: строка нужна для целостности FK контента (посты/сообщения
    * остаются с автором-«tombstone»). Очистка файлов — best-effort: недоступность MinIO
    * не должна блокировать удаление аккаунта (ПДн в БД затираются в любом случае).
+   *
+   * Повторную аутентификацию проверяет deleteOwnAccount — снаружи звать его, а не этот метод.
+   * Последнего администратора платформы не удаляет: проверка до сноса медиа и ещё раз в
+   * транзакции под advisory-локом (двое последних, удаляющих себя разом).
    */
   async softDeleteSelf(
     userId: string,
     ctx: { ip?: string; userAgent?: string } = {},
   ): Promise<void> {
+    const current = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { role: true },
+    })
+    const isPlatformAdmin = current?.role === Role.PLATFORM_ADMIN
+    if (isPlatformAdmin) await this.assertNotLastPlatformAdmin(this.prisma, userId)
     await this.deleteUserMedia(userId)
     await this.deleteProfileMedia(userId)
     const anonymizedEmail = `deleted+${userId}@studenthub.invalid`
     // Пароль забиваем невосстановимым хешем случайной строки.
     const anonymizedHash = await this.passwords.hash(`${userId}-${Date.now()}-deleted`)
-    const current = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { role: true },
-    })
     // Староста — роль и отметка в группе; удалённому не остаётся ни того, ни другого.
     const demoted = current?.role === Role.STAROSTA ? { role: Role.STUDENT } : {}
-    const anonymize = this.prisma.user.update({
+    const anonymizeArgs = {
       where: { id: userId },
       data: {
         deletedAt: new Date(),
@@ -1896,27 +2007,31 @@ export class UserService {
         responsibilities: null,
         moderationAreas: null,
       },
-    })
-    await this.prisma.$transaction([
-      anonymize,
-      this.prisma.group.updateMany({ where: { starostaId: userId }, data: { starostaId: null } }),
+    } satisfies Prisma.UserUpdateArgs
+    await this.prisma.$transaction(async (tx) => {
+      if (isPlatformAdmin) {
+        await advisoryXactLock(tx, LAST_PLATFORM_ADMIN_LOCK)
+        await this.assertNotLastPlatformAdmin(tx, userId)
+      }
+      await tx.user.update(anonymizeArgs)
+      await tx.group.updateMany({ where: { starostaId: userId }, data: { starostaId: null } })
       // Привязка Telegram — отдельный канал доступа, и разлогин его не гасит: бот и
       // мини-апп узнают человека по telegramId, а не по сессии. Без этого удалённый
       // сотрудник платформы продолжал бы получать уведомления, брать жалобы кнопкой и
       // читать очередь командами. Строку удаляем, а не отзываем: telegramId и username —
       // тоже ПДн, а история «этот Telegram здесь уже был» у удалённого аккаунта никому
       // не нужна и только держала бы уникальный telegramId занятым.
-      this.prisma.telegramAccount.deleteMany({ where: { userId } }),
+      await tx.telegramAccount.deleteMany({ where: { userId } })
       // Контент профиля — личное, а не общее: статьи, опросы, альбомы и портфолио после
       // удаления продолжали отдаваться с исходным текстом под «Удалённым пользователем».
       // Чужие комментарии к ним, голоса и закладки уходят каскадом. Посты, комментарии
       // и сообщения остаются tombstone-ом — так решено для общих лент и переписки.
-      this.prisma.profileArticle.deleteMany({ where: { userId } }),
-      this.prisma.poll.deleteMany({ where: { userId } }),
-      this.prisma.album.deleteMany({ where: { userId } }),
-      this.prisma.portfolioItem.deleteMany({ where: { userId } }),
-      this.prisma.bookmark.deleteMany({ where: { userId } }),
-    ])
+      await tx.profileArticle.deleteMany({ where: { userId } })
+      await tx.poll.deleteMany({ where: { userId } })
+      await tx.album.deleteMany({ where: { userId } })
+      await tx.portfolioItem.deleteMany({ where: { userId } })
+      await tx.bookmark.deleteMany({ where: { userId } })
+    })
     await this.authService.revokeAllUserSessions(userId)
     // Строка журнала переживает анонимизацию: в ней только id, без ПДн удалённого.
     await this.audit.record({

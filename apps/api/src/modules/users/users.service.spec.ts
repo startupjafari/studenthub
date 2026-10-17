@@ -16,6 +16,7 @@ import type { ExportRegistryService } from '../../common/export/export-registry.
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { EnvVars } from '../../config/env.schema'
 import type Redis from 'ioredis'
+import sharp from 'sharp'
 
 function setup() {
   const prisma = {
@@ -23,6 +24,7 @@ function setup() {
       findFirst: jest.fn(),
       findUnique: jest.fn().mockResolvedValue(null),
       update: jest.fn(),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       create: jest.fn(),
       findMany: jest.fn().mockResolvedValue([]),
       count: jest.fn().mockResolvedValue(0),
@@ -49,12 +51,20 @@ function setup() {
     album: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
     portfolioItem: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
     bookmark: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
-    $transaction: jest.fn((ops: unknown) => Promise.all(ops as Promise<unknown>[])),
+    // advisory-лок (проверка последнего администратора платформы при удалении аккаунта).
+    $executeRaw: jest.fn().mockResolvedValue(1),
+    // Пакетная транзакция — массивом запросов; интерактивная получает этот же мок как tx.
+    $transaction: jest.fn((arg: unknown): Promise<unknown> =>
+      typeof arg === 'function'
+        ? Promise.resolve((arg as (tx: unknown) => unknown)(prisma))
+        : Promise.all(arg as Promise<unknown>[]),
+    ),
   }
   const passwords = { hash: jest.fn(), compare: jest.fn() }
   const files = {
     upload: jest.fn(),
     delete: jest.fn(),
+    getObjectBuffer: jest.fn(),
     removeRawObject: jest.fn(),
     listByOwnerAndBucket: jest.fn().mockResolvedValue([]),
   }
@@ -322,6 +332,26 @@ describe('UserService — приватность профиля', () => {
     await expect(service.getProfileForViewer('x', viewer(Role.STUDENT))).rejects.toMatchObject({
       code: 'NOT_FOUND',
     })
+  })
+
+  // A-F15: язык интерфейса уходил в полной чужой карточке — белый список держался на
+  // ручном разборе полей, и locale из него выпал.
+  it('чужой полный профиль не содержит locale, username и флага 2FA', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findFirst.mockResolvedValue({
+      ...target,
+      locale: 'kk',
+      username: 'secret_login',
+      twoFactorEnabled: true,
+    })
+    const res = await service.getProfileForViewer(
+      'target-1',
+      viewer(Role.PLATFORM_ADMIN, {}, 'admin'),
+    )
+    expect(res.access).toBe('full')
+    expect(res).not.toHaveProperty('locale')
+    expect(res).not.toHaveProperty('username')
+    expect(res).not.toHaveProperty('twoFactorEnabled')
   })
 })
 
@@ -779,9 +809,9 @@ describe('UserService — softDeleteSelf', () => {
     prisma.user.update.mockResolvedValue({})
     await service.softDeleteSelf('u')
     expect(prisma.telegramAccount.deleteMany).toHaveBeenCalledWith({ where: { userId: 'u' } })
-    const ops = prisma.$transaction.mock.calls[0]?.[0] as unknown[]
     // Анонимизация, староста, Telegram и пять видов контента профиля — одной транзакцией.
-    expect(ops).toHaveLength(8)
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1)
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function))
   })
 
   // Статьи, опросы, альбомы и портфолио после удаления продолжали отдаваться с исходным
@@ -861,6 +891,133 @@ describe('UserService — softDeleteSelf', () => {
   })
 })
 
+// A-F13: необратимое удаление запускал любой, у кого открытая вкладка или access-токен.
+describe('UserService — удаление аккаунта с повторной аутентификацией', () => {
+  function account(
+    prisma: ReturnType<typeof setup>['prisma'],
+    extra: Record<string, unknown> = {},
+  ) {
+    prisma.user.findFirst.mockResolvedValue({
+      role: Role.STUDENT,
+      passwordHash: 'h',
+      twoFactorEnabled: false,
+      ...extra,
+    })
+    prisma.user.update.mockResolvedValue({})
+  }
+  const verifyNever = () => jest.fn().mockResolvedValue(true)
+
+  it('без пароля — BAD_REQUEST, аккаунт не тронут', async () => {
+    const { service, prisma, passwords } = setup()
+    account(prisma)
+    await expect(service.deleteOwnAccount('u', {}, verifyNever())).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+    })
+    expect(passwords.compare).not.toHaveBeenCalled()
+    expect(prisma.user.update).not.toHaveBeenCalled()
+  })
+
+  it('неверный пароль — BAD_REQUEST, промах в общем счётчике со сменой пароля', async () => {
+    const { service, prisma, passwords, redis } = setup()
+    account(prisma)
+    passwords.compare.mockResolvedValue(false)
+    await expect(
+      service.deleteOwnAccount('u', { password: 'wrong' }, verifyNever()),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    expect(redis.store.get('password-change:fails:u')).toBe('1')
+    expect(prisma.user.update).not.toHaveBeenCalled()
+  })
+
+  it('верный пароль без 2FA — аккаунт удалён', async () => {
+    const { service, prisma, passwords, authService } = setup()
+    account(prisma)
+    passwords.compare.mockResolvedValue(true)
+    passwords.hash.mockResolvedValue('anon')
+    const verify = verifyNever()
+    await service.deleteOwnAccount('u', { password: 'Secret123' }, verify)
+    expect(verify).not.toHaveBeenCalled()
+    expect(prisma.user.update.mock.calls[0][0].data.deletedAt).toBeInstanceOf(Date)
+    expect(authService.revokeAllUserSessions).toHaveBeenCalledWith('u')
+  })
+
+  it('2FA включена: без кода — BAD_REQUEST, пароль даже не сверяется', async () => {
+    const { service, prisma, passwords } = setup()
+    account(prisma, { twoFactorEnabled: true })
+    await expect(
+      service.deleteOwnAccount('u', { password: 'Secret123' }, verifyNever()),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    expect(passwords.compare).not.toHaveBeenCalled()
+  })
+
+  it('2FA включена: неверный код — INVALID_2FA_CODE, аккаунт не тронут', async () => {
+    const { service, prisma, passwords } = setup()
+    account(prisma, { twoFactorEnabled: true })
+    passwords.compare.mockResolvedValue(true)
+    const verify = jest.fn().mockResolvedValue(false)
+    await expect(
+      service.deleteOwnAccount('u', { password: 'Secret123', code: '000000' }, verify),
+    ).rejects.toMatchObject({ code: 'INVALID_2FA_CODE' })
+    expect(verify).toHaveBeenCalledWith('000000')
+    expect(prisma.user.update).not.toHaveBeenCalled()
+  })
+
+  it('2FA: код проверяется только после верного пароля — резервный код не сгорает зря', async () => {
+    const { service, prisma, passwords } = setup()
+    account(prisma, { twoFactorEnabled: true })
+    passwords.compare.mockResolvedValue(false)
+    const verify = jest.fn().mockResolvedValue(true)
+    await expect(
+      service.deleteOwnAccount('u', { password: 'wrong', code: 'ABCD-EFGH' }, verify),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    expect(verify).not.toHaveBeenCalled()
+  })
+
+  it('последний действующий администратор платформы — CONFLICT до пароля и кода', async () => {
+    const { service, prisma, passwords, files } = setup()
+    account(prisma, { role: Role.PLATFORM_ADMIN, twoFactorEnabled: true })
+    prisma.user.count.mockResolvedValue(0)
+    const verify = jest.fn().mockResolvedValue(true)
+    await expect(
+      service.deleteOwnAccount('u', { password: 'Secret123', code: '123456' }, verify),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(prisma.user.count).toHaveBeenCalledWith({
+      where: {
+        role: Role.PLATFORM_ADMIN,
+        deletedAt: null,
+        isBlocked: false,
+        id: { not: 'u' },
+      },
+    })
+    expect(passwords.compare).not.toHaveBeenCalled()
+    expect(verify).not.toHaveBeenCalled()
+    expect(files.listByOwnerAndBucket).not.toHaveBeenCalled()
+    expect(prisma.user.update).not.toHaveBeenCalled()
+  })
+
+  it('администратор платформы при живом втором — удаляется, проверка повторяется под локом', async () => {
+    const { service, prisma, passwords } = setup()
+    account(prisma, { role: Role.PLATFORM_ADMIN })
+    prisma.user.findUnique.mockResolvedValue({ role: Role.PLATFORM_ADMIN })
+    prisma.user.count.mockResolvedValue(1)
+    passwords.compare.mockResolvedValue(true)
+    passwords.hash.mockResolvedValue('anon')
+    await service.deleteOwnAccount('u', { password: 'Secret123' }, verifyNever())
+    // Лок — в транзакции анонимизации, перед повторным подсчётом.
+    expect(prisma.$executeRaw).toHaveBeenCalledTimes(1)
+    expect(prisma.user.count).toHaveBeenCalledTimes(3)
+    expect(prisma.user.update).toHaveBeenCalled()
+  })
+
+  it('пока удалял себя, второй администратор ушёл — транзакция отказывает, ПДн не затёрты', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findUnique.mockResolvedValue({ role: Role.PLATFORM_ADMIN })
+    // До сноса медиа второй ещё был, под локом в транзакции — уже нет.
+    prisma.user.count.mockResolvedValueOnce(1).mockResolvedValueOnce(0)
+    await expect(service.softDeleteSelf('u')).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(prisma.user.update).not.toHaveBeenCalled()
+  })
+})
+
 describe('UserService — avatar', () => {
   function withAvatarConfig(config: { get: jest.Mock }) {
     config.get.mockImplementation((key: string) => {
@@ -889,6 +1046,15 @@ describe('UserService — avatar', () => {
     await service.setAvatar('u', Buffer.from('img'))
 
     expect(files.delete).toHaveBeenCalledWith('old-1')
+    // Прежние ищутся без только что загруженного, и сносятся уже после записи нового URL.
+    expect(prisma.file.findMany.mock.calls[0][0].where).toEqual({
+      ownerId: 'u',
+      bucket: 'avatars',
+      id: { not: 'file-1' },
+    })
+    expect(prisma.user.update.mock.invocationCallOrder[0]).toBeLessThan(
+      files.delete.mock.invocationCallOrder[0]!,
+    )
     expect(files.upload).toHaveBeenCalledWith(
       expect.objectContaining({ bucket: 'avatars', ownerId: 'u', expectedCategory: 'IMAGE' }),
     )
@@ -909,6 +1075,51 @@ describe('UserService — avatar', () => {
       }),
       expect.objectContaining({ jobId: 'thumb_file-1' }),
     )
+  })
+
+  // A-F14: прежние объекты удалялись до проверки нового файла — подменённое расширение или
+  // сбой MinIO оставляли в профиле ссылку на снесённый аватар.
+  it('setAvatar: новый файл отклонён — прежний аватар и профиль целы', async () => {
+    const { service, prisma, files, config } = setup()
+    withAvatarConfig(config)
+    prisma.file.findMany.mockResolvedValue([{ id: 'old-1', key: 'old-1.png' }])
+    files.upload.mockRejectedValue(
+      new AppException('FILE_TYPE_NOT_ALLOWED', 'Недопустимый тип файла'),
+    )
+
+    await expect(service.setAvatar('u', Buffer.from('not-an-image'))).rejects.toMatchObject({
+      code: 'FILE_TYPE_NOT_ALLOWED',
+    })
+    expect(files.delete).not.toHaveBeenCalled()
+    expect(prisma.user.update).not.toHaveBeenCalled()
+  })
+
+  it('превью пишется, только пока аватар тот же; опоздавшее — сносится', async () => {
+    const { service, prisma, files, config } = setup()
+    withAvatarConfig(config)
+    files.getObjectBuffer.mockResolvedValue(
+      await sharp({
+        create: { width: 8, height: 8, channels: 3, background: '#336699' },
+      })
+        .png()
+        .toBuffer(),
+    )
+    files.upload.mockResolvedValue({ id: 'thumb-1', key: 'thumb.webp' })
+    // Аватар успели сменить: условие по avatarUrl строку не выбрало.
+    prisma.user.updateMany.mockResolvedValue({ count: 0 })
+
+    await service.generateAvatarThumbnail({
+      fileId: 'old-file',
+      bucket: 'avatars',
+      key: 'old.png',
+      userId: 'u',
+    })
+
+    expect(prisma.user.updateMany).toHaveBeenCalledWith({
+      where: { id: 'u', deletedAt: null, avatarUrl: { endsWith: '/avatars/old.png' } },
+      data: { avatarThumbUrl: 'http://localhost:9000/avatars/thumb.webp' },
+    })
+    expect(files.delete).toHaveBeenCalledWith('thumb-1')
   })
 
   it('removeAvatar: удаляет объекты и обнуляет avatarUrl', async () => {

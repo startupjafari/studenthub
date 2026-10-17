@@ -16,6 +16,7 @@ import {
   type CreateInviteInput,
 } from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
+import { advisoryXactLock } from '../../common/prisma/advisory-lock'
 import { AuditService } from '../../common/audit/audit.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import { hashInviteToken, inviteTokenLookups } from './invite-token'
@@ -23,6 +24,7 @@ import { Paginated } from '../../common/http/paginated'
 import { QueueService, QUEUES, EMAIL_JOBS } from '../../common/queue'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { EnvVars } from '../../config/env.schema'
+import { webBaseUrl } from '../../config/web-base'
 import type { RequestContext } from '../auth/auth.service'
 import { resolveInviteTarget, type InviteScope } from './invite-hierarchy'
 import type { RawBulkRow } from './bulk-parse'
@@ -61,6 +63,16 @@ function inviteOrderBy(
 // Роли, которые в файле импорта привязываются к группе и к факультету (bulkPreview).
 const GROUP_ROLES: Role[] = [Role.STUDENT, Role.STAROSTA]
 const FACULTY_ROLES: Role[] = [Role.DEAN, Role.TEACHER]
+
+// Письма массового импорта ставятся в очередь пачками: по одному `await` 500 писем при
+// подвисшем Redis ждали бы таймаут постановки 500 раз подряд.
+const BULK_EMAIL_CONCURRENCY = 20
+
+/** Группы в scope создателя: имя (lowercased) → id[] и id → факультет группы. */
+interface ScopedGroups {
+  byName: Map<string, string[]>
+  facultyOf: Map<string, string>
+}
 
 @Injectable()
 export class InviteService {
@@ -206,7 +218,9 @@ export class InviteService {
     expiresAt: Date,
     locale: string,
   ): Promise<void> {
-    const origin = this.config.get('CORS_ORIGIN', { infer: true }).replace(/\/+$/, '')
+    // Адрес веба — первый origin CORS_ORIGIN, как у остальных ссылок наружу: вся строка
+    // с двумя origin через запятую давала ссылку `https://a,https://b/register?...`.
+    const origin = webBaseUrl(this.config).replace(/\/+$/, '')
     const inviteUrl = `${origin}/register?token=${token}`
     const t = emailDict(locale)
     try {
@@ -297,7 +311,7 @@ export class InviteService {
     if (rawRows.length > BULK_INVITE_MAX_ROWS) {
       throw new AppException('BAD_REQUEST', `Не более ${BULK_INVITE_MAX_ROWS} строк за импорт`)
     }
-    const [groupsByName, facultiesByName] = await Promise.all([
+    const [groups, facultiesByName] = await Promise.all([
       this.loadScopedGroups(issuer),
       this.loadScopedFaculties(issuer),
     ])
@@ -331,7 +345,7 @@ export class InviteService {
       let groupId: string | null = null
       if (GROUP_ROLES.includes(role)) {
         if (!raw.group.trim()) return err('Не указана группа')
-        const matches = groupsByName.get(raw.group.trim().toLowerCase())
+        const matches = groups.byName.get(raw.group.trim().toLowerCase())
         if (!matches || matches.length === 0) return err(`Группа не найдена: ${raw.group}`)
         if (matches.length > 1) return err(`Неоднозначное имя группы: ${raw.group}`)
         groupId = matches[0]! // length === 1 гарантировано проверками выше
@@ -378,36 +392,38 @@ export class InviteService {
 
   /**
    * Создание инвайтов по подтверждённым строкам. Каждую строку заново валидируем сервером
-   * (не доверяем клиенту): resolveInviteTarget + пропуск дублей. Инвайты создаём одним
-   * транзакционным createMany-эквивалентом построчно; письма ставим в очередь best-effort.
+   * (не доверяем клиенту): resolveInviteTarget, принадлежность группы и факультета scope
+   * создателя, пропуск дублей. Связность проверяем по уже загруженным группам и факультетам
+   * создателя — без запроса на строку: раньше 500 строк давали ~1000 последовательных запросов.
+   *
+   * Запись — одна транзакция под advisory-локом создателя. Повторная отправка того же файла
+   * (вторая вкладка, двойной клик) ждёт первую и, перечитав занятые адреса уже под локом,
+   * видит её инвайты — дублей нет. Письма — после коммита, best-effort.
    */
   async bulkCreate(
     issuer: JwtPayload,
     input: BulkInviteCommitInput,
     ctx: RequestContext,
   ): Promise<BulkInviteResult> {
-    const taken = await this.loadTakenEmails(input.rows.map((r) => r.email.trim().toLowerCase()))
     // id группы и факультета пришли от клиента: перепроверяем, что они в scope создателя.
     // resolveInviteTarget принадлежность не проверяет, и без этого прямым запросом можно
     // было выдать инвайт в группу чужого факультета или вуза.
-    const [groupsByName, facultiesByName] = await Promise.all([
+    const [groups, facultiesByName] = await Promise.all([
       this.loadScopedGroups(issuer),
       this.loadScopedFaculties(issuer),
     ])
-    const scopedGroups = new Set([...groupsByName.values()].flat())
     const scopedFaculties = new Set([...facultiesByName.values()].flat())
     const seen = new Set<string>()
     const expiresAt = new Date(Date.now() + TTL.INVITE_HOURS * 3_600_000)
 
-    let created = 0
     let skipped = 0
     let failed = 0
-    const emailsToSend: { email: string; token: string; role: Role }[] = []
+    const candidates: { email: string; role: Role; scope: InviteScope }[] = []
 
     for (const row of input.rows) {
       // Схема уже привела адрес к нижнему регистру; повтор — на случай вызова не из HTTP.
       const email = row.email.trim().toLowerCase()
-      if (!email || taken.has(email) || seen.has(email)) {
+      if (!email || seen.has(email)) {
         skipped++
         continue
       }
@@ -415,73 +431,115 @@ export class InviteService {
       const groupId = row.groupId ?? null
       const facultyId = row.facultyId ?? null
       if (
-        (groupId !== null && !scopedGroups.has(groupId)) ||
+        (groupId !== null && !groups.facultyOf.has(groupId)) ||
         (facultyId !== null && !scopedFaculties.has(facultyId))
       ) {
         failed++
         continue
       }
-      let scope
+      let scope: InviteScope
       try {
         scope = resolveInviteTarget(issuer, {
           role,
           groupId,
           facultyId: facultyId ?? issuer.facultyId,
         })
-        // groupId пришёл от клиента: проверяем связность, как у одиночного инвайта.
-        await this.assertScopeExists(scope)
       } catch {
         failed++
         continue
       }
-      const token = randomUUID()
-      try {
-        await this.prisma.invite.create({
-          data: {
-            token: hashInviteToken(token),
-            role,
-            email,
-            universityId: scope.universityId,
-            facultyId: scope.facultyId,
-            groupId: scope.groupId,
-            expiresAt,
-            createdById: issuer.sub,
-          },
-          select: { id: true },
-        })
-      } catch {
+      if (!this.bulkScopeConsistent(scope, groups, scopedFaculties)) {
         failed++
         continue
       }
       seen.add(email)
-      created++
-      emailsToSend.push({ email, token, role })
+      candidates.push({ email, role, scope })
     }
+
+    const created =
+      candidates.length === 0
+        ? []
+        : await this.prisma.$transaction(async (tx) => {
+            await advisoryXactLock(tx, `invites:bulk:${issuer.sub}`)
+            // Занятые адреса — уже под локом: параллельная отправка того же файла к этому
+            // моменту закоммитила свои инвайты, и здесь они видны.
+            const taken = await this.loadTakenEmails(
+              candidates.map((c) => c.email),
+              tx,
+            )
+            const fresh = candidates
+              .filter((c) => !taken.has(c.email))
+              .map((c) => ({ ...c, token: randomUUID() }))
+            if (fresh.length > 0) {
+              await tx.invite.createMany({
+                data: fresh.map((c) => ({
+                  // В базу — хэш, сырой токен уходит только в письмо.
+                  token: hashInviteToken(c.token),
+                  role: c.role,
+                  email: c.email,
+                  universityId: c.scope.universityId,
+                  facultyId: c.scope.facultyId,
+                  groupId: c.scope.groupId,
+                  expiresAt,
+                  createdById: issuer.sub,
+                })),
+              })
+            }
+            return fresh
+          })
+    skipped += candidates.length - created.length
 
     await this.audit.record({
       userId: issuer.sub,
       action: 'invite_bulk_created',
       entity: 'Invite',
-      metadata: { created, skipped, failed },
+      metadata: { created: created.length, skipped, failed },
       ...ctx,
     })
 
     // Письма — best-effort, вне критического пути (сбой Redis не роняет ответ).
-    if (emailsToSend.length > 0) {
+    if (created.length > 0) {
       // Один запрос на всю пачку, и только когда есть кому писать: у загрузки без адресов
       // (приглашения выдают ссылками) ходить за языком незачем.
       const locale = await this.issuerLocale(issuer.sub)
-      for (const e of emailsToSend) {
-        await this.enqueueInviteEmail(e.email, e.token, e.role, expiresAt, locale)
+      for (let i = 0; i < created.length; i += BULK_EMAIL_CONCURRENCY) {
+        await Promise.all(
+          created
+            .slice(i, i + BULK_EMAIL_CONCURRENCY)
+            .map((e) => this.enqueueInviteEmail(e.email, e.token, e.role, expiresAt, locale)),
+        )
       }
     }
 
-    return { created, skipped, failed }
+    return { created: created.length, skipped, failed }
   }
 
-  // Группы в scope создателя: имя(lowercased) → id[] (несколько = неоднозначно).
-  private async loadScopedGroups(issuer: JwtPayload): Promise<Map<string, string[]>> {
-    if (!issuer.universityId) return new Map() // платформенные без вуза — имена не разрешаем
+  /**
+   * Связность scope строки импорта — то же, что assertScopeExists, но по уже загруженным
+   * группам и факультетам создателя, без запроса: группа в его scope и лежит на факультете
+   * инвайта; факультет без группы — в его scope. Вуз совпадает по построению: группы и
+   * факультеты загружены только из вуза создателя.
+   */
+  private bulkScopeConsistent(
+    scope: InviteScope,
+    groups: ScopedGroups,
+    faculties: Set<string>,
+  ): boolean {
+    if (scope.groupId !== null) {
+      const facultyOfGroup = groups.facultyOf.get(scope.groupId)
+      return (
+        facultyOfGroup !== undefined &&
+        (scope.facultyId === null || facultyOfGroup === scope.facultyId)
+      )
+    }
+    return scope.facultyId === null || faculties.has(scope.facultyId)
+  }
+
+  // Группы в scope создателя: имя(lowercased) → id[] (несколько = неоднозначно) и факультет
+  // каждой группы — для проверки связности при подтверждении импорта.
+  private async loadScopedGroups(issuer: JwtPayload): Promise<ScopedGroups> {
+    const result: ScopedGroups = { byName: new Map(), facultyOf: new Map() }
+    if (!issuer.universityId) return result // платформенные без вуза — имена не разрешаем
     const where: Prisma.GroupWhereInput =
       issuer.role === Role.DEAN
         ? { facultyId: issuer.facultyId ?? '__none__' }
@@ -490,15 +548,15 @@ export class InviteService {
           : { faculty: { is: { universityId: issuer.universityId } } }
     const groups = await this.prisma.group.findMany({
       where,
-      select: { id: true, name: true },
+      select: { id: true, name: true, facultyId: true },
       take: 2000,
     })
-    const map = new Map<string, string[]>()
     for (const g of groups) {
       const nameKey = g.name.trim().toLowerCase()
-      map.set(nameKey, [...(map.get(nameKey) ?? []), g.id])
+      result.byName.set(nameKey, [...(result.byName.get(nameKey) ?? []), g.id])
+      result.facultyOf.set(g.id, g.facultyId)
     }
-    return map
+    return result
   }
 
   // Факультеты в scope создателя: имя(lowercased) → id[]. Декан — только свой факультет.
@@ -532,26 +590,30 @@ export class InviteService {
    * поиск их не видит — получался второй инвайт и вторая учётка того же человека. Запасной
    * поиск — через `in` (точное `LOWER(email) IN (…)`), а не `equals`: тот Prisma строит через
    * ILIKE, где `_` в адресе — шаблон.
+   *
+   * `db` — клиент транзакции подтверждения импорта: там адреса перечитываются под локом.
+   * Запросы по очереди, а не Promise.all: в транзакции они всё равно идут по одному соединению.
    */
-  private async loadTakenEmails(emails: string[]): Promise<Set<string>> {
+  private async loadTakenEmails(
+    emails: string[],
+    db: Prisma.TransactionClient = this.prisma,
+  ): Promise<Set<string>> {
     const list = [...new Set(emails.map((e) => e.trim().toLowerCase()).filter(Boolean))].slice(
       0,
       BULK_INVITE_MAX_ROWS,
     )
     const set = new Set<string>()
     const collect = async (filter: { in: string[]; mode?: Prisma.QueryMode }) => {
-      const [users, invites] = await this.prisma.$transaction([
-        this.prisma.user.findMany({
-          where: { email: filter, deletedAt: null },
-          select: { email: true },
-          take: BULK_INVITE_MAX_ROWS,
-        }),
-        this.prisma.invite.findMany({
-          where: { email: filter, status: InviteStatus.PENDING },
-          select: { email: true },
-          take: BULK_INVITE_MAX_ROWS,
-        }),
-      ])
+      const users = await db.user.findMany({
+        where: { email: filter, deletedAt: null },
+        select: { email: true },
+        take: BULK_INVITE_MAX_ROWS,
+      })
+      const invites = await db.invite.findMany({
+        where: { email: filter, status: InviteStatus.PENDING },
+        select: { email: true },
+        take: BULK_INVITE_MAX_ROWS,
+      })
       for (const u of users) if (u.email) set.add(u.email.toLowerCase())
       for (const i of invites) if (i.email) set.add(i.email.toLowerCase())
     }
@@ -605,7 +667,12 @@ export class InviteService {
     }
   }
 
-  /** Отзыв инвайта: создатель, платформенный админ или админ вуза в своём scope. Только PENDING. */
+  /**
+   * Отзыв инвайта: создатель, платформенный админ или админ вуза в своём scope. Только PENDING.
+   *
+   * Запись условная — статус стоит в WHERE: регистрация между проверкой и записью занимала
+   * инвайт (USED), а безусловный update переписывал его в REVOKED при живом пользователе.
+   */
   async revoke(issuer: JwtPayload, id: string, ctx: RequestContext) {
     const invite = await this.prisma.invite.findUnique({
       where: { id },
@@ -626,7 +693,13 @@ export class InviteService {
       throw new AppException('CONFLICT', 'Отозвать можно только ожидающий инвайт')
     }
 
-    await this.prisma.invite.update({ where: { id }, data: { status: InviteStatus.REVOKED } })
+    const { count } = await this.prisma.invite.updateMany({
+      where: { id, status: InviteStatus.PENDING },
+      data: { status: InviteStatus.REVOKED },
+    })
+    if (count === 0) {
+      throw new AppException('CONFLICT', 'Отозвать можно только ожидающий инвайт')
+    }
     await this.audit.record({
       userId: issuer.sub,
       action: 'invite_revoked',
@@ -637,10 +710,22 @@ export class InviteService {
     return { id, status: InviteStatus.REVOKED }
   }
 
-  /** Список инвайтов, созданных пользователем. Offset-пагинация (админская таблица). */
+  /**
+   * Список инвайтов, созданных пользователем. Offset-пагинация (админская таблица).
+   *
+   * `scope=university` — все инвайты своего вуза, только админу вуза: отзывать инвайты
+   * сотрудников вуза он вправе (revoke), а найти инвайт декана в «своём» списке не мог.
+   * Вуз — из токена, не из запроса. `createdBy` — кто выдал: в общем списке это главное.
+   */
   async list(issuer: JwtPayload, query: InviteListQueryInput) {
     const { page, limit } = query
-    const where = { createdById: issuer.sub }
+    let where: Prisma.InviteWhereInput = { createdById: issuer.sub }
+    if (query.scope === 'university') {
+      if (issuer.role !== Role.UNIVERSITY_ADMIN || !issuer.universityId) {
+        throw new AppException('FORBIDDEN', 'Инвайты всего вуза доступны только админу вуза')
+      }
+      where = { universityId: issuer.universityId }
+    }
     const [items, total] = await this.prisma.$transaction([
       this.prisma.invite.findMany({
         where,
@@ -657,6 +742,7 @@ export class InviteService {
           groupId: true,
           expiresAt: true,
           createdAt: true,
+          createdBy: { select: { id: true, firstName: true, lastName: true } },
         },
       }),
       this.prisma.invite.count({ where }),

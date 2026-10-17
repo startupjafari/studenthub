@@ -7,7 +7,7 @@ type Mock = jest.Mock
 
 function makeService() {
   const prisma = {
-    invite: { findMany: jest.fn() as Mock, updateMany: jest.fn() as Mock },
+    invite: { findMany: jest.fn() as Mock, updateManyAndReturn: jest.fn() as Mock },
     passwordResetToken: { findMany: jest.fn() as Mock, deleteMany: jest.fn() as Mock },
     refreshToken: { findMany: jest.fn() as Mock, deleteMany: jest.fn() as Mock },
     notification: { findMany: jest.fn() as Mock, deleteMany: jest.fn() as Mock },
@@ -167,7 +167,7 @@ describe('CleanupService', () => {
       prisma.invite.findMany
         .mockResolvedValueOnce([{ id: 'i1' }, { id: 'i2' }])
         .mockResolvedValueOnce([])
-      prisma.invite.updateMany.mockResolvedValue({ count: 2 })
+      prisma.invite.updateManyAndReturn.mockResolvedValue([{ id: 'i1' }, { id: 'i2' }])
 
       const total = await service.expireInvites()
 
@@ -175,18 +175,41 @@ describe('CleanupService', () => {
       const where = prisma.invite.findMany.mock.calls[0][0].where
       expect(where.status).toBe(InviteStatus.PENDING)
       expect(where.expiresAt.lt).toBeInstanceOf(Date)
-      expect(prisma.invite.updateMany).toHaveBeenCalledWith({
-        where: { id: { in: ['i1', 'i2'] } },
+      expect(prisma.invite.updateManyAndReturn).toHaveBeenCalledWith({
+        where: { id: { in: ['i1', 'i2'] }, status: InviteStatus.PENDING },
         data: { status: InviteStatus.EXPIRED },
+        select: { id: true },
       })
     })
 
-    it('нет просроченных — 0 без updateMany', async () => {
-      const { service, prisma } = makeService()
+    // A-F19: регистрация между выборкой и записью занимает инвайт (USED) — безусловная запись
+    // переписывала его в EXPIRED. Истечение пишется в журнал одной записью на пачку.
+    it('занятый регистрацией инвайт не трогает, истёкшие — в аудит одной записью', async () => {
+      const { service, prisma, audit } = makeService()
+      prisma.invite.findMany
+        .mockResolvedValueOnce([{ id: 'i1' }, { id: 'used-meanwhile' }])
+        .mockResolvedValueOnce([])
+      // Второй к моменту записи уже USED: условие по статусу его не выбирает.
+      prisma.invite.updateManyAndReturn.mockResolvedValue([{ id: 'i1' }])
+
+      const total = await service.expireInvites()
+
+      expect(total).toBe(1)
+      expect(audit.record).toHaveBeenCalledTimes(1)
+      expect(audit.record).toHaveBeenCalledWith({
+        action: 'invites_expired',
+        entity: 'Invite',
+        metadata: { count: 1, inviteIds: ['i1'] },
+      })
+    })
+
+    it('нет просроченных — 0 без записи и без аудита', async () => {
+      const { service, prisma, audit } = makeService()
       prisma.invite.findMany.mockResolvedValueOnce([])
       const total = await service.expireInvites()
       expect(total).toBe(0)
-      expect(prisma.invite.updateMany).not.toHaveBeenCalled()
+      expect(prisma.invite.updateManyAndReturn).not.toHaveBeenCalled()
+      expect(audit.record).not.toHaveBeenCalled()
     })
   })
 

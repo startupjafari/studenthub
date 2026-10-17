@@ -12,11 +12,19 @@ export const INVITE_SORT_FIELDS = ['role', 'email', 'status', 'expiresAt', 'crea
 export const InviteSortSchema = z.enum(INVITE_SORT_FIELDS)
 export type InviteSortValue = z.infer<typeof InviteSortSchema>
 
+// Чьи приглашения в списке: свои (по умолчанию, как раньше) или все приглашения своего вуза.
+// Второе — только админу вуза: он вправе отозвать инвайт любого сотрудника вуза
+// (InviteService.revoke), но найти инвайт декана в «своём» списке не мог.
+export const INVITE_LIST_SCOPES = ['mine', 'university'] as const
+export const InviteListScopeSchema = z.enum(INVITE_LIST_SCOPES)
+export type InviteListScopeValue = z.infer<typeof InviteListScopeSchema>
+
 // Список выданных приглашений: offset-пагинация + сортировка по всей выборке.
 // Раньше эндпоинт принимал только page/limit, и таблица сортировала открытую страницу.
 export const InviteListQuerySchema = OffsetPaginationSchema.extend({
   sort: InviteSortSchema.optional(),
   order: SortOrderSchema.optional(),
+  scope: InviteListScopeSchema.optional(),
 })
 export type InviteListQueryInput = z.infer<typeof InviteListQuerySchema>
 

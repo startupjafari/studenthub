@@ -280,11 +280,23 @@ export class CleanupService {
         take: BATCH_SIZE,
       })
       if (batch.length === 0) break
-      const { count } = await this.prisma.invite.updateMany({
-        where: { id: { in: batch.map((b) => b.id) } },
+      // Статус — и в WHERE записи: инвайт, занятый регистрацией между выборкой и записью
+      // (USED), иначе переписывался бы в EXPIRED при живом пользователе.
+      const expired = await this.prisma.invite.updateManyAndReturn({
+        where: { id: { in: batch.map((b) => b.id) }, status: InviteStatus.PENDING },
         data: { status: InviteStatus.EXPIRED },
+        select: { id: true },
       })
-      total += count
+      total += expired.length
+      // Истечение инвайта — в журнал (BACKEND_RULES §7): одна сводная запись на пачку,
+      // id — только реально истёкших.
+      if (expired.length > 0) {
+        await this.audit.record({
+          action: 'invites_expired',
+          entity: 'Invite',
+          metadata: { count: expired.length, inviteIds: expired.map((row) => row.id) },
+        })
+      }
       if (batch.length < BATCH_SIZE) break
     }
     this.logger.log(`expireInvites: помечено EXPIRED ${total}`)

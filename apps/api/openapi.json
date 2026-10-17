@@ -509,12 +509,44 @@
       "delete": {
         "operationId": "UsersController_deleteMe",
         "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "password": {
+                    "type": "string",
+                    "description": "Текущий пароль (обязателен)"
+                  },
+                  "code": {
+                    "type": "string",
+                    "description": "Код 2FA — TOTP или резервный (обязателен, если 2FA включена)"
+                  }
+                }
+              }
+            }
           }
         },
-        "summary": "Удалить свой аккаунт (soft delete + анонимизация)",
+        "responses": {
+          "200": {
+            "description": "Аккаунт удалён, сессии погашены"
+          },
+          "400": {
+            "description": "BAD_REQUEST — пароль не передан или неверен; не передан код 2FA"
+          },
+          "401": {
+            "description": "INVALID_2FA_CODE — неверный код 2FA"
+          },
+          "409": {
+            "description": "CONFLICT — последний администратор платформы"
+          },
+          "429": {
+            "description": "RATE_LIMIT — слишком много неверных паролей или кодов"
+          }
+        },
+        "summary": "Удалить свой аккаунт (soft delete + анонимизация); в теле — текущий пароль и код 2FA, если она включена",
         "tags": [
           "Пользователи"
         ]
@@ -701,6 +733,9 @@
           },
           "400": {
             "description": "BAD_REQUEST — строк больше предела выгрузки"
+          },
+          "429": {
+            "description": "RATE_LIMIT — больше 5 выгрузок в минуту"
           }
         },
         "summary": "Выгрузить список пользователей (XLSX/CSV, по scope и фильтрам)",
@@ -849,6 +884,28 @@
             }
           }
         ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "blockDays": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 365,
+                    "description": "Срок, дней"
+                  },
+                  "code": {
+                    "type": "string",
+                    "description": "Код 2FA (мини-апп)"
+                  }
+                }
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": ""

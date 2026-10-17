@@ -9,6 +9,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import type { Locale } from '@studenthub/shared-config'
+import { Role } from '@studenthub/shared-types'
 import { writeLocaleCookie } from '../../../shared/i18n/locale-cookie'
 import { useLocale, useTranslations } from 'next-intl'
 import { ContactSupportForm } from '../../../features/contact-support'
@@ -19,6 +20,7 @@ import {
   Download,
   FolderLock,
   Lock,
+  LogOut,
   Monitor,
   Moon,
   Palette,
@@ -86,6 +88,7 @@ import {
   deleteAccountRequest,
   exportMyData,
   fetchMe,
+  revokeUserSessionsRequest,
   updateProfileRequest,
   updateUsernameRequest,
   userKeys,
@@ -122,6 +125,15 @@ function errCode(e: unknown): string {
 
 // Длина TOTP задана сервером (two-factor.service.ts: /^\d{6}$/).
 const TOTP_LENGTH = 6
+
+// Кому сервер разрешает завершить свои сессии (`PATCH /users/:id/logout` со своим id) —
+// роли маршрута. Остальным выход везде пока даёт только смена пароля.
+const SESSION_REVOKE_ROLES: Role[] = [
+  Role.PLATFORM_ADMIN,
+  Role.PLATFORM_MODERATOR,
+  Role.UNIVERSITY_ADMIN,
+  Role.UNIVERSITY_MODERATOR,
+]
 
 const NAV: { id: string; labelKey: string; icon: LucideIcon }[] = [
   { id: 'personal', labelKey: 'navPersonal', icon: UserRound },
@@ -207,7 +219,7 @@ export function AccountSettingsPanels() {
             {tab === 'app' && <AppSection />}
             {tab === 'privacy' && <PrivacySection me={me.data} />}
             {tab === 'support' && <ContactSupportForm />}
-            {tab === 'danger' && <DangerSection />}
+            {tab === 'danger' && <DangerSection me={me.data} />}
           </>
         )}
       </div>
@@ -441,7 +453,61 @@ function SecuritySection({ me }: { me: MeResponse }) {
       <div className="mt-6 border-t border-border pt-5">
         <TelegramLinkRow role={me.role} />
       </div>
+
+      {SESSION_REVOKE_ROLES.includes(me.role) && (
+        <div className="mt-6 border-t border-border pt-5">
+          <LogoutEverywhereRow userId={me.id} />
+        </div>
+      )}
     </SectionCard>
+  )
+}
+
+/**
+ * «Выйти на всех устройствах»: гасит все сессии, включая эту. Раньше для этого оставалась
+ * только смена пароля — при подозрении на чужой вход пароль менять приходилось вслепую.
+ */
+function LogoutEverywhereRow({ userId }: { userId: string }) {
+  const tS = useTranslations('Settings')
+  const tErr = useTranslations('Errors')
+  const mut = useMutation({
+    mutationFn: () => revokeUserSessionsRequest(userId),
+    // Токен этой вкладки сервер больше не принимает: выходим сами и ведём на вход.
+    onSuccess: async () => {
+      await endSession().catch(() => undefined)
+      window.location.assign('/login')
+    },
+    onError: (e) => toast.error(tErr(errCode(e))),
+  })
+
+  return (
+    <SettingRow title={tS('logoutEverywhere')} desc={tS('logoutEverywhereDesc')}>
+      <AlertDialog>
+        <AlertDialogTrigger asChild>
+          <Button type="button" variant="outline" size="sm">
+            <LogOut className="size-4" aria-hidden />
+            {tS('logoutEverywhereConfirm')}
+          </Button>
+        </AlertDialogTrigger>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{tS('logoutEverywhere')}</AlertDialogTitle>
+            <AlertDialogDescription>{tS('logoutEverywhereDesc')}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={mut.isPending}>{tS('twoFactorCancel')}</AlertDialogCancel>
+            <Button
+              type="button"
+              variant="destructive"
+              loading={mut.isPending}
+              onClick={() => mut.mutate()}
+            >
+              {tS('logoutEverywhereConfirm')}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </SettingRow>
   )
 }
 
@@ -1186,24 +1252,47 @@ function PrivacySection({ me }: { me: MeResponse }) {
 }
 
 // ── Опасная зона ─────────────────────────────────────────────────────────────
-function DangerSection() {
+// Удаление — с повторной аутентификацией: сервер требует текущий пароль и, если включена
+// 2FA, её код. Открытой вкладки для необратимого действия больше не достаточно.
+export function DangerSection({ me }: { me: MeResponse }) {
   const tS = useTranslations('Settings')
   const tP = useTranslations('Profile')
+  const tErr = useTranslations('Errors')
   const [open, setOpen] = useState(false)
-  const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
+  const [password, setPassword] = useState('')
+  const [code, setCode] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const needCode = me.twoFactorEnabled === true
+
+  const reset = () => {
+    setPassword('')
+    setCode('')
+    setError(null)
+  }
 
   const mut = useMutation({
-    mutationFn: deleteAccountRequest,
-    onMutate: () => resetApiError(),
+    mutationFn: () =>
+      deleteAccountRequest({ password, ...(needCode ? { code: code.trim() } : {}) }),
+    onMutate: () => setError(null),
     onSuccess: async () => {
       await endSession()
       window.location.assign('/login')
     },
+    // Ошибка — в том же окне: пароль и код вводятся там, и закрывать его значит заставить
+    // набирать всё заново. Неверный пароль сервер отдаёт как BAD_REQUEST.
     onError: (e) => {
-      setOpen(false)
-      showApiError(e)
+      const c = errCode(e)
+      setCode('')
+      setError(
+        c === 'BAD_REQUEST'
+          ? tS('deleteWrongPassword')
+          : c === 'CONFLICT'
+            ? tS('deleteLastAdmin')
+            : tErr(c),
+      )
     },
   })
+  const canSubmit = password.length > 0 && (!needCode || code.trim().length > 0)
 
   return (
     <Card className="border-destructive/40">
@@ -1215,13 +1304,18 @@ function DangerSection() {
         <p className="text-sm text-muted-foreground">{tS('dangerDesc')}</p>
       </CardHeader>
       <CardContent>
-        <FormAlert error={apiError} />
         <div className="flex flex-col gap-3 rounded-xl border border-destructive/30 bg-destructive/5 p-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-sm font-semibold">{tP('deleteAccount')}</p>
             <p className="text-sm text-muted-foreground">{tS('deleteAccountDesc')}</p>
           </div>
-          <AlertDialog open={open} onOpenChange={setOpen}>
+          <AlertDialog
+            open={open}
+            onOpenChange={(next) => {
+              setOpen(next)
+              if (!next) reset()
+            }}
+          >
             <AlertDialogTrigger asChild>
               <Button
                 variant="outline"
@@ -1234,11 +1328,57 @@ function DangerSection() {
             <AlertDialogContent>
               <AlertDialogHeader>
                 <AlertDialogTitle>{tS('deleteConfirmTitle')}</AlertDialogTitle>
-                <AlertDialogDescription>{tP('deleteConfirm')}</AlertDialogDescription>
+                <AlertDialogDescription>
+                  {tP('deleteConfirm')}{' '}
+                  {needCode ? tS('deleteReauthDesc2fa') : tS('deleteReauthDesc')}
+                </AlertDialogDescription>
               </AlertDialogHeader>
+              <form
+                id="delete-account-form"
+                className="flex flex-col gap-3"
+                onSubmit={(e) => {
+                  e.preventDefault()
+                  if (canSubmit && !mut.isPending) mut.mutate()
+                }}
+              >
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="delete-account-password">{tP('currentPassword')}</Label>
+                  <Input
+                    id="delete-account-password"
+                    type="password"
+                    autoComplete="current-password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    autoFocus
+                  />
+                </div>
+                {needCode && (
+                  <div className="flex flex-col gap-2">
+                    <Label htmlFor="delete-account-code">{tS('deleteCodeLabel')}</Label>
+                    <Input
+                      id="delete-account-code"
+                      autoComplete="one-time-code"
+                      placeholder="123456"
+                      value={code}
+                      onChange={(e) => setCode(e.target.value)}
+                    />
+                  </div>
+                )}
+                {error && (
+                  <p role="alert" className="text-sm text-destructive">
+                    {error}
+                  </p>
+                )}
+              </form>
               <AlertDialogFooter>
                 <AlertDialogCancel disabled={mut.isPending}>{tP('cancel')}</AlertDialogCancel>
-                <Button variant="destructive" loading={mut.isPending} onClick={() => mut.mutate()}>
+                <Button
+                  type="submit"
+                  form="delete-account-form"
+                  variant="destructive"
+                  loading={mut.isPending}
+                  disabled={!canSubmit}
+                >
                   <Trash2 className="size-4" aria-hidden />
                   {tP('deleteAccount')}
                 </Button>

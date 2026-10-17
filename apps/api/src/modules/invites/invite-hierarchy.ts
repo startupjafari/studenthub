@@ -72,7 +72,14 @@ export function resolveInviteTarget(issuer: JwtPayload, input: InviteRequest): I
     case Role.TEACHER:
       return {
         universityId: issuerUniversity(issuer),
-        facultyId: input.facultyId ?? issuer.facultyId ?? null,
+        // Декан приглашает преподавателя только на свой факультет: факультет из тела раньше
+        // брался в приоритет, и прямым POST /invites декан заводил преподавателя на чужой
+        // факультет своего вуза. Админ вуза выбирает факультет свободно (в своём вузе —
+        // это проверяет InviteService.assertScopeExists) или не указывает вовсе.
+        facultyId:
+          issuer.role === Role.DEAN
+            ? sameAsIssuer(input.facultyId, issuer.facultyId, 'facultyId')
+            : (input.facultyId ?? null),
         groupId: null,
       }
 

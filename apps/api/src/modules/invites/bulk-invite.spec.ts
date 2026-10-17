@@ -1,5 +1,7 @@
+import * as XLSX from 'xlsx'
 import { InviteStatus } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
+import { BULK_INVITE_MAX_ROWS } from '@studenthub/shared-schemas'
 import { InviteService } from './invites.service'
 import { parseBulkInviteFile } from './bulk-parse'
 import type { PrismaService } from '../../common/prisma/prisma.service'
@@ -20,7 +22,8 @@ const dean: JwtPayload = {
 
 function setup() {
   const group = {
-    findMany: jest.fn().mockResolvedValue([{ id: 'grp-1', name: 'BT-101' }]),
+    // Группа декана на его факультете: по facultyId подтверждение проверяет связность.
+    findMany: jest.fn().mockResolvedValue([{ id: 'grp-1', name: 'BT-101', facultyId: 'fac-A' }]),
     // Связность scope (assertScopeExists): grp-1 лежит на факультете декана в его вузе.
     findUnique: jest
       .fn()
@@ -35,16 +38,25 @@ function setup() {
     // Язык писем-приглашений — язык приглашающего (invites.service: issuerLocale).
     findUnique: jest.fn().mockResolvedValue({ locale: 'ru' }),
   }
-  const invite = { findMany: jest.fn().mockResolvedValue([]), create: jest.fn() }
-  const prisma = {
+  const invite = {
+    findMany: jest.fn().mockResolvedValue([]),
+    create: jest.fn(),
+    createMany: jest.fn().mockResolvedValue({ count: 0 }),
+  }
+  const prisma: Record<string, unknown> = {
     group,
     faculty,
     user,
     invite,
-    $transaction: jest.fn((arg: unknown) =>
-      Array.isArray(arg) ? Promise.all(arg as Promise<unknown>[]) : (arg as () => unknown)(),
-    ),
+    // advisory-лок подтверждения импорта (advisoryXactLock).
+    $executeRaw: jest.fn().mockResolvedValue(1),
   }
+  // Интерактивная транзакция получает в колбэк тот же мок — как клиент транзакции.
+  prisma.$transaction = jest.fn((arg: unknown) =>
+    Array.isArray(arg)
+      ? Promise.all(arg as Promise<unknown>[])
+      : (arg as (tx: unknown) => unknown)(prisma),
+  )
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const queue = { enqueue: jest.fn().mockResolvedValue(undefined) }
   const config = { get: jest.fn().mockReturnValue('http://localhost:3000') }
@@ -54,7 +66,14 @@ function setup() {
     queue as unknown as QueueService,
     config as unknown as ConfigService<EnvVars, true>,
   )
-  return { service, prisma, group, faculty, user, invite, audit }
+  return { service, prisma, group, faculty, user, invite, audit, queue }
+}
+
+/** Данные, переданные в createMany (одним вызовом на подтверждение). */
+function createdRows(invite: { createMany: jest.Mock }): Record<string, unknown>[] {
+  return invite.createMany.mock.calls.flatMap(
+    (call) => (call[0] as { data: Record<string, unknown>[] }).data,
+  )
 }
 
 describe('parseBulkInviteFile', () => {
@@ -90,6 +109,32 @@ describe('parseBulkInviteFile', () => {
 
   it('неподдерживаемое расширение → ошибка', () => {
     expect(() => parseBulkInviteFile(Buffer.from('x'), 'file.pdf')).toThrow()
+  })
+
+  // A-F20: лист разбирался целиком — миллион строк и ячейка в столбце XFD синхронно
+  // разворачивались в event loop, а лимит строк проверялся уже после.
+  it('XLSX: дальше потолка строк и пятидесятой колонки лист не читается', () => {
+    const aoa: string[][] = [['email', 'group']]
+    for (let i = 0; i < BULK_INVITE_MAX_ROWS * 3; i++) aoa.push([`s${i}@x.kz`, 'BT-101'])
+    const sheet = XLSX.utils.aoa_to_sheet(aoa)
+    sheet['XFD2'] = { t: 's', v: 'далеко справа' }
+    sheet['!ref'] = `A1:XFD${aoa.length}`
+    const book = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(book, sheet, 'Список')
+    const buffer = XLSX.write(book, { type: 'buffer', bookType: 'xlsx' }) as Buffer
+
+    const rows = parseBulkInviteFile(buffer, 'list.xlsx')
+
+    // Заголовок + вдвое больше лимита: больше 500 строк импорт всё равно отклонит.
+    expect(rows).toHaveLength(BULK_INVITE_MAX_ROWS * 2)
+    expect(rows[0]).toMatchObject({ email: 's0@x.kz', group: 'BT-101' })
+  })
+
+  it('CSV: дальше потолка строк файл не разбирается', () => {
+    const lines = ['email']
+    for (let i = 0; i < BULK_INVITE_MAX_ROWS * 3; i++) lines.push(`s${i}@x.kz`)
+    const rows = parseBulkInviteFile(Buffer.from(lines.join('\n')), 'list.csv')
+    expect(rows).toHaveLength(BULK_INVITE_MAX_ROWS * 2)
   })
 })
 
@@ -173,7 +218,7 @@ describe('InviteService — дубли email без учёта регистра'
       ctx,
     )
     expect(res).toEqual({ created: 0, skipped: 1, failed: 0 })
-    expect(invite.create).not.toHaveBeenCalled()
+    expect(invite.createMany).not.toHaveBeenCalled()
   })
 
   it('всё нашлось точным поиском — запасной не нужен', async () => {
@@ -188,9 +233,8 @@ describe('InviteService — дубли email без учёта регистра'
 
 describe('InviteService.bulkCreate', () => {
   it('создаёт READY-строки, пропускает дубли, пишет сводный аудит', async () => {
-    const { service, invite, user, audit } = setup()
+    const { service, invite, user, audit, group } = setup()
     user.findMany.mockResolvedValue([{ email: 'exists@x.kz' }]) // этот пропустим
-    invite.create.mockResolvedValue({ id: 'inv-1' })
 
     const res = await service.bulkCreate(
       dean,
@@ -203,7 +247,13 @@ describe('InviteService.bulkCreate', () => {
       ctx,
     )
     expect(res).toEqual({ created: 1, skipped: 1, failed: 0 })
-    expect(invite.create).toHaveBeenCalledTimes(1)
+    // Одна вставка на всё подтверждение, а не запрос на строку.
+    expect(invite.createMany).toHaveBeenCalledTimes(1)
+    expect(createdRows(invite)).toEqual([
+      expect.objectContaining({ email: 'new1@x.kz', groupId: 'grp-1', facultyId: 'fac-A' }),
+    ])
+    // Связность — по загруженным группам, без запроса на строку.
+    expect(group.findUnique).not.toHaveBeenCalled()
     expect(audit.record).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'invite_bulk_created' }),
     )
@@ -251,18 +301,15 @@ describe('InviteService — импорт у админа вуза: препод�
 
   it('декан создаётся с факультетом из файла', async () => {
     const { service, invite } = setup()
-    invite.create.mockResolvedValue({ id: 'inv-1' })
     const res = await service.bulkCreate(
       admin,
       { rows: [{ email: 'd@x.kz', facultyId: 'fac-A', role: Role.DEAN }] },
       ctx,
     )
     expect(res).toEqual({ created: 1, skipped: 0, failed: 0 })
-    expect(invite.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ role: Role.DEAN, facultyId: 'fac-A' }),
-      }),
-    )
+    expect(createdRows(invite)).toEqual([
+      expect.objectContaining({ role: Role.DEAN, facultyId: 'fac-A', universityId: 'uni-A' }),
+    ])
   })
 
   it('id группы или факультета вне scope создателя → failed (подмена в запросе)', async () => {
@@ -278,21 +325,94 @@ describe('InviteService — импорт у админа вуза: препод�
       ctx,
     )
     expect(res).toEqual({ created: 0, skipped: 0, failed: 2 })
-    expect(invite.create).not.toHaveBeenCalled()
+    expect(invite.createMany).not.toHaveBeenCalled()
   })
 })
 
 describe('InviteService.bulkCreate — подмена группы в запросе', () => {
   it('группа чужого факультета из тела запроса → failed, инвайт не создаётся', async () => {
-    const { service, group, invite } = setup()
-    group.findUnique.mockResolvedValue({ facultyId: 'fac-B', faculty: { universityId: 'uni-A' } })
+    const { service, invite } = setup()
     const res = await service.bulkCreate(
       dean,
       { rows: [{ email: 'a@x.kz', groupId: 'grp-of-B', role: Role.STUDENT }] },
       ctx,
     )
     expect(res).toEqual({ created: 0, skipped: 0, failed: 1 })
-    expect(invite.create).not.toHaveBeenCalled()
+    expect(invite.createMany).not.toHaveBeenCalled()
+  })
+
+  it('староста: группа старосты оказалась на другом факультете → failed', async () => {
+    const { service, group, invite } = setup()
+    const starosta: JwtPayload = {
+      sub: 'st-1',
+      role: Role.STAROSTA,
+      universityId: 'uni-A',
+      facultyId: 'fac-A',
+      groupId: 'grp-1',
+    }
+    group.findMany.mockResolvedValue([{ id: 'grp-1', name: 'BT-101', facultyId: 'fac-B' }])
+    const res = await service.bulkCreate(
+      starosta,
+      { rows: [{ email: 'a@x.kz', role: Role.STUDENT }] },
+      ctx,
+    )
+    expect(res).toEqual({ created: 0, skipped: 0, failed: 1 })
+    expect(invite.createMany).not.toHaveBeenCalled()
+  })
+})
+
+// A-F20: две вкладки с одним файлом создавали дубли — обе видели адреса свободными.
+describe('InviteService.bulkCreate — повторная отправка того же файла', () => {
+  it('занятые адреса перечитываются под локом создателя, в той же транзакции', async () => {
+    const { service, prisma, invite } = setup()
+    const order: string[] = []
+    ;(prisma.$executeRaw as jest.Mock).mockImplementation(async () => {
+      order.push('lock')
+      return 1
+    })
+    invite.findMany.mockImplementation(async () => {
+      order.push('taken')
+      return []
+    })
+    invite.createMany.mockImplementation(async () => {
+      order.push('insert')
+      return { count: 1 }
+    })
+    await service.bulkCreate(
+      dean,
+      { rows: [{ email: 'a@x.kz', groupId: 'grp-1', role: Role.STUDENT }] },
+      ctx,
+    )
+    expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function))
+    // Лок — до проверки занятости, вставка — после.
+    expect(order[0]).toBe('lock')
+    expect(order.indexOf('taken')).toBeGreaterThan(0)
+    expect(order[order.length - 1]).toBe('insert')
+  })
+
+  it('вторая отправка видит инвайты первой — строки пропущены, вставки нет', async () => {
+    const { service, invite } = setup()
+    // Первая отправка уже закоммитила инвайт: под локом он виден как PENDING.
+    invite.findMany.mockResolvedValue([{ email: 'a@x.kz' }])
+    const res = await service.bulkCreate(
+      dean,
+      { rows: [{ email: 'a@x.kz', groupId: 'grp-1', role: Role.STUDENT }] },
+      ctx,
+    )
+    expect(res).toEqual({ created: 0, skipped: 1, failed: 0 })
+    expect(invite.createMany).not.toHaveBeenCalled()
+  })
+
+  it('письма уходят по одному на созданный инвайт', async () => {
+    const { service, queue } = setup()
+    const rows = Array.from({ length: 45 }, (_, i) => ({
+      email: `s${i}@x.kz`,
+      groupId: 'grp-1',
+      role: Role.STUDENT,
+    }))
+    const res = await service.bulkCreate(dean, { rows }, ctx)
+    expect(res.created).toBe(45)
+    expect(queue.enqueue).toHaveBeenCalledTimes(45)
   })
 })
 

@@ -137,6 +137,24 @@ export const ChangePasswordSchema = z
 
 export type ChangePasswordInput = z.infer<typeof ChangePasswordSchema>
 
+/**
+ * Тело `DELETE /users/me`: повторная аутентификация перед необратимым удалением аккаунта —
+ * текущий пароль и, если включена 2FA, код второго фактора (TOTP или резервный). Открытой
+ * вкладки или угнанного access-токена для удаления больше не хватает.
+ *
+ * Поля в схеме необязательны, а `.default({})` принимает запрос без тела: их наличие
+ * проверяет сервер и отвечает понятной ошибкой, а не 400 разбора схемы.
+ */
+export const DeleteAccountSchema = z
+  .object({
+    password: z.string().min(1).max(256).optional(),
+    code: z.string().trim().min(6).max(20).optional(),
+  })
+  .strict()
+  .default({})
+
+export type DeleteAccountInput = z.infer<typeof DeleteAccountSchema>
+
 // ── Доступность полей профиля по роли (docs/PROJECT.md §3.7) ─────────────────
 // Единый источник истины: форма профиля на фронте и фильтр в UserService читают
 // эту карту. Смысл: набор «самоописываемых» полей зависит от роли — у платформенных

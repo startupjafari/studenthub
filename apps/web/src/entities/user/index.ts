@@ -17,6 +17,7 @@ export {
   exportUsers,
   exportMyData,
   blockUserRequest,
+  revokeUserSessionsRequest,
   unblockUserRequest,
   resetUserTwoFactorRequest,
   updateAcademicRecordRequest,

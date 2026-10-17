@@ -26,7 +26,13 @@ interface PrismaMock {
     findFirst: jest.Mock
     findUnique: jest.Mock
     update: jest.Mock
+    // Отзыв — условной записью по статусу.
+    updateMany: jest.Mock
+    // Список выданных инвайтов.
+    findMany: jest.Mock
+    count: jest.Mock
   }
+  $transaction: jest.Mock
 }
 
 const ctx = { ip: '127.0.0.1', userAgent: 'jest' }
@@ -55,7 +61,11 @@ function setup() {
       findFirst: jest.fn(),
       findUnique: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      findMany: jest.fn().mockResolvedValue([]),
+      count: jest.fn().mockResolvedValue(0),
     },
+    $transaction: jest.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
   }
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const queue = { enqueue: jest.fn().mockResolvedValue(undefined) }
@@ -136,6 +146,24 @@ describe('InviteService', () => {
       // 64 hex-символа sha256 — а не UUID.
       expect(stored).toMatch(/^[0-9a-f]{64}$/)
       expect(res.token).toMatch(/^[0-9a-f-]{36}$/)
+    })
+
+    // A-F18: второй origin в CORS_ORIGIN (переезд на поддомен) давал ссылку
+    // `https://a,https://b/register?...` во всех письмах-приглашениях.
+    it('ссылка в письме — от первого origin из CORS_ORIGIN', async () => {
+      const { service, prisma, queue, config } = setup()
+      config.get.mockReturnValue('https://app.studenthub.kz/, https://studenthub.kz')
+      prisma.invite.create.mockResolvedValue({ id: 'inv-1', token: 'x', role: Role.STUDENT })
+
+      const res = await service.create(
+        deanA,
+        { role: Role.STUDENT, groupId: 'grp-1', email: 'stud@demo.kz' },
+        ctx,
+      )
+
+      expect(queue.enqueue.mock.calls[0][2].inviteUrl).toBe(
+        `https://app.studenthub.kz/register?token=${res.token}`,
+      )
     })
 
     it('без email письмо в очередь не ставится', async () => {
@@ -369,16 +397,30 @@ describe('InviteService', () => {
         createdById: 'dean-1',
         universityId: 'uni-A',
       })
-      prisma.invite.update.mockResolvedValue({})
       const res = await service.revoke(deanA, 'inv', ctx)
       expect(res).toEqual({ id: 'inv', status: InviteStatus.REVOKED })
-      expect(prisma.invite.update).toHaveBeenCalledWith({
-        where: { id: 'inv' },
+      expect(prisma.invite.updateMany).toHaveBeenCalledWith({
+        where: { id: 'inv', status: InviteStatus.PENDING },
         data: { status: InviteStatus.REVOKED },
       })
       expect(audit.record).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'invite_revoked' }),
       )
+    })
+
+    // A-F19: регистрация между проверкой и записью занимает инвайт (USED) — безусловный
+    // update переписывал его в REVOKED при живом пользователе.
+    it('инвайт заняли регистрацией между проверкой и записью → CONFLICT, аудита нет', async () => {
+      const { service, prisma, audit } = setup()
+      prisma.invite.findUnique.mockResolvedValue({
+        id: 'inv',
+        status: InviteStatus.PENDING,
+        createdById: 'dean-1',
+        universityId: 'uni-A',
+      })
+      prisma.invite.updateMany.mockResolvedValue({ count: 0 })
+      await expect(service.revoke(deanA, 'inv', ctx)).rejects.toMatchObject({ code: 'CONFLICT' })
+      expect(audit.record).not.toHaveBeenCalled()
     })
 
     it('уже USED → CONFLICT', async () => {
@@ -390,6 +432,42 @@ describe('InviteService', () => {
         universityId: 'uni-A',
       })
       await expect(service.revoke(deanA, 'inv', ctx)).rejects.toMatchObject({ code: 'CONFLICT' })
+    })
+  })
+
+  describe('list', () => {
+    const uniAdmin: JwtPayload = {
+      sub: 'ua-1',
+      role: Role.UNIVERSITY_ADMIN,
+      universityId: 'uni-A',
+      facultyId: null,
+      groupId: null,
+    }
+    const whereOf = (prisma: PrismaMock) => prisma.invite.findMany.mock.calls[0][0].where
+
+    it('по умолчанию — только свои инвайты', async () => {
+      const { service, prisma } = setup()
+      await service.list(uniAdmin, { page: 1, limit: 20 })
+      expect(whereOf(prisma)).toEqual({ createdById: 'ua-1' })
+      expect(prisma.invite.count).toHaveBeenCalledWith({ where: { createdById: 'ua-1' } })
+    })
+
+    // A-F19: отзывать инвайты сотрудников вуза админ вправе, а найти их не мог.
+    it('админ вуза со scope=university видит все инвайты своего вуза и кто их выдал', async () => {
+      const { service, prisma } = setup()
+      await service.list(uniAdmin, { page: 1, limit: 20, scope: 'university' })
+      expect(whereOf(prisma)).toEqual({ universityId: 'uni-A' })
+      expect(prisma.invite.findMany.mock.calls[0][0].select.createdBy).toEqual({
+        select: { id: true, firstName: true, lastName: true },
+      })
+    })
+
+    it('scope=university не у админа вуза → FORBIDDEN', async () => {
+      const { service, prisma } = setup()
+      await expect(
+        service.list(deanA, { page: 1, limit: 20, scope: 'university' }),
+      ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+      expect(prisma.invite.findMany).not.toHaveBeenCalled()
     })
   })
 

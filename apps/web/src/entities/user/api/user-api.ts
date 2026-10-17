@@ -3,6 +3,7 @@ import type {
   UpdateProfileInput,
   UpdateUsernameInput,
   ChangePasswordInput,
+  DeleteAccountInput,
   UserListQueryInput,
   ProfileVisibilityValue,
   UserDirectorySectionValue,
@@ -110,8 +111,12 @@ export async function changePasswordRequest(input: ChangePasswordInput): Promise
   await api.patch('/users/me/password', input)
 }
 
-export async function deleteAccountRequest(): Promise<void> {
-  await api.delete('/users/me')
+/**
+ * Удаление своего аккаунта. Сервер требует повторной аутентификации: текущий пароль и,
+ * если включена 2FA, её код (TOTP или резервный).
+ */
+export async function deleteAccountRequest(input: DeleteAccountInput): Promise<void> {
+  await api.delete('/users/me', { data: input })
 }
 
 export async function uploadAvatarRequest(
@@ -207,8 +212,17 @@ export async function exportMyData(locale: string): Promise<DownloadedFile> {
   return requestFile('/me/export', { locale })
 }
 
-export async function blockUserRequest(id: string): Promise<void> {
-  await api.patch(`/users/${id}/block`)
+/** Блокировка: без срока — бессрочная, со сроком (`blockDays`) снимается сама. */
+export async function blockUserRequest(id: string, blockDays?: number): Promise<void> {
+  await api.patch(`/users/${id}/block`, blockDays ? { blockDays } : undefined)
+}
+
+/**
+ * Завершить все сессии человека (угнанный аккаунт): чужой вылетает, хозяин входит заново.
+ * Свои сессии — тот же маршрут со своим id («Выйти на всех устройствах»).
+ */
+export async function revokeUserSessionsRequest(id: string): Promise<void> {
+  await api.patch(`/users/${id}/logout`)
 }
 
 export async function unblockUserRequest(id: string): Promise<void> {
