@@ -14,6 +14,8 @@ import { EventsService } from '../events/events.service'
 import { PostsService } from '../posts/posts.service'
 import { StoriesService } from '../stories/stories.service'
 import { DocumentsService } from '../documents/documents.service'
+import { DocumentRequestsService } from '../documents/document-requests.service'
+import { UserService } from '../users/users.service'
 import { ChatsService } from '../chats/chats.service'
 import { SupportService } from '../chats/support.service'
 import { ComplaintsService } from '../complaints/complaints.service'
@@ -49,6 +51,7 @@ const LOCK_TTL_MS = {
   deleteExpiredStories: 25 * 60 * 1000,
   deliverScheduledMessages: 55 * 1000,
   sweepDocumentExpiry: 15 * 60 * 1000,
+  closeOverdueDocumentRequests: 10 * 60 * 1000,
   expireInvites: 10 * 60 * 1000,
   purgePasswordResetTokens: 10 * 60 * 1000,
   purgeRefreshTokens: 10 * 60 * 1000,
@@ -63,6 +66,8 @@ const LOCK_TTL_MS = {
   closeStaleTickets: 10 * 60 * 1000,
   purgeUnconfirmedDemoRequests: 10 * 60 * 1000,
   expireCompanyAccess: 10 * 60 * 1000,
+  // Удаление аккаунта — анонимизация и снос медиа: секунды на человека, а не миллисекунды.
+  purgeUnverifiedEmployers: 30 * 60 * 1000,
   notifyOverdueApplications: 10 * 60 * 1000,
   liftExpiredBlocks: 4 * 60 * 1000,
   rotateDuty: 10 * 60 * 1000,
@@ -104,15 +109,33 @@ const DELETED_MESSAGE_FILES_RETENTION_DAYS = 30
 // незаконченную многочастную загрузку. Дольше черновик с уже загруженным файлом не ждёт.
 const DETACHED_UPLOAD_TTL_HOURS = 24
 
+// Медиа постов, удалённых больше стольких дней назад (E-F15): тот же срок, что у вложений
+// удалённых сообщений, — на разбор жалобы и ошибку модерации. Восстановления поста нет, и
+// дальше файл никому не показывается.
+const DELETED_POST_MEDIA_RETENTION_DAYS = 30
+
+// Документы (D-F21). Сканы удалённого документа живут ещё месяц: сотруднику по заявке и
+// запросу и админу платформы удалённый документ уже не открывается, срок — запас на разбор
+// спора и на ошибку. Дальше паспорт, который владелец удалил, хранить незачем.
+const DELETED_DOCUMENT_FILES_RETENTION_DAYS = 30
+// Скан, так и не привязанный к документу (мастер не дошёл до сохранения, результат заявки
+// не выдался из-за ошибки), — неделя, а не сутки, как у постов: это персональные данные, но
+// и мастер документа человек может закрыть и вернуться к нему через несколько дней.
+const DETACHED_DOCUMENT_UPLOAD_DAYS = 7
+
+// Работодатель, не подтвердивший почту компании (D-F28), удаляется через столько дней.
+// Ссылка живёт сутки, но новую можно запросить со страницы входа; месяц — с запасом на
+// отпуск и на тех, кто зарегистрировался до того, как вход стал ждать подтверждения.
+const EMPLOYER_UNVERIFIED_DAYS = 30
+
 // Потолок батчей на одну цель уборки File за прогон: первый прогон после выкатки разбирает
 // накопленный за всё время хвост — пусть за несколько ночей, но не одним многоминутным
 // циклом под локом.
 const DETACHED_FILES_MAX_BATCHES = 200
 
-// Ни одной связи с сущностью-владельцем — та же проверка, что у FileService.deleteDetached.
-// Повторяется и в самом удалении: файл могли привязать между выборкой и DELETE.
-const NO_OWNER_WHERE = {
-  postId: null,
+// Ни одной связи, кроме поста: медиа удалённого поста уходит, только если на файл не
+// ссылается ничто другое (сторис, альбом, сообщение).
+const NO_OWNER_BUT_POST_WHERE = {
   messageId: null,
   materialId: null,
   albumId: null,
@@ -120,6 +143,13 @@ const NO_OWNER_WHERE = {
   submissionId: null,
   stories: { none: {} },
   albumsCovered: { none: {} },
+} satisfies Prisma.FileWhereInput
+
+// Ни одной связи с сущностью-владельцем — та же проверка, что у FileService.deleteDetached.
+// Повторяется и в самом удалении: файл могли привязать между выборкой и DELETE.
+const NO_OWNER_WHERE = {
+  postId: null,
+  ...NO_OWNER_BUT_POST_WHERE,
 } satisfies Prisma.FileWhereInput
 
 // Токен телефона, который приложение не подтверждало столько дней, мёртв: приложение
@@ -205,6 +235,8 @@ export class CleanupService {
     private readonly media: MediaService,
     private readonly companies: CompaniesService,
     private readonly applications: ApplicationNotifier,
+    private readonly documentRequests: DocumentRequestsService,
+    private readonly users: UserService,
   ) {}
 
   // Напоминания за час до события (docs/BACKEND_RULES.md §9.3): каждые 15 мин, окно [now+55, now+70],
@@ -249,6 +281,17 @@ export class CleanupService {
   async sweepDocumentExpiry(): Promise<{ expired: number; expiring: number } | null> {
     return this.locks.run('sweepDocumentExpiry', LOCK_TTL_MS.sweepDocumentExpiry, () =>
       this.documents.sweepExpiry(),
+    )
+  }
+
+  // Запросы документов с прошедшим сроком → CLOSED (D-F25). Ежедневно в 03:35, следом за
+  // сроками самих документов. Логика — в DocumentRequestsService.closeOverdue (владелец домена).
+  @Cron('35 3 * * *', { name: 'closeOverdueDocumentRequests' })
+  async closeOverdueDocumentRequests(): Promise<number | null> {
+    return this.locks.run(
+      'closeOverdueDocumentRequests',
+      LOCK_TTL_MS.closeOverdueDocumentRequests,
+      () => this.documentRequests.closeOverdue(),
     )
   }
 
@@ -478,7 +521,11 @@ export class CleanupService {
    * - вложения сообщений, удалённых «для всех» больше DELETED_MESSAGE_FILES_RETENTION_DAYS
    *   назад (F-F21): мягкое удаление скрывало файл, но байты хранились бессрочно;
    * - загрузки в бакеты постов, сторис и заявок, так и не привязанные ни к чему за сутки
-   *   (F-F21): «загрузил — пост не создал».
+   *   (F-F21, E-F15): «загрузил — пост не создал»;
+   * - медиа постов, удалённых больше DELETED_POST_MEDIA_RETENTION_DAYS назад (E-F15), — если
+   *   на файл не ссылается ничто другое (сторис, альбом);
+   * - сканы документов, удалённых больше DELETED_DOCUMENT_FILES_RETENTION_DAYS назад, и
+   *   сканы, не привязанные к документу за DETACHED_DOCUMENT_UPLOAD_DAYS (D-F21).
    * Аватары и медиа профиля сюда не входят: там строка без связей — норма.
    *
    * Вложение чата живёт без `messageId` и законно: чат сначала принимает все файлы
@@ -490,6 +537,7 @@ export class CleanupService {
   private async cleanDetachedFilesTask(): Promise<number> {
     const now = Date.now()
     const chatBucket = this.config.get('MINIO_BUCKET_CHAT', { infer: true })
+    const documentsBucket = this.config.get('MINIO_BUCKET_DOCUMENTS', { infer: true })
     const targets: Prisma.FileWhereInput[] = [
       {
         bucket: chatBucket,
@@ -512,6 +560,22 @@ export class CleanupService {
           ],
         },
         createdAt: { lt: new Date(now - DETACHED_UPLOAD_TTL_HOURS * 60 * 60 * 1000) },
+        ...NO_OWNER_WHERE,
+      },
+      {
+        bucket: this.config.get('MINIO_BUCKET_POSTS', { infer: true }),
+        post: { deletedAt: { lt: new Date(now - DELETED_POST_MEDIA_RETENTION_DAYS * DAY_MS) } },
+        ...NO_OWNER_BUT_POST_WHERE,
+      },
+      {
+        bucket: documentsBucket,
+        document: {
+          deletedAt: { lt: new Date(now - DELETED_DOCUMENT_FILES_RETENTION_DAYS * DAY_MS) },
+        },
+      },
+      {
+        bucket: documentsBucket,
+        createdAt: { lt: new Date(now - DETACHED_DOCUMENT_UPLOAD_DAYS * DAY_MS) },
         ...NO_OWNER_WHERE,
       },
     ]
@@ -974,6 +1038,31 @@ export class CleanupService {
   async notifyOverdueApplications(): Promise<number | null> {
     return this.locks.run('notifyOverdueApplications', LOCK_TTL_MS.notifyOverdueApplications, () =>
       this.applications.notifyOverdue(),
+    )
+  }
+
+  // Работодатели, не подтвердившие почту компании (D-F28). Ежедневно в 04:20.
+  //
+  // Пока такой аккаунт жив, он держит адрес: повторная регистрация на него молча ничего не
+  // делает. Отбор и «захват» компании — у владельца домена (CompaniesService.purgeUnverified),
+  // удаление аккаунтов — штатным путём (UserService.softDeleteSelf: анонимизация ПДн, снос
+  // медиа, разлогин, запись в журнал). Отсюда он передаётся параметром: карьере тянуть
+  // модуль пользователей нельзя — AuthModule уже импортирует CareerModule.
+  @Cron('20 4 * * *', { name: 'purgeUnverifiedEmployers' })
+  async purgeUnverifiedEmployers(): Promise<number | null> {
+    // Удаляет аккаунты — только по явному флагу окружения (по умолчанию выключено).
+    if (!this.config.get('CLEANUP_PURGE_UNVERIFIED_EMPLOYERS', { infer: true })) return null
+    return this.locks.run(
+      'purgeUnverifiedEmployers',
+      LOCK_TTL_MS.purgeUnverifiedEmployers,
+      async () => {
+        const purged = await this.companies.purgeUnverified(
+          new Date(Date.now() - EMPLOYER_UNVERIFIED_DAYS * DAY_MS),
+          (userId) => this.users.softDeleteSelf(userId),
+        )
+        this.logger.log(`purgeUnverifiedEmployers: удалено компаний ${purged}`)
+        return purged
+      },
     )
   }
 

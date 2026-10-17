@@ -26,6 +26,7 @@ import {
   CareerAccessService,
   vacancyVisibleWhere,
 } from './career-access.service'
+import { CareerNotifier } from './career-notifier'
 
 /**
  * Поля, которые читает студент и одобрял вуз (общий список с формой компании — shared-schemas).
@@ -77,6 +78,7 @@ export class VacanciesService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly access: CareerAccessService,
+    private readonly notifier: CareerNotifier,
   ) {}
 
   // ── Сторона компании ───────────────────────────────────────────────────────
@@ -387,7 +389,13 @@ export class VacanciesService {
     const universityId = resolveUniversityScope(viewer, universityIdParam)
     const review = await this.prisma.vacancyUniversityReview.findUnique({
       where: { id: reviewId },
-      select: { id: true, universityId: true, vacancyId: true, status: true },
+      select: {
+        id: true,
+        universityId: true,
+        vacancyId: true,
+        status: true,
+        vacancy: { select: { title: true, companyId: true } },
+      },
     })
     if (!review) throw new AppException('NOT_FOUND', 'Заявка не найдена')
     if (review.universityId !== universityId) {
@@ -404,6 +412,7 @@ export class VacanciesService {
     // вуз. Условие — в самой записи вместе с ожидаемым статусом: параллельное решение
     // другого модератора или отзыв допуска между чтением и записью дают 409, а не
     // «последнее слово за тем, кто записал позже».
+    const decidedAt = new Date()
     const { count } = await this.prisma.vacancyUniversityReview.updateMany({
       where: {
         id: reviewId,
@@ -422,7 +431,7 @@ export class VacanciesService {
         status: input.status,
         reason: input.reason,
         decidedById: viewer.sub,
-        decidedAt: new Date(),
+        decidedAt,
       },
     })
     if (count === 0) {
@@ -441,6 +450,16 @@ export class VacanciesService {
       entityId: review.vacancyId,
       metadata: { universityId },
       ...ctx,
+    })
+    // Компания узнаёт о решении вуза сразу, а не заглянув в кабинет (D-F28).
+    await this.notifier.vacancyDecided({
+      reviewId: review.id,
+      companyId: review.vacancy.companyId,
+      vacancyTitle: review.vacancy.title,
+      universityId,
+      status: input.status,
+      reason: input.reason,
+      decidedAt,
     })
   }
 

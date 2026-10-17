@@ -15,6 +15,7 @@ import { TwoFactorGuard } from '../../common/guards/two-factor.guard'
 import { UsersModule } from '../users/users.module'
 import { InvitesModule } from '../invites/invites.module'
 import { UniversitiesModule } from '../universities/universities.module'
+import { CareerModule } from '../career/career.module'
 import { AuthController } from './auth.controller'
 import { TwoFactorController } from './two-factor.controller'
 import { AuthService } from './auth.service'
@@ -35,6 +36,9 @@ import { LocalStrategy } from './strategies/local.strategy'
     InvitesModule,
     // Допуск по статусу вуза: вход, refresh, регистрация по инвайту и JwtStrategy.
     UniversitiesModule,
+    // Вход работодателя ждёт подтверждения почты компании (CompaniesService.loginDenial).
+    // Кольца нет: CareerModule сам ничего не импортирует.
+    CareerModule,
     JwtModule.registerAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService<EnvVars, true>) => ({

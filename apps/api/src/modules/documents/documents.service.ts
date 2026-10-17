@@ -890,6 +890,12 @@ export class DocumentsService {
     return 'UPLOADED'
   }
 
+  /**
+   * Удаление — мягкое, но окончательное для всех (D-F21): владелец, получатели грантов,
+   * сотрудник по заявке или запросу и админ платформы документ больше не открывают (везде
+   * условие `deletedAt: null`). Сканы снимает ночная уборка cleanDetachedFiles через
+   * 30 дней — запас на спор и ошибку; восстановления удалённого документа нет.
+   */
   async remove(actor: JwtPayload, id: string): Promise<void> {
     await this.findOwnedOrThrow(actor, id)
     await this.prisma.document.update({ where: { id }, data: { deletedAt: new Date() } })

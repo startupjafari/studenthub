@@ -1,6 +1,7 @@
 import { Role } from '@studenthub/shared-types'
 import { CompaniesService } from './companies.service'
 import { CareerAccessService } from './career-access.service'
+import type { CareerNotifier } from './career-notifier'
 import { AppException } from '../../common/exceptions/app.exception'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { PasswordService } from '../../common/security/password.service'
@@ -31,8 +32,13 @@ function setup() {
   }
   const prisma = {
     user: { findUnique: jest.fn().mockResolvedValue(null) },
-    company: { findFirst: jest.fn(), update: jest.fn() },
-    companyMember: { findUnique: jest.fn() },
+    company: {
+      findFirst: jest.fn(),
+      update: jest.fn(),
+      findMany: jest.fn().mockResolvedValue([]),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
+    companyMember: { findUnique: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
     companyUniversityAccess: {
       findUnique: jest.fn(),
       findMany: jest.fn().mockResolvedValue([]),
@@ -52,6 +58,11 @@ function setup() {
     invalidate: jest.fn().mockResolvedValue(undefined),
   }
   const config = { get: jest.fn().mockReturnValue('https://app.studenthub.kz') }
+  // Уведомления сторонам карьеры: сборка и доставка — в career-notifier.spec.ts.
+  const notifier = {
+    accessRequested: jest.fn().mockResolvedValue(undefined),
+    accessDecided: jest.fn().mockResolvedValue(undefined),
+  }
 
   const service = new CompaniesService(
     prisma as unknown as PrismaService,
@@ -60,8 +71,9 @@ function setup() {
     queue as unknown as QueueService,
     access as unknown as CareerAccessService,
     config as unknown as ConfigService<EnvVars, true>,
+    notifier as unknown as CareerNotifier,
   )
-  return { service, prisma, tx, passwords, audit, queue, access }
+  return { service, prisma, tx, passwords, audit, queue, access, notifier }
 }
 
 const employer: JwtPayload = {
@@ -299,6 +311,23 @@ describe('CompaniesService — заявка на допуск', () => {
       .catch((e: unknown) => e)) as AppException
     expect(err.code).toBe('CONFLICT')
     expect(s.audit.record).not.toHaveBeenCalled()
+    expect(s.notifier.accessRequested).not.toHaveBeenCalled()
+  })
+
+  // D-F28: администрация вуза узнавала о заявке, только открыв очередь.
+  it('новая заявка — уведомление администрации вуза с моментом подачи', async () => {
+    const s = ownerSetup()
+    s.prisma.companyUniversityAccess.findUnique.mockResolvedValue(null)
+
+    await s.service.requestAccess(employer, { universityId: 'uni-1' }, ctx)
+
+    const requestedAt = s.prisma.companyUniversityAccess.create.mock.calls[0][0].data.requestedAt
+    expect(requestedAt).toBeInstanceOf(Date)
+    expect(s.notifier.accessRequested).toHaveBeenCalledWith({
+      companyId: 'co-1',
+      universityId: 'uni-1',
+      requestedAt,
+    })
   })
 })
 
@@ -398,6 +427,29 @@ describe('CompaniesService — решение вуза', () => {
     }
   })
 
+  // D-F28: компания узнавала о решении, только заглянув в кабинет.
+  it('решение уходит компании уведомлением — со статусом, причиной и моментом решения', async () => {
+    const { service, prisma, tx, notifier } = setup()
+    prisma.companyUniversityAccess.findUnique.mockResolvedValue({
+      id: 'a-1',
+      status: 'REQUESTED',
+      companyId: 'co-1',
+      universityId: 'uni-1',
+    })
+
+    await service.decideAccess(staff(), 'a-1', { status: 'REJECTED', reason: 'мало данных' }, ctx)
+
+    const decidedAt = tx.companyUniversityAccess.updateMany.mock.calls[0][0].data.decidedAt
+    expect(notifier.accessDecided).toHaveBeenCalledWith({
+      accessId: 'a-1',
+      companyId: 'co-1',
+      universityId: 'uni-1',
+      status: 'REJECTED',
+      reason: 'мало данных',
+      decidedAt,
+    })
+  })
+
   it('сотрудник без вуза в токене получает WRONG_SCOPE', async () => {
     const { service } = setup()
     await expect(
@@ -425,6 +477,104 @@ describe('CompaniesService — решение вуза', () => {
     expect(err.code).toBe('CONFLICT')
     expect(audit.record).not.toHaveBeenCalled()
     expect(access.invalidate).not.toHaveBeenCalled()
+  })
+})
+
+describe('CompaniesService — вход работодателя (D-F28)', () => {
+  it('компания ждёт подтверждения почты → EMAIL_NOT_VERIFIED', async () => {
+    const { service, prisma } = setup()
+    prisma.company.findFirst.mockResolvedValue({ status: 'PENDING_EMAIL' })
+    await expect(service.loginDenial('co-1')).resolves.toMatchObject({
+      code: 'EMAIL_NOT_VERIFIED',
+    })
+    expect(prisma.company.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'co-1', deletedAt: null } }),
+    )
+  })
+
+  it('подтверждённая и заблокированная компании вход не закрывают', async () => {
+    for (const status of ['ACTIVE', 'BLOCKED']) {
+      const { service, prisma } = setup()
+      prisma.company.findFirst.mockResolvedValue({ status })
+      await expect(service.loginDenial('co-1')).resolves.toBeNull()
+    }
+  })
+})
+
+describe('CompaniesService — уборка неподтверждённых компаний (D-F28)', () => {
+  const cutoff = new Date('2026-09-17T00:00:00Z')
+
+  it('захватывает компанию условной записью, удаляет аккаунты участников и пишет аудит', async () => {
+    const { service, prisma, audit } = setup()
+    prisma.company.findMany.mockResolvedValueOnce([{ id: 'co-1', deletedAt: null }])
+    prisma.companyMember.findMany.mockResolvedValue([{ userId: 'u-1' }])
+    const deleteAccount = jest.fn().mockResolvedValue(undefined)
+
+    await expect(service.purgeUnverified(cutoff, deleteAccount)).resolves.toBe(1)
+
+    expect(prisma.company.findMany.mock.calls[0][0].where).toMatchObject({
+      status: 'PENDING_EMAIL',
+      createdAt: { lt: cutoff },
+    })
+    // Условие захвата повторяет отбор: подтвердивший почту между ними не пострадает.
+    expect(prisma.company.updateMany).toHaveBeenCalledWith({
+      where: { id: 'co-1', status: 'PENDING_EMAIL', deletedAt: null, createdAt: { lt: cutoff } },
+      data: expect.objectContaining({ deletedAt: expect.any(Date), emailVerificationHash: null }),
+    })
+    expect(deleteAccount).toHaveBeenCalledWith('u-1')
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'company_unverified_purged',
+        entityId: 'co-1',
+        metadata: { userIds: ['u-1'] },
+      }),
+    )
+  })
+
+  it('почту подтвердили между выборкой и захватом — аккаунт не трогаем', async () => {
+    const { service, prisma, audit } = setup()
+    prisma.company.findMany.mockResolvedValueOnce([{ id: 'co-1', deletedAt: null }])
+    prisma.company.updateMany.mockResolvedValue({ count: 0 })
+    const deleteAccount = jest.fn()
+
+    await expect(service.purgeUnverified(cutoff, deleteAccount)).resolves.toBe(0)
+
+    expect(prisma.companyMember.findMany).not.toHaveBeenCalled()
+    expect(deleteAccount).not.toHaveBeenCalled()
+    expect(audit.record).not.toHaveBeenCalled()
+  })
+
+  it('компания, захваченная прошлым прогоном, добирается без повторного захвата', async () => {
+    const { service, prisma } = setup()
+    prisma.company.findMany.mockResolvedValueOnce([{ id: 'co-1', deletedAt: new Date() }])
+    prisma.companyMember.findMany.mockResolvedValue([{ userId: 'u-1' }])
+    const deleteAccount = jest.fn().mockResolvedValue(undefined)
+
+    await expect(service.purgeUnverified(cutoff, deleteAccount)).resolves.toBe(1)
+
+    expect(prisma.company.updateMany).not.toHaveBeenCalled()
+    expect(deleteAccount).toHaveBeenCalledWith('u-1')
+  })
+
+  it('сбой удаления аккаунта не роняет прогон: следующие компании разбираются', async () => {
+    const { service, prisma, audit } = setup()
+    prisma.company.findMany.mockResolvedValueOnce([
+      { id: 'co-1', deletedAt: null },
+      { id: 'co-2', deletedAt: null },
+    ])
+    prisma.companyMember.findMany
+      .mockResolvedValueOnce([{ userId: 'u-1' }])
+      .mockResolvedValueOnce([{ userId: 'u-2' }])
+    const deleteAccount = jest
+      .fn()
+      .mockRejectedValueOnce(new Error('db down'))
+      .mockResolvedValueOnce(undefined)
+
+    await expect(service.purgeUnverified(cutoff, deleteAccount)).resolves.toBe(1)
+
+    expect(deleteAccount).toHaveBeenCalledTimes(2)
+    expect(audit.record).toHaveBeenCalledTimes(1)
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ entityId: 'co-2' }))
   })
 })
 

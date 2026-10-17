@@ -22,6 +22,7 @@ import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { EnvVars } from '../../config/env.schema'
 import { webBaseUrl } from '../../config/web-base'
 import { CareerAccessService } from './career-access.service'
+import { CareerNotifier } from './career-notifier'
 
 /** Срок жизни ссылки подтверждения email. Сутки: письмо могут открыть на следующий день. */
 const VERIFY_TTL_MS = 24 * 60 * 60 * 1000
@@ -40,6 +41,10 @@ const EXPIRED_ACCESS_REASON = 'Истёк срок допуска'
 /** Сколько истёкших допусков разбирается за один проход cron. */
 const EXPIRE_BATCH = 200
 
+/** Неподтверждённые компании — пачкой за проход cron; у каждой единицы участников. */
+const PURGE_BATCH = 100
+const PURGE_MEMBERS_LIMIT = 100
+
 export interface RequestContext {
   ip?: string
   userAgent?: string
@@ -56,6 +61,7 @@ export class CompaniesService {
     private readonly queue: QueueService,
     private readonly access: CareerAccessService,
     private readonly config: ConfigService<EnvVars, true>,
+    private readonly notifier: CareerNotifier,
   ) {}
 
   // ── Регистрация ────────────────────────────────────────────────────────────
@@ -250,6 +256,27 @@ export class CompaniesService {
     return { companyId: company.id }
   }
 
+  /**
+   * Почему работодатель этой компании не может войти, или null — может (D-F28). Спрашивает
+   * AuthService при входе и обновлении сессии.
+   *
+   * До подтверждения адреса аккаунт, созданный публичной регистрацией, пользовался общими
+   * ручками платформы (загрузкой файлов и т.п.) под непроверенной почтой. Теперь вход ждёт
+   * перехода по ссылке. Заблокированную платформой компанию вход пускает: владелец должен
+   * увидеть причину блокировки в кабинете, а действия компании закрывает assertCompanyActive.
+   */
+  async loginDenial(companyId: string): Promise<AppException | null> {
+    const company = await this.prisma.company.findFirst({
+      where: { id: companyId, deletedAt: null },
+      select: { status: true },
+    })
+    if (company?.status !== 'PENDING_EMAIL') return null
+    return new AppException(
+      'EMAIL_NOT_VERIFIED',
+      'Подтвердите email компании — ссылка пришла в письме после регистрации',
+    )
+  }
+
   // ── Профиль компании ───────────────────────────────────────────────────────
 
   async myCompany(viewer: JwtPayload) {
@@ -296,6 +323,7 @@ export class CompaniesService {
       where: { companyId_universityId: { companyId, universityId: input.universityId } },
       select: { id: true, status: true },
     })
+    const requestedAt = new Date()
 
     if (existing) {
       const from = existing.status as CompanyAccessStatus
@@ -316,7 +344,7 @@ export class CompaniesService {
           status: 'REQUESTED',
           message: input.message,
           requestedById: viewer.sub,
-          requestedAt: new Date(),
+          requestedAt,
           decidedById: null,
           decidedAt: null,
           reason: null,
@@ -334,6 +362,7 @@ export class CompaniesService {
           status: 'REQUESTED',
           message: input.message,
           requestedById: viewer.sub,
+          requestedAt,
         },
       })
     }
@@ -344,6 +373,12 @@ export class CompaniesService {
       entity: 'CompanyUniversityAccess',
       entityId: `${companyId}:${input.universityId}`,
       ...ctx,
+    })
+    // Администрация вуза узнаёт о заявке сразу, а не при следующем заходе в очередь (D-F28).
+    await this.notifier.accessRequested({
+      companyId,
+      universityId: input.universityId,
+      requestedAt,
     })
     return this.myAccessList(viewer)
   }
@@ -481,6 +516,7 @@ export class CompaniesService {
       throw new AppException('CONFLICT', `Переход ${from} → ${input.status} недопустим`)
     }
 
+    const decidedAt = new Date()
     await this.prisma.$transaction(async (tx) => {
       // Условие на ожидаемый статус — в самой записи (D-F29). Без него два админа, параллельно
       // одобряющий и отклоняющий, оставляли последнее слово за записавшим позже, а в аудите
@@ -491,7 +527,7 @@ export class CompaniesService {
           status: input.status,
           reason: input.reason,
           decidedById: viewer.sub,
-          decidedAt: new Date(),
+          decidedAt,
           expiresAt:
             input.status === 'APPROVED' && input.expiresAt ? new Date(input.expiresAt) : null,
         },
@@ -514,7 +550,7 @@ export class CompaniesService {
         await this.closeVacancyReviews(tx, record.companyId, universityId, {
           reason: REVOKED_REVIEW_REASON,
           decidedById: viewer.sub,
-          decidedAt: new Date(),
+          decidedAt,
         })
       }
     })
@@ -529,6 +565,15 @@ export class CompaniesService {
       entityId: record.id,
       metadata: { companyId: record.companyId, universityId },
       ...ctx,
+    })
+    // Компания узнаёт о решении сразу, а не заглянув в кабинет (D-F28).
+    await this.notifier.accessDecided({
+      accessId: record.id,
+      companyId: record.companyId,
+      universityId,
+      status: input.status,
+      reason: input.reason,
+      decidedAt,
     })
   }
 
@@ -589,6 +634,100 @@ export class CompaniesService {
     }
     if (total > 0) this.logger.log(`expireAccess: закрыто допусков по сроку ${total}`)
     return total
+  }
+
+  /**
+   * Компании, не подтвердившие почту до `cutoff` (D-F28): компания помечается удалённой,
+   * аккаунты её участников удаляются штатным путём удаления аккаунта (`deleteAccount` —
+   * анонимизация ПДн и разлогин, UserService.softDeleteSelf). Расписание — cron
+   * `purgeUnverifiedEmployers` в cleanup.service.ts; путь удаления аккаунта передаёт он же,
+   * чтобы карьера не тянула модуль пользователей (кольцо Auth → Career).
+   *
+   * Без этого неподтверждённый аккаунт держал адрес занятым бессрочно: повторная регистрация
+   * на него молча ничего не делает, а данные из публичной формы так никто и не подтвердил.
+   *
+   * Компания «захватывается» условной записью (статус, срок, не удалена): подтвердивший
+   * почту между выборкой и записью остаётся нетронутым, а ссылка из письма после захвата
+   * уже не сработает — verifyEmail ищет только неудалённые. В выборку попадают и удалённые
+   * компании с живыми участниками: прошлый прогон мог упасть между захватом и удалением
+   * аккаунтов, и без этого они остались бы навсегда. Курсор по id — продвижение даже при
+   * сбое удаления отдельного аккаунта.
+   */
+  async purgeUnverified(
+    cutoff: Date,
+    deleteAccount: (userId: string) => Promise<void>,
+  ): Promise<number> {
+    const where: Prisma.CompanyWhereInput = {
+      status: 'PENDING_EMAIL',
+      createdAt: { lt: cutoff },
+      OR: [{ deletedAt: null }, { members: { some: { user: { deletedAt: null } } } }],
+    }
+    let purged = 0
+    let afterId: string | null = null
+    for (;;) {
+      const batch: { id: string; deletedAt: Date | null }[] = await this.prisma.company.findMany({
+        where: { ...where, ...(afterId ? { id: { gt: afterId } } : {}) },
+        select: { id: true, deletedAt: true },
+        orderBy: { id: 'asc' },
+        take: PURGE_BATCH,
+      })
+      if (batch.length === 0) break
+      for (const company of batch) {
+        if (await this.purgeOne(company, cutoff, deleteAccount)) purged += 1
+      }
+      if (batch.length < PURGE_BATCH) break
+      afterId = batch[batch.length - 1]!.id
+    }
+    if (purged > 0) this.logger.log(`purgeUnverified: удалено неподтверждённых компаний ${purged}`)
+    return purged
+  }
+
+  /** Одна компания из purgeUnverified. false — её успели подтвердить или удаление сорвалось. */
+  private async purgeOne(
+    company: { id: string; deletedAt: Date | null },
+    cutoff: Date,
+    deleteAccount: (userId: string) => Promise<void>,
+  ): Promise<boolean> {
+    if (!company.deletedAt) {
+      const { count } = await this.prisma.company.updateMany({
+        where: {
+          id: company.id,
+          status: 'PENDING_EMAIL',
+          deletedAt: null,
+          createdAt: { lt: cutoff },
+        },
+        data: {
+          deletedAt: new Date(),
+          emailVerificationHash: null,
+          emailVerificationExpiresAt: null,
+        },
+      })
+      if (count === 0) return false
+    }
+    const members = await this.prisma.companyMember.findMany({
+      where: { companyId: company.id, user: { deletedAt: null } },
+      select: { userId: true },
+      take: PURGE_MEMBERS_LIMIT,
+    })
+    const userIds = members.map((m) => m.userId)
+    try {
+      for (const userId of userIds) await deleteAccount(userId)
+    } catch (error) {
+      // Компания уже помечена удалённой — следующий прогон доберёт участников.
+      this.logger.warn(
+        `purgeUnverified: компания ${company.id} — аккаунт не удалён: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      )
+      return false
+    }
+    await this.audit.record({
+      action: 'company_unverified_purged',
+      entity: 'Company',
+      entityId: company.id,
+      metadata: { userIds },
+    })
+    return true
   }
 
   // ── Служебное ──────────────────────────────────────────────────────────────

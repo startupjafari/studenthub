@@ -37,6 +37,10 @@ export const ErrorCode = {
   // регистрация по инвайту и запросы с уже выданным токеном закрыты. Отдельно от FORBIDDEN:
   // дело не в правах человека, и сказать ему нужно, к кому идти.
   UNIVERSITY_BLOCKED: 'UNIVERSITY_BLOCKED',
+  // Работодатель не подтвердил почту компании (Company.status = PENDING_EMAIL): вход и
+  // обновление сессии закрыты до перехода по ссылке из письма. Отдельно от FORBIDDEN:
+  // клиент предлагает отправить письмо ещё раз, а не говорит «недостаточно прав».
+  EMAIL_NOT_VERIFIED: 'EMAIL_NOT_VERIFIED',
 } as const
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode]
@@ -73,6 +77,8 @@ export const ERROR_CODE_STATUS: Record<ErrorCode, number> = {
   LOGIN_LOCKED: 429,
   // 403 — человек опознан, но вуз закрыт: повтор входа или refresh ничего не изменит.
   UNIVERSITY_BLOCKED: 403,
+  // 403 — пароль верный, но вход откроется только после подтверждения адреса.
+  EMAIL_NOT_VERIFIED: 403,
 }
 
 /** Код по умолчанию для HTTP-статуса (для стандартных Nest-исключений без явного кода). */

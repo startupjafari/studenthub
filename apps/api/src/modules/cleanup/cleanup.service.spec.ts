@@ -110,9 +110,16 @@ function makeService() {
     resumeAndBackfill: jest.fn(async () => ({ resumed: 1, backfilled: 2 })) as Mock,
   }
   // Истечение допусков компаний: cron только делегирует, каскад — в companies.service.spec.ts.
-  const companies = { expireAccess: jest.fn(async () => 0) as Mock }
+  const companies = {
+    expireAccess: jest.fn(async () => 0) as Mock,
+    purgeUnverified: jest.fn(async () => 0) as Mock,
+  }
   // Сводка просрочки заявок: cron только делегирует, сборка — в application-notifier.spec.ts.
   const applications = { notifyOverdue: jest.fn(async () => 0) as Mock }
+  // Запросы документов по сроку: cron только делегирует, закрытие — в document-requests.service.spec.ts.
+  const documentRequests = { closeOverdue: jest.fn(async () => 0) as Mock }
+  // Штатное удаление аккаунта — путь, который cron передаёт уборке неподтверждённых компаний.
+  const users = { softDeleteSelf: jest.fn(async () => undefined) as Mock }
   const service = new CleanupService(
     prisma as never,
     minio as never,
@@ -133,10 +140,14 @@ function makeService() {
     media as never,
     companies as never,
     applications as never,
+    documentRequests as never,
+    users as never,
   )
   return {
     companies,
     applications,
+    documentRequests,
+    users,
     service,
     media,
     prisma,
@@ -407,6 +418,106 @@ describe('CleanupService', () => {
       for (const where of wheres) {
         expect(JSON.stringify(where)).not.toMatch(/AVATARS|PROFILE_MEDIA/)
       }
+    })
+
+    // E-F15: удалённый пост скрывал медиа, но байты хранились бессрочно.
+    it('снимает медиа постов, удалённых больше 30 дней назад, если на файл не ссылается ничто другое', async () => {
+      const { service, prisma } = makeService()
+      prisma.file.findMany.mockResolvedValue([])
+      const before = Date.now()
+
+      await service.cleanDetachedFiles()
+
+      const wheres = prisma.file.findMany.mock.calls.map(
+        (c: [{ where: Record<string, unknown> }]) => c[0].where,
+      )
+      const deleted = wheres.find((w) => 'post' in w) as Record<string, unknown> & {
+        post: { deletedAt: { lt: Date } }
+      }
+      expect(deleted).toMatchObject({
+        bucket: 'MINIO_BUCKET_POSTS',
+        messageId: null,
+        materialId: null,
+        albumId: null,
+        documentId: null,
+        submissionId: null,
+        stories: { none: {} },
+        albumsCovered: { none: {} },
+      })
+      // Сама связь с постом есть — её условие «пост удалён», а не «поста нет».
+      expect(deleted).not.toHaveProperty('postId')
+      const month = 30 * 24 * 60 * 60 * 1000
+      expect(deleted.post.deletedAt.lt.getTime()).toBeGreaterThanOrEqual(before - month)
+      expect(deleted.post.deletedAt.lt.getTime()).toBeLessThanOrEqual(Date.now() - month)
+    })
+
+    // D-F21: сканы удалённых документов и брошенных в мастере загрузок жили вечно.
+    it('снимает сканы документов, удалённых больше 30 дней назад', async () => {
+      const { service, prisma } = makeService()
+      prisma.file.findMany.mockResolvedValue([])
+      const before = Date.now()
+
+      await service.cleanDetachedFiles()
+
+      const wheres = prisma.file.findMany.mock.calls.map(
+        (c: [{ where: Record<string, unknown> }]) => c[0].where,
+      )
+      const deleted = wheres.find((w) => 'document' in w) as {
+        bucket: string
+        document: { deletedAt: { lt: Date } }
+      }
+      expect(deleted.bucket).toBe('MINIO_BUCKET_DOCUMENTS')
+      const month = 30 * 24 * 60 * 60 * 1000
+      expect(deleted.document.deletedAt.lt.getTime()).toBeGreaterThanOrEqual(before - month)
+      expect(deleted.document.deletedAt.lt.getTime()).toBeLessThanOrEqual(Date.now() - month)
+    })
+
+    it('снимает сканы, не привязанные к документу за неделю, — по всем связям', async () => {
+      const { service, prisma } = makeService()
+      prisma.file.findMany.mockResolvedValue([])
+      const before = Date.now()
+
+      await service.cleanDetachedFiles()
+
+      const wheres = prisma.file.findMany.mock.calls.map(
+        (c: [{ where: Record<string, unknown> }]) => c[0].where,
+      )
+      const detached = wheres.find(
+        (w) => w.bucket === 'MINIO_BUCKET_DOCUMENTS' && 'documentId' in w,
+      ) as Record<string, unknown> & { createdAt: { lt: Date } }
+      expect(detached).toMatchObject({
+        postId: null,
+        messageId: null,
+        materialId: null,
+        albumId: null,
+        documentId: null,
+        submissionId: null,
+        stories: { none: {} },
+        albumsCovered: { none: {} },
+      })
+      const week = 7 * 24 * 60 * 60 * 1000
+      expect(detached.createdAt.lt.getTime()).toBeGreaterThanOrEqual(before - week)
+      expect(detached.createdAt.lt.getTime()).toBeLessThanOrEqual(Date.now() - week)
+    })
+
+    it('условие цели документов стоит и в удалении: скан могли привязать между выборкой и DELETE', async () => {
+      const { service, prisma } = makeService()
+      prisma.file.findMany.mockImplementation(async ({ where }: { where: { bucket?: unknown } }) =>
+        where.bucket === 'MINIO_BUCKET_DOCUMENTS' ? [{ id: 'doc-file' }] : [],
+      )
+      prisma.file.deleteMany.mockResolvedValue({ count: 1 })
+
+      await expect(service.cleanDetachedFiles()).resolves.toBe(2)
+
+      const deletes = prisma.file.deleteMany.mock.calls.map(
+        (c: [{ where: Record<string, unknown> }]) => c[0].where,
+      )
+      expect(deletes).toHaveLength(2)
+      for (const where of deletes) {
+        expect(where).toMatchObject({ id: { in: ['doc-file'] }, bucket: 'MINIO_BUCKET_DOCUMENTS' })
+      }
+      expect(deletes[0]).toHaveProperty('document')
+      expect(deletes[1]).toMatchObject({ documentId: null, createdAt: { lt: expect.any(Date) } })
     })
 
     // Чат принимает файлы альбома до сообщения и привязывает их одной транзакцией: строка
@@ -894,6 +1005,59 @@ describe('CleanupService.expireCompanyAccess', () => {
 
     expect(companies.expireAccess).toHaveBeenCalledTimes(1)
     expect(locks.run.mock.calls[0][0]).toBe('expireCompanyAccess')
+  })
+})
+
+describe('CleanupService.closeOverdueDocumentRequests', () => {
+  it('делегирует закрытие запросов по сроку владельцу домена под своим локом', async () => {
+    const { service, documentRequests, locks } = makeService()
+    documentRequests.closeOverdue.mockResolvedValue(2)
+
+    await expect(service.closeOverdueDocumentRequests()).resolves.toBe(2)
+
+    expect(documentRequests.closeOverdue).toHaveBeenCalledTimes(1)
+    expect(locks.run.mock.calls[0][0]).toBe('closeOverdueDocumentRequests')
+  })
+})
+
+describe('CleanupService.purgeUnverifiedEmployers', () => {
+  it('отдаёт владельцу домена срок в 30 дней и штатный путь удаления аккаунта', async () => {
+    const { service, companies, users, locks } = makeService()
+    companies.purgeUnverified.mockImplementation(
+      async (_cutoff: Date, deleteAccount: (userId: string) => Promise<void>) => {
+        await deleteAccount('u-emp')
+        return 1
+      },
+    )
+    const before = Date.now()
+
+    await expect(service.purgeUnverifiedEmployers()).resolves.toBe(1)
+
+    expect(locks.run.mock.calls[0][0]).toBe('purgeUnverifiedEmployers')
+    const cutoff = (companies.purgeUnverified.mock.calls[0] as [Date])[0].getTime()
+    const month = 30 * 24 * 60 * 60 * 1000
+    expect(cutoff).toBeGreaterThanOrEqual(before - month)
+    expect(cutoff).toBeLessThanOrEqual(Date.now() - month)
+    expect(users.softDeleteSelf).toHaveBeenCalledWith('u-emp')
+  })
+
+  it('лок занят — уборки нет', async () => {
+    const { service, companies, locks } = makeService()
+    locks.run.mockResolvedValue(null)
+
+    await expect(service.purgeUnverifiedEmployers()).resolves.toBeNull()
+    expect(companies.purgeUnverified).not.toHaveBeenCalled()
+  })
+
+  it('без флага CLEANUP_PURGE_UNVERIFIED_EMPLOYERS аккаунты не удаляются', async () => {
+    const { service, companies, locks, config } = makeService()
+    config.get.mockImplementation((k: string) =>
+      k === 'CLEANUP_PURGE_UNVERIFIED_EMPLOYERS' ? false : k,
+    )
+
+    await expect(service.purgeUnverifiedEmployers()).resolves.toBeNull()
+    expect(locks.run).not.toHaveBeenCalled()
+    expect(companies.purgeUnverified).not.toHaveBeenCalled()
   })
 })
 

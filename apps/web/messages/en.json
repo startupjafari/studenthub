@@ -1474,6 +1474,7 @@
     "TWO_FACTOR_SETUP_REQUIRED": "Two-factor authentication setup is required",
     "USERNAME_TAKEN": "This username is already taken",
     "UNIVERSITY_BLOCKED": "The university is blocked on the platform. Please contact your university administration",
+    "EMAIL_NOT_VERIFIED": "Confirm your company email: the link was sent to you after sign-up",
     "retryHint": "Could not load the data. Refresh the page or try again later."
   },
   "Notifications": {

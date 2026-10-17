@@ -135,6 +135,23 @@ const RU = {
   'career.offer.body': 'Вам сделали предложение',
   'career.hired.body': 'Вас приняли на работу',
   'career.rejected.body': 'По этому отклику отказ',
+  // Карьерный центр вуза (администрация): компания просит допуск к студентам.
+  'career.accessRequested.title': 'Заявка компании на допуск',
+  'career.accessRequested.body': '{company} просит открыть доступ к студентам',
+  // Компании: решение вуза по допуску. Тело — вуз, с причиной, если её указали.
+  'career.accessApproved.title': 'Допуск к студентам открыт',
+  'career.accessRejected.title': 'Заявка на допуск отклонена',
+  'career.accessRevoked.title': 'Допуск к студентам отозван',
+  'career.university.body': '{university}',
+  'career.universityReason.body': '{university}: {reason}',
+  // Компании: решение вуза по вакансии.
+  'career.vacancyApproved.title': 'Вакансия одобрена',
+  'career.vacancyRejected.title': 'Вакансия отклонена',
+  'career.vacancy.body': '«{title}» — {university}',
+  'career.vacancyReason.body': '«{title}» — {university}: {reason}',
+  // Компании: новый отклик (свёрнутое — одна строка на вакансию).
+  'career.newApplication.title': 'Новый отклик',
+  'career.newApplication.body': 'Вакансия «{title}»',
 } as const
 
 /** Ключ словарной статьи. Тип выводится из русского каталога — он и есть эталон состава. */
@@ -235,6 +252,19 @@ const KK: Record<NotificationMessageKey, string> = {
   'career.offer.body': 'Сізге ұсыныс жасалды',
   'career.hired.body': 'Сіз жұмысқа қабылдандыңыз',
   'career.rejected.body': 'Бұл өтініш бойынша бас тартылды',
+  'career.accessRequested.title': 'Компанияның рұқсат сұрауы',
+  'career.accessRequested.body': '{company} студенттерге қолжетімділік сұрайды',
+  'career.accessApproved.title': 'Студенттерге қолжетімділік ашылды',
+  'career.accessRejected.title': 'Қолжетімділік сұрауы қабылданбады',
+  'career.accessRevoked.title': 'Студенттерге қолжетімділік тоқтатылды',
+  'career.university.body': '{university}',
+  'career.universityReason.body': '{university}: {reason}',
+  'career.vacancyApproved.title': 'Вакансия мақұлданды',
+  'career.vacancyRejected.title': 'Вакансия қабылданбады',
+  'career.vacancy.body': '«{title}» — {university}',
+  'career.vacancyReason.body': '«{title}» — {university}: {reason}',
+  'career.newApplication.title': 'Жаңа өтініш',
+  'career.newApplication.body': '«{title}» вакансиясы',
 }
 
 const EN: Record<NotificationMessageKey, string> = {
@@ -332,6 +362,19 @@ const EN: Record<NotificationMessageKey, string> = {
   'career.offer.body': 'You received an offer',
   'career.hired.body': 'You were hired',
   'career.rejected.body': 'This application was declined',
+  'career.accessRequested.title': 'Company access request',
+  'career.accessRequested.body': '{company} asks for access to your students',
+  'career.accessApproved.title': 'Access to students granted',
+  'career.accessRejected.title': 'Access request declined',
+  'career.accessRevoked.title': 'Access to students revoked',
+  'career.university.body': '{university}',
+  'career.universityReason.body': '{university}: {reason}',
+  'career.vacancyApproved.title': 'Vacancy approved',
+  'career.vacancyRejected.title': 'Vacancy declined',
+  'career.vacancy.body': '“{title}” — {university}',
+  'career.vacancyReason.body': '“{title}” — {university}: {reason}',
+  'career.newApplication.title': 'New application',
+  'career.newApplication.body': 'Vacancy “{title}”',
 }
 
 export const NOTIFICATION_MESSAGES: Record<Locale, Record<NotificationMessageKey, string>> = {

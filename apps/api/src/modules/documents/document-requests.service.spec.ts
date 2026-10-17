@@ -63,6 +63,7 @@ function setup() {
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     documentEvent: { create: jest.fn().mockResolvedValue({}) },
+    file: { findFirst: jest.fn() },
     documentType: {
       findMany: jest.fn().mockResolvedValue([]),
       findUnique: jest.fn().mockResolvedValue(null),
@@ -377,6 +378,52 @@ describe('DocumentRequestsService — проверка (15.16)', () => {
     const err = await service.getSubmissionFileUrl(student(), 'si1', 'f1').catch((e) => e)
     expect(err.code).toBe('FORBIDDEN')
     expect(documents.presign).not.toHaveBeenCalled()
+  })
+
+  // D-F21: студент удалил документ, а проверяющий по запросу продолжал его открывать.
+  it('getSubmissionFileUrl: документ удалён владельцем → NOT_FOUND, ссылки и журнала нет', async () => {
+    const { service, prisma, documents } = setup()
+    prisma.documentSubmissionItem.findFirst.mockResolvedValue({
+      documentId: 'd1',
+      submission: { requestId: 'r1' },
+    })
+    prisma.file.findFirst.mockResolvedValue(null)
+    const err = await service.getSubmissionFileUrl(staff(), 'si1', 'f1').catch((e) => e)
+    expect(err.code).toBe('NOT_FOUND')
+    expect(prisma.file.findFirst.mock.calls[0][0].where).toEqual({
+      id: 'f1',
+      documentId: 'd1',
+      document: { is: { deletedAt: null } },
+    })
+    expect(documents.presign).not.toHaveBeenCalled()
+    expect(prisma.documentEvent.create).not.toHaveBeenCalled()
+  })
+
+  it('getSubmissionForStaff: удалённый владельцем документ показан неприложенным', async () => {
+    const { service, prisma } = setup()
+    const doc = (id: string, deletedAt: Date | null) => ({
+      id,
+      title: 'Паспорт',
+      type: 'PASSPORT',
+      numberLast4: '4821',
+      deletedAt,
+      files: [{ id: `${id}-f`, mime: 'application/pdf' }],
+      _count: { files: 1 },
+    })
+    const item = (id: string, order: number, document: unknown) => ({
+      id,
+      status: 'PENDING',
+      rejectionReason: null,
+      requestItem: { id: `ri-${id}`, title: 't', documentType: 'PASSPORT', required: true, order },
+      document,
+    })
+    prisma.documentSubmission.findFirst.mockResolvedValue({
+      ...STAFF_VIEW,
+      items: [item('live', 0, doc('d1', null)), item('gone', 1, doc('d2', new Date()))],
+    })
+    const view = await service.getSubmissionForStaff(staff(), 's1')
+    expect(view.items[0]!.document).toMatchObject({ id: 'd1', numberMasked: '******4821' })
+    expect(view.items[1]!.document).toBeNull()
   })
 })
 

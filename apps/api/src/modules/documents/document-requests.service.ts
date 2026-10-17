@@ -561,6 +561,7 @@ export class DocumentRequestsService {
                 title: true,
                 type: true,
                 numberLast4: true,
+                deletedAt: true,
                 files: { select: { id: true, mime: true }, orderBy: { order: 'asc' } },
                 _count: { select: { files: true } },
               },
@@ -589,16 +590,18 @@ export class DocumentRequestsService {
           requestItemTitle: it.requestItem.title,
           documentType: it.requestItem.documentType,
           required: it.requestItem.required,
-          document: it.document
-            ? {
-                id: it.document.id,
-                title: it.document.title,
-                type: it.document.type,
-                numberMasked: it.document.numberLast4 ? `******${it.document.numberLast4}` : null,
-                fileCount: it.document._count.files,
-                files: it.document.files.map((f) => ({ id: f.id, mime: f.mime })),
-              }
-            : null,
+          // Удалённый владельцем документ проверяющий видит как неприложенный (D-F21).
+          document:
+            it.document && !it.document.deletedAt
+              ? {
+                  id: it.document.id,
+                  title: it.document.title,
+                  type: it.document.type,
+                  numberMasked: it.document.numberLast4 ? `******${it.document.numberLast4}` : null,
+                  fileCount: it.document._count.files,
+                  files: it.document.files.map((f) => ({ id: f.id, mime: f.mime })),
+                }
+              : null,
         })),
     }
   }
@@ -619,8 +622,10 @@ export class DocumentRequestsService {
       select: { documentId: true, submission: { select: { requestId: true } } },
     })
     if (!item?.documentId) throw new AppException('NOT_FOUND', 'Документ не найден')
+    // Удалённый владельцем документ через запрос не открывается (D-F21): удаление из
+    // кабинета закрывает его и для проверяющего, а сами сканы позже снимет ночная уборка.
     const file = await this.prisma.file.findFirst({
-      where: { id: fileId, documentId: item.documentId },
+      where: { id: fileId, documentId: item.documentId, document: { is: { deletedAt: null } } },
       select: { id: true },
     })
     if (!file) throw new AppException('NOT_FOUND', 'Файл не найден')

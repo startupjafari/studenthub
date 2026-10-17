@@ -2,6 +2,7 @@ import { Role } from '@studenthub/shared-types'
 import { matchVacancy } from '@studenthub/shared-schemas'
 import { VacanciesService } from './vacancies.service'
 import { CareerAccessService } from './career-access.service'
+import type { CareerNotifier } from './career-notifier'
 import { AppException } from '../../common/exceptions/app.exception'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { AuditService } from '../../common/audit/audit.service'
@@ -68,12 +69,15 @@ function setup(allowedUniversities: string[] = ['uni-1']) {
     requireCompany: jest.fn().mockReturnValue('co-1'),
     allowedUniversityIds: jest.fn().mockResolvedValue(allowedUniversities),
   }
+  // Уведомления компании о решениях вуза: сборка и доставка — в career-notifier.spec.ts.
+  const notifier = { vacancyDecided: jest.fn().mockResolvedValue(undefined) }
   const service = new VacanciesService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
     access as unknown as CareerAccessService,
+    notifier as unknown as CareerNotifier,
   )
-  return { service, prisma, tx, audit, access }
+  return { service, prisma, tx, audit, access, notifier }
 }
 
 describe('VacanciesService — публикация', () => {
@@ -304,6 +308,7 @@ describe('VacanciesService — модерация вузом', () => {
       universityId: 'uni-1',
       vacancyId: 'v-1',
       status: 'PENDING',
+      vacancy: { title: 'Стажёр-аналитик', companyId: 'co-1' },
     })
 
     await service.decide(staff(), 'r-1', { status: 'REJECTED', reason: 'не по профилю' }, ctx)
@@ -319,6 +324,38 @@ describe('VacanciesService — модерация вузом', () => {
       }),
     )
   })
+
+  // D-F28: компания узнавала о решении по вакансии, только заглянув в кабинет.
+  it('решение уходит компании уведомлением; проигравшее гонку — нет', async () => {
+    const { service, prisma, notifier } = setup()
+    prisma.vacancyUniversityReview.findUnique.mockResolvedValue({
+      id: 'r-1',
+      universityId: 'uni-1',
+      vacancyId: 'v-1',
+      status: 'PENDING',
+      vacancy: { title: 'Стажёр-аналитик', companyId: 'co-1' },
+    })
+
+    await service.decide(staff(), 'r-1', { status: 'REJECTED', reason: 'не по профилю' }, ctx)
+
+    const decidedAt = prisma.vacancyUniversityReview.updateMany.mock.calls[0][0].data.decidedAt
+    expect(notifier.vacancyDecided).toHaveBeenCalledWith({
+      reviewId: 'r-1',
+      companyId: 'co-1',
+      vacancyTitle: 'Стажёр-аналитик',
+      universityId: 'uni-1',
+      status: 'REJECTED',
+      reason: 'не по профилю',
+      decidedAt,
+    })
+
+    notifier.vacancyDecided.mockClear()
+    prisma.vacancyUniversityReview.updateMany.mockResolvedValue({ count: 0 })
+    await expect(
+      service.decide(staff(), 'r-1', { status: 'APPROVED' }, ctx),
+    ).rejects.toBeInstanceOf(AppException)
+    expect(notifier.vacancyDecided).not.toHaveBeenCalled()
+  })
 })
 
 describe('VacanciesService — переходы по графу (D-F29)', () => {
@@ -327,6 +364,7 @@ describe('VacanciesService — переходы по графу (D-F29)', () => 
     universityId: 'uni-1',
     vacancyId: 'v-1',
     status,
+    vacancy: { title: 'Стажёр-аналитик', companyId: 'co-1' },
   })
 
   it('отклонённое (в т.ч. отзывом допуска) решение вуз обратно не одобряет → 409', async () => {

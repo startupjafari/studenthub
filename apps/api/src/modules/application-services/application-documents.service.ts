@@ -251,8 +251,13 @@ export class ApplicationDocumentsService {
     if (!ad?.documentId) {
       throw new AppException('NOT_FOUND', 'Документ не приложен')
     }
+    // Удалённый владельцем документ по заявке не открывается (D-F21): снимка для заявки нет,
+    // и удаление паспорта из кабинета обязано закрыть его и для сотрудника.
+    const live = { document: { is: { deletedAt: null } } }
     const file = await this.prisma.file.findFirst({
-      where: fileId ? { id: fileId, documentId: ad.documentId } : { documentId: ad.documentId },
+      where: fileId
+        ? { id: fileId, documentId: ad.documentId, ...live }
+        : { documentId: ad.documentId, ...live },
       orderBy: { order: 'asc' },
       select: { id: true },
     })

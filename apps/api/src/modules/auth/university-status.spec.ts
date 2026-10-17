@@ -85,6 +85,7 @@ function setup(status: 'ACTIVE' | 'BLOCKED' | 'PENDING') {
     {} as never,
     {} as never,
     access,
+    {} as never,
   )
   return { service, prisma, tx, users, invites, loginAttempts }
 }

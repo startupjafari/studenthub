@@ -61,6 +61,8 @@ describe('AuthService: попытки ввода кода 2FA', () => {
       redis as unknown as Redis,
       {} as never,
       { assertAllowed: jest.fn() } as never,
+      // Компания работодателя подтверждена — вход не упирается в почту (D-F28).
+      { loginDenial: jest.fn().mockResolvedValue(null) } as never,
     )
     // Выдача сессии — не предмет этого теста: она тянет Prisma и подпись токенов.
     const withPrivate = service as unknown as {

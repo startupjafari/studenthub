@@ -17,6 +17,7 @@ import type { NotificationMessageKey } from '@studenthub/shared-config'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
 import { CareerAccessService, vacancyVisibleWhere } from './career-access.service'
+import { CareerNotifier } from './career-notifier'
 import { rethrowStaleStatus } from '../../common/prisma/stale-status'
 
 /** Что видит студент в списке своих откликов. */
@@ -65,6 +66,7 @@ export class ApplicationsService {
     private readonly audit: AuditService,
     private readonly queue: QueueService,
     private readonly access: CareerAccessService,
+    private readonly notifier: CareerNotifier,
   ) {}
 
   // ── Студент ────────────────────────────────────────────────────────────────
@@ -85,7 +87,7 @@ export class ApplicationsService {
 
     const vacancy = await this.prisma.vacancy.findFirst({
       where: { id: input.vacancyId, ...vacancyVisibleWhere(universityId) },
-      select: { id: true, companyId: true, deadline: true },
+      select: { id: true, companyId: true, deadline: true, title: true },
     })
     if (!vacancy) throw new AppException('NOT_FOUND', 'Вакансия не найдена')
     if (vacancy.deadline && vacancy.deadline.getTime() < Date.now()) {
@@ -122,6 +124,13 @@ export class ApplicationsService {
       entity: 'CareerApplication',
       entityId: application.id,
       ...ctx,
+    })
+    // Компания узнаёт о новом кандидате сразу, а не при следующем заходе в воронку (D-F28).
+    await this.notifier.newApplication({
+      id: application.id,
+      companyId: vacancy.companyId,
+      vacancyId: vacancy.id,
+      vacancyTitle: vacancy.title,
     })
     return application
   }

@@ -320,7 +320,11 @@ describe('ApplicationDocumentsService.presignedUrl — страницы и жу�
     await expect(service.presignedUrl(dean, 'a1', 'ad1', 'f2')).resolves.toEqual({
       url: 'https://url',
     })
-    expect(file.findFirst.mock.calls[0][0].where).toEqual({ id: 'f2', documentId: 'doc1' })
+    expect(file.findFirst.mock.calls[0][0].where).toEqual({
+      id: 'f2',
+      documentId: 'doc1',
+      document: { is: { deletedAt: null } },
+    })
     expect(files.getPresignedUrl).toHaveBeenCalledWith('f2')
   })
 
@@ -343,8 +347,28 @@ describe('ApplicationDocumentsService.presignedUrl — страницы и жу�
     file.findFirst.mockResolvedValue({ id: 'f1' })
     await service.presignedUrl(dean, 'a1', 'ad1')
     expect(file.findFirst).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { documentId: 'doc1' }, orderBy: { order: 'asc' } }),
+      expect.objectContaining({
+        where: { documentId: 'doc1', document: { is: { deletedAt: null } } },
+        orderBy: { order: 'asc' },
+      }),
     )
+  })
+
+  // D-F21: студент удалил паспорт из кабинета, а сотрудник по заявке продолжал его открывать.
+  it('документ, удалённый владельцем, по заявке не открывается → NOT_FOUND', async () => {
+    const { service, application, applicationDocument, file, files, documentEvent } = setup()
+    application.findFirst.mockResolvedValue(submitted)
+    applicationDocument.findFirst.mockResolvedValue({ documentId: 'doc1' })
+    // Файл есть, но его документ удалён — условие `document.deletedAt: null` его не находит.
+    file.findFirst.mockResolvedValue(null)
+    await expect(service.presignedUrl(dean, 'a1', 'ad1', 'f2')).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    })
+    expect(file.findFirst.mock.calls[0][0].where).toMatchObject({
+      document: { is: { deletedAt: null } },
+    })
+    expect(files.getPresignedUrl).not.toHaveBeenCalled()
+    expect(documentEvent.create).not.toHaveBeenCalled()
   })
 
   it('просмотр сотрудником пишется в журнал документа VIEW с viaApplication', async () => {

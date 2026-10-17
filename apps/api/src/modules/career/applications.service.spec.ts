@@ -6,6 +6,7 @@ import {
 } from '@studenthub/shared-schemas'
 import { ApplicationsService } from './applications.service'
 import { CareerAccessService } from './career-access.service'
+import type { CareerNotifier } from './career-notifier'
 import { AppException } from '../../common/exceptions/app.exception'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { AuditService } from '../../common/audit/audit.service'
@@ -41,7 +42,9 @@ function setup() {
   }
   const prisma = {
     vacancy: {
-      findFirst: jest.fn().mockResolvedValue({ id: 'v-1', companyId: 'co-1', deadline: null }),
+      findFirst: jest
+        .fn()
+        .mockResolvedValue({ id: 'v-1', companyId: 'co-1', deadline: null, title: 'Стажёр' }),
     },
     careerApplication: {
       findUnique: jest.fn().mockResolvedValue(null),
@@ -61,13 +64,16 @@ function setup() {
     requireCompany: jest.fn().mockReturnValue('co-1'),
     applicationScopeWhere: jest.fn().mockResolvedValue(scope),
   }
+  // Уведомление компании о новом кандидате: сборка и доставка — в career-notifier.spec.ts.
+  const notifier = { newApplication: jest.fn().mockResolvedValue(undefined) }
   const service = new ApplicationsService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
     queue as unknown as QueueService,
     access as unknown as CareerAccessService,
+    notifier as unknown as CareerNotifier,
   )
-  return { service, prisma, tx, audit, queue, access, scope }
+  return { service, prisma, tx, audit, queue, access, scope, notifier }
 }
 
 describe('ApplicationsService — отклик студента', () => {
@@ -155,6 +161,25 @@ describe('ApplicationsService — отклик студента', () => {
     await expect(service.apply(student(null), { vacancyId: 'v-1' }, ctx)).rejects.toBeInstanceOf(
       AppException,
     )
+  })
+
+  // D-F28: компания узнавала о новом кандидате, только открыв воронку.
+  it('новый отклик — уведомление компании; повторный (CONFLICT) — нет', async () => {
+    const { service, notifier, prisma } = setup()
+    await service.apply(student(), { vacancyId: 'v-1' }, ctx)
+    expect(notifier.newApplication).toHaveBeenCalledWith({
+      id: 'a-1',
+      companyId: 'co-1',
+      vacancyId: 'v-1',
+      vacancyTitle: 'Стажёр',
+    })
+
+    notifier.newApplication.mockClear()
+    prisma.careerApplication.findUnique.mockResolvedValue({ id: 'a-1' })
+    await expect(service.apply(student(), { vacancyId: 'v-1' }, ctx)).rejects.toBeInstanceOf(
+      AppException,
+    )
+    expect(notifier.newApplication).not.toHaveBeenCalled()
   })
 })
 

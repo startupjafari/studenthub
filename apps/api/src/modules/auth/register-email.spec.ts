@@ -45,6 +45,7 @@ function setup(owner: string | null) {
     {} as never,
     {} as never,
     { assertAllowed: jest.fn() } as never,
+    {} as never,
   )
   return { service, users, invites }
 }
