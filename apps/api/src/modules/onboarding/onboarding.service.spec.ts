@@ -230,3 +230,80 @@ describe('OnboardingService: чужой scope', () => {
     )
   })
 })
+
+describe('OnboardingService — шаги мастера', () => {
+  it('пропуск необязательного шага пишется в запись мастера и в журнал', async () => {
+    const { service, prisma, audit } = setup()
+
+    await service.skip(uniAdmin, { step: 'rooms' }, ctx)
+
+    expect(prisma.universityOnboarding.update).toHaveBeenCalledWith({
+      where: { universityId: 'uni-1' },
+      data: { skippedSteps: { push: 'rooms' } },
+    })
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'onboarding_step_skipped', metadata: { step: 'rooms' } }),
+    )
+  })
+
+  it('повторный пропуск того же шага не дублирует его в списке', async () => {
+    const { service, prisma } = setup({ record: { skippedSteps: ['rooms'] } })
+
+    await service.skip(uniAdmin, { step: 'rooms' }, ctx)
+
+    expect(prisma.universityOnboarding.update).not.toHaveBeenCalled()
+  })
+
+  it('мастер идёт по порядку: следующий шаг — первый незакрытый', async () => {
+    const { service } = setup({ tally: counts({ groups: 0, terms: 0 }) })
+    const state = await service.state(uniAdmin)
+
+    expect(state.blocking).toEqual(['groups', 'terms'])
+    expect(state.currentStep).toBe('groups')
+  })
+
+  it('всё заполнено — мастер открывается на шаге запуска', async () => {
+    const { service } = setup()
+    const state = await service.state(uniAdmin)
+
+    expect(state.currentStep).toBe('launch')
+    expect(state.canLaunch).toBe(true)
+  })
+
+  it('подтверждение реквизитов ставит отметку времени и пишет журнал', async () => {
+    const { service, prisma, audit } = setup({ record: { profileConfirmedAt: null } })
+
+    await service.confirmProfile(uniAdmin, ctx)
+
+    const { where, data } = prisma.universityOnboarding.update.mock.calls[0][0]
+    expect(where).toEqual({ universityId: 'uni-1' })
+    expect(data.profileConfirmedAt).toBeInstanceOf(Date)
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'onboarding_profile_confirmed', entityId: 'uni-1' }),
+    )
+  })
+
+  it('свёрнутый мастер не считается пройденным: completedAt не трогается', async () => {
+    const { service, prisma } = setup()
+
+    await service.dismiss(uniAdmin)
+
+    const { data } = prisma.universityOnboarding.update.mock.calls[0][0]
+    expect(data.dismissedAt).toBeInstanceOf(Date)
+    expect(data).not.toHaveProperty('completedAt')
+  })
+
+  it('вуз без записи мастера (заведён до мастера) получает её при первом обращении', async () => {
+    const { service, prisma } = setup()
+
+    await service.state(uniAdmin)
+
+    expect(prisma.universityOnboarding.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { universityId: 'uni-1' },
+        create: { universityId: 'uni-1' },
+        update: {},
+      }),
+    )
+  })
+})

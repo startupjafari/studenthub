@@ -14,6 +14,7 @@ function setup() {
       count: jest.fn(),
       findUnique: jest.fn(),
       create: jest.fn(),
+      update: jest.fn(),
       delete: jest.fn(),
     },
     university: { findUnique: jest.fn().mockResolvedValue({ id: 'uni-1' }) },
@@ -197,5 +198,146 @@ describe('RoomService — remove: что мешает удалению', () => {
       service.remove(viewer(Role.UNIVERSITY_ADMIN, 'uni-2'), 'room-1', ctx),
     ).rejects.toMatchObject({ code: 'WRONG_SCOPE' })
     expect(prisma.$transaction).not.toHaveBeenCalled()
+  })
+})
+
+describe('RoomService — создание: вуз и scope', () => {
+  it('админ вуза без universityId в теле создаёт помещение в своём вузе из JWT', async () => {
+    const { service, prisma, audit } = setup()
+    prisma.room.create.mockResolvedValue(ROOM)
+    await service.create(viewer(Role.UNIVERSITY_ADMIN), { name: '305' } as never, ctx)
+    expect(prisma.room.create.mock.calls[0][0].data).toMatchObject({
+      name: '305',
+      universityId: 'uni-1',
+    })
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'room_created', metadata: { universityId: 'uni-1' } }),
+    )
+  })
+
+  it('админ вуза с чужим universityId в теле → WRONG_SCOPE, ничего не создано', async () => {
+    const { service, prisma } = setup()
+    await expect(
+      service.create(
+        viewer(Role.UNIVERSITY_ADMIN),
+        { name: '305', universityId: 'uni-2' } as never,
+        ctx,
+      ),
+    ).rejects.toMatchObject({ code: 'WRONG_SCOPE' })
+    expect(prisma.university.findUnique).not.toHaveBeenCalled()
+    expect(prisma.room.create).not.toHaveBeenCalled()
+  })
+
+  it('платформа без вуза в теле и в токене → BAD_REQUEST', async () => {
+    const { service, prisma } = setup()
+    await expect(
+      service.create(viewer(Role.PLATFORM_ADMIN, null), { name: '305' } as never, ctx),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    expect(prisma.room.create).not.toHaveBeenCalled()
+  })
+
+  it('платформа создаёт в любом вузе, но несуществующий вуз → NOT_FOUND', async () => {
+    const { service, prisma } = setup()
+    prisma.university.findUnique.mockResolvedValueOnce(null)
+    await expect(
+      service.create(
+        viewer(Role.PLATFORM_ADMIN, null),
+        { name: '305', universityId: 'uni-404' } as never,
+        ctx,
+      ),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    expect(prisma.room.create).not.toHaveBeenCalled()
+
+    prisma.room.create.mockResolvedValue({ ...ROOM, universityId: 'uni-9' })
+    await service.create(
+      viewer(Role.PLATFORM_ADMIN, null),
+      { name: '305', universityId: 'uni-9' } as never,
+      ctx,
+    )
+    expect(prisma.room.create.mock.calls[0][0].data.universityId).toBe('uni-9')
+  })
+})
+
+describe('RoomService — правка и чтение по id', () => {
+  it('null очищает поле, отсутствующее поле не трогается', async () => {
+    const { service, prisma, audit } = setup()
+    prisma.room.findUnique.mockResolvedValue(ROOM)
+    prisma.room.update.mockResolvedValue(ROOM)
+    await service.update(
+      viewer(Role.UNIVERSITY_ADMIN),
+      'room-1',
+      { phone: null, capacity: 40 } as never,
+      ctx,
+    )
+    const { where, data } = prisma.room.update.mock.calls[0][0]
+    expect(where).toEqual({ id: 'room-1' })
+    expect(data.phone).toBeNull()
+    expect(data.capacity).toBe(40)
+    expect(data.name).toBeUndefined()
+    expect(data.building).toBeUndefined()
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'room_updated', entityId: 'room-1' }),
+    )
+  })
+
+  it('правка помещения чужого вуза → WRONG_SCOPE, без записи и аудита', async () => {
+    const { service, prisma, audit } = setup()
+    prisma.room.findUnique.mockResolvedValue(ROOM)
+    await expect(
+      service.update(viewer(Role.UNIVERSITY_ADMIN, 'uni-2'), 'room-1', { name: 'x' } as never, ctx),
+    ).rejects.toMatchObject({ code: 'WRONG_SCOPE' })
+    expect(prisma.room.update).not.toHaveBeenCalled()
+    expect(audit.record).not.toHaveBeenCalled()
+  })
+
+  it('правка несуществующего помещения → NOT_FOUND', async () => {
+    const { service, prisma } = setup()
+    prisma.room.findUnique.mockResolvedValue(null)
+    await expect(
+      service.update(viewer(Role.PLATFORM_ADMIN), 'nope', { name: 'x' } as never, ctx),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    expect(prisma.room.update).not.toHaveBeenCalled()
+  })
+
+  it('getById: свой вуз и платформа читают, чужой вуз → WRONG_SCOPE', async () => {
+    const { service, prisma } = setup()
+    prisma.room.findUnique.mockResolvedValue(ROOM)
+    await expect(service.getById(viewer(Role.TEACHER), 'room-1')).resolves.toBe(ROOM)
+    await expect(service.getById(viewer(Role.PLATFORM_MODERATOR, null), 'room-1')).resolves.toBe(
+      ROOM,
+    )
+    await expect(service.getById(viewer(Role.STUDENT, 'uni-2'), 'room-1')).rejects.toMatchObject({
+      code: 'WRONG_SCOPE',
+    })
+  })
+
+  it('список у аккаунта без вуза пуст по фильтру, а не «все вузы»', async () => {
+    const { service, prisma } = setup()
+    await service.list(viewer(Role.STUDENT, null), { page: 1, limit: 20, universityId: 'uni-1' })
+    expect(prisma.room.findMany.mock.calls[0][0].where).toEqual({ universityId: '__none__' })
+  })
+
+  it('платформа без фильтра по вузу видит все помещения', async () => {
+    const { service, prisma } = setup()
+    await service.list(viewer(Role.PLATFORM_ADMIN, null), { page: 1, limit: 20 })
+    expect(prisma.room.findMany.mock.calls[0][0].where).toEqual({})
+  })
+})
+
+describe('RoomService.assertRoomInUniversity — проверка для расписания', () => {
+  it('аудитория своего вуза проходит, чужого → WRONG_SCOPE, нет → NOT_FOUND', async () => {
+    const { service, prisma } = setup()
+    prisma.room.findUnique.mockResolvedValueOnce({ universityId: 'uni-1' })
+    await expect(service.assertRoomInUniversity('room-1', 'uni-1')).resolves.toBeUndefined()
+
+    prisma.room.findUnique.mockResolvedValueOnce({ universityId: 'uni-2' })
+    await expect(service.assertRoomInUniversity('room-1', 'uni-1')).rejects.toMatchObject({
+      code: 'WRONG_SCOPE',
+    })
+
+    prisma.room.findUnique.mockResolvedValueOnce(null)
+    await expect(service.assertRoomInUniversity('room-1', 'uni-1')).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    })
   })
 })

@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
 import { AppException } from '../../common/exceptions/app.exception'
 import { ApplicationProcessService } from './application-process.service'
@@ -540,5 +541,74 @@ describe('ApplicationProcessService.addResult — документ из хран
     expect(prisma.applicationResult.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ documentId: 'doc-own' }) }),
     )
+  })
+})
+
+// Два сотрудника нажали одно действие одновременно (или студент отозвал заявку, пока её
+// брали в работу): переход пишется с условием на прочитанный статус, проигравший получает 409.
+describe('ApplicationProcessService — гонка переходов (условие на статус в записи)', () => {
+  const stale = () =>
+    new Prisma.PrismaClientKnownRequestError('not found', { code: 'P2025', clientVersion: '6' })
+
+  it('take пишет переход с условием на прочитанный статус', async () => {
+    const { service, prisma } = setup({ ...base, status: 'RESUBMITTED' })
+    await service.take(dean, 'a1')
+    expect(prisma.application.update.mock.calls[0][0].where).toEqual({
+      id: 'a1',
+      status: 'RESUBMITTED',
+    })
+    expect(prisma.applicationEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ fromStatus: 'RESUBMITTED', toStatus: 'IN_REVIEW' }),
+      select: { id: true },
+    })
+  })
+
+  it('заявку взял другой сотрудник между чтением и записью → CONFLICT, без события и сигналов', async () => {
+    const { service, prisma, queue, realtime } = setup({ ...base, status: 'SUBMITTED' })
+    prisma.application.update.mockRejectedValueOnce(stale())
+    await expect(service.take(dean, 'a1')).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(prisma.applicationEvent.create).not.toHaveBeenCalled()
+    expect(queue.enqueue).not.toHaveBeenCalled()
+    expect(realtime.emitEventToUser).not.toHaveBeenCalled()
+  })
+
+  it('отказ, проигравший гонку, студента не уведомляет', async () => {
+    const { service, prisma, queue, realtime } = setup({ ...base, status: 'IN_REVIEW' })
+    prisma.application.update.mockRejectedValueOnce(stale())
+    await expect(service.reject(dean, 'a1', 'нет справки')).rejects.toMatchObject({
+      code: 'CONFLICT',
+    })
+    expect(queue.enqueue).not.toHaveBeenCalled()
+    expect(realtime.emitEventToUser).not.toHaveBeenCalled()
+  })
+
+  it('прочая ошибка базы не выдаётся за конфликт', async () => {
+    const { service, prisma } = setup({ ...base, status: 'IN_REVIEW' })
+    prisma.application.update.mockRejectedValueOnce(new Error('connection lost'))
+    await expect(service.startPreparation(dean, 'a1')).rejects.toThrow('connection lost')
+  })
+
+  it('назначение на заявку, закрытую между проверкой и записью → CONFLICT, без события', async () => {
+    const { service, prisma, users } = setup({ ...base, status: 'IN_PREPARATION' })
+    users.findAssigneeScope.mockResolvedValue({
+      id: 'ua',
+      role: Role.UNIVERSITY_ADMIN,
+      universityId: 'uni',
+      facultyId: null,
+    })
+    prisma.application.update.mockRejectedValueOnce(stale())
+    await expect(service.assign(dean, 'a1', 'ua')).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(prisma.applicationEvent.create).not.toHaveBeenCalled()
+  })
+
+  it('успешный переход уведомляет студента с ключом по id события перехода', async () => {
+    const { service, queue, realtime } = setup({ ...base, status: 'IN_REVIEW' })
+    await service.requestCorrection(dean, 'a1', 'перезагрузите скан')
+    const [, , payload, opts] = queue.enqueue.mock.calls[0]
+    expect(payload).toMatchObject({ recipientIds: ['stud'], dedupeKey: 'NEEDS_CORRECTION:ev-1' })
+    expect(opts).toEqual({ jobId: 'NEEDS_CORRECTION:ev-1' })
+    expect(realtime.emitEventToUser).toHaveBeenCalledWith('stud', expect.any(String), 'a1', {
+      status: 'NEEDS_CORRECTION',
+    })
   })
 })
