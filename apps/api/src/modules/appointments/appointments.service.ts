@@ -40,6 +40,17 @@ const STUDENT_ROLES: Role[] = [Role.STUDENT, Role.STAROSTA]
 
 const ACTIVE_STATUSES: ReadonlySet<string> = new Set(ACTIVE_APPOINTMENT_STATUSES)
 
+// Сколько открытых записей держит один студент. Без потолка один человек забивал очередь
+// деканата повторными записями — новые чужие уходили вниз.
+export const MAX_ACTIVE_APPOINTMENTS_PER_STUDENT = 5
+
+// Допуск на расхождение часов клиента и сервера: время выбирают с точностью до минуты, и
+// запись «на ближайшее время» не должна падать из-за секунд, пока форма была открыта.
+const REQUESTED_AT_GRACE_MS = 5 * 60_000
+
+// Кому из деканата приходит уведомление о новой записи (BACKEND_RULES §7.2 — потолок в запросе).
+const DEANERY_RECIPIENTS_LIMIT = 50
+
 function isPlatform(role: Role): boolean {
   return role === Role.PLATFORM_ADMIN || role === Role.PLATFORM_MODERATOR
 }
@@ -72,18 +83,47 @@ export class AppointmentsService {
       throw new AppException('FORBIDDEN', 'Записываются только студенты')
     }
     if (!actor.facultyId) throw new AppException('BAD_REQUEST', 'Факультет не назначен')
+    const requestedAt = new Date(input.requestedAt)
+    if (requestedAt.getTime() < Date.now() - REQUESTED_AT_GRACE_MS) {
+      throw new AppException('VALIDATION_ERROR', 'Желаемое время уже прошло', [
+        { field: 'requestedAt', message: 'Выберите время в будущем' },
+      ])
+    }
+    // Ссылка на заявку — мягкая (без FK) и показывается в карточке записи: раньше сюда
+    // проходил любой id, в том числе чужой заявки. Принимаем только свою живую заявку.
+    if (input.applicationId) {
+      const application = await this.prisma.application.findFirst({
+        where: { id: input.applicationId, studentId: actor.sub, deletedAt: null },
+        select: { id: true },
+      })
+      if (!application) {
+        throw new AppException('VALIDATION_ERROR', 'Заявка не найдена', [
+          { field: 'applicationId', message: 'Можно связать только свою заявку' },
+        ])
+      }
+    }
+    const active = await this.prisma.deaneryAppointment.count({
+      where: { studentId: actor.sub, status: { in: [...ACTIVE_APPOINTMENT_STATUSES] } },
+    })
+    if (active >= MAX_ACTIVE_APPOINTMENTS_PER_STUDENT) {
+      throw new AppException(
+        'CONFLICT',
+        `Открытых записей уже ${active} — дождитесь ответа деканата или отмените лишние`,
+      )
+    }
     const appointment = await this.prisma.deaneryAppointment.create({
       data: {
         studentId: actor.sub,
         facultyId: actor.facultyId,
         type: input.type,
         topic: input.topic,
-        requestedAt: new Date(input.requestedAt),
+        requestedAt,
         applicationId: input.applicationId,
       },
       select: SELECT,
     })
     await this.record(actor, 'appointment_created', appointment.id, ctx)
+    await this.notifyDeanery(actor.facultyId, appointment.id, requestedAt)
     return appointment
   }
 
@@ -237,6 +277,43 @@ export class AppointmentsService {
       throw new AppException('WRONG_SCOPE', 'Другой университет')
     }
     throw new AppException('FORBIDDEN', 'Недостаточно прав')
+  }
+
+  /**
+   * Деканат факультета узнаёт о новой записи сразу: раньше она лежала в очереди, пока
+   * сотрудник сам не откроет страницу. Тело — желаемое время по часам вуза.
+   */
+  private async notifyDeanery(
+    facultyId: string,
+    appointmentId: string,
+    requestedAt: Date,
+  ): Promise<void> {
+    const [deans, faculty] = await Promise.all([
+      this.prisma.user.findMany({
+        where: { role: Role.DEAN, facultyId, deletedAt: null, isBlocked: false },
+        select: { id: true },
+        take: DEANERY_RECIPIENTS_LIMIT,
+      }),
+      this.prisma.faculty.findUnique({
+        where: { id: facultyId },
+        select: { university: { select: { timezone: true } } },
+      }),
+    ])
+    if (deans.length === 0) return
+    const dedupeKey = `appointment-requested:${appointmentId}`
+    await this.queue.enqueue(
+      QUEUES.NOTIFICATIONS,
+      NOTIFICATION_JOBS.APPOINTMENT_REQUESTED,
+      {
+        recipientIds: deans.map((d) => d.id),
+        type: 'SYSTEM',
+        titleKey: 'appointments.requested.title',
+        body: localDateTimeLabel(requestedAt, faculty?.university.timezone),
+        data: { url: '/dean/appointments', appointmentId },
+        dedupeKey,
+      },
+      { jobId: dedupeKey },
+    )
   }
 
   private async notifyStudent(

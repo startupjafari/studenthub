@@ -84,6 +84,9 @@ export function GradebookTable({
   const isDesktop = useMediaQuery('(min-width: 1024px)')
   const [adding, setAdding] = useState(false)
   const [values, setValues] = useState<Record<string, string>>({})
+  // Изменённые ЯЧЕЙКИ (cellKey), а не колонки: на сохранение уходят только они. Колонка
+  // целиком затирала оценки, выставленные в соседней вкладке или деканом после загрузки
+  // журнала, — пустая у нас ячейка уходила как «очистить».
   const [dirty, setDirty] = useState<Set<string>>(new Set())
 
   const q = useQuery({
@@ -106,19 +109,23 @@ export function GradebookTable({
   const invalidate = () => qc.invalidateQueries({ queryKey: gradebookKeys.course(courseId) })
 
   const setCell = (columnId: string, studentId: string, v: string) => {
-    setValues((prev) => ({ ...prev, [cellKey(columnId, studentId)]: v }))
-    setDirty((prev) => new Set(prev).add(columnId))
+    const key = cellKey(columnId, studentId)
+    setValues((prev) => ({ ...prev, [key]: v }))
+    setDirty((prev) => new Set(prev).add(key))
   }
 
   const save = useMutation({
     mutationFn: async () => {
-      const students = q.data?.students ?? []
-      for (const columnId of dirty) {
-        const entries = students.map((s) => {
-          const raw = values[cellKey(columnId, s.id)]
-          const score = raw === undefined || raw === '' ? null : Number(raw)
-          return { studentId: s.id, score: Number.isNaN(score as number) ? null : score }
-        })
+      const byColumn = new Map<string, { studentId: string; score: number | null }[]>()
+      for (const key of dirty) {
+        const [columnId, studentId] = key.split('|') as [string, string]
+        const raw = values[key]
+        const score = raw === undefined || raw === '' ? null : Number(raw)
+        const entries = byColumn.get(columnId) ?? []
+        entries.push({ studentId, score: Number.isNaN(score as number) ? null : score })
+        byColumn.set(columnId, entries)
+      }
+      for (const [columnId, entries] of byColumn) {
         await saveGradesRequest({ columnId, entries })
       }
     },
@@ -132,13 +139,16 @@ export function GradebookTable({
     },
   })
 
-  // Сохранение не уходит, пока в изменённых колонках есть баллы вне диапазона: сервер
+  // Сохранение не уходит, пока среди изменённых ячеек есть баллы вне диапазона: сервер
   // отклонил бы колонку целиком, а ячейки и так подсвечены.
   function onSave() {
     const cols = q.data?.columns ?? []
     const students = q.data?.students ?? []
-    const invalid = cols.some(
-      (c) => dirty.has(c.id) && students.some((s) => isOutOfRange(c, values[cellKey(c.id, s.id)])),
+    const invalid = cols.some((c) =>
+      students.some((s) => {
+        const key = cellKey(c.id, s.id)
+        return dirty.has(key) && isOutOfRange(c, values[key])
+      }),
     )
     if (invalid) {
       toast.error(t('scoresOutOfRange'))

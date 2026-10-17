@@ -3153,7 +3153,8 @@
       "all": "All",
       "pairs": "Classes",
       "events": "Events",
-      "assignments": "Assignments"
+      "assignments": "Assignments",
+      "exams": "Exams"
     },
     "view": {
       "month": "Month",
@@ -3435,7 +3436,8 @@
     "checkinFailed": "Check-in failed",
     "checkinAlready": "You are already marked",
     "checkinSuccess": "You are marked present",
-    "checkinToAttendance": "To attendance"
+    "checkinToAttendance": "To attendance",
+    "qrUnavailable": "QR check-in is open only during the class: from 30 minutes before it starts until 15 minutes after it ends. No code is issued for a cancelled class or another date."
   },
   "Gradebook": {
     "title": "Gradebook",
@@ -3551,7 +3553,8 @@
     "deleteHasResults": "This exam already has results, so it can't be deleted",
     "rosterInvalid": "The roster has errors — fix the highlighted fields",
     "scoreOutOfRange": "Score from 0 to {max}",
-    "notAdmittedStatus": "A student who isn't admitted can't be marked Passed or Failed"
+    "notAdmittedStatus": "A student who isn't admitted can't be marked Passed or Failed",
+    "scheduleConflict": "The group, room or examiner already has another exam at this time"
   },
   "StudyPlan": {
     "title": "Study plan",
@@ -3675,7 +3678,9 @@
     "colStudent": "Student",
     "colLocation": "Place",
     "colTopic": "Topic",
-    "colActions": "Actions"
+    "colActions": "Actions",
+    "startInPast": "Start must be in the future",
+    "slotOverlap": "You already have a slot at this time"
   },
   "Appointments": {
     "title": "Dean office booking",
@@ -3732,7 +3737,9 @@
     "staffNote": "Note",
     "save": "Save",
     "confirmed": "Appointment confirmed",
-    "rescheduled": "Appointment rescheduled"
+    "rescheduled": "Appointment rescheduled",
+    "timeInPast": "Pick a time in the future",
+    "tooManyActive": "You already have several open appointments — wait for the dean’s office to respond or cancel the extra ones"
   },
   "Portfolio": {
     "title": "Portfolio",

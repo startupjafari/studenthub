@@ -146,20 +146,18 @@ export class GradebookService {
       id,
       ctx,
     )
-    // Realtime: при публикации колонки точечно уведомляем студентов, у кого есть оценка в ней —
-    // экран «Оценки» обновляется вживую. Payload минимальный (только columnId), без значений.
-    if (published) {
-      const graded = await this.prisma.grade.findMany({
-        where: { columnId: id },
-        select: { studentId: true },
-        take: GROUP_STUDENTS_LIMIT,
-      })
-      for (const g of graded) {
-        this.realtime.emitEventToUser(g.studentId, REALTIME_EVENTS.gradePublished, id, {
-          columnId: id,
-        })
-      }
-    }
+    // Realtime: точечно тем, у кого есть оценка в колонке, — экран «Оценки» обновляется
+    // вживую. И при публикации, и при снятии с публикации: снятая колонка иначе висела бы
+    // у студента до перезагрузки. Payload минимальный (только columnId), без значений.
+    const graded = await this.prisma.grade.findMany({
+      where: { columnId: id },
+      select: { studentId: true },
+      take: GROUP_STUDENTS_LIMIT,
+    })
+    this.emitGradesChanged(
+      id,
+      graded.map((g) => g.studentId),
+    )
     return column
   }
 
@@ -210,29 +208,48 @@ export class GradebookService {
         throw new AppException('VALIDATION_ERROR', `Балл больше максимума колонки (${max})`, over)
       }
     }
-    await this.prisma.$transaction(
-      input.entries.map((e) =>
-        e.score === null
-          ? this.prisma.grade.deleteMany({
-              where: { columnId: input.columnId, studentId: e.studentId },
-            })
-          : this.prisma.grade.upsert({
-              where: {
-                columnId_studentId: { columnId: input.columnId, studentId: e.studentId },
-              },
-              create: { columnId: input.columnId, studentId: e.studentId, score: e.score },
-              update: { score: e.score },
-            }),
-      ),
-    )
+    // Пишем только то, что действительно меняется: ячейка, присланная с прежним значением,
+    // не трогается вовсе. Прежние значения нужны и аудиту — по `{count}` правку
+    // опубликованной оценки было не восстановить.
+    const before = await this.prisma.grade.findMany({
+      where: { columnId: input.columnId, studentId: { in: input.entries.map((e) => e.studentId) } },
+      select: { studentId: true, score: true },
+      take: input.entries.length,
+    })
+    const changes = diffGrades(before, input.entries)
+    if (changes.length > 0) {
+      await this.prisma.$transaction(
+        changes.map((c) =>
+          c.to === null
+            ? this.prisma.grade.deleteMany({
+                where: { columnId: input.columnId, studentId: c.studentId },
+              })
+            : this.prisma.grade.upsert({
+                where: {
+                  columnId_studentId: { columnId: input.columnId, studentId: c.studentId },
+                },
+                create: { columnId: input.columnId, studentId: c.studentId, score: c.to },
+                update: { score: c.to },
+              }),
+        ),
+      )
+    }
     await this.audit.record({
       userId: actor.sub,
       action: 'grades_saved',
       entity: 'GradeColumn',
       entityId: input.columnId,
-      metadata: { count: input.entries.length },
+      metadata: { count: input.entries.length, published: col.published, changes },
       ...ctx,
     })
+    // Правка уже опубликованной оценки — то же событие, что публикация: студент видит новое
+    // значение без перезагрузки. Черновик студенту не виден — и сообщать не о чем.
+    if (col.published) {
+      this.emitGradesChanged(
+        input.columnId,
+        changes.map((c) => c.studentId),
+      )
+    }
     return this.prisma.grade.findMany({
       where: { columnId: input.columnId },
       select: { columnId: true, studentId: true, score: true },
@@ -240,14 +257,28 @@ export class GradebookService {
     })
   }
 
-  /** Оценки студента по его дисциплинам (только опубликованные колонки). Задача 8. */
+  /**
+   * Оценки студента по его дисциплинам (только опубликованные колонки). Задача 8.
+   *
+   * Дисциплины — текущей группы И те, где у студента есть опубликованная оценка: выборка
+   * только по группе после перевода в другую группу прятала всю прошлую успеваемость.
+   */
   async myGrades(viewer: JwtPayload) {
     if (!STUDENT_ROLES.includes(viewer.role)) {
       throw new AppException('FORBIDDEN', 'Только для студентов')
     }
     const courses = await this.prisma.course.findMany({
       take: GROUP_COURSES_LIMIT,
-      where: { groupId: viewer.groupId ?? '__none__' },
+      where: {
+        OR: [
+          { groupId: viewer.groupId ?? '__none__' },
+          {
+            gradeColumns: {
+              some: { published: true, grades: { some: { studentId: viewer.sub } } },
+            },
+          },
+        ],
+      },
       select: {
         id: true,
         credits: true,
@@ -280,6 +311,19 @@ export class GradebookService {
         score: col.grades[0]?.score ?? null,
       })),
     }))
+  }
+
+  /**
+   * Событие «опубликованные оценки изменились» адресатам колонки. Имя — прежнее
+   * `grade.published`: клиенты по нему перечитывают «Оценки», а новое имя пришлось бы
+   * сначала научить слушать все клиенты (веб, iOS, Android).
+   */
+  private emitGradesChanged(columnId: string, studentIds: string[]): void {
+    for (const studentId of new Set(studentIds)) {
+      this.realtime.emitEventToUser(studentId, REALTIME_EVENTS.gradePublished, columnId, {
+        columnId,
+      })
+    }
   }
 
   // ── scope ─────────────────────────────────────────────────────────────────
@@ -367,4 +411,29 @@ export class GradebookService {
   ): Promise<void> {
     await this.audit.record({ userId: actor.sub, action, entity: 'GradeColumn', entityId, ...ctx })
   }
+}
+
+/** Изменение ячейки журнала для аудита: прежний и новый балл (null — ячейка пуста). */
+export interface GradeChange {
+  studentId: string
+  from: number | null
+  to: number | null
+}
+
+/**
+ * Какие из присланных ячеек меняют сохранённое значение. Повтор студента в одном запросе —
+ * последнее значение, как и при прежней записи по порядку.
+ */
+export function diffGrades(
+  before: { studentId: string; score: number | null }[],
+  entries: SaveGradesInput['entries'],
+): GradeChange[] {
+  const current = new Map(before.map((g) => [g.studentId, g.score]))
+  const last = new Map(entries.map((e) => [e.studentId, e.score]))
+  const changes: GradeChange[] = []
+  for (const [studentId, to] of last) {
+    const from = current.get(studentId) ?? null
+    if (from !== to) changes.push({ studentId, from, to })
+  }
+  return changes
 }

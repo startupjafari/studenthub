@@ -10,6 +10,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ClipboardList,
+  GraduationCap,
   Inbox,
 } from 'lucide-react'
 import {
@@ -36,6 +37,7 @@ import { formatYmd, monthCells, sameDay } from '../../../shared/ui/calendar-grid
 import { scheduleKeys, fetchSchedule, fetchScheduleChanges } from '../../../entities/schedule'
 import { eventKeys, fetchEvents } from '../../../entities/event'
 import { assignmentKeys, fetchAssignments } from '../../../entities/assignment'
+import { examKeys, fetchExams } from '../../../entities/exam'
 import type { Holiday } from '../../../shared/config'
 import {
   buildCalendar,
@@ -90,6 +92,13 @@ export function CalendarView() {
     queryFn: () => fetchAssignments(dueRange),
     retry: false,
   })
+  // Экзамены — за те же видимые недели, что и дедлайны (`to` не включается).
+  const examRange = useMemo(() => ({ from: dueRange.dueFrom, to: dueRange.dueTo }), [dueRange])
+  const exams = useQuery({
+    queryKey: examKeys.list(examRange),
+    queryFn: () => fetchExams(examRange),
+    retry: false,
+  })
 
   const byDate = useMemo(() => {
     const items = buildCalendar(
@@ -99,9 +108,10 @@ export function CalendarView() {
       assignments.data ?? [],
       cells,
       filter,
+      exams.data ?? [],
     )
     return groupByDate(items)
-  }, [schedule.data, changes.data, events.data, assignments.data, cells, filter])
+  }, [schedule.data, changes.data, events.data, assignments.data, exams.data, cells, filter])
 
   // Праздники месяца — из справочника, без запроса: он уже в бандле (shared/config/holidays.ts).
   const holidays = useMemo(() => holidaysByDate(cells), [cells])
@@ -144,6 +154,7 @@ export function CalendarView() {
                 <SelectItem value="all">{t('filter.all')}</SelectItem>
                 <SelectItem value="pair">{t('filter.pairs')}</SelectItem>
                 <SelectItem value="assignment">{t('filter.assignments')}</SelectItem>
+                <SelectItem value="exam">{t('filter.exams')}</SelectItem>
                 <SelectItem value="event">{t('filter.events')}</SelectItem>
               </SelectContent>
             </Select>
@@ -238,11 +249,13 @@ const TYPE_ACCENT = {
   pairCancelled: 'border-l-destructive bg-destructive/10 text-muted-foreground line-through',
   event: 'border-l-info bg-info/10 text-foreground',
   assignment: 'border-l-warning bg-warning/10 text-foreground',
+  exam: 'border-l-success bg-success/10 text-foreground',
 }
 
 function itemAccent(it: CalItem): string {
   if (it.type === 'event') return TYPE_ACCENT.event
   if (it.type === 'assignment') return TYPE_ACCENT.assignment
+  if (it.type === 'exam') return TYPE_ACCENT.exam
   if (it.cancelled) return TYPE_ACCENT.pairCancelled
   if (it.changed) return TYPE_ACCENT.pairChanged
   return TYPE_ACCENT.pairNormal
@@ -475,6 +488,8 @@ function DayList({
                       <CalendarClock className="size-3.5 shrink-0" aria-hidden />
                     ) : it.type === 'assignment' ? (
                       <ClipboardList className="size-3.5 shrink-0" aria-hidden />
+                    ) : it.type === 'exam' ? (
+                      <GraduationCap className="size-3.5 shrink-0" aria-hidden />
                     ) : (
                       <CalendarDays className="size-3.5 shrink-0" aria-hidden />
                     )}

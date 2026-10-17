@@ -92,6 +92,13 @@ const RU = {
   'appointments.rescheduled.title': 'Запись в деканат перенесена',
   'appointments.completed.title': 'Приём в деканате завершён',
   'appointments.cancelled.title': 'Запись в деканат отменена',
+  // Сотрудникам деканата: студент записался на приём (тело — желаемое время).
+  'appointments.requested.title': 'Новая запись в деканат',
+
+  'exams.scheduled.title': 'Назначен экзамен',
+  'exams.updated.title': 'Изменения по экзамену',
+  'exams.result.title': 'Результат экзамена',
+  'exams.course.body': '{subject}: {date}',
 
   'career.viewed.body': 'Компания посмотрела ваш отклик',
   'career.shortlisted.body': 'Вас добавили в шорт-лист',
@@ -165,6 +172,12 @@ const KK: Record<NotificationMessageKey, string> = {
   'appointments.rescheduled.title': 'Деканатқа жазылу ауыстырылды',
   'appointments.completed.title': 'Деканаттағы қабылдау аяқталды',
   'appointments.cancelled.title': 'Деканатқа жазылу болдырылмады',
+  'appointments.requested.title': 'Деканатқа жаңа жазылу',
+
+  'exams.scheduled.title': 'Емтихан тағайындалды',
+  'exams.updated.title': 'Емтихан бойынша өзгерістер',
+  'exams.result.title': 'Емтихан нәтижесі',
+  'exams.course.body': '{subject}: {date}',
 
   'career.viewed.body': 'Компания сіздің өтінішіңізді қарады',
   'career.shortlisted.body': 'Сіз қысқа тізімге қосылдыңыз',
@@ -235,6 +248,12 @@ const EN: Record<NotificationMessageKey, string> = {
   'appointments.rescheduled.title': 'Dean’s office appointment rescheduled',
   'appointments.completed.title': 'Dean’s office appointment completed',
   'appointments.cancelled.title': 'Dean’s office appointment cancelled',
+  'appointments.requested.title': 'New dean’s office appointment request',
+
+  'exams.scheduled.title': 'Exam scheduled',
+  'exams.updated.title': 'Exam details changed',
+  'exams.result.title': 'Exam result',
+  'exams.course.body': '{subject}: {date}',
 
   'career.viewed.body': 'The company viewed your application',
   'career.shortlisted.body': 'You were shortlisted',

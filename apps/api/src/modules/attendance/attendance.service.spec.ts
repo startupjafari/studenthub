@@ -1,6 +1,6 @@
 import { Role } from '@studenthub/shared-types'
 import type { ConfigService } from '@nestjs/config'
-import { AttendanceService } from './attendance.service'
+import { AttendanceService, isoDayOfWeek } from './attendance.service'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { AuditService } from '../../common/audit/audit.service'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
@@ -9,7 +9,9 @@ import { AppException } from '../../common/exceptions/app.exception'
 
 const MAIN = 'teacher-main'
 const SUB = 'teacher-sub'
+// Вторник. Пара — по вторникам 10:00–11:20 по Алматы (+05:00).
 const DATE = '2026-09-15'
+const DURING_PAIR = new Date('2026-09-15T05:10:00.000Z') // 10:10 по Алматы
 
 function setup() {
   const prisma = {
@@ -19,12 +21,30 @@ function setup() {
         groupId: 'grp-1',
         teacherId: MAIN,
         subject: 'Матанализ',
-        group: { facultyId: 'fac-1', faculty: { universityId: 'uni-1' } },
+        dayOfWeek: 2,
+        startTime: '10:00',
+        endTime: '11:20',
+        schedule: { isActive: true },
+        group: {
+          facultyId: 'fac-1',
+          faculty: { universityId: 'uni-1', university: { timezone: 'Asia/Almaty' } },
+        },
       }),
     },
-    scheduleChange: { findFirst: jest.fn().mockResolvedValue(null) },
-    user: { findMany: jest.fn().mockResolvedValue([]) },
-    attendance: { findMany: jest.fn().mockResolvedValue([]) },
+    scheduleChange: {
+      findFirst: jest.fn().mockResolvedValue(null),
+      findMany: jest.fn().mockResolvedValue([]),
+    },
+    user: {
+      findMany: jest.fn().mockResolvedValue([{ id: 'stu-1' }]),
+      findUnique: jest.fn().mockResolvedValue({ groupId: 'grp-1' }),
+    },
+    attendance: {
+      findMany: jest.fn().mockResolvedValue([]),
+      findUnique: jest.fn().mockResolvedValue(null),
+      create: jest.fn().mockResolvedValue({}),
+      upsert: jest.fn().mockResolvedValue({}),
+    },
     $transaction: jest.fn().mockResolvedValue([[], []]),
   }
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
@@ -50,6 +70,7 @@ describe('AttendanceService — право вести журнал при зам
   })
 
   it('заменяющий на дату замены открывает ростер и получает QR', async () => {
+    jest.useFakeTimers({ now: DURING_PAIR })
     const { service, prisma } = setup()
     prisma.scheduleChange.findFirst.mockResolvedValue({ newTeacherId: SUB })
     await expect(
@@ -65,6 +86,7 @@ describe('AttendanceService — право вести журнал при зам
         orderBy: { createdAt: 'desc' },
       }),
     )
+    jest.useRealTimers()
   })
 
   it('основной преподаватель на дату замены журнал не ведёт → FORBIDDEN', async () => {
@@ -172,5 +194,139 @@ describe('AttendanceService.studentSummary (C-F14)', () => {
     const { service } = summarySetup([])
     const err = await service.studentSummary(teacher(MAIN), {}).catch((e) => e)
     expect(err.code).toBe('FORBIDDEN')
+  })
+})
+
+// ── C-F15: отметка — только на занятие, которое проводится в эту дату ───────────
+describe('isoDayOfWeek', () => {
+  it('календарная дата → день недели ISO', () => {
+    expect(isoDayOfWeek('2026-09-14')).toBe(1)
+    expect(isoDayOfWeek(DATE)).toBe(2)
+    expect(isoDayOfWeek('2026-09-20')).toBe(7)
+  })
+})
+
+describe('AttendanceService — занятие в дату (C-F15)', () => {
+  const entries = [{ studentId: 'stu-1', status: 'PRESENT' as const }]
+  const student: JwtPayload = {
+    sub: 'stu-1',
+    role: Role.STUDENT,
+    universityId: 'uni-1',
+    facultyId: 'fac-1',
+    groupId: 'grp-1',
+  }
+
+  afterEach(() => jest.useRealTimers())
+
+  it('дата не в день пары (воскресенье) → VALIDATION_ERROR, отметки не пишутся', async () => {
+    const { service, prisma } = setup()
+    const err = await service
+      .mark(teacher(MAIN), { pairId: 'pair-1', date: '2026-09-20', entries }, {})
+      .catch((e) => e)
+    expect(err.code).toBe('VALIDATION_ERROR')
+    expect(prisma.$transaction).not.toHaveBeenCalled()
+  })
+
+  it('занятие в эту дату отменено → CONFLICT', async () => {
+    const { service, prisma } = setup()
+    prisma.scheduleChange.findMany.mockResolvedValue([
+      { type: 'CANCELLED', newStartTime: null, newEndTime: null },
+    ])
+    const err = await service
+      .mark(teacher(MAIN), { pairId: 'pair-1', date: DATE, entries }, {})
+      .catch((e) => e)
+    expect(err.code).toBe('CONFLICT')
+    expect(prisma.scheduleChange.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { pairId: 'pair-1', date: new Date(DATE), type: { in: ['CANCELLED', 'MOVED'] } },
+      }),
+    )
+    expect(prisma.$transaction).not.toHaveBeenCalled()
+  })
+
+  it('пара из неактивной версии расписания → CONFLICT', async () => {
+    const { service, prisma } = setup()
+    const row = await prisma.pair.findUnique()
+    prisma.pair.findUnique.mockResolvedValue({ ...row, schedule: { isActive: false } })
+    const err = await service
+      .mark(teacher(MAIN), { pairId: 'pair-1', date: DATE, entries }, {})
+      .catch((e) => e)
+    expect(err.code).toBe('CONFLICT')
+  })
+
+  it('будущее занятие: «присутствовал» нельзя, уважительную причину — можно', async () => {
+    jest.useFakeTimers({ now: new Date('2026-09-10T05:00:00.000Z') })
+    const { service, prisma } = setup()
+    const err = await service
+      .mark(teacher(MAIN), { pairId: 'pair-1', date: DATE, entries }, {})
+      .catch((e) => e)
+    expect(err.code).toBe('VALIDATION_ERROR')
+    expect(err.details).toEqual([expect.objectContaining({ field: 'entries.0.status' })])
+
+    await service.mark(
+      teacher(MAIN),
+      { pairId: 'pair-1', date: DATE, entries: [{ studentId: 'stu-1', status: 'EXCUSED' }] },
+      {},
+    )
+    expect(prisma.$transaction).toHaveBeenCalled()
+  })
+
+  it('прошедшее занятие в день пары отмечается', async () => {
+    jest.useFakeTimers({ now: new Date('2026-09-20T05:00:00.000Z') })
+    const { service, prisma } = setup()
+    await service.mark(teacher(MAIN), { pairId: 'pair-1', date: DATE, entries }, {})
+    expect(prisma.$transaction).toHaveBeenCalled()
+  })
+
+  it('QR на завтрашнюю дату не выдаётся', async () => {
+    jest.useFakeTimers({ now: new Date('2026-09-14T05:10:00.000Z') })
+    const { service } = setup()
+    const err = await service
+      .createQrToken(teacher(MAIN), { pairId: 'pair-1', date: DATE })
+      .catch((e) => e)
+    expect(err.code).toBe('CONFLICT')
+  })
+
+  it('QR в день пары, но через час после её конца → CONFLICT', async () => {
+    jest.useFakeTimers({ now: new Date('2026-09-15T07:30:00.000Z') }) // 12:30 по Алматы
+    const { service } = setup()
+    const err = await service
+      .createQrToken(teacher(MAIN), { pairId: 'pair-1', date: DATE })
+      .catch((e) => e)
+    expect(err.code).toBe('CONFLICT')
+  })
+
+  it('пара перенесена (MOVED) — окно QR считается от нового времени', async () => {
+    jest.useFakeTimers({ now: new Date('2026-09-15T09:05:00.000Z') }) // 14:05 по Алматы
+    const { service, prisma } = setup()
+    prisma.scheduleChange.findMany.mockResolvedValue([
+      { type: 'MOVED', newStartTime: '14:00', newEndTime: '15:20' },
+    ])
+    await expect(
+      service.createQrToken(teacher(MAIN), { pairId: 'pair-1', date: DATE }),
+    ).resolves.toMatchObject({ date: DATE })
+  })
+
+  it('самоотметка: занятие отменили после выдачи кода → CONFLICT, отметки нет', async () => {
+    jest.useFakeTimers({ now: DURING_PAIR })
+    const { service, prisma } = setup()
+    const { token } = await service.createQrToken(teacher(MAIN), { pairId: 'pair-1', date: DATE })
+    prisma.scheduleChange.findMany.mockResolvedValue([
+      { type: 'CANCELLED', newStartTime: null, newEndTime: null },
+    ])
+    const err = await service.checkIn(student, { token }, {}).catch((e) => e)
+    expect(err.code).toBe('CONFLICT')
+    expect(prisma.attendance.create).not.toHaveBeenCalled()
+  })
+
+  it('самоотметка во время занятия проходит', async () => {
+    jest.useFakeTimers({ now: DURING_PAIR })
+    const { service, prisma } = setup()
+    const { token } = await service.createQrToken(teacher(MAIN), { pairId: 'pair-1', date: DATE })
+    await expect(service.checkIn(student, { token }, {})).resolves.toMatchObject({
+      status: 'PRESENT',
+      already: false,
+    })
+    expect(prisma.attendance.create).toHaveBeenCalled()
   })
 })

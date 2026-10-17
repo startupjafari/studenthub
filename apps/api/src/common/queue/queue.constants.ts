@@ -73,6 +73,12 @@ export const NOTIFICATION_JOBS = {
   CONSULTATION_BOOKED: 'consultation-booked',
   CONSULTATION_CANCELLED: 'consultation-cancelled',
   APPOINTMENT_UPDATED: 'appointment-updated',
+  // Деканату факультета: студент записался на приём.
+  APPOINTMENT_REQUESTED: 'appointment-requested',
+  // Студентам группы: экзамен назначен, перенесён (дата/аудитория), внесён результат.
+  EXAM_SCHEDULED: 'exam-scheduled',
+  EXAM_UPDATED: 'exam-updated',
+  EXAM_RESULT: 'exam-result',
 } as const
 
 export const FILE_JOBS = {

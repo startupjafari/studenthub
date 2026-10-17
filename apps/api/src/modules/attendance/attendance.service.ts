@@ -19,6 +19,7 @@ import { signToken, verifyToken, type SignedPayload } from '../../common/crypto/
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { EnvVars } from '../../config/env.schema'
 import type { RequestContext } from '../auth/auth.service'
+import { localDateTimeLabel } from '../../common/time/local-label'
 
 // Ростер пары: потолок общий для студентов и их отметок (BACKEND_RULES §7.2).
 const ROSTER_LIMIT = 500
@@ -27,6 +28,15 @@ const STUDENT_ROLES: Role[] = [Role.STUDENT, Role.STAROSTA]
 
 // Время жизни QR-токена самоотметки: короткое, чтобы окно «переслать скрин» было мало.
 const QR_TTL_MS = 90_000
+
+// Окно QR-самоотметки вокруг занятия: выдать код и отметиться можно с получаса до начала
+// пары (студенты рассаживаются) до четверти часа после конца (опоздавший досканирует).
+// Широкое намеренно: время пары в системе бывает неточным, а отказ на живом занятии
+// хуже, чем отметка за несколько минут до звонка.
+export const QR_OPEN_BEFORE_MIN = 30
+export const QR_CLOSE_AFTER_MIN = 15
+// Запас для самоотметки сверх окна: код, выданный в последнюю минуту окна, живёт ещё QR_TTL_MS.
+const CHECKIN_GRACE_MIN = Math.ceil(QR_TTL_MS / 60_000)
 
 // Дискриминатор назначения токена: тот же секрет подписывает разные токены (student-id и др.),
 // поэтому проверяем typ, чтобы чужой валидно-подписанный токен не попал в чужой обработчик.
@@ -114,6 +124,17 @@ export class AttendanceService {
   async mark(actor: JwtPayload, input: MarkAttendanceInput, ctx: RequestContext) {
     const pair = await this.resolvePair(input.pairId)
     await this.assertManagePair(actor, pair, input.date)
+    await this.assertHeldOn(pair, input.date)
+    // Будущее занятие ещё не прошло: «присутствовал» или «отсутствовал» на нём — опечатка в
+    // дате. Заранее можно только уважительную причину (справка, командировка).
+    if (input.date > localDateTimeLabel(new Date(), pair.timezone).slice(0, 10)) {
+      const early = input.entries.findIndex((e) => e.status !== 'EXCUSED')
+      if (early !== -1) {
+        throw new AppException('VALIDATION_ERROR', 'Занятие ещё не прошло', [
+          { field: `entries.${early}.status`, message: 'Заранее — только уважительная причина' },
+        ])
+      }
+    }
 
     const groupStudents = await this.prisma.user.findMany({
       where: { groupId: pair.groupId, role: { in: ['STUDENT', 'STAROSTA'] }, deletedAt: null },
@@ -225,6 +246,9 @@ export class AttendanceService {
   async createQrToken(actor: JwtPayload, query: QrTokenQueryInput) {
     const pair = await this.resolvePair(query.pairId)
     await this.assertManagePair(actor, pair, query.date)
+    // QR — только на идущее сегодня занятие: код на завтрашнюю дату давал отметиться заранее.
+    const time = await this.assertHeldOn(pair, query.date)
+    this.assertQrWindow(pair, query.date, time, 0)
     const exp = Date.now() + QR_TTL_MS
     const token = signToken<QrPayload>(
       { typ: QR_TYP, p: pair.id, d: query.date, exp },
@@ -257,6 +281,10 @@ export class AttendanceService {
     if (!me || me.groupId !== pair.groupId) {
       throw new AppException('WRONG_SCOPE', 'Вы не в группе этого занятия')
     }
+    // Повторная проверка на скане: за время жизни кода занятие могли отменить, а код,
+    // выданный до появления этих проверок, — получить на любую дату.
+    const time = await this.assertHeldOn(pair, payload.d)
+    this.assertQrWindow(pair, payload.d, time, CHECKIN_GRACE_MIN)
     const date = new Date(payload.d)
     const existing = await this.prisma.attendance.findUnique({
       where: { pairId_date_studentId: { pairId: pair.id, date, studentId: student.sub } },
@@ -348,6 +376,70 @@ export class AttendanceService {
     return this.config.get('CORS_ORIGIN', { infer: true }).split(',')[0]?.trim() ?? ''
   }
 
+  // ── занятие в дату ────────────────────────────────────────────────────────
+
+  /**
+   * Проводится ли занятие в дату `date` (YYYY-MM-DD): версия расписания действует, день
+   * недели — день пары, занятие не отменено. Возвращает фактическое время пары в эту дату
+   * (для переноса MOVED — новое). Раньше отметку принимали на любую дату: на воскресенье,
+   * на отменённую пару и на пару неактивной версии.
+   *
+   * Чётность недели сервер не сверяет: формула недели у клиентов расходится с ISO 8601 и
+   * ждёт решения продукта, а ложный отказ в отметке живого занятия хуже пропущенной ошибки.
+   */
+  private async assertHeldOn(
+    pair: ResolvedPair,
+    date: string,
+  ): Promise<{ start: string; end: string }> {
+    if (!pair.scheduleActive) {
+      throw new AppException('CONFLICT', 'Версия расписания с этой парой не действует')
+    }
+    if (isoDayOfWeek(date) !== pair.dayOfWeek) {
+      throw new AppException('VALIDATION_ERROR', 'В этот день пары нет', [
+        { field: 'date', message: 'День недели не совпадает с днём пары' },
+      ])
+    }
+    const changes = await this.prisma.scheduleChange.findMany({
+      where: { pairId: pair.id, date: new Date(date), type: { in: ['CANCELLED', 'MOVED'] } },
+      select: { type: true, newStartTime: true, newEndTime: true },
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+    })
+    if (changes.some((c) => c.type === 'CANCELLED')) {
+      throw new AppException('CONFLICT', 'Занятие в эту дату отменено')
+    }
+    const moved = changes.find((c) => c.type === 'MOVED')
+    return {
+      start: moved?.newStartTime ?? pair.startTime,
+      end: moved?.newEndTime ?? pair.endTime,
+    }
+  }
+
+  /**
+   * QR живёт только вокруг занятия: сегодня по часам вуза и с QR_OPEN_BEFORE_MIN до начала
+   * до QR_CLOSE_AFTER_MIN (+ `graceMin`) после конца.
+   */
+  private assertQrWindow(
+    pair: ResolvedPair,
+    date: string,
+    time: { start: string; end: string },
+    graceMin: number,
+  ): void {
+    const [today, now] = localDateTimeLabel(new Date(), pair.timezone).split(' ') as [
+      string,
+      string,
+    ]
+    const minutes = toMinutes(now)
+    const opens = toMinutes(time.start) - QR_OPEN_BEFORE_MIN
+    const closes = toMinutes(time.end) + QR_CLOSE_AFTER_MIN + graceMin
+    if (date !== today || minutes < opens || minutes > closes) {
+      throw new AppException(
+        'CONFLICT',
+        `QR-отметка открыта с ${QR_OPEN_BEFORE_MIN} мин до начала до ${QR_CLOSE_AFTER_MIN} мин после конца занятия`,
+      )
+    }
+  }
+
   // ── scope ─────────────────────────────────────────────────────────────────
 
   /**
@@ -357,7 +449,7 @@ export class AttendanceService {
    */
   private async assertManagePair(
     actor: JwtPayload,
-    pair: { id: string; teacherId: string | null; facultyId: string; universityId: string },
+    pair: ResolvedPair,
     date: string,
   ): Promise<void> {
     if (isPlatform(actor.role)) return
@@ -391,14 +483,7 @@ export class AttendanceService {
     return substitution?.newTeacherId ?? null
   }
 
-  private async resolvePair(pairId: string): Promise<{
-    id: string
-    groupId: string
-    teacherId: string | null
-    subject: string
-    facultyId: string
-    universityId: string
-  }> {
+  private async resolvePair(pairId: string): Promise<ResolvedPair> {
     const pair = await this.prisma.pair.findUnique({
       where: { id: pairId },
       select: {
@@ -406,7 +491,18 @@ export class AttendanceService {
         groupId: true,
         teacherId: true,
         subject: true,
-        group: { select: { facultyId: true, faculty: { select: { universityId: true } } } },
+        dayOfWeek: true,
+        startTime: true,
+        endTime: true,
+        schedule: { select: { isActive: true } },
+        group: {
+          select: {
+            facultyId: true,
+            faculty: {
+              select: { universityId: true, university: { select: { timezone: true } } },
+            },
+          },
+        },
       },
     })
     if (!pair) throw new AppException('NOT_FOUND', 'Занятие не найдено')
@@ -415,8 +511,41 @@ export class AttendanceService {
       groupId: pair.groupId,
       teacherId: pair.teacherId,
       subject: pair.subject,
+      dayOfWeek: pair.dayOfWeek,
+      startTime: pair.startTime,
+      endTime: pair.endTime,
+      scheduleActive: pair.schedule.isActive,
       facultyId: pair.group.facultyId,
       universityId: pair.group.faculty.universityId,
+      timezone: pair.group.faculty.university.timezone,
     }
   }
+}
+
+/** Пара с тем, что нужно для scope и проверки «занятие в дату». */
+interface ResolvedPair {
+  id: string
+  groupId: string
+  teacherId: string | null
+  subject: string
+  /** ISO: 1 — понедельник … 7 — воскресенье. */
+  dayOfWeek: number
+  startTime: string
+  endTime: string
+  scheduleActive: boolean
+  facultyId: string
+  universityId: string
+  timezone: string | null
+}
+
+/** День недели календарной даты YYYY-MM-DD по ISO (1 — понедельник). Пояс не нужен: дата уже местная. */
+export function isoDayOfWeek(date: string): number {
+  const day = new Date(`${date}T00:00:00Z`).getUTCDay()
+  return day === 0 ? 7 : day
+}
+
+/** "HH:mm" → минуты от полуночи. */
+function toMinutes(hhmm: string): number {
+  const [h, m] = hhmm.split(':').map(Number) as [number, number]
+  return h * 60 + m
 }

@@ -12,9 +12,18 @@ import { QUEUES, NOTIFICATION_JOBS } from '../../common/queue/queue.constants'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
 import { localDateTimeLabel } from '../../common/time/local-label'
+import { advisoryXactLock } from '../../common/prisma/advisory-lock'
 
 const STUDENT_ROLES: Role[] = [Role.STUDENT, Role.STAROSTA]
 const TEACHER_ROLES: Role[] = [Role.TEACHER, Role.DEAN]
+
+// Самый длинный слот приёма. Консультация — это минуты или пара часов; «до послезавтра»
+// получается только опечаткой в дате, а такой слот закрывал бы время преподавателя целиком.
+export const MAX_SLOT_DURATION_MS = 8 * 60 * 60_000
+
+// Преподавателей с открытыми слотами в выдаче для студента. Строка на преподавателя, а не
+// на слот: прежние 5000 слотов без порядка при большом их числе теряли людей случайно.
+const TEACHERS_LIMIT = 1000
 
 const SLOT_SELECT = {
   id: true,
@@ -41,15 +50,37 @@ export class ConsultationsService {
     if (!TEACHER_ROLES.includes(actor.role)) {
       throw new AppException('FORBIDDEN', 'Слоты создаёт преподаватель')
     }
-    const slot = await this.prisma.consultationSlot.create({
-      data: {
-        teacherId: actor.sub,
-        startsAt: new Date(input.startsAt),
-        endsAt: new Date(input.endsAt),
-        location: input.location,
-        isOnline: input.isOnline ?? false,
-      },
-      select: SLOT_SELECT,
+    const startsAt = new Date(input.startsAt)
+    const endsAt = new Date(input.endsAt)
+    assertSlotTimes(startsAt, endsAt, new Date())
+    // Проверка пересечения и запись — под локом преподавателя: двойной клик «Создать»
+    // иначе проходил проверку дважды и ставил два одинаковых слота внахлёст.
+    const slot = await this.prisma.$transaction(async (tx) => {
+      await advisoryXactLock(tx, `consultation-slots:${actor.sub}`)
+      const overlap = await tx.consultationSlot.findFirst({
+        where: {
+          teacherId: actor.sub,
+          status: { in: ['OPEN', 'BOOKED'] },
+          startsAt: { lt: endsAt },
+          endsAt: { gt: startsAt },
+        },
+        select: { id: true },
+      })
+      if (overlap) {
+        throw new AppException('CONFLICT', 'На это время у вас уже есть слот', [
+          { field: 'startsAt', message: 'Пересекается с другим слотом' },
+        ])
+      }
+      return tx.consultationSlot.create({
+        data: {
+          teacherId: actor.sub,
+          startsAt,
+          endsAt,
+          location: input.location,
+          isOnline: input.isOnline ?? false,
+        },
+        select: SLOT_SELECT,
+      })
     })
     await this.record(actor, 'consultation_slot_created', slot.id, ctx)
     return slot
@@ -62,24 +93,29 @@ export class ConsultationsService {
         id: true,
         teacherId: true,
         studentId: true,
+        status: true,
         startsAt: true,
         teacher: { select: { university: { select: { timezone: true } } } },
       },
     })
     if (!slot) throw new AppException('NOT_FOUND', 'Слот не найден')
     if (slot.teacherId !== actor.sub) throw new AppException('FORBIDDEN', 'Не ваш слот')
-    if (slot.studentId) {
+    await this.prisma.consultationSlot.delete({ where: { id } })
+    await this.record(actor, 'consultation_slot_deleted', id, ctx)
+    // Уведомление — после удаления: раньше оно уходило до него, и упавшее удаление оставляло
+    // студента с «отменой» живой записи. Только действующей будущей записи: об отмене
+    // преподавателем студент уже знает (ключ тот же, что у `cancel`, — второе не придёт),
+    // а прошедшую консультацию отменять нечего.
+    if (slot.studentId && slot.status === 'BOOKED' && slot.startsAt > new Date()) {
       await this.notify(
         slot.studentId,
         NOTIFICATION_JOBS.CONSULTATION_CANCELLED,
         'consultations.cancelled.title',
         localDateTimeLabel(slot.startsAt, slot.teacher.university?.timezone),
         '/consultations',
-        `consultation-cancelled:${id}`,
+        teacherCancelKey(id),
       )
     }
-    await this.prisma.consultationSlot.delete({ where: { id } })
-    await this.record(actor, 'consultation_slot_deleted', id, ctx)
   }
 
   /**
@@ -115,7 +151,10 @@ export class ConsultationsService {
   /** Преподаватели с открытыми слотами (для выбора студентом) — в пределах вуза. */
   async listTeachers(viewer: JwtPayload) {
     const now = new Date()
-    const slots = await this.prisma.consultationSlot.findMany({
+    // Счёт — в БД, строка на преподавателя: агрегация 5000 слотов в памяти теряла людей,
+    // как только открытых слотов в вузе становилось больше.
+    const counts = await this.prisma.consultationSlot.groupBy({
+      by: ['teacherId'],
       where: {
         status: 'OPEN',
         startsAt: { gte: now },
@@ -128,35 +167,32 @@ export class ConsultationsService {
           },
         },
       },
-      select: {
-        teacher: { select: { id: true, firstName: true, lastName: true, avatarUrl: true } },
-      },
-      take: 5000,
+      _count: { _all: true },
+      orderBy: { teacherId: 'asc' },
+      take: TEACHERS_LIMIT,
     })
-    const byTeacher = new Map<
-      string,
-      {
-        id: string
-        firstName: string
-        lastName: string
-        avatarUrl: string | null
-        openCount: number
-      }
-    >()
-    for (const s of slots) {
-      const t = s.teacher
-      const cur = byTeacher.get(t.id) ?? { ...t, openCount: 0 }
-      cur.openCount += 1
-      byTeacher.set(t.id, cur)
-    }
-    return [...byTeacher.values()]
-      .map((t) => ({
-        teacherId: t.id,
-        firstName: t.firstName,
-        lastName: t.lastName,
-        avatarUrl: t.avatarUrl,
-        openSlots: t.openCount,
-      }))
+    if (counts.length === 0) return []
+    const teachers = await this.prisma.user.findMany({
+      where: { id: { in: counts.map((c) => c.teacherId) } },
+      select: { id: true, firstName: true, lastName: true, avatarUrl: true },
+      take: counts.length,
+    })
+    const byId = new Map(teachers.map((t) => [t.id, t]))
+    return counts
+      .flatMap((c) => {
+        const t = byId.get(c.teacherId)
+        return t
+          ? [
+              {
+                teacherId: t.id,
+                firstName: t.firstName,
+                lastName: t.lastName,
+                avatarUrl: t.avatarUrl,
+                openSlots: c._count._all,
+              },
+            ]
+          : []
+      })
       .sort((a, b) => a.lastName.localeCompare(b.lastName))
   }
 
@@ -283,7 +319,7 @@ export class ConsultationsService {
           'consultations.cancelled.title',
           localDateTimeLabel(slot.startsAt, slot.teacher.university?.timezone),
           '/consultations',
-          `consultation-cancelled:${id}:teacher`,
+          teacherCancelKey(id),
         )
       }
       return updated
@@ -337,6 +373,36 @@ export class ConsultationsService {
       entityId,
       ...ctx,
     })
+  }
+}
+
+/**
+ * Ключ уведомления «преподаватель отменил консультацию». Один на отмену и на удаление
+ * слота: после «отменить» и «удалить» студент получал два уведомления об одной отмене.
+ */
+function teacherCancelKey(slotId: string): string {
+  return `consultation-cancelled:${slotId}:teacher`
+}
+
+/**
+ * Время нового слота: в будущем и разумной длины. Порядок `endsAt > startsAt` держит схема,
+ * но проверяем и здесь — сравнение моментов, а не строк.
+ */
+export function assertSlotTimes(startsAt: Date, endsAt: Date, now: Date): void {
+  if (startsAt.getTime() <= now.getTime()) {
+    throw new AppException('VALIDATION_ERROR', 'Слот в прошлом', [
+      { field: 'startsAt', message: 'Время начала уже прошло' },
+    ])
+  }
+  if (endsAt.getTime() <= startsAt.getTime()) {
+    throw new AppException('VALIDATION_ERROR', 'Конец раньше начала', [
+      { field: 'endsAt', message: 'Конец должен быть позже начала' },
+    ])
+  }
+  if (endsAt.getTime() - startsAt.getTime() > MAX_SLOT_DURATION_MS) {
+    throw new AppException('VALIDATION_ERROR', 'Слишком длинный слот', [
+      { field: 'endsAt', message: 'Слот не длиннее 8 часов' },
+    ])
   }
 }
 

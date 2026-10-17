@@ -6,6 +6,7 @@ import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { Save } from 'lucide-react'
 import {
+  Badge,
   Button,
   Card,
   Checkbox,
@@ -206,7 +207,16 @@ export function ExamResultsRoster({
                 return (
                   <TableRow key={s.studentId}>
                     <TableCell className="font-medium">
-                      <TableText value={name} />
+                      {/* Попытка растёт, когда «Пересдача» получает итог (C-F10): экзаменатор
+                          видит, что в строке уже результат пересдачи, а не первой попытки. */}
+                      <span className="flex min-w-0 items-center gap-2">
+                        <TableText value={name} className="min-w-0" />
+                        {s.attempt > 1 && (
+                          <Badge variant="info" className="shrink-0">
+                            {t('attemptN', { n: s.attempt })}
+                          </Badge>
+                        )}
+                      </span>
                     </TableCell>
                     <TableCell className="text-center">
                       {/* Подписи у флажка нет — её несёт заголовок колонки, но
