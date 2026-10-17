@@ -8,6 +8,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   Req,
 } from '@nestjs/common'
 import {
@@ -32,6 +33,8 @@ import { CreateAlbumDto } from './dto/create-album.dto'
 import { UpdateAlbumDto } from './dto/update-album.dto'
 import { AssignAlbumMediaDto } from './dto/assign-album-media.dto'
 import { ContentCommentDto } from './dto/content-comment.dto'
+import { ContentCommentsQueryDto } from './dto/comments-query.dto'
+import { ProfileArticlesQueryDto } from './dto/profile-articles-query.dto'
 
 // Контент профиля (вкладки): фото/видео и статьи (опросы — модуль polls).
 // Просмотр списков — любой аутентифицированный (как публичный профиль); мутации — только владелец,
@@ -194,13 +197,31 @@ export class ProfileContentController {
   }
 
   @Get(':userId/articles')
-  @ApiOperation({ summary: 'Статьи пользователя (по видимости смотрящего)' })
-  listArticles(@CurrentUser() user: CurrentUserData, @Param('userId') userId: string) {
-    return this.content.listArticles(user, userId)
+  @ApiOperation({
+    summary: 'Статьи пользователя (по видимости смотрящего)',
+    description:
+      'view=card — без полного текста (content): для плиток профиля. Без параметра — с текстом.',
+  })
+  listArticles(
+    @CurrentUser() user: CurrentUserData,
+    @Param('userId') userId: string,
+    @Query() query: ProfileArticlesQueryDto,
+  ) {
+    return this.content.listArticles(user, userId, query)
+  }
+
+  @Get('articles/:id')
+  @ApiOperation({ summary: 'Статья целиком — для читалки и редактора (по видимости смотрящего)' })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND — нет статьи или она не видна' })
+  getArticle(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
+    return this.content.getArticle(user, id)
   }
 
   @Post('articles/:id/view')
-  @ApiOperation({ summary: 'Засчитать просмотр статьи (при открытии читалки)' })
+  @ApiOperation({
+    summary: 'Засчитать просмотр статьи (при открытии читалки)',
+    description: 'Один просмотр на зрителя в сутки; повтор отвечает текущим числом.',
+  })
   incrementArticleView(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
     return this.content.incrementArticleView(user, id)
   }
@@ -212,9 +233,18 @@ export class ProfileContentController {
   }
 
   @Get('articles/:id/comments')
-  @ApiOperation({ summary: 'Комментарии статьи' })
-  listArticleComments(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
-    return this.content.listArticleComments(user, id)
+  @ApiOperation({
+    summary: 'Комментарии статьи',
+    description:
+      'Без limit/cursor — последние 200 массивом по порядку написания. С ними — страница ' +
+      'свежих сверху: meta.cursor (раньше), meta.hasNext, meta.total.',
+  })
+  listArticleComments(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Query() query: ContentCommentsQueryDto,
+  ) {
+    return this.content.listArticleComments(user, id, query)
   }
 
   @Post('articles/:id/comments')

@@ -1,19 +1,29 @@
-import { Injectable, Logger } from '@nestjs/common'
+import { Inject, Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { Prisma } from '@prisma/client'
+import type Redis from 'ioredis'
 import { FILE_UPLOAD } from '@studenthub/shared-config'
 import { Role } from '@studenthub/shared-types'
-import type {
-  AssignAlbumMediaInput,
-  ConfirmProfileMediaInput,
-  ContentCommentInput,
-  CreateAlbumInput,
-  CreateProfileArticleInput,
-  PresignProfileMediaInput,
-  UpdateAlbumInput,
-  UpdateProfileArticleInput,
+import {
+  DEFAULT_PAGE_LIMIT,
+  isPageRequested,
+  type AssignAlbumMediaInput,
+  type CommentsQueryInput,
+  type ConfirmProfileMediaInput,
+  type ContentCommentInput,
+  type CreateAlbumInput,
+  type CreateProfileArticleInput,
+  type PresignProfileMediaInput,
+  type ProfileArticlesQueryInput,
+  type UpdateAlbumInput,
+  type UpdateProfileArticleInput,
 } from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
+import { Paginated } from '../../common/http/paginated'
+import { NEWEST_FIRST, encodeKeyset, keysetFrom, olderThan } from '../../common/http/keyset-cursor'
+import { NOTIFICATION_JOBS, QUEUES, QueueService } from '../../common/queue'
+import { REDIS_CLIENT } from '../../common/redis/redis.constants'
+import { isFirstViewToday } from '../posts/unique-view'
 import { AuditService } from '../../common/audit/audit.service'
 import { buildPublicObjectUrl } from '../../common/minio/public-url'
 import { AppException } from '../../common/exceptions/app.exception'
@@ -41,12 +51,12 @@ const PROFILE_MEDIA_MIMES: ReadonlySet<string> = new Set([
 ])
 import type { EnvVars } from '../../config/env.schema'
 
-const ARTICLE_SELECT = {
+// Плитка статьи в профиле — всё, кроме полного текста (`view=card`, см. listArticles).
+const ARTICLE_CARD_SELECT = {
   id: true,
   userId: true,
   title: true,
   description: true,
-  content: true,
   coverUrl: true,
   coverGradient: true,
   category: true,
@@ -61,6 +71,14 @@ const ARTICLE_SELECT = {
   updatedAt: true,
   _count: { select: { comments: true, bookmarks: true } },
 } satisfies Prisma.ProfileArticleSelect
+
+const ARTICLE_SELECT = {
+  ...ARTICLE_CARD_SELECT,
+  content: true,
+} satisfies Prisma.ProfileArticleSelect
+
+// Сколько комментариев отдаёт прежний ответ без пагинации.
+const LEGACY_COMMENTS_LIMIT = 200
 
 const CONTENT_COMMENT_SELECT = {
   id: true,
@@ -133,6 +151,8 @@ export class ProfileContentService {
     private readonly users: UserService,
     private readonly media: MediaService,
     private readonly audit: AuditService,
+    private readonly queue: QueueService,
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {}
 
   private get bucket(): string {
@@ -491,20 +511,54 @@ export class ProfileContentService {
    * Первым шагом — видимость профиля, как у медиа и альбомов: закрытый профиль скрывает и
    * статьи. Раньше статья с видимостью ALL отдавалась по прямому запросу кому угодно, хотя
    * «визитка» владельца была закрыта (§14.7). Статьи удалённого аккаунта не отдаются.
+   *
+   * `view=card` — без полного текста: плитке и бейджу вкладки он не нужен, а сотня статей до
+   * 20 000 символов превращала открытие профиля в мегабайты. Текст — `getArticle`. Без
+   * параметра — как раньше, с текстом (его ждут уже выпущенные клиенты).
    */
-  async listArticles(viewer: JwtPayload, targetUserId: string) {
+  async listArticles(
+    viewer: JwtPayload,
+    targetUserId: string,
+    query: ProfileArticlesQueryInput = {},
+  ) {
     const author = await this.prisma.user.findUnique({
       where: { id: targetUserId },
       select: PROFILE_CONTENT_OWNER_SELECT,
     })
     if (!author || !(await this.users.canViewProfileContentOf(viewer, author))) return []
+    const where = { userId: targetUserId, ...this.viewerVisibilityWhere(viewer, author) }
+    const order = { createdAt: 'desc' } as const
+    if (query.view === 'card') {
+      const cards = await this.prisma.profileArticle.findMany({
+        where,
+        select: ARTICLE_CARD_SELECT,
+        orderBy: order,
+        take: 100,
+      })
+      return this.decorateArticles(cards, viewer.sub)
+    }
     const rows = await this.prisma.profileArticle.findMany({
-      where: { userId: targetUserId, ...this.viewerVisibilityWhere(viewer, author) },
+      where,
       select: ARTICLE_SELECT,
-      orderBy: { createdAt: 'desc' },
+      orderBy: order,
       take: 100,
     })
     return this.decorateArticles(rows, viewer.sub)
+  }
+
+  /**
+   * Статья целиком — для читалки и редактора, которые раньше брали текст из списка.
+   * Права те же, что у списка: черновик — только автору, visibility и закрытый профиль —
+   * как у остального контента; невидимая статья — «не найдена».
+   */
+  async getArticle(viewer: JwtPayload, id: string) {
+    await this.assertArticleVisible(viewer, id)
+    const row = await this.prisma.profileArticle.findUnique({
+      where: { id },
+      select: ARTICLE_SELECT,
+    })
+    if (!row) throw new AppException('NOT_FOUND', 'Статья не найдена')
+    return (await this.decorateArticles([row], viewer.sub))[0]
   }
 
   async updateArticle(actor: JwtPayload, id: string, input: UpdateProfileArticleInput) {
@@ -548,9 +602,20 @@ export class ProfileContentService {
     }
   }
 
-  /** Инкремент просмотров статьи (при открытии читалки). Только если статья видна смотрящему. */
+  /**
+   * Просмотр статьи (при открытии читалки). Только если статья видна смотрящему.
+   * Засчитывается один раз в сутки на зрителя (posts/unique-view.ts) — повторное открытие
+   * отвечает текущим числом без записи в строку статьи.
+   */
   async incrementArticleView(viewer: JwtPayload, id: string): Promise<{ views: number }> {
     await this.assertArticleVisible(viewer, id)
+    if (!(await isFirstViewToday(this.redis, 'article', id, viewer.sub))) {
+      const current = await this.prisma.profileArticle.findUnique({
+        where: { id },
+        select: { views: true },
+      })
+      return { views: current?.views ?? 0 }
+    }
     const updated = await this.prisma.profileArticle.update({
       where: { id },
       data: { views: { increment: 1 } },
@@ -650,13 +715,49 @@ export class ProfileContentService {
 
   // ── Комментарии к статьям ──────────────────────────────────────────────────────
 
-  async listArticleComments(viewer: JwtPayload, articleId: string) {
+  /**
+   * Комментарии статьи. Без `limit`/`cursor` — прежний массив по порядку написания, но
+   * ПОСЛЕДНИЕ двести, а не первые: в длинном обсуждении новый комментарий пропадал после
+   * перезагрузки. С ними — страница свежих сверху, `meta.total` — сколько всего.
+   */
+  async listArticleComments(viewer: JwtPayload, articleId: string, query: CommentsQueryInput = {}) {
     await this.assertArticleVisible(viewer, articleId)
-    return this.prisma.contentComment.findMany({
-      where: { articleId },
+    const where: Prisma.ContentCommentWhereInput = { articleId }
+    if (!isPageRequested(query)) {
+      const rows = await this.prisma.contentComment.findMany({
+        where,
+        select: CONTENT_COMMENT_SELECT,
+        orderBy: NEWEST_FIRST,
+        take: LEGACY_COMMENTS_LIMIT,
+      })
+      return rows.reverse()
+    }
+    const limit = query.limit ?? DEFAULT_PAGE_LIMIT
+    // Курсор несёт момент и id (keyset-cursor.ts): комментарий статьи стирается навсегда, и
+    // Prisma-курсор на стёртую строку обрывал бы листание.
+    const after = query.cursor
+      ? await keysetFrom(query.cursor, (cursorId) =>
+          this.prisma.contentComment.findUnique({
+            where: { id: cursorId },
+            select: { createdAt: true, id: true },
+          }),
+        )
+      : null
+    const total = await this.prisma.contentComment.count({ where })
+    if (query.cursor && !after) return new Paginated([], { hasNext: false, total })
+    const rows = await this.prisma.contentComment.findMany({
+      where: after ? { AND: [where, olderThan(after)] } : where,
       select: CONTENT_COMMENT_SELECT,
-      orderBy: { createdAt: 'asc' },
-      take: 200,
+      orderBy: NEWEST_FIRST,
+      take: limit + 1,
+    })
+    const hasNext = rows.length > limit
+    const page = hasNext ? rows.slice(0, limit) : rows
+    const last = page.at(-1)
+    return new Paginated(page, {
+      cursor: hasNext && last ? encodeKeyset(last) : undefined,
+      hasNext,
+      total,
     })
   }
 
@@ -664,14 +765,62 @@ export class ProfileContentService {
     await this.assertArticleVisible(viewer, articleId)
     const article = await this.prisma.profileArticle.findUnique({
       where: { id: articleId },
-      select: { allowComments: true },
+      select: { allowComments: true, userId: true },
     })
     if (!article?.allowComments)
       throw new AppException('FORBIDDEN', 'Комментарии к статье отключены')
-    return this.prisma.contentComment.create({
+    const created = await this.prisma.contentComment.create({
       data: { authorId: viewer.sub, articleId, content: input.content },
       select: CONTENT_COMMENT_SELECT,
     })
+    await this.notifyArticleOwner(viewer, { id: articleId, userId: article.userId }, created)
+    return created
+  }
+
+  /**
+   * Автору статьи — о новом комментарии: одна свёрнутая строка на статью в колокольчике, а не
+   * строка на каждую реплику. Свой комментарий и личная блокировка в любую сторону — без
+   * уведомления. Комментарий уже сохранён — сбой здесь не превращает его в ошибку.
+   */
+  private async notifyArticleOwner(
+    actor: JwtPayload,
+    article: { id: string; userId: string },
+    comment: { id: string; author: { firstName: string; lastName: string } },
+  ): Promise<void> {
+    if (article.userId === actor.sub) return
+    try {
+      const blocked = await this.prisma.userBlock.findFirst({
+        where: {
+          OR: [
+            { blockerId: actor.sub, blockedId: article.userId },
+            { blockerId: article.userId, blockedId: actor.sub },
+          ],
+        },
+        select: { id: true },
+      })
+      if (blocked) return
+      const dedupeKey = `article-comment:${comment.id}`
+      await this.queue.enqueue(
+        QUEUES.NOTIFICATIONS,
+        NOTIFICATION_JOBS.COMMENT_ADDED,
+        {
+          recipientIds: [article.userId],
+          type: 'POST',
+          titleKey: 'comments.new.title',
+          bodyKey: 'comments.article.body',
+          params: { name: `${comment.author.firstName} ${comment.author.lastName}`.trim() },
+          data: { articleId: article.id, commentId: comment.id, url: `/profile/${article.userId}` },
+          dedupeKey,
+          collapseKey: `article-comments:${article.id}`,
+        },
+        { jobId: dedupeKey },
+      )
+    } catch (error) {
+      this.logger.warn(
+        { err: error, articleId: article.id },
+        'Уведомление о комментарии не поставлено',
+      )
+    }
   }
 
   async deleteArticleComment(
@@ -714,17 +863,24 @@ export class ProfileContentService {
 
   // ── Закладки на статьи ─────────────────────────────────────────────────────────
 
+  /**
+   * Переключатель закладки без чтения перед записью — как у постов: при двойном нажатии
+   * «найти → создать» пускало оба запроса в create, и второй отвечал 409/500 уникальностью.
+   * Удаление само говорит, была ли закладка; гонку двух create решает уникальный индекс.
+   */
   async toggleBookmark(viewer: JwtPayload, articleId: string): Promise<{ bookmarked: boolean }> {
     await this.assertArticleVisible(viewer, articleId)
-    const existing = await this.prisma.bookmark.findUnique({
-      where: { userId_articleId: { userId: viewer.sub, articleId } },
-      select: { id: true },
+    const removed = await this.prisma.bookmark.deleteMany({
+      where: { userId: viewer.sub, articleId },
     })
-    if (existing) {
-      await this.prisma.bookmark.delete({ where: { id: existing.id } })
-      return { bookmarked: false }
+    if (removed.count > 0) return { bookmarked: false }
+    try {
+      await this.prisma.bookmark.create({ data: { userId: viewer.sub, articleId } })
+    } catch (error) {
+      if (!(error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002')) {
+        throw error
+      }
     }
-    await this.prisma.bookmark.create({ data: { userId: viewer.sub, articleId } })
     return { bookmarked: true }
   }
 

@@ -1364,6 +1364,7 @@
     "comments": "Comments",
     "commentsEmpty": "No comments yet",
     "commentsLoading": "Loading…",
+    "showEarlierComments": "Show earlier comments",
     "commentSend": "Send",
     "commentPlaceholder": "Write a comment…",
     "bookmark": "Bookmark",
@@ -1875,6 +1876,9 @@
     "commentAuthorTag": "Author",
     "viewReplies": "{count, plural, one {View # reply} other {View # replies}}",
     "hideReplies": "Hide replies",
+    "showEarlierComments": "Show earlier comments",
+    "commentDeleteConfirm": "Delete this comment?",
+    "commentDeleteHint": "The comment will be removed from the discussion for everyone.",
     "filterSaved": "Saved",
     "filterModeration": "Moderation",
     "bookmark": "Save"
@@ -2324,7 +2328,14 @@
     "moderationDeleteHint": "The comment will disappear for all participants. The decision is recorded in the audit log.",
     "commentPlaceholder": "A question for the organizer or a comment",
     "commentInvalid": "1 to 2000 characters",
-    "sendComment": "Send"
+    "sendComment": "Send",
+    "showEarlierComments": "Show earlier comments",
+    "edit": "Edit",
+    "editEvent": "Edit event",
+    "saveChanges": "Save",
+    "updated": "Event updated",
+    "meetingKeepHint": "Leave the field empty to keep the current link",
+    "rescheduleNotice": "If you change the start time, participants will be notified"
   },
   "Moderation": {
     "complaintsTitle": "Complaints",

@@ -12,7 +12,7 @@ export {
   addReactionRequest,
   removeReactionRequest,
   toggleBookmarkRequest,
-  fetchComments,
+  fetchCommentsPage,
   addCommentRequest,
   deleteCommentRequest,
   fetchPostMediaLink,
@@ -37,6 +37,7 @@ export {
   type PostReactionSummary,
   type FeedPost,
   type PostComment,
+  type PostCommentsPage,
 } from './model/types'
 export {
   LIKE_EMOJI,

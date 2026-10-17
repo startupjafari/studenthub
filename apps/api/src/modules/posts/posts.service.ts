@@ -1,9 +1,13 @@
-import { Injectable, Logger } from '@nestjs/common'
+import { Inject, Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { PostAudience, Prisma } from '@prisma/client'
+import type Redis from 'ioredis'
 import { Role, isHigherRole } from '@studenthub/shared-types'
 import {
+  DEFAULT_PAGE_LIMIT,
   POST_REACTION_EMOJIS,
+  isPageRequested,
+  type CommentsQueryInput,
   type UpdatePostInput,
   type CreateCommentInput,
   type CreatePostInput,
@@ -14,6 +18,9 @@ import {
   type RepostInput,
 } from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
+import { REDIS_CLIENT } from '../../common/redis/redis.constants'
+import { NOTIFICATION_JOBS, QUEUES, QueueService } from '../../common/queue'
+import { isFirstViewToday } from './unique-view'
 import { FileService } from '../files/file.service'
 import { MediaService } from '../media/media.service'
 import { MEDIA_FILE_SELECT, type MediaFile, type MediaInfo } from '../media/media.types'
@@ -21,6 +28,7 @@ import { signingWindow } from '../../common/minio/stable-sign'
 import { AuditService } from '../../common/audit/audit.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import { Paginated } from '../../common/http/paginated'
+import { NEWEST_FIRST, encodeKeyset, keysetFrom, olderThan } from '../../common/http/keyset-cursor'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
 import type { EnvVars } from '../../config/env.schema'
@@ -160,6 +168,13 @@ type ViewerPost = Omit<FeedRow, 'media'> & {
   reactionSummary: PostReactionSummary[]
   _count: { comments: number }
   bookmarked: boolean
+  /**
+   * Права зрителя на пост — те же правила, что у самих действий (remove, setPinned). Раньше
+   * клиент решал по одной роли: модератор вуза видел «Удалить» на посте админа вуза, декан —
+   * на постах чужого факультета, и нажатие кончалось тостом 403.
+   */
+  canDelete: boolean
+  canPin: boolean
 }
 
 // Поля scope для проверки прав (без тяжёлых relation'ов).
@@ -180,6 +195,28 @@ const COMMENT_SELECT = {
   createdAt: true,
   author: AUTHOR_SELECT,
 } satisfies Prisma.CommentSelect
+
+type CommentRow = Prisma.CommentGetPayload<{ select: typeof COMMENT_SELECT }>
+
+// Сколько комментариев отдаёт прежний ответ без пагинации (мобильные клиенты).
+const LEGACY_COMMENTS_LIMIT = 200
+
+// Упоминание в комментарии — «@логин»; логин — латиница, цифры и «_», 3–32 символа
+// (UsernameSchema), хранится в нижнем регистре. Перед «@» — не буква и не «@», чтобы
+// адрес почты в тексте не считался упоминанием.
+const MENTION_RE = /(^|[^\w@])@([a-zA-Z0-9_]{3,32})(?![a-zA-Z0-9_])/g
+// Больше десяти упоминаний в одной реплике — уже рассылка, а не обращение.
+const MAX_MENTIONS = 10
+
+/** Логины, упомянутые в тексте: без повторов, в нижнем регистре, не больше MAX_MENTIONS. */
+export function mentionedLogins(text: string): string[] {
+  const logins = new Set<string>()
+  for (const match of text.matchAll(MENTION_RE)) {
+    if (match[2]) logins.add(match[2].toLowerCase())
+    if (logins.size >= MAX_MENTIONS) break
+  }
+  return [...logins]
+}
 
 // Scope-цель поста, вычисленная из audience (проставляется в data при создании).
 interface PostTarget {
@@ -245,6 +282,8 @@ export class PostsService {
     private readonly config: ConfigService<EnvVars, true>,
     private readonly files: FileService,
     private readonly media: MediaService,
+    private readonly queue: QueueService,
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {}
 
   // ── Видимость (задача 8.2) ──────────────────────────────────────────────────
@@ -405,6 +444,8 @@ export class PostsService {
       original: row.original && originals.has(row.original.id) ? row.original : null,
       _count: counted && row._count ? row._count : { comments: countByPost.get(row.id) ?? 0 },
       bookmarked: savedIds.has(row.id),
+      canDelete: row.authorId === viewer.sub || this.canModerate(viewer, row, row.author.role),
+      canPin: this.canPinPost(viewer, row, row.author.role),
     }))
   }
 
@@ -495,6 +536,7 @@ export class PostsService {
   }
 
   async feed(viewer: JwtPayload, query: FeedQueryInput): Promise<Paginated<ViewerPost>> {
+    if (query.filter === 'SAVED' && !query.authorId) return this.savedFeed(viewer, query)
     const moderation = query.filter === 'MODERATION'
     const where = moderation
       ? this.moderationFeedWhere(viewer, query)
@@ -527,6 +569,58 @@ export class PostsService {
       cursor: nextCursor,
       hasNext,
       ...(total !== undefined ? { total } : {}),
+    })
+  }
+
+  /**
+   * Полка «Сохранённое» — в порядке сохранения, свежие сверху, как и обещает индекс
+   * `[userId, createdAt]` закладок. Через общую ленту полка шла её порядком: закреплённые и
+   * «приоритетные» сверху, а только что сохранённый пост — где-то посередине.
+   *
+   * Выборка идёт по закладкам зрителя, а видимость поста — условием в том же запросе: пост,
+   * который человек больше не вправе видеть (ушёл из группы, пост снят), в полку не попадает
+   * и не съедает место на странице. Курсор — момент и id закладки (`<ms>.<id>`), а не id
+   * поста: снятая с полки закладка не обрывает листание, как обрывал бы курсор на её строку.
+   */
+  private async savedFeed(
+    viewer: JwtPayload,
+    query: FeedQueryInput,
+  ): Promise<Paginated<ViewerPost>> {
+    const visible = this.visibilityWhere(viewer, { moderation: true })
+    ;(visible.AND as Prisma.PostWhereInput[]).push({ status: 'PUBLISHED' })
+    // Курсор старого вида — id поста (так отвечала полка до сортировки по времени
+    // сохранения): ищется закладка зрителя на этот пост.
+    const after = query.cursor
+      ? await keysetFrom(query.cursor, (postId) =>
+          this.prisma.postBookmark.findUnique({
+            where: { userId_postId: { userId: viewer.sub, postId } },
+            select: { createdAt: true, id: true },
+          }),
+        )
+      : null
+    if (query.cursor && !after) return new Paginated([], { hasNext: false })
+    const marks = await this.prisma.postBookmark.findMany({
+      where: { userId: viewer.sub, post: visible, ...(after ? olderThan(after) : {}) },
+      select: { id: true, postId: true, createdAt: true },
+      orderBy: NEWEST_FIRST,
+      take: query.limit + 1,
+    })
+    const hasNext = marks.length > query.limit
+    const page = hasNext ? marks.slice(0, query.limit) : marks
+    const rows: FeedRow[] = page.length
+      ? await this.prisma.post.findMany({
+          where: { id: { in: page.map((mark) => mark.postId) } },
+          select: query.reactions === 'summary' ? POST_SELECT_CORE : POST_SELECT_BASE,
+          take: page.length,
+        })
+      : []
+    const byId = new Map(rows.map((row) => [row.id, row]))
+    const ordered = page.flatMap((mark) => byId.get(mark.postId) ?? [])
+    const items = await this.decorate(viewer, ordered)
+    const last = page.at(-1)
+    return new Paginated(items, {
+      cursor: hasNext && last ? encodeKeyset(last) : undefined,
+      hasNext,
     })
   }
 
@@ -572,20 +666,27 @@ export class PostsService {
    * Сохранить пост или убрать из сохранённого. Переключатель, а не две ручки: клиент не
    * обязан знать текущее состояние, чтобы нажать кнопку, — иначе два быстрых нажатия подряд
    * расходились бы с сервером.
+   *
+   * Без чтения перед записью: «найти → удалить или создать» при двойном нажатии (или повторе
+   * после таймаута) пускало оба запроса в create, и второй падал уникальностью — 409 вместо
+   * состояния. Теперь удаление само говорит, была ли закладка, а гонку двух create решает
+   * уникальный индекс: проигравший отвечает «сохранено», как и есть на самом деле.
    */
   async toggleBookmark(viewer: JwtPayload, id: string): Promise<{ bookmarked: boolean }> {
     // Сохранить можно только то, что зритель имеет право видеть: иначе закладка становится
     // способом проверить существование чужого поста по id. Модератору — и в его scope.
     await this.findVisibleOrThrow(viewer, id, { id: true }, { moderation: true })
-    const existing = await this.prisma.postBookmark.findUnique({
-      where: { userId_postId: { userId: viewer.sub, postId: id } },
-      select: { id: true },
+    const removed = await this.prisma.postBookmark.deleteMany({
+      where: { userId: viewer.sub, postId: id },
     })
-    if (existing) {
-      await this.prisma.postBookmark.delete({ where: { id: existing.id } })
-      return { bookmarked: false }
+    if (removed.count > 0) return { bookmarked: false }
+    try {
+      await this.prisma.postBookmark.create({ data: { userId: viewer.sub, postId: id } })
+    } catch (error) {
+      if (!(error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002')) {
+        throw error
+      }
     }
-    await this.prisma.postBookmark.create({ data: { userId: viewer.sub, postId: id } })
     return { bookmarked: true }
   }
 
@@ -598,9 +699,21 @@ export class PostsService {
     await this.findVisibleOrThrow(viewer, id, { id: true })
   }
 
-  /** Инкремент просмотров поста (при открытии в лайтбоксе). Только если пост виден зрителю. */
+  /**
+   * Просмотр поста (при открытии в лайтбоксе). Только если пост виден зрителю. Засчитывается
+   * один раз в сутки на зрителя (unique-view.ts); повторное открытие отвечает текущим числом
+   * без записи в строку поста.
+   */
   async incrementView(viewer: JwtPayload, id: string): Promise<{ views: number }> {
-    await this.findVisibleOrThrow(viewer, id, { id: true }, { moderation: true })
+    const post = await this.findVisibleOrThrow(
+      viewer,
+      id,
+      { id: true, views: true },
+      { moderation: true },
+    )
+    if (!(await isFirstViewToday(this.redis, 'post', id, viewer.sub))) {
+      return { views: post.views }
+    }
     return this.prisma.post.update({
       where: { id },
       data: { views: { increment: 1 } },
@@ -906,18 +1019,67 @@ export class PostsService {
 
   // ── Комментарии (задача 8.5) ────────────────────────────────────────────────
 
-  async listComments(viewer: JwtPayload, id: string) {
-    await this.findVisibleOrThrow(viewer, id, { id: true }, { moderation: true })
-    return this.prisma.comment.findMany({
-      where: { postId: id, deletedAt: null },
+  /**
+   * Комментарии поста. Без `limit`/`cursor` — прежний ответ: массив по порядку написания
+   * (так читают мобильные клиенты), но ПОСЛЕДНИЕ двести, а не первые: в обсуждении на 201+
+   * комментарий новые не видел никто, и только что отправленная реплика пропадала после
+   * перезагрузки. С ними — страница свежих сверху, `meta.total` — сколько всего.
+   *
+   * `canDelete` у каждого комментария — то же правило, что у removeComment: автор
+   * комментария, автор поста или модератор scope выше автора комментария.
+   */
+  async listComments(viewer: JwtPayload, id: string, query: CommentsQueryInput = {}) {
+    const post = await this.findVisibleOrThrow(viewer, id, POST_SCOPE_SELECT, {
+      moderation: true,
+    })
+    const where: Prisma.CommentWhereInput = { postId: id, deletedAt: null }
+    const withRights = (rows: CommentRow[]) =>
+      rows.map((row) => ({ ...row, canDelete: this.canDeleteComment(viewer, post, row) }))
+    if (!isPageRequested(query)) {
+      const rows = await this.prisma.comment.findMany({
+        where,
+        select: COMMENT_SELECT,
+        orderBy: NEWEST_FIRST,
+        take: LEGACY_COMMENTS_LIMIT,
+      })
+      return withRights(rows.reverse())
+    }
+    const limit = query.limit ?? DEFAULT_PAGE_LIMIT
+    // Курсор несёт момент и id (keyset-cursor.ts): удалённый тем временем комментарий не
+    // обрывает листание и не съедает соседа, как Prisma-курсор со `skip: 1`.
+    const after = query.cursor
+      ? await keysetFrom(query.cursor, (cursorId) =>
+          this.prisma.comment.findUnique({
+            where: { id: cursorId },
+            select: { createdAt: true, id: true },
+          }),
+        )
+      : null
+    const total = await this.prisma.comment.count({ where })
+    if (query.cursor && !after) return new Paginated([], { hasNext: false, total })
+    const rows = await this.prisma.comment.findMany({
+      where: after ? { AND: [where, olderThan(after)] } : where,
       select: COMMENT_SELECT,
-      orderBy: { createdAt: 'asc' },
-      take: 200,
+      orderBy: NEWEST_FIRST,
+      take: limit + 1,
+    })
+    const hasNext = rows.length > limit
+    const page = hasNext ? rows.slice(0, limit) : rows
+    const last = page.at(-1)
+    return new Paginated(withRights(page), {
+      cursor: hasNext && last ? encodeKeyset(last) : undefined,
+      hasNext,
+      total,
     })
   }
 
   async addComment(actor: JwtPayload, id: string, input: CreateCommentInput) {
-    await this.findVisibleOrThrow(actor, id, { id: true }, { moderation: true })
+    const post = await this.findVisibleOrThrow(
+      actor,
+      id,
+      { id: true, authorId: true },
+      { moderation: true },
+    )
     let parentId = input.parentId ?? null
     if (parentId) {
       const parent = await this.prisma.comment.findFirst({
@@ -930,12 +1092,21 @@ export class PostsService {
       // Максимум один уровень вложенности: ответ на ответ прикрепляем к корню ветки.
       parentId = parent.parentId ?? parent.id
     }
-    return this.prisma.comment.create({
+    const created = await this.prisma.comment.create({
       data: { postId: id, authorId: actor.sub, parentId, content: input.content },
       select: COMMENT_SELECT,
     })
+    await this.notifyAboutComment(actor, post, created)
+    // Свой комментарий автор вправе удалить всегда — признак тот же, что в списке.
+    return { ...created, canDelete: true }
   }
 
+  /**
+   * Удалить комментарий: автор комментария, автор поста (обсуждение под своим постом он
+   * ведёт сам — раньше оскорбление под чужим постом мог убрать только модератор) или
+   * модератор scope выше автора комментария. Удаление мягкое; чужой комментарий — с
+   * указанием в аудите, чьей властью он снят.
+   */
   async removeComment(
     actor: JwtPayload,
     id: string,
@@ -954,7 +1125,9 @@ export class PostsService {
     if (!comment) {
       throw new AppException('NOT_FOUND', 'Комментарий не найден')
     }
-    if (comment.authorId !== actor.sub) {
+    const own = comment.authorId === actor.sub
+    const byPostAuthor = !own && comment.post.authorId === actor.sub
+    if (!own && !byPostAuthor) {
       this.assertModerator(actor, comment.post, comment.author.role)
     }
     await this.prisma.comment.update({ where: { id: commentId }, data: { deletedAt: new Date() } })
@@ -963,8 +1136,137 @@ export class PostsService {
       action: 'comment_deleted',
       entity: 'Comment',
       entityId: commentId,
+      ...(own
+        ? {}
+        : {
+            metadata: {
+              postId: id,
+              authorId: comment.authorId,
+              by: byPostAuthor ? 'post_author' : 'moderator',
+            },
+          }),
       ...ctx,
     })
+  }
+
+  // ── Уведомления о комментариях ─────────────────────────────────────────────
+
+  /**
+   * Новый комментарий: автору поста — одна свёрнутая строка на пост в колокольчике (не по
+   * строке на каждую реплику бурного обсуждения), упомянутым через «@логин» — упоминание.
+   * Упомянутый получает уведомление, только если сам видит пост: иначе переход вёл бы на
+   * «не найдено», а сам факт уведомления раскрывал бы пост чужой аудитории. Личная
+   * блокировка в любую сторону гасит оба вида.
+   *
+   * Комментарий уже сохранён — сбой здесь не должен превращать его в ошибку для автора.
+   */
+  private async notifyAboutComment(
+    actor: JwtPayload,
+    post: { id: string; authorId: string },
+    comment: CommentRow,
+  ): Promise<void> {
+    try {
+      const mentioned = await this.mentionRecipients(actor, post.id, comment.content)
+      const candidates = [...new Set([post.authorId, ...mentioned])].filter(
+        (userId) => userId !== actor.sub,
+      )
+      if (candidates.length === 0) return
+      const blocked = await this.blockedAmong(actor.sub, candidates)
+      const name = `${comment.author.firstName} ${comment.author.lastName}`.trim()
+      const data = { postId: post.id, commentId: comment.id, url: `/posts/${post.id}` }
+      if (post.authorId !== actor.sub && !blocked.has(post.authorId)) {
+        const dedupeKey = `post-comment:${comment.id}`
+        await this.queue.enqueue(
+          QUEUES.NOTIFICATIONS,
+          NOTIFICATION_JOBS.COMMENT_ADDED,
+          {
+            recipientIds: [post.authorId],
+            type: 'POST',
+            titleKey: 'comments.new.title',
+            bodyKey: 'comments.post.body',
+            params: { name },
+            data,
+            dedupeKey,
+            collapseKey: `post-comments:${post.id}`,
+          },
+          { jobId: dedupeKey },
+        )
+      }
+      // Автор поста, упомянутый в комментарии к своему посту, уже узнал о нём выше.
+      const mentionIds = mentioned.filter(
+        (userId) => userId !== actor.sub && userId !== post.authorId && !blocked.has(userId),
+      )
+      if (mentionIds.length > 0) {
+        const dedupeKey = `comment-mention:${comment.id}`
+        await this.queue.enqueue(
+          QUEUES.NOTIFICATIONS,
+          NOTIFICATION_JOBS.COMMENT_MENTION,
+          {
+            recipientIds: mentionIds,
+            type: 'POST',
+            titleKey: 'comments.mention.title',
+            bodyKey: 'comments.mention.body',
+            params: { name },
+            data,
+            dedupeKey,
+          },
+          { jobId: dedupeKey },
+        )
+      }
+    } catch (error) {
+      this.logger.warn({ err: error, postId: post.id }, 'Уведомление о комментарии не поставлено')
+    }
+  }
+
+  /** Упомянутые в тексте, которым пост виден (по их собственной видимости, как у getById). */
+  private async mentionRecipients(
+    actor: JwtPayload,
+    postId: string,
+    content: string,
+  ): Promise<string[]> {
+    const logins = mentionedLogins(content)
+    if (logins.length === 0) return []
+    const users = await this.prisma.user.findMany({
+      where: {
+        username: { in: logins },
+        deletedAt: null,
+        isBlocked: false,
+        id: { not: actor.sub },
+      },
+      select: { id: true, role: true, universityId: true, facultyId: true, groupId: true },
+      take: logins.length,
+    })
+    const seen = await Promise.all(
+      users.map(async (user) => {
+        const asViewer: JwtPayload = {
+          sub: user.id,
+          role: user.role as Role,
+          universityId: user.universityId,
+          facultyId: user.facultyId,
+          groupId: user.groupId,
+        }
+        const visible = await this.prisma.post.count({
+          where: { id: postId, ...this.visibilityWhere(asViewer, { moderation: true }) },
+        })
+        return visible > 0 ? user.id : null
+      }),
+    )
+    return seen.filter((id): id is string => id !== null)
+  }
+
+  /** Кто из `ids` состоит с автором в личной блокировке (в любую сторону). */
+  private async blockedAmong(actorId: string, ids: string[]): Promise<Set<string>> {
+    const rows = await this.prisma.userBlock.findMany({
+      where: {
+        OR: [
+          { blockerId: actorId, blockedId: { in: ids } },
+          { blockedId: actorId, blockerId: { in: ids } },
+        ],
+      },
+      select: { blockerId: true, blockedId: true },
+      take: ids.length * 2,
+    })
+    return new Set(rows.map((row) => (row.blockerId === actorId ? row.blockedId : row.blockerId)))
   }
 
   // ── Внутреннее ──────────────────────────────────────────────────────────────
@@ -996,6 +1298,50 @@ export class PostsService {
       throw new AppException('WRONG_SCOPE', 'Пост другого университета')
     }
     throw new AppException('FORBIDDEN', 'Недостаточно прав')
+  }
+
+  /** Пост в scope модерации роли — то же условие, что в assertModerator, без исключений. */
+  private inModerationScope(
+    actor: JwtPayload,
+    post: { universityId: string | null; facultyId: string | null },
+  ): boolean {
+    if (isPlatform(actor.role)) return true
+    if (actor.role === Role.DEAN) return !!post.facultyId && post.facultyId === actor.facultyId
+    if (actor.role === Role.UNIVERSITY_ADMIN || actor.role === Role.UNIVERSITY_MODERATOR) {
+      return !!post.universityId && post.universityId === actor.universityId
+    }
+    return false
+  }
+
+  /** Снимет ли модерация чужой контент автора этой роли — ответ assertModerator без броска. */
+  private canModerate(
+    actor: JwtPayload,
+    post: { universityId: string | null; facultyId: string | null },
+    authorRole: Role,
+  ): boolean {
+    return isHigherRole(actor.role, authorRole) && this.inModerationScope(actor, post)
+  }
+
+  /** Признак `canPin` — те же проверки, что у setPinned: ранг строго выше автора и scope. */
+  private canPinPost(
+    actor: JwtPayload,
+    post: { universityId: string | null; facultyId: string | null },
+    authorRole: Role,
+  ): boolean {
+    return ROLE_RANK[actor.role] > ROLE_RANK[authorRole] && this.inModerationScope(actor, post)
+  }
+
+  /** Признак `canDelete` комментария — те же проверки, что у removeComment. */
+  private canDeleteComment(
+    actor: JwtPayload,
+    post: { authorId: string; universityId: string | null; facultyId: string | null },
+    comment: { author: { id: string; role: Role } },
+  ): boolean {
+    return (
+      comment.author.id === actor.sub ||
+      post.authorId === actor.sub ||
+      this.canModerate(actor, post, comment.author.role)
+    )
   }
 
   /** Проверяет аудиторию по роли и вычисляет scope-цель поста (защита от IDOR). */

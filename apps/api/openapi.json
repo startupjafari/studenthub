@@ -8959,6 +8959,7 @@
     },
     "/posts/{id}/view": {
       "post": {
+        "description": "Один просмотр на зрителя в сутки; повтор отвечает текущим числом.",
         "operationId": "PostsController_incrementView",
         "parameters": [
           {
@@ -9258,6 +9259,7 @@
     },
     "/posts/{id}/comments": {
       "get": {
+        "description": "Без limit/cursor — последние 200 массивом по порядку написания. С ними — страница свежих сверху: meta.cursor (раньше), meta.hasNext, meta.total. У каждого — canDelete.",
         "operationId": "PostsController_comments",
         "parameters": [
           {
@@ -9353,7 +9355,7 @@
             "bearer": []
           }
         ],
-        "summary": "Удалить комментарий (автор или модератор)",
+        "summary": "Удалить комментарий (автор комментария, автор поста или модератор)",
         "tags": [
           "Посты"
         ]
@@ -12319,6 +12321,9 @@
         "responses": {
           "201": {
             "description": "Зарегистрирован"
+          },
+          "409": {
+            "description": "CONFLICT — событие уже завершилось"
           }
         },
         "security": [
@@ -12374,7 +12379,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Список участников"
+            "description": "Без limit/cursor — массив (до 1000); с ними — страница с meta.cursor/hasNext"
           },
           "403": {
             "description": "FORBIDDEN"
@@ -12385,7 +12390,7 @@
             "bearer": []
           }
         ],
-        "summary": "Участники события (организатор/админ)",
+        "summary": "Участники события (организатор/админ); с limit/cursor — страница",
         "tags": [
           "События"
         ]
@@ -12406,7 +12411,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Последние комментарии, по порядку написания"
+            "description": "Без limit/cursor — последние 100 по порядку написания; с ними — свежие сверху, meta.cursor/hasNext/total"
           },
           "404": {
             "description": "NOT_FOUND — событие не видно"
@@ -12417,7 +12422,7 @@
             "bearer": []
           }
         ],
-        "summary": "Комментарии к событию (видны всей аудитории события)",
+        "summary": "Комментарии к событию (видны всей аудитории); с limit/cursor — страница",
         "tags": [
           "События"
         ]
@@ -12524,6 +12529,9 @@
           "404": {
             "description": "NOT_FOUND — цель не найдена"
           },
+          "409": {
+            "description": "CONFLICT — ваша жалоба на эту цель уже в очереди"
+          },
           "429": {
             "description": "RATE_LIMIT"
           }
@@ -12580,6 +12588,9 @@
           },
           "404": {
             "description": "NOT_FOUND — обращение или человек не найдены"
+          },
+          "409": {
+            "description": "CONFLICT — жалоба автора на этого человека уже в очереди"
           }
         },
         "security": [
@@ -13506,6 +13517,7 @@
     },
     "/profile/{userId}/articles": {
       "get": {
+        "description": "view=card — без полного текста (content): для плиток профиля. Без параметра — с текстом.",
         "operationId": "ProfileContentController_listArticles",
         "parameters": [
           {
@@ -13533,8 +13545,108 @@
         ]
       }
     },
+    "/profile/articles/{id}": {
+      "get": {
+        "operationId": "ProfileContentController_getArticle",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "404": {
+            "description": "NOT_FOUND — нет статьи или она не видна"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Статья целиком — для читалки и редактора (по видимости смотрящего)",
+        "tags": [
+          "Профиль — контент"
+        ]
+      },
+      "patch": {
+        "operationId": "ProfileContentController_updateArticle",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProfileArticleDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Изменить свою статью",
+        "tags": [
+          "Профиль — контент"
+        ]
+      },
+      "delete": {
+        "operationId": "ProfileContentController_deleteArticle",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Удалено"
+          },
+          "403": {
+            "description": "FORBIDDEN / WRONG_SCOPE"
+          },
+          "404": {
+            "description": "NOT_FOUND"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Удалить статью (свою; чужую — модератор scope, роль выше автора)",
+        "tags": [
+          "Профиль — контент"
+        ]
+      }
+    },
     "/profile/articles/{id}/view": {
       "post": {
+        "description": "Один просмотр на зрителя в сутки; повтор отвечает текущим числом.",
         "operationId": "ProfileContentController_incrementArticleView",
         "parameters": [
           {
@@ -13593,6 +13705,7 @@
     },
     "/profile/articles/{id}/comments": {
       "get": {
+        "description": "Без limit/cursor — последние 200 массивом по порядку написания. С ними — страница свежих сверху: meta.cursor (раньше), meta.hasNext, meta.total.",
         "operationId": "ProfileContentController_listArticleComments",
         "parameters": [
           {
@@ -13749,78 +13862,6 @@
         ]
       }
     },
-    "/profile/articles/{id}": {
-      "patch": {
-        "operationId": "ProfileContentController_updateArticle",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateProfileArticleDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Изменить свою статью",
-        "tags": [
-          "Профиль — контент"
-        ]
-      },
-      "delete": {
-        "operationId": "ProfileContentController_deleteArticle",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": "Удалено"
-          },
-          "403": {
-            "description": "FORBIDDEN / WRONG_SCOPE"
-          },
-          "404": {
-            "description": "NOT_FOUND"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Удалить статью (свою; чужую — модератор scope, роль выше автора)",
-        "tags": [
-          "Профиль — контент"
-        ]
-      }
-    },
     "/polls": {
       "post": {
         "operationId": "PollsController_create",
@@ -13874,7 +13915,7 @@
             "bearer": []
           }
         ],
-        "summary": "Опросы пользователя (по видимости смотрящего)",
+        "summary": "Опросы пользователя (по видимости смотрящего). Без limit/cursor — массив (до 100), с ними — страница",
         "tags": [
           "Опросы"
         ]
@@ -14068,7 +14109,7 @@
             "bearer": []
           }
         ],
-        "summary": "Комментарии опроса",
+        "summary": "Комментарии опроса. Без limit/cursor — последние 200 массивом по порядку, с ними — страница, свежие сверху",
         "tags": [
           "Опросы"
         ]

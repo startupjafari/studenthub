@@ -8,6 +8,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   Req,
 } from '@nestjs/common'
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger'
@@ -20,6 +21,8 @@ import { CreatePollDto } from './dto/create-poll.dto'
 import { UpdatePollDto } from './dto/update-poll.dto'
 import { VotePollDto } from './dto/vote-poll.dto'
 import { PollCommentDto } from './dto/poll-comment.dto'
+import { PollsListQueryDto } from './dto/polls-list-query.dto'
+import { PollCommentsQueryDto } from './dto/poll-comments-query.dto'
 
 // Опросы профиля: создание, голосование, результаты (docs/PROJECT.md §3.7).
 @ApiTags('Опросы')
@@ -36,9 +39,16 @@ export class PollsController {
   }
 
   @Get('by-user/:userId')
-  @ApiOperation({ summary: 'Опросы пользователя (по видимости смотрящего)' })
-  listByUser(@CurrentUser() user: CurrentUserData, @Param('userId') userId: string) {
-    return this.polls.listByUser(user, userId)
+  @ApiOperation({
+    summary:
+      'Опросы пользователя (по видимости смотрящего). Без limit/cursor — массив (до 100), с ними — страница',
+  })
+  listByUser(
+    @CurrentUser() user: CurrentUserData,
+    @Param('userId') userId: string,
+    @Query() query: PollsListQueryDto,
+  ) {
+    return this.polls.listByUser(user, userId, query)
   }
 
   @Get(':id')
@@ -84,9 +94,16 @@ export class PollsController {
   }
 
   @Get(':id/comments')
-  @ApiOperation({ summary: 'Комментарии опроса' })
-  listComments(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
-    return this.polls.listComments(user, id)
+  @ApiOperation({
+    summary:
+      'Комментарии опроса. Без limit/cursor — последние 200 массивом по порядку, с ними — страница, свежие сверху',
+  })
+  listComments(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Query() query: PollCommentsQueryDto,
+  ) {
+    return this.polls.listComments(user, id, query)
   }
 
   @Post(':id/comments')

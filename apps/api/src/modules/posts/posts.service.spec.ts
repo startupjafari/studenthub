@@ -1,6 +1,7 @@
-import { PostAudience } from '@prisma/client'
+import { PostAudience, Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
-import { PostsService } from './posts.service'
+import { PostsService, mentionedLogins } from './posts.service'
+import { Paginated } from '../../common/http/paginated'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { AuditService } from '../../common/audit/audit.service'
 import type { ConfigService } from '@nestjs/config'
@@ -9,6 +10,7 @@ import type { EnvVars } from '../../config/env.schema'
 import { AppException } from '../../common/exceptions/app.exception'
 import { POST_REACTION_EMOJIS, ReactionSchema } from '@studenthub/shared-schemas'
 import { MEDIA_FILE_SELECT } from '../media/media.types'
+import type { QueueService } from '../../common/queue'
 
 const ctx = { ip: '127.0.0.1', userAgent: 'jest' }
 
@@ -34,18 +36,22 @@ function setup() {
       findUnique: jest.fn().mockResolvedValue(null),
       create: jest.fn().mockResolvedValue({}),
       delete: jest.fn().mockResolvedValue({}),
+      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
     comment: {
       findMany: jest.fn().mockResolvedValue([]),
       findFirst: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
+      count: jest.fn().mockResolvedValue(0),
+      findUnique: jest.fn().mockResolvedValue(null),
       // Счётчик комментариев ленты: отдельный groupBy по id страницы (decorateFeed).
       groupBy: jest.fn().mockResolvedValue([]),
     },
     faculty: { findUnique: jest.fn() },
     group: { findUnique: jest.fn() },
-    user: { findFirst: jest.fn() },
+    user: { findFirst: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
+    userBlock: { findMany: jest.fn().mockResolvedValue([]) },
     file: { findMany: jest.fn(), updateMany: jest.fn(), findFirst: jest.fn() },
     // Создание поста с медиа — интерактивная транзакция; в тесте она идёт на тех же моках.
     $transaction: jest.fn(),
@@ -68,14 +74,27 @@ function setup() {
       async (list: Array<{ id: string }>) => new Map(list.map((f) => [f.id, describedMedia(f.id)])),
     ),
   }
+  const queue = { enqueue: jest.fn().mockResolvedValue(undefined) }
+  // Просмотры: SADD в множество зрителей дня (unique-view.ts). По умолчанию — первый просмотр.
+  const redisMulti = {
+    sadd: jest.fn().mockReturnThis(),
+    expire: jest.fn().mockReturnThis(),
+    exec: jest.fn().mockResolvedValue([
+      [null, 1],
+      [null, 1],
+    ]),
+  }
+  const redis = { multi: jest.fn(() => redisMulti) }
   const service = new PostsService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
     config as unknown as ConfigService<EnvVars, true>,
     files as unknown as import('../files/file.service').FileService,
     media as never,
+    queue as unknown as QueueService,
+    redis as never,
   )
-  return { service, prisma, audit, files, media }
+  return { service, prisma, audit, files, media, queue, redis, redisMulti }
 }
 
 function describedMedia(id: string) {
@@ -750,7 +769,7 @@ describe('PostsService.addComment — максимальная вложенно�
     const { service, prisma } = setup()
     prisma.post.findFirst.mockResolvedValue({ id: 'p1' })
     prisma.comment.findFirst.mockResolvedValue({ id: 'reply1', parentId: 'root1' })
-    prisma.comment.create.mockResolvedValue({ id: 'c-new' })
+    prisma.comment.create.mockResolvedValue({ id: 'c-new', content: 'x', author: { id: 's1' } })
     await service.addComment(viewer(Role.STUDENT, { sub: 's1' }), 'p1', {
       content: 'x',
       parentId: 'reply1',
@@ -764,7 +783,7 @@ describe('PostsService.addComment — максимальная вложенно�
     const { service, prisma } = setup()
     prisma.post.findFirst.mockResolvedValue({ id: 'p1' })
     prisma.comment.findFirst.mockResolvedValue({ id: 'root1', parentId: null })
-    prisma.comment.create.mockResolvedValue({ id: 'c-new' })
+    prisma.comment.create.mockResolvedValue({ id: 'c-new', content: 'x', author: { id: 's1' } })
     await service.addComment(viewer(Role.STUDENT, { sub: 's1' }), 'p1', {
       content: 'x',
       parentId: 'root1',
@@ -794,6 +813,30 @@ describe('PostsService.incrementView', () => {
       AppException,
     )
     expect(prisma.post.update).not.toHaveBeenCalled()
+  })
+
+  it('повторное открытие за сутки не пишет в строку поста — отвечает текущим числом', async () => {
+    const { service, prisma, redisMulti } = setup()
+    prisma.post.findFirst.mockResolvedValue({ id: 'p1', views: 7 })
+    redisMulti.exec.mockResolvedValue([
+      [null, 0],
+      [null, 1],
+    ])
+    await expect(service.incrementView(viewer(Role.STUDENT, { sub: 's1' }), 'p1')).resolves.toEqual(
+      { views: 7 },
+    )
+    expect(redisMulti.sadd).toHaveBeenCalledWith(expect.stringMatching(/^views:post:p1:/), 's1')
+    expect(prisma.post.update).not.toHaveBeenCalled()
+  })
+
+  it('Redis недоступен — просмотр засчитывается, как раньше', async () => {
+    const { service, prisma, redisMulti } = setup()
+    prisma.post.findFirst.mockResolvedValue({ id: 'p1', views: 7 })
+    prisma.post.update.mockResolvedValue({ views: 8 })
+    redisMulti.exec.mockRejectedValue(new Error('redis down'))
+    await expect(service.incrementView(viewer(Role.STUDENT, { sub: 's1' }), 'p1')).resolves.toEqual(
+      { views: 8 },
+    )
   })
 })
 
@@ -1014,16 +1057,16 @@ describe('PostsService — счётчик комментариев ленты', 
     })
   })
 
-  it('таб SAVED сужает выдачу закладкой зрителя, не отменяя видимость', async () => {
+  it('таб SAVED идёт по закладкам зрителя, не отменяя видимость поста', async () => {
     const { service, prisma } = setup()
-    prisma.post.findMany.mockResolvedValue([])
 
     await service.feed(viewer(Role.STUDENT, { groupId: 'grp-1' }), { limit: 20, filter: 'SAVED' })
 
-    const where = JSON.stringify(prisma.post.findMany.mock.calls[0][0].where)
-    expect(where).toContain('"bookmarks":{"some":{"userId":"u-1"}}')
-    // Видимость осталась в том же AND — фильтр её не заменяет.
-    expect(where).toContain('grp-1')
+    const args = prisma.postBookmark.findMany.mock.calls[0][0]
+    expect(args.where.userId).toBe('u-1')
+    // Видимость — условием на пост в том же запросе: она не заменяется полкой.
+    expect(JSON.stringify(args.where.post)).toContain('grp-1')
+    expect(JSON.stringify(args.where.post)).toContain('"status":"PUBLISHED"')
   })
 
   it('сохраняет пост, если закладки ещё нет', async () => {
@@ -1041,13 +1084,35 @@ describe('PostsService — счётчик комментариев ленты', 
   it('повторное нажатие снимает закладку, а не создаёт вторую', async () => {
     const { service, prisma } = setup()
     prisma.post.findFirst.mockResolvedValue({ id: 'p1' })
-    prisma.postBookmark.findUnique.mockResolvedValue({ id: 'b1' })
+    prisma.postBookmark.deleteMany.mockResolvedValue({ count: 1 })
 
     await expect(service.toggleBookmark(viewer(Role.STUDENT), 'p1')).resolves.toEqual({
       bookmarked: false,
     })
-    expect(prisma.postBookmark.delete).toHaveBeenCalledWith({ where: { id: 'b1' } })
+    expect(prisma.postBookmark.deleteMany).toHaveBeenCalledWith({
+      where: { userId: 'u-1', postId: 'p1' },
+    })
     expect(prisma.postBookmark.create).not.toHaveBeenCalled()
+  })
+
+  it('двойное нажатие: параллельный create упал уникальностью → «сохранено», а не 409', async () => {
+    const { service, prisma } = setup()
+    prisma.post.findFirst.mockResolvedValue({ id: 'p1' })
+    prisma.postBookmark.create.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError('unique', { code: 'P2002', clientVersion: 'x' }),
+    )
+
+    await expect(service.toggleBookmark(viewer(Role.STUDENT), 'p1')).resolves.toEqual({
+      bookmarked: true,
+    })
+  })
+
+  it('прочая ошибка базы при сохранении не глотается', async () => {
+    const { service, prisma } = setup()
+    prisma.post.findFirst.mockResolvedValue({ id: 'p1' })
+    prisma.postBookmark.create.mockRejectedValue(new Error('db down'))
+
+    await expect(service.toggleBookmark(viewer(Role.STUDENT), 'p1')).rejects.toThrow('db down')
   })
 
   it('нельзя сохранить пост, которого зритель не видит', async () => {
@@ -1202,5 +1267,358 @@ describe('PostsService — ссылки на медиа прямо в выдач
     expect(prisma.post.findMany.mock.calls[0][0].select.media).toEqual({
       select: MEDIA_FILE_SELECT,
     })
+  })
+})
+
+describe('PostsService — полка «Сохранённое» в порядке сохранения', () => {
+  const mark = (postId: string, ms: number, id = `b-${postId}`) => ({
+    id,
+    postId,
+    createdAt: new Date(ms),
+  })
+
+  it('порядок — по времени закладки, а не по порядку ленты; курсор — момент и id закладки', async () => {
+    const { service, prisma } = setup()
+    prisma.postBookmark.findMany.mockImplementation(async (args: { select: unknown }) =>
+      // Первый вызов — полка, второй — признак «сохранено» в decorate.
+      'createdAt' in (args.select as object)
+        ? [mark('p2', 2000), mark('p1', 1000), mark('p3', 500)]
+        : [],
+    )
+    // База отдаёт посты в своём порядке — выдача обязана встать по закладкам.
+    prisma.post.findMany.mockResolvedValue([postRow({ id: 'p1' }), postRow({ id: 'p2' })])
+
+    const page = await service.feed(viewer(Role.STUDENT), { limit: 2, filter: 'SAVED' })
+
+    expect(page.items.map((p) => p.id)).toEqual(['p2', 'p1'])
+    expect(page.meta).toEqual({ cursor: '1000.b-p1', hasNext: true })
+    const args = prisma.postBookmark.findMany.mock.calls[0][0]
+    expect(args.orderBy).toEqual([{ createdAt: 'desc' }, { id: 'desc' }])
+    expect(args.take).toBe(3)
+  })
+
+  it('следующая страница — строго раньше курсора, даже если саму закладку уже сняли', async () => {
+    const { service, prisma } = setup()
+
+    await service.feed(viewer(Role.STUDENT), { limit: 20, filter: 'SAVED', cursor: '1000.b-p1' })
+
+    const where = prisma.postBookmark.findMany.mock.calls[0][0].where
+    expect(where.OR).toEqual([
+      { createdAt: { lt: new Date(1000) } },
+      { createdAt: new Date(1000), id: { lt: 'b-p1' } },
+    ])
+    expect(prisma.postBookmark.findUnique).not.toHaveBeenCalled()
+  })
+
+  it('курсор старого вида (id поста) ищется по закладке зрителя; нет её — пустая страница', async () => {
+    const { service, prisma } = setup()
+    prisma.postBookmark.findUnique.mockResolvedValue(null)
+
+    const page = await service.feed(viewer(Role.STUDENT), {
+      limit: 20,
+      filter: 'SAVED',
+      cursor: 'p-legacy',
+    })
+
+    expect(prisma.postBookmark.findUnique).toHaveBeenCalledWith({
+      where: { userId_postId: { userId: 'u-1', postId: 'p-legacy' } },
+      select: { createdAt: true, id: true },
+    })
+    expect(page.items).toEqual([])
+    expect(page.meta.hasNext).toBe(false)
+  })
+})
+
+describe('PostsService — права в карточке поста (canDelete / canPin)', () => {
+  async function flagsFor(actor: JwtPayload, over: Record<string, unknown>) {
+    const { service, prisma } = setup()
+    prisma.post.findMany.mockResolvedValue([postRow(over)])
+    const page = await service.feed(actor, { limit: 20 })
+    const [post] = page.items
+    return { canDelete: post?.canDelete, canPin: post?.canPin }
+  }
+
+  it('свой пост: удалить можно, закрепить — нет (закрепляет только роль выше автора)', async () => {
+    await expect(
+      flagsFor(viewer(Role.STUDENT, { sub: 'u-1' }), { authorId: 'u-1' }),
+    ).resolves.toEqual({ canDelete: true, canPin: false })
+  })
+
+  it('модератор вуза не снимает и не закрепляет пост админа своего вуза', async () => {
+    const actor = viewer(Role.UNIVERSITY_MODERATOR, { sub: 'm1', universityId: 'uni-1' })
+    await expect(
+      flagsFor(actor, {
+        authorId: 'ua-1',
+        author: { id: 'ua-1', firstName: 'A', lastName: 'B', role: Role.UNIVERSITY_ADMIN },
+      }),
+    ).resolves.toEqual({ canDelete: false, canPin: false })
+  })
+
+  it('модератор вуза снимает и закрепляет студенческий пост своего вуза', async () => {
+    const actor = viewer(Role.UNIVERSITY_MODERATOR, { sub: 'm1', universityId: 'uni-1' })
+    await expect(flagsFor(actor, { authorId: 's-9' })).resolves.toEqual({
+      canDelete: true,
+      canPin: true,
+    })
+  })
+
+  it('декан — только посты своего факультета', async () => {
+    const actor = viewer(Role.DEAN, { sub: 'd1', universityId: 'uni-1', facultyId: 'fac-2' })
+    await expect(flagsFor(actor, { authorId: 's-9', facultyId: 'fac-1' })).resolves.toEqual({
+      canDelete: false,
+      canPin: false,
+    })
+  })
+
+  it('студент чужой пост не снимает', async () => {
+    await expect(
+      flagsFor(viewer(Role.STUDENT, { sub: 's-2', groupId: 'grp-1' }), { authorId: 's-9' }),
+    ).resolves.toEqual({ canDelete: false, canPin: false })
+  })
+})
+
+describe('PostsService — комментарии: страницы, права, уведомления', () => {
+  const commentRow = (
+    id: string,
+    authorId: string,
+    role: Role = Role.STUDENT,
+    createdAt = new Date(),
+  ) => ({
+    id,
+    postId: 'p1',
+    parentId: null,
+    content: 'текст',
+    createdAt,
+    author: { id: authorId, firstName: 'Иван', lastName: 'Петров', role, avatarUrl: null },
+  })
+  const scopedPost = {
+    id: 'p1',
+    authorId: 'owner',
+    audience: 'GROUP',
+    universityId: 'uni-1',
+    facultyId: 'fac-1',
+    groupId: 'grp-1',
+  }
+
+  it('без limit/cursor — прежний массив, но последние двести по порядку написания', async () => {
+    const { service, prisma } = setup()
+    prisma.post.findFirst.mockResolvedValue(scopedPost)
+    prisma.comment.findMany.mockResolvedValue([commentRow('c3', 'a'), commentRow('c2', 'b')])
+
+    const res = await service.listComments(viewer(Role.STUDENT, { sub: 'a' }), 'p1')
+
+    expect(Array.isArray(res)).toBe(true)
+    expect((res as Array<{ id: string }>).map((c) => c.id)).toEqual(['c2', 'c3'])
+    const args = prisma.comment.findMany.mock.calls[0][0]
+    expect(args.orderBy).toEqual([{ createdAt: 'desc' }, { id: 'desc' }])
+    expect(args.take).toBe(200)
+  })
+
+  it('с limit — страница свежих сверху: курсор на самый старый, hasNext и total', async () => {
+    const { service, prisma } = setup()
+    prisma.post.findFirst.mockResolvedValue(scopedPost)
+    prisma.comment.findMany.mockResolvedValue([
+      commentRow('c5', 'a', Role.STUDENT, new Date(5000)),
+      commentRow('c4', 'a', Role.STUDENT, new Date(4000)),
+      commentRow('c3', 'a', Role.STUDENT, new Date(3000)),
+    ])
+    prisma.comment.count.mockResolvedValue(5)
+
+    const res = await service.listComments(viewer(Role.STUDENT, { sub: 'a' }), 'p1', {
+      limit: 2,
+      cursor: '6000.c6',
+    })
+
+    expect(res).toBeInstanceOf(Paginated)
+    const page = res as Paginated<{ id: string }>
+    expect(page.items.map((c) => c.id)).toEqual(['c5', 'c4'])
+    expect(page.meta).toEqual({ cursor: '4000.c4', hasNext: true, total: 5 })
+    const args = prisma.comment.findMany.mock.calls[0][0]
+    expect(args.take).toBe(3)
+    // Курсор — значения сортировки, а не строка: удалённый курсорный комментарий не мешает.
+    expect(args.where).toEqual({
+      AND: [
+        { postId: 'p1', deletedAt: null },
+        {
+          OR: [
+            { createdAt: { lt: new Date(6000) } },
+            { createdAt: new Date(6000), id: { lt: 'c6' } },
+          ],
+        },
+      ],
+    })
+    expect(args.cursor).toBeUndefined()
+    expect(prisma.comment.count).toHaveBeenCalledWith({ where: { postId: 'p1', deletedAt: null } })
+  })
+
+  it('курсор-голый id ищется по комментарию; стёртый навсегда — пустая страница', async () => {
+    const { service, prisma } = setup()
+    prisma.post.findFirst.mockResolvedValue(scopedPost)
+    prisma.comment.findUnique.mockResolvedValue({ createdAt: new Date(6000), id: 'c6' })
+
+    await service.listComments(viewer(Role.STUDENT, { sub: 'a' }), 'p1', { cursor: 'c6' })
+    expect(prisma.comment.findMany.mock.calls[0][0].take).toBe(21)
+    expect(JSON.stringify(prisma.comment.findMany.mock.calls[0][0].where)).toContain('"c6"')
+
+    prisma.comment.findUnique.mockResolvedValue(null)
+    prisma.comment.findMany.mockClear()
+    const res = (await service.listComments(viewer(Role.STUDENT, { sub: 'a' }), 'p1', {
+      cursor: 'gone',
+    })) as Paginated<unknown>
+    expect(res.items).toEqual([])
+    expect(res.meta.hasNext).toBe(false)
+    expect(prisma.comment.findMany).not.toHaveBeenCalled()
+  })
+
+  it('canDelete: свой — да; автору поста — да; чужой студенту — нет', async () => {
+    const { service, prisma } = setup()
+    prisma.post.findFirst.mockResolvedValue(scopedPost)
+    prisma.comment.findMany.mockResolvedValue([commentRow('c1', 'a'), commentRow('c2', 'b')])
+
+    const asA = (await service.listComments(viewer(Role.STUDENT, { sub: 'a' }), 'p1')) as Array<{
+      id: string
+      canDelete: boolean
+    }>
+    expect(asA.map((c) => [c.id, c.canDelete])).toEqual([
+      ['c2', false],
+      ['c1', true],
+    ])
+
+    const asOwner = (await service.listComments(
+      viewer(Role.STUDENT, { sub: 'owner' }),
+      'p1',
+    )) as Array<{ canDelete: boolean }>
+    expect(asOwner.every((c) => c.canDelete)).toBe(true)
+  })
+
+  it('автор поста удаляет чужой комментарий под своим постом — мягко, с пометкой в аудите', async () => {
+    const { service, prisma, audit } = setup()
+    prisma.comment.findFirst.mockResolvedValue({
+      id: 'c1',
+      authorId: 'troll',
+      author: { role: Role.STUDENT },
+      post: { ...scopedPost },
+    })
+
+    await service.removeComment(viewer(Role.STUDENT, { sub: 'owner' }), 'p1', 'c1', ctx)
+
+    expect(prisma.comment.update).toHaveBeenCalledWith({
+      where: { id: 'c1' },
+      data: { deletedAt: expect.any(Date) },
+    })
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'comment_deleted',
+        metadata: { postId: 'p1', authorId: 'troll', by: 'post_author' },
+      }),
+    )
+  })
+
+  it('посторонний студент чужой комментарий не удаляет', async () => {
+    const { service, prisma } = setup()
+    prisma.comment.findFirst.mockResolvedValue({
+      id: 'c1',
+      authorId: 'troll',
+      author: { role: Role.STUDENT },
+      post: { ...scopedPost },
+    })
+    const err = await service
+      .removeComment(viewer(Role.STUDENT, { sub: 'bystander' }), 'p1', 'c1', ctx)
+      .catch((e) => e)
+    expect(err.code).toBe('FORBIDDEN')
+    expect(prisma.comment.update).not.toHaveBeenCalled()
+  })
+
+  it('новый комментарий — автору поста свёрнутое уведомление, свой пост — без уведомления', async () => {
+    const { service, prisma, queue } = setup()
+    prisma.post.findFirst.mockResolvedValue({ id: 'p1', authorId: 'owner' })
+    prisma.comment.create.mockResolvedValue(commentRow('c1', 'a'))
+
+    const created = await service.addComment(viewer(Role.STUDENT, { sub: 'a' }), 'p1', {
+      content: 'привет',
+    })
+
+    expect(created.canDelete).toBe(true)
+    expect(queue.enqueue).toHaveBeenCalledTimes(1)
+    expect(queue.enqueue).toHaveBeenCalledWith(
+      'notifications',
+      'comment-added',
+      expect.objectContaining({
+        recipientIds: ['owner'],
+        type: 'POST',
+        titleKey: 'comments.new.title',
+        bodyKey: 'comments.post.body',
+        params: { name: 'Иван Петров' },
+        data: { postId: 'p1', commentId: 'c1', url: '/posts/p1' },
+        dedupeKey: 'post-comment:c1',
+        collapseKey: 'post-comments:p1',
+      }),
+      { jobId: 'post-comment:c1' },
+    )
+
+    queue.enqueue.mockClear()
+    prisma.post.findFirst.mockResolvedValue({ id: 'p1', authorId: 'a' })
+    await service.addComment(viewer(Role.STUDENT, { sub: 'a' }), 'p1', { content: 'себе' })
+    expect(queue.enqueue).not.toHaveBeenCalled()
+  })
+
+  it('упоминание доходит только тем, кому пост виден; блокировка гасит уведомление', async () => {
+    const { service, prisma, queue } = setup()
+    prisma.post.findFirst.mockResolvedValue({ id: 'p1', authorId: 'a' })
+    prisma.comment.create.mockResolvedValue({
+      ...commentRow('c1', 'a'),
+      content: '@Mate и @stranger, гляньте; почта x@mail.kz не упоминание',
+    })
+    prisma.user.findMany.mockResolvedValue([
+      { id: 'mate', role: 'STUDENT', universityId: 'uni-1', facultyId: 'fac-1', groupId: 'grp-1' },
+      { id: 'stranger', role: 'STUDENT', universityId: 'uni-2', facultyId: null, groupId: null },
+    ])
+    // Пост виден только «mate»: проверка идёт по видимости самого упомянутого.
+    prisma.post.count.mockImplementation(async ({ where }: { where: unknown }) =>
+      JSON.stringify(where).includes('grp-1') ? 1 : 0,
+    )
+
+    await service.addComment(viewer(Role.STUDENT, { sub: 'a' }), 'p1', { content: 'x' })
+
+    expect(prisma.user.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ username: { in: ['mate', 'stranger'] } }),
+      }),
+    )
+    expect(queue.enqueue).toHaveBeenCalledWith(
+      'notifications',
+      'comment-mention',
+      expect.objectContaining({
+        recipientIds: ['mate'],
+        titleKey: 'comments.mention.title',
+        dedupeKey: 'comment-mention:c1',
+      }),
+      { jobId: 'comment-mention:c1' },
+    )
+
+    queue.enqueue.mockClear()
+    prisma.userBlock.findMany.mockResolvedValue([{ blockerId: 'mate', blockedId: 'a' }])
+    await service.addComment(viewer(Role.STUDENT, { sub: 'a' }), 'p1', { content: 'x' })
+    expect(queue.enqueue).not.toHaveBeenCalled()
+  })
+
+  it('сбой при уведомлении не превращает сохранённый комментарий в ошибку', async () => {
+    const { service, prisma } = setup()
+    prisma.post.findFirst.mockResolvedValue({ id: 'p1', authorId: 'owner' })
+    prisma.comment.create.mockResolvedValue(commentRow('c1', 'a'))
+    prisma.userBlock.findMany.mockRejectedValue(new Error('db hiccup'))
+
+    await expect(
+      service.addComment(viewer(Role.STUDENT, { sub: 'a' }), 'p1', { content: 'x' }),
+    ).resolves.toMatchObject({ id: 'c1' })
+  })
+})
+
+describe('mentionedLogins', () => {
+  it('логины в нижнем регистре, без повторов и без адресов почты', () => {
+    expect(mentionedLogins('@Ivan_1, @ivan_1 и @olga! mail: a@b.kz @ab')).toEqual([
+      'ivan_1',
+      'olga',
+    ])
   })
 })

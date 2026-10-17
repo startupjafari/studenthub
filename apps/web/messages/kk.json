@@ -1364,6 +1364,7 @@
     "comments": "Пікірлер",
     "commentsEmpty": "Әзірге пікір жоқ",
     "commentsLoading": "Жүктелуде…",
+    "showEarlierComments": "Алдыңғы пікірлерді көрсету",
     "commentSend": "Жіберу",
     "commentPlaceholder": "Пікір жазу…",
     "bookmark": "Бетбелгіге",
@@ -1875,6 +1876,9 @@
     "commentAuthorTag": "Автор",
     "viewReplies": "{count, plural, other {# жауапты көру}}",
     "hideReplies": "Жауаптарды жасыру",
+    "showEarlierComments": "Алдыңғы пікірлерді көрсету",
+    "commentDeleteConfirm": "Пікірді жою керек пе?",
+    "commentDeleteHint": "Пікір талқылаудан барлығы үшін жойылады.",
     "filterSaved": "Сақталған",
     "filterModeration": "Модерация",
     "bookmark": "Таңдаулыға"
@@ -2324,7 +2328,14 @@
     "moderationDeleteHint": "Пікір барлық қатысушыдан жойылады. Шешім аудит журналына жазылады.",
     "commentPlaceholder": "Ұйымдастырушыға сұрақ немесе пікір",
     "commentInvalid": "1-ден 2000 таңбаға дейін",
-    "sendComment": "Жіберу"
+    "sendComment": "Жіберу",
+    "showEarlierComments": "Алдыңғы пікірлерді көрсету",
+    "edit": "Өзгерту",
+    "editEvent": "Іс-шараны өзгерту",
+    "saveChanges": "Сақтау",
+    "updated": "Іс-шара жаңартылды",
+    "meetingKeepHint": "Ағымдағы сілтемені сақтау үшін өрісті бос қалдырыңыз",
+    "rescheduleNotice": "Басталу уақытын ауыстырсаңыз, қатысушыларға хабарлама барады"
   },
   "Moderation": {
     "complaintsTitle": "Шағымдар",

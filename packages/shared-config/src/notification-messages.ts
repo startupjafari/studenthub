@@ -94,6 +94,21 @@ const RU = {
 
   'events.reminder.title': 'Скоро событие',
   'events.reminder.body': '«{title}» начнётся примерно через час',
+  // Участникам: организатор перенёс или отменил событие.
+  'events.rescheduled.title': 'Событие перенесено',
+  'events.rescheduled.body': '«{title}»: новое время — {date}',
+  'events.cancelled.title': 'Событие отменено',
+  'events.cancelled.body': '«{title}» не состоится',
+
+  // Комментарии: автору публикации, статьи или опроса — о новом комментарии; упомянутому
+  // через @логин — об упоминании. Текст комментария в уведомление не кладём: это
+  // пользовательский ввод, и он виден по переходу.
+  'comments.new.title': 'Новый комментарий',
+  'comments.post.body': '{name} комментирует вашу публикацию',
+  'comments.article.body': '{name} комментирует вашу статью',
+  'comments.poll.body': '{name} комментирует ваш опрос',
+  'comments.mention.title': 'Вас упомянули',
+  'comments.mention.body': '{name} упоминает вас в комментарии',
 
   'consultations.cancelled.title': 'Консультация отменена',
   'consultations.booked.title': 'Новая запись на консультацию',
@@ -182,6 +197,17 @@ const KK: Record<NotificationMessageKey, string> = {
 
   'events.reminder.title': 'Жақында іс-шара',
   'events.reminder.body': '«{title}» шамамен бір сағаттан кейін басталады',
+  'events.rescheduled.title': 'Іс-шара ауыстырылды',
+  'events.rescheduled.body': '«{title}»: жаңа уақыты — {date}',
+  'events.cancelled.title': 'Іс-шара тоқтатылды',
+  'events.cancelled.body': '«{title}» өтпейді',
+
+  'comments.new.title': 'Жаңа пікір',
+  'comments.post.body': '{name} жарияланымыңызға пікір қалдырды',
+  'comments.article.body': '{name} мақалаңызға пікір қалдырды',
+  'comments.poll.body': '{name} сауалнамаңызға пікір қалдырды',
+  'comments.mention.title': 'Сізді атап өтті',
+  'comments.mention.body': '{name} пікірде сізді атап өтті',
 
   'consultations.cancelled.title': 'Консультация болдырылмады',
   'consultations.booked.title': 'Консультацияға жаңа жазылу',
@@ -266,6 +292,17 @@ const EN: Record<NotificationMessageKey, string> = {
 
   'events.reminder.title': 'Event starting soon',
   'events.reminder.body': '“{title}” starts in about an hour',
+  'events.rescheduled.title': 'Event rescheduled',
+  'events.rescheduled.body': '“{title}”: new time — {date}',
+  'events.cancelled.title': 'Event cancelled',
+  'events.cancelled.body': '“{title}” will not take place',
+
+  'comments.new.title': 'New comment',
+  'comments.post.body': '{name} commented on your post',
+  'comments.article.body': '{name} commented on your article',
+  'comments.poll.body': '{name} commented on your poll',
+  'comments.mention.title': 'You were mentioned',
+  'comments.mention.body': '{name} mentioned you in a comment',
 
   'consultations.cancelled.title': 'Consultation cancelled',
   'consultations.booked.title': 'New consultation booking',

@@ -6,7 +6,7 @@ import type {
 } from '@studenthub/shared-schemas'
 import { api, toMediaLink, type MediaLink } from '../../../shared/api'
 import type { ResponseWithMeta } from '../../../shared/api/instance'
-import type { FeedPost, PostComment } from '../model/types'
+import type { FeedPost, PostComment, PostCommentsPage } from '../model/types'
 
 export const postKeys = {
   all: ['posts'] as const,
@@ -116,9 +116,24 @@ export async function fetchPostMediaLink(postId: string, fileId: string): Promis
   return toMediaLink(data)
 }
 
-export async function fetchComments(id: string): Promise<PostComment[]> {
-  const { data } = await api.get<PostComment[]>(`/posts/${id}/comments`)
-  return data
+// Размер страницы обсуждения: под окно лайтбокса с запасом, дальше — «Показать предыдущие».
+export const COMMENTS_PAGE_SIZE = 20
+
+/**
+ * Страница комментариев: свежие сверху, `cursor` — самый старый из пришедших (по нему
+ * просим более ранние). Без `limit` сервер ответил бы прежним списком последних двухсот —
+ * его читают мобильные клиенты.
+ */
+export async function fetchCommentsPage(id: string, cursor?: string): Promise<PostCommentsPage> {
+  const res = (await api.get<PostComment[]>(`/posts/${id}/comments`, {
+    params: { limit: COMMENTS_PAGE_SIZE, ...(cursor ? { cursor } : {}) },
+  })) as ResponseWithMeta & { data: PostComment[] }
+  return {
+    items: res.data,
+    cursor: res.meta?.cursor,
+    hasNext: res.meta?.hasNext ?? false,
+    total: res.meta?.total,
+  }
 }
 
 export async function addCommentRequest(

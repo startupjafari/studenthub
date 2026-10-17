@@ -79,6 +79,12 @@ export const NOTIFICATION_JOBS = {
   EXAM_SCHEDULED: 'exam-scheduled',
   EXAM_UPDATED: 'exam-updated',
   EXAM_RESULT: 'exam-result',
+  // Автору публикации, статьи или опроса — новый комментарий; упомянутому — упоминание.
+  COMMENT_ADDED: 'comment-added',
+  COMMENT_MENTION: 'comment-mention',
+  // Участникам события: организатор перенёс или отменил событие.
+  EVENT_RESCHEDULED: 'event-rescheduled',
+  EVENT_CANCELLED: 'event-cancelled',
 } as const
 
 export const FILE_JOBS = {

@@ -73,11 +73,13 @@ function PostTileView({
     post.title ||
     plainPreview(post.content) ||
     (originalUnavailable ? t('postUnavailableTitle') : '')
-  const canModerate = myRole !== null && MODERATOR_ROLES.includes(myRole)
+  const byRole = myRole !== null && MODERATOR_ROLES.includes(myRole)
   // Меню «•••» — про ту публикацию, что лежит в профиле: у репоста это сам репост
   // (удалить его), а не чужой исходник, который трогать нельзя.
   const menuPost = via ?? post
-  const canDelete = menuPost.authorId === myId || canModerate
+  // Права считает сервер (ранг и scope); роль — только для ответа старого API.
+  const canModerate = menuPost.canPin ?? byRole
+  const canDelete = menuPost.canDelete ?? (menuPost.authorId === myId || byRole)
 
   return (
     // Плитка без обрезки: меню «•••» раскрывается за её край. Скругление обложки держит

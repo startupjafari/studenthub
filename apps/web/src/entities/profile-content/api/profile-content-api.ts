@@ -18,12 +18,23 @@ export interface ContentComment {
   authorId: string
   author: { id: string; firstName: string; lastName: string; avatarUrl: string | null }
 }
-import { api } from '../../../shared/api'
+import { api, type ResponseWithMeta } from '../../../shared/api'
+
+/** Страница обсуждения: свежие сверху, `cursor` — самый старый комментарий страницы. */
+export interface ContentCommentsPage {
+  items: ContentComment[]
+  cursor?: string
+  hasNext: boolean
+  /** Сколько комментариев всего — для заголовка, не зависит от догруженных страниц. */
+  total?: number
+}
 
 // Фабрика ключей React Query (docs/FRONTEND_RULES.md §5.5).
 export const profileContentKeys = {
   media: (userId: string) => ['profile-content', 'media', userId] as const,
   articles: (userId: string) => ['profile-content', 'articles', userId] as const,
+  // Статья целиком (с текстом) — для читалки и редактора; список несёт только плитки.
+  article: (id: string) => ['profile-content', 'article', id] as const,
   albums: (userId: string) => ['profile-content', 'albums', userId] as const,
 }
 
@@ -71,6 +82,9 @@ export interface ProfileArticle {
   createdAt: string
   updatedAt: string
 }
+
+/** Плитка статьи из списка профиля — без полного текста (`view=card`). */
+export type ProfileArticleCard = Omit<ProfileArticle, 'content'>
 
 // ── Медиа (фото/видео) ─────────────────────────────────────────────────────
 
@@ -160,8 +174,18 @@ export async function uploadArticleCover(file: File): Promise<{ url: string }> {
 
 // ── Статьи ──────────────────────────────────────────────────────────────────
 
-export async function fetchProfileArticles(userId: string): Promise<ProfileArticle[]> {
-  const { data } = await api.get<ProfileArticle[]>(`/profile/${userId}/articles`)
+// Статьи профиля плитками — без полного текста: сотня статей до 20 000 символов превращала
+// открытие профиля в мегабайты ради мозаики и цифры на вкладке. Текст — fetchProfileArticle.
+export async function fetchProfileArticles(userId: string): Promise<ProfileArticleCard[]> {
+  const { data } = await api.get<ProfileArticleCard[]>(`/profile/${userId}/articles`, {
+    params: { view: 'card' },
+  })
+  return data
+}
+
+// Статья целиком — для читалки и редактора (по видимости смотрящего).
+export async function fetchProfileArticle(id: string): Promise<ProfileArticle> {
+  const { data } = await api.get<ProfileArticle>(`/profile/articles/${id}`)
   return data
 }
 
@@ -227,9 +251,23 @@ export async function removeAlbumMedia(id: string, fileId: string): Promise<void
 
 // ── Комментарии и закладки статей ─────────────────────────────────────────────
 
-export async function fetchArticleComments(id: string): Promise<ContentComment[]> {
-  const { data } = await api.get<ContentComment[]>(`/profile/articles/${id}/comments`)
-  return data
+// Размер страницы обсуждения статьи; более ранние — по «Показать предыдущие».
+const COMMENTS_PAGE_SIZE = 20
+
+// Страница комментариев статьи: свежие сверху, `cursor` — самый старый из пришедших.
+export async function fetchArticleComments(
+  id: string,
+  cursor?: string,
+): Promise<ContentCommentsPage> {
+  const res = (await api.get<ContentComment[]>(`/profile/articles/${id}/comments`, {
+    params: { limit: COMMENTS_PAGE_SIZE, ...(cursor ? { cursor } : {}) },
+  })) as ResponseWithMeta & { data: ContentComment[] }
+  return {
+    items: res.data,
+    cursor: res.meta?.cursor,
+    hasNext: res.meta?.hasNext ?? false,
+    total: res.meta?.total,
+  }
 }
 
 export async function addArticleComment(id: string, content: string): Promise<ContentComment> {

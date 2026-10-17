@@ -76,6 +76,12 @@ export interface FeedPost {
    * отдаёт и не считает — в отличие от реакций, которые видны всем намеренно.
    */
   bookmarked: boolean
+  /**
+   * Права зрителя, посчитанные сервером теми же правилами, что и сами действия (ранг
+   * относительно автора и scope). Нет — ответ старого API: тогда решает роль, как раньше.
+   */
+  canDelete?: boolean
+  canPin?: boolean
 }
 
 export interface PostComment {
@@ -85,6 +91,17 @@ export interface PostComment {
   content: string
   createdAt: string
   author: PostAuthor
+  /** Может ли зритель удалить комментарий: автор, автор поста или модерация scope. */
+  canDelete?: boolean
+}
+
+/** Страница обсуждения: свежие сверху, `cursor` — самый старый комментарий страницы. */
+export interface PostCommentsPage {
+  items: PostComment[]
+  cursor?: string
+  hasNext: boolean
+  /** Сколько комментариев всего — для заголовка, не зависит от догруженных страниц. */
+  total?: number
 }
 
 // Аудитории и подписи — порядок для селекта при создании.

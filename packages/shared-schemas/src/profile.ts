@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { OptionalCursorPaginationSchema } from './pagination.js'
 
 // Контент профиля: статьи (расширенные) и опросы. Медиа (фото/видео) грузятся файлами.
 
@@ -39,6 +40,15 @@ export type CreateProfileArticleInput = z.infer<typeof CreateProfileArticleSchem
 export const UpdateProfileArticleSchema = CreateProfileArticleSchema
 export type UpdateProfileArticleInput = z.infer<typeof UpdateProfileArticleSchema>
 
+// Список статей автора (`GET /profile/:userId/articles`). `view=card` — без полного текста
+// (`content`): плитке профиля и бейджу вкладки он не нужен, а статья — до 20 000 символов, и
+// сотня статей превращала открытие профиля в мегабайты текста. Полный текст для читалки и
+// редактора — `GET /profile/articles/:id`. Без параметра — как раньше, с текстом.
+export const ProfileArticlesQuerySchema = z.object({
+  view: z.enum(['full', 'card']).optional(),
+})
+export type ProfileArticlesQueryInput = z.infer<typeof ProfileArticlesQuerySchema>
+
 // ── Опросы ────────────────────────────────────────────────────────────────────
 export const POLL_RESULTS_VISIBILITY = ['AFTER_VOTE', 'AFTER_END', 'HIDDEN'] as const
 export type PollResultsVisibility = (typeof POLL_RESULTS_VISIBILITY)[number]
@@ -60,6 +70,11 @@ export type CreatePollInput = z.infer<typeof CreatePollSchema>
 
 export const UpdatePollSchema = CreatePollSchema
 export type UpdatePollInput = z.infer<typeof UpdatePollSchema>
+
+// Опросы автора (`GET /polls/by-user/:userId`): свежие сверху. Без `limit`/`cursor` — прежний
+// ответ, массив (до сотни видимых смотрящему); с ними — страница с `meta.cursor`/`hasNext`.
+export const PollsListQuerySchema = OptionalCursorPaginationSchema
+export type PollsListQueryInput = z.infer<typeof PollsListQuerySchema>
 
 export const VotePollSchema = z
   .object({

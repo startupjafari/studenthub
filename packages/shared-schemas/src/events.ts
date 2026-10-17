@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { OffsetPaginationSchema } from './pagination.js'
+import { OffsetPaginationSchema, OptionalCursorPaginationSchema } from './pagination.js'
 import { PostAudienceSchema } from './posts.js'
 
 // События (docs/PROJECT.md §3.5, Ф10). Аудитория — тот же enum, что у постов (видимость по аналогии).
@@ -98,6 +98,12 @@ export const EventListQuerySchema = OffsetPaginationSchema.extend({
   mine: z.coerce.boolean().optional(),
 })
 export type EventListQueryInput = z.infer<typeof EventListQuerySchema>
+
+// Участники события (`GET /events/:id/participants`) — по порядку регистрации. Без
+// `limit`/`cursor` — прежний ответ массивом; с ними — страница с `meta.cursor`/`hasNext`
+// (у события вуза участников может быть больше, чем помещается в один ответ).
+export const EventParticipantsQuerySchema = OptionalCursorPaginationSchema
+export type EventParticipantsQueryInput = z.infer<typeof EventParticipantsQuerySchema>
 
 /**
  * Ссылка на встречу для участника (`GET /events/:id/meeting`).

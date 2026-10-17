@@ -1,4 +1,5 @@
 import { ConfigService } from '@nestjs/config'
+import { Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { FileService } from '../files/file.service'
@@ -7,6 +8,8 @@ import type { AuditService } from '../../common/audit/audit.service'
 import type { EnvVars } from '../../config/env.schema'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import { ProfileContentService } from './profile-content.service'
+import type { QueueService } from '../../common/queue'
+import { Paginated } from '../../common/http/paginated'
 
 function user(sub: string): JwtPayload {
   return { sub, role: Role.STUDENT, universityId: 'u', facultyId: 'f', groupId: 'g' }
@@ -46,13 +49,16 @@ function setup() {
       findUnique: jest.fn(),
       create: jest.fn(),
       delete: jest.fn(),
+      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
     contentComment: {
       findMany: jest.fn(),
       findUnique: jest.fn(),
       create: jest.fn(),
       delete: jest.fn(),
+      count: jest.fn().mockResolvedValue(0),
     },
+    userBlock: { findFirst: jest.fn().mockResolvedValue(null) },
   }
   const files = {
     upload: jest.fn(),
@@ -88,6 +94,17 @@ function setup() {
     })),
   }
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
+  const queue = { enqueue: jest.fn().mockResolvedValue(undefined) }
+  // Просмотры: SADD в множество зрителей дня (posts/unique-view.ts). По умолчанию — первый.
+  const redisMulti = {
+    sadd: jest.fn().mockReturnThis(),
+    expire: jest.fn().mockReturnThis(),
+    exec: jest.fn().mockResolvedValue([
+      [null, 1],
+      [null, 1],
+    ]),
+  }
+  const redis = { multi: jest.fn(() => redisMulti) }
   const service = new ProfileContentService(
     prisma as unknown as PrismaService,
     files as unknown as FileService,
@@ -95,8 +112,10 @@ function setup() {
     users as unknown as UserService,
     media as never,
     audit as unknown as AuditService,
+    queue as unknown as QueueService,
+    redis as never,
   )
-  return { service, prisma, files, users, media, audit }
+  return { service, prisma, files, users, media, audit, queue, redisMulti }
 }
 
 // Владелец контента — поля PROFILE_CONTENT_OWNER_SELECT.
@@ -641,5 +660,182 @@ describe('ProfileContentService — снятие модератором (E-F08)'
       .catch((e) => e)
     expect(err.code).toBe('FORBIDDEN')
     expect(prisma.contentComment.delete).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('ProfileContentService — статьи: плитки без текста, читалка, просмотры, закладки', () => {
+  const visibleArticle = {
+    userId: 'owner',
+    status: 'PUBLISHED',
+    visibility: 'ALL',
+    user: owner('owner'),
+  }
+  const reader = user('reader')
+
+  it('view=card — выборка без полного текста; без параметра — с текстом, как раньше', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findUnique.mockResolvedValue(owner('owner'))
+    prisma.profileArticle.findMany.mockResolvedValue([])
+
+    await service.listArticles(reader, 'owner', { view: 'card' })
+    expect(prisma.profileArticle.findMany.mock.calls[0][0].select.content).toBeUndefined()
+    expect(prisma.profileArticle.findMany.mock.calls[0][0].select.title).toBe(true)
+
+    await service.listArticles(reader, 'owner')
+    expect(prisma.profileArticle.findMany.mock.calls[1][0].select.content).toBe(true)
+  })
+
+  it('статья целиком — по той же видимости; невидимая → NOT_FOUND', async () => {
+    const { service, prisma, users } = setup()
+    prisma.profileArticle.findUnique.mockResolvedValueOnce(visibleArticle).mockResolvedValueOnce({
+      id: 'a1',
+      content: 'полный текст',
+      _count: { comments: 2, bookmarks: 1 },
+    })
+    const article = await service.getArticle(reader, 'a1')
+    expect(article).toMatchObject({ id: 'a1', content: 'полный текст', commentCount: 2 })
+
+    prisma.profileArticle.findUnique.mockResolvedValue(visibleArticle)
+    users.canViewProfileContentOf.mockResolvedValue(false)
+    const err = await service.getArticle(reader, 'a1').catch((e) => e)
+    expect(err.code).toBe('NOT_FOUND')
+  })
+
+  it('повторный просмотр за сутки не пишет в строку статьи', async () => {
+    const { service, prisma, redisMulti } = setup()
+    prisma.profileArticle.findUnique
+      .mockResolvedValueOnce(visibleArticle)
+      .mockResolvedValueOnce({ views: 12 })
+    redisMulti.exec.mockResolvedValue([
+      [null, 0],
+      [null, 1],
+    ])
+    await expect(service.incrementArticleView(reader, 'a1')).resolves.toEqual({ views: 12 })
+    expect(redisMulti.sadd).toHaveBeenCalledWith(
+      expect.stringMatching(/^views:article:a1:/),
+      'reader',
+    )
+    expect(prisma.profileArticle.update).not.toHaveBeenCalled()
+  })
+
+  it('закладка: снятие без чтения перед записью; гонка двух create → «сохранено», не 409', async () => {
+    const { service, prisma } = setup()
+    prisma.profileArticle.findUnique.mockResolvedValue(visibleArticle)
+
+    prisma.bookmark.deleteMany.mockResolvedValueOnce({ count: 1 })
+    await expect(service.toggleBookmark(reader, 'a1')).resolves.toEqual({ bookmarked: false })
+    expect(prisma.bookmark.create).not.toHaveBeenCalled()
+
+    prisma.bookmark.create.mockRejectedValueOnce(
+      new Prisma.PrismaClientKnownRequestError('unique', { code: 'P2002', clientVersion: 'x' }),
+    )
+    await expect(service.toggleBookmark(reader, 'a1')).resolves.toEqual({ bookmarked: true })
+  })
+})
+
+describe('ProfileContentService — комментарии статьи: страницы и уведомление автору', () => {
+  const visibleArticle = {
+    userId: 'owner',
+    status: 'PUBLISHED',
+    visibility: 'ALL',
+    user: owner('owner'),
+  }
+  const reader = user('reader')
+  const comment = (id: string) => ({
+    id,
+    content: 'x',
+    createdAt: new Date(),
+    authorId: 'reader',
+    author: { id: 'reader', firstName: 'Аня', lastName: 'Ким', avatarUrl: null },
+  })
+
+  it('без limit/cursor — массив последних двухсот по порядку написания', async () => {
+    const { service, prisma } = setup()
+    prisma.profileArticle.findUnique.mockResolvedValue(visibleArticle)
+    prisma.contentComment.findMany.mockResolvedValue([comment('c2'), comment('c1')])
+
+    const res = await service.listArticleComments(reader, 'a1')
+    expect((res as Array<{ id: string }>).map((c) => c.id)).toEqual(['c1', 'c2'])
+    expect(prisma.contentComment.findMany.mock.calls[0][0]).toMatchObject({
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: 200,
+    })
+  })
+
+  it('с limit — страница свежих сверху с курсором и total', async () => {
+    const { service, prisma } = setup()
+    prisma.profileArticle.findUnique.mockResolvedValue(visibleArticle)
+    prisma.contentComment.findMany.mockResolvedValue([
+      { ...comment('c3'), createdAt: new Date(3000) },
+      { ...comment('c2'), createdAt: new Date(2000) },
+    ])
+    prisma.contentComment.count.mockResolvedValue(3)
+
+    const res = await service.listArticleComments(reader, 'a1', { limit: 1 })
+    expect(res).toBeInstanceOf(Paginated)
+    expect((res as Paginated<{ id: string }>).meta).toEqual({
+      cursor: '3000.c3',
+      hasNext: true,
+      total: 3,
+    })
+  })
+
+  it('курсор на стёртый навсегда комментарий не обрывает листание', async () => {
+    const { service, prisma } = setup()
+    prisma.profileArticle.findUnique.mockResolvedValue(visibleArticle)
+    prisma.contentComment.findMany.mockResolvedValue([])
+
+    await service.listArticleComments(reader, 'a1', { limit: 10, cursor: '3000.c3' })
+    // Позиция берётся из курсора — строку c3 искать не нужно (её уже может не быть).
+    expect(prisma.contentComment.findUnique).not.toHaveBeenCalled()
+    expect(prisma.contentComment.findMany.mock.calls[0][0].where).toEqual({
+      AND: [
+        { articleId: 'a1' },
+        {
+          OR: [
+            { createdAt: { lt: new Date(3000) } },
+            { createdAt: new Date(3000), id: { lt: 'c3' } },
+          ],
+        },
+      ],
+    })
+  })
+
+  it('новый комментарий — автору статьи свёрнутое уведомление; свой и при блокировке — нет', async () => {
+    const { service, prisma, queue } = setup()
+    prisma.profileArticle.findUnique
+      .mockResolvedValueOnce(visibleArticle)
+      .mockResolvedValueOnce({ allowComments: true, userId: 'owner' })
+    prisma.contentComment.create.mockResolvedValue(comment('c1'))
+
+    await service.addArticleComment(reader, 'a1', { content: 'x' })
+    expect(queue.enqueue).toHaveBeenCalledWith(
+      'notifications',
+      'comment-added',
+      expect.objectContaining({
+        recipientIds: ['owner'],
+        type: 'POST',
+        bodyKey: 'comments.article.body',
+        params: { name: 'Аня Ким' },
+        data: { articleId: 'a1', commentId: 'c1', url: '/profile/owner' },
+        dedupeKey: 'article-comment:c1',
+        collapseKey: 'article-comments:a1',
+      }),
+      { jobId: 'article-comment:c1' },
+    )
+
+    queue.enqueue.mockClear()
+    prisma.profileArticle.findUnique
+      .mockResolvedValueOnce(visibleArticle)
+      .mockResolvedValueOnce({ allowComments: true, userId: 'owner' })
+    prisma.userBlock.findFirst.mockResolvedValueOnce({ id: 'blk' })
+    await service.addArticleComment(reader, 'a1', { content: 'x' })
+    expect(queue.enqueue).not.toHaveBeenCalled()
+
+    prisma.profileArticle.findUnique
+      .mockResolvedValueOnce({ ...visibleArticle, userId: 'reader' })
+      .mockResolvedValueOnce({ allowComments: true, userId: 'reader' })
+    await service.addArticleComment(reader, 'a1', { content: 'x' })
+    expect(queue.enqueue).not.toHaveBeenCalled()
   })
 })

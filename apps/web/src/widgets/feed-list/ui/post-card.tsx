@@ -116,10 +116,14 @@ function PostCardView({
   const { audience: repostAudience, repost, isPending: repostPending } = useRepost()
   const [repostDialog, setRepostDialog] = useState(false)
 
-  const canModerate = myRole !== null && MODERATOR_ROLES.includes(myRole)
+  const byRole = myRole !== null && MODERATOR_ROLES.includes(myRole)
   // Меню — про публикацию в ленте: у репоста это сам репост, а не чужой исходник.
   const menuPost = via ?? post
-  const canDelete = menuPost.authorId === myId || canModerate
+  // Права считает сервер (ранг относительно автора и scope): по одной роли модератор вуза
+  // видел «Удалить» на посте админа, декан — на чужом факультете, и нажатие давало 403.
+  // Роль — только для ответа старого API без признаков.
+  const canModerate = menuPost.canPin ?? byRole
+  const canDelete = menuPost.canDelete ?? (menuPost.authorId === myId || byRole)
   // Репост репоста ссылается на исходник — а он зрителю недоступен, сервер откажет.
   const showRepost = !originalUnavailable && canRepost(myRole, post)
   const liked = hasMyReaction(reactions, LIKE_EMOJI)

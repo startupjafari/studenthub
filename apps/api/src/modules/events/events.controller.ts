@@ -23,6 +23,8 @@ import { CreateEventDto } from './dto/create-event.dto'
 import { UpdateEventDto } from './dto/update-event.dto'
 import { EventListQueryDto } from './dto/event-list-query.dto'
 import { CreateEventCommentDto } from './dto/create-event-comment.dto'
+import { EventParticipantsQueryDto } from './dto/event-participants-query.dto'
+import { EventCommentsQueryDto } from './dto/event-comments-query.dto'
 
 // Создавать события могут все, кроме модераторов (docs/PROJECT.md §2.2).
 const AUTHOR_ROLES = [
@@ -103,6 +105,7 @@ export class EventsController {
   @Post(':id/register')
   @ApiOperation({ summary: 'Зарегистрироваться на событие' })
   @ApiResponse({ status: 201, description: 'Зарегистрирован' })
+  @ApiResponse({ status: 409, description: 'CONFLICT — событие уже завершилось' })
   register(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
     return this.events.register(user, id)
   }
@@ -115,19 +118,38 @@ export class EventsController {
   }
 
   @Get(':id/participants')
-  @ApiOperation({ summary: 'Участники события (организатор/админ)' })
-  @ApiResponse({ status: 200, description: 'Список участников' })
+  @ApiOperation({
+    summary: 'Участники события (организатор/админ); с limit/cursor — страница',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Без limit/cursor — массив (до 1000); с ними — страница с meta.cursor/hasNext',
+  })
   @ApiResponse({ status: 403, description: 'FORBIDDEN' })
-  participants(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
-    return this.events.listParticipants(user, id)
+  participants(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Query() query: EventParticipantsQueryDto,
+  ) {
+    return this.events.listParticipants(user, id, query)
   }
 
   @Get(':id/comments')
-  @ApiOperation({ summary: 'Комментарии к событию (видны всей аудитории события)' })
-  @ApiResponse({ status: 200, description: 'Последние комментарии, по порядку написания' })
+  @ApiOperation({
+    summary: 'Комментарии к событию (видны всей аудитории); с limit/cursor — страница',
+  })
+  @ApiResponse({
+    status: 200,
+    description:
+      'Без limit/cursor — последние 100 по порядку написания; с ними — свежие сверху, meta.cursor/hasNext/total',
+  })
   @ApiResponse({ status: 404, description: 'NOT_FOUND — событие не видно' })
-  comments(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
-    return this.events.listComments(user, id)
+  comments(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Query() query: EventCommentsQueryDto,
+  ) {
+    return this.events.listComments(user, id, query)
   }
 
   @Post(':id/comments')

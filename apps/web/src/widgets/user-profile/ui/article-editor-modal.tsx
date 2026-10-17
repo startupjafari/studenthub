@@ -93,6 +93,8 @@ export function ArticleEditorModal({ userId, initial, onClose }: Props) {
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: profileContentKeys.articles(userId) })
+      // Текст статьи читалка берёт отдельным запросом — его кэш тоже устарел.
+      if (initial) void qc.invalidateQueries({ queryKey: profileContentKeys.article(initial.id) })
       toast.success(t('saved'))
       onClose()
     },

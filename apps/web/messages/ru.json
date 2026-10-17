@@ -1364,6 +1364,7 @@
     "comments": "Комментарии",
     "commentsEmpty": "Пока нет комментариев",
     "commentsLoading": "Загрузка…",
+    "showEarlierComments": "Показать предыдущие комментарии",
     "commentSend": "Отправить",
     "commentPlaceholder": "Написать комментарий…",
     "bookmark": "В закладки",
@@ -1875,6 +1876,9 @@
     "commentAuthorTag": "Автор",
     "viewReplies": "{count, plural, one {Посмотреть # ответ} few {Посмотреть # ответа} many {Посмотреть # ответов} other {Посмотреть # ответа}}",
     "hideReplies": "Скрыть ответы",
+    "showEarlierComments": "Показать предыдущие комментарии",
+    "commentDeleteConfirm": "Удалить комментарий?",
+    "commentDeleteHint": "Комментарий исчезнет из обсуждения у всех.",
     "filterSaved": "Сохранённое",
     "filterModeration": "Модерация",
     "bookmark": "В избранное"
@@ -2324,7 +2328,14 @@
     "moderationDeleteHint": "Комментарий исчезнет у всех участников. Решение попадёт в журнал аудита.",
     "commentPlaceholder": "Вопрос организатору или комментарий",
     "commentInvalid": "От 1 до 2000 символов",
-    "sendComment": "Отправить"
+    "sendComment": "Отправить",
+    "showEarlierComments": "Показать предыдущие комментарии",
+    "edit": "Изменить",
+    "editEvent": "Изменить событие",
+    "saveChanges": "Сохранить",
+    "updated": "Событие обновлено",
+    "meetingKeepHint": "Оставьте поле пустым, чтобы сохранить текущую ссылку",
+    "rescheduleNotice": "Если перенести начало, участники получат уведомление"
   },
   "Moderation": {
     "complaintsTitle": "Жалобы",
