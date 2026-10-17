@@ -208,4 +208,48 @@ describe('TwoFactorService', () => {
     })
     expect(users.disableTwoFactor).not.toHaveBeenCalled()
   })
+
+  it('regenerateBackupCodes: верный TOTP → новый набор из 10 кодов заменяет прежний', async () => {
+    const { service, users } = setup()
+    const secret = authenticator.generateSecret()
+    users.getTwoFactorForLogin.mockResolvedValue(
+      loginRecord({ twoFactorSecret: `enc(${secret})`, twoFactorBackupCodes: ['hash:OLD00001'] }),
+    )
+    const res = await service.regenerateBackupCodes('u1', authenticator.generate(secret))
+    expect(res.backupCodes).toHaveLength(10)
+    expect(users.setBackupCodes).toHaveBeenCalledWith(
+      'u1',
+      res.backupCodes.map((c) => `hash:${c}`),
+    )
+  })
+
+  it('regenerateBackupCodes: подходит и backup-код', async () => {
+    const { service, users } = setup()
+    users.getTwoFactorForLogin.mockResolvedValue(
+      loginRecord({ twoFactorBackupCodes: ['hash:ABCD1234'] }),
+    )
+    await expect(service.regenerateBackupCodes('u1', 'ABCD1234')).resolves.toMatchObject({
+      backupCodes: expect.any(Array),
+    })
+    expect(users.setBackupCodes).toHaveBeenCalled()
+  })
+
+  it('regenerateBackupCodes: неверный код → INVALID_2FA_CODE, коды не меняются', async () => {
+    const { service, users } = setup()
+    users.getTwoFactorForLogin.mockResolvedValue(
+      loginRecord({ twoFactorBackupCodes: ['hash:ABCD1234'] }),
+    )
+    await expect(service.regenerateBackupCodes('u1', 'WRONGONE')).rejects.toMatchObject({
+      code: 'INVALID_2FA_CODE',
+    })
+    expect(users.setBackupCodes).not.toHaveBeenCalled()
+  })
+
+  it('regenerateBackupCodes: 2FA не включена → BAD_REQUEST', async () => {
+    const { service, users } = setup()
+    users.getTwoFactorForLogin.mockResolvedValue(loginRecord({ twoFactorEnabled: false }))
+    await expect(service.regenerateBackupCodes('u1', '123456')).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+    })
+  })
 })

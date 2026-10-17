@@ -6,6 +6,7 @@ import { TwoFactorExempt } from '../../common/decorators/two-factor-exempt.decor
 import { TwoFactorService } from './two-factor.service'
 import { TwoFactorEnableDto } from './dto/two-factor-enable.dto'
 import { TwoFactorDisableDto } from './dto/two-factor-disable.dto'
+import { TwoFactorConfirmDto } from './dto/two-factor-confirm.dto'
 import { MaintenanceExempt } from '../../common/decorators'
 
 // Управление 2FA текущего пользователя. JWT-защищено (не @Public): включать/отключать
@@ -35,6 +36,18 @@ export class TwoFactorController {
   @ApiResponse({ status: 401, description: 'INVALID_2FA_CODE' })
   enable(@CurrentUser() user: CurrentUserData, @Body() dto: TwoFactorEnableDto) {
     return this.twoFactor.enable(user.sub, dto.code)
+  }
+
+  @Post('backup-codes')
+  @ApiOperation({
+    summary: 'Перевыпустить backup-коды (нужен действующий TOTP или backup-код; прежние сгорают)',
+  })
+  @ApiResponse({ status: 201, description: 'backupCodes — показываются один раз' })
+  @ApiResponse({ status: 400, description: 'BAD_REQUEST — 2FA не включена' })
+  @ApiResponse({ status: 401, description: 'INVALID_2FA_CODE' })
+  @ApiResponse({ status: 429, description: 'RATE_LIMIT — слишком много неверных кодов' })
+  regenerateBackupCodes(@CurrentUser() user: CurrentUserData, @Body() dto: TwoFactorConfirmDto) {
+    return this.twoFactor.regenerateBackupCodes(user.sub, dto.code)
   }
 
   @Post('disable')

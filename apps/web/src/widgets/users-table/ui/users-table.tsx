@@ -4,7 +4,14 @@ import { useState } from 'react'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useLocale, useTranslations } from 'next-intl'
-import { Ban, Download, GraduationCap, ShieldCheck, Users as UsersIcon } from 'lucide-react'
+import {
+  Ban,
+  Download,
+  GraduationCap,
+  KeyRound,
+  ShieldCheck,
+  Users as UsersIcon,
+} from 'lucide-react'
 import { Role, isHigherRole } from '@studenthub/shared-types'
 import { ADMIN_PAGE_SIZES, type UserSortValue } from '@studenthub/shared-schemas'
 import { useAppSelector } from '../../../shared/store'
@@ -13,17 +20,29 @@ import {
   adminUserKeys,
   blockUserRequest,
   exportUsers,
+  fetchMe,
   fetchUsers,
   ProfileLink,
+  resetUserTwoFactorRequest,
   unblockUserRequest,
+  userKeys,
+  type AdminUser,
 } from '../../../entities/user'
 import { AcademicRecordModal } from '../../../features/edit-academic-record'
 import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
   Badge,
   Button,
   Card,
   EmptyState,
   Input,
+  Label,
   PageHeader,
   Select,
   SelectContent,
@@ -91,6 +110,7 @@ export function UsersTable({ title, subtitle, role, showRoleFilter = false }: Us
   const canEditAcademic = viewerRole !== null && CAN_EDIT_ACADEMIC.includes(viewerRole)
   const hasActions = canBlock || canEditAcademic
   const [academicFor, setAcademicFor] = useState<string | null>(null)
+  const [resetTfaFor, setResetTfaFor] = useState<AdminUser | null>(null)
   // `md` — та же граница, на которой в проекте прячут второстепенные колонки таблиц
   // (`hidden md:table-cell` в комнатах, документах, курсах).
   const isWide = useMediaQuery('(min-width: 768px)')
@@ -289,6 +309,23 @@ export function UsersTable({ title, subtitle, role, showRoleFilter = false }: Us
                           <GraduationCap className="size-4" aria-hidden />
                         </Button>
                       )}
+                      {/* Сброс 2FA — тому, кто потерял аутентификатор: только у кого она
+                          включена и только строго младшему по роли (сервер так же). */}
+                      {canBlock &&
+                        viewerRole &&
+                        isHigherRole(viewerRole, u.role) &&
+                        u.twoFactorEnabled && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setResetTfaFor(u)}
+                            aria-label={t('resetTwoFactor')}
+                            title={t('resetTwoFactor')}
+                          >
+                            <KeyRound className="size-4" aria-hidden />
+                          </Button>
+                        )}
                       {/* Блокировать можно только того, кто ниже по роли (сервер так же):
                           себя, равного и старшего — кнопки нет. */}
                       {canBlock && viewerRole && isHigherRole(viewerRole, u.role) && (
@@ -337,6 +374,91 @@ export function UsersTable({ title, subtitle, role, showRoleFilter = false }: Us
       {academicFor && (
         <AcademicRecordModal userId={academicFor} onClose={() => setAcademicFor(null)} />
       )}
+      {resetTfaFor && (
+        <ResetTwoFactorDialog user={resetTfaFor} onClose={() => setResetTfaFor(null)} />
+      )}
     </div>
+  )
+}
+
+/**
+ * Сброс 2FA человеку, потерявшему аутентификатор и резервные коды. Подтверждается кодом
+ * СВОЕГО второго фактора: сервер без него сброс не выполнит, а без включённой 2FA у самого
+ * администратора — откажет, поэтому в этом случае поле кода не показываем вовсе.
+ */
+function ResetTwoFactorDialog({ user, onClose }: { user: AdminUser; onClose: () => void }) {
+  const t = useTranslations('Users')
+  const tErr = useTranslations('Errors')
+  const tCommon = useTranslations('Common')
+  const qc = useQueryClient()
+  const me = useQuery({ queryKey: userKeys.me(), queryFn: fetchMe })
+  const [code, setCode] = useState('')
+  const ownTfa = me.data?.twoFactorEnabled === true
+
+  const reset = useMutation({
+    mutationFn: () => resetUserTwoFactorRequest(user.id, code.trim()),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: adminUserKeys.all })
+      toast.success(t('resetTwoFactorDone'))
+      onClose()
+    },
+    onError: (e) => {
+      setCode('')
+      toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR'))
+    },
+  })
+
+  return (
+    <AlertDialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose()
+      }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{t('resetTwoFactor')}</AlertDialogTitle>
+          <AlertDialogDescription>
+            {t('resetTwoFactorDesc', { name: `${user.lastName} ${user.firstName}` })}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        {me.data && !ownTfa ? (
+          <p className="text-sm text-muted-foreground">{t('resetTwoFactorNeedOwn')}</p>
+        ) : (
+          <form
+            id="reset-2fa-form"
+            className="flex flex-col gap-2"
+            onSubmit={(e) => {
+              e.preventDefault()
+              if (code.trim()) reset.mutate()
+            }}
+          >
+            <Label htmlFor="reset-2fa-code">{t('resetTwoFactorCode')}</Label>
+            <Input
+              id="reset-2fa-code"
+              autoComplete="one-time-code"
+              placeholder="123456"
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              autoFocus
+            />
+          </form>
+        )}
+        <AlertDialogFooter>
+          <AlertDialogCancel>{tCommon('cancel')}</AlertDialogCancel>
+          {ownTfa && (
+            <Button
+              type="submit"
+              form="reset-2fa-form"
+              variant="destructive"
+              loading={reset.isPending}
+              disabled={!code.trim()}
+            >
+              {t('resetTwoFactorConfirm')}
+            </Button>
+          )}
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   )
 }

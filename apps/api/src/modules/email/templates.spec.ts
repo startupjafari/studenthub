@@ -7,6 +7,7 @@ import {
   renderNotification,
   renderPasswordReset,
   renderScheduleChange,
+  renderTwoFactorReset,
   renderWelcome,
 } from './templates'
 
@@ -60,6 +61,20 @@ describe('email templates', () => {
       expiresAt: '-',
     })
     expect(r.html).not.toContain('<b>x</b>')
+  })
+
+  it('two-factor-reset: по имени, без кнопки, с подсказкой на случай чужого сброса', () => {
+    const r = renderTwoFactorReset({ to: 'a@b.c', firstName: 'Алия' })
+    expect(r.subject).toContain('Двухфакторная')
+    expect(r.html).toContain('Алия')
+    // Кнопки-действия нет: письмо сообщает о свершившемся, а не зовёт куда-то нажать.
+    expect(r.html).not.toContain('Если кнопка не открывается')
+    expect(r.text).toContain('смените пароль')
+  })
+
+  it('two-factor-reset: письмо на языке получателя', () => {
+    const r = renderTwoFactorReset({ to: 'a@b.c', firstName: 'Aliya', locale: 'en' })
+    expect(r.subject).toBe('Two-factor authentication turned off')
   })
 
   it('welcome: обращается по имени', () => {

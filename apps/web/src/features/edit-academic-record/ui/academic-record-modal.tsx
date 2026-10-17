@@ -18,6 +18,7 @@ import {
 import { fetchSpecialties, specialtyKeys } from '../../../entities/specialty'
 import {
   ACADEMIC_STATUS_DICT,
+  DORMITORY_DICT,
   EDUCATION_LEVEL_DICT,
   FUNDING_TYPE_DICT,
   STUDY_FORM_DICT,
@@ -40,6 +41,8 @@ const FIELDS: { key: StaffManagedStudentField; kind: Kind; options?: string[] }[
   { key: 'graduationYear', kind: 'year' },
   { key: 'gpa', kind: 'number' },
   { key: 'studentCardNumber', kind: 'text' },
+  // Общежитие тоже ведёт вуз: оно печатается в студенческом, который проверяют на вахте.
+  { key: 'dormitory', kind: 'dict', options: DORMITORY_DICT },
 ]
 
 const NUMERIC = new Set<StaffManagedStudentField>([

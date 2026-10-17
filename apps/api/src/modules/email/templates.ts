@@ -1,7 +1,8 @@
 // Шаблоны писем (docs/PROJECT.md §10.1, §3.3 EmailProcessor).
-// Одиннадцать типов: приглашение, подтверждение email компании, сброс пароля, приветствие,
-// статус заявки, изменение расписания, напоминание о событии, офлайн-зеркало in-app
-// уведомления и три письма прихода вуза — подтверждение адреса заявки, одобрение, отказ.
+// Двенадцать типов: приглашение, подтверждение email компании, сброс пароля, сброс 2FA
+// администратором, приветствие, статус заявки, изменение расписания, напоминание о событии,
+// офлайн-зеркало in-app уведомления и три письма прихода вуза — подтверждение адреса
+// заявки, одобрение, отказ.
 // Тексты — в email-strings.ts на трёх языках; язык берётся из `locale` в payload'е job'а,
 // то есть из User.locale получателя. У внешних адресатов (компания, заявка вуза с лендинга)
 // учётной записи ещё нет — для них русский по умолчанию.
@@ -68,6 +69,16 @@ export interface PasswordResetPayload extends LocalizedEmailPayload {
   firstName: string
   resetUrl: string
   expiresAt: string
+}
+
+/**
+ * Администратор сбросил 2FA (человек потерял аутентификатор). Ссылки нет намеренно: письмо
+ * сообщает о свершившемся, а не просит что-то нажать — кнопка «войти» в письме о снятой
+ * защите учила бы переходить по ссылкам из таких писем.
+ */
+export interface TwoFactorResetPayload extends LocalizedEmailPayload {
+  to: string
+  firstName: string
 }
 
 /**
@@ -382,6 +393,27 @@ export function renderPasswordReset(data: PasswordResetPayload): RenderedEmail {
       '',
       t.passwordReset.plainNote,
     ],
+    t,
+  )
+  return { subject, html, text }
+}
+
+export function renderTwoFactorReset(data: TwoFactorResetPayload): RenderedEmail {
+  const t = emailDict(data.locale)
+  const subject = t.twoFactorReset.subject
+  const html = layout(
+    {
+      preheader: t.twoFactorReset.preheader,
+      heading: t.twoFactorReset.heading,
+      body:
+        paragraph(t.twoFactorReset.lead(esc(data.firstName))) +
+        paragraph(t.twoFactorReset.next) +
+        note(t.twoFactorReset.note),
+    },
+    t,
+  )
+  const text = plain(
+    [t.twoFactorReset.lead(data.firstName), '', t.twoFactorReset.next, '', t.twoFactorReset.note],
     t,
   )
   return { subject, html, text }

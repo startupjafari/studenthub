@@ -35,6 +35,9 @@ export const EMAIL_JOBS = {
   SEND_COMPANY_VERIFICATION: 'send-company-verification',
   // Ссылка «забыли пароль» (docs/PROJECT.md §7.2): одноразовая, живёт час.
   SEND_PASSWORD_RESET: 'send-password-reset',
+  // Администратор сбросил человеку 2FA (потерян аутентификатор): владелец узнаёт сразу —
+  // если сброс просил не он, это сигнал, что учётку пытаются увести.
+  SEND_TWO_FACTOR_RESET: 'send-two-factor-reset',
   // Приход вуза (§31): подтверждение адреса заявки и решение по ней. Второй после
   // работодателя случай, когда адрес не проверен инвайтом заранее.
   SEND_DEMO_VERIFICATION: 'send-demo-verification',

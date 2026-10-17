@@ -81,6 +81,14 @@ export interface EmailDict {
     note: string
     plainNote: string
   }
+  twoFactorReset: {
+    subject: string
+    heading: string
+    preheader: string
+    lead: (firstName: string) => string
+    next: string
+    note: string
+  }
   welcome: {
     subject: string
     heading: (firstName: string) => string
@@ -206,6 +214,15 @@ const RU: EmailDict = {
     action: 'Задать новый пароль',
     note: 'Если вы не просили сброс — просто проигнорируйте это письмо: пароль останется прежним.',
     plainNote: 'Если вы не просили сброс — проигнорируйте это письмо, пароль останется прежним.',
+  },
+  twoFactorReset: {
+    subject: 'Двухфакторная аутентификация отключена',
+    heading: 'Двухфакторная аутентификация сброшена',
+    preheader: 'Администратор отключил второй фактор входа в вашей учётной записи',
+    lead: (firstName) =>
+      `${firstName}, администратор ${BRAND} отключил двухфакторную аутентификацию в вашей учётной записи — так восстанавливают доступ, когда телефон с приложением-аутентификатором потерян. Все сеансы завершены.`,
+    next: 'Войдите с паролем и снова включите двухфакторную аутентификацию в настройках. Прежние резервные коды больше не действуют.',
+    note: 'Если вы не просили сброс — сразу смените пароль и сообщите администратору своего вуза.',
   },
   welcome: {
     subject: `Добро пожаловать в ${BRAND}`,
@@ -337,6 +354,15 @@ const KK: EmailDict = {
     action: 'Жаңа құпия сөз орнату',
     note: 'Егер сіз сұрамаған болсаңыз — бұл хатты елемей қоя беріңіз: құпия сөз өзгермейді.',
     plainNote: 'Егер сіз сұрамаған болсаңыз — бұл хатты елемеңіз, құпия сөз өзгермейді.',
+  },
+  twoFactorReset: {
+    subject: 'Екі факторлы аутентификация өшірілді',
+    heading: 'Екі факторлы аутентификация қалпына келтірілді',
+    preheader: 'Әкімші тіркелгіңіздегі кірудің екінші факторын өшірді',
+    lead: (firstName) =>
+      `${firstName}, ${BRAND} әкімшісі тіркелгіңіздегі екі факторлы аутентификацияны өшірді — аутентификатор қолданбасы бар телефон жоғалғанда қолжетімділік осылай қалпына келтіріледі. Барлық сеанс аяқталды.`,
+    next: 'Құпия сөзбен кіріп, баптауларда екі факторлы аутентификацияны қайта қосыңыз. Бұрынғы резервтік кодтар енді жарамсыз.',
+    note: 'Егер сіз сұрамаған болсаңыз — құпия сөзді дереу өзгертіп, университетіңіздің әкімшісіне хабарлаңыз.',
   },
   welcome: {
     subject: `${BRAND} платформасына қош келдіңіз`,
@@ -471,6 +497,15 @@ const EN: EmailDict = {
     note: 'If you did not request a reset, simply ignore this message — your password will stay the same.',
     plainNote:
       'If you did not request a reset, ignore this message — your password will stay the same.',
+  },
+  twoFactorReset: {
+    subject: 'Two-factor authentication turned off',
+    heading: 'Two-factor authentication was reset',
+    preheader: 'An administrator turned off the second sign-in factor on your account',
+    lead: (firstName) =>
+      `${firstName}, a ${BRAND} administrator turned off two-factor authentication on your account — this is how access is restored when the phone with the authenticator app is lost. All sessions have been ended.`,
+    next: 'Sign in with your password and turn two-factor authentication back on in settings. Your old backup codes no longer work.',
+    note: 'If you did not ask for this reset, change your password right away and tell your university administrator.',
   },
   welcome: {
     subject: `Welcome to ${BRAND}`,

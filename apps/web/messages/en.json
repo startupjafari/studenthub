@@ -2435,7 +2435,13 @@
     "academicSave": "Save",
     "academicSaved": "Academic record updated",
     "academicLoadError": "Couldn't load the student's profile",
-    "academicCardHint": "Leave empty to keep the current number"
+    "academicCardHint": "Leave empty to keep the current number",
+    "resetTwoFactor": "Reset 2FA",
+    "resetTwoFactorDesc": "Two-factor authentication for {name} will be turned off and all their sessions ended; they will get an email. Confirm with your own authenticator code or a backup code.",
+    "resetTwoFactorNeedOwn": "Turn on two-factor authentication for yourself in settings first — the reset is not available without it.",
+    "resetTwoFactorCode": "Your confirmation code",
+    "resetTwoFactorConfirm": "Reset",
+    "resetTwoFactorDone": "2FA reset, the user has been emailed"
   },
   "Stats": {
     "attendanceRate": "Attendance",
@@ -2632,6 +2638,9 @@
     "backupCodesDesc": "Each code works once. Keep them somewhere safe — they let you sign in without your phone.",
     "twoFactorEnabledToast": "Two-factor authentication enabled",
     "twoFactorDisabledToast": "Two-factor authentication disabled",
+    "backupCodesRegenerate": "New backup codes",
+    "backupCodesRegenerateDesc": "Your old backup codes will stop working. To confirm, enter a code from the app or a backup code.",
+    "backupCodesRegenerateConfirm": "Generate",
     "telegramTitle": "Telegram mini app",
     "telegramDesc": "Handle complaints from your phone: link your Telegram account",
     "telegramGetCode": "Get code",
@@ -3824,7 +3833,8 @@
     "scanDenied": "Camera access denied",
     "scanDeniedHint": "Allow camera access in your browser settings and reload the page.",
     "scanError": "Couldn't start the camera",
-    "scanErrorHint": "Make sure the camera isn't used by another app and try again."
+    "scanErrorHint": "Make sure the camera isn't used by another app and try again.",
+    "selfDeclared": "as stated by the student"
   },
   "Academic": {
     "title": "Academic profile",

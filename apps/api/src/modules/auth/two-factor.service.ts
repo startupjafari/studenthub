@@ -91,10 +91,36 @@ export class TwoFactorService {
     if (!authenticator.verify({ token: code, secret })) {
       throw new AppException('INVALID_2FA_CODE', 'Неверный код')
     }
-    const backupCodes = Array.from({ length: BACKUP_CODES_COUNT }, () => this.generateBackupCode())
-    const hashes = await Promise.all(backupCodes.map((c) => this.passwords.hash(c)))
+    const { backupCodes, hashes } = await this.newBackupCodes()
     await this.users.enableTwoFactor(userId, hashes)
     return { backupCodes }
+  }
+
+  /**
+   * Перевыпустить backup-коды (нужен действующий TOTP или backup-код). Коды показываются
+   * один раз при включении, и тот, кто их не сохранил или истратил, до этого мог получить
+   * новые только отключив и заново настроив 2FA. Прежний набор заменяется целиком: старые
+   * коды, где бы они ни были записаны, больше не действуют.
+   */
+  async regenerateBackupCodes(userId: string, code: string): Promise<{ backupCodes: string[] }> {
+    const rec = await this.users.getTwoFactorForLogin(userId)
+    if (!rec?.twoFactorEnabled) {
+      throw new AppException('BAD_REQUEST', 'Двухфакторная аутентификация не включена')
+    }
+    const ok = await this.verifyWithLimit(userId, () => this.verifyCode(rec, code))
+    if (!ok) {
+      throw new AppException('INVALID_2FA_CODE', 'Неверный код')
+    }
+    const { backupCodes, hashes } = await this.newBackupCodes()
+    await this.users.setBackupCodes(userId, hashes)
+    return { backupCodes }
+  }
+
+  // Новый набор backup-кодов: открытые — показать человеку один раз, хэши — в базу.
+  private async newBackupCodes(): Promise<{ backupCodes: string[]; hashes: string[] }> {
+    const backupCodes = Array.from({ length: BACKUP_CODES_COUNT }, () => this.generateBackupCode())
+    const hashes = await Promise.all(backupCodes.map((c) => this.passwords.hash(c)))
+    return { backupCodes, hashes }
   }
 
   /** Отключить 2FA (требует действующий TOTP или backup-код). */

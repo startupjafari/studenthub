@@ -131,6 +131,14 @@ export async function disable2faRequest(code: string): Promise<void> {
   await api.post('/auth/2fa/disable', { code })
 }
 
+// Новый набор резервных кодов взамен прежнего (нужен действующий код). Показываются один раз.
+export async function regenerateBackupCodesRequest(
+  code: string,
+): Promise<{ backupCodes: string[] }> {
+  const { data } = await api.post<{ backupCodes: string[] }>('/auth/2fa/backup-codes', { code })
+  return data
+}
+
 // ── Привязка Telegram для админского мини-аппа ───────────────────────────────
 //
 // Код запрашивается ЗДЕСЬ, в вебе, а не в самом мини-аппе: только здесь платформа знает,

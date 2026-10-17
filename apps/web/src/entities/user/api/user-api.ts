@@ -170,6 +170,8 @@ export interface AdminUser {
   facultyId: string | null
   groupId: string | null
   isBlocked: boolean
+  // Включена ли 2FA: по нему таблица показывает «Сбросить 2FA».
+  twoFactorEnabled: boolean
   createdAt: string
 }
 
@@ -211,6 +213,14 @@ export async function blockUserRequest(id: string): Promise<void> {
 
 export async function unblockUserRequest(id: string): Promise<void> {
   await api.patch(`/users/${id}/unblock`)
+}
+
+/**
+ * Сброс 2FA человеку, потерявшему аутентификатор. `code` — второй фактор САМОГО
+ * администратора (TOTP или резервный код): без него сервер сброс не выполнит.
+ */
+export async function resetUserTwoFactorRequest(id: string, code: string): Promise<void> {
+  await api.post(`/users/${id}/2fa/reset`, { code })
 }
 
 /**

@@ -9,7 +9,7 @@ import type {
   UserDirectorySectionValue,
   UpdateAcademicRecordInput,
 } from '@studenthub/shared-schemas'
-import { disallowedProfileFields } from '@studenthub/shared-schemas'
+import { disallowedProfileFields, ignoredProfileFields } from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { buildPublicObjectUrl } from '../../common/minio/public-url'
 import { PasswordService } from '../../common/security/password.service'
@@ -29,7 +29,7 @@ import type { EnvVars } from '../../config/env.schema'
 import sharp from 'sharp'
 import { FileService } from '../files/file.service'
 import { RealtimeGateway } from '../../common/realtime'
-import { QueueService, QUEUES, FILE_JOBS, NOTIFICATION_JOBS } from '../../common/queue'
+import { QueueService, QUEUES, EMAIL_JOBS, FILE_JOBS, NOTIFICATION_JOBS } from '../../common/queue'
 // forwardRef: единственное разрешённое кольцо AuthModule ↔ UsersModule (§2.1) —
 // смена пароля/удаление/блокировка обязаны погасить сессии, которыми владеет AuthService.
 import { AuthService } from '../auth/auth.service'
@@ -477,6 +477,9 @@ export class UserService {
           facultyId: true,
           groupId: true,
           isBlocked: true,
+          // Флаг, а не секрет: по нему таблица показывает «Сбросить 2FA» только тем, у кого
+          // она включена. Секрет и backup-коды из сервиса не выходят.
+          twoFactorEnabled: true,
           createdAt: true,
         },
         orderBy: userListOrderBy(query),
@@ -760,9 +763,20 @@ export class UserService {
         disallowed.map((field) => ({ field, message: 'Поле недоступно для вашей роли' })),
       )
     }
+    // Общежитие студента теперь ведёт вуз (оно печатается в студенческом), но мобильные
+    // клиенты могли присылать его в форме профиля: 400 сорвал бы им сохранение целиком.
+    // Поэтому студенту и старосте поле не отклоняем, а молча отбрасываем — в базе остаётся
+    // прежнее значение (COMPAT_IGNORED_STUDENT_FIELDS).
+    const ignored = new Set<string>(ignoredProfileFields(role, data))
+    const writable =
+      ignored.size > 0
+        ? (Object.fromEntries(
+            Object.entries(data).filter(([key]) => !ignored.has(key)),
+          ) as UpdateProfileInput)
+        : data
     return this.prisma.user.update({
       where: { id: userId },
-      data,
+      data: writable,
       select: PROFILE_SELECT,
     })
   }
@@ -1408,6 +1422,7 @@ export class UserService {
     return count > 0
   }
 
+  /** Заменить набор backup-кодов целиком (перевыпуск владельцем, TwoFactorService). */
   async setBackupCodes(userId: string, hashes: string[]): Promise<void> {
     await this.prisma.user.update({
       where: { id: userId },
@@ -2023,7 +2038,74 @@ export class UserService {
   }
 
   /**
-   * Над кем модератор вправе применить меру (блокировка, предупреждение, сброс сессий):
+   * Сброс 2FA человека, потерявшего аутентификатор и не сохранившего backup-коды. Без него
+   * выход был один — ручная правка базы разработчиком, а для пяти ролей 2FA обязательна.
+   *
+   * Кто: строго старший по роли в своём охвате (assertModeratable — те же правила, что у
+   * блокировки). Подтверждение — СВОИМ вторым фактором (`confirm`): сброс снимает с чужой
+   * учётки защиту, и одной угнанной сессии администратора для этого хватать не должно. Если
+   * у самого администратора 2FA нет — отказ: подтвердить ему нечем.
+   *
+   * Код спрашиваем последним, после всех проверок: backup-код при проверке сгорает, и
+   * тратить его на запрос, который всё равно отклонён, незачем.
+   *
+   * Что делает: выключает 2FA, стирает секрет и backup-коды, гасит все сессии человека
+   * (тот, кто вошёл с его паролем и украденным телефоном, вылетает), пишет аудит и шлёт
+   * владельцу письмо — если сброс просил не он, он узнает сразу. Привилегированной роли
+   * при следующем входе TwoFactorGuard снова предложит настроить 2FA.
+   */
+  async resetTwoFactor(
+    viewer: JwtPayload,
+    userId: string,
+    confirm: () => Promise<boolean>,
+    ctx: { ip?: string; userAgent?: string } = {},
+  ): Promise<void> {
+    if (userId === viewer.sub) {
+      throw new AppException('BAD_REQUEST', 'Свою 2FA отключают в настройках аккаунта')
+    }
+    await this.assertModeratable(viewer, userId)
+    if (!(await this.isTwoFactorEnabled(viewer.sub))) {
+      throw new AppException(
+        'FORBIDDEN',
+        'Сбросить 2FA другому может только тот, у кого она включена',
+      )
+    }
+    const target = await this.prisma.user.findFirst({
+      where: { id: userId, deletedAt: null },
+      select: { twoFactorEnabled: true, email: true, firstName: true, locale: true },
+    })
+    if (!target) throw new AppException('NOT_FOUND', 'Пользователь не найден')
+    if (!target.twoFactorEnabled) {
+      throw new AppException(
+        'BAD_REQUEST',
+        'У пользователя двухфакторная аутентификация не включена',
+      )
+    }
+    if (!(await confirm())) {
+      throw new AppException('INVALID_2FA_CODE', 'Неверный код подтверждения')
+    }
+
+    await this.disableTwoFactor(userId)
+    await this.authService.revokeAllUserSessions(userId)
+    await this.audit.record({
+      userId: viewer.sub,
+      action: 'user_2fa_reset',
+      entity: 'User',
+      entityId: userId,
+      ...ctx,
+    })
+    // jobId с отметкой времени: сбросов одному человеку может быть несколько, и каждый —
+    // отдельное письмо. Защита от дубля здесь не нужна — повтор запроса упрётся в «не включена».
+    await this.queue.enqueue(
+      QUEUES.EMAIL,
+      EMAIL_JOBS.SEND_TWO_FACTOR_RESET,
+      { to: target.email, locale: target.locale, firstName: target.firstName },
+      { jobId: `two-factor-reset:${userId}:${Date.now()}` },
+    )
+  }
+
+  /**
+   * Над кем модератор вправе применить меру (блокировка, предупреждение, сброс сессий и 2FA):
    * человек его вуза (платформенным — любой) и СТРОГО ниже по роли. Без проверки ранга
    * модератор вуза блокировал админа своего вуза, а модератор платформы — её админа, и
    * блокировка тут же гасила все их сессии.

@@ -134,6 +134,11 @@ export type TwoFactorEnableInput = z.infer<typeof TwoFactorEnableSchema>
 export const TwoFactorDisableSchema = z.object({ code: z.string().min(6).max(20) }).strict()
 export type TwoFactorDisableInput = z.infer<typeof TwoFactorDisableSchema>
 
+// Действие, подтверждённое СВОИМ вторым фактором (TOTP или backup-код): перевыпуск
+// backup-кодов владельцем, сброс 2FA другого человека администратором.
+export const TwoFactorConfirmSchema = z.object({ code: z.string().min(6).max(20) }).strict()
+export type TwoFactorConfirmInput = z.infer<typeof TwoFactorConfirmSchema>
+
 // ── Вход по QR (Telegram Web-стиль) ──────────────────────────────────────────
 
 // Подтверждение входа с уже залогиненного устройства (телефона): approveToken из QR.

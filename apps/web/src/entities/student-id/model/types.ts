@@ -34,4 +34,7 @@ export interface MyStudentId extends StudentIdCard {
 export interface VerifiedStudentId extends StudentIdCard {
   valid: boolean
   verifiedAt: string
+  // Поля ответа, заполненные студентом самим, а не вузом (сейчас — дата рождения): на карте
+  // помечаются «со слов студента». Необязательное — старый сервер поле не присылал.
+  selfDeclared?: string[]
 }

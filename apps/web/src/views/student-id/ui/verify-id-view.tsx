@@ -112,7 +112,7 @@ export function VerifyIdView() {
         <BadgeCheck className="size-5" aria-hidden />
         {t('verifiedBadge')}
       </div>
-      <StudentIdCardFace card={q.data} />
+      <StudentIdCardFace card={q.data} selfDeclared={q.data.selfDeclared} />
       {/* Время проверки. */}
       <div className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground">
         <Clock className="size-3.5" aria-hidden />

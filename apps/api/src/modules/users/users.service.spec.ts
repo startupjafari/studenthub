@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
+import { UpdateAcademicRecordSchema } from '@studenthub/shared-schemas'
 import type { ConfigService } from '@nestjs/config'
 import { UserService } from './users.service'
 import { AppException } from '../../common/exceptions/app.exception'
@@ -1514,6 +1515,153 @@ describe('UserService — учебные данные ведёт вуз', () => 
       service.updateAcademicRecord(viewer(Role.UNIVERSITY_ADMIN, { universityId: 'uni-A' }), 't1', {
         course: 1,
       }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+  })
+})
+
+describe('UserService — общежитие ведёт вуз (а старые клиенты его ещё присылают)', () => {
+  function dataOf(prisma: ReturnType<typeof setup>['prisma']): Record<string, unknown> {
+    return (prisma.user.update.mock.calls[0][0] as { data: Record<string, unknown> }).data
+  }
+
+  it('студент: общежитие из PATCH /users/me молча отбрасывается, остальное сохраняется', async () => {
+    const { service, prisma } = setup()
+    prisma.user.update.mockResolvedValue({ id: 's1' })
+    // Не 400: мобильный клиент, присылающий форму целиком, не должен терять сохранение.
+    await service.updateProfile('s1', Role.STUDENT, { dormitory: 'Общежитие №3', bio: 'Привет' })
+    expect(dataOf(prisma)).toEqual({ bio: 'Привет' })
+  })
+
+  it('староста — так же', async () => {
+    const { service, prisma } = setup()
+    prisma.user.update.mockResolvedValue({ id: 's1' })
+    await service.updateProfile('s1', Role.STAROSTA, { dormitory: 'Да' })
+    expect(dataOf(prisma)).toEqual({})
+  })
+
+  it('роли без общежития по-прежнему получают 400', async () => {
+    const { service, prisma } = setup()
+    await expect(
+      service.updateProfile('t1', Role.TEACHER, { dormitory: 'Да' }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    expect(prisma.user.update).not.toHaveBeenCalled()
+  })
+
+  it('учебные данные вуза принимают общежитие', () => {
+    expect(UpdateAcademicRecordSchema.parse({ dormitory: 'Да' })).toEqual({ dormitory: 'Да' })
+  })
+})
+
+describe('UserService — сброс 2FA администратором', () => {
+  const targetRow = {
+    id: 't',
+    universityId: 'uni-A',
+    role: Role.DEAN as Role,
+    twoFactorEnabled: true,
+    email: 'dean@uni-a.io',
+    firstName: 'Айгуль',
+    locale: 'kk',
+  }
+
+  // Одна выборка на id: администратор (есть ли у него 2FA) и цель (охват, ранг, 2FA, почта).
+  function arrange(
+    prisma: ReturnType<typeof setup>['prisma'],
+    opts: { adminTfa?: boolean; target?: Partial<typeof targetRow> } = {},
+  ): void {
+    prisma.user.findFirst.mockImplementation(async ({ where }: { where: { id: string } }) =>
+      where.id === 'admin'
+        ? { twoFactorEnabled: opts.adminTfa ?? true }
+        : { ...targetRow, ...opts.target },
+    )
+    prisma.user.update.mockResolvedValue({})
+  }
+
+  const admin = (role: Role = Role.UNIVERSITY_ADMIN) =>
+    viewer(role, { universityId: 'uni-A' }, 'admin')
+
+  it('выключает 2FA, гасит сессии, пишет аудит и шлёт письмо владельцу', async () => {
+    const { service, prisma, authService, audit, queue } = setup()
+    arrange(prisma)
+    const confirm = jest.fn().mockResolvedValue(true)
+    await service.resetTwoFactor(admin(), 't', confirm, { ip: '10.0.0.1' })
+    expect(confirm).toHaveBeenCalledTimes(1)
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: 't' },
+      data: { twoFactorEnabled: false, twoFactorSecret: null, twoFactorBackupCodes: [] },
+    })
+    expect(authService.revokeAllUserSessions).toHaveBeenCalledWith('t')
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'admin',
+        action: 'user_2fa_reset',
+        entityId: 't',
+        ip: '10.0.0.1',
+      }),
+    )
+    expect(queue.enqueue).toHaveBeenCalledWith(
+      'email',
+      'send-two-factor-reset',
+      { to: 'dean@uni-a.io', locale: 'kk', firstName: 'Айгуль' },
+      expect.objectContaining({ jobId: expect.stringContaining('two-factor-reset:t:') }),
+    )
+  })
+
+  it('неверный код администратора → INVALID_2FA_CODE, ничего не меняется', async () => {
+    const { service, prisma, authService, queue } = setup()
+    arrange(prisma)
+    await expect(
+      service.resetTwoFactor(admin(), 't', jest.fn().mockResolvedValue(false)),
+    ).rejects.toMatchObject({ code: 'INVALID_2FA_CODE' })
+    expect(prisma.user.update).not.toHaveBeenCalled()
+    expect(authService.revokeAllUserSessions).not.toHaveBeenCalled()
+    expect(queue.enqueue).not.toHaveBeenCalled()
+  })
+
+  it('у самого администратора 2FA нет → FORBIDDEN, код даже не спрашивается', async () => {
+    const { service, prisma } = setup()
+    arrange(prisma, { adminTfa: false })
+    const confirm = jest.fn().mockResolvedValue(true)
+    await expect(service.resetTwoFactor(admin(), 't', confirm)).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    })
+    expect(confirm).not.toHaveBeenCalled()
+    expect(prisma.user.update).not.toHaveBeenCalled()
+  })
+
+  it('только строго старшему: модератор вуза не сбрасывает админу вуза', async () => {
+    const { service, prisma } = setup()
+    arrange(prisma, { target: { role: Role.UNIVERSITY_ADMIN } })
+    const confirm = jest.fn().mockResolvedValue(true)
+    await expect(
+      service.resetTwoFactor(admin(Role.UNIVERSITY_MODERATOR), 't', confirm),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    // Код не тратится на запрос, который всё равно отклонён (backup-код сгорел бы).
+    expect(confirm).not.toHaveBeenCalled()
+  })
+
+  it('чужой вуз → WRONG_SCOPE', async () => {
+    const { service, prisma } = setup()
+    arrange(prisma, { target: { universityId: 'uni-B' } })
+    await expect(
+      service.resetTwoFactor(admin(), 't', jest.fn().mockResolvedValue(true)),
+    ).rejects.toMatchObject({ code: 'WRONG_SCOPE' })
+  })
+
+  it('у человека 2FA не включена → BAD_REQUEST, код не тратится', async () => {
+    const { service, prisma } = setup()
+    arrange(prisma, { target: { twoFactorEnabled: false } })
+    const confirm = jest.fn().mockResolvedValue(true)
+    await expect(service.resetTwoFactor(admin(), 't', confirm)).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+    })
+    expect(confirm).not.toHaveBeenCalled()
+  })
+
+  it('себе — BAD_REQUEST: своя 2FA отключается в настройках', async () => {
+    const { service, prisma } = setup()
+    arrange(prisma)
+    await expect(
+      service.resetTwoFactor(admin(), 'admin', jest.fn().mockResolvedValue(true)),
     ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
   })
 })

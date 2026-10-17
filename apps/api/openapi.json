@@ -394,6 +394,45 @@
         ]
       }
     },
+    "/auth/2fa/backup-codes": {
+      "post": {
+        "operationId": "TwoFactorController_regenerateBackupCodes",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TwoFactorConfirmDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "backupCodes — показываются один раз"
+          },
+          "400": {
+            "description": "BAD_REQUEST — 2FA не включена"
+          },
+          "401": {
+            "description": "INVALID_2FA_CODE"
+          },
+          "429": {
+            "description": "RATE_LIMIT — слишком много неверных кодов"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Перевыпустить backup-коды (нужен действующий TOTP или backup-код; прежние сгорают)",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
     "/auth/2fa/disable": {
       "post": {
         "operationId": "TwoFactorController_disable",
@@ -828,6 +867,52 @@
           }
         },
         "summary": "Завершить все сессии пользователя (в своём scope)",
+        "tags": [
+          "Пользователи"
+        ]
+      }
+    },
+    "/users/{id}/2fa/reset": {
+      "post": {
+        "operationId": "UsersController_resetTwoFactor",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResetTwoFactorDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Сброшено"
+          },
+          "400": {
+            "description": "BAD_REQUEST — у пользователя 2FA не включена / свою"
+          },
+          "401": {
+            "description": "INVALID_2FA_CODE — неверный код администратора"
+          },
+          "403": {
+            "description": "FORBIDDEN — роль не ниже вашей или у вас нет 2FA; WRONG_SCOPE — другой вуз"
+          },
+          "429": {
+            "description": "RATE_LIMIT — слишком много неверных кодов"
+          }
+        },
+        "summary": "Сбросить 2FA пользователя (роль строго ниже, свой scope; код своей 2FA): выключает 2FA, гасит сессии, письмо владельцу",
         "tags": [
           "Пользователи"
         ]
@@ -15459,6 +15544,10 @@
         "type": "object",
         "properties": {}
       },
+      "TwoFactorConfirmDto": {
+        "type": "object",
+        "properties": {}
+      },
       "TwoFactorDisableDto": {
         "type": "object",
         "properties": {}
@@ -15476,6 +15565,10 @@
         "properties": {}
       },
       "UpdateAcademicRecordDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "ResetTwoFactorDto": {
         "type": "object",
         "properties": {}
       },

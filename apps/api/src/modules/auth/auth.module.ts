@@ -69,6 +69,8 @@ import { LocalStrategy } from './strategies/local.strategy'
     { provide: APP_GUARD, useClass: ScopeGuard },
     { provide: APP_GUARD, useClass: TwoFactorGuard },
   ],
-  exports: [AuthService, TwoFactorService, JwtModule],
+  // ACTION_CONFIRMATION — для UsersController (сброс 2FA другому с кодом администратора):
+  // по токену, чтобы файлы users не импортировали TwoFactorService.
+  exports: [AuthService, TwoFactorService, JwtModule, ACTION_CONFIRMATION],
 })
 export class AuthModule {}

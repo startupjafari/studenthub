@@ -1,4 +1,16 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Req, Res } from '@nestjs/common'
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Inject,
+  Param,
+  Patch,
+  Post,
+  Query,
+  Req,
+  Res,
+} from '@nestjs/common'
 import { ApiBody, ApiConsumes, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger'
 import { Role } from '@studenthub/shared-types'
 import type { FastifyReply, FastifyRequest } from 'fastify'
@@ -7,6 +19,10 @@ import { MiniAllowed } from '../../common/decorators/mini-allowed.decorator'
 import { RequiresConfirmation } from '../../common/decorators/requires-confirmation.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
+import {
+  ACTION_CONFIRMATION,
+  type ActionConfirmation,
+} from '../../common/auth/confirmation.constants'
 import { readSingleUpload } from '../../common/http/read-upload'
 import { ExportBrandingService } from '../../common/export/export-branding.service'
 import { UserService } from './users.service'
@@ -17,6 +33,7 @@ import { UserListQueryDto } from './dto/user-list-query.dto'
 import { UserDirectoryQueryDto } from './dto/user-directory-query.dto'
 import { BlockUserDto } from './dto/block-user.dto'
 import { UpdateAcademicRecordDto } from './dto/update-academic-record.dto'
+import { ResetTwoFactorDto } from './dto/reset-two-factor.dto'
 
 @ApiTags('Пользователи')
 @Controller('users')
@@ -24,6 +41,9 @@ export class UsersController {
   constructor(
     private readonly users: UserService,
     private readonly branding: ExportBrandingService,
+    // Проверка кода второго фактора — по токену, а не классом TwoFactorService: прямой
+    // импорт замыкает кольцо файлов auth ↔ users и валит запуск (confirmation.constants.ts).
+    @Inject(ACTION_CONFIRMATION) private readonly confirmation: ActionConfirmation,
   ) {}
 
   @Get('me')
@@ -267,6 +287,46 @@ export class UsersController {
   @ApiOperation({ summary: 'Завершить все сессии пользователя (в своём scope)' })
   async logout(@CurrentUser() user: CurrentUserData, @Param('id') id: string): Promise<null> {
     await this.users.revokeSessions(user, id)
+    return null
+  }
+
+  /**
+   * Сброс 2FA человеку, потерявшему аутентификатор (и backup-коды). Только строго старший
+   * по роли в своём охвате и только с кодом СВОЕГО второго фактора — в любом клиенте, а не
+   * лишь в мини-аппе, как у @RequiresConfirmation: сброс снимает с чужой учётки защиту.
+   * В мини-апп маршрут не открыт.
+   */
+  @Post(':id/2fa/reset')
+  @Roles(
+    Role.PLATFORM_ADMIN,
+    Role.PLATFORM_MODERATOR,
+    Role.UNIVERSITY_ADMIN,
+    Role.UNIVERSITY_MODERATOR,
+  )
+  @ApiOperation({
+    summary:
+      'Сбросить 2FA пользователя (роль строго ниже, свой scope; код своей 2FA): выключает 2FA, гасит сессии, письмо владельцу',
+  })
+  @ApiResponse({ status: 201, description: 'Сброшено' })
+  @ApiResponse({ status: 400, description: 'BAD_REQUEST — у пользователя 2FA не включена / свою' })
+  @ApiResponse({ status: 401, description: 'INVALID_2FA_CODE — неверный код администратора' })
+  @ApiResponse({
+    status: 403,
+    description: 'FORBIDDEN — роль не ниже вашей или у вас нет 2FA; WRONG_SCOPE — другой вуз',
+  })
+  @ApiResponse({ status: 429, description: 'RATE_LIMIT — слишком много неверных кодов' })
+  async resetTwoFactor(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: ResetTwoFactorDto,
+    @Req() req: FastifyRequest,
+  ): Promise<null> {
+    await this.users.resetTwoFactor(
+      user,
+      id,
+      () => this.confirmation.verifyForUser(user.sub, dto.code),
+      { ip: req.ip, userAgent: req.headers['user-agent'] },
+    )
     return null
   }
 

@@ -39,7 +39,8 @@ const CARD_SELECT = {
   studyForm: true,
   // Специальность, финансирование и общежитие: реквизиты бумажного билета, по которым
   // сотрудник на вахте и в деканате опознаёт студента. Карту видит либо сам студент,
-  // либо сотрудник своего вуза (scope проверяется ниже) — наружу они не уходят.
+  // либо сотрудник своего вуза (scope проверяется ниже) — наружу они не уходят. Все три
+  // ведёт вуз (STAFF_MANAGED_STUDENT_FIELDS); дату рождения — сам студент, см. SELF_DECLARED.
   specialty: true,
   fundingType: true,
   dormitory: true,
@@ -52,6 +53,14 @@ const CARD_SELECT = {
   faculty: { select: { name: true } },
   university: { select: { name: true, shortName: true } },
 } satisfies Prisma.UserSelect
+
+/**
+ * Поля карты, которые студент заполняет сам (PATCH /users/me), а вуз не проверял. Результат
+ * проверки перечисляет их в `selfDeclared`, и клиент помечает «со слов студента»: иначе
+ * охранник видел дату рождения рядом с «билет действителен» и принимал её за проверенную
+ * вузом (проверка возраста). Учебные данные и общежитие ведёт вуз — их здесь нет.
+ */
+const SELF_DECLARED = ['birthDate'] as const
 
 function isPlatform(role: Role): boolean {
   return role === Role.PLATFORM_ADMIN || role === Role.PLATFORM_MODERATOR
@@ -109,12 +118,17 @@ export class StudentIdService {
     // мероприятии) — им хватает ФИО, фото, группы и статуса. Дата рождения, грант/платное и
     // общежитие нужны деканату и администрации, а не однокурснику или лектору.
     const narrow = verifier.role === Role.STAROSTA || verifier.role === Role.TEACHER
+    const shown = {
+      ...card,
+      ...(narrow ? { birthDate: null, fundingType: null, dormitory: null } : {}),
+    }
     // Время проверки — для отображения на странице верификации (когда сотрудник сканировал).
+    // selfDeclared — только те поля «со слов студента», что реально есть в ответе.
     return {
       valid: true,
       verifiedAt: new Date().toISOString(),
-      ...card,
-      ...(narrow ? { birthDate: null, fundingType: null, dormitory: null } : {}),
+      ...shown,
+      selfDeclared: SELF_DECLARED.filter((field) => shown[field] != null),
     }
   }
 

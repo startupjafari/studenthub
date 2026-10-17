@@ -44,7 +44,12 @@ import {
 import { RELEASE_NOTES, ReleaseNoteModal, latestNote } from '../../../entities/release'
 import { TelegramLinkRow } from '../../../features/link-telegram'
 import type { MeResponse } from '../../../shared/api'
-import { setup2faRequest, enable2faRequest, disable2faRequest } from '../../../shared/api'
+import {
+  setup2faRequest,
+  enable2faRequest,
+  disable2faRequest,
+  regenerateBackupCodesRequest,
+} from '../../../shared/api'
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -449,6 +454,8 @@ function TwoFactorManager({ me }: { me: MeResponse }) {
   const [code, setCode] = useState('')
   const [backupCodes, setBackupCodes] = useState<string[] | null>(null)
   const [disableCode, setDisableCode] = useState('')
+  const [regenCode, setRegenCode] = useState('')
+  const [regenOpen, setRegenOpen] = useState(false)
   // Ошибка показывается тостом, поэтому реакцию поля держим отдельно: счётчик попыток
   // входит в key ячеек — после неверного кода они пересоздаются и фокус встаёт в первую.
   const [attempt, setAttempt] = useState(0)
@@ -491,6 +498,21 @@ function TwoFactorManager({ me }: { me: MeResponse }) {
       toast.success(tS('twoFactorDisabledToast'))
     },
     onError: (e) => toast.error(tErr(errCode(e))),
+  })
+
+  // Перевыпуск резервных кодов: новый набор показывается в том же окне, что и при включении,
+  // — закрыть его до «Готово» значит потерять коды. Прежние коды сервер гасит.
+  const regenMut = useMutation({
+    mutationFn: () => regenerateBackupCodesRequest(regenCode.trim()),
+    onSuccess: (data) => {
+      setRegenCode('')
+      setRegenOpen(false)
+      setBackupCodes(data.backupCodes)
+    },
+    onError: (e) => {
+      setRegenCode('')
+      toast.error(tErr(errCode(e)))
+    },
   })
 
   // Мастер включения (QR → код → backup-коды) — в модальном окне: в карточке настроек
@@ -588,6 +610,46 @@ function TwoFactorManager({ me }: { me: MeResponse }) {
       <SettingRow title={tS('twoFactor')} desc={tS('twoFactorDesc')}>
         <div className="flex flex-col items-end gap-3">
           <Badge variant="secondary">{tS('twoFactorOn')}</Badge>
+          <AlertDialog
+            open={regenOpen}
+            onOpenChange={(open) => {
+              setRegenOpen(open)
+              if (!open) setRegenCode('')
+            }}
+          >
+            <AlertDialogTrigger asChild>
+              <Button type="button" variant="outline" size="sm">
+                {tS('backupCodesRegenerate')}
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>{tS('backupCodesRegenerate')}</AlertDialogTitle>
+                <AlertDialogDescription>{tS('backupCodesRegenerateDesc')}</AlertDialogDescription>
+              </AlertDialogHeader>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="regen2fa">{tS('twoFactorEnterCode')}</Label>
+                <Input
+                  id="regen2fa"
+                  autoComplete="one-time-code"
+                  placeholder="123456"
+                  value={regenCode}
+                  onChange={(e) => setRegenCode(e.target.value)}
+                />
+              </div>
+              <AlertDialogFooter>
+                <AlertDialogCancel>{tS('twoFactorCancel')}</AlertDialogCancel>
+                <Button
+                  type="button"
+                  loading={regenMut.isPending}
+                  disabled={!regenCode.trim()}
+                  onClick={() => regenMut.mutate()}
+                >
+                  {tS('backupCodesRegenerateConfirm')}
+                </Button>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <Button type="button" variant="destructive" size="sm">
