@@ -1311,6 +1311,1053 @@
         ]
       }
     },
+    "/career/companies/signup": {
+      "post": {
+        "operationId": "CompaniesController_signup",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmployerSignupDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Письмо с подтверждением отправлено"
+          },
+          "422": {
+            "description": "VALIDATION_ERROR"
+          },
+          "429": {
+            "description": "RATE_LIMIT"
+          }
+        },
+        "summary": "Зарегистрировать компанию-работодателя (публично)",
+        "tags": [
+          "Карьера — компании"
+        ]
+      }
+    },
+    "/career/companies/verify-email": {
+      "post": {
+        "operationId": "CompaniesController_verifyEmail",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VerifyCompanyEmailDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Email подтверждён"
+          },
+          "404": {
+            "description": "NOT_FOUND — ссылка недействительна"
+          }
+        },
+        "summary": "Подтвердить email компании по ссылке из письма",
+        "tags": [
+          "Карьера — компании"
+        ]
+      }
+    },
+    "/career/companies/resend-verification": {
+      "post": {
+        "operationId": "CompaniesController_resendVerification",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResendCompanyVerificationDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Если компания ждёт подтверждения — письмо ушло"
+          },
+          "422": {
+            "description": "VALIDATION_ERROR"
+          },
+          "429": {
+            "description": "RATE_LIMIT"
+          }
+        },
+        "summary": "Отправить письмо с подтверждением email компании ещё раз (публично)",
+        "tags": [
+          "Карьера — компании"
+        ]
+      }
+    },
+    "/career/companies/me": {
+      "get": {
+        "operationId": "CompaniesController_myCompany",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Компания"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Профиль своей компании",
+        "tags": [
+          "Карьера — компании"
+        ]
+      },
+      "patch": {
+        "operationId": "CompaniesController_updateMyCompany",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCompanyDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Компания обновлена"
+          },
+          "403": {
+            "description": "FORBIDDEN — не владелец"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Изменить профиль своей компании (только владелец)",
+        "tags": [
+          "Карьера — компании"
+        ]
+      }
+    },
+    "/career/companies/me/access": {
+      "get": {
+        "operationId": "CompaniesController_myAccess",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Список"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Заявки и допуски компании к вузам",
+        "tags": [
+          "Карьера — компании"
+        ]
+      },
+      "post": {
+        "operationId": "CompaniesController_requestAccess",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RequestCompanyAccessDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Заявка подана"
+          },
+          "409": {
+            "description": "CONFLICT — заявка уже есть или доступ открыт"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Подать заявку на доступ к студентам университета",
+        "tags": [
+          "Карьера — компании"
+        ]
+      }
+    },
+    "/career/companies/me/universities": {
+      "get": {
+        "operationId": "CompaniesController_universities",
+        "parameters": [
+          {
+            "name": "search",
+            "required": true,
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Справочник вузов"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Вузы, куда можно подать заявку, со статусом своей заявки",
+        "tags": [
+          "Карьера — компании"
+        ]
+      }
+    },
+    "/career/university/companies": {
+      "get": {
+        "operationId": "UniversityCompaniesController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Страница заявок"
+          },
+          "403": {
+            "description": "WRONG_SCOPE"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Заявки и допуски компаний своего университета",
+        "tags": [
+          "Карьера — допуск компаний (вуз)"
+        ]
+      }
+    },
+    "/career/university/companies/{id}": {
+      "patch": {
+        "operationId": "UniversityCompaniesController_decide",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DecideCompanyAccessDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Решение принято"
+          },
+          "409": {
+            "description": "CONFLICT — недопустимый переход статуса"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Решение по заявке: одобрить, отклонить или отозвать допуск",
+        "tags": [
+          "Карьера — допуск компаний (вуз)"
+        ]
+      }
+    },
+    "/career/profile": {
+      "get": {
+        "operationId": "CareerProfileController_myProfile",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Профиль"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Свой карьерный профиль с разбором готовности",
+        "tags": [
+          "Карьера — профиль"
+        ]
+      },
+      "patch": {
+        "operationId": "CareerProfileController_update",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCareerProfileDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Профиль обновлён"
+          },
+          "422": {
+            "description": "VALIDATION_ERROR"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Изменить карьерный профиль",
+        "tags": [
+          "Карьера — профиль"
+        ]
+      }
+    },
+    "/career/profile/consents": {
+      "post": {
+        "operationId": "CareerProfileController_setConsent",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetCareerConsentDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Согласие обновлено"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Выдать или отозвать согласие на показ поля работодателю",
+        "tags": [
+          "Карьера — профиль"
+        ]
+      }
+    },
+    "/career/profile/candidates/{id}": {
+      "get": {
+        "operationId": "CareerProfileController_candidate",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Карточка"
+          },
+          "403": {
+            "description": "WRONG_SCOPE — компания не допущена к вузу"
+          },
+          "404": {
+            "description": "NOT_FOUND — профиль скрыт или не существует"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Карточка кандидата (только допущенный вуз и открытый профиль)",
+        "tags": [
+          "Карьера — профиль"
+        ]
+      }
+    },
+    "/career/vacancies": {
+      "get": {
+        "operationId": "VacanciesController_search",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Страница вакансий"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Вакансии, одобренные вашим университетом, с процентом совпадения",
+        "tags": [
+          "Карьера — вакансии"
+        ]
+      }
+    },
+    "/career/vacancies/{id}": {
+      "get": {
+        "operationId": "VacanciesController_byId",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "404": {
+            "description": "NOT_FOUND — вакансия недоступна вашему вузу"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Карточка вакансии",
+        "tags": [
+          "Карьера — вакансии"
+        ]
+      }
+    },
+    "/career/employer/vacancies": {
+      "get": {
+        "operationId": "EmployerVacanciesController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Вакансии своей компании со статусами модерации по вузам",
+        "tags": [
+          "Карьера — вакансии компании"
+        ]
+      },
+      "post": {
+        "operationId": "EmployerVacanciesController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VacancyInputDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Черновик создан"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Создать вакансию (черновик)",
+        "tags": [
+          "Карьера — вакансии компании"
+        ]
+      }
+    },
+    "/career/employer/vacancies/{id}": {
+      "patch": {
+        "operationId": "EmployerVacanciesController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateVacancyDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Изменить вакансию",
+        "tags": [
+          "Карьера — вакансии компании"
+        ]
+      }
+    },
+    "/career/employer/vacancies/{id}/publish": {
+      "post": {
+        "operationId": "EmployerVacanciesController_publish",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "403": {
+            "description": "FORBIDDEN — нет вузов с открытым доступом"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Опубликовать: уходит на модерацию во все допустившие вузы",
+        "tags": [
+          "Карьера — вакансии компании"
+        ]
+      }
+    },
+    "/career/employer/vacancies/{id}/pause": {
+      "post": {
+        "operationId": "EmployerVacanciesController_pause",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Снять с публикации",
+        "tags": [
+          "Карьера — вакансии компании"
+        ]
+      }
+    },
+    "/career/employer/vacancies/{id}/close": {
+      "post": {
+        "operationId": "EmployerVacanciesController_close",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Закрыть вакансию",
+        "tags": [
+          "Карьера — вакансии компании"
+        ]
+      }
+    },
+    "/career/university/vacancies": {
+      "get": {
+        "operationId": "UniversityVacanciesController_queue",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Вакансии на модерации в своём университете",
+        "tags": [
+          "Карьера — модерация вакансий (вуз)"
+        ]
+      }
+    },
+    "/career/university/vacancies/{id}": {
+      "patch": {
+        "operationId": "UniversityVacanciesController_decide",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DecideVacancyDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Решение по вакансии: показать студентам или отклонить",
+        "tags": [
+          "Карьера — модерация вакансий (вуз)"
+        ]
+      }
+    },
+    "/career/applications": {
+      "get": {
+        "operationId": "ApplicationsController_listMine",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Свои отклики",
+        "tags": [
+          "Карьера — отклики (студент)"
+        ]
+      },
+      "post": {
+        "operationId": "ApplicationsController_apply",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateApplicationDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Отклик отправлен"
+          },
+          "404": {
+            "description": "NOT_FOUND — вакансия недоступна вашему вузу"
+          },
+          "409": {
+            "description": "CONFLICT — вы уже откликались"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Откликнуться на вакансию",
+        "tags": [
+          "Карьера — отклики (студент)"
+        ]
+      }
+    },
+    "/career/applications/{id}/history": {
+      "get": {
+        "operationId": "ApplicationsController_history",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "История статусов отклика",
+        "tags": [
+          "Карьера — отклики (студент)"
+        ]
+      }
+    },
+    "/career/applications/{id}/withdraw": {
+      "post": {
+        "operationId": "ApplicationsController_withdraw",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Отозвать отклик",
+        "tags": [
+          "Карьера — отклики (студент)"
+        ]
+      }
+    },
+    "/career/employer/applications": {
+      "get": {
+        "operationId": "EmployerApplicationsController_pipeline",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Воронка кандидатов компании",
+        "tags": [
+          "Карьера — кандидаты (компания)"
+        ]
+      }
+    },
+    "/career/employer/applications/{id}": {
+      "patch": {
+        "operationId": "EmployerApplicationsController_changeStatus",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangeApplicationStatusDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "409": {
+            "description": "CONFLICT — недопустимый переход"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Перевести отклик по воронке",
+        "tags": [
+          "Карьера — кандидаты (компания)"
+        ]
+      }
+    },
+    "/career/resume": {
+      "get": {
+        "operationId": "ResumeController_mine",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Настройки своего резюме",
+        "tags": [
+          "Карьера — резюме"
+        ]
+      },
+      "patch": {
+        "operationId": "ResumeController_update",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateResumeDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Заголовок, публичная ссылка, показ контактов",
+        "tags": [
+          "Карьера — резюме"
+        ]
+      }
+    },
+    "/career/resume/pdf": {
+      "get": {
+        "operationId": "ResumeController_pdf",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "PDF-файл"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Скачать резюме в PDF",
+        "tags": [
+          "Карьера — резюме"
+        ]
+      }
+    },
+    "/career/resume/public/{slug}": {
+      "get": {
+        "operationId": "ResumeController_publicResume",
+        "parameters": [
+          {
+            "name": "slug",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "404": {
+            "description": "NOT_FOUND — ссылки нет или она отключена"
+          }
+        },
+        "summary": "Публичное резюме по ссылке",
+        "tags": [
+          "Карьера — резюме"
+        ]
+      }
+    },
+    "/career/analytics/university": {
+      "get": {
+        "operationId": "CareerAnalyticsController_university",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Сводка"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Метрики карьерного модуля своего университета (только агрегаты)",
+        "tags": [
+          "Карьера — метрики"
+        ]
+      }
+    },
+    "/career/analytics/university/report": {
+      "get": {
+        "operationId": "CareerAnalyticsController_universityReport",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Отчёт"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Отчёт карьерного центра за период (только агрегаты)",
+        "tags": [
+          "Карьера — метрики"
+        ]
+      }
+    },
+    "/career/analytics/university/report/export": {
+      "get": {
+        "operationId": "CareerAnalyticsController_exportUniversityReport",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Файл отчёта"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Выгрузить отчёт карьерного центра (XLSX/CSV)",
+        "tags": [
+          "Карьера — метрики"
+        ]
+      }
+    },
+    "/career/analytics/company": {
+      "get": {
+        "operationId": "CareerAnalyticsController_company",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Сводка"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Метрики подбора своей компании",
+        "tags": [
+          "Карьера — метрики"
+        ]
+      }
+    },
+    "/career/events": {
+      "get": {
+        "operationId": "CareerEventsController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Страница мероприятий"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Карьерные мероприятия своего университета",
+        "tags": [
+          "Карьера — мероприятия"
+        ]
+      }
+    },
     "/files/upload": {
       "post": {
         "operationId": "FilesController_upload",
@@ -4533,61 +5580,6 @@
         ]
       }
     },
-    "/analytics/teacher": {
-      "get": {
-        "operationId": "AnalyticsController_teacher",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": "Показатели и панели дашборда преподавателя"
-          },
-          "401": {
-            "description": "Не аутентифицирован"
-          },
-          "403": {
-            "description": "Роль не преподаватель"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Обзор преподавателя: нагрузка, очередь проверки, консультации",
-        "tags": [
-          "Аналитика"
-        ]
-      }
-    },
-    "/analytics/my-group": {
-      "get": {
-        "operationId": "AnalyticsController_myGroup",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": "Показатели и панели дашборда старосты"
-          },
-          "401": {
-            "description": "Не аутентифицирован"
-          },
-          "403": {
-            "description": "Роль не староста"
-          },
-          "404": {
-            "description": "Группа не назначена или не найдена"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Обзор своей группы для старосты (агрегаты, без персональных срезов)",
-        "tags": [
-          "Аналитика"
-        ]
-      }
-    },
     "/analytics/university/overview": {
       "get": {
         "description": "`attendanceRate` — доля не-пропусков по всем отметкам вуза (null — не отмечали). `groups` — не больше 100 групп с отмеченной посещаемостью, худшие первыми; `atRisk` — те из них, что ниже порога «требует внимания».",
@@ -4913,6 +5905,7 @@
     },
     "/search": {
       "get": {
+        "description": "types — источники через запятую (people,courses,assignments,materials,events,chats); без него ищутся все. Не запрошенные источники приходят пустыми массивами.",
         "operationId": "SearchController_find",
         "parameters": [],
         "responses": {
@@ -4925,7 +5918,7 @@
             "bearer": []
           }
         ],
-        "summary": "Глобальный поиск по scope (люди, дисциплины, задания, материалы)",
+        "summary": "Глобальный поиск по scope (люди, дисциплины, задания, материалы, события, чаты)",
         "tags": [
           "Поиск"
         ]
@@ -5577,1053 +6570,6 @@
         "summary": "Удалить запись портфолио",
         "tags": [
           "Портфолио"
-        ]
-      }
-    },
-    "/career/companies/signup": {
-      "post": {
-        "operationId": "CompaniesController_signup",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/EmployerSignupDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "202": {
-            "description": "Письмо с подтверждением отправлено"
-          },
-          "422": {
-            "description": "VALIDATION_ERROR"
-          },
-          "429": {
-            "description": "RATE_LIMIT"
-          }
-        },
-        "summary": "Зарегистрировать компанию-работодателя (публично)",
-        "tags": [
-          "Карьера — компании"
-        ]
-      }
-    },
-    "/career/companies/verify-email": {
-      "post": {
-        "operationId": "CompaniesController_verifyEmail",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/VerifyCompanyEmailDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Email подтверждён"
-          },
-          "404": {
-            "description": "NOT_FOUND — ссылка недействительна"
-          }
-        },
-        "summary": "Подтвердить email компании по ссылке из письма",
-        "tags": [
-          "Карьера — компании"
-        ]
-      }
-    },
-    "/career/companies/resend-verification": {
-      "post": {
-        "operationId": "CompaniesController_resendVerification",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ResendCompanyVerificationDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "202": {
-            "description": "Если компания ждёт подтверждения — письмо ушло"
-          },
-          "422": {
-            "description": "VALIDATION_ERROR"
-          },
-          "429": {
-            "description": "RATE_LIMIT"
-          }
-        },
-        "summary": "Отправить письмо с подтверждением email компании ещё раз (публично)",
-        "tags": [
-          "Карьера — компании"
-        ]
-      }
-    },
-    "/career/companies/me": {
-      "get": {
-        "operationId": "CompaniesController_myCompany",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": "Компания"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Профиль своей компании",
-        "tags": [
-          "Карьера — компании"
-        ]
-      },
-      "patch": {
-        "operationId": "CompaniesController_updateMyCompany",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateCompanyDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Компания обновлена"
-          },
-          "403": {
-            "description": "FORBIDDEN — не владелец"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Изменить профиль своей компании (только владелец)",
-        "tags": [
-          "Карьера — компании"
-        ]
-      }
-    },
-    "/career/companies/me/access": {
-      "get": {
-        "operationId": "CompaniesController_myAccess",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": "Список"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Заявки и допуски компании к вузам",
-        "tags": [
-          "Карьера — компании"
-        ]
-      },
-      "post": {
-        "operationId": "CompaniesController_requestAccess",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RequestCompanyAccessDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "Заявка подана"
-          },
-          "409": {
-            "description": "CONFLICT — заявка уже есть или доступ открыт"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Подать заявку на доступ к студентам университета",
-        "tags": [
-          "Карьера — компании"
-        ]
-      }
-    },
-    "/career/companies/me/universities": {
-      "get": {
-        "operationId": "CompaniesController_universities",
-        "parameters": [
-          {
-            "name": "search",
-            "required": true,
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Справочник вузов"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Вузы, куда можно подать заявку, со статусом своей заявки",
-        "tags": [
-          "Карьера — компании"
-        ]
-      }
-    },
-    "/career/university/companies": {
-      "get": {
-        "operationId": "UniversityCompaniesController_list",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": "Страница заявок"
-          },
-          "403": {
-            "description": "WRONG_SCOPE"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Заявки и допуски компаний своего университета",
-        "tags": [
-          "Карьера — допуск компаний (вуз)"
-        ]
-      }
-    },
-    "/career/university/companies/{id}": {
-      "patch": {
-        "operationId": "UniversityCompaniesController_decide",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DecideCompanyAccessDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "204": {
-            "description": "Решение принято"
-          },
-          "409": {
-            "description": "CONFLICT — недопустимый переход статуса"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Решение по заявке: одобрить, отклонить или отозвать допуск",
-        "tags": [
-          "Карьера — допуск компаний (вуз)"
-        ]
-      }
-    },
-    "/career/profile": {
-      "get": {
-        "operationId": "CareerProfileController_myProfile",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": "Профиль"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Свой карьерный профиль с разбором готовности",
-        "tags": [
-          "Карьера — профиль"
-        ]
-      },
-      "patch": {
-        "operationId": "CareerProfileController_update",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateCareerProfileDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Профиль обновлён"
-          },
-          "422": {
-            "description": "VALIDATION_ERROR"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Изменить карьерный профиль",
-        "tags": [
-          "Карьера — профиль"
-        ]
-      }
-    },
-    "/career/profile/consents": {
-      "post": {
-        "operationId": "CareerProfileController_setConsent",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SetCareerConsentDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "Согласие обновлено"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Выдать или отозвать согласие на показ поля работодателю",
-        "tags": [
-          "Карьера — профиль"
-        ]
-      }
-    },
-    "/career/profile/candidates/{id}": {
-      "get": {
-        "operationId": "CareerProfileController_candidate",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Карточка"
-          },
-          "403": {
-            "description": "WRONG_SCOPE — компания не допущена к вузу"
-          },
-          "404": {
-            "description": "NOT_FOUND — профиль скрыт или не существует"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Карточка кандидата (только допущенный вуз и открытый профиль)",
-        "tags": [
-          "Карьера — профиль"
-        ]
-      }
-    },
-    "/career/vacancies": {
-      "get": {
-        "operationId": "VacanciesController_search",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": "Страница вакансий"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Вакансии, одобренные вашим университетом, с процентом совпадения",
-        "tags": [
-          "Карьера — вакансии"
-        ]
-      }
-    },
-    "/career/vacancies/{id}": {
-      "get": {
-        "operationId": "VacanciesController_byId",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "404": {
-            "description": "NOT_FOUND — вакансия недоступна вашему вузу"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Карточка вакансии",
-        "tags": [
-          "Карьера — вакансии"
-        ]
-      }
-    },
-    "/career/employer/vacancies": {
-      "get": {
-        "operationId": "EmployerVacanciesController_list",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Вакансии своей компании со статусами модерации по вузам",
-        "tags": [
-          "Карьера — вакансии компании"
-        ]
-      },
-      "post": {
-        "operationId": "EmployerVacanciesController_create",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/VacancyInputDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "Черновик создан"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Создать вакансию (черновик)",
-        "tags": [
-          "Карьера — вакансии компании"
-        ]
-      }
-    },
-    "/career/employer/vacancies/{id}": {
-      "patch": {
-        "operationId": "EmployerVacanciesController_update",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateVacancyDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "204": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Изменить вакансию",
-        "tags": [
-          "Карьера — вакансии компании"
-        ]
-      }
-    },
-    "/career/employer/vacancies/{id}/publish": {
-      "post": {
-        "operationId": "EmployerVacanciesController_publish",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "403": {
-            "description": "FORBIDDEN — нет вузов с открытым доступом"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Опубликовать: уходит на модерацию во все допустившие вузы",
-        "tags": [
-          "Карьера — вакансии компании"
-        ]
-      }
-    },
-    "/career/employer/vacancies/{id}/pause": {
-      "post": {
-        "operationId": "EmployerVacanciesController_pause",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Снять с публикации",
-        "tags": [
-          "Карьера — вакансии компании"
-        ]
-      }
-    },
-    "/career/employer/vacancies/{id}/close": {
-      "post": {
-        "operationId": "EmployerVacanciesController_close",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Закрыть вакансию",
-        "tags": [
-          "Карьера — вакансии компании"
-        ]
-      }
-    },
-    "/career/university/vacancies": {
-      "get": {
-        "operationId": "UniversityVacanciesController_queue",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Вакансии на модерации в своём университете",
-        "tags": [
-          "Карьера — модерация вакансий (вуз)"
-        ]
-      }
-    },
-    "/career/university/vacancies/{id}": {
-      "patch": {
-        "operationId": "UniversityVacanciesController_decide",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/DecideVacancyDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "204": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Решение по вакансии: показать студентам или отклонить",
-        "tags": [
-          "Карьера — модерация вакансий (вуз)"
-        ]
-      }
-    },
-    "/career/applications": {
-      "get": {
-        "operationId": "ApplicationsController_listMine",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Свои отклики",
-        "tags": [
-          "Карьера — отклики (студент)"
-        ]
-      },
-      "post": {
-        "operationId": "ApplicationsController_apply",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateApplicationDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "Отклик отправлен"
-          },
-          "404": {
-            "description": "NOT_FOUND — вакансия недоступна вашему вузу"
-          },
-          "409": {
-            "description": "CONFLICT — вы уже откликались"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Откликнуться на вакансию",
-        "tags": [
-          "Карьера — отклики (студент)"
-        ]
-      }
-    },
-    "/career/applications/{id}/history": {
-      "get": {
-        "operationId": "ApplicationsController_history",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "История статусов отклика",
-        "tags": [
-          "Карьера — отклики (студент)"
-        ]
-      }
-    },
-    "/career/applications/{id}/withdraw": {
-      "post": {
-        "operationId": "ApplicationsController_withdraw",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Отозвать отклик",
-        "tags": [
-          "Карьера — отклики (студент)"
-        ]
-      }
-    },
-    "/career/employer/applications": {
-      "get": {
-        "operationId": "EmployerApplicationsController_pipeline",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Воронка кандидатов компании",
-        "tags": [
-          "Карьера — кандидаты (компания)"
-        ]
-      }
-    },
-    "/career/employer/applications/{id}": {
-      "patch": {
-        "operationId": "EmployerApplicationsController_changeStatus",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ChangeApplicationStatusDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "409": {
-            "description": "CONFLICT — недопустимый переход"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Перевести отклик по воронке",
-        "tags": [
-          "Карьера — кандидаты (компания)"
-        ]
-      }
-    },
-    "/career/resume": {
-      "get": {
-        "operationId": "ResumeController_mine",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Настройки своего резюме",
-        "tags": [
-          "Карьера — резюме"
-        ]
-      },
-      "patch": {
-        "operationId": "ResumeController_update",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateResumeDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Заголовок, публичная ссылка, показ контактов",
-        "tags": [
-          "Карьера — резюме"
-        ]
-      }
-    },
-    "/career/resume/pdf": {
-      "get": {
-        "operationId": "ResumeController_pdf",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": "PDF-файл"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Скачать резюме в PDF",
-        "tags": [
-          "Карьера — резюме"
-        ]
-      }
-    },
-    "/career/resume/public/{slug}": {
-      "get": {
-        "operationId": "ResumeController_publicResume",
-        "parameters": [
-          {
-            "name": "slug",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "404": {
-            "description": "NOT_FOUND — ссылки нет или она отключена"
-          }
-        },
-        "summary": "Публичное резюме по ссылке",
-        "tags": [
-          "Карьера — резюме"
-        ]
-      }
-    },
-    "/career/analytics/university": {
-      "get": {
-        "operationId": "CareerAnalyticsController_university",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": "Сводка"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Метрики карьерного модуля своего университета (только агрегаты)",
-        "tags": [
-          "Карьера — метрики"
-        ]
-      }
-    },
-    "/career/analytics/university/report": {
-      "get": {
-        "operationId": "CareerAnalyticsController_universityReport",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": "Отчёт"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Отчёт карьерного центра за период (только агрегаты)",
-        "tags": [
-          "Карьера — метрики"
-        ]
-      }
-    },
-    "/career/analytics/university/report/export": {
-      "get": {
-        "operationId": "CareerAnalyticsController_exportUniversityReport",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": "Файл отчёта"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Выгрузить отчёт карьерного центра (XLSX/CSV)",
-        "tags": [
-          "Карьера — метрики"
-        ]
-      }
-    },
-    "/career/analytics/company": {
-      "get": {
-        "operationId": "CareerAnalyticsController_company",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": "Сводка"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Метрики подбора своей компании",
-        "tags": [
-          "Карьера — метрики"
-        ]
-      }
-    },
-    "/career/events": {
-      "get": {
-        "operationId": "CareerEventsController_list",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": "Страница мероприятий"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Карьерные мероприятия своего университета",
-        "tags": [
-          "Карьера — мероприятия"
         ]
       }
     },
@@ -11028,141 +10974,6 @@
         ]
       }
     },
-    "/chats/{id}/scheduled": {
-      "get": {
-        "operationId": "ChatsController_scheduled",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Отложенные, ближайшие первыми"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Мои отложенные сообщения в чате (чужие не видны)",
-        "tags": [
-          "Чаты"
-        ]
-      },
-      "post": {
-        "operationId": "ChatsController_schedule",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ScheduleMessageDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "Сообщение поставлено в очередь"
-          },
-          "400": {
-            "description": "BAD_REQUEST — время в прошлом или превышен лимит"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Отложить сообщение на будущее (только текст, без вложений)",
-        "tags": [
-          "Чаты"
-        ]
-      }
-    },
-    "/chats/scheduled/{scheduledId}": {
-      "patch": {
-        "operationId": "ChatsController_updateScheduled",
-        "parameters": [
-          {
-            "name": "scheduledId",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateScheduledMessageDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Отложенное обновлено"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Изменить текст или время своего отложенного сообщения",
-        "tags": [
-          "Чаты"
-        ]
-      },
-      "delete": {
-        "operationId": "ChatsController_cancelScheduled",
-        "parameters": [
-          {
-            "name": "scheduledId",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Отложенное отменено"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Отменить своё отложенное сообщение",
-        "tags": [
-          "Чаты"
-        ]
-      }
-    },
     "/chats/{id}/archive": {
       "post": {
         "operationId": "ChatsController_archive",
@@ -13304,6 +13115,9 @@
         "responses": {
           "201": {
             "description": "Медиа загружено"
+          },
+          "409": {
+            "description": "CONFLICT — исчерпана квота медиа профиля: details[0].field = profileMediaQuota, details[0].message = files (число файлов) | bytes (суммарный объём)"
           }
         },
         "security": [
@@ -13380,8 +13194,8 @@
           }
         },
         "responses": {
-          "201": {
-            "description": ""
+          "409": {
+            "description": "CONFLICT — исчерпана квота медиа профиля: details[0].field = profileMediaQuota, details[0].message = files (число файлов) | bytes (суммарный объём)"
           }
         },
         "security": [
@@ -13410,8 +13224,8 @@
           }
         },
         "responses": {
-          "201": {
-            "description": ""
+          "409": {
+            "description": "CONFLICT — исчерпана квота медиа профиля: details[0].field = profileMediaQuota, details[0].message = files (число файлов) | bytes (суммарный объём)"
           }
         },
         "security": [
@@ -15897,6 +15711,62 @@
         "type": "object",
         "properties": {}
       },
+      "EmployerSignupDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "VerifyCompanyEmailDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "ResendCompanyVerificationDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "UpdateCompanyDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "RequestCompanyAccessDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "DecideCompanyAccessDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "UpdateCareerProfileDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "SetCareerConsentDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "VacancyInputDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "UpdateVacancyDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "DecideVacancyDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "CreateApplicationDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "ChangeApplicationStatusDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "UpdateResumeDto": {
+        "type": "object",
+        "properties": {}
+      },
       "PresignUploadDto": {
         "type": "object",
         "properties": {}
@@ -16113,62 +15983,6 @@
         "type": "object",
         "properties": {}
       },
-      "EmployerSignupDto": {
-        "type": "object",
-        "properties": {}
-      },
-      "VerifyCompanyEmailDto": {
-        "type": "object",
-        "properties": {}
-      },
-      "ResendCompanyVerificationDto": {
-        "type": "object",
-        "properties": {}
-      },
-      "UpdateCompanyDto": {
-        "type": "object",
-        "properties": {}
-      },
-      "RequestCompanyAccessDto": {
-        "type": "object",
-        "properties": {}
-      },
-      "DecideCompanyAccessDto": {
-        "type": "object",
-        "properties": {}
-      },
-      "UpdateCareerProfileDto": {
-        "type": "object",
-        "properties": {}
-      },
-      "SetCareerConsentDto": {
-        "type": "object",
-        "properties": {}
-      },
-      "VacancyInputDto": {
-        "type": "object",
-        "properties": {}
-      },
-      "UpdateVacancyDto": {
-        "type": "object",
-        "properties": {}
-      },
-      "DecideVacancyDto": {
-        "type": "object",
-        "properties": {}
-      },
-      "CreateApplicationDto": {
-        "type": "object",
-        "properties": {}
-      },
-      "ChangeApplicationStatusDto": {
-        "type": "object",
-        "properties": {}
-      },
-      "UpdateResumeDto": {
-        "type": "object",
-        "properties": {}
-      },
       "UpsertApplicationServiceDto": {
         "type": "object",
         "properties": {}
@@ -16350,14 +16164,6 @@
         "properties": {}
       },
       "MuteDto": {
-        "type": "object",
-        "properties": {}
-      },
-      "ScheduleMessageDto": {
-        "type": "object",
-        "properties": {}
-      },
-      "UpdateScheduledMessageDto": {
         "type": "object",
         "properties": {}
       },

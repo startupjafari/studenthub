@@ -18,8 +18,6 @@ import type {
   MessageSearchQueryInput,
   MessageSendInput,
   PollVoteInput,
-  ScheduleMessageInput,
-  UpdateScheduledMessageInput,
 } from '@studenthub/shared-schemas'
 import { CLEARED_RANGES_MAX } from '@studenthub/shared-schemas'
 import { MESSAGE_EDIT_WINDOW_MS } from '@studenthub/shared-config'
@@ -427,8 +425,8 @@ const EXPORT_TRUNCATED_NOTE: Record<ExportContext['locale'], string> = {
   en: `Only the latest ${EXPORT_CAP} messages are exported — earlier ones are not included`,
 }
 
-// Отложенные сообщения: потолок «в очереди» на чат и размер батча доставки за один тик cron.
-const SCHEDULED_PER_CHAT_LIMIT = 50
+// Отложенные сообщения: размер батча доставки за один тик cron. Ставить их API больше не
+// даёт (F-F19), cron дотягивает уже поставленные.
 const SCHEDULED_BATCH = 500
 
 const SCHEDULED_SELECT = {
@@ -3778,82 +3776,12 @@ export class ChatsService implements OnModuleInit {
   }
 
   // ── Отложенные сообщения ────────────────────────────────────────────────────
-
-  /**
-   * Поставить сообщение в очередь на отправку в будущем.
-   *
-   * Хранится отдельной моделью, а не «сообщением со временем»: у Message есть seq —
-   * монотонный номер, на котором держится дельта-догон после обрыва связи. Занятый заранее
-   * номер означал бы дыру в ленте у всех клиентов до самой доставки.
-   *
-   * Условия отправки (антифлуд, блокировка, потолок непринятого запроса) проверяются и
-   * сейчас, и повторно в момент доставки: за сутки ожидания собеседник может заблокировать.
-   */
-  async scheduleMessage(senderId: string, chatId: string, input: ScheduleMessageInput) {
-    await this.assertMembership(senderId, chatId)
-    await this.assertCanSend(chatId, senderId)
-    await this.assertReplyInChat(chatId, input.replyToId)
-    const pending = await this.prisma.scheduledMessage.count({ where: { chatId, senderId } })
-    if (pending >= SCHEDULED_PER_CHAT_LIMIT) {
-      throw new AppException(
-        'BAD_REQUEST',
-        `В одном чате нельзя держать больше ${SCHEDULED_PER_CHAT_LIMIT} отложенных сообщений`,
-      )
-    }
-    return this.prisma.scheduledMessage.create({
-      data: {
-        chatId,
-        senderId,
-        content: input.content,
-        replyToId: input.replyToId,
-        replyQuote: input.replyQuote,
-        silent: input.silent ?? false,
-        scheduledAt: new Date(input.scheduledAt),
-      },
-      select: SCHEDULED_SELECT,
-    })
-  }
-
-  /** Мои отложенные в этом чате — чужие не показываем: это черновики отправителя. */
-  async listScheduled(senderId: string, chatId: string) {
-    await this.assertMembership(senderId, chatId)
-    return this.prisma.scheduledMessage.findMany({
-      where: { chatId, senderId },
-      orderBy: { scheduledAt: 'asc' },
-      take: SCHEDULED_PER_CHAT_LIMIT,
-      select: SCHEDULED_SELECT,
-    })
-  }
-
-  /** Изменить текст/время своего отложенного сообщения. */
-  async updateScheduled(senderId: string, id: string, input: UpdateScheduledMessageInput) {
-    await this.ownScheduled(senderId, id)
-    return this.prisma.scheduledMessage.update({
-      where: { id },
-      data: {
-        ...(input.content !== undefined ? { content: input.content } : {}),
-        ...(input.scheduledAt !== undefined ? { scheduledAt: new Date(input.scheduledAt) } : {}),
-      },
-      select: SCHEDULED_SELECT,
-    })
-  }
-
-  /** Отменить своё отложенное сообщение. */
-  async cancelScheduled(senderId: string, id: string): Promise<void> {
-    await this.ownScheduled(senderId, id)
-    await this.prisma.scheduledMessage.delete({ where: { id } })
-  }
-
-  private async ownScheduled(senderId: string, id: string): Promise<void> {
-    const row = await this.prisma.scheduledMessage.findUnique({
-      where: { id },
-      select: { senderId: true },
-    })
-    if (!row) throw new AppException('NOT_FOUND', 'Отложенное сообщение не найдено')
-    if (row.senderId !== senderId) {
-      throw new AppException('FORBIDDEN', 'Это чужое отложенное сообщение')
-    }
-  }
+  //
+  // Поставить, изменить и отменить отложенное через API больше нельзя (F-F19): клиента у
+  // этих маршрутов не было ни на одной платформе, а поддерживаемая поверхность API без
+  // единого пользователя — чистый расход. Модель `ScheduledMessage` и доставка остаются:
+  // уже поставленные сообщения должны уйти, как обещано автору. Когда таблица опустеет,
+  // вместе с ней можно снять и минутный cron `deliverScheduledMessages`.
 
   /**
    * Отправить всё, чему подошло время (вызывается cron'ом из CleanupService — §9.3,
@@ -3908,19 +3836,22 @@ export class ChatsService implements OnModuleInit {
         this.logger.warn(
           `Отложенное сообщение ${row.id} не отправлено: ${(error as Error).message}`,
         )
-        await this.notifyScheduleFailed(row.senderId, row.chatId, row.content)
+        await this.notifyScheduleFailed(row.senderId, row.chatId)
       }
     }
     if (sent > 0) this.logger.log(`Отложенных сообщений отправлено: ${sent}`)
     return sent
   }
 
-  /** Сообщить автору, что отложенное не ушло (чат удалён, его исключили, его заблокировали). */
-  private async notifyScheduleFailed(
-    senderId: string,
-    chatId: string,
-    content: string,
-  ): Promise<void> {
+  /**
+   * Сообщить автору, что отложенное не ушло (чат удалён, его исключили, его заблокировали).
+   *
+   * Без текста сообщения (F-F19): уведомление уходит в push-сервисы и письмом-зеркалом
+   * почтовому провайдеру и живёт в истории дольше самого сообщения — то же правило, что у
+   * уведомления о новом сообщении (docs/PERSONAL_DATA.md §3). Какое именно не ушло, автор
+   * увидит, открыв чат по ссылке.
+   */
+  private async notifyScheduleFailed(senderId: string, chatId: string): Promise<void> {
     const dedupeKey = `scheduled-failed:${chatId}:${senderId}:${Date.now()}`
     await this.queue.enqueue(
       QUEUES.NOTIFICATIONS,
@@ -3929,8 +3860,6 @@ export class ChatsService implements OnModuleInit {
         recipientIds: [senderId],
         type: 'SYSTEM',
         titleKey: 'chats.scheduledFailed.title',
-        // Тело — превью самого сообщения: пользовательский ввод, словарной статьи ему нет.
-        body: content.slice(0, 140),
         data: { chatId, url: `/chats?c=${chatId}` },
         dedupeKey,
       },

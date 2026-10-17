@@ -3151,6 +3151,19 @@ describe('ChatsService — доставка отложенных', () => {
       chatId: 'c1',
     })
   })
+
+  // F-F19: уведомление уходит в push и письмом — текста сообщения в нём быть не должно.
+  it('не ушло → автору уведомление без текста сообщения', async () => {
+    const { service, send, queue } = primed(1)
+    send.mockRejectedValueOnce(new AppException('FORBIDDEN', 'Вы заблокированы'))
+    await expect(service.deliverDueScheduled()).resolves.toBe(0)
+    expect(queue.enqueue).toHaveBeenCalledTimes(1)
+    const job = queue.enqueue.mock.calls[0][2]
+    expect(job.recipientIds).toEqual(['u1'])
+    expect(job.titleKey).toBe('chats.scheduledFailed.title')
+    expect(job.body).toBeUndefined()
+    expect(JSON.stringify(job)).not.toContain('привет')
+  })
 })
 
 // F-F21: прежний аватар группы удалялся ДО проверки нового — отказ по типу оставлял

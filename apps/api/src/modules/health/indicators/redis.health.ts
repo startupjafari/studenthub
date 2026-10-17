@@ -1,25 +1,22 @@
-import { Inject, Injectable } from '@nestjs/common'
+import { Inject, Injectable, Logger } from '@nestjs/common'
 import { HealthIndicatorResult, HealthIndicatorService } from '@nestjs/terminus'
 import type Redis from 'ioredis'
 import { REDIS_CLIENT } from '../../../common/redis/redis.module'
+import { probe } from './probe'
 
 @Injectable()
 export class RedisHealthIndicator {
+  private readonly logger = new Logger(RedisHealthIndicator.name)
+
   constructor(
     private readonly healthIndicatorService: HealthIndicatorService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {}
 
-  async isHealthy(key: string): Promise<HealthIndicatorResult> {
-    const indicator = this.healthIndicatorService.check(key)
-    try {
+  isHealthy(key: string): Promise<HealthIndicatorResult> {
+    return probe(this.healthIndicatorService, key, this.logger, async () => {
       const pong = await this.redis.ping()
-      if (pong !== 'PONG') {
-        return indicator.down({ message: `Неожиданный ответ Redis: ${pong}` })
-      }
-      return indicator.up()
-    } catch (error) {
-      return indicator.down({ message: (error as Error).message })
-    }
+      if (pong !== 'PONG') throw new Error(`Неожиданный ответ Redis: ${pong}`)
+    })
   }
 }

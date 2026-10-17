@@ -1,4 +1,4 @@
-import { Logger } from '@nestjs/common'
+import { Inject, Logger } from '@nestjs/common'
 import {
   ConnectedSocket,
   MessageBody,
@@ -17,8 +17,10 @@ import {
   TypingSchema,
   type ChatAction,
 } from '@studenthub/shared-schemas'
+import { Role } from '@studenthub/shared-types'
 import type { ZodSchema } from 'zod'
 import { captureUnexpected, isExpectedBusinessError } from '../../common/monitoring'
+import { PLATFORM_STATE, type PlatformStateReader } from '../platform/platform.constants'
 import { ChatsService } from './chats.service'
 import { takeToken, type TokenBucketLimit } from './ws-rate-limit'
 
@@ -37,6 +39,12 @@ const EVENT_LIMIT: TokenBucketLimit = { capacity: 120, refillPerSecond: 20 }
  */
 const ACTION_LIMIT: TokenBucketLimit = { capacity: 20, refillPerSecond: 2 }
 
+/**
+ * Кто пишет в чаты и во время техработ (A-F28) — те же роли, что пропускает
+ * MaintenanceGuard на HTTP: команда платформы и есть те, кто чинит.
+ */
+const MAINTENANCE_STAFF: readonly string[] = [Role.PLATFORM_ADMIN, Role.PLATFORM_MODERATOR]
+
 // WS-обработчики чата (docs/PROJECT.md §9, задачи 9.3–9.4). Подключение/handshake-аутентификацию
 // и авто-вход в user/group/university-комнаты делает RealtimeGateway; здесь — чат-события на том же
 // соединении. Каждый payload валидируется Zod (WS — не доверенный канал, §10). Рассылка только адресно.
@@ -45,7 +53,11 @@ export class ChatGateway {
   @WebSocketServer() private readonly server!: Server
   private readonly logger = new Logger(ChatGateway.name)
 
-  constructor(private readonly chats: ChatsService) {}
+  constructor(
+    private readonly chats: ChatsService,
+    // По токену, как в MaintenanceGuard: класс PlatformService втянул бы домен auth.
+    @Inject(PLATFORM_STATE) private readonly platform: PlatformStateReader,
+  ) {}
 
   private userId(client: Socket): string | null {
     const id = client.data?.userId as string | undefined
@@ -77,6 +89,27 @@ export class ChatGateway {
       client.emit('error', { event, code: 'RATE_LIMIT' })
     }
     return false
+  }
+
+  /**
+   * Режим техработ для записи через сокет (A-F28). MaintenanceGuard стоит только на HTTP —
+   * WS-событие он не видит, и сообщения во время техработ продолжали ложиться в базу: ровно
+   * то, ради чего режим включают перед миграцией или восстановлением данных.
+   *
+   * Останавливается только запись — отправка, правка, удаление. Вход в комнату, «печатает»
+   * и отметка о прочтении идут как шли: первые два в базу не пишут, а отказ в прочтении
+   * клиенту нечем показать — он лишь шумел бы ошибками.
+   *
+   * Сбой самой проверки = «техработ нет», как в guard'е: отказ из-за недоступного
+   * состояния остановил бы чаты у всех, включая тех, кто пришёл чинить.
+   */
+  private async halted(client: Socket, event: string): Promise<boolean> {
+    const role = client.data?.role as string | undefined
+    if (role && MAINTENANCE_STAFF.includes(role)) return false
+    const active = await this.platform.maintenanceActive().catch(() => false)
+    if (!active) return false
+    client.emit('error', { event, code: 'MAINTENANCE' })
+    return true
   }
 
   private socketStore(client: Socket): Record<string, unknown> {
@@ -138,6 +171,7 @@ export class ChatGateway {
     const uid = this.userId(client)
     const data = this.parse(client, 'message:send', MessageSendSchema, raw)
     if (!uid || !data) return
+    if (await this.halted(client, 'message:send')) return
     try {
       const { message } = await this.chats.createMessage(uid, data)
       // Всем участникам в комнате чата (включая отправителя) ровно один раз. nonce эхом —
@@ -159,6 +193,7 @@ export class ChatGateway {
     const uid = this.userId(client)
     const data = this.parse(client, 'message:edit', MessageEditSchema, raw)
     if (!uid || !data) return
+    if (await this.halted(client, 'message:edit')) return
     try {
       const message = await this.chats.editMessage(uid, data.messageId, data.content)
       this.server
@@ -178,6 +213,7 @@ export class ChatGateway {
     const uid = this.userId(client)
     const data = this.parse(client, 'message:delete', MessageDeleteSchema, raw)
     if (!uid || !data) return
+    if (await this.halted(client, 'message:delete')) return
     try {
       const { chatId } = await this.chats.deleteMessage(uid, data.messageId)
       this.server

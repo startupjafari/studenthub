@@ -1,5 +1,6 @@
 import { ChatGateway } from './chats.gateway'
 import type { ChatsService } from './chats.service'
+import type { PlatformStateReader } from '../platform/platform.constants'
 import type { Server, Socket } from 'socket.io'
 
 // Мок socket.io: client с data.userId, join/leave/emit; client.to(room).emit и server.to(room).emit.
@@ -15,8 +16,15 @@ function makeClient(userId: string | null) {
   return { client, roomEmit }
 }
 
-function setup(chats: Partial<Record<keyof ChatsService, jest.Mock>>) {
-  const gateway = new ChatGateway(chats as unknown as ChatsService)
+function setup(
+  chats: Partial<Record<keyof ChatsService, jest.Mock>>,
+  maintenance: jest.Mock = jest.fn().mockResolvedValue(false),
+) {
+  const platform = { maintenanceActive: maintenance }
+  const gateway = new ChatGateway(
+    chats as unknown as ChatsService,
+    platform as unknown as PlatformStateReader,
+  )
   const serverEmit = jest.fn()
   const server = { to: jest.fn().mockReturnValue({ emit: serverEmit }) }
   ;(gateway as unknown as { server: Server }).server = server as unknown as Server
@@ -383,5 +391,71 @@ describe('ChatGateway — лимит событий сокета', () => {
     }
     expect(actionAudience).toHaveBeenCalledTimes(20)
     expect(client.emit).not.toHaveBeenCalled()
+  })
+})
+
+// A-F28: MaintenanceGuard стоит только на HTTP — запись через сокет режим техработ
+// останавливает сам гейтвей.
+describe('ChatGateway — режим техработ', () => {
+  const message = { id: 'm1', chatId: 'c1', senderId: 'u1', content: 'hi' }
+
+  function staffClient(role: string) {
+    const made = makeClient('u1')
+    ;(made.client.data as Record<string, unknown>).role = role
+    return made
+  }
+
+  it('отправка, правка и удаление не пишут в базу и отвечают MAINTENANCE', async () => {
+    const createMessage = jest.fn()
+    const editMessage = jest.fn()
+    const deleteMessage = jest.fn()
+    const { gateway, serverEmit } = setup(
+      { createMessage, editMessage, deleteMessage },
+      jest.fn().mockResolvedValue(true),
+    )
+    const { client } = makeClient('u1')
+    const socket = client as unknown as Socket
+
+    await gateway.onMessageSend(socket, { chatId: 'c1', content: 'hi' })
+    await gateway.onMessageEdit(socket, { messageId: 'm1', content: 'new' })
+    await gateway.onMessageDelete(socket, { messageId: 'm1' })
+
+    expect(createMessage).not.toHaveBeenCalled()
+    expect(editMessage).not.toHaveBeenCalled()
+    expect(deleteMessage).not.toHaveBeenCalled()
+    expect(serverEmit).not.toHaveBeenCalled()
+    for (const event of ['message:send', 'message:edit', 'message:delete']) {
+      expect(client.emit).toHaveBeenCalledWith('error', { event, code: 'MAINTENANCE' })
+    }
+  })
+
+  it('команда платформы пишет и во время техработ', async () => {
+    const createMessage = jest.fn().mockResolvedValue({ message, recipientIds: [] })
+    const maintenance = jest.fn().mockResolvedValue(true)
+    const { gateway, serverEmit } = setup({ createMessage }, maintenance)
+    const { client } = staffClient('PLATFORM_MODERATOR')
+    await gateway.onMessageSend(client as unknown as Socket, { chatId: 'c1', content: 'hi' })
+    expect(createMessage).toHaveBeenCalled()
+    expect(serverEmit).toHaveBeenCalledWith('message:new', { message, chatId: 'c1' })
+    expect(maintenance).not.toHaveBeenCalled()
+  })
+
+  it('чтение идёт как шло: вход в комнату и отметка о прочтении', async () => {
+    const isMember = jest.fn().mockResolvedValue(true)
+    const markRead = jest.fn().mockResolvedValue({ chatId: 'c1', userId: 'u1' })
+    const { gateway } = setup({ isMember, markRead }, jest.fn().mockResolvedValue(true))
+    const { client } = makeClient('u1')
+    await gateway.onJoin(client as unknown as Socket, { chatId: 'c1' })
+    await gateway.onMessageRead(client as unknown as Socket, { chatId: 'c1', messageId: 'm1' })
+    expect(client.join).toHaveBeenCalledWith('chat:c1')
+    expect(markRead).toHaveBeenCalled()
+  })
+
+  it('сбой проверки техработ не останавливает чаты', async () => {
+    const createMessage = jest.fn().mockResolvedValue({ message, recipientIds: [] })
+    const { gateway } = setup({ createMessage }, jest.fn().mockRejectedValue(new Error('db down')))
+    const { client } = makeClient('u1')
+    await gateway.onMessageSend(client as unknown as Socket, { chatId: 'c1', content: 'hi' })
+    expect(createMessage).toHaveBeenCalled()
   })
 })

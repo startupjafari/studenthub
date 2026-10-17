@@ -1,5 +1,5 @@
 import { QueueService } from './queue.service'
-import { QUEUES } from './queue.constants'
+import { QUEUES, QUEUE_NAMES, jobOptionsFor } from './queue.constants'
 
 type Mock = jest.Mock
 
@@ -14,7 +14,6 @@ function makeService() {
     queue as never,
     queue as never,
     queue as never,
-    queue as never,
   )
   return { service, add }
 }
@@ -22,9 +21,9 @@ function makeService() {
 describe('QueueService.enqueue', () => {
   it('штампует _meta (requestId + enqueuedAt) в payload', async () => {
     const { service, add } = makeService()
-    await service.enqueue(QUEUES.EMAIL, 'send-welcome', { to: 'a@b.c' }, { requestId: 'req-9' })
+    await service.enqueue(QUEUES.EMAIL, 'send-invite', { to: 'a@b.c' }, { requestId: 'req-9' })
     const [name, payload] = add.mock.calls[0]
-    expect(name).toBe('send-welcome')
+    expect(name).toBe('send-invite')
     expect(payload.to).toBe('a@b.c')
     expect(payload._meta.requestId).toBe('req-9')
     expect(typeof payload._meta.enqueuedAt).toBe('string')
@@ -32,7 +31,7 @@ describe('QueueService.enqueue', () => {
 
   it('генерирует requestId, если не передан', async () => {
     const { service, add } = makeService()
-    await service.enqueue(QUEUES.EMAIL, 'send-welcome', { to: 'a@b.c' })
+    await service.enqueue(QUEUES.EMAIL, 'send-invite', { to: 'a@b.c' })
     expect(add.mock.calls[0][1]._meta.requestId).toEqual(expect.any(String))
   })
 
@@ -51,7 +50,35 @@ describe('QueueService.enqueue', () => {
 
   it('requestId не утекает в jobOptions', async () => {
     const { service, add } = makeService()
-    await service.enqueue(QUEUES.EMAIL, 'send-welcome', { to: 'a@b.c' }, { requestId: 'r' })
+    await service.enqueue(QUEUES.EMAIL, 'send-invite', { to: 'a@b.c' }, { requestId: 'r' })
     expect(add.mock.calls[0][2]).not.toHaveProperty('requestId')
+  })
+})
+
+// F-F20: упавшие job'ы не копятся в Redis вечно, почта переживает короткий сбой SMTP.
+describe('jobOptionsFor', () => {
+  it("упавшие job'ы любой очереди хранятся ограниченно — по сроку и по числу", () => {
+    for (const name of QUEUE_NAMES) {
+      expect(jobOptionsFor(name).removeOnFail).toEqual({
+        age: 7 * 24 * 60 * 60,
+        count: 1000,
+      })
+      expect(jobOptionsFor(name).removeOnComplete).toBe(true)
+    }
+  })
+
+  it('письмо повторяется около получаса, а не 15 секунд', () => {
+    const opts = jobOptionsFor(QUEUES.EMAIL)
+    const backoff = opts.backoff as { type: string; delay: number }
+    expect(backoff.type).toBe('exponential')
+    // Сумма пауз между попытками: delay · (2^(attempts-1) − 1).
+    const totalMs = backoff.delay * (2 ** ((opts.attempts ?? 1) - 1) - 1)
+    expect(totalMs).toBeGreaterThanOrEqual(20 * 60 * 1000)
+    expect(totalMs).toBeLessThan(60 * 60 * 1000)
+  })
+
+  it('остальные очереди — с базовыми тремя попытками', () => {
+    expect(jobOptionsFor(QUEUES.NOTIFICATIONS).attempts).toBe(3)
+    expect(jobOptionsFor(QUEUES.MEDIA_IMAGE).attempts).toBe(3)
   })
 })
