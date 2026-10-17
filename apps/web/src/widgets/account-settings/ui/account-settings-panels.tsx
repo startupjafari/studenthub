@@ -835,13 +835,19 @@ function NotificationsSection() {
     }
   }
 
-  const typeRows: { key: keyof NotificationSettingsData; label: string }[] = [
+  const typeRows: { key: keyof NotificationSettingsData; label: string; desc?: string }[] = [
     { key: 'scheduleChangeEnabled', label: tS('notif_scheduleChangeEnabled') },
     { key: 'appUpdateEnabled', label: tS('notif_appUpdateEnabled') },
     { key: 'messageEnabled', label: tS('notif_messageEnabled') },
     { key: 'postEnabled', label: tS('notif_postEnabled') },
     { key: 'eventEnabled', label: tS('notif_eventEnabled') },
-    { key: 'systemEnabled', label: tS('notif_systemEnabled') },
+    // Тумблер выключает только социальные системные события — без пояснения он обещал бы
+    // тишину, которой не будет: решения и сроки приходят всегда.
+    {
+      key: 'systemEnabled',
+      label: tS('notif_systemEnabled'),
+      desc: tS('notif_systemEnabledDesc'),
+    },
   ]
 
   return (
@@ -889,7 +895,7 @@ function NotificationsSection() {
               {tS('typesTitle')}
             </p>
             {typeRows.map((row) => (
-              <SettingRow key={row.key} title={row.label}>
+              <SettingRow key={row.key} title={row.label} desc={row.desc}>
                 <ToggleSwitch
                   checked={s[row.key]}
                   onChange={(v) => set(row.key, v)}

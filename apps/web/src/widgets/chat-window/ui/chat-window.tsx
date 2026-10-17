@@ -93,6 +93,7 @@ import {
   type ChatListItem,
   type ChatMemberInfo,
   type ChatMessage,
+  type ChatReadReceipt,
   type AttachmentSendOptions,
   type MessageAttachment,
   type MessageMenuAnchor,
@@ -103,7 +104,7 @@ import {
   putPresigned,
   uploadResumable,
 } from '../../../shared/api'
-import { firstUnreadIndex, unreadAfter } from '../lib/read-tracking'
+import { firstUnreadIndex, unreadAfter, withReceipt } from '../lib/read-tracking'
 import { latestSeqOf, mergeUpdates } from '../lib/merge-updates'
 import {
   mergeChatHead,
@@ -1725,8 +1726,11 @@ export function ChatWindow() {
       if (userId === myId) return
       if (chatId === activeId) {
         setReadWatermark((prev) => (!prev || readAt > prev ? readAt : prev))
-        // #6: обновляем «кто прочитал» для счётчика у своих сообщений.
-        void qc.invalidateQueries({ queryKey: chatKeys.reads(chatId) })
+        // #6: «кто прочитал» для счётчика у своих сообщений — правим на месте из события.
+        // Перезапрос на каждое прочтение в большой группе давал N×M запросов (F-F22).
+        qc.setQueryData<ChatReadReceipt[]>(chatKeys.reads(chatId), (old) =>
+          old ? withReceipt(old, userId, readAt) : old,
+        )
       }
       // Галочки в превью — из самого события: в большой группе прочтения идут потоком, и
       // перезапрос списка на каждое забивал сеть и перерисовывал боковую колонку.

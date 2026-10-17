@@ -245,6 +245,35 @@ describe('MediaService — HLS', () => {
 })
 
 describe('MediaService.resumeAndBackfill', () => {
+  // F-F26: job, потерянный уже в PROCESSING (сброс Redis), оставлял файл «в обработке»
+  // навсегда — догонялка смотрела только PENDING и NONE.
+  it('возвращает в очередь и застрявшие в PROCESSING дольше часа', async () => {
+    const { service, prisma, queue } = setup()
+    prisma.file.findMany
+      .mockResolvedValueOnce([{ id: 'p', bucket: 'chat-media', mime: 'video/mp4' }])
+      .mockResolvedValueOnce([])
+    const before = Date.now()
+
+    await expect(service.resumeAndBackfill()).resolves.toEqual({ resumed: 1, backfilled: 0 })
+
+    const where = prisma.file.findMany.mock.calls[0][0].where as {
+      OR: { mediaStatus: string; createdAt: { lt: Date } }[]
+    }
+    const processing = where.OR.find((branch) => branch.mediaStatus === 'PROCESSING')
+    expect(processing).toBeDefined()
+    // Окно — час от загрузки: идущее перекодирование не трогаем раньше времени.
+    const cutoff = processing?.createdAt.lt.getTime() ?? 0
+    expect(cutoff).toBeGreaterThanOrEqual(before - 60 * 60 * 1000)
+    expect(cutoff).toBeLessThanOrEqual(Date.now() - 60 * 60 * 1000)
+    expect(where.OR.find((branch) => branch.mediaStatus === 'PENDING')).toBeDefined()
+    expect(queue.enqueue).toHaveBeenCalledWith(
+      'media-video',
+      'process-media',
+      { fileId: 'p' },
+      expect.objectContaining({ jobId: 'media_p' }),
+    )
+  })
+
   it('застрявшие PENDING возвращаются в очередь, необработанные ставятся впервые', async () => {
     const { service, prisma, queue } = setup()
     prisma.file.findMany

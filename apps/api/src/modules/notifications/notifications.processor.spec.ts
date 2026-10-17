@@ -174,7 +174,7 @@ describe('NotificationsProcessor', () => {
     expect(queue.enqueue).not.toHaveBeenCalled()
   })
 
-  it('SYSTEM доставляется, даже если systemEnabled=false', async () => {
+  it('важный SYSTEM доставляется, даже если systemEnabled=false', async () => {
     const { processor, prisma, realtime } = makeDeps()
     prisma.user.findMany.mockResolvedValue([
       {
@@ -202,6 +202,99 @@ describe('NotificationsProcessor', () => {
 
     expect(prisma.notification.createMany).toHaveBeenCalledTimes(1)
     expect(realtime.emitToUser).toHaveBeenCalled()
+  })
+
+  // F-F25: тумблер «Системные» хранился и отдавался, но не читался. Теперь он выключает
+  // социальные системные события; решения и сроки (выше) приходят всегда.
+  it.each(['friend-request', 'friend-accepted', 'chat-request'])(
+    'SYSTEM «%s» при systemEnabled=false не доставляется',
+    async (name) => {
+      const { processor, prisma, realtime } = makeDeps()
+      prisma.user.findMany.mockResolvedValue([
+        {
+          id: 'u1',
+          email: 'u1@x.co',
+          firstName: 'У1',
+          notificationSettings: { ...baseSettings, systemEnabled: false },
+        },
+      ])
+
+      await processor.process(
+        job(
+          {
+            recipientIds: ['u1'],
+            type: NotificationType.SYSTEM,
+            title: 'T',
+            dedupeKey: 'k1',
+          },
+          name,
+        ),
+      )
+
+      expect(prisma.notification.createMany).not.toHaveBeenCalled()
+      expect(realtime.getOnlineUserIds).not.toHaveBeenCalled()
+    },
+  )
+
+  // F-F25: «онлайн» — это любой открытый сокет, в том числе забытая вкладка на рабочем
+  // компьютере. Она гасила пуши на телефон; теперь телефону push уходит всегда, а
+  // браузерам — только офлайн-адресату.
+  it('онлайн-адресат с push: телефону push уходит, браузерам — нет, письма нет', async () => {
+    const { processor, prisma, realtime, queue, push } = makeDeps()
+    prisma.user.findMany.mockResolvedValue([
+      {
+        id: 'u1',
+        email: 'u1@x.co',
+        firstName: 'У1',
+        notificationSettings: { ...baseSettings, pushEnabled: true },
+      },
+    ])
+    prisma.notification.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ id: 'n1', userId: 'u1', title: 'T', body: 'B', data: null }])
+    prisma.notification.createMany.mockResolvedValue({ count: 1 })
+    realtime.getOnlineUserIds.mockResolvedValue(new Set(['u1']))
+
+    await processor.process(
+      job({ recipientIds: ['u1'], type: NotificationType.POST, title: 'T', dedupeKey: 'k1' }),
+    )
+
+    expect(realtime.emitToUser).toHaveBeenCalledWith('u1', 'notification:new', expect.anything())
+    expect(push.sendToUser).toHaveBeenCalledWith(
+      'u1',
+      { title: 'T', body: 'B', url: undefined },
+      { web: false, devices: true },
+    )
+    expect(queue.enqueue).not.toHaveBeenCalled()
+  })
+
+  it('офлайн-адресат с push: и браузерам, и телефонам', async () => {
+    const { processor, prisma, realtime, push } = makeDeps()
+    prisma.user.findMany.mockResolvedValue([
+      {
+        id: 'u1',
+        email: 'u1@x.co',
+        firstName: 'У1',
+        notificationSettings: { ...baseSettings, pushEnabled: true, emailEnabled: false },
+      },
+    ])
+    prisma.notification.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        { id: 'n1', userId: 'u1', title: 'T', body: 'B', data: { url: '/feed' } },
+      ])
+    prisma.notification.createMany.mockResolvedValue({ count: 1 })
+    realtime.getOnlineUserIds.mockResolvedValue(new Set())
+
+    await processor.process(
+      job({ recipientIds: ['u1'], type: NotificationType.POST, title: 'T', dedupeKey: 'k1' }),
+    )
+
+    expect(push.sendToUser).toHaveBeenCalledWith(
+      'u1',
+      { title: 'T', body: 'B', url: '/feed' },
+      { web: true, devices: true },
+    )
   })
 
   it('идемпотентность: если dedupeKey уже доставлен — ни записи, ни рассылки', async () => {
@@ -356,6 +449,23 @@ describe('NotificationsProcessor — свёрнутое уведомление (
     expect(notifications.invalidateUnread).toHaveBeenCalledWith('u1')
     expect(notifications.claimEmailSlot).toHaveBeenCalledTimes(1)
     expect(queue.enqueue).not.toHaveBeenCalled()
+  })
+
+  // F-F25: десять сообщений чата — одна плашка в шторке, а не десять.
+  it('push свёрнутого уведомления несёт ключ группы чата', async () => {
+    const { processor, prisma, realtime, push } = makeDeps()
+    prisma.user.findMany.mockResolvedValue([user])
+    prisma.notification.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([stored])
+    prisma.notification.createMany.mockResolvedValue({ count: 1 })
+    realtime.getOnlineUserIds.mockResolvedValue(new Set())
+
+    await processor.process(collapsed('m1'))
+
+    expect(push.sendToUser).toHaveBeenCalledWith(
+      'u1',
+      expect.objectContaining({ tag: 'new-message:chat:c1' }),
+      { web: true, devices: true },
+    )
   })
 
   it('онлайн-адресат получает WS с той же строкой', async () => {

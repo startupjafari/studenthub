@@ -151,6 +151,12 @@ function clearedWhere(mem: ClearedState | null): Prisma.MessageWhereInput {
   return conditions.length > 0 ? { AND: conditions } : {}
 }
 
+/** Попадает ли момент в очищенное «у себя» — та же граница, что у clearedWhere. */
+function isCleared(at: Date, mem: ClearedState): boolean {
+  if (mem.clearedAt && at <= mem.clearedAt) return true
+  return parseClearedRanges(mem.clearedRanges).some((r) => at >= r.from && at <= r.to)
+}
+
 /**
  * Слить диапазоны: сортируем по началу и склеиваем пересекающиеся и соприкасающиеся.
  * Без слияния список рос бы на каждую очистку одного и того же месяца, а в where уходило
@@ -411,6 +417,15 @@ const FLOOD_WINDOW_SECONDS = 10
 
 // §50: сколько сообщений инициатор может отправить в ещё не принятый запрос на переписку.
 const REQUEST_MESSAGE_QUOTA = 5
+
+// Потолок выгрузки истории чата: файл собирается в памяти API. Выгружаются последние.
+const EXPORT_CAP = 5000
+// Строка шапки выгрузки, когда история длиннее потолка — на языке выгрузки.
+const EXPORT_TRUNCATED_NOTE: Record<ExportContext['locale'], string> = {
+  ru: `Выгружены последние ${EXPORT_CAP} сообщений — более ранние в файл не вошли`,
+  kk: `Соңғы ${EXPORT_CAP} хабарлама түсірілді — ертерегілері файлға кірмеді`,
+  en: `Only the latest ${EXPORT_CAP} messages are exported — earlier ones are not included`,
+}
 
 // Отложенные сообщения: потолок «в очереди» на чат и размер батча доставки за один тик cron.
 const SCHEDULED_PER_CHAT_LIMIT = 50
@@ -817,6 +832,11 @@ export class ChatsService implements OnModuleInit {
     // Друзья — единственное, что открывает переписку сразу; всем остальным уходит запрос (§50).
     let requestPendingForId: string | null = null
     const other = input.type === 'PRIVATE' ? memberIds.find((id) => id !== actor.sub) : undefined
+    // Личный чат «с собой» (memberIds: [свой id]) проходил схему и создавал PRIVATE с одним
+    // участником (F-F24). Заметки себе — это «Сохранённые», у них свой тип и свой маршрут.
+    if (input.type === 'PRIVATE' && !other) {
+      throw new AppException('VALIDATION_ERROR', 'Личный чат создаётся с другим человеком')
+    }
     // Личный чат с заблокированным (в любую сторону) создать нельзя.
     if (input.type === 'PRIVATE') {
       if (other && (await this.isBlockedBetween(actor.sub, other))) {
@@ -891,14 +911,16 @@ export class ChatsService implements OnModuleInit {
     otherId: string,
     friends: boolean,
   ): Promise<void> {
-    // Без ограничения по вузу — только платформенные роли. Работодатель сюда не доходит
-    // (createChat его отсекает): раньше его пустой universityId снимал ограничение целиком.
-    if (friends || isPlatform(actor.role)) return
+    // Собеседник проверяется у всех: раньше дружба и платформенная роль пропускали проверку
+    // целиком, и несуществующий id доходил до вставки — FK-ошибка и 500 (F-F24).
     const other = await this.prisma.user.findFirst({
       where: { id: otherId, deletedAt: null, isBlocked: false },
       select: { universityId: true },
     })
     if (!other) throw new AppException('NOT_FOUND', 'Пользователь не найден')
+    // Без ограничения по вузу — только платформенные роли. Работодатель сюда не доходит
+    // (createChat его отсекает): раньше его пустой universityId снимал ограничение целиком.
+    if (friends || isPlatform(actor.role)) return
     if (other.universityId != null && other.universityId !== actor.universityId) {
       throw new AppException('FORBIDDEN', 'Написать можно только людям своего вуза')
     }
@@ -1490,14 +1512,15 @@ export class ChatsService implements OnModuleInit {
         multiple: true,
         allowRevote: true,
         closed: true,
-        message: { select: { chatId: true } },
+        message: { select: { chatId: true, deletedAt: true } },
         options: {
           select: { id: true, text: true, order: true, _count: { select: { votes: true } } },
           orderBy: { order: 'asc' },
         },
       },
     })
-    if (!poll) throw new AppException('NOT_FOUND', 'Опрос не найден')
+    // Опрос удалённого сообщения для всех исчез — и его результаты тоже (F-F24).
+    if (!poll || poll.message.deletedAt) throw new AppException('NOT_FOUND', 'Опрос не найден')
     await this.assertMembership(viewer.sub, poll.message.chatId)
     const myVotes = await this.prisma.chatPollVote.findMany({
       where: { pollId, userId: viewer.sub },
@@ -1561,11 +1584,13 @@ export class ChatsService implements OnModuleInit {
         multiple: true,
         allowRevote: true,
         closed: true,
-        message: { select: { chatId: true } },
+        message: { select: { chatId: true, deletedAt: true } },
         options: { select: { id: true } },
       },
     })
-    if (!poll) throw new AppException('NOT_FOUND', 'Опрос не найден')
+    // В удалённом опросе голосовать нельзя (F-F24): раньше голос записывался, а poll:updated
+    // уходил всей комнате про сообщение, которого в ленте уже нет.
+    if (!poll || poll.message.deletedAt) throw new AppException('NOT_FOUND', 'Опрос не найден')
     await this.assertMembership(viewer.sub, poll.message.chatId)
     if (poll.closed) throw new AppException('BAD_REQUEST', 'Опрос завершён')
 
@@ -2636,12 +2661,13 @@ export class ChatsService implements OnModuleInit {
     // Вложение удалённого сообщения не отдаём: «удалить для всех» обязано убирать и файл.
     if (!msg || msg.deletedAt) throw new AppException('NOT_FOUND', 'Сообщение не найдено')
     await this.assertMembership(userId, msg.chatId)
-    // Историю, очищенную «у себя», по прямой ссылке тоже не открываем.
+    // Историю, очищенную «у себя», по прямой ссылке тоже не открываем — и водораздел
+    // `clearedAt`, и вырезанные периоды (F-F23: периоды здесь раньше не проверялись).
     const member = await this.prisma.chatMember.findUnique({
       where: { chatId_userId: { chatId: msg.chatId, userId } },
-      select: { clearedAt: true },
+      select: CLEARED_SELECT,
     })
-    if (member?.clearedAt && msg.createdAt <= member.clearedAt) {
+    if (member && isCleared(msg.createdAt, member)) {
       throw new AppException('NOT_FOUND', 'Сообщение не найдено')
     }
     // Срок — конец окна подписи (common/minio/stable-sign): подпись округлена к его началу,
@@ -2727,21 +2753,19 @@ export class ChatsService implements OnModuleInit {
   // ── Поиск сообщений (Ф9+) ─────────────────────────────────────────────────────
 
   /**
-   * Поиск по подстроке (регистронезависимо). chatId задан — внутри чата (после проверки членства);
+   * Поиск по подстроке (регистронезависимо). chatId задан — внутри чата (searchInChat);
    * иначе — по всем чатам, где пользователь участник. Cursor-пагинация по [createdAt, id].
    */
   async searchMessages(
     viewer: JwtPayload,
     query: MessageSearchQueryInput,
   ): Promise<Paginated<MessageRow>> {
-    let chatFilter: Prisma.MessageWhereInput
-    if (query.chatId) {
-      await this.assertMembership(viewer.sub, query.chatId)
-      chatFilter = { chatId: query.chatId }
-    } else {
-      // Забаненный строку членства сохраняет — без bannedAt: null он читал бы через поиск
-      // и то, что в группе написали уже после бана (assertMembership ему чат закрывает).
-      chatFilter = { chat: { members: { some: { userId: viewer.sub, bannedAt: null } } } }
+    if (query.chatId) return this.searchInChat(viewer, query.chatId, query)
+    // По всем чатам пользователя. Забаненный строку членства сохраняет — без bannedAt: null
+    // он читал бы через поиск и то, что в группе написали уже после бана (assertMembership
+    // ему чат закрывает).
+    const chatFilter: Prisma.MessageWhereInput = {
+      chat: { members: { some: { userId: viewer.sub, bannedAt: null } } },
     }
     const rows = await this.prisma.message.findMany({
       where: {
@@ -2763,6 +2787,50 @@ export class ChatsService implements OnModuleInit {
     return new Paginated(items, { cursor: nextCursor, hasNext })
   }
 
+  /**
+   * Поиск внутри одного чата (F-F23). Отличия от поиска по всем чатам:
+   * - очищенное «у себя» не находится — лента его не показывает, и поиск не должен;
+   * - страницы идут по `seq` (индекс чата), а не по составному курсору `[createdAt, id]`:
+   *   тот планировщик применял фильтром поверх всех совпадений (docs/PERF_BASELINE.md).
+   * Курсор для клиента прежний — id последнего сообщения страницы.
+   */
+  private async searchInChat(
+    viewer: JwtPayload,
+    chatId: string,
+    query: MessageSearchQueryInput,
+  ): Promise<Paginated<MessageRow>> {
+    await this.assertMembership(viewer.sub, chatId)
+    const mem = await this.prisma.chatMember.findUnique({
+      where: { chatId_userId: { chatId, userId: viewer.sub } },
+      select: CLEARED_SELECT,
+    })
+    let before: number | undefined
+    if (query.cursor) {
+      const seq = await this.seqOfMessage(chatId, query.cursor)
+      // Курсор не из этого чата — продолжать не с чего (как у курсора Prisma по чужому id).
+      if (seq === null) return new Paginated([], { hasNext: false })
+      before = seq
+    }
+    const rows = await this.prisma.message.findMany({
+      where: {
+        chatId,
+        deletedAt: null,
+        content: { contains: query.q, mode: 'insensitive' },
+        ...(before !== undefined ? { seq: { lt: before } } : {}),
+        ...(query.senderId ? { senderId: query.senderId } : {}),
+        ...(query.hasFile ? { media: { some: {} } } : {}),
+        ...clearedWhere(mem),
+      },
+      select: MESSAGE_SELECT,
+      orderBy: { seq: 'desc' },
+      take: query.limit + 1,
+    })
+    const hasNext = rows.length > query.limit
+    const items = hasNext ? rows.slice(0, query.limit) : rows
+    const nextCursor = hasNext ? items[items.length - 1]?.id : undefined
+    return new Paginated(items, { cursor: nextCursor, hasNext })
+  }
+
   // ── Реакции (Ф9+) ─────────────────────────────────────────────────────────
 
   /**
@@ -2776,22 +2844,29 @@ export class ChatsService implements OnModuleInit {
     })
     if (!msg) throw new AppException('NOT_FOUND', 'Сообщение не найдено')
     await this.assertMembership(userId, msg.chatId)
-    const existing = await this.prisma.messageReaction.findMany({
-      where: { messageId, userId },
-      take: MESSAGE_REACTION_LIMIT,
-      select: { id: true, emoji: true },
-    })
-    const same = existing.find((r) => r.emoji === emoji)
-    if (same) {
-      // Повтор той же реакции — снять.
-      await this.prisma.messageReaction.delete({ where: { id: same.id } })
-    } else {
+    // Чтение и запись — под локом на (сообщение, участник), как голос в опросе (F-F24).
+    // Без него двойной клик гнал два запроса: оба видели «реакции нет», второй create
+    // падал на @@unique([messageId, userId, emoji]) — 500, а снятие той же реакции
+    // дважды роняло delete по уже удалённой строке.
+    await this.prisma.$transaction(async (tx) => {
+      await advisoryXactLock(tx, `chat-reaction:${messageId}:${userId}`)
+      const existing = await tx.messageReaction.findMany({
+        where: { messageId, userId },
+        take: MESSAGE_REACTION_LIMIT,
+        select: { id: true, emoji: true },
+      })
+      const same = existing.find((r) => r.emoji === emoji)
+      if (same) {
+        // Повтор той же реакции — снять.
+        await tx.messageReaction.deleteMany({ where: { id: same.id } })
+        return
+      }
       // Заменить любую прежнюю реакцию этого пользователя на новую (одна на сообщение).
       if (existing.length > 0) {
-        await this.prisma.messageReaction.deleteMany({ where: { messageId, userId } })
+        await tx.messageReaction.deleteMany({ where: { messageId, userId } })
       }
-      await this.prisma.messageReaction.create({ data: { messageId, userId, emoji } })
-    }
+      await tx.messageReaction.create({ data: { messageId, userId, emoji } })
+    })
     const message = await this.prisma.message.findUniqueOrThrow({
       where: { id: messageId },
       select: MESSAGE_SELECT,
@@ -2931,18 +3006,38 @@ export class ChatsService implements OnModuleInit {
 
   /** История чата в хронологическом порядке для экспорта (только участник). Cap с логом при усечении. */
   async exportMessages(userId: string, chatId: string): Promise<MessageRow[]> {
+    return (await this.exportWindow(userId, chatId)).rows
+  }
+
+  /**
+   * Что попадает в выгрузку (F-F23): ПОСЛЕДНИЕ EXPORT_CAP сообщений, в хронологическом
+   * порядке, без очищенного «у себя».
+   *
+   * Раньше выгружались первые пять тысяч: в длинном чате файл обрывался на начале истории,
+   * и самого нужного — недавнего — в нём не было. И очистка не учитывалась: в файл попадало
+   * то, что человек у себя стёр. Потолок остаётся (выгрузка собирается в памяти API), но
+   * усечение теперь видно: `truncated` уходит в шапку файла.
+   */
+  private async exportWindow(
+    userId: string,
+    chatId: string,
+  ): Promise<{ rows: MessageRow[]; truncated: boolean }> {
     await this.assertMembership(userId, chatId)
-    const CAP = 5000
-    const rows = await this.prisma.message.findMany({
-      where: { chatId, deletedAt: null },
-      select: MESSAGE_SELECT,
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-      take: CAP,
+    const mem = await this.prisma.chatMember.findUnique({
+      where: { chatId_userId: { chatId, userId } },
+      select: CLEARED_SELECT,
     })
-    if (rows.length === CAP) {
-      this.logger.warn(`Экспорт чата ${chatId}: история усечена до ${CAP} сообщений`)
+    const newestFirst = await this.prisma.message.findMany({
+      where: { chatId, deletedAt: null, ...clearedWhere(mem) },
+      select: MESSAGE_SELECT,
+      orderBy: { seq: 'desc' },
+      take: EXPORT_CAP + 1,
+    })
+    const truncated = newestFirst.length > EXPORT_CAP
+    if (truncated) {
+      this.logger.warn(`Экспорт чата ${chatId}: выгружены последние ${EXPORT_CAP} сообщений`)
     }
-    return rows
+    return { rows: newestFirst.slice(0, EXPORT_CAP).reverse(), truncated }
   }
 
   /**
@@ -2987,7 +3082,7 @@ export class ChatsService implements OnModuleInit {
       request?: { ip?: string; userAgent?: string }
     },
   ): Promise<string> {
-    const rows = await this.exportMessages(userId, chatId)
+    const { rows, truncated } = await this.exportWindow(userId, chatId)
     await this.exports.register({
       context: options.context,
       format: options.format,
@@ -2996,7 +3091,9 @@ export class ChatsService implements OnModuleInit {
     })
 
     if (options.format === 'json') {
-      return JSON.stringify({ export: options.provenance, messages: rows }, null, 2)
+      // `truncated` — рядом с происхождением, а не внутри него: ключи происхождения общие
+      // для всех выгрузок платформы.
+      return JSON.stringify({ export: options.provenance, truncated, messages: rows }, null, 2)
     }
 
     const time = new Intl.DateTimeFormat('ru-RU', {
@@ -3008,6 +3105,7 @@ export class ChatsService implements OnModuleInit {
       minute: '2-digit',
     })
     const header = options.info.map(([label, value]) => `${label}: ${value}`)
+    if (truncated) header.push(EXPORT_TRUNCATED_NOTE[options.context.locale])
     const lines = rows.map((message) => {
       const author = `${message.sender.lastName} ${message.sender.firstName}`.trim()
       const body = message.content || (message.media.length > 0 ? '[вложение]' : '')
@@ -3232,7 +3330,10 @@ export class ChatsService implements OnModuleInit {
       select: {
         type: true,
         requestPendingForId: true,
-        members: { where: { userId: { not: senderId } }, select: { userId: true } },
+        // Собеседник нужен только личному чату, а он там один (F-F22): раньше на каждое
+        // сообщение в чат факультета читались все остальные участники — тысячи строк ради
+        // проверки, которая для группы не делается вовсе.
+        members: { where: { userId: { not: senderId } }, select: { userId: true }, take: 1 },
       },
     })
     if (chat?.type !== ChatType.PRIVATE) return
@@ -3247,7 +3348,9 @@ export class ChatsService implements OnModuleInit {
     // согласия. Ответ адресата снимает запрос, а вместе с ним и потолок.
     const pendingFor = chat.requestPendingForId
     if (pendingFor != null && pendingFor !== senderId) {
-      const sent = await this.prisma.message.count({ where: { chatId, senderId, deletedAt: null } })
+      // Считаются и удалённые (F-F24): иначе потолок обходился удалением — стёр свои пять
+      // и пишешь снова, без конца. Удалённое адресат всё равно успел получить.
+      const sent = await this.prisma.message.count({ where: { chatId, senderId } })
       if (sent >= REQUEST_MESSAGE_QUOTA) {
         throw new AppException(
           'FORBIDDEN',
@@ -3327,7 +3430,12 @@ export class ChatsService implements OnModuleInit {
     return chat
   }
 
-  /** Установить аватар группы (публичный бакет avatars). Прежний файл удаляется. */
+  /**
+   * Установить аватар группы (публичный бакет avatars). Прежний файл удаляется — но только
+   * после того, как новый принят и записан в чат (F-F21). Раньше старый удалялся первым, и
+   * отказ нового по типу или размеру оставлял `avatarUrl` на уже удалённый объект: у группы
+   * висела битая картинка.
+   */
   async setChatAvatar(
     actor: JwtPayload,
     chatId: string,
@@ -3335,7 +3443,6 @@ export class ChatsService implements OnModuleInit {
   ): Promise<{ id: string; avatarUrl: string }> {
     const chat = await this.assertGroupAdmin(actor, chatId)
     const bucket = this.config.get('MINIO_BUCKET_AVATARS', { infer: true })
-    await this.deleteChatAvatarFile(chat.avatarUrl, bucket)
     const file = await this.files.upload({
       buffer,
       bucket,
@@ -3343,10 +3450,22 @@ export class ChatsService implements OnModuleInit {
       expectedCategory: 'IMAGE',
     })
     const avatarUrl = this.buildPublicUrl(bucket, file.key)
-    const updated = await this.prisma.chat.update({
-      where: { id: chatId },
-      data: { avatarUrl },
-      select: { id: true, avatarUrl: true },
+    let updated: { id: string; avatarUrl: string | null }
+    try {
+      updated = await this.prisma.chat.update({
+        where: { id: chatId },
+        data: { avatarUrl },
+        select: { id: true, avatarUrl: true },
+      })
+    } catch (error) {
+      // Чат не принял новый аватар — убираем только что загруженный, прежний остаётся.
+      await this.files.delete(file.id).catch(() => undefined)
+      throw error
+    }
+    // Прежний файл — после записи. Не удалился — останется строкой без ссылки; на картинку
+    // группы это уже не влияет.
+    await this.deleteChatAvatarFile(chat.avatarUrl, bucket).catch((error: unknown) => {
+      this.logger.warn(`Прежний аватар группы ${chatId} не удалён: ${String(error)}`)
     })
     await this.bumpChat(chatId)
     this.realtime.emitToRoom(`chat:${chatId}`, 'chat:updated', { chatId, avatarUrl })

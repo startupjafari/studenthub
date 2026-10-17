@@ -13,7 +13,20 @@ export interface PushPayload {
   title: string
   body: string
   url?: string
+  /**
+   * Ключ группы (F-F25): уведомления одного источника заменяют друг друга в шторке, а не
+   * копятся десятком плашек. Браузер — `tag` в service worker, APNs — `thread-id`.
+   */
+  tag?: string
 }
+
+/** Куда слать: браузеры (Web Push) и/или телефоны (APNs/FCM). По умолчанию — всё. */
+export interface PushChannels {
+  web: boolean
+  devices: boolean
+}
+
+const ALL_CHANNELS: PushChannels = { web: true, devices: true }
 
 // Таймаут простоя сокета запроса к push-сервису браузера. Без него зависший сервис держал
 // отправку, а с ней job и всю очередь уведомлений, до перезапуска процесса.
@@ -136,10 +149,19 @@ export class PushService implements OnModuleInit {
    * Отправить push на все устройства пользователя: браузеры и телефоны.
    *
    * Два транспорта рядом, потому что у человека обычно и то, и другое: веб на
-   * работе, телефон в кармане. Отказ одного не отменяет другой.
+   * работе, телефон в кармане. Отказ одного не отменяет другой. `channels` — какие
+   * из них нужны: адресату с открытой вкладкой браузерный push не нужен (он видит
+   * уведомление на странице), а телефону в кармане — нужен (F-F25).
    */
-  async sendToUser(userId: string, payload: PushPayload): Promise<void> {
-    await Promise.all([this.sendWebPush(userId, payload), this.sendToDevices(userId, payload)])
+  async sendToUser(
+    userId: string,
+    payload: PushPayload,
+    channels: PushChannels = ALL_CHANNELS,
+  ): Promise<void> {
+    await Promise.all([
+      channels.web ? this.sendWebPush(userId, payload) : undefined,
+      channels.devices ? this.sendToDevices(userId, payload) : undefined,
+    ])
   }
 
   /**
@@ -156,7 +178,13 @@ export class PushService implements OnModuleInit {
     if (devices.length === 0) return
 
     const badge = await this.prisma.notification.count({ where: { userId, isRead: false } })
-    const message = { title: payload.title, body: payload.body, url: payload.url, badge }
+    const message = {
+      title: payload.title,
+      body: payload.body,
+      url: payload.url,
+      badge,
+      tag: payload.tag,
+    }
     await Promise.all(
       devices.map(async (device) => {
         const outcome =

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { firstUnreadIndex, unreadAfter } from './read-tracking'
+import { firstUnreadIndex, unreadAfter, withReceipt } from './read-tracking'
 
 const ME = 'me'
 const row = (senderId: string, minute: number) => ({
@@ -44,5 +44,32 @@ describe('unreadAfter', () => {
 
   it('прочитано последнее — ноль', () => {
     expect(unreadAfter(list, row('x', 4).createdAt, ME)).toBe(0)
+  })
+})
+
+describe('withReceipt', () => {
+  const receipts = [
+    { id: 'a', firstName: 'А', lastReadAt: '2026-09-01T10:00:00.000Z' },
+    { id: 'b', firstName: 'Б', lastReadAt: null },
+  ]
+
+  it('двигает отметку участника вперёд, не трогая остальных', () => {
+    const next = withReceipt(receipts, 'a', '2026-09-01T10:05:00.000Z')
+    expect(next[0]).toEqual({ id: 'a', firstName: 'А', lastReadAt: '2026-09-01T10:05:00.000Z' })
+    expect(next[1]).toBe(receipts[1])
+  })
+
+  it('первое прочтение — у кого отметки не было', () => {
+    expect(withReceipt(receipts, 'b', '2026-09-01T10:01:00.000Z')[1]?.lastReadAt).toBe(
+      '2026-09-01T10:01:00.000Z',
+    )
+  })
+
+  it('запоздавшее более раннее прочтение отметку не откатывает — список тот же', () => {
+    expect(withReceipt(receipts, 'a', '2026-09-01T09:00:00.000Z')).toBe(receipts)
+  })
+
+  it('незнакомый участник — список тот же', () => {
+    expect(withReceipt(receipts, 'zzz', '2026-09-01T10:05:00.000Z')).toBe(receipts)
   })
 })

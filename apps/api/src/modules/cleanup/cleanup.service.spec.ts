@@ -17,6 +17,14 @@ function makeService() {
       deleteMany: jest.fn() as Mock,
       groupBy: jest.fn(async () => []) as Mock,
     },
+    // Токены пушей: устаревшие и удалённых аккаунтов.
+    deviceToken: { findMany: jest.fn(async () => []) as Mock, deleteMany: jest.fn() as Mock },
+    pushSubscription: {
+      findMany: jest.fn(async () => []) as Mock,
+      deleteMany: jest.fn() as Mock,
+    },
+    // Сырые запросы: объём вариантов медиа по бакетам и «SELECT 1» наблюдения за базой.
+    $queryRaw: jest.fn(async () => []) as Mock,
     // Счётчики суточной сводки.
     complaint: { count: jest.fn(async () => 0) as Mock },
     chat: { count: jest.fn(async () => 0) as Mock },
@@ -29,6 +37,7 @@ function makeService() {
     },
   }
   const minio = {
+    bucketExists: jest.fn(async () => true) as Mock,
     listObjectsV2: jest.fn() as Mock,
     removeObject: jest.fn() as Mock,
     // Сироты удаляются пачкой; в «тихом» режиме ответ — только неудавшиеся ключи.
@@ -59,6 +68,9 @@ function makeService() {
       store.delete(key)
       return 1
     }) as Mock,
+    ping: jest.fn(async () => 'PONG') as Mock,
+    // Счётчик серверных ошибок по минутам (countServerErrors).
+    mget: jest.fn(async () => []) as Mock,
   }
   // Доставка отложенных сообщений чатов: cron только делегирует, поэтому в тесте достаточно
   // счётчика — сама доставка проверяется в chats.service.spec.ts.
@@ -322,6 +334,7 @@ describe('CleanupService', () => {
     it('снимает строки вложений удалённых чатов и материалов, только в их бакетах', async () => {
       const { service, prisma } = makeService()
       prisma.file.findMany
+        .mockResolvedValue([])
         .mockResolvedValueOnce([{ id: 'f1' }, { id: 'f2' }])
         .mockResolvedValueOnce([{ id: 'f3' }])
       prisma.file.deleteMany.mockImplementation(
@@ -331,10 +344,69 @@ describe('CleanupService', () => {
       )
       await expect(service.cleanDetachedFiles()).resolves.toBe(3)
       const wheres = prisma.file.findMany.mock.calls.map((c: [{ where: unknown }]) => c[0].where)
-      expect(wheres).toEqual([
+      expect(wheres.slice(0, 2)).toEqual([
         { bucket: 'MINIO_BUCKET_CHAT', messageId: null, createdAt: { lt: expect.any(Date) } },
         { bucket: 'MINIO_BUCKET_MATERIALS', materialId: null },
       ])
+      // Условие цели стоит и в удалении: строку могли привязать между выборкой и DELETE.
+      expect(prisma.file.deleteMany).toHaveBeenCalledWith({
+        where: { id: { in: ['f1', 'f2'] }, ...(wheres[0] as object) },
+      })
+    })
+
+    // F-F21: «удалить для всех» скрывало вложение, но байты хранились бессрочно.
+    it('снимает вложения сообщений, удалённых больше 30 дней назад', async () => {
+      const { service, prisma } = makeService()
+      prisma.file.findMany.mockResolvedValue([])
+      const before = Date.now()
+
+      await service.cleanDetachedFiles()
+
+      const wheres = prisma.file.findMany.mock.calls.map(
+        (c: [{ where: Record<string, unknown> }]) => c[0].where,
+      )
+      const deleted = wheres.find((w) => 'message' in w) as {
+        bucket: string
+        message: { deletedAt: { lt: Date } }
+      }
+      expect(deleted.bucket).toBe('MINIO_BUCKET_CHAT')
+      const month = 30 * 24 * 60 * 60 * 1000
+      expect(deleted.message.deletedAt.lt.getTime()).toBeGreaterThanOrEqual(before - month)
+      expect(deleted.message.deletedAt.lt.getTime()).toBeLessThanOrEqual(Date.now() - month)
+    })
+
+    // F-F21: загрузили через /files, а пост, сторис или работу так и не создали.
+    it('снимает непривязанные за сутки загрузки постов, сторис и заявок — по всем связям', async () => {
+      const { service, prisma } = makeService()
+      prisma.file.findMany.mockResolvedValue([])
+      const before = Date.now()
+
+      await service.cleanDetachedFiles()
+
+      const wheres = prisma.file.findMany.mock.calls.map(
+        (c: [{ where: Record<string, unknown> }]) => c[0].where,
+      )
+      const uploads = wheres.find((w) => 'postId' in w) as Record<string, unknown> & {
+        createdAt: { lt: Date }
+      }
+      expect(uploads).toMatchObject({
+        bucket: { in: ['MINIO_BUCKET_POSTS', 'MINIO_BUCKET_STORIES', 'MINIO_BUCKET_APPLICATIONS'] },
+        postId: null,
+        messageId: null,
+        materialId: null,
+        albumId: null,
+        documentId: null,
+        submissionId: null,
+        stories: { none: {} },
+        albumsCovered: { none: {} },
+      })
+      const day = 24 * 60 * 60 * 1000
+      expect(uploads.createdAt.lt.getTime()).toBeGreaterThanOrEqual(before - day)
+      expect(uploads.createdAt.lt.getTime()).toBeLessThanOrEqual(Date.now() - day)
+      // Аватары и медиа профиля не трогаем: там строка без связей — норма.
+      for (const where of wheres) {
+        expect(JSON.stringify(where)).not.toMatch(/AVATARS|PROFILE_MEDIA/)
+      }
     })
 
     // Чат принимает файлы альбома до сообщения и привязывает их одной транзакцией: строка
@@ -791,6 +863,16 @@ describe('reportStorageUsage', () => {
     expect(redis.del).toHaveBeenCalledWith('platform:storage-alerted')
   })
 
+  // F-F21: рендишны HLS, постеры и WebP-копии по объёму сопоставимы с оригиналом.
+  it('варианты медиа входят в объём своего бакета', async () => {
+    const { service, prisma, telegram } = withUsage({ 'chat-media': 8 * GB }, 10)
+    prisma.$queryRaw.mockResolvedValue([{ bucket: 'chat-media', bytes: BigInt(3 * GB) }])
+
+    await expect(service.reportStorageUsage()).resolves.toBe(11 * GB)
+    expect(telegram.notifyStaff).toHaveBeenCalledTimes(1)
+    expect(telegram.notifyStaff.mock.calls[0][1]).toContain('chat-media 11.0 ГБ')
+  })
+
   it('выше порога сигналит один раз', async () => {
     const { service, telegram } = withUsage({ 'chat-media': 12 * GB, documents: 1 * GB }, 10)
 
@@ -824,5 +906,99 @@ describe('CleanupService.notifyOverdueApplications', () => {
 
     expect(applications.notifyOverdue).toHaveBeenCalledTimes(1)
     expect(locks.run.mock.calls[0][0]).toBe('notifyOverdueApplications')
+  })
+})
+
+describe('CleanupService.watchServices', () => {
+  // F-F26: признак «упало» живёт в Redis — и при упавшем Redis не читался и не писался,
+  // так что «Не отвечает: Redis» уходило каждые пять минут.
+  it('лежащий Redis сигналит один раз, подъём — тоже один раз', async () => {
+    const { service, redis, telegram } = makeService()
+    const redisDown = (): void => {
+      redis.ping.mockRejectedValue(new Error('ECONNREFUSED'))
+      redis.get.mockRejectedValue(new Error('ECONNREFUSED'))
+      redis.set.mockRejectedValue(new Error('ECONNREFUSED'))
+      redis.del.mockRejectedValue(new Error('ECONNREFUSED'))
+    }
+    redisDown()
+
+    await service.watchServices()
+    await service.watchServices()
+    await service.watchServices()
+
+    expect(telegram.notifyStaff).toHaveBeenCalledTimes(1)
+    expect(telegram.notifyStaff.mock.calls[0][1]).toBe('Не отвечает: Redis')
+
+    // Redis поднялся пустым: отметки «упало» в нём нет — записать её было некуда.
+    redis.ping.mockResolvedValue('PONG')
+    redis.get.mockResolvedValue(null)
+    redis.set.mockResolvedValue('OK')
+    redis.del.mockResolvedValue(1)
+
+    await service.watchServices()
+    await service.watchServices()
+
+    expect(telegram.notifyStaff).toHaveBeenCalledTimes(2)
+    expect(telegram.notifyStaff.mock.calls[1][1]).toBe('Все сервисы снова отвечают')
+  })
+
+  it('сбой, объявленный другим инстансом, не повторяется; подъём объявляется один раз', async () => {
+    const { service, telegram, minio, store } = makeService()
+    minio.bucketExists.mockRejectedValue(new Error('down'))
+    store.set('platform:services-down', 'хранилище')
+
+    await service.watchServices()
+    expect(telegram.notifyStaff).not.toHaveBeenCalled()
+
+    minio.bucketExists.mockResolvedValue(true)
+    await service.watchServices()
+    await service.watchServices()
+
+    expect(telegram.notifyStaff).toHaveBeenCalledTimes(1)
+    expect(telegram.notifyStaff.mock.calls[0][1]).toBe('Все сервисы снова отвечают')
+  })
+
+  it('подъём, объявленный другим инстансом, этот не дублирует', async () => {
+    const { service, telegram, minio, store } = makeService()
+    minio.bucketExists.mockRejectedValue(new Error('down'))
+    await service.watchServices()
+    expect(telegram.notifyStaff).toHaveBeenCalledTimes(1)
+
+    // Другой инстанс увидел подъём, объявил его и снял отметку.
+    store.delete('platform:services-down')
+    minio.bucketExists.mockResolvedValue(true)
+    await service.watchServices()
+
+    expect(telegram.notifyStaff).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('CleanupService.purgeDeviceTokens', () => {
+  // F-F25: схема обещала чистку по lastSeenAt, но задачи не было.
+  it('удаляет токены, не подтверждённые 90 дней, и адреса удалённых аккаунтов', async () => {
+    const { service, prisma, locks } = makeService()
+    prisma.deviceToken.findMany.mockResolvedValueOnce([{ id: 'd1' }, { id: 'd2' }])
+    prisma.deviceToken.deleteMany.mockResolvedValue({ count: 2 })
+    prisma.pushSubscription.findMany.mockResolvedValueOnce([{ id: 's1' }])
+    prisma.pushSubscription.deleteMany.mockResolvedValue({ count: 1 })
+    const before = Date.now()
+
+    await expect(service.purgeDeviceTokens()).resolves.toBe(3)
+
+    expect(locks.run.mock.calls[0][0]).toBe('purgeDeviceTokens')
+    const deviceWhere = prisma.deviceToken.findMany.mock.calls[0][0].where as {
+      OR: [{ lastSeenAt: { lt: Date } }, { user: { deletedAt: { not: null } } }]
+    }
+    const stale = 90 * 24 * 60 * 60 * 1000
+    expect(deviceWhere.OR[0].lastSeenAt.lt.getTime()).toBeGreaterThanOrEqual(before - stale)
+    expect(deviceWhere.OR[0].lastSeenAt.lt.getTime()).toBeLessThanOrEqual(Date.now() - stale)
+    expect(deviceWhere.OR[1]).toEqual({ user: { deletedAt: { not: null } } })
+    // Условие повторяется в удалении: подтверждённый за это время токен остаётся.
+    expect(prisma.deviceToken.deleteMany).toHaveBeenCalledWith({
+      where: { id: { in: ['d1', 'd2'] }, ...deviceWhere },
+    })
+    expect(prisma.pushSubscription.deleteMany).toHaveBeenCalledWith({
+      where: { id: { in: ['s1'] }, user: { deletedAt: { not: null } } },
+    })
   })
 })

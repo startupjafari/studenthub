@@ -60,3 +60,58 @@ describe('PushService.registerDevice', () => {
     expect(tx.notificationSettings.upsert).not.toHaveBeenCalled()
   })
 })
+
+// F-F25: адресату с открытой вкладкой браузерный push не нужен, телефону — нужен.
+describe('PushService.sendToUser — каналы', () => {
+  function withDevices() {
+    const prisma = {
+      pushSubscription: {
+        findMany: jest.fn().mockResolvedValue([{ endpoint: 'e', p256dh: 'p', auth: 'a' }]),
+      },
+      deviceToken: {
+        findMany: jest.fn().mockResolvedValue([{ token: 't1', platform: 'IOS' }]),
+        deleteMany: jest.fn(),
+      },
+      notification: { count: jest.fn().mockResolvedValue(2) },
+    }
+    const apns = {
+      isEnabled: jest.fn(() => true),
+      send: jest.fn().mockResolvedValue('delivered'),
+    }
+    const fcm = { isEnabled: jest.fn(() => false), send: jest.fn() }
+    const service = new PushService(
+      prisma as never,
+      { get: jest.fn() } as never,
+      {} as never,
+      apns as never,
+      fcm as never,
+    )
+    return { service, prisma, apns }
+  }
+
+  it('только телефоны: подписки браузеров не читаются, телефон получает ключ группы', async () => {
+    const { service, prisma, apns } = withDevices()
+
+    await service.sendToUser(
+      'u1',
+      { title: 'T', body: 'B', tag: 'new-message:chat:c1' },
+      { web: false, devices: true },
+    )
+
+    expect(prisma.pushSubscription.findMany).not.toHaveBeenCalled()
+    expect(apns.send).toHaveBeenCalledWith(
+      't1',
+      expect.objectContaining({ tag: 'new-message:chat:c1', badge: 2 }),
+    )
+  })
+
+  it('без каналов по умолчанию — и браузеры, и телефоны', async () => {
+    const { service, prisma, apns } = withDevices()
+
+    await service.sendToUser('u1', { title: 'T', body: 'B' })
+
+    // Web Push выключен (VAPID не задан) — до подписок дело не доходит, но телефон получает.
+    expect(apns.send).toHaveBeenCalledTimes(1)
+    expect(prisma.deviceToken.findMany).toHaveBeenCalled()
+  })
+})

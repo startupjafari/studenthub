@@ -2740,6 +2740,7 @@
     "notif_postEnabled": "Feed posts",
     "notif_eventEnabled": "Events",
     "notif_systemEnabled": "System",
+    "notif_systemEnabledDesc": "Friend requests and message requests. Document decisions, assignments and moderation warnings always arrive",
     "privacyTitle": "Privacy",
     "privacyDesc": "Who can see your data",
     "showEmail": "Show email in profile",

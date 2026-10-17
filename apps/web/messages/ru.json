@@ -2740,6 +2740,7 @@
     "notif_postEnabled": "Посты в ленте",
     "notif_eventEnabled": "События",
     "notif_systemEnabled": "Системные",
+    "notif_systemEnabledDesc": "Заявки в друзья и запросы на переписку. Решения по документам, задания и предупреждения модерации приходят всегда",
     "privacyTitle": "Конфиденциальность",
     "privacyDesc": "Кто видит ваши данные",
     "showEmail": "Показывать email в профиле",

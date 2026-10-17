@@ -46,6 +46,15 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     private readonly revocation: SessionRevocationService,
   ) {}
 
+  /**
+   * Вход: проверка токена, свои комнаты, учёт присутствия.
+   *
+   * Между началом и концом обработчика несколько `await` (подпись, отзыв сессий), и клиент
+   * успевает отвалиться: `handleDisconnect` тогда отрабатывает РАНЬШЕ, чем соединение
+   * учтено. Раньше счётчик всё равно уходил в +1 — и человек оставался «в сети» до
+   * рестарта процесса, а `lastSeenAt` не писался (F-F18). Теперь соединение учитывается,
+   * только если оно ещё живо, а уход списывает лишь учтённое (`presenceTracked`).
+   */
   async handleConnection(client: Socket): Promise<void> {
     const token = this.extractToken(client)
     if (!token) {
@@ -58,13 +67,25 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
         client.disconnect()
         return
       }
+      // Отвалился, пока проверяли токен: ни комнат, ни онлайна.
+      if (!client.connected) return
       client.data.userId = payload.sub
       client.data.role = payload.role
       client.data.universityId = payload.universityId ?? null
       // §9.3: автоматический вход в свои комнаты при подключении.
-      await client.join(`user:${payload.sub}`)
-      if (payload.groupId) await client.join(`group:${payload.groupId}`)
-      if (payload.universityId) await client.join(`university:${payload.universityId}`)
+      const rooms = [
+        `user:${payload.sub}`,
+        ...(payload.groupId ? [`group:${payload.groupId}`] : []),
+        ...(payload.universityId ? [`university:${payload.universityId}`] : []),
+      ]
+      for (const room of rooms) await client.join(room)
+      // Вход в комнату у адаптера может быть асинхронным; закрытый за это время сокет из
+      // комнат выводим сами — разрыв уже прошёл и за ним никто не уберёт.
+      if (!client.connected) {
+        for (const room of rooms) await client.leave(room)
+        return
+      }
+      client.data.presenceTracked = true
       this.trackOnline(payload.sub, payload.universityId ?? null)
       this.logger.debug(`WS connected user=${payload.sub} socket=${client.id}`)
     } catch {
@@ -75,7 +96,10 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
 
   handleDisconnect(client: Socket): void {
     const userId = client.data?.userId as string | undefined
-    if (userId) {
+    // Списываем только учтённое соединение: иначе разрыв посреди handleConnection уменьшал
+    // счётчик, которого не увеличивал, — и «уводил в офлайн» другую вкладку того же человека.
+    if (userId && client.data?.presenceTracked === true) {
+      client.data.presenceTracked = false
       this.trackOffline(userId, (client.data?.universityId as string | null) ?? null)
       this.logger.debug(`WS disconnected user=${userId} socket=${client.id}`)
     }
@@ -160,7 +184,15 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
         client.disconnect()
         return
       }
-      client.data.userId = p.sub
+      // Продлевать можно только свою сессию (F-F18). Токен другого человека раньше молча
+      // подменял `userId`: комнаты оставались прежнего владельца, а разрыв списывал онлайн
+      // уже нового — «вечный онлайн» одного и ложный офлайн другого. Смена пользователя —
+      // это новое подключение, а не продление: рвём, клиент переподключится своим токеном.
+      if (p.sub !== client.data.userId) {
+        this.logger.warn(`WS auth:refresh чужим токеном — разрыв (socket=${client.id})`)
+        client.disconnect()
+        return
+      }
       client.data.role = p.role
     } catch {
       this.logger.debug(`WS auth:refresh отклонён (невалидный токен) socket=${client.id}`)
@@ -275,12 +307,19 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     this.server.to(room).emit(REALTIME_CHANNEL, this.envelope(type, entityId, data, version))
   }
 
-  /** Подмножество переданных id, у которых есть хотя бы одно активное соединение. */
+  /**
+   * Подмножество переданных id, у которых есть хотя бы одно активное соединение.
+   *
+   * Только сокеты адресатов — по их личным комнатам, а не `fetchSockets()` по всему
+   * серверу: тот на каждый job уведомлений перебирал все подключения платформы ради
+   * нескольких получателей. Через адаптер, а не по счётчику в памяти, — чтобы с общим
+   * адаптером ответ учитывал соединения на всех инстансах.
+   */
   async getOnlineUserIds(userIds: string[]): Promise<Set<string>> {
     if (userIds.length === 0) return new Set()
     const wanted = new Set(userIds)
     const online = new Set<string>()
-    const sockets = await this.server.fetchSockets()
+    const sockets = await this.server.in([...wanted].map((id) => `user:${id}`)).fetchSockets()
     for (const socket of sockets) {
       const uid = socket.data?.userId as string | undefined
       if (uid && wanted.has(uid)) online.add(uid)

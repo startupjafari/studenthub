@@ -83,14 +83,36 @@ const HTTP_INPUT = [
   '5',
 ]
 
+// Какие контейнеры разбираем (F-F26). Вход — файл пользователя, а демультиплексоры ffmpeg
+// умеют больше, чем нужно видео: плейлист HLS или concat, загруженный «как видео», открыл бы
+// по ссылкам внутри себя другие файлы и адреса. Принимаются только контейнеры допустимых
+// видео (video/mp4, video/quicktime — `mov`; video/webm — `matroska`). Белый список, а не
+// `-f` по объявленному mime: контейнер ffmpeg определит сам, но из этих двух — и mp4,
+// присланный с типом quicktime, по-прежнему перекодируется.
+const SAFE_DEMUXERS = 'mov,matroska'
+
+/**
+ * Входные опции: протоколы и контейнеры по белому списку. Протоколы — ровно те, которыми
+ * читается сам вход: подписанная ссылка MinIO — http(s) поверх tcp/tls, локальный файл —
+ * только `file`. Ссылка изнутри файла на `file:///…` или во внутреннюю сеть не откроется.
+ */
 function inputArgs(input: string): string[] {
-  return /^https?:\/\//.test(input) ? [...HTTP_INPUT, '-i', input] : ['-i', input]
+  const remote = /^https?:\/\//.test(input)
+  return [
+    '-protocol_whitelist',
+    remote ? 'http,https,tcp,tls' : 'file',
+    '-format_whitelist',
+    SAFE_DEMUXERS,
+    ...(remote ? HTTP_INPUT : []),
+    '-i',
+    input,
+  ]
 }
 
 export async function probe(ffprobe: string, input: string): Promise<ProbeResult> {
   const out = await run(
     ffprobe,
-    ['-v', 'error', '-print_format', 'json', '-show_streams', '-show_format', input],
+    ['-v', 'error', '-print_format', 'json', '-show_streams', '-show_format', ...inputArgs(input)],
     60_000,
   )
   const json = JSON.parse(out) as ProbeJson

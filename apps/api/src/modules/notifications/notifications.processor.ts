@@ -11,9 +11,15 @@ import { renderNotificationMessage } from '@studenthub/shared-config'
 import { reportJobFailure } from '../../common/monitoring'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { RealtimeGateway } from '../../common/realtime'
-import { EMAIL_JOBS, QUEUES, QueueService, type JobPayload } from '../../common/queue'
+import {
+  EMAIL_JOBS,
+  NOTIFICATION_JOBS,
+  QUEUES,
+  QueueService,
+  type JobPayload,
+} from '../../common/queue'
 import { NotificationsService } from './notifications.service'
-import { PushService, type PushPayload } from '../push/push.service'
+import { PushService, type PushChannels, type PushPayload } from '../push/push.service'
 import type { NotificationJobData } from './notification-job.type'
 
 // Сколько адресатов читаем за один запрос. Рассылка на факультет — это тысячи получателей
@@ -36,6 +42,21 @@ const PUSH_PARALLEL = 20
 // приоритетных, поэтому инвайт, сброс пароля и подтверждение адреса (их ставят без
 // приоритета) не ждут за хвостом рассылки.
 const MIRROR_EMAIL_PRIORITY = 10
+
+/**
+ * Системные события, которые выключает тумблер «Системные» (`systemEnabled`, F-F25):
+ * социальные — заявка в друзья, принятая дружба, запрос на переписку. Раньше тумблер
+ * хранился и отдавался, но не читался вовсе.
+ *
+ * Остальные SYSTEM — решения и сроки, которые человек пропустить не должен: результат
+ * проверки документа, задание и оценка, предупреждение модерации, приём и консультация,
+ * итог жалобы, сбой отложенного сообщения. Они приходят всегда, как и раньше.
+ */
+const OPTIONAL_SYSTEM_JOBS: ReadonlySet<string> = new Set([
+  NOTIFICATION_JOBS.FRIEND_REQUEST,
+  NOTIFICATION_JOBS.FRIEND_ACCEPTED,
+  NOTIFICATION_JOBS.CHAT_REQUEST,
+])
 
 /** Разбивка списка на страницы по RECIPIENT_CHUNK. */
 function chunked<T>(items: T[]): T[][] {
@@ -86,9 +107,11 @@ interface Delivery {
 // Воркер очереди `notifications` (docs/PROJECT.md §10.1, задача Ф3.4).
 // Для каждого получателя: создать Notification (идемпотентно по dedupeKey; со свёрнутым
 // collapseKey — поднять уже существующую) → онлайн → WS `notification:new`; офлайн →
-// push и/или job в очередь `email` по включённым каналам.
+// браузерный push и/или job в очередь `email` по включённым каналам. Push на телефоны —
+// независимо от открытой вкладки.
 // Все документированные job-имена (new-message, schedule-changed, …) идут через единый
-// обработчик: имя job'а — для наблюдаемости, семантику несёт поле `type` в payload.
+// обработчик: имя job'а — для наблюдаемости и для того, какие SYSTEM можно выключить
+// (OPTIONAL_SYSTEM_JOBS); остальную семантику несёт поле `type` в payload.
 @Processor(QUEUES.NOTIFICATIONS, { concurrency: NOTIFICATIONS_CONCURRENCY })
 export class NotificationsProcessor extends WorkerHost {
   private readonly logger = new Logger(NotificationsProcessor.name)
@@ -137,8 +160,10 @@ export class NotificationsProcessor extends WorkerHost {
       users.push(...page)
     }
 
-    // Фильтр по пер-тип настройке (SYSTEM доставляется всегда).
-    const allowed = users.filter((u) => this.typeEnabled(data.type, u.notificationSettings))
+    // Фильтр по пер-тип настройке (важные SYSTEM доставляются всегда).
+    const allowed = users.filter((u) =>
+      this.typeEnabled(data.type, job.name, u.notificationSettings),
+    )
     if (!allowed.length) return
 
     const deliveries = data.collapseKey
@@ -154,28 +179,40 @@ export class NotificationsProcessor extends WorkerHost {
 
     const online = await this.realtime.getOnlineUserIds(deliveries.map((d) => d.user.id))
     const wantEmail = data.emailFallback ?? true
-    const pushes: { userId: string; payload: PushPayload }[] = []
+    const pushes: { userId: string; payload: PushPayload; channels: PushChannels }[] = []
     let delivered = 0
     let queuedEmail = 0
 
     for (const { user: u, notification, becameUnread } of deliveries) {
-      if (online.has(u.id)) {
+      const isOnline = online.has(u.id)
+      if (isOnline) {
         this.realtime.emitToUser(u.id, 'notification:new', { notification })
         // Параллельно — единый конверт (PR-8/#12); старое событие выше не трогаем.
         this.realtime.emitEventToUser(u.id, 'notification.created', notification.id, {
           notification,
         })
         delivered += 1
-        continue
       }
-      // Офлайн: доставляем по включённым каналам (push и/или email — независимые тумблеры).
+      // Push — по устройствам, а не по «онлайн где угодно» (F-F25). Открытый сокет значит
+      // лишь, что где-то открыта вкладка: забытая на рабочем компьютере, она гасила пуши
+      // на телефон. Теперь телефону push уходит всегда, браузерам — только офлайн-адресату:
+      // с открытой вкладкой уведомление и так пришло на страницу.
       if (this.pushEnabled(u.notificationSettings)) {
         const url = (notification.data as { url?: string } | null)?.url
         pushes.push({
           userId: u.id,
-          payload: { title: notification.title, body: notification.body, url },
+          payload: {
+            title: notification.title,
+            body: notification.body,
+            url,
+            // Свёрнутые (сообщения одного чата) — одной группой в шторке, а не десятком.
+            ...(data.collapseKey ? { tag: data.collapseKey } : {}),
+          },
+          channels: { web: !isOnline, devices: true },
         })
       }
+      if (isOnline) continue
+      // Офлайн: письмо по своему тумблеру (push выше — независимый канал).
       if (
         wantEmail &&
         this.emailEnabled(u.notificationSettings) &&
@@ -354,11 +391,13 @@ export class NotificationsProcessor extends WorkerHost {
    * сделаны, и перезапуск пропустил бы всех как доставленных — остальные просто не получили
    * бы push.
    */
-  private async sendPushes(items: { userId: string; payload: PushPayload }[]): Promise<void> {
+  private async sendPushes(
+    items: { userId: string; payload: PushPayload; channels: PushChannels }[],
+  ): Promise<void> {
     for (let i = 0; i < items.length; i += PUSH_PARALLEL) {
       await Promise.all(
-        items.slice(i, i + PUSH_PARALLEL).map(({ userId, payload }) =>
-          this.push.sendToUser(userId, payload).catch((error: unknown) => {
+        items.slice(i, i + PUSH_PARALLEL).map(({ userId, payload, channels }) =>
+          this.push.sendToUser(userId, payload, channels).catch((error: unknown) => {
             this.logger.warn({ err: error, userId }, 'push не отправлен')
           }),
         ),
@@ -386,7 +425,11 @@ export class NotificationsProcessor extends WorkerHost {
     return fromDictionary ?? fallback ?? ''
   }
 
-  private typeEnabled(type: NotificationType, settings: NotificationSettings | null): boolean {
+  private typeEnabled(
+    type: NotificationType,
+    jobName: string,
+    settings: NotificationSettings | null,
+  ): boolean {
     if (!settings) return true // нет строки настроек → дефолты (всё включено)
     switch (type) {
       case NotificationType.SCHEDULE_CHANGE:
@@ -400,7 +443,8 @@ export class NotificationsProcessor extends WorkerHost {
       case NotificationType.EVENT:
         return settings.eventEnabled
       case NotificationType.SYSTEM:
-        return true // системные уведомления не отключаются
+        // Важные системные не отключаются; социальные — по тумблеру «Системные».
+        return OPTIONAL_SYSTEM_JOBS.has(jobName) ? settings.systemEnabled : true
       default:
         return true
     }

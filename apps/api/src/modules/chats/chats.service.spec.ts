@@ -625,6 +625,33 @@ describe('ChatsService.searchMessages — область поиска', () => {
     expect(where.content).toEqual({ contains: 'привет', mode: 'insensitive' })
   })
 
+  // F-F23: очищенное «у себя» не показывает лента — не должен находить и поиск. Страницы —
+  // по seq внутри чата, а не составным курсором [createdAt, id].
+  it('chatId задан → без очищенного у себя, страницы по seq', async () => {
+    const { service, prisma } = setup()
+    const clearedAt = new Date('2026-01-01T00:00:00Z')
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1', bannedAt: null, clearedAt })
+    prisma.message.findFirst.mockResolvedValue({ seq: 42 })
+    prisma.message.findMany.mockResolvedValue([])
+
+    await service.searchMessages(user('u1'), {
+      limit: 20,
+      q: 'привет',
+      chatId: 'c1',
+      cursor: 'm-last',
+    })
+
+    expect(prisma.message.findFirst).toHaveBeenCalledWith({
+      where: { id: 'm-last', chatId: 'c1' },
+      select: { seq: true },
+    })
+    const args = prisma.message.findMany.mock.calls[0][0]
+    expect(args.where).toMatchObject({ chatId: 'c1', seq: { lt: 42 } })
+    expect(args.where.AND).toEqual([{ createdAt: { gt: clearedAt } }])
+    expect(args.orderBy).toEqual({ seq: 'desc' })
+    expect(args.cursor).toBeUndefined()
+  })
+
   it('без chatId → ограничивает чатами участника (без проверки конкретного членства)', async () => {
     const { service, prisma } = setup()
     prisma.message.findMany.mockResolvedValue([])
@@ -690,6 +717,28 @@ describe('ChatsService.getAttachmentUrl — доступ по членству',
     expect(err.code).toBe('WRONG_SCOPE')
     expect(files.getPresignedUrl).not.toHaveBeenCalled()
     expect(media.describeOne).not.toHaveBeenCalled()
+  })
+
+  // F-F23: водораздел clearedAt проверялся, а вырезанные «у себя» периоды — нет.
+  it('вложение из вырезанного у себя периода → NOT_FOUND', async () => {
+    const { service, prisma, files } = setup()
+    files.findOrThrow.mockResolvedValue({ id: 'f1', messageId: 'm1' })
+    prisma.message.findUnique.mockResolvedValue({
+      chatId: 'c1',
+      deletedAt: null,
+      createdAt: new Date('2026-02-01T12:00:00Z'),
+    })
+    prisma.chatMember.findUnique.mockResolvedValue({
+      id: 'mem1',
+      bannedAt: null,
+      clearedAt: null,
+      clearedRanges: [{ from: '2026-02-01T00:00:00.000Z', to: '2026-02-02T00:00:00.000Z' }],
+    })
+
+    const err = await service.getAttachmentUrl('u1', 'f1').catch((e) => e)
+
+    expect(err.code).toBe('NOT_FOUND')
+    expect(files.getPresignedUrl).not.toHaveBeenCalled()
   })
 
   it('участник → выдаёт presigned URL', async () => {
@@ -915,8 +964,26 @@ describe('ChatsService.toggleReaction (одна реакция на сообще
     prisma.messageReaction.findMany.mockResolvedValue([{ id: 'r1', emoji: '👍' }])
     prisma.message.findUniqueOrThrow.mockResolvedValue({ id: 'm1', chatId: 'c1', reactions: [] })
     await service.toggleReaction('u1', 'm1', '👍')
-    expect(prisma.messageReaction.delete).toHaveBeenCalledWith({ where: { id: 'r1' } })
+    // deleteMany, а не delete: снятие, пришедшее дважды, не падает на исчезнувшей строке.
+    expect(prisma.messageReaction.deleteMany).toHaveBeenCalledWith({ where: { id: 'r1' } })
     expect(prisma.messageReaction.create).not.toHaveBeenCalled()
+  })
+
+  // F-F24: двойной клик — два запроса, оба видели «реакции нет», второй create падал на
+  // уникальном ключе (500). Чтение и запись теперь под локом на (сообщение, участник).
+  it('чтение и запись реакции — в транзакции под локом на пару «сообщение, участник»', async () => {
+    const { service, prisma } = setup()
+    prisma.message.findFirst.mockResolvedValue({ id: 'm1', chatId: 'c1' })
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'mem1' })
+    prisma.message.findUniqueOrThrow.mockResolvedValue({ id: 'm1', chatId: 'c1', reactions: [] })
+
+    await service.toggleReaction('u1', 'm1', '👍')
+
+    expect(prisma.$transaction).toHaveBeenCalled()
+    const lockKeys = prisma.$executeRaw.mock.calls.map((c: unknown[]) => c[1])
+    expect(lockKeys).toContain('chat-reaction:m1:u1')
+    const lockAt = prisma.$executeRaw.mock.invocationCallOrder[0] ?? Infinity
+    expect(lockAt).toBeLessThan(prisma.messageReaction.findMany.mock.invocationCallOrder[0] ?? 0)
   })
 
   it('другая эмодзи → заменяет прежнюю (deleteMany + create)', async () => {
@@ -1487,15 +1554,75 @@ describe('ChatsService.getUnreadSummary', () => {
 })
 
 describe('ChatsService.exportMessages', () => {
-  it('участник → сообщения хронологически (asc), с cap', async () => {
+  // F-F23: выгружались ПЕРВЫЕ пять тысяч — в длинном чате файл обрывался на начале истории.
+  it('участник → последние сообщения, в файле хронологически, с cap', async () => {
     const { service, prisma } = setup()
     prisma.chatMember.findUnique.mockResolvedValue({ id: 'mem1' })
-    prisma.message.findMany.mockResolvedValue([{ id: 'a' }, { id: 'b' }])
+    // Выборка идёт от новых к старым — в выгрузке порядок обратный.
+    prisma.message.findMany.mockResolvedValue([{ id: 'b' }, { id: 'a' }])
     const res = await service.exportMessages('u1', 'c1')
-    expect(res).toHaveLength(2)
+    expect(res.map((m: { id: string }) => m.id)).toEqual(['a', 'b'])
     const args = prisma.message.findMany.mock.calls[0][0]
-    expect(args.orderBy).toEqual([{ createdAt: 'asc' }, { id: 'asc' }])
-    expect(args.take).toBe(5000)
+    expect(args.orderBy).toEqual({ seq: 'desc' })
+    // На одну больше потолка — так видно, что история длиннее выгрузки.
+    expect(args.take).toBe(5001)
+  })
+
+  it('очищенное «у себя» в выгрузку не попадает', async () => {
+    const { service, prisma } = setup()
+    const clearedAt = new Date('2026-01-01T00:00:00Z')
+    const range = { from: '2026-02-01T00:00:00.000Z', to: '2026-02-02T00:00:00.000Z' }
+    prisma.chatMember.findUnique.mockResolvedValue({
+      id: 'mem1',
+      clearedAt,
+      clearedRanges: [range],
+    })
+    prisma.message.findMany.mockResolvedValue([])
+
+    await service.exportMessages('u1', 'c1')
+
+    const where = prisma.message.findMany.mock.calls[0][0].where
+    expect(where).toMatchObject({ chatId: 'c1', deletedAt: null })
+    expect(where.AND).toEqual([
+      { createdAt: { gt: clearedAt } },
+      { NOT: { createdAt: { gte: new Date(range.from), lte: new Date(range.to) } } },
+    ])
+  })
+
+  it('история длиннее потолка — в шапке файла пометка, в JSON — truncated', async () => {
+    const { service, prisma } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'mem1' })
+    const rows = Array.from({ length: 5001 }, (_, i) => ({
+      id: `m${5001 - i}`,
+      content: 'x',
+      media: [],
+      createdAt: new Date('2026-03-01T10:00:00Z'),
+      sender: { firstName: 'Иван', lastName: 'Иванов' },
+    }))
+    prisma.message.findMany.mockResolvedValue(rows)
+    const options = {
+      context: {
+        kind: 'chat' as const,
+        actor: { id: 'u1', fullName: 'Иван Иванов' },
+        locale: 'ru' as const,
+        timezone: 'Asia/Almaty',
+        generatedAt: new Date(),
+      },
+      info: [['Система', 'StudentHub']] as Array<[string, string]>,
+      provenance: { system: 'StudentHub' },
+    }
+
+    const txt = await service.exportFile('u1', 'c1', { ...options, format: 'txt' })
+    expect(txt.split('\n')[1]).toBe(
+      'Выгружены последние 5000 сообщений — более ранние в файл не вошли',
+    )
+    expect(txt.split('\n').filter((line) => line.startsWith('['))).toHaveLength(5000)
+
+    const json = JSON.parse(await service.exportFile('u1', 'c1', { ...options, format: 'json' }))
+    expect(json.truncated).toBe(true)
+    expect(json.messages).toHaveLength(5000)
+    // Самое старое из выборки — лишнее, по нему и видно усечение; в файле его нет.
+    expect(json.messages[0].id).toBe('m2')
   })
 })
 
@@ -1817,6 +1944,29 @@ describe('ChatsService — опросы (§38–39)', () => {
     prisma.chatPoll.findUnique.mockResolvedValue(null)
     const err = await service.getPollResults(user('u1'), 'p1').catch((e) => e)
     expect(err.code).toBe('NOT_FOUND')
+  })
+
+  // F-F24: в удалённом опросе голос записывался, а poll:updated уходил всей комнате.
+  it('опрос удалённого сообщения: ни голоса, ни результатов → NOT_FOUND', async () => {
+    const { service, prisma, realtime } = setup()
+    prisma.chatPoll.findUnique.mockResolvedValue({
+      id: 'p1',
+      anonymous: false,
+      multiple: false,
+      allowRevote: true,
+      closed: false,
+      message: { chatId: 'c1', deletedAt: new Date() },
+      options: [{ id: 'o1' }],
+    })
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'mem1' })
+
+    const vote = await service.votePoll(user('u1'), 'p1', { optionIds: ['o1'] }).catch((e) => e)
+    const results = await service.getPollResults(user('u1'), 'p1').catch((e) => e)
+
+    expect(vote.code).toBe('NOT_FOUND')
+    expect(results.code).toBe('NOT_FOUND')
+    expect(prisma.chatPollVote.createMany).not.toHaveBeenCalled()
+    expect(realtime.emitToRoom).not.toHaveBeenCalled()
   })
 
   it('getPollResults: неанонимный опрос раскрывает проголосовавших по вариантам', async () => {
@@ -2175,6 +2325,9 @@ describe('ChatsService.createChat — один личный чат на пару
       requestPendingForId: null,
     })
 
+    // Друг — из другого вуза: дружба снимает правило «свой вуз».
+    prisma.user.findFirst.mockResolvedValueOnce({ universityId: 'uni2' })
+
     await service.createChat(
       { ...user('u1'), universityId: 'uni1' },
       { type: 'PRIVATE', memberIds: ['u2'] },
@@ -2183,8 +2336,39 @@ describe('ChatsService.createChat — один личный чат на пару
     expect(prisma.chat.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ requestPendingForId: null }) }),
     )
-    // Дружба сняла и проверку вуза — карточку адресата читать незачем.
-    expect(prisma.user.findFirst).not.toHaveBeenCalled()
+  })
+
+  // F-F24: memberIds: [свой id] проходил схему и создавал PRIVATE с одним участником.
+  it('личный чат «с собой» → VALIDATION_ERROR, чат не создаётся', async () => {
+    const { service, prisma } = setup()
+
+    const err = await service
+      .createChat({ ...user('u1'), universityId: 'uni1' }, { type: 'PRIVATE', memberIds: ['u1'] })
+      .catch((e) => e)
+
+    expect(err).toBeInstanceOf(AppException)
+    expect(err.code).toBe('VALIDATION_ERROR')
+    expect(prisma.chat.create).not.toHaveBeenCalled()
+  })
+
+  // F-F24: платформенной роли и другу проверка собеседника не делалась — несуществующий id
+  // доходил до вставки, и FK-ошибка уходила наружу как 500.
+  it.each([
+    ['платформенная роль', { ...user('a1'), role: Role.PLATFORM_ADMIN }, false],
+    ['друг', { ...user('u1'), universityId: 'uni1' }, true],
+  ])('%s: несуществующий собеседник → NOT_FOUND, а не 500', async (_label, actor, friends) => {
+    const { service, prisma } = setup()
+    prisma.chat.findFirst.mockResolvedValueOnce(null)
+    if (friends) prisma.friendship.findFirst.mockResolvedValueOnce({ id: 'f1' })
+    prisma.user.findFirst.mockResolvedValueOnce(null)
+
+    const err = await service
+      .createChat(actor, { type: 'PRIVATE', memberIds: ['ghost'] })
+      .catch((e) => e)
+
+    expect(err).toBeInstanceOf(AppException)
+    expect(err.code).toBe('NOT_FOUND')
+    expect(prisma.chat.create).not.toHaveBeenCalled()
   })
 
   it('человеку из чужого вуза личный чат не заводится', async () => {
@@ -2753,6 +2937,25 @@ describe('ChatsService — общие условия отправки (assertCan
 
     expect(err.code).toBe('FORBIDDEN')
     expect(prisma.message.create).not.toHaveBeenCalled()
+    // F-F24: удалённые тоже в счёт — иначе потолок обходился удалением своих сообщений.
+    expect(prisma.message.count).toHaveBeenCalledWith({ where: { chatId: 'c1', senderId: 'u1' } })
+  })
+
+  // F-F22: собеседник нужен только личному чату — состав группы на каждое сообщение не читаем.
+  it('проверка отправки читает не больше одного участника', async () => {
+    const { service, prisma } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1' })
+    prisma.message.create.mockResolvedValue(messageRow())
+    prisma.chat.update.mockResolvedValue({})
+
+    await service.createMessage('u1', { chatId: 'c1', content: 'hi' })
+
+    const select = prisma.chat.findUnique.mock.calls[0][0].select
+    expect(select.members).toEqual({
+      where: { userId: { not: 'u1' } },
+      select: { userId: true },
+      take: 1,
+    })
   })
 
   it('§50: потолок не касается адресата — его ответ и есть принятие', async () => {
@@ -2947,5 +3150,69 @@ describe('ChatsService — доставка отложенных', () => {
       message: { id: 'm1' },
       chatId: 'c1',
     })
+  })
+})
+
+// F-F21: прежний аватар группы удалялся ДО проверки нового — отказ по типу оставлял
+// `avatarUrl` на уже удалённый объект, и у группы висела битая картинка.
+describe('ChatsService.setChatAvatar — замена аватара', () => {
+  function avatarSetup() {
+    const harness = setup()
+    const { prisma } = harness
+    prisma.chatMember.findUnique.mockResolvedValue({ isAdmin: true, bannedAt: null })
+    prisma.chat.findUnique.mockResolvedValue({
+      id: 'c1',
+      type: 'GROUP',
+      title: 'Группа',
+      avatarUrl: 'http://minio/chat-media/old.png',
+      createdById: 'u1',
+    })
+    prisma.file.findFirst.mockResolvedValue({ id: 'old-file' })
+    prisma.message.create.mockResolvedValue({
+      id: 'sys1',
+      chatId: 'c1',
+      seq: 1,
+      createdAt: new Date(),
+    })
+    return harness
+  }
+
+  it('новый файл принимается и записывается раньше, чем удаляется прежний', async () => {
+    const { service, prisma, files } = avatarSetup()
+    files.upload.mockResolvedValue({ id: 'new-file', key: 'new.png' })
+    prisma.chat.update.mockResolvedValue({ id: 'c1', avatarUrl: 'http://minio/chat-media/new.png' })
+
+    await service.setChatAvatar(user('u1'), 'c1', Buffer.from('png'))
+
+    expect(files.delete).toHaveBeenCalledWith('old-file')
+    const uploadedAt = files.upload.mock.invocationCallOrder[0] ?? Infinity
+    const savedAt = prisma.chat.update.mock.invocationCallOrder[0] ?? Infinity
+    const deletedAt = files.delete.mock.invocationCallOrder[0] ?? 0
+    expect(uploadedAt).toBeLessThan(savedAt)
+    expect(savedAt).toBeLessThan(deletedAt)
+  })
+
+  it('новый файл отклонён — прежний аватар остаётся на месте', async () => {
+    const { service, prisma, files } = avatarSetup()
+    files.upload.mockRejectedValue(new AppException('BAD_REQUEST', 'Недопустимый тип файла'))
+
+    const err = await service.setChatAvatar(user('u1'), 'c1', Buffer.from('exe')).catch((e) => e)
+
+    expect(err.code).toBe('BAD_REQUEST')
+    expect(files.delete).not.toHaveBeenCalled()
+    expect(prisma.chat.update).not.toHaveBeenCalled()
+  })
+
+  it('чат не записал новый аватар — убирается новый файл, прежний цел', async () => {
+    const { service, prisma, files } = avatarSetup()
+    files.upload.mockResolvedValue({ id: 'new-file', key: 'new.png' })
+    prisma.chat.update.mockRejectedValue(new Error('db down'))
+
+    await expect(service.setChatAvatar(user('u1'), 'c1', Buffer.from('png'))).rejects.toThrow(
+      'db down',
+    )
+
+    expect(files.delete).toHaveBeenCalledTimes(1)
+    expect(files.delete).toHaveBeenCalledWith('new-file')
   })
 })

@@ -34,7 +34,9 @@ function socket(token?: string): Socket {
     id: 'sock-1',
     handshake: { auth: token ? { token } : {}, headers: {} },
     data: {} as Record<string, unknown>,
+    connected: true,
     join: jest.fn(),
+    leave: jest.fn(),
     disconnect: jest.fn(),
   } as unknown as Socket
 }
@@ -163,9 +165,32 @@ describe('RealtimeGateway — аутентификация handshake', () => {
     const { gateway, jwt } = setup()
     jwt.verifyAsync.mockResolvedValue({ sub: 'u3', role: 'TEACHER' })
     const client = socket()
+    client.data.userId = 'u3'
+    client.data.role = 'STUDENT'
     await gateway.handleAuthRefresh(client, { token: 'new' })
     expect(client.data.userId).toBe('u3')
+    expect(client.data.role).toBe('TEACHER')
     expect(client.disconnect).not.toHaveBeenCalled()
+  })
+
+  // F-F18: чужой токен раньше подменял userId — комнаты оставались прежнего владельца,
+  // а разрыв списывал онлайн другого человека.
+  it('auth:refresh токеном другого пользователя рвёт соединение и не подменяет его', async () => {
+    const { gateway, jwt } = setup()
+    gateway.setPresenceAudience(jest.fn().mockResolvedValue([]))
+    jwt.verifyAsync.mockResolvedValue({ sub: 'u1', role: 'STUDENT', universityId: 'uni1' })
+    const client = socket('good')
+    await gateway.handleConnection(client)
+
+    jwt.verifyAsync.mockResolvedValue({ sub: 'intruder', role: 'STUDENT' })
+    await gateway.handleAuthRefresh(client, { token: 'someone-else' })
+
+    expect(client.disconnect).toHaveBeenCalled()
+    expect(client.data.userId).toBe('u1')
+    // Разрыв списывает онлайн владельца соединения, а не того, чей токен прислали.
+    gateway.handleDisconnect(client)
+    expect(gateway.isOnline('u1')).toBe(false)
+    expect(gateway.isOnline('intruder')).toBe(false)
   })
 
   it('auth:refresh с невалидным токеном не рвёт соединение', async () => {
@@ -176,6 +201,91 @@ describe('RealtimeGateway — аутентификация handshake', () => {
     await gateway.handleAuthRefresh(client, { token: 'bad' })
     expect(client.disconnect).not.toHaveBeenCalled()
     expect(client.data.userId).toBe('prev')
+  })
+})
+
+// F-F18: между началом handleConnection и учётом соединения — несколько await, и клиент
+// успевает отвалиться. Раньше счётчик всё равно уходил в +1: «в сети» до рестарта процесса.
+describe('RealtimeGateway — гонка подключения и разрыва', () => {
+  it('отвалился, пока проверяли токен, — ни комнат, ни онлайна', async () => {
+    const { gateway, jwt, roomEmit } = setup()
+    gateway.setPresenceAudience(jest.fn().mockResolvedValue(['user:u5']))
+    const client = socket('good')
+    jwt.verifyAsync.mockImplementation(async () => {
+      // Разрыв приходит посреди проверки: socket.io уже вызвал handleDisconnect.
+      ;(client as unknown as { connected: boolean }).connected = false
+      gateway.handleDisconnect(client)
+      return { sub: 'u1', role: 'STUDENT', universityId: 'uni1' }
+    })
+
+    await gateway.handleConnection(client)
+    await flush()
+
+    expect(gateway.isOnline('u1')).toBe(false)
+    expect(client.join).not.toHaveBeenCalled()
+    expect(roomEmit).not.toHaveBeenCalled()
+  })
+
+  it('отвалился во время входа в комнаты — комнаты освобождаются, онлайна нет', async () => {
+    const { gateway, jwt } = setup()
+    jwt.verifyAsync.mockResolvedValue({ sub: 'u1', role: 'STUDENT', universityId: 'uni1' })
+    const client = socket('good')
+    ;(client.join as jest.Mock).mockImplementation(async () => {
+      ;(client as unknown as { connected: boolean }).connected = false
+    })
+
+    await gateway.handleConnection(client)
+
+    expect(gateway.isOnline('u1')).toBe(false)
+    expect(client.leave).toHaveBeenCalledWith('user:u1')
+    expect(client.leave).toHaveBeenCalledWith('university:uni1')
+  })
+
+  it('разрыв неучтённого соединения не уводит в офлайн другую вкладку', async () => {
+    const { gateway, jwt } = setup()
+    gateway.setPresenceAudience(jest.fn().mockResolvedValue([]))
+    jwt.verifyAsync.mockResolvedValue({ sub: 'u1', role: 'STUDENT', universityId: 'uni1' })
+    const tab = socket('good')
+    await gateway.handleConnection(tab)
+
+    // Вторая вкладка: userId уже записан, но соединение отвалилось до учёта.
+    const late = socket('good')
+    late.data.userId = 'u1'
+    gateway.handleDisconnect(late)
+
+    expect(gateway.isOnline('u1')).toBe(true)
+  })
+
+  it('повторный handleDisconnect того же сокета не списывает соединение дважды', async () => {
+    const { gateway, jwt } = setup()
+    gateway.setPresenceAudience(jest.fn().mockResolvedValue([]))
+    jwt.verifyAsync.mockResolvedValue({ sub: 'u1', role: 'STUDENT', universityId: 'uni1' })
+    const first = socket('good')
+    const second = socket('good')
+    await gateway.handleConnection(first)
+    await gateway.handleConnection(second)
+
+    gateway.handleDisconnect(first)
+    gateway.handleDisconnect(first)
+
+    expect(gateway.isOnline('u1')).toBe(true)
+  })
+})
+
+describe('RealtimeGateway.getOnlineUserIds', () => {
+  it('спрашивает только сокеты адресатов, а не все подключения сервера', async () => {
+    const { gateway } = setup()
+    const fetchSockets = jest
+      .fn()
+      .mockResolvedValue([{ data: { userId: 'u1' } }, { data: { userId: 'u1' } }, { data: {} }])
+    const server = { in: jest.fn(() => ({ fetchSockets })), fetchSockets: jest.fn() }
+    ;(gateway as unknown as { server: Server }).server = server as unknown as Server
+
+    const online = await gateway.getOnlineUserIds(['u1', 'u2', 'u1'])
+
+    expect(online).toEqual(new Set(['u1']))
+    expect(server.in).toHaveBeenCalledWith(['user:u1', 'user:u2'])
+    expect(server.fetchSockets).not.toHaveBeenCalled()
   })
 })
 

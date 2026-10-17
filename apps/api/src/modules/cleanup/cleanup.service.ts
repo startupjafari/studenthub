@@ -55,6 +55,7 @@ const LOCK_TTL_MS = {
   cleanOldNotifications: 30 * 60 * 1000,
   cleanAuditLogs: 30 * 60 * 1000,
   cleanDetachedFiles: 10 * 60 * 1000,
+  purgeDeviceTokens: 10 * 60 * 1000,
   cleanOrphanFiles: 60 * 60 * 1000,
   sweepIncompleteUploads: 60 * 60 * 1000,
   sendDailyDigest: 10 * 60 * 1000,
@@ -92,6 +93,38 @@ const ORPHAN_SAFETY_MINUTES = 60
 // Не трогаем свежие непривязанные вложения чата: запись File уже есть, а сообщения ещё нет —
 // чат принимает все файлы альбома и только потом заводит сообщение и привязывает их.
 const DETACHED_CHAT_FILE_SAFETY_MINUTES = 60
+
+// Вложения сообщений, удалённых «для всех», живут ещё столько дней (F-F21): срок на разбор
+// жалобы и на ошибку модерации. Дальше байты (до 500 МБ на файл) хранить незачем — само
+// сообщение и его вложения никому уже не показываются.
+const DELETED_MESSAGE_FILES_RETENTION_DAYS = 30
+
+// Загрузка через общий /files в бакеты постов, сторис и заявок, так и не привязанная к
+// сущности (загрузили — пост не создали), живёт сутки: столько же клиент держит и
+// незаконченную многочастную загрузку. Дольше черновик с уже загруженным файлом не ждёт.
+const DETACHED_UPLOAD_TTL_HOURS = 24
+
+// Потолок батчей на одну цель уборки File за прогон: первый прогон после выкатки разбирает
+// накопленный за всё время хвост — пусть за несколько ночей, но не одним многоминутным
+// циклом под локом.
+const DETACHED_FILES_MAX_BATCHES = 200
+
+// Ни одной связи с сущностью-владельцем — та же проверка, что у FileService.deleteDetached.
+// Повторяется и в самом удалении: файл могли привязать между выборкой и DELETE.
+const NO_OWNER_WHERE = {
+  postId: null,
+  messageId: null,
+  materialId: null,
+  albumId: null,
+  documentId: null,
+  submissionId: null,
+  stories: { none: {} },
+  albumsCovered: { none: {} },
+} satisfies Prisma.FileWhereInput
+
+// Токен телефона, который приложение не подтверждало столько дней, мёртв: приложение
+// подтверждает его при каждом запуске (prisma/schema/10-notifications.prisma, DeviceToken).
+const DEVICE_TOKEN_STALE_DAYS = 90
 
 // Через сколько часов брошенная многочастная загрузка считается мусором (Фаза 19).
 //
@@ -145,6 +178,12 @@ const ERROR_SPIKE_SILENCE_SEC = 60 * 60
 @Injectable()
 export class CleanupService {
   private readonly logger = new Logger(CleanupService.name)
+  // Состояние наблюдения за зависимостями в памяти процесса (F-F26): признак «упало» живёт
+  // в Redis, и при упавшем самом Redis его ни прочитать, ни записать — сигнал «не отвечает:
+  // Redis» уходил каждые пять минут. `servicesDown` — что этот процесс объявил последним;
+  // `servicesDownUnsynced` — объявил «упало», но записать в Redis не смог.
+  private servicesDown = false
+  private servicesDownUnsynced = false
 
   constructor(
     private readonly prisma: PrismaService,
@@ -433,42 +472,117 @@ export class CleanupService {
    * владельца, и `cleanOrphanFiles` её объект не трогает: он убирает только объекты БЕЗ
    * строки. Так вложения удалённых чатов лежали в хранилище вечно.
    *
-   * Здесь удаляются такие строки; их объекты снимет `cleanOrphanFiles` в 04:00. Бакеты —
-   * только эти два: в остальных (аватары, медиа профиля) строка без связей — норма.
+   * Здесь удаляются такие строки; их объекты (и варианты медиа — они сверяются по живой
+   * строке-владельцу) снимет `cleanOrphanFiles` в 04:00. Цели уборки:
+   * - вложения чата без сообщения и файлы материалов без материала;
+   * - вложения сообщений, удалённых «для всех» больше DELETED_MESSAGE_FILES_RETENTION_DAYS
+   *   назад (F-F21): мягкое удаление скрывало файл, но байты хранились бессрочно;
+   * - загрузки в бакеты постов, сторис и заявок, так и не привязанные ни к чему за сутки
+   *   (F-F21): «загрузил — пост не создал».
+   * Аватары и медиа профиля сюда не входят: там строка без связей — норма.
    *
    * Вложение чата живёт без `messageId` и законно: чат сначала принимает все файлы
    * сообщения и только потом одной транзакцией заводит сообщение и привязывает их (отказ
    * любого файла не оставляет пустого сообщения). Свежие строки поэтому не трогаем — иначе
-   * чистка, пришедшаяся на этот миг, срывала бы отправку.
+   * чистка, пришедшаяся на этот миг, срывала бы отправку. Условие цели повторяется и в
+   * самом удалении: строку могли привязать между выборкой и DELETE.
    */
   private async cleanDetachedFilesTask(): Promise<number> {
-    const freshChatSince = new Date(Date.now() - DETACHED_CHAT_FILE_SAFETY_MINUTES * 60 * 1000)
+    const now = Date.now()
+    const chatBucket = this.config.get('MINIO_BUCKET_CHAT', { infer: true })
     const targets: Prisma.FileWhereInput[] = [
       {
-        bucket: this.config.get('MINIO_BUCKET_CHAT', { infer: true }),
+        bucket: chatBucket,
         messageId: null,
-        createdAt: { lt: freshChatSince },
+        createdAt: { lt: new Date(now - DETACHED_CHAT_FILE_SAFETY_MINUTES * 60 * 1000) },
       },
       { bucket: this.config.get('MINIO_BUCKET_MATERIALS', { infer: true }), materialId: null },
+      {
+        bucket: chatBucket,
+        message: {
+          deletedAt: { lt: new Date(now - DELETED_MESSAGE_FILES_RETENTION_DAYS * DAY_MS) },
+        },
+      },
+      {
+        bucket: {
+          in: [
+            this.config.get('MINIO_BUCKET_POSTS', { infer: true }),
+            this.config.get('MINIO_BUCKET_STORIES', { infer: true }),
+            this.config.get('MINIO_BUCKET_APPLICATIONS', { infer: true }),
+          ],
+        },
+        createdAt: { lt: new Date(now - DETACHED_UPLOAD_TTL_HOURS * 60 * 60 * 1000) },
+        ...NO_OWNER_WHERE,
+      },
     ]
     let total = 0
     for (const where of targets) {
-      for (;;) {
-        const batch = await this.prisma.file.findMany({
-          where,
-          select: { id: true },
-          take: BATCH_SIZE,
-        })
-        if (batch.length === 0) break
-        const { count } = await this.prisma.file.deleteMany({
-          where: { id: { in: batch.map((f) => f.id) } },
-        })
-        total += count
-        if (batch.length < BATCH_SIZE) break
-      }
+      total += await this.deleteInBatches(
+        () => this.prisma.file.findMany({ where, select: { id: true }, take: BATCH_SIZE }),
+        (ids) => this.prisma.file.deleteMany({ where: { id: { in: ids }, ...where } }),
+        DETACHED_FILES_MAX_BATCHES,
+      )
     }
     this.logger.log(`cleanDetachedFiles: удалено записей ${total}`)
     return total
+  }
+
+  // Токены устройств: давно не подтверждённые и принадлежащие удалённым аккаунтам.
+  // Ежедневно, 03:50 — после уборки файлов, в тихий час.
+  @Cron('50 3 * * *', { name: 'purgeDeviceTokens' })
+  async purgeDeviceTokens(): Promise<number | null> {
+    return this.locks.run('purgeDeviceTokens', LOCK_TTL_MS.purgeDeviceTokens, () =>
+      this.purgeDeviceTokensTask(),
+    )
+  }
+
+  /**
+   * Схема обещала чистку токенов по `lastSeenAt`, но ни одна задача её не делала (F-F25):
+   * таблица копила телефоны, с которых годами не заходили, и каждый пуш стучался в них.
+   *
+   * Удаляются: токены телефонов, не подтверждённые DEVICE_TOKEN_STALE_DAYS дней, и
+   * адреса пушей (телефоны и браузеры) удалённых аккаунтов — уведомления им не уходят
+   * (процессор отсекает удалённых), а адрес устройства — это персональные данные.
+   * Заблокированных не трогаем: блокировка бывает временной, и снятый с неё человек
+   * остался бы без пушей до переустановки, а повторная привязка заново включила бы ему
+   * выключенные пуши (PushService.registerDevice).
+   */
+  private async purgeDeviceTokensTask(): Promise<number> {
+    const deviceWhere: Prisma.DeviceTokenWhereInput = {
+      OR: [
+        { lastSeenAt: { lt: new Date(Date.now() - DEVICE_TOKEN_STALE_DAYS * DAY_MS) } },
+        { user: { deletedAt: { not: null } } },
+      ],
+    }
+    const devices = await this.deleteInBatches(
+      () =>
+        this.prisma.deviceToken.findMany({
+          where: deviceWhere,
+          select: { id: true },
+          take: BATCH_SIZE,
+        }),
+      // Условие повторяем: приложение могло подтвердить токен между выборкой и удалением.
+      (ids) => this.prisma.deviceToken.deleteMany({ where: { id: { in: ids }, ...deviceWhere } }),
+    )
+    const subscriptionWhere: Prisma.PushSubscriptionWhereInput = {
+      user: { deletedAt: { not: null } },
+    }
+    const subscriptions = await this.deleteInBatches(
+      () =>
+        this.prisma.pushSubscription.findMany({
+          where: subscriptionWhere,
+          select: { id: true },
+          take: BATCH_SIZE,
+        }),
+      (ids) =>
+        this.prisma.pushSubscription.deleteMany({
+          where: { id: { in: ids }, ...subscriptionWhere },
+        }),
+    )
+    this.logger.log(
+      `purgeDeviceTokens: удалено токенов телефонов ${devices}, подписок браузеров ${subscriptions}`,
+    )
+    return devices + subscriptions
   }
 
   // Объекты MinIO без записи в File. Ежедневно, 04:00.
@@ -895,11 +1009,13 @@ export class CleanupService {
       .bucketExists(this.config.get('MINIO_BUCKET_AVATARS', { infer: true }))
       .catch(() => down.push('хранилище'))
 
-    const wasDown = (await this.redis.get(SERVICES_STATE_KEY).catch(() => null)) !== null
+    const wasDown = await this.wasServicesDown()
     if (down.length > 0 && !wasDown) {
-      await this.redis
+      this.servicesDown = true
+      this.servicesDownUnsynced = !(await this.redis
         .set(SERVICES_STATE_KEY, down.join(','), 'EX', DAY_MS / 1000)
-        .catch(() => undefined)
+        .then(() => true)
+        .catch(() => false))
       await this.telegram.notifyStaff(
         'digest',
         `Не отвечает: ${down.join(', ')}`,
@@ -908,6 +1024,8 @@ export class CleanupService {
         true,
       )
     } else if (down.length === 0 && wasDown) {
+      this.servicesDown = false
+      this.servicesDownUnsynced = false
       await this.redis.del(SERVICES_STATE_KEY).catch(() => undefined)
       await this.telegram.notifyStaff(
         'digest',
@@ -933,6 +1051,23 @@ export class CleanupService {
     return down.length
   }
 
+  /**
+   * Был ли объявлен сбой. Источник — Redis (общий для инстансов: «упало» объявляет один,
+   * «поднялось» может объявить другой). Redis не отвечает — память процесса. Ответил, но
+   * отметки нет, а процесс объявлял сбой, не сумев её записать (лежал сам Redis), — сбой
+   * всё ещё объявлен: иначе «Все сервисы снова отвечают» после падения Redis не пришло бы.
+   */
+  private async wasServicesDown(): Promise<boolean> {
+    const stored = await this.redis.get(SERVICES_STATE_KEY).then(
+      (value) => value !== null,
+      () => null,
+    )
+    if (stored === null) return this.servicesDown
+    const wasDown = stored || this.servicesDownUnsynced
+    this.servicesDown = wasDown
+    return wasDown
+  }
+
   // Занятое хранилище. Ежедневно в 04:45 — после уборки сирот и брошенных загрузок,
   // чтобы считать то, что осталось, а не то, что через минуту удалят.
   @Cron('45 4 * * *', { name: 'reportStorageUsage' })
@@ -945,20 +1080,36 @@ export class CleanupService {
   /**
    * Сводка занятого места по бакетам и сигнал при превышении порога.
    *
-   * Считаем по таблице `File`, а не обходом бакетов: запись о файле есть у каждого объекта,
-   * который кому-то принадлежит, а перечисление девяти бакетов целиком — это минуты работы
-   * и лишняя нагрузка на MinIO ради числа, которое уже лежит в базе. Осиротевшие объекты в
-   * сумму не попадают, но их за полчаса до этого подмёл `cleanOrphanFiles`.
+   * Считаем по таблицам `File` и `FileVariant`, а не обходом бакетов: запись есть у каждого
+   * объекта, который кому-то принадлежит, а перечисление девяти бакетов целиком — это
+   * минуты работы и лишняя нагрузка на MinIO ради числа, которое уже лежит в базе.
+   * Осиротевшие объекты в сумму не попадают, но их за полчаса до этого подмёл
+   * `cleanOrphanFiles`.
+   *
+   * Варианты медиа — в той же сумме (F-F21): рендишны HLS, постеры и WebP-копии лежат в
+   * бакете файла и по объёму сопоставимы с оригиналом. Без них порог STORAGE_ALERT_GB
+   * срабатывал заметно позже реального заполнения тома.
    *
    * Возвращает суммарный объём в байтах — по нему видно движение в логе прогона.
    */
   private async reportStorageUsageTask(): Promise<number> {
-    const perBucket = await this.prisma.file.groupBy({
-      by: ['bucket'],
-      _sum: { size: true },
-    })
-    const rows = perBucket
-      .map((b) => ({ bucket: b.bucket, bytes: b._sum.size ?? 0 }))
+    const [perBucket, variants] = await Promise.all([
+      this.prisma.file.groupBy({ by: ['bucket'], _sum: { size: true } }),
+      // Варианту своего бакета не положено — он живёт в бакете файла-владельца.
+      this.prisma.$queryRaw<{ bucket: string; bytes: bigint | number | null }[]>`
+        SELECT f."bucket" AS bucket, SUM(v."size")::bigint AS bytes
+        FROM "file_variants" v
+        JOIN "files" f ON f."id" = v."file_id"
+        GROUP BY f."bucket"
+      `,
+    ])
+    const byBucket = new Map<string, number>()
+    for (const b of perBucket) byBucket.set(b.bucket, b._sum.size ?? 0)
+    for (const v of variants) {
+      byBucket.set(v.bucket, (byBucket.get(v.bucket) ?? 0) + Number(v.bytes ?? 0))
+    }
+    const rows = [...byBucket]
+      .map(([bucket, bytes]) => ({ bucket, bytes }))
       .sort((a, b) => b.bytes - a.bytes)
     const bytes = rows.reduce((acc, r) => acc + r.bytes, 0)
     const detail = rows.map((r) => `${r.bucket} ${formatBytes(r.bytes)}`).join(', ')
