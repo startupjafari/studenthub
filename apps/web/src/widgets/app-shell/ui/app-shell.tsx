@@ -27,6 +27,7 @@ import { Skeleton } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { ChatLayoutProvider } from '../../../shared/lib'
 import { NotificationsPanel } from '../../../views/notifications'
+import { ConsentGate } from '../../../features/accept-consent'
 
 // Ширины строк скелетона поиска: разной длины, иначе блок читается как таблица, а не как
 // список названий. Значения же и служат ключами — индекс в key запрещён (§15).
@@ -539,6 +540,9 @@ export function AppShell({
             <NotificationsPanel onClose={() => setNotifOpen(false)} />
           </div>
         )}
+
+        {/* Повторное согласие на обработку ПДн: окно поверх всего, пока его не примут. */}
+        <ConsentGate />
       </div>
     </ChatLayoutProvider>
   )

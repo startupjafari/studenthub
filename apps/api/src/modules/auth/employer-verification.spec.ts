@@ -78,6 +78,7 @@ function setup(status: 'PENDING_EMAIL' | 'ACTIVE' | 'BLOCKED', user: object = EM
     {} as never,
     { assertAllowed: jest.fn() } as never,
     companies,
+    {} as never,
   )
   return { service, prisma, tx, passwords, loginAttempts, companyFindFirst }
 }

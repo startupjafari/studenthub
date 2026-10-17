@@ -5,8 +5,10 @@ import { createHash, randomUUID } from 'node:crypto'
 import { Prisma } from '@prisma/client'
 import type Redis from 'ioredis'
 import { PrismaService } from '../../common/prisma/prisma.service'
+import { advisoryXactLock } from '../../common/prisma/advisory-lock'
 import { AuditService } from '../../common/audit/audit.service'
 import { PasswordService } from '../../common/security/password.service'
+import { CryptoService } from '../../common/security/crypto.service'
 import { equalsConstantTime } from '../../common/security/constant-time'
 import { RealtimeGateway } from '../../common/realtime'
 import { REDIS_CLIENT } from '../../common/redis/redis.constants'
@@ -51,6 +53,13 @@ function hashRefreshSecret(secret: string): string {
   return createHash('sha256').update(secret).digest('hex')
 }
 
+// Последний выданный в цепочке refresh-токен — для повторов в окне грации (A-F30). Сырой
+// токен лежит зашифрованным (CryptoService) и живёт ровно окно грации: дольше он не нужен,
+// а открытым секрет сессии не должен лежать нигде, даже в Redis.
+function refreshSuccessorKey(familyId: string): string {
+  return `auth:refresh:successor:${familyId}`
+}
+
 export interface RequestContext {
   ip?: string
   userAgent?: string
@@ -93,6 +102,7 @@ export class AuthService {
     private readonly revocation: SessionRevocationService,
     private readonly universityAccess: UniversityAccessService,
     private readonly companies: CompaniesService,
+    private readonly crypto: CryptoService,
   ) {}
 
   /** Проверка идентификатор (email/username) + пароль для LocalStrategy. Не раскрывает, что именно неверно. */
@@ -445,11 +455,11 @@ export class AuthService {
     // Повторное использование инвалидированного токена → рвём всю цепочку (§6.2).
     //
     // Кроме окна грации: повтор ТОЛЬКО ЧТО ротированного токена, когда цепочка ещё жива, — это,
-    // как правило, не кража, а недоставленный ответ. Браузер обрывает запрос при навигации,
-    // закрытии вкладки или выгрузке страницы на мобильном: сервер ротацию выполнил, а новая cookie
-    // до клиента не доехала, и он честно повторяет обмен старым токеном. Рвать за это сессию
-    // значит выкидывать пользователя на ровном месте. В окне выдаём новую ротацию в той же цепочке,
-    // оставляя ровно один живой токен. Ширина окна — REFRESH_REUSE_GRACE_MS (0 отключает).
+    // как правило, не кража, а недоставленный ответ или соседняя вкладка. Браузер обрывает запрос
+    // при навигации, закрытии вкладки или выгрузке страницы на мобильном: сервер ротацию выполнил,
+    // а новая cookie до клиента не доехала, и он честно повторяет обмен старым токеном. Рвать за
+    // это сессию значит выкидывать пользователя на ровном месте. В окне отдаём уже выданного
+    // преемника (см. транзакцию ниже). Ширина окна — REFRESH_REUSE_GRACE_MS (0 отключает).
     if (record.revokedAt && !reuseInGrace) {
       await this.revokeFamily(record.familyId)
       await this.audit.record({
@@ -470,7 +480,7 @@ export class AuthService {
       // Не инцидент, но и не норма: частые попадания сюда означают, что клиент теряет ответы.
       this.logger.debug(
         { userId: record.userId, familyId: record.familyId },
-        'Повтор только что ротированного токена в окне грации — выдаём новую ротацию',
+        'Повтор только что ротированного токена в окне грации — отдаём действующего преемника',
       )
     }
 
@@ -490,20 +500,62 @@ export class AuthService {
     // тот же принцип: новой не выдаём, цепочку не гасим.
     await this.assertEmployerVerified(user)
 
-    // Ротация атомарно: старый revoked + новый в той же цепочке. Гасим и остальные живые токены
-    // цепочки — на пути грации там остаётся успешно выданный ранее «преемник», а инвариант
-    // «один активный токен на цепочку» терять нельзя.
+    const payload = this.toPayload(user)
+    // Обмены одной цепочки идут по очереди — под транзакционным advisory-локом (A-F30).
+    //
+    // Браузер, восстановив пять вкладок, шлёт пять обменов одной cookie разом. Раньше каждый
+    // в окне грации выдавал свою ротацию и гасил преемника предыдущего: живым оставался токен
+    // последней закоммиченной транзакции, а в cookie — ответ, пришедший последним. Порядки не
+    // совпали — в cookie отозванный токен, и следующий refresh через 15 минут (уже вне окна)
+    // рвал всю цепочку как кражу. Теперь первый обмен ротирует, а остальные, дождавшись лока,
+    // получают того же преемника: все ответы несут одну и ту же cookie.
     //
     // В AuditLog обычный обмен не пишется: активная вкладка меняет токен каждые 15 минут, и
     // журнал на 90% состоял из «refresh», вытесняя то, ради чего его читают. Значимые события
     // сессии — вход, выход и повтор погашенного токена — пишутся по-прежнему.
     return this.prisma.$transaction(async (tx) => {
+      await advisoryXactLock(tx, `refresh:${record.familyId}`)
+      // Состояние токена — заново, под локом: пока запрос ждал, его мог ротировать соседний.
+      const current = await tx.refreshToken.findUnique({
+        where: { id: record.id },
+        select: { revokedAt: true },
+      })
+      if (!current) {
+        throw new AppException('UNAUTHORIZED', 'Сессия не найдена')
+      }
+      if (current.revokedAt) {
+        const successor = await this.recentSuccessor(tx, record.familyId)
+        if (successor) {
+          return {
+            accessToken: this.jwt.sign(payload),
+            refreshToken: successor.raw,
+            refreshExpiresAt: successor.expiresAt,
+            payload,
+          }
+        }
+        // Пока запрос ждал, цепочку погасили целиком (выход, блокировка, смена пароля) —
+        // выдать новую сессию значило бы воскресить завершённую.
+        const alive = await tx.refreshToken.count({
+          where: { familyId: record.familyId, revokedAt: null },
+        })
+        if (alive === 0) {
+          throw new AppException('UNAUTHORIZED', 'Сессия завершена, войдите заново')
+        }
+        // Преемника не запомнили (Redis недоступен) — прежнее поведение: новая ротация.
+      }
+
+      // Ротация атомарно: старый revoked + новый в той же цепочке. Гасим и остальные живые
+      // токены цепочки — инвариант «один активный токен на цепочку» терять нельзя.
       await tx.refreshToken.updateMany({
         where: { familyId: record.familyId, revokedAt: null },
         data: { revokedAt: new Date() },
       })
       await tx.refreshToken.update({ where: { id: record.id }, data: { revokedAt: new Date() } })
-      return this.issueSession(this.toPayload(user), record.familyId, tx)
+      const session = await this.issueSession(payload, record.familyId, tx)
+      // До коммита, пока держим лок: ждущий следом обмен должен найти преемника. Откатится
+      // транзакция — запись укажет на несуществующий токен, и recentSuccessor её отвергнет.
+      await this.rememberSuccessor(record.familyId, session.refreshToken)
+      return session
     })
   }
 
@@ -523,9 +575,18 @@ export class AuthService {
     await this.audit.record({ userId: record.userId, action: 'logout', ...ctx })
   }
 
-  /** Профиль текущего пользователя (делегирует UserService). */
-  getMe(userId: string): Promise<UserProfile> {
-    return this.users.findById(userId)
+  /**
+   * Профиль текущего пользователя (делегирует UserService) и флаг `consentRequired` (A-F29):
+   * согласие на обработку ПДн дано на прежнюю редакцию документов или его основание
+   * (сам человек / законный представитель) разошлось с датой рождения. Подробности и
+   * принятие — `GET/POST /users/me/consent`.
+   */
+  async getMe(userId: string): Promise<UserProfile & { consentRequired: boolean }> {
+    const [profile, consent] = await Promise.all([
+      this.users.findById(userId),
+      this.users.consentState(userId),
+    ])
+    return { ...profile, consentRequired: consent.required }
   }
 
   /** Гасит ВСЕ активные сессии пользователя. Вызывается UserService при смене пароля/блокировке/удалении. */
@@ -560,6 +621,61 @@ export class AuthService {
       where: { familyId: record.familyId, revokedAt: null },
     })
     return alive > 0
+  }
+
+  /**
+   * Запомнить последнего выданного в цепочке преемника на окно грации — для обменов, которые
+   * пришли с тем же старым токеном чуть позже (соседние вкладки, оборванный ответ).
+   * Redis недоступен — не страшно: повтор получит новую ротацию, как до A-F30.
+   */
+  private async rememberSuccessor(familyId: string, rawToken: string): Promise<void> {
+    const graceMs = this.config.get('REFRESH_REUSE_GRACE_MS', { infer: true })
+    if (graceMs <= 0) return
+    try {
+      await this.redis.set(
+        refreshSuccessorKey(familyId),
+        this.crypto.encrypt(rawToken),
+        'PX',
+        graceMs,
+      )
+    } catch (error) {
+      this.logger.warn({ err: error }, 'Redis недоступен — преемник refresh-токена не запомнен')
+    }
+  }
+
+  /**
+   * Действующий преемник цепочки, выданный в окне грации. Только живой: погашенный (выход,
+   * следующая ротация) не воскрешается, а запись в Redis сверяется с хэшем в БД — без этого
+   * испорченная или чужая запись выдала бы клиенту токен, которого нет.
+   */
+  private async recentSuccessor(
+    tx: Prisma.TransactionClient,
+    familyId: string,
+  ): Promise<{ raw: string; expiresAt: Date } | null> {
+    let sealed: string | null
+    try {
+      sealed = await this.redis.get(refreshSuccessorKey(familyId))
+    } catch (error) {
+      this.logger.warn({ err: error }, 'Redis недоступен — преемник refresh-токена не прочитан')
+      return null
+    }
+    if (!sealed) return null
+    let raw: string
+    try {
+      raw = this.crypto.decrypt(sealed)
+    } catch {
+      return null
+    }
+    const parsed = this.parseRawToken(raw)
+    if (!parsed) return null
+    const successor = await tx.refreshToken.findFirst({
+      where: { id: parsed.id, familyId, revokedAt: null, expiresAt: { gt: new Date() } },
+      select: { tokenHash: true, expiresAt: true },
+    })
+    if (!successor || !equalsConstantTime(hashRefreshSecret(parsed.secret), successor.tokenHash)) {
+      return null
+    }
+    return { raw, expiresAt: successor.expiresAt }
   }
 
   private async revokeFamily(familyId: string): Promise<void> {

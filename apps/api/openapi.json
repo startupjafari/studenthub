@@ -552,6 +552,47 @@
         ]
       }
     },
+    "/users/me/consent": {
+      "get": {
+        "operationId": "UsersController_consent",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Состояние согласия владельца"
+          }
+        },
+        "summary": "Согласие на обработку ПДн: действующая редакция документов и нужно ли принять заново (required)",
+        "tags": [
+          "Пользователи"
+        ]
+      },
+      "post": {
+        "operationId": "UsersController_acceptConsent",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptConsentDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Согласие записано; в ответе — новое состояние"
+          },
+          "400": {
+            "description": "BAD_REQUEST — нет даты рождения или согласия законного представителя"
+          }
+        },
+        "summary": "Принять действующую редакцию документов (повторное согласие; до 18 лет — законный представитель)",
+        "tags": [
+          "Пользователи"
+        ]
+      }
+    },
     "/users/me/username": {
       "patch": {
         "operationId": "UsersController_updateUsername",
@@ -15672,6 +15713,10 @@
         "properties": {}
       },
       "UpdateProfileDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "AcceptConsentDto": {
         "type": "object",
         "properties": {}
       },

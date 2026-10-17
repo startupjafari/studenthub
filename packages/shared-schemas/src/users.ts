@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { WebsiteSchema } from './url.js'
 import { Role } from '@studenthub/shared-types'
-import { PasswordSchema, UsernameSchema } from './auth.js'
+import { AGE_OF_MAJORITY, PasswordSchema, UsernameSchema, ageAt } from './auth.js'
 import { AdminLimitSchema, OffsetPaginationSchema, SortOrderSchema } from './pagination.js'
 import { RoleSchema } from './invites.js'
 
@@ -154,6 +154,54 @@ export const DeleteAccountSchema = z
   .default({})
 
 export type DeleteAccountInput = z.infer<typeof DeleteAccountSchema>
+
+/**
+ * Тело `POST /users/me/consent`: повторное согласие на обработку персональных данных.
+ *
+ * Нужно, когда согласие из регистрации перестало подходить: сменилась редакция документов
+ * (`LEGAL_VERSION`) или основание — дата рождения в профиле теперь говорит о
+ * несовершеннолетнем, а согласие давал сам человек (и наоборот). Флаг — `consentRequired`
+ * в `/auth/me`, подробности — `GET /users/me/consent`.
+ *
+ * `birthDate` — только для учёток, где даты рождения нет вовсе (заведены до сентября 2026):
+ * без неё не решить, чьё согласие нужно. Возраст и согласие представителя сервер
+ * пересчитывает сам, как при регистрации.
+ */
+export const AcceptConsentSchema = z
+  .object({
+    /** Только `true`: отказ — это незаполненная форма. */
+    consent: z.literal(true),
+    /** Согласие законного представителя. Обязательно, если человеку нет 18. */
+    guardianConsent: z.boolean().optional(),
+    birthDate: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, 'Дата в формате ГГГГ-ММ-ДД')
+      .optional(),
+  })
+  .strict()
+  .superRefine((v, ctx) => {
+    if (!v.birthDate) return
+    const born = new Date(`${v.birthDate}T00:00:00Z`)
+    const age = Number.isNaN(born.getTime()) ? -1 : ageAt(v.birthDate)
+    // Та же граница, что при регистрации: защита от опечатки в годе.
+    if (age < 0 || age > 120) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Проверьте дату рождения',
+        path: ['birthDate'],
+      })
+      return
+    }
+    if (age < AGE_OF_MAJORITY && v.guardianConsent !== true) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Нужно согласие законного представителя',
+        path: ['guardianConsent'],
+      })
+    }
+  })
+
+export type AcceptConsentInput = z.infer<typeof AcceptConsentSchema>
 
 // ── Доступность полей профиля по роли (docs/PROJECT.md §3.7) ─────────────────
 // Единый источник истины: форма профиля на фронте и фильтр в UserService читают

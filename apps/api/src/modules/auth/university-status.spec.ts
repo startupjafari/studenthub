@@ -25,7 +25,10 @@ function setup(status: 'ACTIVE' | 'BLOCKED' | 'PENDING') {
   } as unknown as PrismaService)
 
   const tx = {
+    // Advisory-лок цепочки refresh (A-F30).
+    $executeRaw: jest.fn().mockResolvedValue(1),
     refreshToken: {
+      findUnique: jest.fn().mockResolvedValue({ revokedAt: null }),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       update: jest.fn().mockResolvedValue({}),
       create: jest.fn().mockResolvedValue({ id: 'rt-new' }),
@@ -85,6 +88,7 @@ function setup(status: 'ACTIVE' | 'BLOCKED' | 'PENDING') {
     {} as never,
     {} as never,
     access,
+    {} as never,
     {} as never,
   )
   return { service, prisma, tx, users, invites, loginAttempts }

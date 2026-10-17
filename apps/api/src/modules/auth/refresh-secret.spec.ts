@@ -46,6 +46,7 @@ describe('AuthService: refresh-токен без верного секрета',
       {} as never,
       { assertAllowed: jest.fn() } as never,
       {} as never,
+      {} as never,
     )
     return { service, prisma, audit, passwords }
   }
@@ -79,7 +80,11 @@ describe('AuthService: хэш секрета refresh', () => {
   function setup(record: Record<string, unknown> | null = null) {
     const created: { tokenHash: string }[] = []
     const tx = {
+      // Advisory-лок цепочки (обмены одной сессии — по очереди, A-F30).
+      $executeRaw: jest.fn().mockResolvedValue(1),
       refreshToken: {
+        // Под локом токен ещё жив — параллельного обмена не было.
+        findUnique: jest.fn().mockResolvedValue({ revokedAt: null }),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
         update: jest.fn().mockResolvedValue({}),
         create: jest.fn(async ({ data }: { data: { tokenHash: string } }) => {
@@ -129,6 +134,7 @@ describe('AuthService: хэш секрета refresh', () => {
       {} as never,
       {} as never,
       { assertAllowed: jest.fn() } as never,
+      {} as never,
       {} as never,
     )
     return { service, passwords, created, audit, tx }
@@ -236,6 +242,7 @@ describe('AuthService: окно грации считается до сверк�
         {} as never,
         {} as never,
         { assertAllowed: jest.fn() } as never,
+        {} as never,
         {} as never,
       )
 

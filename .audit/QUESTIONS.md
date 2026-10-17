@@ -301,3 +301,17 @@ QR-отметка и check-in работают только сегодня, с �
   - скрыть «Убрать» у принятого документа;
   - добавить IN_REVIEW/RESUBMITTED в список статусов, из которых можно отозвать заявку.
     Нужно ли это делать до релиза?
+
+## Q23. Подтверждение email при регистрации по ссылочному инвайту (P2-A-auth-2, A-F22)
+
+У инвайта-ссылки нет адреса, поэтому email, указанный при регистрации, никто не проверяет. Чтобы
+подтверждать его, нужны три вещи:
+
+- миграция:
+  `ALTER TABLE users ADD COLUMN email_verified_at TIMESTAMP(3);`
+  `UPDATE users u SET email_verified_at = u.created_at WHERE NOT EXISTS (SELECT 1 FROM invites i WHERE i.used_by_id = u.id AND i.email IS NULL);`
+- новое письмо `send-email-verification` и эндпоинты verify/resend;
+- сценарий смены email.
+  Делать?
+  Отдельно: e2e `auth.e2e-spec.ts` на локальной тестовой БД падают на `TRUNCATE` в beforeEach
+  (таймаут 30 с). Это до кода auth, похоже на состояние локальной БД — см. также Q4.
