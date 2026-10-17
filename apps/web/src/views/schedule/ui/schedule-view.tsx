@@ -1,19 +1,11 @@
 'use client'
 
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { Role } from '@studenthub/shared-types'
 import { useAppSelector } from '../../../shared/store'
-import { fetchGroups, groupKeys } from '../../../entities/group'
-import {
-  PageHeader,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '../../../shared/ui'
+import { GroupSelect } from '../../../entities/group'
+import { PageHeader } from '../../../shared/ui'
 import { ScheduleGrid } from '../../../widgets/schedule-grid'
 
 // Роли, видящие несколько групп → показываем фильтр по группе (студент/староста — только своя).
@@ -29,13 +21,7 @@ export function ScheduleView() {
   const t = useTranslations('Schedule')
   const role = useAppSelector((s) => s.auth.role)
   const canFilter = role !== null && MULTI_GROUP_ROLES.includes(role)
-  const [groupId, setGroupId] = useState<string>('')
-
-  const groups = useQuery({
-    queryKey: groupKeys.list(),
-    queryFn: () => fetchGroups(),
-    enabled: canFilter,
-  })
+  const [groupId, setGroupId] = useState<string | null>(null)
 
   const filters = groupId ? { groupId } : {}
 
@@ -45,23 +31,11 @@ export function ScheduleView() {
         title={t('title')}
         actions={
           canFilter && (
+            // Поиск по группам на сервере: список из первых 100 по алфавиту не давал
+            // открыть расписание хвоста алфавита в большом вузе. Пустое значение — «все
+            // группы»; сбрасывается крестиком в поле.
             <div className="w-56 sm:w-64">
-              <Select
-                value={groupId || 'all'}
-                onValueChange={(v) => setGroupId(v === 'all' ? '' : v)}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder={t('allGroups')} />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">{t('allGroups')}</SelectItem>
-                  {(groups.data ?? []).map((g) => (
-                    <SelectItem key={g.id} value={g.id}>
-                      {g.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <GroupSelect value={groupId} onChange={setGroupId} placeholder={t('allGroups')} />
             </div>
           )
         }

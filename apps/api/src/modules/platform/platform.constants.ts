@@ -33,6 +33,13 @@ export const PLATFORM_STATE_CACHE_KEY = 'platform:state'
  */
 export const PLATFORM_TIME_ZONE = 'Asia/Almaty'
 
+/**
+ * Пояс PLATFORM_TIME_ZONE словами — для ответов бота. Без него «Сводка приходит в 9:00»
+ * читается по часам того, кто спросил, а команда бывает в разъездах. Меняется вместе с
+ * PLATFORM_TIME_ZONE и подписью `notifTimeZone` мини-аппа.
+ */
+export const PLATFORM_TIME_ZONE_LABEL = 'по времени Алматы (UTC+5)'
+
 export interface NotificationPolicy {
   /** Часы тишины по времени платформы (PLATFORM_TIME_ZONE); null — тишины нет. */
   quietFrom: number | null

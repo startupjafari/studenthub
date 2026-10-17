@@ -269,7 +269,17 @@ export class MiniService {
     const rows = await this.prisma.telegramAccount.findMany({
       // Привязки удалённых аккаунтов, оставшиеся с прежних времён, — не команда и не пул
       // дежурства: удаление снимает привязку, но старые строки могли пережить его.
-      where: { revokedAt: null, user: { deletedAt: null } },
+      // Заблокированных и сменивших роль — туда же: это пул очереди дежурств, и сервер
+      // (PlatformService.reachable) всё равно не поставит их в очередь — список не должен
+      // предлагать тех, на ком сохранение упадёт с 422.
+      where: {
+        revokedAt: null,
+        user: {
+          deletedAt: null,
+          isBlocked: false,
+          role: { in: [Role.PLATFORM_ADMIN, Role.PLATFORM_MODERATOR] },
+        },
+      },
       select: {
         userId: true,
         username: true,

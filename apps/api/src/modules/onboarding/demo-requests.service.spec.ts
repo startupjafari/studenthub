@@ -52,6 +52,8 @@ function setup() {
     $transaction: jest.fn(async (arg: unknown) =>
       typeof arg === 'function' ? (arg as (t: typeof tx) => unknown)(tx) : arg,
     ),
+    // Справочник КАТО: по умолчанию город заявки в нём не находится.
+    katoUnit: { findMany: jest.fn().mockResolvedValue([]) },
   }
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const queue = { enqueue: jest.fn().mockResolvedValue(undefined) }
@@ -263,6 +265,66 @@ describe('DemoRequestsService.approve', () => {
     contactName: 'Айгуль Сериковна',
     email: 'rector@example.edu',
   }
+
+  // B-F13: у вуза из заявки город был текстом, у вуза из админки — кодом КАТО.
+  it('город заявки, однозначно найденный в КАТО, сохраняется кодом', async () => {
+    const { service, prisma, tx } = setup()
+    prisma.universityDemoRequest.findUnique.mockResolvedValue(approved)
+    prisma.katoUnit.findMany.mockResolvedValue([{ code: '750000000' }])
+
+    await service.approve(admin, 'req-1', {}, ctx)
+
+    expect(prisma.katoUnit.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          kind: 'CITY',
+          OR: [
+            { nameRu: { equals: 'Алматы', mode: 'insensitive' } },
+            { nameKk: { equals: 'Алматы', mode: 'insensitive' } },
+          ],
+        }),
+      }),
+    )
+    expect(tx.university.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ city: '750000000' }) }),
+    )
+  })
+
+  it('неоднозначный или зарубежный город остаётся текстом', async () => {
+    const { service, prisma, tx } = setup()
+    prisma.universityDemoRequest.findUnique.mockResolvedValue({ ...approved, city: 'Абай' })
+    prisma.katoUnit.findMany.mockResolvedValue([{ code: '353220100' }, { code: '999999999' }])
+
+    await service.approve(admin, 'req-1', {}, ctx)
+
+    expect(tx.university.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ city: 'Абай' }) }),
+    )
+  })
+
+  it('код КАТО из формы одобрения сохраняется как есть, без поиска', async () => {
+    const { service, prisma, tx } = setup()
+    prisma.universityDemoRequest.findUnique.mockResolvedValue(approved)
+
+    await service.approve(admin, 'req-1', { city: '710000000' }, ctx)
+
+    expect(prisma.katoUnit.findMany).not.toHaveBeenCalled()
+    expect(tx.university.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ city: '710000000' }) }),
+    )
+  })
+
+  it('сбой справочника не роняет одобрение — город остаётся текстом', async () => {
+    const { service, prisma, tx } = setup()
+    prisma.universityDemoRequest.findUnique.mockResolvedValue(approved)
+    prisma.katoUnit.findMany.mockRejectedValue(new Error('db down'))
+
+    await service.approve(admin, 'req-1', {}, ctx)
+
+    expect(tx.university.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ city: 'Алматы' }) }),
+    )
+  })
 
   it('заводит вуз в PENDING и сразу открывает мастер', async () => {
     const { service, prisma, tx } = setup()

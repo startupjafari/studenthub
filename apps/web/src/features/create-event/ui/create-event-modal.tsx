@@ -14,7 +14,7 @@ import { Role } from '@studenthub/shared-types'
 import { useAppSelector } from '../../../shared/store'
 import { useErrorToast } from '../../../shared/lib'
 import { createEventRequest, eventKeys } from '../../../entities/event'
-import { fetchGroups, groupKeys } from '../../../entities/group'
+import { GroupSelect } from '../../../entities/group'
 import { fetchFaculties, facultyKeys } from '../../../entities/faculty'
 import {
   Button,
@@ -64,11 +64,6 @@ export function CreateEventModal({ onClose }: { onClose: () => void }) {
   const showGroup = audience === 'GROUP' && role !== null && GROUP_PICKER_ROLES.includes(role)
   const showFaculty = audience === 'FACULTY' && role !== null && FACULTY_PICKER_ROLES.includes(role)
 
-  const groups = useQuery({
-    queryKey: groupKeys.list(),
-    queryFn: () => fetchGroups(),
-    enabled: showGroup,
-  })
   const faculties = useQuery({
     queryKey: facultyKeys.list(),
     queryFn: () => fetchFaculties(),
@@ -114,23 +109,18 @@ export function CreateEventModal({ onClose }: { onClose: () => void }) {
 
             {showGroup && (
               <div className="flex flex-col gap-1.5">
-                <Label>{t('group')}</Label>
+                <Label htmlFor="e-group">{t('group')}</Label>
+                {/* Поиск по группам на сервере, а не первые 100 по алфавиту. */}
                 <Controller
                   control={form.control}
                   name="groupId"
                   render={({ field }) => (
-                    <Select value={field.value ?? ''} onValueChange={field.onChange}>
-                      <SelectTrigger aria-label={t('group')}>
-                        <SelectValue placeholder={t('selectGroup')} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {(groups.data ?? []).map((g) => (
-                          <SelectItem key={g.id} value={g.id}>
-                            {g.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <GroupSelect
+                      id="e-group"
+                      value={field.value ?? null}
+                      onChange={(v) => field.onChange(v ?? undefined)}
+                      placeholder={t('selectGroup')}
+                    />
                   )}
                 />
               </div>

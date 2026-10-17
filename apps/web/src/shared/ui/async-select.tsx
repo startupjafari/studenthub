@@ -30,6 +30,9 @@ interface AsyncSelectProps {
   size?: ControlSize
   id?: string
   renderItem?: (item: AsyncSelectItem) => ReactNode
+  // Подпись пустого значения, когда «ничего не выбрано» что-то значит: у фильтра это
+  // «все группы», а не приглашение выбрать. По умолчанию — общая подсказка поиска.
+  placeholder?: string
 }
 
 /**
@@ -61,6 +64,7 @@ export function AsyncSelect({
   size = 'lg',
   id,
   renderItem,
+  placeholder,
 }: AsyncSelectProps) {
   const t = useTranslations('Common')
   const [open, setOpen] = useState(false)
@@ -105,7 +109,7 @@ export function AsyncSelect({
               !value && 'text-muted-foreground/70',
             )}
           >
-            {value ? (selectedLabel ?? value) : t('dictPlaceholder')}
+            {value ? (selectedLabel ?? value) : (placeholder ?? t('dictPlaceholder'))}
           </span>
           <span className="flex shrink-0 items-center gap-1">
             {value && (

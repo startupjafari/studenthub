@@ -166,6 +166,28 @@ export interface TopActions {
 // Всё считает сервер: клиент не досчитывает и не усредняет, иначе цифра в плитке
 // и цифра на графике начинают расходиться.
 
+/**
+ * Плитки дашборда вуза — `GET /analytics/university/overview`, одним запросом с кэшем.
+ * Посещаемость считает сервер по всем отметкам вуза; клиент её не усредняет.
+ */
+export interface UniversityOverview {
+  /** Доля не-пропусков, проценты; null — посещаемость ещё не отмечали. */
+  attendanceRate: number | null
+  attendanceTracked: number
+  submissionsPending: number
+  examsUpcoming: number
+  /** Группы с отмеченной посещаемостью, худшие первыми (не больше 100). */
+  groups: {
+    groupId: string
+    name: string
+    facultyId: string
+    attendanceRate: number
+    attendanceTracked: number
+  }[]
+  /** Группы ниже порога «требует внимания». */
+  atRisk: AtRiskGroup[]
+}
+
 export interface WeeklyPoint {
   /** Понедельник недели, ISO. */
   at: string

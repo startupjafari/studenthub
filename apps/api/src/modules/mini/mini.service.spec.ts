@@ -292,3 +292,34 @@ describe('MiniService.link — перепривязка Telegram после от
     )
   })
 })
+
+describe('MiniService.listLinks — пул очереди дежурств', () => {
+  // Список — это пул очереди дежурств: заблокированного или сменившего роль сервер в
+  // очередь не поставит (422), и предлагать его в мини-аппе значит обещать то, чего не будет.
+  it('не показывает заблокированных, удалённых и не команду платформы', async () => {
+    const prisma = { telegramAccount: { findMany: jest.fn().mockResolvedValue([]) } }
+    const service = new MiniService(
+      prisma as unknown as PrismaService,
+      { sign: jest.fn() } as unknown as JwtService,
+      { record: jest.fn() } as unknown as AuditService,
+      { get: jest.fn(() => BOT_TOKEN) } as unknown as ConfigService<EnvVars, true>,
+      {} as unknown as Redis,
+      { notifyOne: jest.fn() } as unknown as TelegramNotifyService,
+    )
+
+    await service.listLinks()
+
+    expect(prisma.telegramAccount.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          revokedAt: null,
+          user: {
+            deletedAt: null,
+            isBlocked: false,
+            role: { in: [Role.PLATFORM_ADMIN, Role.PLATFORM_MODERATOR] },
+          },
+        },
+      }),
+    )
+  })
+})

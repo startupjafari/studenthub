@@ -381,6 +381,27 @@ describe('TelegramHookService — команды', () => {
     cap.restore()
   })
 
+  // Часы тишины и сводки считаются по Алматы (PLATFORM_TIME_ZONE): без пояса в ответе
+  // «в 9:00» читается по часам того, кто спросил.
+  it('/duty называет пояс у тихих часов и часа сводки', async () => {
+    const { service, platform } = setup({ TELEGRAM_BOT_TOKEN: 't' })
+    platform.notificationPolicy.mockResolvedValue({
+      quietFrom: 22,
+      quietTo: 8,
+      muted: [],
+      dutyUserId: null,
+      digestHour: 9,
+    })
+    const cap = captureSend()
+
+    await service.handleMessage(privateMsg('/duty'))
+
+    const text = String(cap.sent[0]?.body.text)
+    expect(text).toContain('Тихие часы: с 22:00 до 8:00 по времени Алматы (UTC+5)')
+    expect(text).toContain('Сводка приходит в 9:00 по времени Алматы (UTC+5)')
+    cap.restore()
+  })
+
   it('/digest отвечает сводкой за сутки', async () => {
     const { service, complaints, support } = setup({ TELEGRAM_BOT_TOKEN: 't' })
     complaints.dayStats.mockResolvedValue({ created: 4, closed: 4 })

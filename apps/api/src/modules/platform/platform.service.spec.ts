@@ -1,6 +1,7 @@
 import type { PlatformState } from '@prisma/client'
 import type Redis from 'ioredis'
-import { PlatformService } from './platform.service'
+import { Role } from '@studenthub/shared-types'
+import { PLATFORM_AUDIT_ACTIONS, PlatformService } from './platform.service'
 import type { AuditService } from '../../common/audit/audit.service'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { TwoFactorService } from '../auth/two-factor.service'
@@ -97,14 +98,8 @@ describe('PlatformService.publicState', () => {
   it('отдаёт пустое состояние, пока рычагов не трогали (строки ещё нет)', async () => {
     const { service } = setup(null)
 
+    // Аноним: настроек уведомлений команды в ответе нет вовсе (B-F19).
     await expect(service.publicState(NOW)).resolves.toEqual({
-      notifications: {
-        quietFrom: null,
-        quietTo: null,
-        muted: [],
-        dutyUserId: null,
-        digestHour: null,
-      },
       maintenance: null,
       banner: null,
       disabledSections: [],
@@ -343,14 +338,8 @@ describe('PlatformService — отказ чтения состояния', () =>
     const { service, prisma } = setup()
     prisma.platformState.findUnique.mockRejectedValue(new Error('connection refused'))
 
+    // Аноним: настроек уведомлений команды в ответе нет вовсе (B-F19).
     await expect(service.publicState(NOW)).resolves.toEqual({
-      notifications: {
-        quietFrom: null,
-        quietTo: null,
-        muted: [],
-        dutyUserId: null,
-        digestHour: null,
-      },
       maintenance: null,
       banner: null,
       disabledSections: [],
@@ -480,24 +469,67 @@ describe('PlatformService — плановые техработы из кэша'
 })
 
 describe('PlatformService — адресный баннер', () => {
-  it('отдаёт аудиторию вместе с баннером', async () => {
-    const { service } = setup(
-      row({
-        bannerUntil: new Date(NOW.getTime() + 60 * 60_000),
-        bannerTextRu: 'р',
-        bannerTextKk: 'қ',
-        bannerTextEn: 'e',
-        bannerRoles: ['TEACHER'],
-        bannerUniversityIds: ['11111111-1111-1111-1111-111111111111'],
-      }),
-    )
-
-    await expect(service.publicState(NOW)).resolves.toMatchObject({
-      banner: expect.objectContaining({
-        roles: ['TEACHER'],
-        universityIds: ['11111111-1111-1111-1111-111111111111'],
-      }),
+  const UNI_A = '11111111-1111-1111-1111-111111111111'
+  const UNI_B = '22222222-2222-2222-2222-222222222222'
+  const targeted = (patch: Partial<PlatformState> = {}) =>
+    row({
+      bannerUntil: new Date(NOW.getTime() + 60 * 60_000),
+      bannerTextRu: 'р',
+      bannerTextKk: 'қ',
+      bannerTextEn: 'e',
+      bannerRoles: ['TEACHER'],
+      bannerUniversityIds: [UNI_A, UNI_B],
+      ...patch,
     })
+
+  it('команда платформы видит аудиторию целиком', async () => {
+    const { service } = setup(targeted())
+
+    await expect(
+      service.publicState(NOW, { role: Role.PLATFORM_ADMIN, universityId: null }),
+    ).resolves.toMatchObject({
+      banner: expect.objectContaining({ roles: ['TEACHER'], universityIds: [UNI_A, UNI_B] }),
+    })
+  })
+
+  // B-F19: объявление «только преподавателям вуза X» с UUID вузов читал любой без входа.
+  it('аноним адресного баннера не получает', async () => {
+    const { service } = setup(targeted())
+    await expect(service.publicState(NOW)).resolves.toMatchObject({ banner: null })
+  })
+
+  it('аноним видит баннер без адресации', async () => {
+    const { service } = setup(targeted({ bannerRoles: [], bannerUniversityIds: [] }))
+    await expect(service.publicState(NOW)).resolves.toMatchObject({
+      banner: expect.objectContaining({ roles: [], universityIds: [] }),
+    })
+  })
+
+  it('адресат получает баннер, а из прицела по вузам — только свой вуз', async () => {
+    const { service } = setup(targeted())
+
+    const state = await service.publicState(NOW, { role: Role.TEACHER, universityId: UNI_A })
+
+    expect(state.banner).toMatchObject({ roles: ['TEACHER'], universityIds: [UNI_A] })
+  })
+
+  it('не адресату баннер не уходит: чужой вуз или чужая роль', async () => {
+    const { service } = setup(targeted())
+
+    const otherUni = await service.publicState(NOW, {
+      role: Role.TEACHER,
+      universityId: '33333333-3333-3333-3333-333333333333',
+    })
+    const otherRole = await service.publicState(NOW, { role: Role.STUDENT, universityId: UNI_A })
+
+    expect(otherUni.banner).toBeNull()
+    expect(otherRole.banner).toBeNull()
+  })
+
+  it('баннер ролям без прицела по вузам доходит до этой роли в любом вузе', async () => {
+    const { service } = setup(targeted({ bannerUniversityIds: [] }))
+    const state = await service.publicState(NOW, { role: Role.TEACHER, universityId: UNI_B })
+    expect(state.banner).toMatchObject({ roles: ['TEACHER'], universityIds: [] })
   })
 
   // Снимая баннер, аудиторию тоже стираем: иначе следующий унаследовал бы чужой прицел.
@@ -507,6 +539,33 @@ describe('PlatformService — адресный баннер', () => {
     await service.setBanner('admin-1', { minutes: null, level: 'INFO' })
 
     expect(updates.at(0) ?? {}).toMatchObject({ bannerRoles: [], bannerUniversityIds: [] })
+  })
+})
+
+describe('PlatformService — настройки уведомлений в состоянии', () => {
+  const policy = row({ quietFrom: 22, quietTo: 8, dutyUserId: 'duty-1', digestHour: 9 })
+
+  it('команда платформы (мини-апп) получает настройки уведомлений', async () => {
+    const { service } = setup(policy)
+    const state = await service.publicState(NOW, {
+      role: Role.PLATFORM_MODERATOR,
+      universityId: null,
+    })
+    expect(state.notifications).toEqual({
+      quietFrom: 22,
+      quietTo: 8,
+      muted: [],
+      dutyUserId: 'duty-1',
+      digestHour: 9,
+    })
+  })
+
+  it('остальным id дежурного и тихие часы не отдаются', async () => {
+    const { service } = setup(policy)
+    const anon = await service.publicState(NOW)
+    const admin = await service.publicState(NOW, { role: Role.UNIVERSITY_ADMIN, universityId: 'u' })
+    expect(anon).not.toHaveProperty('notifications')
+    expect(admin).not.toHaveProperty('notifications')
   })
 })
 
@@ -525,6 +584,52 @@ describe('PlatformService — наблюдение', () => {
     const { service } = setup()
 
     await expect(service.storageUsage()).resolves.toEqual({ files: 0, bytes: 0 })
+  })
+
+  // B-F20: COUNT и SUM по всей таблице файлов — не на каждое открытие «Обзора».
+  it('объём файлов кэшируется на пять минут', async () => {
+    const { service, prisma, redis } = setup()
+    prisma.file.count.mockResolvedValue(3)
+    prisma.file.aggregate.mockResolvedValue({ _sum: { size: 10 } })
+
+    await service.storageUsage()
+
+    expect(redis.set).toHaveBeenCalledWith(
+      'platform:storage',
+      JSON.stringify({ files: 3, bytes: 10 }),
+      'EX',
+      300,
+    )
+  })
+
+  it('попадание в кэш объёма не идёт в БД', async () => {
+    const { service, prisma } = setup(null, JSON.stringify({ files: 5, bytes: 50 }))
+
+    await expect(service.storageUsage()).resolves.toEqual({ files: 5, bytes: 50 })
+    expect(prisma.file.count).not.toHaveBeenCalled()
+    expect(prisma.file.aggregate).not.toHaveBeenCalled()
+  })
+
+  it('недоступный Redis не ломает объём файлов', async () => {
+    const { service, prisma, redis } = setup()
+    redis.get.mockRejectedValue(new Error('down'))
+    redis.set.mockRejectedValue(new Error('down'))
+    prisma.file.count.mockResolvedValue(1)
+
+    await expect(service.storageUsage()).resolves.toEqual({ files: 1, bytes: 0 })
+  })
+
+  // Префиксный LIKE `platform.%` индекс по action не использует — читаем по списку.
+  it('журнал изменений читается по списку действий, а не префиксом', async () => {
+    const { service, prisma } = setup()
+
+    await service.recentChanges()
+
+    const where = prisma.auditLog.findMany.mock.calls[0]?.[0]?.where
+    expect(where).toEqual({ action: { in: PLATFORM_AUDIT_ACTIONS }, entity: 'PlatformState' })
+    expect(PLATFORM_AUDIT_ACTIONS).toEqual(
+      expect.arrayContaining(['platform.maintenance.on', 'platform.duty.rotate']),
+    )
   })
 
   // У AuditLog нет связи с User: журнал переживает удаление аккаунта, и имя может не найтись.
@@ -562,6 +667,22 @@ describe('PlatformService.undoLast', () => {
 
     await service.undoLast('admin')
     expect(updates.at(-1)?.bannerUntil).toBeInstanceOf(Date)
+  })
+
+  // B-F20: крон смены дежурного пишет запись без снимка — откат её пропускает и отменяет
+  // правку админа, сделанную до неё.
+  it('пропускает смену дежурного кроном', async () => {
+    const { service, prisma } = setup(row())
+
+    await service.undoLast('admin').catch(() => undefined)
+
+    const where = prisma.auditLog.findFirst.mock.calls[0]?.[0]?.where as {
+      action: { in: string[] }
+      entity: string
+    }
+    expect(where.action.in).not.toContain('platform.duty.rotate')
+    expect(where.action.in).toContain('platform.banner.on')
+    expect(where.entity).toBe('PlatformState')
   })
 
   it('отменять нечего → NOT_FOUND', async () => {

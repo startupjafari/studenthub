@@ -15,6 +15,8 @@ interface Props {
   // Подпись уже выбранной группы: её может не оказаться в текущей выдаче поиска.
   initialLabel?: string | null
   size?: ControlSize
+  // Подпись пустого значения: у фильтра «ничего не выбрано» означает «все группы».
+  placeholder?: string
 }
 
 const DEBOUNCE_MS = 250
@@ -27,7 +29,15 @@ const SEARCH_MAX = 100
  * по алфавиту, и в большом вузе (400+ групп) хвост алфавита выбрать было нельзя: ни
  * выписать инвайт, ни завести курс или расписание.
  */
-export function GroupSelect({ id, value, onChange, facultyId, initialLabel, size }: Props) {
+export function GroupSelect({
+  id,
+  value,
+  onChange,
+  facultyId,
+  initialLabel,
+  size,
+  placeholder,
+}: Props) {
   const [query, setQuery] = useState('')
   const [debounced, setDebounced] = useState('')
   const [picked, setPicked] = useState<{ id: string; label: string } | null>(null)
@@ -71,6 +81,7 @@ export function GroupSelect({ id, value, onChange, facultyId, initialLabel, size
       onQueryChange={setQuery}
       loading={isFetching}
       size={size}
+      placeholder={placeholder}
     />
   )
 }

@@ -1,6 +1,7 @@
 'use client'
 
-import { useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
+import { useAppSelector } from '../../../shared/store'
 import { fetchPlatformState, platformKeys } from '../api/platform-api'
 import { PLATFORM_STATE_DEFAULT, type PlatformState } from './state'
 
@@ -18,12 +19,16 @@ const POLL_INTERVAL_MS = 60_000
  * заглушку вместо работающего приложения.
  */
 export function usePlatformState(): PlatformState {
+  const viewerId = useAppSelector((s) => s.auth.user?.id ?? null)
   const { data } = useQuery({
-    queryKey: platformKeys.state(),
+    queryKey: platformKeys.state(viewerId),
     queryFn: fetchPlatformState,
     refetchInterval: POLL_INTERVAL_MS,
     staleTime: POLL_INTERVAL_MS,
     retry: 1,
+    // При входе и выходе ключ меняется: пока ответ для нового смотрящего не пришёл,
+    // держим прежний — иначе техработы на миг сменились бы «всё работает».
+    placeholderData: keepPreviousData,
   })
 
   return data ?? PLATFORM_STATE_DEFAULT

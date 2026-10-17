@@ -38,6 +38,9 @@ const RESEND_COOLDOWN_MS = 5 * 60 * 1000
 
 const DATE_FORMAT = new Intl.DateTimeFormat('ru-RU', { dateStyle: 'long', timeStyle: 'short' })
 
+/** Код КАТО — 9 цифр (KatoCodeSchema). Всё остальное в `city` — свободный текст. */
+const KATO_CODE = /^\d{9}$/
+
 /**
  * Формулировки отказа, которые видит заявитель, и признак «можно прийти снова».
  *
@@ -467,6 +470,7 @@ export class DemoRequestsService {
     if (request.status !== 'NEW') {
       throw new AppException('CONFLICT', 'Решение по этой заявке уже принято')
     }
+    const city = await this.cityCode(input.city ?? request.city)
 
     const { university, invite, updated } = await this.prisma.$transaction(async (tx) => {
       await this.claimForDecision(tx, id, {
@@ -481,7 +485,7 @@ export class DemoRequestsService {
           name: input.name ?? request.universityName,
           shortName: input.shortName,
           country: input.country ?? request.country,
-          city: input.city ?? request.city,
+          city,
           ...(input.timezone ? { timezone: input.timezone } : {}),
           status: 'PENDING',
         },
@@ -619,6 +623,38 @@ export class DemoRequestsService {
    * нажмёт ещё раз — на уже заведённом вузе. То же для заявки с публичной формы: строка
    * уже создана. Возвращает, ушло ли письмо в очередь.
    */
+  /**
+   * Город вуза — код КАТО, как у вузов, заведённых из админки через KatoSelect (B-F13).
+   *
+   * В заявке город — свободный текст с публичной формы, и раньше он уходил в вуз как есть:
+   * справочник его не резолвил, мастер показывал то код, то текст, а поиск и сортировка
+   * по городу были невозможны. Текст, однозначно совпавший с городом справочника
+   * («Алматы», «алматы»), заменяется кодом. Не совпал или совпал с несколькими — остаётся
+   * текстом: так хранится зарубежный город, а выбирать между тёзками за модератора нельзя.
+   * Сбой поиска решение не роняет — город останется текстом.
+   */
+  private async cityCode(city: string | null | undefined): Promise<string | null | undefined> {
+    const text = city?.trim()
+    if (!text || KATO_CODE.test(text)) return city
+    const matches = await this.prisma.katoUnit
+      .findMany({
+        where: {
+          kind: 'CITY',
+          OR: [
+            { nameRu: { equals: text, mode: 'insensitive' } },
+            { nameKk: { equals: text, mode: 'insensitive' } },
+          ],
+        },
+        select: { code: true },
+        take: 2,
+      })
+      .catch((error: unknown) => {
+        this.logger.warn(`Город заявки не сверен с КАТО: ${String(error)}`)
+        return []
+      })
+    return matches.length === 1 ? matches[0]!.code : city
+  }
+
   private async enqueueQuietly(
     job: string,
     payload: Record<string, unknown>,

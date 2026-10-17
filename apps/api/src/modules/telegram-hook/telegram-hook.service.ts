@@ -6,7 +6,11 @@ import { Role } from '@studenthub/shared-types'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { REDIS_CLIENT } from '../../common/redis/redis.module'
 import { MINIO_CLIENT } from '../../common/minio/minio.module'
-import { PLATFORM_STATE, type PlatformStateReader } from '../platform/platform.constants'
+import {
+  PLATFORM_STATE,
+  PLATFORM_TIME_ZONE_LABEL,
+  type PlatformStateReader,
+} from '../platform/platform.constants'
 import { AppException } from '../../common/exceptions/app.exception'
 import { equalsConstantTime } from '../../common/security/constant-time'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
@@ -384,9 +388,13 @@ export class TelegramHookService implements OnModuleInit {
         ? 'Тихих часов нет'
         : policy.quietFrom === policy.quietTo
           ? 'Уведомления выключены круглые сутки'
-          : `Тихие часы: с ${policy.quietFrom}:00 до ${policy.quietTo}:00`,
+          : `Тихие часы: с ${policy.quietFrom}:00 до ${policy.quietTo}:00 ${PLATFORM_TIME_ZONE_LABEL}`,
     )
-    if (policy.digestHour !== null) lines.push(`Сводка приходит в ${policy.digestHour}:00`)
+    // Час — по поясу платформы (PLATFORM_TIME_ZONE), а не по часам того, кто спросил:
+    // без пояса «в 9:00» читается по-разному у человека в Алматы и в командировке.
+    if (policy.digestHour !== null) {
+      lines.push(`Сводка приходит в ${policy.digestHour}:00 ${PLATFORM_TIME_ZONE_LABEL}`)
+    }
     if (policy.muted.length > 0) lines.push(`Отключено: ${policy.muted.join(', ')}`)
     return lines.join('\n')
   }

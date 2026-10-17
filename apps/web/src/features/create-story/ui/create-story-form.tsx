@@ -25,7 +25,7 @@ import {
   storyKeys,
   uploadStoryMedia,
 } from '../../../entities/story'
-import { fetchGroups, groupKeys } from '../../../entities/group'
+import { GroupSelect } from '../../../entities/group'
 import { fetchFaculties, facultyKeys } from '../../../entities/faculty'
 import {
   Button,
@@ -87,11 +87,6 @@ export function CreateStoryForm({ onCreated }: { onCreated?: () => void } = {}) 
   const showFacultyPicker =
     audience === 'FACULTY' && role !== null && STORY_FACULTY_PICKER_ROLES.includes(role)
 
-  const groups = useQuery({
-    queryKey: groupKeys.list(),
-    queryFn: () => fetchGroups(),
-    enabled: showGroupPicker,
-  })
   const faculties = useQuery({
     queryKey: facultyKeys.list(),
     queryFn: () => fetchFaculties(),
@@ -367,28 +362,21 @@ export function CreateStoryForm({ onCreated }: { onCreated?: () => void } = {}) 
         />
 
         {showGroupPicker && (
-          <Controller
-            control={form.control}
-            name="groupId"
-            render={({ field }) => (
-              <Select value={field.value ?? ''} onValueChange={field.onChange}>
-                <SelectTrigger
+          // Поиск по группам на сервере, а не первые 100 по алфавиту.
+          <div className="w-full sm:w-44">
+            <Controller
+              control={form.control}
+              name="groupId"
+              render={({ field }) => (
+                <GroupSelect
+                  value={field.value ?? null}
+                  onChange={(v) => field.onChange(v ?? undefined)}
+                  placeholder={tFeed('audienceGROUP')}
                   size="md"
-                  aria-label={tFeed('audienceGROUP')}
-                  className="w-full sm:w-44"
-                >
-                  <SelectValue placeholder={tFeed('audienceGROUP')} />
-                </SelectTrigger>
-                <SelectContent>
-                  {(groups.data ?? []).map((g) => (
-                    <SelectItem key={g.id} value={g.id}>
-                      {g.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-          />
+                />
+              )}
+            />
+          </div>
         )}
 
         {showFacultyPicker && (

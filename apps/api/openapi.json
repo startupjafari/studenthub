@@ -4588,6 +4588,27 @@
         ]
       }
     },
+    "/analytics/university/overview": {
+      "get": {
+        "description": "`attendanceRate` — доля не-пропусков по всем отметкам вуза (null — не отмечали). `groups` — не больше 100 групп с отмеченной посещаемостью, худшие первыми; `atRisk` — те из них, что ниже порога «требует внимания».",
+        "operationId": "UniversityAnalyticsController_overview",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Плитки дашборда вуза: посещаемость, работы на проверке, экзамены, худшие группы",
+        "tags": [
+          "Аналитика"
+        ]
+      }
+    },
     "/analytics/university/attendance-trend": {
       "get": {
         "operationId": "UniversityAnalyticsController_attendanceTrend",
@@ -15175,6 +15196,7 @@
     },
     "/platform/state": {
       "get": {
+        "description": "Публичный; Bearer-токен необязателен. Аноним получает баннер только без адресации и не получает `notifications`. Вошедший — баннер, если он ему адресован (в `universityIds` — только свой вуз). Команда платформы — состояние целиком.",
         "operationId": "PlatformController_state",
         "parameters": [],
         "responses": {

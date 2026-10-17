@@ -18,6 +18,7 @@ import { PLATFORM_STATE_CACHE_KEY, PLATFORM_STATE_ID } from './platform.constant
 import { REDIS_CLIENT } from '../../common/redis/redis.module'
 import { TwoFactorService } from '../auth/two-factor.service'
 import type { RequestContext } from '../auth/auth.service'
+import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 
 // Состояние платформы: рычаги, которыми админ управляет вебом без деплоя.
 // Модель и мотивация полей — prisma/schema/30-platform.prisma.
@@ -40,6 +41,41 @@ const MAINTENANCE_MEMO_MS = 5_000
 /** Кто может дежурить: команда платформы — те же роли, которым уходят уведомления. */
 const DUTY_ROLES: readonly Role[] = [Role.PLATFORM_ADMIN, Role.PLATFORM_MODERATOR]
 
+/**
+ * Действия журнала, которые пишут рычаги платформы. Один словарь на запись и на чтение:
+ * журнал читается по списку `action IN (...)`, а не префиксом `platform.%` — префиксный
+ * LIKE по btree без `text_pattern_ops` индекс не использует, и на десятках миллионов
+ * строк аудита план шёл по `created_at` назад до первой записи `platform.*` (B-F20).
+ * Новое действие рычага добавляется сюда — иначе его не увидят «Изменения» и откат.
+ */
+const ACTION = {
+  maintenanceOn: 'platform.maintenance.on',
+  maintenanceOff: 'platform.maintenance.off',
+  bannerOn: 'platform.banner.on',
+  bannerOff: 'platform.banner.off',
+  sectionsSet: 'platform.sections.set',
+  seasonSet: 'platform.season.set',
+  dutySet: 'platform.duty.set',
+  dutyRotate: 'platform.duty.rotate',
+  notificationsSet: 'platform.notifications.set',
+  releaseAnnounce: 'platform.release.announce',
+  stateUndo: 'platform.state.undo',
+} as const
+
+/** Все действия рычагов — для «Последних изменений». */
+export const PLATFORM_AUDIT_ACTIONS: string[] = Object.values(ACTION)
+
+/**
+ * Что можно откатить: всё, кроме понедельничной смены дежурного. Её пишет крон без
+ * снимка `before`, и, оказавшись последней записью, она отвечала «отменять нечего» на
+ * правку админа, сделанную минутой раньше.
+ */
+const UNDOABLE_ACTIONS: string[] = PLATFORM_AUDIT_ACTIONS.filter((a) => a !== ACTION.dutyRotate)
+
+/** Сколько живёт ответ «объём файлов»: COUNT и SUM по всей таблице `files` — не на каждый заход. */
+const STORAGE_CACHE_KEY = 'platform:storage'
+const STORAGE_CACHE_TTL_SEC = 300
+
 export interface LocalizedText {
   ru: string
   kk: string
@@ -47,14 +83,19 @@ export interface LocalizedText {
 }
 
 /**
- * То, что видит любой посетитель. Срок жизни здесь уже применён: наружу уходит либо
- * действующее объявление, либо `null`. Клиент не сравнивает даты сам — иначе веб,
- * мини-апп и мобильный браузер с уехавшими часами решали бы этот вопрос по-разному.
+ * Состояние платформы. Срок жизни здесь уже применён: наружу уходит либо действующее
+ * объявление, либо `null`. Клиент не сравнивает даты сам — иначе веб, мини-апп и
+ * мобильный браузер с уехавшими часами решали бы этот вопрос по-разному.
+ *
+ * Целиком его видит только команда платформы. Остальным `forViewer` отдаёт срез: без
+ * настроек уведомлений и только тот баннер, что адресован им (B-F19).
  */
 export interface PublicPlatformState {
-  /** Настройки уведомлений команде. Публичны намеренно: в них нет ничего о людях,
-      кроме id дежурного, а знание «сейчас тихие часы» не даёт постороннему ничего. */
-  notifications: {
+  /**
+   * Настройки уведомлений команде — только для команды платформы (мини-апп). Анониму и
+   * остальным ролям поля нет: id дежурного админа посетителю сайта знать незачем.
+   */
+  notifications?: {
     quietFrom: number | null
     quietTo: number | null
     muted: string[]
@@ -73,7 +114,11 @@ export interface PublicPlatformState {
     until: string
     level: 'INFO' | 'WARNING'
     text: LocalizedText
-    /** Кому показывать. Пустые массивы — всем; фильтрует клиент, знающий свою роль. */
+    /**
+     * Кому показывать. Пустые массивы — всем. Адресный баннер сервер отдаёт только
+     * адресату, а в `universityIds` оставляет лишь его вуз: чужие вузы из прицела наружу
+     * не уходят. Команда платформы видит прицел целиком.
+     */
     roles: string[]
     universityIds: string[]
   } | null
@@ -165,10 +210,16 @@ export class PlatformService {
     }
   }
 
-  /** Публичное состояние платформы. Пока рычагов не трогали, строки нет — это норма. */
-  async publicState(now: Date = new Date()): Promise<PublicPlatformState> {
+  /**
+   * Состояние платформы глазами того, кто спрашивает: `viewer` — пользователь из токена
+   * или null для анонима. Пока рычагов не трогали, строки нет — это норма.
+   */
+  async publicState(
+    now: Date = new Date(),
+    viewer: Pick<JwtPayload, 'role' | 'universityId'> | null = null,
+  ): Promise<PublicPlatformState> {
     const row = await this.read()
-    return row ? project(row, now) : EMPTY
+    return forViewer(row ? project(row, now) : EMPTY, viewer)
   }
 
   /**
@@ -203,7 +254,7 @@ export class PlatformService {
 
     await this.audit.record({
       userId,
-      action: until ? 'platform.maintenance.on' : 'platform.maintenance.off',
+      action: until ? ACTION.maintenanceOn : ACTION.maintenanceOff,
       entity: 'PlatformState',
       // Текст объявления в журнал не пишем: он и так виден всем, а место в метаданных
       // нужнее сроку — по нему потом считают длительность простоя.
@@ -245,7 +296,7 @@ export class PlatformService {
 
     await this.audit.record({
       userId,
-      action: until ? 'platform.banner.on' : 'platform.banner.off',
+      action: until ? ACTION.bannerOn : ACTION.bannerOff,
       entity: 'PlatformState',
       metadata: { before, ...(until ? { until: until.toISOString(), level: input.level } : {}) },
       ...ctx,
@@ -262,7 +313,7 @@ export class PlatformService {
     const { state, before } = await this.write(userId, { disabledSections: input.disabled })
     await this.audit.record({
       userId,
-      action: 'platform.sections.set',
+      action: ACTION.sectionsSet,
       entity: 'PlatformState',
       metadata: { before, disabled: input.disabled },
       ...ctx,
@@ -285,7 +336,7 @@ export class PlatformService {
     })
     await this.audit.record({
       userId,
-      action: 'platform.season.set',
+      action: ACTION.seasonSet,
       entity: 'PlatformState',
       metadata: { before, off: input.off, override: input.override },
       ...ctx,
@@ -297,13 +348,29 @@ export class PlatformService {
    * Объём файлов платформы. Считается по журналу `File`, а не по диску: S3-совместимое
    * хранилище про своё свободное место не рассказывает, и обещать «осталось столько-то»
    * было бы враньём. Зато рост этого числа виден, а он и есть то, что заканчивается.
+   *
+   * Ответ кэшируется на пять минут: COUNT и SUM идут по всей таблице `files`, а «Обзор»
+   * мини-аппа открывают много раз в день. Рост хранилища за пять минут не меняет ничего,
+   * что по этому числу решают. Redis недоступен — считаем напрямую.
    */
   async storageUsage(): Promise<{ files: number; bytes: number }> {
+    const cached = await this.redis.get(STORAGE_CACHE_KEY).catch(() => null)
+    if (cached) {
+      try {
+        return JSON.parse(cached) as { files: number; bytes: number }
+      } catch {
+        // Битая запись — пересчитаем и перезапишем.
+      }
+    }
     const [files, sum] = await Promise.all([
       this.prisma.file.count(),
       this.prisma.file.aggregate({ _sum: { size: true } }),
     ])
-    return { files, bytes: sum._sum.size ?? 0 }
+    const usage = { files, bytes: sum._sum.size ?? 0 }
+    await this.redis
+      .set(STORAGE_CACHE_KEY, JSON.stringify(usage), 'EX', STORAGE_CACHE_TTL_SEC)
+      .catch(() => undefined)
+    return usage
   }
 
   /**
@@ -314,7 +381,8 @@ export class PlatformService {
     { action: string; at: Date; by: { id: string; firstName: string; lastName: string } | null }[]
   > {
     const rows = await this.prisma.auditLog.findMany({
-      where: { action: { startsWith: 'platform.' } },
+      // Список действий, а не префикс: см. ACTION.
+      where: { action: { in: PLATFORM_AUDIT_ACTIONS }, entity: 'PlatformState' },
       orderBy: { createdAt: 'desc' },
       take: 20,
       select: { action: true, createdAt: true, userId: true },
@@ -396,7 +464,7 @@ export class PlatformService {
     void _state
     await this.audit.record({
       userId,
-      action: 'platform.duty.set',
+      action: ACTION.dutySet,
       entity: 'PlatformState',
       metadata: { before, size: unique.length },
       ...ctx,
@@ -434,7 +502,7 @@ export class PlatformService {
 
     await this.write(row?.updatedById ?? next, { dutyUserId: next })
     await this.audit.record({
-      action: 'platform.duty.rotate',
+      action: ACTION.dutyRotate,
       entity: 'PlatformState',
       metadata: { to: next, at: now.toISOString(), skipped: order.indexOf(next) },
     })
@@ -476,10 +544,13 @@ export class PlatformService {
    * состояние платформы под этим предлогом нельзя. И направление: включить техработы
    * откатом нельзя — включение спрашивает код 2FA, и обход этого требования кнопкой без
    * кода сделал бы защиту декоративной.
+   *
+   * Понедельничную смену дежурного откат пропускает: это не правка человека, снимка у
+   * неё нет, и «отменять нечего» после неё было бы неправдой.
    */
   async undoLast(userId: string, ctx: RequestContext = {}): Promise<PublicPlatformState> {
     const entry = await this.prisma.auditLog.findFirst({
-      where: { action: { startsWith: 'platform.' } },
+      where: { action: { in: UNDOABLE_ACTIONS }, entity: 'PlatformState' },
       orderBy: { createdAt: 'desc' },
       select: { action: true, metadata: true, createdAt: true },
     })
@@ -503,7 +574,7 @@ export class PlatformService {
     const { state } = await this.write(userId, patch)
     await this.audit.record({
       userId,
-      action: 'platform.state.undo',
+      action: ACTION.stateUndo,
       entity: 'PlatformState',
       // Снимок отката — тоже снимок: второе нажатие вернёт то, что было до отмены.
       metadata: { of: entry.action, at: entry.createdAt.toISOString(), before },
@@ -545,7 +616,7 @@ export class PlatformService {
     })
     await this.audit.record({
       userId,
-      action: 'platform.notifications.set',
+      action: ACTION.notificationsSet,
       entity: 'PlatformState',
       metadata: {
         before,
@@ -569,7 +640,7 @@ export class PlatformService {
     const { state, before } = await this.write(userId, { announcedVersion: input.version })
     await this.audit.record({
       userId,
-      action: 'platform.release.announce',
+      action: ACTION.releaseAnnounce,
       entity: 'PlatformState',
       metadata: { before, version: input.version },
       ...ctx,
@@ -689,6 +760,44 @@ function project(row: PlatformState, now: Date): PublicPlatformState {
     // выкатки этих полей, и без подстраховки наружу ушли бы undefined вместо значений.
     season: { off: row.seasonOff ?? false, override: row.seasonOverride ?? null },
   }
+}
+
+/**
+ * Срез состояния для того, кто спрашивает (B-F19).
+ *
+ * Раньше ответ был один на всех, а адресацию баннера проверял клиент: объявление «только
+ * студентам вуза X» вместе с UUID вузов-адресатов и UUID дежурного читал любой без входа.
+ * Теперь:
+ * - команда платформы видит всё — ей нужно проверить, что и кому повешено;
+ * - остальные — без настроек уведомлений, а адресный баннер только если он им: роль и
+ *   вуз проверяются пересечением, как в вебе (platform-gate), прицел по вузам сужается
+ *   до своего вуза;
+ * - аноним — только техработы и баннер без адресации.
+ *
+ * Имена полей прежние: веб и мини-апп читают тот же ответ, а фильтр на клиенте после
+ * серверного просто ничего не отсеивает.
+ */
+export function forViewer(
+  state: PublicPlatformState,
+  viewer: Pick<JwtPayload, 'role' | 'universityId'> | null,
+): PublicPlatformState {
+  if (viewer && DUTY_ROLES.includes(viewer.role)) return state
+  const { notifications: _team, ...rest } = state
+  void _team
+  return { ...rest, banner: bannerFor(state.banner, viewer) }
+}
+
+function bannerFor(
+  banner: PublicPlatformState['banner'],
+  viewer: Pick<JwtPayload, 'role' | 'universityId'> | null,
+): PublicPlatformState['banner'] {
+  if (!banner) return null
+  if (banner.roles.length === 0 && banner.universityIds.length === 0) return banner
+  if (!viewer) return null
+  if (banner.roles.length > 0 && !banner.roles.includes(viewer.role)) return null
+  if (banner.universityIds.length === 0) return banner
+  if (!viewer.universityId || !banner.universityIds.includes(viewer.universityId)) return null
+  return { ...banner, universityIds: [viewer.universityId] }
 }
 
 /** Срок считает сервер: часы клиента в этом вопросе не участвуют (см. SetMaintenanceSchema). */

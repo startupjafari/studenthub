@@ -8,6 +8,7 @@ import type {
   ExamResultsBreakdown,
   RoomLoad,
   UniversityInvitesFunnel,
+  UniversityOverview,
   ComplaintsLatency,
   FacultyOverview,
   GroupAttendance,
@@ -50,12 +51,19 @@ export async function fetchAtRiskStudents(facultyId?: string): Promise<AtRiskStu
 
 export const universityAnalyticsKeys = {
   all: ['analytics', 'university'] as const,
+  overview: () => ['analytics', 'university', 'overview'] as const,
   attendanceTrend: (weeks: number) => ['analytics', 'university', 'attendance-trend', weeks] as const, // prettier-ignore
   attendanceBreakdown: () => ['analytics', 'university', 'attendance-breakdown'] as const,
   roomLoad: () => ['analytics', 'university', 'room-load'] as const,
   examResults: () => ['analytics', 'university', 'exam-results'] as const,
   applicationsFlow: (weeks: number) => ['analytics', 'university', 'applications-flow', weeks] as const, // prettier-ignore
   invitesFunnel: () => ['analytics', 'university', 'invites-funnel'] as const,
+}
+
+/** Плитки дашборда вуза одним запросом — вместо обзора на каждый факультет. */
+export async function fetchUniversityOverview(): Promise<UniversityOverview> {
+  const { data } = await api.get<UniversityOverview>('/analytics/university/overview')
+  return data
 }
 
 export async function fetchAttendanceTrend(weeks: number): Promise<AttendanceTrend> {

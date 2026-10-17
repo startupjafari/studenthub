@@ -1,5 +1,14 @@
 import type Redis from 'ioredis'
-import { PlatformAnalyticsService, countDaysByWeekday } from './platform-analytics.service'
+import {
+  PlatformActivityQuerySchema,
+  PlatformRangeQuerySchema,
+  PlatformTopActionsQuerySchema,
+} from '@studenthub/shared-schemas'
+import {
+  PlatformAnalyticsService,
+  countDaysByWeekday,
+  resolveRange,
+} from './platform-analytics.service'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 
 // Сырой SQL проверен отдельно на реальной схеме (запросы исполняются). Здесь —
@@ -341,5 +350,98 @@ describe('PlatformAnalyticsService — кэш', () => {
       items: [],
       totals: { universities: 0 },
     })
+  })
+})
+
+describe('Период аналитики платформы — пределы (B-F21)', () => {
+  const DAY = 86_400_000
+  const NOW = new Date('2026-10-01T00:00:00.000Z')
+
+  it('схема отклоняет период с 1970 года — 422 до похода в БД', () => {
+    const res = PlatformRangeQuerySchema.safeParse({
+      from: '1970-01-01',
+      to: NOW.toISOString(),
+      interval: 'day',
+    })
+    expect(res.success).toBe(false)
+  })
+
+  it('схема отклоняет `from` без `to`, если до «сейчас» слишком далеко', () => {
+    expect(PlatformRangeQuerySchema.safeParse({ from: '1970-01-01' }).success).toBe(false)
+  })
+
+  it('схема отклоняет вывернутый и пустой период', () => {
+    expect(
+      PlatformRangeQuerySchema.safeParse({ from: TO.toISOString(), to: FROM.toISOString() })
+        .success,
+    ).toBe(false)
+    expect(
+      PlatformRangeQuerySchema.safeParse({ from: FROM.toISOString(), to: FROM.toISOString() })
+        .success,
+    ).toBe(false)
+  })
+
+  it('схема пропускает окна дашборда: 30 дней по дням и 13 недель по неделям', () => {
+    expect(PlatformRangeQuerySchema.safeParse({}).success).toBe(true)
+    expect(
+      PlatformRangeQuerySchema.safeParse({
+        from: new Date(NOW.getTime() - 30 * DAY).toISOString(),
+        to: NOW.toISOString(),
+        interval: 'day',
+      }).success,
+    ).toBe(true)
+    expect(
+      PlatformRangeQuerySchema.safeParse({
+        from: new Date(NOW.getTime() - 91 * DAY).toISOString(),
+        to: NOW.toISOString(),
+        interval: 'week',
+      }).success,
+    ).toBe(true)
+  })
+
+  it('по дням — не больше года, по неделям и месяцам — не больше двух лет', () => {
+    const range = (days: number, interval: string) => ({
+      from: new Date(NOW.getTime() - days * DAY).toISOString(),
+      to: NOW.toISOString(),
+      interval,
+    })
+    expect(PlatformRangeQuerySchema.safeParse(range(366, 'day')).success).toBe(true)
+    expect(PlatformRangeQuerySchema.safeParse(range(367, 'day')).success).toBe(false)
+    expect(PlatformRangeQuerySchema.safeParse(range(731, 'month')).success).toBe(true)
+    expect(PlatformRangeQuerySchema.safeParse(range(732, 'week')).success).toBe(false)
+  })
+
+  it('та же проверка стоит на топе действий и тепловой карте', () => {
+    const abuse = { from: '1970-01-01', to: NOW.toISOString() }
+    expect(PlatformTopActionsQuerySchema.safeParse({ ...abuse, limit: 5 }).success).toBe(false)
+    expect(PlatformActivityQuerySchema.safeParse({ ...abuse, tz: 'Asia/Almaty' }).success).toBe(
+      false,
+    )
+  })
+
+  it('сервис режет период до SQL, даже если схему обошли', () => {
+    const range = resolveRange({ from: new Date('1970-01-01T00:00:00.000Z'), to: NOW })
+    expect(NOW.getTime() - range.from.getTime()).toBe(366 * DAY)
+    expect(range.interval).toBe('day')
+  })
+
+  it('в SQL уходит уже обрезанный период, корзин — не больше года', async () => {
+    const { service, queryRaw } = setup([])
+    const res = await service.usersGrowth({
+      from: new Date('1970-01-01T00:00:00.000Z'),
+      to: NOW,
+      interval: 'day',
+    })
+
+    const params = (queryRaw.mock.calls[0] as unknown[]).slice(1)
+    const dates = params.filter((p): p is Date => p instanceof Date)
+    expect(dates.every((d) => d.getUTCFullYear() >= 2025)).toBe(true)
+    expect(res.series[0]?.points.length).toBeLessThanOrEqual(367)
+  })
+
+  it('вывернутый период сводится к пустому, а не к бесконечному', () => {
+    const range = resolveRange({ from: TO, to: FROM })
+    expect(range.from.getTime()).toBe(FROM.getTime())
+    expect(range.to.getTime()).toBe(FROM.getTime())
   })
 })

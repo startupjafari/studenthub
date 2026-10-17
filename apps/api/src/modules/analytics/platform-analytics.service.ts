@@ -1,7 +1,11 @@
 import { Inject, Injectable } from '@nestjs/common'
 import type Redis from 'ioredis'
 import { Role } from '@studenthub/shared-types'
-import type { PlatformInterval } from '@studenthub/shared-schemas'
+import {
+  PLATFORM_DEFAULT_RANGE_DAYS,
+  platformMaxRangeDays,
+  type PlatformInterval,
+} from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { REDIS_CLIENT } from '../../common/redis/redis.module'
 
@@ -16,7 +20,7 @@ import { REDIS_CLIENT } from '../../common/redis/redis.module'
 // дашборд открывают часто, а данные меняются медленно.
 
 const CACHE_TTL_SECONDS = 300
-const DEFAULT_RANGE_DAYS = 30
+const DEFAULT_RANGE_DAYS = PLATFORM_DEFAULT_RANGE_DAYS
 /** Точек в спарклайне плитки. */
 const SPARK_DAYS = 14
 /** Потолок на список вузов в разрезе размеров. */
@@ -652,10 +656,22 @@ function startOfUtcDay(date: Date): Date {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()))
 }
 
-function resolveRange(input: RangeInput): ResolvedRange {
+/**
+ * Период запроса с подставленными значениями по умолчанию и обрезанный ДО SQL.
+ *
+ * Пределы проверяет схема запроса (422), но сервис режет период и сам: прежний потолок
+ * корзин стоял только в JS, после запроса, — то есть БД успевала построить все 20 000
+ * корзин, а обрезался лишь ответ. Слишком длинный период укорачивается с левого края:
+ * свежие данные важнее старых. Вывернутый период (`from` не раньше `to`) сводится к
+ * пустому — SQL по нему не находит строк, а не перебирает их.
+ */
+export function resolveRange(input: RangeInput): ResolvedRange {
+  const interval = input.interval ?? 'day'
   const to = input.to ?? new Date()
-  const from = input.from ?? shiftDays(to, -DEFAULT_RANGE_DAYS)
-  return { from, to, interval: input.interval ?? 'day' }
+  const earliest = shiftDays(to, -platformMaxRangeDays(interval))
+  const wanted = input.from ?? shiftDays(to, -DEFAULT_RANGE_DAYS)
+  const from = wanted < earliest ? earliest : wanted > to ? to : wanted
+  return { from, to, interval }
 }
 
 /**
@@ -692,7 +708,7 @@ function buildMultiSeries(
 function enumerateBuckets(range: ResolvedRange): Date[] {
   const out: Date[] = []
   let cursor = truncate(range.from, range.interval)
-  // Потолок на всякий случай: пользователь может прислать from за 1970 год.
+  // Период уже обрезан в resolveRange; потолок здесь — вторая линия, а не основная.
   const MAX_BUCKETS = 1000
   while (cursor < range.to && out.length < MAX_BUCKETS) {
     out.push(cursor)

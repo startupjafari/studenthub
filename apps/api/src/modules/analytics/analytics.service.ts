@@ -17,7 +17,10 @@ function rateOf(counts: { total: number; absent: number }): number {
 // уже читаются с явными take.
 const FACULTY_GROUPS_LIMIT = 500
 
-const AT_RISK_THRESHOLD = 60
+// Порог «требует внимания» по посещаемости, проценты. Общий с дашбордом вуза
+// (UniversityAnalyticsService.overview): одна группа не должна быть в зоне риска у декана
+// и вне её у админа вуза.
+export const AT_RISK_THRESHOLD = 60
 const GRADE_RISK_THRESHOLD = 50
 
 // Потолки выборок ролевых дашбордов (§5.3). Объёмы здесь на порядок меньше факультетских:

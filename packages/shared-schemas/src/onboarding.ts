@@ -113,6 +113,11 @@ export const ApproveDemoRequestSchema = z
     name: z.string().trim().min(3).max(200).optional(),
     shortName: z.string().trim().min(1).max(50).optional(),
     country: z.string().trim().min(1).max(100).optional(),
+    /**
+     * Код КАТО, как у вуза из админки (форма одобрения даёт KatoSelect). Текст тоже
+     * принимается — зарубежный город. Не пришёл — берётся город из заявки, и сервер сводит
+     * его к коду, если он однозначно найден в КАТО.
+     */
     city: z.string().trim().min(1).max(100).optional(),
     timezone: z.string().trim().min(1).max(64).optional(),
     note: z.string().trim().max(1000).optional(),

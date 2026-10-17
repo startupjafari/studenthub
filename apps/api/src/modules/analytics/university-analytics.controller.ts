@@ -17,6 +17,19 @@ const UNIVERSITY_ROLES = [Role.UNIVERSITY_ADMIN, Role.UNIVERSITY_MODERATOR] as c
 export class UniversityAnalyticsController {
   constructor(private readonly analytics: UniversityAnalyticsService) {}
 
+  @Get('overview')
+  @Roles(...UNIVERSITY_ROLES)
+  @ApiOperation({
+    summary: 'Плитки дашборда вуза: посещаемость, работы на проверке, экзамены, худшие группы',
+    description:
+      '`attendanceRate` — доля не-пропусков по всем отметкам вуза (null — не отмечали). ' +
+      '`groups` — не больше 100 групп с отмеченной посещаемостью, худшие первыми; ' +
+      '`atRisk` — те из них, что ниже порога «требует внимания».',
+  })
+  overview(@CurrentUser() user: CurrentUserData) {
+    return this.analytics.overview(user)
+  }
+
   @Get('attendance-trend')
   @Roles(...UNIVERSITY_ROLES)
   @ApiOperation({ summary: 'Посещаемость по неделям, отдельным рядом на факультет' })
