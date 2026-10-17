@@ -1741,6 +1741,8 @@
     "resultAdded": "Result added",
     "resultNote": "Note",
     "pickupCodeLabel": "Pickup code",
+    "pickupCodeHint": "Give this code to the staff member when collecting the original",
+    "readyNeedsResult": "Add a result first — otherwise the student has nothing to download",
     "promptSubmit": "Confirm",
     "promptCancel": "Cancel",
     "event_DOCUMENT_ADDED": "Document attached",
@@ -4330,6 +4332,13 @@
     "escalated": "Admins notified",
     "close": "Close request",
     "confirmClose": "Close the request? The conversation is kept; a new reply reopens it.",
-    "closed": "Request closed"
+    "closed": "Request closed",
+    "fileComplaint": "File a complaint",
+    "complaintTarget": "Who the requester is complaining about",
+    "complaintTargetPlaceholder": "Find a person by name",
+    "complaintSubmit": "Send to moderation",
+    "confirmComplaint": "Send a complaint about {name} to moderation? The requester becomes its author, and their first message becomes its text.",
+    "complaintCreated": "Complaint sent to moderation",
+    "complaintDuplicate": "The requester already has a pending complaint about this person"
   }
 }

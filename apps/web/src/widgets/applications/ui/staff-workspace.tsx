@@ -291,6 +291,12 @@ function StaffActions({ app, onDone }: { app: ApplicationDetail; onDone: () => v
         key="ready"
         className="w-full"
         onClick={() => {
+          // Электронную выдачу без результата сервер не примет: студенту пришло бы «готово»,
+          // а скачать нечего. Подсказываем до запроса, а не общей ошибкой после.
+          if (app.deliveryType !== 'PAPER' && app.results.length === 0) {
+            toast.error(t('readyNeedsResult'))
+            return
+          }
           if (app.deliveryType === 'ELECTRONIC') readyMut.mutate('')
           else setPrompt({ title: t('pickupTitle'), run: (loc) => readyMut.mutate(loc) })
         }}

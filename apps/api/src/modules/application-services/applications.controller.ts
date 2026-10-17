@@ -20,6 +20,7 @@ import { RejectApplicationDto } from './dto/reject-application.dto'
 import { RequestCorrectionDto } from './dto/request-correction.dto'
 import { AddResultDto } from './dto/add-result.dto'
 import { MarkReadyDto } from './dto/mark-ready.dto'
+import { IssueApplicationDto } from './dto/issue-application.dto'
 
 // Заявки на услуги университета. Права/scope — в ApplicationsService через ApplicationPolicy
 // (единый источник, §21/§25). Business-actions вместо generic PATCH /status (§39).
@@ -283,9 +284,18 @@ export class ApplicationsController {
   }
 
   @Post(':id/issue')
-  @ApiOperation({ summary: 'Выдать оригинал (READY_FOR_PICKUP → ISSUED)' })
-  issue(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
-    return this.process.issue(user, id)
+  @ApiOperation({
+    summary: 'Выдать оригинал (READY_FOR_PICKUP → ISSUED); pickupCode, если передан, сверяется',
+  })
+  @ApiResponse({ status: 201, description: 'Оригинал выдан (ISSUED)' })
+  @ApiResponse({ status: 400, description: 'BAD_REQUEST — код получения не совпадает' })
+  issue(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    // Тела может не быть вовсе (прежние клиенты): схема отдаёт {} по умолчанию.
+    @Body() dto: IssueApplicationDto | undefined,
+  ) {
+    return this.process.issue(user, id, dto?.pickupCode)
   }
 
   @Post(':id/deliver')

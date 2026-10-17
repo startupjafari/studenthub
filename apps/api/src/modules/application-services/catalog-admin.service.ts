@@ -98,6 +98,21 @@ const DETAIL_SELECT = {
   },
 } satisfies Prisma.ApplicationServiceSelect
 
+// Шаблон для «Настроить для вуза»: карточка редактора плюс правила полей. `validation` в
+// редактор не отдаём (DETAIL_SELECT): веб отправляет поле обратно целиком, а схема правки
+// его не принимает. Но копия обязана унаследовать правила — иначе сервер перестаёт их
+// применять ровно в тот момент, когда вуз настроил услугу под себя.
+const TEMPLATE_SELECT = {
+  ...DETAIL_SELECT,
+  formFields: {
+    ...DETAIL_SELECT.formFields,
+    select: { ...DETAIL_SELECT.formFields.select, validation: true },
+  },
+} satisfies Prisma.ApplicationServiceSelect
+
+/** Поле формы с правилами — внутренний вход `syncFormFields` (только из customize). */
+type FormFieldWrite = ServiceFormFieldInput & { validation?: Prisma.JsonValue | null }
+
 /**
  * Управление каталогом услуг (docs/PROJECT.md §3.2: каталог «настраиваемый, не enum»).
  *
@@ -267,7 +282,7 @@ export class CatalogAdminService {
     }
     const template = await this.prisma.applicationService.findFirst({
       where: { id: templateId, universityId: null },
-      select: DETAIL_SELECT,
+      select: TEMPLATE_SELECT,
     })
     if (!template) throw new AppException('NOT_FOUND', 'Шаблон не найден')
     await this.assertCodeFree(viewer.universityId, template.code)
@@ -355,7 +370,10 @@ export class CatalogAdminService {
     return new Map(own.map((s) => [s.code, s.id]))
   }
 
-  private async writeNew(universityId: string | null, input: UpsertApplicationServiceInput) {
+  private async writeNew(
+    universityId: string | null,
+    input: Omit<UpsertApplicationServiceInput, 'formFields'> & { formFields: FormFieldWrite[] },
+  ) {
     try {
       return await this.prisma.$transaction(async (tx) => {
         const created = await tx.applicationService.create({
@@ -375,7 +393,7 @@ export class CatalogAdminService {
     }
   }
 
-  private serviceData(input: UpsertApplicationServiceInput) {
+  private serviceData(input: Omit<UpsertApplicationServiceInput, 'formFields'>) {
     return {
       categoryId: input.categoryId,
       nameRu: input.nameRu,
@@ -430,10 +448,22 @@ export class CatalogAdminService {
   private async syncFormFields(
     tx: Prisma.TransactionClient,
     serviceId: string,
-    items: ServiceFormFieldInput[],
+    items: FormFieldWrite[],
   ): Promise<void> {
     for (const [index, item] of items.entries()) {
+      // Правила поля пишем, только если они пришли (копия шаблона). Правка из редактора их не
+      // несёт и не должна стирать: `validation` редактор не показывает и не отправляет.
+      const validation =
+        item.validation === undefined
+          ? {}
+          : {
+              validation:
+                item.validation === null
+                  ? Prisma.DbNull
+                  : (item.validation as Prisma.InputJsonValue),
+            }
       const data = {
+        ...validation,
         type: item.type,
         labelRu: item.labelRu,
         labelKk: item.labelKk,

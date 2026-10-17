@@ -40,10 +40,15 @@ export class ApplicationDocumentsService {
     }
     const doc = await this.prisma.document.findFirst({
       where: { id: documentId, ownerId: viewer.sub, deletedAt: null },
-      select: { id: true, title: true },
+      select: { id: true, title: true, status: true, issuedByUniversity: true },
     })
     if (!doc) {
       throw new AppException('NOT_FOUND', 'Документ не найден в вашем хранилище')
+    }
+    // Отозванная вузом справка (revokeStudyCertificate) в кабинете остаётся, но как
+    // подтверждение уже ничего не значит — прикладывать её к новой заявке нельзя.
+    if (doc.issuedByUniversity && doc.status === 'REJECTED') {
+      throw new AppException('BAD_REQUEST', 'Документ отозван университетом')
     }
     return this.prisma.$transaction(async (tx) => {
       const saved = await tx.applicationDocument.upsert({

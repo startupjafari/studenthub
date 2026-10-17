@@ -7625,7 +7625,10 @@
         ],
         "responses": {
           "201": {
-            "description": ""
+            "description": "Оригинал выдан (ISSUED)"
+          },
+          "400": {
+            "description": "BAD_REQUEST — код получения не совпадает"
           }
         },
         "security": [
@@ -7633,7 +7636,7 @@
             "bearer": []
           }
         ],
-        "summary": "Выдать оригинал (READY_FOR_PICKUP → ISSUED)",
+        "summary": "Выдать оригинал (READY_FOR_PICKUP → ISSUED); pickupCode, если передан, сверяется",
         "tags": [
           "Заявки"
         ]

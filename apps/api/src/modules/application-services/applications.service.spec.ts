@@ -9,6 +9,7 @@ import { ApplicationsService } from './applications.service'
 import { ApplicationPolicy } from './application.policy'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
+import type { ApplicationNotifier } from './application-notifier'
 
 const student: JwtPayload = {
   sub: 'stud',
@@ -44,7 +45,7 @@ function setup(overrides: Record<string, jest.Mock> = {}) {
     findMany: jest.fn().mockResolvedValue([]),
     count: jest.fn().mockResolvedValue(0),
   }
-  const applicationEvent = { create: jest.fn().mockResolvedValue({}) }
+  const applicationEvent = { create: jest.fn().mockResolvedValue({ id: 'ev-1' }) }
   const tx = {
     application,
     applicationService,
@@ -52,6 +53,8 @@ function setup(overrides: Record<string, jest.Mock> = {}) {
     serviceRequirement,
     applicationDocument,
     applicationEvent,
+    // advisory-лок номера заявки (advisoryXactLock → $executeRaw).
+    $executeRaw: jest.fn().mockResolvedValue(0),
   }
   const prisma = {
     ...tx,
@@ -63,17 +66,22 @@ function setup(overrides: Record<string, jest.Mock> = {}) {
     ),
     ...overrides,
   }
+  // Сигналы обработчикам — отдельный сервис (application-notifier.spec.ts); здесь — что их зовут.
+  const notifier = { notifyHandlers: jest.fn().mockResolvedValue(undefined) }
   const service = new ApplicationsService(
     prisma as unknown as PrismaService,
     new ApplicationPolicy(),
+    notifier as unknown as ApplicationNotifier,
   )
   return {
     service,
     prisma,
     application,
     applicationService,
+    serviceFormField,
     serviceRequirement,
     applicationDocument,
+    notifier,
   }
 }
 
@@ -104,14 +112,14 @@ describe('ApplicationsService.submit — gating', () => {
   it('без способа получения → BAD_REQUEST', async () => {
     const { service, application, applicationService } = setup()
     application.findFirst.mockResolvedValue(draft)
-    applicationService.findUnique.mockResolvedValue({ deliveryModes: ['ELECTRONIC'], slaHours: 8 })
+    applicationService.findFirst.mockResolvedValue({ deliveryModes: ['ELECTRONIC'], slaHours: 8 })
     await expect(service.submit(student, 'a1')).rejects.toMatchObject({ code: 'BAD_REQUEST' })
   })
 
   it('не приложен обязательный документ → BAD_REQUEST', async () => {
     const { service, application, applicationService, serviceRequirement } = setup()
     application.findFirst.mockResolvedValue({ ...draft, deliveryType: 'ELECTRONIC' })
-    applicationService.findUnique.mockResolvedValue({ deliveryModes: ['ELECTRONIC'], slaHours: 8 })
+    applicationService.findFirst.mockResolvedValue({ deliveryModes: ['ELECTRONIC'], slaHours: 8 })
     serviceRequirement.findMany.mockResolvedValue([{ id: 'r1', titleRu: 'Удостоверение' }])
     // applicationDocument.findMany → [] (по умолчанию) → требование не покрыто
     await expect(service.submit(student, 'a1')).rejects.toMatchObject({ code: 'BAD_REQUEST' })
@@ -120,7 +128,7 @@ describe('ApplicationsService.submit — gating', () => {
   it('пишет с условием status=DRAFT — повторная отправка не перевыпускает номер', async () => {
     const { service, application, applicationService } = setup()
     application.findFirst.mockResolvedValue({ ...draft, deliveryType: 'ELECTRONIC' })
-    applicationService.findUnique.mockResolvedValue({ deliveryModes: ['ELECTRONIC'], slaHours: 8 })
+    applicationService.findFirst.mockResolvedValue({ deliveryModes: ['ELECTRONIC'], slaHours: 8 })
     await service.submit(student, 'a1')
     expect(application.update).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: 'a1', status: 'DRAFT' } }),
@@ -131,10 +139,144 @@ describe('ApplicationsService.submit — gating', () => {
   it('заявку уже отправили параллельным запросом → CONFLICT, без события', async () => {
     const { service, application, applicationService, prisma } = setup()
     application.findFirst.mockResolvedValue({ ...draft, deliveryType: 'ELECTRONIC' })
-    applicationService.findUnique.mockResolvedValue({ deliveryModes: ['ELECTRONIC'], slaHours: 8 })
+    applicationService.findFirst.mockResolvedValue({ deliveryModes: ['ELECTRONIC'], slaHours: 8 })
     application.update.mockRejectedValue(staleStatus())
     await expect(service.submit(student, 'a1')).rejects.toMatchObject({ code: 'CONFLICT' })
     expect(prisma.applicationEvent.create).not.toHaveBeenCalled()
+  })
+})
+
+describe('ApplicationsService.submit — услуга, анкета, номер, сигналы (D-F15/D-F16/D-F17)', () => {
+  const ready = {
+    id: 'a1',
+    studentId: 'stud',
+    status: 'DRAFT',
+    serviceId: 's1',
+    deliveryType: 'ELECTRONIC',
+    formData: {},
+  }
+  const field = (over: Record<string, unknown> = {}) => ({
+    code: 'purpose',
+    type: 'TEXT',
+    required: false,
+    options: null,
+    validation: null,
+    labelRu: 'Цель',
+    ...over,
+  })
+
+  // Черновик услуги, которую вуз потом выключил: та же видимость, что в каталоге.
+  it('услуга больше не видна студенту → BAD_REQUEST, номер не выдаётся', async () => {
+    const { service, application, applicationService } = setup()
+    application.findFirst.mockResolvedValue(ready)
+    applicationService.findFirst.mockResolvedValue(null)
+    await expect(service.submit(student, 'a1')).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    expect(applicationService.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { AND: [{ id: 's1' }, expect.objectContaining({ active: true })] },
+      }),
+    )
+    expect(application.update).not.toHaveBeenCalled()
+  })
+
+  it('значение не того типа (NUMBER) → BAD_REQUEST', async () => {
+    const { service, application, applicationService, serviceFormField } = setup()
+    application.findFirst.mockResolvedValue({ ...ready, formData: { copies: 'много' } })
+    applicationService.findFirst.mockResolvedValue({ deliveryModes: ['ELECTRONIC'], slaHours: 8 })
+    serviceFormField.findMany.mockResolvedValue([field({ code: 'copies', type: 'NUMBER' })])
+    await expect(service.submit(student, 'a1')).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    expect(application.update).not.toHaveBeenCalled()
+  })
+
+  it('правило поля из validation применяется (maxLength)', async () => {
+    const { service, application, applicationService, serviceFormField } = setup()
+    application.findFirst.mockResolvedValue({ ...ready, formData: { purpose: 'x'.repeat(11) } })
+    applicationService.findFirst.mockResolvedValue({ deliveryModes: ['ELECTRONIC'], slaHours: 8 })
+    serviceFormField.findMany.mockResolvedValue([field({ validation: { maxLength: 10 } })])
+    await expect(service.submit(student, 'a1')).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+  })
+
+  it('номер — следующий за последним в году, под локом; лишние ключи анкеты не сохраняются', async () => {
+    const { service, application, applicationService, serviceFormField, prisma } = setup()
+    application.findFirst
+      .mockResolvedValueOnce({ ...ready, formData: { purpose: 'по месту требования', junk: 1 } })
+      // Последний выданный номер года (ORDER BY number DESC LIMIT 1).
+      .mockResolvedValueOnce({ number: `SH-2026-000041` })
+    applicationService.findFirst.mockResolvedValue({ deliveryModes: ['ELECTRONIC'], slaHours: 8 })
+    serviceFormField.findMany.mockResolvedValue([field()])
+    jest.useFakeTimers().setSystemTime(new Date('2026-10-17T06:00:00.000Z'))
+    try {
+      await service.submit(student, 'a1')
+    } finally {
+      jest.useRealTimers()
+    }
+    expect(prisma.$executeRaw).toHaveBeenCalled()
+    expect(application.count).not.toHaveBeenCalled()
+    expect(application.findFirst).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        where: { number: { startsWith: 'SH-2026-' } },
+        orderBy: { number: 'desc' },
+      }),
+    )
+    expect(application.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          number: 'SH-2026-000042',
+          formData: { purpose: 'по месту требования' },
+        }),
+      }),
+    )
+  })
+
+  it('первая заявка года получает 000001', async () => {
+    const { service, application, applicationService } = setup()
+    application.findFirst.mockResolvedValueOnce(ready).mockResolvedValueOnce(null)
+    applicationService.findFirst.mockResolvedValue({ deliveryModes: ['ELECTRONIC'], slaHours: 8 })
+    await service.submit(student, 'a1')
+    const number = application.update.mock.calls[0][0].data.number as string
+    expect(number).toMatch(/^SH-\d{4}-000001$/)
+  })
+
+  it('после подачи обработчики получают сигнал «новая заявка»', async () => {
+    const { service, application, applicationService, notifier } = setup()
+    application.findFirst.mockResolvedValue(ready)
+    applicationService.findFirst.mockResolvedValue({ deliveryModes: ['ELECTRONIC'], slaHours: 8 })
+    application.update.mockResolvedValue({ id: 'a1', number: 'SH-2026-000001' })
+    await service.submit(student, 'a1')
+    expect(notifier.notifyHandlers).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'a1' }),
+      'submitted',
+      'ev-1',
+    )
+  })
+
+  it('исправленная заявка — сигнал «отправлена повторно»', async () => {
+    const { service, application, notifier } = setup()
+    application.findFirst.mockResolvedValue({
+      id: 'a1',
+      studentId: 'stud',
+      status: 'NEEDS_CORRECTION',
+      serviceId: 's1',
+    })
+    application.update.mockResolvedValue({ id: 'a1' })
+    await service.resubmit(student, 'a1')
+    expect(notifier.notifyHandlers).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'a1' }),
+      'resubmitted',
+      'ev-1',
+    )
+  })
+})
+
+describe('ApplicationsService.updateDraft — только поля анкеты', () => {
+  it('ключи, которых нет в анкете, в черновик не попадают', async () => {
+    const { service, application, serviceFormField } = setup()
+    application.findFirst.mockResolvedValue({ id: 'a1', studentId: 'stud', status: 'DRAFT' })
+    serviceFormField.findMany.mockResolvedValue([{ code: 'purpose' }])
+    await service.updateDraft(student, 'a1', { formData: { purpose: 'банк', other: 'x' } })
+    expect(application.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { formData: { purpose: 'банк' } } }),
+    )
   })
 })
 
@@ -377,6 +519,18 @@ describe('ApplicationsService.getById — страницы документов'
     ])
     const select = application.findUnique.mock.calls[0][0].select.documents.select
     expect(select.document.select.files.take).toBeGreaterThan(0)
+  })
+
+  // D-F18: код получения генерировался и нигде не показывался.
+  it('отдаёт код получения оригинала', async () => {
+    const { service, application } = setup()
+    application.findFirst.mockResolvedValue({
+      studentId: 'stud',
+      facultyId: 'fac',
+      universityId: 'uni',
+    })
+    await service.getById(student, 'a1')
+    expect(application.findUnique.mock.calls[0][0].select.pickupCode).toBe(true)
   })
 })
 

@@ -99,6 +99,8 @@ function makeService() {
   }
   // Истечение допусков компаний: cron только делегирует, каскад — в companies.service.spec.ts.
   const companies = { expireAccess: jest.fn(async () => 0) as Mock }
+  // Сводка просрочки заявок: cron только делегирует, сборка — в application-notifier.spec.ts.
+  const applications = { notifyOverdue: jest.fn(async () => 0) as Mock }
   const service = new CleanupService(
     prisma as never,
     minio as never,
@@ -118,9 +120,11 @@ function makeService() {
     platform as never,
     media as never,
     companies as never,
+    applications as never,
   )
   return {
     companies,
+    applications,
     service,
     media,
     prisma,
@@ -785,5 +789,17 @@ describe('CleanupService.expireCompanyAccess', () => {
 
     expect(companies.expireAccess).toHaveBeenCalledTimes(1)
     expect(locks.run.mock.calls[0][0]).toBe('expireCompanyAccess')
+  })
+})
+
+describe('CleanupService.notifyOverdueApplications', () => {
+  it('делегирует сводку просрочки заявок владельцу домена под своим локом', async () => {
+    const { service, applications, locks } = makeService()
+    applications.notifyOverdue.mockResolvedValue(4)
+
+    await expect(service.notifyOverdueApplications()).resolves.toBe(4)
+
+    expect(applications.notifyOverdue).toHaveBeenCalledTimes(1)
+    expect(locks.run.mock.calls[0][0]).toBe('notifyOverdueApplications')
   })
 })

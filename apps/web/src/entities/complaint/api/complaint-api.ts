@@ -1,4 +1,5 @@
 import type {
+  ComplaintFromSupportInput,
   ComplaintListQueryInput,
   CreateComplaintInput,
   ResolveComplaintInput,
@@ -17,6 +18,15 @@ export const complaintKeys = {
 // сервер по типу цели — фронт его не передаёт и не угадывает.
 export async function createComplaintRequest(input: CreateComplaintInput): Promise<void> {
   await api.post('/complaints', input)
+}
+
+// Жалоба из обращения в поддержку (команда платформы): автором становится автор обращения,
+// текстом — его первое сообщение. Повтор, пока прежняя жалоба в очереди, сервер отклоняет (409).
+export async function createComplaintFromSupportRequest(
+  input: ComplaintFromSupportInput,
+): Promise<Complaint> {
+  const { data } = await api.post<Complaint>('/complaints/from-support', input)
+  return data
 }
 
 // Страница очереди: фильтры/сортировка/пагинация — на сервере (по всей выборке).

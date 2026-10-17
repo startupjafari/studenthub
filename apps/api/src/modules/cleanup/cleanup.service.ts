@@ -19,6 +19,7 @@ import { SupportService } from '../chats/support.service'
 import { ComplaintsService } from '../complaints/complaints.service'
 import { DemoRequestsService } from '../onboarding/demo-requests.service'
 import { CompaniesService } from '../career/companies.service'
+import { ApplicationNotifier } from '../application-services/application-notifier'
 import { countServerErrors } from '../../common/monitoring/error-rate'
 import { TelegramNotifyService, platformHour } from '../../common/telegram/telegram-notify.service'
 import { digestText, humanAge } from '../../common/telegram/digest'
@@ -61,6 +62,7 @@ const LOCK_TTL_MS = {
   closeStaleTickets: 10 * 60 * 1000,
   purgeUnconfirmedDemoRequests: 10 * 60 * 1000,
   expireCompanyAccess: 10 * 60 * 1000,
+  notifyOverdueApplications: 10 * 60 * 1000,
   liftExpiredBlocks: 4 * 60 * 1000,
   rotateDuty: 10 * 60 * 1000,
   watchServices: 4 * 60 * 1000,
@@ -163,6 +165,7 @@ export class CleanupService {
     @Inject(PLATFORM_STATE) private readonly platform: PlatformStateReader,
     private readonly media: MediaService,
     private readonly companies: CompaniesService,
+    private readonly applications: ApplicationNotifier,
   ) {}
 
   // Напоминания за час до события (docs/BACKEND_RULES.md §9.3): каждые 15 мин, окно [now+55, now+70],
@@ -834,6 +837,17 @@ export class CleanupService {
   async expireCompanyAccess(): Promise<number | null> {
     return this.locks.run('expireCompanyAccess', LOCK_TTL_MS.expireCompanyAccess, () =>
       this.companies.expireAccess(),
+    )
+  }
+
+  // Заявки с истёкшим сроком обработки (SLA): каждому обработчику — сводка с числом его
+  // просроченных. Раньше просрочка была только фильтром очереди и молча копилась. Ежедневно
+  // в 09:00 по часам команды — к началу рабочего дня деканатов. Логика — в
+  // ApplicationNotifier.notifyOverdue (владелец домена).
+  @Cron('0 9 * * *', { name: 'notifyOverdueApplications', timeZone: PLATFORM_TIME_ZONE })
+  async notifyOverdueApplications(): Promise<number | null> {
+    return this.locks.run('notifyOverdueApplications', LOCK_TTL_MS.notifyOverdueApplications, () =>
+      this.applications.notifyOverdue(),
     )
   }
 

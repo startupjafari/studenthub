@@ -169,12 +169,24 @@ export function ApplicationDetail({
           )}
 
           {(app.status === 'READY_FOR_PICKUP' || app.status === 'ISSUED') &&
-            (app.pickupLocation || app.pickupInstructions) && (
+            (app.pickupLocation ||
+              app.pickupInstructions ||
+              (app.status === 'READY_FOR_PICKUP' && app.pickupCode)) && (
               <Card className="flex flex-col gap-1.5 p-4">
                 <h3 className="text-sm font-semibold">{t('pickupTitle')}</h3>
                 {app.pickupLocation && <p className="text-sm">{app.pickupLocation}</p>}
                 {app.pickupInstructions && (
                   <p className="text-sm text-muted-foreground">{app.pickupInstructions}</p>
+                )}
+                {/* Код получения сверяют при выдаче оригинала. После выдачи он уже не нужен. */}
+                {app.status === 'READY_FOR_PICKUP' && app.pickupCode && (
+                  <div className="mt-1 flex flex-col gap-0.5">
+                    <span className="text-xs text-muted-foreground">{t('pickupCodeLabel')}</span>
+                    <span className="font-mono text-base font-semibold tracking-wider">
+                      {app.pickupCode}
+                    </span>
+                    <span className="text-xs text-muted-foreground">{t('pickupCodeHint')}</span>
+                  </div>
                 )}
               </Card>
             )}

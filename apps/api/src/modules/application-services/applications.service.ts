@@ -13,7 +13,10 @@ import { Paginated } from '../../common/http/paginated'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import { visibleServicesWhere } from './service-visibility'
 import { ApplicationPolicy } from './application.policy'
+import { ApplicationNotifier } from './application-notifier'
+import { formDataError, pickFormFields, type FormFieldRule } from './form-validation'
 import { rethrowStaleStatus } from '../../common/prisma/stale-status'
+import { advisoryXactLock } from '../../common/prisma/advisory-lock'
 import { localDateString, localDayRange } from '../../common/time/local-label'
 
 // Поля заявки для scope-проверок (без загрузки всей записи).
@@ -84,6 +87,7 @@ export class ApplicationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly policy: ApplicationPolicy,
+    private readonly notifier: ApplicationNotifier,
   ) {}
 
   /** Создать черновик заявки на услугу (§8/§30). Заполняется правкой черновика. */
@@ -130,7 +134,10 @@ export class ApplicationsService {
       data.deliveryType = dto.deliveryType
     }
     if (dto.formData !== undefined) {
-      data.formData = dto.formData as Prisma.InputJsonValue
+      // В черновик — только ответы на поля анкеты: лишние ключи не храним. Тип и правила
+      // полей проверяются при отправке — черновик заполняется по шагам и бывает неполным.
+      const fields = await this.formFieldsOf(app.serviceId)
+      data.formData = pickFormFields(fields, dto.formData) as Prisma.InputJsonValue
     }
     // Статус — в условии записи: черновик, отправленный параллельным запросом, уже не правится.
     return this.prisma.application
@@ -141,37 +148,49 @@ export class ApplicationsService {
   /** Отправить заявку: DRAFT → SUBMITTED. Присваивает номер, срок по SLA, валидирует форму (§13/§14/§40). */
   async submit(viewer: JwtPayload, id: string) {
     const app = await this.loadOwnedDraft(viewer, id)
-    const service = await this.serviceOf(app.serviceId)
+    // Та же видимость, что в каталоге и при создании черновика: черновик услуги, которую
+    // вуз или платформа потом выключили (или заменили копией вуза), больше не отправляется.
+    const service = await this.visibleServiceOf(viewer, app.serviceId)
 
     // Способ получения обязателен и должен быть допустим для услуги.
     if (!app.deliveryType) {
       throw new AppException('BAD_REQUEST', 'Выберите способ получения')
     }
     this.assertDeliveryAllowed(app.deliveryType as DeliveryType, service.deliveryModes)
-    await this.assertFormValid(app.serviceId, app.formData)
+    const fields = await this.formFieldsOf(app.serviceId)
+    const formError = formDataError(fields, app.formData)
+    if (formError) throw new AppException('BAD_REQUEST', formError)
     await this.assertRequiredDocuments(app.serviceId, id)
 
     const now = new Date()
     const dueAt = new Date(now.getTime() + service.slaHours * 3_600_000)
-    // Номер SH-YYYY-NNNNNN. Уникальность гарантирует БД; при гонке — повтор транзакции.
-    // Год — по часам вуза: заявка, поданная в новогоднюю ночь, относится к новому году.
+    // Год номера — по часам вуза: заявка, поданная в новогоднюю ночь, относится к новому году.
     const year = Number(
       localDateString(now, await this.timezoneOf(viewer.universityId)).slice(0, 4),
     )
-    return this.withNumberRetry(year, (number) =>
-      this.prisma.$transaction(async (tx) => {
+    const { updated, eventId } = await this.prisma
+      .$transaction(async (tx) => {
+        const number = await this.nextNumber(tx, year)
         // Условие на DRAFT в самой записи: двойное «Отправить» (или повтор после таймаута)
         // проходило проверку чтением дважды и перевыпускало номер, а отправка, опоздавшая к
         // взятию заявки в работу, возвращала её из IN_REVIEW в SUBMITTED. Теперь второй
-        // запрос получает CONFLICT (P2002 по номеру не трогаем — его ловит withNumberRetry).
-        const updated = await tx.application
+        // запрос получает CONFLICT.
+        const u = await tx.application
           .update({
             where: { id, status: 'DRAFT' },
-            data: { status: 'SUBMITTED', number, submittedAt: now, dueAt },
+            data: {
+              status: 'SUBMITTED',
+              number,
+              submittedAt: now,
+              dueAt,
+              // Поданная заявка хранит ответы только на поля анкеты (черновики, сохранённые до
+              // этой проверки, могли нести что угодно).
+              formData: pickFormFields(fields, app.formData) as Prisma.InputJsonValue,
+            },
             select: APP_SELECT,
           })
           .catch(rethrowStaleStatus)
-        await tx.applicationEvent.create({
+        const event = await tx.applicationEvent.create({
           data: {
             applicationId: id,
             actorId: viewer.sub,
@@ -179,10 +198,13 @@ export class ApplicationsService {
             fromStatus: 'DRAFT',
             toStatus: 'SUBMITTED',
           },
+          select: { id: true },
         })
-        return updated
-      }),
-    )
+        return { updated: u, eventId: event.id }
+      })
+      .catch(rethrowNumberTaken)
+    await this.notifier.notifyHandlers(updated, 'submitted', eventId)
+    return updated
   }
 
   /** Отозвать заявку (§9): статус → CANCELLED. Только владелец и до начала подготовки. */
@@ -232,15 +254,15 @@ export class ApplicationsService {
     // можно было просто удалить — строк REPLACEMENT_REQUIRED не оставалось, и заявка уходила
     // дальше без обязательного документа.
     await this.assertRequiredDocuments(app.serviceId, id)
-    return this.prisma.$transaction(async (tx) => {
-      const updated = await tx.application
+    const { updated, eventId } = await this.prisma.$transaction(async (tx) => {
+      const u = await tx.application
         .update({
           where: { id, status: 'NEEDS_CORRECTION' },
           data: { status: 'RESUBMITTED' },
           select: APP_SELECT,
         })
         .catch(rethrowStaleStatus)
-      await tx.applicationEvent.create({
+      const event = await tx.applicationEvent.create({
         data: {
           applicationId: id,
           actorId: viewer.sub,
@@ -248,9 +270,13 @@ export class ApplicationsService {
           fromStatus: 'NEEDS_CORRECTION',
           toStatus: 'RESUBMITTED',
         },
+        select: { id: true },
       })
-      return updated
+      return { updated: u, eventId: event.id }
     })
+    // Исправление ждёт того, кто его просил: без сигнала заявка лежала в очереди незамеченной.
+    await this.notifier.notifyHandlers(updated, 'resubmitted', eventId)
+    return updated
   }
 
   /** Список/очередь по scope роли (§16/§33): server-side пагинация + фильтры. */
@@ -318,6 +344,9 @@ export class ApplicationsService {
         rejectionReason: true,
         pickupLocation: true,
         pickupInstructions: true,
+        // Код получения оригинала: студент показывает его при выдаче, сотрудник сверяет
+        // (POST …/issue с pickupCode). Раньше генерировался и нигде не показывался.
+        pickupCode: true,
         service: {
           select: {
             id: true,
@@ -459,30 +488,34 @@ export class ApplicationsService {
     return service
   }
 
-  // Проверка ответов формы: обязательные поля заполнены; для SELECT/RADIO — значение из options.
-  private async assertFormValid(serviceId: string, formData: Prisma.JsonValue): Promise<void> {
-    const fields = await this.prisma.serviceFormField.findMany({
+  /** Услуга черновика, если зритель её всё ещё видит (service-visibility.ts). */
+  private async visibleServiceOf(viewer: JwtPayload, serviceId: string) {
+    const visible = await visibleServicesWhere(this.prisma, viewer.universityId)
+    const service = await this.prisma.applicationService.findFirst({
+      where: { AND: [{ id: serviceId }, visible] },
+      select: { deliveryModes: true, slaHours: true },
+    })
+    if (!service) {
+      throw new AppException('BAD_REQUEST', 'Услуга больше недоступна — заявку отправить нельзя')
+    }
+    return service
+  }
+
+  /** Действующие поля анкеты услуги — по ним сверяются и сохраняются ответы. */
+  private formFieldsOf(serviceId: string): Promise<FormFieldRule[]> {
+    return this.prisma.serviceFormField.findMany({
       where: { serviceId, active: true },
-      select: { code: true, required: true, type: true, options: true, labelRu: true },
+      select: {
+        code: true,
+        required: true,
+        type: true,
+        options: true,
+        validation: true,
+        labelRu: true,
+      },
+      orderBy: { sortOrder: 'asc' },
       take: SERVICE_FORM_FIELDS_LIMIT,
     })
-    const data = (formData && typeof formData === 'object' ? formData : {}) as Record<
-      string,
-      unknown
-    >
-    for (const f of fields) {
-      const value = data[f.code]
-      const empty = value === undefined || value === null || value === ''
-      if (f.required && empty) {
-        throw new AppException('BAD_REQUEST', `Заполните поле: ${f.labelRu}`)
-      }
-      if (!empty && (f.type === 'SELECT' || f.type === 'RADIO') && Array.isArray(f.options)) {
-        const allowed = (f.options as Array<{ value?: unknown }>).map((o) => o?.value)
-        if (!allowed.includes(value)) {
-          throw new AppException('BAD_REQUEST', `Недопустимое значение поля: ${f.labelRu}`)
-        }
-      }
-    }
   }
 
   // Все обязательные требования услуги должны иметь приложенный документ (не «требует замены»).
@@ -534,24 +567,42 @@ export class ApplicationsService {
     return app
   }
 
-  // Генерация номера с повтором при гонке (unique на number).
-  private async withNumberRetry<T>(year: number, run: (number: string) => Promise<T>): Promise<T> {
-    for (let attempt = 0; attempt < 5; attempt++) {
-      const count = await this.prisma.application.count({
-        where: { number: { startsWith: `SH-${year}-` } },
-      })
-      const number = `SH-${year}-${String(count + 1 + attempt).padStart(6, '0')}`
-      try {
-        return await run(number)
-      } catch (error) {
-        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-          continue
-        }
-        throw error
-      }
-    }
+  /**
+   * Следующий номер заявки SH-YYYY-NNNNNN — внутри транзакции подачи, под advisory-локом года.
+   *
+   * Раньше номер был «число заявок года + 1 + попытка»: COUNT по префиксу на каждую подачу, а
+   * при одновременных подачах (начало семестра, сто вузов на одном счётчике) пять попыток
+   * упирались в одни и те же номера, и студент получал «Не удалось присвоить номер». Теперь
+   * подачи одного года выстраиваются в очередь на время короткой транзакции, и номер — это
+   * последний выданный + 1: без пропусков и без повторов. Последний берётся по unique-индексу
+   * номера (ORDER BY number DESC LIMIT 1), а не подсчётом строк.
+   *
+   * Шесть разрядов — миллион заявок в год на платформу; дальше строковый порядок номеров
+   * перестаёт совпадать с числовым, и формат придётся расширять.
+   */
+  private async nextNumber(tx: Prisma.TransactionClient, year: number): Promise<string> {
+    const prefix = `SH-${year}-`
+    await advisoryXactLock(tx, `application-number:${year}`)
+    const last = await tx.application.findFirst({
+      where: { number: { startsWith: prefix } },
+      orderBy: { number: 'desc' },
+      select: { number: true },
+    })
+    const tail = Number.parseInt(last?.number?.slice(prefix.length) ?? '', 10)
+    const next = Number.isFinite(tail) ? tail + 1 : 1
+    return `${prefix}${String(next).padStart(6, '0')}`
+  }
+}
+
+/**
+ * Номер всё же занят (unique на number) — под локом это возможно только при ручной правке
+ * данных. Отвечаем CONFLICT: повтор подачи возьмёт следующий номер.
+ */
+function rethrowNumberTaken(error: unknown): never {
+  if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
     throw new AppException('CONFLICT', 'Не удалось присвоить номер заявки, повторите')
   }
+  throw error
 }
 
 // Статусы, при которых заявка «не просрочена по смыслу» (готова/выдана/завершена).

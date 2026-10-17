@@ -8,6 +8,7 @@ import type {
 } from '@studenthub/shared-schemas'
 import { complaintPriorityFor } from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
+import { advisoryXactLock } from '../../common/prisma/advisory-lock'
 import { AuditService } from '../../common/audit/audit.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import { TelegramNotifyService } from '../../common/telegram/telegram-notify.service'
@@ -85,6 +86,12 @@ const CONTEXT_WINDOW = 50
 // Жалоба «в очереди»: её можно взять в разбор и решить. Решённую или отклонённую — нет.
 const OPEN_STATUSES: ComplaintStatus[] = [ComplaintStatus.PENDING, ComplaintStatus.REVIEWING]
 
+// Потолок одной пачки дублей, закрываемых вместе с решением (их авторам уходит уведомление).
+// Десятки жалоб на одну цель — уже много; остаток, если он есть, закроет следующее решение.
+const DUPLICATES_LIMIT = 500
+// Сколько разных авторов жалоб на цель считаем точно. Больше — уже и так «очень много».
+const TARGET_REPORTERS_LIMIT = 1000
+
 @Injectable()
 export class ComplaintsService {
   private readonly logger = new Logger(ComplaintsService.name)
@@ -116,18 +123,15 @@ export class ComplaintsService {
       })
       if (!member) throw new AppException('NOT_FOUND', 'Сообщение не найдено')
     }
-    const complaint = await this.prisma.complaint.create({
-      data: {
-        reporterId: reporter.sub,
-        targetType: input.targetType as ComplaintTargetType,
-        targetId: input.targetId,
-        reason: input.reason,
-        // Приоритет очереди выводится из категории цели (общее правило в shared-schemas),
-        // а не приходит от клиента: иначе жалующийся сам назначал бы себе «срочно».
-        priority: complaintPriorityFor(input.targetType) as ComplaintPriority,
-        universityId: target.universityId,
-      },
-      select: COMPLAINT_SELECT,
+    const complaint = await this.createOnce({
+      reporterId: reporter.sub,
+      targetType: input.targetType as ComplaintTargetType,
+      targetId: input.targetId,
+      reason: input.reason,
+      // Приоритет очереди выводится из категории цели (общее правило в shared-schemas),
+      // а не приходит от клиента: иначе жалующийся сам назначал бы себе «срочно».
+      priority: complaintPriorityFor(input.targetType) as ComplaintPriority,
+      universityId: target.universityId,
     })
     await this.audit.record({
       userId: reporter.sub,
@@ -139,6 +143,40 @@ export class ComplaintsService {
     })
     await this.announceIfUrgent(complaint)
     return complaint
+  }
+
+  /**
+   * Завести жалобу, если у автора нет открытой жалобы на ту же цель.
+   *
+   * Повторная жалоба того же человека ничего не добавляет к разбору, а очередь и счётчик
+   * «жалоб на цель» раздувала: один настойчивый пользователь выглядел как травля. Проверка и
+   * запись — под advisory-локом (автор + цель): два одновременных нажатия иначе оба
+   * проходили бы проверку. Решённая жалоба повтору не мешает — нарушение могло повториться.
+   */
+  private async createOnce(data: {
+    reporterId: string
+    targetType: ComplaintTargetType
+    targetId: string
+    reason: string
+    priority: ComplaintPriority
+    universityId: string | null
+  }): Promise<ComplaintRow> {
+    return this.prisma.$transaction(async (tx) => {
+      await advisoryXactLock(tx, `complaint:${data.reporterId}:${data.targetType}:${data.targetId}`)
+      const open = await tx.complaint.findFirst({
+        where: {
+          reporterId: data.reporterId,
+          targetType: data.targetType,
+          targetId: data.targetId,
+          status: { in: OPEN_STATUSES },
+        },
+        select: { id: true },
+      })
+      if (open) {
+        throw new AppException('CONFLICT', 'Жалоба на это уже отправлена и ждёт рассмотрения')
+      }
+      return tx.complaint.create({ data, select: COMPLAINT_SELECT })
+    })
   }
 
   /**
@@ -248,16 +286,15 @@ export class ComplaintsService {
       ? firstMessage.slice(0, 2000)
       : 'Жалоба передана из обращения в поддержку'
 
-    const complaint = await this.prisma.complaint.create({
-      data: {
-        reporterId: author.id,
-        targetType: ComplaintTargetType.USER,
-        targetId: targetUserId,
-        reason,
-        priority: complaintPriorityFor('USER') as ComplaintPriority,
-        universityId: target.universityId,
-      },
-      select: COMPLAINT_SELECT,
+    // Тот же запрет повтора, что у обычной жалобы: автор обращения уже жаловался на этого
+    // человека, и жалоба ещё в очереди — вторая ничего не добавит.
+    const complaint = await this.createOnce({
+      reporterId: author.id,
+      targetType: ComplaintTargetType.USER,
+      targetId: targetUserId,
+      reason,
+      priority: complaintPriorityFor('USER') as ComplaintPriority,
+      universityId: target.universityId,
     })
 
     await this.audit.record({
@@ -295,20 +332,26 @@ export class ComplaintsService {
   }
 
   /**
-   * Одна жалоба плюс счётчик: сколько раз на ту же цель жаловались вообще.
+   * Одна жалоба плюс счётчик: сколько разных людей жаловались на ту же цель.
    *
    * Число отличает единичную обиду от травли, и без него модератор судит по одной строке
-   * текста. Считается по `targetId`, а не по автору жалобы: важно, сколько РАЗНЫХ людей
-   * пришло с одним и тем же, а не сколько раз пришёл один настойчивый.
+   * текста. Считаются разные авторы жалоб на `targetId`, а не строки: важно, сколько РАЗНЫХ
+   * людей пришло с одним и тем же, а не сколько раз пришёл один настойчивый.
    */
   async getById(
     viewer: JwtPayload,
     id: string,
   ): Promise<ComplaintRow & { targetReports: number; targetOwnerId: string | null }> {
     const complaint = await this.findScoped(viewer, id)
-    const targetReports = await this.prisma.complaint.count({
+    // Разные авторы, а не строки: повторные жалобы одного человека (до запрета повтора их
+    // заводили сколько угодно) травлю не означают.
+    const reporters = await this.prisma.complaint.groupBy({
+      by: ['reporterId'],
       where: { targetType: complaint.targetType, targetId: complaint.targetId },
+      orderBy: { reporterId: 'asc' },
+      take: TARGET_REPORTERS_LIMIT,
     })
+    const targetReports = reporters.length
     // Кто отвечает за цель. В жалобе на пост или сообщение автора не видно, а решение
     // принимается про человека: заблокировать — значит заблокировать именно его.
     // Снесённая цель отвечает null — карточку нарушителя тогда просто не показываем.
@@ -401,7 +444,15 @@ export class ComplaintsService {
       { jobId: `complaint-resolved:${id}:${resolvedAt}` },
     )
 
-    if (input.applyToDuplicates) await this.closeDuplicates(actor, complaint, status, id, ctx)
+    if (input.applyToDuplicates) {
+      await this.closeDuplicates(
+        actor,
+        complaint,
+        { status, action: input.action, comment: input.comment },
+        id,
+        ctx,
+      )
+    }
     return updated
   }
 
@@ -475,26 +526,48 @@ export class ComplaintsService {
    * Побочное действие (снять контент, заблокировать) здесь НЕ повторяется — оно уже
    * выполнено для первой жалобы. Второе удаление того же поста было бы безобидным, а вот
    * вторая блокировка того же человека записала бы в журнал события, которых не было.
+   *
+   * Дубли получают то же решение целиком — статус, решающего, комментарий, — и их авторам
+   * уходит то же уведомление, что автору основной жалобы. Раньше дубли закрывались молча и
+   * без `resolution`: их авторы так и не узнавали итог.
    */
   private async closeDuplicates(
     actor: JwtPayload,
-    complaint: { targetType: ComplaintTargetType; targetId: string },
-    status: ComplaintStatus,
+    complaint: { targetType: ComplaintTargetType; targetId: string; reporter: { id: string } },
+    decision: {
+      status: ComplaintStatus
+      action: ResolveComplaintInput['action']
+      comment?: string
+    },
     exceptId: string,
     ctx: RequestContext,
   ): Promise<void> {
-    const where = {
-      id: { not: exceptId },
-      targetType: complaint.targetType,
-      targetId: complaint.targetId,
-      status: { in: [ComplaintStatus.PENDING, ComplaintStatus.REVIEWING] },
-      // Чужой scope не трогаем: модератор вуза не должен закрывать жалобы другого вуза
-      // только потому, что цель у них общая.
-      ...this.scopeWhere(actor),
-    }
+    const duplicates = await this.prisma.complaint.findMany({
+      where: {
+        id: { not: exceptId },
+        targetType: complaint.targetType,
+        targetId: complaint.targetId,
+        status: { in: OPEN_STATUSES },
+        // Чужой scope не трогаем: модератор вуза не должен закрывать жалобы другого вуза
+        // только потому, что цель у них общая.
+        ...this.scopeWhere(actor),
+      },
+      select: { id: true, reporterId: true },
+      orderBy: { createdAt: 'asc' },
+      take: DUPLICATES_LIMIT,
+    })
+    if (duplicates.length === 0) return
+
+    const resolvedDate = new Date()
+    // Условие на «в очереди» и в записи: дубль, решённый параллельно отдельно, не трогаем.
     const { count } = await this.prisma.complaint.updateMany({
-      where,
-      data: { status, resolvedById: actor.sub, resolvedAt: new Date() },
+      where: { id: { in: duplicates.map((d) => d.id) }, status: { in: OPEN_STATUSES } },
+      data: {
+        status: decision.status,
+        resolvedById: actor.sub,
+        resolution: decision.comment ?? null,
+        resolvedAt: resolvedDate,
+      },
     })
     if (count === 0) return
 
@@ -506,6 +579,40 @@ export class ComplaintsService {
       metadata: { count, targetType: complaint.targetType, targetId: complaint.targetId },
       ...ctx,
     })
+
+    // Решены ли именно эти дубли нами, а не параллельным решением, — перечитываем по
+    // нашему захвату: уведомление уходит только тем, чью жалобу закрыло это решение.
+    const closed = await this.prisma.complaint.findMany({
+      where: {
+        id: { in: duplicates.map((d) => d.id) },
+        resolvedById: actor.sub,
+        resolvedAt: resolvedDate,
+      },
+      select: { id: true, reporterId: true },
+      take: DUPLICATES_LIMIT,
+    })
+    const at = resolvedDate.getTime()
+    // Одному человеку — одно уведомление: автор основной жалобы своё уже получил, а старые
+    // повторы одного автора (до запрета повтора) не должны давать пачку одинаковых.
+    const notified = new Set<string>([complaint.reporter.id])
+    for (const dup of closed) {
+      if (notified.has(dup.reporterId)) continue
+      notified.add(dup.reporterId)
+      await this.queue.enqueue(
+        QUEUES.NOTIFICATIONS,
+        NOTIFICATION_JOBS.COMPLAINT_RESOLVED,
+        {
+          recipientIds: [dup.reporterId],
+          type: 'SYSTEM',
+          titleKey: 'complaints.resolved.title',
+          bodyKey:
+            decision.action === 'DISMISS' ? 'complaints.dismissed.body' : 'complaints.acted.body',
+          data: { complaintId: dup.id },
+          dedupeKey: `complaint-resolved:${dup.id}:${at}`,
+        },
+        { jobId: `complaint-resolved:${dup.id}:${at}` },
+      )
+    }
   }
 
   /**

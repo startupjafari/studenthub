@@ -11,6 +11,10 @@ import { visibleServicesWhere } from './service-visibility'
 
 // Каталог услуг — справочник вуза (BACKEND_RULES §7.2: потолок обязателен и здесь).
 const CATEGORIES_LIMIT = 100
+// Услуг в одной категории у вуза — десятки; потолок вложенной выборки с запасом.
+const SERVICES_PER_CATEGORY_LIMIT = 200
+// Требований и полей анкеты у услуги — единицы (редактор принимает до 30 и 40).
+const SERVICE_ITEMS_LIMIT = 100
 
 const SERVICE_CARD_SELECT = {
   id: true,
@@ -51,6 +55,7 @@ export class CatalogService {
         services: {
           where: visible,
           orderBy: { sortOrder: 'asc' },
+          take: SERVICES_PER_CATEGORY_LIMIT,
           select: SERVICE_CARD_SELECT,
         },
       },
@@ -72,6 +77,7 @@ export class CatalogService {
         requirements: {
           where: { active: true },
           orderBy: { sortOrder: 'asc' },
+          take: SERVICE_ITEMS_LIMIT,
           select: {
             id: true,
             code: true,
@@ -89,6 +95,7 @@ export class CatalogService {
         formFields: {
           where: { active: true },
           orderBy: { sortOrder: 'asc' },
+          take: SERVICE_ITEMS_LIMIT,
           select: {
             id: true,
             code: true,

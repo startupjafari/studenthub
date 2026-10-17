@@ -5,6 +5,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { Flag, MoreHorizontal, Pencil, Pin, PinOff, Send, Trash2 } from 'lucide-react'
+import { canFileComplaint } from '@studenthub/shared-schemas'
 import {
   deletePostRequest,
   pinPostRequest,
@@ -16,6 +17,7 @@ import { EditPostModal } from '../../../features/edit-post'
 import { ReportModal } from '../../../features/report-content'
 import { MenuSeparator, useConfirm } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
+import { useAppSelector } from '../../../shared/store'
 
 // Меню действий на своей карточке публикации: закрепить/открепить + удалить — через «•••»
 // вместо отдельных иконок (по рекомендации). Лёгкий поповер: закрывается по клику вне/Esc.
@@ -41,6 +43,7 @@ export function PostTileMenu({
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
   const confirm = useConfirm()
+  const myRole = useAppSelector((s) => s.auth.role)
   const [open, setOpen] = useState(false)
   const [reporting, setReporting] = useState(false)
   const [editing, setEditing] = useState(false)
@@ -96,9 +99,10 @@ export function PostTileMenu({
     onError: err,
   })
 
-  // Меню больше не прячем: «Пожаловаться» доступно любому читателю — до этого
-  // подать жалобу из интерфейса было нельзя вовсе, хотя эндпоинт есть с Ф11.
-  const canReport = !isMine
+  // «Пожаловаться» — читателю, которому сервер жалобу примет (студент, староста,
+  // преподаватель: COMPLAINT_REPORTER_ROLES). Деканату, админам и работодателю пункт
+  // раньше показывался и упирался в 403 — модерация у них своя.
+  const canReport = !isMine && canFileComplaint(myRole)
   // Править можно только свою публикацию — модератору правка чужого текста
   // не положена, в отличие от удаления.
   if (!canModerate && !canDelete && !canReport && !isMine) return null

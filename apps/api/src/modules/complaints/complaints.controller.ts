@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, Patch, Post, Query, Req } from '@nestjs/c
 import { Throttle } from '@nestjs/throttler'
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger'
 import { Role } from '@studenthub/shared-types'
+import { COMPLAINT_REPORTER_ROLES } from '@studenthub/shared-schemas'
 import type { FastifyRequest } from 'fastify'
 import { Roles } from '../../common/decorators/roles.decorator'
 import { MiniAllowed } from '../../common/decorators/mini-allowed.decorator'
@@ -30,11 +31,13 @@ export class ComplaintsController {
   constructor(private readonly complaints: ComplaintsService) {}
 
   @Post()
-  @Roles(Role.STUDENT, Role.STAROSTA, Role.TEACHER)
+  // Тот же список, по которому клиенты показывают «Пожаловаться» (shared-schemas).
+  @Roles(...COMPLAINT_REPORTER_ROLES)
   @Throttle({ default: { limit: 10, ttl: 60 * 60_000 } }) // §6.3: 10 / час с пользователя
   @ApiOperation({ summary: 'Подать жалобу на пост/комментарий/сообщение/пользователя' })
   @ApiResponse({ status: 201, description: 'Жалоба создана' })
   @ApiResponse({ status: 404, description: 'NOT_FOUND — цель не найдена' })
+  @ApiResponse({ status: 409, description: 'CONFLICT — ваша жалоба на эту цель уже в очереди' })
   @ApiResponse({ status: 429, description: 'RATE_LIMIT' })
   create(
     @CurrentUser() user: CurrentUserData,
@@ -58,6 +61,10 @@ export class ComplaintsController {
   @ApiResponse({ status: 201, description: 'Жалоба создана' })
   @ApiResponse({ status: 400, description: 'BAD_REQUEST — у обращения нет автора' })
   @ApiResponse({ status: 404, description: 'NOT_FOUND — обращение или человек не найдены' })
+  @ApiResponse({
+    status: 409,
+    description: 'CONFLICT — жалоба автора на этого человека уже в очереди',
+  })
   fromSupport(
     @CurrentUser() user: CurrentUserData,
     @Body() dto: ComplaintFromSupportDto,

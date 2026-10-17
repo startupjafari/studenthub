@@ -1,5 +1,8 @@
 import { Role } from '@studenthub/shared-types'
+import { COMPLAINT_REPORTER_ROLES, canFileComplaint } from '@studenthub/shared-schemas'
 import { ComplaintsService } from './complaints.service'
+import { ComplaintsController } from './complaints.controller'
+import { ROLES_KEY } from '../../common/decorators/roles.decorator'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { AuditService } from '../../common/audit/audit.service'
 import type { QueueService } from '../../common/queue'
@@ -22,6 +25,8 @@ function setup() {
       update: jest.fn(),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       count: jest.fn().mockResolvedValue(0),
+      // Разные авторы жалоб на цель (getById).
+      groupBy: jest.fn().mockResolvedValue([]),
     },
     post: { findFirst: jest.fn(), updateMany: jest.fn() },
     story: { findFirst: jest.fn() },
@@ -35,8 +40,16 @@ function setup() {
     },
     user: { findFirst: jest.fn() },
     chat: { findFirst: jest.fn() },
-    $transaction: jest.fn((ops: unknown) => Promise.all(ops as Promise<unknown>[])),
+    // advisory-лок «автор + цель» при создании жалобы (advisoryXactLock → $executeRaw).
+    $executeRaw: jest.fn().mockResolvedValue(0),
+    // Обе формы: массив запросов и колбэк (в колбэк приходит тот же мок как транзакция).
+    $transaction: jest.fn(),
   }
+  prisma.$transaction.mockImplementation((arg: unknown) =>
+    typeof arg === 'function'
+      ? (arg as (tx: typeof prisma) => unknown)(prisma)
+      : Promise.all(arg as Promise<unknown>[]),
+  )
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const queue = { enqueue: jest.fn().mockResolvedValue(undefined) }
   const users = {
@@ -431,6 +444,117 @@ describe('ComplaintsService.resolve (11.4)', () => {
     const err = await service.resolve(admin, 'c1', { action: 'WARN_USER' }, ctx).catch((e) => e)
     expect(err.code).toBe('BAD_REQUEST')
     expect(prisma.complaint.updateMany).not.toHaveBeenCalled()
+  })
+})
+
+// Один список для guard'а POST /complaints и пункта «Пожаловаться» в клиентах (D-F27).
+describe('COMPLAINT_REPORTER_ROLES', () => {
+  it('жалуются студент, староста, преподаватель; сотрудники и работодатель — нет', () => {
+    for (const role of [Role.STUDENT, Role.STAROSTA, Role.TEACHER]) {
+      expect(canFileComplaint(role)).toBe(true)
+    }
+    for (const role of [
+      Role.DEAN,
+      Role.UNIVERSITY_ADMIN,
+      Role.UNIVERSITY_MODERATOR,
+      Role.PLATFORM_ADMIN,
+      Role.PLATFORM_MODERATOR,
+      Role.EMPLOYER,
+    ]) {
+      expect(canFileComplaint(role)).toBe(false)
+    }
+    expect(canFileComplaint(null)).toBe(false)
+  })
+
+  it('guard POST /complaints построен из того же списка', () => {
+    const roles = Reflect.getMetadata(ROLES_KEY, ComplaintsController.prototype.create) as Role[]
+    expect([...roles].sort()).toEqual([...COMPLAINT_REPORTER_ROLES].sort())
+  })
+})
+
+describe('ComplaintsService — повторы и дубли (D-F27)', () => {
+  const admin = user(Role.UNIVERSITY_ADMIN, { universityId: 'uni1' })
+  const post = { authorId: 'a1', universityId: 'uni1', author: { universityId: 'uni1' } }
+
+  it('повторная жалоба того же автора на ту же цель, пока первая в очереди → CONFLICT', async () => {
+    const { service, prisma } = setup()
+    prisma.post.findFirst.mockResolvedValue(post)
+    prisma.complaint.findFirst.mockResolvedValueOnce({ id: 'c-open' })
+    const err = await service
+      .create(user(Role.STUDENT), { targetType: 'POST', targetId: 'p1', reason: 'spam' }, ctx)
+      .catch((e) => e)
+    expect(err.code).toBe('CONFLICT')
+    expect(prisma.complaint.create).not.toHaveBeenCalled()
+    // Проверка — под локом «автор + цель» и среди открытых жалоб этого автора.
+    expect(prisma.$executeRaw).toHaveBeenCalled()
+    expect(prisma.complaint.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          reporterId: 'u1',
+          targetType: 'POST',
+          targetId: 'p1',
+          status: { in: ['PENDING', 'REVIEWING'] },
+        },
+      }),
+    )
+  })
+
+  it('счётчик жалоб на цель — по разным авторам, а не по строкам', async () => {
+    const { service, prisma } = setup()
+    prisma.complaint.findUnique.mockResolvedValue(complaint())
+    prisma.complaint.groupBy.mockResolvedValue([{ reporterId: 'r1' }, { reporterId: 'r2' }])
+    const result = await service.getById(admin, 'c1')
+    expect(result.targetReports).toBe(2)
+    expect(prisma.complaint.groupBy).toHaveBeenCalledWith(
+      expect.objectContaining({ by: ['reporterId'], take: expect.any(Number) }),
+    )
+    expect(prisma.complaint.count).not.toHaveBeenCalled()
+  })
+
+  it('закрытие дублей пишет то же решение и уведомляет их авторов по разу', async () => {
+    const { service, prisma, queue } = setup()
+    prisma.complaint.findUnique.mockResolvedValue(complaint())
+    prisma.complaint.findMany
+      // Открытые дубли той же цели.
+      .mockResolvedValueOnce([
+        { id: 'c2', reporterId: 'r2' },
+        { id: 'c3', reporterId: 'r2' },
+        { id: 'c4', reporterId: 'r1' },
+      ])
+      // Те, что закрыло именно это решение.
+      .mockResolvedValueOnce([
+        { id: 'c2', reporterId: 'r2' },
+        { id: 'c3', reporterId: 'r2' },
+        { id: 'c4', reporterId: 'r1' },
+      ])
+    prisma.complaint.updateMany
+      .mockResolvedValueOnce({ count: 1 }) // захват основной
+      .mockResolvedValueOnce({ count: 3 }) // дубли
+
+    await service.resolve(
+      admin,
+      'c1',
+      { action: 'DISMISS', comment: 'нарушения нет', applyToDuplicates: true },
+      ctx,
+    )
+
+    const dupUpdate = prisma.complaint.updateMany.mock.calls[1][0]
+    expect(dupUpdate.where).toEqual({
+      id: { in: ['c2', 'c3', 'c4'] },
+      status: { in: ['PENDING', 'REVIEWING'] },
+    })
+    expect(dupUpdate.data).toMatchObject({
+      status: 'DISMISSED',
+      resolvedById: 'u1',
+      resolution: 'нарушения нет',
+    })
+    // r1 — автор основной жалобы, своё уведомление уже получил; r2 — одно на два дубля.
+    const recipients = queue.enqueue.mock.calls.map((c) => c[2].recipientIds)
+    expect(recipients).toEqual([['r1'], ['r2']])
+    expect(queue.enqueue.mock.calls[1][2]).toMatchObject({
+      bodyKey: 'complaints.dismissed.body',
+      data: { complaintId: 'c2' },
+    })
   })
 })
 

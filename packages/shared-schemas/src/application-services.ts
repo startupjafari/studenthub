@@ -105,11 +105,28 @@ export const STUDENT_CANCELLABLE_STATUSES: ApplicationServiceStatus[] = APPLICAT
 export const CreateDraftSchema = z.object({ serviceId: z.string().min(1) }).strict()
 export type CreateDraftInput = z.infer<typeof CreateDraftSchema>
 
+// Ответы анкеты услуги: ключ — код поля, значение — примитив (строка, число, флажок).
+// Потолки — грубая граница, чтобы в заявку нельзя было положить произвольный JSON размером
+// с тело запроса. Тип значения, правила поля и состав ключей сервер сверяет с анкетой услуги.
+export const FORM_DATA_MAX_FIELDS = 100
+export const FORM_DATA_MAX_VALUE_LENGTH = 5000
+export const FormDataValueSchema = z.union([
+  z.string().max(FORM_DATA_MAX_VALUE_LENGTH),
+  z.number().finite(),
+  z.boolean(),
+  z.null(),
+])
+export const FormDataSchema = z
+  .record(z.string().max(60), FormDataValueSchema)
+  .refine((data) => Object.keys(data).length <= FORM_DATA_MAX_FIELDS, {
+    message: `Не больше ${FORM_DATA_MAX_FIELDS} полей`,
+  })
+
 // Правка черновика: способ получения + ответы динамической формы (валидация полей — по услуге на бэке).
 export const UpdateDraftSchema = z
   .object({
     deliveryType: DeliveryTypeSchema.optional(),
-    formData: z.record(z.string(), z.unknown()).optional(),
+    formData: FormDataSchema.optional(),
   })
   .strict()
 export type UpdateDraftInput = z.infer<typeof UpdateDraftSchema>
@@ -187,6 +204,15 @@ export const MarkReadySchema = z
   })
   .strict()
 export type MarkReadyInput = z.infer<typeof MarkReadySchema>
+
+// Выдача оригинала. Код получения необязателен: если клиент его передал, сервер сверяет его
+// с кодом заявки (студент показывает код из карточки). `.default({})` — клиенты, которые кода
+// не спрашивают, шлют запрос вовсе без тела.
+export const IssueApplicationSchema = z
+  .object({ pickupCode: z.string().trim().min(1).max(40).optional() })
+  .strict()
+  .default({})
+export type IssueApplicationInput = z.infer<typeof IssueApplicationSchema>
 
 // Статусы документа заявки (для фронта).
 export const APPLICATION_DOCUMENT_STATUSES = [

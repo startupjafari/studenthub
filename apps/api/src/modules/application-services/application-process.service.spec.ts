@@ -16,12 +16,19 @@ jest.mock('./study-certificate-pdf', () => ({
 function makePrisma(appRow: Record<string, unknown>) {
   const application = {
     findFirst: jest.fn().mockResolvedValue(appRow),
+    findUnique: jest.fn().mockResolvedValue({ pickupCode: 'SH-P-AB12CD34' }),
     update: jest.fn().mockResolvedValue({ ...appRow }),
     count: jest.fn().mockResolvedValue(0),
   }
-  const applicationEvent = { create: jest.fn().mockResolvedValue({}) }
-  const applicationResult = { create: jest.fn().mockResolvedValue({}) }
-  const tx = { application, applicationEvent, applicationResult }
+  const applicationEvent = { create: jest.fn().mockResolvedValue({ id: 'ev-1' }) }
+  const applicationResult = {
+    create: jest.fn().mockResolvedValue({}),
+    // Результаты заявки: «готово» для электронной выдачи без результата не ставится.
+    count: jest.fn().mockResolvedValue(1),
+  }
+  // Документ студента — отметка об отзыве справки.
+  const document = { updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
+  const tx = { application, applicationEvent, applicationResult, document }
   const prisma = {
     ...tx,
     $transaction: jest.fn((arg: unknown) =>
@@ -91,6 +98,7 @@ function setup(appRow: Record<string, unknown>) {
   }
   const exportRegistry = {
     register: jest.fn().mockResolvedValue({ id: 'exp-1', shortId: 'JT9ZPNDD' }),
+    registerExclusive: jest.fn().mockResolvedValue({ id: 'exp-1', shortId: 'JT9ZPNDD' }),
     revokeByDocumentNumber: jest.fn().mockResolvedValue(1),
     hasActiveDocument: jest.fn().mockResolvedValue(false),
     revokeByShortId: jest.fn().mockResolvedValue(undefined),
@@ -269,10 +277,11 @@ describe('ApplicationProcessService — справка об обучении', (
     expect(result.verificationCode).toBe('JT9ZPNDD')
     // Код проверки печатается внутри документа, поэтому запись в журнале обязана быть
     // раньше брендирования и рендера.
-    expect(exportRegistry.register).toHaveBeenCalledWith(
+    expect(exportRegistry.registerExclusive).toHaveBeenCalledWith(
       expect.objectContaining({
         format: 'pdf',
         context: expect.objectContaining({ kind: 'certificate' }),
+        document: expect.objectContaining({ documentNumber: 'SH-2026-001842' }),
       }),
     )
     expect(branding.pdfBranding).toHaveBeenCalledWith(
@@ -287,7 +296,7 @@ describe('ApplicationProcessService — справка об обучении', (
 
   it('не выдаёт справку, если её не удалось записать в журнал', async () => {
     const { service, documents, exportRegistry } = setup(inPreparation)
-    exportRegistry.register.mockResolvedValue(null)
+    exportRegistry.registerExclusive.mockResolvedValue(null)
 
     // Официальный документ без записи в журнале непроверяем — выдавать его нельзя,
     // в отличие от рабочих выгрузок, где сбой журнала терпим.
@@ -300,7 +309,18 @@ describe('ApplicationProcessService — справка об обучении', (
     exportRegistry.hasActiveDocument.mockResolvedValue(true)
     const err = await service.issueStudyCertificate(dean, 'app-1', 'ru').catch((e) => e)
     expect(err.code).toBe('CONFLICT')
-    expect(exportRegistry.register).not.toHaveBeenCalled()
+    expect(exportRegistry.registerExclusive).not.toHaveBeenCalled()
+  })
+
+  // D-F19: два одновременных «Сформировать» оба проходили проверку чтением. Теперь второй
+  // упирается в registerExclusive (проверка и запись под локом номера) и ничего не выдаёт.
+  it('гонка: действующая справка появилась между проверкой и записью → CONFLICT', async () => {
+    const { service, documents, exportRegistry } = setup(inPreparation)
+    exportRegistry.registerExclusive.mockResolvedValue('active')
+    const err = await service.issueStudyCertificate(dean, 'app-1', 'ru').catch((e) => e)
+    expect(err.code).toBe('CONFLICT')
+    expect(documents.uploadFile).not.toHaveBeenCalled()
+    expect(documents.issueToOwner).not.toHaveBeenCalled()
   })
 
   it('выдача сорвалась после регистрации → код отзывается', async () => {
@@ -331,7 +351,12 @@ describe('ApplicationProcessService — отзыв справки', () => {
     const result = await service.revokeStudyCertificate(dean, 'app-1', 'выдана ошибочно')
 
     expect(result.revoked).toBe(1)
-    expect(exportRegistry.revokeByDocumentNumber).toHaveBeenCalledWith('SH-2026-001842')
+    // Журнал — в той же транзакции, что отметка на документе и событие.
+    expect(exportRegistry.revokeByDocumentNumber).toHaveBeenCalledWith(
+      'SH-2026-001842',
+      'certificate',
+      expect.objectContaining({ document: prisma.document }),
+    )
     expect(prisma.applicationEvent.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ action: 'RESULT_REVOKED', comment: 'выдана ошибочно' }),
@@ -339,11 +364,40 @@ describe('ApplicationProcessService — отзыв справки', () => {
     )
   })
 
-  it('сообщает, когда отзывать нечего, вместо тихого успеха', async () => {
-    const { service, exportRegistry } = setup(issued)
+  // D-F19: справка в кабинете оставалась «выданной», и студент узнавал об отзыве только по QR.
+  it('помечает справку в кабинете студента и уведомляет его', async () => {
+    const { service, prisma, queue } = setup(issued)
+
+    await service.revokeStudyCertificate(dean, 'app-1', 'выдана ошибочно')
+
+    expect(prisma.document.updateMany).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        ownerId: 'stu-1',
+        type: 'STUDY_PLACE_REF',
+        issuedByUniversity: true,
+        applicationResults: { some: { applicationId: 'app-1' } },
+      }),
+      data: { status: 'REJECTED', rejectionReason: 'выдана ошибочно' },
+    })
+    expect(queue.enqueue).toHaveBeenCalledWith(
+      'notifications',
+      expect.any(String),
+      expect.objectContaining({
+        recipientIds: ['stu-1'],
+        titleKey: 'applications.revoked.title',
+        params: { number: 'SH-2026-001842' },
+      }),
+      expect.anything(),
+    )
+  })
+
+  it('сообщает, когда отзывать нечего, вместо тихого успеха — и ничего не помечает', async () => {
+    const { service, exportRegistry, prisma, queue } = setup(issued)
     exportRegistry.revokeByDocumentNumber.mockResolvedValue(0)
 
     await expect(service.revokeStudyCertificate(dean, 'app-1')).rejects.toThrow(AppException)
+    expect(prisma.document.updateMany).not.toHaveBeenCalled()
+    expect(queue.enqueue).not.toHaveBeenCalled()
   })
 })
 
@@ -397,6 +451,74 @@ describe('ApplicationProcessService.assign — кому можно поручи�
     const { service, users } = setup({ ...base, status: 'IN_REVIEW' })
     await service.assignees(dean, 'a1')
     expect(users.listApplicationAssignees).toHaveBeenCalledWith('uni', 'fac')
+  })
+})
+
+describe('ApplicationProcessService — назначение, готовность, выдача (D-F18)', () => {
+  const assignable = {
+    id: 'ua',
+    role: Role.UNIVERSITY_ADMIN,
+    universityId: 'uni',
+    facultyId: null,
+  }
+
+  it.each(['ISSUED', 'DELIVERED', 'REJECTED', 'CANCELLED'])(
+    'закрытую заявку (%s) поручить нельзя',
+    async (status) => {
+      const { service, prisma, users } = setup({ ...base, status })
+      users.findAssigneeScope.mockResolvedValue(assignable)
+      await expect(service.assign(dean, 'a1', 'ua')).rejects.toMatchObject({
+        code: 'BAD_REQUEST',
+      })
+      expect(prisma.application.update).not.toHaveBeenCalled()
+    },
+  )
+
+  it('назначение пишется с условием «заявка ещё в работе»', async () => {
+    const { service, prisma, users } = setup({ ...base, status: 'IN_PREPARATION' })
+    users.findAssigneeScope.mockResolvedValue(assignable)
+    await service.assign(dean, 'a1', 'ua')
+    const where = prisma.application.update.mock.calls[0][0].where
+    expect(where.id).toBe('a1')
+    expect(where.status.notIn).toEqual(expect.arrayContaining(['DRAFT', 'ISSUED', 'CANCELLED']))
+  })
+
+  it('электронная выдача без результата → «готово» не ставится', async () => {
+    const { service, prisma, queue } = setup({
+      ...base,
+      status: 'IN_PREPARATION',
+      deliveryType: 'ELECTRONIC',
+    })
+    prisma.applicationResult.count.mockResolvedValue(0)
+    await expect(service.markReady(dean, 'a1', {})).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    expect(prisma.application.update).not.toHaveBeenCalled()
+    expect(queue.enqueue).not.toHaveBeenCalled()
+  })
+
+  it('бумажная выдача без результата — можно: результат и есть бумага', async () => {
+    const { service, prisma } = setup({ ...base, status: 'IN_PREPARATION', deliveryType: 'PAPER' })
+    prisma.applicationResult.count.mockResolvedValue(0)
+    await service.markReady(dean, 'a1', {})
+    expect(prisma.application.update.mock.calls[0][0].data.status).toBe('READY_FOR_PICKUP')
+  })
+
+  it('выдача с неверным кодом получения → BAD_REQUEST', async () => {
+    const { service, prisma } = setup({ ...base, status: 'READY_FOR_PICKUP' })
+    await expect(service.issue(dean, 'a1', 'SH-P-00000000')).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+    })
+    expect(prisma.application.update).not.toHaveBeenCalled()
+  })
+
+  it('выдача с верным кодом (без учёта регистра) и без кода — проходит', async () => {
+    const withCode = setup({ ...base, status: 'READY_FOR_PICKUP' })
+    await withCode.service.issue(dean, 'a1', ' sh-p-ab12cd34 ')
+    expect(withCode.prisma.application.update.mock.calls[0][0].data.status).toBe('ISSUED')
+
+    const noCode = setup({ ...base, status: 'READY_FOR_PICKUP' })
+    await noCode.service.issue(dean, 'a1')
+    expect(noCode.prisma.application.findUnique).not.toHaveBeenCalled()
+    expect(noCode.prisma.application.update.mock.calls[0][0].data.status).toBe('ISSUED')
   })
 })
 

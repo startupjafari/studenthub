@@ -75,6 +75,17 @@ const RU = {
   'applications.provided.title': 'Документ предоставлен',
   'applications.provided.body': 'Заявка {number}: электронный документ готов',
   'applications.replacement.title': 'Требуется замена документа',
+  // Студенту: выданная по заявке справка отозвана — в кабинете она помечена «Отклонён».
+  'applications.revoked.title': 'Справка отозвана',
+  'applications.revoked.body': 'Заявка {number}: выданная справка больше не действительна',
+  // Обработчикам заявок (деканат, администрация вуза): новая и исправленная заявка, сводка
+  // просроченных по сроку обработки.
+  'applications.submitted.title': 'Новая заявка',
+  'applications.submitted.body': 'Заявка {number} ждёт обработки',
+  'applications.resubmitted.title': 'Заявка исправлена',
+  'applications.resubmitted.body': 'Заявка {number} отправлена повторно',
+  'applications.overdue.title': 'Просроченные заявки',
+  'applications.overdue.body': 'Заявок с истёкшим сроком обработки: {count}',
 
   'assignments.published.title': 'Новое задание',
   'assignments.graded.title': 'Работа проверена',
@@ -155,6 +166,14 @@ const KK: Record<NotificationMessageKey, string> = {
   'applications.provided.title': 'Құжат ұсынылды',
   'applications.provided.body': '{number} өтініші: электрондық құжат дайын',
   'applications.replacement.title': 'Құжатты ауыстыру қажет',
+  'applications.revoked.title': 'Анықтама кері қайтарылды',
+  'applications.revoked.body': '{number} өтініші: берілген анықтама енді жарамсыз',
+  'applications.submitted.title': 'Жаңа өтініш',
+  'applications.submitted.body': '{number} өтініші өңдеуді күтуде',
+  'applications.resubmitted.title': 'Өтініш түзетілді',
+  'applications.resubmitted.body': '{number} өтініші қайта жіберілді',
+  'applications.overdue.title': 'Мерзімі өткен өтініштер',
+  'applications.overdue.body': 'Өңдеу мерзімі өткен өтініштер: {count}',
 
   'assignments.published.title': 'Жаңа тапсырма',
   'assignments.graded.title': 'Жұмыс тексерілді',
@@ -231,6 +250,14 @@ const EN: Record<NotificationMessageKey, string> = {
   'applications.provided.title': 'Document provided',
   'applications.provided.body': 'Application {number}: the electronic document is ready',
   'applications.replacement.title': 'Document replacement required',
+  'applications.revoked.title': 'Certificate revoked',
+  'applications.revoked.body': 'Application {number}: the issued certificate is no longer valid',
+  'applications.submitted.title': 'New application',
+  'applications.submitted.body': 'Application {number} is awaiting processing',
+  'applications.resubmitted.title': 'Application corrected',
+  'applications.resubmitted.body': 'Application {number} was resubmitted',
+  'applications.overdue.title': 'Overdue applications',
+  'applications.overdue.body': 'Applications past their processing deadline: {count}',
 
   'assignments.published.title': 'New assignment',
   'assignments.graded.title': 'Work graded',
