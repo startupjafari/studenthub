@@ -134,6 +134,11 @@ def main():
             out.append(f'{n}. {i["prio"]} {i["id"]} — {i["title"]}')
         out.append('')
 
+    # Итог фазы 3 пишется вручную в .audit/report_outcome.md и вставляется как есть.
+    outcome = ROOT / 'report_outcome.md'
+    if outcome.exists():
+        out += ['## 5. Итог работ', '', outcome.read_text().strip(), '']
+
     (ROOT / 'AUDIT_REPORT.md').write_text('\n'.join(out) + '\n')
     (ROOT / 'tools' / 'issues.json').write_text(
         json.dumps([{**i, 'paths': files_of(i)} for i in all_issues], ensure_ascii=False, indent=1))
