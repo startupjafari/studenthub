@@ -41,6 +41,7 @@ import { PhotoAlbumMenu, type AlbumFilter } from './album-controls'
 import { ContentLayout, FilterGroup, FilterOption, FilterSkeleton } from './filter-sidebar'
 import { useRetryOnError } from './use-retry-on-error'
 import { useProgressive } from './use-progressive'
+import type { ContentModeration } from '../lib/content-moderation'
 
 function errCode(e: unknown): string {
   return (e as { code?: string }).code ?? 'INTERNAL_ERROR'
@@ -64,6 +65,8 @@ function tileSizes(index: number): string {
 interface ProfileMediaGridProps {
   userId: string
   isOwner: boolean
+  // Модератор scope снимает чужие фото и видео (пункт «Удалить (модерация)»; решает сервер).
+  moderation?: ContentModeration
   kind: 'PHOTO' | 'VIDEO'
   // Сигнал «открыть выбор файла» (из меню «+» в шапке профиля); nonce меняется при каждом вызове.
   openPicker?: number
@@ -73,6 +76,7 @@ interface ProfileMediaGridProps {
 export function ProfileMediaGrid({
   userId,
   isOwner,
+  moderation,
   kind,
   openPicker,
   onConsumed,
@@ -199,6 +203,20 @@ export function ProfileMediaGrid({
 
   function confirmDelete(id: string): void {
     void confirm({ title: t('mediaDeleteConfirm'), destructive: true }).then((ok) => {
+      if (ok) delMut.mutate(id)
+    })
+  }
+
+  // Чужое медиа снимает модератор scope: то же удаление, но с пояснением, что это решение
+  // модерации и оно попадёт в аудит.
+  const canModerate = !isOwner && !!moderation?.content
+  function confirmModerate(id: string): void {
+    void confirm({
+      title: t('mediaDeleteConfirm'),
+      description: t('moderationDeleteHint'),
+      confirmLabel: t('deleteModeration'),
+      destructive: true,
+    }).then((ok) => {
       if (ok) delMut.mutate(id)
     })
   }
@@ -420,6 +438,12 @@ export function ProfileMediaGrid({
                         onDelete={() => confirmDelete(m.id)}
                       />
                     )}
+                    {canModerate && (
+                      <DeleteButton
+                        label={t('deleteModeration')}
+                        onClick={() => confirmModerate(m.id)}
+                      />
+                    )}
                   </MosaicTile>
                 ))}
                 {skeletonTail}
@@ -433,8 +457,14 @@ export function ProfileMediaGrid({
                     media={m}
                     label={t('tabVideos')}
                     onOpen={() => setLightbox(i)}
-                    onDelete={isOwner ? () => confirmDelete(m.id) : undefined}
-                    deleteLabel={t('delete')}
+                    onDelete={
+                      isOwner
+                        ? () => confirmDelete(m.id)
+                        : canModerate
+                          ? () => confirmModerate(m.id)
+                          : undefined
+                    }
+                    deleteLabel={isOwner ? t('delete') : t('deleteModeration')}
                   />
                 ))}
                 {skeletonTail}
@@ -518,6 +548,7 @@ function DeleteButton({ label, onClick }: { label: string; onClick: () => void }
     <button
       type="button"
       aria-label={label}
+      title={label}
       onClick={onClick}
       className="absolute right-1.5 top-1.5 z-10 flex size-7 items-center justify-center rounded-lg bg-black/55 text-white opacity-0 transition-opacity hover:bg-destructive focus-visible:opacity-100 group-hover/tile:opacity-100"
     >

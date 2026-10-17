@@ -383,7 +383,7 @@ describe('EventsService — комментарии (§3.5)', () => {
     prisma.eventComment.findFirst.mockResolvedValue({
       id: 'c1',
       authorId: 'u1',
-      event: { universityId: 'uni-1' },
+      author: { role: Role.STUDENT, universityId: 'uni-1', facultyId: null },
     })
     await service.removeComment(user(Role.STUDENT, { sub: 'u1' }), 'e1', 'c1', ctx)
     expect(prisma.eventComment.update).toHaveBeenCalledWith({
@@ -398,7 +398,7 @@ describe('EventsService — комментарии (§3.5)', () => {
     prisma.eventComment.findFirst.mockResolvedValue({
       id: 'c1',
       authorId: 'someone',
-      event: { universityId: 'uni-1' },
+      author: { role: Role.STUDENT, universityId: 'uni-1', facultyId: null },
     })
     prisma.event.findUnique.mockResolvedValue({ organizerId: 'org-1', universityId: 'uni-1' })
     await service.removeComment(user(Role.TEACHER, { sub: 'org-1' }), 'e1', 'c1', ctx)
@@ -413,7 +413,7 @@ describe('EventsService — комментарии (§3.5)', () => {
     prisma.eventComment.findFirst.mockResolvedValue({
       id: 'c1',
       authorId: 'someone',
-      event: { universityId: 'uni-1' },
+      author: { role: Role.STUDENT, universityId: 'uni-1', facultyId: null },
     })
     prisma.event.findUnique.mockResolvedValue({ organizerId: 'org-1', universityId: 'uni-1' })
     await service.removeComment(
@@ -430,12 +430,121 @@ describe('EventsService — комментарии (§3.5)', () => {
     prisma.eventComment.findFirst.mockResolvedValue({
       id: 'c1',
       authorId: 'someone',
-      event: { universityId: 'uni-1' },
+      author: { role: Role.STUDENT, universityId: 'uni-1', facultyId: null },
     })
     prisma.event.findUnique.mockResolvedValue({ organizerId: 'org-1', universityId: 'uni-1' })
     await expect(
       service.removeComment(user(Role.STUDENT, { sub: 'u9' }), 'e1', 'c1', ctx),
     ).rejects.toMatchObject({ code: 'FORBIDDEN' })
     expect(prisma.eventComment.update).not.toHaveBeenCalled()
+  })
+
+  // E-F08: модерация комментариев — по правилам постов: роль строго выше автора, scope —
+  // событие или сам автор. Организатор ведёт обсуждение своего события без проверки ранга.
+  it('модератор вуза не снимает комментарий админа вуза (ранг)', async () => {
+    const { service, prisma, audit } = setup()
+    prisma.eventComment.findFirst.mockResolvedValue({
+      id: 'c1',
+      authorId: 'adm',
+      author: { role: Role.UNIVERSITY_ADMIN, universityId: 'uni-1', facultyId: null },
+    })
+    prisma.event.findUnique.mockResolvedValue({ organizerId: 'org-1', universityId: 'uni-1' })
+    await expect(
+      service.removeComment(
+        user(Role.UNIVERSITY_MODERATOR, { sub: 'mod-1', universityId: 'uni-1' }),
+        'e1',
+        'c1',
+        ctx,
+      ),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(prisma.eventComment.update).not.toHaveBeenCalled()
+    expect(audit.record).not.toHaveBeenCalled()
+  })
+
+  it('модератор вуза снимает комментарий своего студента под событием платформы', async () => {
+    const { service, prisma, audit } = setup()
+    prisma.eventComment.findFirst.mockResolvedValue({
+      id: 'c1',
+      authorId: 'stud',
+      author: { role: Role.STUDENT, universityId: 'uni-1', facultyId: 'f1' },
+    })
+    prisma.event.findUnique.mockResolvedValue({
+      organizerId: 'root',
+      universityId: null,
+      facultyId: null,
+    })
+    await service.removeComment(
+      user(Role.UNIVERSITY_MODERATOR, { sub: 'mod-1', universityId: 'uni-1' }),
+      'e1',
+      'c1',
+      ctx,
+    )
+    expect(prisma.eventComment.update).toHaveBeenCalled()
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'event_comment_deleted' }),
+    )
+  })
+
+  it('модератор чужого вуза → FORBIDDEN', async () => {
+    const { service, prisma } = setup()
+    prisma.eventComment.findFirst.mockResolvedValue({
+      id: 'c1',
+      authorId: 'stud',
+      author: { role: Role.STUDENT, universityId: 'uni-1', facultyId: 'f1' },
+    })
+    prisma.event.findUnique.mockResolvedValue({
+      organizerId: 'org-1',
+      universityId: 'uni-1',
+      facultyId: 'f1',
+    })
+    await expect(
+      service.removeComment(
+        user(Role.UNIVERSITY_ADMIN, { sub: 'adm-2', universityId: 'uni-2' }),
+        'e1',
+        'c1',
+        ctx,
+      ),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+  })
+
+  it('декан снимает комментарий под событием своего факультета, чужого — нет', async () => {
+    const { service, prisma } = setup()
+    prisma.eventComment.findFirst.mockResolvedValue({
+      id: 'c1',
+      authorId: 'stud',
+      author: { role: Role.STUDENT, universityId: 'uni-1', facultyId: 'f9' },
+    })
+    prisma.event.findUnique.mockResolvedValue({
+      organizerId: 'org-1',
+      universityId: 'uni-1',
+      facultyId: 'f1',
+    })
+    await service.removeComment(
+      user(Role.DEAN, { sub: 'dean-1', universityId: 'uni-1', facultyId: 'f1' }),
+      'e1',
+      'c1',
+      ctx,
+    )
+    expect(prisma.eventComment.update).toHaveBeenCalledTimes(1)
+    await expect(
+      service.removeComment(
+        user(Role.DEAN, { sub: 'dean-2', universityId: 'uni-1', facultyId: 'f2' }),
+        'e1',
+        'c1',
+        ctx,
+      ),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+  })
+
+  it('организатор-преподаватель снимает комментарий декана под своим событием', async () => {
+    const { service, prisma } = setup()
+    prisma.eventComment.findFirst.mockResolvedValue({
+      id: 'c1',
+      authorId: 'dean-1',
+      author: { role: Role.DEAN, universityId: 'uni-1', facultyId: 'f1' },
+    })
+    prisma.event.findUnique.mockResolvedValue({ organizerId: 'org-1', universityId: 'uni-1' })
+    await service.removeComment(user(Role.TEACHER, { sub: 'org-1' }), 'e1', 'c1', ctx)
+    expect(prisma.eventComment.update).toHaveBeenCalled()
   })
 })

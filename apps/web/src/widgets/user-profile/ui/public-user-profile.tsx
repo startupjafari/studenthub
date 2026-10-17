@@ -37,6 +37,8 @@ import {
   friendKeys,
 } from '../../../entities/friendship'
 import { useRealtimeEvent } from '../../../shared/realtime'
+import { useAppSelector } from '../../../shared/store'
+import { contentModeration } from '../lib/content-moderation'
 
 // Путь к чатам по роли текущего пользователя (кнопка «Написать»). Источник истины —
 // widgets/app-shell/model/nav.ts; дублируем минимально, т.к. FSD запрещает импорт widget→widget.
@@ -72,6 +74,7 @@ export function PublicUserProfile({ userId }: { userId: string }) {
   const tErr = useTranslations('Errors')
   const tCommon = useTranslations('Common')
   const router = useRouter()
+  const auth = useAppSelector((s) => s.auth)
 
   const q = useQuery({
     queryKey: userKeys.detail(userId),
@@ -137,6 +140,16 @@ export function PublicUserProfile({ userId }: { userId: string }) {
   }
 
   const u = q.data
+  // Пункты «Удалить (модерация)» во вкладках: роль и scope смотрящего — из сессии (как в JWT).
+  const moderation = contentModeration(
+    {
+      id: auth.user?.id ?? null,
+      role: auth.role,
+      universityId: auth.universityId,
+      facultyId: auth.facultyId,
+    },
+    u,
+  )
 
   return (
     // flex-1 — как у своего профиля: пустая вкладка тянется до низа экрана.
@@ -228,7 +241,13 @@ export function PublicUserProfile({ userId }: { userId: string }) {
           </CardContent>
         </Card>
       ) : (
-        <ProfileTabs userId={u.id} isOwner={false} tab={tab} onTabChange={setTab}>
+        <ProfileTabs
+          userId={u.id}
+          isOwner={false}
+          moderation={moderation}
+          tab={tab}
+          onTabChange={setTab}
+        >
           <ProfileBody data={u} />
         </ProfileTabs>
       )}

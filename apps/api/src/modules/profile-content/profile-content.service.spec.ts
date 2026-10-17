@@ -3,6 +3,7 @@ import { Role } from '@studenthub/shared-types'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { FileService } from '../files/file.service'
 import { UserService } from '../users/users.service'
+import type { AuditService } from '../../common/audit/audit.service'
 import type { EnvVars } from '../../config/env.schema'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import { ProfileContentService } from './profile-content.service'
@@ -11,8 +12,11 @@ function user(sub: string): JwtPayload {
   return { sub, role: Role.STUDENT, universityId: 'u', facultyId: 'f', groupId: 'g' }
 }
 
+const ctx = { ip: '127.0.0.1', userAgent: 'jest' }
+
 const CONFIG: Record<string, unknown> = {
   MINIO_BUCKET_PROFILE_MEDIA: 'profile-media',
+  MINIO_BUCKET_PROFILE_COVERS: 'profile-covers',
   MINIO_USE_SSL: false,
   MINIO_ENDPOINT: 'localhost',
   MINIO_PORT: 9000,
@@ -53,6 +57,7 @@ function setup() {
   const files = {
     upload: jest.fn(),
     delete: jest.fn(),
+    removeRawObject: jest.fn(),
     findOrThrow: jest.fn(),
     listByOwnerAndBucket: jest.fn(),
     presignPut: jest.fn(),
@@ -82,14 +87,16 @@ function setup() {
       expiresAt: null,
     })),
   }
+  const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const service = new ProfileContentService(
     prisma as unknown as PrismaService,
     files as unknown as FileService,
     config as unknown as ConfigService<EnvVars, true>,
     users as unknown as UserService,
     media as never,
+    audit as unknown as AuditService,
   )
-  return { service, prisma, files, users, media }
+  return { service, prisma, files, users, media, audit }
 }
 
 // Владелец контента — поля PROFILE_CONTENT_OWNER_SELECT.
@@ -142,7 +149,7 @@ describe('ProfileContentService — медиа', () => {
   it('не даёт удалить чужой файл / файл из другого бакета', async () => {
     const { service, files } = setup()
     files.findOrThrow.mockResolvedValue(file({ ownerId: 'other' }))
-    const err = await service.deleteMedia(user('me'), 'file1').catch((e) => e)
+    const err = await service.deleteMedia(user('me'), 'file1', ctx).catch((e) => e)
     expect(err.code).toBe('NOT_FOUND')
     expect(files.delete).not.toHaveBeenCalled()
   })
@@ -194,7 +201,7 @@ describe('ProfileContentService — статьи владение', () => {
   it('delete несуществующей статьи → NOT_FOUND', async () => {
     const { service, prisma } = setup()
     prisma.profileArticle.findUnique.mockResolvedValue(null)
-    const err = await service.deleteArticle(user('me'), 'a1').catch((e) => e)
+    const err = await service.deleteArticle(user('me'), 'a1', ctx).catch((e) => e)
     expect(err.code).toBe('NOT_FOUND')
   })
 
@@ -437,5 +444,202 @@ describe('ProfileContentService — статьи и закрытый профи�
 
     expect(list.map((a) => a.id)).toEqual(['ok'])
     expect(list[0]).not.toHaveProperty('user')
+  })
+})
+
+// E-F08: контент профиля снимает модератор — по правилам постов: роль строго выше автора,
+// scope (вуз/факультет автора) — из JWT модератора и записи автора, а не из запроса.
+describe('ProfileContentService — снятие модератором (E-F08)', () => {
+  const mod = (role: Role, scope: Partial<JwtPayload> = {}): JwtPayload => ({
+    sub: 'mod',
+    role,
+    universityId: scope.universityId ?? null,
+    facultyId: scope.facultyId ?? null,
+    groupId: null,
+  })
+  const author = (over: Record<string, unknown> = {}) => ({
+    role: Role.STUDENT,
+    universityId: 'u',
+    facultyId: 'f',
+    ...over,
+  })
+
+  it('модератор вуза снимает статью студента своего вуза — с записью в аудит', async () => {
+    const { service, prisma, audit } = setup()
+    prisma.profileArticle.findUnique.mockResolvedValue({ userId: 'stud', user: author() })
+    await service.deleteArticle(mod(Role.UNIVERSITY_MODERATOR, { universityId: 'u' }), 'a1', ctx)
+    expect(prisma.profileArticle.delete).toHaveBeenCalledWith({ where: { id: 'a1' } })
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'mod',
+        action: 'profile_article_deleted',
+        entityId: 'a1',
+        metadata: { authorId: 'stud' },
+        ip: '127.0.0.1',
+      }),
+    )
+  })
+
+  it('владелец удаляет свою статью без записи в аудит', async () => {
+    const { service, prisma, audit } = setup()
+    prisma.profileArticle.findUnique.mockResolvedValue({ userId: 'me', user: author() })
+    await service.deleteArticle(user('me'), 'a1', ctx)
+    expect(prisma.profileArticle.delete).toHaveBeenCalled()
+    expect(audit.record).not.toHaveBeenCalled()
+  })
+
+  it('модератор вуза: статья автора другого вуза → WRONG_SCOPE, не удаляется', async () => {
+    const { service, prisma } = setup()
+    prisma.profileArticle.findUnique.mockResolvedValue({
+      userId: 'stud',
+      user: author({ universityId: 'other' }),
+    })
+    const err = await service
+      .deleteArticle(mod(Role.UNIVERSITY_ADMIN, { universityId: 'u' }), 'a1', ctx)
+      .catch((e) => e)
+    expect(err.code).toBe('WRONG_SCOPE')
+    expect(prisma.profileArticle.delete).not.toHaveBeenCalled()
+  })
+
+  it('роль не выше автора → FORBIDDEN (модератор вуза не снимает статью админа вуза)', async () => {
+    const { service, prisma } = setup()
+    prisma.profileArticle.findUnique.mockResolvedValue({
+      userId: 'adm',
+      user: author({ role: Role.UNIVERSITY_ADMIN }),
+    })
+    const err = await service
+      .deleteArticle(mod(Role.UNIVERSITY_MODERATOR, { universityId: 'u' }), 'a1', ctx)
+      .catch((e) => e)
+    expect(err.code).toBe('FORBIDDEN')
+    expect(prisma.profileArticle.delete).not.toHaveBeenCalled()
+  })
+
+  it('чужую статью не снимают роли без модерации (преподаватель выше студента — всё равно нет)', async () => {
+    const { service, prisma } = setup()
+    prisma.profileArticle.findUnique.mockResolvedValue({ userId: 'stud', user: author() })
+    for (const role of [Role.TEACHER, Role.STAROSTA, Role.STUDENT, Role.EMPLOYER]) {
+      const err = await service
+        .deleteArticle(mod(role, { universityId: 'u', facultyId: 'f' }), 'a1', ctx)
+        .catch((e) => e)
+      expect(err.code).toBe('FORBIDDEN')
+    }
+    expect(prisma.profileArticle.delete).not.toHaveBeenCalled()
+  })
+
+  it('декан снимает только авторов своего факультета', async () => {
+    const { service, prisma } = setup()
+    prisma.profileArticle.findUnique.mockResolvedValue({
+      userId: 'stud',
+      user: author({ facultyId: 'f2' }),
+    })
+    const err = await service
+      .deleteArticle(mod(Role.DEAN, { universityId: 'u', facultyId: 'f' }), 'a1', ctx)
+      .catch((e) => e)
+    expect(err.code).toBe('WRONG_SCOPE')
+
+    prisma.profileArticle.findUnique.mockResolvedValue({ userId: 'stud', user: author() })
+    await service.deleteArticle(mod(Role.DEAN, { universityId: 'u', facultyId: 'f' }), 'a1', ctx)
+    expect(prisma.profileArticle.delete).toHaveBeenCalledTimes(1)
+  })
+
+  it('модератор платформы снимает статью в любом вузе', async () => {
+    const { service, prisma } = setup()
+    prisma.profileArticle.findUnique.mockResolvedValue({
+      userId: 'adm',
+      user: author({ role: Role.UNIVERSITY_ADMIN, universityId: 'any' }),
+    })
+    await service.deleteArticle(mod(Role.PLATFORM_MODERATOR), 'a1', ctx)
+    expect(prisma.profileArticle.delete).toHaveBeenCalled()
+  })
+
+  it('медиа: модератор снимает файл вместе с обложкой видео и объектом в MinIO', async () => {
+    const { service, prisma, files, audit } = setup()
+    files.findOrThrow.mockResolvedValue(
+      file({ ownerId: 'stud', mime: 'video/mp4', posterKey: 'p.jpg' }),
+    )
+    prisma.user.findUnique.mockResolvedValue(author())
+    await service.deleteMedia(mod(Role.UNIVERSITY_MODERATOR, { universityId: 'u' }), 'file1', ctx)
+    expect(files.removeRawObject).toHaveBeenCalledWith('profile-covers', 'p.jpg')
+    // Владелец не сверяется FileService-ом: право модератора проверено в сервисе.
+    expect(files.delete).toHaveBeenCalledWith('file1', undefined)
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'profile_media_deleted', metadata: { authorId: 'stud' } }),
+    )
+  })
+
+  it('медиа: модератор вне scope → WRONG_SCOPE, файл цел', async () => {
+    const { service, prisma, files } = setup()
+    files.findOrThrow.mockResolvedValue(file({ ownerId: 'stud' }))
+    prisma.user.findUnique.mockResolvedValue(author({ universityId: 'other' }))
+    const err = await service
+      .deleteMedia(mod(Role.UNIVERSITY_MODERATOR, { universityId: 'u' }), 'file1', ctx)
+      .catch((e) => e)
+    expect(err.code).toBe('WRONG_SCOPE')
+    expect(files.delete).not.toHaveBeenCalled()
+  })
+
+  it('медиа: модератор не снимает файл из чужого бакета (аватар) — NOT_FOUND', async () => {
+    const { service, files } = setup()
+    files.findOrThrow.mockResolvedValue(file({ ownerId: 'stud', bucket: 'avatars' }))
+    const err = await service.deleteMedia(mod(Role.PLATFORM_ADMIN), 'file1', ctx).catch((e) => e)
+    expect(err.code).toBe('NOT_FOUND')
+    expect(files.delete).not.toHaveBeenCalled()
+  })
+
+  it('комментарий: модератор вуза снимает комментарий гостя под статьёй своего студента', async () => {
+    const { service, prisma, audit } = setup()
+    prisma.contentComment.findUnique.mockResolvedValue({
+      authorId: 'guest',
+      articleId: 'a1',
+      author: author({ universityId: 'other' }),
+      article: { userId: 'stud', user: author() },
+    })
+    await service.deleteArticleComment(
+      mod(Role.UNIVERSITY_MODERATOR, { universityId: 'u' }),
+      'a1',
+      'c1',
+      ctx,
+    )
+    expect(prisma.contentComment.delete).toHaveBeenCalledWith({ where: { id: 'c1' } })
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'content_comment_deleted',
+        metadata: { articleId: 'a1', authorId: 'guest' },
+      }),
+    )
+  })
+
+  it('комментарий: ранг сверяется с автором комментария, а не статьи', async () => {
+    const { service, prisma } = setup()
+    prisma.contentComment.findUnique.mockResolvedValue({
+      authorId: 'dean',
+      articleId: 'a1',
+      author: author({ role: Role.DEAN }),
+      article: { userId: 'stud', user: author() },
+    })
+    const err = await service
+      .deleteArticleComment(mod(Role.DEAN, { universityId: 'u', facultyId: 'f' }), 'a1', 'c1', ctx)
+      .catch((e) => e)
+    expect(err.code).toBe('FORBIDDEN')
+    expect(prisma.contentComment.delete).not.toHaveBeenCalled()
+  })
+
+  it('комментарий: владелец статьи удаляет чужой комментарий без аудита, посторонний — нет', async () => {
+    const { service, prisma, audit } = setup()
+    prisma.contentComment.findUnique.mockResolvedValue({
+      authorId: 'guest',
+      articleId: 'a1',
+      author: author(),
+      article: { userId: 'me', user: author() },
+    })
+    await service.deleteArticleComment(user('me'), 'a1', 'c1', ctx)
+    expect(prisma.contentComment.delete).toHaveBeenCalledTimes(1)
+    expect(audit.record).not.toHaveBeenCalled()
+
+    const err = await service
+      .deleteArticleComment(user('stranger'), 'a1', 'c1', ctx)
+      .catch((e) => e)
+    expect(err.code).toBe('FORBIDDEN')
+    expect(prisma.contentComment.delete).toHaveBeenCalledTimes(1)
   })
 })

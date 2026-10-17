@@ -13111,7 +13111,13 @@
         ],
         "responses": {
           "204": {
-            "description": ""
+            "description": "Удалено"
+          },
+          "403": {
+            "description": "FORBIDDEN / WRONG_SCOPE — модератор вне scope или ранга"
+          },
+          "404": {
+            "description": "NOT_FOUND"
           }
         },
         "security": [
@@ -13119,7 +13125,7 @@
             "bearer": []
           }
         ],
-        "summary": "Удалить своё медиа из профиля",
+        "summary": "Удалить медиа из профиля (своё; чужое — модератор scope, роль выше автора)",
         "tags": [
           "Профиль — контент"
         ]
@@ -13571,7 +13577,13 @@
         ],
         "responses": {
           "204": {
-            "description": ""
+            "description": "Удалено"
+          },
+          "403": {
+            "description": "FORBIDDEN / WRONG_SCOPE"
+          },
+          "404": {
+            "description": "NOT_FOUND"
           }
         },
         "security": [
@@ -13579,7 +13591,7 @@
             "bearer": []
           }
         ],
-        "summary": "Удалить комментарий (автор или владелец статьи)",
+        "summary": "Удалить комментарий (автор, владелец статьи или модератор scope)",
         "tags": [
           "Профиль — контент"
         ]
@@ -13686,7 +13698,13 @@
         ],
         "responses": {
           "204": {
-            "description": ""
+            "description": "Удалено"
+          },
+          "403": {
+            "description": "FORBIDDEN / WRONG_SCOPE"
+          },
+          "404": {
+            "description": "NOT_FOUND"
           }
         },
         "security": [
@@ -13694,7 +13712,7 @@
             "bearer": []
           }
         ],
-        "summary": "Удалить свою статью",
+        "summary": "Удалить статью (свою; чужую — модератор scope, роль выше автора)",
         "tags": [
           "Профиль — контент"
         ]
@@ -13838,7 +13856,13 @@
         ],
         "responses": {
           "204": {
-            "description": ""
+            "description": "Удалено"
+          },
+          "403": {
+            "description": "FORBIDDEN / WRONG_SCOPE"
+          },
+          "404": {
+            "description": "NOT_FOUND"
           }
         },
         "security": [
@@ -13846,7 +13870,7 @@
             "bearer": []
           }
         ],
-        "summary": "Удалить свой опрос",
+        "summary": "Удалить опрос (свой; чужой — модератор scope, роль выше автора)",
         "tags": [
           "Опросы"
         ]
@@ -14007,7 +14031,13 @@
         ],
         "responses": {
           "204": {
-            "description": ""
+            "description": "Удалено"
+          },
+          "403": {
+            "description": "FORBIDDEN / WRONG_SCOPE"
+          },
+          "404": {
+            "description": "NOT_FOUND"
           }
         },
         "security": [
@@ -14015,7 +14045,7 @@
             "bearer": []
           }
         ],
-        "summary": "Удалить комментарий (автор или владелец опроса)",
+        "summary": "Удалить комментарий (автор, владелец опроса или модератор scope)",
         "tags": [
           "Опросы"
         ]

@@ -14,9 +14,11 @@ import type {
   UpdateProfileArticleInput,
 } from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
+import { AuditService } from '../../common/audit/audit.service'
 import { buildPublicObjectUrl } from '../../common/minio/public-url'
 import { AppException } from '../../common/exceptions/app.exception'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
+import type { RequestContext } from '../auth/auth.service'
 import { FileService } from '../files/file.service'
 import { MediaService } from '../media/media.service'
 import { MEDIA_FILE_SELECT, type MediaFile, type MediaInfo } from '../media/media.types'
@@ -25,6 +27,11 @@ import {
   UserService,
   type ProfileContentOwner,
 } from '../users/users.service'
+import {
+  CONTENT_AUTHOR_SELECT,
+  assertContentModerator,
+  isContentModerator,
+} from './content-moderation'
 
 // Что принимаем в медиа профиля — из белого списка категорий shared-config, а не по
 // префиксу строки: проверка идёт против РЕАЛЬНОГО типа объекта (magic bytes).
@@ -112,7 +119,8 @@ export interface AlbumDto {
 /**
  * Контент профиля: медиа (фото/видео через File+бакет profile-media), статьи и вопрос-ответ.
  * Просмотр списков — любой аутентифицированный (как публичный профиль). Мутации — только владелец
- * (проверка по actor.sub, IDOR §14.10). Фото/видео — публичный бакет, прямой URL.
+ * (проверка по actor.sub, IDOR §14.10); удаление чужого — ещё модератор scope
+ * (content-moderation.ts), с записью в аудит. Фото/видео — публичный бакет, прямой URL.
  */
 @Injectable()
 export class ProfileContentService {
@@ -124,6 +132,7 @@ export class ProfileContentService {
     private readonly config: ConfigService<EnvVars, true>,
     private readonly users: UserService,
     private readonly media: MediaService,
+    private readonly audit: AuditService,
   ) {}
 
   private get bucket(): string {
@@ -176,15 +185,34 @@ export class ProfileContentService {
     return Promise.all(files.map((f) => this.toMediaDto(f)))
   }
 
-  /** Удаление своего медиа. Проверяем и владение, и бакет (нельзя удалить аватар этим эндпоинтом). */
-  async deleteMedia(actor: JwtPayload, fileId: string): Promise<void> {
+  /**
+   * Удаление медиа профиля: своего — владельцем, чужого — модератором scope (тот же путь
+   * с объектами в MinIO, плюс запись в аудит). Бакет проверяем всегда: аватар этим
+   * эндпоинтом не удалить. Не-модератору чужое медиа по-прежнему «не найдено».
+   */
+  async deleteMedia(actor: JwtPayload, fileId: string, ctx: RequestContext): Promise<void> {
     const file = await this.files.findOrThrow(fileId)
-    if (file.bucket !== this.bucket || file.ownerId !== actor.sub) {
+    const moderated = file.ownerId !== actor.sub
+    if (file.bucket !== this.bucket || (moderated && !isContentModerator(actor.role))) {
       throw new AppException('NOT_FOUND', 'Медиа не найдено')
+    }
+    if (moderated) {
+      const author = await this.prisma.user.findUnique({
+        where: { id: file.ownerId },
+        select: CONTENT_AUTHOR_SELECT,
+      })
+      if (!author) throw new AppException('NOT_FOUND', 'Медиа не найдено')
+      assertContentModerator(actor, author)
     }
     // Удаляем и объект-обложку видео (он без записи File).
     if (file.posterKey) await this.files.removeRawObject(this.coversBucket, file.posterKey)
-    await this.files.delete(fileId, actor.sub)
+    // Право на чужой файл проверено выше — FileService владельца уже не сверяет.
+    await this.files.delete(fileId, moderated ? undefined : actor.sub)
+    if (moderated) {
+      await this.recordModeration(actor, ctx, 'profile_media_deleted', 'File', fileId, {
+        authorId: file.ownerId,
+      })
+    }
   }
 
   /** Presigned PUT для крупных фото/видео (>порога буферной загрузки). Прямая заливка в MinIO. */
@@ -498,9 +526,26 @@ export class ProfileContentService {
     return (await this.decorateArticles([row], actor.sub))[0]
   }
 
-  async deleteArticle(actor: JwtPayload, id: string): Promise<void> {
-    await this.assertArticleOwner(actor, id)
+  /** Удаление статьи: своей — владельцем, чужой — модератором scope (с записью в аудит). */
+  async deleteArticle(actor: JwtPayload, id: string, ctx: RequestContext): Promise<void> {
+    const row = await this.prisma.profileArticle.findUnique({
+      where: { id },
+      select: { userId: true, user: { select: CONTENT_AUTHOR_SELECT } },
+    })
+    if (!row) throw new AppException('NOT_FOUND', 'Статья не найдена')
+    const moderated = row.userId !== actor.sub
+    if (moderated) {
+      if (!isContentModerator(actor.role)) {
+        throw new AppException('FORBIDDEN', 'Можно менять только свои статьи')
+      }
+      assertContentModerator(actor, row.user)
+    }
     await this.prisma.profileArticle.delete({ where: { id } })
+    if (moderated) {
+      await this.recordModeration(actor, ctx, 'profile_article_deleted', 'ProfileArticle', id, {
+        authorId: row.userId,
+      })
+    }
   }
 
   /** Инкремент просмотров статьи (при открытии читалки). Только если статья видна смотрящему. */
@@ -603,16 +648,6 @@ export class ProfileContentService {
     }
   }
 
-  private async assertArticleOwner(actor: JwtPayload, id: string): Promise<void> {
-    const row = await this.prisma.profileArticle.findUnique({
-      where: { id },
-      select: { userId: true },
-    })
-    if (!row) throw new AppException('NOT_FOUND', 'Статья не найдена')
-    if (row.userId !== actor.sub)
-      throw new AppException('FORBIDDEN', 'Можно менять только свои статьи')
-  }
-
   // ── Комментарии к статьям ──────────────────────────────────────────────────────
 
   async listArticleComments(viewer: JwtPayload, articleId: string) {
@@ -643,18 +678,38 @@ export class ProfileContentService {
     viewer: JwtPayload,
     articleId: string,
     commentId: string,
+    ctx: RequestContext,
   ): Promise<void> {
     const c = await this.prisma.contentComment.findUnique({
       where: { id: commentId },
-      select: { authorId: true, articleId: true, article: { select: { userId: true } } },
+      select: {
+        authorId: true,
+        articleId: true,
+        author: { select: CONTENT_AUTHOR_SELECT },
+        article: { select: { userId: true, user: { select: CONTENT_AUTHOR_SELECT } } },
+      },
     })
     if (!c || c.articleId !== articleId)
       throw new AppException('NOT_FOUND', 'Комментарий не найден')
-    // Удалить может автор комментария или владелец статьи.
-    if (c.authorId !== viewer.sub && c.article?.userId !== viewer.sub) {
-      throw new AppException('FORBIDDEN', 'Нет прав на удаление')
+    // Удалить может автор комментария, владелец статьи или модератор scope (с записью в аудит).
+    const moderated = c.authorId !== viewer.sub && c.article?.userId !== viewer.sub
+    if (moderated) {
+      if (!isContentModerator(viewer.role)) {
+        throw new AppException('FORBIDDEN', 'Нет прав на удаление')
+      }
+      assertContentModerator(viewer, c.author, c.article?.user)
     }
     await this.prisma.contentComment.delete({ where: { id: commentId } })
+    if (moderated) {
+      await this.recordModeration(
+        viewer,
+        ctx,
+        'content_comment_deleted',
+        'ContentComment',
+        commentId,
+        { articleId, authorId: c.authorId },
+      )
+    }
   }
 
   // ── Закладки на статьи ─────────────────────────────────────────────────────────
@@ -700,6 +755,19 @@ export class ProfileContentService {
   }
 
   // ── util ─────────────────────────────────────────────────────────────────────
+
+  /** Чужой контент снят модератором — решение модератора пишется в аудит (BACKEND_RULES §13). */
+  private async recordModeration(
+    actor: JwtPayload,
+    ctx: RequestContext,
+    action: string,
+    entity: string,
+    entityId: string,
+    metadata: Record<string, unknown>,
+  ): Promise<void> {
+    this.logger.log(`${entity} ${entityId} снят модератором ${actor.sub}`)
+    await this.audit.record({ userId: actor.sub, action, entity, entityId, metadata, ...ctx })
+  }
 
   private buildPublicUrl(bucket: string, key: string): string {
     return buildPublicObjectUrl(this.config, bucket, key)

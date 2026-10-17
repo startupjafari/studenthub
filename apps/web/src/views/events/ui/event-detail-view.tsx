@@ -35,6 +35,7 @@ import {
   PageHeader,
   Skeleton,
   Textarea,
+  useConfirm,
 } from '../../../shared/ui'
 import { toApiError } from '../../../shared/lib'
 import { useAppSelector } from '../../../shared/store'
@@ -226,6 +227,7 @@ function Comments({ eventId, canModerate }: { eventId: string; canModerate: bool
   const tErr = useTranslations('Errors')
   const fmt = useFormatter()
   const qc = useQueryClient()
+  const confirm = useConfirm()
   const myId = useAppSelector((s) => s.auth.user?.id)
   const comments = useQuery({
     queryKey: eventKeys.comments(eventId),
@@ -287,10 +289,28 @@ function Comments({ eventId, canModerate }: { eventId: string; canModerate: bool
                       variant="ghost"
                       size="sm"
                       icon
-                      aria-label={t('deleteComment')}
-                      title={t('deleteComment')}
+                      aria-label={
+                        c.author.id === myId ? t('deleteComment') : t('deleteCommentModeration')
+                      }
+                      title={
+                        c.author.id === myId ? t('deleteComment') : t('deleteCommentModeration')
+                      }
                       loading={remove.isPending && remove.variables === c.id}
-                      onClick={() => remove.mutate(c.id)}
+                      onClick={() => {
+                        // Свой — сразу; чужой — решение модерации: с подтверждением, оно в аудите.
+                        if (c.author.id === myId) {
+                          remove.mutate(c.id)
+                          return
+                        }
+                        void confirm({
+                          title: t('deleteCommentConfirm'),
+                          description: t('moderationDeleteHint'),
+                          confirmLabel: t('deleteCommentModeration'),
+                          destructive: true,
+                        }).then((ok) => {
+                          if (ok) remove.mutate(c.id)
+                        })
+                      }}
                       className="ml-auto size-7 text-muted-foreground hover:text-destructive"
                     >
                       <Trash2 className="size-3.5" aria-hidden />

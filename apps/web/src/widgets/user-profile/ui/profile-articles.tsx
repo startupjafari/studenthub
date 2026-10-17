@@ -51,6 +51,7 @@ import { ContentComments } from './content-comments'
 import { ContentLayout, FilterGroup, FilterOption, FilterSkeleton } from './filter-sidebar'
 import { useRetryOnError } from './use-retry-on-error'
 import { useProgressive } from './use-progressive'
+import type { ContentModeration } from '../lib/content-moderation'
 
 function errCode(e: unknown): string {
   return (e as { code?: string }).code ?? 'INTERNAL_ERROR'
@@ -62,11 +63,12 @@ const MD_CLASS =
 interface Props {
   userId: string
   isOwner: boolean
+  moderation?: ContentModeration
   openCreate?: number
   onConsumed?: () => void
 }
 
-export function ProfileArticles({ userId, isOwner, openCreate, onConsumed }: Props) {
+export function ProfileArticles({ userId, isOwner, moderation, openCreate, onConsumed }: Props) {
   const t = useTranslations('Profile')
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
@@ -133,7 +135,12 @@ export function ProfileArticles({ userId, isOwner, openCreate, onConsumed }: Pro
         />
       )}
       {reading && (
-        <ArticleReader article={reading} onClose={() => setReading(null)} onOpen={setReading} />
+        <ArticleReader
+          article={reading}
+          onClose={() => setReading(null)}
+          onOpen={setReading}
+          moderateComments={!isOwner && !!moderation?.comments}
+        />
       )}
     </>
   )
@@ -233,6 +240,7 @@ export function ProfileArticles({ userId, isOwner, openCreate, onConsumed }: Pro
                   index={i}
                   article={a}
                   isOwner={isOwner}
+                  canModerate={!isOwner && !!moderation?.content}
                   onRead={() => setReading(a)}
                   onEdit={() => setEditing(a)}
                   onDelete={() => {
@@ -241,6 +249,16 @@ export function ProfileArticles({ userId, isOwner, openCreate, onConsumed }: Pro
                         if (ok) delMut.mutate(a.id)
                       },
                     )
+                  }}
+                  onModerate={() => {
+                    void confirm({
+                      title: t('articleDeleteConfirm'),
+                      description: t('moderationDeleteHint'),
+                      confirmLabel: t('deleteModeration'),
+                      destructive: true,
+                    }).then((ok) => {
+                      if (ok) delMut.mutate(a.id)
+                    })
                   }}
                 />
               ))}
@@ -268,16 +286,21 @@ function ArticleCard({
   index,
   article: a,
   isOwner,
+  canModerate,
   onRead,
   onEdit,
   onDelete,
+  onModerate,
 }: {
   index: number
   article: ProfileArticle
   isOwner: boolean
+  // Модератор scope: вместо «Изменить/Удалить» владельца — один пункт «Удалить (модерация)».
+  canModerate: boolean
   onRead: () => void
   onEdit: () => void
   onDelete: () => void
+  onModerate: () => void
 }) {
   const t = useTranslations('Profile')
   const shape = mosaicShape(index)
@@ -369,6 +392,21 @@ function ArticleCard({
           </Button>
         </div>
       )}
+      {canModerate && (
+        <div className="absolute right-2 top-2 z-10 flex opacity-0 transition-opacity group-hover/tile:opacity-100 focus-within:opacity-100 max-lg:opacity-100">
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            icon
+            aria-label={t('deleteModeration')}
+            title={t('deleteModeration')}
+            onClick={onModerate}
+          >
+            <Trash2 className="size-4 text-destructive" aria-hidden />
+          </Button>
+        </div>
+      )}
     </MosaicTile>
   )
 }
@@ -411,10 +449,12 @@ function ArticleReader({
   article: a,
   onClose,
   onOpen,
+  moderateComments,
 }: {
   article: ProfileArticle
   onClose: () => void
   onOpen: (article: ProfileArticle) => void
+  moderateComments: boolean
 }) {
   const t = useTranslations('Profile')
   const tErr = useTranslations('Errors')
@@ -622,6 +662,7 @@ function ArticleReader({
                 addFn={(content) => addArticleComment(a.id, content)}
                 deleteFn={(commentId) => deleteArticleComment(a.id, commentId)}
                 ownerId={a.userId}
+                moderate={moderateComments}
               />
             </div>
           </div>

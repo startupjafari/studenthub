@@ -8,10 +8,13 @@ import {
   Param,
   Patch,
   Post,
+  Req,
 } from '@nestjs/common'
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger'
+import type { FastifyRequest } from 'fastify'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
+import type { RequestContext } from '../auth/auth.service'
 import { PollsService } from './polls.service'
 import { CreatePollDto } from './dto/create-poll.dto'
 import { UpdatePollDto } from './dto/update-poll.dto'
@@ -68,9 +71,16 @@ export class PollsController {
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Удалить свой опрос' })
-  async remove(@CurrentUser() user: CurrentUserData, @Param('id') id: string): Promise<void> {
-    await this.polls.remove(user, id)
+  @ApiOperation({ summary: 'Удалить опрос (свой; чужой — модератор scope, роль выше автора)' })
+  @ApiResponse({ status: 204, description: 'Удалено' })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN / WRONG_SCOPE' })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND' })
+  async remove(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Req() req: FastifyRequest,
+  ): Promise<void> {
+    await this.polls.remove(user, id, this.ctx(req))
   }
 
   @Get(':id/comments')
@@ -91,12 +101,20 @@ export class PollsController {
 
   @Delete(':id/comments/:commentId')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Удалить комментарий (автор или владелец опроса)' })
+  @ApiOperation({ summary: 'Удалить комментарий (автор, владелец опроса или модератор scope)' })
+  @ApiResponse({ status: 204, description: 'Удалено' })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN / WRONG_SCOPE' })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND' })
   async deleteComment(
     @CurrentUser() user: CurrentUserData,
     @Param('id') id: string,
     @Param('commentId') commentId: string,
+    @Req() req: FastifyRequest,
   ): Promise<void> {
-    await this.polls.deleteComment(user, id, commentId)
+    await this.polls.deleteComment(user, id, commentId, this.ctx(req))
+  }
+
+  private ctx(req: FastifyRequest): RequestContext {
+    return { ip: req.ip, userAgent: req.headers['user-agent'] }
   }
 }

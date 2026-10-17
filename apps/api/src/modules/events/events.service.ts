@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { PostAudience, Prisma } from '@prisma/client'
-import { Role } from '@studenthub/shared-types'
+import { Role, isHigherRole } from '@studenthub/shared-types'
 import {
   meetingProviderOf,
   type CreateEventCommentInput,
@@ -343,8 +343,9 @@ export class EventsService {
   }
 
   /**
-   * Удалить комментарий: автор — свой; организатор и админ scope события — любой под своим
-   * событием; модератор — в своей зоне. Удаление мягкое, как у комментариев к постам.
+   * Удалить комментарий: автор — свой; организатор — любой под своим событием; админ,
+   * модератор и декан — по правилам модерации постов (canModerateComment). Удаление мягкое,
+   * как у комментариев к постам.
    */
   async removeComment(
     viewer: JwtPayload,
@@ -354,10 +355,17 @@ export class EventsService {
   ): Promise<void> {
     const comment = await this.prisma.eventComment.findFirst({
       where: { id: commentId, eventId: id, deletedAt: null },
-      select: { id: true, authorId: true, event: { select: { universityId: true } } },
+      select: {
+        id: true,
+        authorId: true,
+        author: { select: { role: true, universityId: true, facultyId: true } },
+      },
     })
     if (!comment) throw new AppException('NOT_FOUND', 'Комментарий не найден')
-    if (comment.authorId !== viewer.sub && !(await this.canModerateComments(viewer, id))) {
+    if (
+      comment.authorId !== viewer.sub &&
+      !(await this.canModerateComment(viewer, id, comment.author))
+    ) {
       throw new AppException('FORBIDDEN', 'Нет прав на удаление комментария')
     }
     await this.prisma.eventComment.update({
@@ -449,20 +457,34 @@ export class EventsService {
     if (!event) throw new AppException('NOT_FOUND', 'Событие не найдено')
   }
 
-  /** Может ли зритель удалять чужие комментарии под событием. */
-  private async canModerateComments(viewer: JwtPayload, id: string): Promise<boolean> {
-    try {
-      await this.findManageable(viewer, id)
-      return true
-    } catch (error) {
-      if (!(error instanceof AppException)) throw error
-    }
-    if (viewer.role !== Role.UNIVERSITY_MODERATOR || !viewer.universityId) return false
+  /**
+   * Может ли зритель удалить чужой комментарий под событием. Организатор ведёт обсуждение
+   * своего события — убирает любой комментарий. Остальное — модерация по правилам постов
+   * (posts.service assertModerator): роль строго выше автора комментария; платформа — везде;
+   * админ и модератор вуза — свой вуз, декан — свой факультет. Scope — событие ИЛИ сам автор:
+   * комментарий своего студента под событием платформы (без вуза) снимает и модератор вуза.
+   */
+  private async canModerateComment(
+    viewer: JwtPayload,
+    id: string,
+    author: { role: Role; universityId: string | null; facultyId: string | null },
+  ): Promise<boolean> {
     const event = await this.prisma.event.findUnique({
       where: { id },
-      select: { universityId: true },
+      select: { organizerId: true, universityId: true, facultyId: true },
     })
-    return event?.universityId === viewer.universityId
+    if (!event) return false
+    if (event.organizerId === viewer.sub) return true
+    if (!isHigherRole(viewer.role, author.role)) return false
+    if (isPlatform(viewer.role)) return true
+    const scopes = [event, author]
+    if (viewer.role === Role.DEAN) {
+      return !!viewer.facultyId && scopes.some((s) => s.facultyId === viewer.facultyId)
+    }
+    if (viewer.role === Role.UNIVERSITY_ADMIN || viewer.role === Role.UNIVERSITY_MODERATOR) {
+      return !!viewer.universityId && scopes.some((s) => s.universityId === viewer.universityId)
+    }
+    return false
   }
 
   /** Событие + проверка прав управления (организатор или админ/декан своего scope). */

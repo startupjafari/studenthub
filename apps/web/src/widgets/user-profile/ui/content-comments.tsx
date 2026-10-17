@@ -7,7 +7,7 @@ import { useLocale, useTranslations } from 'next-intl'
 import { Smile } from 'lucide-react'
 import { useAppSelector } from '../../../shared/store'
 import { ProfileLink } from '../../../entities/user'
-import { Avatar, AvatarFallback, AvatarImage } from '../../../shared/ui'
+import { Avatar, AvatarFallback, AvatarImage, useConfirm } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { relativeTime } from '../../../shared/lib'
 
@@ -53,23 +53,28 @@ function initials(a: { firstName: string; lastName: string }): string {
 
 // Универсальная лента комментариев (статьи/опросы) в стиле поста: аватар · имя+текст в строку ·
 // относительное время; снизу — плоское поле ввода с эмодзи и «Опубликовать». Данные инжектит вызывающий.
+// `moderate` — смотрящий модерирует профиль владельца: у чужих комментариев пункт
+// «Удалить (модерация)» с подтверждением (ранг автора комментария сверяет сервер).
 export function ContentComments({
   queryKey,
   fetchFn,
   addFn,
   deleteFn,
   ownerId,
+  moderate = false,
 }: {
   queryKey: readonly unknown[]
   fetchFn: () => Promise<CommentItem[]>
   addFn: (content: string) => Promise<unknown>
   deleteFn: (commentId: string) => Promise<void>
   ownerId: string
+  moderate?: boolean
 }) {
   const t = useTranslations('Profile')
   const tErr = useTranslations('Errors')
   const locale = useLocale()
   const qc = useQueryClient()
+  const confirm = useConfirm()
   const myId = useAppSelector((s) => s.auth.user?.id)
   const [text, setText] = useState('')
   const [emojiOpen, setEmojiOpen] = useState(false)
@@ -170,7 +175,7 @@ export function ContentComments({
                 </p>
                 <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
                   <span>{relativeTime(c.createdAt, locale)}</span>
-                  {(c.authorId === myId || ownerId === myId) && (
+                  {c.authorId === myId || ownerId === myId ? (
                     <button
                       type="button"
                       onClick={() => delMut.mutate(c.id)}
@@ -178,6 +183,25 @@ export function ContentComments({
                     >
                       {t('delete')}
                     </button>
+                  ) : (
+                    moderate && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void confirm({
+                            title: t('commentDeleteConfirm'),
+                            description: t('moderationDeleteHint'),
+                            confirmLabel: t('deleteModeration'),
+                            destructive: true,
+                          }).then((ok) => {
+                            if (ok) delMut.mutate(c.id)
+                          })
+                        }}
+                        className="opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
+                      >
+                        {t('deleteModeration')}
+                      </button>
+                    )
                   )}
                 </div>
               </div>

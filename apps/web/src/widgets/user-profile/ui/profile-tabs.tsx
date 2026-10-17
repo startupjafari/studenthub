@@ -26,6 +26,7 @@ import { ProfilePosts } from './profile-posts'
 import { ProfileMediaGrid } from './profile-media-grid'
 import { ProfileArticles } from './profile-articles'
 import { ProfilePolls } from './profile-polls'
+import type { ContentModeration } from '../lib/content-moderation'
 
 export type ProfileTabId =
   'profile' | 'posts' | 'photos' | 'videos' | 'articles' | 'polls' | 'settings'
@@ -39,6 +40,8 @@ export interface CreateSignal {
 interface ProfileTabsProps {
   userId: string
   isOwner: boolean
+  // Что смотрящий-модератор может снять в чужом профиле (пункты «Удалить (модерация)»).
+  moderation?: ContentModeration
   tab: ProfileTabId
   onTabChange: (tab: ProfileTabId) => void
   // Контент вкладки «Профиль» (карточки профиля или форма редактирования).
@@ -56,6 +59,7 @@ interface ProfileTabsProps {
 export function ProfileTabs({
   userId,
   isOwner,
+  moderation,
   tab,
   onTabChange,
   children,
@@ -196,6 +200,7 @@ export function ProfileTabs({
         <ProfileMediaGrid
           userId={userId}
           isOwner={isOwner}
+          moderation={moderation}
           kind="PHOTO"
           openPicker={sigFor('photos')}
           onConsumed={onCreateConsumed}
@@ -205,6 +210,7 @@ export function ProfileTabs({
         <ProfileMediaGrid
           userId={userId}
           isOwner={isOwner}
+          moderation={moderation}
           kind="VIDEO"
           openPicker={sigFor('videos')}
           onConsumed={onCreateConsumed}
@@ -214,6 +220,7 @@ export function ProfileTabs({
         <ProfileArticles
           userId={userId}
           isOwner={isOwner}
+          moderation={moderation}
           openCreate={sigFor('articles')}
           onConsumed={onCreateConsumed}
         />
@@ -222,6 +229,7 @@ export function ProfileTabs({
         <ProfilePolls
           userId={userId}
           isOwner={isOwner}
+          moderation={moderation}
           openCreate={sigFor('polls')}
           onConsumed={onCreateConsumed}
         />

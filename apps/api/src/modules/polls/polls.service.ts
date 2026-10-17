@@ -8,10 +8,17 @@ import type {
   VotePollInput,
 } from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
+import { AuditService } from '../../common/audit/audit.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import { advisoryXactLock } from '../../common/prisma/advisory-lock'
+import type { RequestContext } from '../auth/auth.service'
 import { PROFILE_CONTENT_OWNER_SELECT, UserService } from '../users/users.service'
+import {
+  CONTENT_AUTHOR_SELECT,
+  assertContentModerator,
+  isContentModerator,
+} from '../profile-content/content-moderation'
 
 // Потолки на выборки (BACKEND_RULES §7.2). Голоса одного пользователя ограничены числом
 // вариантов опроса, поэтому здесь потолок — честная граница, а не обрезка данных.
@@ -87,6 +94,7 @@ export class PollsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly users: UserService,
+    private readonly audit: AuditService,
   ) {}
 
   async create(actor: JwtPayload, dto: CreatePollInput): Promise<PollView> {
@@ -216,15 +224,44 @@ export class PollsService {
     return this.get(actor, id)
   }
 
-  async remove(actor: JwtPayload, id: string): Promise<void> {
-    const poll = await this.prisma.poll.findUnique({ where: { id }, select: { userId: true } })
+  /**
+   * Удаление опроса: своего — автором, чужого — модератором scope по правилам контента
+   * профиля (content-moderation.ts: роль строго выше автора, вуз/факультет автора), с
+   * записью в аудит.
+   */
+  async remove(actor: JwtPayload, id: string, ctx: RequestContext): Promise<void> {
+    const poll = await this.prisma.poll.findUnique({
+      where: { id },
+      select: { userId: true, user: { select: CONTENT_AUTHOR_SELECT } },
+    })
     if (!poll) throw new AppException('NOT_FOUND', 'Опрос не найден')
-    if (poll.userId !== actor.sub)
-      throw new AppException('FORBIDDEN', 'Можно удалять только свои опросы')
+    const moderated = poll.userId !== actor.sub
+    if (moderated) {
+      if (!isContentModerator(actor.role)) {
+        throw new AppException('FORBIDDEN', 'Можно удалять только свои опросы')
+      }
+      assertContentModerator(actor, poll.user)
+    }
     await this.prisma.poll.delete({ where: { id } })
+    if (moderated) {
+      await this.recordModeration(actor, ctx, 'poll_deleted', 'Poll', id, { authorId: poll.userId })
+    }
   }
 
   // ── helpers ────────────────────────────────────────────────────────────────
+
+  /** Чужой контент снят модератором — решение модератора пишется в аудит (BACKEND_RULES §13). */
+  private async recordModeration(
+    actor: JwtPayload,
+    ctx: RequestContext,
+    action: string,
+    entity: string,
+    entityId: string,
+    metadata: Record<string, unknown>,
+  ): Promise<void> {
+    this.logger.log(`${entity} ${entityId} снят модератором ${actor.sub}`)
+    await this.audit.record({ userId: actor.sub, action, entity, entityId, metadata, ...ctx })
+  }
 
   private isClosed(poll: { closesAt: Date | null }): boolean {
     return poll.closesAt !== null && poll.closesAt.getTime() < Date.now()
@@ -370,15 +407,40 @@ export class PollsService {
     })
   }
 
-  async deleteComment(viewer: JwtPayload, id: string, commentId: string): Promise<void> {
+  /** Удалить комментарий: автор, владелец опроса или модератор scope (с записью в аудит). */
+  async deleteComment(
+    viewer: JwtPayload,
+    id: string,
+    commentId: string,
+    ctx: RequestContext,
+  ): Promise<void> {
     const c = await this.prisma.contentComment.findUnique({
       where: { id: commentId },
-      select: { authorId: true, pollId: true, poll: { select: { userId: true } } },
+      select: {
+        authorId: true,
+        pollId: true,
+        author: { select: CONTENT_AUTHOR_SELECT },
+        poll: { select: { userId: true, user: { select: CONTENT_AUTHOR_SELECT } } },
+      },
     })
     if (!c || c.pollId !== id) throw new AppException('NOT_FOUND', 'Комментарий не найден')
-    if (c.authorId !== viewer.sub && c.poll?.userId !== viewer.sub) {
-      throw new AppException('FORBIDDEN', 'Нет прав на удаление')
+    const moderated = c.authorId !== viewer.sub && c.poll?.userId !== viewer.sub
+    if (moderated) {
+      if (!isContentModerator(viewer.role)) {
+        throw new AppException('FORBIDDEN', 'Нет прав на удаление')
+      }
+      assertContentModerator(viewer, c.author, c.poll?.user)
     }
     await this.prisma.contentComment.delete({ where: { id: commentId } })
+    if (moderated) {
+      await this.recordModeration(
+        viewer,
+        ctx,
+        'content_comment_deleted',
+        'ContentComment',
+        commentId,
+        { pollId: id, authorId: c.authorId },
+      )
+    }
   }
 }

@@ -11,10 +11,12 @@ import { PollCreateModal } from './poll-create-modal'
 import { ContentLayout, FilterGroup, FilterOption, FilterSkeleton } from './filter-sidebar'
 import { useRetryOnError } from './use-retry-on-error'
 import { useProgressive } from './use-progressive'
+import type { ContentModeration } from '../lib/content-moderation'
 
 interface Props {
   userId: string
   isOwner: boolean
+  moderation?: ContentModeration
   openCreate?: number
   onConsumed?: () => void
 }
@@ -22,7 +24,7 @@ interface Props {
 type PollFilter = 'all' | 'active' | 'closed' | 'DRAFT'
 type PollSort = 'new' | 'popular'
 
-export function ProfilePolls({ userId, isOwner, openCreate, onConsumed }: Props) {
+export function ProfilePolls({ userId, isOwner, moderation, openCreate, onConsumed }: Props) {
   const t = useTranslations('Profile')
   const [creating, setCreating] = useState(false)
   const [filter, setFilter] = useState<PollFilter>('all')
@@ -144,7 +146,12 @@ export function ProfilePolls({ userId, isOwner, openCreate, onConsumed }: Props)
           // Карточки ряда — одной высоты: подвал с участниками стоит на одной линии.
           <div className="grid gap-4 xl:grid-cols-2">
             {visible.slice(0, shown).map((poll) => (
-              <PollCard key={poll.id} poll={poll} isOwner={isOwner} />
+              <PollCard
+                key={poll.id}
+                poll={poll}
+                isOwner={isOwner}
+                canModerate={!isOwner && !!moderation?.content}
+              />
             ))}
             {Array.from({ length: pending }, (_, j) => (
               <PollSkeleton key={`pending-${j}`} ref={j === 0 ? sentinelRef : undefined} />
