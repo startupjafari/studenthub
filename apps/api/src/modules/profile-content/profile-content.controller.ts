@@ -36,6 +36,11 @@ import { ContentCommentDto } from './dto/content-comment.dto'
 import { ContentCommentsQueryDto } from './dto/comments-query.dto'
 import { ProfileArticlesQueryDto } from './dto/profile-articles-query.dto'
 
+// Квота медиа профиля (PROFILE_MEDIA_QUOTA в shared-config) — одинаково у всех путей загрузки.
+const QUOTA_409 =
+  'CONFLICT — исчерпана квота медиа профиля: details[0].field = profileMediaQuota, ' +
+  'details[0].message = files (число файлов) | bytes (суммарный объём)'
+
 // Контент профиля (вкладки): фото/видео и статьи (опросы — модуль polls).
 // Просмотр списков — любой аутентифицированный (как публичный профиль); мутации — только владелец,
 // удаление чужого — ещё модератор scope (роль строго выше автора, scope из JWT).
@@ -58,6 +63,7 @@ export class ProfileContentController {
   })
   @ApiOperation({ summary: 'Загрузить фото/видео в свой профиль' })
   @ApiResponse({ status: 201, description: 'Медиа загружено' })
+  @ApiResponse({ status: 409, description: QUOTA_409 })
   async uploadMedia(@CurrentUser() user: CurrentUserData, @Req() req: FastifyRequest) {
     const buffer = await readSingleUpload(req)
     return this.content.uploadMedia(user, buffer)
@@ -84,12 +90,14 @@ export class ProfileContentController {
 
   @Post('media/presign')
   @ApiOperation({ summary: 'Presigned URL для прямой загрузки крупного медиа (>10МБ) в MinIO' })
+  @ApiResponse({ status: 409, description: QUOTA_409 })
   presignMedia(@CurrentUser() user: CurrentUserData, @Body() dto: PresignProfileMediaDto) {
     return this.content.presignMedia(user, dto)
   }
 
   @Post('media/confirm')
   @ApiOperation({ summary: 'Подтвердить presigned-загрузку медиа (создаёт запись File)' })
+  @ApiResponse({ status: 409, description: QUOTA_409 })
   confirmMedia(@CurrentUser() user: CurrentUserData, @Body() dto: ConfirmProfileMediaDto) {
     return this.content.confirmMedia(user, dto)
   }

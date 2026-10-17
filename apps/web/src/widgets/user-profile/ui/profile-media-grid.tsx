@@ -43,6 +43,7 @@ import { useRetryOnError } from './use-retry-on-error'
 import { LoadFailed } from './load-failed'
 import { useProgressive } from './use-progressive'
 import type { ContentModeration } from '../lib/content-moderation'
+import { mediaQuotaNear, mediaUsage, useMediaQuota } from '../lib/media-quota'
 
 function errCode(e: unknown): string {
   return (e as { code?: string }).code ?? 'INTERNAL_ERROR'
@@ -86,6 +87,7 @@ export function ProfileMediaGrid({
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
   const confirm = useConfirm()
+  const quota = useMediaQuota(userId)
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -162,7 +164,10 @@ export function ProfileMediaGrid({
       void qc.invalidateQueries({ queryKey: profileContentKeys.media(userId) })
       toast.success(t('mediaUploaded'))
     },
-    onError: (e) => toast.error(tErr(errCode(e))),
+    // Квота — своим текстом («удалите лишнее»), а не общим «конфликт».
+    onError: (e) => {
+      if (!quota.handleError(e)) toast.error(tErr(errCode(e)))
+    },
   })
 
   const delMut = useMutation({
@@ -179,6 +184,10 @@ export function ProfileMediaGrid({
     return sort === 'new' ? d : -d
   })
   const activeAlbumId = albumFilter !== 'all' ? albumFilter : null
+  // Заполненность квоты — только владельцу и только когда она близко: постоянная строка
+  // «занято 3 МБ из 2 ГБ» у каждого профиля — шум.
+  const usage = mediaUsage(q.data ?? [])
+  const showUsage = isOwner && mediaQuotaNear(usage)
   // Порция — полный цикл мозаики (14 плиток): каждая догрузка достраивает узор до конца.
   const { shown, pending, sentinelRef } = useProgressive(
     items.length,
@@ -198,7 +207,8 @@ export function ProfileMediaGrid({
 
   function onPick(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
-    if (file) uploadMut.mutate(file)
+    // Не влезает в квоту по уже загруженному — тост сразу, без заливки впустую.
+    if (file && quota.fits(file)) uploadMut.mutate(file)
     e.target.value = ''
   }
 
@@ -396,6 +406,9 @@ export function ProfileMediaGrid({
                   label={t('sortOldest')}
                 />
               </FilterGroup>
+              {showUsage && (
+                <p className="w-full text-xs text-muted-foreground">{quota.usageLabel(usage)}</p>
+              )}
             </div>
           }
         >

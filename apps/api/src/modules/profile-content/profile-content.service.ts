@@ -2,7 +2,11 @@ import { Inject, Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { Prisma } from '@prisma/client'
 import type Redis from 'ioredis'
-import { FILE_UPLOAD } from '@studenthub/shared-config'
+import {
+  FILE_UPLOAD,
+  PROFILE_MEDIA_QUOTA,
+  PROFILE_MEDIA_QUOTA_FIELD,
+} from '@studenthub/shared-config'
 import { Role } from '@studenthub/shared-types'
 import {
   DEFAULT_PAGE_LIMIT,
@@ -176,10 +180,69 @@ export class ProfileContentService {
     }
   }
 
+  // ── Квота медиа (PROFILE_MEDIA_QUOTA) ──────────────────────────────────────
+
+  /** Сколько медиа профиля уже у пользователя: файлов и байт. */
+  private async mediaUsage(ownerId: string): Promise<{ files: number; bytes: number }> {
+    const agg = await this.prisma.file.aggregate({
+      where: { ownerId, bucket: this.bucket },
+      _count: { _all: true },
+      _sum: { size: true },
+    })
+    return { files: agg._count._all, bytes: agg._sum.size ?? 0 }
+  }
+
+  /** Что из квоты будет превышено, если добавить `add` к `usage`; null — всё влезает. */
+  private quotaExceeded(
+    usage: { files: number; bytes: number },
+    add: { files: number; bytes: number },
+  ): 'files' | 'bytes' | null {
+    if (usage.files + add.files > PROFILE_MEDIA_QUOTA.MAX_FILES) return 'files'
+    if (usage.bytes + add.bytes > PROFILE_MEDIA_QUOTA.MAX_BYTES) return 'bytes'
+    return null
+  }
+
+  /**
+   * 409 с полем квоты в `details`: клиент по нему показывает своё сообщение («удалите
+   * лишнее»), а не общее «конфликт». `message` детали — какой предел исчерпан.
+   */
+  private quotaError(kind: 'files' | 'bytes'): AppException {
+    const gb = PROFILE_MEDIA_QUOTA.MAX_BYTES / 1024 ** 3
+    return new AppException(
+      'CONFLICT',
+      kind === 'files'
+        ? `В профиле может быть не больше ${PROFILE_MEDIA_QUOTA.MAX_FILES} фото и видео`
+        : `Фото и видео профиля могут занимать не больше ${gb} ГБ`,
+      [{ field: PROFILE_MEDIA_QUOTA_FIELD, message: kind }],
+    )
+  }
+
+  /** Проверка «до»: ещё один файл на `bytes` байт влезает в квоту владельца. */
+  private async assertMediaQuota(ownerId: string, bytes: number): Promise<void> {
+    const over = this.quotaExceeded(await this.mediaUsage(ownerId), { files: 1, bytes })
+    if (over) throw this.quotaError(over)
+  }
+
+  /**
+   * Проверка «после»: файл уже записан и посчитан. Проверка «до» отсекает очевидное, но две
+   * параллельные загрузки на последнем месте прошли бы её обе, а при прямой загрузке
+   * настоящий размер известен только на подтверждении. Перебор — файл удаляется вместе с
+   * объектом. В гонке откатятся обе загрузки (каждая видит перебор) — лучше, чем молча
+   * перейти квоту.
+   */
+  private async rollbackOverQuota(ownerId: string, fileId: string): Promise<void> {
+    const over = this.quotaExceeded(await this.mediaUsage(ownerId), { files: 0, bytes: 0 })
+    if (!over) return
+    await this.files.delete(fileId, ownerId)
+    throw this.quotaError(over)
+  }
+
   // ── Медиа (фото/видео) ─────────────────────────────────────────────────────
 
   /** Загрузка фото/видео в профиль. Тип — по содержимому (magic bytes через FileService). */
   async uploadMedia(actor: JwtPayload, buffer: Buffer): Promise<ProfileMediaDto> {
+    // До записи в хранилище: размер буфера известен, и заведомо лишний файл не заливаем.
+    await this.assertMediaQuota(actor.sub, buffer.byteLength)
     const file = await this.files.upload({ buffer, bucket: this.bucket, ownerId: actor.sub })
     if (!file.mime.startsWith('image/') && !file.mime.startsWith('video/')) {
       // Разрешаем только изображения и видео — прочее откатываем.
@@ -189,6 +252,7 @@ export class ProfileContentService {
         'В профиль можно загружать только фото и видео',
       )
     }
+    await this.rollbackOverQuota(actor.sub, file.id)
     this.logger.log(`Медиа профиля ${file.id} загружено пользователем ${actor.sub}`)
     return this.toMediaDto({ ...file, variants: [] })
   }
@@ -274,6 +338,9 @@ export class ProfileContentService {
     // Заявленный MIME отсеивает очевидно неподходящее сразу; окончательная проверка —
     // на подтверждении, по содержимому объекта.
     this.assertMediaMime(input.mime)
+    // Квота — по заявленному размеру: не давать ссылку на заливку, которую подтверждение
+    // всё равно отклонит. Настоящий размер сверяется на подтверждении.
+    await this.assertMediaQuota(actor.sub, input.size)
     return this.files.presignPut(this.bucket, input.mime, actor.sub)
   }
 
@@ -289,6 +356,8 @@ export class ProfileContentService {
       ownerId: actor.sub,
       allowedMimes: PROFILE_MEDIA_MIMES,
     })
+    // Объект уже в хранилище, и его настоящий размер известен только здесь.
+    await this.rollbackOverQuota(actor.sub, file.id)
     this.logger.log(`Медиа профиля ${file.id} подтверждено (presigned) пользователем ${actor.sub}`)
     return this.toMediaDto({ ...file, variants: [] })
   }
@@ -336,13 +405,20 @@ export class ProfileContentService {
     ) {
       throw new AppException('NOT_FOUND', 'Видео не найдено')
     }
-    if (file.posterKey) await this.files.removeRawObject(this.coversBucket, file.posterKey)
+    // Порядок важен: новая обложка → запись → удаление прежней. Раньше прежнюю сносили
+    // первой, и невалидный файл (не картинка, больше лимита) оставлял posterKey на уже
+    // удалённый объект — у видео пропадала обложка.
     const posterKey = await this.files.putAuxImage(this.coversBucket, buffer)
-    const updated = await this.prisma.file.update({
-      where: { id: fileId },
-      data: { posterKey },
-      select: PROFILE_MEDIA_SELECT,
-    })
+    const updated = await this.prisma.file
+      .update({ where: { id: fileId }, data: { posterKey }, select: PROFILE_MEDIA_SELECT })
+      .catch(async (err: unknown) => {
+        // Видео удалили, пока шла загрузка: новая обложка никому не нужна, прежняя — с ним.
+        await this.files.removeRawObject(this.coversBucket, posterKey)
+        throw err
+      })
+    if (file.posterKey && file.posterKey !== posterKey) {
+      await this.files.removeRawObject(this.coversBucket, file.posterKey)
+    }
     return this.toMediaDto(updated)
   }
 

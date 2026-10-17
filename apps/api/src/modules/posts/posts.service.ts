@@ -309,6 +309,9 @@ export class PostsService {
     ]
     if (viewer.universityId) {
       or.push({ audience: PostAudience.UNIVERSITY, universityId: viewer.universityId })
+      // SUBJECT — пост преподавателя всему вузу с меткой предмета: `subject` — свободная
+      // строка, связи с курсом нет, и интерфейс так и подписывает аудиторию («Весь вуз, по
+      // предмету», E-F28). Сузить до студентов курса — только привязкой к курсу (courseId).
       or.push({ audience: PostAudience.SUBJECT, universityId: viewer.universityId })
       if (viewer.role === Role.TEACHER) {
         or.push({ audience: PostAudience.TEACHERS, universityId: viewer.universityId })

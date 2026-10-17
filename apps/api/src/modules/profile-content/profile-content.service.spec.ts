@@ -1,5 +1,6 @@
 import { ConfigService } from '@nestjs/config'
 import { Prisma } from '@prisma/client'
+import { PROFILE_MEDIA_QUOTA, PROFILE_MEDIA_QUOTA_FIELD } from '@studenthub/shared-config'
 import { Role } from '@studenthub/shared-types'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { FileService } from '../files/file.service'
@@ -47,8 +48,11 @@ function setup() {
     file: {
       findFirst: jest.fn(),
       updateMany: jest.fn(),
+      update: jest.fn(),
       findMany: jest.fn(),
       count: jest.fn().mockResolvedValue(0),
+      // Квота медиа: по умолчанию у пользователя пусто.
+      aggregate: jest.fn().mockResolvedValue({ _count: { _all: 0 }, _sum: { size: null } }),
     },
     bookmark: {
       findMany: jest.fn().mockResolvedValue([]),
@@ -74,6 +78,7 @@ function setup() {
     listByOwnerAndBucket: jest.fn(),
     presignPut: jest.fn(),
     confirmDirectUpload: jest.fn(),
+    putAuxImage: jest.fn(),
   }
   const config = { get: (k: string) => CONFIG[k] }
   // По умолчанию профиль открыт смотрящему; закрытый проверяется отдельным тестом.
@@ -206,6 +211,128 @@ describe('ProfileContentService — медиа', () => {
     files.confirmDirectUpload.mockResolvedValue(file({ mime: 'video/mp4', key: 'me/k.mp4' }))
     const dto = await service.confirmMedia(user('me'), { key: 'me/k.mp4', mime: 'video/mp4' })
     expect(dto.type).toBe('VIDEO')
+  })
+})
+
+// E-F26: квота медиа профиля — число файлов и суммарный объём на пользователя.
+describe('ProfileContentService — квота медиа', () => {
+  const usage = (files: number, bytes: number) => ({
+    _count: { _all: files },
+    _sum: { size: bytes },
+  })
+  const GB = 1024 ** 3
+
+  it('на потолке числа файлов загрузка отклоняется до записи в хранилище', async () => {
+    const { service, prisma, files } = setup()
+    prisma.file.aggregate.mockResolvedValue(usage(PROFILE_MEDIA_QUOTA.MAX_FILES, 1000))
+    const err = await service.uploadMedia(user('me'), Buffer.from('x')).catch((e) => e)
+    expect(err.code).toBe('CONFLICT')
+    expect(err.details).toEqual([{ field: PROFILE_MEDIA_QUOTA_FIELD, message: 'files' }])
+    expect(files.upload).not.toHaveBeenCalled()
+    // Считается только своё медиа профиля, а не все файлы пользователя.
+    expect(prisma.file.aggregate.mock.calls[0][0].where).toEqual({
+      ownerId: 'me',
+      bucket: 'profile-media',
+    })
+  })
+
+  it('файл не влезает в объём → CONFLICT bytes, файл не заливается', async () => {
+    const { service, prisma, files } = setup()
+    prisma.file.aggregate.mockResolvedValue(usage(10, PROFILE_MEDIA_QUOTA.MAX_BYTES - 5))
+    const err = await service.uploadMedia(user('me'), Buffer.alloc(10)).catch((e) => e)
+    expect(err.code).toBe('CONFLICT')
+    expect(err.details[0].message).toBe('bytes')
+    expect(files.upload).not.toHaveBeenCalled()
+  })
+
+  it('параллельная загрузка перешла потолок → свой файл удаляется, CONFLICT', async () => {
+    const { service, prisma, files } = setup()
+    const max = PROFILE_MEDIA_QUOTA.MAX_FILES
+    // До записи место было, после — уже перебор (вторая загрузка успела раньше).
+    prisma.file.aggregate
+      .mockResolvedValueOnce(usage(max - 1, 0))
+      .mockResolvedValueOnce(usage(max + 1, 0))
+    files.upload.mockResolvedValue(file())
+    const err = await service.uploadMedia(user('me'), Buffer.from('x')).catch((e) => e)
+    expect(err.code).toBe('CONFLICT')
+    expect(files.delete).toHaveBeenCalledWith('file1', 'me')
+  })
+
+  it('в пределах квоты загрузка проходит, файл не удаляется', async () => {
+    const { service, prisma, files } = setup()
+    prisma.file.aggregate.mockResolvedValue(usage(PROFILE_MEDIA_QUOTA.MAX_FILES - 1, GB))
+    files.upload.mockResolvedValue(file())
+    const dto = await service.uploadMedia(user('me'), Buffer.from('x'))
+    expect(dto.id).toBe('file1')
+    expect(files.delete).not.toHaveBeenCalled()
+  })
+
+  it('presign: заявленный размер сверх остатка → CONFLICT, ссылки нет', async () => {
+    const { service, prisma, files } = setup()
+    prisma.file.aggregate.mockResolvedValue(usage(1, PROFILE_MEDIA_QUOTA.MAX_BYTES - 1000))
+    const err = await service
+      .presignMedia(user('me'), { mime: 'video/mp4', size: 20_000_000 })
+      .catch((e) => e)
+    expect(err.code).toBe('CONFLICT')
+    expect(files.presignPut).not.toHaveBeenCalled()
+  })
+
+  it('confirm: настоящий размер перешёл квоту → файл и объект удаляются, CONFLICT', async () => {
+    const { service, prisma, files } = setup()
+    prisma.file.aggregate.mockResolvedValue(usage(3, PROFILE_MEDIA_QUOTA.MAX_BYTES + 1))
+    files.confirmDirectUpload.mockResolvedValue(file({ mime: 'video/mp4', key: 'me/k.mp4' }))
+    const err = await service
+      .confirmMedia(user('me'), { key: 'me/k.mp4', mime: 'video/mp4' })
+      .catch((e) => e)
+    expect(err.code).toBe('CONFLICT')
+    expect(err.details[0]).toEqual({ field: PROFILE_MEDIA_QUOTA_FIELD, message: 'bytes' })
+    expect(files.delete).toHaveBeenCalledWith('file1', 'me')
+  })
+})
+
+// E-F26: замена обложки видео — прежняя удаляется только после записи новой.
+describe('ProfileContentService — обложка видео', () => {
+  const video = file({ mime: 'video/mp4', key: 'v.mp4', posterKey: 'old.jpg' })
+
+  it('новая обложка → запись → удаление прежней', async () => {
+    const { service, prisma, files } = setup()
+    files.findOrThrow.mockResolvedValue(video)
+    files.putAuxImage.mockResolvedValue('new.jpg')
+    prisma.file.update.mockResolvedValue({ ...video, posterKey: 'new.jpg' })
+    const dto = await service.attachPoster(user('me'), 'file1', Buffer.from('x'))
+    expect(dto.posterUrl).toBe('http://localhost:9000/profile-covers/new.jpg')
+    expect(prisma.file.update.mock.calls[0][0].data).toEqual({ posterKey: 'new.jpg' })
+    expect(files.removeRawObject).toHaveBeenCalledTimes(1)
+    expect(files.removeRawObject).toHaveBeenCalledWith('profile-covers', 'old.jpg')
+    const putOrder = files.putAuxImage.mock.invocationCallOrder[0]!
+    const updateOrder = prisma.file.update.mock.invocationCallOrder[0]!
+    const removeOrder = files.removeRawObject.mock.invocationCallOrder[0]!
+    expect(putOrder).toBeLessThan(updateOrder)
+    expect(updateOrder).toBeLessThan(removeOrder)
+  })
+
+  it('невалидная новая обложка → прежняя цела, запись не меняется', async () => {
+    const { service, prisma, files } = setup()
+    files.findOrThrow.mockResolvedValue(video)
+    files.putAuxImage.mockRejectedValue(
+      Object.assign(new Error('not image'), { code: 'FILE_TYPE_NOT_ALLOWED' }),
+    )
+    const err = await service.attachPoster(user('me'), 'file1', Buffer.from('x')).catch((e) => e)
+    expect(err.code).toBe('FILE_TYPE_NOT_ALLOWED')
+    expect(prisma.file.update).not.toHaveBeenCalled()
+    expect(files.removeRawObject).not.toHaveBeenCalled()
+  })
+
+  it('запись не обновилась (видео удалили) → убирается новая обложка, а не прежняя', async () => {
+    const { service, prisma, files } = setup()
+    files.findOrThrow.mockResolvedValue(video)
+    files.putAuxImage.mockResolvedValue('new.jpg')
+    prisma.file.update.mockRejectedValue(new Error('P2025'))
+    await expect(service.attachPoster(user('me'), 'file1', Buffer.from('x'))).rejects.toThrow(
+      'P2025',
+    )
+    expect(files.removeRawObject).toHaveBeenCalledTimes(1)
+    expect(files.removeRawObject).toHaveBeenCalledWith('profile-covers', 'new.jpg')
   })
 })
 
