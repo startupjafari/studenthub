@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common'
+import { Injectable } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
@@ -12,6 +12,7 @@ import { PrismaService } from '../../common/prisma/prisma.service'
 import { AuditService } from '../../common/audit/audit.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
+import { isPlatformRole, resolveGroupScope } from '../../common/auth/group-scope'
 import type { RequestContext } from '../auth/auth.service'
 import { FileService } from '../files/file.service'
 import { MediaService } from '../media/media.service'
@@ -47,14 +48,8 @@ type MaterialRow = Prisma.MaterialGetPayload<{ select: typeof MATERIAL_SELECT }>
 // Потолок счётчиков по дисциплинам: у группы их десятки, у вуза — сотни.
 const MATERIAL_SUBJECTS_LIMIT = 500
 
-function isPlatform(role: Role): boolean {
-  return role === Role.PLATFORM_ADMIN || role === Role.PLATFORM_MODERATOR
-}
-
 @Injectable()
 export class MaterialsService {
-  private readonly logger = new Logger(MaterialsService.name)
-
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
@@ -69,6 +64,7 @@ export class MaterialsService {
     ctx: RequestContext,
   ): Promise<MaterialRow> {
     await this.assertGroupManage(actor, input.groupId)
+    if (actor.role === Role.TEACHER) await this.assertTeachesGroup(actor.sub, input.groupId)
     const material = await this.prisma.material.create({
       data: {
         teacherId: actor.sub,
@@ -242,7 +238,7 @@ export class MaterialsService {
   }
 
   private scopeWhere(viewer: JwtPayload): Prisma.MaterialWhereInput {
-    if (isPlatform(viewer.role)) return {}
+    if (isPlatformRole(viewer.role)) return {}
     if (viewer.role === Role.STUDENT || viewer.role === Role.STAROSTA) {
       return { groupId: viewer.groupId ?? '__none__' }
     }
@@ -256,12 +252,12 @@ export class MaterialsService {
   }
 
   private async assertRead(viewer: JwtPayload, groupId: string): Promise<void> {
-    if (isPlatform(viewer.role)) return
+    if (isPlatformRole(viewer.role)) return
     if (viewer.role === Role.STUDENT || viewer.role === Role.STAROSTA) {
       if (viewer.groupId === groupId) return
       throw new AppException('WRONG_SCOPE', 'Материал другой группы')
     }
-    const group = await this.resolveGroup(groupId)
+    const group = await resolveGroupScope(this.prisma, groupId)
     if (viewer.role === Role.DEAN) {
       if (viewer.facultyId === group.facultyId) return
       throw new AppException('WRONG_SCOPE', 'Материал другого факультета')
@@ -271,8 +267,8 @@ export class MaterialsService {
   }
 
   private async assertGroupManage(actor: JwtPayload, groupId: string): Promise<void> {
-    if (isPlatform(actor.role)) return
-    const group = await this.resolveGroup(groupId)
+    if (isPlatformRole(actor.role)) return
+    const group = await resolveGroupScope(this.prisma, groupId)
     if (actor.role === Role.DEAN) {
       if (actor.facultyId !== group.facultyId)
         throw new AppException('WRONG_SCOPE', 'Чужой факультет')
@@ -292,7 +288,7 @@ export class MaterialsService {
       select: { id: true, teacherId: true, groupId: true },
     })
     if (!material) throw new AppException('NOT_FOUND', 'Материал не найден')
-    if (material.teacherId === actor.sub || isPlatform(actor.role)) return material
+    if (material.teacherId === actor.sub || isPlatformRole(actor.role)) return material
     // Не автор — только админ/декан своего scope.
     await this.assertGroupManage(actor, material.groupId).catch(() => {
       throw new AppException('FORBIDDEN', 'Нет прав на материал')
@@ -302,14 +298,23 @@ export class MaterialsService {
     return material
   }
 
-  private async resolveGroup(
-    groupId: string,
-  ): Promise<{ facultyId: string; universityId: string }> {
-    const group = await this.prisma.group.findUnique({
-      where: { id: groupId },
-      select: { facultyId: true, faculty: { select: { universityId: true } } },
+  /**
+   * Преподаватель выкладывает материалы только группам, где ведёт занятия (C-F27): раньше
+   * материал уходил любой группе вуза, хотя ставить себе пары он может лишь там, где ведёт
+   * дисциплину. Основание — дисциплина группы или пара действующего расписания: пара даёт
+   * ему ростер и посещаемость группы, и материалы своим студентам — то же право.
+   */
+  private async assertTeachesGroup(teacherId: string, groupId: string): Promise<void> {
+    const course = await this.prisma.course.findFirst({
+      where: { teacherId, groupId },
+      select: { id: true },
     })
-    if (!group) throw new AppException('NOT_FOUND', 'Группа не найдена')
-    return { facultyId: group.facultyId, universityId: group.faculty.universityId }
+    if (course) return
+    const pair = await this.prisma.pair.findFirst({
+      where: { teacherId, groupId, schedule: { is: { isActive: true } } },
+      select: { id: true },
+    })
+    if (pair) return
+    throw new AppException('WRONG_SCOPE', 'Вы не ведёте занятий в этой группе')
   }
 }

@@ -16,7 +16,7 @@ export interface CourseNextLesson {
 }
 
 export interface CourseSummary {
-  // slug = subject (кодируется в URL).
+  // slug = subject (кодируется в URL); курс конкретного семестра — параметром `course`.
   subject: string
   teachers: PairTeacher[]
   lessonsPerWeek: number
@@ -101,43 +101,113 @@ export function buildCourses(
   return courses.sort((a, b) => a.subject.localeCompare(b.subject))
 }
 
-// Накладывает backend-курсы (`GET /courses`) поверх агрегации: сопоставляет по имени
-// дисциплины, добавляя courseId/кредиты/семестр/официального преподавателя; курсы без пар
-// в расписании добавляются отдельными карточками. Пустой `apiCourses` → возвращаем базу как есть.
+/**
+ * Порядок курсов одной дисциплины: курс текущего семестра → без семестра → прочие,
+ * свежие раньше. Первый в нём — «основной»: ему достаются пары расписания (у пары нет
+ * ссылки на курс, только название), а значит и задания со страницы дисциплины.
+ */
+function courseRank(course: CourseItem): number {
+  if (course.term?.isActive) return 0
+  if (!course.term) return 1
+  return 2
+}
+
+function compareCourses(a: CourseItem, b: CourseItem): number {
+  return (
+    courseRank(a) - courseRank(b) ||
+    b.createdAt.localeCompare(a.createdAt) ||
+    a.id.localeCompare(b.id)
+  )
+}
+
+function courseTeachers(course: CourseItem): PairTeacher[] {
+  return course.teacher
+    ? [
+        {
+          id: course.teacher.id,
+          firstName: course.teacher.firstName,
+          lastName: course.teacher.lastName,
+        },
+      ]
+    : []
+}
+
+function summaryOf(course: CourseItem): CourseSummary {
+  return {
+    subject: course.subject.name,
+    teachers: courseTeachers(course),
+    lessonsPerWeek: 0,
+    materialsCount: 0,
+    next: null,
+    courseId: course.id,
+    credits: course.credits,
+    termName: course.term?.name ?? null,
+  }
+}
+
+// Накладывает backend-курсы (`GET /courses`) поверх агрегации: основной курс дисциплины
+// (см. `compareCourses`) дополняет карточку из расписания courseId/кредитами/семестром/
+// официальным преподавателем. Остальные курсы с тем же названием (прошлые семестры) и курсы
+// без пар в расписании — отдельными карточками: раньше карта по названию склеивала
+// «Математику» 1-го и 2-го семестров в одну, и побеждал случайный курс (C-F25).
+// Пустой `apiCourses` → возвращаем базу как есть.
 export function mergeApiCourses(base: CourseSummary[], apiCourses: CourseItem[]): CourseSummary[] {
   if (apiCourses.length === 0) return base
-  const bySubject = new Map(base.map((c) => [c.subject, { ...c }]))
-
+  const byName = new Map<string, CourseItem[]>()
   for (const course of apiCourses) {
-    const name = course.subject.name
-    const existing = bySubject.get(name)
-    const teacher = course.teacher
-      ? [
-          {
-            id: course.teacher.id,
-            firstName: course.teacher.firstName,
-            lastName: course.teacher.lastName,
-          },
-        ]
-      : []
-    if (existing) {
-      existing.courseId = course.id
-      existing.credits = course.credits
-      existing.termName = course.term?.name ?? null
-      if (existing.teachers.length === 0 && teacher.length > 0) existing.teachers = teacher
-    } else {
-      bySubject.set(name, {
-        subject: name,
-        teachers: teacher,
-        lessonsPerWeek: 0,
-        materialsCount: 0,
-        next: null,
-        courseId: course.id,
-        credits: course.credits,
-        termName: course.term?.name ?? null,
-      })
-    }
+    const list = byName.get(course.subject.name) ?? []
+    list.push(course)
+    byName.set(course.subject.name, list)
   }
 
-  return Array.from(bySubject.values()).sort((a, b) => a.subject.localeCompare(b.subject))
+  const result: CourseSummary[] = []
+  for (const card of base) {
+    const [primary, ...rest] = (byName.get(card.subject) ?? []).sort(compareCourses)
+    byName.delete(card.subject)
+    if (!primary) {
+      result.push(card)
+      continue
+    }
+    result.push({
+      ...card,
+      courseId: primary.id,
+      credits: primary.credits,
+      termName: primary.term?.name ?? null,
+      teachers: card.teachers.length > 0 ? card.teachers : courseTeachers(primary),
+    })
+    for (const course of rest) result.push(summaryOf(course))
+  }
+  for (const list of byName.values()) {
+    for (const course of list.sort(compareCourses)) result.push(summaryOf(course))
+  }
+
+  // Сортировка устойчивая: внутри одной дисциплины основной курс остаётся первым.
+  return result.sort((a, b) => a.subject.localeCompare(b.subject))
+}
+
+/** Ключ карточки: у курсов одной дисциплины разных семестров название одно. */
+export function courseKey(course: CourseSummary): string {
+  return course.courseId ?? `subject:${course.subject}`
+}
+
+/**
+ * Ссылка на страницу дисциплины. Путь — по названию (так открываются и дисциплины без
+ * курса, из одного расписания), курс уточняется параметром `course`.
+ */
+export function courseHref(course: CourseSummary): string {
+  const path = `/courses/${encodeURIComponent(course.subject)}`
+  return course.courseId ? `${path}?course=${encodeURIComponent(course.courseId)}` : path
+}
+
+/**
+ * Карточка для страницы дисциплины: по id курса из ссылки, а без него (или если такого
+ * курса нет) — основная карточка с этим названием.
+ */
+export function pickCourse(
+  courses: CourseSummary[],
+  subject: string,
+  courseId: string | null,
+): CourseSummary | undefined {
+  const byId = courseId ? courses.find((c) => c.courseId === courseId) : undefined
+  return byId ?? courses.find((c) => c.subject === subject)
 }

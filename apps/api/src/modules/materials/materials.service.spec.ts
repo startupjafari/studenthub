@@ -19,6 +19,9 @@ function setup() {
     },
     group: { findUnique: jest.fn() },
     file: { findFirst: jest.fn().mockResolvedValue(null) },
+    // По умолчанию преподаватель ведёт дисциплину в группе.
+    course: { findFirst: jest.fn().mockResolvedValue({ id: 'c1' }) },
+    pair: { findFirst: jest.fn().mockResolvedValue(null) },
   }
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const files = { upload: jest.fn(), findOrThrow: jest.fn(), getPresignedUrl: jest.fn() }
@@ -149,6 +152,52 @@ describe('MaterialsService.create — scope группы', () => {
       ctx,
     )
     expect(res.id).toBe('m-new')
+  })
+
+  // C-F27: раньше преподаватель выкладывал материал любой группе своего вуза.
+  describe('преподаватель — только группам, где ведёт занятия', () => {
+    const teacher = user(Role.TEACHER, { sub: 't1', universityId: 'uni1' })
+    function prime() {
+      const env = setup()
+      env.prisma.group.findUnique.mockResolvedValue({
+        facultyId: 'f1',
+        faculty: { universityId: 'uni1' },
+      })
+      return env
+    }
+
+    it('ни дисциплины, ни пары в группе → WRONG_SCOPE, материал не создаётся', async () => {
+      const { service, prisma } = prime()
+      prisma.course.findFirst.mockResolvedValue(null)
+      const err = await service.create(teacher, { groupId: 'g1', title: 'T' }, ctx).catch((e) => e)
+      expect(err.code).toBe('WRONG_SCOPE')
+      expect(prisma.course.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { teacherId: 't1', groupId: 'g1' } }),
+      )
+      expect(prisma.pair.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { teacherId: 't1', groupId: 'g1', schedule: { is: { isActive: true } } },
+        }),
+      )
+      expect(prisma.material.create).not.toHaveBeenCalled()
+    })
+
+    it('пара действующего расписания без дисциплины — тоже основание', async () => {
+      const { service, prisma } = prime()
+      prisma.course.findFirst.mockResolvedValue(null)
+      prisma.pair.findFirst.mockResolvedValue({ id: 'p1' })
+      const res = await service.create(teacher, { groupId: 'g1', title: 'T' }, ctx)
+      expect(res.id).toBe('m-new')
+    })
+
+    it('декан факультета — без проверки преподавания', async () => {
+      const { service, prisma } = prime()
+      prisma.course.findFirst.mockResolvedValue(null)
+      const dean = user(Role.DEAN, { facultyId: 'f1', universityId: 'uni1' })
+      const res = await service.create(dean, { groupId: 'g1', title: 'T' }, ctx)
+      expect(res.id).toBe('m-new')
+      expect(prisma.course.findFirst).not.toHaveBeenCalled()
+    })
   })
 })
 

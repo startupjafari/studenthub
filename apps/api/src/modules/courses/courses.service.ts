@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common'
+import { Injectable } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
 import type {
@@ -22,6 +22,7 @@ import { AuditService } from '../../common/audit/audit.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import { Paginated } from '../../common/http/paginated'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
+import { isPlatformRole, resolveGroupScope } from '../../common/auth/group-scope'
 import type { RequestContext } from '../auth/auth.service'
 
 const SUBJECT_SELECT = {
@@ -54,10 +55,6 @@ const COURSE_SELECT = {
 
 type CourseRow = Prisma.CourseGetPayload<{ select: typeof COURSE_SELECT }>
 
-function isPlatform(role: Role): boolean {
-  return role === Role.PLATFORM_ADMIN || role === Role.PLATFORM_MODERATOR
-}
-
 /**
  * Порядок выборки по колонке таблицы. Общее для трёх списков модуля.
  *
@@ -66,6 +63,15 @@ function isPlatform(role: Role): boolean {
  * пропустить.
  */
 function courseOrderBy(
+  sort: CourseSortValue | undefined,
+  order: SortOrderValue | undefined,
+): Prisma.CourseOrderByWithRelationInput[] {
+  // Последний ключ — id: у курсов одной дисциплины в разных семестрах совпадают и название,
+  // и группа, и без него их взаимный порядок от запроса к запросу менялся (C-F25).
+  return [...courseSortKeys(sort, order), { id: 'asc' }]
+}
+
+function courseSortKeys(
   sort: CourseSortValue | undefined,
   order: SortOrderValue | undefined,
 ): Prisma.CourseOrderByWithRelationInput[] {
@@ -119,8 +125,6 @@ function termOrderBy(
 
 @Injectable()
 export class CoursesService {
-  private readonly logger = new Logger(CoursesService.name)
-
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
@@ -507,18 +511,18 @@ export class CoursesService {
   // ── scope helpers ─────────────────────────────────────────────────────────
 
   private readUniversityScope(viewer: JwtPayload, requested?: string): string {
-    if (isPlatform(viewer.role)) return requested ?? viewer.universityId ?? '__none__'
+    if (isPlatformRole(viewer.role)) return requested ?? viewer.universityId ?? '__none__'
     return viewer.universityId ?? '__none__'
   }
 
   private assertUniversityManage(actor: JwtPayload, universityId: string): void {
-    if (isPlatform(actor.role)) return
+    if (isPlatformRole(actor.role)) return
     if (actor.role === Role.UNIVERSITY_ADMIN && actor.universityId === universityId) return
     throw new AppException('WRONG_SCOPE', 'Другой университет')
   }
 
   private courseScopeWhere(viewer: JwtPayload): Prisma.CourseWhereInput {
-    if (isPlatform(viewer.role)) return {}
+    if (isPlatformRole(viewer.role)) return {}
     if (viewer.role === Role.STUDENT || viewer.role === Role.STAROSTA) {
       return { groupId: viewer.groupId ?? '__none__' }
     }
@@ -532,12 +536,12 @@ export class CoursesService {
   }
 
   private async assertReadGroup(viewer: JwtPayload, groupId: string): Promise<void> {
-    if (isPlatform(viewer.role)) return
+    if (isPlatformRole(viewer.role)) return
     if (viewer.role === Role.STUDENT || viewer.role === Role.STAROSTA) {
       if (viewer.groupId === groupId) return
       throw new AppException('WRONG_SCOPE', 'Дисциплина другой группы')
     }
-    const group = await this.resolveGroup(groupId)
+    const group = await resolveGroupScope(this.prisma, groupId)
     if (viewer.role === Role.DEAN) {
       if (viewer.facultyId === group.facultyId) return
       throw new AppException('WRONG_SCOPE', 'Дисциплина другого факультета')
@@ -550,8 +554,8 @@ export class CoursesService {
     actor: JwtPayload,
     groupId: string,
   ): Promise<{ facultyId: string; universityId: string }> {
-    const group = await this.resolveGroup(groupId)
-    if (isPlatform(actor.role)) return group
+    const group = await resolveGroupScope(this.prisma, groupId)
+    if (isPlatformRole(actor.role)) return group
     if (actor.role === Role.DEAN) {
       if (actor.facultyId !== group.facultyId)
         throw new AppException('WRONG_SCOPE', 'Чужой факультет')
@@ -604,17 +608,6 @@ export class CoursesService {
     if (teacher.role !== Role.TEACHER && teacher.role !== Role.DEAN) {
       throw new AppException('BAD_REQUEST', 'Назначить можно только преподавателя или декана')
     }
-  }
-
-  private async resolveGroup(
-    groupId: string,
-  ): Promise<{ facultyId: string; universityId: string }> {
-    const group = await this.prisma.group.findUnique({
-      where: { id: groupId },
-      select: { facultyId: true, faculty: { select: { universityId: true } } },
-    })
-    if (!group) throw new AppException('NOT_FOUND', 'Группа не найдена')
-    return { facultyId: group.facultyId, universityId: group.faculty.universityId }
   }
 
   private handleUnique(message: string) {

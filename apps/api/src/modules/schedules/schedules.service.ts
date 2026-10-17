@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common'
+import { Injectable } from '@nestjs/common'
 import { Prisma, ScheduleChangeType, WeekType } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
 import type {
@@ -16,6 +16,7 @@ import { AuditService } from '../../common/audit/audit.service'
 import { localDateString } from '../../common/time/local-label'
 import { AppException } from '../../common/exceptions/app.exception'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
+import { isPlatformRole } from '../../common/auth/group-scope'
 import type { RequestContext } from '../auth/auth.service'
 import { RealtimeGateway } from '../../common/realtime'
 import { NOTIFICATION_JOBS, QUEUES, QueueService } from '../../common/queue'
@@ -38,6 +39,8 @@ const SUBSTITUTION_LIMIT = 100
 const CHANGES_PER_PAIR_DATE_LIMIT = 20
 
 const DAY_SHORT = ['', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'вс']
+// Все дни недели по ISO — активация версии проверяет сетку целиком.
+const ALL_DAYS = [1, 2, 3, 4, 5, 6, 7]
 
 const PAIR_SELECT = {
   id: true,
@@ -139,10 +142,6 @@ interface PairSlot {
   roomId: string | null
 }
 
-function isPlatform(role: Role): boolean {
-  return role === Role.PLATFORM_ADMIN || role === Role.PLATFORM_MODERATOR
-}
-
 // Календарная дата "YYYY-MM-DD" → значение колонки @db.Date (полночь UTC).
 function dateOnly(date: string): Date {
   return new Date(`${date}T00:00:00.000Z`)
@@ -240,8 +239,6 @@ const DATED_CHANGE_SELECT = {
 
 @Injectable()
 export class SchedulesService {
-  private readonly logger = new Logger(SchedulesService.name)
-
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
@@ -320,7 +317,7 @@ export class SchedulesService {
       where.group = { is: { facultyId: viewer.facultyId ?? '__none__' } }
       if (q.groupId) where.groupId = q.groupId
       if (q.teacherId) where.teacherId = q.teacherId
-    } else if (isPlatform(viewer.role)) {
+    } else if (isPlatformRole(viewer.role)) {
       if (q.groupId) where.groupId = q.groupId
       if (q.teacherId) where.teacherId = q.teacherId
     } else {
@@ -415,12 +412,15 @@ export class SchedulesService {
     }
     const gctx = await this.resolveGroupContext(existing.groupId)
     this.assertManageScopeForGroup(actor, gctx)
-    // Пары черновика проверялись на конфликты с сеткой, действовавшей на момент добавления;
-    // с тех пор другие группы могли занять тех же преподавателей и аудитории (C-F13).
-    if (input.isActive === true && !existing.isActive) {
-      await this.assertActivationNoConflict(existing.id, existing.groupId)
-    }
     const schedule = await this.prisma.$transaction(async (tx) => {
+      // Пары черновика проверялись на конфликты с сеткой, действовавшей на момент добавления;
+      // с тех пор другие группы могли занять тех же преподавателей и аудитории (C-F13).
+      // Проверка и включение — под локом всех дней вуза (C-F27): параллельно добавленная
+      // пара другой группы иначе проскочила бы между ними.
+      if (input.isActive === true && !existing.isActive) {
+        await this.lockSlotDays(tx, gctx.universityId, ALL_DAYS)
+        await this.assertActivationNoConflict(tx, existing.id, existing.groupId)
+      }
       if (input.isActive === true) {
         await tx.schedule.updateMany({
           where: { groupId: existing.groupId, isActive: true, id: { not: id } },
@@ -501,7 +501,7 @@ export class SchedulesService {
 
     const roomId = input.roomId ?? null
     if (roomId) await this.rooms.assertRoomInUniversity(roomId, gctx.universityId)
-    if (teacherId) await this.assertTeacherInUniversity(teacherId, gctx.universityId)
+    if (teacherId) await this.assertAssignableTeacher(teacherId, gctx.universityId, 'teacherId')
 
     const slot: PairSlot = {
       scheduleId: schedule.id,
@@ -513,21 +513,25 @@ export class SchedulesService {
       teacherId,
       roomId,
     }
-    await this.assertNoConflict(slot)
-
-    const pair = await this.prisma.pair.create({
-      data: {
-        scheduleId: slot.scheduleId,
-        groupId: slot.groupId,
-        subject: input.subject,
-        teacherId,
-        roomId,
-        dayOfWeek: slot.dayOfWeek,
-        startTime: slot.startTime,
-        endTime: slot.endTime,
-        weekType: slot.weekType,
-      },
-      select: PAIR_SELECT,
+    // Проверка и запись — одна транзакция под локом дня (C-F27): раньше две параллельные
+    // правки видели свободный слот и обе занимали одну аудиторию.
+    const pair = await this.prisma.$transaction(async (tx) => {
+      await this.lockSlotDays(tx, gctx.universityId, [slot.dayOfWeek])
+      await this.assertNoConflict(tx, slot)
+      return tx.pair.create({
+        data: {
+          scheduleId: slot.scheduleId,
+          groupId: slot.groupId,
+          subject: input.subject,
+          teacherId,
+          roomId,
+          dayOfWeek: slot.dayOfWeek,
+          startTime: slot.startTime,
+          endTime: slot.endTime,
+          weekType: slot.weekType,
+        },
+        select: PAIR_SELECT,
+      })
     })
     await this.audit.record({
       userId: actor.sub,
@@ -572,6 +576,9 @@ export class SchedulesService {
       if (nextTeacherId !== actor.sub) {
         throw new AppException('WRONG_SCOPE', 'Нельзя переназначить пару другому преподавателю')
       }
+      // То же правило, что при создании (C-F27): переносить пары он может только в группах,
+      // где ведёт дисциплину; остальные пары переставляет деканат.
+      await this.assertTeachesGroup(actor.sub, existing.groupId)
     } else {
       this.assertManageScopeForGroup(actor, gctx)
     }
@@ -589,34 +596,41 @@ export class SchedulesService {
       throw new AppException('BAD_REQUEST', 'Время начала должно быть раньше времени окончания')
     }
     if (roomId) await this.rooms.assertRoomInUniversity(roomId, gctx.universityId)
-    if (teacherId) await this.assertTeacherInUniversity(teacherId, gctx.universityId)
+    // Нового преподавателя сверяем с правилами назначения; прежний уже стоит в сетке, и его
+    // блокировка не должна мешать деканату перенести пару (а снять его — можно).
+    if (teacherId && teacherId !== existing.teacherId) {
+      await this.assertAssignableTeacher(teacherId, gctx.universityId, 'teacherId')
+    }
 
-    await this.assertNoConflict(
-      {
-        scheduleId: existing.scheduleId,
-        groupId: existing.groupId,
-        dayOfWeek,
-        startTime,
-        endTime,
-        weekType,
-        teacherId,
-        roomId,
-      },
-      id,
-    )
-
-    const pair = await this.prisma.pair.update({
-      where: { id },
-      data: {
-        subject: input.subject,
-        teacherId,
-        roomId,
-        dayOfWeek,
-        startTime,
-        endTime,
-        weekType,
-      },
-      select: PAIR_SELECT,
+    const pair = await this.prisma.$transaction(async (tx) => {
+      await this.lockSlotDays(tx, gctx.universityId, [dayOfWeek])
+      await this.assertNoConflict(
+        tx,
+        {
+          scheduleId: existing.scheduleId,
+          groupId: existing.groupId,
+          dayOfWeek,
+          startTime,
+          endTime,
+          weekType,
+          teacherId,
+          roomId,
+        },
+        id,
+      )
+      return tx.pair.update({
+        where: { id },
+        data: {
+          subject: input.subject,
+          teacherId,
+          roomId,
+          dayOfWeek,
+          startTime,
+          endTime,
+          weekType,
+        },
+        select: PAIR_SELECT,
+      })
     })
     await this.audit.record({
       userId: actor.sub,
@@ -687,19 +701,32 @@ export class SchedulesService {
 
   /**
    * Детектор конфликтов (§6.4): в одном слоте (день + пересечение времени + пересечение чётности)
-   * аудитория, преподаватель и группа не могут быть заняты дважды. Проверяем среди пар активных
-   * расписаний и того же контейнера (архивные неактивные расписания не учитываем).
+   * аудитория, преподаватель и группа не могут быть заняты дважды. Проверяем среди пар того же
+   * контейнера и действующих расписаний ДРУГИХ групп (архивные неактивные не учитываем).
+   *
+   * Действующая версия своей группы для черновика — не помеха: при активации черновика она
+   * гаснет (как и в `assertActivationNoConflict`), а раньше новую версию нельзя было собрать
+   * в тех же слотах, что и текущую (C-F27). Для действующей версии это тот же контейнер.
+   * Вызывать в транзакции под `lockSlotDays` — иначе проверка и запись разойдутся.
    */
-  private async assertNoConflict(slot: PairSlot, excludePairId?: string): Promise<void> {
+  private async assertNoConflict(
+    tx: Prisma.TransactionClient,
+    slot: PairSlot,
+    excludePairId?: string,
+  ): Promise<void> {
     const orResource: Prisma.PairWhereInput[] = [{ groupId: slot.groupId }]
     if (slot.teacherId) orResource.push({ teacherId: slot.teacherId })
     if (slot.roomId) orResource.push({ roomId: slot.roomId })
 
-    const candidates = await this.prisma.pair.findMany({
+    const candidates = await tx.pair.findMany({
       where: {
         ...(excludePairId ? { id: { not: excludePairId } } : {}),
         dayOfWeek: slot.dayOfWeek,
-        schedule: { is: { OR: [{ isActive: true }, { id: slot.scheduleId }] } },
+        schedule: {
+          is: {
+            OR: [{ isActive: true, groupId: { not: slot.groupId } }, { id: slot.scheduleId }],
+          },
+        },
         OR: orResource,
       },
       take: PAIR_CONFLICT_LIMIT,
@@ -741,8 +768,12 @@ export class SchedulesService {
    * пары версии между собой проверены при добавлении (тот же контейнер). Один запрос на всю
    * версию: кандидаты — пары тех же дней у тех же преподавателей и аудиторий.
    */
-  private async assertActivationNoConflict(scheduleId: string, groupId: string): Promise<void> {
-    const pairs = await this.prisma.pair.findMany({
+  private async assertActivationNoConflict(
+    tx: Prisma.TransactionClient,
+    scheduleId: string,
+    groupId: string,
+  ): Promise<void> {
+    const pairs = await tx.pair.findMany({
       where: { scheduleId },
       select: {
         subject: true,
@@ -762,7 +793,7 @@ export class SchedulesService {
     const orResource: Prisma.PairWhereInput[] = []
     if (teacherIds.length > 0) orResource.push({ teacherId: { in: teacherIds } })
     if (roomIds.length > 0) orResource.push({ roomId: { in: roomIds } })
-    const candidates = await this.prisma.pair.findMany({
+    const candidates = await tx.pair.findMany({
       where: {
         groupId: { not: groupId },
         dayOfWeek: { in: [...new Set(pairs.map((p) => p.dayOfWeek))] },
@@ -853,7 +884,9 @@ export class SchedulesService {
     const newRoomId = input.newRoomId ?? null
     const newTeacherId = input.newTeacherId ?? null
     if (newRoomId) await this.rooms.assertRoomInUniversity(newRoomId, gctx.universityId)
-    if (newTeacherId) await this.assertTeacherInUniversity(newTeacherId, gctx.universityId)
+    if (newTeacherId) {
+      await this.assertAssignableTeacher(newTeacherId, gctx.universityId, 'newTeacherId')
+    }
 
     const type = input.type as ScheduleChangeType
     const day = dateOnly(input.date)
@@ -1180,7 +1213,7 @@ export class SchedulesService {
       })
       return uni?.timezone ?? null
     }
-    if (groupId && isPlatform(viewer.role)) {
+    if (groupId && isPlatformRole(viewer.role)) {
       const group = await this.prisma.group.findUnique({
         where: { id: groupId },
         select: { faculty: { select: { university: { select: { timezone: true } } } } },
@@ -1190,16 +1223,52 @@ export class SchedulesService {
     return null
   }
 
-  private async assertTeacherInUniversity(userId: string, universityId: string): Promise<void> {
+  /**
+   * Кого можно поставить преподавателем пары или заменяющим (C-F27): действующего
+   * преподавателя или декана своего вуза. Раньше сверялся только вуз, и в сетку попадали
+   * студент или заблокированный — пара уходила в «Сегодня» тому, кто её не ведёт.
+   * `field` — поле формы, которое подсветит клиент (`teacherId` / `newTeacherId`).
+   */
+  private async assertAssignableTeacher(
+    userId: string,
+    universityId: string,
+    field: 'teacherId' | 'newTeacherId',
+  ): Promise<void> {
     const user = await this.prisma.user.findFirst({
       where: { id: userId, deletedAt: null },
-      select: { universityId: true },
+      select: { universityId: true, role: true, isBlocked: true },
     })
     if (!user) {
       throw new AppException('NOT_FOUND', 'Преподаватель не найден')
     }
     if (user.universityId !== universityId) {
       throw new AppException('WRONG_SCOPE', 'Преподаватель другого университета')
+    }
+    // То же правило, что у дисциплины (courses.service): преподаватель или декан.
+    if (user.role !== Role.TEACHER && user.role !== Role.DEAN) {
+      const message = 'Назначить можно только преподавателя или декана'
+      throw new AppException('VALIDATION_ERROR', message, [{ field, message }])
+    }
+    if (user.isBlocked) {
+      const message = 'Преподаватель заблокирован'
+      throw new AppException('VALIDATION_ERROR', message, [{ field, message }])
+    }
+  }
+
+  /**
+   * Транзакционный advisory-лок дней недели вуза (C-F27): проверка конфликтов и запись пары
+   * идут под ним, иначе две параллельные правки видели свободный слот и обе его занимали.
+   * Аудитории и преподаватели принадлежат вузу, так что вуз + день — наименьшая область,
+   * где возможно пересечение. Несколько дней берём по возрастанию — встречные транзакции
+   * не ждут друг друга по кругу.
+   */
+  private async lockSlotDays(
+    tx: Prisma.TransactionClient,
+    universityId: string,
+    days: number[],
+  ): Promise<void> {
+    for (const day of [...new Set(days)].sort((a, b) => a - b)) {
+      await advisoryXactLock(tx, `schedule-slot:${universityId}:${day}`)
     }
   }
 
@@ -1237,7 +1306,7 @@ export class SchedulesService {
   }
 
   private assertManageScopeForGroup(actor: JwtPayload, gctx: GroupContext): void {
-    if (isPlatform(actor.role)) return
+    if (isPlatformRole(actor.role)) return
     if (actor.role === Role.DEAN) {
       if (actor.facultyId === gctx.facultyId) return
       throw new AppException('WRONG_SCOPE', 'Ресурс другого факультета')
@@ -1250,7 +1319,7 @@ export class SchedulesService {
 
   // Чтение конкретного контейнера: платформа/вуз-роли — свой вуз; декан — свой факультет; студент/староста — своя группа.
   private assertReadScopeForGroup(viewer: JwtPayload, gctx: GroupContext): void {
-    if (isPlatform(viewer.role)) return
+    if (isPlatformRole(viewer.role)) return
     if (viewer.role === Role.STUDENT || viewer.role === Role.STAROSTA) {
       if (viewer.groupId === gctx.groupId) return
       throw new AppException('WRONG_SCOPE', 'Доступна только своя группа')
@@ -1264,7 +1333,7 @@ export class SchedulesService {
   }
 
   private scheduleScopeWhere(viewer: JwtPayload, groupId?: string): Prisma.ScheduleWhereInput {
-    if (isPlatform(viewer.role)) {
+    if (isPlatformRole(viewer.role)) {
       return groupId ? { groupId } : {}
     }
     if (viewer.role === Role.STUDENT || viewer.role === Role.STAROSTA) {
@@ -1315,7 +1384,7 @@ export class SchedulesService {
     const where: Prisma.PairWhereInput = {}
     if (viewer.role === Role.DEAN) {
       where.group = { is: { facultyId: viewer.facultyId ?? '__none__' } }
-    } else if (!isPlatform(viewer.role)) {
+    } else if (!isPlatformRole(viewer.role)) {
       where.group = { is: { faculty: { is: { universityId: viewer.universityId ?? '__none__' } } } }
     }
     if (query.groupId) where.groupId = query.groupId

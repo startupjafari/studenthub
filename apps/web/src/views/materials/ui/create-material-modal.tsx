@@ -121,8 +121,12 @@ export function CreateMaterialModal({ onClose }: { onClose: () => void }) {
                 </Select>
               )}
             />
+            {/* Преподавателю сервер примет материал без дисциплины, только если у него есть
+                пары в этой группе (C-F27) — подсказка говорит об этом заранее. */}
             {groupId && !courses.isLoading && subjects.length === 0 && (
-              <p className="text-xs text-muted-foreground">{t('noSubjectsHint')}</p>
+              <p className="text-xs text-muted-foreground">
+                {t(role === Role.TEACHER ? 'noSubjectsHintTeacher' : 'noSubjectsHint')}
+              </p>
             )}
           </div>
         </div>

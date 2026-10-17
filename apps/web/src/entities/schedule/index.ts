@@ -8,7 +8,6 @@ export {
   fetchScheduleContainer,
   createScheduleRequest,
   updateScheduleRequest,
-  deleteScheduleRequest,
   createPairRequest,
   updatePairRequest,
   deletePairRequest,

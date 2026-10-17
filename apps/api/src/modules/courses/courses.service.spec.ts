@@ -1,5 +1,10 @@
 import { Role } from '@studenthub/shared-types'
 import { Prisma } from '@prisma/client'
+import {
+  AssignmentListQuerySchema,
+  CourseListQuerySchema,
+  ExamListQuerySchema,
+} from '@studenthub/shared-schemas'
 import { CoursesService } from './courses.service'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { AuditService } from '../../common/audit/audit.service'
@@ -285,5 +290,56 @@ describe('CoursesService — дубли дисциплины без семест
     const err = await env.service.deleteTerm(admin, 'tm-1', ctx).catch((e) => e)
     expect(err.code).toBe('CONFLICT')
     expect(term.delete).not.toHaveBeenCalled()
+  })
+})
+
+// C-F25: курсы одной дисциплины в разных семестрах совпадают по названию и группе — без
+// последнего ключа их порядок (и «какой курс у карточки») менялся от запроса к запросу.
+describe('CoursesService.listCourses — устойчивый порядок', () => {
+  function listSetup() {
+    const env = setup()
+    const findMany = jest.fn().mockResolvedValue([])
+    const count = jest.fn().mockResolvedValue(0)
+    Object.assign(env.prisma.course, { findMany, count })
+    env.prisma.$transaction.mockImplementation(async (arg: unknown) =>
+      Array.isArray(arg) ? Promise.all(arg) : arg,
+    )
+    return { ...env, findMany }
+  }
+
+  it('по умолчанию — по названию, затем по id', async () => {
+    const { service, findMany } = listSetup()
+    await service.listCourses(admin, { page: 1, limit: 20 } as never)
+    expect(findMany.mock.calls[0][0].orderBy).toEqual([{ subject: { name: 'asc' } }, { id: 'asc' }])
+  })
+
+  it('по колонке — id замыкает и её', async () => {
+    const { service, findMany } = listSetup()
+    await service.listCourses(admin, { page: 1, limit: 20, sort: 'term', order: 'desc' } as never)
+    expect(findMany.mock.calls[0][0].orderBy).toEqual([
+      { term: { startsOn: 'desc' } },
+      { subject: { name: 'asc' } },
+      { id: 'asc' },
+    ])
+  })
+})
+
+// C-F30: `z.coerce.boolean()` читал `?mine=false` как true — декан в форме экзамена видел
+// только дисциплины, которые ведёт сам.
+describe('?mine= в списках дисциплин, заданий и экзаменов', () => {
+  it.each([
+    ['true', true],
+    ['1', true],
+    ['false', false],
+    ['0', false],
+    ['', false],
+  ])('mine=%p → %p', (raw, expected) => {
+    expect(CourseListQuerySchema.parse({ mine: raw }).mine).toBe(expected)
+    expect(AssignmentListQuerySchema.parse({ mine: raw }).mine).toBe(expected)
+    expect(ExamListQuerySchema.parse({ mine: raw }).mine).toBe(expected)
+  })
+
+  it('без параметра — undefined', () => {
+    expect(CourseListQuerySchema.parse({}).mine).toBeUndefined()
   })
 })

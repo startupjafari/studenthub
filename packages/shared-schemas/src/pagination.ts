@@ -14,6 +14,16 @@ export type OffsetPaginationInput = z.infer<typeof OffsetPaginationSchema>
 export const ADMIN_PAGE_SIZES = [20, 100, 150, 200] as const
 export const AdminLimitSchema = z.coerce.number().int().positive().max(200).default(20)
 
+// Флаг из query-строки у уже выпущенных параметров (`mine` у дисциплин, заданий, экзаменов).
+// `z.coerce.boolean()` превращал любую непустую строку в true, и `?mine=false` (так axios
+// отправляет `mine: false` формы декана) отдавал только «свои» записи. Теперь "false", "0" и
+// пустая строка — false; прочее, как и раньше, — true: запросы выпущенных клиентов не ломаются.
+const FALSE_QUERY_VALUES = new Set(['', 'false', '0'])
+export const queryBoolean = z.preprocess(
+  (v) => (typeof v === 'string' ? !FALSE_QUERY_VALUES.has(v.trim().toLowerCase()) : v),
+  z.coerce.boolean(),
+)
+
 // Направление сортировки для админских таблиц. Само поле сортировки — enum у каждого
 // списка отдельно: сортировать можно только по колонкам, которые таблица показывает,
 // произвольное имя поля в orderBy пускать нельзя.

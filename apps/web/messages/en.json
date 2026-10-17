@@ -2660,7 +2660,8 @@
     "open": "Open",
     "noFiles": "No files",
     "noSubject": "No subject",
-    "noSubjectsHint": "This group has none of your subjects — students will find the material under Other materials."
+    "noSubjectsHint": "This group has none of your subjects — students will find the material under Other materials.",
+    "noSubjectsHintTeacher": "This group has none of your subjects. You can post here only if you have classes with this group — students will then find the material under Other materials."
   },
   "SetupTwoFactor": {
     "title": "Set up two-factor authentication",

@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import {
@@ -43,7 +43,7 @@ import {
 } from '../../../entities/assignment'
 import { gradebookKeys, fetchMyGrades } from '../../../entities/gradebook'
 import { attendanceKeys, fetchMyAttendance } from '../../../entities/attendance'
-import { buildCourses, mergeApiCourses } from '../lib/build-courses'
+import { buildCourses, mergeApiCourses, pickCourse } from '../lib/build-courses'
 import { MaterialRow } from './material-row'
 
 // Статус задания глазами студента → вариант бейджа + i18n-ключ (namespace Assignments.status).
@@ -119,6 +119,9 @@ export function CourseView({ subject }: CourseViewProps) {
   const locale = useLocale()
   const router = useRouter()
   const groupId = useAppSelector((s) => s.auth.groupId)
+  // Курс конкретного семестра из ссылки карточки: у «Математики» 1-го и 2-го семестров
+  // название одно, и по одному названию страница брала случайный из них (C-F25).
+  const courseParam = useSearchParams().get('course')
   const [tab, setTab] = useState<TabId>('overview')
 
   const schedule = useQuery({ queryKey: scheduleKeys.view({}), queryFn: () => fetchSchedule({}) })
@@ -139,8 +142,8 @@ export function CourseView({ subject }: CourseViewProps) {
     const now = nowInTz(schedule.data.timezone ?? null)
     const counts = [{ subject, count: materials.data?.length ?? 0 }]
     const base = buildCourses(schedule.data.pairs, counts, now)
-    return mergeApiCourses(base, apiCourses.data ?? []).find((c) => c.subject === subject)
-  }, [schedule.data, materials.data, apiCourses.data, subject])
+    return pickCourse(mergeApiCourses(base, apiCourses.data ?? []), subject, courseParam)
+  }, [schedule.data, materials.data, apiCourses.data, subject, courseParam])
 
   const subjectMaterials = useMemo(() => materials.data ?? [], [materials.data])
 
@@ -155,12 +158,16 @@ export function CourseView({ subject }: CourseViewProps) {
     retry: false,
   })
 
-  const gradesCourse = useMemo(
-    () => (myGrades.data ?? []).find((c) => c.subject.name === subject) ?? null,
-    [myGrades.data, subject],
-  )
+  // Оценки — по id курса, когда он известен: по названию подтягивался журнал курса той же
+  // дисциплины из другого семестра. Без курса (только расписание) — по названию, как раньше.
+  const summaryCourseId = summary?.courseId ?? null
+  const gradesCourse = useMemo(() => {
+    const list = myGrades.data ?? []
+    if (summaryCourseId) return list.find((c) => c.courseId === summaryCourseId) ?? null
+    return list.find((c) => c.subject.name === subject) ?? null
+  }, [myGrades.data, subject, summaryCourseId])
   // id курса из backend-домена (когда миграция применена): из обзора или из «моих оценок».
-  const courseId = summary?.courseId ?? gradesCourse?.courseId ?? null
+  const courseId = summaryCourseId ?? gradesCourse?.courseId ?? null
 
   const assignments = useQuery({
     queryKey: assignmentKeys.list({ courseId: courseId ?? undefined }),
@@ -169,12 +176,17 @@ export function CourseView({ subject }: CourseViewProps) {
     retry: false,
   })
 
+  // Пары расписания достаются только основному курсу дисциплины (см. mergeApiCourses):
+  // у курса прошлого семестра с тем же названием занятий в текущей сетке нет.
+  const hasLessons = !summary || summary.lessonsPerWeek > 0
   const subjectPairs = useMemo(
     () =>
-      (schedule.data?.pairs ?? [])
-        .filter((p) => p.subject === subject)
-        .sort((a, b) => a.dayOfWeek - b.dayOfWeek || a.startTime.localeCompare(b.startTime)),
-    [schedule.data?.pairs, subject],
+      hasLessons
+        ? (schedule.data?.pairs ?? [])
+            .filter((p) => p.subject === subject)
+            .sort((a, b) => a.dayOfWeek - b.dayOfWeek || a.startTime.localeCompare(b.startTime))
+        : [],
+    [schedule.data?.pairs, subject, hasLessons],
   )
 
   // Отметки — последние занятия этой дисциплины; счётчики и процент — серверные, по той

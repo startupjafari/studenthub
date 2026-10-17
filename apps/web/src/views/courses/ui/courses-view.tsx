@@ -18,7 +18,13 @@ import { nowInTz } from '../../../shared/lib'
 import { scheduleKeys, fetchSchedule } from '../../../entities/schedule'
 import { materialKeys, fetchMaterials, fetchMaterialSubjects } from '../../../entities/material'
 import { courseKeys, fetchCourses } from '../../../entities/course'
-import { buildCourses, mergeApiCourses, type CourseNextLesson } from '../lib/build-courses'
+import {
+  buildCourses,
+  courseHref,
+  courseKey,
+  mergeApiCourses,
+  type CourseNextLesson,
+} from '../lib/build-courses'
 import { MaterialRow } from './material-row'
 
 // «Дисциплины» студента — единое пространство каждого предмета (задача 2).
@@ -79,7 +85,7 @@ export function CoursesView() {
       ) : (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           {courses.map((c) => (
-            <Link key={c.subject} href={`/courses/${encodeURIComponent(c.subject)}`}>
+            <Link key={courseKey(c)} href={courseHref(c)}>
               <Card className="h-full transition-colors hover:bg-muted/40">
                 <CardContent className="flex h-full flex-col gap-3 p-4">
                   <div className="flex items-start gap-3">

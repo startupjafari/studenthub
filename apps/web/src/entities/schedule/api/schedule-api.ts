@@ -78,10 +78,6 @@ export async function updateScheduleRequest(
   return data
 }
 
-export async function deleteScheduleRequest(id: string): Promise<void> {
-  await api.delete(`/schedules/${id}`)
-}
-
 // ── Пары (6.4) ─────────────────────────────────────────────────────────────
 
 export async function createPairRequest(input: CreatePairInput): Promise<Pair> {
