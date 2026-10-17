@@ -34,6 +34,7 @@ function setup() {
       findUnique: jest.fn(),
       update: jest.fn(),
       delete: jest.fn(),
+      count: jest.fn().mockResolvedValue(0),
     },
     album: {
       create: jest.fn(),
@@ -43,7 +44,12 @@ function setup() {
       updateMany: jest.fn(),
       delete: jest.fn(),
     },
-    file: { findFirst: jest.fn(), updateMany: jest.fn(), findMany: jest.fn() },
+    file: {
+      findFirst: jest.fn(),
+      updateMany: jest.fn(),
+      findMany: jest.fn(),
+      count: jest.fn().mockResolvedValue(0),
+    },
     bookmark: {
       findMany: jest.fn().mockResolvedValue([]),
       findUnique: jest.fn(),
@@ -105,6 +111,8 @@ function setup() {
     ]),
   }
   const redis = { multi: jest.fn(() => redisMulti) }
+  // Число опросов — у модуля опросов (countVisibleByUser), здесь только итог.
+  const polls = { countVisibleByUser: jest.fn().mockResolvedValue(0) }
   const service = new ProfileContentService(
     prisma as unknown as PrismaService,
     files as unknown as FileService,
@@ -114,8 +122,9 @@ function setup() {
     audit as unknown as AuditService,
     queue as unknown as QueueService,
     redis as never,
+    polls as never,
   )
-  return { service, prisma, files, users, media, audit, queue, redisMulti }
+  return { service, prisma, files, users, media, audit, queue, redisMulti, polls }
 }
 
 // Владелец контента — поля PROFILE_CONTENT_OWNER_SELECT.
@@ -837,5 +846,67 @@ describe('ProfileContentService — комментарии статьи: стр�
       .mockResolvedValueOnce({ allowComments: true, userId: 'reader' })
     await service.addArticleComment(reader, 'a1', { content: 'x' })
     expect(queue.enqueue).not.toHaveBeenCalled()
+  })
+})
+
+describe('ProfileContentService — итоги вкладок профиля (E-F25)', () => {
+  const author = {
+    id: 'author',
+    role: Role.STUDENT,
+    profileVisibility: 'PUBLIC',
+    universityId: 'u',
+    facultyId: 'f',
+    groupId: 'g',
+    deletedAt: null,
+  }
+
+  it('считает без потолка списков: фото = медиа минус видео, статьи по видимости', async () => {
+    const { service, prisma, polls } = setup()
+    prisma.user.findUnique.mockResolvedValue(author)
+    prisma.file.count.mockImplementation(async (args: { where: { mime?: unknown } }) =>
+      args.where.mime ? 120 : 1000,
+    )
+    prisma.profileArticle.count.mockResolvedValue(150)
+    polls.countVisibleByUser.mockResolvedValue(130)
+
+    const res = await service.counts(user('viewer'), 'author')
+
+    expect(res).toEqual({ photos: 880, videos: 120, articles: 150, polls: 130 })
+    expect(prisma.file.count).toHaveBeenCalledWith({
+      where: { ownerId: 'author', bucket: 'profile-media', mime: { startsWith: 'video/' } },
+    })
+    // Чужие статьи — только опубликованные и в доступной смотрящему области.
+    const articleWhere = prisma.profileArticle.count.mock.calls[0][0].where
+    expect(articleWhere).toMatchObject({ userId: 'author', status: 'PUBLISHED' })
+    expect(polls.countVisibleByUser).toHaveBeenCalledWith(
+      expect.objectContaining({ sub: 'viewer' }),
+      author,
+    )
+  })
+
+  it('закрытый для смотрящего профиль — нули, ничего не считается', async () => {
+    const { service, prisma, users, polls } = setup()
+    prisma.user.findUnique.mockResolvedValue(author)
+    users.canViewProfileContentOf.mockResolvedValue(false)
+
+    await expect(service.counts(user('viewer'), 'author')).resolves.toEqual({
+      photos: 0,
+      videos: 0,
+      articles: 0,
+      polls: 0,
+    })
+    expect(prisma.file.count).not.toHaveBeenCalled()
+    expect(polls.countVisibleByUser).not.toHaveBeenCalled()
+  })
+
+  it('нет пользователя — нули', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findUnique.mockResolvedValue(null)
+    await expect(service.counts(user('viewer'), 'nope')).resolves.toEqual({
+      photos: 0,
+      videos: 0,
+      articles: 0,
+      polls: 0,
+    })
   })
 })

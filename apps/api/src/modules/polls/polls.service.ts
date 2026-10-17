@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
 import {
   DEFAULT_PAGE_LIMIT,
+  PROFILE_LIST_LIMITS,
   isPageRequested,
   type CommentsQueryInput,
   type ContentCommentInput,
@@ -35,9 +36,9 @@ import {
 // Потолки на выборки (BACKEND_RULES §7.2). Голоса одного пользователя ограничены числом
 // вариантов опроса, поэтому здесь потолок — честная граница, а не обрезка данных.
 const POLL_OPTIONS_LIMIT = 100
-// Опросы автора без пагинации (прежний ответ массивом) — тот же потолок, что у статей
-// профиля (listArticles): вкладки «Статьи» и «Опросы» показывают число по длине ответа.
-const POLLS_LEGACY_LIMIT = 100
+// Опросы автора без пагинации (прежний ответ массивом) — общий потолок списков профиля:
+// дойдя до него, бейдж вкладки берёт итог из countVisibleByUser (GET /profile/:id/counts).
+const POLLS_LEGACY_LIMIT = PROFILE_LIST_LIMITS.polls
 // Комментарии без пагинации (прежний ответ массивом) — последние столько, по порядку написания.
 const COMMENTS_LEGACY_LIMIT = 200
 
@@ -224,6 +225,19 @@ export class PollsService {
       cursor: hasNext && last ? encodeKeyset(last) : undefined,
       hasNext,
     })
+  }
+
+  /**
+   * Сколько опросов автора видит смотрящий — итог для бейджа вкладки, по тому же условию,
+   * что listByUser. Видимость профиля автора (закрытый, удалённый) проверяет вызывающий:
+   * счётчики вкладок считаются пачкой, и автор у него уже выбран.
+   */
+  async countVisibleByUser(viewer: JwtPayload, author: ProfileContentOwner): Promise<number> {
+    const where: Prisma.PollWhereInput =
+      viewer.sub === author.id
+        ? { userId: author.id }
+        : { userId: author.id, ...this.viewerVisibilityWhere(viewer, author) }
+    return this.prisma.poll.count({ where })
   }
 
   async get(viewer: JwtPayload, id: string): Promise<PollView> {

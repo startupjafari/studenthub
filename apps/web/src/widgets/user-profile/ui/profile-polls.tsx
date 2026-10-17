@@ -10,6 +10,7 @@ import { PollCard } from './poll-card'
 import { PollCreateModal } from './poll-create-modal'
 import { ContentLayout, FilterGroup, FilterOption, FilterSkeleton } from './filter-sidebar'
 import { useRetryOnError } from './use-retry-on-error'
+import { LoadFailed } from './load-failed'
 import { useProgressive } from './use-progressive'
 import type { ContentModeration } from '../lib/content-moderation'
 
@@ -37,8 +38,8 @@ export function ProfilePolls({ userId, isOwner, moderation, openCreate, onConsum
   }, [openCreate])
 
   const q = useQuery({ queryKey: pollKeys.byUser(userId), queryFn: () => fetchPollsByUser(userId) })
-  // При ошибке — держим скелетон, тост каждые 5 сек и повтор запроса.
-  useRetryOnError(q.isError, q.refetch, t('loadRetry'))
+  // Ошибка — один тост и повторы с растущей паузой; не помогло — ошибка на месте вкладки.
+  const loadState = useRetryOnError(q, t('loadRetry'))
   const polls = q.data ?? []
   const visible = useMemo(() => {
     const match = (p: PollView) => {
@@ -66,7 +67,15 @@ export function ProfilePolls({ userId, isOwner, moderation, openCreate, onConsum
 
   const modal = creating && <PollCreateModal userId={userId} onClose={() => setCreating(false)} />
 
-  if (q.isLoading || q.isError) {
+  if (!q.data && loadState.failed) {
+    return (
+      <>
+        {modal}
+        <LoadFailed onRetry={loadState.retry} busy={q.isFetching} />
+      </>
+    )
+  }
+  if (!q.data) {
     return (
       <>
         {modal}

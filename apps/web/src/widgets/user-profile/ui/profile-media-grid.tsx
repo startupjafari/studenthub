@@ -40,6 +40,7 @@ import { MediaLightbox } from './media-lightbox'
 import { PhotoAlbumMenu, type AlbumFilter } from './album-controls'
 import { ContentLayout, FilterGroup, FilterOption, FilterSkeleton } from './filter-sidebar'
 import { useRetryOnError } from './use-retry-on-error'
+import { LoadFailed } from './load-failed'
 import { useProgressive } from './use-progressive'
 import type { ContentModeration } from '../lib/content-moderation'
 
@@ -97,8 +98,8 @@ export function ProfileMediaGrid({
     queryKey: profileContentKeys.media(userId),
     queryFn: () => fetchProfileMedia(userId),
   })
-  // При ошибке — держим скелетон, тост каждые 5 сек и повтор запроса.
-  useRetryOnError(q.isError, q.refetch, t('loadRetry'))
+  // Ошибка — один тост и повторы с растущей паузой; не помогло — ошибка на месте вкладки.
+  const loadState = useRetryOnError(q, t('loadRetry'))
   const isPhoto = kind === 'PHOTO'
   const albumsQ = useQuery({
     queryKey: profileContentKeys.albums(userId),
@@ -273,7 +274,9 @@ export function ProfileMediaGrid({
         />
       )}
 
-      {q.isLoading || q.isError ? (
+      {!q.data && loadState.failed ? (
+        <LoadFailed onRetry={loadState.retry} busy={q.isFetching} />
+      ) : !q.data ? (
         <ContentLayout sidebar={<FilterSkeleton groups={isPhoto ? 2 : 1} />}>
           <MosaicGrid aria-hidden>
             {Array.from({ length: 14 }).map((_, i) => (

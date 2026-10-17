@@ -386,6 +386,7 @@ describe('PollsService — список опросов автора (E-F17)', ()
       poll: {
         findMany: jest.fn().mockResolvedValue(rows),
         findUnique: jest.fn().mockResolvedValue({ createdAt: new Date(2000), id: 'b' }),
+        count: jest.fn().mockResolvedValue(0),
       },
     }
     const users = { canViewProfileContentOf: jest.fn().mockResolvedValue(true) }
@@ -476,6 +477,29 @@ describe('PollsService — список опросов автора (E-F17)', ()
     const res = await service.listByUser(voter, 'author', { limit: 10 })
     expect(res).toEqual(new Paginated([], { hasNext: false }))
     expect(prisma.poll.findMany).not.toHaveBeenCalled()
+  })
+
+  // Автор целиком, как его выбирает вызывающий (PROFILE_CONTENT_OWNER_SELECT).
+  const countAuthor = {
+    ...poll.user,
+    facultyId: 'f-1',
+    role: Role.STUDENT,
+    profileVisibility: 'PUBLIC',
+  }
+
+  it('итог для бейджа — тем же условием, что и список, без потолка (E-F25)', async () => {
+    const { service, prisma } = listSetup()
+    prisma.poll.count.mockResolvedValue(140)
+    await expect(service.countVisibleByUser(voter, countAuthor)).resolves.toBe(140)
+    expect(prisma.poll.count).toHaveBeenCalledWith({
+      where: { userId: 'author', status: 'PUBLISHED', visibility: { in: ['ALL', 'UNIVERSITY'] } },
+    })
+  })
+
+  it('автору итог — все его опросы, включая черновики', async () => {
+    const { service, prisma } = listSetup()
+    await service.countVisibleByUser({ ...voter, sub: 'author' }, countAuthor)
+    expect(prisma.poll.count).toHaveBeenCalledWith({ where: { userId: 'author' } })
   })
 })
 

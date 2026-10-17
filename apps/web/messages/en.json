@@ -572,6 +572,7 @@
     "includeContacts": "Show contacts on the public page",
     "includeContactsHint": "Off by default: the link can be forwarded anywhere.",
     "sourceHint": "Content comes from your career profile, portfolio and university-verified certificates. To change the resume, update your profile.",
+    "portfolioVisibilityHint": "The resume link and the employer card show only portfolio items visible to “Everyone”. “Only me” and “University” items aren't shown there — they appear only in the PDF you download yourself.",
     "sectionAbout": "About",
     "sectionEducation": "Education",
     "sectionSkills": "Skills",
@@ -1425,6 +1426,7 @@
     "coverHint": "Choose a cover",
     "coverFrame": "Frame at {s}s",
     "loadRetry": "Server error. Retrying…",
+    "loadFailed": "Couldn't load this section",
     "emoji": "Emoji",
     "noData": "No data"
   },
@@ -3139,7 +3141,6 @@
     "moreActions": "More actions",
     "quick": {
       "groupChat": "Group chat",
-      "events": "Events",
       "materials": "Materials"
     },
     "todaySchedule": "Today's schedule",

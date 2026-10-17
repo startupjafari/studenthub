@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { Check, Copy, Download, Globe, Lock } from 'lucide-react'
+import { Check, Copy, Download, EyeOff, Globe, Lock } from 'lucide-react'
 import {
   downloadResumePdf,
   fetchResumeSettings,
@@ -168,6 +168,12 @@ export function CareerResumeView() {
         )}
       </section>
 
+      {/* Видимость записей портфолио решает, что увидят по ссылке и работодатели: без
+          подсказки «Только я» и «Вуз» молча пропадали из резюме, и казалось, что оно сломано. */}
+      <p className="flex items-start gap-2 text-sm text-muted-foreground">
+        <EyeOff className="mt-0.5 size-4 shrink-0" aria-hidden />
+        <span>{t('portfolioVisibilityHint')}</span>
+      </p>
       <p className="text-sm text-muted-foreground">{t('sourceHint')}</p>
     </div>
   )

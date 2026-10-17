@@ -5425,6 +5425,7 @@
     },
     "/portfolio/user/{id}": {
       "get": {
+        "description": "Закрытый для смотрящего профиль — пустой список, как у фото и статей.",
         "operationId": "PortfolioController_ofUser",
         "parameters": [
           {
@@ -5437,8 +5438,8 @@
           }
         ],
         "responses": {
-          "200": {
-            "description": ""
+          "404": {
+            "description": "NOT_FOUND — нет пользователя или аккаунт удалён"
           }
         },
         "security": [
@@ -5467,8 +5468,8 @@
           }
         },
         "responses": {
-          "201": {
-            "description": ""
+          "400": {
+            "description": "BAD_REQUEST — достигнут потолок PORTFOLIO_MAX_ITEMS"
           }
         },
         "security": [
@@ -5477,6 +5478,37 @@
           }
         ],
         "summary": "Добавить запись портфолио",
+        "tags": [
+          "Портфолио"
+        ]
+      }
+    },
+    "/portfolio/order": {
+      "put": {
+        "description": "ids — свои записи в нужном порядке; не перечисленные встают следом в прежнем порядке. Ответ — портфолио целиком, как GET /portfolio/mine.",
+        "operationId": "PortfolioController_reorder",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReorderPortfolioDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "400": {
+            "description": "BAD_REQUEST — среди ids есть чужая запись"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Порядок записей портфолио",
         "tags": [
           "Портфолио"
         ]
@@ -9579,7 +9611,7 @@
         "parameters": [],
         "responses": {
           "200": {
-            "description": "Кольца авторов"
+            "description": "Кольца авторов (пусто, если сторисы выключены)"
           }
         },
         "security": [
@@ -13422,6 +13454,36 @@
         ]
       }
     },
+    "/profile/{userId}/counts": {
+      "get": {
+        "description": "Списки вкладок отдаются с потолком (PROFILE_LIST_LIMITS); здесь — настоящие итоги для бейджей. Закрытый для смотрящего профиль — нули.",
+        "operationId": "ProfileContentController_counts",
+        "parameters": [
+          {
+            "name": "userId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Итоги вкладок профиля: фото, видео, статьи, опросы (по видимости смотрящего)",
+        "tags": [
+          "Профиль — контент"
+        ]
+      }
+    },
     "/profile/media/{fileId}": {
       "delete": {
         "operationId": "ProfileContentController_deleteMedia",
@@ -15077,35 +15139,6 @@
         ]
       }
     },
-    "/me/activity": {
-      "get": {
-        "operationId": "MeController_activity",
-        "parameters": [
-          {
-            "name": "limit",
-            "required": true,
-            "in": "query",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Единая лента активности (заявки/документы/аудит) — свои события",
-        "tags": [
-          "Мой день (BFF)"
-        ]
-      }
-    },
     "/me/export": {
       "get": {
         "operationId": "DataExportController_exportMine",
@@ -16069,6 +16102,10 @@
         "properties": {}
       },
       "CreatePortfolioItemDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "ReorderPortfolioDto": {
         "type": "object",
         "properties": {}
       },

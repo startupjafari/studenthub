@@ -6,6 +6,7 @@ import type {
   AssignAlbumMediaInput,
   CreateAlbumInput,
   CreateProfileArticleInput,
+  ProfileContentCounts,
   UpdateAlbumInput,
   UpdateProfileArticleInput,
 } from '@studenthub/shared-schemas'
@@ -36,6 +37,8 @@ export const profileContentKeys = {
   // Статья целиком (с текстом) — для читалки и редактора; список несёт только плитки.
   article: (id: string) => ['profile-content', 'article', id] as const,
   albums: (userId: string) => ['profile-content', 'albums', userId] as const,
+  // Итоги вкладок (фото, видео, статьи, опросы) — когда список дошёл до потолка.
+  counts: (userId: string) => ['profile-content', 'counts', userId] as const,
 }
 
 // Поля описания медиа (заглушка, копии, постер, HLS) — от медиа-системы; у ответа старого
@@ -90,6 +93,13 @@ export type ProfileArticleCard = Omit<ProfileArticle, 'content'>
 
 export async function fetchProfileMedia(userId: string): Promise<ProfileMedia[]> {
   const { data } = await api.get<ProfileMedia[]>(`/profile/${userId}/media`)
+  return data
+}
+
+// Настоящие итоги вкладок профиля: списки медиа, статей и опросов приходят с потолком
+// (PROFILE_LIST_LIMITS), и их длина у большого профиля — не итог.
+export async function fetchProfileCounts(userId: string): Promise<ProfileContentCounts> {
+  const { data } = await api.get<ProfileContentCounts>(`/profile/${userId}/counts`)
   return data
 }
 

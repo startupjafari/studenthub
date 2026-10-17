@@ -1,8 +1,9 @@
 'use client'
 
 import { useEffect, useRef, type ReactNode } from 'react'
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useInfiniteQuery, useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
+import { PROFILE_LIST_LIMITS } from '@studenthub/shared-schemas'
 import {
   BarChart3,
   FileText,
@@ -13,16 +14,16 @@ import {
   Video,
   type LucideIcon,
 } from 'lucide-react'
-import { fetchAuthorPosts, postKeys } from '../../../entities/post'
 import {
   fetchProfileArticles,
+  fetchProfileCounts,
   fetchProfileMedia,
   profileContentKeys,
 } from '../../../entities/profile-content'
 import { fetchPollsByUser, pollKeys } from '../../../entities/poll'
 import { useScrollRow } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
-import { ProfilePosts } from './profile-posts'
+import { ProfilePosts, authorPostsQuery } from './profile-posts'
 import { ProfileMediaGrid } from './profile-media-grid'
 import { ProfileArticles } from './profile-articles'
 import { ProfilePolls } from './profile-polls'
@@ -73,12 +74,8 @@ export function ProfileTabs({
 
   // Счётчики для бейджей на табах. Ключи совпадают с ключами вкладок-контента,
   // поэтому запросы шарят кэш с ProfilePosts/MediaGrid/Articles/Polls (без двойной загрузки).
-  const postsQ = useInfiniteQuery({
-    queryKey: postKeys.author(userId),
-    queryFn: ({ pageParam }) => fetchAuthorPosts(userId, { limit: 20, cursor: pageParam }),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (last) => (last.hasNext ? last.cursor : undefined),
-  })
+  // Посты — вид вкладки по умолчанию: его `total` — все видимые посты автора.
+  const postsQ = useInfiniteQuery(authorPostsQuery(userId))
   const mediaQ = useQuery({
     queryKey: profileContentKeys.media(userId),
     queryFn: () => fetchProfileMedia(userId),
@@ -92,13 +89,62 @@ export function ProfileTabs({
     queryFn: () => fetchPollsByUser(userId),
   })
 
+  // Медиа, статьи и опросы приходят списком с потолком: пока список короче потолка, его
+  // длина и есть итог; дошёл до потолка — итог берётся с сервера (иначе бейдж показал бы
+  // 300 фото у автора с тысячей). Обычному профилю лишний запрос не нужен.
   const media = mediaQ.data
+  const capped =
+    (media?.length ?? 0) >= PROFILE_LIST_LIMITS.media ||
+    (articlesQ.data?.length ?? 0) >= PROFILE_LIST_LIMITS.articles ||
+    (pollsQ.data?.length ?? 0) >= PROFILE_LIST_LIMITS.polls
+  const totalsQ = useQuery({
+    // Версия списков в ключе: загрузка, удаление и новая запись меняют список — итоги
+    // перечитываются вместе с ним, а прежние держатся на бейдже до ответа.
+    queryKey: [
+      ...profileContentKeys.counts(userId),
+      mediaQ.dataUpdatedAt,
+      articlesQ.dataUpdatedAt,
+      pollsQ.dataUpdatedAt,
+    ],
+    queryFn: () => fetchProfileCounts(userId),
+    enabled: capped,
+    placeholderData: keepPreviousData,
+  })
+  const totals = totalsQ.data
+  // Число из списка, если он не упёрся в потолок, иначе — итог с сервера (пока его нет,
+  // бейдж не показываем: число с потолком выдавало бы себя за итог).
+  const badge = (
+    listed: number | undefined,
+    length: number | undefined,
+    cap: number,
+    total?: number,
+  ) => (length === undefined ? undefined : length < cap ? listed : total)
   const counts: Partial<Record<ProfileTabId, number>> = {
     posts: postsQ.data?.pages[0]?.total,
-    photos: media ? media.filter((m) => m.type === 'PHOTO').length : undefined,
-    videos: media ? media.filter((m) => m.type === 'VIDEO').length : undefined,
-    articles: articlesQ.data?.length,
-    polls: pollsQ.data?.length,
+    photos: badge(
+      media?.filter((m) => m.type === 'PHOTO').length,
+      media?.length,
+      PROFILE_LIST_LIMITS.media,
+      totals?.photos,
+    ),
+    videos: badge(
+      media?.filter((m) => m.type === 'VIDEO').length,
+      media?.length,
+      PROFILE_LIST_LIMITS.media,
+      totals?.videos,
+    ),
+    articles: badge(
+      articlesQ.data?.length,
+      articlesQ.data?.length,
+      PROFILE_LIST_LIMITS.articles,
+      totals?.articles,
+    ),
+    polls: badge(
+      pollsQ.data?.length,
+      pollsQ.data?.length,
+      PROFILE_LIST_LIMITS.polls,
+      totals?.polls,
+    ),
   }
 
   const tabs: { id: ProfileTabId; label: string; icon: LucideIcon }[] = [

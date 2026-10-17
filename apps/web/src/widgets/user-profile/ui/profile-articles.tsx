@@ -52,6 +52,7 @@ import { ContentModal } from './content-modal'
 import { ContentComments } from './content-comments'
 import { ContentLayout, FilterGroup, FilterOption, FilterSkeleton } from './filter-sidebar'
 import { useRetryOnError } from './use-retry-on-error'
+import { LoadFailed } from './load-failed'
 import { useProgressive } from './use-progressive'
 import type { ContentModeration } from '../lib/content-moderation'
 
@@ -88,8 +89,8 @@ export function ProfileArticles({ userId, isOwner, moderation, openCreate, onCon
     queryKey: profileContentKeys.articles(userId),
     queryFn: () => fetchProfileArticles(userId),
   })
-  // При ошибке — держим скелетон, тост каждые 5 сек и повтор запроса.
-  useRetryOnError(q.isError, q.refetch, t('loadRetry'))
+  // Ошибка — один тост и повторы с растущей паузой; не помогло — ошибка на месте вкладки.
+  const loadState = useRetryOnError(q, t('loadRetry'))
 
   const delMut = useMutation({
     mutationFn: deleteProfileArticle,
@@ -146,7 +147,15 @@ export function ProfileArticles({ userId, isOwner, moderation, openCreate, onCon
     </>
   )
 
-  if (q.isLoading || q.isError) {
+  if (!q.data && loadState.failed) {
+    return (
+      <>
+        {modals}
+        <LoadFailed onRetry={loadState.retry} busy={q.isFetching} />
+      </>
+    )
+  }
+  if (!q.data) {
     return (
       <>
         {modals}

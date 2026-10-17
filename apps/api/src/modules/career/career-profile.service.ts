@@ -42,20 +42,21 @@ export class CareerProfileService {
     const source = await this.loadSource(viewer.sub, 'owner')
     const profile = source.careerProfile
 
-    const readiness = careerReadiness({
-      hasEducation: Boolean(source.specialty && source.course),
-      skillsCount: source.skills.length,
-      portfolioCount: source.portfolioItems.length,
-      hasPreferences: (profile?.desiredPositions.length ?? 0) > 0,
-      aboutLength: profile?.about?.length ?? 0,
-    })
+    // Владелец видит готовность по всему своему портфолио, включая приватные записи.
+    const readiness = this.readinessOf(source, source.portfolioItems.length)
+    // В кэш (его читают другие: отчёт карьерного центра вуза) — без PRIVATE: запись «только
+    // для меня» не должна поднимать оценку, которую видит кто-то, кроме владельца.
+    const shared = this.readinessOf(
+      source,
+      source.portfolioItems.filter((item) => item.visibility !== 'PRIVATE').length,
+    )
 
     // Кэш готовности освежаем при чтении своего профиля: это единственный экран, где
-    // значение и так пересчитывается, а списки кандидатов потом читают готовое число.
-    if (profile && profile.readinessScore !== readiness.score) {
+    // значение и так пересчитывается, а отчёты потом читают готовое число.
+    if (profile && profile.readinessScore !== shared.score) {
       await this.prisma.careerProfile.update({
         where: { userId: viewer.sub },
-        data: { readinessScore: readiness.score, readinessAt: new Date() },
+        data: { readinessScore: shared.score, readinessAt: new Date() },
       })
     }
 
@@ -212,7 +213,10 @@ export class CareerProfileService {
       employmentTypes: source.careerProfile.employmentTypes,
       workFormats: source.careerProfile.workFormats,
       relocationReady: source.careerProfile.relocationReady,
-      readinessScore: source.careerProfile.readinessScore,
+      // Готовность — по тому, что работодатель видит сам: портфолио здесь уже только PUBLIC.
+      // Кэш в профиле для этого не годится: он считает и записи «для вуза» и устаревает,
+      // пока студент не откроет свой профиль.
+      readinessScore: this.readinessOf(source, source.portfolioItems.length).score,
 
       // Портфолио: самозаявленное студентом. Подтверждённые вузом сертификаты приходят
       // ниже отдельным списком с флагом — разница между ними и есть ценность платформы.
@@ -244,6 +248,25 @@ export class CareerProfileService {
   }
 
   // ── Служебное ──────────────────────────────────────────────────────────────
+
+  /** Оценка готовности по профилю; `portfolioCount` — сколько записей видит тот, кому она. */
+  private readinessOf(
+    source: {
+      specialty: string | null
+      course: number | null
+      skills: string[]
+      careerProfile: { desiredPositions: string[]; about: string | null } | null
+    },
+    portfolioCount: number,
+  ) {
+    return careerReadiness({
+      hasEducation: Boolean(source.specialty && source.course),
+      skillsCount: source.skills.length,
+      portfolioCount,
+      hasPreferences: (source.careerProfile?.desiredPositions.length ?? 0) > 0,
+      aboutLength: source.careerProfile?.about?.length ?? 0,
+    })
+  }
 
   /**
    * Активные согласия студента, применимые к этой компании: выданные всем работодателям
@@ -300,6 +323,8 @@ export class CareerProfileService {
               url: true,
               startDate: true,
               endDate: true,
+              // Для оценки готовности без PRIVATE; в карточку работодателя не уходит.
+              visibility: true,
             },
             orderBy: PORTFOLIO_ITEM_ORDER,
             take: 50,

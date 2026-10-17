@@ -939,6 +939,93 @@ describe('PostsService — черновики и отложенная публи
   })
 })
 
+// ── Вкладка «Посты» профиля: порядок и фильтр на сервере (E-F25) ───────────────
+describe('PostsService.feed — сортировка и статус вкладки профиля', () => {
+  const me = () => viewer(Role.STUDENT, { sub: 's1', groupId: 'grp-1' })
+
+  it('без sort — прежний порядок ленты (закреплённые → приоритет → время)', async () => {
+    const { service, prisma } = setup()
+    await service.feed(me(), { limit: 20, authorId: 's1' })
+    expect(prisma.post.findMany.mock.calls[0][0].orderBy).toEqual([
+      { pinnedAt: { sort: 'desc', nulls: 'last' } },
+      { priority: 'desc' },
+      { createdAt: 'desc' },
+      { id: 'desc' },
+    ])
+  })
+
+  it('sort=new — закреплённые и дальше по времени, без приоритета аудитории', async () => {
+    const { service, prisma } = setup()
+    await service.feed(me(), { limit: 20, authorId: 's1', sort: 'new', cursor: 'p10' })
+    const arg = prisma.post.findMany.mock.calls[0][0]
+    expect(arg.orderBy).toEqual([
+      { pinnedAt: { sort: 'desc', nulls: 'last' } },
+      { createdAt: 'desc' },
+      { id: 'desc' },
+    ])
+    // Курсор по id, как у ленты.
+    expect(arg.cursor).toEqual({ id: 'p10' })
+  })
+
+  it('sort без authorId не действует — общая лента в своём порядке', async () => {
+    const { service, prisma } = setup()
+    await service.feed(me(), { limit: 20, sort: 'new' })
+    expect(prisma.post.findMany.mock.calls[0][0].orderBy).toContainEqual({ priority: 'desc' })
+  })
+
+  it('sort=popular — по реакциям, затем комментариям; курсор — смещение', async () => {
+    const { service, prisma } = setup()
+    prisma.post.findMany.mockResolvedValue(
+      Array.from({ length: 3 }, (_, i) => postRow({ id: `p${i}` })),
+    )
+    prisma.post.count.mockResolvedValue(7)
+    const res = await service.feed(me(), {
+      limit: 2,
+      authorId: 's1',
+      sort: 'popular',
+      cursor: '4',
+    })
+    const arg = prisma.post.findMany.mock.calls[0][0]
+    expect(arg.orderBy).toEqual([
+      { pinnedAt: { sort: 'desc', nulls: 'last' } },
+      { reactions: { _count: 'desc' } },
+      { comments: { _count: 'desc' } },
+      { createdAt: 'desc' },
+      { id: 'desc' },
+    ])
+    expect(arg.skip).toBe(4)
+    expect(arg.take).toBe(3)
+    expect(arg.cursor).toBeUndefined()
+    expect(res.items).toHaveLength(2)
+    expect(res.meta).toMatchObject({ hasNext: true, cursor: '6', total: 7 })
+  })
+
+  it('sort=popular с курсором не-числом — BAD_REQUEST', async () => {
+    const { service } = setup()
+    await expect(
+      service.feed(me(), { limit: 20, authorId: 's1', sort: 'popular', cursor: 'p10' }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+  })
+
+  it('status сужает свою вкладку поверх видимости', async () => {
+    const { service, prisma } = setup()
+    await service.feed(me(), { limit: 20, authorId: 's1', status: 'DRAFT' })
+    const where = prisma.post.findMany.mock.calls[0][0].where
+    expect(where.AND[0]).toEqual({ authorId: 's1' })
+    expect(where.AND[1].AND).toContainEqual({ status: 'DRAFT' })
+    // Счётчик — по тому же условию: бейдж фильтра совпадает с выдачей.
+    expect(prisma.post.count).toHaveBeenCalledWith({ where })
+  })
+
+  it('в чужом профиле status=DRAFT не открывает черновики: PUBLISHED остаётся в условии', async () => {
+    const { service, prisma } = setup()
+    await service.feed(me(), { limit: 20, authorId: 'other', status: 'DRAFT' })
+    const base = prisma.post.findMany.mock.calls[0][0].where.AND[1]
+    expect(base.AND).toContainEqual({ status: 'PUBLISHED' })
+    expect(base.AND).toContainEqual({ status: 'DRAFT' })
+  })
+})
+
 describe('PostsService.update — правка только своей публикации', () => {
   it('чужой пост → FORBIDDEN, даже у модератора', async () => {
     const { service, prisma } = setup()

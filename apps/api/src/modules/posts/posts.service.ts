@@ -541,20 +541,27 @@ export class PostsService {
     const where = moderation
       ? this.moderationFeedWhere(viewer, query)
       : this.feedWhere(viewer, query)
+    // Сортировка вкладки «Посты» профиля — только вместе с authorId (см. FeedQuerySchema).
+    const sort = query.authorId && !moderation ? query.sort : undefined
+    if (sort === 'popular') return this.popularAuthorFeed(viewer, query, where)
     const rows: FeedRow[] = await this.prisma.post.findMany({
       where,
       // Построчные реакции — только клиентам, которые их читают (см. POST_SELECT_BASE).
       select: query.reactions === 'summary' ? POST_SELECT_CORE : POST_SELECT_BASE,
       // Закреплённые сверху, затем по приоритету и времени; id — стабильный tiebreaker для cursor.
-      // Модерации нужен поток свежего, а не порядок чтения: там просто новые сверху.
+      // Модерации нужен поток свежего, а не порядок чтения: там просто новые сверху. Профиль
+      // с sort=new — закреплённые и дальше по времени, без приоритета аудитории: иначе свежий
+      // пост «для группы» автора-админа оказывался бы ниже его старых постов «для вуза».
       orderBy: moderation
         ? [{ createdAt: 'desc' }, { id: 'desc' }]
-        : [
-            { pinnedAt: { sort: 'desc', nulls: 'last' } },
-            { priority: 'desc' },
-            { createdAt: 'desc' },
-            { id: 'desc' },
-          ],
+        : sort === 'new'
+          ? [{ pinnedAt: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }, { id: 'desc' }]
+          : [
+              { pinnedAt: { sort: 'desc', nulls: 'last' } },
+              { priority: 'desc' },
+              { createdAt: 'desc' },
+              { id: 'desc' },
+            ],
       take: query.limit + 1,
       ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
     })
@@ -569,6 +576,46 @@ export class PostsService {
       cursor: nextCursor,
       hasNext,
       ...(total !== undefined ? { total } : {}),
+    })
+  }
+
+  /**
+   * Вкладка «Посты» профиля по популярности: закреплённые сверху, дальше по числу реакций,
+   * затем комментариев. Курсор здесь — смещение (`"40"`), а не id поста: счётчики меняются
+   * между страницами, и курсор по значениям ключа сортировки терял бы или повторял посты
+   * на каждом новом лайке. Смещение по постам одного автора дёшево, а повтор поста на стыке
+   * страниц после свежей реакции для «популярного» терпим.
+   */
+  private async popularAuthorFeed(
+    viewer: JwtPayload,
+    query: FeedQueryInput,
+    where: Prisma.PostWhereInput,
+  ): Promise<Paginated<ViewerPost>> {
+    const offset = query.cursor === undefined ? 0 : Number(query.cursor)
+    if (!Number.isSafeInteger(offset) || offset < 0) {
+      throw new AppException('BAD_REQUEST', 'Неверный курсор')
+    }
+    const rows: FeedRow[] = await this.prisma.post.findMany({
+      where,
+      select: query.reactions === 'summary' ? POST_SELECT_CORE : POST_SELECT_BASE,
+      orderBy: [
+        { pinnedAt: { sort: 'desc', nulls: 'last' } },
+        { reactions: { _count: 'desc' } },
+        { comments: { _count: 'desc' } },
+        { createdAt: 'desc' },
+        { id: 'desc' },
+      ],
+      skip: offset,
+      take: query.limit + 1,
+    })
+    const hasNext = rows.length > query.limit
+    const page = hasNext ? rows.slice(0, query.limit) : rows
+    const items = await this.decorate(viewer, page)
+    const total = await this.prisma.post.count({ where })
+    return new Paginated(items, {
+      cursor: hasNext ? String(offset + query.limit) : undefined,
+      hasNext,
+      total,
     })
   }
 
@@ -638,6 +685,11 @@ export class PostsService {
     // Таб ленты сужает выдачу поверх видимости (через AND) — обойти права нельзя.
     const filterWhere = this.feedFilterWhere(query.filter, viewer.sub)
     if (filterWhere) (base.AND as Prisma.PostWhereInput[]).push(filterWhere)
+    // Фильтр статуса вкладки профиля — тоже поверх видимости: в чужом профиле выше уже
+    // стоит PUBLISHED, и DRAFT/SCHEDULED там дают пустую выдачу, а не чужие черновики.
+    if (query.authorId && query.status) {
+      ;(base.AND as Prisma.PostWhereInput[]).push({ status: query.status })
+    }
     return query.authorId ? { AND: [{ authorId: query.authorId }, base] } : base
   }
 

@@ -1,6 +1,7 @@
 export {
   profileContentKeys,
   fetchProfileMedia,
+  fetchProfileCounts,
   uploadProfileMedia,
   uploadProfileMediaAuto,
   attachVideoCover,

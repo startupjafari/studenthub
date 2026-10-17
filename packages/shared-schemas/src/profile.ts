@@ -123,3 +123,17 @@ export type AssignAlbumMediaInput = z.infer<typeof AssignAlbumMediaSchema>
 // ── Комментарии к контенту профиля (статьи/опросы) ────────────────────────────
 export const ContentCommentSchema = z.object({ content: z.string().min(1).max(2000) }).strict()
 export type ContentCommentInput = z.infer<typeof ContentCommentSchema>
+
+// ── Счётчики вкладок профиля ──────────────────────────────────────────────────
+// Медиа (фото и видео вместе), статьи и опросы автора отдаются одним массивом с потолком.
+// Длина такого массива — не итог: у автора с тысячей фото бейдж вкладки показывал бы 300.
+// Клиент берёт число из списка, пока он короче потолка, а дойдя до потолка — настоящие
+// итоги из `GET /profile/:userId/counts` (по тем же правам видимости, что и списки).
+export const PROFILE_LIST_LIMITS = { media: 300, articles: 100, polls: 100 } as const
+
+export interface ProfileContentCounts {
+  photos: number
+  videos: number
+  articles: number
+  polls: number
+}

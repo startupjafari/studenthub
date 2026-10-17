@@ -6,6 +6,7 @@ import { FILE_UPLOAD } from '@studenthub/shared-config'
 import { Role } from '@studenthub/shared-types'
 import {
   DEFAULT_PAGE_LIMIT,
+  PROFILE_LIST_LIMITS,
   isPageRequested,
   type AssignAlbumMediaInput,
   type CommentsQueryInput,
@@ -15,6 +16,7 @@ import {
   type CreateProfileArticleInput,
   type PresignProfileMediaInput,
   type ProfileArticlesQueryInput,
+  type ProfileContentCounts,
   type UpdateAlbumInput,
   type UpdateProfileArticleInput,
 } from '@studenthub/shared-schemas'
@@ -32,6 +34,7 @@ import type { RequestContext } from '../auth/auth.service'
 import { FileService } from '../files/file.service'
 import { MediaService } from '../media/media.service'
 import { MEDIA_FILE_SELECT, type MediaFile, type MediaInfo } from '../media/media.types'
+import { PollsService } from '../polls/polls.service'
 import {
   PROFILE_CONTENT_OWNER_SELECT,
   UserService,
@@ -153,6 +156,7 @@ export class ProfileContentService {
     private readonly audit: AuditService,
     private readonly queue: QueueService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    private readonly polls: PollsService,
   ) {}
 
   private get bucket(): string {
@@ -200,9 +204,36 @@ export class ProfileContentService {
       where: { ownerId: userId, bucket: this.bucket },
       select: PROFILE_MEDIA_SELECT,
       orderBy: { createdAt: 'desc' },
-      take: 300,
+      take: PROFILE_LIST_LIMITS.media,
     })
     return Promise.all(files.map((f) => this.toMediaDto(f)))
+  }
+
+  /**
+   * Итоги вкладок профиля (фото, видео, статьи, опросы) глазами смотрящего — по тем же
+   * правилам, что и списки. Списки отдаются с потолком (PROFILE_LIST_LIMITS), и их длина
+   * у большого профиля — не итог: бейдж показывал бы 300 вместо тысячи. Закрытый для
+   * смотрящего или удалённый профиль — нули, как пустые списки.
+   */
+  async counts(viewer: JwtPayload, userId: string): Promise<ProfileContentCounts> {
+    const author = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: PROFILE_CONTENT_OWNER_SELECT,
+    })
+    if (!author || !(await this.users.canViewProfileContentOf(viewer, author))) {
+      return { photos: 0, videos: 0, articles: 0, polls: 0 }
+    }
+    const media = { ownerId: userId, bucket: this.bucket }
+    const [mediaTotal, videos, articles, polls] = await Promise.all([
+      this.prisma.file.count({ where: media }),
+      // Тип — как в toMediaDto: видео по mime, всё остальное в бакете — фото.
+      this.prisma.file.count({ where: { ...media, mime: { startsWith: 'video/' } } }),
+      this.prisma.profileArticle.count({
+        where: { userId, ...this.viewerVisibilityWhere(viewer, author) },
+      }),
+      this.polls.countVisibleByUser(viewer, author),
+    ])
+    return { photos: mediaTotal - videos, videos, articles, polls }
   }
 
   /**
@@ -533,7 +564,7 @@ export class ProfileContentService {
         where,
         select: ARTICLE_CARD_SELECT,
         orderBy: order,
-        take: 100,
+        take: PROFILE_LIST_LIMITS.articles,
       })
       return this.decorateArticles(cards, viewer.sub)
     }
@@ -541,7 +572,7 @@ export class ProfileContentService {
       where,
       select: ARTICLE_SELECT,
       orderBy: order,
-      take: 100,
+      take: PROFILE_LIST_LIMITS.articles,
     })
     return this.decorateArticles(rows, viewer.sub)
   }

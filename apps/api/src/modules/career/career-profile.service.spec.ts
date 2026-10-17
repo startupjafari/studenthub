@@ -241,6 +241,60 @@ describe('CareerProfileService — видимость записей портф�
 
     expect(profile.inherited.portfolioCount).toBe(3)
   })
+
+  it('в карточке работодателя готовность — по тому, что он видит (только PUBLIC)', async () => {
+    // Три приватные записи дали бы полный вес портфолио; работодатель их не видит.
+    const { service } = setup(
+      sourceUser({
+        portfolioItems: [
+          item('p-1', 'PRIVATE'),
+          item('p-2', 'PRIVATE'),
+          item('p-3', 'PRIVATE'),
+          item('p-pub', 'PUBLIC'),
+        ],
+      }),
+    )
+
+    const card = await service.cardForEmployer(employer, 'stu-1', ctx)
+
+    const base = {
+      hasEducation: true,
+      skillsCount: 2,
+      hasPreferences: true,
+      aboutLength: 'Ищу стажировку'.length,
+    }
+    expect(card.readinessScore).toBe(careerReadiness({ ...base, portfolioCount: 1 }).score)
+    expect(card.readinessScore).toBeLessThan(careerReadiness({ ...base, portfolioCount: 4 }).score)
+  })
+
+  it('владельцу — готовность со всеми записями, в кэш для других — без PRIVATE', async () => {
+    const { service, prisma } = setup(
+      sourceUser({
+        portfolioItems: [
+          item('p-1', 'PRIVATE'),
+          item('p-2', 'PRIVATE'),
+          item('p-uni', 'UNIVERSITY'),
+        ],
+      }),
+    )
+
+    const profile = await service.myProfile(student)
+
+    const base = {
+      hasEducation: true,
+      skillsCount: 2,
+      hasPreferences: true,
+      aboutLength: 'Ищу стажировку'.length,
+    }
+    expect(profile.readiness.score).toBe(careerReadiness({ ...base, portfolioCount: 3 }).score)
+    expect(prisma.careerProfile.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          readinessScore: careerReadiness({ ...base, portfolioCount: 1 }).score,
+        }),
+      }),
+    )
+  })
 })
 
 describe('CareerProfileService — свой профиль', () => {

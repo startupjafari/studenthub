@@ -118,9 +118,24 @@ export type FeedFilterValue = z.infer<typeof FeedFilterSchema>
 // `reactions` «кто что поставил» рядом со сводкой `reactionSummary`; на популярном посте это
 // тысячи строк ради одного числа. `summary` — только сводка: так ходит клиент, который
 // читает `reactionSummary` (веб); мобильные клиенты, считающие по строкам, ничего не шлют.
+// sort и status — только для вкладки «Посты» профиля (вместе с authorId), без него не
+// действуют. Порядок и фильтр считает сервер: на клиенте они применялись к уже загруженным
+// страницам, и мозаика переставлялась с каждой догрузкой.
+// - sort: `new` — закреплённые сверху, дальше свежие; `popular` — закреплённые сверху, дальше
+//   по числу реакций, затем комментариев (`cursor` у него — смещение, а не id поста). Без
+//   sort — порядок ленты «закреплённые → приоритет → время», как раньше.
+// - status: свои посты по статусу; черновики и отложенные видит только автор, в чужом
+//   профиле DRAFT/SCHEDULED дают пустую выдачу.
+export const AUTHOR_FEED_SORTS = ['new', 'popular'] as const
+export type AuthorFeedSort = (typeof AUTHOR_FEED_SORTS)[number]
+export const POST_STATUSES = ['PUBLISHED', 'DRAFT', 'SCHEDULED'] as const
+export type PostStatusValue = (typeof POST_STATUSES)[number]
+
 export const FeedQuerySchema = CursorPaginationSchema.extend({
   authorId: z.string().min(1).optional(),
   filter: FeedFilterSchema.optional(),
   reactions: z.enum(['list', 'summary']).optional(),
+  sort: z.enum(AUTHOR_FEED_SORTS).optional(),
+  status: z.enum(POST_STATUSES).optional(),
 })
 export type FeedQueryInput = z.infer<typeof FeedQuerySchema>

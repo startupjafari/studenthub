@@ -100,6 +100,17 @@ export class ProfileContentController {
     return this.content.listMedia(user, userId)
   }
 
+  @Get(':userId/counts')
+  @ApiOperation({
+    summary: 'Итоги вкладок профиля: фото, видео, статьи, опросы (по видимости смотрящего)',
+    description:
+      'Списки вкладок отдаются с потолком (PROFILE_LIST_LIMITS); здесь — настоящие итоги ' +
+      'для бейджей. Закрытый для смотрящего профиль — нули.',
+  })
+  counts(@CurrentUser() user: CurrentUserData, @Param('userId') userId: string) {
+    return this.content.counts(user, userId)
+  }
+
   @Delete('media/:fileId')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({
