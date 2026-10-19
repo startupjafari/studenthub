@@ -82,7 +82,7 @@
     "shadcn": "^4.15.0",
     "size-limit": "^12.1.0",
     "tailwindcss": "^4.1.16",
-    "typescript": "^5.9.3",
+    "typescript": "^6.0.3",
     "vitest": "^4.1.11"
   }
 }
