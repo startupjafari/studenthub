@@ -280,6 +280,15 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
 
+  apps/camera-agent:
+    devDependencies:
+      '@types/node':
+        specifier: ^22.18.10
+        version: 22.20.1
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
   apps/landing:
     dependencies:
       '@fontsource-variable/inter':
