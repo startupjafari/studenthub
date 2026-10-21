@@ -3,25 +3,34 @@
 import { useEffect, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
 import { CameraOff, Loader2 } from 'lucide-react'
-import QrScannerLib from 'qr-scanner'
+import type QrScannerLib from 'qr-scanner'
 
 // Кросс-браузерное сканирование QR в приложении: библиотека qr-scanner сама управляет камерой
 // (getUserMedia), декодирует в воркере и корректно работает в Safari/iOS и Chrome (в отличие от
-// нативного BarcodeDetector, которого в Safari/Firefox нет). Компонент грузится лениво
-// (next/dynamic в verify-id-view), поэтому библиотека не попадает в бандлы других экранов.
+// нативного BarcodeDetector, которого в Safari/Firefox нет). Сама библиотека подгружается
+// в эффекте, при запуске камеры: публичный API фичи (`parseQrTarget`) импортируют и экраны
+// без камеры, и библиотека не должна приезжать к ним в бандл вместе с ним.
 //
 // Визуально — иммерсивный тёмный экран в стиле Kaspi/Telegram: полноэкранное видео камеры,
 // затемнение вокруг центрального окна (box-shadow spread), оранжевые уголки и бегущая линия.
+//
+// Что считать «своим» QR, решает экран: общий сканер принимает любой QR StudentHub,
+// проверка студенческого — только билет.
 type ScanState = 'starting' | 'scanning' | 'denied' | 'error'
 
-// Достаёт токен из содержимого QR: это URL вида `…/verify-id?t=<token>`.
-function extractToken(raw: string): string | null {
-  try {
-    return new URL(raw).searchParams.get('t')
-  } catch {
-    const q = raw.split('?')[1]
-    return q ? new URLSearchParams(q).get('t') : null
-  }
+// Сколько держится плашка «это не тот QR». Пока камера смотрит на чужой код, библиотека
+// присылает его снова и снова, и плашка не гаснет; отвёл камеру — пропала.
+const REJECT_NOTICE_MS = 2500
+
+interface QrScannerProps {
+  title: string
+  hint: string
+  /**
+   * Содержимое QR. `true` — код принят, камера останавливается; `false` — код не тот,
+   * сканер показывает `rejectNotice` и продолжает искать.
+   */
+  onScan: (raw: string) => boolean
+  rejectNotice: string
 }
 
 // Углы рамки наведения (оранжевые скобки по углам окна сканирования).
@@ -32,46 +41,52 @@ const CORNERS = [
   'right-0 bottom-0 border-r-4 border-b-4 rounded-br-2xl',
 ]
 
-export function QrScanner({ onToken }: { onToken: (token: string) => void }) {
-  const t = useTranslations('StudentId')
+export function QrScanner({ title, hint, onScan, rejectNotice }: QrScannerProps) {
+  const t = useTranslations('QrScan')
   const videoRef = useRef<HTMLVideoElement>(null)
   const [state, setState] = useState<ScanState>('starting')
+  const [rejected, setRejected] = useState(false)
+  const rejectTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // onToken держим в ref, чтобы эффект камеры не перезапускался из-за смены ссылки колбэка.
-  const onTokenRef = useRef(onToken)
-  onTokenRef.current = onToken
+  // onScan держим в ref, чтобы эффект камеры не перезапускался из-за смены ссылки колбэка.
+  const onScanRef = useRef(onScan)
+  onScanRef.current = onScan
 
   useEffect(() => {
     const video = videoRef.current
     if (!video) return
     let stopped = false
 
-    const scanner = new QrScannerLib(
-      video,
-      (result) => {
-        if (stopped) return
-        const token = extractToken(result.data)
-        if (token) {
-          stopped = true
-          scanner.stop()
-          onTokenRef.current(token)
-        }
-      },
-      {
-        preferredCamera: 'environment',
-        maxScansPerSecond: 5,
-        highlightScanRegion: false,
-        highlightCodeOutline: false,
-        returnDetailedScanResult: true,
-      },
-    )
+    let scanner: QrScannerLib | null = null
 
-    scanner
-      .start()
-      .then(() => {
-        if (!stopped) setState('scanning')
+    function onResult(result: QrScannerLib.ScanResult): void {
+      if (stopped) return
+      if (onScanRef.current(result.data)) {
+        stopped = true
+        scanner?.stop()
+        return
+      }
+      setRejected(true)
+      if (rejectTimer.current) clearTimeout(rejectTimer.current)
+      rejectTimer.current = setTimeout(() => setRejected(false), REJECT_NOTICE_MS)
+    }
+
+    import('qr-scanner')
+      .then(({ default: Lib }) => {
+        if (stopped) return
+        scanner = new Lib(video, onResult, {
+          preferredCamera: 'environment',
+          maxScansPerSecond: 5,
+          highlightScanRegion: false,
+          highlightCodeOutline: false,
+          returnDetailedScanResult: true,
+        })
+        return scanner.start().then(() => {
+          if (!stopped) setState('scanning')
+        })
       })
       .catch((e: unknown) => {
+        if (stopped) return
         const msg = (e instanceof Error ? `${e.name} ${e.message}` : String(e)).toLowerCase()
         const denied = msg.includes('allow') || msg.includes('permission') || msg.includes('denied')
         setState(denied ? 'denied' : 'error')
@@ -79,18 +94,21 @@ export function QrScanner({ onToken }: { onToken: (token: string) => void }) {
 
     return () => {
       stopped = true
-      scanner.stop()
-      scanner.destroy()
+      scanner?.stop()
+      scanner?.destroy()
+      if (rejectTimer.current) clearTimeout(rejectTimer.current)
     }
   }, [])
 
   if (state === 'denied' || state === 'error') {
-    const key = state === 'denied' ? 'scanDenied' : 'scanError'
+    const denied = state === 'denied'
     return (
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 rounded-3xl bg-neutral-950 p-8 text-center">
         <CameraOff className="size-10 text-white/60" aria-hidden />
-        <p className="text-sm font-medium text-white">{t(key)}</p>
-        <p className="max-w-xs text-xs text-white/50">{t(`${key}Hint`)}</p>
+        <p className="text-sm font-medium text-white">{denied ? t('denied') : t('error')}</p>
+        <p className="max-w-xs text-xs text-white/50">
+          {denied ? t('deniedHint') : t('errorHint')}
+        </p>
       </div>
     )
   }
@@ -105,12 +123,12 @@ export function QrScanner({ onToken }: { onToken: (token: string) => void }) {
         className="absolute inset-0 size-full object-cover"
         muted
         playsInline
-        aria-label={t('scanTitle')}
+        aria-label={title}
       />
 
       {/* Заголовок сверху (Kaspi-стиль: «Сканируйте QR-код»). */}
       <p className="relative z-20 mt-10 px-6 text-center text-lg font-semibold text-white drop-shadow">
-        {t('scanTitle')}
+        {title}
       </p>
 
       {/* Центральное окно сканирования: затемняем всё вокруг через box-shadow spread. */}
@@ -140,16 +158,24 @@ export function QrScanner({ onToken }: { onToken: (token: string) => void }) {
         </div>
       </div>
 
-      {/* Подсказка снизу. */}
-      <p className="relative z-20 mb-10 mt-auto px-6 text-center text-sm text-white/70">
-        {t('scanHint')}
-      </p>
+      {/* Подсказка снизу; на её месте — плашка, если перед камерой не тот QR. Живой
+          регион объявляет отказ скринридеру: иначе незрячий не узнает, почему ничего не
+          происходит. */}
+      <div className="relative z-20 mb-10 mt-auto px-6" role="status" aria-live="polite">
+        {rejected ? (
+          <p className="rounded-full bg-white/15 px-4 py-2 text-center text-sm font-medium text-white backdrop-blur">
+            {rejectNotice}
+          </p>
+        ) : (
+          <p className="text-center text-sm text-white/70">{hint}</p>
+        )}
+      </div>
 
       {/* Запуск камеры. */}
       {state === 'starting' && (
         <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-2 bg-black/70 text-white">
           <Loader2 className="size-8 animate-spin" aria-hidden />
-          <p className="text-sm">{t('scanStarting')}</p>
+          <p className="text-sm">{t('starting')}</p>
         </div>
       )}
     </div>

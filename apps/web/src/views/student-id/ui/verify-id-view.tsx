@@ -11,11 +11,12 @@ import { Button, Card, CardContent, Skeleton } from '../../../shared/ui'
 import { toApiError } from '../../../shared/lib'
 import { useAppSelector } from '../../../shared/store'
 import { studentIdKeys, verifyStudentId } from '../../../entities/student-id'
+import { parseQrTarget } from '../../../features/qr-scan'
 import { StudentIdCardFace } from './student-id-card'
 
 // Сканер грузим лениво (камера — только на клиенте): библиотека qr-scanner не попадает в бандл,
 // пока сотрудник не откроет проверку без токена.
-const QrScanner = dynamic(() => import('../../../features/verify-scan').then((m) => m.QrScanner), {
+const QrScanner = dynamic(() => import('../../../features/qr-scan').then((m) => m.QrScanner), {
   ssr: false,
   loading: () => <Skeleton className="min-h-0 w-full flex-1 rounded-3xl" />,
 })
@@ -34,6 +35,7 @@ const STAFF_ROLES: Role[] = [
 // показываем подлинную карту с зелёной отметкой или ошибку.
 export function VerifyIdView() {
   const t = useTranslations('StudentId')
+  const tScan = useTranslations('QrScan')
   const tErr = useTranslations('Errors')
   const locale = useLocale()
   const role = useAppSelector((s) => s.auth.role)
@@ -58,7 +60,18 @@ export function VerifyIdView() {
       // на QR — на телефоне это вся область контента, на десктопе тоже.
       return (
         <div className="flex w-full flex-1 flex-col">
-          <QrScanner onToken={setScanned} />
+          <QrScanner
+            title={t('scanTitle')}
+            hint={t('scanHint')}
+            rejectNotice={tScan('notStudentId')}
+            onScan={(raw) => {
+              // Здесь проверяют только билеты: вход, отметка и наклейки — в общем сканере.
+              const target = parseQrTarget(raw)
+              if (target?.kind !== 'studentId') return false
+              setScanned(target.value)
+              return true
+            }}
+          />
         </div>
       )
     }

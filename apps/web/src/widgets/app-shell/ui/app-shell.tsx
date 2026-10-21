@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useTranslations } from 'next-intl'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bell, LogOut, MoreHorizontal, Search, UserRound, X } from 'lucide-react'
+import { Bell, LogOut, MoreHorizontal, ScanQrCode, Search, UserRound, X } from 'lucide-react'
 import { AppSidebar } from './app-sidebar'
 import { endSession } from '../../../shared/session'
 import {
@@ -272,6 +272,17 @@ function BottomNav({
               <Search className="size-5 shrink-0 opacity-80" aria-hidden />
               {tNav('search')}
             </button>
+            {/* Сканер QR — тоже действие: с телефона подтверждают вход на компьютере,
+                проверяют студенческий, отмечаются на паре. */}
+            <Link
+              href="/scan"
+              onClick={() => setMoreOpen(false)}
+              aria-current={pathname === '/scan' ? 'page' : undefined}
+              className={cn(menuRow, pathname === '/scan' && 'bg-primary/10 text-primary')}
+            >
+              <ScanQrCode className="size-5 shrink-0 opacity-80" aria-hidden />
+              {tNav('scan')}
+            </Link>
             <button
               type="button"
               onClick={() => {
