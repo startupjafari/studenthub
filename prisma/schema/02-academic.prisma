@@ -38,6 +38,7 @@ model University {
   cameraAgents     CameraAgent[]
   cameras          Camera[]
   cameraSettings   CameraSettings?
+  cameraViews      CameraViewSession[]
 
   @@index([status])
   @@map("universities")

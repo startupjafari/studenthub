@@ -3861,6 +3861,99 @@
         ]
       }
     },
+    "/cameras/views/{sessionId}/heartbeat": {
+      "post": {
+        "operationId": "CamerasController_heartbeat",
+        "parameters": [
+          {
+            "name": "sessionId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "404": {
+            "description": "NOT_FOUND — сессии нет, она чужая или закрыта"
+          },
+          "409": {
+            "description": "CONFLICT (details.field=module|camera) — просмотр закрыт, сессия завершена"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Продлить просмотр: свежий токен ретранслятора, раз в ~30 с",
+        "tags": [
+          "Камеры"
+        ]
+      }
+    },
+    "/cameras/views/{sessionId}/end": {
+      "post": {
+        "operationId": "CamerasController_endView",
+        "parameters": [
+          {
+            "name": "sessionId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Закончить просмотр",
+        "tags": [
+          "Камеры"
+        ]
+      }
+    },
+    "/cameras/{id}/views": {
+      "post": {
+        "operationId": "CamerasController_startView",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "{ sessionId, hlsUrl, token, expiresInSec, heartbeatInSec }"
+          },
+          "409": {
+            "description": "CONFLICT (details.field=relay|module|camera|views) — ретранслятор не настроен, камеры выключены, камера отключена или уже 4 просмотра"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Начать просмотр камеры: адрес LL-HLS и токен ретранслятора на 2 минуты",
+        "tags": [
+          "Камеры"
+        ]
+      }
+    },
     "/cameras/{id}": {
       "patch": {
         "operationId": "CamerasController_update",
@@ -3964,6 +4057,21 @@
         "summary": "Длинный опрос агента: отчёт о камерах, ответ — конфигурация (ждёт до 25 с)",
         "tags": [
           "Камеры — агент"
+        ]
+      }
+    },
+    "/.well-known/media-jwks.json": {
+      "get": {
+        "operationId": "MediaJwksController_jwks",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "JWKS медиатокенов: открытый ключ ES256 для ретранслятора",
+        "tags": [
+          "Камеры — ретранслятор"
         ]
       }
     },

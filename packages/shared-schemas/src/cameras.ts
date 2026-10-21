@@ -126,11 +126,16 @@ export const CameraAgentSyncSchema = z
   .strict()
 export type CameraAgentSyncInput = z.infer<typeof CameraAgentSyncSchema>
 
-/** Камера в конфигурации агента: адрес и конверт с паролем (вскрыть может только агент). */
+/**
+ * Камера в конфигурации агента: адрес и конверт с паролем (вскрыть может только агент).
+ * `publish` — камеру сейчас смотрят: куда и с каким токеном отдавать поток. Нет — поток
+ * не отдавать.
+ */
 export interface CameraAgentCameraConfig {
   id: string
   streamUrl: string
   credentialsSealed: string | null
+  publish: { url: string; token: string } | null
 }
 
 export interface CameraAgentSyncResponse {
@@ -138,4 +143,6 @@ export interface CameraAgentSyncResponse {
   /** Модуль камер вуза включён. Выключен — агент гасит всё и камеры не опрашивает. */
   enabled: boolean
   cameras: CameraAgentCameraConfig[]
+  /** Сертификат ретранслятора для закрепления. Нет — ретранслятор не настроен. */
+  relayCaPem: string | null
 }

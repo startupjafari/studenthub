@@ -277,6 +277,23 @@ export const envSchema = z.object({
   /** Адрес приложения в Google Play — для кнопки «Обновить». Не задан — кнопки не будет. */
   ANDROID_STORE_URL: optionalEnv(z.string().url()),
 
+  // Медиа-ретранслятор камер (docs/PROJECT.md §3.10). Без них просмотр камер выключен:
+  // запрос просмотра отвечает 409 (`details.field=relay`), агенты потоки не отдают.
+  /**
+   * Закрытый ключ EC P-256 (PKCS#8 PEM) для подписи медиатокенов ES256. Переводы строк
+   * экранированы. Открытая часть уходит ретранслятору через GET /.well-known/media-jwks.json.
+   */
+  MEDIA_JWT_PRIVATE_KEY: optionalEnv(z.string().min(1)),
+  /** Публичный HTTPS-адрес HLS ретранслятора — оттуда браузер берёт видео. */
+  MEDIA_RELAY_HLS_URL: optionalEnv(z.string().url()),
+  /** Адрес публикации для агентов: rtmps://<хост>:<порт> (TCP-прокси ретранслятора). */
+  MEDIA_RELAY_PUBLISH_URL: optionalEnv(z.string().regex(/^rtmps?:\/\/[^/]+$/)),
+  /**
+   * Сертификат ретранслятора (PEM, экранированные переводы строк). Агенты закрепляют его:
+   * поток с камеры уходит только тому, кто предъявил именно этот сертификат.
+   */
+  MEDIA_RELAY_CA_PEM: optionalEnv(z.string().min(1)),
+
   // Web Push (Ф13.3). Без ключей push отключён (сервис молча пропускает отправку).
   VAPID_PUBLIC_KEY: z.string().optional(),
   VAPID_PRIVATE_KEY: z.string().optional(),

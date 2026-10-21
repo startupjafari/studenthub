@@ -2,6 +2,8 @@ import { CameraAgentSyncService } from './camera-agent-sync.service'
 import type { CameraAgentSignal } from './camera-agent-signal'
 import type { AgentPrincipal } from './agent-auth.guard'
 import type { PrismaService } from '../../common/prisma/prisma.service'
+import type { CameraDemand } from './camera-demand'
+import type { MediaTokenService } from './media-token.service'
 
 // Синхронизация агента: единственный вход в API без пользователя. Тесты закрывают, что
 // агент не перехватит чужие камеры и чужой ключ, и что длинный опрос отдаёт изменение
@@ -10,7 +12,14 @@ import type { PrismaService } from '../../common/prisma/prisma.service'
 const KEY_A = 'A'.repeat(43)
 const KEY_B = 'B'.repeat(43)
 
-function setup(options: { publicKey?: string | null; enabled?: boolean } = {}) {
+function setup(
+  options: {
+    publicKey?: string | null
+    enabled?: boolean
+    relay?: boolean
+    watched?: string[]
+  } = {},
+) {
   const agent: AgentPrincipal = {
     id: 'agent-1',
     universityId: 'uni-1',
@@ -29,9 +38,21 @@ function setup(options: { publicKey?: string | null; enabled?: boolean } = {}) {
   }
   let counter = 0
   const signal = { current: jest.fn(async () => String(counter)) }
+  const demand = { active: jest.fn(async () => new Set(options.watched ?? [])) }
+  let issued = 0
+  const tokens = {
+    relaySettings: jest.fn(() =>
+      options.relay
+        ? { hlsUrl: 'https://media', publishUrl: 'rtmps://relay:1936', caPem: 'PEM' }
+        : null,
+    ),
+    sign: jest.fn(() => `token-${++issued}`),
+  }
   const service = new CameraAgentSyncService(
     prisma as unknown as PrismaService,
     signal as unknown as CameraAgentSignal,
+    demand as unknown as CameraDemand,
+    tokens as unknown as MediaTokenService,
   )
   return {
     service,
@@ -108,7 +129,33 @@ describe('CameraAgentSyncService', () => {
       id: 'cam-1',
       streamUrl: 'rtsp://h/1',
       credentialsSealed: null,
+      publish: null,
     })
+  })
+
+  it('камеру смотрят — агенту адрес и токен публикации на её путь', async () => {
+    const { service, agent } = setup({ publicKey: KEY_A, relay: true, watched: ['cam-1'] })
+    const res = await service.sync(agent, input(), 0)
+    expect(res.cameras[0]!.publish).toEqual({
+      url: 'rtmps://relay:1936/cam/cam-1',
+      token: expect.stringMatching(/^token-/),
+    })
+    expect(res.relayCaPem).toBe('PEM')
+  })
+
+  it('токен публикации не меняет ревизию — длинный опрос продолжает ждать', async () => {
+    const { service, agent } = setup({ publicKey: KEY_A, relay: true, watched: ['cam-1'] })
+    const first = await service.config(agent)
+    const second = await service.config(agent)
+    expect(first.cameras[0]!.publish!.token).not.toBe(second.cameras[0]!.publish!.token)
+    expect(first.revision).toBe(second.revision)
+  })
+
+  it('ретранслятор не настроен — поток не отдаётся, даже если камеру «смотрят»', async () => {
+    const { service, agent } = setup({ publicKey: KEY_A, relay: false, watched: ['cam-1'] })
+    const res = await service.sync(agent, input(), 0)
+    expect(res.cameras[0]!.publish).toBeNull()
+    expect(res.relayCaPem).toBeNull()
   })
 
   it('другая ревизия у агента — ответ сразу', async () => {
