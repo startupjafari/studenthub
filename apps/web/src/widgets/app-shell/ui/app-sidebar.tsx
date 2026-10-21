@@ -117,22 +117,8 @@ export function AppSidebar({
                 <Search className="size-5" aria-hidden />
               </button>
             )}
-            {/* Единый сканер QR StudentHub: вход на другом устройстве, студенческий, отметка. */}
-            <Link
-              href="/scan"
-              aria-label={tNav('scan')}
-              title={tNav('scan')}
-              aria-current={pathname === '/scan' ? 'page' : undefined}
-              className={cn(
-                'flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg transition-colors active:scale-90',
-                pathname === '/scan'
-                  ? 'bg-primary/10 text-primary'
-                  : 'text-muted-foreground hover:bg-muted hover:text-foreground',
-              )}
-            >
-              <ScanQrCode className="size-5" aria-hidden />
-            </Link>
-            {/* Колокол уведомлений справа от логотипа — открывает оверлей списка. */}
+            {/* Колокол уведомлений справа от логотипа — открывает оверлей списка. Без поиска
+                (охрана) к правому краю его прижимает сам колокол. */}
             <button
               type="button"
               onClick={() => onToggleNotif?.()}
@@ -141,6 +127,7 @@ export function AppSidebar({
               aria-pressed={notifOpen}
               className={cn(
                 'flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg transition-colors active:scale-90',
+                !canSearch(me.data?.role) && 'ml-auto',
                 notifOpen
                   ? 'bg-primary/10 text-primary'
                   : 'text-muted-foreground hover:bg-muted hover:text-foreground',
@@ -237,6 +224,21 @@ export function AppSidebar({
               </div>
             </Link>
           )}
+          {/* Единый сканер QR StudentHub: вход на другом устройстве, студенческий, отметка. */}
+          <Link
+            href="/scan"
+            aria-label={tNav('scan')}
+            title={tNav('scan')}
+            aria-current={pathname === '/scan' ? 'page' : undefined}
+            className={cn(
+              'flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg transition-colors',
+              pathname === '/scan'
+                ? 'bg-primary/10 text-primary'
+                : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+            )}
+          >
+            <ScanQrCode className="size-4" aria-hidden />
+          </Link>
           <button
             type="button"
             onClick={logout}
