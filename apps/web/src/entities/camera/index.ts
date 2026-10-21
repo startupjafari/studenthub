@@ -10,6 +10,9 @@ export {
   deleteCameraRequest,
   fetchCameraSettings,
   updateCameraSettingsRequest,
+  startCameraViewRequest,
+  heartbeatCameraViewRequest,
+  endCameraViewRequest,
 } from './api/camera-api'
 export type {
   AgentConnection,
@@ -17,4 +20,6 @@ export type {
   CameraAdmin,
   CameraAgent,
   CameraAgentWithToken,
+  CameraViewTicket,
+  CameraViewBlock,
 } from './model/types'

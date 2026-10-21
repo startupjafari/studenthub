@@ -1,6 +1,6 @@
 import Link from 'next/link'
 import { getTranslations } from 'next-intl/server'
-import { ChevronRight, DoorClosed, ScanLine, ScanQrCode, type LucideIcon } from 'lucide-react'
+import { Cctv, ChevronRight, DoorClosed, ScanLine, ScanQrCode, type LucideIcon } from 'lucide-react'
 import { Card, PageHeader } from '../../../shared/ui'
 
 interface PostAction {
@@ -11,11 +11,17 @@ interface PostAction {
 }
 
 // «Пост охраны» — главная роли SECURITY_GUARD (docs/PROJECT.md §2). Не дашборд с
-// цифрами, а три крупных действия: на вахте экран открывают с телефона на ходу, и
-// нужное должно нажиматься с первого раза. Камеры добавятся сюда же отдельным этапом.
+// цифрами, а крупные действия: на вахте экран открывают с телефона на ходу, и нужное
+// должно нажиматься с первого раза.
 export async function SecurityHomeView() {
   const t = await getTranslations('Security')
   const actions: PostAction[] = [
+    {
+      href: '/security/cameras',
+      icon: Cctv,
+      title: t('camerasTitle'),
+      description: t('camerasDescription'),
+    },
     {
       href: '/scan',
       icon: ScanQrCode,
