@@ -80,6 +80,34 @@ services:
         ipv4_address: 10.77.0.40
       edge: {}
 
+  # Агент StudentHub внутри сети кампуса (apps/camera-agent) — как его поставят в вузе.
+  # Видит регистратор, наружу ходит к API на хосте разработчика. Профиль `agent`, токен
+  # берётся в разделе «Камеры» админа вуза:
+  #   STUDENTHUB_AGENT_TOKEN=shca_… docker compose --profile agent up -d --build agent
+  agent:
+    profiles: ['agent']
+    build:
+      context: ../..
+      dockerfile: apps/camera-agent/Dockerfile
+    image: studenthub-camera-agent:dev
+    container_name: studenthub-cam-agent
+    restart: unless-stopped
+    environment:
+      STUDENTHUB_API_URL: ${STUDENTHUB_API_URL:-http://host.docker.internal:3001/api/v1}
+      # Не задан — агент остановится с подсказкой (`docker compose logs agent`).
+      STUDENTHUB_AGENT_TOKEN: ${STUDENTHUB_AGENT_TOKEN:-}
+      # Стенд ходит к API по http на localhost разработчика. В вузе — только https.
+      STUDENTHUB_ALLOW_INSECURE: '1'
+      STUDENTHUB_PROBE_INTERVAL_S: ${STUDENTHUB_PROBE_INTERVAL_S:-15}
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+    volumes:
+      - agent_state:/var/lib/studenthub-agent
+    networks:
+      campus:
+        ipv4_address: 10.77.0.50
+      edge: {}
+
   # Клиент внутри сети кампуса — пока нашего агента нет, им проверяют, что камеры
   # отвечают: docker compose run --rm probe ffprobe ... (см. README).
   probe:
@@ -92,6 +120,9 @@ services:
       - ./snapshots:/snapshots
     networks:
       campus: {}
+
+volumes:
+  agent_state: {}
 
 networks:
   campus:
