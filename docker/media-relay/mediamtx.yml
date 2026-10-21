@@ -1,0 +1,51 @@
+# Медиа-ретранслятор камер StudentHub (docs/PROJECT.md §3.10, README.md рядом).
+#
+# Два входа и ничего больше:
+#   • RTMPS :1936 — агенты вузов отдают сюда поток камеры, пока её смотрят;
+#   • HLS (LL-HLS) — браузеры охраны и админа забирают видео (за HTTPS-прокси Railway).
+# Каждое подключение — с медиатокеном API (JWT ES256), его ретранслятор проверяет сам по
+# открытому ключу из JWKS API. Права в токене — на один путь `cam/<id камеры>`.
+# Ничего не записывается: запись и архив выключены, видео живёт только в памяти.
+#
+# Значения, зависящие от окружения, задаются переменными MTX_* поверх этого файла
+# (entrypoint.sh, README.md): адрес JWKS, порт HLS, origin веба.
+
+logLevel: info
+
+authMethod: jwt
+authJWTJWKS: http://overridden-by-env/.well-known/media-jwks.json
+authJWTIssuer: studenthub
+authJWTAudience: studenthub-media
+authJWTClaimKey: mediamtx_permissions
+
+rtsp: false
+rtmp: true
+rtmpEncryption: strict
+rtmpsAddress: :1936
+rtmpServerKey: /certs/server.key
+rtmpServerCert: /certs/server.crt
+
+hls: true
+hlsAddress: :8888
+# Только origin веба: чужой сайт не встроит плеер с токеном пользователя.
+hlsAllowOrigins: ['http://localhost:3000']
+hlsVariant: lowLatency
+hlsSegmentDuration: 1s
+hlsPartDuration: 200ms
+# Перестали смотреть — мультиплексор закрывается через 10 с, а не через минуту по умолчанию.
+hlsMuxerCloseAfter: 10s
+
+webrtc: false
+srt: false
+moq: false
+api: false
+metrics: false
+pprof: false
+playback: false
+
+pathDefaults:
+  record: false
+
+paths:
+  # Только пути камер: `cam/<uuid>`. Всё прочее ретранслятор не примет даже с токеном.
+  '~^cam/[0-9a-f-]{36}$': {}
