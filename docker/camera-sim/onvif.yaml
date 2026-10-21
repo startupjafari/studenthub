@@ -1,0 +1,35 @@
+# ONVIF-устройство поверх канала 2 регистратора (профиль `onvif` в docker-compose).
+# Агент спрашивает у него профили и адреса потоков (GetProfiles, GetStreamUri), как у
+# настоящей камеры, и получает RTSP-ссылки на этот же контейнер: он проксирует RTSP
+# в регистратор. Логин и пароль RTSP — те же, что у регистратора.
+#
+# `mac` обязан совпадать с mac_address сервиса в docker-compose.yml.
+onvif:
+  - mac: 02:42:0a:4d:00:28
+    ports:
+      server: 8080
+      rtsp: 554
+      snapshot: 8580
+    name: StudentHubCam2
+    uuid: 6f1d2c3e-6a0b-4f4e-9a51-2a7c0d2b9e01
+    highQuality:
+      rtsp: /Streaming/Channels/201
+      snapshot: /ISAPI/Streaming/channels/201/picture
+      width: 1280
+      height: 720
+      framerate: 25
+      bitrate: 2048
+      quality: 4
+    lowQuality:
+      rtsp: /Streaming/Channels/202
+      snapshot: /ISAPI/Streaming/channels/202/picture
+      width: 640
+      height: 360
+      framerate: 15
+      bitrate: 512
+      quality: 1
+    target:
+      hostname: nvr
+      ports:
+        rtsp: 554
+        snapshot: 80
