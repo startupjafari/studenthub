@@ -3616,6 +3616,317 @@
         ]
       }
     },
+    "/camera-agents": {
+      "get": {
+        "operationId": "CameraAgentsController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Агенты камер своего вуза: на связи ли, готов ли ключ, сколько камер",
+        "tags": [
+          "Камеры"
+        ]
+      },
+      "post": {
+        "operationId": "CameraAgentsController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCameraAgentDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "{ agent, token }"
+          },
+          "409": {
+            "description": "CONFLICT — достигнут предел агентов вуза"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Завести агента; токен в ответе показывается один раз",
+        "tags": [
+          "Камеры"
+        ]
+      }
+    },
+    "/camera-agents/{id}": {
+      "patch": {
+        "operationId": "CameraAgentsController_rename",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCameraAgentDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "404": {
+            "description": "NOT_FOUND — нет такого агента в вашем вузе"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Переименовать агента",
+        "tags": [
+          "Камеры"
+        ]
+      },
+      "delete": {
+        "operationId": "CameraAgentsController_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Удалён"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Удалить агента вместе с его камерами",
+        "tags": [
+          "Камеры"
+        ]
+      }
+    },
+    "/camera-agents/{id}/token": {
+      "post": {
+        "operationId": "CameraAgentsController_rotateToken",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "{ agent, token }"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Перевыпустить токен агента: прежний гаснет, пароли камер нужно ввести заново",
+        "tags": [
+          "Камеры"
+        ]
+      }
+    },
+    "/cameras": {
+      "get": {
+        "operationId": "CamerasController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Камеры своего вуза: охране — включённые и без адресов, админу — все с подробностями",
+        "tags": [
+          "Камеры"
+        ]
+      },
+      "post": {
+        "operationId": "CamerasController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCameraDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Камера; пароль в ответ не возвращается"
+          },
+          "409": {
+            "description": "CONFLICT (details.field=agentId) — агент ещё не прислал ключ, пароль не зашифровать"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Добавить камеру; пароль сразу шифруется ключом агента",
+        "tags": [
+          "Камеры"
+        ]
+      }
+    },
+    "/cameras/settings": {
+      "get": {
+        "operationId": "CamerasController_settings",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Включён ли модуль камер вуза",
+        "tags": [
+          "Камеры"
+        ]
+      },
+      "patch": {
+        "operationId": "CamerasController_updateSettings",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCameraSettingsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Включить или выключить камеры вуза разом",
+        "tags": [
+          "Камеры"
+        ]
+      }
+    },
+    "/cameras/{id}": {
+      "patch": {
+        "operationId": "CamerasController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateCameraDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "404": {
+            "description": "NOT_FOUND — нет такой камеры в вашем вузе"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Изменить камеру; credentials: null — убрать пароль",
+        "tags": [
+          "Камеры"
+        ]
+      },
+      "delete": {
+        "operationId": "CamerasController_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Удалена"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Удалить камеру",
+        "tags": [
+          "Камеры"
+        ]
+      }
+    },
     "/schedules": {
       "post": {
         "operationId": "SchedulesController_create",
@@ -15893,6 +16204,26 @@
         "properties": {}
       },
       "UpdateRoomDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "CreateCameraAgentDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "UpdateCameraAgentDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "UpdateCameraSettingsDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "CreateCameraDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "UpdateCameraDto": {
         "type": "object",
         "properties": {}
       },

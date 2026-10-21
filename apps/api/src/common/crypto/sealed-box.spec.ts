@@ -1,4 +1,4 @@
-import { generateKeyPairSync } from 'node:crypto'
+import { generateKeyPairSync, type JsonWebKey } from 'node:crypto'
 import { open, seal, x25519PublicKey } from './sealed-box'
 
 // Конверт для агента камер: платформа шифрует пароль камеры его открытым ключом и сама

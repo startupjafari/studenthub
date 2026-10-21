@@ -7,6 +7,7 @@ import {
   generateKeyPairSync,
   hkdfSync,
   randomBytes,
+  type JsonWebKey,
   type KeyObject,
 } from 'node:crypto'
 
