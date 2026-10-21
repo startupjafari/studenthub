@@ -8,6 +8,7 @@ import {
   CalendarClock,
   CalendarDays,
   CalendarRange,
+  Cctv,
   ClipboardCheck,
   ClipboardList,
   DoorClosed,
@@ -113,6 +114,7 @@ export const UNIVERSITY_ADMIN_NAV: NavItem[] = [
   { key: 'groups', href: '/university-admin/groups', icon: Users, group: 'structure' },
   // Ф16: помещения и печатные QR над дверью.
   { key: 'rooms', href: '/university-admin/rooms', icon: DoorClosed, group: 'structure' },
+  { key: 'cameras', href: '/university-admin/cameras', icon: Cctv, group: 'structure' },
 
   // Учебный процесс.
   { key: 'schedule', href: '/university-admin/schedule', icon: CalendarDays, group: 'study' },

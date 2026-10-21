@@ -224,10 +224,13 @@ model User {
 
   // Scope-связи с академической структурой (Фаза 5). onDelete: Restrict — вуз/факультет/группу
   // нельзя удалить, пока в них есть пользователи (дублируется сервис-гвардами).
-  university      University? @relation(fields: [universityId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  faculty         Faculty?    @relation(fields: [facultyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  group           Group?      @relation("GroupMembers", fields: [groupId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  groupAsStarosta Group?      @relation("GroupStarosta")
+  university            University?      @relation(fields: [universityId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  faculty               Faculty?         @relation(fields: [facultyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  group                 Group?           @relation("GroupMembers", fields: [groupId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  groupAsStarosta       Group?           @relation("GroupStarosta")
+  // Камеры (docs/PROJECT.md §3.10): кто завёл агента и кто последним переключал модуль.
+  cameraAgentsCreated   CameraAgent[]    @relation("CameraAgentCreatedBy")
+  cameraSettingsUpdated CameraSettings[] @relation("CameraSettingsUpdatedBy")
 
   @@index([role])
   @@index([universityId])
