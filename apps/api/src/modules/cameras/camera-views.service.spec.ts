@@ -48,7 +48,10 @@ function setup(
     ),
     sign: jest.fn(() => 'jwt'),
   }
-  const demand = { mark: jest.fn().mockResolvedValue(undefined) }
+  const demand = {
+    mark: jest.fn().mockResolvedValue(undefined),
+    clear: jest.fn().mockResolvedValue(undefined),
+  }
   const signal = { bump: jest.fn().mockResolvedValue(undefined) }
   const service = new CameraViewsService(
     prisma as unknown as PrismaService,
@@ -146,6 +149,31 @@ describe('CameraViewsService', () => {
       endedAt: expect.any(Date),
     })
     expect(tokens.sign).not.toHaveBeenCalled()
+  })
+
+  it('последний зритель закончил — спрос снят и агент разбужен сразу', async () => {
+    const { service, prisma, demand, signal } = setup({ active: 0 })
+    prisma.cameraViewSession.findUnique.mockResolvedValue({
+      id: 'view-1',
+      cameraId: 'cam-1',
+      userId: 'u-1',
+      endedAt: null,
+    })
+    await service.end(guard, 'view-1')
+    expect(demand.clear).toHaveBeenCalledWith('cam-1')
+    expect(signal.bump).toHaveBeenCalledWith('agent-1')
+  })
+
+  it('камеру ещё смотрит кто-то другой — поток не гасится', async () => {
+    const { service, prisma, demand } = setup({ active: 1 })
+    prisma.cameraViewSession.findUnique.mockResolvedValue({
+      id: 'view-1',
+      cameraId: 'cam-1',
+      userId: 'u-1',
+      endedAt: null,
+    })
+    await service.end(guard, 'view-1')
+    expect(demand.clear).not.toHaveBeenCalled()
   })
 
   it('чужую или закрытую сессию не продлить', async () => {

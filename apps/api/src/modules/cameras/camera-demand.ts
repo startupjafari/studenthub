@@ -20,6 +20,11 @@ export class CameraDemand {
     await this.redis.set(key(cameraId), '1', 'PX', DEMAND_TTL_MS)
   }
 
+  /** Последний зритель ушёл — поток можно гасить сразу, не дожидаясь срока. */
+  async clear(cameraId: string): Promise<void> {
+    await this.redis.del(key(cameraId))
+  }
+
   /** Какие из камер сейчас кто-то смотрит. */
   async active(cameraIds: string[]): Promise<Set<string>> {
     if (cameraIds.length === 0) return new Set()

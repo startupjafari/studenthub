@@ -122,9 +122,28 @@ export class CameraViewsService {
     return this.ticket(session.id, camera.id, actor.sub, relay)
   }
 
+  /**
+   * Закончить просмотр. Если камеру больше никто не смотрит, спрос снимается сразу и агент
+   * узнаёт об этом в ту же секунду — поток не идёт ещё минуту впустую.
+   */
   async end(actor: JwtPayload, sessionId: string): Promise<void> {
     const session = await this.ownSession(actor, sessionId)
     await this.close(session.id)
+    if (!session.cameraId) return
+    const others = await this.prisma.cameraViewSession.count({
+      where: {
+        cameraId: session.cameraId,
+        endedAt: null,
+        lastSeenAt: { gte: new Date(Date.now() - VIEW_ACTIVE_WINDOW_MS) },
+      },
+    })
+    if (others > 0) return
+    await this.demand.clear(session.cameraId)
+    const camera = await this.prisma.camera.findUnique({
+      where: { id: session.cameraId },
+      select: { agentId: true },
+    })
+    if (camera) await this.signal.bump(camera.agentId)
   }
 
   private ticket(
