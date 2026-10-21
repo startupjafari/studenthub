@@ -4096,6 +4096,7 @@
     "failed": "Could not get video. Close the window and open it again.",
     "unsupported": "This browser cannot show cameras. Open them in Chrome, Edge, Firefox or Safari on iOS 17+.",
     "fullscreen": "Full screen",
+    "exitFullscreen": "Exit full screen",
     "close": "Close",
     "blocked": {
       "relay": "Camera viewing is not set up on the platform yet.",

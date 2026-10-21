@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useTranslations } from 'next-intl'
-import { Loader2, Maximize2, TriangleAlert, VideoOff, X } from 'lucide-react'
+import { Loader2, Maximize2, Minimize2, TriangleAlert, VideoOff, X } from 'lucide-react'
 import { Button } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { attachLive, type LiveState } from '../lib/live-hls'
@@ -35,6 +35,7 @@ export function CameraPlayer({
   const videoRef = useRef<HTMLVideoElement>(null)
   const { status, getToken } = useCameraView(camera.id)
   const [live, setLive] = useState<LiveState>('connecting')
+  const [fullscreen, setFullscreen] = useState(false)
   const hlsUrl = status.kind === 'active' ? status.ticket.hlsUrl : null
 
   useEffect(() => {
@@ -54,6 +55,19 @@ export function CameraPlayer({
     }
   }, [hlsUrl, getToken])
 
+  // Полный экран могут закрыть и мимо кнопки (Esc, жест браузера) — состояние берём из
+  // события документа, а не из своего нажатия.
+  useEffect(() => {
+    const sync = (): void => setFullscreen(document.fullscreenElement === frameRef.current)
+    document.addEventListener('fullscreenchange', sync)
+    return () => document.removeEventListener('fullscreenchange', sync)
+  }, [])
+
+  function toggleFullscreen(): void {
+    if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined)
+    else void frameRef.current?.requestFullscreen?.().catch(() => undefined)
+  }
+
   const message =
     status.kind === 'blocked'
       ? t(`blocked.${status.reason}`)
@@ -69,7 +83,7 @@ export function CameraPlayer({
   return (
     <div
       ref={frameRef}
-      className="group relative flex aspect-video w-full overflow-hidden rounded-xl bg-black"
+      className="group relative flex aspect-video w-full overflow-hidden rounded-xl bg-black [&:fullscreen]:rounded-none"
     >
       <video
         ref={videoRef}
@@ -121,24 +135,32 @@ export function CameraPlayer({
           size="sm"
           icon
           className="text-white hover:bg-white/15 hover:text-white"
-          aria-label={t('fullscreen')}
-          title={t('fullscreen')}
-          onClick={() => void frameRef.current?.requestFullscreen?.().catch(() => undefined)}
+          aria-label={fullscreen ? t('exitFullscreen') : t('fullscreen')}
+          title={fullscreen ? t('exitFullscreen') : t('fullscreen')}
+          onClick={toggleFullscreen}
         >
-          <Maximize2 className="size-4" aria-hidden />
+          {fullscreen ? (
+            <Minimize2 className="size-4" aria-hidden />
+          ) : (
+            <Maximize2 className="size-4" aria-hidden />
+          )}
         </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          icon
-          className="text-white hover:bg-white/15 hover:text-white"
-          aria-label={t('close')}
-          title={t('close')}
-          onClick={onClose}
-        >
-          <X className="size-4" aria-hidden />
-        </Button>
+        {/* На полном экране крестика нет: там его ждут как «выйти из полноэкранного», а он
+            закрывал камеру — окно пропадало из стены вместе с выбором в списке. */}
+        {!fullscreen && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            icon
+            className="text-white hover:bg-white/15 hover:text-white"
+            aria-label={t('close')}
+            title={t('close')}
+            onClick={onClose}
+          >
+            <X className="size-4" aria-hidden />
+          </Button>
+        )}
       </div>
     </div>
   )
