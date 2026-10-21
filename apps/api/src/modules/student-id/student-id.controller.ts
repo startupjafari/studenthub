@@ -7,9 +7,11 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
 import { StudentIdService } from './student-id.service'
 import { VerifyStudentIdDto } from './dto/verify-student-id.dto'
+import { SecurityAllowed } from '../../common/decorators/security-allowed.decorator'
 
 const STUDENT_ROLES = [Role.STUDENT, Role.STAROSTA] as const
-// Кто может проверять карту студента: сотрудники вуза + платформенные роли.
+// Кто может проверять карту студента: сотрудники вуза (включая охрану на входе) +
+// платформенные роли.
 const VERIFY_ROLES = [
   Role.TEACHER,
   Role.DEAN,
@@ -18,6 +20,7 @@ const VERIFY_ROLES = [
   Role.UNIVERSITY_MODERATOR,
   Role.PLATFORM_ADMIN,
   Role.PLATFORM_MODERATOR,
+  Role.SECURITY_GUARD,
 ] as const
 
 @ApiTags('Студенческий билет')
@@ -33,6 +36,7 @@ export class StudentIdController {
     return this.studentId.myCard(user)
   }
 
+  @SecurityAllowed()
   @Get('verify')
   @Roles(...VERIFY_ROLES)
   @ApiOperation({ summary: 'Проверить студенческий по QR (сотрудник)' })

@@ -13,6 +13,10 @@ enum Role {
   // Работодатель (Фаза 18). Единственная роль вне вуза: скоуп у неё не universityId,
   // а компания, и доступ к студентам считается по CompanyUniversityAccess.
   EMPLOYER
+  // Охрана одного вуза: сканер QR, проверка студенческого, помещения, камеры. Выдаёт
+  // UNIVERSITY_ADMIN, 2FA обязательна, всё вне явного списка маршрутов закрыто
+  // (docs/PROJECT.md §2).
+  SECURITY_GUARD
 }
 
 enum UniversityStatus {

@@ -6,10 +6,12 @@ import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
 import { PushService } from './push.service'
 import { PushSubscribeDto, PushUnsubscribeDto } from './dto/push-subscribe.dto'
 import { RegisterDeviceDto, UnregisterDeviceDto } from './dto/register-device.dto'
+import { SecurityAllowed } from '../../common/decorators/security-allowed.decorator'
 
 // Подписки на Web Push (Ф13.3). Все ручки — под JwtAuthGuard (глобальный).
 @ApiTags('Push')
 @ApiBearerAuth()
+@SecurityAllowed()
 @Controller('push')
 export class PushController {
   constructor(private readonly push: PushService) {}

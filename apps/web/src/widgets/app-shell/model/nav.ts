@@ -28,6 +28,7 @@ import {
   Milestone,
   Newspaper,
   ScanLine,
+  ScanQrCode,
   ScrollText,
   Search,
   Send,
@@ -63,6 +64,7 @@ export type NavVariant =
   | 'platform-moderator'
   | 'university-moderator'
   | 'employer'
+  | 'security'
 
 // Навигация студенческого дашборда (docs/PROJECT.md §12).
 // Профиль — плашка пользователя внизу сайдбара (см. AppSidebar), не пункт навигации.
@@ -263,6 +265,15 @@ export const UNIVERSITY_MODERATOR_NAV: NavItem[] = [
   { key: 'chats', href: '/moderator/university/chats', icon: MessagesSquare },
 ]
 
+// Охрана вуза (docs/PROJECT.md §2): пост, сканер, проверка студенческого, помещения.
+// Сканер есть и в шапке, но на посту это главное действие — оно и в навигации.
+export const SECURITY_GUARD_NAV: NavItem[] = [
+  { key: 'securityPost', href: '/security', icon: LayoutDashboard, exact: true },
+  { key: 'scan', href: '/scan', icon: ScanQrCode },
+  { key: 'verifyId', href: '/verify-id', icon: ScanLine },
+  { key: 'rooms', href: '/security/rooms', icon: DoorClosed },
+]
+
 // Навигация определяется РОЛЬЮ пользователя, а не route-группой: общие страницы
 // (например /profile) должны сохранять сайдбар текущей роли. AppShell берёт вариант отсюда.
 export const ROLE_TO_VARIANT: Record<Role, NavVariant> = {
@@ -275,6 +286,7 @@ export const ROLE_TO_VARIANT: Record<Role, NavVariant> = {
   [Role.STAROSTA]: 'starosta',
   [Role.STUDENT]: 'student',
   [Role.EMPLOYER]: 'employer',
+  [Role.SECURITY_GUARD]: 'security',
 }
 
 // Документы — общий пункт для всех ролей: защищённое хранилище (Ф15, отдельный раздел /documents).
@@ -318,6 +330,8 @@ export const NAV_BY_VARIANT: Record<NavVariant, NavItem[]> = {
   // Без withCommon: общий раздел «Документы» — хранилище участника вуза, работодателя
   // оно не касается.
   employer: EMPLOYER_NAV,
+  // Без withCommon: хранилище документов участника вуза охране не нужно.
+  security: SECURITY_GUARD_NAV,
 }
 
 // ── StudentHub Карьера ──────────────────────────────────────────────────────
@@ -374,6 +388,8 @@ const CAREER_NAV_BY_ROLE: Record<Role, NavItem[]> = {
   // Работодатель в /career не заходит — его продукт целиком в зоне /employer.
   // Значение задано, чтобы карта была исчерпывающей и не пришлось падать на undefined.
   [Role.EMPLOYER]: EMPLOYER_NAV,
+  // У охраны карьерного продукта нет: переключатель под логотипом ей не показывается.
+  [Role.SECURITY_GUARD]: [],
 }
 
 /** Навигация карьерного продукта для роли. */
@@ -391,6 +407,24 @@ export function careerNavFor(role: Role | undefined): NavItem[] {
  */
 export function careerHomeFor(role: Role | undefined): string {
   return careerNavFor(role)[0]?.href ?? CAREER_ROOT
+}
+
+/** Есть ли у роли карьерный продукт — показывать ли переключатель под логотипом. */
+export function hasCareerProduct(role: Role | undefined): boolean {
+  return careerNavFor(role).length > 0
+}
+
+/**
+ * Куда ведёт плашка пользователя. Обычно — свой профиль, но у охраны профиля на
+ * платформе нет (посты, портфолио и друзья ей закрыты): её плашка ведёт в настройки.
+ */
+export function ownProfileHref(role: Role | undefined): string {
+  return role === Role.SECURITY_GUARD ? '/settings' : '/profile'
+}
+
+/** Есть ли у роли чаты — без них бейдж непрочитанного не запрашивается. */
+export function hasChats(role: Role | undefined): boolean {
+  return role !== Role.SECURITY_GUARD
 }
 
 /** Путь относится к карьерному продукту. */

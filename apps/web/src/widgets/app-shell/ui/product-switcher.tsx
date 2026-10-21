@@ -27,12 +27,27 @@ export function ProductSwitcher({
   careerHref = CAREER_ROOT,
 }: {
   homeHref: string
-  /** Вход в «Карьеру» для текущей роли: у преподавателя это сразу «Вакансии». */
-  careerHref?: string
+  /**
+   * Вход в «Карьеру» для текущей роли: у преподавателя это сразу «Вакансии». `null` — у
+   * роли карьерного продукта нет (охрана): вместо переключателя — просто логотип.
+   */
+  careerHref?: string | null
 }) {
   const t = useTranslations('Products')
   const pathname = usePathname()
   const onCareer = pathname === CAREER_ROOT || pathname.startsWith(`${CAREER_ROOT}/`)
+
+  if (careerHref === null) {
+    return (
+      <Link
+        href={homeHref}
+        className="-ml-1.5 flex shrink-0 items-center gap-2 rounded-lg px-1.5 py-1 whitespace-nowrap outline-none transition-colors hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/30"
+      >
+        <GraduationCap className="size-6 shrink-0 text-primary" aria-hidden />
+        <span className="text-lg font-bold leading-none">StudentHub</span>
+      </Link>
+    )
+  }
 
   return (
     <HoverCardPrimitive.Root openDelay={120} closeDelay={160}>

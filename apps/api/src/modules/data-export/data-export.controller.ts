@@ -6,9 +6,11 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
 import { ExportBrandingService } from '../../common/export/export-branding.service'
 import { DataExportService } from './data-export.service'
+import { SecurityAllowed } from '../../common/decorators/security-allowed.decorator'
 
 @ApiTags('Мои данные')
 @ApiBearerAuth()
+@SecurityAllowed()
 @Controller('me')
 export class DataExportController {
   constructor(

@@ -15,7 +15,9 @@ describe('quickActionsFor', () => {
   it('«Документы» есть у всех ролей вуза — раздел общий', () => {
     // Работодатель (Ф18) — единственная роль вне вуза: хранилище документов участника
     // вуза его не касается, поэтому общий раздел ему не добавляется.
-    for (const role of ROLE_HIERARCHY.filter((r) => r !== Role.EMPLOYER)) {
+    for (const role of ROLE_HIERARCHY.filter(
+      (r) => r !== Role.EMPLOYER && r !== Role.SECURITY_GUARD,
+    )) {
       expect(
         quickActionsFor(role).map((a) => a.navKey),
         role,
@@ -23,8 +25,9 @@ describe('quickActionsFor', () => {
     }
   })
 
-  it('работодателю «Документы» не показываются', () => {
+  it('работодателю и охране «Документы» не показываются', () => {
     expect(quickActionsFor(Role.EMPLOYER).map((a) => a.navKey)).not.toContain('documents')
+    expect(quickActionsFor(Role.SECURITY_GUARD).map((a) => a.navKey)).not.toContain('documents')
   })
 
   it('без роли действий нет', () => {

@@ -45,12 +45,15 @@ export function scheduleChatsUnreadRefresh(qc: QueryClient, soon = false): void 
  * `chat:activity` сервер шлёт каждому участнику на любое движение в чате (в том числе
  * заглушённом), поэтому счётчик обновляется живьём, без опроса по таймеру. Но не на
  * каждое событие: в живой группе они идут потоком, и перезапрос склеивается.
+ *
+ * `enabled: false` — у роли нет чатов (охрана): запрос не уходит, бейдж всегда 0.
  */
-export function useChatsUnread(): number {
+export function useChatsUnread(enabled = true): number {
   const qc = useQueryClient()
   const { data } = useQuery({
     queryKey: chatKeys.unread(),
     queryFn: fetchChatsUnread,
+    enabled,
     // Данные быстро устаревают от чужих сообщений, но и дёргать сервер на каждый
     // ремоунт сайдбара незачем — WS всё равно инвалидирует по факту события.
     staleTime: 30_000,
@@ -63,5 +66,5 @@ export function useChatsUnread(): number {
   useRealtimeEvent('chat:read', () => {
     scheduleChatsUnreadRefresh(qc, true)
   })
-  return data?.messages ?? 0
+  return enabled ? (data?.messages ?? 0) : 0
 }

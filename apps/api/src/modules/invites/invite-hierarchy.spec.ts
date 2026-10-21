@@ -180,4 +180,31 @@ describe('resolveInviteTarget — матрица иерархии выдачи �
       )
     })
   })
+
+  describe('SECURITY_GUARD', () => {
+    it('UNIVERSITY_ADMIN выдаёт на свой вуз, без факультета и группы', () => {
+      expect(resolveInviteTarget(uniAdminA, { role: Role.SECURITY_GUARD })).toEqual({
+        universityId: 'uni-A',
+        facultyId: null,
+        groupId: null,
+      })
+    })
+    it('вуз из тела игнорируется: охрана — только в вуз создателя', () => {
+      expect(
+        resolveInviteTarget(uniAdminA, { role: Role.SECURITY_GUARD, universityId: 'uni-B' }),
+      ).toMatchObject({ universityId: 'uni-A' })
+    })
+    it('никто, кроме админа вуза, охрану не выдаёт', () => {
+      for (const who of [platformAdmin, deanA, starostaA, student]) {
+        expectCode(() => resolveInviteTarget(who, { role: Role.SECURITY_GUARD }), 'FORBIDDEN')
+      }
+    })
+    it('охрана сама инвайтов не выдаёт', () => {
+      const guard = issuer(Role.SECURITY_GUARD, { universityId: 'uni-A' })
+      expectCode(
+        () => resolveInviteTarget(guard, { role: Role.STUDENT, groupId: 'grp-A' }),
+        'FORBIDDEN',
+      )
+    })
+  })
 })

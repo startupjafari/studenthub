@@ -134,6 +134,19 @@ describe('StudentIdService — непрозрачный токен', () => {
     expect(dean.dormitory).toBe(student.dormitory)
   })
 
+  it('охране — узкая карта: без даты рождения, формы оплаты и общежития', async () => {
+    const { service, prisma } = setup()
+    const card = await service.myCard(viewer('stu-1', 'uni-A'))
+    prisma.user.findFirst.mockResolvedValue(student)
+    const guard = await service.verify(
+      { ...viewer('g', 'uni-A'), role: Role.SECURITY_GUARD },
+      card.token,
+    )
+    expect(guard).toMatchObject({ birthDate: null, fundingType: null, dormitory: null })
+    expect(guard.selfDeclared).toEqual([])
+    expect(guard.lastName).toBe(student.lastName)
+  })
+
   it('дата рождения — «со слов студента»: помечена в selfDeclared, если она есть в ответе', async () => {
     const { service, prisma } = setup()
     const card = await service.myCard(viewer('stu-1', 'uni-A'))

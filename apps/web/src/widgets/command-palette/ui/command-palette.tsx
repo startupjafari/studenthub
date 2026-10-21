@@ -8,7 +8,7 @@ import { CornerDownLeft, Search, X } from 'lucide-react'
 import { useAppSelector } from '../../../shared/store'
 import { Skeleton } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
-import { useSearchItems, type SearchItem } from '../../../entities/search'
+import { canSearch, useSearchItems, type SearchItem } from '../../../entities/search'
 import { quickActionsFor } from '../model/quick-actions'
 
 // Ширины строк скелетона: разной длины, иначе блок читается как таблица, а не как
@@ -62,7 +62,7 @@ export function CommandPalette() {
     active: searchActive,
     searching,
     hasResults,
-  } = useSearchItems(open ? query : '')
+  } = useSearchItems(open && canSearch(role) ? query : '')
 
   const items: SearchItem[] = useMemo(() => {
     if (searchActive) return results

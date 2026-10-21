@@ -343,6 +343,7 @@ const ru = {
   personRoleUniModerator: 'Модератор вуза',
   personRolePlatformAdmin: 'Администратор платформы',
   personRolePlatformModerator: 'Модератор платформы',
+  personRoleSecurityGuard: 'Охрана',
 
   // ── Предупреждение и срок блокировки ───────────────────────────────────
   complaintWarnUser: 'Предупредить',
@@ -792,6 +793,7 @@ const kk: Record<MessageKey, string> = {
   personRoleUniModerator: 'ЖОО модераторы',
   personRolePlatformAdmin: 'Платформа әкімшісі',
   personRolePlatformModerator: 'Платформа модераторы',
+  personRoleSecurityGuard: 'Күзет',
 
   // ── Ескерту және бұғаттау мерзімі ──────────────────────────────────────
   complaintWarnUser: 'Ескерту жасау',
@@ -1239,6 +1241,7 @@ const en: Record<MessageKey, string> = {
   personRoleUniModerator: 'University moderator',
   personRolePlatformAdmin: 'Platform admin',
   personRolePlatformModerator: 'Platform moderator',
+  personRoleSecurityGuard: 'Security',
 
   // ── Warning and block term ─────────────────────────────────────────────
   complaintWarnUser: 'Warn',

@@ -27,6 +27,7 @@ import { reportSeedPassword, resolveSeedPassword } from './seed/lib/seed-passwor
 import { createProgress } from './seed/lib/progress.mjs'
 import { createStorage } from './seed/lib/storage.mjs'
 import { createWriter } from './seed/lib/writer.mjs'
+import { emailFor, uniPrefix, usernameFor } from './seed/lib/ids.mjs'
 import { person } from './seed/data/people.mjs'
 import { staffProfile } from './seed/data/profiles.mjs'
 import { seedUniversities } from './seed/index.mjs'
@@ -122,6 +123,47 @@ async function seedPlatformStaff(passwordHash) {
   return created
 }
 
+/**
+ * Охрана вуза (docs/PROJECT.md §2) — две учётки на u001. Отдельно от генератора вузов и
+ * со своим генератором случайных чисел: вставка в общий шаг «люди» сдвинула бы поток
+ * случайностей, и у всех людей после неё сменились бы имена. Профиль закрыт по умолчанию,
+ * как у роли на проде; 2FA при входе попросят настроить.
+ */
+async function seedSecurityStaff(passwordHash) {
+  const uniIndex = 1
+  const universityId = uniPrefix(uniIndex)
+  const guardRandom = makeRandom(20261021)
+  const created = []
+  for (let g = 0; g < 2; g += 1) {
+    const local = `security.${g}`
+    const p = person(g, guardRandom)
+    const data = {
+      ...p,
+      ...staffProfile(p, guardRandom, {
+        template: null,
+        profile: { timezone: 'Asia/Almaty' },
+        cityName: CITY,
+      }),
+      username: usernameFor(uniIndex, local),
+      position: 'Сотрудник охраны',
+      jobTitle: 'Охрана',
+      responsibilities: 'Пропускной режим главного корпуса, проверка студенческих билетов.',
+      profileVisibility: 'PRIVATE',
+      role: 'SECURITY_GUARD',
+      universityId,
+      ...TWO_FACTOR_RESET,
+    }
+    const email = emailFor(uniIndex, local)
+    await prisma.user.upsert({
+      where: { email },
+      update: data,
+      create: { email, passwordHash, ...data },
+    })
+    created.push(email)
+  }
+  return created
+}
+
 // «0-0» печатаем как 0, «100-500» — как диапазон: в логе прогона это первое, на что
 // смотрят, когда галерея оказалась не того объёма.
 function range([min, max]) {
@@ -171,6 +213,9 @@ async function main() {
     companies,
   })
 
+  const guards = await seedSecurityStaff(passwordHash)
+  console.log(`  охрана: ${guards.length}`)
+
   // Аватары тем, кто появился ПОСЛЕ раздачи в шаге медиа: работодатели и вузовские
   // роли создаются позже пула. Без этого у аккаунтов компаний профиль без лица.
   if (mediaPool) await assignAvatars(prisma, mediaPool)
@@ -204,6 +249,7 @@ async function report(platform) {
   console.log('  DEAN: dean.<код факультета>@u001.edu.kz')
   console.log('  TEACHER: t.<код факультета>.<n>@u001.edu.kz')
   console.log('  STUDENT / STAROSTA: <код группы>.st<NN>@u001.edu.kz')
+  console.log('  SECURITY_GUARD: security.0@u001.edu.kz, security.1@u001.edu.kz')
   console.log("    точный список: SELECT email, role FROM users WHERE university_id = 'u001';")
   console.log('\nПользователи по ролям:')
   for (const row of byRole.sort((a, b) => b._count.id - a._count.id)) {

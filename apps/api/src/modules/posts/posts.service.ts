@@ -45,6 +45,8 @@ const ROLE_RANK: Record<Role, number> = {
   [Role.PLATFORM_ADMIN]: 7,
   // Работодатель постов не создаёт и не закрепляет — ранг ниже студенческого.
   [Role.EMPLOYER]: -1,
+  // Охрана постов не создаёт — как и работодатель.
+  [Role.SECURITY_GUARD]: -1,
 }
 
 // Разрешённые аудитории по роли автора (docs/PROJECT.md §2.2 — модераторы посты не создают).
@@ -65,6 +67,7 @@ const ALLOWED_AUDIENCES: Record<Role, PostAudience[]> = {
   [Role.STUDENT]: [PostAudience.GROUP, PostAudience.PERSONAL],
   // Работодатель в ленте платформы не публикует: его канал — вакансии.
   [Role.EMPLOYER]: [],
+  [Role.SECURITY_GUARD]: [],
 }
 
 // Базовый приоритет в ленте по аудитории (docs/PROJECT.md §3.3).

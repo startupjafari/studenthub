@@ -58,6 +58,8 @@
     "analytics": "Analytics",
     "search": "Search",
     "scan": "Scan QR",
+    "securityPost": "Security post",
+    "settings": "Settings",
     "consultations": "Consultations",
     "appointments": "Dean office",
     "portfolio": "Portfolio",
@@ -1454,7 +1456,8 @@
     "TEACHER": "Teacher",
     "STAROSTA": "Group leader",
     "STUDENT": "Student",
-    "EMPLOYER": "Employer"
+    "EMPLOYER": "Employer",
+    "SECURITY_GUARD": "Security"
   },
   "FileUpload": {
     "dropHint": "Drag a file here or click to choose",
@@ -3974,6 +3977,21 @@
     "deniedHint": "Allow camera access in your browser settings and reload the page.",
     "error": "Couldn't start the camera",
     "errorHint": "Make sure the camera isn't used by another app and try again."
+  },
+  "Security": {
+    "title": "Security post",
+    "subtitle": "Student checks at the entrance and a room directory",
+    "scanTitle": "Scan QR",
+    "scanDescription": "Student ID, computer sign-in, room",
+    "verifyTitle": "Verify student ID",
+    "verifyDescription": "The camera accepts student IDs only — for a queue at the entrance",
+    "roomsTitle": "Rooms",
+    "roomsDescription": "Where things are, opening hours and phone numbers",
+    "roomsSubtitle": "University room directory. Open a room to see what is on there right now.",
+    "roomsSearch": "Search by name",
+    "roomsNotFound": "Nothing found",
+    "roomsEmptyHint": "Rooms are added by the university administrator.",
+    "retry": "Retry"
   },
   "Academic": {
     "title": "Academic profile",

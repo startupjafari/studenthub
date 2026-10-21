@@ -4,11 +4,13 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
 import { ReleasesService } from './releases.service'
 import { MarkReleaseSeenDto } from './dto/mark-release-seen.dto'
+import { SecurityAllowed } from '../../common/decorators/security-allowed.decorator'
 
 // «Что нового»: пользователь читает и пишет только свою отметку — userId берётся из JWT,
 // в запросе его нет и быть не может. Доступно любой аутентифицированной роли.
 @ApiTags('Релизы')
 @ApiBearerAuth()
+@SecurityAllowed()
 @Controller('releases')
 export class ReleasesController {
   constructor(private readonly releases: ReleasesService) {}

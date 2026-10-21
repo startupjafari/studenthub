@@ -408,6 +408,7 @@ async function seedDemoUniverse({ passwordHash, admin, progress, seedPassword })
     ['TEACHER', 'teacher@studenthub.app', 'Елена', 'Иванова', scope.faculty, 'FEMALE', 'Сергеевна'],
     ['STAROSTA', 'starosta@studenthub.app', 'Аружан', 'Серикова', scope.group, 'FEMALE', 'Муратовна'], // prettier-ignore
     ['STUDENT', 'student@studenthub.app', 'Нурлан', 'Оспанов', scope.group, 'MALE', 'Бауыржанович'], // prettier-ignore
+    ['SECURITY_GUARD', 'security@studenthub.app', 'Ерлан', 'Жумабаев', scope.university, 'MALE', 'Кайратович'], // prettier-ignore
   ]
   // Профиль этих аккаунтов заполняется теми же построителями, что и у 130 тысяч
   // сгенерированных (prisma/seed/data/profiles.mjs). Раньше здесь задавались только
@@ -470,6 +471,13 @@ async function seedDemoUniverse({ passwordHash, admin, progress, seedPassword })
         position: 'Старший преподаватель',
         academicDegree: 'Кандидат наук',
         academicTitle: 'Доцент',
+      },
+      // Профиль охраны закрыт по умолчанию — как у роли на проде (defaultVisibilityFor).
+      SECURITY_GUARD: {
+        position: 'Сотрудник охраны',
+        jobTitle: 'Охрана',
+        responsibilities: 'Пропускной режим главного корпуса, проверка студенческих билетов.',
+        profileVisibility: 'PRIVATE',
       },
     }
     return { ...staff, ...(byRole[role] ?? {}) }
