@@ -34,6 +34,7 @@ import { ForgotPasswordDto } from './dto/forgot-password.dto'
 import { ResetPasswordDto } from './dto/reset-password.dto'
 import { MaintenanceExempt } from '../../common/decorators'
 import { AppException } from '../../common/exceptions/app.exception'
+import { SecurityAllowed } from '../../common/decorators/security-allowed.decorator'
 
 const MINUTE = 60_000
 const HOUR = 60 * MINUTE
@@ -47,6 +48,7 @@ const QR_APPROVE_MAX_TOKEN_AGE_SEC = 5 * 60
 @ApiTags('Auth')
 // Без входа режим техработ не снять: администратор должен уметь войти в остановленную платформу.
 @MaintenanceExempt()
+@SecurityAllowed()
 @Controller('auth')
 export class AuthController {
   private readonly logger = new Logger(AuthController.name)

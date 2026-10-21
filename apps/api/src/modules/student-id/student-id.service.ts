@@ -124,10 +124,14 @@ export class StudentIdService {
     // После проверки области: сотрудник чужого вуза код не «забирает».
     await this.claimToken(token, payload.exp, verifier.sub)
     const card = this.toCard(user)
-    // Староста и преподаватель проверяют, что перед ними студент вуза (на паре, на
-    // мероприятии) — им хватает ФИО, фото, группы и статуса. Дата рождения, грант/платное и
-    // общежитие нужны деканату и администрации, а не однокурснику или лектору.
-    const narrow = verifier.role === Role.STAROSTA || verifier.role === Role.TEACHER
+    // Староста, преподаватель и охрана проверяют, что перед ними студент вуза (на паре, на
+    // мероприятии, на входе) — им хватает ФИО, фото, группы и статуса. Дата рождения,
+    // грант/платное и общежитие нужны деканату и администрации, а не однокурснику, лектору
+    // или вахте.
+    const narrow =
+      verifier.role === Role.STAROSTA ||
+      verifier.role === Role.TEACHER ||
+      verifier.role === Role.SECURITY_GUARD
     const shown = {
       ...card,
       ...(narrow ? { birthDate: null, fundingType: null, dormitory: null } : {}),

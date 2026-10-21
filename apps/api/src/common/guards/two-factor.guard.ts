@@ -7,15 +7,17 @@ import { TWO_FACTOR_EXEMPT } from '../decorators/two-factor-exempt.decorator'
 import type { EnvVars } from '../../config/env.schema'
 import type { JwtPayload } from '../auth/jwt-payload.type'
 
-// Роли, которым 2FA ОБЯЗАТЕЛЬНА (привилегированные: платформа, админ/модератор вуза, декан).
-// Скомпрометированный пароль такой учётки открывает доступ к чужим данным целого вуза/факультета,
-// поэтому второй фактор форсим. Студент/староста/преподаватель — по желанию.
+// Роли, которым 2FA ОБЯЗАТЕЛЬНА (привилегированные: платформа, админ/модератор вуза, декан,
+// охрана). Скомпрометированный пароль такой учётки открывает доступ к чужим данным целого
+// вуза/факультета, а у охраны — к проверке студенческих и камерам вуза, поэтому второй фактор
+// форсим. Студент/староста/преподаватель — по желанию.
 export const TWO_FACTOR_REQUIRED_ROLES: Role[] = [
   Role.PLATFORM_ADMIN,
   Role.PLATFORM_MODERATOR,
   Role.UNIVERSITY_ADMIN,
   Role.UNIVERSITY_MODERATOR,
   Role.DEAN,
+  Role.SECURITY_GUARD,
 ]
 
 /**

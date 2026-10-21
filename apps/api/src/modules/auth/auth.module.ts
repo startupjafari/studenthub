@@ -10,6 +10,7 @@ import { ActionConfirmGuard } from '../../common/guards/action-confirm.guard'
 import { ACTION_CONFIRMATION } from '../../common/auth/confirmation.constants'
 import { MaintenanceGuard } from '../../common/guards/maintenance.guard'
 import { MiniAppGuard } from '../../common/guards/mini-app.guard'
+import { SecurityRoleGuard } from '../../common/guards/security-role.guard'
 import { ScopeGuard } from '../../common/guards/scope.guard'
 import { TwoFactorGuard } from '../../common/guards/two-factor.guard'
 import { UsersModule } from '../users/users.module'
@@ -64,6 +65,9 @@ import { LocalStrategy } from './strategies/local.strategy'
     // Между JwtAuthGuard и RolesGuard: токен мини-аппа отсекается по клиенту раньше, чем
     // по роли — на маршруты вне белого списка ему нельзя независимо от роли.
     { provide: APP_GUARD, useClass: MiniAppGuard },
+    // Там же и по той же причине: охране открыт только список @SecurityAllowed(), какой бы
+    // ни была роль маршрута — у многих GET её нет вовсе (docs/PROJECT.md §2).
+    { provide: APP_GUARD, useClass: SecurityRoleGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
     // После ролей: подтверждение спрашивается только у того, кому маршрут в принципе
     // разрешён, — иначе чужой перебирал бы коды на ручке, куда ему и так нельзя.

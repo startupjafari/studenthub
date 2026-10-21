@@ -49,6 +49,8 @@ const ROLE_ACTIONS: Record<Role, AppAction[]> = {
   [Role.PLATFORM_MODERATOR]: [],
   // Работодатель (Ф18) вне вуза: услуги вуза его не касаются.
   [Role.EMPLOYER]: [],
+  // Охрана вуза заявок не видит и не обрабатывает.
+  [Role.SECURITY_GUARD]: [],
 }
 
 // Поля заявки, достаточные для scope-решений (без загрузки всей записи).

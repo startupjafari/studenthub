@@ -131,6 +131,7 @@ const RU: EmailDict = {
     [Role.STAROSTA]: 'Староста',
     [Role.STUDENT]: 'Студент',
     [Role.EMPLOYER]: 'Работодатель',
+    [Role.SECURITY_GUARD]: 'Охрана',
   },
   common: {
     autoNote: `Это автоматическое письмо от платформы ${BRAND}. Отвечать на него не нужно.`,
@@ -239,6 +240,7 @@ const KK: EmailDict = {
     [Role.STAROSTA]: 'Топ старостасы',
     [Role.STUDENT]: 'Студент',
     [Role.EMPLOYER]: 'Жұмыс беруші',
+    [Role.SECURITY_GUARD]: 'Күзет',
   },
   common: {
     autoNote: `Бұл — ${BRAND} платформасының автоматты хаты. Оған жауап берудің қажеті жоқ.`,
@@ -347,6 +349,7 @@ const EN: EmailDict = {
     [Role.STAROSTA]: 'Group leader',
     [Role.STUDENT]: 'Student',
     [Role.EMPLOYER]: 'Employer',
+    [Role.SECURITY_GUARD]: 'Security',
   },
   common: {
     autoNote: `This is an automated message from ${BRAND}. There is no need to reply.`,

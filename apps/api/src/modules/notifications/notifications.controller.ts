@@ -15,11 +15,13 @@ import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
 import { NotificationsService } from './notifications.service'
 import { NotificationListQueryDto } from './dto/notification-list-query.dto'
 import { UpdateNotificationSettingsDto } from './dto/update-notification-settings.dto'
+import { SecurityAllowed } from '../../common/decorators/security-allowed.decorator'
 
 // Каждый пользователь управляет ТОЛЬКО своими уведомлениями (userId из JWT, не из запроса).
 // Статические пути (settings, unread-count, read-all) объявлены до :id.
 @ApiTags('Уведомления')
 @ApiBearerAuth()
+@SecurityAllowed()
 @Controller('notifications')
 export class NotificationsController {
   constructor(private readonly notifications: NotificationsService) {}
