@@ -1,14 +1,24 @@
+import { writeFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { log } from './log.js'
-import { PlatformError, sync, type CameraConfig, type CameraStatus } from './api.js'
+import {
+  PlatformError,
+  sync,
+  type CameraConfig,
+  type CameraStatus,
+  type SyncResponse,
+} from './api.js'
 import type { AgentConfig } from './config.js'
 import type { AgentKey } from './keys.js'
 import { probeCamera, type ProbeStatus } from './probe.js'
+import { Publisher, type PublishTarget } from './publisher.js'
 import { redactUrl, withCredentials } from './rtsp.js'
 import { openCredentials, type CameraCredentials } from './sealed.js'
 import { AGENT_VERSION } from './version.js'
 
 // Агент камер (docs/PROJECT.md §3.10). Два независимых цикла:
-//   • синхронизация — длинный опрос платформы: отдаём состояние камер, берём конфигурацию;
+//   • синхронизация — длинный опрос платформы: отдаём состояние камер, берём конфигурацию
+//     и список камер, которые сейчас смотрят (их поток уходит на ретранслятор);
 //   • проверка камер — раз в интервал ffprobe на каждую камеру.
 // Входящих соединений агент не принимает: всё, что ему нужно, он забирает сам.
 
@@ -35,11 +45,13 @@ export class Agent {
   private enabled = false
   private stopped = false
   private probeTimer: NodeJS.Timeout | null = null
+  private relayCaPem: string | null = null
 
   constructor(
     private readonly config: AgentConfig,
     private readonly key: AgentKey,
     private readonly probe: (url: string) => Promise<ProbeStatus> = probeCamera,
+    private readonly publisher: Publisher = new Publisher(),
   ) {}
 
   async run(): Promise<void> {
@@ -55,7 +67,7 @@ export class Agent {
           cameras: [...this.statuses].map(([id, status]) => ({ id, status })),
         })
         failures = 0
-        this.apply(response.revision, response.enabled, response.cameras)
+        this.apply(response)
       } catch (error) {
         await this.sleep(this.retryDelay(error, failures++))
       }
@@ -65,10 +77,20 @@ export class Agent {
   stop(): void {
     this.stopped = true
     if (this.probeTimer) clearTimeout(this.probeTimer)
+    this.publisher.stopAll()
+  }
+
+  /**
+   * Ответ платформы. Конфигурация меняется, только если сменилась ревизия, а потоки на
+   * ретранслятор сверяются на каждом ответе: в нём свежие токены публикации.
+   */
+  apply(response: SyncResponse): void {
+    this.applyCameras(response.revision, response.enabled, response.cameras)
+    this.applyPublishing(response)
   }
 
   /** Новая конфигурация: запоминаем камеры, вскрываем пароли, новые камеры проверяем сразу. */
-  apply(revision: string, enabled: boolean, cameras: CameraConfig[]): void {
+  private applyCameras(revision: string, enabled: boolean, cameras: CameraConfig[]): void {
     if (revision === this.revision) return
     const fresh: string[] = []
     const next = new Map<string, KnownCamera>()
@@ -85,6 +107,37 @@ export class Agent {
     this.revision = revision
     log.info('Конфигурация получена', { cameras: next.size })
     if (fresh.length > 0) void this.probeAll(fresh)
+  }
+
+  /** Камеры, которые сейчас смотрят, — их поток уходит на ретранслятор. */
+  private applyPublishing(response: SyncResponse): void {
+    const caFile = this.writeRelayCa(response.relayCaPem)
+    const wanted = new Map<string, { cameraUrl: string; target: PublishTarget }>()
+    for (const camera of response.enabled ? response.cameras : []) {
+      const known = this.cameras.get(camera.id)
+      if (!camera.publish || !known || known.sealBroken) continue
+      wanted.set(camera.id, {
+        cameraUrl: withCredentials(known.streamUrl, known.credentials),
+        target: camera.publish,
+      })
+    }
+    this.publisher.sync(wanted, caFile)
+  }
+
+  /** Сертификат ретранслятора — в файл для ffmpeg (`-ca_file`); пишем, только если сменился. */
+  private writeRelayCa(pem: string | null): string | null {
+    if (!pem) return null
+    const path = join(this.config.stateDir, 'relay-ca.pem')
+    if (pem !== this.relayCaPem) {
+      writeFileSync(path, pem, { mode: 0o644 })
+      this.relayCaPem = pem
+    }
+    return path
+  }
+
+  /** Потоки, которые сейчас идут на ретранслятор (для тестов). */
+  publishing(): string[] {
+    return this.publisher.active()
   }
 
   /** Состояние камер для отчёта платформе (и для тестов). */

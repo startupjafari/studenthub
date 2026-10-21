@@ -15,12 +15,16 @@ export interface CameraConfig {
   id: string
   streamUrl: string
   credentialsSealed: string | null
+  /** Камеру смотрят: куда и с каким токеном отдавать поток. Нет — не отдавать. */
+  publish: { url: string; token: string } | null
 }
 
 export interface SyncResponse {
   revision: string
   enabled: boolean
   cameras: CameraConfig[]
+  /** Сертификат ретранслятора для закрепления. Нет — ретранслятор не настроен. */
+  relayCaPem: string | null
 }
 
 /** Ошибка платформы с её кодом (`UNAUTHORIZED`, `CONFLICT`…) и полями деталей. */
