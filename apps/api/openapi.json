@@ -3927,6 +3927,46 @@
         ]
       }
     },
+    "/camera-agent/sync": {
+      "post": {
+        "operationId": "CameraAgentSyncController_syncAgent",
+        "parameters": [
+          {
+            "name": "Authorization",
+            "in": "header",
+            "description": "Agent <токен агента>",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CameraAgentSyncDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "{ revision, enabled, cameras }"
+          },
+          "401": {
+            "description": "UNAUTHORIZED — токен агента неизвестен"
+          },
+          "409": {
+            "description": "CONFLICT (details.field=publicKey) — ключ агента сменился: перевыпустить токен"
+          }
+        },
+        "summary": "Длинный опрос агента: отчёт о камерах, ответ — конфигурация (ждёт до 25 с)",
+        "tags": [
+          "Камеры — агент"
+        ]
+      }
+    },
     "/schedules": {
       "post": {
         "operationId": "SchedulesController_create",
@@ -16224,6 +16264,10 @@
         "properties": {}
       },
       "UpdateCameraDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "CameraAgentSyncDto": {
         "type": "object",
         "properties": {}
       },
