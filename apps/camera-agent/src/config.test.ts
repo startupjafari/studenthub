@@ -36,3 +36,19 @@ test('не токен агента — отказ с подсказкой', () =
     /токен агента/,
   )
 })
+
+test('пример из инструкции и обрезанный токен — отказ сразу, а не ошибка запроса', () => {
+  for (const token of [
+    'shca_…',
+    'shca_',
+    TOKEN.slice(0, -1),
+    `${TOKEN}x`,
+    `shca_${'x'.repeat(42)}…`,
+  ]) {
+    assert.throws(
+      () => loadConfig({ STUDENTHUB_API_URL: 'https://x/api/v1', STUDENTHUB_AGENT_TOKEN: token }),
+      /целиком/,
+      token,
+    )
+  }
+})

@@ -12,7 +12,10 @@ export interface AgentConfig {
   probeIntervalMs: number
 }
 
-const TOKEN_PREFIX = 'shca_'
+// Токен агента: `shca_` и 32 байта в base64url — ровно 43 символа (apps/api/.../agent-token.ts).
+// Проверяем целиком, а не по префиксу: пример из инструкции (`shca_…`) или обрезанный при
+// копировании токен иначе доходил до запроса и падал там непонятной ошибкой заголовка.
+const TOKEN_FORMAT = /^shca_[A-Za-z0-9_-]{43}$/
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AgentConfig {
   const apiUrl = (env.STUDENTHUB_API_URL ?? '').replace(/\/+$/, '')
@@ -27,9 +30,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AgentConfig {
       'STUDENTHUB_API_URL должен начинаться с https:// (http — только при STUDENTHUB_ALLOW_INSECURE=1)',
     )
   }
-  if (!token.startsWith(TOKEN_PREFIX)) {
+  if (!TOKEN_FORMAT.test(token)) {
     throw new Error(
-      'STUDENTHUB_AGENT_TOKEN не похож на токен агента: возьмите его в разделе «Камеры»',
+      'STUDENTHUB_AGENT_TOKEN не похож на токен агента: скопируйте его целиком из окна «Токен агента» ' +
+        'в разделе «Камеры» (shca_ и 43 символа)',
     )
   }
   const probeSeconds = Number(env.STUDENTHUB_PROBE_INTERVAL_S ?? '60')

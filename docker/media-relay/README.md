@@ -76,23 +76,28 @@ MediaMTX между агентами вузов и браузерами охра
 
 ## Разработка
 
+Из корня репозитория, один раз:
+
 ```bash
-cd docker/media-relay
-./dev-cert.sh                 # certs/ и строка MEDIA_RELAY_CA_PEM для apps/api/.env
-docker compose up -d --build  # HLS — 127.0.0.1:18888, RTMPS — 172.17.0.1:11936
+# сертификат стенда и ключ подписи → apps/api/.env
+CA_LINE=$(docker/media-relay/dev-cert.sh)
+KEY=$(openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256 | awk 'BEGIN{ORS="\\n"} {print}')
+printf '%s\n' \
+  "MEDIA_JWT_PRIVATE_KEY='$KEY'" \
+  "MEDIA_RELAY_HLS_URL=http://localhost:18888" \
+  "MEDIA_RELAY_PUBLISH_URL=rtmps://host.docker.internal:11936" \
+  "$CA_LINE" >> apps/api/.env
+echo 'NEXT_PUBLIC_MEDIA_RELAY_URL=http://localhost:18888' >> apps/web/.env.local
+
+(cd docker/media-relay && docker compose up -d --build)  # HLS — 127.0.0.1:18888, RTMPS — 172.17.0.1:11936
 ```
 
-В `apps/api/.env` для стенда:
+Ключ и сертификат — одной строкой с `\n` и **в одинарных кавычках**: в PEM есть пробелы, и
+без кавычек `.env` не прочитать через `set -a && . apps/api/.env`. После правки `.env`
+перезапустите `pnpm dev`: API и веб читают переменные только при старте.
 
-```
-MEDIA_JWT_PRIVATE_KEY=<openssl genpkey … одной строкой>
-MEDIA_RELAY_HLS_URL=http://localhost:18888
-MEDIA_RELAY_PUBLISH_URL=rtmps://host.docker.internal:11936
-MEDIA_RELAY_CA_PEM=<строка из dev-cert.sh>
-```
-
-В `apps/web/.env.local` — `NEXT_PUBLIC_MEDIA_RELAY_URL=http://localhost:18888`: без него
-CSP веба не пустит плеер к ретранслятору на http (на проде он за HTTPS и проходит и так).
+`NEXT_PUBLIC_MEDIA_RELAY_URL` в `apps/web/.env.local` нужен CSP веба: без него плеер не
+пустят к ретранслятору на http (на проде он за HTTPS и проходит и так).
 
 Агент — профиль `agent` в `docker/camera-sim`. RTMPS опубликован на адресе моста Docker
 (`host.docker.internal` для контейнеров), а не на `0.0.0.0`: агенту стенда он виден,
