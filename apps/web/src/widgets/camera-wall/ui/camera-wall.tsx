@@ -1,12 +1,12 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useTranslations } from 'next-intl'
 import { Cctv, MonitorPlay } from 'lucide-react'
 import type { CameraStatusValue } from '@studenthub/shared-schemas'
-import { Badge, EmptyState, Skeleton } from '../../../shared/ui'
+import { Badge, EmptyState, PageHeader, Skeleton, type PageHeaderProps } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import {
   cameraKeys,
@@ -32,8 +32,11 @@ const STATUS_BADGE: Record<CameraStatusValue, 'success' | 'secondary' | 'destruc
  * Стена камер (docs/PROJECT.md §3.10): список камер вуза и сетка до четырёх окон. Видео
  * идёт только в открытых окнах — закрыл окно, сессия закончилась, агент перестал отдавать
  * поток. Общая для охраны и администратора вуза.
+ *
+ * Шапку страницы рисует сама стена: список камер стоит в ней, слева за заголовком, и
+ * прокручивается вбок, когда камер много, — сетке остаётся вся высота экрана.
  */
-export function CameraWall() {
+export function CameraWall({ header }: { header: Omit<PageHeaderProps, 'nav'> }) {
   const t = useTranslations('CameraWatch')
   const tCam = useTranslations('Cameras')
   const settings = useQuery({ queryKey: cameraKeys.settings(), queryFn: fetchCameraSettings })
@@ -46,26 +49,33 @@ export function CameraWall() {
   const me = useQuery({ queryKey: userKeys.me(), queryFn: fetchMe })
   const [watched, setWatched] = useState<string[]>([])
 
+  const shell = (body: ReactNode, nav?: ReactNode): ReactNode => (
+    <div className="flex w-full min-h-0 flex-1 flex-col gap-6">
+      <PageHeader {...header} nav={nav} />
+      {body}
+    </div>
+  )
+
   if (settings.isPending || cameras.isPending) {
-    return <Skeleton className="h-64 w-full rounded-xl" />
+    return shell(<Skeleton className="min-h-64 w-full flex-1 rounded-xl" />)
   }
   if (!settings.data?.enabled) {
-    return (
+    return shell(
       <EmptyState
         icon={<Cctv className="size-8" aria-hidden />}
         title={t('disabledTitle')}
         description={t('disabledDesc')}
-      />
+      />,
     )
   }
   const list = (cameras.data?.items ?? []).filter((c) => c.enabled)
   if (list.length === 0) {
-    return (
+    return shell(
       <EmptyState
         icon={<Cctv className="size-8" aria-hidden />}
         title={t('emptyTitle')}
         description={t('emptyDesc')}
-      />
+      />,
     )
   }
 
@@ -85,62 +95,61 @@ export function CameraWall() {
     setWatched([...open, id])
   }
 
-  return (
-    <div className="flex flex-col gap-4">
-      <ul className="flex flex-wrap gap-2" aria-label={t('listLabel')}>
-        {list.map((camera) => {
-          const active = open.includes(camera.id)
+  // Каждая плашка в одну строку и одной высоты: помещение идёт следом за названием, а не
+  // второй строкой — иначе плашки с помещением выше остальных и полоса «пляшет».
+  const tabs = (
+    <ul className="flex w-max gap-2 py-1" aria-label={t('listLabel')}>
+      {list.map((camera) => {
+        const active = open.includes(camera.id)
+        return (
+          <li key={camera.id}>
+            <button
+              type="button"
+              aria-pressed={active}
+              onClick={() => toggle(camera.id)}
+              className={cn(
+                'flex h-9 items-center gap-2 rounded-lg border px-3 text-sm whitespace-nowrap transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/30',
+                active
+                  ? 'border-primary bg-primary/10 text-primary'
+                  : 'border-border hover:bg-muted',
+              )}
+            >
+              <span className="font-medium">{camera.name}</span>
+              {camera.room && (
+                <span className="text-xs text-muted-foreground">{camera.room.name}</span>
+              )}
+              <Badge variant={STATUS_BADGE[camera.status]}>
+                {tCam(`statusState.${camera.status}`)}
+              </Badge>
+            </button>
+          </li>
+        )
+      })}
+    </ul>
+  )
+
+  return shell(
+    open.length === 0 ? (
+      <EmptyState
+        icon={<MonitorPlay className="size-8" aria-hidden />}
+        title={t('pickTitle')}
+        description={t('pickDesc', { count: MAX_WATCHED })}
+      />
+    ) : (
+      <div className="grid content-start gap-3 md:grid-cols-2 xl:grid-cols-3">
+        {open.map((id) => {
+          const camera = byId.get(id)!
           return (
-            <li key={camera.id}>
-              <button
-                type="button"
-                aria-pressed={active}
-                onClick={() => toggle(camera.id)}
-                className={cn(
-                  'flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/30',
-                  active
-                    ? 'border-primary bg-primary/10 text-primary'
-                    : 'border-border hover:bg-muted',
-                )}
-              >
-                <span className="min-w-0">
-                  <span className="block truncate font-medium">{camera.name}</span>
-                  {camera.room && (
-                    <span className="block truncate text-xs text-muted-foreground">
-                      {camera.room.name}
-                    </span>
-                  )}
-                </span>
-                <Badge variant={STATUS_BADGE[camera.status]}>
-                  {tCam(`statusState.${camera.status}`)}
-                </Badge>
-              </button>
-            </li>
+            <CameraPlayer
+              key={id}
+              camera={camera}
+              viewer={viewer}
+              onClose={() => setWatched(open.filter((w) => w !== id))}
+            />
           )
         })}
-      </ul>
-
-      {open.length === 0 ? (
-        <EmptyState
-          icon={<MonitorPlay className="size-8" aria-hidden />}
-          title={t('pickTitle')}
-          description={t('pickDesc', { count: MAX_WATCHED })}
-        />
-      ) : (
-        <div className={cn('grid gap-3', open.length > 1 && 'md:grid-cols-2')}>
-          {open.map((id) => {
-            const camera = byId.get(id)!
-            return (
-              <CameraPlayer
-                key={id}
-                camera={camera}
-                viewer={viewer}
-                onClose={() => setWatched(open.filter((w) => w !== id))}
-              />
-            )
-          })}
-        </div>
-      )}
-    </div>
+      </div>
+    ),
+    tabs,
   )
 }

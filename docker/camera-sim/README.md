@@ -160,7 +160,8 @@ Toxiproxy передаёт только TCP, поэтому агент чере�
 2. Поднять агента:
 
    ```bash
-   STUDENTHUB_AGENT_TOKEN=shca_… docker compose --profile agent up -d --build agent
+   # токен целиком из окна «Токен агента»: shca_ и 43 символа
+   STUDENTHUB_AGENT_TOKEN='<токен агента>' docker compose --profile agent up -d --build agent
    docker compose logs -f agent
    ```
 

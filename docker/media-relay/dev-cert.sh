@@ -11,4 +11,7 @@ docker run --rm -v "$PWD/certs:/out" alpine:3.22 sh -c '
     -keyout /out/server.key -out /out/server.crt -days 365 -subj "/CN=studenthub-media-relay" \
     -addext "subjectAltName=DNS:host.docker.internal,DNS:localhost,DNS:relay" 2>/dev/null &&
   chmod 644 /out/server.key /out/server.crt'
-echo "MEDIA_RELAY_CA_PEM=$(awk 'BEGIN{ORS="\\n"} {print}' certs/server.crt)"
+# printf, а не echo: echo в /bin/sh (dash) сам превращает `\n` в переводы строк, и
+# сертификат в .env разрывался на несколько строк. Кавычки — чтобы файл одинаково читали
+# и dotenv в API, и `set -a && . apps/api/.env` в shell (в PEM есть пробелы).
+printf "MEDIA_RELAY_CA_PEM='%s'\n" "$(awk 'BEGIN{ORS="\\n"} {print}' certs/server.crt)"

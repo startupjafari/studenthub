@@ -1,32 +1,22 @@
 'use client'
 
-import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { useTranslations } from 'next-intl'
-import { Settings2 } from 'lucide-react'
-import { Button, PageHeader } from '../../../shared/ui'
 import { CameraWall } from '../../../widgets/camera-wall'
 
 // Просмотр камер вуза (docs/PROJECT.md §3.10) — охрана на посту и администратор вуза.
-// Администратору — ссылка на управление камерами.
-export function CamerasWatchView({ manageHref }: { manageHref?: string }) {
+// Администратор приходит сюда из управления камерами — ему стрелка «назад» туда же.
+export function CamerasWatchView({ backHref }: { backHref?: string }) {
   const t = useTranslations('CameraWatch')
+  const router = useRouter()
   return (
-    <div className="flex w-full flex-col gap-6">
-      <PageHeader
-        title={t('title')}
-        subtitle={t('subtitle')}
-        actions={
-          manageHref ? (
-            <Button asChild variant="outline" size="md">
-              <Link href={manageHref}>
-                <Settings2 className="size-4" aria-hidden />
-                {t('manage')}
-              </Link>
-            </Button>
-          ) : undefined
-        }
-      />
-      <CameraWall />
-    </div>
+    <CameraWall
+      header={{
+        title: t('title'),
+        subtitle: t('subtitle'),
+        onBack: backHref ? () => router.push(backHref) : undefined,
+        backLabel: t('back'),
+      }}
+    />
   )
 }

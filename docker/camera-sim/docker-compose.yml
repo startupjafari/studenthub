@@ -83,7 +83,7 @@ services:
   # Агент StudentHub внутри сети кампуса (apps/camera-agent) — как его поставят в вузе.
   # Видит регистратор, наружу ходит к API на хосте разработчика. Профиль `agent`, токен
   # берётся в разделе «Камеры» админа вуза:
-  #   STUDENTHUB_AGENT_TOKEN=shca_… docker compose --profile agent up -d --build agent
+  #   STUDENTHUB_AGENT_TOKEN='<токен агента>' docker compose --profile agent up -d --build agent
   agent:
     profiles: ['agent']
     build:
