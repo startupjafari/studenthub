@@ -6,8 +6,7 @@ type Level = 'info' | 'warn' | 'error'
 
 function write(level: Level, msg: string, fields?: Record<string, unknown>): void {
   const line = JSON.stringify({ time: new Date().toISOString(), level, msg, ...fields })
-  if (level === 'info') console.log(line)
-  else console.error(line)
+  ;(level === 'info' ? process.stdout : process.stderr).write(`${line}\n`)
 }
 
 export const log = {
