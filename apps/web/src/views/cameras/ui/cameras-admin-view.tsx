@@ -46,7 +46,7 @@ import { AgentTokenModal } from './agent-token-modal'
 import { CameraFormModal } from './camera-form-modal'
 
 // Камеры вуза для администратора (docs/PROJECT.md §3.10): выключатель модуля, агенты в
-// сети вуза и камеры за ними. Видео здесь нет — просмотр появится отдельным разделом.
+// сети вуза и камеры за ними. Видео здесь нет — просмотр на отдельной странице (watch).
 
 const CONNECTION_BADGE: Record<AgentConnection, 'success' | 'secondary' | 'outline'> = {
   ONLINE: 'success',
@@ -161,33 +161,24 @@ export function CamerasAdminView() {
           settings.isPending ? (
             <Skeleton className="h-9 w-40" />
           ) : (
-            <>
-              {enabled && (
-                <Button asChild variant="default">
-                  <Link href="/university-admin/cameras/watch">
-                    <MonitorPlay className="size-4" aria-hidden />
-                    {t('watch')}
-                  </Link>
-                </Button>
-              )}
-              <Button
-                type="button"
-                variant={enabled ? 'outline' : 'default'}
-                loading={settingsMut.isPending}
-                onClick={() => void toggleModule()}
-              >
-                <Power className="size-4" aria-hidden />
-                {enabled ? t('disable') : t('enable')}
-              </Button>
-            </>
+            <Button
+              type="button"
+              variant={enabled ? 'outline' : 'default'}
+              loading={settingsMut.isPending}
+              onClick={() => void toggleModule()}
+            >
+              <Power className="size-4" aria-hidden />
+              {enabled ? t('disable') : t('enable')}
+            </Button>
           )
         }
       />
 
-      {!settings.isPending && (
-        <Alert variant={enabled ? 'info' : 'warning'}>
+      {/* Предупреждаем только о выключенных камерах: включённые — обычное состояние. */}
+      {!settings.isPending && !enabled && (
+        <Alert variant="warning">
           <Cctv aria-hidden />
-          <AlertDescription>{enabled ? t('enabledNotice') : t('disabledNotice')}</AlertDescription>
+          <AlertDescription>{t('disabledNotice')}</AlertDescription>
         </Alert>
       )}
 
@@ -294,16 +285,26 @@ export function CamerasAdminView() {
         subtitle={t('camerasSubtitle')}
         bodyClassName="px-0 py-0"
         actions={
-          <Button
-            type="button"
-            size="sm"
-            disabled={agentList.length === 0}
-            title={agentList.length === 0 ? t('addAgentFirst') : undefined}
-            onClick={() => setCameraForm({})}
-          >
-            <Plus className="size-4" aria-hidden />
-            {t('addCamera')}
-          </Button>
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+            {enabled && cameraList.length > 0 && (
+              <Button asChild variant="outline" size="sm">
+                <Link href="/university-admin/cameras/watch">
+                  <MonitorPlay className="size-4" aria-hidden />
+                  {t('watch')}
+                </Link>
+              </Button>
+            )}
+            <Button
+              type="button"
+              size="sm"
+              disabled={agentList.length === 0}
+              title={agentList.length === 0 ? t('addAgentFirst') : undefined}
+              onClick={() => setCameraForm({})}
+            >
+              <Plus className="size-4" aria-hidden />
+              {t('addCamera')}
+            </Button>
+          </div>
         }
       >
         {cameras.isPending ? (

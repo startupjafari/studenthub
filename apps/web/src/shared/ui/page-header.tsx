@@ -14,6 +14,11 @@ export interface PageHeaderProps {
   backLabel?: string
   /** Переключатель разделов — обычно `SegmentedTabs`. Стоит справа, перед действиями. */
   tabs?: ReactNode
+  /**
+   * Длинная полоса выбора слева, сразу за заголовком (например, камеры на стене). Занимает
+   * всё свободное место строки и прокручивается по горизонтали, а не переносится.
+   */
+  nav?: ReactNode
   /** Действия справа (кнопки, поиск, скачивание). */
   actions?: ReactNode
   /**
@@ -39,6 +44,7 @@ export function PageHeader({
   onBack,
   backLabel,
   tabs,
+  nav,
   actions,
   bleed = true,
   className,
@@ -79,6 +85,13 @@ export function PageHeader({
           )}
         </div>
       </div>
+      {/* На телефоне полоса уходит отдельной строкой под заголовок, на широком экране
+          встаёт в строку и забирает свободное место. */}
+      {nav && (
+        <div className="order-last -mx-4 w-[calc(100%+2rem)] min-w-0 overflow-x-auto px-4 md:order-none md:mx-0 md:w-auto md:flex-1 md:px-0">
+          {nav}
+        </div>
+      )}
       {/* Табы и действия — одна правая зона: полоса читается как «слева кто я, справа чем
           управляю». `max-w-full` + `flex-wrap`: набор из табов, поиска и кнопки не влезает
           в строку на телефоне — он переносится внутри шапки, а не вылезает за её край. */}

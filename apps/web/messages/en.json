@@ -4002,7 +4002,6 @@
     "adminSubtitle": "Agents on the university network, their cameras and the module switch. Only security and the university administrator can watch cameras.",
     "enable": "Enable cameras",
     "disable": "Disable cameras",
-    "enabledNotice": "Cameras are on: security and the university administrator can watch them. Video is not recorded by the platform.",
     "disabledNotice": "Cameras are off: nobody can watch them. Turn them on once agents and cameras are set up.",
     "enabledToast": "Cameras enabled",
     "disabledToast": "Cameras disabled",
@@ -4085,7 +4084,7 @@
   "CameraWatch": {
     "title": "Cameras",
     "subtitle": "Live video, no sound. Every viewing is recorded in the log.",
-    "manage": "Manage cameras",
+    "back": "Back to camera management",
     "listLabel": "University cameras",
     "disabledTitle": "Cameras are off",
     "disabledDesc": "The university administrator turned cameras off or has not turned them on yet.",
