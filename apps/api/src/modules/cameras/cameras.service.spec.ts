@@ -8,6 +8,7 @@ import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { AuditService } from '../../common/audit/audit.service'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { RoomService } from '../rooms/rooms.service'
+import type { CameraAgentSignal } from './camera-agent-signal'
 
 const ctx = { ip: '127.0.0.1', userAgent: 'jest' }
 
@@ -71,17 +72,23 @@ function setup(agentPublicKey: string | null = null) {
   }
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const rooms = { assertRoomInUniversity: jest.fn().mockResolvedValue(undefined) }
+  const signal = {
+    bump: jest.fn().mockResolvedValue(undefined),
+    bumpUniversity: jest.fn().mockResolvedValue(undefined),
+  }
   const agents = new CameraAgentsService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
+    signal as unknown as CameraAgentSignal,
   )
   const service = new CamerasService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
     agents,
     rooms as unknown as RoomService,
+    signal as unknown as CameraAgentSignal,
   )
-  return { service, agents, prisma, audit, rooms }
+  return { service, agents, prisma, audit, rooms, signal }
 }
 
 describe('CamerasService', () => {
