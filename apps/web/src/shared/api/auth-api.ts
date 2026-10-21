@@ -22,6 +22,9 @@ export interface MeResponse {
   // Имя входа (Telegram-стиль). Только у владельца: в чужой карточке бэкенд его вырезает.
   // null — у зарегистрированных до появления фичи; такие входят только по email.
   username?: string | null
+  // Только в /auth/me: согласие на ПДн надо принять заново (A-F29). Подробности и само
+  // принятие — /users/me/consent (entities/user, гейт — features/accept-consent).
+  consentRequired?: boolean
   universityId: string | null
   facultyId: string | null
   groupId: string | null
@@ -129,6 +132,14 @@ export async function enable2faRequest(code: string): Promise<{ backupCodes: str
 
 export async function disable2faRequest(code: string): Promise<void> {
   await api.post('/auth/2fa/disable', { code })
+}
+
+// Новый набор резервных кодов взамен прежнего (нужен действующий код). Показываются один раз.
+export async function regenerateBackupCodesRequest(
+  code: string,
+): Promise<{ backupCodes: string[] }> {
+  const { data } = await api.post<{ backupCodes: string[] }>('/auth/2fa/backup-codes', { code })
+  return data
 }
 
 // ── Привязка Telegram для админского мини-аппа ───────────────────────────────

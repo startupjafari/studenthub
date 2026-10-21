@@ -71,7 +71,8 @@ export const RegisterByInviteSchema = z
     firstName: z.string().min(1).max(100),
     lastName: z.string().min(1).max(100),
     password: PasswordSchema,
-    email: z.string().email().optional(),
+    // Нижний регистр — как у адреса инвайта: email сравнивается без учёта регистра.
+    email: z.string().trim().toLowerCase().email().optional(),
     birthDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Дата в формате ГГГГ-ММ-ДД'),
     /** Согласие с политикой и соглашением. Только `true`: отказ — это незаполненная форма. */
     consent: z.literal(true),
@@ -132,6 +133,11 @@ export type TwoFactorEnableInput = z.infer<typeof TwoFactorEnableSchema>
 // Отключение 2FA — TOTP-код или backup-код.
 export const TwoFactorDisableSchema = z.object({ code: z.string().min(6).max(20) }).strict()
 export type TwoFactorDisableInput = z.infer<typeof TwoFactorDisableSchema>
+
+// Действие, подтверждённое СВОИМ вторым фактором (TOTP или backup-код): перевыпуск
+// backup-кодов владельцем, сброс 2FA другого человека администратором.
+export const TwoFactorConfirmSchema = z.object({ code: z.string().min(6).max(20) }).strict()
+export type TwoFactorConfirmInput = z.infer<typeof TwoFactorConfirmSchema>
 
 // ── Вход по QR (Telegram Web-стиль) ──────────────────────────────────────────
 

@@ -41,3 +41,23 @@ export function RepostBanner({ repost, className }: { repost: FeedPost; classNam
     </div>
   )
 }
+
+/**
+ * На месте исходника репоста, который зрителю недоступен: удалён, снят модератором или
+ * адресован другой аудитории. Ни автора, ни текста не показываем — сервер их и не отдаёт,
+ * а старая цитата из кэша означала бы, что снятый пост живёт дальше в репостах.
+ */
+export function RepostUnavailable({ className }: { className?: string }) {
+  const t = useTranslations('Feed')
+  return (
+    <p
+      className={cn(
+        'flex items-center gap-1.5 rounded-xl border-l-2 border-l-muted-foreground/40 bg-muted/30 p-3 text-sm text-muted-foreground',
+        className,
+      )}
+    >
+      <Repeat2 className="size-3.5 shrink-0" aria-hidden />
+      {t('postUnavailableTitle')}
+    </p>
+  )
+}

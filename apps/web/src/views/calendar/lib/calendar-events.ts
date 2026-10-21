@@ -1,15 +1,16 @@
 import type { Pair, ScheduleChange } from '../../../entities/schedule'
 import type { EventItem } from '../../../entities/event'
 import type { AssignmentItem } from '../../../entities/assignment'
+import type { ExamItem } from '../../../entities/exam'
 import { isoWeekParity } from '../../../shared/lib'
 import { calendarHoliday, type Holiday } from '../../../shared/config'
 import { formatYmd, pad } from '../../../shared/ui/calendar-grid'
 
 // Единый академический календарь (задача 9): пары (разворачиваются из недельного
-// шаблона на конкретные даты), события, изменения расписания — в одной модели.
-// Задания/экзамены/консультации подключатся со своими доменами.
+// шаблона на конкретные даты), события, изменения расписания, дедлайны заданий и
+// экзамены — в одной модели. Консультации подключатся со своим доменом.
 
-export type CalItemType = 'pair' | 'event' | 'assignment'
+export type CalItemType = 'pair' | 'event' | 'assignment' | 'exam'
 
 export interface CalItem {
   id: string
@@ -24,7 +25,7 @@ export interface CalItem {
   changed: boolean
 }
 
-export type CalFilter = 'all' | 'pair' | 'event' | 'assignment'
+export type CalFilter = 'all' | 'pair' | 'event' | 'assignment' | 'exam'
 
 function dowOf(d: Date): number {
   return ((d.getDay() + 6) % 7) + 1
@@ -109,6 +110,28 @@ export function mapAssignments(assignments: AssignmentItem[]): CalItem[] {
     })
 }
 
+// Экзамены (C-F22): особое событие расписания, раньше в календарь не попадали вовсе —
+// о сессии студент узнавал, только открыв «Экзамены».
+export function mapExams(exams: ExamItem[]): CalItem[] {
+  return exams.map((ex) => {
+    const d = new Date(ex.date)
+    const examiner = ex.examiner ? `${ex.examiner.firstName} ${ex.examiner.lastName}` : null
+    const subtitle = [ex.room?.name, examiner].filter(Boolean).join(' · ')
+    return {
+      id: `exam-${ex.id}`,
+      date: formatYmd(d),
+      start: `${pad(d.getHours())}:${pad(d.getMinutes())}`,
+      end: null,
+      title: ex.course.subject.name,
+      subtitle: subtitle || null,
+      type: 'exam' as const,
+      href: '/exams',
+      cancelled: false,
+      changed: false,
+    }
+  })
+}
+
 export function buildCalendar(
   pairs: Pair[],
   changes: ScheduleChange[],
@@ -116,11 +139,13 @@ export function buildCalendar(
   assignments: AssignmentItem[],
   dates: Date[],
   filter: CalFilter,
+  exams: ExamItem[] = [],
 ): CalItem[] {
   const items: CalItem[] = []
   if (filter === 'all' || filter === 'pair') items.push(...expandPairs(pairs, changes, dates))
   if (filter === 'all' || filter === 'event') items.push(...mapEvents(events))
   if (filter === 'all' || filter === 'assignment') items.push(...mapAssignments(assignments))
+  if (filter === 'all' || filter === 'exam') items.push(...mapExams(exams))
   return items
 }
 

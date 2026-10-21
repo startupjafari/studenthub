@@ -11,6 +11,7 @@ import { RealtimeGateway } from '../../common/realtime'
 import { FileService } from '../files/file.service'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import { ApplicationPolicy } from './application.policy'
+import { rethrowStaleStatus } from '../../common/prisma/stale-status'
 
 // Документы заявки (§3/§4): студент прикладывает документ из личного хранилища к требованию услуги;
 // сотрудник проверяет (принять / запросить замену конкретного документа). Файлы не дублируем —
@@ -39,10 +40,15 @@ export class ApplicationDocumentsService {
     }
     const doc = await this.prisma.document.findFirst({
       where: { id: documentId, ownerId: viewer.sub, deletedAt: null },
-      select: { id: true, title: true },
+      select: { id: true, title: true, status: true, issuedByUniversity: true },
     })
     if (!doc) {
       throw new AppException('NOT_FOUND', 'Документ не найден в вашем хранилище')
+    }
+    // Отозванная вузом справка (revokeStudyCertificate) в кабинете остаётся, но как
+    // подтверждение уже ничего не значит — прикладывать её к новой заявке нельзя.
+    if (doc.issuedByUniversity && doc.status === 'REJECTED') {
+      throw new AppException('BAD_REQUEST', 'Документ отозван университетом')
     }
     return this.prisma.$transaction(async (tx) => {
       const saved = await tx.applicationDocument.upsert({
@@ -81,9 +87,27 @@ export class ApplicationDocumentsService {
 
   /** Убрать приложенный документ (только владелец, черновик/исправление). */
   async remove(viewer: JwtPayload, appId: string, requirementId: string): Promise<null> {
-    await this.loadOwnedEditable(viewer, appId)
-    await this.prisma.applicationDocument.deleteMany({
+    const app = await this.loadOwnedEditable(viewer, appId)
+    if (app.status !== 'NEEDS_CORRECTION') {
+      await this.prisma.applicationDocument.deleteMany({
+        where: { applicationId: appId, requirementId },
+      })
+      return null
+    }
+    // В исправлении принятый документ сотрудник уже проверил: убрать его — значит тихо
+    // поменять одобренный комплект. Менять можно возвращённое на замену и ещё не проверенное
+    // (заменить принятый можно повторным прикладыванием — он снова уйдёт на проверку).
+    // Полноту комплекта отдельно проверяет resubmit.
+    const attached = await this.prisma.applicationDocument.findFirst({
       where: { applicationId: appId, requirementId },
+      select: { status: true },
+    })
+    if (attached?.status === 'ACCEPTED') {
+      throw new AppException('BAD_REQUEST', 'Принятый документ нельзя убрать из заявки')
+    }
+    // Условие на статус и в самом удалении: документ могли принять между проверкой и записью.
+    await this.prisma.applicationDocument.deleteMany({
+      where: { applicationId: appId, requirementId, status: { not: 'ACCEPTED' } },
     })
     return null
   }
@@ -139,6 +163,14 @@ export class ApplicationDocumentsService {
       throw new AppException('BAD_REQUEST', 'Недопустимый переход')
     }
     const { eventId } = await this.prisma.$transaction(async (tx) => {
+      // Статус заявки — в условии записи, как у прочих переходов: параллельные «начать
+      // подготовку», отказ или отзыв студентом иначе затирались бы откатом в NEEDS_CORRECTION.
+      await tx.application
+        .update({
+          where: { id: appId, status: app.status },
+          data: { status: 'NEEDS_CORRECTION' },
+        })
+        .catch(rethrowStaleStatus)
       await tx.applicationDocument.update({
         where: { id: docId },
         data: {
@@ -147,10 +179,6 @@ export class ApplicationDocumentsService {
           reviewedAt: new Date(),
           reviewedById: viewer.sub,
         },
-      })
-      await tx.application.update({
-        where: { id: appId },
-        data: { status: 'NEEDS_CORRECTION' },
       })
       const event = await tx.applicationEvent.create({
         data: {
@@ -189,16 +217,31 @@ export class ApplicationDocumentsService {
     return null
   }
 
-  /** Presigned-ссылка на файл документа заявки: владелец или обработчик (§26, scope перед выдачей). */
-  async presignedUrl(viewer: JwtPayload, appId: string, docId: string): Promise<{ url: string }> {
+  /**
+   * Presigned-ссылка на страницу документа заявки: владелец или обработчик (§26, scope перед
+   * выдачей). `fileId` — конкретная страница из `documents[].files` карточки заявки; без него —
+   * первая (так работали клиенты до списка страниц). Страница обязана принадлежать именно
+   * приложенному документу: чужой fileId по этой ссылке не открывается.
+   *
+   * Просмотр сотрудником пишется в журнал документа (DocumentEvent VIEW, `viaApplication`):
+   * студент видит, кто открывал его паспорт, как и для запросов документов и грантов.
+   */
+  async presignedUrl(
+    viewer: JwtPayload,
+    appId: string,
+    docId: string,
+    fileId?: string,
+  ): Promise<{ url: string }> {
+    // Документы чужого черновика сотруднику не открываются — заявку ему ещё не подавали.
     const scope = await this.prisma.application.findFirst({
-      where: { id: appId, deletedAt: null },
+      where: { id: appId, deletedAt: null, AND: [this.policy.submittedOnlyWhere(viewer)] },
       select: { studentId: true, facultyId: true, universityId: true },
     })
     if (!scope) {
       throw new AppException('NOT_FOUND', 'Заявка не найдена')
     }
-    if (scope.studentId !== viewer.sub && !this.policy.canProcess(viewer, scope)) {
+    const isOwner = scope.studentId === viewer.sub
+    if (!isOwner && !this.policy.canProcess(viewer, scope)) {
       throw new AppException('FORBIDDEN', 'Нет доступа к документу заявки')
     }
     const ad = await this.prisma.applicationDocument.findFirst({
@@ -208,13 +251,30 @@ export class ApplicationDocumentsService {
     if (!ad?.documentId) {
       throw new AppException('NOT_FOUND', 'Документ не приложен')
     }
+    // Удалённый владельцем документ по заявке не открывается (D-F21): снимка для заявки нет,
+    // и удаление паспорта из кабинета обязано закрыть его и для сотрудника.
+    const live = { document: { is: { deletedAt: null } } }
     const file = await this.prisma.file.findFirst({
-      where: { documentId: ad.documentId },
+      where: fileId
+        ? { id: fileId, documentId: ad.documentId, ...live }
+        : { documentId: ad.documentId, ...live },
       orderBy: { order: 'asc' },
       select: { id: true },
     })
     if (!file) {
       throw new AppException('NOT_FOUND', 'Файл документа не найден')
+    }
+    // Журнал — до выдачи ссылки: без записи ссылки нет. Собственный просмотр владельца сюда
+    // не пишем — журнал отвечает на вопрос «кто ещё открывал мой документ».
+    if (!isOwner) {
+      await this.prisma.documentEvent.create({
+        data: {
+          actorId: viewer.sub,
+          documentId: ad.documentId,
+          action: 'VIEW',
+          metadata: { fileId: file.id, viaApplication: appId, applicationDocumentId: docId },
+        },
+      })
     }
     return { url: await this.files.getPresignedUrl(file.id) }
   }

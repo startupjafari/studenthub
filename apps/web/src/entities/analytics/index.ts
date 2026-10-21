@@ -4,6 +4,7 @@ export {
   fetchGroupAttendance,
   fetchAtRiskStudents,
   universityAnalyticsKeys,
+  fetchUniversityOverview,
   fetchAttendanceTrend,
   fetchAttendanceBreakdown,
   fetchRoomLoad,
@@ -38,6 +39,8 @@ export type {
   MultiSeries,
   PlatformOverview,
   UniversitySize,
+  UniversitiesSize,
+  UniversitiesTotals,
   ComplaintsLatency,
   InvitesFunnel,
   ActivityHeatmap,
@@ -49,4 +52,5 @@ export type {
   ExamResultsBreakdown,
   ApplicationsFlow,
   UniversityInvitesFunnel,
+  UniversityOverview,
 } from './model/types'

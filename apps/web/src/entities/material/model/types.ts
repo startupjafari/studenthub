@@ -16,3 +16,9 @@ export interface Material {
   teacher: { id: string; firstName: string; lastName: string }
   media: MaterialFile[]
 }
+
+/** Счётчик материалов дисциплины (`GET /materials/subjects`); `null` — без дисциплины. */
+export interface MaterialSubjectCount {
+  subject: string | null
+  count: number
+}

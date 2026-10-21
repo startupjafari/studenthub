@@ -1,6 +1,5 @@
 'use client'
 
-import { useState } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -15,14 +14,10 @@ import { Role } from '@studenthub/shared-types'
 import { useAppSelector } from '../../../shared/store'
 import { useErrorToast } from '../../../shared/lib'
 import { createEventRequest, eventKeys } from '../../../entities/event'
-import { fetchGroups, groupKeys } from '../../../entities/group'
+import { GroupSelect } from '../../../entities/group'
 import { fetchFaculties, facultyKeys } from '../../../entities/faculty'
 import {
   Button,
-  Checkbox,
-  DateTimePicker,
-  FieldError,
-  Input,
   Label,
   Modal,
   Select,
@@ -30,8 +25,8 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-  Textarea,
 } from '../../../shared/ui'
+import { EventDetailsFields } from './event-details-fields'
 
 // Кому роль вправе адресовать событие. Сервер проверяет то же самое — здесь только
 // не показываем заведомо недоступные варианты.
@@ -45,11 +40,6 @@ const UI_AUDIENCES: Partial<Record<Role, PostAudienceValue[]>> = {
 }
 const GROUP_PICKER_ROLES: Role[] = [Role.UNIVERSITY_ADMIN, Role.TEACHER]
 const FACULTY_PICKER_ROLES: Role[] = [Role.UNIVERSITY_ADMIN]
-
-// datetime-local ("YYYY-MM-DDTHH:mm", локальное время) → ISO UTC для API.
-function toIso(local: string): string {
-  return local ? new Date(local).toISOString() : ''
-}
 
 /**
  * Создание события.
@@ -71,24 +61,14 @@ export function CreateEventModal({ onClose }: { onClose: () => void }) {
     defaultValues: { audience: audiences[0], isOnline: false },
   })
   const audience = form.watch('audience')
-  const isOnline = form.watch('isOnline')
   const showGroup = audience === 'GROUP' && role !== null && GROUP_PICKER_ROLES.includes(role)
   const showFaculty = audience === 'FACULTY' && role !== null && FACULTY_PICKER_ROLES.includes(role)
 
-  const groups = useQuery({
-    queryKey: groupKeys.list(),
-    queryFn: () => fetchGroups(),
-    enabled: showGroup,
-  })
   const faculties = useQuery({
     queryKey: facultyKeys.list(),
     queryFn: () => fetchFaculties(),
     enabled: showFaculty,
   })
-
-  // Пикеры хранят локальное время ("YYYY-MM-DDTHH:mm"), в форму уходит ISO UTC.
-  const [startLocal, setStartLocal] = useState('')
-  const [endLocal, setEndLocal] = useState('')
 
   const mutation = useMutation({
     mutationFn: (input: CreateEventInput) => createEventRequest(input),
@@ -103,56 +83,22 @@ export function CreateEventModal({ onClose }: { onClose: () => void }) {
   return (
     <Modal onClose={onClose} title={t('newEvent')} size="lg">
       <form onSubmit={form.handleSubmit((v) => mutation.mutate(v))} className="flex flex-col gap-4">
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="ev-title">{t('eventTitle')}</Label>
-          <Input id="ev-title" autoFocus {...form.register('title')} />
-          <FieldError>{form.formState.errors.title && t('required')}</FieldError>
-        </div>
-
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="ev-desc">{t('description')}</Label>
-          <Textarea id="ev-desc" rows={3} {...form.register('description')} />
-          <FieldError>{form.formState.errors.description && t('required')}</FieldError>
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="flex flex-col gap-1.5">
-            <Label>{t('audience')}</Label>
-            <Controller
-              control={form.control}
-              name="audience"
-              render={({ field }) => (
-                <Select value={field.value} onValueChange={field.onChange}>
-                  <SelectTrigger aria-label={t('audience')}>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {audiences.map((a) => (
-                      <SelectItem key={a} value={a}>
-                        {t(`audience${a}`)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-            />
-          </div>
-
-          {showGroup && (
+        <EventDetailsFields form={form} mode="create">
+          <div className="grid gap-3 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
-              <Label>{t('group')}</Label>
+              <Label>{t('audience')}</Label>
               <Controller
                 control={form.control}
-                name="groupId"
+                name="audience"
                 render={({ field }) => (
-                  <Select value={field.value ?? ''} onValueChange={field.onChange}>
-                    <SelectTrigger aria-label={t('group')}>
-                      <SelectValue placeholder={t('selectGroup')} />
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <SelectTrigger aria-label={t('audience')}>
+                      <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {(groups.data ?? []).map((g) => (
-                        <SelectItem key={g.id} value={g.id}>
-                          {g.name}
+                      {audiences.map((a) => (
+                        <SelectItem key={a} value={a}>
+                          {t(`audience${a}`)}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -160,111 +106,51 @@ export function CreateEventModal({ onClose }: { onClose: () => void }) {
                 )}
               />
             </div>
-          )}
 
-          {showFaculty && (
-            <div className="flex flex-col gap-1.5">
-              <Label>{t('faculty')}</Label>
-              <Controller
-                control={form.control}
-                name="facultyId"
-                render={({ field }) => (
-                  <Select value={field.value ?? ''} onValueChange={field.onChange}>
-                    <SelectTrigger aria-label={t('faculty')}>
-                      <SelectValue placeholder={t('selectFaculty')} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(faculties.data ?? []).map((f) => (
-                        <SelectItem key={f.id} value={f.id}>
-                          {f.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-              />
-            </div>
-          )}
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="flex flex-col gap-1.5">
-            <Label>{t('startsAt')}</Label>
-            <DateTimePicker
-              value={startLocal}
-              aria-label={t('startsAt')}
-              onChange={(v) => {
-                setStartLocal(v)
-                form.setValue('startsAt', toIso(v), { shouldValidate: true })
-              }}
-            />
-            <FieldError>{form.formState.errors.startsAt && t('required')}</FieldError>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label>{t('endsAt')}</Label>
-            <DateTimePicker
-              value={endLocal}
-              min={startLocal || undefined}
-              aria-label={t('endsAt')}
-              onChange={(v) => {
-                setEndLocal(v)
-                form.setValue('endsAt', v ? toIso(v) : undefined, { shouldValidate: true })
-              }}
-            />
-            <FieldError>{form.formState.errors.endsAt?.message}</FieldError>
-          </div>
-        </div>
-
-        <label className="flex cursor-pointer items-center gap-2 text-sm">
-          <Controller
-            control={form.control}
-            name="isOnline"
-            render={({ field }) => (
-              <Checkbox
-                checked={field.value === true}
-                onCheckedChange={(v) => field.onChange(v === true)}
-                onBlur={field.onBlur}
-              />
+            {showGroup && (
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="e-group">{t('group')}</Label>
+                {/* Поиск по группам на сервере, а не первые 100 по алфавиту. */}
+                <Controller
+                  control={form.control}
+                  name="groupId"
+                  render={({ field }) => (
+                    <GroupSelect
+                      id="e-group"
+                      value={field.value ?? null}
+                      onChange={(v) => field.onChange(v ?? undefined)}
+                      placeholder={t('selectGroup')}
+                    />
+                  )}
+                />
+              </div>
             )}
-          />
-          {t('isOnline')}
-        </label>
 
-        {/* У онлайн-события место и способ подключения — разные вещи, и поля разные:
-            ссылка уходит в meetingUrl, который видят только участники, а `location`
-            остаётся адресом аудитории. Раньше ссылку клали туда же, куда адрес. */}
-        {isOnline ? (
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <div className="flex flex-1 flex-col gap-1.5">
-              <Label htmlFor="ev-meeting">{t('meetingLink')}</Label>
-              <Input
-                id="ev-meeting"
-                type="url"
-                inputMode="url"
-                {...form.register('meetingUrl')}
-                placeholder={t('meetingLinkPlaceholder')}
-              />
-              <FieldError>{form.formState.errors.meetingUrl && t('meetingLinkInvalid')}</FieldError>
-            </div>
-            <div className="flex flex-col gap-1.5 sm:w-48">
-              <Label htmlFor="ev-passcode">{t('meetingPasscode')}</Label>
-              <Input
-                id="ev-passcode"
-                {...form.register('meetingPasscode')}
-                placeholder={t('meetingPasscodePlaceholder')}
-              />
-            </div>
+            {showFaculty && (
+              <div className="flex flex-col gap-1.5">
+                <Label>{t('faculty')}</Label>
+                <Controller
+                  control={form.control}
+                  name="facultyId"
+                  render={({ field }) => (
+                    <Select value={field.value ?? ''} onValueChange={field.onChange}>
+                      <SelectTrigger aria-label={t('faculty')}>
+                        <SelectValue placeholder={t('selectFaculty')} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(faculties.data ?? []).map((f) => (
+                          <SelectItem key={f.id} value={f.id}>
+                            {f.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+              </div>
+            )}
           </div>
-        ) : (
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="ev-loc">{t('location')}</Label>
-            <Input
-              id="ev-loc"
-              {...form.register('location')}
-              placeholder={t('locationPlaceholder')}
-            />
-          </div>
-        )}
+        </EventDetailsFields>
 
         <div className="flex items-center justify-between gap-2">
           <Button type="button" variant="outline" onClick={onClose}>

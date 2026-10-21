@@ -19,6 +19,9 @@ function setup() {
     },
     group: { findUnique: jest.fn() },
     file: { findFirst: jest.fn().mockResolvedValue(null) },
+    // По умолчанию преподаватель ведёт дисциплину в группе.
+    course: { findFirst: jest.fn().mockResolvedValue({ id: 'c1' }) },
+    pair: { findFirst: jest.fn().mockResolvedValue(null) },
   }
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const files = { upload: jest.fn(), findOrThrow: jest.fn(), getPresignedUrl: jest.fn() }
@@ -71,6 +74,60 @@ describe('MaterialsService.list — scope', () => {
   })
 })
 
+describe('MaterialsService.list — фильтры и страницы', () => {
+  const teacher = user(Role.TEACHER, { sub: 't1', universityId: 'uni1' })
+
+  it('mine — только свои материалы, а не поток всего вуза', async () => {
+    const { service, prisma } = setup()
+    await service.list(teacher, { mine: true })
+    const and = prisma.material.findMany.mock.calls[0][0].where.AND
+    expect(and[0]).toEqual({ group: { is: { faculty: { is: { universityId: 'uni1' } } } } })
+    expect(and).toContainEqual({ teacherId: 't1' })
+  })
+
+  it('subject — материалы дисциплины выбираются на сервере', async () => {
+    const { service, prisma } = setup()
+    await service.list(user(Role.STUDENT, { groupId: 'g1' }), { subject: 'Математика' })
+    expect(prisma.material.findMany.mock.calls[0][0].where.AND).toContainEqual({
+      subject: 'Математика',
+    })
+  })
+
+  it('свежие сверху, следующая страница — по cursor, limit не выше потолка', async () => {
+    const { service, prisma } = setup()
+    await service.list(teacher, { cursor: 'm-9', limit: 50 })
+    expect(prisma.material.findMany.mock.calls[0][0]).toMatchObject({
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: 50,
+      cursor: { id: 'm-9' },
+      skip: 1,
+    })
+  })
+
+  it('без limit — потолок 200', async () => {
+    const { service, prisma } = setup()
+    await service.list(teacher, {})
+    expect(prisma.material.findMany.mock.calls[0][0].take).toBe(200)
+  })
+})
+
+describe('MaterialsService.subjects — счётчики по дисциплинам', () => {
+  it('считает по всей выборке scope, а не по странице списка', async () => {
+    const { service, prisma } = setup()
+    const groupBy = jest.fn().mockResolvedValue([
+      { subject: 'Математика', _count: { _all: 240 } },
+      { subject: null, _count: { _all: 3 } },
+    ])
+    ;(prisma.material as unknown as { groupBy: jest.Mock }).groupBy = groupBy
+    const res = await service.subjects(user(Role.STUDENT, { groupId: 'g1' }), {})
+    expect(res).toEqual([
+      { subject: 'Математика', count: 240 },
+      { subject: null, count: 3 },
+    ])
+    expect(groupBy.mock.calls[0][0].where.AND[0]).toEqual({ groupId: 'g1' })
+  })
+})
+
 describe('MaterialsService.create — scope группы', () => {
   it('преподаватель чужого вуза → WRONG_SCOPE', async () => {
     const { service, prisma } = setup()
@@ -95,6 +152,52 @@ describe('MaterialsService.create — scope группы', () => {
       ctx,
     )
     expect(res.id).toBe('m-new')
+  })
+
+  // C-F27: раньше преподаватель выкладывал материал любой группе своего вуза.
+  describe('преподаватель — только группам, где ведёт занятия', () => {
+    const teacher = user(Role.TEACHER, { sub: 't1', universityId: 'uni1' })
+    function prime() {
+      const env = setup()
+      env.prisma.group.findUnique.mockResolvedValue({
+        facultyId: 'f1',
+        faculty: { universityId: 'uni1' },
+      })
+      return env
+    }
+
+    it('ни дисциплины, ни пары в группе → WRONG_SCOPE, материал не создаётся', async () => {
+      const { service, prisma } = prime()
+      prisma.course.findFirst.mockResolvedValue(null)
+      const err = await service.create(teacher, { groupId: 'g1', title: 'T' }, ctx).catch((e) => e)
+      expect(err.code).toBe('WRONG_SCOPE')
+      expect(prisma.course.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { teacherId: 't1', groupId: 'g1' } }),
+      )
+      expect(prisma.pair.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { teacherId: 't1', groupId: 'g1', schedule: { is: { isActive: true } } },
+        }),
+      )
+      expect(prisma.material.create).not.toHaveBeenCalled()
+    })
+
+    it('пара действующего расписания без дисциплины — тоже основание', async () => {
+      const { service, prisma } = prime()
+      prisma.course.findFirst.mockResolvedValue(null)
+      prisma.pair.findFirst.mockResolvedValue({ id: 'p1' })
+      const res = await service.create(teacher, { groupId: 'g1', title: 'T' }, ctx)
+      expect(res.id).toBe('m-new')
+    })
+
+    it('декан факультета — без проверки преподавания', async () => {
+      const { service, prisma } = prime()
+      prisma.course.findFirst.mockResolvedValue(null)
+      const dean = user(Role.DEAN, { facultyId: 'f1', universityId: 'uni1' })
+      const res = await service.create(dean, { groupId: 'g1', title: 'T' }, ctx)
+      expect(res.id).toBe('m-new')
+      expect(prisma.course.findFirst).not.toHaveBeenCalled()
+    })
   })
 })
 

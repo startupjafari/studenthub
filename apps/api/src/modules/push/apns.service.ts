@@ -1,11 +1,16 @@
 import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { createPrivateKey, sign as cryptoSign, randomUUID } from 'node:crypto'
-import { connect, constants, type ClientHttp2Session } from 'node:http2'
+import { connect, constants, type ClientHttp2Session, type ClientHttp2Stream } from 'node:http2'
 import type { EnvVars } from '../../config/env.schema'
 import { apnsOutcome, buildApnsPayload, type ApnsMessage, type ApnsOutcome } from './apns.payload'
 
 export type { ApnsMessage, ApnsOutcome }
+
+// Сколько ждём ответа APNs на один пуш. Полуоткрытое HTTP/2-соединение после сетевого сбоя
+// не присылает ни ответа, ни ошибки: без дедлайна промис не завершался никогда, а с ним
+// вставали job и вся очередь уведомлений до перезапуска процесса.
+const APNS_TIMEOUT_MS = 10_000
 
 /**
  * Отправка пушей на устройства Apple (план iOS, Задача Б1).
@@ -65,7 +70,33 @@ export class ApnsService implements OnModuleDestroy {
     return new Promise<ApnsOutcome>((resolve) => {
       let status = 0
       let body = ''
-      const request = this.connection().request(headers)
+      let settled = false
+      let request: ClientHttp2Stream | undefined
+      const session = this.connection()
+      // Промис завершается ровно один раз — ответом, ошибкой, закрытием потока или дедлайном.
+      const finish = (outcome: ApnsOutcome): void => {
+        if (settled) return
+        settled = true
+        clearTimeout(deadline)
+        resolve(outcome)
+      }
+      const deadline = setTimeout(() => {
+        this.logger.warn(`APNs: нет ответа за ${APNS_TIMEOUT_MS} мс — соединение пересоздаём`)
+        request?.close(constants.NGHTTP2_CANCEL)
+        // Молчащее соединение само не оживёт: следующий пуш откроет новое.
+        this.dropSession(session)
+        finish('retry')
+      }, APNS_TIMEOUT_MS)
+
+      try {
+        request = session.request(headers)
+      } catch (error) {
+        // Сессия успела закрыться между проверкой и запросом.
+        this.logger.warn(`APNs: соединение недоступно (${String(error)})`)
+        this.forgetSession(session)
+        finish('retry')
+        return
+      }
 
       request.setEncoding('utf8')
       request.on('response', (responseHeaders) => {
@@ -77,16 +108,19 @@ export class ApnsService implements OnModuleDestroy {
       request.on('error', (error) => {
         // Разорванное соединение — повод попробовать позже, а не выбрасывать токен.
         this.logger.warn(`APNs: соединение оборвалось (${String(error)})`)
-        this.session = null
-        resolve('retry')
+        this.forgetSession(session)
+        finish('retry')
       })
       request.on('end', () => {
         const outcome = apnsOutcome(status, body)
         if (outcome === 'retry') {
           this.logger.warn(`APNs: отказ ${status}`)
         }
-        resolve(outcome)
+        finish(outcome)
       })
+      // Поток закрыт, не дочитав ответ (сессию разорвали без ошибки на потоке): без этого
+      // промис ждал бы до дедлайна.
+      request.on('close', () => finish('retry'))
 
       request.end(payload)
     })
@@ -100,11 +134,25 @@ export class ApnsService implements OnModuleDestroy {
       ? 'https://api.push.apple.com'
       : 'https://api.sandbox.push.apple.com'
     const session = connect(host)
-    session.on('error', () => {
-      this.session = null
-    })
+    // Ошибка, GOAWAY (APNs закрывает соединение при обслуживании) или закрытие — сессия
+    // больше не годится, следующий пуш откроет новую.
+    const forget = (): void => this.forgetSession(session)
+    session.on('error', forget)
+    session.on('goaway', forget)
+    session.on('close', forget)
     this.session = session
     return session
+  }
+
+  /** Следующий пуш откроет новую сессию; уже открытую позже этой не трогаем. */
+  private forgetSession(session: ClientHttp2Session): void {
+    if (this.session === session) this.session = null
+  }
+
+  /** Забыть и закрыть молчащую сессию: её запросы не дождутся ответа и сразу уйдут в retry. */
+  private dropSession(session: ClientHttp2Session): void {
+    this.forgetSession(session)
+    if (!session.destroyed) session.destroy()
   }
 
   /** Провайдерский токен: JWT ES256, подписанный ключом p8. */

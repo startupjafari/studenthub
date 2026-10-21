@@ -1,6 +1,6 @@
 import { z } from 'zod'
 import { httpUrl } from './url.js'
-import { OffsetPaginationSchema, SortOrderSchema } from './pagination.js'
+import { OffsetPaginationSchema, SortOrderSchema, queryBoolean } from './pagination.js'
 
 // Задания (docs/ACADEMIC_CORE.md, задача 3). Статусы/типы — строки (SSOT здесь).
 
@@ -66,8 +66,13 @@ export const AssignmentListQuerySchema = OffsetPaginationSchema.extend({
   courseId: z.string().min(1).optional(),
   groupId: z.string().min(1).optional(),
   status: AssignmentStatusSchema.optional(),
-  mine: z.coerce.boolean().optional(),
-  // Необязательные: без них остаётся прежний порядок «ближайший срок сверху».
+  mine: queryBoolean.optional(),
+  // Период по сроку сдачи (календарь, «Сегодня»): `dueFrom` — включительно, `dueTo` — не
+  // включая. Задания без срока в период не попадают.
+  dueFrom: isoDateTime.optional(),
+  dueTo: isoDateTime.optional(),
+  // Необязательные. Без них студент получает «актуальные сверху» (открытые по ближайшему
+  // сроку, затем прошедшие от свежих к старым), остальные роли — «ближайший срок сверху».
   sort: AssignmentSortSchema.optional(),
   order: SortOrderSchema.optional(),
 })

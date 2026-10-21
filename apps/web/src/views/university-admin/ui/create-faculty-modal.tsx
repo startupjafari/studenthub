@@ -43,7 +43,12 @@ export function CreateFacultyModal({ onClose }: Props) {
       toast.success(t('facultyCreated'))
       onClose()
     },
-    onError: (e) => toast.error(tErr(errCode(e))),
+    onError: (e) => {
+      const code = errCode(e)
+      // Такое название уже есть — ошибка ввода, а не сбой: показываем у поля, окно не закрываем.
+      if (code === 'CONFLICT') form.setError('name', { type: 'server', message: t('nameTaken') })
+      else toast.error(tErr(code))
+    },
   })
 
   return (
@@ -61,7 +66,13 @@ export function CreateFacultyModal({ onClose }: Props) {
             aria-invalid={!!form.formState.errors.name}
             {...form.register('name')}
           />
-          <FieldError>{form.formState.errors.name ? t('nameRequired') : null}</FieldError>
+          <FieldError>
+            {form.formState.errors.name?.type === 'server'
+              ? form.formState.errors.name.message
+              : form.formState.errors.name
+                ? t('nameRequired')
+                : null}
+          </FieldError>
         </div>
 
         <div className="flex items-center justify-between gap-2">

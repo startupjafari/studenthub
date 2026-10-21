@@ -220,6 +220,14 @@ describe('CareerAnalyticsService — вуз', () => {
     expect(result.profiles).toEqual({ visible: 120, total: 400 })
   })
 
+  it('числитель и знаменатель доли профилей — студенты вместе со старостами (D-F31)', async () => {
+    const { service, prisma } = setup()
+    await service.forUniversity(staff())
+    const roles = { in: [Role.STUDENT, Role.STAROSTA] }
+    expect(prisma.user.count.mock.calls[0][0].where).toMatchObject({ role: roles })
+    expect(prisma.careerProfile.count.mock.calls[0][0].where.user).toMatchObject({ role: roles })
+  })
+
   it('сотрудник без вуза в токене получает WRONG_SCOPE', async () => {
     const { service } = setup()
     await expect(service.forUniversity(staff(null))).rejects.toBeInstanceOf(AppException)

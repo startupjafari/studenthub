@@ -20,7 +20,7 @@ import {
 } from '../../../shared/ui'
 import { OPTIONAL_TEXT, useErrorToast } from '../../../shared/lib'
 import { createMaterialRequest, materialKeys } from '../../../entities/material'
-import { fetchGroups, groupKeys } from '../../../entities/group'
+import { GroupSelect } from '../../../entities/group'
 import { courseKeys, fetchCourses } from '../../../entities/course'
 import { useAppSelector } from '../../../shared/store'
 import { Role } from '@studenthub/shared-types'
@@ -36,7 +36,6 @@ export function CreateMaterialModal({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient()
   const errorToast = useErrorToast('create-material')
 
-  const groups = useQuery({ queryKey: groupKeys.list(), queryFn: () => fetchGroups() })
   const form = useForm<CreateMaterialInput>({ resolver: zodResolver(CreateMaterialSchema) })
   const role = useAppSelector((s) => s.auth.role)
 
@@ -76,30 +75,23 @@ export function CreateMaterialModal({ onClose }: { onClose: () => void }) {
             и ссылка идут во всю ширину окна. */}
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-1.5">
-            <Label>{t('group')}</Label>
+            <Label htmlFor="m-group">{t('group')}</Label>
+            {/* Поиск по группам на сервере: выбор из первых 100 по алфавиту не давал
+                выложить материал группе из хвоста алфавита в большом вузе. */}
             <Controller
               control={form.control}
               name="groupId"
               render={({ field }) => (
-                <Select
-                  value={field.value ?? ''}
-                  onValueChange={(v) => {
-                    field.onChange(v)
+                <GroupSelect
+                  id="m-group"
+                  value={field.value ?? null}
+                  onChange={(v) => {
+                    field.onChange(v ?? undefined)
                     // Дисциплины у другой группы свои — прежний выбор к ней не относится.
                     form.setValue('subject', undefined)
                   }}
-                >
-                  <SelectTrigger aria-invalid={!!form.formState.errors.groupId}>
-                    <SelectValue placeholder={t('selectGroup')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(groups.data ?? []).map((g) => (
-                      <SelectItem key={g.id} value={g.id}>
-                        {g.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  placeholder={t('selectGroup')}
+                />
               )}
             />
             <FieldError>{form.formState.errors.groupId ? t('required') : null}</FieldError>
@@ -129,8 +121,12 @@ export function CreateMaterialModal({ onClose }: { onClose: () => void }) {
                 </Select>
               )}
             />
+            {/* Преподавателю сервер примет материал без дисциплины, только если у него есть
+                пары в этой группе (C-F27) — подсказка говорит об этом заранее. */}
             {groupId && !courses.isLoading && subjects.length === 0 && (
-              <p className="text-xs text-muted-foreground">{t('noSubjectsHint')}</p>
+              <p className="text-xs text-muted-foreground">
+                {t(role === Role.TEACHER ? 'noSubjectsHintTeacher' : 'noSubjectsHint')}
+              </p>
             )}
           </div>
         </div>

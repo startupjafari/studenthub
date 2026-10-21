@@ -2,7 +2,7 @@
 
 import { useMemo } from 'react'
 import dynamic from 'next/dynamic'
-import { useQueries, useQuery } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { useFormatter, useLocale, useTranslations } from 'next-intl'
 import {
   AlertTriangle,
@@ -18,16 +18,14 @@ import {
 import type { LucideIcon } from 'lucide-react'
 import { useAppSelector } from '../../../shared/store'
 import { fetchUniversityStats, universityKeys } from '../../../entities/university'
-import { fetchFaculties, facultyKeys } from '../../../entities/faculty'
 import {
-  analyticsKeys,
-  fetchFacultyOverview,
   fetchApplicationsFlow,
   fetchAttendanceBreakdown,
   fetchAttendanceTrend,
   fetchExamResults,
   fetchRoomLoad,
   fetchUniversityInvitesFunnel,
+  fetchUniversityOverview,
   universityAnalyticsKeys,
 } from '../../../entities/analytics'
 import { Badge, EmptyState, MetricTile, Progress, SectionPanel, Skeleton } from '../../../shared/ui'
@@ -91,35 +89,22 @@ export function StatsDashboard() {
     queryFn: () => fetchUniversityStats(universityId as string),
     enabled: !!universityId,
   })
-  const faculties = useQuery({ queryKey: facultyKeys.list(), queryFn: () => fetchFaculties() })
-
-  const overviews = useQueries({
-    queries: (faculties.data ?? []).map((f) => ({
-      queryKey: analyticsKeys.faculty(f.id),
-      queryFn: () => fetchFacultyOverview(f.id),
-      // Один недоступный факультет не должен ронять весь дашборд.
-      retry: false,
-    })),
+  // Плитки и худшие группы — одним агрегатом вуза с кэшем на сервере. Раньше здесь
+  // уходил `GET /analytics/faculty` на каждый факультет, а посещаемость вуза считалась
+  // невзвешенным средним групп и расходилась с трендом ниже.
+  const overview = useQuery({
+    queryKey: universityAnalyticsKeys.overview(),
+    queryFn: fetchUniversityOverview,
+    enabled: !!universityId,
   })
-  const loadedOverviews = overviews.map((q) => q.data).filter((d) => d !== undefined)
-  const analyticsLoading = faculties.isLoading || overviews.some((q) => q.isLoading)
+  const analyticsLoading = overview.isPending && !!universityId
 
-  // Посещаемость по вузу — среднее по группам с размеченной посещаемостью.
-  const groupStats = loadedOverviews.flatMap((o) => o.groups)
-  const tracked = groupStats.filter((g) => g.attendanceTracked > 0)
-  const attendanceRate =
-    tracked.length > 0
-      ? Math.round(tracked.reduce((acc, g) => acc + g.attendanceRate, 0) / tracked.length)
-      : null
-  const submissionsPending = loadedOverviews.reduce((a, o) => a + o.totals.submissionsPending, 0)
-  const examsUpcoming = loadedOverviews.reduce((a, o) => a + o.totals.examsUpcoming, 0)
-  const atRisk = loadedOverviews
-    .flatMap((o) => o.atRisk)
-    .sort((a, b) => a.attendanceRate - b.attendanceRate)
-
-  const worst = [...tracked]
-    .sort((a, b) => a.attendanceRate - b.attendanceRate)
-    .slice(0, WORST_GROUPS)
+  const attendanceRate = overview.data?.attendanceRate ?? null
+  const submissionsPending = overview.data?.submissionsPending ?? 0
+  const examsUpcoming = overview.data?.examsUpcoming ?? 0
+  const atRisk = overview.data?.atRisk ?? []
+  // Сервер уже отдаёт группы по возрастанию посещаемости.
+  const worst = (overview.data?.groups ?? []).slice(0, WORST_GROUPS)
 
   if (!universityId) return <EmptyState title={t('noUniversity')} />
   if (stats.isError) return <EmptyState title={tErr('INTERNAL_ERROR')} />

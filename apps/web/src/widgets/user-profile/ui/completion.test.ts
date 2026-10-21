@@ -62,8 +62,10 @@ describe('computeProfileCompletion', () => {
     expect(keys).not.toContain('course')
     expect(keys).not.toContain('fundingType')
     expect(keys).not.toContain('academicStatus')
+    // Общежитие печатается в студенческом — его тоже ведёт вуз.
+    expect(keys).not.toContain('dormitory')
     // Своё по-прежнему спрашивается.
-    expect(keys).toContain('dormitory')
+    expect(keys).toContain('address')
     expect(keys).toContain('bio')
   })
 })
@@ -74,7 +76,7 @@ describe('editableSections', () => {
     const keys = study?.fields.map((f) => f.key) ?? []
     expect(keys).not.toContain('course')
     expect(keys).not.toContain('gpa')
-    expect(keys).toContain('dormitory')
+    expect(keys).not.toContain('dormitory')
     expect(keys).toContain('address')
   })
 })

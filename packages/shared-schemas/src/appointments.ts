@@ -35,9 +35,33 @@ export const ConfirmAppointmentSchema = z
   .strict()
 export type ConfirmAppointmentInput = z.infer<typeof ConfirmAppointmentSchema>
 
+// Открытые записи ждут ответа деканата или самого приёма; завершённые и отменённые — архив.
+export const ACTIVE_APPOINTMENT_STATUSES = [
+  'REQUESTED',
+  'CONFIRMED',
+  'RESCHEDULED',
+] as const satisfies readonly AppointmentStatus[]
+export const CLOSED_APPOINTMENT_STATUSES = [
+  'COMPLETED',
+  'CANCELLED',
+] as const satisfies readonly AppointmentStatus[]
+
+// Срез очереди деканата. По умолчанию — `active`: архив только копится, и в общей выборке
+// с потолком он вытеснял бы новые записи.
+export const APPOINTMENT_QUEUE_VIEWS = ['active', 'closed', 'all'] as const
+export const AppointmentQueueViewSchema = z.enum(APPOINTMENT_QUEUE_VIEWS)
+export type AppointmentQueueView = z.infer<typeof AppointmentQueueViewSchema>
+
+// Потолок одной выдачи очереди; дальше — по `cursor` (id последней полученной записи).
+export const APPOINTMENT_QUEUE_LIMIT = 300
+
 export const AppointmentListQuerySchema = z
   .object({
+    // Точный статус. Задан — срез `view` не применяется.
     status: AppointmentStatusSchema.optional(),
+    view: AppointmentQueueViewSchema.optional(),
+    cursor: z.string().min(1).optional(),
+    limit: z.coerce.number().int().positive().max(APPOINTMENT_QUEUE_LIMIT).optional(),
   })
   .strict()
 export type AppointmentListQueryInput = z.infer<typeof AppointmentListQuerySchema>

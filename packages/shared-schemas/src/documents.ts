@@ -130,6 +130,12 @@ export const PlatformDocumentAccessSchema = z
   .strict()
 export type PlatformDocumentAccessInput = z.infer<typeof PlatformDocumentAccessSchema>
 
+// Метаданные чужого документа в спец-режиме — тоже с причиной (D-F24): карточка раскрывает
+// тип, название, маску номера, даты и состав файлов, и обращение без обоснования в аудите
+// было бы «тихим» доступом.
+export const PlatformDocumentMetaSchema = z.object({ reason: z.string().min(5).max(500) }).strict()
+export type PlatformDocumentMetaInput = z.infer<typeof PlatformDocumentMetaSchema>
+
 // ── Под-фаза D: управление типами документов вузом (задача 15.20) ─────────────
 
 // Поля мастера, которые можно назначить custom-типу (зеркалит DOCUMENT_FIELDS в shared-config).

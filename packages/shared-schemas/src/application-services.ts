@@ -60,13 +60,15 @@ export type ApplicationServiceStatus = z.infer<typeof ApplicationServiceStatusSc
 
 // Единый граф допустимых переходов (SSOT). Бэкенд — финальный источник истины: любой переход
 // проверяется здесь, даже если фронт скрыл кнопку. Business-action → целевой статус решает сервис.
+// CANCELLED — отзыв студентом, «до начала подготовки» (§9): в том числе пока заявку
+// проверяют (IN_REVIEW) и после повторной отправки (RESUBMITTED).
 export const APPLICATION_TRANSITIONS: Record<ApplicationServiceStatus, ApplicationServiceStatus[]> =
   {
     DRAFT: ['SUBMITTED', 'CANCELLED'],
     SUBMITTED: ['IN_REVIEW', 'CANCELLED', 'REJECTED'],
-    IN_REVIEW: ['NEEDS_CORRECTION', 'IN_PREPARATION', 'REJECTED'],
+    IN_REVIEW: ['NEEDS_CORRECTION', 'IN_PREPARATION', 'REJECTED', 'CANCELLED'],
     NEEDS_CORRECTION: ['RESUBMITTED', 'CANCELLED'],
-    RESUBMITTED: ['IN_REVIEW'],
+    RESUBMITTED: ['IN_REVIEW', 'CANCELLED'],
     IN_PREPARATION: ['READY', 'READY_FOR_PICKUP', 'REJECTED'],
     READY: ['DELIVERED', 'READY_FOR_PICKUP'],
     READY_FOR_PICKUP: ['ISSUED', 'DELIVERED'],
@@ -84,15 +86,6 @@ export const TERMINAL_STATUSES: ApplicationServiceStatus[] = [
   'CANCELLED',
 ]
 
-// До этих статусов заявку редактирует/отзывает студент; после — данные фиксируются.
-export const STUDENT_CANCELLABLE_STATUSES: ApplicationServiceStatus[] = [
-  'DRAFT',
-  'SUBMITTED',
-  'IN_REVIEW',
-  'NEEDS_CORRECTION',
-  'RESUBMITTED',
-]
-
 export function canTransition(
   from: ApplicationServiceStatus,
   to: ApplicationServiceStatus,
@@ -100,16 +93,40 @@ export function canTransition(
   return APPLICATION_TRANSITIONS[from].includes(to)
 }
 
+// Статусы, из которых студент может отозвать заявку. Выводятся из графа, а не перечисляются
+// отдельно: раньше это был самостоятельный список, он разошёлся с графом, и кнопка
+// «Отозвать» в IN_REVIEW/RESUBMITTED упиралась в «Недопустимый переход».
+export const STUDENT_CANCELLABLE_STATUSES: ApplicationServiceStatus[] = APPLICATION_STATUSES.filter(
+  (status) => canTransition(status, 'CANCELLED'),
+)
+
 // ── Тело запросов ────────────────────────────────────────────────────────────
 // Создание черновика: только выбор услуги; остальное заполняется правкой черновика (§8, §30).
 export const CreateDraftSchema = z.object({ serviceId: z.string().min(1) }).strict()
 export type CreateDraftInput = z.infer<typeof CreateDraftSchema>
 
+// Ответы анкеты услуги: ключ — код поля, значение — примитив (строка, число, флажок).
+// Потолки — грубая граница, чтобы в заявку нельзя было положить произвольный JSON размером
+// с тело запроса. Тип значения, правила поля и состав ключей сервер сверяет с анкетой услуги.
+export const FORM_DATA_MAX_FIELDS = 100
+export const FORM_DATA_MAX_VALUE_LENGTH = 5000
+export const FormDataValueSchema = z.union([
+  z.string().max(FORM_DATA_MAX_VALUE_LENGTH),
+  z.number().finite(),
+  z.boolean(),
+  z.null(),
+])
+export const FormDataSchema = z
+  .record(z.string().max(60), FormDataValueSchema)
+  .refine((data) => Object.keys(data).length <= FORM_DATA_MAX_FIELDS, {
+    message: `Не больше ${FORM_DATA_MAX_FIELDS} полей`,
+  })
+
 // Правка черновика: способ получения + ответы динамической формы (валидация полей — по услуге на бэке).
 export const UpdateDraftSchema = z
   .object({
     deliveryType: DeliveryTypeSchema.optional(),
-    formData: z.record(z.string(), z.unknown()).optional(),
+    formData: FormDataSchema.optional(),
   })
   .strict()
 export type UpdateDraftInput = z.infer<typeof UpdateDraftSchema>
@@ -187,6 +204,15 @@ export const MarkReadySchema = z
   })
   .strict()
 export type MarkReadyInput = z.infer<typeof MarkReadySchema>
+
+// Выдача оригинала. Код получения необязателен: если клиент его передал, сервер сверяет его
+// с кодом заявки (студент показывает код из карточки). `.default({})` — клиенты, которые кода
+// не спрашивают, шлют запрос вовсе без тела.
+export const IssueApplicationSchema = z
+  .object({ pickupCode: z.string().trim().min(1).max(40).optional() })
+  .strict()
+  .default({})
+export type IssueApplicationInput = z.infer<typeof IssueApplicationSchema>
 
 // Статусы документа заявки (для фронта).
 export const APPLICATION_DOCUMENT_STATUSES = [

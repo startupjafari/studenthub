@@ -212,6 +212,20 @@ describe('CatalogAdminService — сохранение', () => {
     }
     expect(call.create.options).toBe(Prisma.DbNull)
   })
+
+  // Правила полей редактор не показывает и не отправляет — правка не должна их стирать.
+  it('правка из редактора не трогает validation полей', async () => {
+    const { service, tx } = setup()
+
+    await service.create(uniAdmin, input, ctx)
+
+    const call = tx.serviceFormField.upsert.mock.calls[0]?.[0] as {
+      create: Record<string, unknown>
+      update: Record<string, unknown>
+    }
+    expect(call.create).not.toHaveProperty('validation')
+    expect(call.update).not.toHaveProperty('validation')
+  })
 })
 
 describe('CatalogAdminService.customize', () => {
@@ -250,6 +264,42 @@ describe('CatalogAdminService.customize', () => {
     expect(tx.applicationService.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({ universityId: 'uni-1', code: 'study-certificate' }),
+      }),
+    )
+  })
+
+  // D-F15: копия строилась из карточки редактора, где правил полей нет, — и теряла их.
+  it('копия наследует правила полей (validation) шаблона', async () => {
+    const { service, prisma, tx } = setup()
+    const rules = { maxLength: 12, pattern: '^\\d{12}$' }
+    prisma.applicationService.findFirst
+      .mockResolvedValueOnce({
+        ...template,
+        formFields: [
+          {
+            code: 'iin',
+            type: 'TEXT',
+            labelRu: 'ИИН',
+            labelKk: 'ЖСН',
+            labelEn: 'IIN',
+            placeholderRu: null,
+            placeholderKk: null,
+            placeholderEn: null,
+            required: true,
+            options: null,
+            validation: rules,
+          },
+        ],
+      })
+      .mockResolvedValueOnce(null)
+
+    await service.customize(uniAdmin, 'tpl-1', ctx)
+
+    const select = prisma.applicationService.findFirst.mock.calls[0][0].select
+    expect(select.formFields.select.validation).toBe(true)
+    expect(tx.serviceFormField.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({ code: 'iin', validation: rules }),
       }),
     )
   })

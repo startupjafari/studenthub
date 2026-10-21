@@ -31,9 +31,21 @@ const FILTER_LABEL: Record<FeedFilterValue, string> = {
   TEACHERS: 'filterTeachers',
   IMPORTANT: 'filterImportant',
   SAVED: 'filterSaved',
+  MODERATION: 'filterModeration',
 }
 // Модераторы посты не пишут — только читают и модерируют.
 const READONLY_ROLES: Role[] = [Role.PLATFORM_MODERATOR, Role.UNIVERSITY_MODERATOR]
+// Раздел «Модерация» — не срез личной ленты, а всё, что роль вправе снимать: платформа —
+// все вузы, вуз — свой вуз, декан — свой факультет (сервер, filter=MODERATION). Личная
+// лента для этого не годилась: модератор платформы видел в ней лишь посты для всех, а
+// админ вуза — ни одного поста групп.
+const MODERATOR_ROLES: Role[] = [
+  Role.PLATFORM_ADMIN,
+  Role.PLATFORM_MODERATOR,
+  Role.UNIVERSITY_ADMIN,
+  Role.UNIVERSITY_MODERATOR,
+  Role.DEAN,
+]
 
 /**
  * Экран ленты для ролей вне студенческой главной.
@@ -46,10 +58,21 @@ const READONLY_ROLES: Role[] = [Role.PLATFORM_MODERATOR, Role.UNIVERSITY_MODERAT
 export function FeedView() {
   const t = useTranslations('Nav')
   const tFeed = useTranslations('Feed')
-  const [filter, setFilter] = useState<FeedFilterValue>('ALL')
+  const [picked, setFilter] = useState<FeedFilterValue | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const role = useAppSelector((s) => s.auth.role)
   const canPost = role !== null && !READONLY_ROLES.includes(role)
+  const canModerate = role !== null && MODERATOR_ROLES.includes(role)
+  // Модератору без права публиковать модерация — основная работа: раздел первым и открыт
+  // сразу. Админу и декану лента остаётся своей, а «Модерация» — последним разделом.
+  // Выбор по умолчанию считается от роли, а не замораживается в useState: роль приходит
+  // после восстановления сессии, уже после первой отрисовки.
+  const filters: readonly FeedFilterValue[] = !canModerate
+    ? FILTERS
+    : canPost
+      ? [...FILTERS, 'MODERATION']
+      : ['MODERATION', ...FILTERS]
+  const filter = picked ?? (canModerate && !canPost ? 'MODERATION' : 'ALL')
   // Боковая колонка есть только при непустом блоке друзей — иначе ленту незачем сдвигать.
   const { hasAny: hasFriendsPanel } = useFriendsSummary()
 
@@ -62,7 +85,7 @@ export function FeedView() {
             aria-label={t('posts')}
             value={filter}
             onChange={setFilter}
-            items={FILTERS.map((f) => ({ value: f, label: tFeed(FILTER_LABEL[f]) }))}
+            items={filters.map((f) => ({ value: f, label: tFeed(FILTER_LABEL[f]) }))}
           />
         }
         actions={

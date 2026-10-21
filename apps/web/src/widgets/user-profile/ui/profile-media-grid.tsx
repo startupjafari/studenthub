@@ -40,7 +40,10 @@ import { MediaLightbox } from './media-lightbox'
 import { PhotoAlbumMenu, type AlbumFilter } from './album-controls'
 import { ContentLayout, FilterGroup, FilterOption, FilterSkeleton } from './filter-sidebar'
 import { useRetryOnError } from './use-retry-on-error'
+import { LoadFailed } from './load-failed'
 import { useProgressive } from './use-progressive'
+import type { ContentModeration } from '../lib/content-moderation'
+import { mediaQuotaNear, mediaUsage, useMediaQuota } from '../lib/media-quota'
 
 function errCode(e: unknown): string {
   return (e as { code?: string }).code ?? 'INTERNAL_ERROR'
@@ -64,6 +67,8 @@ function tileSizes(index: number): string {
 interface ProfileMediaGridProps {
   userId: string
   isOwner: boolean
+  // Модератор scope снимает чужие фото и видео (пункт «Удалить (модерация)»; решает сервер).
+  moderation?: ContentModeration
   kind: 'PHOTO' | 'VIDEO'
   // Сигнал «открыть выбор файла» (из меню «+» в шапке профиля); nonce меняется при каждом вызове.
   openPicker?: number
@@ -73,6 +78,7 @@ interface ProfileMediaGridProps {
 export function ProfileMediaGrid({
   userId,
   isOwner,
+  moderation,
   kind,
   openPicker,
   onConsumed,
@@ -81,6 +87,7 @@ export function ProfileMediaGrid({
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
   const confirm = useConfirm()
+  const quota = useMediaQuota(userId)
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -93,8 +100,8 @@ export function ProfileMediaGrid({
     queryKey: profileContentKeys.media(userId),
     queryFn: () => fetchProfileMedia(userId),
   })
-  // При ошибке — держим скелетон, тост каждые 5 сек и повтор запроса.
-  useRetryOnError(q.isError, q.refetch, t('loadRetry'))
+  // Ошибка — один тост и повторы с растущей паузой; не помогло — ошибка на месте вкладки.
+  const loadState = useRetryOnError(q, t('loadRetry'))
   const isPhoto = kind === 'PHOTO'
   const albumsQ = useQuery({
     queryKey: profileContentKeys.albums(userId),
@@ -157,7 +164,10 @@ export function ProfileMediaGrid({
       void qc.invalidateQueries({ queryKey: profileContentKeys.media(userId) })
       toast.success(t('mediaUploaded'))
     },
-    onError: (e) => toast.error(tErr(errCode(e))),
+    // Квота — своим текстом («удалите лишнее»), а не общим «конфликт».
+    onError: (e) => {
+      if (!quota.handleError(e)) toast.error(tErr(errCode(e)))
+    },
   })
 
   const delMut = useMutation({
@@ -174,6 +184,10 @@ export function ProfileMediaGrid({
     return sort === 'new' ? d : -d
   })
   const activeAlbumId = albumFilter !== 'all' ? albumFilter : null
+  // Заполненность квоты — только владельцу и только когда она близко: постоянная строка
+  // «занято 3 МБ из 2 ГБ» у каждого профиля — шум.
+  const usage = mediaUsage(q.data ?? [])
+  const showUsage = isOwner && mediaQuotaNear(usage)
   // Порция — полный цикл мозаики (14 плиток): каждая догрузка достраивает узор до конца.
   const { shown, pending, sentinelRef } = useProgressive(
     items.length,
@@ -193,12 +207,27 @@ export function ProfileMediaGrid({
 
   function onPick(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
-    if (file) uploadMut.mutate(file)
+    // Не влезает в квоту по уже загруженному — тост сразу, без заливки впустую.
+    if (file && quota.fits(file)) uploadMut.mutate(file)
     e.target.value = ''
   }
 
   function confirmDelete(id: string): void {
     void confirm({ title: t('mediaDeleteConfirm'), destructive: true }).then((ok) => {
+      if (ok) delMut.mutate(id)
+    })
+  }
+
+  // Чужое медиа снимает модератор scope: то же удаление, но с пояснением, что это решение
+  // модерации и оно попадёт в аудит.
+  const canModerate = !isOwner && !!moderation?.content
+  function confirmModerate(id: string): void {
+    void confirm({
+      title: t('mediaDeleteConfirm'),
+      description: t('moderationDeleteHint'),
+      confirmLabel: t('deleteModeration'),
+      destructive: true,
+    }).then((ok) => {
       if (ok) delMut.mutate(id)
     })
   }
@@ -255,7 +284,9 @@ export function ProfileMediaGrid({
         />
       )}
 
-      {q.isLoading || q.isError ? (
+      {!q.data && loadState.failed ? (
+        <LoadFailed onRetry={loadState.retry} busy={q.isFetching} />
+      ) : !q.data ? (
         <ContentLayout sidebar={<FilterSkeleton groups={isPhoto ? 2 : 1} />}>
           <MosaicGrid aria-hidden>
             {Array.from({ length: 14 }).map((_, i) => (
@@ -375,6 +406,9 @@ export function ProfileMediaGrid({
                   label={t('sortOldest')}
                 />
               </FilterGroup>
+              {showUsage && (
+                <p className="w-full text-xs text-muted-foreground">{quota.usageLabel(usage)}</p>
+              )}
             </div>
           }
         >
@@ -420,6 +454,12 @@ export function ProfileMediaGrid({
                         onDelete={() => confirmDelete(m.id)}
                       />
                     )}
+                    {canModerate && (
+                      <DeleteButton
+                        label={t('deleteModeration')}
+                        onClick={() => confirmModerate(m.id)}
+                      />
+                    )}
                   </MosaicTile>
                 ))}
                 {skeletonTail}
@@ -433,8 +473,14 @@ export function ProfileMediaGrid({
                     media={m}
                     label={t('tabVideos')}
                     onOpen={() => setLightbox(i)}
-                    onDelete={isOwner ? () => confirmDelete(m.id) : undefined}
-                    deleteLabel={t('delete')}
+                    onDelete={
+                      isOwner
+                        ? () => confirmDelete(m.id)
+                        : canModerate
+                          ? () => confirmModerate(m.id)
+                          : undefined
+                    }
+                    deleteLabel={isOwner ? t('delete') : t('deleteModeration')}
                   />
                 ))}
                 {skeletonTail}
@@ -518,6 +564,7 @@ function DeleteButton({ label, onClick }: { label: string; onClick: () => void }
     <button
       type="button"
       aria-label={label}
+      title={label}
       onClick={onClick}
       className="absolute right-1.5 top-1.5 z-10 flex size-7 items-center justify-center rounded-lg bg-black/55 text-white opacity-0 transition-opacity hover:bg-destructive focus-visible:opacity-100 group-hover/tile:opacity-100"
     >

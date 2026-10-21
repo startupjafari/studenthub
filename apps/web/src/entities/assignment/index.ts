@@ -14,11 +14,15 @@ export {
   returnSubmissionRequest,
   saveSubmissionDraftRequest,
   submitAssignmentRequest,
+  uploadSubmissionFileRequest,
+  deleteSubmissionFileRequest,
+  fetchSubmissionFileUrl,
 } from './api/assignment-api'
 export type { ReviewQueue } from './api/assignment-api'
 export type {
   AssignmentItem,
   SubmissionItem,
+  SubmissionFile,
   AssignmentCourseRef,
   UserRef,
   AssignmentStatus,

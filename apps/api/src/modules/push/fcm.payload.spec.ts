@@ -37,6 +37,12 @@ describe('buildFcmMessage', () => {
     expect(message.data.url).toBe('/chats?c=1')
   })
 
+  it('ключ группы приложению — строкой в data', () => {
+    const { message } = JSON.parse(buildFcmMessage('t', { title: 'т', tag: 'chat:1' }))
+
+    expect(message.data.tag).toBe('chat:1')
+  })
+
   it('тихий пуш — без текста и без высокого приоритета', () => {
     const { message } = JSON.parse(buildFcmMessage('t', { silent: true }))
 

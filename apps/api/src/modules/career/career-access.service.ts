@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common'
+import type { Prisma } from '@prisma/client'
 import type Redis from 'ioredis'
 import { Role } from '@studenthub/shared-types'
 import { isAccessActive, type CompanyAccessStatus } from '@studenthub/shared-schemas'
@@ -6,6 +7,43 @@ import { AppException } from '../../common/exceptions/app.exception'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { REDIS_CLIENT } from '../../common/redis/redis.constants'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
+
+/**
+ * Допуск компании в вуз действует прямо сейчас — правило `isAccessActive` (shared-schemas),
+ * записанное условием для Prisma. Нужно там, где компания встречается со студентами внутри
+ * одного запроса (витрина, карточка вакансии, отклик): читать набор вузов отдельно и
+ * склеивать руками — лишний запрос и второе место, где «истёк» может разъехаться.
+ */
+export function activeAccessWhere(
+  universityId: string,
+  now: Date = new Date(),
+): Prisma.CompanyUniversityAccessWhereInput {
+  return {
+    universityId,
+    status: 'APPROVED',
+    OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+  }
+}
+
+/**
+ * Вакансия видна студентам вуза: опубликована, одобрена ЭТИМ вузом, и компания допущена в
+ * него прямо сейчас. Одно условие на витрину, карточку и отклик.
+ *
+ * Одобрения вуза мало: истёкший срок допуска решений по вакансиям не трогает (каскад есть
+ * только у отзыва, а cron `expireCompanyAccess` догоняет истечение не мгновенно), и без
+ * проверки допуска компания продолжала бы собирать отклики вуза, к которому её уже не пускают.
+ */
+export function vacancyVisibleWhere(
+  universityId: string,
+  now: Date = new Date(),
+): Prisma.VacancyWhereInput {
+  return {
+    deletedAt: null,
+    status: 'PUBLISHED',
+    reviews: { some: { universityId, status: 'APPROVED' } },
+    company: { universityAccess: { some: activeAccessWhere(universityId, now) } },
+  }
+}
 
 /**
  * Единственная точка, отвечающая на вопрос «видит ли эта компания студентов этого вуза».
@@ -63,6 +101,57 @@ export class CareerAccessService {
 
     await this.writeCache(companyId, ids)
     return ids
+  }
+
+  /**
+   * Какие отклики компания видит в воронке и может двигать по ней.
+   *
+   * Вузы с активным допуском — все отклики. Вуз, где допуска больше нет, — только поданные
+   * ДО того, как он закончился: начатый диалог переживает отзыв (PROJECT.md, § Карьера —
+   * человек мог дойти до интервью), а нового кандидата оттуда компания видеть не должна.
+   *
+   * Момент конца допуска: у истёкшего — его срок; у отозванного — срок, если отзыв поставил
+   * cron по истечении, иначе момент решения; у заявки, поданной после потери допуска
+   * (REQUESTED/REJECTED), — момент новой заявки: допуска к тому времени уже не было.
+   *
+   * Без кэша: воронку открывают редко, а нужны все строки допуска, не только активные.
+   */
+  async applicationScopeWhere(
+    companyId: string,
+    now: Date = new Date(),
+  ): Promise<Prisma.CareerApplicationWhereInput> {
+    const rows = await this.prisma.companyUniversityAccess.findMany({
+      where: { companyId },
+      select: {
+        universityId: true,
+        status: true,
+        expiresAt: true,
+        decidedAt: true,
+        requestedAt: true,
+      },
+      take: 500,
+    })
+
+    const active: string[] = []
+    const ended: Prisma.CareerApplicationWhereInput[] = []
+    for (const row of rows) {
+      const status = row.status as CompanyAccessStatus
+      if (isAccessActive({ status, expiresAt: row.expiresAt }, now)) {
+        active.push(row.universityId)
+        continue
+      }
+      const endedAt =
+        status === 'APPROVED'
+          ? row.expiresAt
+          : status === 'REVOKED'
+            ? (row.expiresAt ?? row.decidedAt)
+            : row.requestedAt
+      if (endedAt) ended.push({ universityId: row.universityId, createdAt: { lte: endedAt } })
+    }
+
+    const scope = [...(active.length > 0 ? [{ universityId: { in: active } }] : []), ...ended]
+    // Компания без единого допуска откликов не видит — явно, а не через трактовку пустого OR.
+    return scope.length > 0 ? { OR: scope } : { id: { in: [] } }
   }
 
   /** Есть ли у компании активный допуск в конкретный вуз. */

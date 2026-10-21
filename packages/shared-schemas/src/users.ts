@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import { WebsiteSchema } from './url.js'
 import { Role } from '@studenthub/shared-types'
-import { PasswordSchema, UsernameSchema } from './auth.js'
+import { AGE_OF_MAJORITY, PasswordSchema, UsernameSchema, ageAt } from './auth.js'
 import { AdminLimitSchema, OffsetPaginationSchema, SortOrderSchema } from './pagination.js'
 import { RoleSchema } from './invites.js'
 
@@ -137,6 +137,72 @@ export const ChangePasswordSchema = z
 
 export type ChangePasswordInput = z.infer<typeof ChangePasswordSchema>
 
+/**
+ * Тело `DELETE /users/me`: повторная аутентификация перед необратимым удалением аккаунта —
+ * текущий пароль и, если включена 2FA, код второго фактора (TOTP или резервный). Открытой
+ * вкладки или угнанного access-токена для удаления больше не хватает.
+ *
+ * Поля в схеме необязательны, а `.default({})` принимает запрос без тела: их наличие
+ * проверяет сервер и отвечает понятной ошибкой, а не 400 разбора схемы.
+ */
+export const DeleteAccountSchema = z
+  .object({
+    password: z.string().min(1).max(256).optional(),
+    code: z.string().trim().min(6).max(20).optional(),
+  })
+  .strict()
+  .default({})
+
+export type DeleteAccountInput = z.infer<typeof DeleteAccountSchema>
+
+/**
+ * Тело `POST /users/me/consent`: повторное согласие на обработку персональных данных.
+ *
+ * Нужно, когда согласие из регистрации перестало подходить: сменилась редакция документов
+ * (`LEGAL_VERSION`) или основание — дата рождения в профиле теперь говорит о
+ * несовершеннолетнем, а согласие давал сам человек (и наоборот). Флаг — `consentRequired`
+ * в `/auth/me`, подробности — `GET /users/me/consent`.
+ *
+ * `birthDate` — только для учёток, где даты рождения нет вовсе (заведены до сентября 2026):
+ * без неё не решить, чьё согласие нужно. Возраст и согласие представителя сервер
+ * пересчитывает сам, как при регистрации.
+ */
+export const AcceptConsentSchema = z
+  .object({
+    /** Только `true`: отказ — это незаполненная форма. */
+    consent: z.literal(true),
+    /** Согласие законного представителя. Обязательно, если человеку нет 18. */
+    guardianConsent: z.boolean().optional(),
+    birthDate: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, 'Дата в формате ГГГГ-ММ-ДД')
+      .optional(),
+  })
+  .strict()
+  .superRefine((v, ctx) => {
+    if (!v.birthDate) return
+    const born = new Date(`${v.birthDate}T00:00:00Z`)
+    const age = Number.isNaN(born.getTime()) ? -1 : ageAt(v.birthDate)
+    // Та же граница, что при регистрации: защита от опечатки в годе.
+    if (age < 0 || age > 120) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Проверьте дату рождения',
+        path: ['birthDate'],
+      })
+      return
+    }
+    if (age < AGE_OF_MAJORITY && v.guardianConsent !== true) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'Нужно согласие законного представителя',
+        path: ['guardianConsent'],
+      })
+    }
+  })
+
+export type AcceptConsentInput = z.infer<typeof AcceptConsentSchema>
+
 // ── Доступность полей профиля по роли (docs/PROJECT.md §3.7) ─────────────────
 // Единый источник истины: форма профиля на фронте и фильтр в UserService читают
 // эту карту. Смысл: набор «самоописываемых» полей зависит от роли — у платформенных
@@ -260,6 +326,9 @@ export function profileFieldsForRole(role: Role): ProfileFieldKey[] {
  * через PATCH /users/me, студент сам ставил себе «грант», «обучающийся» и любой курс — и
  * получал подписанную справку с этими сведениями. Видны они по-прежнему (PROFILE_FIELD_ROLES),
  * а меняют их декан факультета и админ вуза (`PATCH /users/:id/academic`).
+ *
+ * Общежитие — по той же причине: его строка стоит в студенческом, который сотрудник на вахте
+ * видит с отметкой «билет действителен», а студент вписывал её себе сам.
  */
 export const STAFF_MANAGED_STUDENT_FIELDS = [
   'course',
@@ -272,8 +341,20 @@ export const STAFF_MANAGED_STUDENT_FIELDS = [
   'studentCardNumber',
   'academicStatus',
   'gpa',
+  'dormitory',
 ] as const satisfies readonly ProfileFieldKey[]
 export type StaffManagedStudentField = (typeof STAFF_MANAGED_STUDENT_FIELDS)[number]
+
+/**
+ * Поля, которые вуз забрал себе уже после выхода мобильных клиентов. Старый клиент может
+ * прислать их в PATCH /users/me вместе с остальной формой, и отказ 400 сорвал бы ему
+ * сохранение профиля целиком. Поэтому студенту такое поле сервер не отклоняет, а молча
+ * оставляет прежнее значение (ignoredProfileFields). Остальные поля STAFF_MANAGED_STUDENT_FIELDS
+ * отклоняются, как и раньше.
+ */
+export const COMPAT_IGNORED_STUDENT_FIELDS = [
+  'dormitory',
+] as const satisfies readonly StaffManagedStudentField[]
 
 /** Может ли роль менять поле в СВОЁМ профиле (видимость — profileFieldAllowed). */
 export function profileFieldSelfEditable(key: ProfileFieldKey, role: Role): boolean {
@@ -293,17 +374,33 @@ export const UpdateAcademicRecordSchema = UpdateProfileSchema.pick({
   studentCardNumber: true,
   academicStatus: true,
   gpa: true,
+  dormitory: true,
 }).strict()
 export type UpdateAcademicRecordInput = z.infer<typeof UpdateAcademicRecordSchema>
+
+/**
+ * Поля DTO, которые сервер молча отбрасывает для этой роли (COMPAT_IGNORED_STUDENT_FIELDS):
+ * поле роли видно, но правит его теперь вуз. Чужие роли сюда не попадают — им поле
+ * недоступно вовсе, и для них остаётся 400 из disallowedProfileFields.
+ */
+export function ignoredProfileFields(role: Role, input: UpdateProfileInput): ProfileFieldKey[] {
+  return (Object.keys(input) as ProfileFieldKey[]).filter(
+    (key) =>
+      (COMPAT_IGNORED_STUDENT_FIELDS as readonly ProfileFieldKey[]).includes(key) &&
+      profileFieldAllowed(key, role),
+  )
+}
 
 /**
  * Поля DTO, недоступные роли. Пустой массив — запрос валиден.
  * Роль передаётся вызывающим из JWT, никогда из тела (docs/BACKEND_RULES.md §0).
  * Вызывающий отвечает на непустой результат ошибкой 400, а не тихим отбрасыванием:
- * молчаливый игнор выглядел бы для клиента как успешное сохранение.
+ * молчаливый игнор выглядел бы для клиента как успешное сохранение. Исключение —
+ * ignoredProfileFields: их вызывающий отбрасывает сам.
  */
 export function disallowedProfileFields(role: Role, input: UpdateProfileInput): ProfileFieldKey[] {
+  const ignored = ignoredProfileFields(role, input)
   return (Object.keys(input) as ProfileFieldKey[]).filter(
-    (key) => !profileFieldSelfEditable(key, role),
+    (key) => !profileFieldSelfEditable(key, role) && !ignored.includes(key),
   )
 }

@@ -12,6 +12,9 @@ export const CreateUniversitySchema = z
     name: z.string().min(1).max(200),
     shortName: z.string().min(1).max(50).optional(),
     country: z.string().min(1).max(100).optional(),
+    // Город — код КАТО (9 цифр, KatoCodeSchema): его выбирает KatoSelect, по нему таблица
+    // резолвит название. Свободный текст — только для зарубежного вуза, чьего города в
+    // КАТО нет. Поэтому здесь не KatoCodeSchema: ужесточение отрезало бы зарубежные вузы.
     city: z.string().min(1).max(100).optional(),
     timezone: z.string().min(1).max(64).optional(),
   })

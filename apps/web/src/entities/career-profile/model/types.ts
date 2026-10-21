@@ -44,3 +44,47 @@ export interface CareerProfile {
   consents: CareerConsent[]
   inherited: InheritedProfile
 }
+
+/**
+ * Карточка кандидата глазами работодателя (GET /career/profile/candidates/:id). Чувствительные
+ * поля — только по согласию студента: `null` значит «не открыто», а не «пусто».
+ */
+export interface CandidateCard {
+  id: string
+  firstName: string
+  lastName: string
+  avatarUrl: string | null
+  headline: string | null
+  about: string | null
+  university: string | null
+  specialty: string | null
+  course: number | null
+  graduationYear: number | null
+  skills: string[]
+  languages: string[]
+  employmentStatus: EmploymentStatus
+  desiredPositions: string[]
+  employmentTypes: EmploymentType[]
+  workFormats: WorkFormat[]
+  relocationReady: boolean
+  readinessScore: number | null
+  portfolio: {
+    id: string
+    kind: string
+    title: string
+    organization: string | null
+    description: string | null
+    url: string | null
+    startDate: string | null
+    endDate: string | null
+  }[]
+  verifiedCertificates: {
+    id: string
+    title: string
+    issuedBy: string | null
+    issuedAt: string | null
+  }[]
+  gpa: number | null
+  phone: string | null
+  email: string | null
+}

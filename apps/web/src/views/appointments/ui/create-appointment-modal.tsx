@@ -22,9 +22,15 @@ import {
   SelectValue,
   Textarea,
 } from '../../../shared/ui'
-import { toApiError } from '../../../shared/lib'
+import { nowInTz, toApiError } from '../../../shared/lib'
 import { appointmentKeys, createAppointmentRequest } from '../../../entities/appointment'
 import { APPT_TYPE_KEY } from '../lib/visuals'
+
+/** Текущий момент в формате поля даты-времени ("YYYY-MM-DDTHH:mm", время браузера). */
+function nowLocalInput(): string {
+  const now = nowInTz(null)
+  return `${now.date}T${now.time}`
+}
 
 // Модалка записи в деканат (студент): тип приёма, желаемое время, тема.
 export function CreateAppointmentModal({ onClose }: { onClose: () => void }) {
@@ -38,7 +44,14 @@ export function CreateAppointmentModal({ onClose }: { onClose: () => void }) {
   const [pending, setPending] = useState(false)
   // Ошибку показываем после первой попытки отправки, а не на пустой форме.
   const [submitted, setSubmitted] = useState(false)
-  const whenError = !whenLocal ? tCommon('dateRequired') : null
+  // Сервер не принимает время в прошлом — ловим это здесь же, у поля, а не тостом после
+  // отправки. Строки "YYYY-MM-DDTHH:mm" сравниваются лексикографически как даты.
+  const [minLocal] = useState(nowLocalInput)
+  const whenError = !whenLocal
+    ? tCommon('dateRequired')
+    : whenLocal < nowLocalInput()
+      ? t('timeInPast')
+      : null
 
   async function onSubmit() {
     setSubmitted(true)
@@ -60,7 +73,15 @@ export function CreateAppointmentModal({ onClose }: { onClose: () => void }) {
       toast.success(t('created'))
       onClose()
     } catch (e) {
-      toast.error(tErr(toApiError(e).code))
+      const code = toApiError(e).code
+      // CONFLICT здесь — потолок открытых записей студента (C-F24).
+      toast.error(
+        code === 'CONFLICT'
+          ? t('tooManyActive')
+          : code === 'VALIDATION_ERROR'
+            ? t('formInvalid')
+            : tErr(code),
+      )
     } finally {
       setPending(false)
     }
@@ -89,6 +110,7 @@ export function CreateAppointmentModal({ onClose }: { onClose: () => void }) {
           <DateTimePicker
             value={whenLocal}
             onChange={setWhenLocal}
+            min={minLocal}
             aria-invalid={submitted && !!whenError}
           />
           <FieldError>{submitted ? whenError : null}</FieldError>

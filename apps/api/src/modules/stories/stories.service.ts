@@ -11,6 +11,7 @@ import {
   type StoryVoteInput,
 } from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
+import { advisoryXactLock } from '../../common/prisma/advisory-lock'
 import { AuditService } from '../../common/audit/audit.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import { Paginated } from '../../common/http/paginated'
@@ -392,6 +393,18 @@ export class StoriesService {
     const expiresAt = new Date(Date.now() + STORY_TTL_HOURS * 60 * 60 * 1000)
 
     const created = await this.prisma.$transaction(async (tx) => {
+      // Занятость файла — под локом файла и в той же транзакции, что и вставка: проверка
+      // снаружи пропускала два одновременных POST с одним fileId (оба видели «свободен»),
+      // и удаление первой сторис гасило медиа второй. Второй запрос ждёт лок, видит
+      // закоммиченную первую сторис и получает CONFLICT. Уникального индекса на fileId нет —
+      // лок заменяет его без миграции.
+      if (input.fileId) {
+        await advisoryXactLock(tx, `story-file:${input.fileId}`)
+        const used = await tx.story.count({ where: { fileId: input.fileId } })
+        if (used > 0) {
+          throw new AppException('CONFLICT', 'Файл уже прикреплён к другой сторис')
+        }
+      }
       const story = await tx.story.create({
         data: {
           authorId: actor.sub,
@@ -630,9 +643,10 @@ export class StoriesService {
   }
 
   /**
-   * Медиа обязано принадлежать автору, лежать в бакете сторис и не быть занятым другой
-   * сторис. Последнее важно не для порядка, а для удаления: на один объект ссылались бы
-   * две записи, и снос первой погасил бы картинку у второй.
+   * Медиа обязано принадлежать автору и лежать в бакете сторис. Что файл не занят другой
+   * сторис, проверяет `create` — под локом, в транзакции вставки: это важно не для порядка,
+   * а для удаления — на один объект ссылались бы две записи, и снос первой погасил бы
+   * картинку у второй.
    */
   private async assertOwnMedia(ownerId: string, fileId: string): Promise<void> {
     const bucket = this.config.get('MINIO_BUCKET_STORIES', { infer: true })
@@ -640,10 +654,6 @@ export class StoriesService {
     const file = await this.files.findOrThrow(fileId)
     if (file.ownerId !== ownerId || file.bucket !== bucket) {
       throw new AppException('BAD_REQUEST', 'Файл недоступен для прикрепления')
-    }
-    const used = await this.prisma.story.count({ where: { fileId } })
-    if (used > 0) {
-      throw new AppException('CONFLICT', 'Файл уже прикреплён к другой сторис')
     }
   }
 

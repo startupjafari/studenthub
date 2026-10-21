@@ -32,6 +32,8 @@ import {
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 
+// Запасной расчёт права удалять — для ответа без серверного `canManage` (E-F16): роль не
+// знает scope, и декан видел бы корзину у событий всего вуза.
 const MANAGER_ROLES: Role[] = [Role.PLATFORM_ADMIN, Role.UNIVERSITY_ADMIN, Role.DEAN]
 // Модераторы события не создают — только читают ленту.
 const READONLY_ROLES: Role[] = [Role.PLATFORM_MODERATOR, Role.UNIVERSITY_MODERATOR]
@@ -111,7 +113,7 @@ export function EventsView() {
               key={e.id}
               event={e}
               past={filter === 'past'}
-              canManage={role !== null && MANAGER_ROLES.includes(role)}
+              managerRole={role !== null && MANAGER_ROLES.includes(role)}
             />
           ))}
         </div>
@@ -125,11 +127,11 @@ export function EventsView() {
 function EventCard({
   event,
   past,
-  canManage,
+  managerRole,
 }: {
   event: EventItem
   past: boolean
-  canManage: boolean
+  managerRole: boolean
 }) {
   const t = useTranslations('Events')
   const tErr = useTranslations('Errors')
@@ -139,6 +141,8 @@ function EventCard({
   const qc = useQueryClient()
   const myId = useAppSelector((s) => s.auth.user?.id)
   const isOrganizer = event.organizerId === myId
+  // Право решает сервер (тем же правилом, что проверяет удаление); роль — только запасной вариант.
+  const canManage = event.canManage ?? (isOrganizer || managerRole)
 
   const invalidate = (): void => {
     void qc.invalidateQueries({ queryKey: eventKeys.all })
@@ -205,7 +209,7 @@ function EventCard({
                 {event.title}
               </Link>
             </h3>
-            {(isOrganizer || canManage) && (
+            {canManage && (
               <Button
                 type="button"
                 variant="ghost"

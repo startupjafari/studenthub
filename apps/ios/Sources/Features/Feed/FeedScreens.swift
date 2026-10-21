@@ -151,14 +151,14 @@ struct NotificationsView: View {
                     Toggle(
                         String(localized: "notifications.push", defaultValue: "Пуши"),
                         isOn: Binding(
-                            get: { settings.push ?? true },
+                            get: { settings.pushEnabled ?? false },
                             set: { value in Task { await model.update(push: value) } }
                         )
                     )
                     Toggle(
                         String(localized: "notifications.email", defaultValue: "Письма"),
                         isOn: Binding(
-                            get: { settings.email ?? true },
+                            get: { settings.emailEnabled ?? true },
                             set: { value in Task { await model.update(email: value) } }
                         )
                     )

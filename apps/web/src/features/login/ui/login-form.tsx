@@ -16,11 +16,13 @@ import { useFormAlert, safeNextPath, toApiError } from '../../../shared/lib'
 import { loginRequest, loginVerify2faRequest } from '../../../shared/api'
 import { establishSession } from '../../../shared/session'
 import { ROLE_HOME } from '../../../shared/config'
+import { resendCompanyVerification } from '../../../entities/company'
 import { QrLoginPanel } from './qr-login-panel'
 
 export function LoginForm() {
   const t = useTranslations('Auth')
   const tErr = useTranslations('Errors')
+  const tEmployer = useTranslations('Employer')
   const router = useRouter()
   const searchParams = useSearchParams()
   const [showPassword, setShowPassword] = useState(false)
@@ -40,14 +42,34 @@ export function LoginForm() {
   // блок внутри карточки раздвигал форму и уводил поля из-под курсора прямо в момент
   // повторной попытки. Состояние ошибки при этом остаётся — по нему шаг 2FA чистит код
   // и красит рамку. Один id на все попытки: повторный отказ заменяет тост, а не копит стопку.
-  function failLogin(err: unknown) {
+  function failLogin(err: unknown, identifier?: string) {
     markApiError(err)
     const api = toApiError(err)
     const details = api.code === 'VALIDATION_ERROR' ? api.details : undefined
+    // Работодатель не подтвердил почту компании — вход закрыт до перехода по ссылке. Письмо
+    // можно запросить прямо из тоста: адрес он только что ввёл, искать форму незачем.
+    const resendTo =
+      api.code === 'EMAIL_NOT_VERIFIED' && identifier?.includes('@') ? identifier : null
     toast.error(tErr(api.code), {
       id: 'login-error',
       description: details?.length ? details.map((d) => d.message).join(' · ') : undefined,
+      ...(resendTo
+        ? {
+            duration: 15_000,
+            action: { label: tEmployer('resend'), onClick: () => void resend(resendTo) },
+          }
+        : {}),
     })
+  }
+
+  // Ответ сервера одинаков для любого адреса, поэтому и текст осторожный: «если…».
+  async function resend(email: string) {
+    try {
+      await resendCompanyVerification(email)
+      toast.success(tEmployer('resendMaybeSent'), { id: 'login-error' })
+    } catch (err) {
+      toast.error(tErr(toApiError(err).code), { id: 'login-error' })
+    }
   }
 
   // Гасить тост руками можно только там, где следом заведомо не прилетит новый: sonner
@@ -88,7 +110,7 @@ export function LoginForm() {
       }
       await completeLogin(result.accessToken)
     } catch (err) {
-      failLogin(err)
+      failLogin(err, values.identifier.trim())
     }
   }
 

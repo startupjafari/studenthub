@@ -271,6 +271,7 @@ const ru = {
   notifConfirm: 'Сохранить настройки уведомлений?',
   notifDigestMorning: 'Утром',
   notifDigestEvening: 'Вечером',
+  notifTimeZone: 'Часы — по времени Алматы (UTC+5).',
   complaintApplyAll: 'Применить ко всем ({count})',
   complaintReopen: 'Вернуть в очередь',
   complaintReopenConfirm:
@@ -719,6 +720,7 @@ const kk: Record<MessageKey, string> = {
   notifConfirm: 'Хабарлама параметрлерін сақтау керек пе?',
   notifDigestMorning: 'Таңертең',
   notifDigestEvening: 'Кешке',
+  notifTimeZone: 'Уақыт — Алматы уақытымен (UTC+5).',
   complaintApplyAll: 'Барлығына қолдану ({count})',
   complaintReopen: 'Кезекке қайтару',
   complaintReopenConfirm:
@@ -1166,6 +1168,7 @@ const en: Record<MessageKey, string> = {
   notifConfirm: 'Save notification settings?',
   notifDigestMorning: 'Morning',
   notifDigestEvening: 'Evening',
+  notifTimeZone: 'Times are Almaty time (UTC+5).',
   complaintApplyAll: 'Apply to all ({count})',
   complaintReopen: 'Send back to the queue',
   complaintReopenConfirm:

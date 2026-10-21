@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { ClipboardList, Inbox } from 'lucide-react'
 import {
@@ -26,7 +26,7 @@ import {
 import { cn } from '../../../shared/lib/utils'
 import {
   assignmentKeys,
-  fetchAssignments,
+  fetchAssignmentsPaged,
   fetchAssignment,
   type AssignmentItem,
 } from '../../../entities/assignment'
@@ -67,6 +67,11 @@ const HIDE = {
 // Порядок классов = порядок колонок: скелетон прячет те же, что и шапка.
 const SKELETON_COLS = [undefined, HIDE.subject, HIDE.due, undefined, undefined]
 
+// Страница списка — потолок общей offset-схемы. Сервер отдаёт «актуальные сверху»:
+// открытые по ближайшему сроку, затем прошедшие от свежих к старым, поэтому первой
+// страницы хватает на текущий семестр, а история прошлых догружается по кнопке.
+const PAGE = 100
+
 // «Задания» студента (задача 3): вкладки по статусу, таблица с сортировкой на клиенте
 // и деталь/сдача в модальном окне — та же структура, что на экране «Заявки».
 export function StudentAssignmentsView() {
@@ -79,7 +84,28 @@ export function StudentAssignmentsView() {
   const [tab, setTab] = useState<TabId>('active')
   const qc = useQueryClient()
 
-  const q = useQuery({ queryKey: assignmentKeys.list(), queryFn: () => fetchAssignments() })
+  const q = useInfiniteQuery({
+    queryKey: assignmentKeys.listPages(),
+    queryFn: ({ pageParam }: { pageParam: number }) =>
+      fetchAssignmentsPaged({ page: pageParam, limit: PAGE }),
+    initialPageParam: 1,
+    getNextPageParam: (last, pages) =>
+      pages.reduce((n, p) => n + p.items.length, 0) < last.total && last.items.length > 0
+        ? pages.length + 1
+        : undefined,
+  })
+  // Без повторов: пока догружается следующая страница, у задания может истечь срок, и
+  // оно переедет из «открытых» в «прошедшие» — offset сдвинется на одну строку.
+  const items = useMemo(() => {
+    const seen = new Set<string>()
+    return (q.data?.pages ?? [])
+      .flatMap((p) => p.items)
+      .filter((a) => {
+        if (seen.has(a.id)) return false
+        seen.add(a.id)
+        return true
+      })
+  }, [q.data])
 
   // Prefetch детали задания при наведении/фокусе строки (принцип 3): к клику деталь уже в кэше,
   // окно открывается мгновенно. staleTime гасит повторные prefetch по одному id.
@@ -98,18 +124,19 @@ export function StudentAssignmentsView() {
       graded: [],
       overdue: [],
     }
-    for (const a of q.data ?? []) {
+    for (const a of items) {
       const st = studentStatus(a)
       const tabId = TAB_ORDER.find((id) => TAB_STATUSES[id].includes(st))
       if (tabId) by[tabId].push(a)
     }
     return by
-  }, [q.data])
+  }, [items])
 
   const current = grouped[tab]
 
-  // Сортировка клиентская: весь список приходит одним запросом, серверу пересортировывать
-  // нечего. Статус сравниваем по переводу — алфавит языка интерфейса, а не порядок enum.
+  // Сортировка клиентская — по загруженным страницам: вкладки делят список по статусу
+  // сдачи, которого сервер не фильтрует. Статус сравниваем по переводу — алфавит языка
+  // интерфейса, а не порядок enum.
   const sortValue = useCallback(
     (a: AssignmentItem, key: string) => {
       switch (key) {
@@ -241,6 +268,17 @@ export function StudentAssignmentsView() {
               </TableBody>
             </Table>
           </Card>
+        )}
+        {q.hasNextPage && (
+          <Button
+            type="button"
+            variant="ghost"
+            className="self-center"
+            loading={q.isFetchingNextPage}
+            onClick={() => void q.fetchNextPage()}
+          >
+            {t('showMore')}
+          </Button>
         )}
       </div>
       {detailNode}

@@ -1,6 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common'
 import type Redis from 'ioredis'
-import { resolveUniversityScope } from './career-scope'
+import { CAREER_STUDENT_ROLES, resolveUniversityScope } from './career-scope'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { REDIS_CLIENT } from '../../common/redis/redis.module'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
@@ -72,10 +72,16 @@ export class CareerAnalyticsService {
         where: { universityId },
         _count: { _all: true },
       }),
+      // Числитель и знаменатель — по одним и тем же людям (D-F31).
       this.prisma.careerProfile.count({
-        where: { visibility: 'EMPLOYERS', user: { universityId, deletedAt: null } },
+        where: {
+          visibility: 'EMPLOYERS',
+          user: { universityId, deletedAt: null, role: { in: CAREER_STUDENT_ROLES } },
+        },
       }),
-      this.prisma.user.count({ where: { universityId, role: 'STUDENT', deletedAt: null } }),
+      this.prisma.user.count({
+        where: { universityId, role: { in: CAREER_STUDENT_ROLES }, deletedAt: null },
+      }),
     ])
 
     const [reached, queue, weekly, skills] = await Promise.all([
@@ -298,7 +304,7 @@ export class CareerAnalyticsService {
           FROM users u
           CROSS JOIN LATERAL unnest(u.skills) AS us(skill)
          WHERE u.university_id = ${universityId}
-           AND u.role::text = 'STUDENT'
+           AND u.role::text IN ('STUDENT', 'STAROSTA')
            AND u.deleted_at IS NULL
          GROUP BY 1
       ),

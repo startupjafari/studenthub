@@ -55,8 +55,6 @@ import { MessageReactionDto } from './dto/message-reaction.dto'
 import { MessageForwardDto } from './dto/message-forward.dto'
 import { SharePostDto } from './dto/share-post.dto'
 import { SaveDraftDto } from './dto/save-draft.dto'
-import { ScheduleMessageDto } from './dto/schedule-message.dto'
-import { UpdateScheduledMessageDto } from './dto/update-scheduled-message.dto'
 import { JoinChatByInviteDto } from './dto/join-chat-by-invite.dto'
 
 // REST для чатов (docs/PROJECT.md §3.6, §8.3): список/создание/история/участники.
@@ -453,47 +451,6 @@ export class ChatsController {
   @ApiResponse({ status: 200, description: 'Уведомления включены' })
   unmute(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
     return this.chats.setMuted(user.sub, id, null)
-  }
-
-  @Get(':id/scheduled')
-  @ApiOperation({ summary: 'Мои отложенные сообщения в чате (чужие не видны)' })
-  @ApiResponse({ status: 200, description: 'Отложенные, ближайшие первыми' })
-  scheduled(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
-    return this.chats.listScheduled(user.sub, id)
-  }
-
-  @Post(':id/scheduled')
-  @ApiOperation({ summary: 'Отложить сообщение на будущее (только текст, без вложений)' })
-  @ApiResponse({ status: 201, description: 'Сообщение поставлено в очередь' })
-  @ApiResponse({ status: 400, description: 'BAD_REQUEST — время в прошлом или превышен лимит' })
-  schedule(
-    @CurrentUser() user: CurrentUserData,
-    @Param('id') id: string,
-    @Body() dto: ScheduleMessageDto,
-  ) {
-    return this.chats.scheduleMessage(user.sub, id, dto)
-  }
-
-  @Patch('scheduled/:scheduledId')
-  @ApiOperation({ summary: 'Изменить текст или время своего отложенного сообщения' })
-  @ApiResponse({ status: 200, description: 'Отложенное обновлено' })
-  updateScheduled(
-    @CurrentUser() user: CurrentUserData,
-    @Param('scheduledId') scheduledId: string,
-    @Body() dto: UpdateScheduledMessageDto,
-  ) {
-    return this.chats.updateScheduled(user.sub, scheduledId, dto)
-  }
-
-  @Delete('scheduled/:scheduledId')
-  @ApiOperation({ summary: 'Отменить своё отложенное сообщение' })
-  @ApiResponse({ status: 200, description: 'Отложенное отменено' })
-  async cancelScheduled(
-    @CurrentUser() user: CurrentUserData,
-    @Param('scheduledId') scheduledId: string,
-  ): Promise<null> {
-    await this.chats.cancelScheduled(user.sub, scheduledId)
-    return null
   }
 
   @Post(':id/archive')

@@ -10,11 +10,14 @@ import { PollCard } from './poll-card'
 import { PollCreateModal } from './poll-create-modal'
 import { ContentLayout, FilterGroup, FilterOption, FilterSkeleton } from './filter-sidebar'
 import { useRetryOnError } from './use-retry-on-error'
+import { LoadFailed } from './load-failed'
 import { useProgressive } from './use-progressive'
+import type { ContentModeration } from '../lib/content-moderation'
 
 interface Props {
   userId: string
   isOwner: boolean
+  moderation?: ContentModeration
   openCreate?: number
   onConsumed?: () => void
 }
@@ -22,7 +25,7 @@ interface Props {
 type PollFilter = 'all' | 'active' | 'closed' | 'DRAFT'
 type PollSort = 'new' | 'popular'
 
-export function ProfilePolls({ userId, isOwner, openCreate, onConsumed }: Props) {
+export function ProfilePolls({ userId, isOwner, moderation, openCreate, onConsumed }: Props) {
   const t = useTranslations('Profile')
   const [creating, setCreating] = useState(false)
   const [filter, setFilter] = useState<PollFilter>('all')
@@ -35,8 +38,8 @@ export function ProfilePolls({ userId, isOwner, openCreate, onConsumed }: Props)
   }, [openCreate])
 
   const q = useQuery({ queryKey: pollKeys.byUser(userId), queryFn: () => fetchPollsByUser(userId) })
-  // При ошибке — держим скелетон, тост каждые 5 сек и повтор запроса.
-  useRetryOnError(q.isError, q.refetch, t('loadRetry'))
+  // Ошибка — один тост и повторы с растущей паузой; не помогло — ошибка на месте вкладки.
+  const loadState = useRetryOnError(q, t('loadRetry'))
   const polls = q.data ?? []
   const visible = useMemo(() => {
     const match = (p: PollView) => {
@@ -64,7 +67,15 @@ export function ProfilePolls({ userId, isOwner, openCreate, onConsumed }: Props)
 
   const modal = creating && <PollCreateModal userId={userId} onClose={() => setCreating(false)} />
 
-  if (q.isLoading || q.isError) {
+  if (!q.data && loadState.failed) {
+    return (
+      <>
+        {modal}
+        <LoadFailed onRetry={loadState.retry} busy={q.isFetching} />
+      </>
+    )
+  }
+  if (!q.data) {
     return (
       <>
         {modal}
@@ -144,7 +155,12 @@ export function ProfilePolls({ userId, isOwner, openCreate, onConsumed }: Props)
           // Карточки ряда — одной высоты: подвал с участниками стоит на одной линии.
           <div className="grid gap-4 xl:grid-cols-2">
             {visible.slice(0, shown).map((poll) => (
-              <PollCard key={poll.id} poll={poll} isOwner={isOwner} />
+              <PollCard
+                key={poll.id}
+                poll={poll}
+                isOwner={isOwner}
+                canModerate={!isOwner && !!moderation?.content}
+              />
             ))}
             {Array.from({ length: pending }, (_, j) => (
               <PollSkeleton key={`pending-${j}`} ref={j === 0 ? sentinelRef : undefined} />

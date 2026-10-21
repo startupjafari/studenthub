@@ -127,6 +127,23 @@ describe('CareerEventsService', () => {
     expect(args.take).toBe(15)
   })
 
+  it('студент видит только мероприятия своей аудитории (D-F30)', async () => {
+    await service.list({ ...student, facultyId: 'fac-1', groupId: 'grp-1' }, query())
+
+    const where = prisma.event.findMany.mock.calls[0][0].where
+    const audience = JSON.stringify(where.AND)
+    expect(audience).toContain('"audience":"FACULTY","facultyId":"fac-1"')
+    expect(audience).toContain('"audience":"GROUP","groupId":"grp-1"')
+    // Мероприятие только для преподавателей студенту не положено.
+    expect(audience).not.toContain('TEACHERS')
+  })
+
+  it('карьерный центр вуза видит все карьерные мероприятия вуза', async () => {
+    await service.list({ ...student, role: Role.UNIVERSITY_ADMIN }, query())
+
+    expect(prisma.event.findMany.mock.calls[0][0].where.AND).toBeUndefined()
+  })
+
   it('своя запись ищется по текущему пользователю', async () => {
     await service.list(student, query())
 

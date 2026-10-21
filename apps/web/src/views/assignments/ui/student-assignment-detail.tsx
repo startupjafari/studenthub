@@ -30,6 +30,7 @@ import {
   STUDENT_STATUS_KEY,
   canEditSubmission,
 } from '../lib/assignment-status'
+import { SubmissionFiles } from './submission-files'
 
 interface Props {
   id: string
@@ -59,12 +60,14 @@ export function StudentAssignmentDetail({ id, onBack, asModal = false }: Props) 
   const [text, setText] = useState('')
   const [linkUrl, setLinkUrl] = useState('')
 
+  // Синхронизация по значениям, а не по объекту сдачи: после загрузки файла сдача
+  // приходит заново (новый объект), и набранный, но не сохранённый ответ стирался бы.
+  const serverText = a?.mySubmission?.text ?? ''
+  const serverLink = a?.mySubmission?.linkUrl ?? ''
   useEffect(() => {
-    if (a?.mySubmission) {
-      setText(a.mySubmission.text ?? '')
-      setLinkUrl(a.mySubmission.linkUrl ?? '')
-    }
-  }, [a?.mySubmission])
+    setText(serverText)
+    setLinkUrl(serverLink)
+  }, [id, serverText, serverLink])
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: assignmentKeys.detail(id) })
@@ -118,6 +121,10 @@ export function StudentAssignmentDetail({ id, onBack, asModal = false }: Props) 
   const showText = a.submissionType === 'TEXT' || a.submissionType === 'MIXED'
   const showLink = a.submissionType === 'LINK' || a.submissionType === 'MIXED'
   const sub = a.mySubmission
+  const files = sub?.files ?? []
+  // Файлы — у «Файла» и «Смешанного»; уже приложенные показываем при любом типе, чтобы
+  // смена типа преподавателем не прятала сданное.
+  const showFiles = a.submissionType === 'FILE' || a.submissionType === 'MIXED' || files.length > 0
 
   const body = (
     <>
@@ -200,6 +207,14 @@ export function StudentAssignmentDetail({ id, onBack, asModal = false }: Props) 
                 placeholder="https://"
               />
             </div>
+          )}
+
+          {showFiles && (
+            <SubmissionFiles
+              files={files}
+              submissionId={sub?.id ?? null}
+              editable={editable ? { assignmentId: a.id, onChanged: invalidate } : undefined}
+            />
           )}
 
           {sub && (

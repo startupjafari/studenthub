@@ -6,6 +6,8 @@ import type {
   SubjectListQueryInput,
   TermListQueryInput,
   UpdateCourseInput,
+  UpdateSubjectInput,
+  UpdateTermInput,
 } from '@studenthub/shared-schemas'
 import { api, getPaged, type Paged } from '../../../shared/api'
 import type { CourseItem, SubjectItem, TermItem } from '../model/types'
@@ -56,20 +58,18 @@ export async function fetchTermsPaged(
   return getPaged<TermItem>('/terms', { page: 1, limit: 20, ...filters })
 }
 
-export async function fetchSubjects(universityId?: string): Promise<SubjectItem[]> {
-  const { data } = await api.get<SubjectItem[]>('/subjects', { params: { universityId } })
-  return data
-}
-
-export async function fetchTerms(universityId?: string): Promise<TermItem[]> {
-  const { data } = await api.get<TermItem[]>('/terms', { params: { universityId } })
-  return data
-}
-
 // ── Мутации (декан/админ вуза) ───────────────────────────────────────────────
 
 export async function createSubjectRequest(input: CreateSubjectInput): Promise<SubjectItem> {
   const { data } = await api.post<SubjectItem>('/subjects', input)
+  return data
+}
+
+export async function updateSubjectRequest(
+  id: string,
+  input: UpdateSubjectInput,
+): Promise<SubjectItem> {
+  const { data } = await api.patch<SubjectItem>(`/subjects/${id}`, input)
   return data
 }
 
@@ -79,6 +79,12 @@ export async function deleteSubjectRequest(id: string): Promise<void> {
 
 export async function createTermRequest(input: CreateTermInput): Promise<TermItem> {
   const { data } = await api.post<TermItem>('/terms', input)
+  return data
+}
+
+// Сервер сверяет итоговые даты с сохранёнными и держит один активный семестр в вузе.
+export async function updateTermRequest(id: string, input: UpdateTermInput): Promise<TermItem> {
+  const { data } = await api.patch<TermItem>(`/terms/${id}`, input)
   return data
 }
 

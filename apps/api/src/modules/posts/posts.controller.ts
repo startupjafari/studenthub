@@ -26,6 +26,7 @@ import { ReactionDto } from './dto/reaction.dto'
 import { PinPostDto } from './dto/pin-post.dto'
 import { UpdatePostDto } from './dto/update-post.dto'
 import { FeedQueryDto } from './dto/feed-query.dto'
+import { CommentsQueryDto } from './dto/comments-query.dto'
 
 // Роли, которым разрешено публиковать (docs/PROJECT.md §2.2 — модераторы посты не создают).
 const AUTHOR_ROLES = [
@@ -46,6 +47,7 @@ export class PostsController {
   @Get()
   @ApiOperation({ summary: 'Лента постов по видимости (cursor-пагинация)' })
   @ApiResponse({ status: 200, description: 'Страница ленты' })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN — filter=MODERATION не у роли модерации' })
   feed(@CurrentUser() user: CurrentUserData, @Query() query: FeedQueryDto) {
     return this.posts.feed(user, query)
   }
@@ -72,7 +74,10 @@ export class PostsController {
   }
 
   @Post(':id/view')
-  @ApiOperation({ summary: 'Засчитать просмотр поста (при открытии в лайтбоксе)' })
+  @ApiOperation({
+    summary: 'Засчитать просмотр поста (при открытии в лайтбоксе)',
+    description: 'Один просмотр на зрителя в сутки; повтор отвечает текущим числом.',
+  })
   @ApiResponse({ status: 201, description: 'Обновлённое число просмотров' })
   incrementView(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
     return this.posts.incrementView(user, id)
@@ -196,10 +201,19 @@ export class PostsController {
   }
 
   @Get(':id/comments')
-  @ApiOperation({ summary: 'Комментарии поста (thread)' })
+  @ApiOperation({
+    summary: 'Комментарии поста (thread)',
+    description:
+      'Без limit/cursor — последние 200 массивом по порядку написания. С ними — страница ' +
+      'свежих сверху: meta.cursor (раньше), meta.hasNext, meta.total. У каждого — canDelete.',
+  })
   @ApiResponse({ status: 200, description: 'Список комментариев' })
-  comments(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
-    return this.posts.listComments(user, id)
+  comments(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Query() query: CommentsQueryDto,
+  ) {
+    return this.posts.listComments(user, id, query)
   }
 
   @Post(':id/comments')
@@ -215,7 +229,7 @@ export class PostsController {
 
   @Delete(':id/comments/:commentId')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Удалить комментарий (автор или модератор)' })
+  @ApiOperation({ summary: 'Удалить комментарий (автор комментария, автор поста или модератор)' })
   @ApiResponse({ status: 204, description: 'Удалён' })
   async removeComment(
     @CurrentUser() user: CurrentUserData,

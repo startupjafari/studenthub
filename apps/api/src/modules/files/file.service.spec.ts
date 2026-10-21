@@ -1,4 +1,5 @@
 import { Readable } from 'node:stream'
+import { Prisma } from '@prisma/client'
 import type { Client as MinioClient } from 'minio'
 import { FILE_UPLOAD } from '@studenthub/shared-config'
 import type { MediaService } from '../media/media.service'
@@ -71,6 +72,8 @@ function setup(
         name: null,
       }),
       delete: jest.fn().mockResolvedValue(undefined),
+      // Условное удаление общего DELETE /files/:id: 0 — файл успели прикрепить.
+      deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
       // Сколько записей ссылается на тот же объект ПОСЛЕ удаления своей.
       count: jest.fn().mockResolvedValue(options.refsLeft ?? 0),
     },
@@ -431,5 +434,116 @@ describe('FileService.delete', () => {
 
     expect(prisma.file.delete).not.toHaveBeenCalled()
     expect(minio.removeObject).not.toHaveBeenCalled()
+  })
+})
+
+// Общий DELETE /files/:id снимает только свой НЕПРИКРЕПЛЁННЫЙ файл (аудит F-F06). Иначе
+// владелец файла убирал скан из документа на проверке, вложение из чата, медиа из альбома
+// мимо модуля-владельца, а сущность оставалась с пропавшим файлом.
+describe('FileService.deleteDetached', () => {
+  const free = {
+    id: 'f1',
+    bucket: 'chat-media',
+    key: 'user-1/a.png',
+    ownerId: 'user-1',
+    name: null,
+    postId: null,
+    messageId: null,
+    materialId: null,
+    albumId: null,
+    documentId: null,
+    submissionId: null,
+    _count: { stories: 0, albumsCovered: 0 },
+  }
+
+  function withFile(patch: Record<string, unknown> | null) {
+    const ctx = setup()
+    ctx.prisma.file.findUnique.mockResolvedValue(patch === null ? null : { ...free, ...patch })
+    return ctx
+  }
+
+  it('свой свободный файл удаляется: запись, варианты и объект', async () => {
+    const { service, prisma, minio, media } = withFile({})
+
+    await service.deleteDetached('f1', 'user-1')
+
+    expect(prisma.file.deleteMany).toHaveBeenCalledTimes(1)
+    expect(media.purgeVariants).toHaveBeenCalledWith('chat-media', 'f1')
+    expect(minio.removeObject).toHaveBeenCalledWith('chat-media', 'user-1/a.png')
+  })
+
+  it('условие удаления покрывает каждую связь File из схемы', async () => {
+    // Новая связь File с сущностью, не попавшая в условие, снова открыла бы обход модуля.
+    const { service, prisma } = withFile({})
+
+    await service.deleteDetached('f1', 'user-1')
+
+    const [{ where }] = prisma.file.deleteMany.mock.calls[0] as [{ where: Record<string, unknown> }]
+    const model = Prisma.dmmf.datamodel.models.find((m) => m.name === 'File')
+    const relations = (model?.fields ?? []).filter(
+      (f) => f.kind === 'object' && f.name !== 'owner' && f.name !== 'variants',
+    )
+    expect(relations.length).toBeGreaterThan(0)
+    for (const rel of relations) {
+      const fk = rel.relationFromFields?.[0]
+      if (fk) expect(where[fk]).toBeNull()
+      else expect(where[rel.name]).toEqual({ none: {} })
+    }
+    expect(where).toMatchObject({ id: 'f1', ownerId: 'user-1' })
+  })
+
+  it.each([
+    ['вложение сообщения', { messageId: 'm1' }],
+    ['медиа поста', { postId: 'p1' }],
+    ['файл материала', { materialId: 'mat-1' }],
+    ['фото альбома', { albumId: 'al-1' }],
+    ['страница документа', { documentId: 'd1' }],
+    ['файл сданной работы', { submissionId: 's1' }],
+    ['медиа сториса', { _count: { stories: 1, albumsCovered: 0 } }],
+    ['обложка альбома', { _count: { stories: 0, albumsCovered: 1 } }],
+  ])('%s — CONFLICT, ни запись, ни объект не трогаются', async (_label, patch) => {
+    const { service, prisma, minio, media } = withFile(patch)
+
+    await expect(service.deleteDetached('f1', 'user-1')).rejects.toMatchObject({
+      code: 'CONFLICT',
+    })
+    expect(prisma.file.deleteMany).not.toHaveBeenCalled()
+    expect(prisma.file.delete).not.toHaveBeenCalled()
+    expect(media.purgeVariants).not.toHaveBeenCalled()
+    expect(minio.removeObject).not.toHaveBeenCalled()
+  })
+
+  it('аватар (ссылка через URL пользователя или чата, не FK) общим маршрутом не удаляется', async () => {
+    const { service, prisma, minio } = withFile({ bucket: 'avatars' })
+
+    await expect(service.deleteDetached('f1', 'user-1', ['avatars'])).rejects.toMatchObject({
+      code: 'CONFLICT',
+    })
+    expect(prisma.file.deleteMany).not.toHaveBeenCalled()
+    expect(minio.removeObject).not.toHaveBeenCalled()
+  })
+
+  it('файл прикрепили между проверкой и удалением — CONFLICT, объект цел', async () => {
+    const { service, prisma, minio, media } = withFile({})
+    prisma.file.deleteMany.mockResolvedValue({ count: 0 })
+
+    await expect(service.deleteDetached('f1', 'user-1')).rejects.toMatchObject({
+      code: 'CONFLICT',
+    })
+    expect(media.purgeVariants).not.toHaveBeenCalled()
+    expect(minio.removeObject).not.toHaveBeenCalled()
+  })
+
+  it('чужой файл — WRONG_SCOPE, нет файла — NOT_FOUND', async () => {
+    const other = withFile({})
+    await expect(other.service.deleteDetached('f1', 'user-2')).rejects.toMatchObject({
+      code: 'WRONG_SCOPE',
+    })
+    expect(other.prisma.file.deleteMany).not.toHaveBeenCalled()
+
+    const missing = withFile(null)
+    await expect(missing.service.deleteDetached('f1', 'user-1')).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    })
   })
 })

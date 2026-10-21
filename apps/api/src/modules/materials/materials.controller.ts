@@ -28,7 +28,7 @@ import type { RequestContext } from '../auth/auth.service'
 import { MaterialsService } from './materials.service'
 import { ConfirmMaterialFileDto, PresignMaterialFileDto } from './dto/presign-material-file.dto'
 import { CreateMaterialDto } from './dto/create-material.dto'
-import { MaterialListQueryDto } from './dto/material-list-query.dto'
+import { MaterialListQueryDto, MaterialSubjectsQueryDto } from './dto/material-list-query.dto'
 
 const AUTHOR_ROLES = [Role.PLATFORM_ADMIN, Role.UNIVERSITY_ADMIN, Role.DEAN, Role.TEACHER] as const
 
@@ -42,6 +42,12 @@ export class MaterialsController {
   @ApiOperation({ summary: 'Учебные материалы по scope (студент — своя группа)' })
   list(@CurrentUser() user: CurrentUserData, @Query() query: MaterialListQueryDto) {
     return this.materials.list(user, query)
+  }
+
+  @Get('subjects')
+  @ApiOperation({ summary: 'Число материалов по дисциплинам (тот же scope, что у списка)' })
+  subjects(@CurrentUser() user: CurrentUserData, @Query() query: MaterialSubjectsQueryDto) {
+    return this.materials.subjects(user, query)
   }
 
   @Post()

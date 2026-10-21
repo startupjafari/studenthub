@@ -9,6 +9,9 @@ import { DocumentsModule } from '../documents/documents.module'
 import { ChatsModule } from '../chats/chats.module'
 import { ComplaintsModule } from '../complaints/complaints.module'
 import { OnboardingModule } from '../onboarding/onboarding.module'
+import { CareerModule } from '../career/career.module'
+import { ApplicationServicesModule } from '../application-services/application-services.module'
+import { UsersModule } from '../users/users.module'
 
 // Планировщик cron-задач очистки (docs/PROJECT.md §10.2). ScheduleModule.forRoot()
 // регистрируется здесь один раз; PrismaService/MINIO_CLIENT/ConfigService — глобальные.
@@ -18,6 +21,10 @@ import { OnboardingModule } from '../onboarding/onboarding.module'
 // CronMonitorService живёт здесь же: ему нужен SchedulerRegistry из ScheduleModule (Ф13.8).
 // ComplaintsModule — за размером очереди для сводки и сигнала о заторе: считает его владелец
 // таблицы, а не планировщик (§2.1).
+// CareerModule — для expireCompanyAccess (истечение допусков компаний закрывает их владелец).
+// ApplicationServicesModule — для notifyOverdueApplications (сводку просрочки собирает домен заявок).
+// DocumentsModule — ещё и для closeOverdueDocumentRequests (запросы документов по сроку).
+// UsersModule — штатное удаление аккаунта для purgeUnverifiedEmployers (UserService.softDeleteSelf).
 @Module({
   imports: [
     ScheduleModule.forRoot(),
@@ -28,6 +35,9 @@ import { OnboardingModule } from '../onboarding/onboarding.module'
     ChatsModule,
     ComplaintsModule,
     OnboardingModule,
+    CareerModule,
+    ApplicationServicesModule,
+    UsersModule,
   ],
   providers: [CleanupService, CronMonitorService],
   exports: [CleanupService],

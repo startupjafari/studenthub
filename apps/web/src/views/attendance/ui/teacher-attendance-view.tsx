@@ -24,8 +24,16 @@ import {
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { isoWeekParity, nowInTz } from '../../../shared/lib'
-import { scheduleKeys, fetchSchedule, type Pair } from '../../../entities/schedule'
+import {
+  scheduleKeys,
+  fetchSchedule,
+  fetchScheduleChanges,
+  isSubstitutedAway,
+  substitutionPairs,
+  type Pair,
+} from '../../../entities/schedule'
 import { attendanceKeys, fetchMarkedPairs } from '../../../entities/attendance'
+import { useAppSelector } from '../../../shared/store'
 import { AttendanceRoster } from './attendance-roster'
 
 // Дисциплина забирает остаток ширины: остальные колонки — короткие и предсказуемые.
@@ -49,15 +57,37 @@ export function TeacherAttendanceView() {
   const [date, setDate] = useState(() => nowInTz(null).date)
   const [openPairId, setOpenPairId] = useState<string | null>(null)
 
+  // Замены на выбранный день (C-F12): своё занятие, отданное другому, отмечает заменяющий,
+  // а чужое, где заменяющий он сам, в недельной выборке отсутствует — его строим из изменения.
+  const myId = useAppSelector((s) => s.auth.user?.id)
+  const changesRange = { from: date, to: date }
+  const changes = useQuery({
+    queryKey: scheduleKeys.changes(changesRange),
+    queryFn: () => fetchScheduleChanges(changesRange),
+  })
+  const substituting = useMemo(
+    () => (myId ? substitutionPairs(changes.data ?? [], date, myId) : []),
+    [changes.data, date, myId],
+  )
+  const substitutingIds = useMemo(() => new Set(substituting.map((p) => p.id)), [substituting])
+
   const dayPairs = useMemo(() => {
     const pairs = schedule.data?.pairs ?? []
+    const dayChanges = changes.data ?? []
     const d = new Date(`${date}T00:00:00`)
     const dow = ((d.getDay() + 6) % 7) + 1
     const parity = isoWeekParity(d)
-    return pairs
-      .filter((p) => p.dayOfWeek === dow && (p.weekType === 'BOTH' || p.weekType === parity))
-      .sort((a, b) => a.startTime.localeCompare(b.startTime))
-  }, [schedule.data?.pairs, date])
+    const own = pairs.filter(
+      (p) =>
+        p.dayOfWeek === dow &&
+        (p.weekType === 'BOTH' || p.weekType === parity) &&
+        !(myId && isSubstitutedAway(dayChanges, p.id, date, myId)),
+    )
+    const ownIds = new Set(own.map((p) => p.id))
+    return [...own, ...substituting.filter((p) => !ownIds.has(p.id))].sort((a, b) =>
+      a.startTime.localeCompare(b.startTime),
+    )
+  }, [schedule.data?.pairs, changes.data, substituting, date, myId])
 
   const pairIds = useMemo(() => dayPairs.map((p) => p.id), [dayPairs])
   // Какие пары уже отмечены. Расписание второй раз не запрашиваем — уходят только id
@@ -141,7 +171,16 @@ export function TeacherAttendanceView() {
                     <span className="hidden md:inline"> – {p.endTime}</span>
                   </TableCell>
                   <TableCell className="font-medium">
-                    <TableText value={p.subject} />
+                    {substitutingIds.has(p.id) ? (
+                      <span className="flex min-w-0 items-center gap-2">
+                        <TableText value={p.subject} className="min-w-0" />
+                        <Badge variant="secondary" className="shrink-0">
+                          {t('substitution')}
+                        </Badge>
+                      </span>
+                    ) : (
+                      <TableText value={p.subject} />
+                    )}
                   </TableCell>
                   <TableCell className={cn(HIDE.room, 'text-muted-foreground')}>
                     {p.room ? <TableText value={p.room.name} /> : <TableEmpty />}

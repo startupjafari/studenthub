@@ -1,10 +1,14 @@
-import { Injectable } from '@nestjs/common'
+import { Inject, Injectable, Logger } from '@nestjs/common'
+import { createHash } from 'node:crypto'
+import type Redis from 'ioredis'
 import { renderQrDataUrl } from '../../common/qr/qr-image'
 import { Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import { CryptoService } from '../../common/security/crypto.service'
+import { AuditService } from '../../common/audit/audit.service'
+import { REDIS_CLIENT } from '../../common/redis/redis.constants'
 import { ConfigService } from '@nestjs/config'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { EnvVars } from '../../config/env.schema'
@@ -39,7 +43,8 @@ const CARD_SELECT = {
   studyForm: true,
   // Специальность, финансирование и общежитие: реквизиты бумажного билета, по которым
   // сотрудник на вахте и в деканате опознаёт студента. Карту видит либо сам студент,
-  // либо сотрудник своего вуза (scope проверяется ниже) — наружу они не уходят.
+  // либо сотрудник своего вуза (scope проверяется ниже) — наружу они не уходят. Все три
+  // ведёт вуз (STAFF_MANAGED_STUDENT_FIELDS); дату рождения — сам студент, см. SELF_DECLARED.
   specialty: true,
   fundingType: true,
   dormitory: true,
@@ -53,16 +58,28 @@ const CARD_SELECT = {
   university: { select: { name: true, shortName: true } },
 } satisfies Prisma.UserSelect
 
+/**
+ * Поля карты, которые студент заполняет сам (PATCH /users/me), а вуз не проверял. Результат
+ * проверки перечисляет их в `selfDeclared`, и клиент помечает «со слов студента»: иначе
+ * охранник видел дату рождения рядом с «билет действителен» и принимал её за проверенную
+ * вузом (проверка возраста). Учебные данные и общежитие ведёт вуз — их здесь нет.
+ */
+const SELF_DECLARED = ['birthDate'] as const
+
 function isPlatform(role: Role): boolean {
   return role === Role.PLATFORM_ADMIN || role === Role.PLATFORM_MODERATOR
 }
 
 @Injectable()
 export class StudentIdService {
+  private readonly logger = new Logger(StudentIdService.name)
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly crypto: CryptoService,
     private readonly config: ConfigService<EnvVars, true>,
+    private readonly audit: AuditService,
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {}
 
   /**
@@ -93,7 +110,7 @@ export class StudentIdService {
   }
 
   /** Верификация карты сотрудником: расшифровка токена + область видимости (тот же вуз). */
-  async verify(verifier: JwtPayload, token: string) {
+  async verify(verifier: JwtPayload, token: string, ctx: { ip?: string; userAgent?: string } = {}) {
     const payload = this.verifyIdToken(token)
     // Исключаем удалённых/заблокированных: их билет недействителен даже в пределах TTL токена.
     const user = await this.prisma.user.findFirst({
@@ -104,21 +121,68 @@ export class StudentIdService {
     if (!isPlatform(verifier.role) && user.universityId !== verifier.universityId) {
       throw new AppException('WRONG_SCOPE', 'Студент другого университета')
     }
+    // После проверки области: сотрудник чужого вуза код не «забирает».
+    await this.claimToken(token, payload.exp, verifier.sub)
     const card = this.toCard(user)
     // Староста и преподаватель проверяют, что перед ними студент вуза (на паре, на
     // мероприятии) — им хватает ФИО, фото, группы и статуса. Дата рождения, грант/платное и
     // общежитие нужны деканату и администрации, а не однокурснику или лектору.
     const narrow = verifier.role === Role.STAROSTA || verifier.role === Role.TEACHER
+    const shown = {
+      ...card,
+      ...(narrow ? { birthDate: null, fundingType: null, dormitory: null } : {}),
+    }
+    // Проверка отдаёт сотруднику учебные данные студента, а широкая — ещё дату рождения,
+    // форму оплаты и общежитие: доступ к ПДн пишется в журнал, как просмотр закрытого
+    // профиля (PROFILE_VIEW_PRIVATE). В записи — кто и кого, без самих данных.
+    await this.audit.record({
+      userId: verifier.sub,
+      action: 'student_id_verified',
+      entity: 'User',
+      entityId: user.id,
+      metadata: { role: verifier.role, scope: narrow ? 'narrow' : 'full' },
+      ...ctx,
+    })
     // Время проверки — для отображения на странице верификации (когда сотрудник сканировал).
+    // selfDeclared — только те поля «со слов студента», что реально есть в ответе.
     return {
       valid: true,
       verifiedAt: new Date().toISOString(),
-      ...card,
-      ...(narrow ? { birthDate: null, fundingType: null, dormitory: null } : {}),
+      ...shown,
+      selfDeclared: SELF_DECLARED.filter((field) => shown[field] != null),
     }
   }
 
   // ── helpers ──────────────────────────────────────────────────────────────
+
+  /**
+   * QR студенческого — разовый пропуск: код «забирает» первый проверивший сотрудник, и
+   * скриншот, пересланный другому, больше не проходит, хотя двухминутный срок не вышел.
+   * Тот же сотрудник может открыть результат снова (перезагрузка, возврат назад) — это не
+   * новый пропуск. Ключ — хэш токена: карта шифруется при каждом показе заново (случайный
+   * IV), токены не повторяются. Redis недоступен — пропускаем без отметки: проверка карты
+   * на вахте важнее, а срок токена всё равно короткий.
+   */
+  private async claimToken(token: string, exp: number, verifierId: string): Promise<void> {
+    const key = `student-id:used:${createHash('sha256').update(token).digest('hex')}`
+    try {
+      const first = await this.redis.set(
+        key,
+        verifierId,
+        'PX',
+        Math.max(exp - Date.now(), 1000),
+        'NX',
+      )
+      if (first === 'OK' || (await this.redis.get(key)) === verifierId) return
+    } catch (error) {
+      this.logger.warn(
+        { err: error },
+        'Redis недоступен — одноразовость кода студенческого не проверена',
+      )
+      return
+    }
+    throw new AppException('CONFLICT', 'Код уже проверен — попросите студента обновить карту')
+  }
 
   private toCard(user: Prisma.UserGetPayload<{ select: typeof CARD_SELECT }>) {
     return {

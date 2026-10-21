@@ -67,5 +67,11 @@ export interface ScheduleChange {
     dayOfWeek: number
     startTime: string
     endTime: string
+    // Полные данные пары (C-F12): заменяющий не видит её в своей выборке /schedule,
+    // и пара на дату замены строится из изменения. Необязательны — старые ответы их не несли.
+    scheduleId?: string
+    weekType?: WeekType
+    teacher?: PairTeacher | null
+    room?: PairRoom | null
   }
 }

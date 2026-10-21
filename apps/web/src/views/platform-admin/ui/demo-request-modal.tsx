@@ -1,9 +1,9 @@
 'use client'
 
-import { useState, type ReactNode } from 'react'
-import { useMutation } from '@tanstack/react-query'
+import { useEffect, useState, type ReactNode } from 'react'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
-import { useForm } from 'react-hook-form'
+import { Controller, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import {
   ApproveDemoRequestSchema,
@@ -16,6 +16,14 @@ import {
   rejectDemoRequest,
   type DemoRequest,
 } from '../../../entities/onboarding'
+import {
+  KatoSelect,
+  isKatoCode,
+  katoKeys,
+  searchKato,
+  useKatoNames,
+  type KatoUnit,
+} from '../../../entities/kato'
 import {
   Badge,
   Button,
@@ -33,6 +41,20 @@ import {
 import { OPTIONAL_TEXT, useFormAlert } from '../../../shared/lib'
 
 const REASONS = DemoRejectionReasonSchema.options
+
+/**
+ * Код города из выдачи КАТО, если текст заявки совпал ровно с одним городом. Тёзки
+ * («Абай» — город и десятки сёл) и неточные совпадения не угадываем: выберет модератор.
+ */
+function exactCity(units: KatoUnit[], text: string): string | null {
+  const wanted = text.trim().toLocaleLowerCase('ru')
+  const hits = units.filter(
+    (u) =>
+      u.kind === 'CITY' &&
+      (u.nameRu.toLocaleLowerCase('ru') === wanted || u.nameKk.toLocaleLowerCase('kk') === wanted),
+  )
+  return hits.length === 1 ? hits[0]!.code : null
+}
 
 /** Цвет статусной плашки — тот же, что в строке очереди: один статус, один цвет. */
 const STATUS_STYLE: Record<DemoRequest['status'], string> = {
@@ -64,6 +86,9 @@ export function DemoRequestModal({ request, onClose, onDecided }: Props) {
   const tCommon = useTranslations('Common')
   const locale = useLocale()
   const [mode, setMode] = useState<'view' | 'approve' | 'reject'>('view')
+  // Город заявки обычно текст с публичной формы, но может оказаться и кодом КАТО —
+  // код показываем названием, текст как есть.
+  const { nameOf: cityName } = useKatoNames([request.city])
 
   const decided = request.status !== 'NEW'
 
@@ -92,7 +117,7 @@ export function DemoRequestModal({ request, onClose, onDecided }: Props) {
           <Field label={t('fieldRole')}>{request.contactRole || '—'}</Field>
           <Field label={t('colEmail')}>{request.email}</Field>
           <Field label={t('fieldPhone')}>{request.phone || '—'}</Field>
-          <Field label={t('fieldCity')}>{request.city || '—'}</Field>
+          <Field label={t('fieldCity')}>{cityName(request.city) || '—'}</Field>
           <Field label={t('fieldStudents')}>{request.studentsEstimate ?? '—'}</Field>
           <Field label={t('fieldWebsite')}>{request.website || '—'}</Field>
           <Field label={t('fieldConsent')}>
@@ -194,6 +219,24 @@ function ApproveForm({
     },
   })
 
+  // Город вуза хранится кодом КАТО (B-F13), а в заявке он — свободный текст. Ищем текст в
+  // справочнике тем же запросом, что и комбобокс: однозначно совпавший город подставляем
+  // кодом, иначе оставляем текст — модератор выберет из списка сам, а зарубежный город
+  // так и уйдёт текстом. Сервер повторяет ту же сверку, если город не прислали.
+  const cityText = request.city?.trim() ?? ''
+  const cityMatch = useQuery({
+    queryKey: katoKeys.search(cityText, 'places'),
+    queryFn: () => searchKato(cityText, 'places'),
+    enabled: cityText !== '' && !isKatoCode(cityText),
+    staleTime: Infinity,
+  })
+  useEffect(() => {
+    if (!cityMatch.data) return
+    const code = exactCity(cityMatch.data, cityText)
+    // Только пока поле не трогали: выбор модератора важнее догадки.
+    if (code && !form.getFieldState('city').isDirty) form.setValue('city', code)
+  }, [cityMatch.data, cityText, form])
+
   const mut = useMutation({
     mutationFn: (input: ApproveDemoRequestInput) => approveDemoRequest(request.id, input),
     onSuccess: onDecided,
@@ -224,7 +267,18 @@ function ApproveForm({
         </div>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="d-city">{t('fieldCity')}</Label>
-          <Input id="d-city" {...form.register('city', OPTIONAL_TEXT)} />
+          <Controller
+            control={form.control}
+            name="city"
+            render={({ field }) => (
+              <KatoSelect
+                id="d-city"
+                value={field.value ?? ''}
+                // Очистка даёт пустую строку, а схема принимает непустую или ничего.
+                onChange={(v) => field.onChange(v === '' ? undefined : v)}
+              />
+            )}
+          />
         </div>
       </div>
 

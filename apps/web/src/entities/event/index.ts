@@ -15,6 +15,7 @@ export {
 } from './api/event-api'
 export {
   MEETING_PROVIDER_NAME,
+  type EventCommentsPage,
   type EventMeeting,
   type MeetingProviderValue,
   type PostAudienceValue,

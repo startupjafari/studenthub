@@ -16,6 +16,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
   EmptyState,
+  FieldError,
   Input,
   PageHeader,
   Skeleton,
@@ -45,6 +46,23 @@ import { AddColumnModal } from './add-column-modal'
 
 const cellKey = (columnId: string, studentId: string) => `${columnId}|${studentId}`
 
+// Общий потолок схемы (SaveGradesSchema): действует, когда у колонки нет максимума.
+const GRADE_CEILING = 1000
+
+/** Верхняя граница балла колонки. */
+const ceilingOf = (col: GradeColumnItem): number => col.maxScore ?? GRADE_CEILING
+
+/**
+ * Балл вне диапазона 0..максимум колонки. Пустая ячейка — не ошибка (очистка оценки).
+ * Сервер проверяет то же самое, но красная ячейка сразу при вводе дешевле отказа целой
+ * колонки после «Сохранить»: лишний ноль («150 из 10») видно там, где его набрали.
+ */
+function isOutOfRange(col: GradeColumnItem, raw: string | undefined): boolean {
+  if (raw === undefined || raw === '') return false
+  const n = Number(raw)
+  return Number.isNaN(n) || n < 0 || n > ceilingOf(col)
+}
+
 // Сортировка матрицы — по студенту и по итогу. По самим колонкам оценок нет: они
 // динамические, заголовок у каждой свой, и клик по нему уже занят меню колонки.
 // А «Итого» — главный вопрос преподавателя к журналу: кто внизу.
@@ -66,6 +84,9 @@ export function GradebookTable({
   const isDesktop = useMediaQuery('(min-width: 1024px)')
   const [adding, setAdding] = useState(false)
   const [values, setValues] = useState<Record<string, string>>({})
+  // Изменённые ЯЧЕЙКИ (cellKey), а не колонки: на сохранение уходят только они. Колонка
+  // целиком затирала оценки, выставленные в соседней вкладке или деканом после загрузки
+  // журнала, — пустая у нас ячейка уходила как «очистить».
   const [dirty, setDirty] = useState<Set<string>>(new Set())
 
   const q = useQuery({
@@ -88,19 +109,23 @@ export function GradebookTable({
   const invalidate = () => qc.invalidateQueries({ queryKey: gradebookKeys.course(courseId) })
 
   const setCell = (columnId: string, studentId: string, v: string) => {
-    setValues((prev) => ({ ...prev, [cellKey(columnId, studentId)]: v }))
-    setDirty((prev) => new Set(prev).add(columnId))
+    const key = cellKey(columnId, studentId)
+    setValues((prev) => ({ ...prev, [key]: v }))
+    setDirty((prev) => new Set(prev).add(key))
   }
 
   const save = useMutation({
     mutationFn: async () => {
-      const students = q.data?.students ?? []
-      for (const columnId of dirty) {
-        const entries = students.map((s) => {
-          const raw = values[cellKey(columnId, s.id)]
-          const score = raw === undefined || raw === '' ? null : Number(raw)
-          return { studentId: s.id, score: Number.isNaN(score as number) ? null : score }
-        })
+      const byColumn = new Map<string, { studentId: string; score: number | null }[]>()
+      for (const key of dirty) {
+        const [columnId, studentId] = key.split('|') as [string, string]
+        const raw = values[key]
+        const score = raw === undefined || raw === '' ? null : Number(raw)
+        const entries = byColumn.get(columnId) ?? []
+        entries.push({ studentId, score: Number.isNaN(score as number) ? null : score })
+        byColumn.set(columnId, entries)
+      }
+      for (const [columnId, entries] of byColumn) {
         await saveGradesRequest({ columnId, entries })
       }
     },
@@ -108,8 +133,29 @@ export function GradebookTable({
       invalidate()
       toast.success(t('saved'))
     },
-    onError: (e) => toast.error(tErr(toApiError(e).code)),
+    onError: (e) => {
+      const code = toApiError(e).code
+      toast.error(code === 'VALIDATION_ERROR' ? t('scoresOutOfRange') : tErr(code))
+    },
   })
+
+  // Сохранение не уходит, пока среди изменённых ячеек есть баллы вне диапазона: сервер
+  // отклонил бы колонку целиком, а ячейки и так подсвечены.
+  function onSave() {
+    const cols = q.data?.columns ?? []
+    const students = q.data?.students ?? []
+    const invalid = cols.some((c) =>
+      students.some((s) => {
+        const key = cellKey(c.id, s.id)
+        return dirty.has(key) && isOutOfRange(c, values[key])
+      }),
+    )
+    if (invalid) {
+      toast.error(t('scoresOutOfRange'))
+      return
+    }
+    save.mutate()
+  }
 
   const publish = useMutation({
     mutationFn: ({ id, published }: { id: string; published: boolean }) =>
@@ -214,7 +260,7 @@ export function GradebookTable({
             <Button
               size="md"
               className="gap-1.5"
-              onClick={() => save.mutate()}
+              onClick={onSave}
               loading={save.isPending}
               disabled={dirty.size === 0}
             >
@@ -270,20 +316,27 @@ export function GradebookTable({
                     <TableCell className="sticky left-0 z-10 truncate bg-card px-3 py-1.5 font-medium">
                       {s.lastName} {s.firstName[0]}.
                     </TableCell>
-                    {columns.map((col) => (
-                      <TableCell key={col.id} className="px-2 py-1.5 text-center">
-                        <Input
-                          type="number"
-                          value={values[cellKey(col.id, s.id)] ?? ''}
-                          onChange={(e) => setCell(col.id, s.id, e.target.value)}
-                          className={cn(
-                            'mx-auto h-8 w-16 px-2 text-center',
-                            !col.published && 'bg-muted/40',
-                          )}
-                          max={col.maxScore ?? undefined}
-                        />
-                      </TableCell>
-                    ))}
+                    {columns.map((col) => {
+                      const raw = values[cellKey(col.id, s.id)]
+                      const bad = isOutOfRange(col, raw)
+                      return (
+                        <TableCell key={col.id} className="px-2 py-1.5 text-center">
+                          <Input
+                            type="number"
+                            value={raw ?? ''}
+                            onChange={(e) => setCell(col.id, s.id, e.target.value)}
+                            className={cn(
+                              'mx-auto h-8 w-16 px-2 text-center',
+                              !col.published && 'bg-muted/40',
+                            )}
+                            min={0}
+                            max={ceilingOf(col)}
+                            aria-invalid={bad || undefined}
+                            title={bad ? t('cellOutOfRange', { max: ceilingOf(col) }) : undefined}
+                          />
+                        </TableCell>
+                      )
+                    })}
                     <TableCell className="px-3 py-1.5 text-center font-semibold tabular-nums">
                       {total(s.id) ?? <TableEmpty />}
                     </TableCell>
@@ -343,28 +396,40 @@ function StudentCard({
             </span>
           </div>
           <div className="flex flex-col gap-2">
-            {columns.map((col) => (
-              <div key={col.id} className="flex items-center gap-2">
-                <span className="min-w-0 flex-1 truncate text-sm">
-                  {col.title}
-                  {col.maxScore != null && (
-                    <span className="text-muted-foreground"> /{col.maxScore}</span>
-                  )}
-                  {!col.published && (
-                    <Badge variant="secondary" className="ml-1.5">
-                      {t('draft')}
-                    </Badge>
-                  )}
-                </span>
-                <Input
-                  type="number"
-                  value={values[cellKey(col.id, student.id)] ?? ''}
-                  onChange={(e) => setCell(col.id, student.id, e.target.value)}
-                  className="h-8 w-20 text-center"
-                  max={col.maxScore ?? undefined}
-                />
-              </div>
-            ))}
+            {columns.map((col) => {
+              const raw = values[cellKey(col.id, student.id)]
+              const bad = isOutOfRange(col, raw)
+              return (
+                <div key={col.id} className="flex flex-col gap-1">
+                  <div className="flex items-center gap-2">
+                    <span className="min-w-0 flex-1 truncate text-sm">
+                      {col.title}
+                      {col.maxScore != null && (
+                        <span className="text-muted-foreground"> /{col.maxScore}</span>
+                      )}
+                      {!col.published && (
+                        <Badge variant="secondary" className="ml-1.5">
+                          {t('draft')}
+                        </Badge>
+                      )}
+                    </span>
+                    <Input
+                      type="number"
+                      value={raw ?? ''}
+                      onChange={(e) => setCell(col.id, student.id, e.target.value)}
+                      className="h-8 w-20 text-center"
+                      min={0}
+                      max={ceilingOf(col)}
+                      aria-invalid={bad || undefined}
+                    />
+                  </div>
+                  {/* На карточке есть место под строку ошибки — в таблице её заменяет подсказка. */}
+                  <FieldError className="text-right">
+                    {bad ? t('cellOutOfRange', { max: ceilingOf(col) }) : null}
+                  </FieldError>
+                </div>
+              )
+            })}
           </div>
         </CardContent>
       </Card>

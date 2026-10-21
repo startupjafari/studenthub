@@ -3,8 +3,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import {
+  useInfiniteQuery,
   useMutation,
-  useQuery,
   useQueryClient,
   type InfiniteData,
   type QueryClient,
@@ -25,37 +25,48 @@ import {
   X,
 } from 'lucide-react'
 import { Role } from '@studenthub/shared-types'
+import { canFileComplaint } from '@studenthub/shared-schemas'
 import { useAppSelector } from '../../../shared/store'
 import {
+  LIKE_EMOJI,
   addCommentRequest,
   addReactionRequest,
   canRepost,
   deleteCommentRequest,
-  fetchComments,
+  fetchCommentsPage,
+  hasMyReaction,
   incrementPostView,
   postKeys,
+  reactionSummaryOf,
+  reactionTotal,
   removeReactionRequest,
+  withMyReaction,
   type FeedPage,
   type FeedPost,
   type PostComment,
-  type PostReaction,
+  type PostCommentsPage,
 } from '../../../entities/post'
 import { ProfileLink } from '../../../entities/user'
 import { RepostDialog, useRepost } from '../../../features/repost-post'
 import { ReportModal } from '../../../features/report-content'
 import type { PostAuthor } from '../../../entities/post'
-import { Avatar, AvatarFallback, AvatarImage, Markdown, Skeleton } from '../../../shared/ui'
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
+  Markdown,
+  Skeleton,
+  useConfirm,
+} from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { relativeTime, useBackClose, useBodyScrollLock } from '../../../shared/lib'
 import { SharePostMenu } from '../../../features/share-post'
 import { useBookmark } from '../../../features/bookmark-post'
 import { PostTileMenu } from './post-tile-menu'
 import { MediaFrame } from './media-frame'
-import { RepostBanner } from './repost-banner'
+import { RepostBanner, RepostUnavailable } from './repost-banner'
 import { useRepostSource } from '../lib/use-repost-source'
 import { MentionSuggest, applyMention, mentionQuery } from './mention-suggest'
-
-const LIKE = '❤️'
 
 // Быстрый набор эмодзи для комментариев (как в чате).
 const EMOJI_SET = [
@@ -104,15 +115,21 @@ function patchCommentCount(qc: QueryClient, postId: string, delta: number): void
     p.id === postId
       ? { ...p, _count: { ...p._count, comments: Math.max(0, p._count.comments + delta) } }
       : p
-  qc.setQueriesData<unknown>({ queryKey: postKeys.all }, (data: unknown) => {
-    if (!data || typeof data !== 'object' || Array.isArray(data)) return data
-    if ('pages' in data) {
-      const feed = data as InfiniteData<FeedPage>
-      return { ...feed, pages: feed.pages.map((pg) => ({ ...pg, items: pg.items.map(bump) })) }
-    }
-    if ('id' in data && '_count' in data) return bump(data as FeedPost)
-    return data
-  })
+  // Обсуждение лежит под тем же ['posts', …] и тоже бесконечный список — его не трогаем:
+  // там не посты, а комментарии, и правка дала бы лишнюю перерисовку окна.
+  const notComments = (q: { queryKey: readonly unknown[] }) => q.queryKey[2] !== 'comments'
+  qc.setQueriesData<unknown>(
+    { queryKey: postKeys.all, predicate: notComments },
+    (data: unknown) => {
+      if (!data || typeof data !== 'object' || Array.isArray(data)) return data
+      if ('pages' in data) {
+        const feed = data as InfiniteData<FeedPage>
+        return { ...feed, pages: feed.pages.map((pg) => ({ ...pg, items: pg.items.map(bump) })) }
+      }
+      if ('id' in data && '_count' in data) return bump(data as FeedPost)
+      return data
+    },
+  )
 }
 
 function initials(a: { firstName: string; lastName: string }): string {
@@ -268,6 +285,7 @@ export function PostLightbox({
             key={`${post.id}:${shown.id}`}
             post={shown}
             via={repost}
+            originalUnavailable={source.kind === 'unavailable'}
             onClose={onClose}
             focusComment={focusComment}
           />
@@ -283,12 +301,15 @@ export function PostLightbox({
 function PostView({
   post,
   via,
+  originalUnavailable = false,
   onClose,
   focusComment = false,
 }: {
   post: FeedPost
   /** Репост, через который открыт `post` (исходник): его пометка сверху и его меню. */
   via?: FeedPost
+  /** `post` — репост, чей исходник зрителю недоступен (удалён или чужой аудитории). */
+  originalUnavailable?: boolean
   onClose: () => void
   focusComment?: boolean
 }) {
@@ -296,14 +317,17 @@ function PostView({
   const tErr = useTranslations('Errors')
   const locale = useLocale()
   const qc = useQueryClient()
+  const confirm = useConfirm()
   const me = useAppSelector((s) => s.auth.user)
   const myId = me?.id
   const myRole = useAppSelector((s) => s.auth.role)
+  // Жалобу сервер принимает не от всех ролей (COMPLAINT_REPORTER_ROLES) — пункт по роли.
+  const canReportComments = canFileComplaint(myRole)
 
   const [mi, setMi] = useState(0)
   const [zoomed, setZoomed] = useState(false)
   const [views, setViews] = useState(post.views)
-  const [reactions, setReactions] = useState<PostReaction[]>(post.reactions)
+  const [reactions, setReactions] = useState(() => reactionSummaryOf(post, myId))
 
   // Засчитываем просмотр один раз при открытии поста (PostView ремонтируется по key={post.id}).
   useEffect(() => {
@@ -417,19 +441,35 @@ function PostView({
     if (focusComment) requestAnimationFrame(() => inputRef.current?.focus())
   }, [focusComment])
 
-  const canModerate = myRole !== null && MODERATOR_ROLES.includes(myRole)
+  const byRole = myRole !== null && MODERATOR_ROLES.includes(myRole)
   // Меню — про публикацию, которую открыли: у репоста это сам репост (удалить его), а не
   // чужой исходник. Лайки, комментарии и просмотры при этом — исходника, как в Instagram.
   const menuPost = via ?? post
-  const canDelete = menuPost.authorId === myId || canModerate
-  const showRepost = canRepost(myRole, post)
-  const liked = reactions.some((r) => r.emoji === LIKE && r.userId === myId)
+  // Права считает сервер (ранг относительно автора и scope); роль — только для старого API.
+  const canModerate = menuPost.canPin ?? byRole
+  const canDelete = menuPost.canDelete ?? (menuPost.authorId === myId || byRole)
+  // Репост репоста ссылается на исходник — а он зрителю недоступен, сервер откажет.
+  const showRepost = !originalUnavailable && canRepost(myRole, post)
+  const liked = hasMyReaction(reactions, LIKE_EMOJI)
   const { bookmarked, toggle: toggleBookmark } = useBookmark(post.id, post.bookmarked)
 
-  const comments = useQuery({
+  // Обсуждение — страницами свежих сверху: раньше приходили первые двести, и в длинной
+  // ветке новые реплики не видел никто. Более ранние — по «Показать предыдущие».
+  const comments = useInfiniteQuery({
     queryKey: postKeys.comments(post.id),
-    queryFn: () => fetchComments(post.id),
+    queryFn: ({ pageParam }) => fetchCommentsPage(post.id, pageParam),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => (last.hasNext ? last.cursor : undefined),
   })
+
+  // Правка кэша обсуждения: первая страница — самые свежие, `total` живёт в ней же.
+  function patchComments(edit: (pages: PostCommentsPage[]) => PostCommentsPage[]): void {
+    qc.setQueryData<InfiniteData<PostCommentsPage>>(postKeys.comments(post.id), (old) =>
+      old ? { ...old, pages: edit(old.pages) } : old,
+    )
+  }
+  const shiftTotal = (page: PostCommentsPage, delta: number): PostCommentsPage =>
+    page.total === undefined ? page : { ...page, total: Math.max(0, page.total + delta) }
 
   const addMut = useMutation({
     mutationFn: () =>
@@ -437,8 +477,10 @@ function PostView({
     // Сервер вернул созданную реплику целиком — дописываем её в список сами, без
     // перезапроса: окно не перерисовывается, появляется ровно одна новая строка.
     onSuccess: (created) => {
-      qc.setQueryData<PostComment[]>(postKeys.comments(post.id), (old) =>
-        old ? [...old, created] : [created],
+      patchComments((pages) =>
+        pages.map((page, i) =>
+          i === 0 ? shiftTotal({ ...page, items: [created, ...page.items] }, 1) : page,
+        ),
       )
       patchCommentCount(qc, post.id, 1)
       setScrollToId(created.id)
@@ -452,13 +494,36 @@ function PostView({
     mutationFn: (commentId: string) => deleteCommentRequest(post.id, commentId),
     // Ответы удалённого остаются (они всплывают корнями, см. `roots`) — убираем одну строку.
     onSuccess: (_, commentId) => {
-      qc.setQueryData<PostComment[]>(postKeys.comments(post.id), (old) =>
-        old?.filter((c) => c.id !== commentId),
+      patchComments((pages) =>
+        pages.map((page, i) => {
+          const items = page.items.filter((c) => c.id !== commentId)
+          return i === 0 ? shiftTotal({ ...page, items }, -1) : { ...page, items }
+        }),
       )
       patchCommentCount(qc, post.id, -1)
     },
     onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
   })
+
+  // Удалить комментарий: свой — сразу; чужой (автор поста под своим постом, модерация) —
+  // с подтверждением: это решение о чужом тексте.
+  function canDeleteComment(c: PostComment): boolean {
+    return c.canDelete ?? (c.author.id === myId || post.authorId === myId)
+  }
+  function removeComment(c: PostComment): void {
+    if (c.author.id === myId) {
+      delCommentMut.mutate(c.id)
+      return
+    }
+    void confirm({
+      title: t('commentDeleteConfirm'),
+      description: t('commentDeleteHint'),
+      confirmLabel: t('delete'),
+      destructive: true,
+    }).then((ok) => {
+      if (ok) delCommentMut.mutate(c.id)
+    })
+  }
 
   // Прокрутка к отправленному комментарию — после того как список с ним отрисован.
   // `block: 'nearest'`: если реплика уже видна, лента не дёргается.
@@ -476,19 +541,12 @@ function PostView({
   function toggleLike(): void {
     if (!myId) return
     const prev = reactions
-    if (liked) {
-      setReactions(prev.filter((r) => !(r.emoji === LIKE && r.userId === myId)))
-      removeReactionRequest(post.id, LIKE).catch(() => {
-        setReactions(prev)
-        toast.error(tErr('INTERNAL_ERROR'))
-      })
-    } else {
-      setReactions([...prev, { emoji: LIKE, userId: myId }])
-      addReactionRequest(post.id, LIKE).catch(() => {
-        setReactions(prev)
-        toast.error(tErr('INTERNAL_ERROR'))
-      })
-    }
+    setReactions(withMyReaction(prev, LIKE_EMOJI, !liked))
+    const request = liked ? removeReactionRequest : addReactionRequest
+    request(post.id, LIKE_EMOJI).catch(() => {
+      setReactions(prev)
+      toast.error(tErr('INTERNAL_ERROR'))
+    })
   }
 
   // Точная дата — в подсказке к относительному времени в панели действий.
@@ -500,8 +558,16 @@ function PostView({
   const media = post.media
   const cur = media[mi]
   const isImage = cur ? !cur.mime.startsWith('video/') : false
-  const commentCount = comments.data?.length ?? post._count.comments
-  const loaded = comments.data ?? []
+  // Заголовок — из общего числа на сервере, а не по длине загруженного: страниц может быть
+  // догружено сколько угодно, а «20 комментариев» над обсуждением в сотню вводило в заблуждение.
+  const commentCount = comments.data?.pages[0]?.total ?? post._count.comments
+  // Страницы идут от свежих к ранним; в окне — по порядку написания, без повторов (новая
+  // реплика дописывается в первую страницу и не должна задвоиться при догрузке).
+  const loaded = [
+    ...new Map(
+      (comments.data?.pages ?? []).flatMap((page) => page.items).map((c) => [c.id, c]),
+    ).values(),
+  ].sort((a, b) => a.createdAt.localeCompare(b.createdAt))
   const loadedIds = new Set(loaded.map((c) => c.id))
   // Корнем считаем и ответ, чей родитель не пришёл (родителя удалили): иначе такой
   // комментарий не рисовался нигде, а в счётчике оставался — заголовок обещал
@@ -513,8 +579,21 @@ function PostView({
       newestFirst ? b.createdAt.localeCompare(a.createdAt) : a.createdAt.localeCompare(b.createdAt),
     )
   const repliesOf = (id: string) => loaded.filter((c) => c.parentId === id)
+  // Более ранние комментарии догружаются по нажатию — в окне обсуждения прокрутка своя, и
+  // догрузка сверху от прокрутки сдвигала бы читаемую реплику.
+  const earlierButton = comments.hasNextPage && (
+    <button
+      type="button"
+      onClick={() => void comments.fetchNextPage()}
+      disabled={comments.isFetchingNextPage}
+      className="flex cursor-pointer items-center gap-3 self-start text-xs font-semibold text-muted-foreground hover:text-foreground disabled:cursor-default disabled:opacity-60"
+    >
+      <span aria-hidden className="h-px w-6 bg-muted-foreground/50" />
+      {comments.isFetchingNextPage ? t('loadingComments') : t('showEarlierComments')}
+    </button>
+  )
 
-  const hasCaption = Boolean(post.title || post.content || post.original)
+  const hasCaption = Boolean(post.title || post.content || originalUnavailable)
 
   // Порядок блоков на телефоне задаётся через `order`: правая колонка там — `contents`,
   // её части встают в общий столбец как в мобильном Instagram: шапка, медиа, действия,
@@ -675,25 +754,10 @@ function PostView({
                   </p>
                   {post.content && <Markdown source={post.content} />}
 
-                  {/* Репост: цитата первоисточника — иначе в полном просмотре не видно,
-                      что это репост */}
-                  {post.original && (
-                    <div className="mt-1 rounded-xl border-l-2 border-l-primary bg-muted/30 p-3">
-                      <p className="mb-1 flex items-center gap-1 text-xs text-muted-foreground">
-                        <Repeat2 className="size-3.5" aria-hidden />
-                        <ProfileLink
-                          userId={post.original.author.id}
-                          className="hover:text-primary hover:underline"
-                        >
-                          {post.original.author.lastName} {post.original.author.firstName}
-                        </ProfileLink>
-                      </p>
-                      {post.original.title && (
-                        <p className="font-semibold">{post.original.title}</p>
-                      )}
-                      <Markdown source={post.original.content} />
-                    </div>
-                  )}
+                  {/* Репост, чей исходник зрителю недоступен: без пометки в полном
+                      просмотре не видно, что это репост. Доступный исходник открывается
+                      сам, с пометкой «Репост от …» сверху. */}
+                  {originalUnavailable && <RepostUnavailable className="mt-1" />}
                   <time
                     dateTime={post.createdAt}
                     title={exactDate}
@@ -720,72 +784,77 @@ function PostView({
               </div>
             )}
 
-            {/* Пустой список ничего не подписывает: счётчик уже под лайками. */}
+            {/* Пустой список ничего не подписывает: счётчик уже под лайками. Более ранние
+                комментарии — там, где они встали бы по выбранному порядку. */}
             {comments.isLoading ? (
               <p className="text-xs text-muted-foreground">{t('loadingComments')}</p>
             ) : (
-              roots.length > 0 && (
-                <ul className="flex flex-col gap-4">
-                  {roots.map((c) => {
-                    const replies = repliesOf(c.id)
-                    const open = openThreads.has(c.id)
-                    return (
-                      <li key={c.id} className="flex flex-col gap-3">
-                        <CommentRow
-                          id={c.id}
-                          author={c.author}
-                          content={c.content}
-                          createdAt={c.createdAt}
-                          locale={locale}
-                          isPostAuthor={c.author.id === post.author.id}
-                          canDelete={c.author.id === myId}
-                          canReport={c.author.id !== myId}
-                          onReply={() => startReply(c.id, c.author)}
-                          onDelete={() => delCommentMut.mutate(c.id)}
-                        />
-                        {/* Ветка ответов — со сдвигом под текст корня, свёрнута под
+              <>
+                {!newestFirst && earlierButton}
+                {roots.length > 0 && (
+                  <ul className="flex flex-col gap-4">
+                    {roots.map((c) => {
+                      const replies = repliesOf(c.id)
+                      const open = openThreads.has(c.id)
+                      return (
+                        <li key={c.id} className="flex flex-col gap-3">
+                          <CommentRow
+                            id={c.id}
+                            author={c.author}
+                            content={c.content}
+                            createdAt={c.createdAt}
+                            locale={locale}
+                            isPostAuthor={c.author.id === post.author.id}
+                            canDelete={canDeleteComment(c)}
+                            canReport={c.author.id !== myId && canReportComments}
+                            onReply={() => startReply(c.id, c.author)}
+                            onDelete={() => removeComment(c)}
+                          />
+                          {/* Ветка ответов — со сдвигом под текст корня, свёрнута под
                             «—— Посмотреть ответы (N)», как в Instagram. */}
-                        {replies.length > 0 && (
-                          <div className="ml-11 flex flex-col gap-3">
-                            <button
-                              type="button"
-                              aria-expanded={open}
-                              onClick={() => toggleThread(c.id)}
-                              className="flex cursor-pointer items-center gap-3 self-start text-xs font-semibold text-muted-foreground hover:text-foreground"
-                            >
-                              <span aria-hidden className="h-px w-6 bg-muted-foreground/50" />
-                              {open
-                                ? t('hideReplies')
-                                : t('viewReplies', { count: replies.length })}
-                            </button>
-                            {open &&
-                              replies.map((r) => (
-                                <CommentRow
-                                  key={r.id}
-                                  id={r.id}
-                                  author={r.author}
-                                  content={r.content}
-                                  createdAt={r.createdAt}
-                                  locale={locale}
-                                  // Ответ всегда адресован автору корня ветки: вложенность на
-                                  // сервере одноуровневая, и без подписи «кому» ветка
-                                  // читается как разговор со стеной.
-                                  replyTo={c.author}
-                                  isPostAuthor={r.author.id === post.author.id}
-                                  small
-                                  canDelete={r.author.id === myId}
-                                  canReport={r.author.id !== myId}
-                                  onReply={() => startReply(c.id, r.author)}
-                                  onDelete={() => delCommentMut.mutate(r.id)}
-                                />
-                              ))}
-                          </div>
-                        )}
-                      </li>
-                    )
-                  })}
-                </ul>
-              )
+                          {replies.length > 0 && (
+                            <div className="ml-11 flex flex-col gap-3">
+                              <button
+                                type="button"
+                                aria-expanded={open}
+                                onClick={() => toggleThread(c.id)}
+                                className="flex cursor-pointer items-center gap-3 self-start text-xs font-semibold text-muted-foreground hover:text-foreground"
+                              >
+                                <span aria-hidden className="h-px w-6 bg-muted-foreground/50" />
+                                {open
+                                  ? t('hideReplies')
+                                  : t('viewReplies', { count: replies.length })}
+                              </button>
+                              {open &&
+                                replies.map((r) => (
+                                  <CommentRow
+                                    key={r.id}
+                                    id={r.id}
+                                    author={r.author}
+                                    content={r.content}
+                                    createdAt={r.createdAt}
+                                    locale={locale}
+                                    // Ответ всегда адресован автору корня ветки: вложенность на
+                                    // сервере одноуровневая, и без подписи «кому» ветка
+                                    // читается как разговор со стеной.
+                                    replyTo={c.author}
+                                    isPostAuthor={r.author.id === post.author.id}
+                                    small
+                                    canDelete={canDeleteComment(r)}
+                                    canReport={r.author.id !== myId && canReportComments}
+                                    onReply={() => startReply(c.id, r.author)}
+                                    onDelete={() => removeComment(r)}
+                                  />
+                                ))}
+                            </div>
+                          )}
+                        </li>
+                      )
+                    })}
+                  </ul>
+                )}
+                {newestFirst && earlierButton}
+              </>
             )}
           </div>
 
@@ -823,7 +892,7 @@ function PostView({
               </div>
             </div>
             <p className="px-2 text-sm font-semibold">
-              {t('likesCount', { count: reactions.length })}
+              {t('likesCount', { count: reactionTotal(reactions) })}
             </p>
             <p className="flex items-center gap-1.5 px-2 text-xs text-muted-foreground">
               <time dateTime={post.createdAt}>{exactDate}</time>

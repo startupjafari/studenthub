@@ -84,11 +84,24 @@ export class ApplicationPolicy {
     return { id: '__none__' }
   }
 
+  /**
+   * Неподанные заявки — черновик и черновик, отозванный до отправки, — видит только их автор:
+   * это ещё не обращение, а в formData лежит свободный текст вроде причины академического
+   * отпуска (BACKEND_RULES §14.7). Признак «подана» — `submittedAt`: его ставит только submit,
+   * а из DRAFT других переходов, кроме SUBMITTED и CANCELLED, нет. Роль с `read:self` и так
+   * видит лишь свои заявки (scopeWhere/canRead), остальным — без неподанных: иначе очередь
+   * деканата при сортировке `submittedAt desc` начиналась с чужих черновиков (NULL идут первыми).
+   */
+  submittedOnlyWhere(viewer: JwtPayload): Prisma.ApplicationWhereInput {
+    if (this.can(viewer.role, 'read:self')) return {}
+    return { submittedAt: { not: null } }
+  }
+
   /** Может ли зритель ЧИТАТЬ конкретную заявку (§22: тот же scope на detail/файлы/комменты). */
   canRead(viewer: JwtPayload, app: AppScopeFields): boolean {
     if (this.can(viewer.role, 'read:all')) return true
     if (this.can(viewer.role, 'read:university')) return app.universityId === viewer.universityId
-    if (this.can(viewer.role, 'read:faculty')) return app.facultyId === viewer.facultyId
+    if (this.can(viewer.role, 'read:faculty')) return this.inFaculty(viewer, app)
     if (this.can(viewer.role, 'read:self')) return app.studentId === viewer.sub
     return false
   }
@@ -103,8 +116,19 @@ export class ApplicationPolicy {
   canProcess(viewer: JwtPayload, app: AppScopeFields): boolean {
     if (!this.can(viewer.role, 'process')) return false
     if (this.can(viewer.role, 'read:university')) return app.universityId === viewer.universityId
-    if (this.can(viewer.role, 'read:faculty')) return app.facultyId === viewer.facultyId
+    if (this.can(viewer.role, 'read:faculty')) return this.inFaculty(viewer, app)
     return false
+  }
+
+  /**
+   * Заявка факультета зрителя. Без факультета у зрителя — никакая: заявки вузовских услуг
+   * хранят `facultyId = null`, и сравнение `null === null` пускало декана без факультета
+   * (факультет удалён, роль сменили руками) к таким заявкам ЛЮБОГО вуза. Вуз сверяем тоже —
+   * защита в глубину на случай рассинхрона факультета и вуза в токене.
+   */
+  private inFaculty(viewer: JwtPayload, app: AppScopeFields): boolean {
+    if (!viewer.facultyId || !viewer.universityId) return false
+    return app.facultyId === viewer.facultyId && app.universityId === viewer.universityId
   }
 
   assertCanProcess(viewer: JwtPayload, app: AppScopeFields): void {

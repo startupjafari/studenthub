@@ -2,6 +2,7 @@ import { Role } from '@studenthub/shared-types'
 import { ExamsService } from './exams.service'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { AuditService } from '../../common/audit/audit.service'
+import type { QueueService } from '../../common/queue'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 
 const ctx = { ip: '127.0.0.1', userAgent: 'jest' }
@@ -19,12 +20,17 @@ function setup() {
       findUnique: jest.fn().mockResolvedValue({
         id: 'ex-1',
         groupId: 'grp-1',
+        date: new Date('2026-06-10T04:00:00.000Z'),
+        roomId: null,
+        examinerId: 't-1',
         course: {
           teacherId: 't-1',
+          subject: { name: 'Матанализ' },
           group: { facultyId: 'fac-1', faculty: { universityId: 'uni-1' } },
         },
       }),
       update: jest.fn().mockResolvedValue({ id: 'ex-1' }),
+      findMany: jest.fn().mockResolvedValue([]),
     },
     group: {
       findUnique: jest
@@ -38,6 +44,7 @@ function setup() {
   const service = new ExamsService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
+    { enqueue: jest.fn() } as unknown as QueueService,
   )
   return { service, prisma }
 }

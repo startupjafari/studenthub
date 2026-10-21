@@ -5,7 +5,13 @@ import type {
   GrantDocumentAccessInput,
   UpdateDocumentInput,
 } from '@studenthub/shared-schemas'
-import { api, needsDirectUpload, uploadDirect, type PresignedTarget } from '../../../shared/api'
+import {
+  api,
+  needsDirectUpload,
+  uploadDirect,
+  type PresignedTarget,
+  type ResponseWithMeta,
+} from '../../../shared/api'
 
 export const documentKeys = {
   all: ['documents'] as const,
@@ -14,6 +20,7 @@ export const documentKeys = {
   detail: (id: string) => ['documents', 'detail', id] as const,
   events: (id: string) => ['documents', id, 'events'] as const,
   access: (id: string) => ['documents', id, 'access'] as const,
+  sharedWithMe: () => ['documents', 'shared-with-me'] as const,
 }
 
 export interface DocumentFile {
@@ -214,10 +221,52 @@ export async function revokeDocumentAccess(
   return data
 }
 
+// ── Открытые мне (гранты на меня, мой факультет, мой вуз) ─────────────────────
+
+// Документ, открытый смотрящему по гранту. Только метаданные с маской номера; файлы
+// открываются той же ссылкой, что у владельца (`fetchDocumentFileUrl`) — сервер пускает
+// по гранту и пишет просмотр в журнал документа.
+export interface SharedDocument {
+  accessId: string
+  granteeType: string
+  reason: string
+  grantedAt: string
+  expiresAt: string | null
+  owner: { id: string; name: string }
+  document: {
+    id: string
+    category: string
+    type: string
+    title: string
+    numberMasked: string | null
+    issuedBy: string | null
+    issuedAt: string | null
+    expiresAt: string | null
+    status: string
+    files: DocumentFile[]
+    fileCount: number
+  }
+}
+
+export interface SharedDocumentsPage {
+  items: SharedDocument[]
+  cursor?: string
+  hasNext: boolean
+}
+
+export async function fetchSharedWithMe(cursor?: string): Promise<SharedDocumentsPage> {
+  const res = (await api.get<SharedDocument[]>('/documents/shared-with-me', {
+    params: { limit: 50, ...(cursor ? { cursor } : {}) },
+  })) as ResponseWithMeta & { data: SharedDocument[] }
+  return { items: res.data, cursor: res.meta?.cursor, hasNext: res.meta?.hasNext ?? false }
+}
+
 // ── Спец-режим платформенного админа (15.21) ──────────────────────────────────
 
-export async function fetchDocumentPlatform(id: string): Promise<DocumentDto> {
-  const { data } = await api.get<DocumentDto>(`/documents/${id}/platform`)
+// Причина уходит и с метаданными: карточка тоже раскрывает чужой документ, и обращение
+// без обоснования в журнале спец-доступа было бы «тихим».
+export async function fetchDocumentPlatform(id: string, reason: string): Promise<DocumentDto> {
+  const { data } = await api.post<DocumentDto>(`/documents/${id}/platform`, { reason })
   return data
 }
 

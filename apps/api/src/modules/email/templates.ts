@@ -1,7 +1,9 @@
 // Шаблоны писем (docs/PROJECT.md §10.1, §3.3 EmailProcessor).
-// Одиннадцать типов: приглашение, подтверждение email компании, сброс пароля, приветствие,
-// статус заявки, изменение расписания, напоминание о событии, офлайн-зеркало in-app
-// уведомления и три письма прихода вуза — подтверждение адреса заявки, одобрение, отказ.
+// Восемь типов: приглашение, подтверждение email компании, сброс пароля, сброс 2FA
+// администратором, офлайн-зеркало in-app уведомления и три письма прихода вуза —
+// подтверждение адреса заявки, одобрение, отказ. Приветствие, статус заявки, изменение
+// расписания и напоминание о событии убраны (F-F19): их никто не ставил в очередь, а
+// эти события доходят до человека письмом-зеркалом уведомления.
 // Тексты — в email-strings.ts на трёх языках; язык берётся из `locale` в payload'е job'а,
 // то есть из User.locale получателя. У внешних адресатов (компания, заявка вуза с лендинга)
 // учётной записи ещё нет — для них русский по умолчанию.
@@ -15,7 +17,7 @@
 // не работают.
 //
 // Тема письма: название платформы стоит только там, где письмо приходит человеку, который
-// ещё может не знать продукт (приглашение, приветствие, подтверждение компании). Рабочие
+// ещё может не знать продукт (приглашение, подтверждение компании). Рабочие
 // письма — сразу о событии: имя отправителя в почтовом клиенте и так «StudentHub».
 
 import { pickWebBase } from '../../config/web-base'
@@ -71,6 +73,16 @@ export interface PasswordResetPayload extends LocalizedEmailPayload {
 }
 
 /**
+ * Администратор сбросил 2FA (человек потерял аутентификатор). Ссылки нет намеренно: письмо
+ * сообщает о свершившемся, а не просит что-то нажать — кнопка «войти» в письме о снятой
+ * защите учила бы переходить по ссылкам из таких писем.
+ */
+export interface TwoFactorResetPayload extends LocalizedEmailPayload {
+  to: string
+  firstName: string
+}
+
+/**
  * Подтверждение адреса в заявке вуза на тестирование (docs/PROJECT.md §31).
  *
  * Письмо уходит ДО очереди модерации, а не после: форма публичная, и без этого шага
@@ -106,33 +118,6 @@ export interface DemoRejectedPayload extends LocalizedEmailPayload {
   universityName: string
   reasonText: string
   canReapply: boolean
-}
-
-export interface WelcomePayload extends LocalizedEmailPayload {
-  to: string
-  firstName: string
-}
-
-export interface ApplicationStatusPayload extends LocalizedEmailPayload {
-  to: string
-  firstName: string
-  applicationId: string
-  statusLabel: string
-  comment?: string
-}
-
-export interface ScheduleChangePayload extends LocalizedEmailPayload {
-  to: string
-  firstName: string
-  groupName?: string
-  summary: string
-}
-
-export interface EventReminderPayload extends LocalizedEmailPayload {
-  to: string
-  firstName: string
-  eventTitle: string
-  startsAtLabel: string
 }
 
 export interface NotificationPayload extends LocalizedEmailPayload {
@@ -387,45 +372,22 @@ export function renderPasswordReset(data: PasswordResetPayload): RenderedEmail {
   return { subject, html, text }
 }
 
-export function renderWelcome(data: WelcomePayload): RenderedEmail {
+export function renderTwoFactorReset(data: TwoFactorResetPayload): RenderedEmail {
   const t = emailDict(data.locale)
-  const subject = t.welcome.subject
+  const subject = t.twoFactorReset.subject
   const html = layout(
     {
-      preheader: t.welcome.preheader,
-      heading: t.welcome.heading(esc(data.firstName)),
-      body: paragraph(t.welcome.lead) + paragraph(t.welcome.hint),
-    },
-    t,
-  )
-  const text = plain([t.welcome.plainLead(data.firstName), t.welcome.plainWhat], t)
-  return { subject, html, text }
-}
-
-export function renderApplicationStatus(data: ApplicationStatusPayload): RenderedEmail {
-  const t = emailDict(data.locale)
-  const subject = t.applicationStatus.subject(data.applicationId, data.statusLabel)
-  const html = layout(
-    {
-      preheader: t.applicationStatus.preheader(esc(data.applicationId), esc(data.statusLabel)),
-      heading: t.applicationStatus.heading,
+      preheader: t.twoFactorReset.preheader,
+      heading: t.twoFactorReset.heading,
       body:
-        paragraph(t.applicationStatus.lead(esc(data.firstName))) +
-        facts([
-          [t.facts.application, esc(data.applicationId)],
-          [t.facts.status, esc(data.statusLabel)],
-        ]) +
-        (data.comment ? paragraph(t.applicationStatus.comment(esc(data.comment))) : ''),
+        paragraph(t.twoFactorReset.lead(esc(data.firstName))) +
+        paragraph(t.twoFactorReset.next) +
+        note(t.twoFactorReset.note),
     },
     t,
   )
   const text = plain(
-    [
-      t.applicationStatus.lead(data.firstName),
-      `${t.facts.application}: ${data.applicationId}`,
-      `${t.facts.status}: ${data.statusLabel}`,
-      ...(data.comment ? ['', t.applicationStatus.comment(data.comment)] : []),
-    ],
+    [t.twoFactorReset.lead(data.firstName), '', t.twoFactorReset.next, '', t.twoFactorReset.note],
     t,
   )
   return { subject, html, text }
@@ -512,59 +474,6 @@ export function renderDemoRejected(data: DemoRejectedPayload): RenderedEmail {
     t,
   )
   const text = plain([t.demoRejected.lead(data.universityName), data.reasonText, '', again], t)
-  return { subject, html, text }
-}
-
-export function renderScheduleChange(data: ScheduleChangePayload): RenderedEmail {
-  const t = emailDict(data.locale)
-  const subject = t.scheduleChange.subject
-  const html = layout(
-    {
-      preheader: esc(data.summary),
-      heading: t.scheduleChange.heading,
-      body:
-        paragraph(t.scheduleChange.lead(esc(data.firstName))) +
-        (data.groupName ? facts([[t.facts.group, esc(data.groupName)]]) : '') +
-        paragraph(esc(data.summary)),
-    },
-    t,
-  )
-  const text = plain(
-    [
-      t.scheduleChange.lead(data.firstName),
-      ...(data.groupName ? [`${t.facts.group}: ${data.groupName}`] : []),
-      '',
-      data.summary,
-    ],
-    t,
-  )
-  return { subject, html, text }
-}
-
-export function renderEventReminder(data: EventReminderPayload): RenderedEmail {
-  const t = emailDict(data.locale)
-  const subject = t.eventReminder.subject(data.eventTitle)
-  const html = layout(
-    {
-      preheader: t.eventReminder.preheader(esc(data.eventTitle), esc(data.startsAtLabel)),
-      heading: t.eventReminder.heading,
-      body:
-        paragraph(t.eventReminder.lead(esc(data.firstName))) +
-        facts([
-          [t.facts.event, esc(data.eventTitle)],
-          [t.facts.startsAt, esc(data.startsAtLabel)],
-        ]),
-    },
-    t,
-  )
-  const text = plain(
-    [
-      t.eventReminder.lead(data.firstName),
-      `${t.facts.event}: ${data.eventTitle}`,
-      `${t.facts.startsAt}: ${data.startsAtLabel}`,
-    ],
-    t,
-  )
   return { subject, html, text }
 }
 

@@ -1,8 +1,8 @@
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { extractFrame, probe, transcodeHls } from './ffmpeg'
+import { extractFrame, FfmpegError, probe, transcodeHls } from './ffmpeg'
 import { planHlsLadder } from './media-plan'
 
 // Настоящий ffmpeg: проверяем, что команда перекодирования собрана правильно и ffmpeg её
@@ -87,8 +87,52 @@ suite('ffmpeg (настоящий бинарник)', () => {
       expect(playlist).toContain('#EXT-X-PLAYLIST-TYPE:VOD')
       expect(playlist).toContain('#EXT-X-ENDLIST')
       expect(playlist).toMatch(/^seg-0000\.ts$/m)
-      const seg = await probe('ffprobe', join(out, String(r.short), 'seg-0000.ts'))
-      expect(seg).toMatchObject({ width: r.width, height: r.height, hasAudio: true })
+      // Сегмент — наш собственный выход (mpegts), а не вход пользователя: probe() его не
+      // примет по белому списку контейнеров, поэтому проверяем ffprobe напрямую.
+      const seg = JSON.parse(
+        execFileSync('ffprobe', [
+          '-v',
+          'error',
+          '-print_format',
+          'json',
+          '-show_streams',
+          join(out, String(r.short), 'seg-0000.ts'),
+        ]).toString(),
+      ) as { streams: { codec_type: string; width?: number; height?: number }[] }
+      const video = seg.streams.find((st) => st.codec_type === 'video')
+      expect(video).toMatchObject({ width: r.width, height: r.height })
+      expect(seg.streams.some((st) => st.codec_type === 'audio')).toBe(true)
     }
   }, 180_000)
+
+  it('webm (matroska) разбирается так же, как mp4', async () => {
+    const webm = join(dir, 'source.webm')
+    execFileSync('ffmpeg', [
+      '-hide_banner',
+      '-loglevel',
+      'error',
+      '-y',
+      '-f',
+      'lavfi',
+      '-i',
+      'testsrc2=size=320x240:rate=10:duration=1',
+      '-c:v',
+      'libvpx-vp9',
+      webm,
+    ])
+    await expect(probe('ffprobe', webm)).resolves.toMatchObject({ width: 320, height: 240 })
+  }, 60_000)
+
+  // F-F26: плейлист, загруженный «как видео», не должен открывать файлы по ссылкам внутри.
+  it('плейлист HLS со ссылкой на локальный файл не разбирается', async () => {
+    const evil = join(dir, 'evil.m3u8')
+    writeFileSync(
+      evil,
+      '#EXTM3U\n#EXT-X-TARGETDURATION:1\n#EXTINF:1,\nfile:///etc/hostname\n#EXT-X-ENDLIST\n',
+    )
+    await expect(probe('ffprobe', evil)).rejects.toBeInstanceOf(FfmpegError)
+    await expect(extractFrame('ffmpeg', evil, 0, join(dir, 'evil.jpg'))).rejects.toBeInstanceOf(
+      FfmpegError,
+    )
+  })
 })

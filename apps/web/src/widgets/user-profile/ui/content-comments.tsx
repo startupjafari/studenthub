@@ -1,13 +1,13 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useLocale, useTranslations } from 'next-intl'
 import { Smile } from 'lucide-react'
 import { useAppSelector } from '../../../shared/store'
 import { ProfileLink } from '../../../entities/user'
-import { Avatar, AvatarFallback, AvatarImage } from '../../../shared/ui'
+import { Avatar, AvatarFallback, AvatarImage, useConfirm } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { relativeTime } from '../../../shared/lib'
 
@@ -17,6 +17,13 @@ interface CommentItem {
   createdAt: string
   authorId: string
   author: { id: string; firstName: string; lastName: string; avatarUrl: string | null }
+}
+
+/** Страница обсуждения: свежие сверху, `cursor` — самый старый комментарий страницы. */
+interface CommentsPage {
+  items: CommentItem[]
+  cursor?: string
+  hasNext: boolean
 }
 
 // Быстрый набор эмодзи (как в комментариях поста).
@@ -52,31 +59,42 @@ function initials(a: { firstName: string; lastName: string }): string {
 }
 
 // Универсальная лента комментариев (статьи/опросы) в стиле поста: аватар · имя+текст в строку ·
-// относительное время; снизу — плоское поле ввода с эмодзи и «Опубликовать». Данные инжектит вызывающий.
+// относительное время; снизу — плоское поле ввода с эмодзи и «Опубликовать». Данные инжектит вызывающий:
+// страницами свежих сверху (`fetchPage`), более ранние — по «Показать предыдущие» над списком.
+// `moderate` — смотрящий модерирует профиль владельца: у чужих комментариев пункт
+// «Удалить (модерация)» с подтверждением (ранг автора комментария сверяет сервер).
 export function ContentComments({
   queryKey,
-  fetchFn,
+  fetchPage,
   addFn,
   deleteFn,
   ownerId,
+  moderate = false,
 }: {
   queryKey: readonly unknown[]
-  fetchFn: () => Promise<CommentItem[]>
+  fetchPage: (cursor?: string) => Promise<CommentsPage>
   addFn: (content: string) => Promise<unknown>
   deleteFn: (commentId: string) => Promise<void>
   ownerId: string
+  moderate?: boolean
 }) {
   const t = useTranslations('Profile')
   const tErr = useTranslations('Errors')
   const locale = useLocale()
   const qc = useQueryClient()
+  const confirm = useConfirm()
   const myId = useAppSelector((s) => s.auth.user?.id)
   const [text, setText] = useState('')
   const [emojiOpen, setEmojiOpen] = useState(false)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const emojiRef = useRef<HTMLDivElement>(null)
 
-  const q = useQuery({ queryKey, queryFn: fetchFn })
+  const q = useInfiniteQuery({
+    queryKey,
+    queryFn: ({ pageParam }) => fetchPage(pageParam),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => (last.hasNext ? last.cursor : undefined),
+  })
   const err = (e: unknown) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR'))
   const invalidate = () => void qc.invalidateQueries({ queryKey })
 
@@ -139,7 +157,10 @@ export function ContentComments({
     })
   }
 
-  const comments = q.data ?? []
+  // Страницы идут от свежих к ранним; на экране — по порядку написания, без повторов.
+  const comments = [
+    ...new Map((q.data?.pages ?? []).flatMap((page) => page.items).map((c) => [c.id, c])).values(),
+  ].sort((a, b) => a.createdAt.localeCompare(b.createdAt))
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -150,6 +171,18 @@ export function ContentComments({
         </div>
       ) : (
         <ul className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto py-1">
+          {q.hasNextPage && (
+            <li>
+              <button
+                type="button"
+                onClick={() => void q.fetchNextPage()}
+                disabled={q.isFetchingNextPage}
+                className="text-xs font-semibold text-muted-foreground transition-colors hover:text-foreground disabled:opacity-60"
+              >
+                {q.isFetchingNextPage ? t('commentsLoading') : t('showEarlierComments')}
+              </button>
+            </li>
+          )}
           {comments.map((c) => (
             <li key={c.id} className="group flex gap-2">
               <ProfileLink userId={c.author.id} className="shrink-0">
@@ -170,7 +203,7 @@ export function ContentComments({
                 </p>
                 <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
                   <span>{relativeTime(c.createdAt, locale)}</span>
-                  {(c.authorId === myId || ownerId === myId) && (
+                  {c.authorId === myId || ownerId === myId ? (
                     <button
                       type="button"
                       onClick={() => delMut.mutate(c.id)}
@@ -178,6 +211,25 @@ export function ContentComments({
                     >
                       {t('delete')}
                     </button>
+                  ) : (
+                    moderate && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          void confirm({
+                            title: t('commentDeleteConfirm'),
+                            description: t('moderationDeleteHint'),
+                            confirmLabel: t('deleteModeration'),
+                            destructive: true,
+                          }).then((ok) => {
+                            if (ok) delMut.mutate(c.id)
+                          })
+                        }}
+                        className="opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
+                      >
+                        {t('deleteModeration')}
+                      </button>
+                    )
                   )}
                 </div>
               </div>

@@ -24,7 +24,7 @@ export function HomeSidebar() {
 
   const schedQ = useQuery({ queryKey: scheduleKeys.view({}), queryFn: () => fetchSchedule({}) })
   const eventsQ = useQuery({
-    queryKey: eventKeys.list('upcoming'),
+    queryKey: eventKeys.list('upcoming', false, 4),
     queryFn: () => fetchEvents({ limit: 4 }),
   })
 

@@ -70,8 +70,23 @@ export const CreateCommentSchema = z
   .strict()
 export type CreateCommentInput = z.infer<typeof CreateCommentSchema>
 
-export const ReactionSchema = z.object({ emoji: z.string().min(1).max(16) }).strict()
+// Реакции на пост — только из белого списка. Произвольная строка позволяла одному человеку
+// поставить на пост сколько угодно «реакций» (`a1`, `a2`, …): счётчик накручивался, а ответ
+// ленты раздувался у всех читателей. В списке всё, что ставят клиенты (веб — ❤️, iOS и
+// Android — 👍 🔥 ❤️), и то, что уже лежит в данных стенда (prisma/seed: 👏 😮 🎉).
+export const POST_REACTION_EMOJIS = ['❤️', '👍', '🔥', '👏', '😮', '🎉'] as const
+export type PostReactionEmoji = (typeof POST_REACTION_EMOJIS)[number]
+
+export const ReactionSchema = z.object({ emoji: z.enum(POST_REACTION_EMOJIS) }).strict()
 export type ReactionInput = z.infer<typeof ReactionSchema>
+
+// Сводка реакций поста в ответе API (`reactionSummary`): сколько каждой и стоит ли среди
+// них своя. Только реакции из белого списка; порядок — как в POST_REACTION_EMOJIS.
+export interface PostReactionSummary {
+  emoji: string
+  count: number
+  mine: boolean
+}
 
 // Закрепление/открепление поста (задача 8.6).
 export const PinPostSchema = z.object({ pinned: z.boolean() }).strict()
@@ -81,6 +96,9 @@ export type PinPostInput = z.infer<typeof PinPostSchema>
 // ALL — без фильтра; GROUP/UNIVERSITY/TEACHERS — по audience поста; IMPORTANT — закреплённые.
 // SAVED — личная полка: посты, которые зритель сам сохранил. Он единственный, кто её видит,
 // и отдельной ручки для неё нет намеренно — это тот же список с тем же правом видеть.
+// MODERATION — не срез личной ленты, а всё, что роль вправе снимать: платформа — все вузы,
+// админ и модератор вуза — свой вуз, декан — свой факультет (без личных постов). Только
+// для ролей модерации, остальным — FORBIDDEN.
 export const FeedFilterSchema = z.enum([
   'ALL',
   'GROUP',
@@ -88,6 +106,7 @@ export const FeedFilterSchema = z.enum([
   'TEACHERS',
   'IMPORTANT',
   'SAVED',
+  'MODERATION',
 ])
 export type FeedFilterValue = z.infer<typeof FeedFilterSchema>
 
@@ -95,8 +114,28 @@ export type FeedFilterValue = z.infer<typeof FeedFilterSchema>
 // authorId — опциональный фильтр по автору (вкладка «Посты» в профиле); всегда пересекается
 // с видимостью зрителя на сервере (нельзя увидеть чужие посты в обход прав).
 // filter — таб ленты; сужает выдачу поверх видимости (нельзя увидеть скрытое в обход прав).
+// reactions — форма реакций в выдаче. `list` (по умолчанию, как было) — построчный
+// `reactions` «кто что поставил» рядом со сводкой `reactionSummary`; на популярном посте это
+// тысячи строк ради одного числа. `summary` — только сводка: так ходит клиент, который
+// читает `reactionSummary` (веб); мобильные клиенты, считающие по строкам, ничего не шлют.
+// sort и status — только для вкладки «Посты» профиля (вместе с authorId), без него не
+// действуют. Порядок и фильтр считает сервер: на клиенте они применялись к уже загруженным
+// страницам, и мозаика переставлялась с каждой догрузкой.
+// - sort: `new` — закреплённые сверху, дальше свежие; `popular` — закреплённые сверху, дальше
+//   по числу реакций, затем комментариев (`cursor` у него — смещение, а не id поста). Без
+//   sort — порядок ленты «закреплённые → приоритет → время», как раньше.
+// - status: свои посты по статусу; черновики и отложенные видит только автор, в чужом
+//   профиле DRAFT/SCHEDULED дают пустую выдачу.
+export const AUTHOR_FEED_SORTS = ['new', 'popular'] as const
+export type AuthorFeedSort = (typeof AUTHOR_FEED_SORTS)[number]
+export const POST_STATUSES = ['PUBLISHED', 'DRAFT', 'SCHEDULED'] as const
+export type PostStatusValue = (typeof POST_STATUSES)[number]
+
 export const FeedQuerySchema = CursorPaginationSchema.extend({
   authorId: z.string().min(1).optional(),
   filter: FeedFilterSchema.optional(),
+  reactions: z.enum(['list', 'summary']).optional(),
+  sort: z.enum(AUTHOR_FEED_SORTS).optional(),
+  status: z.enum(POST_STATUSES).optional(),
 })
 export type FeedQueryInput = z.infer<typeof FeedQuerySchema>

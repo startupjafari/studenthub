@@ -57,6 +57,12 @@ const RU = {
   'documents.expired.title': 'Срок документа истёк',
   'documents.expiring.title': 'Документ скоро истекает',
   'documents.named.body': '«{title}»',
+  // Владелец открыл документ получателю (грант «пользователь» или «деканат факультета»).
+  'documents.shared.title': 'Вам открыт доступ к документу',
+  'documents.shared.body': '{name}: «{title}»',
+  // Автору запроса документов: студент отправил комплект на проверку.
+  'documents.submitted.title': 'Комплект документов сдан на проверку',
+  'documents.submitted.body': '{name}: «{title}»',
 
   'applications.needsAction.title': 'Требуется ваше действие',
   'applications.needsAction.body': 'Заявка {number}: требуется исправление',
@@ -72,6 +78,17 @@ const RU = {
   'applications.provided.title': 'Документ предоставлен',
   'applications.provided.body': 'Заявка {number}: электронный документ готов',
   'applications.replacement.title': 'Требуется замена документа',
+  // Студенту: выданная по заявке справка отозвана — в кабинете она помечена «Отклонён».
+  'applications.revoked.title': 'Справка отозвана',
+  'applications.revoked.body': 'Заявка {number}: выданная справка больше не действительна',
+  // Обработчикам заявок (деканат, администрация вуза): новая и исправленная заявка, сводка
+  // просроченных по сроку обработки.
+  'applications.submitted.title': 'Новая заявка',
+  'applications.submitted.body': 'Заявка {number} ждёт обработки',
+  'applications.resubmitted.title': 'Заявка исправлена',
+  'applications.resubmitted.body': 'Заявка {number} отправлена повторно',
+  'applications.overdue.title': 'Просроченные заявки',
+  'applications.overdue.body': 'Заявок с истёкшим сроком обработки: {count}',
 
   'assignments.published.title': 'Новое задание',
   'assignments.graded.title': 'Работа проверена',
@@ -80,6 +97,21 @@ const RU = {
 
   'events.reminder.title': 'Скоро событие',
   'events.reminder.body': '«{title}» начнётся примерно через час',
+  // Участникам: организатор перенёс или отменил событие.
+  'events.rescheduled.title': 'Событие перенесено',
+  'events.rescheduled.body': '«{title}»: новое время — {date}',
+  'events.cancelled.title': 'Событие отменено',
+  'events.cancelled.body': '«{title}» не состоится',
+
+  // Комментарии: автору публикации, статьи или опроса — о новом комментарии; упомянутому
+  // через @логин — об упоминании. Текст комментария в уведомление не кладём: это
+  // пользовательский ввод, и он виден по переходу.
+  'comments.new.title': 'Новый комментарий',
+  'comments.post.body': '{name} комментирует вашу публикацию',
+  'comments.article.body': '{name} комментирует вашу статью',
+  'comments.poll.body': '{name} комментирует ваш опрос',
+  'comments.mention.title': 'Вас упомянули',
+  'comments.mention.body': '{name} упоминает вас в комментарии',
 
   'consultations.cancelled.title': 'Консультация отменена',
   'consultations.booked.title': 'Новая запись на консультацию',
@@ -89,6 +121,13 @@ const RU = {
   'appointments.rescheduled.title': 'Запись в деканат перенесена',
   'appointments.completed.title': 'Приём в деканате завершён',
   'appointments.cancelled.title': 'Запись в деканат отменена',
+  // Сотрудникам деканата: студент записался на приём (тело — желаемое время).
+  'appointments.requested.title': 'Новая запись в деканат',
+
+  'exams.scheduled.title': 'Назначен экзамен',
+  'exams.updated.title': 'Изменения по экзамену',
+  'exams.result.title': 'Результат экзамена',
+  'exams.course.body': '{subject}: {date}',
 
   'career.viewed.body': 'Компания посмотрела ваш отклик',
   'career.shortlisted.body': 'Вас добавили в шорт-лист',
@@ -96,6 +135,23 @@ const RU = {
   'career.offer.body': 'Вам сделали предложение',
   'career.hired.body': 'Вас приняли на работу',
   'career.rejected.body': 'По этому отклику отказ',
+  // Карьерный центр вуза (администрация): компания просит допуск к студентам.
+  'career.accessRequested.title': 'Заявка компании на допуск',
+  'career.accessRequested.body': '{company} просит открыть доступ к студентам',
+  // Компании: решение вуза по допуску. Тело — вуз, с причиной, если её указали.
+  'career.accessApproved.title': 'Допуск к студентам открыт',
+  'career.accessRejected.title': 'Заявка на допуск отклонена',
+  'career.accessRevoked.title': 'Допуск к студентам отозван',
+  'career.university.body': '{university}',
+  'career.universityReason.body': '{university}: {reason}',
+  // Компании: решение вуза по вакансии.
+  'career.vacancyApproved.title': 'Вакансия одобрена',
+  'career.vacancyRejected.title': 'Вакансия отклонена',
+  'career.vacancy.body': '«{title}» — {university}',
+  'career.vacancyReason.body': '«{title}» — {university}: {reason}',
+  // Компании: новый отклик (свёрнутое — одна строка на вакансию).
+  'career.newApplication.title': 'Новый отклик',
+  'career.newApplication.body': 'Вакансия «{title}»',
 } as const
 
 /** Ключ словарной статьи. Тип выводится из русского каталога — он и есть эталон состава. */
@@ -128,6 +184,10 @@ const KK: Record<NotificationMessageKey, string> = {
   'documents.expired.title': 'Құжаттың мерзімі өтті',
   'documents.expiring.title': 'Құжаттың мерзімі жақында бітеді',
   'documents.named.body': '«{title}»',
+  'documents.shared.title': 'Сізге құжатқа қолжетімділік ашылды',
+  'documents.shared.body': '{name}: «{title}»',
+  'documents.submitted.title': 'Құжаттар жиынтығы тексеруге тапсырылды',
+  'documents.submitted.body': '{name}: «{title}»',
 
   'applications.needsAction.title': 'Сіздің әрекетіңіз қажет',
   'applications.needsAction.body': '{number} өтініші: түзету қажет',
@@ -143,6 +203,14 @@ const KK: Record<NotificationMessageKey, string> = {
   'applications.provided.title': 'Құжат ұсынылды',
   'applications.provided.body': '{number} өтініші: электрондық құжат дайын',
   'applications.replacement.title': 'Құжатты ауыстыру қажет',
+  'applications.revoked.title': 'Анықтама кері қайтарылды',
+  'applications.revoked.body': '{number} өтініші: берілген анықтама енді жарамсыз',
+  'applications.submitted.title': 'Жаңа өтініш',
+  'applications.submitted.body': '{number} өтініші өңдеуді күтуде',
+  'applications.resubmitted.title': 'Өтініш түзетілді',
+  'applications.resubmitted.body': '{number} өтініші қайта жіберілді',
+  'applications.overdue.title': 'Мерзімі өткен өтініштер',
+  'applications.overdue.body': 'Өңдеу мерзімі өткен өтініштер: {count}',
 
   'assignments.published.title': 'Жаңа тапсырма',
   'assignments.graded.title': 'Жұмыс тексерілді',
@@ -151,6 +219,17 @@ const KK: Record<NotificationMessageKey, string> = {
 
   'events.reminder.title': 'Жақында іс-шара',
   'events.reminder.body': '«{title}» шамамен бір сағаттан кейін басталады',
+  'events.rescheduled.title': 'Іс-шара ауыстырылды',
+  'events.rescheduled.body': '«{title}»: жаңа уақыты — {date}',
+  'events.cancelled.title': 'Іс-шара тоқтатылды',
+  'events.cancelled.body': '«{title}» өтпейді',
+
+  'comments.new.title': 'Жаңа пікір',
+  'comments.post.body': '{name} жарияланымыңызға пікір қалдырды',
+  'comments.article.body': '{name} мақалаңызға пікір қалдырды',
+  'comments.poll.body': '{name} сауалнамаңызға пікір қалдырды',
+  'comments.mention.title': 'Сізді атап өтті',
+  'comments.mention.body': '{name} пікірде сізді атап өтті',
 
   'consultations.cancelled.title': 'Консультация болдырылмады',
   'consultations.booked.title': 'Консультацияға жаңа жазылу',
@@ -160,6 +239,12 @@ const KK: Record<NotificationMessageKey, string> = {
   'appointments.rescheduled.title': 'Деканатқа жазылу ауыстырылды',
   'appointments.completed.title': 'Деканаттағы қабылдау аяқталды',
   'appointments.cancelled.title': 'Деканатқа жазылу болдырылмады',
+  'appointments.requested.title': 'Деканатқа жаңа жазылу',
+
+  'exams.scheduled.title': 'Емтихан тағайындалды',
+  'exams.updated.title': 'Емтихан бойынша өзгерістер',
+  'exams.result.title': 'Емтихан нәтижесі',
+  'exams.course.body': '{subject}: {date}',
 
   'career.viewed.body': 'Компания сіздің өтінішіңізді қарады',
   'career.shortlisted.body': 'Сіз қысқа тізімге қосылдыңыз',
@@ -167,6 +252,19 @@ const KK: Record<NotificationMessageKey, string> = {
   'career.offer.body': 'Сізге ұсыныс жасалды',
   'career.hired.body': 'Сіз жұмысқа қабылдандыңыз',
   'career.rejected.body': 'Бұл өтініш бойынша бас тартылды',
+  'career.accessRequested.title': 'Компанияның рұқсат сұрауы',
+  'career.accessRequested.body': '{company} студенттерге қолжетімділік сұрайды',
+  'career.accessApproved.title': 'Студенттерге қолжетімділік ашылды',
+  'career.accessRejected.title': 'Қолжетімділік сұрауы қабылданбады',
+  'career.accessRevoked.title': 'Студенттерге қолжетімділік тоқтатылды',
+  'career.university.body': '{university}',
+  'career.universityReason.body': '{university}: {reason}',
+  'career.vacancyApproved.title': 'Вакансия мақұлданды',
+  'career.vacancyRejected.title': 'Вакансия қабылданбады',
+  'career.vacancy.body': '«{title}» — {university}',
+  'career.vacancyReason.body': '«{title}» — {university}: {reason}',
+  'career.newApplication.title': 'Жаңа өтініш',
+  'career.newApplication.body': '«{title}» вакансиясы',
 }
 
 const EN: Record<NotificationMessageKey, string> = {
@@ -196,6 +294,10 @@ const EN: Record<NotificationMessageKey, string> = {
   'documents.expired.title': 'Document has expired',
   'documents.expiring.title': 'Document expires soon',
   'documents.named.body': '“{title}”',
+  'documents.shared.title': 'A document was shared with you',
+  'documents.shared.body': '{name}: “{title}”',
+  'documents.submitted.title': 'Documents submitted for review',
+  'documents.submitted.body': '{name}: “{title}”',
 
   'applications.needsAction.title': 'Your action is required',
   'applications.needsAction.body': 'Application {number}: correction required',
@@ -211,6 +313,14 @@ const EN: Record<NotificationMessageKey, string> = {
   'applications.provided.title': 'Document provided',
   'applications.provided.body': 'Application {number}: the electronic document is ready',
   'applications.replacement.title': 'Document replacement required',
+  'applications.revoked.title': 'Certificate revoked',
+  'applications.revoked.body': 'Application {number}: the issued certificate is no longer valid',
+  'applications.submitted.title': 'New application',
+  'applications.submitted.body': 'Application {number} is awaiting processing',
+  'applications.resubmitted.title': 'Application corrected',
+  'applications.resubmitted.body': 'Application {number} was resubmitted',
+  'applications.overdue.title': 'Overdue applications',
+  'applications.overdue.body': 'Applications past their processing deadline: {count}',
 
   'assignments.published.title': 'New assignment',
   'assignments.graded.title': 'Work graded',
@@ -219,6 +329,17 @@ const EN: Record<NotificationMessageKey, string> = {
 
   'events.reminder.title': 'Event starting soon',
   'events.reminder.body': '“{title}” starts in about an hour',
+  'events.rescheduled.title': 'Event rescheduled',
+  'events.rescheduled.body': '“{title}”: new time — {date}',
+  'events.cancelled.title': 'Event cancelled',
+  'events.cancelled.body': '“{title}” will not take place',
+
+  'comments.new.title': 'New comment',
+  'comments.post.body': '{name} commented on your post',
+  'comments.article.body': '{name} commented on your article',
+  'comments.poll.body': '{name} commented on your poll',
+  'comments.mention.title': 'You were mentioned',
+  'comments.mention.body': '{name} mentioned you in a comment',
 
   'consultations.cancelled.title': 'Consultation cancelled',
   'consultations.booked.title': 'New consultation booking',
@@ -228,6 +349,12 @@ const EN: Record<NotificationMessageKey, string> = {
   'appointments.rescheduled.title': 'Dean’s office appointment rescheduled',
   'appointments.completed.title': 'Dean’s office appointment completed',
   'appointments.cancelled.title': 'Dean’s office appointment cancelled',
+  'appointments.requested.title': 'New dean’s office appointment request',
+
+  'exams.scheduled.title': 'Exam scheduled',
+  'exams.updated.title': 'Exam details changed',
+  'exams.result.title': 'Exam result',
+  'exams.course.body': '{subject}: {date}',
 
   'career.viewed.body': 'The company viewed your application',
   'career.shortlisted.body': 'You were shortlisted',
@@ -235,6 +362,19 @@ const EN: Record<NotificationMessageKey, string> = {
   'career.offer.body': 'You received an offer',
   'career.hired.body': 'You were hired',
   'career.rejected.body': 'This application was declined',
+  'career.accessRequested.title': 'Company access request',
+  'career.accessRequested.body': '{company} asks for access to your students',
+  'career.accessApproved.title': 'Access to students granted',
+  'career.accessRejected.title': 'Access request declined',
+  'career.accessRevoked.title': 'Access to students revoked',
+  'career.university.body': '{university}',
+  'career.universityReason.body': '{university}: {reason}',
+  'career.vacancyApproved.title': 'Vacancy approved',
+  'career.vacancyRejected.title': 'Vacancy declined',
+  'career.vacancy.body': '“{title}” — {university}',
+  'career.vacancyReason.body': '“{title}” — {university}: {reason}',
+  'career.newApplication.title': 'New application',
+  'career.newApplication.body': 'Vacancy “{title}”',
 }
 
 export const NOTIFICATION_MESSAGES: Record<Locale, Record<NotificationMessageKey, string>> = {

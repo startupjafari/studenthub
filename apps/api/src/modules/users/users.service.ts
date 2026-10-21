@@ -1,16 +1,24 @@
 import { forwardRef, Inject, Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { Prisma } from '@prisma/client'
+import type Redis from 'ioredis'
 import { Role, isHigherRole } from '@studenthub/shared-types'
 import type {
+  AcceptConsentInput,
   UserListQueryInput,
   UpdateProfileInput,
   UserDirectoryQueryInput,
   UserDirectorySectionValue,
   UpdateAcademicRecordInput,
 } from '@studenthub/shared-schemas'
-import { disallowedProfileFields } from '@studenthub/shared-schemas'
+import {
+  disallowedProfileFields,
+  ignoredProfileFields,
+  isAdult,
+  LEGAL_VERSION,
+} from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
+import { advisoryXactLock } from '../../common/prisma/advisory-lock'
 import { buildPublicObjectUrl } from '../../common/minio/public-url'
 import { PasswordService } from '../../common/security/password.service'
 import { AuditService } from '../../common/audit/audit.service'
@@ -29,10 +37,13 @@ import type { EnvVars } from '../../config/env.schema'
 import sharp from 'sharp'
 import { FileService } from '../files/file.service'
 import { RealtimeGateway } from '../../common/realtime'
-import { QueueService, QUEUES, FILE_JOBS, NOTIFICATION_JOBS } from '../../common/queue'
+import { QueueService, QUEUES, EMAIL_JOBS, FILE_JOBS, NOTIFICATION_JOBS } from '../../common/queue'
+import { REDIS_CLIENT } from '../../common/redis/redis.constants'
 // forwardRef: единственное разрешённое кольцо AuthModule ↔ UsersModule (§2.1) —
 // смена пароля/удаление/блокировка обязаны погасить сессии, которыми владеет AuthService.
 import { AuthService } from '../auth/auth.service'
+import { canonicalSpecialtyName } from '../specialties/specialty-name'
+import { birthDateIso, CONSENT_SELECT, consentStateOf, type ConsentState } from './consent'
 
 type PrismaTx = Prisma.TransactionClient
 
@@ -60,14 +71,26 @@ export interface TwoFactorLoginRecord {
   twoFactorEnabled: boolean
   twoFactorSecret: string | null
   twoFactorBackupCodes: string[]
+  // Компания работодателя уходит в токен (JwtPayload.companyId) так же, как при входе без 2FA:
+  // без неё работодатель с 2FA до первого refresh получал «аккаунт не привязан к компании».
+  companyMembership: { companyId: string } | null
 }
 
 // Потолок выборки старост одной группы при смене старосты (§5.3: findMany без take нельзя).
 const GROUP_STAROSTA_SCAN_LIMIT = 50
 
+// Смена пароля: столько неверных текущих паролей за окно — и проверка закрыта до конца окна
+// (как подтверждение кодом 2FA, TwoFactorService.verifyWithLimit).
+const PASSWORD_CHANGE_MAX_FAILS = 5
+const PASSWORD_CHANGE_FAIL_WINDOW_SEC = 15 * 60
+
 // Прежних аватаров у пользователя единицы (каждая замена удаляет предыдущие),
 // но потолок обязателен и здесь (BACKEND_RULES §7.2).
 const OLD_AVATARS_LIMIT = 100
+
+// Ключ advisory-лока проверки «не последний ли администратор платформы» при удалении
+// аккаунта: двое последних, удаляющих себя одновременно, иначе оба видели бы друг друга.
+const LAST_PLATFORM_ADMIN_LOCK = 'users:last-platform-admin'
 
 // Справочник людей (§50). Друзей и блокировок у человека десятки, но `take` обязателен
 // везде (§18): при переполнении секция «друзья» просто не пометит хвост — выдача остаётся
@@ -168,6 +191,30 @@ const PROFILE_SELECT = {
   moderationAreas: true,
 } satisfies Prisma.UserSelect
 
+/**
+ * Поля владельца, по которым решается видимость контента профиля (статьи, опросы, медиа).
+ * Модули контента выбирают их вместе с объектом — без отдельного запроса за автором.
+ */
+export const PROFILE_CONTENT_OWNER_SELECT = {
+  id: true,
+  role: true,
+  profileVisibility: true,
+  universityId: true,
+  facultyId: true,
+  groupId: true,
+  deletedAt: true,
+} satisfies Prisma.UserSelect
+
+export type ProfileContentOwner = Prisma.UserGetPayload<{
+  select: typeof PROFILE_CONTENT_OWNER_SELECT
+}>
+
+// Контент профиля, удаляемый вместе с аккаунтом, выбирается пачками (§7.2: take обязателен).
+const ACCOUNT_CONTENT_BATCH = 100
+// Потолок кругов: файл, который не удалось снести, вернётся в следующей пачке — без потолка
+// цикл не закончился бы. Остаток подберёт ночная чистка осиротевших объектов.
+const ACCOUNT_CONTENT_MAX_ROUNDS = 50
+
 // Полный профиль (собственный) выводится из select. Публичный — прячет чувствительное.
 export type UserProfile = Prisma.UserGetPayload<{ select: typeof PROFILE_SELECT }>
 // access: 'full' — карточка целиком (по правам), 'limited' — только «визитка» закрытого профиля.
@@ -212,6 +259,19 @@ function userListOrderBy(query: UserListQueryInput): Prisma.UserOrderByWithRelat
   }
 }
 
+/**
+ * Фильтр email без учёта регистра — запасной путь для строк, записанных до нормализации:
+ * раньше адрес сохранялся как пришёл («Ivanov@Uni.kz» из таблицы деканата), теперь — в нижнем
+ * регистре (схемы shared-schemas). Ищем им, только когда точное совпадение не нашлось.
+ *
+ * `in`, а не `equals`: `equals` с `mode: 'insensitive'` Prisma строит через ILIKE, где `_` и `%`
+ * — шаблоны, и `ivan_ov@uni.kz` находил бы `ivanXov@uni.kz`. `in` даёт точное
+ * `LOWER(email) IN (LOWER($1))` — и индекс по `lower(email)`, когда он появится.
+ */
+function emailIgnoringCase(email: string) {
+  return { in: [email], mode: 'insensitive' as const }
+}
+
 @Injectable()
 export class UserService {
   private readonly logger = new Logger(UserService.name)
@@ -227,6 +287,7 @@ export class UserService {
     private readonly audit: AuditService,
     private readonly branding: ExportBrandingService,
     private readonly exports: ExportRegistryService,
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {}
 
   /** Статус присутствия пользователя (онлайн по активным WS-соединениям, docs/PROJECT.md §9). */
@@ -269,29 +330,37 @@ export class UserService {
 
   /**
    * Для AuthService (LocalStrategy): запись с passwordHash по email ИЛИ username (Telegram-стиль вход).
-   * username хранится в нижнем регистре — приводим идентификатор к нижнему для сопоставления.
+   * Оба сравниваются без учёта регистра (docs/PROJECT.md §7): username хранится в нижнем
+   * регистре, email — тоже, кроме строк, записанных до нормализации (см. emailIgnoringCase).
    * passwordHash не покидает auth-домен.
    */
-  findByLoginIdentifierForAuth(identifier: string): Promise<AuthUserRecord | null> {
+  async findByLoginIdentifierForAuth(identifier: string): Promise<AuthUserRecord | null> {
     const normalized = identifier.trim().toLowerCase()
-    return this.prisma.user.findFirst({
-      where: {
-        deletedAt: null,
-        OR: [{ email: identifier.trim() }, { username: normalized }],
-      },
-      select: {
-        id: true,
-        passwordHash: true,
-        role: true,
-        isBlocked: true,
-        universityId: true,
-        facultyId: true,
-        groupId: true,
-        twoFactorEnabled: true,
-        // Ф18: компания работодателя уходит в токен (см. JwtPayload.companyId).
-        companyMembership: { select: { companyId: true } },
-      },
+    const select = {
+      id: true,
+      passwordHash: true,
+      role: true,
+      isBlocked: true,
+      universityId: true,
+      facultyId: true,
+      groupId: true,
+      twoFactorEnabled: true,
+      // Ф18: компания работодателя уходит в токен (см. JwtPayload.companyId).
+      companyMembership: { select: { companyId: true } },
+    } satisfies Prisma.UserSelect
+    // Сначала точное совпадение — по уникальным индексам email и username.
+    const exact = await this.prisma.user.findFirst({
+      where: { deletedAt: null, OR: [{ email: normalized }, { username: normalized }] },
+      select,
     })
+    // В username «@» не бывает — без неё искать старый email незачем.
+    if (exact || !normalized.includes('@')) return exact
+    const legacy = await this.prisma.user.findMany({
+      where: { deletedAt: null, email: emailIgnoringCase(normalized) },
+      select,
+      take: 2,
+    })
+    return this.singleEmailOwner(legacy, 'Вход')
   }
 
   /** Для AuthService.refresh: актуальные роль/scope/блокировка/2FA по id (без passwordHash). */
@@ -429,6 +498,9 @@ export class UserService {
           facultyId: true,
           groupId: true,
           isBlocked: true,
+          // Флаг, а не секрет: по нему таблица показывает «Сбросить 2FA» только тем, у кого
+          // она включена. Секрет и backup-коды из сервиса не выходят.
+          twoFactorEnabled: true,
           createdAt: true,
         },
         orderBy: userListOrderBy(query),
@@ -712,11 +784,99 @@ export class UserService {
         disallowed.map((field) => ({ field, message: 'Поле недоступно для вашей роли' })),
       )
     }
+    // Общежитие студента теперь ведёт вуз (оно печатается в студенческом), но мобильные
+    // клиенты могли присылать его в форме профиля: 400 сорвал бы им сохранение целиком.
+    // Поэтому студенту и старосте поле не отклоняем, а молча отбрасываем — в базе остаётся
+    // прежнее значение (COMPAT_IGNORED_STUDENT_FIELDS).
+    const ignored = new Set<string>(ignoredProfileFields(role, data))
+    const writable =
+      ignored.size > 0
+        ? (Object.fromEntries(
+            Object.entries(data).filter(([key]) => !ignored.has(key)),
+          ) as UpdateProfileInput)
+        : data
+    // Дата рождения решает основание согласия на обработку ПДн (сам человек или законный
+    // представитель). Правка не отклоняется, но пересматривает его: согласие хранится с
+    // основанием, и расхождение с новой датой делает `consentRequired` истинным, пока
+    // согласие не примут заново (consentState, A-F29).
     return this.prisma.user.update({
       where: { id: userId },
-      data,
+      data: writable,
       select: PROFILE_SELECT,
     })
+  }
+
+  /**
+   * Состояние согласия на обработку ПДн у владельца (A-F29): `GET /users/me/consent` и флаг
+   * `consentRequired` в `/auth/me`. Отдельно от профиля: поля согласия в PROFILE_SELECT не
+   * входят — карточка уходит и чужим, а им эти сведения ни к чему.
+   */
+  async consentState(userId: string): Promise<ConsentState> {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, deletedAt: null },
+      select: CONSENT_SELECT,
+    })
+    if (!user) {
+      throw new AppException('NOT_FOUND', 'Пользователь не найден')
+    }
+    return consentStateOf(user)
+  }
+
+  /**
+   * Повторное согласие на действующую редакцию документов (A-F29). Правила — те же, что при
+   * регистрации: возраст пересчитывается на сервере, и за несовершеннолетнего согласие даёт
+   * законный представитель. Дату рождения форма согласия только дополняет (учётки, заведённые
+   * до сентября 2026, её не имеют), а не меняет — её правят в профиле.
+   */
+  async acceptConsent(
+    userId: string,
+    input: AcceptConsentInput,
+    ctx: { ip?: string; userAgent?: string },
+  ): Promise<ConsentState> {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, deletedAt: null },
+      select: CONSENT_SELECT,
+    })
+    if (!user) {
+      throw new AppException('NOT_FOUND', 'Пользователь не найден')
+    }
+    if (input.birthDate && user.birthDate) {
+      throw new AppException('BAD_REQUEST', 'Дата рождения уже указана — её меняют в профиле', [
+        { field: 'birthDate', message: 'Дата рождения уже указана' },
+      ])
+    }
+    const birthDate = user.birthDate ? birthDateIso(user.birthDate) : input.birthDate
+    if (!birthDate) {
+      throw new AppException('BAD_REQUEST', 'Укажите дату рождения', [
+        { field: 'birthDate', message: 'Нужна, чтобы определить, чьё согласие требуется' },
+      ])
+    }
+    const minor = !isAdult(birthDate)
+    if (minor && input.guardianConsent !== true) {
+      throw new AppException('BAD_REQUEST', 'Нужно согласие законного представителя', [
+        { field: 'guardianConsent', message: 'Нужно согласие законного представителя' },
+      ])
+    }
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        // Что подписали и когда — вместе с основанием, как при регистрации.
+        consentAt: new Date(),
+        consentVersion: LEGAL_VERSION,
+        consentByGuardian: minor,
+        ...(user.birthDate ? {} : { birthDate: new Date(`${birthDate}T00:00:00Z`) }),
+      },
+      select: CONSENT_SELECT,
+    })
+    await this.audit.record({
+      userId,
+      action: 'consent_accepted',
+      entity: 'User',
+      entityId: userId,
+      metadata: { version: LEGAL_VERSION, byGuardian: minor },
+      ...ctx,
+    })
+    return consentStateOf(updated)
   }
 
   /**
@@ -759,7 +919,10 @@ export class UserService {
    */
   async setAvatar(userId: string, buffer: Buffer): Promise<UserProfile> {
     const bucket = this.config.get('MINIO_BUCKET_AVATARS', { infer: true })
-    await this.deleteExistingAvatars(userId, bucket)
+    // Сначала загрузка (проверка типа и размера — внутри), потом ссылка в профиле, и только
+    // затем снос прежних — как у обложки. Раньше прежние удалялись первыми: файл с подменённым
+    // расширением или сбой MinIO давали FILE_TYPE_NOT_ALLOWED, а avatarUrl в базе уже указывал
+    // на снесённый объект — «битая» аватарка.
     const file = await this.files.upload({
       buffer,
       bucket,
@@ -772,6 +935,7 @@ export class UserService {
       data: { avatarUrl, avatarThumbUrl: null },
       select: PROFILE_SELECT,
     })
+    await this.deleteExistingAvatars(userId, bucket, file.id)
     // Тяжёлый ресайз — в очередь (§9.1). Идемпотентность по jobId (один thumb на файл).
     await this.queue.enqueue(
       QUEUES.FILE_PROCESSING,
@@ -799,6 +963,11 @@ export class UserService {
    * в тот же бакет avatars (чтобы orphan-клинер его не удалил, а deleteExistingAvatars снёс при
    * смене аватара) и проставляет avatarThumbUrl. Если оригинал уже удалён (аватар сменили) —
    * getObjectBuffer бросит, джоба упадёт и не запишет устаревшее превью.
+   *
+   * Превью пишется, только пока avatarUrl — всё ещё этот оригинал: прежний аватар может
+   * пережить смену (снос объектов идёт после записи нового URL), и его превью, готовое позже,
+   * перезаписывало бы превью нового — в списках оставалось старое лицо. Опоздавшее превью
+   * сносится сразу, а не ждёт следующей смены аватара.
    */
   async generateAvatarThumbnail(data: {
     fileId: string
@@ -818,10 +987,15 @@ export class UserService {
       expectedCategory: 'IMAGE',
     })
     const avatarThumbUrl = this.buildPublicUrl(data.bucket, thumbFile.key)
-    await this.prisma.user.updateMany({
-      where: { id: data.userId, deletedAt: null },
+    const { count } = await this.prisma.user.updateMany({
+      where: {
+        id: data.userId,
+        deletedAt: null,
+        avatarUrl: { endsWith: `/${data.bucket}/${data.key}` },
+      },
       data: { avatarThumbUrl },
     })
+    if (count === 0) await this.files.delete(thumbFile.id)
   }
 
   /**
@@ -877,9 +1051,14 @@ export class UserService {
   // Прежние аватары пользователя и их превью — все его файлы в бакете avatars, КРОМЕ аватаров
   // групп: их грузит админ группы (`setChatAvatar`), владельцем файла записан он же, и без
   // этого исключения смена своего аватара стирала картинки всех групп, где он их ставил.
-  private async deleteExistingAvatars(userId: string, bucket: string): Promise<void> {
+  // `keepFileId` — только что загруженный аватар: снос прежних идёт уже после его записи.
+  private async deleteExistingAvatars(
+    userId: string,
+    bucket: string,
+    keepFileId?: string,
+  ): Promise<void> {
     const existing = await this.prisma.file.findMany({
-      where: { ownerId: userId, bucket },
+      where: { ownerId: userId, bucket, ...(keepFileId ? { id: { not: keepFileId } } : {}) },
       select: { id: true, key: true },
       take: OLD_AVATARS_LIMIT,
     })
@@ -947,8 +1126,14 @@ export class UserService {
       fundingType,
       academicStatus,
       dormitory,
+      locale,
       ...rest
     } = target
+    // Всё, что осталось в rest, уходит в карточку как есть. Поле, которое тип PublicProfile
+    // прячет, а разбор выше забыл вынуть (так утекал locale), не соберёт сборку.
+    const leaked: Exclude<keyof typeof rest, keyof PublicProfile> extends never ? true : never =
+      true
+    void leaked
     const academic = this.canSeeAcademicRecords(viewer, target)
     void showEmail
     void studentCardNumber
@@ -958,6 +1143,8 @@ export class UserService {
     void twoFactorEnabled
     // Имя входа — тоже: это половина учётных данных, а не публичный хэндл.
     void username
+    // Язык интерфейса — настройка владельца, наружу только в /users/me.
+    void locale
     return {
       ...rest,
       email: this.canSeeEmail(viewer, target) ? email : null,
@@ -1088,42 +1275,99 @@ export class UserService {
   ): Promise<{ level: ProfileAccessLevel; audit: boolean }> {
     const access = this.resolveAccess(viewer, target)
     if (access.level !== 'limited' || viewer.sub === target.id) return access
-    const link = await this.prisma.friendship.findFirst({
-      where: {
-        OR: [
-          { requesterId: viewer.sub, addresseeId: target.id },
-          { requesterId: target.id, addresseeId: viewer.sub },
-        ],
-      },
-      select: { status: true, requesterId: true },
-    })
-    const opened =
-      link?.status === 'ACCEPTED' || (link?.status === 'PENDING' && link.requesterId === target.id)
-    return opened ? { level: 'full', audit: false } : access
+    const opened = await this.openedByFriendship(viewer.sub, [target.id])
+    return opened.has(target.id) ? { level: 'full', audit: false } : access
   }
 
   /**
-   * Виден ли смотрящему КОНТЕНТ профиля (медиа, альбомы) — по тому же правилу, что решает, отдать
-   * полную карточку или «визитку». Отдельный метод нужен модулю profile-content: фото и альбомы —
-   * такие же персональные данные, как поля карточки, и закрытый профиль обязан скрывать и их
-   * (docs/BACKEND_RULES.md §14.7).
+   * Кому из targetIds смотрящего открывает дружба: принятая — взаимно, заявка ОТ владельца — до
+   * ответа. Личная блокировка в любую сторону дружбу гасит: иначе заблокированный бывший друг
+   * продолжал бы видеть закрытый профиль, фото и альбомы того, кто от него закрылся. Блокировка
+   * и так удаляет дружбу (ChatsService.blockUser), проверка здесь — для пар, заблокированных
+   * раньше, и на случай гонки «заявку приняли одновременно с блокировкой».
+   * Пачкой: два запроса на любое число владельцев (закладки читают статьи разных авторов).
+   */
+  private async openedByFriendship(viewerId: string, targetIds: string[]): Promise<Set<string>> {
+    const ids = [...new Set(targetIds)].filter((id) => id !== viewerId)
+    if (ids.length === 0) return new Set()
+    const links = await this.prisma.friendship.findMany({
+      where: {
+        OR: [
+          { status: 'ACCEPTED', requesterId: viewerId, addresseeId: { in: ids } },
+          { requesterId: { in: ids }, addresseeId: viewerId },
+        ],
+      },
+      select: { requesterId: true, addresseeId: true },
+      // По паре — не больше двух строк (по одной в каждую сторону, @@unique).
+      take: ids.length * 2,
+    })
+    const opened = new Set(
+      links.map((l) => (l.requesterId === viewerId ? l.addresseeId : l.requesterId)),
+    )
+    if (opened.size === 0) return opened
+    const candidates = [...opened]
+    const blocks = await this.prisma.userBlock.findMany({
+      where: {
+        OR: [
+          { blockerId: viewerId, blockedId: { in: candidates } },
+          { blockerId: { in: candidates }, blockedId: viewerId },
+        ],
+      },
+      select: { blockerId: true, blockedId: true },
+      take: candidates.length * 2,
+    })
+    for (const b of blocks) opened.delete(b.blockerId === viewerId ? b.blockedId : b.blockerId)
+    return opened
+  }
+
+  /**
+   * Виден ли смотрящему КОНТЕНТ профиля (медиа, альбомы, статьи, опросы) — по тому же правилу,
+   * что решает, отдать полную карточку или «визитку». Отдельный метод нужен модулям контента:
+   * фото, статьи и опросы — такие же персональные данные, как поля карточки, и закрытый профиль
+   * обязан скрывать и их (docs/BACKEND_RULES.md §14.7). Контент удалённого аккаунта не виден никому.
    */
   async canViewProfileContent(viewer: JwtPayload, targetId: string): Promise<boolean> {
     if (viewer.sub === targetId) return true
     const target = await this.prisma.user.findFirst({
       where: { id: targetId, deletedAt: null },
-      select: {
-        id: true,
-        role: true,
-        profileVisibility: true,
-        universityId: true,
-        facultyId: true,
-        groupId: true,
-      },
+      select: PROFILE_CONTENT_OWNER_SELECT,
     })
     if (!target) return false
-    const access = await this.resolveAccessWithFriendship(viewer, target)
+    return this.canViewProfileContentOf(viewer, target)
+  }
+
+  /**
+   * То же, что canViewProfileContent, по уже выбранному владельцу (PROFILE_CONTENT_OWNER_SELECT
+   * вместе со статьёй или опросом) — без лишнего запроса за автором.
+   */
+  async canViewProfileContentOf(viewer: JwtPayload, owner: ProfileContentOwner): Promise<boolean> {
+    if (owner.deletedAt) return false
+    if (viewer.sub === owner.id) return true
+    const access = await this.resolveAccessWithFriendship(viewer, owner)
     return access.level === 'full'
+  }
+
+  /**
+   * Пакетный canViewProfileContentOf: id владельцев, чей контент смотрящему виден. Для списков
+   * со статьями разных авторов (закладки) — дружба и блокировки проверяются одним запросом на
+   * всю пачку, а не по запросу на автора.
+   */
+  async viewableProfileContentOwners(
+    viewer: JwtPayload,
+    owners: ProfileContentOwner[],
+  ): Promise<Set<string>> {
+    const visible = new Set<string>()
+    const viaFriendship: string[] = []
+    for (const owner of owners) {
+      if (owner.deletedAt || visible.has(owner.id)) continue
+      if (viewer.sub === owner.id || this.resolveAccess(viewer, owner).level === 'full') {
+        visible.add(owner.id)
+      } else {
+        viaFriendship.push(owner.id)
+      }
+    }
+    for (const id of await this.openedByFriendship(viewer.sub, viaFriendship)) visible.add(id)
+    return visible
   }
 
   // Академические записи (gpa) видят только владелец и надзорные роли — не одногруппники/староста.
@@ -1260,6 +1504,7 @@ export class UserService {
         twoFactorEnabled: true,
         twoFactorSecret: true,
         twoFactorBackupCodes: true,
+        companyMembership: { select: { companyId: true } },
       },
     })
   }
@@ -1302,6 +1547,7 @@ export class UserService {
     return count > 0
   }
 
+  /** Заменить набор backup-кодов целиком (перевыпуск владельцем, TwoFactorService). */
   async setBackupCodes(userId: string, hashes: string[]): Promise<void> {
     await this.prisma.user.update({
       where: { id: userId },
@@ -1309,11 +1555,19 @@ export class UserService {
     })
   }
 
-  /** Смена пароля: сверка текущего + инвалидация ВСЕХ сессий пользователя (§?). */
+  /**
+   * Смена пароля: сверка текущего + инвалидация ВСЕХ сессий пользователя (§?).
+   *
+   * Промахи по текущему паролю считаются по пользователю: с украденным access-токеном его
+   * перебирали под общим лимитом 100 запросов в минуту, а угаданный пароль тут же менялся —
+   * захват учётки. Пять промахов за 15 минут закрывают проверку до конца окна, даже с
+   * верным паролем. Redis недоступен — проверяем без счётчика, как и 2FA.
+   */
   async changePassword(
     userId: string,
     currentPassword: string,
     newPassword: string,
+    ctx: { ip?: string; userAgent?: string } = {},
   ): Promise<void> {
     const user = await this.prisma.user.findFirst({
       where: { id: userId, deletedAt: null },
@@ -1322,21 +1576,55 @@ export class UserService {
     if (!user) {
       throw new AppException('NOT_FOUND', 'Пользователь не найден')
     }
-    const ok = await this.passwords.compare(currentPassword, user.passwordHash)
-    if (!ok) {
-      // 400, а не 401 — чтобы не триггерить авто-refresh на фронте.
-      throw new AppException('BAD_REQUEST', 'Неверный текущий пароль')
-    }
+    await this.assertCurrentPassword(userId, currentPassword, user.passwordHash)
     const passwordHash = await this.passwords.hash(newPassword)
     await this.prisma.user.update({ where: { id: userId }, data: { passwordHash } })
     await this.authService.revokeAllUserSessions(userId)
+    // Кто и когда сменил пароль — первое, что спрашивают при разборе угона. Без паролей.
+    await this.audit.record({
+      userId,
+      action: 'password_changed',
+      entity: 'User',
+      entityId: userId,
+      ...ctx,
+    })
+  }
+
+  /**
+   * Сверка текущего пароля — для смены пароля и удаления аккаунта. Счётчик промахов общий:
+   * перебирать пароль через удаление вместо смены ничего не даёт. Пять промахов за 15 минут
+   * закрывают проверку до конца окна, даже с верным паролем; Redis недоступен — проверяем
+   * без счётчика.
+   */
+  private async assertCurrentPassword(
+    userId: string,
+    password: string,
+    passwordHash: string,
+  ): Promise<void> {
+    const failKey = `password-change:fails:${userId}`
+    const fails = Number((await this.redis.get(failKey).catch(() => null)) ?? 0)
+    if (fails >= PASSWORD_CHANGE_MAX_FAILS) {
+      throw new AppException('RATE_LIMIT', 'Слишком много неверных паролей — попробуйте позже')
+    }
+    const ok = await this.passwords.compare(password, passwordHash)
+    if (!ok) {
+      await this.redis
+        .multi()
+        .incr(failKey)
+        .expire(failKey, PASSWORD_CHANGE_FAIL_WINDOW_SEC)
+        .exec()
+        .catch(() => undefined)
+      // 400, а не 401 — чтобы не триггерить авто-refresh на фронте.
+      throw new AppException('BAD_REQUEST', 'Неверный текущий пароль')
+    }
+    await this.redis.del(failKey).catch(() => undefined)
   }
 
   /**
    * Кому слать ссылку сброса пароля (AuthModule, docs/PROJECT.md §7.2). Без passwordHash:
    * для письма нужны только адрес, имя и язык. Удалённые не находятся — их почта затёрта.
    */
-  findForPasswordReset(email: string): Promise<{
+  async findForPasswordReset(email: string): Promise<{
     id: string
     email: string
     username: string | null
@@ -1344,17 +1632,63 @@ export class UserService {
     locale: string
     isBlocked: boolean
   } | null> {
-    return this.prisma.user.findFirst({
-      where: { email, deletedAt: null },
-      select: {
-        id: true,
-        email: true,
-        username: true,
-        firstName: true,
-        locale: true,
-        isBlocked: true,
-      },
+    const normalized = email.trim().toLowerCase()
+    const select = {
+      id: true,
+      email: true,
+      username: true,
+      firstName: true,
+      locale: true,
+      isBlocked: true,
+    } satisfies Prisma.UserSelect
+    const exact = await this.prisma.user.findFirst({
+      where: { email: normalized, deletedAt: null },
+      select,
     })
+    if (exact) return exact
+    // Письмо уходит на адрес из базы (`email` записи), а не на введённый: найденная без учёта
+    // регистра учётка получает ссылку туда же, куда и всегда.
+    const legacy = await this.prisma.user.findMany({
+      where: { email: emailIgnoringCase(normalized), deletedAt: null },
+      select,
+      take: 2,
+    })
+    return this.singleEmailOwner(legacy, 'Сброс пароля')
+  }
+
+  /**
+   * Чей это email — без учёта регистра (регистрация по инвайту: проверка, что адрес не занят).
+   * Несколько совпадений здесь не отказ, а ответ «занят»: важно лишь, что адрес чей-то.
+   */
+  async findEmailOwnerId(email: string): Promise<string | null> {
+    const normalized = email.trim().toLowerCase()
+    const exact = await this.prisma.user.findFirst({
+      where: { email: normalized },
+      select: { id: true },
+    })
+    if (exact) return exact.id
+    const legacy = await this.prisma.user.findFirst({
+      where: { email: emailIgnoringCase(normalized) },
+      select: { id: true },
+    })
+    return legacy?.id ?? null
+  }
+
+  /**
+   * Единственный владелец email из запасного поиска без учёта регистра. Два и больше —
+   * `Ivanov@…` и `ivanov@…` заведены разными учётками ещё до нормализации: угадывать, чья
+   * это почта, нельзя, поэтому отказ (вход не проходит, письмо не уходит) и запись в лог —
+   * такие пары разводит владелец данных.
+   */
+  private singleEmailOwner<T extends { id: string }>(matches: T[], purpose: string): T | null {
+    if (matches.length > 1) {
+      this.logger.warn(
+        `${purpose}: email без учёта регистра совпал у нескольких учёток ` +
+          `(${matches.map((m) => m.id).join(', ')}) — отказ`,
+      )
+      return null
+    }
+    return matches[0] ?? null
   }
 
   /**
@@ -1465,6 +1799,22 @@ export class UserService {
   }
 
   /**
+   * Староста, зарегистрировавшийся по инвайту (AuthService, в транзакции регистрации),
+   * становится старостой своей группы: отметка `Group.starostaId` и единственная
+   * старостинская роль в группе — как при назначении деканом (`syncGroupStarosta`).
+   * Возвращает разжалованных: после коммита им — `afterStarostaChange`.
+   */
+  async assignInvitedStarosta(
+    tx: Prisma.TransactionClient,
+    groupId: string,
+    userId: string,
+  ): Promise<string[]> {
+    // updateMany: группы уже может не быть — регистрацию это не роняет, отмечать некого.
+    await tx.group.updateMany({ where: { id: groupId }, data: { starostaId: userId } })
+    return this.syncGroupStarosta(tx, groupId, userId)
+  }
+
+  /**
    * После смены старосты: разжалованным гасим сессии. В их access-токене ещё 15 минут жила
    * бы роль старосты — с инвайтами в группу и списком её обращений. Новый староста получит
    * роль при ближайшем обновлении токена (refresh читает роль из БД).
@@ -1509,7 +1859,7 @@ export class UserService {
   ): Promise<UserProfile> {
     const target = await this.prisma.user.findFirst({
       where: { id: userId, deletedAt: null },
-      select: { id: true, role: true, universityId: true, facultyId: true },
+      select: { id: true, role: true, universityId: true, facultyId: true, specialty: true },
     })
     if (!target) throw new AppException('NOT_FOUND', 'Пользователь не найден')
     if (target.role !== Role.STUDENT && target.role !== Role.STAROSTA) {
@@ -1525,7 +1875,7 @@ export class UserService {
 
     const updated = await this.prisma.user.update({
       where: { id: userId },
-      data,
+      data: await this.withDictionarySpecialty(target, data),
       select: PROFILE_SELECT,
     })
     await this.audit.record({
@@ -1540,25 +1890,137 @@ export class UserService {
   }
 
   /**
+   * Специальность в учебных данных — из справочника вуза, в его написании: иначе после
+   * переименования в справочнике (каскад — `renameSpecialty`) студент со «своим» текстом
+   * остался бы со старым названием в справке. Прежнее значение пропускается как есть —
+   * правка курса не должна упираться в специальность, вписанную до справочника. У вуза без
+   * справочника — свободный текст, как раньше.
+   */
+  private async withDictionarySpecialty(
+    target: { universityId: string | null; specialty: string | null },
+    data: UpdateAcademicRecordInput,
+  ): Promise<UpdateAcademicRecordInput> {
+    if (data.specialty === undefined || data.specialty === target.specialty) return data
+    if (!target.universityId) return data
+    const specialty = await canonicalSpecialtyName(this.prisma, target.universityId, data.specialty)
+    if (specialty === null) {
+      throw new AppException('VALIDATION_ERROR', 'Специальности нет в справочнике вуза', [
+        { field: 'specialty', message: 'Выберите специальность из справочника вуза' },
+      ])
+    }
+    return { ...data, specialty }
+  }
+
+  /**
+   * Переименование специальности в справочнике вуза доходит до учебных данных студентов
+   * (зовёт SpecialtiesService.update в своей транзакции). Специальность в профиле —
+   * строка-название, а не ссылка на справочник, поэтому без каскада в справках и
+   * студенческих оставалось старое название. Сравнение без учёта регистра — как и выбор
+   * из справочника.
+   */
+  async renameSpecialty(
+    tx: PrismaTx,
+    universityId: string,
+    from: string,
+    to: string,
+  ): Promise<number> {
+    const { count } = await tx.user.updateMany({
+      where: { universityId, specialty: { in: [from], mode: 'insensitive' } },
+      data: { specialty: to },
+    })
+    return count
+  }
+
+  /**
+   * Удаление своего аккаунта по запросу владельца (DELETE /users/me) — с повторной
+   * аутентификацией: текущий пароль и, если включена 2FA, её код (`verifyCode` — проверка
+   * с общим счётчиком неверных кодов). Раньше необратимую анонимизацию запускал любой, у кого
+   * в руках открытая вкладка или access-токен.
+   *
+   * Порядок — от отказов, которые ничего не тратят, к тем, что тратят: последний админ
+   * платформы (409) → пароль (счётчик промахов) → код 2FA последним: резервный код при
+   * проверке сгорает, тратить его на запрос, который всё равно отклонён, незачем.
+   */
+  async deleteOwnAccount(
+    userId: string,
+    input: { password?: string; code?: string },
+    verifyCode: (code: string) => Promise<boolean>,
+    ctx: { ip?: string; userAgent?: string } = {},
+  ): Promise<void> {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, deletedAt: null },
+      select: { role: true, passwordHash: true, twoFactorEnabled: true },
+    })
+    if (!user) {
+      throw new AppException('NOT_FOUND', 'Пользователь не найден')
+    }
+    if (user.role === Role.PLATFORM_ADMIN) {
+      await this.assertNotLastPlatformAdmin(this.prisma, userId)
+    }
+    const { password, code } = input
+    if (!password) {
+      throw new AppException('BAD_REQUEST', 'Для удаления аккаунта введите текущий пароль')
+    }
+    if (user.twoFactorEnabled && !code) {
+      throw new AppException('BAD_REQUEST', 'Для удаления аккаунта введите код 2FA')
+    }
+    await this.assertCurrentPassword(userId, password, user.passwordHash)
+    if (user.twoFactorEnabled && !(await verifyCode(code ?? ''))) {
+      throw new AppException('INVALID_2FA_CODE', 'Неверный код подтверждения')
+    }
+    await this.softDeleteSelf(userId, ctx)
+  }
+
+  /**
+   * Не последний ли это действующий (не удалён, не заблокирован) администратор платформы.
+   * Нового выдаёт только сид — инвайтом PLATFORM_ADMIN не завести (ALLOWED_ISSUERS), — и
+   * платформа без него остаётся без управления.
+   */
+  private async assertNotLastPlatformAdmin(db: PrismaTx, userId: string): Promise<void> {
+    const others = await db.user.count({
+      where: {
+        role: Role.PLATFORM_ADMIN,
+        deletedAt: null,
+        isBlocked: false,
+        id: { not: userId },
+      },
+    })
+    if (others === 0) {
+      throw new AppException('CONFLICT', 'Нельзя удалить последнего администратора платформы')
+    }
+  }
+
+  /**
    * Мягкое удаление + анонимизация ПДн (§11.3) + разлогин всех устройств.
    * Затираем ВСЕ персональные поля (не только email/имя), гасим 2FA и приватность,
-   * а также сносим объекты аватара и обложки в MinIO. Структурные поля (role, scope,
+   * сносим объекты аватара и обложки в MinIO, а также контент профиля: фото/видео, статьи,
+   * опросы, альбомы, портфолио и закладки. Структурные поля (role, scope,
    * createdAt) сохраняем: строка нужна для целостности FK контента (посты/сообщения
    * остаются с автором-«tombstone»). Очистка файлов — best-effort: недоступность MinIO
    * не должна блокировать удаление аккаунта (ПДн в БД затираются в любом случае).
+   *
+   * Повторную аутентификацию проверяет deleteOwnAccount — снаружи звать его, а не этот метод.
+   * Последнего администратора платформы не удаляет: проверка до сноса медиа и ещё раз в
+   * транзакции под advisory-локом (двое последних, удаляющих себя разом).
    */
-  async softDeleteSelf(userId: string): Promise<void> {
-    await this.deleteUserMedia(userId)
-    const anonymizedEmail = `deleted+${userId}@studenthub.invalid`
-    // Пароль забиваем невосстановимым хешем случайной строки.
-    const anonymizedHash = await this.passwords.hash(`${userId}-${Date.now()}-deleted`)
+  async softDeleteSelf(
+    userId: string,
+    ctx: { ip?: string; userAgent?: string } = {},
+  ): Promise<void> {
     const current = await this.prisma.user.findUnique({
       where: { id: userId },
       select: { role: true },
     })
+    const isPlatformAdmin = current?.role === Role.PLATFORM_ADMIN
+    if (isPlatformAdmin) await this.assertNotLastPlatformAdmin(this.prisma, userId)
+    await this.deleteUserMedia(userId)
+    await this.deleteProfileMedia(userId)
+    const anonymizedEmail = `deleted+${userId}@studenthub.invalid`
+    // Пароль забиваем невосстановимым хешем случайной строки.
+    const anonymizedHash = await this.passwords.hash(`${userId}-${Date.now()}-deleted`)
     // Староста — роль и отметка в группе; удалённому не остаётся ни того, ни другого.
     const demoted = current?.role === Role.STAROSTA ? { role: Role.STUDENT } : {}
-    const anonymize = this.prisma.user.update({
+    const anonymizeArgs = {
       where: { id: userId },
       data: {
         deletedAt: new Date(),
@@ -1629,12 +2091,76 @@ export class UserService {
         responsibilities: null,
         moderationAreas: null,
       },
+    } satisfies Prisma.UserUpdateArgs
+    await this.prisma.$transaction(async (tx) => {
+      if (isPlatformAdmin) {
+        await advisoryXactLock(tx, LAST_PLATFORM_ADMIN_LOCK)
+        await this.assertNotLastPlatformAdmin(tx, userId)
+      }
+      await tx.user.update(anonymizeArgs)
+      await tx.group.updateMany({ where: { starostaId: userId }, data: { starostaId: null } })
+      // Привязка Telegram — отдельный канал доступа, и разлогин его не гасит: бот и
+      // мини-апп узнают человека по telegramId, а не по сессии. Без этого удалённый
+      // сотрудник платформы продолжал бы получать уведомления, брать жалобы кнопкой и
+      // читать очередь командами. Строку удаляем, а не отзываем: telegramId и username —
+      // тоже ПДн, а история «этот Telegram здесь уже был» у удалённого аккаунта никому
+      // не нужна и только держала бы уникальный telegramId занятым.
+      await tx.telegramAccount.deleteMany({ where: { userId } })
+      // Контент профиля — личное, а не общее: статьи, опросы, альбомы и портфолио после
+      // удаления продолжали отдаваться с исходным текстом под «Удалённым пользователем».
+      // Чужие комментарии к ним, голоса и закладки уходят каскадом. Посты, комментарии
+      // и сообщения остаются tombstone-ом — так решено для общих лент и переписки.
+      await tx.profileArticle.deleteMany({ where: { userId } })
+      await tx.poll.deleteMany({ where: { userId } })
+      await tx.album.deleteMany({ where: { userId } })
+      await tx.portfolioItem.deleteMany({ where: { userId } })
+      await tx.bookmark.deleteMany({ where: { userId } })
     })
-    await this.prisma.$transaction([
-      anonymize,
-      this.prisma.group.updateMany({ where: { starostaId: userId }, data: { starostaId: null } }),
-    ])
     await this.authService.revokeAllUserSessions(userId)
+    // Строка журнала переживает анонимизацию: в ней только id, без ПДн удалённого.
+    await this.audit.record({
+      userId,
+      action: 'account_deleted',
+      entity: 'User',
+      entityId: userId,
+      ...ctx,
+    })
+  }
+
+  /**
+   * Фото и видео профиля и обложки статей удаляемого аккаунта (§11.3). Бакеты публичные, ссылки
+   * постоянные и уже разошлись (лайтбокс, обложки статей) — затёртое имя в карточке их не прячет.
+   * Сносим записи File владельца вместе с объектами: FileService.delete не трогает объект, на
+   * который ещё ссылаются другие записи (общий пул сида). Постер видео — raw-объект без записи,
+   * его убираем точечно по ключу. Best-effort, как и аватар: недоступность MinIO не должна
+   * блокировать удаление аккаунта; что не снеслось, подберёт ночная чистка осиротевших объектов.
+   */
+  private async deleteProfileMedia(userId: string): Promise<void> {
+    const covers = this.coversBucket
+    for (const bucket of [this.config.get('MINIO_BUCKET_PROFILE_MEDIA', { infer: true }), covers]) {
+      try {
+        for (let round = 0; round < ACCOUNT_CONTENT_MAX_ROUNDS; round++) {
+          const batch = await this.files.listByOwnerAndBucket(userId, bucket, ACCOUNT_CONTENT_BATCH)
+          if (batch.length === 0) break
+          let removed = 0
+          for (const file of batch) {
+            try {
+              if (file.posterKey) await this.files.removeRawObject(covers, file.posterKey)
+              await this.files.delete(file.id)
+              removed++
+            } catch (err) {
+              this.logger.warn(
+                `Не удалось снести файл ${file.id} пользователя ${userId}: ${String(err)}`,
+              )
+            }
+          }
+          // Ни один файл пачки не снёсся — дальше те же самые, крутить незачем.
+          if (removed === 0) break
+        }
+      } catch (err) {
+        this.logger.warn(`Не удалось снести медиа профиля пользователя ${userId}: ${String(err)}`)
+      }
+    }
   }
 
   /** Best-effort снос объектов аватара (+превью) и обложки в MinIO при удалении аккаунта. */
@@ -1817,7 +2343,74 @@ export class UserService {
   }
 
   /**
-   * Над кем модератор вправе применить меру (блокировка, предупреждение, сброс сессий):
+   * Сброс 2FA человека, потерявшего аутентификатор и не сохранившего backup-коды. Без него
+   * выход был один — ручная правка базы разработчиком, а для пяти ролей 2FA обязательна.
+   *
+   * Кто: строго старший по роли в своём охвате (assertModeratable — те же правила, что у
+   * блокировки). Подтверждение — СВОИМ вторым фактором (`confirm`): сброс снимает с чужой
+   * учётки защиту, и одной угнанной сессии администратора для этого хватать не должно. Если
+   * у самого администратора 2FA нет — отказ: подтвердить ему нечем.
+   *
+   * Код спрашиваем последним, после всех проверок: backup-код при проверке сгорает, и
+   * тратить его на запрос, который всё равно отклонён, незачем.
+   *
+   * Что делает: выключает 2FA, стирает секрет и backup-коды, гасит все сессии человека
+   * (тот, кто вошёл с его паролем и украденным телефоном, вылетает), пишет аудит и шлёт
+   * владельцу письмо — если сброс просил не он, он узнает сразу. Привилегированной роли
+   * при следующем входе TwoFactorGuard снова предложит настроить 2FA.
+   */
+  async resetTwoFactor(
+    viewer: JwtPayload,
+    userId: string,
+    confirm: () => Promise<boolean>,
+    ctx: { ip?: string; userAgent?: string } = {},
+  ): Promise<void> {
+    if (userId === viewer.sub) {
+      throw new AppException('BAD_REQUEST', 'Свою 2FA отключают в настройках аккаунта')
+    }
+    await this.assertModeratable(viewer, userId)
+    if (!(await this.isTwoFactorEnabled(viewer.sub))) {
+      throw new AppException(
+        'FORBIDDEN',
+        'Сбросить 2FA другому может только тот, у кого она включена',
+      )
+    }
+    const target = await this.prisma.user.findFirst({
+      where: { id: userId, deletedAt: null },
+      select: { twoFactorEnabled: true, email: true, firstName: true, locale: true },
+    })
+    if (!target) throw new AppException('NOT_FOUND', 'Пользователь не найден')
+    if (!target.twoFactorEnabled) {
+      throw new AppException(
+        'BAD_REQUEST',
+        'У пользователя двухфакторная аутентификация не включена',
+      )
+    }
+    if (!(await confirm())) {
+      throw new AppException('INVALID_2FA_CODE', 'Неверный код подтверждения')
+    }
+
+    await this.disableTwoFactor(userId)
+    await this.authService.revokeAllUserSessions(userId)
+    await this.audit.record({
+      userId: viewer.sub,
+      action: 'user_2fa_reset',
+      entity: 'User',
+      entityId: userId,
+      ...ctx,
+    })
+    // jobId с отметкой времени: сбросов одному человеку может быть несколько, и каждый —
+    // отдельное письмо. Защита от дубля здесь не нужна — повтор запроса упрётся в «не включена».
+    await this.queue.enqueue(
+      QUEUES.EMAIL,
+      EMAIL_JOBS.SEND_TWO_FACTOR_RESET,
+      { to: target.email, locale: target.locale, firstName: target.firstName },
+      { jobId: `two-factor-reset:${userId}:${Date.now()}` },
+    )
+  }
+
+  /**
+   * Над кем модератор вправе применить меру (блокировка, предупреждение, сброс сессий и 2FA):
    * человек его вуза (платформенным — любой) и СТРОГО ниже по роли. Без проверки ранга
    * модератор вуза блокировал админа своего вуза, а модератор платформы — её админа, и
    * блокировка тут же гасила все их сессии.

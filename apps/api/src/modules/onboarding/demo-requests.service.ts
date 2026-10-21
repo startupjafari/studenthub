@@ -38,6 +38,9 @@ const RESEND_COOLDOWN_MS = 5 * 60 * 1000
 
 const DATE_FORMAT = new Intl.DateTimeFormat('ru-RU', { dateStyle: 'long', timeStyle: 'short' })
 
+/** Код КАТО — 9 цифр (KatoCodeSchema). Всё остальное в `city` — свободный текст. */
+const KATO_CODE = /^\d{9}$/
+
 /**
  * Формулировки отказа, которые видит заявитель, и признак «можно прийти снова».
  *
@@ -177,8 +180,10 @@ export class DemoRequestsService {
       select: { id: true, universityName: true },
     })
 
-    await this.queue.enqueue(
-      QUEUES.EMAIL,
+    // Тихо, как и повторная отправка: заявка уже записана, и сбой Redis не повод отвечать
+    // 500 — человек нажал бы ещё раз и упёрся в паузу без письма. Не ушло — гасим ссылку
+    // (`markUndelivered`), и следующая отправка формы вышлет письмо сразу.
+    const queued = await this.enqueueQuietly(
       EMAIL_JOBS.SEND_DEMO_VERIFICATION,
       {
         to: input.email,
@@ -186,8 +191,11 @@ export class DemoRequestsService {
         verifyUrl: `${this.webBase()}/demo/verify?token=${rawToken}`,
         expiresAt: DATE_FORMAT.format(expiresAt),
       },
-      { jobId: `demo-verify:${request.id}` },
+      `demo-verify:${request.id}`,
     )
+    if (!queued) {
+      await this.markUndelivered(request.id)
+    }
 
     await this.audit.record({
       action: 'demo_request_submitted',
@@ -223,6 +231,7 @@ export class DemoRequestsService {
         id: true,
         status: true,
         universityName: true,
+        emailVerificationHash: true,
         emailVerificationExpiresAt: true,
       },
     })
@@ -236,16 +245,26 @@ export class DemoRequestsService {
    * должна быть одна.
    *
    * Пауза между письмами обязательна: адрес в форме пишет кто угодно, и без неё повтор
-   * отправки превращается в способ засыпать чужой ящик.
+   * отправки превращается в способ засыпать чужой ящик. Но пауза — только после письма,
+   * которое действительно ушло в очередь. Не ушло (Redis лежал) — хэша ссылки нет
+   * (`markUndelivered`), и повтор шлёт письмо сразу: иначе ответ «письмо отправлено»
+   * пять минут был бы неправдой.
    */
   private async resendVerification(
-    existing: { id: string; universityName: string; emailVerificationExpiresAt: Date | null },
+    existing: {
+      id: string
+      universityName: string
+      emailVerificationHash: string | null
+      emailVerificationExpiresAt: Date | null
+    },
     email: string,
   ): Promise<void> {
+    // Момент последней отправки — срок ссылки минус её TTL: срок ставится ровно при отправке.
     const sentAt = existing.emailVerificationExpiresAt
       ? existing.emailVerificationExpiresAt.getTime() - VERIFY_TTL_MS
       : 0
-    if (Date.now() - sentAt < RESEND_COOLDOWN_MS) {
+    const delivered = existing.emailVerificationHash !== null
+    if (delivered && Date.now() - sentAt < RESEND_COOLDOWN_MS) {
       this.logger.warn('Повторная заявка: письмо отправляли только что, ждём паузу')
       return
     }
@@ -260,7 +279,7 @@ export class DemoRequestsService {
       },
     })
 
-    await this.enqueueQuietly(
+    const queued = await this.enqueueQuietly(
       EMAIL_JOBS.SEND_DEMO_VERIFICATION,
       {
         to: email,
@@ -272,7 +291,32 @@ export class DemoRequestsService {
       // молча не ушло бы — а оно и есть смысл этой ветки.
       `demo-verify:${existing.id}:${expiresAt.getTime()}`,
     )
+    if (!queued) {
+      await this.markUndelivered(existing.id)
+      return
+    }
     this.logger.log('Повторная заявка: письмо подтверждения выслано заново')
+  }
+
+  /**
+   * Письмо подтверждения не ушло в очередь: гасим хэш ссылки. Ссылки, которую никто не
+   * получил, не должно быть в базе, а пустой хэш у неподтверждённой заявки — признак «письма
+   * не было», по которому следующая отправка формы шлёт его без паузы. Новой колонки
+   * «последняя отправка» для этого не нужно.
+   */
+  private async markUndelivered(id: string): Promise<void> {
+    try {
+      await this.prisma.universityDemoRequest.update({
+        where: { id },
+        data: { emailVerificationHash: null },
+      })
+    } catch (error) {
+      this.logger.warn(
+        `Не удалось отметить неотправленное письмо заявки ${id}: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      )
+    }
   }
 
   /**
@@ -285,10 +329,21 @@ export class DemoRequestsService {
    *
    * Подтверждённые заявки не трогаются никогда: по ним принимали решение, и запись о том,
    * кто и на каком основании получил доступ, переживает саму заявку.
+   *
+   * Заявка с ещё живой ссылкой не удаляется, даже если подана давно: повторная отправка
+   * формы продлевает только срок ссылки, и по `createdAt` крон удалял заявку, письмо по
+   * которой пришло вчера, — человек получал «ссылка недействительна».
    */
   async purgeUnconfirmed(olderThan: Date): Promise<number> {
     const { count } = await this.prisma.universityDemoRequest.deleteMany({
-      where: { status: 'PENDING_EMAIL', createdAt: { lt: olderThan } },
+      where: {
+        status: 'PENDING_EMAIL',
+        createdAt: { lt: olderThan },
+        OR: [
+          { emailVerificationExpiresAt: null },
+          { emailVerificationExpiresAt: { lt: new Date() } },
+        ],
+      },
     })
     return count
   }
@@ -379,8 +434,16 @@ export class DemoRequestsService {
    * вузе нет ни факультета, ни группы, показывать его рабочим нечестно — в ACTIVE его
    * переведёт сам админ вуза в конце мастера, когда структура заполнена.
    *
-   * Всё, что меняет состояние, идёт одной транзакцией. Письмо — после: сбой почты не
-   * должен отменять уже принятое решение, ссылку в этом случае можно выслать повторно.
+   * Всё, что меняет состояние, идёт одной транзакцией, и первым её шагом — условный
+   * перевод заявки NEW → APPROVED. Проверка статуса до транзакции от гонки не спасает:
+   * два «Одобрить» подряд (двойной клик, вторая вкладка, повтор после таймаута) оба её
+   * проходили и заводили два вуза с двумя приглашениями на один адрес. Условный
+   * `updateMany` берёт блокировку строки: второй запрос ждёт первого, видит APPROVED и
+   * получает CONFLICT. Приглашение пишется в той же транзакции — его сбой откатывает и
+   * вуз, и статус, и повторное нажатие начинает с чистого листа, а не заводит второй вуз.
+   *
+   * Письмо и аудит — после коммита: сбой почты не должен отменять уже принятое решение,
+   * ссылку в этом случае можно выслать повторно.
    */
   async approve(
     actor: JwtPayload,
@@ -403,17 +466,26 @@ export class DemoRequestsService {
     if (!request) {
       throw new AppException('NOT_FOUND', 'Заявка не найдена')
     }
+    // Быстрый отказ без транзакции. Решает не он, а условный перевод ниже.
     if (request.status !== 'NEW') {
       throw new AppException('CONFLICT', 'Решение по этой заявке уже принято')
     }
+    const city = await this.cityCode(input.city ?? request.city)
 
-    const university = await this.prisma.$transaction(async (tx) => {
-      const created = await tx.university.create({
+    const { university, invite, updated } = await this.prisma.$transaction(async (tx) => {
+      await this.claimForDecision(tx, id, {
+        status: 'APPROVED',
+        reviewedAt: new Date(),
+        reviewedById: actor.sub,
+        reviewNote: input.note,
+      })
+
+      const university = await tx.university.create({
         data: {
           name: input.name ?? request.universityName,
           shortName: input.shortName,
           country: input.country ?? request.country,
-          city: input.city ?? request.city,
+          city,
           ...(input.timezone ? { timezone: input.timezone } : {}),
           status: 'PENDING',
         },
@@ -421,32 +493,26 @@ export class DemoRequestsService {
       })
       // Мастер заводится вместе с вузом: админ вуза входит уже в начатый процесс,
       // а не в пустую платформу, где непонятно, с чего начинать.
-      await tx.universityOnboarding.create({ data: { universityId: created.id } })
-      return created
-    })
+      await tx.universityOnboarding.create({ data: { universityId: university.id } })
 
-    // Приглашение — обычное, по той же цепочке, что и все остальные на платформе
-    // (PLATFORM_ADMIN → UNIVERSITY_ADMIN). Своего письма не шлёт: ссылка уйдёт в
-    // письме об одобрении, одном на всё событие.
-    const invite = await this.invites.create(
-      actor,
-      { role: Role.UNIVERSITY_ADMIN, email: request.email, universityId: university.id },
-      ctx,
-      { notify: false },
-    )
-
-    const updated = await this.prisma.universityDemoRequest.update({
-      where: { id },
-      data: {
-        status: 'APPROVED',
-        reviewedAt: new Date(),
-        reviewedById: actor.sub,
-        reviewNote: input.note,
+      // Приглашение — обычное, по той же цепочке, что и все остальные на платформе
+      // (PLATFORM_ADMIN → UNIVERSITY_ADMIN). Своего письма не шлёт: ссылка уйдёт в
+      // письме об одобрении, одном на всё событие.
+      const invite = await this.invites.createInTransaction(tx, actor, {
+        role: Role.UNIVERSITY_ADMIN,
+        email: request.email,
         universityId: university.id,
-        inviteId: invite.id,
-      },
-      select: REQUEST_SELECT,
+      })
+
+      const updated = await tx.universityDemoRequest.update({
+        where: { id },
+        data: { universityId: university.id, inviteId: invite.id },
+        select: REQUEST_SELECT,
+      })
+      return { university, invite, updated }
     })
+
+    await this.invites.recordCreated(actor, invite, ctx)
 
     await this.enqueueQuietly(
       EMAIL_JOBS.SEND_DEMO_APPROVED,
@@ -472,7 +538,13 @@ export class DemoRequestsService {
     return updated
   }
 
-  /** Отказ. Письмо уходит всегда: молчание заявитель читает как «письмо потерялось». */
+  /**
+   * Отказ. Письмо уходит всегда: молчание заявитель читает как «письмо потерялось».
+   *
+   * Перевод в REJECTED — тем же условным `updateMany`, что и одобрение: при параллельных
+   * «Одобрить» и «Отклонить» выигрывает один, и заявитель не получает письмо об отказе
+   * при уже заведённом вузе.
+   */
   async reject(actor: JwtPayload, id: string, input: RejectDemoRequestInput, ctx: RequestContext) {
     const request = await this.prisma.universityDemoRequest.findUnique({
       where: { id },
@@ -485,15 +557,15 @@ export class DemoRequestsService {
       throw new AppException('CONFLICT', 'Решение по этой заявке уже принято')
     }
 
-    const updated = await this.prisma.universityDemoRequest.update({
+    await this.claimForDecision(this.prisma, id, {
+      status: 'REJECTED',
+      reviewedAt: new Date(),
+      reviewedById: actor.sub,
+      rejectionReason: input.reason,
+      reviewNote: input.note,
+    })
+    const updated = await this.prisma.universityDemoRequest.findUniqueOrThrow({
       where: { id },
-      data: {
-        status: 'REJECTED',
-        reviewedAt: new Date(),
-        reviewedById: actor.sub,
-        rejectionReason: input.reason,
-        reviewNote: input.note,
-      },
       select: REQUEST_SELECT,
     })
 
@@ -524,24 +596,80 @@ export class DemoRequestsService {
   // ── Вспомогательное ────────────────────────────────────────────────────────
 
   /**
+   * Условный перевод заявки из очереди в решение: строка меняется, только если она ещё NEW.
+   *
+   * Решение по заявке принимается один раз. Под READ COMMITTED второй такой же запрос
+   * ждёт блокировку строки, после коммита первого перечитывает условие, не находит NEW и
+   * получает CONFLICT — вместо второго вуза или письма об отказе одобренному.
+   */
+  private async claimForDecision(
+    db: Prisma.TransactionClient,
+    id: string,
+    data: Prisma.UniversityDemoRequestUncheckedUpdateManyInput,
+  ): Promise<void> {
+    const { count } = await db.universityDemoRequest.updateMany({
+      where: { id, status: 'NEW' },
+      data,
+    })
+    if (count === 0) {
+      throw new AppException('CONFLICT', 'Решение по этой заявке уже принято')
+    }
+  }
+
+  /**
    * Постановка письма в очередь после того, как решение уже записано. Сбой Redis не
    * должен ронять ответ и тем более откатывать решение: заявку можно переслать
    * повторно, а вот «одобрено, но ответ 500» модератор прочитает как «не одобрено» и
-   * нажмёт ещё раз — на уже заведённом вузе.
+   * нажмёт ещё раз — на уже заведённом вузе. То же для заявки с публичной формы: строка
+   * уже создана. Возвращает, ушло ли письмо в очередь.
    */
+  /**
+   * Город вуза — код КАТО, как у вузов, заведённых из админки через KatoSelect (B-F13).
+   *
+   * В заявке город — свободный текст с публичной формы, и раньше он уходил в вуз как есть:
+   * справочник его не резолвил, мастер показывал то код, то текст, а поиск и сортировка
+   * по городу были невозможны. Текст, однозначно совпавший с городом справочника
+   * («Алматы», «алматы»), заменяется кодом. Не совпал или совпал с несколькими — остаётся
+   * текстом: так хранится зарубежный город, а выбирать между тёзками за модератора нельзя.
+   * Сбой поиска решение не роняет — город останется текстом.
+   */
+  private async cityCode(city: string | null | undefined): Promise<string | null | undefined> {
+    const text = city?.trim()
+    if (!text || KATO_CODE.test(text)) return city
+    const matches = await this.prisma.katoUnit
+      .findMany({
+        where: {
+          kind: 'CITY',
+          OR: [
+            { nameRu: { equals: text, mode: 'insensitive' } },
+            { nameKk: { equals: text, mode: 'insensitive' } },
+          ],
+        },
+        select: { code: true },
+        take: 2,
+      })
+      .catch((error: unknown) => {
+        this.logger.warn(`Город заявки не сверен с КАТО: ${String(error)}`)
+        return []
+      })
+    return matches.length === 1 ? matches[0]!.code : city
+  }
+
   private async enqueueQuietly(
     job: string,
     payload: Record<string, unknown>,
     jobId: string,
-  ): Promise<void> {
+  ): Promise<boolean> {
     try {
       await this.queue.enqueue(QUEUES.EMAIL, job, payload, { jobId })
+      return true
     } catch (error) {
       this.logger.warn(
-        `Не удалось поставить письмо ${job} в очередь (решение уже записано): ${
+        `Не удалось поставить письмо ${job} в очередь (запись уже сделана): ${
           error instanceof Error ? error.message : String(error)
         }`,
       )
+      return false
     }
   }
 

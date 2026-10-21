@@ -128,12 +128,30 @@ describe('Auth (e2e)', () => {
       const retry = await request(server).post('/api/v1/auth/refresh').set('Cookie', cookieA)
       expect([200, 201]).toContain(retry.status)
       const cookieC = getCookie(retry, 'sh_refresh') as string
-      expect(cookieC).toBeTruthy()
-      expect(cookieC).not.toEqual(cookieB)
+      // Повтор получает уже выданного преемника, а не новую ротацию (A-F30): иначе соседние
+      // вкладки гасили бы друг другу токены, и в cookie мог остаться отозванный.
+      expect(cookieC).toEqual(cookieB)
 
-      // Живым остаётся ровно последний выданный токен: цепочка цела, но инвариант сохранён.
+      // Преемник жив: цепочка цела, живой токен в ней по-прежнему один.
       const withLatest = await request(server).post('/api/v1/auth/refresh').set('Cookie', cookieC)
       expect([200, 201]).toContain(withLatest.status)
+    })
+
+    it('параллельные обмены одной cookie (вкладки) получают одного преемника', async () => {
+      const login = await request(server).post('/api/v1/auth/login').send(LOGIN)
+      const cookieA = getCookie(login, 'sh_refresh') as string
+
+      const responses = await Promise.all(
+        Array.from({ length: 4 }, () =>
+          request(server).post('/api/v1/auth/refresh').set('Cookie', cookieA),
+        ),
+      )
+      for (const res of responses) expect([200, 201]).toContain(res.status)
+      const cookies = new Set(responses.map((res) => getCookie(res, 'sh_refresh')))
+      expect(cookies.size).toBe(1)
+
+      const live = await prisma.refreshToken.count({ where: { userId: adminId, revokedAt: null } })
+      expect(live).toBe(1)
     })
 
     it('повтор после окна грации рвёт всю цепочку', async () => {

@@ -291,6 +291,12 @@ function StaffActions({ app, onDone }: { app: ApplicationDetail; onDone: () => v
         key="ready"
         className="w-full"
         onClick={() => {
+          // Электронную выдачу без результата сервер не примет: студенту пришло бы «готово»,
+          // а скачать нечего. Подсказываем до запроса, а не общей ошибкой после.
+          if (app.deliveryType !== 'PAPER' && app.results.length === 0) {
+            toast.error(t('readyNeedsResult'))
+            return
+          }
           if (app.deliveryType === 'ELECTRONIC') readyMut.mutate('')
           else setPrompt({ title: t('pickupTitle'), run: (loc) => readyMut.mutate(loc) })
         }}
@@ -396,11 +402,16 @@ function StaffDocumentReview({
     onSuccess: done,
     onError: err,
   })
+  // Каждая страница открывается своей ссылкой: раньше сервер отдавал только первую, и
+  // документ принимали, не видя оборота паспорта или приложения к диплому.
   const viewMut = useMutation({
-    mutationFn: (docId: string) => fetchApplicationDocumentUrl(appId, docId),
+    mutationFn: (v: { docId: string; fileId?: string }) =>
+      fetchApplicationDocumentUrl(appId, v.docId, v.fileId),
     onSuccess: (url) => window.open(url, '_blank', 'noopener'),
     onError: err,
   })
+  const viewing = (docId: string, fileId?: string) =>
+    viewMut.isPending && viewMut.variables?.docId === docId && viewMut.variables.fileId === fileId
 
   return (
     <div className="flex flex-col gap-2">
@@ -413,17 +424,30 @@ function StaffDocumentReview({
             <span className="text-xs text-muted-foreground">{t(`docStatus_${d.status}`)}</span>
           </div>
           <div className="flex flex-wrap gap-2">
-            {d.documentId && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => viewMut.mutate(d.id)}
-                loading={viewMut.isPending}
-              >
-                <Eye className="size-4" aria-hidden />
-                {t('viewDoc')}
-              </Button>
-            )}
+            {d.documentId && (d.files?.length ?? 0) > 1
+              ? d.files!.map((f, i) => (
+                  <Button
+                    key={f.id}
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => viewMut.mutate({ docId: d.id, fileId: f.id })}
+                    loading={viewing(d.id, f.id)}
+                  >
+                    <Eye className="size-4" aria-hidden />
+                    {t('viewDocPage', { page: i + 1 })}
+                  </Button>
+                ))
+              : d.documentId && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => viewMut.mutate({ docId: d.id, fileId: d.files?.[0]?.id })}
+                    loading={viewing(d.id, d.files?.[0]?.id)}
+                  >
+                    <Eye className="size-4" aria-hidden />
+                    {t('viewDoc')}
+                  </Button>
+                )}
             {canReview && d.status === 'PENDING' && (
               <>
                 <Button variant="outline" size="sm" onClick={() => acceptMut.mutate(d.id)}>

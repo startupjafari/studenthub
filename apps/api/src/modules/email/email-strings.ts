@@ -44,11 +44,6 @@ export interface EmailDict {
     role: string
     validUntil: string
     company: string
-    application: string
-    status: string
-    group: string
-    event: string
-    startsAt: string
   }
   invite: {
     subject: string
@@ -81,21 +76,13 @@ export interface EmailDict {
     note: string
     plainNote: string
   }
-  welcome: {
+  twoFactorReset: {
     subject: string
-    heading: (firstName: string) => string
-    preheader: string
-    lead: string
-    hint: string
-    plainLead: (firstName: string) => string
-    plainWhat: string
-  }
-  applicationStatus: {
-    subject: (id: string, status: string) => string
     heading: string
-    preheader: (id: string, status: string) => string
+    preheader: string
     lead: (firstName: string) => string
-    comment: (text: string) => string
+    next: string
+    note: string
   }
   demoVerification: {
     subject: string
@@ -125,17 +112,6 @@ export interface EmailDict {
     lead: (university: string) => string
     again: string
     noReply: string
-  }
-  scheduleChange: {
-    subject: string
-    heading: string
-    lead: (firstName: string) => string
-  }
-  eventReminder: {
-    subject: (title: string) => string
-    heading: string
-    preheader: (title: string, startsAt: string) => string
-    lead: (firstName: string) => string
   }
   notificationMirror: {
     lead: (firstName: string) => string
@@ -168,11 +144,6 @@ const RU: EmailDict = {
     role: 'Роль',
     validUntil: 'Ссылка действует до',
     company: 'Компания',
-    application: 'Заявка',
-    status: 'Статус',
-    group: 'Группа',
-    event: 'Событие',
-    startsAt: 'Начало',
   },
   invite: {
     subject: `Приглашение в ${BRAND}`,
@@ -207,21 +178,14 @@ const RU: EmailDict = {
     note: 'Если вы не просили сброс — просто проигнорируйте это письмо: пароль останется прежним.',
     plainNote: 'Если вы не просили сброс — проигнорируйте это письмо, пароль останется прежним.',
   },
-  welcome: {
-    subject: `Добро пожаловать в ${BRAND}`,
-    heading: (firstName) => `Добро пожаловать, ${firstName}!`,
-    preheader: 'Аккаунт создан — лента, расписание, заявки и чаты уже доступны',
-    lead: `Ваш аккаунт в ${BRAND} создан. Теперь вам доступны лента, расписание, заявки, чаты и события вашего университета.`,
-    hint: 'Загляните в профиль и настройте уведомления под себя.',
-    plainLead: (firstName) => `Добро пожаловать, ${firstName}! Ваш аккаунт в ${BRAND} создан.`,
-    plainWhat: 'Вам доступны лента, расписание, заявки, чаты и события вашего университета.',
-  },
-  applicationStatus: {
-    subject: (id, status) => `Заявка ${id}: ${status}`,
-    heading: 'Статус заявки изменён',
-    preheader: (id, status) => `Заявка ${id} — ${status}`,
-    lead: (firstName) => `${firstName}, статус вашей заявки изменился.`,
-    comment: (text) => `Комментарий деканата: ${text}`,
+  twoFactorReset: {
+    subject: 'Двухфакторная аутентификация отключена',
+    heading: 'Двухфакторная аутентификация сброшена',
+    preheader: 'Администратор отключил второй фактор входа в вашей учётной записи',
+    lead: (firstName) =>
+      `${firstName}, администратор ${BRAND} отключил двухфакторную аутентификацию в вашей учётной записи — так восстанавливают доступ, когда телефон с приложением-аутентификатором потерян. Все сеансы завершены.`,
+    next: 'Войдите с паролем и снова включите двухфакторную аутентификацию в настройках. Прежние резервные коды больше не действуют.',
+    note: 'Если вы не просили сброс — сразу смените пароль и сообщите администратору своего вуза.',
   },
   demoVerification: {
     subject: `Подтвердите заявку на тестирование ${BRAND}`,
@@ -257,17 +221,6 @@ const RU: EmailDict = {
     again: 'Если что-то изменится, подайте заявку заново — мы посмотрим её как новую.',
     noReply: 'Отвечать на это письмо не нужно.',
   },
-  scheduleChange: {
-    subject: 'Изменение в расписании',
-    heading: 'Расписание изменено',
-    lead: (firstName) => `${firstName}, в расписании есть изменения.`,
-  },
-  eventReminder: {
-    subject: (title) => `Напоминание: ${title}`,
-    heading: 'Скоро начнётся событие',
-    preheader: (title, startsAt) => `«${title}» начнётся ${startsAt}`,
-    lead: (firstName) => `${firstName}, напоминаем о событии.`,
-  },
   notificationMirror: {
     lead: (firstName) => `${firstName}, у вас новое уведомление:`,
   },
@@ -299,11 +252,6 @@ const KK: EmailDict = {
     role: 'Рөлі',
     validUntil: 'Сілтеме мерзімі',
     company: 'Компания',
-    application: 'Өтініш',
-    status: 'Мәртебесі',
-    group: 'Тобы',
-    event: 'Іс-шара',
-    startsAt: 'Басталуы',
   },
   invite: {
     subject: `${BRAND} платформасына шақыру`,
@@ -338,23 +286,14 @@ const KK: EmailDict = {
     note: 'Егер сіз сұрамаған болсаңыз — бұл хатты елемей қоя беріңіз: құпия сөз өзгермейді.',
     plainNote: 'Егер сіз сұрамаған болсаңыз — бұл хатты елемеңіз, құпия сөз өзгермейді.',
   },
-  welcome: {
-    subject: `${BRAND} платформасына қош келдіңіз`,
-    heading: (firstName) => `Қош келдіңіз, ${firstName}!`,
-    preheader: 'Тіркелгі құрылды — лента, сабақ кестесі, өтініштер және чаттар қолжетімді',
-    lead: `${BRAND} платформасындағы тіркелгіңіз құрылды. Енді сізге университетіңіздің лентасы, сабақ кестесі, өтініштері, чаттары мен іс-шаралары қолжетімді.`,
-    hint: 'Профиліңізге кіріп, хабарландыруларды өзіңізге ыңғайлап баптаңыз.',
-    plainLead: (firstName) =>
-      `Қош келдіңіз, ${firstName}! ${BRAND} платформасындағы тіркелгіңіз құрылды.`,
-    plainWhat:
-      'Сізге университетіңіздің лентасы, сабақ кестесі, өтініштері, чаттары мен іс-шаралары қолжетімді.',
-  },
-  applicationStatus: {
-    subject: (id, status) => `${id} өтініші: ${status}`,
-    heading: 'Өтініш мәртебесі өзгерді',
-    preheader: (id, status) => `${id} өтініші — ${status}`,
-    lead: (firstName) => `${firstName}, өтінішіңіздің мәртебесі өзгерді.`,
-    comment: (text) => `Деканат түсініктемесі: ${text}`,
+  twoFactorReset: {
+    subject: 'Екі факторлы аутентификация өшірілді',
+    heading: 'Екі факторлы аутентификация қалпына келтірілді',
+    preheader: 'Әкімші тіркелгіңіздегі кірудің екінші факторын өшірді',
+    lead: (firstName) =>
+      `${firstName}, ${BRAND} әкімшісі тіркелгіңіздегі екі факторлы аутентификацияны өшірді — аутентификатор қолданбасы бар телефон жоғалғанда қолжетімділік осылай қалпына келтіріледі. Барлық сеанс аяқталды.`,
+    next: 'Құпия сөзбен кіріп, баптауларда екі факторлы аутентификацияны қайта қосыңыз. Бұрынғы резервтік кодтар енді жарамсыз.',
+    note: 'Егер сіз сұрамаған болсаңыз — құпия сөзді дереу өзгертіп, университетіңіздің әкімшісіне хабарлаңыз.',
   },
   demoVerification: {
     subject: `${BRAND} сынақтан өткізу өтінішін растаңыз`,
@@ -390,17 +329,6 @@ const KK: EmailDict = {
     again: 'Жағдай өзгерсе, өтінішті қайта беріңіз — оны жаңа өтініш ретінде қараймыз.',
     noReply: 'Бұл хатқа жауап берудің қажеті жоқ.',
   },
-  scheduleChange: {
-    subject: 'Сабақ кестесіндегі өзгеріс',
-    heading: 'Сабақ кестесі өзгерді',
-    lead: (firstName) => `${firstName}, сабақ кестесінде өзгерістер бар.`,
-  },
-  eventReminder: {
-    subject: (title) => `Еске салу: ${title}`,
-    heading: 'Іс-шара жақында басталады',
-    preheader: (title, startsAt) => `«${title}» ${startsAt} басталады`,
-    lead: (firstName) => `${firstName}, іс-шара туралы еске саламыз.`,
-  },
   notificationMirror: {
     lead: (firstName) => `${firstName}, сізде жаңа хабарландыру бар:`,
   },
@@ -432,11 +360,6 @@ const EN: EmailDict = {
     role: 'Role',
     validUntil: 'Link valid until',
     company: 'Company',
-    application: 'Application',
-    status: 'Status',
-    group: 'Group',
-    event: 'Event',
-    startsAt: 'Starts',
   },
   invite: {
     subject: `Invitation to ${BRAND}`,
@@ -472,22 +395,14 @@ const EN: EmailDict = {
     plainNote:
       'If you did not request a reset, ignore this message — your password will stay the same.',
   },
-  welcome: {
-    subject: `Welcome to ${BRAND}`,
-    heading: (firstName) => `Welcome, ${firstName}!`,
-    preheader: 'Your account is ready — feed, schedule, applications and chats are available',
-    lead: `Your ${BRAND} account has been created. You now have access to your university’s feed, schedule, applications, chats and events.`,
-    hint: 'Open your profile and set up notifications the way you like.',
-    plainLead: (firstName) => `Welcome, ${firstName}! Your ${BRAND} account has been created.`,
-    plainWhat:
-      'You have access to your university’s feed, schedule, applications, chats and events.',
-  },
-  applicationStatus: {
-    subject: (id, status) => `Application ${id}: ${status}`,
-    heading: 'Application status changed',
-    preheader: (id, status) => `Application ${id} — ${status}`,
-    lead: (firstName) => `${firstName}, the status of your application has changed.`,
-    comment: (text) => `Dean’s office comment: ${text}`,
+  twoFactorReset: {
+    subject: 'Two-factor authentication turned off',
+    heading: 'Two-factor authentication was reset',
+    preheader: 'An administrator turned off the second sign-in factor on your account',
+    lead: (firstName) =>
+      `${firstName}, a ${BRAND} administrator turned off two-factor authentication on your account — this is how access is restored when the phone with the authenticator app is lost. All sessions have been ended.`,
+    next: 'Sign in with your password and turn two-factor authentication back on in settings. Your old backup codes no longer work.',
+    note: 'If you did not ask for this reset, change your password right away and tell your university administrator.',
   },
   demoVerification: {
     subject: `Confirm your ${BRAND} trial request`,
@@ -522,17 +437,6 @@ const EN: EmailDict = {
       `Thank you for your interest in ${BRAND}. We are unable to accept the trial request for “${university}” at this time.`,
     again: 'If something changes, submit a new request — we will review it as a fresh one.',
     noReply: 'There is no need to reply to this message.',
-  },
-  scheduleChange: {
-    subject: 'Schedule change',
-    heading: 'The schedule has changed',
-    lead: (firstName) => `${firstName}, there are changes to your schedule.`,
-  },
-  eventReminder: {
-    subject: (title) => `Reminder: ${title}`,
-    heading: 'An event is starting soon',
-    preheader: (title, startsAt) => `“${title}” starts ${startsAt}`,
-    lead: (firstName) => `${firstName}, a reminder about an event.`,
   },
   notificationMirror: {
     lead: (firstName) => `${firstName}, you have a new notification:`,

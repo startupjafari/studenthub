@@ -3,7 +3,7 @@ import type {
   ReviewSubmissionItemInput,
   SaveSubmissionInput,
 } from '@studenthub/shared-schemas'
-import { api } from '../../../shared/api'
+import { api, type ResponseWithMeta } from '../../../shared/api'
 
 export const documentRequestKeys = {
   all: ['document-requests'] as const,
@@ -38,6 +38,9 @@ export interface StaffRequestSummary {
   targetCount: number
   submissionCount: number
   submittedCount: number
+  /** Запрос создан мной; чужой — запрос подразделения (предшественника, коллеги). */
+  mine: boolean
+  authorName: string
 }
 export interface StaffSubmissionSummary {
   id: string
@@ -57,7 +60,16 @@ export interface StaffRequestDetail {
   createdAt: string
   items: RequestItem[]
   targets: RequestTarget[]
+  mine: boolean
+  authorName: string
+  /** Всего комплектов; в `submissions` — первые 200, остальные — fetchRequestSubmissions. */
+  submissionCount: number
   submissions: StaffSubmissionSummary[]
+}
+export interface StaffSubmissionsPage {
+  items: StaffSubmissionSummary[]
+  cursor: string | undefined
+  hasNext: boolean
 }
 export interface SubmissionItemDoc {
   id: string
@@ -100,6 +112,8 @@ export interface StudentRequestSummary {
   requiredCount: number
   filledRequired: number
   submissionStatus: string | null
+  /** Запрос открыт и срок сдачи не истёк. */
+  acceptsSubmissions: boolean
 }
 export interface StudentSubmissionItem {
   requestItemId: string
@@ -120,6 +134,8 @@ export interface StudentRequestDetail {
   dueAt: string | null
   status: string
   createdAt: string
+  /** Запрос открыт и срок сдачи не истёк — иначе ответ не сохранить и не отправить. */
+  acceptsSubmissions: boolean
   items: RequestItem[]
   submission: StudentSubmission | null
 }
@@ -137,6 +153,21 @@ export async function fetchAuthoredRequests(): Promise<StaffRequestSummary[]> {
 }
 export async function fetchRequestManage(id: string): Promise<StaffRequestDetail> {
   const { data } = await api.get<StaffRequestDetail>(`/document-requests/manage/${id}`)
+  return data
+}
+// Следующая страница комплектов после `after` (id последнего показанного).
+export async function fetchRequestSubmissions(
+  id: string,
+  after: string,
+): Promise<StaffSubmissionsPage> {
+  const res = (await api.get<StaffSubmissionSummary[]>(
+    `/document-requests/manage/${id}/submissions`,
+    { params: { limit: 50, cursor: after } },
+  )) as ResponseWithMeta & { data: StaffSubmissionSummary[] }
+  return { items: res.data, cursor: res.meta?.cursor, hasNext: res.meta?.hasNext ?? false }
+}
+export async function closeDocumentRequest(id: string): Promise<StaffRequestDetail> {
+  const { data } = await api.post<StaffRequestDetail>(`/document-requests/manage/${id}/close`)
   return data
 }
 export async function fetchSubmission(submissionId: string): Promise<StaffSubmissionDetail> {

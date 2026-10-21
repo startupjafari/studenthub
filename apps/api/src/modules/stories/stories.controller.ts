@@ -10,13 +10,16 @@ import {
   Query,
   Req,
 } from '@nestjs/common'
+import { ConfigService } from '@nestjs/config'
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger'
 import { Role } from '@studenthub/shared-types'
 import type { FastifyRequest } from 'fastify'
 import { Roles } from '../../common/decorators/roles.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
+import { AppException } from '../../common/exceptions/app.exception'
 import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
+import type { EnvVars } from '../../config/env.schema'
 import { StoriesService } from './stories.service'
 import { CreateStoryDto } from './dto/create-story.dto'
 import { StoriesFeedQueryDto } from './dto/stories-feed-query.dto'
@@ -35,16 +38,28 @@ const AUTHOR_ROLES = [
   Role.STUDENT,
 ] as const
 
+// Раздел за флагом раскатки (env FEATURE_STORIES, по умолчанию включён). Выключенный флаг
+// закрывает API целиком: лента колец отвечает пустой — клиенту с включённым у себя разделом
+// это «сторис нет», а не ошибка на главной, — остальные ручки отвечают NOT_FOUND, как
+// отсутствующий раздел.
 @ApiTags('Сторисы')
 @ApiBearerAuth()
 @Controller('stories')
 export class StoriesController {
-  constructor(private readonly stories: StoriesService) {}
+  private readonly enabled: boolean
+
+  constructor(
+    private readonly stories: StoriesService,
+    config: ConfigService<EnvVars, true>,
+  ) {
+    this.enabled = config.get('FEATURE_STORIES', { infer: true })
+  }
 
   @Get()
   @ApiOperation({ summary: 'Живые сторисы по видимости, сгруппированные в кольца авторов' })
-  @ApiResponse({ status: 200, description: 'Кольца авторов' })
-  feed(@CurrentUser() user: CurrentUserData, @Query() query: StoriesFeedQueryDto) {
+  @ApiResponse({ status: 200, description: 'Кольца авторов (пусто, если сторисы выключены)' })
+  async feed(@CurrentUser() user: CurrentUserData, @Query() query: StoriesFeedQueryDto) {
+    if (!this.enabled) return []
     return this.stories.feed(user, query)
   }
 
@@ -59,6 +74,7 @@ export class StoriesController {
     @Body() dto: CreateStoryDto,
     @Req() req: FastifyRequest,
   ) {
+    this.assertEnabled()
     return this.stories.create(user, dto, this.ctx(req))
   }
 
@@ -66,6 +82,7 @@ export class StoriesController {
   @ApiOperation({ summary: 'Сторис по id (если видима и не истекла)' })
   @ApiResponse({ status: 404, description: 'NOT_FOUND — не видима, истекла или удалена' })
   getById(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
+    this.assertEnabled()
     return this.stories.getById(user, id)
   }
 
@@ -74,6 +91,7 @@ export class StoriesController {
   @ApiOperation({ summary: 'Отметить сторис просмотренной (идемпотентно)' })
   @ApiResponse({ status: 204, description: 'Отмечено' })
   async markViewed(@CurrentUser() user: CurrentUserData, @Param('id') id: string): Promise<void> {
+    this.assertEnabled()
     await this.stories.markViewed(user, id)
   }
 
@@ -86,6 +104,7 @@ export class StoriesController {
     @Param('id') id: string,
     @Query() query: StoryViewersQueryDto,
   ) {
+    this.assertEnabled()
     return this.stories.viewers(user, id, query)
   }
 
@@ -98,6 +117,7 @@ export class StoriesController {
     @Param('id') id: string,
     @Body() dto: StoryReactionDto,
   ): Promise<void> {
+    this.assertEnabled()
     await this.stories.addReaction(user, id, dto)
   }
 
@@ -110,6 +130,7 @@ export class StoriesController {
     @Param('id') id: string,
     @Param('emoji') emoji: string,
   ): Promise<void> {
+    this.assertEnabled()
     await this.stories.removeReaction(user, id, decodeURIComponent(emoji))
   }
 
@@ -118,6 +139,7 @@ export class StoriesController {
   @ApiResponse({ status: 201, description: 'Сторис с обновлённым опросом' })
   @ApiResponse({ status: 400, description: 'BAD_REQUEST — опроса нет или чужой вариант' })
   vote(@CurrentUser() user: CurrentUserData, @Param('id') id: string, @Body() dto: StoryVoteDto) {
+    this.assertEnabled()
     return this.stories.vote(user, id, dto)
   }
 
@@ -131,7 +153,13 @@ export class StoriesController {
     @Param('id') id: string,
     @Req() req: FastifyRequest,
   ): Promise<void> {
+    this.assertEnabled()
     await this.stories.remove(user, id, this.ctx(req))
+  }
+
+  /** Выключенный раздел отвечает как отсутствующий. */
+  private assertEnabled(): void {
+    if (!this.enabled) throw new AppException('NOT_FOUND', 'Сторисы недоступны')
   }
 
   private ctx(req: FastifyRequest): RequestContext {

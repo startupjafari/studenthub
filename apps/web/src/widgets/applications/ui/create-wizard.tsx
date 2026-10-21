@@ -6,6 +6,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Clock, FileText, Check } from 'lucide-react'
 import type { DeliveryType } from '@studenthub/shared-schemas'
+import { toApiError } from '../../../shared/lib'
 import {
   applicationKeys,
   fetchCategories,
@@ -74,10 +75,33 @@ export function CreateWizard({
   // Категория выбирается отдельно от услуги: список услуг второго селекта — её услуги.
   const [categoryId, setCategoryId] = useState<string | null>(null)
   const [serviceId, setServiceId] = useState<string | null>(null)
-  const [draftId, setDraftId] = useState<string | null>(null)
+  // Черновик помнит услугу, на которую создан, и действует только пока выбрана она же.
+  // Раньше draftId жил отдельно от услуги: «Назад» до каталога → другая услуга → «Далее»
+  // рисовали форму и требования новой услуги, а прикладывали документы, сохраняли ответы
+  // и отправляли прежний черновик — студент получал заявку не на ту услугу.
+  const [draft, setDraft] = useState<{ id: string; serviceId: string } | null>(null)
+  const draftId = draft && draft.serviceId === serviceId ? draft.id : null
   const [deliveryType, setDeliveryType] = useState<DeliveryType | null>(null)
   const [formData, setFormData] = useState<Record<string, unknown>>({})
   const [seeded, setSeeded] = useState(false)
+
+  // Смена услуги: ответы и способ получения относились к прежней — коды полей у разных
+  // услуг совпадают, и чужой ответ тихо уехал бы в новую заявку.
+  const selectService = (id: string | null) => {
+    if (id === serviceId) return
+    setServiceId(id)
+    setFormData({})
+    setDeliveryType(null)
+  }
+
+  // Отказ сервера по существу (400: «Заполните поле: …», «Приложите документ: …») — с его
+  // текстом: общий «Не удалось загрузить» не говорил, что именно исправить.
+  const tErr = useTranslations('Errors')
+  const showError = (title: string) => (error: unknown) => {
+    const { code, message } = toApiError(error)
+    if (code === 'BAD_REQUEST' && message) toast.error(title, { description: message })
+    else toast.error(title, { description: tErr(code) })
+  }
 
   // Продолжение существующего черновика (§8): подгружаем и стартуем сразу с формы.
   const draftQ = useQuery({
@@ -89,7 +113,7 @@ export function CreateWizard({
     if (!initialDraftId || seeded || !draftQ.data) return
     const a = draftQ.data
     setServiceId(a.service.id)
-    setDraftId(a.id)
+    setDraft({ id: a.id, serviceId: a.service.id })
     setDeliveryType(a.deliveryType)
     setFormData((a.formData as Record<string, unknown>) ?? {})
     setStep('form')
@@ -107,15 +131,15 @@ export function CreateWizard({
   const createMut = useMutation({
     mutationFn: (id: string) => createDraftRequest(id),
     onSuccess: (app) => {
-      setDraftId(app.id)
+      setDraft({ id: app.id, serviceId: app.service.id })
       setStep('form')
     },
-    onError: () => toast.error(t('loadError')),
+    onError: showError(t('saveFailed')),
   })
   const saveMut = useMutation({
     mutationFn: () =>
       updateDraftRequest(draftId!, { deliveryType: deliveryType ?? undefined, formData }),
-    onError: () => toast.error(t('loadError')),
+    onError: showError(t('saveFailed')),
   })
   const submitMut = useMutation({
     mutationFn: async () => {
@@ -127,7 +151,7 @@ export function CreateWizard({
       toast.success(t('submittedToast', { number: app.number ?? '' }))
       onDone(app.id)
     },
-    onError: () => toast.error(t('loadError')),
+    onError: showError(t('submitFailed')),
   })
 
   // Приложенные документы черновика (для шага «Документы» и gating обязательных).
@@ -222,7 +246,7 @@ export function CreateWizard({
                   setCategoryId(v)
                   // Услуга из прежней категории в новом списке отсутствует — сбрасываем,
                   // иначе кнопка «Далее» увела бы на услугу, которой в списке не видно.
-                  setServiceId(null)
+                  selectService(null)
                 }}
               >
                 <SelectTrigger id="application-category" className="w-full">
@@ -242,7 +266,7 @@ export function CreateWizard({
               <Label htmlFor="application-service">{t('serviceLabel')}</Label>
               <Select
                 value={serviceId ?? ''}
-                onValueChange={setServiceId}
+                onValueChange={selectService}
                 disabled={categoryServices.length === 0}
               >
                 <SelectTrigger id="application-service" className="w-full">

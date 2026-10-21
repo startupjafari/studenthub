@@ -68,6 +68,7 @@ import { parseProfileShare } from './shared-cards'
 import { SYSTEM_KEY } from './message-item'
 import { buildFolderTabs, filterChatsByTab, folderTabLabel } from '../lib/folders'
 import { summarizeActors, type ActionsByChat } from '../lib/chat-actions'
+import { canDeleteChat } from '../lib/chat-kind'
 import { useChatActionLabel } from '../lib/use-chat-action-label'
 
 // Элемент результата поиска по сообщениям (подмножество ChatMessage + chatId).
@@ -872,18 +873,35 @@ export function ConversationList({
                     )}
                     {c.archived ? t('unarchiveShort') : t('archiveShort')}
                   </button>
-                  <button
-                    type="button"
-                    aria-label={t('delete')}
-                    onClick={() => {
-                      onCloseSwiped(c.id)
-                      onDeleteChat(c)
-                    }}
-                    className="flex w-[4.5rem] flex-col items-center justify-center gap-1 whitespace-nowrap bg-destructive px-1 text-center text-[0.6rem] font-medium leading-tight text-white"
-                  >
-                    <Trash2 className="size-4" aria-hidden />
-                    {t('delete')}
-                  </button>
+                  {/* Официальный чат и «Сохранённые» не удаляются (F-F17) — на месте
+                      «Удалить» очистка истории: ширина панели свайпа от этого не меняется. */}
+                  {canDeleteChat(c.type) ? (
+                    <button
+                      type="button"
+                      aria-label={t('delete')}
+                      onClick={() => {
+                        onCloseSwiped(c.id)
+                        onDeleteChat(c)
+                      }}
+                      className="flex w-[4.5rem] flex-col items-center justify-center gap-1 whitespace-nowrap bg-destructive px-1 text-center text-[0.6rem] font-medium leading-tight text-white"
+                    >
+                      <Trash2 className="size-4" aria-hidden />
+                      {t('delete')}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      aria-label={t('clearHistory')}
+                      onClick={() => {
+                        onCloseSwiped(c.id)
+                        onClearHistory(c)
+                      }}
+                      className="flex w-[4.5rem] flex-col items-center justify-center gap-1 whitespace-nowrap bg-destructive px-1 text-center text-[0.6rem] font-medium leading-tight text-white"
+                    >
+                      <Eraser className="size-4" aria-hidden />
+                      {t('clearHistoryShort')}
+                    </button>
+                  )}
                 </div>
                 <button
                   type="button"
@@ -1125,13 +1143,19 @@ export function ConversationList({
               label: t('clearHistory'),
               onClick: () => onClearHistory(menuChat),
             },
-            {
-              key: 'delete',
-              icon: Trash2,
-              label: t('delete'),
-              onClick: () => onDeleteChat(menuChat),
-              danger: true,
-            },
+            // Официальный чат и «Сохранённые» не удаляются (F-F17): первый вернулся бы сам,
+            // вторые потеряли бы заметки. Для них есть «Очистить историю» и «Архив» выше.
+            ...(canDeleteChat(menuChat.type)
+              ? [
+                  {
+                    key: 'delete',
+                    icon: Trash2,
+                    label: t('delete'),
+                    onClick: () => onDeleteChat(menuChat),
+                    danger: true,
+                  },
+                ]
+              : []),
           ]}
         />
       )}

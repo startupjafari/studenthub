@@ -8,6 +8,7 @@ import type {
   ExamResultsBreakdown,
   RoomLoad,
   UniversityInvitesFunnel,
+  UniversityOverview,
   ComplaintsLatency,
   FacultyOverview,
   GroupAttendance,
@@ -16,7 +17,7 @@ import type {
   PlatformInterval,
   PlatformOverview,
   TopActions,
-  UniversitySize,
+  UniversitiesSize,
 } from '../model/types'
 
 export const analyticsKeys = {
@@ -50,12 +51,19 @@ export async function fetchAtRiskStudents(facultyId?: string): Promise<AtRiskStu
 
 export const universityAnalyticsKeys = {
   all: ['analytics', 'university'] as const,
+  overview: () => ['analytics', 'university', 'overview'] as const,
   attendanceTrend: (weeks: number) => ['analytics', 'university', 'attendance-trend', weeks] as const, // prettier-ignore
   attendanceBreakdown: () => ['analytics', 'university', 'attendance-breakdown'] as const,
   roomLoad: () => ['analytics', 'university', 'room-load'] as const,
   examResults: () => ['analytics', 'university', 'exam-results'] as const,
   applicationsFlow: (weeks: number) => ['analytics', 'university', 'applications-flow', weeks] as const, // prettier-ignore
   invitesFunnel: () => ['analytics', 'university', 'invites-funnel'] as const,
+}
+
+/** Плитки дашборда вуза одним запросом — вместо обзора на каждый факультет. */
+export async function fetchUniversityOverview(): Promise<UniversityOverview> {
+  const { data } = await api.get<UniversityOverview>('/analytics/university/overview')
+  return data
 }
 
 export async function fetchAttendanceTrend(weeks: number): Promise<AttendanceTrend> {
@@ -132,8 +140,13 @@ export const fetchUsersGrowth = (r: PlatformRange): Promise<MultiSeries> =>
 export const fetchActiveUsers = (r: PlatformRange): Promise<MultiSeries> =>
   getPlatform<MultiSeries>('active-users', r)
 
-export const fetchUniversitiesSize = (): Promise<{ items: UniversitySize[] }> =>
-  getPlatform<{ items: UniversitySize[] }>('universities-size')
+/**
+ * Вузы с людьми, факультетами, группами и аудиториями + итоги платформы — одним
+ * запросом. Им же живёт таблица «Статистика платформы»: запрос на каждый вуз упирался
+ * в пользовательский лимит API уже на сотне вузов.
+ */
+export const fetchUniversitiesSize = (): Promise<UniversitiesSize> =>
+  getPlatform<UniversitiesSize>('universities-size')
 
 export const fetchComplaintsFlow = (r: PlatformRange): Promise<MultiSeries> =>
   getPlatform<MultiSeries>('complaints-flow', r)

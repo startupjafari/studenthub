@@ -6,7 +6,9 @@ import { useLocale, useTranslations } from 'next-intl'
 import { Inbox } from 'lucide-react'
 import { Button, EmptyState, PageHeader, SeasonGreeting, Skeleton } from '../../../shared/ui'
 import { meKeys, fetchMeToday } from '../../../entities/me'
+import { isSubstitutedAway } from '../../../entities/schedule'
 import { useRealtimeEvent } from '../../../shared/realtime'
+import { useAppSelector } from '../../../shared/store'
 import { buildDayPairs, isoWeekParity, nextPair, nowInTz } from '../lib/schedule-day'
 import { buildAttention } from '../lib/attention'
 import { NextPairCard } from './next-pair-card'
@@ -54,6 +56,14 @@ export function TeacherToday() {
     [today.data?.pairs, today.data?.scheduleChanges, now, parity],
   )
   const upcoming = useMemo(() => nextPair(dayPairs, now), [dayPairs, now])
+  // Журнал отданного на замену занятия ведёт заменяющий (C-F12): основному его отмечать
+  // не нужно и нельзя. Пара остаётся в расписании дня — с пометкой о замене.
+  const myId = useAppSelector((s) => s.auth.user?.id)
+  const todoPairs = useMemo(() => {
+    const changes = today.data?.scheduleChanges ?? []
+    if (!myId) return dayPairs
+    return dayPairs.filter((dp) => !isSubstitutedAway(changes, dp.pair.id, now.date, myId))
+  }, [dayPairs, today.data?.scheduleChanges, now.date, myId])
   const attention = useMemo(
     () =>
       buildAttention({
@@ -111,7 +121,7 @@ export function TeacherToday() {
           />
           {/* Обязанности со сроком — сразу под ближайшей парой: расписание и уведомления
               говорят, ЧТО происходит, а эти две панели — что нужно сделать. */}
-          <AttendanceTodoPanel dayPairs={dayPairs} date={now.date} now={now} />
+          <AttendanceTodoPanel dayPairs={todoPairs} date={now.date} now={now} />
           <ReviewQueuePanel />
           <AttentionList items={attention} />
         </section>
