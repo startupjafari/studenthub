@@ -68,7 +68,7 @@ describe('CameraViewsService', () => {
     const ticket = await service.start(guard, 'cam-1', ctx)
     expect(ticket).toMatchObject({
       sessionId: 'view-1',
-      hlsUrl: 'https://media.kz/cam/cam-1/index.m3u8',
+      hlsUrl: 'https://media.kz/cam/cam-1/index.m3u8?cookieCheck=1',
       token: 'jwt',
       expiresInSec: 120,
       heartbeatInSec: 30,

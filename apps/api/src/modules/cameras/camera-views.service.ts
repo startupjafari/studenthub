@@ -156,7 +156,11 @@ export class CameraViewsService {
     return {
       sessionId,
       cameraId,
-      hlsUrl: `${relay.hlsUrl}/${path}/index.m3u8`,
+      // `cookieCheck=1` — сразу без перенаправления: на первый запрос MediaMTX отвечает 302
+      // на этот же адрес, чтобы поставить cookie сессии, а браузер при перенаправлении
+      // запроса с CORS не повторяет заголовок Authorization — и плейлист не отдаётся. С
+      // параметром ретранслятор ведёт сессию в адресах вариантов (`?session=`), без cookie.
+      hlsUrl: `${relay.hlsUrl}/${path}/index.m3u8?cookieCheck=1`,
       token: this.tokens.sign(`user:${userId}`, [{ action: 'read', path }], VIEW_TOKEN_TTL_S),
       expiresInSec: VIEW_TOKEN_TTL_S,
       heartbeatInSec: VIEW_HEARTBEAT_S,

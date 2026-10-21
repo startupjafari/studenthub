@@ -91,6 +91,9 @@ MEDIA_RELAY_PUBLISH_URL=rtmps://host.docker.internal:11936
 MEDIA_RELAY_CA_PEM=<строка из dev-cert.sh>
 ```
 
+В `apps/web/.env.local` — `NEXT_PUBLIC_MEDIA_RELAY_URL=http://localhost:18888`: без него
+CSP веба не пустит плеер к ретранслятору на http (на проде он за HTTPS и проходит и так).
+
 Агент — профиль `agent` в `docker/camera-sim`. RTMPS опубликован на адресе моста Docker
 (`host.docker.internal` для контейнеров), а не на `0.0.0.0`: агенту стенда он виден,
 локальной сети разработчика — нет.

@@ -1,4 +1,5 @@
 import type Hls from 'hls.js'
+import type { LoaderResponse, RetryConfig } from 'hls.js'
 
 // Живой поток камеры с ретранслятора (docs/PROJECT.md §3.10): LL-HLS через hls.js, токен
 // в заголовке `Authorization: Bearer`. Токен меняется каждые 30 с — берём его на каждый
@@ -37,10 +38,22 @@ export async function attachLive(
     onState('unsupported')
     return { destroy: () => undefined }
   }
+  // 404 на плейлист в первые секунды — норма: агент ещё поднимает поток. По умолчанию
+  // hls.js ответы 4xx не повторяет, поэтому решение о повторе здесь своё: 404 и сбои
+  // сети — повторяем, 401/403 (токен не принят) — нет, это не пройдёт само.
   const retry = {
     maxNumRetry: 30,
     retryDelayMs: 1_000,
     maxRetryDelayMs: 4_000,
+    shouldRetry: (
+      config: RetryConfig | null | undefined,
+      count: number,
+      _isTimeout: boolean,
+      response: LoaderResponse | undefined,
+    ) => {
+      const code = response?.code ?? 0
+      return code !== 401 && code !== 403 && count < (config?.maxNumRetry ?? 0)
+    },
   }
   const hls: Hls = new HlsCtor({
     lowLatencyMode: true,

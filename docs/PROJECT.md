@@ -1492,6 +1492,7 @@ MEDIA_RELAY_CA_PEM=          # сертификат ретранслятора �
 NEXT_PUBLIC_API_URL=http://localhost:3001/api/v1
 NEXT_PUBLIC_WS_URL=http://localhost:3001
 NEXT_PUBLIC_MINIO_URL=http://localhost:9000
+NEXT_PUBLIC_MEDIA_RELAY_URL=          # ретранслятор камер (§3.10); нужен в CSP стенду на http, прод на https проходит и так
 NEXT_PUBLIC_APP_NAME=StudentHub
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 
