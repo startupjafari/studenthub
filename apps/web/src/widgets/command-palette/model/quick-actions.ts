@@ -125,7 +125,7 @@ const SECURITY_GUARD: QuickAction[] = [
   { navKey: 'securityPost', href: '/security', icon: LayoutDashboard },
   { navKey: 'scan', href: '/scan', icon: ScanQrCode },
   { navKey: 'verifyId', href: '/verify-id', icon: ScanLine },
-  { navKey: 'rooms', href: '/security/rooms', icon: DoorClosed },
+  { navKey: 'securityRooms', href: '/security/rooms', icon: DoorClosed },
 ]
 
 // Быстрые действия есть у КАЖДОЙ роли: пустая палитра при открытии — это экран
