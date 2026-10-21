@@ -8,6 +8,7 @@ import {
   CalendarRange,
   ClipboardCheck,
   ClipboardList,
+  DoorClosed,
   FileText,
   FolderLock,
   GraduationCap,
@@ -15,6 +16,8 @@ import {
   ListChecks,
   MessagesSquare,
   Newspaper,
+  ScanLine,
+  ScanQrCode,
   ScrollText,
   Send,
   ShieldAlert,
@@ -116,6 +119,15 @@ const EMPLOYER: QuickAction[] = [
   { navKey: 'universityAccess', href: '/employer/access', icon: GraduationCap },
 ]
 
+// Охрана вуза: пост, сканер, проверка студенческого, помещения. «Документы» ей не
+// добавляются — хранилище участника вуза охране не нужно (см. quickActionsFor).
+const SECURITY_GUARD: QuickAction[] = [
+  { navKey: 'securityPost', href: '/security', icon: LayoutDashboard },
+  { navKey: 'scan', href: '/scan', icon: ScanQrCode },
+  { navKey: 'verifyId', href: '/verify-id', icon: ScanLine },
+  { navKey: 'rooms', href: '/security/rooms', icon: DoorClosed },
+]
+
 // Быстрые действия есть у КАЖДОЙ роли: пустая палитра при открытии — это экран
 // «введите запрос», на котором нечего выбрать, и первое, что видит администратор.
 const BY_ROLE: Record<Role, QuickAction[]> = {
@@ -128,11 +140,13 @@ const BY_ROLE: Record<Role, QuickAction[]> = {
   [Role.PLATFORM_ADMIN]: PLATFORM_ADMIN,
   [Role.PLATFORM_MODERATOR]: PLATFORM_MODERATOR,
   [Role.EMPLOYER]: EMPLOYER,
+  [Role.SECURITY_GUARD]: SECURITY_GUARD,
 }
 
 export function quickActionsFor(role: Role | null): QuickAction[] {
   if (!role) return []
-  // Работодателю общий раздел «Документы» не показываем: это хранилище участника вуза.
-  if (role === Role.EMPLOYER) return BY_ROLE[role]
+  // Работодателю и охране общий раздел «Документы» не показываем: это хранилище участника
+  // вуза.
+  if (role === Role.EMPLOYER || role === Role.SECURITY_GUARD) return BY_ROLE[role]
   return [...BY_ROLE[role], DOCUMENTS]
 }

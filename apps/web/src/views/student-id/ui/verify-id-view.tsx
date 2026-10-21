@@ -29,6 +29,8 @@ const STAFF_ROLES: Role[] = [
   Role.TEACHER,
   Role.PLATFORM_ADMIN,
   Role.PLATFORM_MODERATOR,
+  // Охрана на входе: проверка студенческого — её главная работа.
+  Role.SECURITY_GUARD,
 ]
 
 // Верификация студенческого сотрудником (задача 20): камера открывает /verify-id?t=…,

@@ -5,7 +5,17 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useTranslations } from 'next-intl'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Bell, LogOut, MoreHorizontal, ScanQrCode, Search, UserRound, X } from 'lucide-react'
+import type { Role } from '@studenthub/shared-types'
+import {
+  Bell,
+  LogOut,
+  MoreHorizontal,
+  ScanQrCode,
+  Search,
+  Settings,
+  UserRound,
+  X,
+} from 'lucide-react'
 import { AppSidebar } from './app-sidebar'
 import { endSession } from '../../../shared/session'
 import {
@@ -13,7 +23,9 @@ import {
   ROLE_TO_VARIANT,
   STUDENT_NAV,
   careerNavFor,
+  hasChats,
   isCareerPath,
+  ownProfileHref,
   type NavItem,
   type NavVariant,
 } from '../model/nav'
@@ -22,7 +34,7 @@ import { usePlatformState, isNavKeyDisabled } from '../../../entities/platform'
 import { fetchUnreadCount, notificationKeys } from '../../../entities/notification'
 import { useRealtimeEvent } from '../../../shared/realtime'
 import { useChatsUnread } from '../../../entities/chat'
-import { SEARCH_MIN_QUERY, useSearchItems } from '../../../entities/search'
+import { SEARCH_MIN_QUERY, canSearch, useSearchItems } from '../../../entities/search'
 import { Skeleton } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { ChatLayoutProvider } from '../../../shared/lib'
@@ -48,16 +60,21 @@ function isActive(item: NavItem, pathname: string): boolean {
 // приходит островом сверху, а крестик справа закрывает поиск.
 function BottomNav({
   nav,
+  role,
   notifOpen,
   onToggleNotif,
 }: {
   nav: NavItem[]
+  /** Роль из профиля; пока он грузится — undefined, и чаты не запрашиваются. */
+  role: Role | undefined
   notifOpen: boolean
   onToggleNotif: () => void
 }) {
   const pathname = usePathname()
   const tNav = useTranslations('Nav')
-  const chatsUnread = useChatsUnread()
+  const chatsUnread = useChatsUnread(role ? hasChats(role) : false)
+  const profileHref = ownProfileHref(role)
+  const searchable = canSearch(role)
   const tShell = useTranslations('Dashboard')
   const tSearch = useTranslations('Command')
   const tCommon = useTranslations('Common')
@@ -140,7 +157,7 @@ function BottomNav({
   // Ссылка ведёт на СВОЙ профиль (`/profile`), а `/profile/<id>` — это чужой. Со
   // `startsWith` открытый профиль другого пользователя подсвечивался так, будто читатель
   // стоит на своём: навигация указывала не туда, где он находится.
-  const profileActive = pathname === '/profile'
+  const profileActive = pathname === profileHref
 
   async function logout(): Promise<void> {
     await endSession()
@@ -268,10 +285,12 @@ function BottomNav({
             )}
           >
             {/* Поиск и уведомления — действия, а не разделы: первая группа. */}
-            <button type="button" onClick={openSearch} className={menuRow}>
-              <Search className="size-5 shrink-0 opacity-80" aria-hidden />
-              {tNav('search')}
-            </button>
+            {searchable && (
+              <button type="button" onClick={openSearch} className={menuRow}>
+                <Search className="size-5 shrink-0 opacity-80" aria-hidden />
+                {tNav('search')}
+              </button>
+            )}
             {/* Сканер QR — тоже действие: с телефона подтверждают вход на компьютере,
                 проверяют студенческий, отмечаются на паре. */}
             <Link
@@ -328,14 +347,19 @@ function BottomNav({
             <div className={hairline} aria-hidden />
 
             {/* Профиль и выход — не разделы роли, поэтому отбиты в последнюю группу. */}
+            {/* У охраны профиля на платформе нет — на его месте настройки. */}
             <Link
-              href="/profile"
+              href={profileHref}
               onClick={() => setMoreOpen(false)}
               aria-current={profileActive ? 'page' : undefined}
               className={cn(menuRow, profileActive && 'bg-primary/10 text-primary')}
             >
-              <UserRound className="size-5 shrink-0 opacity-80" aria-hidden />
-              {tNav('profile')}
+              {profileHref === '/settings' ? (
+                <Settings className="size-5 shrink-0 opacity-80" aria-hidden />
+              ) : (
+                <UserRound className="size-5 shrink-0 opacity-80" aria-hidden />
+              )}
+              {profileHref === '/settings' ? tNav('settings') : tNav('profile')}
             </Link>
             {/* Выход — опасное действие: последним и за своей линией (правило для всех меню). */}
             <div className={hairline} aria-hidden />
@@ -539,6 +563,7 @@ export function AppShell({
         {!hideBottomNav && (
           <BottomNav
             nav={nav}
+            role={me.data?.role}
             notifOpen={notifOpen}
             onToggleNotif={() => setNotifOpen((o) => !o)}
           />

@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { Role } from '@studenthub/shared-types'
-import { LEGAL_BASE, ROLE_HOME } from './shared/config/routes'
+import { LEGAL_BASE, ROLE_HOME, isSecurityGuardPath } from './shared/config/routes'
 import { safeNextPath } from './shared/lib/safe-next'
 
 // Ролевой редирект ДО рендера (docs/FRONTEND_RULES.md §3), по нечувствительной role-cookie
@@ -110,6 +110,15 @@ export function middleware(request: NextRequest): NextResponse {
     } else {
       url.pathname = home
     }
+    return NextResponse.redirect(url)
+  }
+
+  // Охрана — только свои экраны (isSecurityGuardPath): остальное ей сервер всё равно
+  // закроет, а пустой экран с ошибками хуже возврата на пост.
+  if (session.role === Role.SECURITY_GUARD && !isSecurityGuardPath(pathname)) {
+    const url = request.nextUrl.clone()
+    url.pathname = home
+    url.search = ''
     return NextResponse.redirect(url)
   }
 

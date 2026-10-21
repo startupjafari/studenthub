@@ -1,5 +1,6 @@
 export { searchKeys, fetchSearch } from './api/search-api'
 export { useSearchItems, SEARCH_MIN_QUERY, SEARCH_DEBOUNCE_MS } from './model/use-search-items'
+export { canSearch } from './model/can-search'
 export type { SearchItem, SearchItemsState } from './model/use-search-items'
 export type {
   SearchResults,

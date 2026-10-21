@@ -21,6 +21,7 @@ const ROLE_KEY: Record<string, MessageKey> = {
   UNIVERSITY_MODERATOR: 'personRoleUniModerator',
   PLATFORM_ADMIN: 'personRolePlatformAdmin',
   PLATFORM_MODERATOR: 'personRolePlatformModerator',
+  SECURITY_GUARD: 'personRoleSecurityGuard',
 }
 
 export function PersonSummary({
