@@ -274,7 +274,8 @@ export const SECURITY_GUARD_NAV: NavItem[] = [
   { key: 'cameras', href: '/security/cameras', icon: Cctv },
   { key: 'scan', href: '/scan', icon: ScanQrCode },
   { key: 'verifyId', href: '/verify-id', icon: ScanLine },
-  { key: 'rooms', href: '/security/rooms', icon: DoorClosed },
+  // Своя подпись: «Помещения и QR» — раздел админа с печатью наклеек, у охраны её нет.
+  { key: 'securityRooms', href: '/security/rooms', icon: DoorClosed },
 ]
 
 // Навигация определяется РОЛЬЮ пользователя, а не route-группой: общие страницы
