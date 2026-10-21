@@ -8,8 +8,6 @@ import Link from 'next/link'
 import { Cctv, KeyRound, MonitorPlay, Pencil, Plus, Power, Server, Trash2 } from 'lucide-react'
 import type { CameraStatusValue } from '@studenthub/shared-schemas'
 import {
-  Alert,
-  AlertDescription,
   Badge,
   Button,
   EmptyState,
@@ -173,14 +171,6 @@ export function CamerasAdminView() {
           )
         }
       />
-
-      {/* Предупреждаем только о выключенных камерах: включённые — обычное состояние. */}
-      {!settings.isPending && !enabled && (
-        <Alert variant="warning">
-          <Cctv aria-hidden />
-          <AlertDescription>{t('disabledNotice')}</AlertDescription>
-        </Alert>
-      )}
 
       <SectionPanel
         title={t('agentsTitle')}
