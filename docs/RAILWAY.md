@@ -198,6 +198,25 @@ Branch). Ветка задаётся в интерфейсе Railway, а не в
 
 ---
 
+## 3.3 Сервис `media-relay`
+
+Медиа-ретранслятор камер (MediaMTX, `docs/PROJECT.md` §3.10). Пошагово — в
+`docker/media-relay/README.md`; коротко:
+
+1. **+ New → GitHub Repo**, **Root Directory** = `docker/media-relay` (корневой
+   `.dockerignore` исключает `docker/`, поэтому контекст сборки — этот каталог).
+2. **Generate Domain** — HLS для браузеров; **TCP Proxy** на порт `1936` — RTMPS для агентов.
+3. Самоподписанный сертификат на имя хоста TCP-прокси → `RELAY_TLS_CERT`/`RELAY_TLS_KEY`
+   ретранслятора и `MEDIA_RELAY_CA_PEM` у `api`.
+4. `MTX_AUTHJWTJWKS` = `https://api.<домен>/api/v1/.well-known/media-jwks.json`,
+   `MTX_HLSALLOWORIGINS` = origin веба.
+5. У `api`: `MEDIA_JWT_PRIVATE_KEY`, `MEDIA_RELAY_HLS_URL`, `MEDIA_RELAY_PUBLISH_URL`,
+   `MEDIA_RELAY_CA_PEM`. Без них просмотр камер выключен.
+
+Ключ подписи ретранслятор читает один раз при старте: сменили `MEDIA_JWT_PRIVATE_KEY` —
+перезапустите `media-relay`. Миграции камер (`add_cameras`, `add_camera_view_sessions`)
+применяются как обычно (§5).
+
 ## 4. Объектное хранилище
 
 **Вариант А — MinIO как сервис Railway:**

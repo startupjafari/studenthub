@@ -1131,4 +1131,6 @@ export const USER_RELATIONS: Readonly<Record<string, { section: string } | { exc
     // Камеры вуза (§3.10): кто завёл агента и кто переключал модуль — работа админа вуза.
     'CameraAgent.createdById': { excluded: STAFF_WORK },
     'CameraSettings.updatedById': { excluded: STAFF_WORK },
+    // Журнал просмотров камер — служебный журнал безопасности вуза о работе охраны и админа.
+    'CameraViewSession.userId': { excluded: STAFF_WORK },
   }

@@ -468,6 +468,33 @@ X25519 → HKDF-SHA256 → AES-256-GCM, id камеры в AAD) и лежат к
 `CameraSettings` — выключатель модуля на вуз; **по умолчанию выключен**, выключение
 обрывает все просмотры разом.
 
+**Агент** (`apps/camera-agent`, Docker-образ на Node 24 с ffprobe, без npm-зависимостей во
+время работы). Держит с платформой длинный опрос `POST /camera-agent/sync`: присылает версию,
+открытый ключ и состояние камер, получает конфигурацию — свои включённые камеры с адресами и
+конвертами паролей. Ревизия конфигурации — хэш её содержимого; совпала с той, что у агента,
+— ответ ждёт изменений до 25 с. Сервисы камер при любом изменении поднимают счётчик в Redis
+(`camera-agent:rev:<id>`), ожидание сверяет его раз в секунду, поэтому новая камера или
+выключатель доходят до агента за секунду. Ключ агента платформа принимает один раз; другой
+при известном — `409` (`details.field=publicKey`), выход — перевыпуск токена. Закрытый ключ
+агент хранит в томе (`/var/lib/studenthub-agent`, права 600), пароли — только в памяти;
+камеры проверяет `ffprobe` раз в минуту: `ONLINE`, `OFFLINE`, `AUTH_FAILED` (401 от камеры).
+Установка в вузе — `apps/camera-agent/README.md`, проверка на эмуляторе — `docker/camera-sim`.
+
+**Просмотр** (`docker/media-relay`, сервис Railway). «Начать просмотр» создаёт сессию —
+она же запись журнала (`CameraViewSession`: камера и ФИО на момент просмотра, IP,
+начало, последнее подтверждение, конец; связи с камерой и человеком обнуляются при
+удалении, запись остаётся) — отмечает спрос на поток (`camera:demand:<id>` в Redis, TTL
+60 с) и будит агента. Агент получает в синхронизации адрес и токен публикации и отдаёт
+поток ffmpeg'ом: без перекодирования, без звука, по **RTMPS** с закреплённым сертификатом
+ретранслятора (`MEDIA_RELAY_CA_PEM`). RTSPS не годится: MediaMTX в режиме JWT не шлёт
+вызов, и ffmpeg не отдаёт токен. Браузер берёт LL-HLS у ретранслятора с токеном в
+`Authorization: Bearer`. Токены — JWT ES256 от API (`MEDIA_JWT_PRIVATE_KEY`): зрителю на
+2 минуты, агенту на 10, права только на путь `cam/<id>`; ретранслятор проверяет их сам по
+`GET /.well-known/media-jwks.json`. Плеер продлевает просмотр каждые 30 с. Последний
+зритель закончил — спрос снимается, поток гаснет за секунду; закрыли вкладку — спрос
+истекает, поток гаснет за ~1,5 минуты. Выключатель модуля гасит потоки мгновенно, а
+продления получают `409`. Не больше 4 одновременных просмотров на человека.
+
 Экран администратора — `/university-admin/cameras`: выключатель, агенты, камеры.
 
 ---
@@ -885,7 +912,7 @@ Email при регистрации сохраняется в нижнем ре�
 **Подпись ссылок стабильна в пределах окна 5 минут** (`common/minio/stable-sign.ts`): момент подписания округляется вниз, и повторная выдача ссылки на тот же объект даёт тот же URL — браузер берёт байты из кеша. Ссылка живёт 10–15 минут (потолок §8 не нарушается); копии лежат с `Cache-Control: public, max-age=31536000, immutable`.
 **HLS приватных видео** — по подписанному токену, а не по JWT: нативный HLS Safari/iOS заголовок Authorization к плейлистам не приложит. `GET /media/:fileId/hls/master.m3u8?t=` — master-токен (15 мин) выдаёт модуль-владелец вместе с остальным описанием, после своей проверки прав; мастер-плейлист раздаёт play-токен на весь просмотр (15 мин + 2 × длительность — иначе длинный ролик обрывался бы посередине). `GET /media/:fileId/hls/:rendition/index.m3u8?t=` — плейлист рендишна с токеном у сегментов. `GET /media/:fileId/hls/:rendition/:segment?t=` — `302` на подписанную ссылку сегмента в хранилище (байты видео через API не идут). Токен привязан к файлу и виду (master/play), подписан `MEDIA_TOKEN_SECRET` (не задан — выводится из `JWT_ACCESS_SECRET` с отдельной солью, токен плейлиста не проходит проверку как access-токен); имя рендишна и сегмента проверяется по шаблону до токена. Лимит частоты маршрутов — 1200/мин: зрители университетской сети сидят за одним IP.
 
-**Камеры (§3.10)** — `GET /camera-agents` (админ вуза: агенты, `connection: NEVER|ONLINE|OFFLINE` — на связи, если отчитывался за 90 с; `ready` — прислал ключ; число камер) · `POST /camera-agents` (`{ name }` → `{ agent, token }`, токен один раз; до 50 агентов на вуз) · `PATCH /camera-agents/:id` (`{ name }`) · `POST /camera-agents/:id/token` (перевыпуск: прежний токен гаснет, ключ агента и пароли его камер сбрасываются) · `DELETE /camera-agents/:id` (вместе с камерами) · `GET /cameras` (админ вуза и охрана; охране — только включённые и без `streamUrl`/агента; админу — с `streamUrl`, агентом и `hasCredentials`, сам пароль не отдаётся никогда; `?agentId=`) · `POST /cameras` (`{ agentId, name, streamUrl, roomId?, credentials?: { username, password } }`; `streamUrl` — `rtsp(s)://` без логина и пароля) · `PATCH /cameras/:id` (`credentials: null` — убрать пароль, без поля — оставить; агента у камеры не сменить) · `DELETE /cameras/:id` · `GET /cameras/settings` (админ и охрана: `{ enabled }`) · `PATCH /cameras/settings` (админ: `{ enabled }`). Чужой вуз и несуществующий id — одинаковый `404`. Аудит: `camera_agent_created|token_rotated|deleted`, `camera_created|updated|deleted` (в `updated` — имена полей, без значений), `cameras_enabled|disabled`.
+**Камеры (§3.10)** — `GET /camera-agents` (админ вуза: агенты, `connection: NEVER|ONLINE|OFFLINE` — на связи, если отчитывался за 90 с; `ready` — прислал ключ; число камер) · `POST /camera-agents` (`{ name }` → `{ agent, token }`, токен один раз; до 50 агентов на вуз) · `PATCH /camera-agents/:id` (`{ name }`) · `POST /camera-agents/:id/token` (перевыпуск: прежний токен гаснет, ключ агента и пароли его камер сбрасываются) · `DELETE /camera-agents/:id` (вместе с камерами) · `GET /cameras` (админ вуза и охрана; охране — только включённые и без `streamUrl`/агента; админу — с `streamUrl`, агентом и `hasCredentials`, сам пароль не отдаётся никогда; `?agentId=`) · `POST /cameras` (`{ agentId, name, streamUrl, roomId?, credentials?: { username, password } }`; `streamUrl` — `rtsp(s)://` без логина и пароля) · `PATCH /cameras/:id` (`credentials: null` — убрать пароль, без поля — оставить; агента у камеры не сменить) · `DELETE /cameras/:id` · `GET /cameras/settings` (админ и охрана: `{ enabled }`) · `PATCH /cameras/settings` (админ: `{ enabled }`) · `POST /cameras/:id/views` (админ вуза и охрана: начать просмотр → `{ sessionId, cameraId, hlsUrl, token, expiresInSec: 120, heartbeatInSec: 30 }`; `409` с `details.field`: `relay` — ретранслятор не настроен, `module` — камеры вуза выключены, `camera` — камера отключена, `views` — уже 4 просмотра) · `POST /cameras/views/:sessionId/heartbeat` (продлить, свежий токен; модуль или камеру выключили — `409`, сессия закрыта; чужая или закрытая — `404`) · `POST /cameras/views/:sessionId/end` (`204`) · `GET /.well-known/media-jwks.json` (публ.; открытый ключ медиатокенов для ретранслятора, без обёртки ответа) · `POST /camera-agent/sync` (публ. для JWT, вход по `Authorization: Agent <токен>`; `{ version, publicKey, revision?, cameras: [{ id, status }] }` → `{ revision, enabled, relayCaPem, cameras: [{ id, streamUrl, credentialsSealed, publish: { url, token } | null }] }`; токен публикации в ревизию не входит; длинный опрос до 25 с; статусы пишутся только камерам этого агента; лимит 60/мин). Чужой вуз и несуществующий id — одинаковый `404`. Аудит: `camera_agent_created|token_rotated|deleted`, `camera_created|updated|deleted` (в `updated` — имена полей, без значений), `cameras_enabled|disabled`.
 
 **Помещения (Ф16)** — `GET /rooms` (`?kind=`; необязательный `search` — подстрока названия без учёта регистра; порядок — выбранная колонка, затем название, затем id) · `POST /rooms` (вуз из JWT, платформа указывает явно) · `GET|PATCH|DELETE /rooms/:id` (`DELETE` → `409 CONFLICT`, пока есть пары, экзамены или замены с сегодняшнего дня; `details[].field ∈ pairs|exams|changes`) · `GET /rooms/qr/:code` (статус по коду из печатного QR: помещение, «сейчас» по часам сервера в таймзоне вуза, пары дня и изменения) · `POST /rooms/qr/batch` (выдать коды пачкой, идемпотентно) · `POST /rooms/:id/qr/rotate` (перевыпуск — расклеенные наклейки перестают работать, пишется в аудит)
 
@@ -1452,6 +1479,12 @@ IOS_MIN_SUPPORTED_VERSION=0.0.0
 IOS_STORE_URL=               # пусто — кнопки «Обновить» на экране не будет
 ANDROID_MIN_SUPPORTED_VERSION=0.0.0
 ANDROID_STORE_URL=           # ссылка на Google Play; пусто — кнопки не будет
+
+# Камеры: медиа-ретранслятор (§3.10, docker/media-relay/README.md). Пусто — просмотр выключен.
+MEDIA_JWT_PRIVATE_KEY=       # EC P-256 PKCS#8 PEM одной строкой, переводы строк как \n
+MEDIA_RELAY_HLS_URL=         # https://<домен ретранслятора> — HLS для браузеров
+MEDIA_RELAY_PUBLISH_URL=     # rtmps://<хост>:<порт> — TCP-прокси для агентов
+MEDIA_RELAY_CA_PEM=          # сертификат ретранслятора одной строкой; его закрепляет агент
 ```
 
 ### `apps/web/.env.local`
@@ -1459,6 +1492,7 @@ ANDROID_STORE_URL=           # ссылка на Google Play; пусто — к�
 NEXT_PUBLIC_API_URL=http://localhost:3001/api/v1
 NEXT_PUBLIC_WS_URL=http://localhost:3001
 NEXT_PUBLIC_MINIO_URL=http://localhost:9000
+NEXT_PUBLIC_MEDIA_RELAY_URL=          # ретранслятор камер (§3.10); нужен в CSP стенду на http, прод на https проходит и так
 NEXT_PUBLIC_APP_NAME=StudentHub
 NEXT_PUBLIC_APP_URL=http://localhost:3000
 

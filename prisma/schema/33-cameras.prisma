@@ -52,9 +52,10 @@ model Camera {
   createdAt         DateTime     @default(now()) @map("created_at")
   updatedAt         DateTime     @updatedAt @map("updated_at")
 
-  university University  @relation(fields: [universityId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  agent      CameraAgent @relation(fields: [agentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  room       Room?       @relation(fields: [roomId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  university University          @relation(fields: [universityId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  agent      CameraAgent         @relation(fields: [agentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  room       Room?               @relation(fields: [roomId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  views      CameraViewSession[]
 
   @@index([universityId])
   @@index([agentId])
@@ -73,4 +74,35 @@ model CameraSettings {
 
   @@index([updatedById])
   @@map("camera_settings")
+}
+
+// Сессия просмотра камеры — она же журнал «кто, какую камеру, когда и сколько смотрел»
+// (docs/PROJECT.md §3.10; хранится год). Плеер подтверждает просмотр каждые ~30 с
+// (`lastSeenAt`); без подтверждений сессия считается законченной, даже если `endedAt` не
+// проставлен (закрыли вкладку, пропала сеть).
+//
+// Журнал переживает удаление камеры и человека: связи обнуляются, а названия на момент
+// просмотра лежат рядом (`cameraName`, `userName`) — как у AuditLog, записи которого не
+// исчезают вместе с тем, о ком они.
+model CameraViewSession {
+  id           String    @id @default(uuid())
+  universityId String    @map("university_id")
+  cameraId     String?   @map("camera_id")
+  cameraName   String    @map("camera_name")
+  userId       String?   @map("user_id")
+  userName     String    @map("user_name")
+  startedAt    DateTime  @default(now()) @map("started_at")
+  lastSeenAt   DateTime  @default(now()) @map("last_seen_at")
+  endedAt      DateTime? @map("ended_at")
+  ip           String?
+  userAgent    String?   @map("user_agent")
+
+  university University @relation(fields: [universityId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  camera     Camera?    @relation(fields: [cameraId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  user       User?      @relation("CameraViewSessions", fields: [userId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([universityId, startedAt])
+  @@index([cameraId])
+  @@index([userId, lastSeenAt])
+  @@map("camera_view_sessions")
 }

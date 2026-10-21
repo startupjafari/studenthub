@@ -1,0 +1,19 @@
+{
+  "name": "camera-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Агент камер StudentHub: работает в сети вуза, сам ходит к платформе (docs/PROJECT.md §3.10)",
+  "main": "./dist/main.js",
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "rm -rf dist && tsc -p tsconfig.json && node --test dist/",
+    "start": "node dist/main.js",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "devDependencies": {
+    "@types/node": "^22.18.10",
+    "typescript": "^5.9.3"
+  }
+}

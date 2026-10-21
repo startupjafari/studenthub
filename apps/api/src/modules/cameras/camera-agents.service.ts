@@ -8,6 +8,7 @@ import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
 import { hashAgentToken, newAgentToken } from './agent-token'
 import { managedUniversity } from './camera-scope'
+import { CameraAgentSignal } from './camera-agent-signal'
 
 // Агент считается на связи, если отчитывался за это окно. Агент держит с платформой
 // длинный опрос и приходит не реже раза в полминуты — полторы минуты переживают и
@@ -72,6 +73,7 @@ export class CameraAgentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly signal: CameraAgentSignal,
   ) {}
 
   async list(actor: JwtPayload): Promise<CameraAgentView[]> {
@@ -162,6 +164,8 @@ export class CameraAgentsService {
       metadata: { universityId: agent.universityId },
       ...ctx,
     })
+    // Агент со старым токеном получит 401 на следующем опросе; держащий опрос — отпустим.
+    await this.signal.bump(agent.id)
     return { agent: toView(row), token }
   }
 

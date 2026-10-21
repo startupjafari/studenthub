@@ -34,6 +34,22 @@ export interface CameraAdmin extends Camera {
   createdAt: string
 }
 
+/**
+ * Пропуск на просмотр камеры: адрес LL-HLS ретранслятора и токен к нему. Токен живёт
+ * `expiresInSec`, продлевать — каждые `heartbeatInSec`.
+ */
+export interface CameraViewTicket {
+  sessionId: string
+  cameraId: string
+  hlsUrl: string
+  token: string
+  expiresInSec: number
+  heartbeatInSec: number
+}
+
+/** Почему просмотр не начался или закрылся (`details.field` у `409`). */
+export type CameraViewBlock = 'relay' | 'module' | 'camera' | 'views'
+
 /** Агент с токеном — ответ создания и перевыпуска. Токен показывается один раз. */
 export interface CameraAgentWithToken {
   agent: CameraAgent

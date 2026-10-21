@@ -5,7 +5,13 @@ import type {
   UpdateCameraInput,
 } from '@studenthub/shared-schemas'
 import { api, getPaged, type Paged } from '../../../shared/api'
-import type { Camera, CameraAdmin, CameraAgent, CameraAgentWithToken } from '../model/types'
+import type {
+  Camera,
+  CameraAdmin,
+  CameraAgent,
+  CameraAgentWithToken,
+  CameraViewTicket,
+} from '../model/types'
 
 export const cameraKeys = {
   all: ['cameras'] as const,
@@ -67,4 +73,20 @@ export async function fetchCameraSettings(): Promise<{ enabled: boolean }> {
 export async function updateCameraSettingsRequest(enabled: boolean): Promise<{ enabled: boolean }> {
   const { data } = await api.patch<{ enabled: boolean }>('/cameras/settings', { enabled })
   return data
+}
+
+/** Начать просмотр: сессия (запись журнала) и токен ретранслятора. */
+export async function startCameraViewRequest(cameraId: string): Promise<CameraViewTicket> {
+  const { data } = await api.post<CameraViewTicket>(`/cameras/${cameraId}/views`)
+  return data
+}
+
+/** Продлить просмотр: свежий токен. 409 — просмотр закрыт (выключили камеры или камеру). */
+export async function heartbeatCameraViewRequest(sessionId: string): Promise<CameraViewTicket> {
+  const { data } = await api.post<CameraViewTicket>(`/cameras/views/${sessionId}/heartbeat`)
+  return data
+}
+
+export async function endCameraViewRequest(sessionId: string): Promise<void> {
+  await api.post(`/cameras/views/${sessionId}/end`)
 }

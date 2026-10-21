@@ -3993,7 +3993,9 @@
     "roomsSearch": "Search by name",
     "roomsNotFound": "Nothing found",
     "roomsEmptyHint": "Rooms are added by the university administrator.",
-    "retry": "Retry"
+    "retry": "Retry",
+    "camerasTitle": "Cameras",
+    "camerasDescription": "Live video from university cameras"
   },
   "Cameras": {
     "adminTitle": "Cameras",
@@ -4077,7 +4079,32 @@
     "deleteCameraConfirmDesc": "Camera “{name}” will be deleted.",
     "checkFields": "Check the fields",
     "add": "Add",
-    "save": "Save"
+    "save": "Save",
+    "watch": "Watch cameras"
+  },
+  "CameraWatch": {
+    "title": "Cameras",
+    "subtitle": "Live video, no sound. Every viewing is recorded in the log.",
+    "manage": "Manage cameras",
+    "listLabel": "University cameras",
+    "disabledTitle": "Cameras are off",
+    "disabledDesc": "The university administrator turned cameras off or has not turned them on yet.",
+    "emptyTitle": "No cameras yet",
+    "emptyDesc": "The university administrator has not added cameras yet.",
+    "pickTitle": "Choose a camera",
+    "pickDesc": "Tap a camera in the list. Up to {count} at a time.",
+    "limit": "You can watch no more than {count} cameras at a time",
+    "connecting": "Connecting to the camera…",
+    "failed": "Could not get video. Close the window and open it again.",
+    "unsupported": "This browser cannot show cameras. Open them in Chrome, Edge, Firefox or Safari on iOS 17+.",
+    "fullscreen": "Full screen",
+    "close": "Close",
+    "blocked": {
+      "relay": "Camera viewing is not set up on the platform yet.",
+      "module": "University cameras are off.",
+      "camera": "The camera is disabled.",
+      "views": "Too many cameras are open — close one."
+    }
   },
   "Academic": {
     "title": "Academic profile",

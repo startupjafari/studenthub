@@ -20,6 +20,7 @@ import { SecurityAllowed } from '../../common/decorators/security-allowed.decora
 import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
 import { CamerasService } from './cameras.service'
+import { CameraViewsService } from './camera-views.service'
 import { CameraListQueryDto } from './dto/camera-list-query.dto'
 import { CreateCameraDto } from './dto/create-camera.dto'
 import { UpdateCameraDto } from './dto/update-camera.dto'
@@ -30,7 +31,10 @@ import { UpdateCameraSettingsDto } from './dto/update-camera-settings.dto'
 @ApiBearerAuth()
 @Controller('cameras')
 export class CamerasController {
-  constructor(private readonly cameras: CamerasService) {}
+  constructor(
+    private readonly cameras: CamerasService,
+    private readonly views: CameraViewsService,
+  ) {}
 
   @Get()
   @Roles(Role.UNIVERSITY_ADMIN, Role.SECURITY_GUARD)
@@ -62,6 +66,57 @@ export class CamerasController {
     @Req() req: FastifyRequest,
   ) {
     return this.cameras.updateSettings(user, dto, this.ctx(req))
+  }
+
+  // ── Просмотр: сессия = запись журнала; видео идёт через ретранслятор, не через API ──
+
+  @Post('views/:sessionId/heartbeat')
+  @Roles(Role.UNIVERSITY_ADMIN, Role.SECURITY_GUARD)
+  @SecurityAllowed()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Продлить просмотр: свежий токен ретранслятора, раз в ~30 с' })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND — сессии нет, она чужая или закрыта' })
+  @ApiResponse({
+    status: 409,
+    description: 'CONFLICT (details.field=module|camera) — просмотр закрыт, сессия завершена',
+  })
+  heartbeat(@CurrentUser() user: CurrentUserData, @Param('sessionId') sessionId: string) {
+    return this.views.heartbeat(user, sessionId)
+  }
+
+  @Post('views/:sessionId/end')
+  @Roles(Role.UNIVERSITY_ADMIN, Role.SECURITY_GUARD)
+  @SecurityAllowed()
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Закончить просмотр' })
+  async endView(
+    @CurrentUser() user: CurrentUserData,
+    @Param('sessionId') sessionId: string,
+  ): Promise<void> {
+    await this.views.end(user, sessionId)
+  }
+
+  @Post(':id/views')
+  @Roles(Role.UNIVERSITY_ADMIN, Role.SECURITY_GUARD)
+  @SecurityAllowed()
+  @ApiOperation({
+    summary: 'Начать просмотр камеры: адрес LL-HLS и токен ретранслятора на 2 минуты',
+  })
+  @ApiResponse({
+    status: 201,
+    description: '{ sessionId, hlsUrl, token, expiresInSec, heartbeatInSec }',
+  })
+  @ApiResponse({
+    status: 409,
+    description:
+      'CONFLICT (details.field=relay|module|camera|views) — ретранслятор не настроен, камеры выключены, камера отключена или уже 4 просмотра',
+  })
+  startView(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Req() req: FastifyRequest,
+  ) {
+    return this.views.start(user, id, this.ctx(req))
   }
 
   @Post()

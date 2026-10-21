@@ -148,6 +148,9 @@ function securityHeaders() {
   const api = origin(process.env.NEXT_PUBLIC_API_URL)
   const ws = origin(process.env.NEXT_PUBLIC_WS_URL)
   const minio = origin(process.env.NEXT_PUBLIC_MINIO_URL)
+  // Ретранслятор камер (docs/PROJECT.md §3.10): плеер берёт с него LL-HLS. На проде он за
+  // HTTPS и проходит по `https:` ниже; явный origin нужен стенду, где он на http.
+  const mediaRelay = origin(process.env.NEXT_PUBLIC_MEDIA_RELAY_URL)
   const wsScheme = ws ? ws.replace(/^http/, 'ws') : null
 
   const uniq = (list) => [...new Set(list.filter(Boolean))].join(' ')
@@ -167,8 +170,8 @@ function securityHeaders() {
     // есть от XSS защищают не эти директивы, а object-src/base-uri/form-action ниже.
     // Явные origin'ы оставлены документацией: по ним видно, куда ходит приложение.
     uniq(['img-src', "'self'", 'data:', 'blob:', 'https:', minio, api]),
-    uniq(['media-src', "'self'", 'blob:', 'https:', minio, api]),
-    uniq(['connect-src', "'self'", 'https:', 'wss:', api, ws, wsScheme, minio]),
+    uniq(['media-src', "'self'", 'blob:', 'https:', minio, api, mediaRelay]),
+    uniq(['connect-src', "'self'", 'https:', 'wss:', api, ws, wsScheme, minio, mediaRelay]),
     "font-src 'self' data:",
     "worker-src 'self' blob:",
     "object-src 'none'",

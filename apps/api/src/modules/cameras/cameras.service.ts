@@ -19,6 +19,7 @@ import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
 import { RoomService } from '../rooms/rooms.service'
 import { CameraAgentsService } from './camera-agents.service'
+import { CameraAgentSignal } from './camera-agent-signal'
 import { managedUniversity, viewedUniversity } from './camera-scope'
 
 const CAMERA_SELECT = {
@@ -91,6 +92,7 @@ export class CamerasService {
     private readonly audit: AuditService,
     private readonly agents: CameraAgentsService,
     private readonly rooms: RoomService,
+    private readonly signal: CameraAgentSignal,
   ) {}
 
   /** Список камер: админу — все и с подробностями, охране — только включённые. */
@@ -150,6 +152,7 @@ export class CamerasService {
       metadata: { universityId, agentId: agent.id },
       ...ctx,
     })
+    await this.signal.bump(agent.id)
     return toAdminView(row)
   }
 
@@ -194,6 +197,7 @@ export class CamerasService {
       metadata: { universityId: camera.universityId, fields: Object.keys(input) },
       ...ctx,
     })
+    await this.signal.bump(camera.agentId)
     return toAdminView(row)
   }
 
@@ -208,6 +212,7 @@ export class CamerasService {
       metadata: { universityId: camera.universityId },
       ...ctx,
     })
+    await this.signal.bump(camera.agentId)
   }
 
   /** Включён ли модуль камер вуза. Нет записи — выключен: вуз включает камеры сам. */
@@ -240,6 +245,8 @@ export class CamerasService {
       metadata: { universityId },
       ...ctx,
     })
+    // Выключение доходит до агентов сразу: они гасят потоки, не дожидаясь опроса.
+    await this.signal.bumpUniversity(universityId)
     return row
   }
 

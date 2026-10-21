@@ -98,3 +98,51 @@ export type CameraListQueryInput = z.infer<typeof CameraListQuerySchema>
 /** Выключатель модуля камер вуза: выключение обрывает все просмотры разом. */
 export const UpdateCameraSettingsSchema = z.object({ enabled: z.boolean() }).strict()
 export type UpdateCameraSettingsInput = z.infer<typeof UpdateCameraSettingsSchema>
+
+// ── Протокол агента (POST /camera-agent/sync) ────────────────────────────────────────
+// Агент держит с платформой длинный опрос: присылает о себе версию, открытый ключ и
+// состояние камер, получает текущую конфигурацию. Если его `revision` совпадает с
+// актуальной, ответ ждёт изменений до ~25 с — так конфигурация доходит до агента сразу,
+// а входящих соединений в сеть вуза не нужно.
+
+/** Открытый ключ X25519: base64url сырых 32 байт — ровно 43 символа без выравнивания. */
+export const AgentPublicKeySchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/)
+
+export const CameraAgentReportSchema = z
+  .object({
+    id: z.string().min(1).max(64),
+    status: CameraStatusSchema,
+  })
+  .strict()
+
+export const CameraAgentSyncSchema = z
+  .object({
+    version: z.string().trim().min(1).max(40),
+    publicKey: AgentPublicKeySchema,
+    /** Ревизия конфигурации, которая уже есть у агента. Нет — отдать сразу. */
+    revision: z.string().max(100).optional(),
+    cameras: z.array(CameraAgentReportSchema).max(200).default([]),
+  })
+  .strict()
+export type CameraAgentSyncInput = z.infer<typeof CameraAgentSyncSchema>
+
+/**
+ * Камера в конфигурации агента: адрес и конверт с паролем (вскрыть может только агент).
+ * `publish` — камеру сейчас смотрят: куда и с каким токеном отдавать поток. Нет — поток
+ * не отдавать.
+ */
+export interface CameraAgentCameraConfig {
+  id: string
+  streamUrl: string
+  credentialsSealed: string | null
+  publish: { url: string; token: string } | null
+}
+
+export interface CameraAgentSyncResponse {
+  revision: string
+  /** Модуль камер вуза включён. Выключен — агент гасит всё и камеры не опрашивает. */
+  enabled: boolean
+  cameras: CameraAgentCameraConfig[]
+  /** Сертификат ретранслятора для закрепления. Нет — ретранслятор не настроен. */
+  relayCaPem: string | null
+}

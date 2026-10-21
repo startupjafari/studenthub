@@ -6,6 +6,7 @@ import {
   Building2,
   CalendarDays,
   CalendarRange,
+  Cctv,
   ClipboardCheck,
   ClipboardList,
   DoorClosed,
@@ -123,6 +124,7 @@ const EMPLOYER: QuickAction[] = [
 // добавляются — хранилище участника вуза охране не нужно (см. quickActionsFor).
 const SECURITY_GUARD: QuickAction[] = [
   { navKey: 'securityPost', href: '/security', icon: LayoutDashboard },
+  { navKey: 'cameras', href: '/security/cameras', icon: Cctv },
   { navKey: 'scan', href: '/scan', icon: ScanQrCode },
   { navKey: 'verifyId', href: '/verify-id', icon: ScanLine },
   { navKey: 'securityRooms', href: '/security/rooms', icon: DoorClosed },

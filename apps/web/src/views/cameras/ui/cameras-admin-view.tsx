@@ -4,7 +4,8 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useTranslations } from 'next-intl'
-import { Cctv, KeyRound, Pencil, Plus, Power, Server, Trash2 } from 'lucide-react'
+import Link from 'next/link'
+import { Cctv, KeyRound, MonitorPlay, Pencil, Plus, Power, Server, Trash2 } from 'lucide-react'
 import type { CameraStatusValue } from '@studenthub/shared-schemas'
 import {
   Alert,
@@ -160,15 +161,25 @@ export function CamerasAdminView() {
           settings.isPending ? (
             <Skeleton className="h-9 w-40" />
           ) : (
-            <Button
-              type="button"
-              variant={enabled ? 'outline' : 'default'}
-              loading={settingsMut.isPending}
-              onClick={() => void toggleModule()}
-            >
-              <Power className="size-4" aria-hidden />
-              {enabled ? t('disable') : t('enable')}
-            </Button>
+            <>
+              {enabled && (
+                <Button asChild variant="default">
+                  <Link href="/university-admin/cameras/watch">
+                    <MonitorPlay className="size-4" aria-hidden />
+                    {t('watch')}
+                  </Link>
+                </Button>
+              )}
+              <Button
+                type="button"
+                variant={enabled ? 'outline' : 'default'}
+                loading={settingsMut.isPending}
+                onClick={() => void toggleModule()}
+              >
+                <Power className="size-4" aria-hidden />
+                {enabled ? t('disable') : t('enable')}
+              </Button>
+            </>
           )
         }
       />

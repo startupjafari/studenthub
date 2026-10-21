@@ -267,10 +267,11 @@ export const UNIVERSITY_MODERATOR_NAV: NavItem[] = [
   { key: 'chats', href: '/moderator/university/chats', icon: MessagesSquare },
 ]
 
-// Охрана вуза (docs/PROJECT.md §2): пост, сканер, проверка студенческого, помещения.
+// Охрана вуза (docs/PROJECT.md §2): пост, камеры, сканер, проверка студенческого, помещения.
 // Сканер есть и в шапке, но на посту это главное действие — оно и в навигации.
 export const SECURITY_GUARD_NAV: NavItem[] = [
   { key: 'securityPost', href: '/security', icon: LayoutDashboard, exact: true },
+  { key: 'cameras', href: '/security/cameras', icon: Cctv },
   { key: 'scan', href: '/scan', icon: ScanQrCode },
   { key: 'verifyId', href: '/verify-id', icon: ScanLine },
   // Своя подпись: «Помещения и QR» — раздел админа с печатью наклеек, у охраны её нет.
