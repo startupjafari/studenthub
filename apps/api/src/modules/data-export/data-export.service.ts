@@ -1128,4 +1128,7 @@ export const USER_RELATIONS: Readonly<Record<string, { section: string } | { exc
     'StoryPollVote.userId': { section: 'storyPollVotes' },
     'StoryView.userId': { section: 'storyViews' },
     'StoryReaction.userId': { section: 'storyReactions' },
+    // Камеры вуза (§3.10): кто завёл агента и кто переключал модуль — работа админа вуза.
+    'CameraAgent.createdById': { excluded: STAFF_WORK },
+    'CameraSettings.updatedById': { excluded: STAFF_WORK },
   }
