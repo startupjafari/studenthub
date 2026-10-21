@@ -35,6 +35,9 @@ model University {
   vacancyReviews   VacancyUniversityReview[] @relation("UniversityVacancyReviews")
   demoRequests     UniversityDemoRequest[]   @relation("UniversityDemoRequest")
   onboarding       UniversityOnboarding?     @relation("UniversityOnboarding")
+  cameraAgents     CameraAgent[]
+  cameras          Camera[]
+  cameraSettings   CameraSettings?
 
   @@index([status])
   @@map("universities")
@@ -132,6 +135,7 @@ model Room {
   pairs           Pair[]
   scheduleChanges ScheduleChange[] @relation("ScheduleChangeNewRoom")
   exams           Exam[]           @relation("ExamRoom")
+  cameras         Camera[]
 
   @@index([universityId])
   @@map("rooms")
