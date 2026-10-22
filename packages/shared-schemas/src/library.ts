@@ -292,3 +292,122 @@ export interface LibraryImportResult {
   copies: number
   skipped: number
 }
+
+// ── Выдачи (20.4–20.6) ───────────────────────────────────────────────────────────────
+
+/** Дата «YYYY-MM-DD»: срок выдачи — до конца этого дня по часам вуза. */
+export const LibraryDateSchema = z
+  .string()
+  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Дата в формате ГГГГ-ММ-ДД')
+
+/** Сканер студенческого отдал токен из QR — сервер сверяет читателя и выдаёт пропуск. */
+export const ResolveReaderSchema = z.object({ token: z.string().min(1).max(2048) }).strict()
+export type ResolveReaderInput = z.infer<typeof ResolveReaderSchema>
+
+/** Экземпляр — по коду наклейки или по инвентарному номеру (наклейка стёрлась). */
+const copyRef = {
+  copyCode: z.string().trim().min(1).max(20).optional(),
+  inventoryNumber: InventoryNumberSchema.optional(),
+}
+const oneCopyRef = (v: { copyCode?: string; inventoryNumber?: string }) =>
+  (v.copyCode ? 1 : 0) + (v.inventoryNumber ? 1 : 0) === 1
+
+export const IssueLoanSchema = z
+  .object({
+    /** Пропуск читателя из `POST /library/readers/resolve`. */
+    ticket: z.string().min(1).max(2048),
+    ...copyRef,
+    /** Не указан — срок по умолчанию из правил вуза. */
+    dueDate: LibraryDateSchema.optional(),
+  })
+  .strict()
+  .refine(oneCopyRef, { message: 'Укажите код наклейки или инвентарный номер', path: ['copyCode'] })
+export type IssueLoanInput = z.infer<typeof IssueLoanSchema>
+
+/** Возврат — сканом экземпляра: какая выдача открыта, сервер знает сам. */
+export const ReturnLoanSchema = z
+  .object({ ...copyRef, condition: BookConditionSchema.default('GOOD') })
+  .strict()
+  .refine(oneCopyRef, { message: 'Укажите код наклейки или инвентарный номер', path: ['copyCode'] })
+export type ReturnLoanInput = z.infer<typeof ReturnLoanSchema>
+
+/** Продление: новая дата или, без неё, срок по умолчанию от текущего срока. */
+export const RenewLoanSchema = z.object({ dueDate: LibraryDateSchema.optional() }).strict()
+export type RenewLoanInput = z.infer<typeof RenewLoanSchema>
+
+/** Отмена ошибочной выдачи — с причиной: выдачи не правятся задним числом. */
+export const CancelLoanSchema = z.object({ reason: z.string().trim().min(3).max(300) }).strict()
+export type CancelLoanInput = z.infer<typeof CancelLoanSchema>
+
+export const LOAN_STATUSES = ['OPEN', 'RETURNED', 'LOST', 'CANCELLED'] as const
+export const LoanStatusSchema = z.enum(LOAN_STATUSES)
+export type LoanStatusValue = z.infer<typeof LoanStatusSchema>
+
+/** Фильтр выдач: на руках, просроченные (на руках со вчерашним сроком), закрытые, все. */
+export const LOAN_FILTERS = ['open', 'overdue', 'closed', 'all'] as const
+export const LoanListQuerySchema = z.object({
+  page: z.coerce.number().int().positive().default(1),
+  limit: z.coerce.number().int().positive().max(100).default(20),
+  filter: z.enum(LOAN_FILTERS).default('open'),
+  q: z.string().trim().max(100).optional(),
+  readerId: z.string().min(1).optional(),
+  copyId: z.string().min(1).optional(),
+})
+export type LoanListQueryInput = z.infer<typeof LoanListQuerySchema>
+
+/** Почему читателю сейчас не выдать книгу. */
+export const READER_BLOCKERS = ['status', 'limit', 'overdue'] as const
+export type ReaderBlocker = (typeof READER_BLOCKERS)[number]
+
+/** Читатель глазами библиотеки: узкая карточка, как у охраны (без даты рождения и т. п.). */
+export interface LibraryReader {
+  id: string
+  firstName: string
+  lastName: string
+  middleName: string | null
+  avatarUrl: string | null
+  group: string | null
+  faculty: string | null
+  studentCardNumber: string | null
+  academicStatus: string | null
+  course: number | null
+}
+
+export interface ReaderEligibility {
+  canBorrow: boolean
+  activeLoans: number
+  maxActiveLoans: number
+  overdueLoans: number
+  blockers: ReaderBlocker[]
+}
+
+export interface LoanItem {
+  id: string
+  status: LoanStatusValue
+  issuedAt: string
+  dueAt: string
+  /** Последний день срока «YYYY-MM-DD» по часам вуза — его и показывать. */
+  dueDate: string
+  overdue: boolean
+  renewals: number
+  returnedAt: string | null
+  cancelledAt: string | null
+  cancelReason: string | null
+  disputedAt: string | null
+  book: { id: string; title: string; authors: string; coverUrl: string | null }
+  copy: { id: string; inventoryNumber: string }
+  reader: { id: string | null; name: string; group: string | null; card: string | null }
+  issuedBy: string | null
+}
+
+/** Ответ сканера студенческого: читатель, может ли он брать книги, его выдачи и пропуск. */
+export interface LibraryReaderSession {
+  reader: LibraryReader
+  eligibility: ReaderEligibility
+  /** Пропуск на выдачу этому читателю — живёт дольше двухминутного QR студенческого. */
+  ticket: string
+  ticketExpiresAt: string
+  loans: LoanItem[]
+  defaultDueDate: string
+  maxDueDate: string
+}

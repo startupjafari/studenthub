@@ -21,6 +21,8 @@ const VERIFY_ROLES = [
   Role.PLATFORM_ADMIN,
   Role.PLATFORM_MODERATOR,
   Role.SECURITY_GUARD,
+  // Библиотекарь сверяет читателя при выдаче книги (Фаза 20.4).
+  Role.LIBRARIAN,
 ] as const
 
 @ApiTags('Студенческий билет')
@@ -36,7 +38,7 @@ export class StudentIdController {
     return this.studentId.myCard(user)
   }
 
-  @RestrictedAllowed(Role.SECURITY_GUARD)
+  @RestrictedAllowed(Role.SECURITY_GUARD, Role.LIBRARIAN)
   @Get('verify')
   @Roles(...VERIFY_ROLES)
   @ApiOperation({ summary: 'Проверить студенческий по QR (сотрудник)' })

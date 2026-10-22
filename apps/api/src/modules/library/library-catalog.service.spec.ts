@@ -262,7 +262,7 @@ describe('Импорт фонда', () => {
       { record: jest.fn() } as never,
       service,
     )
-    const raw = (over: Record<string, string>) => ({
+    const raw = (over: Partial<Record<string, string | number>>) => ({
       line: 2,
       title: 'Книга',
       authors: '',
