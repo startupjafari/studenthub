@@ -64,11 +64,11 @@ class LibraryRulesTest {
     /** Текст отказа выбирается по полю, серверное сообщение (оно для библиотекаря) не показываем. */
     @Test
     fun refusalTextFollowsField() {
-        assertEquals(UiText.Res(R.string.library_errorOverdue), LibraryErrors.message(conflict("overdue")))
-        assertEquals(UiText.Res(R.string.library_errorReservationLimit), LibraryErrors.message(conflict("reservationLimit")))
-        assertEquals(UiText.Res(R.string.library_errorClosed), LibraryErrors.message(conflict("closed")))
+        assertEquals(UiText.Res(R.string.books_errorOverdue), LibraryErrors.message(conflict("overdue")))
+        assertEquals(UiText.Res(R.string.books_errorReservationLimit), LibraryErrors.message(conflict("reservationLimit")))
+        assertEquals(UiText.Res(R.string.books_errorClosed), LibraryErrors.message(conflict("closed")))
         assertEquals(
-            UiText.Res(R.string.library_errorNotFound),
+            UiText.Res(R.string.books_errorNotFound),
             LibraryErrors.message(ApiError.Server(ApiErrorCode.NOT_FOUND, "нет", emptyList(), 404)),
         )
         // Незнакомое поле — как везде: серверный текст.
@@ -85,12 +85,12 @@ class LibraryRulesTest {
 
     @Test
     fun availabilityBadge() {
-        assertEquals(UiText.Res(R.string.library_noCopies), LibraryBadge.availability(BookCardDto.Availability()).text)
+        assertEquals(UiText.Res(R.string.books_noCopies), LibraryBadge.availability(BookCardDto.Availability()).text)
         val onShelf = LibraryBadge.availability(BookCardDto.Availability(total = 3, available = 2))
-        assertEquals(UiText.Res(R.string.library_availableOf, listOf(2, 3)), onShelf.text)
+        assertEquals(UiText.Res(R.string.books_availableOf, listOf(2, 3)), onShelf.text)
         assertEquals(LibraryBadge.Tone.SUCCESS, onShelf.tone)
-        assertEquals(UiText.Res(R.string.library_allOut), LibraryBadge.availability(BookCardDto.Availability(total = 3)).text)
-        assertEquals(UiText.Res(R.string.library_allTaken), LibraryBadge.availability(BookCardDto.Availability(total = 3), detailed = true).text)
+        assertEquals(UiText.Res(R.string.books_allOut), LibraryBadge.availability(BookCardDto.Availability(total = 3)).text)
+        assertEquals(UiText.Res(R.string.books_allTaken), LibraryBadge.availability(BookCardDto.Availability(total = 3), detailed = true).text)
     }
 
     /** Срок — день `dueDate` по часам вуза, а не момент `dueAt` в поясе телефона. */
@@ -98,21 +98,21 @@ class LibraryRulesTest {
     fun loanBadgeUsesDueDate() {
         val format = { day: LocalDate -> day.toString() }
         val due = LibraryBadge.loan(loan("l1", "b1"), format)
-        assertEquals(UiText.Res(R.string.library_dueUntil, listOf("2026-11-05")), due.text)
+        assertEquals(UiText.Res(R.string.books_dueUntil, listOf("2026-11-05")), due.text)
         val overdue = LibraryBadge.loan(loan("l1", "b1", overdue = true), format)
-        assertEquals(UiText.Res(R.string.library_overdueSince, listOf("2026-11-05")), overdue.text)
+        assertEquals(UiText.Res(R.string.books_overdueSince, listOf("2026-11-05")), overdue.text)
         assertEquals(LibraryBadge.Tone.DESTRUCTIVE, overdue.tone)
-        assertEquals(UiText.Res(R.string.library_loanReturned), LibraryBadge.loan(loan("l1", "b1", status = "RETURNED"), format).text)
+        assertEquals(UiText.Res(R.string.books_loanReturned), LibraryBadge.loan(loan("l1", "b1", status = "RETURNED"), format).text)
     }
 
     @Test
     fun reservationBadge() {
         val format = { day: LocalDate -> day.toString() }
-        assertEquals(UiText.Res(R.string.library_resQueuePosition, listOf(2)), LibraryBadge.reservation(reservation("r1", "b1"), format).text)
-        assertEquals(UiText.Res(R.string.library_resQueued), LibraryBadge.reservation(reservation("r1", "b1", position = null), format).text)
+        assertEquals(UiText.Res(R.string.books_resQueuePosition, listOf(2)), LibraryBadge.reservation(reservation("r1", "b1"), format).text)
+        assertEquals(UiText.Res(R.string.books_resQueued), LibraryBadge.reservation(reservation("r1", "b1", position = null), format).text)
         val ready = reservation("r1", "b1", status = "READY", position = null).copy(holdDate = "2026-10-25")
-        assertEquals(UiText.Res(R.string.library_resReadyUntil, listOf("2026-10-25")), LibraryBadge.reservation(ready, format).text)
-        assertEquals(UiText.Res(R.string.library_resExpired), LibraryBadge.reservation(reservation("r1", "b1", status = "EXPIRED"), format).text)
+        assertEquals(UiText.Res(R.string.books_resReadyUntil, listOf("2026-10-25")), LibraryBadge.reservation(ready, format).text)
+        assertEquals(UiText.Res(R.string.books_resExpired), LibraryBadge.reservation(reservation("r1", "b1", status = "EXPIRED"), format).text)
     }
 }
 
@@ -130,13 +130,13 @@ class BookModelTest {
     fun ownReservationOrLoanChangesAction() = runTest {
         val reserved = loaded(book("b1"), reservations = listOf(reservation("r1", "b1"), reservation("r0", "b2")))
         assertEquals(BookAction.Cancel("r1"), reserved.action)
-        assertEquals(R.string.library_queuedHint, reserved.hint)
+        assertEquals(R.string.books_queuedHint, reserved.hint)
         // Закрытая бронь не в счёт.
         val closed = loaded(book("b1"), reservations = listOf(reservation("r1", "b1", status = "CANCELLED")))
         assertTrue(closed.action is BookAction.Reserve)
         val onHands = loaded(book("b1"), loans = listOf(loan("l1", "b1")))
         assertEquals(BookAction.None, onHands.action)
-        assertEquals(R.string.library_onHandsHint, onHands.hint)
+        assertEquals(R.string.books_onHandsHint, onHands.hint)
     }
 
     /** Наклейка разбирается в книгу по коду, дальше экран живёт с её id. */
@@ -157,7 +157,7 @@ class BookModelTest {
         model.load()
         model.reserve()
         assertEquals(BookAction.Cancel("new"), model.action)
-        assertEquals(UiText.Res(R.string.library_reservedReady), model.notice)
+        assertEquals(UiText.Res(R.string.books_reservedReady), model.notice)
     }
 
     @Test
@@ -166,7 +166,7 @@ class BookModelTest {
         val model = BookModel(BookRef.Id("b1"), api)
         model.load()
         model.reserve()
-        assertEquals(UiText.Res(R.string.library_errorOverdue), model.notice)
+        assertEquals(UiText.Res(R.string.books_errorOverdue), model.notice)
     }
 
     @Test
@@ -244,7 +244,7 @@ class MyBooksModelTest {
         model.refresh()
         model.dispute("l1")
         assertNotNull(model.onHands.single().disputedAt)
-        assertEquals(UiText.Res(R.string.library_disputedToast), model.notice)
+        assertEquals(UiText.Res(R.string.books_disputedToast), model.notice)
     }
 
     @Test

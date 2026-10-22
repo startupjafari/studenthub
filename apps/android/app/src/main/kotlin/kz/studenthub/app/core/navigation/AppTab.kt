@@ -67,8 +67,8 @@ enum class MoreSection(@StringRes val title: Int, val icon: ImageVector) {
     SERVICE_CATALOG(R.string.applications_catalog, Icons.Outlined.GridView),
 
     // Библиотека вуза: студент и староста, и только если вуз её включил.
-    LIBRARY(R.string.library_title, Icons.Outlined.LocalLibrary),
-    MY_BOOKS(R.string.library_myBooks, Icons.Outlined.Bookmarks),
+    LIBRARY(R.string.books_title, Icons.Outlined.LocalLibrary),
+    MY_BOOKS(R.string.books_myBooks, Icons.Outlined.Bookmarks),
     ;
 
     companion object {

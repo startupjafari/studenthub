@@ -35,15 +35,15 @@ object LibraryErrors {
 
     fun message(error: Throwable): UiText {
         val text = when (field(error)) {
-            "status" -> R.string.library_errorStatus
-            "overdue" -> R.string.library_errorOverdue
-            "reservationLimit" -> R.string.library_errorReservationLimit
-            "alreadyReserved" -> R.string.library_errorAlreadyReserved
-            "alreadyBorrowed" -> R.string.library_errorAlreadyBorrowed
-            "noCopies" -> R.string.library_errorNoCopies
-            "closed" -> R.string.library_errorClosed
-            "module" -> R.string.library_errorModule
-            else -> if ((error as? ApiError)?.code == ApiErrorCode.NOT_FOUND) R.string.library_errorNotFound else null
+            "status" -> R.string.books_errorStatus
+            "overdue" -> R.string.books_errorOverdue
+            "reservationLimit" -> R.string.books_errorReservationLimit
+            "alreadyReserved" -> R.string.books_errorAlreadyReserved
+            "alreadyBorrowed" -> R.string.books_errorAlreadyBorrowed
+            "noCopies" -> R.string.books_errorNoCopies
+            "closed" -> R.string.books_errorClosed
+            "module" -> R.string.books_errorModule
+            else -> if ((error as? ApiError)?.code == ApiErrorCode.NOT_FOUND) R.string.books_errorNotFound else null
         }
         return text?.let { UiText.Res(it) } ?: error.displayMessage()
     }
@@ -59,38 +59,38 @@ data class LibraryBadge(val text: UiText, val tone: Tone) {
          * «Все экземпляры на руках»: там рядом уже кнопка очереди.
          */
         fun availability(availability: BookCardDto.Availability, detailed: Boolean = false): LibraryBadge = when {
-            availability.total == 0 -> LibraryBadge(UiText.Res(R.string.library_noCopies), Tone.NEUTRAL)
+            availability.total == 0 -> LibraryBadge(UiText.Res(R.string.books_noCopies), Tone.NEUTRAL)
             availability.available > 0 -> LibraryBadge(
-                UiText.Res(R.string.library_availableOf, listOf(availability.available, availability.total)),
+                UiText.Res(R.string.books_availableOf, listOf(availability.available, availability.total)),
                 Tone.SUCCESS,
             )
-            detailed -> LibraryBadge(UiText.Res(R.string.library_allTaken), Tone.NEUTRAL)
-            else -> LibraryBadge(UiText.Res(R.string.library_allOut), Tone.WARNING)
+            detailed -> LibraryBadge(UiText.Res(R.string.books_allTaken), Tone.NEUTRAL)
+            else -> LibraryBadge(UiText.Res(R.string.books_allOut), Tone.WARNING)
         }
 
         /** Срок выдачи: «до 5 нояб.», просрочка — красным, закрытые — статусом. */
         fun loan(loan: LoanDto, formatDay: (LocalDate) -> String): LibraryBadge {
             val day = loan.dueDay?.let(formatDay) ?: loan.dueDate
             return when {
-                loan.status == "RETURNED" -> LibraryBadge(UiText.Res(R.string.library_loanReturned), Tone.NEUTRAL)
-                loan.status == "LOST" -> LibraryBadge(UiText.Res(R.string.library_loanLost), Tone.DESTRUCTIVE)
-                loan.status == "CANCELLED" -> LibraryBadge(UiText.Res(R.string.library_loanCancelled), Tone.NEUTRAL)
-                loan.overdue -> LibraryBadge(UiText.Res(R.string.library_overdueSince, listOf(day)), Tone.DESTRUCTIVE)
-                else -> LibraryBadge(UiText.Res(R.string.library_dueUntil, listOf(day)), Tone.INFO)
+                loan.status == "RETURNED" -> LibraryBadge(UiText.Res(R.string.books_loanReturned), Tone.NEUTRAL)
+                loan.status == "LOST" -> LibraryBadge(UiText.Res(R.string.books_loanLost), Tone.DESTRUCTIVE)
+                loan.status == "CANCELLED" -> LibraryBadge(UiText.Res(R.string.books_loanCancelled), Tone.NEUTRAL)
+                loan.overdue -> LibraryBadge(UiText.Res(R.string.books_overdueSince, listOf(day)), Tone.DESTRUCTIVE)
+                else -> LibraryBadge(UiText.Res(R.string.books_dueUntil, listOf(day)), Tone.INFO)
             }
         }
 
         /** Бронь: готова до такого-то дня, место в очереди или чем закончилась. */
         fun reservation(reservation: ReservationDto, formatDay: (LocalDate) -> String): LibraryBadge = when (reservation.status) {
             "READY" -> reservation.holdDay?.let {
-                LibraryBadge(UiText.Res(R.string.library_resReadyUntil, listOf(formatDay(it))), Tone.SUCCESS)
-            } ?: LibraryBadge(UiText.Res(R.string.library_resReady), Tone.SUCCESS)
+                LibraryBadge(UiText.Res(R.string.books_resReadyUntil, listOf(formatDay(it))), Tone.SUCCESS)
+            } ?: LibraryBadge(UiText.Res(R.string.books_resReady), Tone.SUCCESS)
             "QUEUED" -> reservation.position?.let {
-                LibraryBadge(UiText.Res(R.string.library_resQueuePosition, listOf(it)), Tone.INFO)
-            } ?: LibraryBadge(UiText.Res(R.string.library_resQueued), Tone.INFO)
-            "FULFILLED" -> LibraryBadge(UiText.Res(R.string.library_resFulfilled), Tone.NEUTRAL)
-            "EXPIRED" -> LibraryBadge(UiText.Res(R.string.library_resExpired), Tone.NEUTRAL)
-            else -> LibraryBadge(UiText.Res(R.string.library_resCancelled), Tone.NEUTRAL)
+                LibraryBadge(UiText.Res(R.string.books_resQueuePosition, listOf(it)), Tone.INFO)
+            } ?: LibraryBadge(UiText.Res(R.string.books_resQueued), Tone.INFO)
+            "FULFILLED" -> LibraryBadge(UiText.Res(R.string.books_resFulfilled), Tone.NEUTRAL)
+            "EXPIRED" -> LibraryBadge(UiText.Res(R.string.books_resExpired), Tone.NEUTRAL)
+            else -> LibraryBadge(UiText.Res(R.string.books_resCancelled), Tone.NEUTRAL)
         }
     }
 }
@@ -296,12 +296,12 @@ class BookModel(private val ref: BookRef, private val api: LibraryFetching) : Vi
         get() {
             val b = book ?: return null
             return when {
-                mine?.status == "READY" -> R.string.library_readyHint
-                mine?.status == "QUEUED" -> R.string.library_queuedHint
-                onHands != null -> R.string.library_onHandsHint
+                mine?.status == "READY" -> R.string.books_readyHint
+                mine?.status == "QUEUED" -> R.string.books_queuedHint
+                onHands != null -> R.string.books_onHandsHint
                 b.availability.total == 0 -> null
-                b.availability.available > 0 -> R.string.library_reserveHint
-                else -> R.string.library_queueHint
+                b.availability.available > 0 -> R.string.books_reserveHint
+                else -> R.string.books_queueHint
             }
         }
 
@@ -351,7 +351,7 @@ class BookModel(private val ref: BookRef, private val api: LibraryFetching) : Vi
         try {
             val created = api.reserve(b.id)
             reservations = listOf(created) + reservations.filter { it.id != created.id }
-            notice = UiText.Res(if (created.status == "READY") R.string.library_reservedReady else R.string.library_reservedQueued)
+            notice = UiText.Res(if (created.status == "READY") R.string.books_reservedReady else R.string.books_reservedQueued)
             failure = null
             refreshAvailability(b.id)
         } catch (error: Exception) {
@@ -373,7 +373,7 @@ class BookModel(private val ref: BookRef, private val api: LibraryFetching) : Vi
         try {
             val closed = api.cancelReservation(reservationId)
             reservations = reservations.map { if (it.id == closed.id) closed else it }
-            notice = UiText.Res(R.string.library_cancelled)
+            notice = UiText.Res(R.string.books_cancelled)
             refreshAvailability(b.id)
         } catch (error: Exception) {
             if (error is kotlinx.coroutines.CancellationException) throw error
@@ -466,7 +466,7 @@ class MyBooksModel(private val api: LibraryFetching) : ViewModel() {
         try {
             val updated = api.dispute(loanId)
             loans = loans.map { if (it.id == updated.id) updated else it }
-            notice = UiText.Res(R.string.library_disputedToast)
+            notice = UiText.Res(R.string.books_disputedToast)
         } catch (error: Exception) {
             if (error is kotlinx.coroutines.CancellationException) throw error
             notice = LibraryErrors.message(error)
@@ -485,7 +485,7 @@ class MyBooksModel(private val api: LibraryFetching) : ViewModel() {
         try {
             val closed = api.cancelReservation(reservationId)
             reservations = reservations.map { if (it.id == closed.id) closed else it }
-            notice = UiText.Res(R.string.library_cancelled)
+            notice = UiText.Res(R.string.books_cancelled)
         } catch (error: Exception) {
             if (error is kotlinx.coroutines.CancellationException) throw error
             notice = LibraryErrors.message(error)

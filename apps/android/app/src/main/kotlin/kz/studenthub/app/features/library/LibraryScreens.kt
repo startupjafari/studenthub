@@ -96,7 +96,7 @@ fun LibraryScreen() {
     LaunchedEffect(model) { if (!model.loaded) model.start() }
     val keyboard = LocalSoftwareKeyboardController.current
 
-    ScreenScaffold(title = stringResource(R.string.library_title)) {
+    ScreenScaffold(title = stringResource(R.string.books_title)) {
         if (model.isDisabled) {
             LibraryDisabled()
             return@ScreenScaffold
@@ -109,13 +109,13 @@ fun LibraryScreen() {
             ) {
                 item(key = "mine") {
                     ListGroup {
-                        ListRow(stringResource(R.string.library_myBooks), Icons.Outlined.Bookmarks) {
+                        ListRow(stringResource(R.string.books_myBooks), Icons.Outlined.Bookmarks) {
                             services.router.push(AppRoute.Section(MoreSection.MY_BOOKS))
                         }
                     }
                 }
                 item(key = "search") {
-                    val label = stringResource(R.string.library_searchPlaceholder)
+                    val label = stringResource(R.string.books_searchPlaceholder)
                     FormField(
                         value = model.query,
                         onValueChange = model::type,
@@ -134,9 +134,9 @@ fun LibraryScreen() {
                 if (model.loaded && model.books.isEmpty() && model.failure == null) {
                     item(key = "empty") {
                         if (model.isFiltered) {
-                            EmptyRow(stringResource(R.string.library_nothingFound))
+                            EmptyRow(stringResource(R.string.books_nothingFound))
                         } else {
-                            EmptyRow(stringResource(R.string.library_emptyTitle) + "\n" + stringResource(R.string.library_emptyHint))
+                            EmptyRow(stringResource(R.string.books_emptyTitle) + "\n" + stringResource(R.string.books_emptyHint))
                         }
                     }
                 }
@@ -167,17 +167,17 @@ private fun CatalogFilters(model: CatalogModel) {
                     modifier = Modifier.clickable { menu = true }.padding(vertical = Spacing.sm),
                 ) {
                     Text(
-                        model.section ?: stringResource(R.string.library_allSections),
+                        model.section ?: stringResource(R.string.books_allSections),
                         style = AppType.meta,
                         color = colors.primary,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false),
                     )
-                    Icon(Icons.Outlined.ArrowDropDown, contentDescription = stringResource(R.string.library_section), tint = colors.primary)
+                    Icon(Icons.Outlined.ArrowDropDown, contentDescription = stringResource(R.string.books_section), tint = colors.primary)
                 }
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                    DropdownMenuItem(text = { Text(stringResource(R.string.library_allSections)) }, onClick = {
+                    DropdownMenuItem(text = { Text(stringResource(R.string.books_allSections)) }, onClick = {
                         menu = false
                         model.pickSection(null)
                     })
@@ -192,7 +192,7 @@ private fun CatalogFilters(model: CatalogModel) {
         }
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { model.toggleAvailable() }) {
             Checkbox(checked = model.onlyAvailable, onCheckedChange = { model.toggleAvailable() })
-            Text(stringResource(R.string.library_onlyAvailable), style = AppType.meta, color = colors.foreground)
+            Text(stringResource(R.string.books_onlyAvailable), style = AppType.meta, color = colors.foreground)
         }
     }
 }
@@ -243,7 +243,7 @@ fun BookScreen(ref: BookRef) {
     val colors = AppTheme.colors
     val book = model.book
 
-    ScreenScaffold(title = book?.title ?: stringResource(R.string.library_book), snackbar = snackbar) {
+    ScreenScaffold(title = book?.title ?: stringResource(R.string.books_book), snackbar = snackbar) {
         if (model.isDisabled) {
             LibraryDisabled()
             return@ScreenScaffold
@@ -269,13 +269,13 @@ fun BookScreen(ref: BookRef) {
 
                 when (val action = model.action) {
                     is BookAction.Reserve -> PrimaryButton(
-                        text = stringResource(if (action.queue) R.string.library_joinQueue else R.string.library_reserve),
+                        text = stringResource(if (action.queue) R.string.books_joinQueue else R.string.books_reserve),
                         onClick = model::reserveNow,
                         enabled = action.enabled,
                         isLoading = model.isWorking,
                     )
                     is BookAction.Cancel -> QuietButton(
-                        text = stringResource(R.string.library_cancelReservation),
+                        text = stringResource(R.string.books_cancelReservation),
                         color = colors.destructive,
                         onClick = { if (!model.isWorking) confirmCancel = action.reservationId },
                     )
@@ -284,10 +284,10 @@ fun BookScreen(ref: BookRef) {
                 model.hint?.let { Text(stringResource(it), style = AppType.meta, color = colors.mutedForeground) }
 
                 val facts = listOfNotNull(
-                    book.isbn?.let { stringResource(R.string.library_isbn) to it },
-                    book.publisher?.let { stringResource(R.string.library_publisher) to it },
-                    book.year?.let { stringResource(R.string.library_year) to it.toString() },
-                    book.section?.let { stringResource(R.string.library_section) to it },
+                    book.isbn?.let { stringResource(R.string.books_isbn) to it },
+                    book.publisher?.let { stringResource(R.string.books_publisher) to it },
+                    book.year?.let { stringResource(R.string.books_year) to it.toString() },
+                    book.section?.let { stringResource(R.string.books_section) to it },
                 )
                 if (facts.isNotEmpty()) {
                     ListGroup {
@@ -305,7 +305,7 @@ fun BookScreen(ref: BookRef) {
                 }
 
                 book.description?.takeIf { it.isNotBlank() }?.let {
-                    Text(stringResource(R.string.library_description), style = AppType.sectionTitle, color = colors.foreground)
+                    Text(stringResource(R.string.books_description), style = AppType.sectionTitle, color = colors.foreground)
                     Text(it, style = AppType.body, color = colors.foreground)
                 }
             }
@@ -314,9 +314,9 @@ fun BookScreen(ref: BookRef) {
 
     confirmCancel?.let { id ->
         ConfirmDialog(
-            title = stringResource(R.string.library_cancelTitle),
-            text = stringResource(R.string.library_cancelDesc, book?.title.orEmpty()),
-            confirm = stringResource(R.string.library_cancelReservation),
+            title = stringResource(R.string.books_cancelTitle),
+            text = stringResource(R.string.books_cancelDesc, book?.title.orEmpty()),
+            confirm = stringResource(R.string.books_cancelReservation),
             destructive = true,
             onConfirm = {
                 confirmCancel = null
@@ -349,7 +349,7 @@ fun MyBooksScreen() {
     val formatDay = rememberDayFormat()
     val open = { id: String -> services.router.push(AppRoute.Book(id)) }
 
-    ScreenScaffold(title = stringResource(R.string.library_myBooks), snackbar = snackbar) {
+    ScreenScaffold(title = stringResource(R.string.books_myBooks), snackbar = snackbar) {
         if (model.isDisabled) {
             LibraryDisabled()
             return@ScreenScaffold
@@ -362,17 +362,17 @@ fun MyBooksScreen() {
             ) {
                 model.failure?.let { item(key = "failure") { FormAlert(it.resolve()) } }
                 if (model.overdueCount > 0) {
-                    item(key = "overdue") { FormAlert(stringResource(R.string.library_overdueBanner, model.overdueCount)) }
+                    item(key = "overdue") { FormAlert(stringResource(R.string.books_overdueBanner, model.overdueCount)) }
                 }
                 if (!model.loaded) return@LazyColumn
 
-                item(key = "onHands") { SectionHeader(R.string.library_onHands, R.string.library_onHandsSubtitle) }
+                item(key = "onHands") { SectionHeader(R.string.books_onHands, R.string.books_onHandsSubtitle) }
                 if (model.onHands.isEmpty()) {
                     item(key = "noLoans") {
                         Column {
-                            EmptyRow(stringResource(R.string.library_noLoans))
+                            EmptyRow(stringResource(R.string.books_noLoans))
                             // Под «Моими книгами» в стеке всегда каталог: и из списка «Ещё», и из уведомления.
-                            QuietButton(stringResource(R.string.library_toCatalog), color = AppTheme.colors.primary, onClick = { services.router.pop() })
+                            QuietButton(stringResource(R.string.books_toCatalog), color = AppTheme.colors.primary, onClick = { services.router.pop() })
                         }
                     }
                 }
@@ -386,10 +386,10 @@ fun MyBooksScreen() {
                     )
                 }
 
-                item(key = "reservations") { SectionHeader(R.string.library_reservations, R.string.library_reservationsSubtitle) }
+                item(key = "reservations") { SectionHeader(R.string.books_reservations, R.string.books_reservationsSubtitle) }
                 if (model.activeReservations.isEmpty()) {
                     item(key = "noReservations") {
-                        Text(stringResource(R.string.library_noReservations), style = AppType.meta, color = AppTheme.colors.mutedForeground)
+                        Text(stringResource(R.string.books_noReservations), style = AppType.meta, color = AppTheme.colors.mutedForeground)
                     }
                 }
                 items(model.activeReservations, key = { "reservation-${it.id}" }) { reservation ->
@@ -403,7 +403,7 @@ fun MyBooksScreen() {
                 }
 
                 if (model.history.isNotEmpty()) {
-                    item(key = "history") { SectionHeader(R.string.library_history, R.string.library_historySubtitle) }
+                    item(key = "history") { SectionHeader(R.string.books_history, R.string.books_historySubtitle) }
                     items(model.history, key = { "history-${it.id}" }) { loan ->
                         LoanCard(loan = loan, formatDay = formatDay, isBusy = false, onOpen = { open(loan.book.id) }, onDispute = {})
                     }
@@ -414,9 +414,9 @@ fun MyBooksScreen() {
 
     confirmDispute?.let { loan ->
         ConfirmDialog(
-            title = stringResource(R.string.library_disputeTitle),
-            text = stringResource(R.string.library_disputeDesc, loan.book.title),
-            confirm = stringResource(R.string.library_dispute),
+            title = stringResource(R.string.books_disputeTitle),
+            text = stringResource(R.string.books_disputeDesc, loan.book.title),
+            confirm = stringResource(R.string.books_dispute),
             destructive = false,
             onConfirm = {
                 confirmDispute = null
@@ -427,9 +427,9 @@ fun MyBooksScreen() {
     }
     confirmCancel?.let { reservation ->
         ConfirmDialog(
-            title = stringResource(R.string.library_cancelTitle),
-            text = stringResource(R.string.library_cancelDesc, reservation.book.title),
-            confirm = stringResource(R.string.library_cancelReservation),
+            title = stringResource(R.string.books_cancelTitle),
+            text = stringResource(R.string.books_cancelDesc, reservation.book.title),
+            confirm = stringResource(R.string.books_cancelReservation),
             destructive = true,
             onConfirm = {
                 confirmCancel = null
@@ -447,7 +447,7 @@ private fun LoanCard(loan: LoanDto, formatDay: (LocalDate) -> String, isBusy: Bo
     LibraryCard(coverUrl = loan.book.coverUrl, onOpen = onOpen) {
         Text(loan.book.title, style = AppType.cardTitle, color = colors.foreground, maxLines = 2, overflow = TextOverflow.Ellipsis)
         Text(
-            stringResource(R.string.library_issuedOn, issued, loan.copy.inventoryNumber),
+            stringResource(R.string.books_issuedOn, issued, loan.copy.inventoryNumber),
             style = AppType.meta,
             color = colors.mutedForeground,
             maxLines = 1,
@@ -456,9 +456,9 @@ private fun LoanCard(loan: LoanDto, formatDay: (LocalDate) -> String, isBusy: Bo
         LibraryBadgeView(LibraryBadge.loan(loan, formatDay))
         if (loan.isOpen) {
             if (loan.disputedAt != null) {
-                LibraryBadgeView(LibraryBadge(UiText.Res(R.string.library_disputed), LibraryBadge.Tone.WARNING))
+                LibraryBadgeView(LibraryBadge(UiText.Res(R.string.books_disputed), LibraryBadge.Tone.WARNING))
             } else {
-                CardAction(stringResource(R.string.library_dispute), color = colors.primary, isBusy = isBusy, onClick = onDispute)
+                CardAction(stringResource(R.string.books_dispute), color = colors.primary, isBusy = isBusy, onClick = onDispute)
             }
         }
     }
@@ -472,15 +472,15 @@ private fun ReservationCard(reservation: ReservationDto, formatDay: (LocalDate) 
         Text(reservation.book.title, style = AppType.cardTitle, color = colors.foreground, maxLines = 2, overflow = TextOverflow.Ellipsis)
         Text(
             if (reservation.status == "READY" && copy != null) {
-                stringResource(R.string.library_readyAt, copy.inventoryNumber)
+                stringResource(R.string.books_readyAt, copy.inventoryNumber)
             } else {
-                stringResource(R.string.library_queuedNote)
+                stringResource(R.string.books_queuedNote)
             },
             style = AppType.meta,
             color = colors.mutedForeground,
         )
         LibraryBadgeView(LibraryBadge.reservation(reservation, formatDay))
-        CardAction(stringResource(R.string.library_cancelReservation), color = colors.destructive, isBusy = isBusy, onClick = onCancel)
+        CardAction(stringResource(R.string.books_cancelReservation), color = colors.destructive, isBusy = isBusy, onClick = onCancel)
     }
 }
 
@@ -569,8 +569,8 @@ private fun LibraryDisabled() {
         modifier = Modifier.fillMaxSize().padding(Spacing.xl),
     ) {
         Icon(Icons.Outlined.PowerOff, contentDescription = null, tint = colors.mutedForeground, modifier = Modifier.size(36.dp))
-        Text(stringResource(R.string.library_disabledTitle), style = AppType.sectionTitle, color = colors.foreground, textAlign = TextAlign.Center)
-        Text(stringResource(R.string.library_disabledDescription), style = AppType.meta, color = colors.mutedForeground, textAlign = TextAlign.Center)
+        Text(stringResource(R.string.books_disabledTitle), style = AppType.sectionTitle, color = colors.foreground, textAlign = TextAlign.Center)
+        Text(stringResource(R.string.books_disabledDescription), style = AppType.meta, color = colors.mutedForeground, textAlign = TextAlign.Center)
     }
 }
 
