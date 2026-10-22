@@ -124,32 +124,56 @@ async function seedPlatformStaff(passwordHash) {
 }
 
 /**
- * Охрана вуза (docs/PROJECT.md §2) — две учётки на u001. Отдельно от генератора вузов и
- * со своим генератором случайных чисел: вставка в общий шаг «люди» сдвинула бы поток
- * случайностей, и у всех людей после неё сменились бы имена. Профиль закрыт по умолчанию,
- * как у роли на проде; 2FA при входе попросят настроить.
+ * Роли с запретом по умолчанию (охрана, библиотекарь; docs/PROJECT.md §2) — учётки на u001.
+ * Отдельно от генератора вузов и у каждой роли со своим генератором случайных чисел:
+ * вставка в общий шаг «люди» сдвинула бы поток случайностей, и у всех людей после неё
+ * сменились бы имена. Профиль закрыт по умолчанию, как у роли на проде; 2FA при входе
+ * попросят настроить.
  */
-async function seedSecurityStaff(passwordHash) {
+const RESTRICTED_STAFF = [
+  {
+    role: 'SECURITY_GUARD',
+    local: 'security',
+    count: 2,
+    seed: 20261021,
+    fields: {
+      position: 'Сотрудник охраны',
+      jobTitle: 'Охрана',
+      responsibilities: 'Пропускной режим главного корпуса, проверка студенческих билетов.',
+    },
+  },
+  {
+    role: 'LIBRARIAN',
+    local: 'librarian',
+    count: 1,
+    seed: 20261022,
+    fields: {
+      position: 'Библиотекарь',
+      jobTitle: 'Библиотека',
+      responsibilities: 'Выдача и приём книг, учёт фонда, работа с должниками.',
+    },
+  },
+]
+
+async function seedRestrictedStaff(passwordHash, { role, local: prefix, count, seed, fields }) {
   const uniIndex = 1
   const universityId = uniPrefix(uniIndex)
-  const guardRandom = makeRandom(20261021)
+  const staffRandom = makeRandom(seed)
   const created = []
-  for (let g = 0; g < 2; g += 1) {
-    const local = `security.${g}`
-    const p = person(g, guardRandom)
+  for (let g = 0; g < count; g += 1) {
+    const local = `${prefix}.${g}`
+    const p = person(g, staffRandom)
     const data = {
       ...p,
-      ...staffProfile(p, guardRandom, {
+      ...staffProfile(p, staffRandom, {
         template: null,
         profile: { timezone: 'Asia/Almaty' },
         cityName: CITY,
       }),
       username: usernameFor(uniIndex, local),
-      position: 'Сотрудник охраны',
-      jobTitle: 'Охрана',
-      responsibilities: 'Пропускной режим главного корпуса, проверка студенческих билетов.',
+      ...fields,
       profileVisibility: 'PRIVATE',
-      role: 'SECURITY_GUARD',
+      role,
       universityId,
       ...TWO_FACTOR_RESET,
     }
@@ -213,8 +237,10 @@ async function main() {
     companies,
   })
 
-  const guards = await seedSecurityStaff(passwordHash)
-  console.log(`  охрана: ${guards.length}`)
+  for (const staff of RESTRICTED_STAFF) {
+    const created = await seedRestrictedStaff(passwordHash, staff)
+    console.log(`  ${staff.role}: ${created.length}`)
+  }
 
   // Аватары тем, кто появился ПОСЛЕ раздачи в шаге медиа: работодатели и вузовские
   // роли создаются позже пула. Без этого у аккаунтов компаний профиль без лица.
@@ -250,6 +276,7 @@ async function report(platform) {
   console.log('  TEACHER: t.<код факультета>.<n>@u001.edu.kz')
   console.log('  STUDENT / STAROSTA: <код группы>.st<NN>@u001.edu.kz')
   console.log('  SECURITY_GUARD: security.0@u001.edu.kz, security.1@u001.edu.kz')
+  console.log('  LIBRARIAN: librarian.0@u001.edu.kz')
   console.log("    точный список: SELECT email, role FROM users WHERE university_id = 'u001';")
   console.log('\nПользователи по ролям:')
   for (const row of byRole.sort((a, b) => b._count.id - a._count.id)) {

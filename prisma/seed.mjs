@@ -409,6 +409,7 @@ async function seedDemoUniverse({ passwordHash, admin, progress, seedPassword })
     ['STAROSTA', 'starosta@studenthub.app', 'Аружан', 'Серикова', scope.group, 'FEMALE', 'Муратовна'], // prettier-ignore
     ['STUDENT', 'student@studenthub.app', 'Нурлан', 'Оспанов', scope.group, 'MALE', 'Бауыржанович'], // prettier-ignore
     ['SECURITY_GUARD', 'security@studenthub.app', 'Ерлан', 'Жумабаев', scope.university, 'MALE', 'Кайратович'], // prettier-ignore
+    ['LIBRARIAN', 'librarian@studenthub.app', 'Гульнара', 'Сапарова', scope.university, 'FEMALE', 'Ермековна'], // prettier-ignore
   ]
   // Профиль этих аккаунтов заполняется теми же построителями, что и у 130 тысяч
   // сгенерированных (prisma/seed/data/profiles.mjs). Раньше здесь задавались только
@@ -477,6 +478,13 @@ async function seedDemoUniverse({ passwordHash, admin, progress, seedPassword })
         position: 'Сотрудник охраны',
         jobTitle: 'Охрана',
         responsibilities: 'Пропускной режим главного корпуса, проверка студенческих билетов.',
+        profileVisibility: 'PRIVATE',
+      },
+      // Профиль библиотекаря закрыт по той же причине, что у охраны.
+      LIBRARIAN: {
+        position: 'Библиотекарь',
+        jobTitle: 'Библиотека',
+        responsibilities: 'Выдача и приём книг, учёт фонда, работа с должниками.',
         profileVisibility: 'PRIVATE',
       },
     }
