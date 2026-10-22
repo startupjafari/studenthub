@@ -525,3 +525,93 @@ export interface LibraryClearance {
   university: string
   loans: LoanItem[]
 }
+
+// ── Отчёты и инвентаризация (20.12) ────────────────────────────────────────────────
+
+/** Сводка фонда и выдач — библиотекарю и админу вуза. */
+export interface LibrarySummary {
+  books: number
+  copies: {
+    total: number
+    available: number
+    onLoan: number
+    reserved: number
+    lost: number
+    writtenOff: number
+  }
+  loans: { open: number; overdue: number; issuedLast30: number; returnedLast30: number }
+  readers: { withLoans: number; debtors: number }
+  reservations: { queued: number; ready: number }
+}
+
+export const POPULAR_PERIODS = [30, 90, 365] as const
+export const PopularQuerySchema = z.object({
+  days: z.coerce
+    .number()
+    .int()
+    .refine(
+      (v) => (POPULAR_PERIODS as readonly number[]).includes(v),
+      'Период: 30, 90 или 365 дней',
+    )
+    .default(90),
+})
+export type PopularQueryInput = z.infer<typeof PopularQuerySchema>
+
+/** Популярное за период: сколько раз книгу выдавали (отменённые выдачи не считаются). */
+export interface PopularBook {
+  book: { id: string; title: string; authors: string; coverUrl: string | null }
+  loans: number
+}
+
+/** Скан экземпляра при инвентаризации: «экземпляр на месте» — отметка `inventoriedAt`. */
+export const InventoryScanSchema = z
+  .object({
+    ...copyRef,
+    /** Начало инвентаризации: отмеченный с этого дня экземпляр — «уже был». */
+    since: LibraryDateSchema.optional(),
+  })
+  .strict()
+  .refine(oneCopyRef, { message: 'Укажите код наклейки или инвентарный номер', path: ['copyCode'] })
+export type InventoryScanInput = z.infer<typeof InventoryScanSchema>
+
+/** Чем экземпляр в руках не похож на «стоит на полке» — повод разобраться. */
+export const INVENTORY_WARNINGS = ['onLoan', 'lost', 'writtenOff'] as const
+export type InventoryWarning = (typeof INVENTORY_WARNINGS)[number]
+
+export interface InventoryScanResult {
+  copy: { id: string; inventoryNumber: string; status: BookCopyStatusValue }
+  book: { id: string; title: string; authors: string }
+  /** Экземпляр уже отмечали в этой инвентаризации (с `since`). */
+  alreadyChecked: boolean
+  warning: InventoryWarning | null
+}
+
+/** Ход инвентаризации с даты `since`: что отмечено и что из «должно быть на полке» не нашли. */
+export const InventoryQuerySchema = z.object({
+  since: LibraryDateSchema,
+  page: z.coerce.number().int().positive().default(1),
+  limit: z.coerce.number().int().positive().max(100).default(20),
+})
+export type InventoryQueryInput = z.infer<typeof InventoryQuerySchema>
+
+export interface InventoryMissingItem {
+  copyId: string
+  inventoryNumber: string
+  status: BookCopyStatusValue
+  inventoriedAt: string | null
+  book: { id: string; title: string; authors: string }
+}
+
+export interface InventoryReport {
+  since: string
+  /** Экземпляры, которые должны быть в библиотеке (на полке или под бронью). */
+  expected: number
+  /** Из них отмечены с `since`. */
+  checked: number
+  /** На руках у читателей — их не ищут на полке. */
+  onLoan: number
+  items: InventoryMissingItem[]
+  total: number
+  page: number
+  limit: number
+}

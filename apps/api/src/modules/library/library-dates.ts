@@ -36,6 +36,11 @@ export function endOfDay(date: string, timezone: string): Date {
   return new Date(end.getTime() - 1)
 }
 
+/** Первый момент дня `date` по часам вуза. */
+export function startOfDay(date: string, timezone: string): Date {
+  return new Date(endOfDay(addDays(date, -1), timezone).getTime() + 1)
+}
+
 /** «ДД.ММ.ГГГГ» — дата в тексте уведомления: одинаково читается на всех трёх языках. */
 export function formatDay(date: string): string {
   const [y, m, d] = date.split('-')

@@ -55,7 +55,7 @@ export const BOOK_SELECT = {
 
 type BookRow = Prisma.BookGetPayload<{ select: typeof BOOK_SELECT }>
 
-const COPY_SELECT = {
+export const COPY_SELECT = {
   id: true,
   bookId: true,
   universityId: true,
