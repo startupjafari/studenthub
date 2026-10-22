@@ -7,10 +7,11 @@ import { SegmentedTabs } from '../../../shared/ui'
 const SETTINGS = '/university-admin/library'
 const CATALOG = '/university-admin/library/catalog'
 const REPORTS = '/university-admin/library/reports'
+const JOURNAL = '/university-admin/library/journal'
 
-type Tab = typeof SETTINGS | typeof CATALOG | typeof REPORTS
+type Tab = typeof SETTINGS | typeof CATALOG | typeof REPORTS | typeof JOURNAL
 
-/** Вкладки раздела «Библиотека» у админа вуза: настройки, каталог, отчёты. */
+/** Вкладки раздела «Библиотека» у админа вуза: настройки, каталог, отчёты, журнал. */
 export function LibraryAdminTabs() {
   const t = useTranslations('LibraryAdmin')
   const router = useRouter()
@@ -19,7 +20,9 @@ export function LibraryAdminTabs() {
     ? CATALOG
     : pathname.startsWith(REPORTS)
       ? REPORTS
-      : SETTINGS
+      : pathname.startsWith(JOURNAL)
+        ? JOURNAL
+        : SETTINGS
   return (
     <SegmentedTabs<Tab>
       value={value}
@@ -29,6 +32,7 @@ export function LibraryAdminTabs() {
         { value: SETTINGS, label: t('tabSettings') },
         { value: CATALOG, label: t('tabCatalog') },
         { value: REPORTS, label: t('tabReports') },
+        { value: JOURNAL, label: t('tabJournal') },
       ]}
     />
   )

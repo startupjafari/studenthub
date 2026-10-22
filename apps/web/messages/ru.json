@@ -4053,7 +4053,16 @@
     },
     "tabSettings": "Настройки",
     "tabCatalog": "Каталог",
-    "tabReports": "Отчёты"
+    "tabReports": "Отчёты",
+    "tabJournal": "Журнал",
+    "journalTitle": "Журнал просмотров удостоверений",
+    "journalSubtitle": "Кто из библиотекарей открывал карточки читателей по выдачам",
+    "journalSearch": "Читатель или библиотекарь",
+    "journalLoadError": "Не удалось загрузить журнал",
+    "journalNothingFound": "Ничего не найдено",
+    "journalEmpty": "Просмотров пока нет",
+    "journalEmptyHint": "Каждый раз, когда библиотекарь открывает удостоверение читателя, здесь появляется запись",
+    "journalRow": "{librarian} → {reader}"
   },
   "LibraryCatalog": {
     "title": "Каталог",
@@ -4285,7 +4294,12 @@
     "returnedToast": "Принята: «{title}»",
     "toHoldShelf": "на полку броней",
     "toShelf": "на полку",
-    "wasOverdue": "с просрочкой"
+    "wasOverdue": "с просрочкой",
+    "readerCard": "Удостоверение читателя",
+    "readerCardTitle": "Удостоверение читателя",
+    "readerCardClosed": "Книга уже возвращена — удостоверение больше не доступно",
+    "readerCardLoan": "На руках «{title}», инв. {number}, до {date}",
+    "readerCardLogged": "Просмотр записан в журнал: кто и когда открывал карточку"
   },
   "Cameras": {
     "adminTitle": "Камеры",

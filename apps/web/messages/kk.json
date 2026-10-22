@@ -4053,7 +4053,16 @@
     },
     "tabSettings": "Баптаулар",
     "tabCatalog": "Каталог",
-    "tabReports": "Есептер"
+    "tabReports": "Есептер",
+    "tabJournal": "Журнал",
+    "journalTitle": "Куәліктерді қарау журналы",
+    "journalSubtitle": "Кітапханашылардың қайсысы оқырман карточкаларын ашқаны",
+    "journalSearch": "Оқырман немесе кітапханашы",
+    "journalLoadError": "Журналды жүктеу мүмкін болмады",
+    "journalNothingFound": "Ештеңе табылмады",
+    "journalEmpty": "Әзірге қарау жоқ",
+    "journalEmptyHint": "Кітапханашы оқырман куәлігін ашқан сайын мұнда жазба пайда болады",
+    "journalRow": "{librarian} → {reader}"
   },
   "LibraryCatalog": {
     "title": "Каталог",
@@ -4285,7 +4294,12 @@
     "returnedToast": "Қабылданды: «{title}»",
     "toHoldShelf": "брондар сөресіне",
     "toShelf": "сөреге",
-    "wasOverdue": "мерзімі өтіп"
+    "wasOverdue": "мерзімі өтіп",
+    "readerCard": "Оқырман куәлігі",
+    "readerCardTitle": "Оқырман куәлігі",
+    "readerCardClosed": "Кітап қайтарылды — куәлік енді қолжетімсіз",
+    "readerCardLoan": "Қолында «{title}», түг. {number}, {date} дейін",
+    "readerCardLogged": "Қарау журналға жазылды: карточканы кім және қашан ашты"
   },
   "Cameras": {
     "adminTitle": "Камералар",

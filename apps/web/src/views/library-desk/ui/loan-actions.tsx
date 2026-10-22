@@ -32,11 +32,12 @@ import {
   returnCopyRequest,
 } from '../../../entities/library'
 import { localToday, useDeskErrors } from '../lib/desk-errors'
+import { ReaderCardDialog } from './reader-card-dialog'
 
 // Действия над открытой выдачей у библиотекаря (Фаза 20.5): принять, продлить, утеряна,
-// отменить ошибочную выдачу. Удостоверение читателя (20.6) — отдельной кнопкой.
+// отменить ошибочную выдачу; удостоверение читателя на время выдачи (20.6).
 
-type Dialog = 'return' | 'renew' | 'cancel' | null
+type Dialog = 'reader' | 'return' | 'renew' | 'cancel' | null
 
 export function LoanActions({ loan, extra }: { loan: LoanItem; extra?: React.ReactNode }) {
   const t = useTranslations('LibraryDesk')
@@ -107,6 +108,10 @@ export function LoanActions({ loan, extra }: { loan: LoanItem; extra?: React.Rea
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
+          <DropdownMenuItem onSelect={() => setDialog('reader')}>
+            {t('readerCard')}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={() => setDialog('return')}>
             {t('acceptReturn')}
           </DropdownMenuItem>
@@ -120,6 +125,8 @@ export function LoanActions({ loan, extra }: { loan: LoanItem; extra?: React.Rea
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+
+      {dialog === 'reader' && <ReaderCardDialog loan={loan} onClose={() => setDialog(null)} />}
 
       {dialog === 'return' && (
         <Modal onClose={() => setDialog(null)} title={t('acceptReturn')} size="md">

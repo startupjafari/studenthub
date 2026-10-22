@@ -4816,6 +4816,55 @@
         ]
       }
     },
+    "/library/loans/{id}/reader": {
+      "get": {
+        "operationId": "LibraryIdAccessController_readerCard",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "403": {
+            "description": "Выдача закрыта — карточка недоступна"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Удостоверение читателя по открытой выдаче (просмотр — в журнал)",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/id-access": {
+      "get": {
+        "operationId": "LibraryIdAccessController_journal",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Журнал просмотров удостоверений читателей",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
     "/student-id/me": {
       "get": {
         "operationId": "StudentIdController_me",

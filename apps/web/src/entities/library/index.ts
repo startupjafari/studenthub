@@ -24,6 +24,8 @@ export {
   renewLoanRequest,
   markLoanLostRequest,
   cancelLoanRequest,
+  fetchLoanReader,
+  fetchIdAccess,
   type BookListParams,
   type LoanItem,
   type LibraryReaderSession,

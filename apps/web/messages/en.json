@@ -4053,7 +4053,16 @@
     },
     "tabSettings": "Settings",
     "tabCatalog": "Catalogue",
-    "tabReports": "Reports"
+    "tabReports": "Reports",
+    "tabJournal": "Log",
+    "journalTitle": "ID view log",
+    "journalSubtitle": "Which librarians opened readers' cards on loans",
+    "journalSearch": "Reader or librarian",
+    "journalLoadError": "Couldn't load the log",
+    "journalNothingFound": "Nothing found",
+    "journalEmpty": "No views yet",
+    "journalEmptyHint": "Each time a librarian opens a reader's ID, an entry appears here",
+    "journalRow": "{librarian} → {reader}"
   },
   "LibraryCatalog": {
     "title": "Catalogue",
@@ -4285,7 +4294,12 @@
     "returnedToast": "Checked in: “{title}”",
     "toHoldShelf": "to holds shelf",
     "toShelf": "to shelf",
-    "wasOverdue": "overdue"
+    "wasOverdue": "overdue",
+    "readerCard": "Reader's ID",
+    "readerCardTitle": "Reader's ID",
+    "readerCardClosed": "The book has been returned — the ID is no longer available",
+    "readerCardLoan": "Has “{title}”, inv. {number}, due {date}",
+    "readerCardLogged": "This view is logged: who opened the card and when"
   },
   "Cameras": {
     "adminTitle": "Cameras",

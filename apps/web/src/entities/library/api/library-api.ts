@@ -7,10 +7,13 @@ import type {
   BookDetail,
   BookListQueryInput,
   CreateBookInput,
+  IdAccessItem,
+  IdAccessQueryInput,
   IssueLoanInput,
   LibraryReaderSession,
   LoanItem,
   LoanListQueryInput,
+  LoanReaderCard,
   RenewLoanInput,
   ReturnLoanInput,
   ReturnLoanResult,
@@ -48,6 +51,8 @@ export const libraryKeys = {
   copyByCode: (code: string) => ['library', 'copy-by-code', code] as const,
   loans: (params: Partial<LoanListQueryInput> = {}) => ['library', 'loans', params] as const,
   myLoans: () => ['library', 'my-loans'] as const,
+  loanReader: (id: string) => ['library', 'loan-reader', id] as const,
+  idAccess: (params: Partial<IdAccessQueryInput> = {}) => ['library', 'id-access', params] as const,
 }
 
 export async function fetchLibrarySettings(): Promise<LibrarySettingsResponse> {
@@ -204,3 +209,15 @@ export async function disputeLoanRequest(id: string): Promise<LoanItem> {
 }
 
 export type { BookCard, BookDetail, BookCopyItem, BookCopyLabel, LoanItem, LibraryReaderSession }
+
+/** Удостоверение читателя по открытой выдаче — каждый вызов пишется в журнал. */
+export async function fetchLoanReader(id: string): Promise<LoanReaderCard> {
+  const { data } = await api.get<LoanReaderCard>(`/library/loans/${id}/reader`)
+  return data
+}
+
+export async function fetchIdAccess(
+  params: Partial<IdAccessQueryInput> = {},
+): Promise<Paged<IdAccessItem>> {
+  return getPaged<IdAccessItem>('/library/id-access', { page: 1, limit: 20, ...params })
+}
