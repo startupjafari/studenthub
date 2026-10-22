@@ -90,6 +90,8 @@ export const STUDENT_NAV: NavItem[] = [
   { key: 'appointments', href: '/appointments', icon: CalendarClock, group: 'services' },
   { key: 'portfolio', href: '/portfolio', icon: BriefcaseBusiness, group: 'services' },
   { key: 'studentId', href: '/student-id', icon: IdCard, group: 'services' },
+  // Библиотека вуза (Фаза 20): пункт прячется, пока админ вуза не включил модуль (AppShell).
+  { key: 'books', href: '/books', icon: Library, group: 'services' },
   { key: 'applications', href: '/applications', icon: FileText, group: 'services' },
   { key: 'chats', href: '/chats', icon: MessagesSquare, group: 'communication' },
   { key: 'events', href: '/events', icon: CalendarClock, group: 'communication' },
