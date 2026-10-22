@@ -143,6 +143,8 @@ const LIBRARIAN: QuickAction[] = [
   { navKey: 'libraryLoans', href: '/library/loans', icon: ListChecks },
   { navKey: 'libraryReservations', href: '/library/reservations', icon: BookmarkCheck },
   { navKey: 'libraryCatalog', href: '/library/catalog', icon: BookOpen },
+  { navKey: 'libraryInventory', href: '/library/inventory', icon: ClipboardCheck },
+  { navKey: 'libraryReports', href: '/library/reports', icon: BarChart3 },
   { navKey: 'scan', href: '/scan', icon: ScanQrCode },
 ]
 

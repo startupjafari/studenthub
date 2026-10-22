@@ -9,6 +9,7 @@ import {
   Archive,
   ArchiveRestore,
   BookOpen,
+  History,
   ImageUp,
   Pencil,
   Plus,
@@ -54,12 +55,13 @@ import { AddCopiesModal } from './add-copies-modal'
 import { BookFormModal } from './book-form-modal'
 import { BookLabelSheet } from './book-label-sheet'
 import { CopyEditModal } from './copy-edit-modal'
+import { CopyHistoryModal } from './copy-history-modal'
 import { useConditionLabels } from '../lib/use-condition-labels'
 
 // Книга глазами фонда (Фаза 20.3): карточка, экземпляры с кому выдано и до какого срока,
 // печать QR-наклеек, заведение и правка экземпляров, архив.
 
-const COLS = ['2.5rem', '16%', '14%', '14%', '12%', '30%', '7rem'] as const
+const COLS = ['2.5rem', '16%', '14%', '14%', '12%', '28%', '9rem'] as const
 const HIDE = { code: 'hidden md:table-cell', condition: 'hidden lg:table-cell' } as const
 
 export function BookDetailView({ bookId, basePath }: { bookId: string; basePath: string }) {
@@ -79,6 +81,7 @@ export function BookDetailView({ bookId, basePath }: { bookId: string; basePath:
   const [editing, setEditing] = useState(false)
   const [adding, setAdding] = useState(false)
   const [editingCopy, setEditingCopy] = useState<BookCopyItem | null>(null)
+  const [historyCopy, setHistoryCopy] = useState<BookCopyItem | null>(null)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [sheet, setSheet] = useState<BookCopyLabel[]>([])
 
@@ -413,6 +416,16 @@ export function BookDetailView({ bookId, basePath }: { bookId: string; basePath:
                             variant="ghost"
                             size="sm"
                             icon
+                            aria-label={t('history')}
+                            title={t('history')}
+                            onClick={() => setHistoryCopy(copy)}
+                          >
+                            <History className="size-4" aria-hidden />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            icon
                             aria-label={t('editCopy')}
                             title={t('editCopy')}
                             onClick={() => setEditingCopy(copy)}
@@ -441,6 +454,7 @@ export function BookDetailView({ bookId, basePath }: { bookId: string; basePath:
         />
       )}
       {editingCopy && <CopyEditModal copy={editingCopy} onClose={() => setEditingCopy(null)} />}
+      {historyCopy && <CopyHistoryModal copy={historyCopy} onClose={() => setHistoryCopy(null)} />}
       {/* Лист для печати: на экране скрыт, при печати — единственное, что попадает на бумагу. */}
       {sheet.length > 0 && <BookLabelSheet items={sheet} />}
     </div>

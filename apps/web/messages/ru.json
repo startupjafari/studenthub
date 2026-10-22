@@ -65,6 +65,8 @@
     "libraryLoans": "Выдачи",
     "libraryReservations": "Брони",
     "libraryCatalog": "Каталог",
+    "libraryInventory": "Инвентаризация",
+    "libraryReports": "Отчёты",
     "library": "Библиотека",
     "securityRooms": "Помещения",
     "settings": "Настройки",
@@ -3987,7 +3989,8 @@
     "denied": "Нет доступа к камере",
     "deniedHint": "Разрешите доступ к камере в настройках браузера и обновите страницу.",
     "error": "Не удалось включить камеру",
-    "errorHint": "Проверьте, что камера не занята другим приложением, и попробуйте снова."
+    "errorHint": "Проверьте, что камера не занята другим приложением, и попробуйте снова.",
+    "notBookCopy": "Это не наклейка книги"
   },
   "Security": {
     "title": "Пост охраны",
@@ -4022,7 +4025,11 @@
     "returnTitle": "Принять книгу",
     "returnDescription": "Скан наклейки и состояние книги",
     "reservationsTitle": "Брони",
-    "reservationsDescription": "Полка броней и очередь"
+    "reservationsDescription": "Полка броней и очередь",
+    "inventoryTitle": "Инвентаризация",
+    "inventoryDescription": "Скан наклеек вдоль полок",
+    "reportsTitle": "Отчёты",
+    "reportsDescription": "Фонд, должники, популярное"
   },
   "LibraryAdmin": {
     "title": "Библиотека",
@@ -4194,7 +4201,12 @@
     "importDone": "Новых книг: {books}, найдено в каталоге: {matched}, экземпляров заведено: {copies}",
     "copyNotFoundTitle": "Наклейка не найдена",
     "copyNotFoundDesc": "Код неизвестен или наклейку перевыпустили. Найдите книгу в каталоге.",
-    "openingBook": "Открываем книгу…"
+    "openingBook": "Открываем книгу…",
+    "history": "История выдач",
+    "historyTitle": "История экземпляра {number}",
+    "historyEmpty": "Экземпляр ещё не выдавали",
+    "historyIssued": "выдан {date}",
+    "historyReturned": "возвращён {date}"
   },
   "LibraryDesk": {
     "issueTitle": "Выдача книг",
@@ -4327,7 +4339,33 @@
     "searchReservations": "Книга, читатель, инв. номер",
     "reservationsLoadError": "Не удалось загрузить брони",
     "noReservations": "Броней нет",
-    "resCreatedOn": "Бронь от {date}"
+    "resCreatedOn": "Бронь от {date}",
+    "inventoryTitle": "Инвентаризация",
+    "inventorySubtitle": "Сканируйте наклейки вдоль полок — экземпляр отмечается «на месте»",
+    "invScan": "Сканировать",
+    "invSince": "Начало инвентаризации",
+    "invManual": "Отметить по инвентарному номеру",
+    "invNumberPlaceholder": "Например, 1024",
+    "invMark": "Отметить",
+    "invProgress": "Ход инвентаризации",
+    "invProgressHint": "Экземпляры, которые должны быть в библиотеке: на полке и под бронью",
+    "invChecked": "Отмечено {checked} из {expected}",
+    "invOnLoan": "{count, plural, one {# на руках} few {# на руках} many {# на руках} other {# на руках}} — их на полке не ищут",
+    "invRecent": "Только что отмечены",
+    "invRecentHint": "Предупреждение — повод разобраться: статус сканом не меняется",
+    "invAlready": "уже отмечен",
+    "invWarnOnLoan": "числится выданным — оформите возврат",
+    "invWarnLost": "числится утерянным",
+    "invWarnWrittenOff": "числится списанным",
+    "invMissing": "Не найдено",
+    "invMissingHint": "Должны стоять в библиотеке, но с начала инвентаризации не отмечены",
+    "invAllFound": "Всё на месте",
+    "invLastSeen": "последний раз — {date}",
+    "invNeverSeen": "ещё не инвентаризировался",
+    "invOnHoldShelf": "На полке броней",
+    "invScanTitle": "Наклейка экземпляра",
+    "invScanHint": "Наведите камеру на QR-наклейку книги",
+    "cancelReasonShort": "отменена: {reason}"
   },
   "Cameras": {
     "adminTitle": "Камеры",
@@ -5008,5 +5046,33 @@
     "overdue": "просрочена",
     "reservations": "{count, plural, one {И # действующая бронь} few {И # действующие брони} many {И # действующих броней} other {И # действующей брони}}",
     "hint": "Статус можно сохранить, но книги нужно вернуть в библиотеку до выхода из вуза."
+  },
+  "LibraryReports": {
+    "title": "Отчёты",
+    "subtitle": "Фонд, выдачи, должники и популярное",
+    "books": "Книг в каталоге",
+    "copiesHint": "{count, plural, one {# экземпляр в обороте} few {# экземпляра в обороте} many {# экземпляров в обороте} other {# экземпляра в обороте}}",
+    "onLoan": "На руках",
+    "onShelfHint": "{count} на полке",
+    "overdue": "Просрочено",
+    "debtorsHint": "{count, plural, one {# должник} few {# должника} many {# должников} other {# должника}}",
+    "reservations": "Брони",
+    "reservationsHint": "готовых {ready}, в очереди {queued}",
+    "issued30": "Выдано за 30 дней",
+    "returned30Hint": "возвращено {count}",
+    "readers": "Читателей с книгами",
+    "readersHint": "сейчас на руках хотя бы одна книга",
+    "withdrawn": "Выбыло из оборота",
+    "withdrawnHint": "утеряно {lost}, списано {off}",
+    "debtorsTitle": "Должники",
+    "debtorsSubtitle": "Самые давние просрочки",
+    "allLoans": "Все выдачи",
+    "noDebtors": "Просрочек нет",
+    "popularTitle": "Популярное",
+    "popularSubtitle": "Сколько раз книгу выдавали",
+    "period": "Период",
+    "days": "{count} дн.",
+    "noPopular": "За этот период выдач не было",
+    "loansCount": "{count, plural, one {# выдача} few {# выдачи} many {# выдач} other {# выдачи}}"
   }
 }

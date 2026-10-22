@@ -4,11 +4,13 @@ import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import {
+  BarChart3,
   BookDown,
   BookOpen,
   BookUp,
   BookmarkCheck,
   ChevronRight,
+  ClipboardCheck,
   ListChecks,
   PowerOff,
   ScanQrCode,
@@ -61,6 +63,18 @@ export function LibraryHomeView() {
       icon: BookOpen,
       title: t('catalogTitle'),
       description: t('catalogDescription'),
+    },
+    {
+      href: '/library/inventory',
+      icon: ClipboardCheck,
+      title: t('inventoryTitle'),
+      description: t('inventoryDescription'),
+    },
+    {
+      href: '/library/reports',
+      icon: BarChart3,
+      title: t('reportsTitle'),
+      description: t('reportsDescription'),
     },
     { href: '/scan', icon: ScanQrCode, title: t('scanTitle'), description: t('scanDescription') },
   ]

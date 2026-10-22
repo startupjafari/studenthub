@@ -8,11 +8,16 @@ import type {
   BookListQueryInput,
   CreateBookInput,
   IdAccessItem,
+  InventoryReport,
+  InventoryScanInput,
+  InventoryScanResult,
   IdAccessQueryInput,
   IssueLoanInput,
   LibraryClearance,
   LibraryDebts,
   LibraryReaderSession,
+  LibrarySummary,
+  PopularBook,
   LoanItem,
   LoanListQueryInput,
   LoanReaderCard,
@@ -61,6 +66,10 @@ export const libraryKeys = {
   myReservations: () => ['library', 'my-reservations'] as const,
   debts: (userId: string) => ['library', 'debts', userId] as const,
   clearance: () => ['library', 'clearance'] as const,
+  summary: () => ['library', 'summary'] as const,
+  popular: (days: number) => ['library', 'popular', days] as const,
+  inventory: (params: { since: string; page: number; limit: number }) =>
+    ['library', 'inventory', params] as const,
   idAccess: (params: Partial<IdAccessQueryInput> = {}) => ['library', 'id-access', params] as const,
 }
 
@@ -265,5 +274,31 @@ export async function fetchReaderDebts(userId: string): Promise<LibraryDebts> {
 
 export async function fetchClearance(): Promise<LibraryClearance> {
   const { data } = await api.get<LibraryClearance>('/library/me/clearance')
+  return data
+}
+
+export async function fetchLibrarySummary(): Promise<LibrarySummary> {
+  const { data } = await api.get<LibrarySummary>('/library/reports/summary')
+  return data
+}
+
+export async function fetchPopularBooks(days: number): Promise<PopularBook[]> {
+  const { data } = await api.get<PopularBook[]>('/library/reports/popular', { params: { days } })
+  return data
+}
+
+export async function inventoryScanRequest(
+  input: InventoryScanInput,
+): Promise<InventoryScanResult> {
+  const { data } = await api.post<InventoryScanResult>('/library/inventory/scan', input)
+  return data
+}
+
+export async function fetchInventory(params: {
+  since: string
+  page: number
+  limit: number
+}): Promise<InventoryReport> {
+  const { data } = await api.get<InventoryReport>('/library/inventory', { params })
   return data
 }

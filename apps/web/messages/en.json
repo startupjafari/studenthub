@@ -65,6 +65,8 @@
     "libraryLoans": "Loans",
     "libraryReservations": "Holds",
     "libraryCatalog": "Catalogue",
+    "libraryInventory": "Inventory",
+    "libraryReports": "Reports",
     "library": "Library",
     "securityRooms": "Rooms",
     "settings": "Settings",
@@ -3987,7 +3989,8 @@
     "denied": "Camera access denied",
     "deniedHint": "Allow camera access in your browser settings and reload the page.",
     "error": "Couldn't start the camera",
-    "errorHint": "Make sure the camera isn't used by another app and try again."
+    "errorHint": "Make sure the camera isn't used by another app and try again.",
+    "notBookCopy": "This isn't a book label"
   },
   "Security": {
     "title": "Security post",
@@ -4022,7 +4025,11 @@
     "returnTitle": "Check in a book",
     "returnDescription": "Scan the label and note the condition",
     "reservationsTitle": "Holds",
-    "reservationsDescription": "Holds shelf and queue"
+    "reservationsDescription": "Holds shelf and queue",
+    "inventoryTitle": "Inventory",
+    "inventoryDescription": "Scan labels along the shelves",
+    "reportsTitle": "Reports",
+    "reportsDescription": "Collection, debtors, popular"
   },
   "LibraryAdmin": {
     "title": "Library",
@@ -4194,7 +4201,12 @@
     "importDone": "New books: {books}, found in the catalogue: {matched}, copies added: {copies}",
     "copyNotFoundTitle": "Label not found",
     "copyNotFoundDesc": "The code is unknown or the label was reissued. Find the book in the catalogue.",
-    "openingBook": "Opening the book…"
+    "openingBook": "Opening the book…",
+    "history": "Loan history",
+    "historyTitle": "Copy {number} history",
+    "historyEmpty": "This copy hasn't been lent yet",
+    "historyIssued": "lent {date}",
+    "historyReturned": "returned {date}"
   },
   "LibraryDesk": {
     "issueTitle": "Check out books",
@@ -4327,7 +4339,33 @@
     "searchReservations": "Book, reader, inv. number",
     "reservationsLoadError": "Couldn't load holds",
     "noReservations": "No holds",
-    "resCreatedOn": "Placed {date}"
+    "resCreatedOn": "Placed {date}",
+    "inventoryTitle": "Inventory",
+    "inventorySubtitle": "Scan labels along the shelves — each copy is marked as present",
+    "invScan": "Scan",
+    "invSince": "Inventory start",
+    "invManual": "Mark by inventory number",
+    "invNumberPlaceholder": "For example, 1024",
+    "invMark": "Mark",
+    "invProgress": "Inventory progress",
+    "invProgressHint": "Copies that should be in the library: on the shelf and on hold",
+    "invChecked": "{checked} of {expected} marked",
+    "invOnLoan": "{count, plural, one {# checked out} other {# checked out}} — not looked for on shelves",
+    "invRecent": "Just marked",
+    "invRecentHint": "A warning is a reason to check: scanning doesn't change the status",
+    "invAlready": "already marked",
+    "invWarnOnLoan": "recorded as checked out — process a return",
+    "invWarnLost": "recorded as lost",
+    "invWarnWrittenOff": "recorded as written off",
+    "invMissing": "Not found",
+    "invMissingHint": "Should be in the library but not marked since the inventory started",
+    "invAllFound": "Everything is in place",
+    "invLastSeen": "last seen {date}",
+    "invNeverSeen": "never inventoried",
+    "invOnHoldShelf": "On holds shelf",
+    "invScanTitle": "Copy label",
+    "invScanHint": "Point the camera at the book's QR label",
+    "cancelReasonShort": "cancelled: {reason}"
   },
   "Cameras": {
     "adminTitle": "Cameras",
@@ -5008,5 +5046,33 @@
     "overdue": "overdue",
     "reservations": "{count, plural, one {And # active hold} other {And # active holds}}",
     "hint": "You can save the status, but the books must be returned before the student leaves."
+  },
+  "LibraryReports": {
+    "title": "Reports",
+    "subtitle": "Collection, loans, debtors and popular books",
+    "books": "Books in catalog",
+    "copiesHint": "{count, plural, one {# copy in circulation} other {# copies in circulation}}",
+    "onLoan": "Checked out",
+    "onShelfHint": "{count} on shelves",
+    "overdue": "Overdue",
+    "debtorsHint": "{count, plural, one {# debtor} other {# debtors}}",
+    "reservations": "Holds",
+    "reservationsHint": "{ready} ready, {queued} queued",
+    "issued30": "Lent in 30 days",
+    "returned30Hint": "{count} returned",
+    "readers": "Readers with books",
+    "readersHint": "have at least one book now",
+    "withdrawn": "Out of circulation",
+    "withdrawnHint": "{lost} lost, {off} written off",
+    "debtorsTitle": "Debtors",
+    "debtorsSubtitle": "Longest overdue first",
+    "allLoans": "All loans",
+    "noDebtors": "Nothing overdue",
+    "popularTitle": "Popular",
+    "popularSubtitle": "How many times the book was lent",
+    "period": "Period",
+    "days": "{count} days",
+    "noPopular": "No loans in this period",
+    "loansCount": "{count, plural, one {# loan} other {# loans}}"
   }
 }

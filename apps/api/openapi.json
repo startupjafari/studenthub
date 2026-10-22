@@ -5041,6 +5041,96 @@
         ]
       }
     },
+    "/library/reports/summary": {
+      "get": {
+        "operationId": "LibraryReportsController_summary",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Сводка: фонд, выдачи, должники, брони",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/reports/popular": {
+      "get": {
+        "operationId": "LibraryReportsController_popular",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Самые выдаваемые книги за 30, 90 или 365 дней",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/inventory/scan": {
+      "post": {
+        "operationId": "LibraryReportsController_scan",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InventoryScanDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Инвентаризация: экземпляр на месте",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/inventory": {
+      "get": {
+        "operationId": "LibraryReportsController_inventory",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Ход инвентаризации с даты: отмечено и не найдено",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
     "/student-id/me": {
       "get": {
         "operationId": "StudentIdController_me",
@@ -17390,6 +17480,10 @@
         "properties": {}
       },
       "CancelLoanDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "InventoryScanDto": {
         "type": "object",
         "properties": {}
       },

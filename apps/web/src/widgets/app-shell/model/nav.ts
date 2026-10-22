@@ -296,6 +296,8 @@ export const LIBRARIAN_NAV: NavItem[] = [
   { key: 'libraryLoans', href: '/library/loans', icon: ListChecks },
   { key: 'libraryReservations', href: '/library/reservations', icon: BookmarkCheck },
   { key: 'libraryCatalog', href: '/library/catalog', icon: BookOpen },
+  { key: 'libraryInventory', href: '/library/inventory', icon: ClipboardCheck },
+  { key: 'libraryReports', href: '/library/reports', icon: BarChart3 },
 ]
 
 // Навигация определяется РОЛЬЮ пользователя, а не route-группой: общие страницы

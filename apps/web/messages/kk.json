@@ -65,6 +65,8 @@
     "libraryLoans": "Берулер",
     "libraryReservations": "Брондар",
     "libraryCatalog": "Каталог",
+    "libraryInventory": "Түгендеу",
+    "libraryReports": "Есептер",
     "library": "Кітапхана",
     "securityRooms": "Бөлмелер",
     "settings": "Баптаулар",
@@ -3987,7 +3989,8 @@
     "denied": "Камераға рұқсат жоқ",
     "deniedHint": "Браузер параметрлерінде камераға рұқсат беріп, бетті жаңартыңыз.",
     "error": "Камераны қосу мүмкін болмады",
-    "errorHint": "Камера басқа қосымшада бос екенін тексеріп, қайталап көріңіз."
+    "errorHint": "Камера басқа қосымшада бос екенін тексеріп, қайталап көріңіз.",
+    "notBookCopy": "Бұл кітап жапсырмасы емес"
   },
   "Security": {
     "title": "Күзет бекеті",
@@ -4022,7 +4025,11 @@
     "returnTitle": "Кітапты қабылдау",
     "returnDescription": "Жапсырманы сканерлеу және кітаптың күйі",
     "reservationsTitle": "Брондар",
-    "reservationsDescription": "Брондар сөресі және кезек"
+    "reservationsDescription": "Брондар сөресі және кезек",
+    "inventoryTitle": "Түгендеу",
+    "inventoryDescription": "Сөрелер бойымен жапсырмаларды сканерлеу",
+    "reportsTitle": "Есептер",
+    "reportsDescription": "Қор, борыштылар, танымалдар"
   },
   "LibraryAdmin": {
     "title": "Кітапхана",
@@ -4194,7 +4201,12 @@
     "importDone": "Жаңа кітаптар: {books}, каталогта табылды: {matched}, енгізілген даналар: {copies}",
     "copyNotFoundTitle": "Жапсырма табылмады",
     "copyNotFoundDesc": "Код белгісіз немесе жапсырма қайта шығарылған. Кітапты каталогтан табыңыз.",
-    "openingBook": "Кітапты ашып жатырмыз…"
+    "openingBook": "Кітапты ашып жатырмыз…",
+    "history": "Берулер тарихы",
+    "historyTitle": "{number} данасының тарихы",
+    "historyEmpty": "Дана әлі берілмеген",
+    "historyIssued": "{date} берілді",
+    "historyReturned": "{date} қайтарылды"
   },
   "LibraryDesk": {
     "issueTitle": "Кітап беру",
@@ -4327,7 +4339,33 @@
     "searchReservations": "Кітап, оқырман, түг. нөмірі",
     "reservationsLoadError": "Брондарды жүктеу мүмкін болмады",
     "noReservations": "Брондар жоқ",
-    "resCreatedOn": "{date} броні"
+    "resCreatedOn": "{date} броні",
+    "inventoryTitle": "Түгендеу",
+    "inventorySubtitle": "Сөрелер бойымен жапсырмаларды сканерлеңіз — дана «орнында» деп белгіленеді",
+    "invScan": "Сканерлеу",
+    "invSince": "Түгендеудің басталуы",
+    "invManual": "Түгендеу нөмірі бойынша белгілеу",
+    "invNumberPlaceholder": "Мысалы, 1024",
+    "invMark": "Белгілеу",
+    "invProgress": "Түгендеу барысы",
+    "invProgressHint": "Кітапханада болуы тиіс даналар: сөреде және броньда",
+    "invChecked": "{expected} ішінен {checked} белгіленді",
+    "invOnLoan": "{count, plural, other {# қолда}} — оларды сөреден іздемейді",
+    "invRecent": "Жаңа ғана белгіленгендер",
+    "invRecentHint": "Ескерту — анықтауға себеп: сканерлеу мәртебені өзгертпейді",
+    "invAlready": "бұрын белгіленген",
+    "invWarnOnLoan": "берілген болып тұр — қайтаруды рәсімдеңіз",
+    "invWarnLost": "жоғалған болып тұр",
+    "invWarnWrittenOff": "есептен шығарылған болып тұр",
+    "invMissing": "Табылмады",
+    "invMissingHint": "Кітапханада тұруы тиіс, бірақ түгендеу басынан белгіленбеген",
+    "invAllFound": "Бәрі орнында",
+    "invLastSeen": "соңғы рет — {date}",
+    "invNeverSeen": "әлі түгенделмеген",
+    "invOnHoldShelf": "Брондар сөресінде",
+    "invScanTitle": "Дана жапсырмасы",
+    "invScanHint": "Камераны кітаптың QR-жапсырмасына бағыттаңыз",
+    "cancelReasonShort": "жойылды: {reason}"
   },
   "Cameras": {
     "adminTitle": "Камералар",
@@ -5008,5 +5046,33 @@
     "overdue": "мерзімі өтті",
     "reservations": "{count, plural, other {Және # белсенді бронь}}",
     "hint": "Мәртебені сақтауға болады, бірақ кітаптарды оқу орнынан кетпес бұрын кітапханаға қайтару керек."
+  },
+  "LibraryReports": {
+    "title": "Есептер",
+    "subtitle": "Қор, берулер, борыштылар және танымалдар",
+    "books": "Каталогтағы кітаптар",
+    "copiesHint": "{count, plural, other {Айналымда # дана}}",
+    "onLoan": "Қолда",
+    "onShelfHint": "{count} сөреде",
+    "overdue": "Мерзімі өткен",
+    "debtorsHint": "{count, plural, other {# борышты}}",
+    "reservations": "Брондар",
+    "reservationsHint": "дайын {ready}, кезекте {queued}",
+    "issued30": "30 күнде берілді",
+    "returned30Hint": "қайтарылды {count}",
+    "readers": "Кітабы бар оқырмандар",
+    "readersHint": "қазір қолында кемінде бір кітап бар",
+    "withdrawn": "Айналымнан шыққан",
+    "withdrawnHint": "жоғалған {lost}, есептен шығарылған {off}",
+    "debtorsTitle": "Борыштылар",
+    "debtorsSubtitle": "Ең ескі мерзімі өткендер",
+    "allLoans": "Барлық берулер",
+    "noDebtors": "Мерзімі өткен жоқ",
+    "popularTitle": "Танымал",
+    "popularSubtitle": "Кітап неше рет берілді",
+    "period": "Кезең",
+    "days": "{count} күн",
+    "noPopular": "Бұл кезеңде берулер болмады",
+    "loansCount": "{count, plural, other {# беру}}"
   }
 }
