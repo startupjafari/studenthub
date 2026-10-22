@@ -214,9 +214,11 @@ describe('Приход вуза: заявка → одобрение → адм�
     // Сервер не верит кнопке: незаполненные шаги держат запуск.
     const launch = await onboarding('launch')
     expect(launch.status).toBe(400)
-    // Без групп платформа не работает — этот шаг пропустить нельзя.
+    // Без групп платформа не работает — этот шаг пропустить нельзя: схема не пускает
+    // непропускаемый шаг дальше валидации.
     const skip = await onboarding('skip', { step: 'groups' })
-    expect(skip.status).toBe(400)
+    expect(skip.status).toBe(422)
+    expect(skip.body.error.code).toBe('VALIDATION_ERROR')
 
     await expect(
       prisma.university.findUniqueOrThrow({
