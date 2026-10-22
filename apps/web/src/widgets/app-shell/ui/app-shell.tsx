@@ -556,7 +556,7 @@ export function AppShell({
               не меняются — блок с авто-высотой в колонке ведёт себя как раньше. */}
           {/* `sh-scroll` резервирует место под полосу прокрутки: без этого переход с короткой
               страницы на длинную сдвигал всю раскладку на ширину полосы. */}
-          <main className="sh-scroll flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain p-4 pt-[calc(1rem+env(safe-area-inset-top))] pb-28 md:p-6 md:pt-6 md:pb-28 lg:pb-6">
+          <main className="sh-scroll sh-page-fill flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain p-4 pt-[calc(1rem+env(safe-area-inset-top))] pb-28 md:p-6 md:pt-6 md:pb-28 lg:pb-6">
             {children}
           </main>
         </div>
