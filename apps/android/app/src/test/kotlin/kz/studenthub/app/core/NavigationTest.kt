@@ -60,6 +60,17 @@ class DeepLinkTest {
         assertEquals(DeepLink.Post("post-1"), DeepLink.parse("https://studenthub.kz/posts/post-1"))
     }
 
+    /** Библиотека: уведомления ведут на `/my-books`, карточка книги — `/books/<id>`, наклейка — `/c/<код>`. */
+    @Test
+    fun libraryLinks() {
+        assertEquals(DeepLink.MyBooks, DeepLink.parse("/my-books"))
+        assertEquals(DeepLink.Book("book-1"), DeepLink.parse("/books/book-1"))
+        assertEquals(DeepLink.Books, DeepLink.parse("https://studenthub.kz/books"))
+        assertEquals(DeepLink.BookCopy("K7Q2M9"), DeepLink.parse("https://studenthub.kz/c/K7Q2M9"))
+        assertNull(DeepLink.parse("https://studenthub.kz/c"))
+        assertNull(DeepLink.parse("https://studenthub.kz/my-books/extra"))
+    }
+
     /** Незнакомый адрес не угадываем: его откроет браузер, где работает полная версия. */
     @Test
     fun unknownRoutesAreNotOurs() {
@@ -115,6 +126,39 @@ class AppRouterTest {
         val router = AppRouter()
         assertFalse(router.open(DeepLink.Section(MoreSection.GROUP_REQUESTS), Role.STUDENT))
         assertTrue(router.open(DeepLink.Section(MoreSection.GROUP_REQUESTS), Role.STAROSTA))
+    }
+}
+
+class LibraryRoutingTest {
+    /** Под «Моими книгами» и книгой — каталог: «назад» из уведомления ведёт в раздел. */
+    @Test
+    fun libraryKeepsCatalogBeneath() {
+        val router = AppRouter()
+        assertTrue(router.open(DeepLink.MyBooks, Role.STUDENT))
+        assertEquals(AppTab.MORE, router.selectedTab)
+        assertEquals(listOf(AppRoute.Section(MoreSection.LIBRARY), AppRoute.Section(MoreSection.MY_BOOKS)), router.stack(AppTab.MORE))
+        assertTrue(router.open(DeepLink.BookCopy("K7Q2"), Role.STAROSTA))
+        assertEquals(listOf(AppRoute.Section(MoreSection.LIBRARY), AppRoute.BookCopy("K7Q2")), router.stack(AppTab.MORE))
+        assertTrue(router.open(DeepLink.Books, Role.STUDENT))
+        assertEquals(listOf(AppRoute.Section(MoreSection.LIBRARY)), router.stack(AppTab.MORE))
+    }
+
+    /** Преподаватель книг не берёт: ссылку на библиотеку откроет браузер. */
+    @Test
+    fun teacherIsNotAReader() {
+        val router = AppRouter()
+        assertFalse(router.open(DeepLink.Book("book-1"), Role.TEACHER))
+        assertTrue(router.stack(AppTab.MORE).isEmpty())
+    }
+
+    /** Пункт библиотеки — только включённой и только читателям; встаёт перед настройками. */
+    @Test
+    fun librarySectionDependsOnSettings() {
+        assertEquals(MoreSection.sections(Role.STUDENT), MoreSection.sections(Role.STUDENT, libraryEnabled = false))
+        val student = MoreSection.sections(Role.STUDENT, libraryEnabled = true)
+        assertEquals(student.indexOf(MoreSection.SETTINGS) - 1, student.indexOf(MoreSection.LIBRARY))
+        assertTrue(MoreSection.LIBRARY in MoreSection.sections(Role.STAROSTA, libraryEnabled = true))
+        assertFalse(MoreSection.LIBRARY in MoreSection.sections(Role.TEACHER, libraryEnabled = true))
     }
 }
 
