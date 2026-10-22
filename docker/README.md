@@ -201,10 +201,11 @@ HTTP-домен для HLS и TCP-прокси `<хост>.proxy.rlwy.net:<по�
    pnpm db:seed
    ```
 
-6. API:
+6. API — через turbo: он сначала собирает `packages/shared-*`, без них api не стартует
+   (`pnpm --filter api dev` на чистом клоне падает с `Cannot find module '@studenthub/…'`):
 
    ```bash
-   pnpm --filter api dev
+   pnpm dev --filter=api
    ```
 
 7. Проверка — `database`, `redis` и `minio` должны быть `up`:
@@ -267,6 +268,9 @@ http://localhost:9001.
   сборке: `up -d --build` в compose, ре-деплой на Railway.
 - **`port is already allocated`** — порт занят другим процессом или стеком (таблица «Порты»).
   Поменяйте его в `docker/dev/.env`, а для postgres/redis/minio — ещё и в `apps/api/.env`.
+- **api: `Cannot find module '@studenthub/shared-…'` или `has no exported member`** — общие
+  пакеты не собраны или устарели. Запускайте через turbo (`pnpm dev`, `pnpm dev --filter=api`):
+  он собирает их перед стартом.
 - **Нет базы `studenthub_test`** — `postgres/init` выполняется только на пустом томе. Создать
   руками: `docker compose -f docker/dev/compose.yml exec postgres createdb -U postgres studenthub_test`.
 - **Прод: nginx не стартует** — нет сертификата. Первый выпуск — разовой командой до старта
