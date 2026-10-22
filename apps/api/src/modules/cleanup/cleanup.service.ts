@@ -134,7 +134,7 @@ const EMPLOYER_UNVERIFIED_DAYS = 30
 const DETACHED_FILES_MAX_BATCHES = 200
 
 // Ни одной связи, кроме поста: медиа удалённого поста уходит, только если на файл не
-// ссылается ничто другое (сторис, альбом, сообщение).
+// ссылается ничто другое (сторис, альбом, сообщение, обложка книги).
 const NO_OWNER_BUT_POST_WHERE = {
   messageId: null,
   materialId: null,
@@ -143,6 +143,7 @@ const NO_OWNER_BUT_POST_WHERE = {
   submissionId: null,
   stories: { none: {} },
   albumsCovered: { none: {} },
+  bookCovers: { none: {} },
 } satisfies Prisma.FileWhereInput
 
 // Ни одной связи с сущностью-владельцем — та же проверка, что у FileService.deleteDetached.

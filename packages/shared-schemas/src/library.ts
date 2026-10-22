@@ -46,3 +46,249 @@ export interface LibrarySettingsResponse {
   maxRenewals: number
   updatedAt: string | null
 }
+
+// ── Каталог и экземпляры (20.3) ──────────────────────────────────────────────────────
+
+export const BOOK_COPY_STATUSES = [
+  'AVAILABLE',
+  'RESERVED',
+  'ON_LOAN',
+  'LOST',
+  'WRITTEN_OFF',
+] as const
+export const BookCopyStatusSchema = z.enum(BOOK_COPY_STATUSES)
+export type BookCopyStatusValue = z.infer<typeof BookCopyStatusSchema>
+
+export const BOOK_CONDITIONS = ['GOOD', 'WORN', 'DAMAGED'] as const
+export const BookConditionSchema = z.enum(BOOK_CONDITIONS)
+export type BookConditionValue = z.infer<typeof BookConditionSchema>
+
+/** Экземпляров за раз: заведение, наклейки, импорт одной строки. */
+export const LIBRARY_COPIES_MAX = 200
+/** Строк в одном файле импорта фонда. */
+export const LIBRARY_IMPORT_MAX_ROWS = 1000
+
+const optionalText = (max: number) =>
+  z
+    .string()
+    .trim()
+    .max(max)
+    .optional()
+    .transform((v) => (v ? v : undefined))
+
+/**
+ * ISBN-10 или ISBN-13: дефисы и пробелы убираются, «x» становится «X». Контрольную сумму
+ * не проверяем: в фондах вузов полно старых изданий с опечатками в ISBN, и отказ из-за
+ * неё мешал бы завести книгу, которая реально стоит на полке.
+ */
+export const IsbnSchema = z
+  .string()
+  .trim()
+  .transform((v) => v.replace(/[\s-]/g, '').toUpperCase())
+  .refine((v) => /^(\d{9}[\dX]|\d{13})$/.test(v), 'ISBN — 10 или 13 цифр')
+
+const currentYearPlusOne = new Date().getFullYear() + 1
+
+/** Инвентарный номер — как он написан в книге и в инвентарной книге фонда. */
+export const InventoryNumberSchema = z.string().trim().min(1).max(40)
+
+const bookFields = {
+  title: z.string().trim().min(1).max(300),
+  authors: z.string().trim().max(300).default(''),
+  isbn: IsbnSchema.optional(),
+  publisher: optionalText(200),
+  year: z.number().int().min(1450).max(currentYearPlusOne).optional(),
+  section: optionalText(100),
+  description: optionalText(2000),
+}
+
+export const CreateBookSchema = z.object(bookFields).strict()
+export type CreateBookInput = z.infer<typeof CreateBookSchema>
+
+/** Правка карточки. `null` очищает необязательное поле; `archived` убирает книгу из каталога. */
+export const UpdateBookSchema = z
+  .object({
+    title: bookFields.title.optional(),
+    authors: z.string().trim().max(300).optional(),
+    isbn: IsbnSchema.nullable().optional(),
+    publisher: z.string().trim().max(200).nullable().optional(),
+    year: bookFields.year.nullable(),
+    section: z.string().trim().max(100).nullable().optional(),
+    description: z.string().trim().max(2000).nullable().optional(),
+    coverFileId: z.string().min(1).nullable().optional(),
+    archived: z.boolean().optional(),
+  })
+  .strict()
+export type UpdateBookInput = z.infer<typeof UpdateBookSchema>
+
+export const BOOK_SORT_FIELDS = ['title', 'authors', 'year', 'createdAt'] as const
+export const BookSortSchema = z.enum(BOOK_SORT_FIELDS)
+
+/**
+ * Поиск по каталогу. `q` ищет в названии, авторах и ISBN. `available` — только книги, у
+ * которых есть экземпляр на полке. `archived` видят только те, кто ведёт фонд.
+ */
+export const BookListQuerySchema = z.object({
+  page: z.coerce.number().int().positive().default(1),
+  limit: z.coerce.number().int().positive().max(100).default(20),
+  q: z.string().trim().max(100).optional(),
+  section: z.string().trim().max(100).optional(),
+  available: z
+    .enum(['true', 'false'])
+    .optional()
+    .transform((v) => v === 'true'),
+  archived: z
+    .enum(['true', 'false'])
+    .optional()
+    .transform((v) => v === 'true'),
+  sort: BookSortSchema.optional(),
+  order: z.enum(['asc', 'desc']).optional(),
+})
+export type BookListQueryInput = z.infer<typeof BookListQuerySchema>
+
+/**
+ * Новые экземпляры книги: либо инвентарные номера списком, либо количество — тогда номера
+ * выдаются подряд после наибольшего числового номера вуза.
+ */
+export const AddBookCopiesSchema = z
+  .object({
+    inventoryNumbers: z.array(InventoryNumberSchema).min(1).max(LIBRARY_COPIES_MAX).optional(),
+    count: z.number().int().min(1).max(LIBRARY_COPIES_MAX).optional(),
+    condition: BookConditionSchema.default('GOOD'),
+  })
+  .strict()
+  .refine((v) => (v.inventoryNumbers ? 1 : 0) + (v.count ? 1 : 0) === 1, {
+    message: 'Укажите инвентарные номера или количество',
+    path: ['count'],
+  })
+export type AddBookCopiesInput = z.infer<typeof AddBookCopiesSchema>
+
+/**
+ * Правка экземпляра. Статус вручную — только вывод из оборота (утерян, списан) и возврат на
+ * полку из них; выдачу и бронь двигают сами выдачи и брони.
+ */
+export const UpdateBookCopySchema = z
+  .object({
+    inventoryNumber: InventoryNumberSchema.optional(),
+    condition: BookConditionSchema.optional(),
+    note: z.string().trim().max(500).nullable().optional(),
+    status: z.enum(['AVAILABLE', 'LOST', 'WRITTEN_OFF']).optional(),
+  })
+  .strict()
+export type UpdateBookCopyInput = z.infer<typeof UpdateBookCopySchema>
+
+/** Печать QR-наклеек экземпляров. */
+export const BookCopyLabelsSchema = z
+  .object({ copyIds: z.array(z.string().min(1)).min(1).max(LIBRARY_COPIES_MAX) })
+  .strict()
+export type BookCopyLabelsInput = z.infer<typeof BookCopyLabelsSchema>
+
+/** Сколько экземпляров книги в каком состоянии. */
+export interface BookAvailability {
+  total: number
+  available: number
+  onLoan: number
+  reserved: number
+}
+
+export interface BookCard {
+  id: string
+  title: string
+  authors: string
+  isbn: string | null
+  publisher: string | null
+  year: number | null
+  section: string | null
+  description: string | null
+  coverUrl: string | null
+  archived: boolean
+  availability: BookAvailability
+}
+
+export interface BookCopyItem {
+  id: string
+  inventoryNumber: string
+  code: string
+  status: BookCopyStatusValue
+  condition: BookConditionValue
+  note: string | null
+  inventoriedAt: string | null
+  /** Кому выдан сейчас — только тем, кто ведёт фонд. */
+  loan: { id: string; readerName: string; readerGroup: string | null; dueAt: string } | null
+}
+
+/** Книга с экземплярами — для тех, кто ведёт фонд. */
+export interface BookDetail extends BookCard {
+  copies: BookCopyItem[]
+}
+
+/** Наклейка экземпляра: что напечатать рядом с QR. */
+export interface BookCopyLabel {
+  copyId: string
+  inventoryNumber: string
+  code: string
+  title: string
+  authors: string
+  university: string
+  url: string
+  qr: string
+}
+
+/** Экземпляр по коду с наклейки — для сканера библиотекаря. */
+export interface BookCopyByCode {
+  copy: BookCopyItem
+  book: BookCard
+}
+
+// ── Импорт фонда из CSV/XLSX ─────────────────────────────────────────────────────────
+
+export const LibraryImportRowStatusSchema = z.enum(['READY', 'DUPLICATE', 'ERROR'])
+
+/**
+ * Строка импорта: книга и её экземпляры — инвентарные номера через запятую или количество.
+ * `DUPLICATE` — такой инвентарный номер уже есть в вузе или повторяется в файле.
+ */
+export interface LibraryImportPreviewRow {
+  line: number
+  title: string
+  authors: string
+  isbn: string | null
+  publisher: string | null
+  year: number | null
+  section: string | null
+  inventoryNumbers: string[]
+  count: number
+  status: z.infer<typeof LibraryImportRowStatusSchema>
+  error: string | null
+}
+
+export interface LibraryImportPreviewResponse {
+  rows: LibraryImportPreviewRow[]
+  summary: { total: number; ready: number; duplicate: number; error: number; copies: number }
+}
+
+export const LibraryImportCommitRowSchema = z
+  .object({
+    line: z.number().int().positive(),
+    title: bookFields.title,
+    authors: bookFields.authors,
+    isbn: IsbnSchema.nullable().optional(),
+    publisher: z.string().trim().max(200).nullable().optional(),
+    year: bookFields.year.nullable(),
+    section: z.string().trim().max(100).nullable().optional(),
+    inventoryNumbers: z.array(InventoryNumberSchema).max(LIBRARY_COPIES_MAX).default([]),
+    count: z.number().int().min(0).max(LIBRARY_COPIES_MAX).default(0),
+  })
+  .strict()
+
+export const LibraryImportCommitSchema = z
+  .object({ rows: z.array(LibraryImportCommitRowSchema).min(1).max(LIBRARY_IMPORT_MAX_ROWS) })
+  .strict()
+export type LibraryImportCommitInput = z.infer<typeof LibraryImportCommitSchema>
+
+export interface LibraryImportResult {
+  books: number
+  matched: number
+  copies: number
+  skipped: number
+}
