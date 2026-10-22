@@ -1510,14 +1510,16 @@ SENTRY_PROJECT=
 SENTRY_AUTH_TOKEN=
 ```
 
-### `docker/.env`
+### `docker/dev/.env`
 ```env
-POSTGRES_USER=postgres  POSTGRES_PASSWORD=  POSTGRES_DB=studenthub
-REDIS_PASSWORD=
-MINIO_ROOT_USER=  MINIO_ROOT_PASSWORD=
-API_PORT=3001  WEB_PORT=3000  MINIO_PORT=9000  MINIO_CONSOLE_PORT=9001
-POSTGRES_PORT=5432  REDIS_PORT=6379
+POSTGRES_USER=postgres  POSTGRES_PASSWORD=  POSTGRES_DB=studenthub  POSTGRES_PORT=5432
+REDIS_PASSWORD=  REDIS_PORT=6379
+MINIO_ROOT_USER=  MINIO_ROOT_PASSWORD=  MINIO_PORT=9000  MINIO_CONSOLE_PORT=9001
+MAILPIT_SMTP_PORT=1025  MAILPIT_UI_PORT=8025
 ```
+
+Прод-стек читает `docker/prod/.env` (инфраструктура, домены) и `docker/prod/.env.api`
+(приложение) — образцы и таблица «откуда берётся переменная» в `docker/README.md`.
 
 ---
 
@@ -1526,12 +1528,12 @@ POSTGRES_PORT=5432  REDIS_PORT=6379
 ```bash
 pnpm install
 
-cp docker/.env.example docker/.env
+cp docker/dev/.env.example docker/dev/.env
 cp apps/api/.env.example apps/api/.env
 cp apps/web/.env.example apps/web/.env.local
 # заполнить секреты
 
-docker compose -f docker/docker-compose.yml up -d postgres redis minio
+docker compose -f docker/dev/compose.yml up -d postgres redis minio
 # дождаться healthy (~10 с)
 
 pnpm --filter api prisma migrate deploy

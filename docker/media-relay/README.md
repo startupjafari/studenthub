@@ -55,6 +55,10 @@ MediaMTX между агентами вузов и браузерами охра
    | `RELAY_TLS_CERT`      | `relay.crt` одной строкой                                |
    | `RELAY_TLS_KEY`       | `relay.key` одной строкой                                |
 
+   `api.<домен>` — адрес сервиса `api` на Railway. Если платформа развёрнута compose-стеком
+   (`docker/prod`), отдельного домена у api нет: JWKS отдаёт
+   `https://<SH_APP_DOMAIN>/api/v1/.well-known/media-jwks.json` (`docker/README.md`, «Решения»).
+
 5. **Variables** сервиса `api` (`apps/api/.env.example`):
 
    | Переменная                | Значение                                                                       |

@@ -190,7 +190,7 @@ function securityHeaders() {
     // Камера нужна сканеру QR (вход по QR, отметка посещаемости) — на своём origin.
     { key: 'Permissions-Policy', value: 'camera=(self), microphone=(self), geolocation=()' },
     // HSTS: браузер сам переписывает http:// на https:// и не даёт кликнуть «продолжить»
-    // мимо предупреждения о сертификате. Заголовок есть в docker/nginx/nginx.conf, но в
+    // мимо предупреждения о сертификате. Заголовок есть в docker/prod/nginx/templates, но в
     // деплое на Railway nginx в цепочке нет — Next отдаёт страницы сам, и полагаться на
     // чужой edge в вопросе, уйдут ли auth-cookie по открытому каналу, не стоит.
     //

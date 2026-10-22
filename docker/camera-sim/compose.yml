@@ -6,7 +6,7 @@
 #   edge   — обычная сеть Docker: через неё с хоста доступны лишь вход веб-камеры (ingest)
 #            и пульт сетевых помех (API Toxiproxy). Сам регистратор на edge не торчит.
 #
-# Порты — только на 127.0.0.1, как в основном docker-compose: это стенд разработчика.
+# Порты — только на 127.0.0.1, как в dev-стеке (docker/dev): это стенд разработчика.
 
 name: studenthub-cameras
 
@@ -14,7 +14,6 @@ services:
   # Регистратор: 3 канала × 2 потока, RTSP :554 с digest-авторизацией (nvr.yml).
   nvr:
     image: bluenviron/mediamtx:1.21.2-ffmpeg
-    container_name: studenthub-cam-nvr
     restart: unless-stopped
     environment:
       MTX_AUTHINTERNALUSERS_1_PASS: ${CAM_PASSWORD:-Camera12345}
@@ -27,14 +26,13 @@ services:
   # Вход веб-камеры (канал 1): webcam.ps1 публикует сюда с Windows (ingest.yml).
   ingest:
     image: bluenviron/mediamtx:1.21.2-ffmpeg
-    container_name: studenthub-cam-ingest
     restart: unless-stopped
     environment:
       MTX_AUTHINTERNALUSERS_0_PASS: ${WEBCAM_PUBLISH_PASSWORD:-webcam-dev}
-    volumes:
-      - ./ingest.yml:/mediamtx.yml:ro
     ports:
       - '127.0.0.1:${WEBCAM_PUBLISH_PORT:-18554}:8554'
+    volumes:
+      - ./ingest.yml:/mediamtx.yml:ro
     networks:
       campus:
         ipv4_address: 10.77.0.20
@@ -45,36 +43,28 @@ services:
   # Помехи включаются через API на 127.0.0.1:8474 (примеры — в README).
   bad-network:
     image: ghcr.io/shopify/toxiproxy:2.13.0
-    container_name: studenthub-cam-toxiproxy
-    restart: unless-stopped
     command: ['-host=0.0.0.0', '-config=/toxiproxy.json']
-    volumes:
-      - ./toxiproxy.json:/toxiproxy.json:ro
+    restart: unless-stopped
     ports:
       - '127.0.0.1:${TOXIPROXY_API_PORT:-8474}:8474'
+    volumes:
+      - ./toxiproxy.json:/toxiproxy.json:ro
     networks:
       campus:
         ipv4_address: 10.77.0.30
       edge: {}
 
-  # ONVIF-устройство поверх канала 2: агент находит камеру и узнаёт адреса потоков так же,
-  # как у настоящей. Необязательный профиль: --profile onvif.
-  #
-  # Сеть edge нужна только самому эмулятору: его WSDL при старте подтягивает XSD-схемы с
-  # www.onvif.org, и без выхода наружу описания методов остаются пустыми — каждый запрос
-  # отвечает 500. Настоящей камере интернет не нужен; RTSP эмулятор всё равно отдаёт
-  # только в кампус, адреса в ответах — на 10.77.0.40.
+  # ONVIF-устройство поверх канала 2, профиль onvif. Сеть edge нужна самому эмулятору:
+  # без XSD-схем с www.onvif.org он отвечает 500 (README, «ONVIF»).
   onvif:
     profiles: ['onvif']
     # У проекта есть только тег latest — закрепляем сборку по digest (октябрь 2024).
     image: ghcr.io/daniela-hase/onvif-server@sha256:22cb34ce3707c12db4a49f29b1432437833d553fa723cdcb268a8e9f5522cd96
-    container_name: studenthub-cam-onvif
     restart: unless-stopped
-    # MAC интерфейса обязан совпадать с `mac` в onvif.yaml: по нему сервер выбирает, на
-    # каком интерфейсе слушать.
-    mac_address: 02:42:0a:4d:00:28
     volumes:
       - ./onvif.yaml:/onvif.yaml:ro
+    # MAC обязан совпадать с `mac` в onvif.yaml: по нему сервер выбирает интерфейс.
+    mac_address: 02:42:0a:4d:00:28
     networks:
       campus:
         ipv4_address: 10.77.0.40
@@ -90,7 +80,6 @@ services:
       context: ../..
       dockerfile: apps/camera-agent/Dockerfile
     image: studenthub-camera-agent:dev
-    container_name: studenthub-cam-agent
     restart: unless-stopped
     environment:
       STUDENTHUB_API_URL: ${STUDENTHUB_API_URL:-http://host.docker.internal:3001/api/v1}
@@ -99,10 +88,10 @@ services:
       # Стенд ходит к API по http на localhost разработчика. В вузе — только https.
       STUDENTHUB_ALLOW_INSECURE: '1'
       STUDENTHUB_PROBE_INTERVAL_S: ${STUDENTHUB_PROBE_INTERVAL_S:-15}
-    extra_hosts:
-      - 'host.docker.internal:host-gateway'
     volumes:
       - agent_state:/var/lib/studenthub-agent
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
     networks:
       campus:
         ipv4_address: 10.77.0.50

@@ -220,8 +220,9 @@ Branch). Ветка задаётся в интерфейсе Railway, а не в
 ## 4. Объектное хранилище
 
 **Вариант А — MinIO как сервис Railway:**
-1. **+ New → Docker Image** → `quay.io/minio/minio` (на Docker Hub образ больше не
-   публикуется).
+1. **+ New → Docker Image** → `pgsty/minio:RELEASE.2026-08-04T00-00-00Z` — тот же образ, что
+   в `docker/shared/infra.yml`. Официальные `minio/minio` и `quay.io/minio/minio` больше не
+   раздаются (`docker/README.md`, «Решения»).
 2. **Settings → Deploy → Custom Start Command**: `server /data --console-address ":9001"`.
 3. **Variables**: `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD` (≥8 симв.).
 4. **Settings → Volumes** — примонтировать том на `/data` (иначе файлы не переживут редеплой).
