@@ -59,6 +59,7 @@
     "search": "Поиск",
     "scan": "Сканер QR",
     "securityPost": "Пост охраны",
+    "libraryHome": "Библиотека",
     "securityRooms": "Помещения",
     "settings": "Настройки",
     "consultations": "Консультации",
@@ -1459,7 +1460,8 @@
     "STAROSTA": "Староста",
     "STUDENT": "Студент",
     "EMPLOYER": "Работодатель",
-    "SECURITY_GUARD": "Охрана"
+    "SECURITY_GUARD": "Охрана",
+    "LIBRARIAN": "Библиотекарь"
   },
   "FileUpload": {
     "dropHint": "Перетащите файл или нажмите для выбора",
@@ -3996,6 +3998,14 @@
     "retry": "Повторить",
     "camerasTitle": "Камеры",
     "camerasDescription": "Видео с камер вуза в реальном времени"
+  },
+  "Library": {
+    "title": "Библиотека",
+    "subtitle": "Каталог, выдача и возврат книг вашего вуза",
+    "scanTitle": "Сканер QR",
+    "scanDescription": "Подтвердить вход на компьютере",
+    "soonTitle": "Раздел готовится",
+    "soonDescription": "Каталог, выдача книг, брони и должники появятся здесь в следующих обновлениях."
   },
   "Cameras": {
     "adminTitle": "Камеры",

@@ -6,7 +6,7 @@ import { AppShell } from '../../widgets/app-shell'
 
 // Оболочка охраны вуза: доступ только SECURITY_GUARD (RoleGuard) + единый сайдбар/топбар.
 // Сканер, проверка студенческого и настройки — общие экраны группы (student); куда ещё
-// охране можно, решает middleware (isSecurityGuardPath).
+// охране можно, решает middleware (isRestrictedRolePath).
 export default async function Layout({ children }: { children: ReactNode }) {
   const locale = await getLocale()
   return (

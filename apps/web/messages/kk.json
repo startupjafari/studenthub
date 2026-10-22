@@ -59,6 +59,7 @@
     "search": "Іздеу",
     "scan": "QR сканер",
     "securityPost": "Күзет бекеті",
+    "libraryHome": "Кітапхана",
     "securityRooms": "Бөлмелер",
     "settings": "Баптаулар",
     "consultations": "Кеңестер",
@@ -1459,7 +1460,8 @@
     "STAROSTA": "Староста",
     "STUDENT": "Студент",
     "EMPLOYER": "Жұмыс беруші",
-    "SECURITY_GUARD": "Күзет"
+    "SECURITY_GUARD": "Күзет",
+    "LIBRARIAN": "Кітапханашы"
   },
   "FileUpload": {
     "dropHint": "Файлды сүйреңіз немесе таңдау үшін басыңыз",
@@ -3996,6 +3998,14 @@
     "retry": "Қайталау",
     "camerasTitle": "Камералар",
     "camerasDescription": "Университет камераларынан нақты уақыттағы бейне"
+  },
+  "Library": {
+    "title": "Кітапхана",
+    "subtitle": "Жоғары оқу орныңыздың каталогы, кітап беру және қайтару",
+    "scanTitle": "QR сканері",
+    "scanDescription": "Компьютерде кіруді растау",
+    "soonTitle": "Бөлім дайындалуда",
+    "soonDescription": "Каталог, кітап беру, брондар және қарыздарлар келесі жаңартуларда осында пайда болады."
   },
   "Cameras": {
     "adminTitle": "Камералар",

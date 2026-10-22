@@ -80,6 +80,7 @@ const FILTER_ROLES: Role[] = [
   Role.STAROSTA,
   Role.STUDENT,
   Role.SECURITY_GUARD,
+  Role.LIBRARIAN,
 ]
 // Варианты размера страницы — те же, что разрешает серверная схема (предел 200).
 const PAGE_SIZES = ADMIN_PAGE_SIZES

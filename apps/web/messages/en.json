@@ -59,6 +59,7 @@
     "search": "Search",
     "scan": "Scan QR",
     "securityPost": "Security post",
+    "libraryHome": "Library",
     "securityRooms": "Rooms",
     "settings": "Settings",
     "consultations": "Consultations",
@@ -1459,7 +1460,8 @@
     "STAROSTA": "Group leader",
     "STUDENT": "Student",
     "EMPLOYER": "Employer",
-    "SECURITY_GUARD": "Security"
+    "SECURITY_GUARD": "Security",
+    "LIBRARIAN": "Librarian"
   },
   "FileUpload": {
     "dropHint": "Drag a file here or click to choose",
@@ -3996,6 +3998,14 @@
     "retry": "Retry",
     "camerasTitle": "Cameras",
     "camerasDescription": "Live video from university cameras"
+  },
+  "Library": {
+    "title": "Library",
+    "subtitle": "Your university’s catalogue, book loans and returns",
+    "scanTitle": "QR scanner",
+    "scanDescription": "Confirm sign-in on a computer",
+    "soonTitle": "Coming soon",
+    "soonDescription": "The catalogue, book loans, holds and overdue readers will appear here in upcoming updates."
   },
   "Cameras": {
     "adminTitle": "Cameras",

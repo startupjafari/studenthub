@@ -1,4 +1,4 @@
-import { Role } from '@studenthub/shared-types'
+import { Role, isRestrictedRole } from '@studenthub/shared-types'
 import {
   Award,
   BarChart3,
@@ -14,6 +14,7 @@ import {
   FolderLock,
   GraduationCap,
   LayoutDashboard,
+  Library,
   ListChecks,
   MessagesSquare,
   Newspaper,
@@ -130,6 +131,13 @@ const SECURITY_GUARD: QuickAction[] = [
   { navKey: 'securityRooms', href: '/security/rooms', icon: DoorClosed },
 ]
 
+// Библиотекарь вуза: главная раздела и сканер для входа на компьютере. Каталог и выдачи
+// добавят задачи Фазы 20. «Документы» ему не добавляются — как и охране.
+const LIBRARIAN: QuickAction[] = [
+  { navKey: 'libraryHome', href: '/library', icon: Library },
+  { navKey: 'scan', href: '/scan', icon: ScanQrCode },
+]
+
 // Быстрые действия есть у КАЖДОЙ роли: пустая палитра при открытии — это экран
 // «введите запрос», на котором нечего выбрать, и первое, что видит администратор.
 const BY_ROLE: Record<Role, QuickAction[]> = {
@@ -143,12 +151,13 @@ const BY_ROLE: Record<Role, QuickAction[]> = {
   [Role.PLATFORM_MODERATOR]: PLATFORM_MODERATOR,
   [Role.EMPLOYER]: EMPLOYER,
   [Role.SECURITY_GUARD]: SECURITY_GUARD,
+  [Role.LIBRARIAN]: LIBRARIAN,
 }
 
 export function quickActionsFor(role: Role | null): QuickAction[] {
   if (!role) return []
-  // Работодателю и охране общий раздел «Документы» не показываем: это хранилище участника
-  // вуза.
-  if (role === Role.EMPLOYER || role === Role.SECURITY_GUARD) return BY_ROLE[role]
+  // Работодателю, охране и библиотекарю общий раздел «Документы» не показываем: это
+  // хранилище участника вуза.
+  if (role === Role.EMPLOYER || isRestrictedRole(role)) return BY_ROLE[role]
   return [...BY_ROLE[role], DOCUMENTS]
 }
