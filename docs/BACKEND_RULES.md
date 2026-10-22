@@ -24,7 +24,7 @@
 | DTO через `class-validator` | **Zod** через `packages/shared-schemas` | Единая схема валидации для API и фронта |
 | `npm run ...` | **`pnpm`** + Turborepo | Монорепо на pnpm workspaces |
 | Express-адаптер по умолчанию | **Fastify** (`@nestjs/platform-fastify`) | Производительность |
-| `postgres:17-alpine` | **`postgres:16-alpine`** | Зафиксировано в `docker/dev/compose.yml` |
+| `postgres:17-alpine` | **`postgres:16-alpine`** | Зафиксировано в `docker/shared/infra.yml` |
 | Формат ошибки `{ statusCode, message, error }` | `{ success, error: { code, message, details } }` | Контракт фронтенда (`docs/PROJECT.md` §API) |
 | Одиночный `schema.prisma` | Multi-file схема в `prisma/schema/` | Схема на ~35 моделей |
 

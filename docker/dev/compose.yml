@@ -1,83 +1,52 @@
-# StudentHub — инфраструктура для разработки (postgres, redis, minio, mailpit).
-# Порты публикуются только на 127.0.0.1: это стенд разработчика, и база с файловым
-# хранилищем не должны слушать внешний интерфейс машины. Приложения ходят сюда с того
-# же хоста (`pnpm dev`), поэтому ничего не теряется.
+# StudentHub — инфраструктура для разработки: postgres, redis, minio, mailpit.
+# Запуск: pnpm infra:up (docker/README.md). Переменные — .env рядом (образец .env.example).
+# Порты — только на 127.0.0.1: база и хранилище стенда не должны слушать внешний интерфейс.
 
 name: studenthub
 
+x-dev-healthcheck: &dev-healthcheck
+  interval: 5s
+  start_period: 10s
+
 services:
   postgres:
-    image: postgres:16-alpine
-    container_name: studenthub-postgres
+    extends: { file: ../shared/infra.yml, service: postgres }
     restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
     ports:
       - '127.0.0.1:${POSTGRES_PORT:-5432}:5432'
     volumes:
-      - pg_data:/var/lib/postgresql/data
+      # Рядом с основной базой при первом старте создаётся studenthub_test.
       - ./postgres/init:/docker-entrypoint-initdb.d:ro
-    healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}']
-      interval: 5s
-      timeout: 5s
-      retries: 10
-      start_period: 10s
+    healthcheck: *dev-healthcheck
 
   redis:
-    image: redis:7-alpine
-    container_name: studenthub-redis
+    extends: { file: ../shared/infra.yml, service: redis }
     restart: unless-stopped
-    environment:
-      REDIS_PASSWORD: ${REDIS_PASSWORD}
-    command: ['redis-server', '--requirepass', '${REDIS_PASSWORD}', '--appendonly', 'yes']
     ports:
       - '127.0.0.1:${REDIS_PORT:-6379}:6379'
-    volumes:
-      - redis_data:/data
     healthcheck:
-      test: ['CMD-SHELL', 'redis-cli -a "$${REDIS_PASSWORD}" --no-auth-warning ping | grep -q PONG']
-      interval: 5s
-      timeout: 5s
-      retries: 10
+      <<: *dev-healthcheck
       start_period: 5s
 
   minio:
-    # Docker Hub `minio/minio` больше не публикуется — официальный источник quay.io.
-    image: quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z
-    container_name: studenthub-minio
+    extends: { file: ../shared/infra.yml, service: minio }
     restart: unless-stopped
-    command: ['server', '/data', '--console-address', ':9001']
-    environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
     ports:
       - '127.0.0.1:${MINIO_PORT:-9000}:9000'
-      - '127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001'
-    volumes:
-      - minio_data:/data
-    healthcheck:
-      test: ['CMD-SHELL', 'curl -f http://localhost:9000/minio/health/live || exit 1']
-      interval: 5s
-      timeout: 5s
-      retries: 10
-      start_period: 10s
+      - '127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001' # веб-консоль
+    healthcheck: *dev-healthcheck
 
-  # Локальный SMTP-приёмник для dev/test: ловит все исходящие письма и показывает их
-  # в веб-интерфейсе (http://localhost:8025). Реальная почта наружу НЕ уходит.
-  # Чтобы письма шли сюда, задайте в apps/api/.env: SMTP_HOST=localhost, SMTP_PORT=1025.
+  # Ловит все исходящие письма api и показывает их на http://localhost:8025 — наружу ничего
+  # не уходит. В apps/api/.env: SMTP_HOST=localhost, SMTP_PORT=1025.
   mailpit:
     image: axllent/mailpit:v1.31.4
-    container_name: studenthub-mailpit
     restart: unless-stopped
     ports:
       - '127.0.0.1:${MAILPIT_SMTP_PORT:-1025}:1025' # SMTP
       - '127.0.0.1:${MAILPIT_UI_PORT:-8025}:8025' # веб-интерфейс
     healthcheck:
+      <<: *dev-healthcheck
       test: ['CMD', 'wget', '-q', '-O', '-', 'http://localhost:8025/readyz']
-      interval: 5s
       timeout: 5s
       retries: 10
       start_period: 5s
