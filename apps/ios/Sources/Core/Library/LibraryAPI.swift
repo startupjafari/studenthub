@@ -37,7 +37,7 @@ struct BookCardDTO: Decodable, Equatable, Identifiable {
     /// «Авторы · год» — строка под названием. Пустые части выпадают, а не оставляют
     /// висящую точку.
     var byline: String {
-        [authors.isEmpty ? nil : authors, year.map(String.init)]
+        [authors.isEmpty ? nil : authors, year.map { String($0) }]
             .compactMap { $0 }
             .joined(separator: " · ")
     }

@@ -233,6 +233,9 @@ final class LibraryBookModel {
     func load() async {
         isLoading = true
         defer { isLoading = false }
+        // Дочерние задачи получают копии, а не `self`: модель живёт на главном потоке.
+        let api = self.api
+        let bookID = self.bookID
         do {
             async let book = api.book(id: bookID)
             async let reservations = api.myReservations()
@@ -354,6 +357,7 @@ final class MyBooksModel {
         guard !isLoading else { return }
         isLoading = true
         defer { isLoading = false }
+        let api = self.api
         do {
             async let loans = api.myLoans()
             async let reservations = api.myReservations()
