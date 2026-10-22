@@ -36,6 +36,7 @@ import kz.studenthub.app.core.realtime.SocketIoTransport
 import kz.studenthub.app.core.storage.AppDatabase
 import kz.studenthub.app.core.applications.ApplicationsApi
 import kz.studenthub.app.core.feed.FeedApi
+import kz.studenthub.app.core.library.LibraryApi
 import kz.studenthub.app.core.study.StudyApi
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
@@ -100,6 +101,7 @@ class AppServices(context: Context) {
     val studyApi = StudyApi(api)
     val feedApi = FeedApi(api)
     val applicationsApi = ApplicationsApi(api)
+    val libraryApi = LibraryApi(api)
 
     /** Картинки постов: ключ — «пост/файл», ссылка подписанная и короткоживущая. */
     val postMediaUrls = AttachmentUrls { key ->
