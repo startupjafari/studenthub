@@ -4627,6 +4627,146 @@
         ]
       }
     },
+    "/library/returns": {
+      "post": {
+        "operationId": "LibraryLoansController_returnCopy",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReturnLoanDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "409": {
+            "description": "details.field = notOnLoan — экземпляр не выдан"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Принять книгу: скан экземпляра, состояние; очередь броней — отложить",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/loans/{id}/renew": {
+      "post": {
+        "operationId": "LibraryLoansController_renew",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenewLoanDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "409": {
+            "description": "details.field: renewals | queue | notOnLoan"
+          },
+          "422": {
+            "description": "Срок вне правил (field = dueDate)"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Продлить выдачу",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/loans/{id}/lost": {
+      "post": {
+        "operationId": "LibraryLoansController_lost",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Книга утеряна читателем: выдача закрыта, экземпляр — из оборота",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/loans/{id}/cancel": {
+      "post": {
+        "operationId": "LibraryLoansController_cancel",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelLoanDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Отменить ошибочную выдачу с причиной",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
     "/library/me/loans": {
       "get": {
         "operationId": "LibraryLoansController_mine",
@@ -17013,6 +17153,18 @@
         "properties": {}
       },
       "IssueLoanDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "ReturnLoanDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "RenewLoanDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "CancelLoanDto": {
         "type": "object",
         "properties": {}
       },

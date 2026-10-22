@@ -2,6 +2,7 @@ import { Role, isRestrictedRole } from '@studenthub/shared-types'
 import {
   Award,
   BarChart3,
+  BookDown,
   BookOpen,
   BookUp,
   Building2,
@@ -137,6 +138,7 @@ const SECURITY_GUARD: QuickAction[] = [
 const LIBRARIAN: QuickAction[] = [
   { navKey: 'libraryHome', href: '/library', icon: Library },
   { navKey: 'libraryIssue', href: '/library/issue', icon: BookUp },
+  { navKey: 'libraryReturn', href: '/library/return', icon: BookDown },
   { navKey: 'libraryLoans', href: '/library/loans', icon: ListChecks },
   { navKey: 'libraryCatalog', href: '/library/catalog', icon: BookOpen },
   { navKey: 'scan', href: '/scan', icon: ScanQrCode },

@@ -11,6 +11,9 @@ import type {
   LibraryReaderSession,
   LoanItem,
   LoanListQueryInput,
+  RenewLoanInput,
+  ReturnLoanInput,
+  ReturnLoanResult,
   LibraryImportCommitInput,
   LibraryImportPreviewResponse,
   LibraryImportResult,
@@ -172,6 +175,26 @@ export async function fetchLoans(
 
 export async function fetchMyLoans(): Promise<LoanItem[]> {
   const { data } = await api.get<LoanItem[]>('/library/me/loans')
+  return data
+}
+
+export async function returnCopyRequest(input: ReturnLoanInput): Promise<ReturnLoanResult> {
+  const { data } = await api.post<ReturnLoanResult>('/library/returns', input)
+  return data
+}
+
+export async function renewLoanRequest(id: string, input: RenewLoanInput = {}): Promise<LoanItem> {
+  const { data } = await api.post<LoanItem>(`/library/loans/${id}/renew`, input)
+  return data
+}
+
+export async function markLoanLostRequest(id: string): Promise<LoanItem> {
+  const { data } = await api.post<LoanItem>(`/library/loans/${id}/lost`)
+  return data
+}
+
+export async function cancelLoanRequest(id: string, reason: string): Promise<LoanItem> {
+  const { data } = await api.post<LoanItem>(`/library/loans/${id}/cancel`, { reason })
   return data
 }
 

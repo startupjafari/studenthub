@@ -2,6 +2,7 @@ import { Role, isRestrictedRole } from '@studenthub/shared-types'
 import {
   Award,
   BarChart3,
+  BookDown,
   BookOpen,
   BookUp,
   BriefcaseBusiness,
@@ -288,6 +289,7 @@ export const SECURITY_GUARD_NAV: NavItem[] = [
 export const LIBRARIAN_NAV: NavItem[] = [
   { key: 'libraryHome', href: '/library', icon: Library, exact: true },
   { key: 'libraryIssue', href: '/library/issue', icon: BookUp },
+  { key: 'libraryReturn', href: '/library/return', icon: BookDown },
   { key: 'libraryLoans', href: '/library/loans', icon: ListChecks },
   { key: 'libraryCatalog', href: '/library/catalog', icon: BookOpen },
 ]

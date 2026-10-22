@@ -6,7 +6,7 @@ import { useSearchParams } from 'next/navigation'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useFormatter, useTranslations } from 'next-intl'
-import { BookCheck, ScanLine, ScanQrCode, TriangleAlert, UserRoundX, X } from 'lucide-react'
+import { BookCheck, ScanLine, TriangleAlert, UserRoundX } from 'lucide-react'
 import type { LibraryReaderSession, LoanItem, ReaderBlocker } from '@studenthub/shared-schemas'
 import {
   Badge,
@@ -14,9 +14,7 @@ import {
   Card,
   DatePicker,
   EmptyState,
-  Input,
   Label,
-  Modal,
   PageHeader,
   SectionPanel,
   Skeleton,
@@ -24,13 +22,13 @@ import {
 import {
   LoanDueBadge,
   ReaderCard,
-  formatCopyCode,
   issueLoanRequest,
   libraryKeys,
   resolveReaderRequest,
 } from '../../../entities/library'
 import { parseQrTarget } from '../../../features/qr-scan'
 import { isTicketError, localToday, useDeskErrors } from '../lib/desk-errors'
+import { CopyPicker, copyRefInput, hasCopyRef, type CopyRef } from './copy-picker'
 
 // Выдача книг (Фаза 20.4, docs/PROJECT.md §3.11). Два скана: студенческий читателя (разовый
 // QR — сервер выдаёт пропуск на 15 минут) и наклейка экземпляра; срок — по правилам вуза.
@@ -117,14 +115,11 @@ function ReaderSession({
   onReset: () => void
 }) {
   const t = useTranslations('LibraryDesk')
-  const tScan = useTranslations('QrScan')
   const format = useFormatter()
   const describe = useDeskErrors()
   const qc = useQueryClient()
-  const [copyCode, setCopyCode] = useState<string | null>(null)
-  const [inventoryNumber, setInventoryNumber] = useState('')
+  const [copy, setCopy] = useState<CopyRef>({ copyCode: null, inventoryNumber: '' })
   const [dueDate, setDueDate] = useState(session.defaultDueDate)
-  const [scanning, setScanning] = useState(false)
   const [issued, setIssued] = useState<LoanItem[]>([])
   const [error, setError] = useState<string | null>(null)
 
@@ -145,13 +140,12 @@ function ReaderSession({
     mutationFn: () =>
       issueLoanRequest({
         ticket: session.ticket,
-        ...(copyCode ? { copyCode } : { inventoryNumber: inventoryNumber.trim() }),
+        ...copyRefInput(copy),
         dueDate,
       }),
     onSuccess: (loan) => {
       setIssued((prev) => [loan, ...prev])
-      setCopyCode(null)
-      setInventoryNumber('')
+      setCopy({ copyCode: null, inventoryNumber: '' })
       setError(null)
       void qc.invalidateQueries({ queryKey: libraryKeys.all })
       toast.success(t('issuedToast', { title: loan.book.title }))
@@ -166,7 +160,7 @@ function ReaderSession({
     },
   })
 
-  const ready = Boolean(copyCode || inventoryNumber.trim()) && blockers.length === 0
+  const ready = hasCopyRef(copy) && blockers.length === 0
 
   return (
     <div className="flex w-full flex-col gap-4">
@@ -216,43 +210,7 @@ function ReaderSession({
             if (ready) issueMut.mutate()
           }}
         >
-          <div className="grid gap-4 md:grid-cols-[1fr_auto]">
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="issue-copy">{t('copyField')}</Label>
-              {copyCode ? (
-                <div className="flex h-10 items-center gap-2 rounded-lg border border-border px-3">
-                  <Badge variant="secondary" className="font-mono">
-                    {formatCopyCode(copyCode)}
-                  </Badge>
-                  <span className="text-sm text-muted-foreground">{t('copyScanned')}</span>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    icon
-                    className="ml-auto"
-                    aria-label={t('clearCopy')}
-                    onClick={() => setCopyCode(null)}
-                  >
-                    <X className="size-4" aria-hidden />
-                  </Button>
-                </div>
-              ) : (
-                <Input
-                  id="issue-copy"
-                  value={inventoryNumber}
-                  onChange={(e) => setInventoryNumber(e.target.value)}
-                  placeholder={t('inventoryPlaceholder')}
-                />
-              )}
-            </div>
-            <div className="flex items-end">
-              <Button type="button" variant="outline" onClick={() => setScanning(true)}>
-                <ScanQrCode className="size-4" aria-hidden />
-                {t('scanCopy')}
-              </Button>
-            </div>
-          </div>
+          <CopyPicker value={copy} onChange={setCopy} />
           <div className="flex flex-col gap-1.5 sm:max-w-xs">
             <Label>{t('dueDate')}</Label>
             <DatePicker
@@ -286,25 +244,6 @@ function ReaderSession({
           <LoanList loans={openLoans} />
         )}
       </SectionPanel>
-
-      {scanning && (
-        <Modal onClose={() => setScanning(false)} title={t('scanCopy')} size="lg">
-          <div className="flex h-[60vh] flex-col">
-            <QrScanner
-              title={t('scanCopyTitle')}
-              hint={t('scanCopyHint')}
-              rejectNotice={tScan('notStudentHub')}
-              onScan={(raw) => {
-                const target = parseQrTarget(raw)
-                if (target?.kind !== 'bookCopy') return false
-                setCopyCode(target.value)
-                setScanning(false)
-                return true
-              }}
-            />
-          </div>
-        </Modal>
-      )}
     </div>
   )
 }

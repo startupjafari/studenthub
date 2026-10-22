@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import {
+  BookDown,
   BookOpen,
   BookUp,
   ChevronRight,
@@ -35,6 +36,12 @@ export function LibraryHomeView() {
       icon: BookUp,
       title: t('issueTitle'),
       description: t('issueDescription'),
+    },
+    {
+      href: '/library/return',
+      icon: BookDown,
+      title: t('returnTitle'),
+      description: t('returnDescription'),
     },
     {
       href: '/library/loans',
