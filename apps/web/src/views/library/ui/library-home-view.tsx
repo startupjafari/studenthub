@@ -7,6 +7,7 @@ import {
   BookDown,
   BookOpen,
   BookUp,
+  BookmarkCheck,
   ChevronRight,
   ListChecks,
   PowerOff,
@@ -48,6 +49,12 @@ export function LibraryHomeView() {
       icon: ListChecks,
       title: t('loansTitle'),
       description: t('loansDescription'),
+    },
+    {
+      href: '/library/reservations',
+      icon: BookmarkCheck,
+      title: t('reservationsTitle'),
+      description: t('reservationsDescription'),
     },
     {
       href: '/library/catalog',

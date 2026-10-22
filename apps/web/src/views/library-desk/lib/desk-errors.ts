@@ -1,7 +1,7 @@
 import { useTranslations } from 'next-intl'
 import { toApiError } from '../../../shared/lib'
 
-// Отказы выдачи и возврата: сервер отвечает 409 с `details.field` — по нему и выбираем текст
+// Отказы выдачи, возврата и брони: сервер отвечает 409 с `details.field` — по нему и выбираем текст
 // (FRONTEND_RULES §5.4: клиент реагирует на код, а не на сообщение сервера).
 type DeskField =
   | 'status'
@@ -17,6 +17,11 @@ type DeskField =
   | 'notOnLoan'
   | 'renewals'
   | 'queue'
+  | 'reservationLimit'
+  | 'alreadyReserved'
+  | 'alreadyBorrowed'
+  | 'noCopies'
+  | 'closed'
 
 export function useDeskErrors(): (error: unknown) => string {
   const t = useTranslations('LibraryDesk')
@@ -35,6 +40,11 @@ export function useDeskErrors(): (error: unknown) => string {
     notOnLoan: t('error.notOnLoan'),
     renewals: t('error.renewals'),
     queue: t('error.queue'),
+    reservationLimit: t('error.reservationLimit'),
+    alreadyReserved: t('error.alreadyReserved'),
+    alreadyBorrowed: t('error.alreadyBorrowed'),
+    noCopies: t('error.noCopies'),
+    closed: t('error.closed'),
   }
   return (error) => {
     const err = toApiError(error)

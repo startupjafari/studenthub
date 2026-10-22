@@ -63,6 +63,7 @@
     "libraryIssue": "Беру",
     "libraryReturn": "Қабылдау",
     "libraryLoans": "Берулер",
+    "libraryReservations": "Брондар",
     "libraryCatalog": "Каталог",
     "library": "Кітапхана",
     "securityRooms": "Бөлмелер",
@@ -4018,7 +4019,9 @@
     "catalogTitle": "Каталог",
     "catalogDescription": "Қор кітаптары, даналар және жапсырмалар",
     "returnTitle": "Кітапты қабылдау",
-    "returnDescription": "Жапсырманы сканерлеу және кітаптың күйі"
+    "returnDescription": "Жапсырманы сканерлеу және кітаптың күйі",
+    "reservationsTitle": "Брондар",
+    "reservationsDescription": "Брондар сөресі және кезек"
   },
   "LibraryAdmin": {
     "title": "Кітапхана",
@@ -4264,7 +4267,12 @@
       "qrUsed": "Бұл QR кодты басқа қызметкер тексерді — студенттен картаны жаңартуды сұраңыз",
       "qrExpired": "Студенттік билет кодының мерзімі өтті — картаны жаңартуды сұраңыз",
       "dueDate": "Мерзім кітапхана ережелеріне сәйкес емес",
-      "notFound": "Табылмады — жапсырманы немесе нөмірді тексеріңіз"
+      "notFound": "Табылмады — жапсырманы немесе нөмірді тексеріңіз",
+      "reservationLimit": "Брондар шегіне жетті — қолданыстағылардың бірін жойыңыз",
+      "alreadyReserved": "Бұл кітап брондалған",
+      "alreadyBorrowed": "Бұл кітап сізде",
+      "noCopies": "Кітапханада бұл кітаптың данасы жоқ",
+      "closed": "Бронь жабылған"
     },
     "acceptReturn": "Кітапты қабылдау",
     "byDefault": "Әдепкі бойынша",
@@ -4299,7 +4307,26 @@
     "readerCardTitle": "Оқырман куәлігі",
     "readerCardClosed": "Кітап қайтарылды — куәлік енді қолжетімсіз",
     "readerCardLoan": "Қолында «{title}», түг. {number}, {date} дейін",
-    "readerCardLogged": "Қарау журналға жазылды: карточканы кім және қашан ашты"
+    "readerCardLogged": "Қарау журналға жазылды: карточканы кім және қашан ашты",
+    "resReady": "Дайын",
+    "resReadyUntil": "{date} дейін дайын",
+    "resQueuePosition": "Кезекте: {position}-ші",
+    "resQueued": "Кезекте",
+    "resFulfilled": "Берілді",
+    "resExpired": "Мерзімі өтті",
+    "resCancelled": "Жойылды",
+    "resCancelledToast": "Бронь алынды",
+    "resCancelTitle": "Броньды алу керек пе?",
+    "resCancelDesc": "{name} оқырманының «{title}» броні жойылады, дана кезектегі келесіге немесе сөреге кетеді.",
+    "resCancel": "Броньды алу",
+    "reservationsTitle": "Брондар",
+    "reservationsSubtitle": "Брондар сөресі және кітаптарға кезек",
+    "resFilterReady": "Брондар сөресі",
+    "resFilterQueued": "Кезек",
+    "searchReservations": "Кітап, оқырман, түг. нөмірі",
+    "reservationsLoadError": "Брондарды жүктеу мүмкін болмады",
+    "noReservations": "Брондар жоқ",
+    "resCreatedOn": "{date} броні"
   },
   "Cameras": {
     "adminTitle": "Камералар",

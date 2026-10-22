@@ -5,6 +5,7 @@ import {
   BookDown,
   BookOpen,
   BookUp,
+  BookmarkCheck,
   Building2,
   CalendarDays,
   CalendarRange,
@@ -140,6 +141,7 @@ const LIBRARIAN: QuickAction[] = [
   { navKey: 'libraryIssue', href: '/library/issue', icon: BookUp },
   { navKey: 'libraryReturn', href: '/library/return', icon: BookDown },
   { navKey: 'libraryLoans', href: '/library/loans', icon: ListChecks },
+  { navKey: 'libraryReservations', href: '/library/reservations', icon: BookmarkCheck },
   { navKey: 'libraryCatalog', href: '/library/catalog', icon: BookOpen },
   { navKey: 'scan', href: '/scan', icon: ScanQrCode },
 ]

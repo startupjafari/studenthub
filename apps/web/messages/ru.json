@@ -63,6 +63,7 @@
     "libraryIssue": "Выдача",
     "libraryReturn": "Приём",
     "libraryLoans": "Выдачи",
+    "libraryReservations": "Брони",
     "libraryCatalog": "Каталог",
     "library": "Библиотека",
     "securityRooms": "Помещения",
@@ -4018,7 +4019,9 @@
     "catalogTitle": "Каталог",
     "catalogDescription": "Книги фонда, экземпляры и наклейки",
     "returnTitle": "Принять книгу",
-    "returnDescription": "Скан наклейки и состояние книги"
+    "returnDescription": "Скан наклейки и состояние книги",
+    "reservationsTitle": "Брони",
+    "reservationsDescription": "Полка броней и очередь"
   },
   "LibraryAdmin": {
     "title": "Библиотека",
@@ -4264,7 +4267,12 @@
       "qrUsed": "Этот QR уже проверил другой сотрудник — попросите студента обновить карту",
       "qrExpired": "Код студенческого истёк — попросите обновить карту",
       "dueDate": "Срок вне правил библиотеки",
-      "notFound": "Не найдено — проверьте наклейку или номер"
+      "notFound": "Не найдено — проверьте наклейку или номер",
+      "reservationLimit": "Достигнут предел броней — отмените одну из действующих",
+      "alreadyReserved": "Эта книга уже забронирована",
+      "alreadyBorrowed": "Эта книга уже у вас на руках",
+      "noCopies": "Экземпляров этой книги в библиотеке нет",
+      "closed": "Бронь уже закрыта"
     },
     "acceptReturn": "Принять книгу",
     "byDefault": "По умолчанию",
@@ -4299,7 +4307,26 @@
     "readerCardTitle": "Удостоверение читателя",
     "readerCardClosed": "Книга уже возвращена — удостоверение больше не доступно",
     "readerCardLoan": "На руках «{title}», инв. {number}, до {date}",
-    "readerCardLogged": "Просмотр записан в журнал: кто и когда открывал карточку"
+    "readerCardLogged": "Просмотр записан в журнал: кто и когда открывал карточку",
+    "resReady": "Готова",
+    "resReadyUntil": "Готова до {date}",
+    "resQueuePosition": "В очереди: {position}-я",
+    "resQueued": "В очереди",
+    "resFulfilled": "Выдана",
+    "resExpired": "Истекла",
+    "resCancelled": "Отменена",
+    "resCancelledToast": "Бронь снята",
+    "resCancelTitle": "Снять бронь?",
+    "resCancelDesc": "Бронь «{title}» читателя {name} будет отменена, экземпляр уйдёт следующему в очереди или на полку.",
+    "resCancel": "Снять бронь",
+    "reservationsTitle": "Брони",
+    "reservationsSubtitle": "Полка броней и очередь на книги",
+    "resFilterReady": "Полка броней",
+    "resFilterQueued": "Очередь",
+    "searchReservations": "Книга, читатель, инв. номер",
+    "reservationsLoadError": "Не удалось загрузить брони",
+    "noReservations": "Броней нет",
+    "resCreatedOn": "Бронь от {date}"
   },
   "Cameras": {
     "adminTitle": "Камеры",

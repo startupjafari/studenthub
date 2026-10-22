@@ -5,6 +5,7 @@ import {
   BookDown,
   BookOpen,
   BookUp,
+  BookmarkCheck,
   BriefcaseBusiness,
   Building2,
   CalendarClock,
@@ -291,6 +292,7 @@ export const LIBRARIAN_NAV: NavItem[] = [
   { key: 'libraryIssue', href: '/library/issue', icon: BookUp },
   { key: 'libraryReturn', href: '/library/return', icon: BookDown },
   { key: 'libraryLoans', href: '/library/loans', icon: ListChecks },
+  { key: 'libraryReservations', href: '/library/reservations', icon: BookmarkCheck },
   { key: 'libraryCatalog', href: '/library/catalog', icon: BookOpen },
 ]
 

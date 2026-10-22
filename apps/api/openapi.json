@@ -4865,6 +4865,133 @@
         ]
       }
     },
+    "/library/books/{id}/reservations": {
+      "post": {
+        "operationId": "LibraryReservationsController_reserve",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "409": {
+            "description": "details.field: status | overdue — читателю нельзя; reservationLimit | alreadyReserved | alreadyBorrowed | noCopies; module"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Забронировать книгу: свободный экземпляр — сразу, иначе в очередь",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/me/reservations": {
+      "get": {
+        "operationId": "LibraryReservationsController_mine",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Мои брони: готовые, в очереди, недавняя история",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/me/reservations/{id}/cancel": {
+      "post": {
+        "operationId": "LibraryReservationsController_cancelMine",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "409": {
+            "description": "details.field = closed — бронь уже закрыта"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Отменить свою бронь",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/reservations": {
+      "get": {
+        "operationId": "LibraryReservationsController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Брони вуза: полка броней, очередь, закрытые",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/reservations/{id}/cancel": {
+      "post": {
+        "operationId": "LibraryReservationsController_cancel",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "409": {
+            "description": "details.field = closed — бронь уже закрыта"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Снять бронь читателя",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
     "/student-id/me": {
       "get": {
         "operationId": "StudentIdController_me",

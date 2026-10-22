@@ -63,6 +63,7 @@
     "libraryIssue": "Checkout",
     "libraryReturn": "Check-in",
     "libraryLoans": "Loans",
+    "libraryReservations": "Holds",
     "libraryCatalog": "Catalogue",
     "library": "Library",
     "securityRooms": "Rooms",
@@ -4018,7 +4019,9 @@
     "catalogTitle": "Catalogue",
     "catalogDescription": "Books in the collection, copies and labels",
     "returnTitle": "Check in a book",
-    "returnDescription": "Scan the label and note the condition"
+    "returnDescription": "Scan the label and note the condition",
+    "reservationsTitle": "Holds",
+    "reservationsDescription": "Holds shelf and queue"
   },
   "LibraryAdmin": {
     "title": "Library",
@@ -4264,7 +4267,12 @@
       "qrUsed": "Another staff member already checked this QR — ask the student to refresh the card",
       "qrExpired": "The student ID code has expired — ask to refresh the card",
       "dueDate": "Due date is outside the library rules",
-      "notFound": "Not found — check the label or number"
+      "notFound": "Not found — check the label or number",
+      "reservationLimit": "Hold limit reached — cancel one of your active holds",
+      "alreadyReserved": "You already have a hold on this book",
+      "alreadyBorrowed": "You already have this book",
+      "noCopies": "The library has no copies of this book",
+      "closed": "The hold is already closed"
     },
     "acceptReturn": "Check in",
     "byDefault": "Default",
@@ -4299,7 +4307,26 @@
     "readerCardTitle": "Reader's ID",
     "readerCardClosed": "The book has been returned — the ID is no longer available",
     "readerCardLoan": "Has “{title}”, inv. {number}, due {date}",
-    "readerCardLogged": "This view is logged: who opened the card and when"
+    "readerCardLogged": "This view is logged: who opened the card and when",
+    "resReady": "Ready",
+    "resReadyUntil": "Ready until {date}",
+    "resQueuePosition": "In queue: #{position}",
+    "resQueued": "In queue",
+    "resFulfilled": "Borrowed",
+    "resExpired": "Expired",
+    "resCancelled": "Cancelled",
+    "resCancelledToast": "Hold cancelled",
+    "resCancelTitle": "Cancel the hold?",
+    "resCancelDesc": "{name}'s hold on “{title}” will be cancelled; the copy goes to the next in line or back to the shelf.",
+    "resCancel": "Cancel hold",
+    "reservationsTitle": "Holds",
+    "reservationsSubtitle": "Holds shelf and book queues",
+    "resFilterReady": "Holds shelf",
+    "resFilterQueued": "Queue",
+    "searchReservations": "Book, reader, inv. number",
+    "reservationsLoadError": "Couldn't load holds",
+    "noReservations": "No holds",
+    "resCreatedOn": "Placed {date}"
   },
   "Cameras": {
     "adminTitle": "Cameras",

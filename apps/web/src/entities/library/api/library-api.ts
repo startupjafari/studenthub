@@ -15,6 +15,8 @@ import type {
   LoanListQueryInput,
   LoanReaderCard,
   RenewLoanInput,
+  ReservationItem,
+  ReservationListQueryInput,
   ReturnLoanInput,
   ReturnLoanResult,
   LibraryImportCommitInput,
@@ -52,6 +54,9 @@ export const libraryKeys = {
   loans: (params: Partial<LoanListQueryInput> = {}) => ['library', 'loans', params] as const,
   myLoans: () => ['library', 'my-loans'] as const,
   loanReader: (id: string) => ['library', 'loan-reader', id] as const,
+  reservations: (params: Partial<ReservationListQueryInput> = {}) =>
+    ['library', 'reservations', params] as const,
+  myReservations: () => ['library', 'my-reservations'] as const,
   idAccess: (params: Partial<IdAccessQueryInput> = {}) => ['library', 'id-access', params] as const,
 }
 
@@ -220,4 +225,30 @@ export async function fetchIdAccess(
   params: Partial<IdAccessQueryInput> = {},
 ): Promise<Paged<IdAccessItem>> {
   return getPaged<IdAccessItem>('/library/id-access', { page: 1, limit: 20, ...params })
+}
+
+export async function fetchReservations(
+  params: Partial<ReservationListQueryInput> = {},
+): Promise<Paged<ReservationItem>> {
+  return getPaged<ReservationItem>('/library/reservations', { page: 1, limit: 20, ...params })
+}
+
+export async function cancelReservationRequest(id: string): Promise<ReservationItem> {
+  const { data } = await api.post<ReservationItem>(`/library/reservations/${id}/cancel`)
+  return data
+}
+
+export async function reserveBookRequest(bookId: string): Promise<ReservationItem> {
+  const { data } = await api.post<ReservationItem>(`/library/books/${bookId}/reservations`)
+  return data
+}
+
+export async function fetchMyReservations(): Promise<ReservationItem[]> {
+  const { data } = await api.get<ReservationItem[]>('/library/me/reservations')
+  return data
+}
+
+export async function cancelMyReservationRequest(id: string): Promise<ReservationItem> {
+  const { data } = await api.post<ReservationItem>(`/library/me/reservations/${id}/cancel`)
+  return data
 }
