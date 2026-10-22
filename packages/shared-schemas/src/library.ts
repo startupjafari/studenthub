@@ -411,3 +411,10 @@ export interface LibraryReaderSession {
   defaultDueDate: string
   maxDueDate: string
 }
+
+/** Возврат принят: выдача и — если на книгу была очередь — кому отложить экземпляр. */
+export interface ReturnLoanResult {
+  loan: LoanItem
+  /** Экземпляр отложен под бронь: положить на полку броней с этим именем. */
+  heldFor: { name: string; group: string | null; holdUntil: string } | null
+}

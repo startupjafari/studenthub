@@ -11,6 +11,9 @@ import { LibraryLoansService } from './library-loans.service'
 import { IssueLoanDto } from './dto/issue-loan.dto'
 import { LoanListQueryDto } from './dto/loan-list-query.dto'
 import { ResolveReaderDto } from './dto/resolve-reader.dto'
+import { ReturnLoanDto } from './dto/return-loan.dto'
+import { RenewLoanDto } from './dto/renew-loan.dto'
+import { CancelLoanDto } from './dto/cancel-loan.dto'
 
 // Выдачи библиотеки (docs/PROJECT.md §3.11). Выдаёт и принимает библиотекарь; выдачи вуза
 // видит и админ; читатель — свои книги и «это не я» по ошибочной выдаче.
@@ -53,6 +56,51 @@ export class LibraryLoansController {
     @Req() req: FastifyRequest,
   ) {
     return this.loans.issue(user, dto, this.ctx(req))
+  }
+
+  @Post('returns')
+  @Roles(Role.LIBRARIAN)
+  @ApiOperation({ summary: 'Принять книгу: скан экземпляра, состояние; очередь броней — отложить' })
+  @ApiResponse({ status: 409, description: 'details.field = notOnLoan — экземпляр не выдан' })
+  returnCopy(
+    @CurrentUser() user: CurrentUserData,
+    @Body() dto: ReturnLoanDto,
+    @Req() req: FastifyRequest,
+  ) {
+    return this.loans.returnCopy(user, dto, this.ctx(req))
+  }
+
+  @Post('loans/:id/renew')
+  @Roles(Role.LIBRARIAN)
+  @ApiOperation({ summary: 'Продлить выдачу' })
+  @ApiResponse({ status: 409, description: 'details.field: renewals | queue | notOnLoan' })
+  @ApiResponse({ status: 422, description: 'Срок вне правил (field = dueDate)' })
+  renew(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: RenewLoanDto,
+    @Req() req: FastifyRequest,
+  ) {
+    return this.loans.renew(user, id, dto, this.ctx(req))
+  }
+
+  @Post('loans/:id/lost')
+  @Roles(Role.LIBRARIAN)
+  @ApiOperation({ summary: 'Книга утеряна читателем: выдача закрыта, экземпляр — из оборота' })
+  lost(@CurrentUser() user: CurrentUserData, @Param('id') id: string, @Req() req: FastifyRequest) {
+    return this.loans.markLost(user, id, this.ctx(req))
+  }
+
+  @Post('loans/:id/cancel')
+  @Roles(Role.LIBRARIAN)
+  @ApiOperation({ summary: 'Отменить ошибочную выдачу с причиной' })
+  cancel(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: CancelLoanDto,
+    @Req() req: FastifyRequest,
+  ) {
+    return this.loans.cancel(user, id, dto, this.ctx(req))
   }
 
   @Get('loans')

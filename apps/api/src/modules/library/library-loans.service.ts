@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config'
 import { Prisma, type BookCopyStatus } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
 import type {
+  CancelLoanInput,
   IssueLoanInput,
   LibraryReader,
   LibraryReaderSession,
@@ -10,6 +11,9 @@ import type {
   LoanListQueryInput,
   ReaderBlocker,
   ReaderEligibility,
+  RenewLoanInput,
+  ReturnLoanInput,
+  ReturnLoanResult,
 } from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AuditService } from '../../common/audit/audit.service'
@@ -25,6 +29,7 @@ import { LibrarySettingsService } from './library-settings.service'
 import { LibraryNotifier } from './library-notifier'
 import { addDays, daysBetween, endOfDay, formatDay, todayIn } from './library-dates'
 import { issueReaderTicket, readTicket } from './library-ticket'
+import { releaseCopy, type HeldFor } from './library-holds'
 import {
   READER_ROLES,
   libraryConflict,
@@ -261,6 +266,270 @@ export class LibraryLoansService {
     const [item] = await this.toItems([loan], timezone)
     if (!item) throw new AppException('INTERNAL_ERROR', 'Выдача не найдена')
     return item
+  }
+
+  // ── Возврат, продление, утеря, отмена (20.5) ─────────────────────────────────────
+
+  /**
+   * Возврат сканом экземпляра: открытая выдача закрывается, состояние книги записывается.
+   * Есть очередь броней на книгу — экземпляр откладывается первому в очереди, и библиотекарь
+   * видит, на чьё имя его положить.
+   */
+  async returnCopy(
+    actor: JwtPayload,
+    input: ReturnLoanInput,
+    ctx: RequestContext,
+  ): Promise<ReturnLoanResult> {
+    const universityId = librarianLibrary(actor)
+    const settings = await this.settings.requireEnabled(universityId)
+    const copy = await this.findCopy(universityId, input)
+    const open = await this.prisma.loan.findFirst({
+      where: { copyId: copy.id, status: 'OPEN' },
+      select: { id: true, readerId: true, bookTitle: true },
+    })
+    if (!open) throw libraryConflict('notOnLoan', 'Этот экземпляр сейчас никому не выдан')
+    const timezone = await this.timezoneOf(universityId)
+    const now = new Date()
+    const { loan, heldFor } = await this.prisma.$transaction(async (tx) => {
+      const { count } = await tx.loan.updateMany({
+        where: { id: open.id, status: 'OPEN' },
+        data: {
+          status: 'RETURNED',
+          returnedAt: now,
+          returnedToId: actor.sub,
+          returnCondition: input.condition,
+        },
+      })
+      if (count === 0) throw libraryConflict('notOnLoan', 'Возврат уже оформлен')
+      await tx.bookCopy.update({ where: { id: copy.id }, data: { condition: input.condition } })
+      const held = await releaseCopy(
+        tx,
+        { id: copy.id, bookId: copy.book.id },
+        { holdDays: settings.reservationHoldDays, timezone },
+        now,
+      )
+      const row = await tx.loan.findUniqueOrThrow({ where: { id: open.id }, select: LOAN_SELECT })
+      return { loan: row, heldFor: held }
+    })
+    await this.audit.record({
+      userId: actor.sub,
+      action: 'library_loan_returned',
+      entity: 'Loan',
+      entityId: open.id,
+      metadata: {
+        universityId,
+        copyId: copy.id,
+        condition: input.condition,
+        ...(heldFor ? { heldForReservation: heldFor.reservationId } : {}),
+      },
+      ...ctx,
+    })
+    if (open.readerId) {
+      await this.notifier.send({
+        recipientIds: [open.readerId],
+        job: NOTIFICATION_JOBS.LIBRARY_LOAN,
+        titleKey: 'library.loanReturned.title',
+        bodyKey: 'library.book.body',
+        params: { title: open.bookTitle },
+        url: '/my-books',
+        dedupeKey: `library-loan-returned:${open.id}`,
+      })
+    }
+    await this.notifyHeld(heldFor, copy.book.title, timezone)
+    const [item] = await this.toItems([loan], timezone)
+    if (!item) throw new AppException('INTERNAL_ERROR', 'Выдача не найдена')
+    return {
+      loan: item,
+      heldFor: heldFor
+        ? { name: heldFor.name, group: heldFor.group, holdUntil: heldFor.holdUntil.toISOString() }
+        : null,
+    }
+  }
+
+  /**
+   * Продление: делает библиотекарь, не больше `maxRenewals` раз. Нельзя, если на книгу есть
+   * очередь броней — книгу ждут другие. Новый срок — указанная дата или срок по умолчанию от
+   * текущего (просроченной — от сегодня); не дальше `maxLoanDays` от сегодня.
+   */
+  async renew(
+    actor: JwtPayload,
+    loanId: string,
+    input: RenewLoanInput,
+    ctx: RequestContext,
+  ): Promise<LoanItem> {
+    const universityId = librarianLibrary(actor)
+    const settings = await this.settings.requireEnabled(universityId)
+    const loan = await this.openLoan(universityId, loanId)
+    if (loan.renewals >= settings.maxRenewals) {
+      throw libraryConflict('renewals', 'Продлений больше нельзя')
+    }
+    const queued = await this.prisma.reservation.count({
+      where: { bookId: loan.copy.book.id, status: 'QUEUED' },
+    })
+    if (queued > 0) throw libraryConflict('queue', 'На книгу есть очередь броней')
+    const timezone = await this.timezoneOf(universityId)
+    const today = todayIn(timezone)
+    const currentDue = todayIn(timezone, loan.dueAt)
+    const base = daysBetween(today, currentDue) > 0 ? currentDue : today
+    const dueDate = input.dueDate ?? addDays(base, settings.defaultLoanDays)
+    if (
+      daysBetween(currentDue, dueDate) <= 0 ||
+      daysBetween(today, dueDate) > settings.maxLoanDays
+    ) {
+      throw new AppException('VALIDATION_ERROR', 'Срок продления вне правил библиотеки', [
+        { field: 'dueDate', message: `Позже текущего срока, до ${settings.maxLoanDays} дней` },
+      ])
+    }
+    const updated = await this.prisma.loan.update({
+      where: { id: loanId },
+      // Напоминания о новом сроке придут заново.
+      data: {
+        dueAt: endOfDay(dueDate, timezone),
+        renewals: { increment: 1 },
+        dueSoonSentAt: null,
+        dueTodaySentAt: null,
+        overdueSentAt: null,
+      },
+      select: LOAN_SELECT,
+    })
+    await this.audit.record({
+      userId: actor.sub,
+      action: 'library_loan_renewed',
+      entity: 'Loan',
+      entityId: loanId,
+      metadata: { universityId, from: currentDue, to: dueDate },
+      ...ctx,
+    })
+    if (loan.readerId) {
+      await this.notifier.send({
+        recipientIds: [loan.readerId],
+        job: NOTIFICATION_JOBS.LIBRARY_LOAN,
+        titleKey: 'library.loanRenewed.title',
+        bodyKey: 'library.loanRenewed.body',
+        params: { title: loan.bookTitle, date: formatDay(dueDate) },
+        url: '/my-books',
+        dedupeKey: `library-loan-renewed:${loanId}:${updated.renewals}`,
+      })
+    }
+    const [item] = await this.toItems([updated], timezone)
+    if (!item) throw new AppException('INTERNAL_ERROR', 'Выдача не найдена')
+    return item
+  }
+
+  /** Книга утеряна читателем: выдача закрывается как LOST, экземпляр выходит из оборота. */
+  async markLost(actor: JwtPayload, loanId: string, ctx: RequestContext): Promise<LoanItem> {
+    const universityId = librarianLibrary(actor)
+    const loan = await this.openLoan(universityId, loanId)
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const { count } = await tx.loan.updateMany({
+        where: { id: loanId, status: 'OPEN' },
+        data: { status: 'LOST', returnedAt: new Date(), returnedToId: actor.sub },
+      })
+      if (count === 0) throw libraryConflict('notOnLoan', 'Выдача уже закрыта')
+      await tx.bookCopy.update({ where: { id: loan.copyId }, data: { status: 'LOST' } })
+      return tx.loan.findUniqueOrThrow({ where: { id: loanId }, select: LOAN_SELECT })
+    })
+    await this.audit.record({
+      userId: actor.sub,
+      action: 'library_loan_lost',
+      entity: 'Loan',
+      entityId: loanId,
+      metadata: { universityId, copyId: loan.copyId, readerId: loan.readerId },
+      ...ctx,
+    })
+    const [item] = await this.toItems([updated], await this.timezoneOf(universityId))
+    if (!item) throw new AppException('INTERNAL_ERROR', 'Выдача не найдена')
+    return item
+  }
+
+  /**
+   * Отмена ошибочной выдачи — с причиной. Выдачи не правятся задним числом: отменённая
+   * остаётся в истории со статусом CANCELLED, а экземпляр возвращается на полку (или под
+   * бронь первому в очереди).
+   */
+  async cancel(
+    actor: JwtPayload,
+    loanId: string,
+    input: CancelLoanInput,
+    ctx: RequestContext,
+  ): Promise<LoanItem> {
+    const universityId = librarianLibrary(actor)
+    const settings = await this.settings.get(universityId)
+    const loan = await this.openLoan(universityId, loanId)
+    const timezone = await this.timezoneOf(universityId)
+    const now = new Date()
+    const { updated, heldFor } = await this.prisma.$transaction(async (tx) => {
+      const { count } = await tx.loan.updateMany({
+        where: { id: loanId, status: 'OPEN' },
+        data: {
+          status: 'CANCELLED',
+          cancelledAt: now,
+          cancelledById: actor.sub,
+          cancelReason: input.reason,
+        },
+      })
+      if (count === 0) throw libraryConflict('notOnLoan', 'Выдача уже закрыта')
+      const held = await releaseCopy(
+        tx,
+        { id: loan.copyId, bookId: loan.copy.book.id },
+        { holdDays: settings.reservationHoldDays, timezone },
+        now,
+      )
+      const row = await tx.loan.findUniqueOrThrow({ where: { id: loanId }, select: LOAN_SELECT })
+      return { updated: row, heldFor: held }
+    })
+    await this.audit.record({
+      userId: actor.sub,
+      action: 'library_loan_cancelled',
+      entity: 'Loan',
+      entityId: loanId,
+      metadata: {
+        universityId,
+        copyId: loan.copyId,
+        readerId: loan.readerId,
+        reason: input.reason,
+      },
+      ...ctx,
+    })
+    if (loan.readerId) {
+      await this.notifier.send({
+        recipientIds: [loan.readerId],
+        job: NOTIFICATION_JOBS.LIBRARY_LOAN,
+        titleKey: 'library.loanCancelled.title',
+        bodyKey: 'library.book.body',
+        params: { title: loan.bookTitle },
+        url: '/my-books',
+        dedupeKey: `library-loan-cancelled:${loanId}`,
+      })
+    }
+    await this.notifyHeld(heldFor, loan.copy.book.title, timezone)
+    const [item] = await this.toItems([updated], timezone)
+    if (!item) throw new AppException('INTERNAL_ERROR', 'Выдача не найдена')
+    return item
+  }
+
+  /** Читателю, которому отложили экземпляр, — «бронь готова, заберите до…». */
+  async notifyHeld(held: HeldFor | null, title: string, timezone: string): Promise<void> {
+    if (!held) return
+    await this.notifier.send({
+      recipientIds: [held.readerId],
+      job: NOTIFICATION_JOBS.LIBRARY_RESERVATION,
+      titleKey: 'library.reservationReady.title',
+      bodyKey: 'library.reservationReady.body',
+      params: { title, date: formatDay(todayIn(timezone, held.holdUntil)) },
+      url: '/my-books',
+      dedupeKey: `library-reservation-ready:${held.reservationId}`,
+    })
+  }
+
+  /** Открытая выдача своего вуза; чужая и несуществующая — 404, закрытая — 409. */
+  private async openLoan(universityId: string, loanId: string): Promise<LoanRow> {
+    const loan = await this.prisma.loan.findUnique({ where: { id: loanId }, select: LOAN_SELECT })
+    if (!loan || loan.universityId !== universityId) {
+      throw new AppException('NOT_FOUND', 'Выдача не найдена')
+    }
+    if (loan.status !== 'OPEN') throw libraryConflict('notOnLoan', 'Выдача уже закрыта')
+    return loan
   }
 
   // ── «Это не я» ───────────────────────────────────────────────────────────────────
