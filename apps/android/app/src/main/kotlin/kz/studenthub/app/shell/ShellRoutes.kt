@@ -29,6 +29,10 @@ import kz.studenthub.app.features.feed.NotificationsScreen
 import kz.studenthub.app.features.feed.PostDetailScreen
 import kz.studenthub.app.features.feed.ProfileScreen
 import kz.studenthub.app.features.feed.SettingsScreen
+import kz.studenthub.app.features.library.BookRef
+import kz.studenthub.app.features.library.BookScreen
+import kz.studenthub.app.features.library.LibraryScreen
+import kz.studenthub.app.features.library.MyBooksScreen
 import kz.studenthub.app.features.more.MoreScreen
 import kz.studenthub.app.features.study.AssignmentDetailScreen
 import kz.studenthub.app.features.study.AssignmentsScreen
@@ -75,6 +79,8 @@ fun Destination(route: AppRoute, viewer: AccessToken) {
             MoreSection.APPLICATIONS -> return ApplicationsScreen()
             MoreSection.SERVICE_CATALOG -> return ServiceCatalogScreen()
             MoreSection.DOCUMENTS -> return DocumentsScreen()
+            MoreSection.LIBRARY -> return LibraryScreen()
+            MoreSection.MY_BOOKS -> return MyBooksScreen()
             else -> Unit
         }
         is AppRoute.Post -> return PostDetailScreen(route.id)
@@ -83,6 +89,8 @@ fun Destination(route: AppRoute, viewer: AccessToken) {
         is AppRoute.Event -> return EventsScreen()
         is AppRoute.Profile -> return ProfileScreen(userId = route.userId.takeIf { it != viewer.subject })
         is AppRoute.Assignment -> return AssignmentDetailScreen(route.id)
+        is AppRoute.Book -> return BookScreen(BookRef.Id(route.id))
+        is AppRoute.BookCopy -> return BookScreen(BookRef.CopyCode(route.code))
         // Преподаватель с занятия идёт отмечать посещаемость — главное, зачем он вообще
         // открывает пару на телефоне.
         is AppRoute.Lesson -> return if (viewer.role == Role.TEACHER) AttendanceMarkingScreen(route.id) else LessonScreen(route.id)

@@ -12,6 +12,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
@@ -46,6 +47,20 @@ fun MoreScreen(role: Role) {
     val scope = rememberCoroutineScope()
     var showsQr by rememberSaveable { mutableStateOf(false) }
 
+    // Библиотеку включает админ вуза: пункт появляется, только когда она включена.
+    // Последний ответ переживает уход на соседнюю вкладку — пункт не мигает при возврате.
+    var libraryEnabled by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(role) {
+        if (!MoreSection.readsLibrary(role)) return@LaunchedEffect
+        libraryEnabled = try {
+            services.libraryApi.settings().enabled
+        } catch (error: Exception) {
+            if (error is kotlinx.coroutines.CancellationException) throw error
+            // Нет связи — оставляем, что знали: пропавший пункт хуже устаревшего.
+            libraryEnabled
+        }
+    }
+
     ScreenScaffold(title = stringResource(AppTab.MORE.title)) {
         Column(
             verticalArrangement = Arrangement.spacedBy(Spacing.xl),
@@ -54,7 +69,7 @@ fun MoreScreen(role: Role) {
                 .padding(Spacing.xl),
         ) {
             ListGroup {
-                MoreSection.sections(role).forEachIndexed { index, section ->
+                MoreSection.sections(role, libraryEnabled).forEachIndexed { index, section ->
                     if (index > 0) ListDivider()
                     ListRow(stringResource(section.title), section.icon) {
                         services.router.push(AppRoute.Section(section))

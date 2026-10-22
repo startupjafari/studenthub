@@ -24,6 +24,12 @@ sealed interface AppRoute {
 
     data class Service(val id: String) : AppRoute
 
+    /** Книга библиотеки — из каталога, из «Моих книг» или из уведомления. */
+    data class Book(val id: String) : AppRoute
+
+    /** Экземпляр по коду с QR-наклейки: экран сам узнаёт книгу и показывает её. */
+    data class BookCopy(val code: String) : AppRoute
+
     /** Чужой профиль: из ленты, из чата, из списка группы. */
     data class Profile(val userId: String) : AppRoute
 }
@@ -73,7 +79,22 @@ class AppRouter {
                 AppTab.MORE,
                 listOf(AppRoute.Section(MoreSection.EVENTS), AppRoute.Event(link.id)),
             )
+            DeepLink.Books -> return openLibrary(role, null)
+            DeepLink.MyBooks -> return openLibrary(role, AppRoute.Section(MoreSection.MY_BOOKS))
+            is DeepLink.Book -> return openLibrary(role, AppRoute.Book(link.id))
+            is DeepLink.BookCopy -> return openLibrary(role, AppRoute.BookCopy(link.code))
         }
+        return true
+    }
+
+    /**
+     * Библиотека — только читателям: студенту и старосте. Под книгой и «Моими книгами»
+     * остаётся каталог, чтобы «назад» из уведомления вело в раздел, а не на главную.
+     * Включена ли библиотека в вузе, здесь не известно — это скажет экран (`409 module`).
+     */
+    private fun openLibrary(role: Role, top: AppRoute?): Boolean {
+        if (!MoreSection.readsLibrary(role)) return false
+        replace(AppTab.MORE, listOfNotNull(AppRoute.Section(MoreSection.LIBRARY), top))
         return true
     }
 

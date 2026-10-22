@@ -26,6 +26,17 @@ sealed interface DeepLink {
 
     data class Lesson(val id: String) : DeepLink
 
+    /** Каталог библиотеки (`/books`). */
+    data object Books : DeepLink
+
+    /** «Мои книги» — сюда ведут уведомления библиотеки (`/my-books`). */
+    data object MyBooks : DeepLink
+
+    data class Book(val id: String) : DeepLink
+
+    /** QR-наклейка экземпляра книги: `/c/<код>`. */
+    data class BookCopy(val code: String) : DeepLink
+
     companion object {
         const val SCHEME = "studenthub"
 
@@ -78,6 +89,9 @@ sealed interface DeepLink {
                 "profile" -> if (tail == null) Section(MoreSection.PROFILE) else null
                 "documents" -> if (tail == null) Section(MoreSection.DOCUMENTS) else null
                 "settings" -> if (tail == null) Section(MoreSection.SETTINGS) else null
+                "books" -> tail?.let(::Book) ?: Books
+                "my-books" -> if (tail == null) MyBooks else null
+                "c" -> tail?.let(::BookCopy)
                 "starosta" -> when (tail) {
                     "classmates", "group" -> Section(MoreSection.CLASSMATES)
                     "group-requests" -> Section(MoreSection.GROUP_REQUESTS)
