@@ -44,8 +44,9 @@ pnpm --filter web build && apps/web/node_modules/.bin/next start apps/web -p 300
 
 ## Прод-стек: первый запуск и сертификаты
 
-Самостоятельный хостинг — `docker/prod/compose.yml`. Домены, секреты и адреса сервисов
-лежат в `docker/prod/.env`, образец со списком обязательных — `docker/prod/.env.example`.
+Самостоятельный хостинг — `docker/prod/compose.yml`. Инфраструктура и домены лежат в
+`docker/prod/.env`, переменные приложения (секреты api) — в `docker/prod/.env.api`; образцы со
+списком обязательных — `.env.example` и `.env.api.example` рядом.
 Четыре имени ведут A-записями на машину со стеком: корневой домен — лендинг, `app.*` — платформа, `files.*` —
 MinIO (по нему браузер кладёт и забирает файлы), `mini.*` — мини-апп Telegram.
 

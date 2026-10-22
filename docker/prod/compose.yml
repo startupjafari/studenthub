@@ -3,7 +3,7 @@
 # Все сервисы restart: always; данные — в named volumes; TLS терминирует nginx.
 # Миграции применяются ОТДЕЛЬНО до старта api (см. docs/RUNBOOK.md), не автоматически.
 #
-# Переменные окружения (домены, секреты, адреса сервисов) — docker/prod/.env.example.
+# Переменные: .env — инфраструктура и домены, .env.api — приложение (образцы рядом).
 # Первый запуск и выпуск сертификата — docs/RUNBOOK.md, «Прод-стек: первый запуск».
 
 name: studenthub-prod
@@ -23,6 +23,28 @@ x-logging: &logging
 # значило бы, что при недоступном кеше стек не поднимается вовсе — nginx ждёт api по условию
 # service_healthy и не дождался бы. Здесь проверяется ровно то, что нужно для старта: процесс
 # слушает свой порт.
+# Окружение api и worker сверх .env.api: адреса стека, которые однозначно следуют из его
+# устройства и доменов в .env. Заданы здесь, чтобы их нельзя было разойтись с nginx и
+# сертификатом; значения из .env.api они перекрывают.
+x-api-environment: &api-environment
+  PORT: '3001'
+  REDIS_HOST: redis
+  REDIS_PASSWORD: ${REDIS_PASSWORD}
+  MINIO_ENDPOINT: minio
+  MINIO_USE_SSL: 'false'
+  # Публичный адрес хранилища: на него api подписывает ссылки, которые открывает браузер.
+  # Внутреннее имя `minio` снаружи не резолвится.
+  MINIO_PUBLIC_ENDPOINT: ${SH_FILES_DOMAIN}
+  MINIO_PUBLIC_PORT: '443'
+  MINIO_PUBLIC_USE_SSL: 'true'
+  CORS_ORIGIN: https://${SH_APP_DOMAIN}
+  APP_PUBLIC_URL: https://${SH_APP_DOMAIN}
+  # nginx стоит в сети docker — её адреса попадают в uniquelocal, иначе api считал бы
+  # клиентом сам прокси.
+  TRUST_PROXY: loopback, linklocal, uniquelocal
+  # Медиа обрабатывает сервис worker; API только ставит задачи.
+  MEDIA_PROCESSING: worker
+
 x-tcp-healthcheck: &tcp-healthcheck
   interval: 10s
   timeout: 5s
@@ -94,10 +116,8 @@ services:
       dockerfile: apps/api/Dockerfile
     restart: always
     logging: *logging
-    env_file: [.env]
-    environment:
-      # Медиа обрабатывает сервис worker ниже; API только ставит задачи.
-      MEDIA_PROCESSING: worker
+    env_file: [.env.api]
+    environment: *api-environment
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -123,9 +143,8 @@ services:
     command: ['node', 'dist/worker.js']
     restart: always
     logging: *logging
-    env_file: [.env]
-    environment:
-      MEDIA_PROCESSING: worker
+    env_file: [.env.api]
+    environment: *api-environment
     depends_on:
       postgres: { condition: service_healthy }
       redis: { condition: service_healthy }
@@ -139,7 +158,7 @@ services:
         # API_PROXY_TARGET намеренно не передаётся: запросы /api/* проксирует nginx, а не сам
         # web (см. docker/prod/nginx/templates/default.conf.template). NEXT_PUBLIC_API_URL поэтому
         # должен быть путём на том же домене — `https://app.<домен>/api/v1`.
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://${SH_APP_DOMAIN}/api/v1}
     restart: always
     logging: *logging
     depends_on:
@@ -166,8 +185,8 @@ services:
       context: ../..
       dockerfile: apps/landing/Dockerfile
       args:
-        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
-        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL}
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-https://${SH_APP_DOMAIN}}
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-https://${SH_DOMAIN}}
         NEXT_PUBLIC_SALES_EMAIL: ${NEXT_PUBLIC_SALES_EMAIL}
     restart: always
     logging: *logging
