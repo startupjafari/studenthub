@@ -3,6 +3,7 @@ import {
   Award,
   BarChart3,
   BookOpen,
+  BookUp,
   BriefcaseBusiness,
   Building2,
   CalendarClock,
@@ -286,6 +287,8 @@ export const SECURITY_GUARD_NAV: NavItem[] = [
 // 20.3–20.8; сканер для входа на компьютере — в шапке, как у всех.
 export const LIBRARIAN_NAV: NavItem[] = [
   { key: 'libraryHome', href: '/library', icon: Library, exact: true },
+  { key: 'libraryIssue', href: '/library/issue', icon: BookUp },
+  { key: 'libraryLoans', href: '/library/loans', icon: ListChecks },
   { key: 'libraryCatalog', href: '/library/catalog', icon: BookOpen },
 ]
 

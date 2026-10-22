@@ -4546,6 +4546,179 @@
         ]
       }
     },
+    "/library/readers/resolve": {
+      "post": {
+        "operationId": "LibraryLoansController_resolve",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveReaderDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "409": {
+            "description": "QR уже проверил другой сотрудник; библиотека выключена"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Скан студенческого: читатель, может ли брать книги, пропуск на выдачу",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/loans": {
+      "post": {
+        "operationId": "LibraryLoansController_issue",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IssueLoanDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "409": {
+            "description": "details.field: status | overdue | limit — читателю нельзя; onLoan | reserved | withdrawn | archived — экземпляр; ticket — пропуск истёк; module"
+          },
+          "422": {
+            "description": "Срок вне правил библиотеки (field = dueDate)"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Выдать экземпляр читателю по пропуску",
+        "tags": [
+          "Библиотека"
+        ]
+      },
+      "get": {
+        "operationId": "LibraryLoansController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Выдачи вуза: на руках, просроченные, закрытые",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/me/loans": {
+      "get": {
+        "operationId": "LibraryLoansController_mine",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Мои книги: на руках и история",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/loans/{id}/dispute": {
+      "post": {
+        "operationId": "LibraryLoansController_dispute",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "404": {
+            "description": "Не своя выдача"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "«Это не я»: читатель отмечает выдачу как ошибочную",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/student-id/me": {
+      "get": {
+        "operationId": "StudentIdController_me",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Мой цифровой студенческий (карта + QR)",
+        "tags": [
+          "Студенческий билет"
+        ]
+      }
+    },
+    "/student-id/verify": {
+      "get": {
+        "operationId": "StudentIdController_verify",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Карта студента с отметкой проверки"
+          },
+          "409": {
+            "description": "CONFLICT — этот код уже проверил другой сотрудник: студенту обновить карту"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Проверить студенческий по QR (сотрудник)",
+        "tags": [
+          "Студенческий билет"
+        ]
+      }
+    },
     "/schedules": {
       "post": {
         "operationId": "SchedulesController_create",
@@ -7541,49 +7714,6 @@
         "summary": "Удалить запись портфолио",
         "tags": [
           "Портфолио"
-        ]
-      }
-    },
-    "/student-id/me": {
-      "get": {
-        "operationId": "StudentIdController_me",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Мой цифровой студенческий (карта + QR)",
-        "tags": [
-          "Студенческий билет"
-        ]
-      }
-    },
-    "/student-id/verify": {
-      "get": {
-        "operationId": "StudentIdController_verify",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": "Карта студента с отметкой проверки"
-          },
-          "409": {
-            "description": "CONFLICT — этот код уже проверил другой сотрудник: студенту обновить карту"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Проверить студенческий по QR (сотрудник)",
-        "tags": [
-          "Студенческий билет"
         ]
       }
     },
@@ -16875,6 +17005,14 @@
         "properties": {}
       },
       "LibraryImportCommitDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "ResolveReaderDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "IssueLoanDto": {
         "type": "object",
         "properties": {}
       },

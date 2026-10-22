@@ -7,6 +7,10 @@ import type {
   BookDetail,
   BookListQueryInput,
   CreateBookInput,
+  IssueLoanInput,
+  LibraryReaderSession,
+  LoanItem,
+  LoanListQueryInput,
   LibraryImportCommitInput,
   LibraryImportPreviewResponse,
   LibraryImportResult,
@@ -39,6 +43,8 @@ export const libraryKeys = {
   book: (id: string) => ['library', 'book', id] as const,
   sections: () => ['library', 'sections'] as const,
   copyByCode: (code: string) => ['library', 'copy-by-code', code] as const,
+  loans: (params: Partial<LoanListQueryInput> = {}) => ['library', 'loans', params] as const,
+  myLoans: () => ['library', 'my-loans'] as const,
 }
 
 export async function fetchLibrarySettings(): Promise<LibrarySettingsResponse> {
@@ -146,4 +152,32 @@ export async function libraryImportCommitRequest(
   return data
 }
 
-export type { BookCard, BookDetail, BookCopyItem, BookCopyLabel }
+// ── Выдачи ───────────────────────────────────────────────────────────────────────────
+
+export async function resolveReaderRequest(token: string): Promise<LibraryReaderSession> {
+  const { data } = await api.post<LibraryReaderSession>('/library/readers/resolve', { token })
+  return data
+}
+
+export async function issueLoanRequest(input: IssueLoanInput): Promise<LoanItem> {
+  const { data } = await api.post<LoanItem>('/library/loans', input)
+  return data
+}
+
+export async function fetchLoans(
+  params: Partial<LoanListQueryInput> = {},
+): Promise<Paged<LoanItem>> {
+  return getPaged<LoanItem>('/library/loans', { page: 1, limit: 20, ...params })
+}
+
+export async function fetchMyLoans(): Promise<LoanItem[]> {
+  const { data } = await api.get<LoanItem[]>('/library/me/loans')
+  return data
+}
+
+export async function disputeLoanRequest(id: string): Promise<LoanItem> {
+  const { data } = await api.post<LoanItem>(`/library/loans/${id}/dispute`)
+  return data
+}
+
+export type { BookCard, BookDetail, BookCopyItem, BookCopyLabel, LoanItem, LibraryReaderSession }

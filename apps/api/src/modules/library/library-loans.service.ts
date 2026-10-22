@@ -307,7 +307,7 @@ export class LibraryLoansService {
       titleKey: 'library.loanDisputed.title',
       bodyKey: 'library.loanDisputed.body',
       params: { name: loan.readerName, title: loan.bookTitle, number: loan.inventoryNumber },
-      url: `/library/loans?loan=${loanId}`,
+      url: '/library/loans',
       dedupeKey: `library-loan-disputed:${loanId}`,
     })
     const [item] = await this.toItems([updated], timezone)
