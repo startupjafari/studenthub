@@ -12,6 +12,9 @@ enum AppRoute: Hashable {
     case lesson(id: String)
     case assignment(id: String)
     case service(id: String)
+    case myBooks
+    case book(id: String)
+    case bookCopy(code: String)
 }
 
 /// Навигация оболочки: выбранная вкладка и путь внутри каждой.
@@ -42,7 +45,10 @@ final class AppRouter {
         case .section(let section):
             // Ссылка на чужой раздел не должна открывать пустой экран: у студента
             // нет обращений группы, и показать их ему нечем.
-            guard MoreSection.sections(for: role).contains(section) else { return false }
+            guard
+                MoreSection.sections(for: role).contains(section)
+                    || MoreSection.modules(for: role).contains(section)
+            else { return false }
             push(.more, [.section(section)])
         case .chat(let id):
             push(.chats, [.chat(id: id)])
@@ -56,8 +62,21 @@ final class AppRouter {
             push(.more, [.section(.applications), .application(id: id)])
         case .event(let id):
             push(.more, [.section(.events), .event(id: id)])
+        case .myBooks, .book, .bookCopy:
+            // Под книгой и «Моими книгами» — каталог: «назад» из уведомления библиотеки
+            // ведёт в библиотеку, а не выбрасывает на главную.
+            guard MoreSection.modules(for: role).contains(.library) else { return false }
+            push(.more, [.section(.library), Self.libraryRoute(link)])
         }
         return true
+    }
+
+    private static func libraryRoute(_ link: DeepLink) -> AppRoute {
+        switch link {
+        case .book(let id): return .book(id: id)
+        case .bookCopy(let code): return .bookCopy(code: code)
+        default: return .myBooks
+        }
     }
 
     /// Выбрать вкладку и вернуть её к корню — поведение повторного тапа по вкладке.
