@@ -4992,6 +4992,55 @@
         ]
       }
     },
+    "/library/readers/{id}/debts": {
+      "get": {
+        "operationId": "LibraryDebtsController_readerDebts",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "403": {
+            "description": "Студент вне области: чужой факультет или вуз"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Книги на руках у студента — при смене статуса и для библиотекаря",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/me/clearance": {
+      "get": {
+        "operationId": "LibraryDebtsController_clearance",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Справка: задолженностей в библиотеке нет (или что вернуть)",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
     "/student-id/me": {
       "get": {
         "operationId": "StudentIdController_me",

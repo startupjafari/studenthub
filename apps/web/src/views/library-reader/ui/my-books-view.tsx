@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useFormatter, useTranslations } from 'next-intl'
-import { BookOpen, TriangleAlert } from 'lucide-react'
+import { BookOpen, FileCheck, TriangleAlert } from 'lucide-react'
 import type { LoanItem, ReservationItem } from '@studenthub/shared-schemas'
 import {
   Badge,
@@ -49,7 +49,19 @@ export function MyBooksView() {
 
   return (
     <div className="flex w-full flex-col gap-4">
-      <PageHeader title={t('title')} subtitle={t('mineSubtitle')} tabs={<LibraryReaderTabs />} />
+      <PageHeader
+        title={t('title')}
+        subtitle={t('mineSubtitle')}
+        tabs={<LibraryReaderTabs />}
+        actions={
+          <Button asChild variant="outline" size="md">
+            <Link href="/my-books/clearance">
+              <FileCheck className="size-4" aria-hidden />
+              {t('clearanceAction')}
+            </Link>
+          </Button>
+        }
+      />
 
       {overdue > 0 && (
         <Card className="flex-row items-start gap-3 border-destructive/30 bg-destructive/5 p-4">

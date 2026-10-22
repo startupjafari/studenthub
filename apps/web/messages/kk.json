@@ -4986,6 +4986,27 @@
       "notFound": "Кітап табылмады"
     },
     "historySubtitle": "Қайтарылған және жабылған берулер",
-    "descriptionSubtitle": "Кітапхана карточкасындағы аннотация"
+    "descriptionSubtitle": "Кітапхана карточкасындағы аннотация",
+    "clearanceAction": "Анықтама",
+    "clearanceTitle": "Кітапханадан анықтама",
+    "clearanceSubtitle": "Бітіргенде немесе ауысқанда айналма парақ үшін",
+    "print": "Басып шығару",
+    "clearTitle": "Берешек жоқ",
+    "clearBody": "{date} күйі бойынша {name} қолында кітап жоқ.",
+    "notClearTitle": "{count, plural, other {Қолда # кітап — анықтама алу үшін оларды қайтарыңыз}}",
+    "sheetTitle": "Анықтама",
+    "sheetBody": "{name} кітапхана алдында берешегі жоқ екені туралы берілді.",
+    "sheetFaculty": "Факультет",
+    "sheetGroup": "Топ",
+    "sheetCard": "Студенттік билет №",
+    "sheetChecked": "{date} күйі бойынша мәліметтер",
+    "sheetSignature": "Кітапханашы ____________________"
+  },
+  "LibraryDebts": {
+    "title": "{count, plural, other {Студентте # кітап бар}}",
+    "loanLine": "«{title}», түг. {number}, {date} дейін қайтару",
+    "overdue": "мерзімі өтті",
+    "reservations": "{count, plural, other {Және # белсенді бронь}}",
+    "hint": "Мәртебені сақтауға болады, бірақ кітаптарды оқу орнынан кетпес бұрын кітапханаға қайтару керек."
   }
 }

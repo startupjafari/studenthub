@@ -10,6 +10,8 @@ import type {
   IdAccessItem,
   IdAccessQueryInput,
   IssueLoanInput,
+  LibraryClearance,
+  LibraryDebts,
   LibraryReaderSession,
   LoanItem,
   LoanListQueryInput,
@@ -57,6 +59,8 @@ export const libraryKeys = {
   reservations: (params: Partial<ReservationListQueryInput> = {}) =>
     ['library', 'reservations', params] as const,
   myReservations: () => ['library', 'my-reservations'] as const,
+  debts: (userId: string) => ['library', 'debts', userId] as const,
+  clearance: () => ['library', 'clearance'] as const,
   idAccess: (params: Partial<IdAccessQueryInput> = {}) => ['library', 'id-access', params] as const,
 }
 
@@ -250,5 +254,16 @@ export async function fetchMyReservations(): Promise<ReservationItem[]> {
 
 export async function cancelMyReservationRequest(id: string): Promise<ReservationItem> {
   const { data } = await api.post<ReservationItem>(`/library/me/reservations/${id}/cancel`)
+  return data
+}
+
+/** Книги за студентом — декану и админу вуза при смене статуса (20.11). */
+export async function fetchReaderDebts(userId: string): Promise<LibraryDebts> {
+  const { data } = await api.get<LibraryDebts>(`/library/readers/${userId}/debts`)
+  return data
+}
+
+export async function fetchClearance(): Promise<LibraryClearance> {
+  const { data } = await api.get<LibraryClearance>('/library/me/clearance')
   return data
 }

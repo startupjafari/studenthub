@@ -16,6 +16,7 @@ import {
   type PublicUser,
 } from '../../../entities/user'
 import { fetchSpecialties, specialtyKeys } from '../../../entities/specialty'
+import { LibraryDebtsNotice } from '../../../entities/library'
 import {
   ACADEMIC_STATUS_DICT,
   DORMITORY_DICT,
@@ -44,6 +45,10 @@ const FIELDS: { key: StaffManagedStudentField; kind: Kind; options?: string[] }[
   // Общежитие тоже ведёт вуз: оно печатается в студенческом, который проверяют на вахте.
   { key: 'dormitory', kind: 'dict', options: DORMITORY_DICT },
 ]
+
+// Статусы, с которыми студент выходит из вуза: при переводе в них показываем книги, которые
+// за ним числятся в библиотеке (Фаза 20.11). Значения — из ACADEMIC_STATUS_DICT.
+const LEAVING_STATUSES = new Set(['Выпускник', 'Отчислен', 'Переведён'])
 
 const NUMERIC = new Set<StaffManagedStudentField>([
   'course',
@@ -104,6 +109,9 @@ function AcademicRecordForm({ user, onClose }: { user: PublicUser; onClose: () =
   const set = (k: string, v: string): void => setForm((p) => ({ ...p, [k]: v }))
 
   const changed = FIELDS.filter((f) => (form[f.key] ?? '') !== (initial[f.key] ?? ''))
+  const leaving =
+    form.academicStatus !== initial.academicStatus &&
+    LEAVING_STATUSES.has(form.academicStatus ?? '')
 
   const save = useMutation({
     mutationFn: () => {
@@ -167,6 +175,7 @@ function AcademicRecordForm({ user, onClose }: { user: PublicUser; onClose: () =
           </div>
         ))}
       </div>
+      {leaving && <LibraryDebtsNotice userId={user.id} />}
       <div className="flex justify-end gap-2 border-t border-border pt-3">
         <Button type="button" variant="outline" onClick={onClose}>
           {tCommon('cancel')}

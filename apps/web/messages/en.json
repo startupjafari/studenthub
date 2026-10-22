@@ -4986,6 +4986,27 @@
       "notFound": "Book not found"
     },
     "historySubtitle": "Returned and closed loans",
-    "descriptionSubtitle": "Summary from the library record"
+    "descriptionSubtitle": "Summary from the library record",
+    "clearanceAction": "Certificate",
+    "clearanceTitle": "Library certificate",
+    "clearanceSubtitle": "For the clearance sheet on graduation or transfer",
+    "print": "Print",
+    "clearTitle": "No outstanding books",
+    "clearBody": "{name} has no books checked out as of {date}.",
+    "notClearTitle": "{count, plural, one {# book checked out — return it to get the certificate} other {# books checked out — return them to get the certificate}}",
+    "sheetTitle": "Certificate",
+    "sheetBody": "This certifies that {name} has no outstanding obligations to the library.",
+    "sheetFaculty": "Faculty",
+    "sheetGroup": "Group",
+    "sheetCard": "Student ID no.",
+    "sheetChecked": "As of {date}",
+    "sheetSignature": "Librarian ____________________"
+  },
+  "LibraryDebts": {
+    "title": "{count, plural, one {The student has # library book} other {The student has # library books}}",
+    "loanLine": "“{title}”, inv. {number}, due {date}",
+    "overdue": "overdue",
+    "reservations": "{count, plural, one {And # active hold} other {And # active holds}}",
+    "hint": "You can save the status, but the books must be returned before the student leaves."
   }
 }
