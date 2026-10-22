@@ -497,3 +497,31 @@ export interface ReservationItem {
   copy: { id: string; inventoryNumber: string } | null
   reader: { id: string; name: string; group: string | null }
 }
+
+// ── Долги при выпуске и отчислении, справка (20.11) ─────────────────────────────────
+
+/** Книги за студентом — декану и админу вуза при смене статуса, библиотекарю. */
+export interface LibraryDebts {
+  readerId: string
+  readerName: string
+  /** Библиотека вуза включена; выключена — долги всё равно показываются, если остались. */
+  enabled: boolean
+  /** Ни одной книги на руках. */
+  clear: boolean
+  loans: LoanItem[]
+  activeReservations: number
+}
+
+/** Справка «задолженностей в библиотеке нет» — студенту, на момент запроса. */
+export interface LibraryClearance {
+  clear: boolean
+  checkedAt: string
+  reader: {
+    name: string
+    group: string | null
+    faculty: string | null
+    studentCardNumber: string | null
+  }
+  university: string
+  loans: LoanItem[]
+}
