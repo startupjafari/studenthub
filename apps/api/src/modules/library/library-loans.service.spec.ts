@@ -86,7 +86,10 @@ function setup({ open = 0, overdue = 0 }: { open?: number; overdue?: number } = 
         .fn()
         .mockImplementation(({ data }) => Promise.resolve(loanRow({ ...data, id: 'loan-new' }))),
     },
-    reservation: { update: jest.fn().mockResolvedValue({}) },
+    reservation: {
+      update: jest.fn().mockResolvedValue({}),
+      findFirst: jest.fn().mockResolvedValue(null),
+    },
   }
   const prisma = {
     user: {
@@ -245,6 +248,18 @@ describe('LibraryLoansService — выдача', () => {
       expect.objectContaining({
         where: { id: 'res-1' },
         data: expect.objectContaining({ status: 'FULFILLED' }),
+      }),
+    )
+  })
+
+  it('книга с полки читателю из очереди — его бронь закрыта выдачей', async () => {
+    const { service, tx } = setup()
+    tx.reservation.findFirst.mockResolvedValue({ id: 'res-7', status: 'QUEUED', copyId: null })
+    await service.issue(librarian, { ticket: ticketFor(), copyCode: 'ABCD2345' }, ctx)
+    expect(tx.reservation.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'res-7' },
+        data: expect.objectContaining({ status: 'FULFILLED', loanId: 'loan-new' }),
       }),
     )
   })

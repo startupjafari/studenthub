@@ -104,14 +104,19 @@ function setup({ enabled = true }: { enabled?: boolean } = {}) {
       ),
   }
   const config = { get: jest.fn().mockReturnValue('https://app.studenthub.kz') }
+  const reservations = {
+    serveCopies: jest.fn().mockResolvedValue(undefined),
+    serveBook: jest.fn().mockResolvedValue(undefined),
+  }
   const service = new LibraryCatalogService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
     files as unknown as FileService,
     settings as unknown as LibrarySettingsService,
     config as never,
+    reservations as never,
   )
-  return { service, prisma, tx, audit, settings }
+  return { service, prisma, tx, audit, settings, reservations }
 }
 
 describe('LibraryCatalogService — каталог', () => {

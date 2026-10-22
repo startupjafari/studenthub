@@ -457,3 +457,43 @@ export interface IdAccessItem {
   bookTitle: string | null
   ip: string | null
 }
+
+// ── Брони (20.8) ───────────────────────────────────────────────────────────────────
+
+export const RESERVATION_STATUSES = [
+  'QUEUED',
+  'READY',
+  'FULFILLED',
+  'CANCELLED',
+  'EXPIRED',
+] as const
+export const ReservationStatusSchema = z.enum(RESERVATION_STATUSES)
+export type ReservationStatusValue = z.infer<typeof ReservationStatusSchema>
+
+/** Фильтр броней у библиотекаря: действующие, готовые (полка броней), в очереди, закрытые. */
+export const RESERVATION_FILTERS = ['active', 'ready', 'queued', 'closed', 'all'] as const
+export const ReservationListQuerySchema = z.object({
+  page: z.coerce.number().int().positive().default(1),
+  limit: z.coerce.number().int().positive().max(100).default(20),
+  filter: z.enum(RESERVATION_FILTERS).default('active'),
+  q: z.string().trim().max(100).optional(),
+  bookId: z.string().min(1).optional(),
+})
+export type ReservationListQueryInput = z.infer<typeof ReservationListQuerySchema>
+
+export interface ReservationItem {
+  id: string
+  status: ReservationStatusValue
+  createdAt: string
+  readyAt: string | null
+  /** До какого момента держится готовая бронь, и тот же день «ГГГГ-ММ-ДД» по часам вуза. */
+  holdUntil: string | null
+  holdDate: string | null
+  closedAt: string | null
+  /** Место в очереди (1 — следующий) — только у брони в очереди. */
+  position: number | null
+  book: { id: string; title: string; authors: string; coverUrl: string | null }
+  /** Отложенный экземпляр — у готовой брони. */
+  copy: { id: string; inventoryNumber: string } | null
+  reader: { id: string; name: string; group: string | null }
+}

@@ -209,7 +209,7 @@ export class LibraryLoansService {
       throw libraryConflict('withdrawn', 'Экземпляр выведен из оборота')
     }
 
-    const loan = await this.prisma.$transaction(async (tx) => {
+    const { created: loan, released } = await this.prisma.$transaction(async (tx) => {
       // Условная запись: экземпляр забирает только одна выдача, даже при двух одновременных.
       const { count } = await tx.bookCopy.updateMany({
         where: { id: copy.id, status: copy.status },
@@ -236,8 +236,29 @@ export class LibraryLoansService {
           where: { id: reservationId },
           data: { status: 'FULFILLED', loanId: created.id, closedAt: new Date() },
         })
+        return { created, released: null }
       }
-      return created
+      // Читатель взял с полки книгу, на которую стоял в очереди или чья бронь отложена на
+      // другой экземпляр: бронь закрыта выдачей, отложенный экземпляр — следующему.
+      const own = await tx.reservation.findFirst({
+        where: { readerId: reader.id, bookId: copy.book.id, status: { in: ['QUEUED', 'READY'] } },
+        select: { id: true, status: true, copyId: true },
+      })
+      if (!own) return { created, released: null }
+      reservationId = own.id
+      await tx.reservation.update({
+        where: { id: own.id },
+        data: { status: 'FULFILLED', loanId: created.id, closedAt: new Date() },
+      })
+      const released =
+        own.status === 'READY' && own.copyId
+          ? await releaseCopy(
+              tx,
+              { id: own.copyId, bookId: copy.book.id },
+              { holdDays: settings.reservationHoldDays, timezone },
+            )
+          : null
+      return { created, released }
     })
 
     await this.audit.record({
@@ -263,6 +284,7 @@ export class LibraryLoansService {
       url: '/my-books',
       dedupeKey: `library-loan-issued:${loan.id}`,
     })
+    await this.notifyHeld(released, copy.book.title, timezone)
     const [item] = await this.toItems([loan], timezone)
     if (!item) throw new AppException('INTERNAL_ERROR', 'Выдача не найдена')
     return item

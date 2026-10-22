@@ -27,6 +27,7 @@ import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
 import { FileService } from '../files/file.service'
 import { LibrarySettingsService } from './library-settings.service'
+import { LibraryReservationsService } from './library-reservations.service'
 import { LIBRARY_STAFF_ROLES, libraryConflict, memberLibrary, staffLibrary } from './library-scope'
 
 // Каталог и экземпляры (Фаза 20.3, docs/PROJECT.md §3.11). Фонд ведут библиотекарь и админ
@@ -146,6 +147,7 @@ export class LibraryCatalogService {
     private readonly files: FileService,
     private readonly settings: LibrarySettingsService,
     private readonly config: ConfigService<EnvVars, true>,
+    private readonly reservations: LibraryReservationsService,
   ) {}
 
   // ── Чтение каталога ──────────────────────────────────────────────────────────────
@@ -364,7 +366,7 @@ export class LibraryCatalogService {
   ): Promise<string[]> {
     for (let attempt = 0; attempt < CODE_ATTEMPTS; attempt += 1) {
       try {
-        return await this.prisma.$transaction(
+        const ids = await this.prisma.$transaction(
           async (tx) => {
             await advisoryXactLock(tx, `library:inventory:${universityId}`)
             const list = typeof batches === 'function' ? await batches(tx) : batches
@@ -412,6 +414,9 @@ export class LibraryCatalogService {
           },
           { timeout: 60_000 },
         )
+        // Новые экземпляры сначала — тем, кто стоит в очереди на книгу (Фаза 20.8).
+        await this.reservations.serveCopies(universityId, ids)
+        return ids
       } catch (error) {
         if (isCodeClash(error)) continue
         if (isInventoryClash(error)) {
@@ -466,6 +471,10 @@ export class LibraryCatalogService {
         },
         ...ctx,
       })
+      if (input.status === 'AVAILABLE' && copy.status !== 'AVAILABLE') {
+        // Экземпляр вернулся в оборот — очередь на книгу получает его первой.
+        await this.reservations.serveBook(copy.universityId, updated.bookId)
+      }
       return toCopyItem(updated, true)
     } catch (error) {
       if (isInventoryClash(error)) {

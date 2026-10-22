@@ -40,6 +40,7 @@ function loanRow(overrides: Record<string, unknown> = {}) {
 
 function setup({ queued = null as null | Record<string, unknown>, queueCount = 0 } = {}) {
   const tx = {
+    $executeRaw: jest.fn().mockResolvedValue(0),
     loan: {
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       findUniqueOrThrow: jest.fn().mockResolvedValue(loanRow({ status: 'RETURNED' })),

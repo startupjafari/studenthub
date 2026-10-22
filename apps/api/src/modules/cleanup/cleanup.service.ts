@@ -32,6 +32,7 @@ import {
 } from '../platform/platform.constants'
 import { MediaService } from '../media/media.service'
 import { LibraryRemindersService } from '../library/library-reminders.service'
+import { LibraryReservationsService } from '../library/library-reservations.service'
 import { variantOwnerId } from '../media/media-keys'
 
 // Единственный дом для cron-задач (docs/PROJECT.md §10.2, docs/BACKEND_RULES.md §9.3).
@@ -76,6 +77,7 @@ const LOCK_TTL_MS = {
   reportStorageUsage: 10 * 60 * 1000,
   resumeMediaProcessing: 9 * 60 * 1000,
   remindLibraryLoans: 30 * 60 * 1000,
+  expireLibraryHolds: 30 * 60 * 1000,
 } as const
 const NOTIFICATION_RETENTION_DAYS = 30
 // Непрочитанные живут дольше прочитанных, но не вечно: кто три месяца не открывал
@@ -241,6 +243,7 @@ export class CleanupService {
     private readonly documentRequests: DocumentRequestsService,
     private readonly users: UserService,
     private readonly libraryReminders: LibraryRemindersService,
+    private readonly libraryReservations: LibraryReservationsService,
   ) {}
 
   // Напоминания за час до события (docs/BACKEND_RULES.md §9.3): каждые 15 мин, окно (now, now+70] —
@@ -264,6 +267,16 @@ export class CleanupService {
   } | null> {
     return this.locks.run('remindLibraryLoans', LOCK_TTL_MS.remindLibraryLoans, () =>
       this.libraryReminders.remindDue(),
+    )
+  }
+
+  // Готовые брони библиотеки, которые не забрали к сроку (Фаза 20.8): ежечасно, в 20 минут.
+  // Бронь держится до конца дня по часам вуза — час задержки ничего не меняет. Экземпляр
+  // уходит следующему в очереди. Логика — в LibraryReservationsService.
+  @Cron('20 * * * *', { name: 'expireLibraryHolds' })
+  async expireLibraryHolds(): Promise<number | null> {
+    return this.locks.run('expireLibraryHolds', LOCK_TTL_MS.expireLibraryHolds, () =>
+      this.libraryReservations.expireDue(),
     )
   }
 
