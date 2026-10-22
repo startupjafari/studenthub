@@ -17,6 +17,9 @@ enum Role {
   // UNIVERSITY_ADMIN, 2FA обязательна, всё вне явного списка маршрутов закрыто
   // (docs/PROJECT.md §2).
   SECURITY_GUARD
+  // Библиотекарь одного вуза (Фаза 20): каталог, выдача и возврат книг. Выдаёт
+  // UNIVERSITY_ADMIN, 2FA обязательна, всё вне явного списка маршрутов закрыто — как у охраны.
+  LIBRARIAN
 }
 
 enum UniversityStatus {
