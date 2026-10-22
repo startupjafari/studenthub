@@ -39,6 +39,12 @@ model University {
   cameras          Camera[]
   cameraSettings   CameraSettings?
   cameraViews      CameraViewSession[]
+  librarySettings  LibrarySettings?
+  books            Book[]
+  bookCopies       BookCopy[]
+  loans            Loan[]
+  reservations     Reservation[]
+  libraryIdAccess  LibraryIdAccessLog[]
 
   @@index([status])
   @@map("universities")

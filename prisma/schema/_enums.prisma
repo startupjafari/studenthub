@@ -231,3 +231,40 @@ enum CameraStatus {
   OFFLINE
   AUTH_FAILED
 }
+
+// ── Библиотека (Фаза 20) ─────────────────────────────────────────────────────────────
+
+// Экземпляр книги. RESERVED — отложен под готовую бронь; LOST и WRITTEN_OFF из оборота
+// выведены, но история выдач у них остаётся.
+enum BookCopyStatus {
+  AVAILABLE
+  RESERVED
+  ON_LOAN
+  LOST
+  WRITTEN_OFF
+}
+
+// Состояние экземпляра: отмечается при заведении и при возврате.
+enum BookCondition {
+  GOOD
+  WORN
+  DAMAGED
+}
+
+// Выдача. «Просрочена» не хранится — это OPEN с прошедшим dueAt. CANCELLED — ошибочная
+// выдача, отменённая библиотекарем (выдачи не правятся задним числом).
+enum LoanStatus {
+  OPEN
+  RETURNED
+  LOST
+  CANCELLED
+}
+
+// Бронь на книгу: QUEUED → READY (экземпляр отложен) → FULFILLED (выдан по брони).
+enum ReservationStatus {
+  QUEUED
+  READY
+  FULFILLED
+  CANCELLED
+  EXPIRED
+}
