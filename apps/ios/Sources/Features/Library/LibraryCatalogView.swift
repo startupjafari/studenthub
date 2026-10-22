@@ -60,7 +60,7 @@ struct LibraryCatalogView: View {
                         }
                     }
 
-                    if model.isLoading, !model.books.isEmpty {
+                    if model.isLoading {
                         ProgressView()
                             .frame(maxWidth: .infinity)
                             .listRowBackground(Color.clear)
