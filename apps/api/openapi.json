@@ -4075,6 +4075,60 @@
         ]
       }
     },
+    "/library/settings": {
+      "get": {
+        "operationId": "LibrarySettingsController_get",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Настройки; модуль по умолчанию выключен"
+          },
+          "403": {
+            "description": "Роли библиотека не положена"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Включена ли библиотека вуза и правила выдачи",
+        "tags": [
+          "Библиотека"
+        ]
+      },
+      "patch": {
+        "operationId": "LibrarySettingsController_update",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateLibrarySettingsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Новые настройки"
+          },
+          "422": {
+            "description": "Срок по умолчанию больше максимального"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Включить или выключить библиотеку, поменять правила выдачи",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
     "/schedules": {
       "post": {
         "operationId": "SchedulesController_create",
@@ -16376,6 +16430,10 @@
         "properties": {}
       },
       "CameraAgentSyncDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "UpdateLibrarySettingsDto": {
         "type": "object",
         "properties": {}
       },
