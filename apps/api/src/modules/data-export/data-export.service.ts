@@ -721,6 +721,9 @@ export class DataExportService {
       telegram,
       inviteUsed,
       notificationSettings,
+      libraryLoans,
+      libraryReservations,
+      libraryIdViews,
     ] = await Promise.all([
       this.prisma.complaint.findMany({
         where: { reporterId: userId },
@@ -808,6 +811,46 @@ export class DataExportService {
         },
         take: 1,
       }),
+      // Библиотека (Фаза 20): свои выдачи — снимок книги и срок; кто выдавал и принимал —
+      // работа библиотекаря, в архив не идёт.
+      this.prisma.loan.findMany({
+        where: { readerId: userId },
+        select: {
+          bookTitle: true,
+          inventoryNumber: true,
+          status: true,
+          issuedAt: true,
+          dueAt: true,
+          renewals: true,
+          returnedAt: true,
+          cancelledAt: true,
+          cancelReason: true,
+          disputedAt: true,
+        },
+        orderBy: { issuedAt: 'desc' },
+        take,
+      }),
+      this.prisma.reservation.findMany({
+        where: { readerId: userId },
+        select: {
+          status: true,
+          createdAt: true,
+          readyAt: true,
+          holdUntil: true,
+          closedAt: true,
+          book: { select: { title: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+        take,
+      }),
+      // Когда библиотекарь открывал удостоверение субъекта — факт обработки его данных. Кто
+      // именно и с какого адреса — данные сотрудника, как и журнал просмотров камер.
+      this.prisma.libraryIdAccessLog.findMany({
+        where: { readerId: userId },
+        select: { createdAt: true, loan: { select: { bookTitle: true } } },
+        orderBy: { createdAt: 'desc' },
+        take,
+      }),
     ])
     return {
       complaintsFiled: section(complaints, SECTION_LIMIT),
@@ -822,6 +865,15 @@ export class DataExportService {
       ),
       inviteUsed: section(inviteUsed, SECTION_LIMIT),
       notificationSettings: section(notificationSettings, SECTION_LIMIT),
+      libraryLoans: section(libraryLoans, SECTION_LIMIT),
+      libraryReservations: section(
+        libraryReservations.map(({ book, ...r }) => ({ ...r, book: book.title })),
+        SECTION_LIMIT,
+      ),
+      libraryIdViews: section(
+        libraryIdViews.map((v) => ({ viewedAt: v.createdAt, book: v.loan?.bookTitle ?? null })),
+        SECTION_LIMIT,
+      ),
     }
   }
 
@@ -1133,4 +1185,15 @@ export const USER_RELATIONS: Readonly<Record<string, { section: string } | { exc
     'CameraSettings.updatedById': { excluded: STAFF_WORK },
     // Журнал просмотров камер — служебный журнал безопасности вуза о работе охраны и админа.
     'CameraViewSession.userId': { excluded: STAFF_WORK },
+    // Библиотека (§3.11): свои выдачи, брони и факты просмотра удостоверения — разделами;
+    // заведение книг, выдача, приём, отмена и просмотры библиотекарем — его работа.
+    'Loan.readerId': { section: 'libraryLoans' },
+    'Reservation.readerId': { section: 'libraryReservations' },
+    'LibraryIdAccessLog.readerId': { section: 'libraryIdViews' },
+    'LibrarySettings.updatedById': { excluded: STAFF_WORK },
+    'Book.createdById': { excluded: STAFF_WORK },
+    'Loan.issuedById': { excluded: STAFF_WORK },
+    'Loan.returnedToId': { excluded: STAFF_WORK },
+    'Loan.cancelledById': { excluded: STAFF_WORK },
+    'LibraryIdAccessLog.librarianId': { excluded: STAFF_WORK },
   }

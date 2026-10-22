@@ -61,6 +61,9 @@ const MODELS = [
   'consultationSlot',
   'telegramAccount',
   'notificationSettings',
+  'loan',
+  'reservation',
+  'libraryIdAccessLog',
 ] as const
 
 function account(over: Record<string, unknown> = {}) {
