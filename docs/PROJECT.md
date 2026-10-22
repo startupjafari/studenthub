@@ -508,6 +508,24 @@ X25519 → HKDF-SHA256 → AES-256-GCM, id камеры в AAD) и лежат к
 
 ---
 
+### 3.11 Библиотека (Фаза 20)
+
+Бумажный формуляр библиотеки вуза в платформе: кто взял какой экземпляр и до какого срока,
+кто должник, что можно забронировать. План и решения владельца — `docs/IMPLEMENTATION_PLAN.md`,
+Фаза 20.
+
+**Кто что делает.** Книги берут студенты и старосты своего вуза — у обоих есть цифровой
+студенческий. Выдаёт и принимает книги только библиотекарь (`LIBRARIAN`), у каждой выдачи
+один ответственный. Админ вуза включает модуль, задаёт правила выдачи и видит отчёты, но
+книг не выдаёт.
+
+**Выключатель и правила** (`LibrarySettings`, одна запись на вуз). По умолчанию модуль
+**выключен**: нет записи — выключен, вуз включает библиотеку сам. Выключенный модуль закрывает
+выдачу, возврат и брони `409` (`details.field = module`); каталог и история остаются. Правила по
+умолчанию: срок выдачи 14 дней, максимум 120 (учебник на семестр), 5 книг на руках, 3 активные
+брони, готовая бронь держится 3 дня, 1 продление. Срок по умолчанию не может быть больше
+максимального (`422`, `field = defaultLoanDays`).
+
 ## 4. MVP и порядок
 
 ### v1.0 — Ядро
@@ -922,6 +940,8 @@ Email при регистрации сохраняется в нижнем ре�
 **HLS приватных видео** — по подписанному токену, а не по JWT: нативный HLS Safari/iOS заголовок Authorization к плейлистам не приложит. `GET /media/:fileId/hls/master.m3u8?t=` — master-токен (15 мин) выдаёт модуль-владелец вместе с остальным описанием, после своей проверки прав; мастер-плейлист раздаёт play-токен на весь просмотр (15 мин + 2 × длительность — иначе длинный ролик обрывался бы посередине). `GET /media/:fileId/hls/:rendition/index.m3u8?t=` — плейлист рендишна с токеном у сегментов. `GET /media/:fileId/hls/:rendition/:segment?t=` — `302` на подписанную ссылку сегмента в хранилище (байты видео через API не идут). Токен привязан к файлу и виду (master/play), подписан `MEDIA_TOKEN_SECRET` (не задан — выводится из `JWT_ACCESS_SECRET` с отдельной солью, токен плейлиста не проходит проверку как access-токен); имя рендишна и сегмента проверяется по шаблону до токена. Лимит частоты маршрутов — 1200/мин: зрители университетской сети сидят за одним IP.
 
 **Камеры (§3.10)** — `GET /camera-agents` (админ вуза: агенты, `connection: NEVER|ONLINE|OFFLINE` — на связи, если отчитывался за 90 с; `ready` — прислал ключ; число камер) · `POST /camera-agents` (`{ name }` → `{ agent, token }`, токен один раз; до 50 агентов на вуз) · `PATCH /camera-agents/:id` (`{ name }`) · `POST /camera-agents/:id/token` (перевыпуск: прежний токен гаснет, ключ агента и пароли его камер сбрасываются) · `DELETE /camera-agents/:id` (вместе с камерами) · `GET /cameras` (админ вуза и охрана; охране — только включённые и без `streamUrl`/агента; админу — с `streamUrl`, агентом и `hasCredentials`, сам пароль не отдаётся никогда; `?agentId=`) · `POST /cameras` (`{ agentId, name, streamUrl, roomId?, credentials?: { username, password } }`; `streamUrl` — `rtsp(s)://` без логина и пароля) · `PATCH /cameras/:id` (`credentials: null` — убрать пароль, без поля — оставить; агента у камеры не сменить) · `DELETE /cameras/:id` · `GET /cameras/settings` (админ и охрана: `{ enabled }`) · `PATCH /cameras/settings` (админ: `{ enabled }`) · `POST /cameras/:id/views` (админ вуза и охрана: начать просмотр → `{ sessionId, cameraId, hlsUrl, token, expiresInSec: 120, heartbeatInSec: 30 }`; `409` с `details.field`: `relay` — ретранслятор не настроен, `module` — камеры вуза выключены, `camera` — камера отключена, `views` — уже 4 просмотра) · `POST /cameras/views/:sessionId/heartbeat` (продлить, свежий токен; модуль или камеру выключили — `409`, сессия закрыта; чужая или закрытая — `404`) · `POST /cameras/views/:sessionId/end` (`204`) · `GET /.well-known/media-jwks.json` (публ.; открытый ключ медиатокенов для ретранслятора, без обёртки ответа) · `POST /camera-agent/sync` (публ. для JWT, вход по `Authorization: Agent <токен>`; `{ version, publicKey, revision?, cameras: [{ id, status }] }` → `{ revision, enabled, relayCaPem, cameras: [{ id, streamUrl, credentialsSealed, publish: { url, token } | null }] }`; токен публикации в ревизию не входит; длинный опрос до 25 с; статусы пишутся только камерам этого агента; лимит 60/мин). Чужой вуз и несуществующий id — одинаковый `404`. Аудит: `camera_agent_created|token_rotated|deleted`, `camera_created|updated|deleted` (в `updated` — имена полей, без значений), `cameras_enabled|disabled`.
+
+**Библиотека (§3.11)** — `GET /library/settings` (студент, староста, библиотекарь, админ вуза: `{ enabled, defaultLoanDays, maxLoanDays, maxActiveLoans, maxActiveReservations, reservationHoldDays, maxRenewals, updatedAt }`; нет записи — правила по умолчанию и `enabled: false`) · `PATCH /library/settings` (админ вуза; любые поля из ответа, кроме `updatedAt`; срок по умолчанию больше максимального — `422`, `details.field = defaultLoanDays`). Аудит: `library_enabled|disabled`, `library_settings_updated` (в `metadata.changes` — присланные поля).
 
 **Помещения (Ф16)** — `GET /rooms` (`?kind=`; необязательный `search` — подстрока названия без учёта регистра; порядок — выбранная колонка, затем название, затем id) · `POST /rooms` (вуз из JWT, платформа указывает явно) · `GET|PATCH|DELETE /rooms/:id` (`DELETE` → `409 CONFLICT`, пока есть пары, экзамены или замены с сегодняшнего дня; `details[].field ∈ pairs|exams|changes`) · `GET /rooms/qr/:code` (статус по коду из печатного QR: помещение, «сейчас» по часам сервера в таймзоне вуза, пары дня и изменения) · `POST /rooms/qr/batch` (выдать коды пачкой, идемпотентно) · `POST /rooms/:id/qr/rotate` (перевыпуск — расклеенные наклейки перестают работать, пишется в аудит)
 
