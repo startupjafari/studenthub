@@ -418,3 +418,42 @@ export interface ReturnLoanResult {
   /** Экземпляр отложен под бронь: положить на полку броней с этим именем. */
   heldFor: { name: string; group: string | null; holdUntil: string } | null
 }
+
+// ── Удостоверение читателя на время выдачи (20.6) ──────────────────────────────────
+
+/**
+ * Карточка читателя по открытой выдаче: библиотекарь сверяет, у кого книга, пока она на
+ * руках. Набор узкий, как у охраны; после возврата карточка закрывается (`403`).
+ */
+export interface LoanReaderCard {
+  reader: LibraryReader
+  loan: {
+    id: string
+    bookTitle: string
+    inventoryNumber: string
+    issuedAt: string
+    dueDate: string
+  }
+  viewedAt: string
+}
+
+/** Журнал просмотров удостоверений: кто, чьё, по какой выдаче, когда, с какого адреса. */
+export const IdAccessQuerySchema = z.object({
+  page: z.coerce.number().int().positive().default(1),
+  limit: z.coerce.number().int().positive().max(100).default(20),
+  q: z.string().trim().max(100).optional(),
+  readerId: z.string().min(1).optional(),
+  loanId: z.string().min(1).optional(),
+})
+export type IdAccessQueryInput = z.infer<typeof IdAccessQuerySchema>
+
+export interface IdAccessItem {
+  id: string
+  createdAt: string
+  librarianName: string
+  readerId: string | null
+  readerName: string
+  loanId: string | null
+  bookTitle: string | null
+  ip: string | null
+}

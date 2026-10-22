@@ -103,7 +103,7 @@ function fullName(r: { lastName: string; firstName: string; middleName?: string 
   return [r.lastName, r.firstName, r.middleName].filter(Boolean).join(' ')
 }
 
-export function toReader(row: ReaderRow): LibraryReader {
+export function toReader(row: Omit<ReaderRow, 'role' | 'universityId'>): LibraryReader {
   return {
     id: row.id,
     firstName: row.firstName,
