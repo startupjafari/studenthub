@@ -41,6 +41,7 @@ const ALLOWED_AUDIENCES: Record<Role, StoryAudience[]> = {
   [Role.STUDENT]: [StoryAudience.GROUP],
   [Role.EMPLOYER]: [],
   [Role.SECURITY_GUARD]: [],
+  [Role.LIBRARIAN]: [],
 }
 
 // Потолок выдачи ленты колец. Это не пагинация, а предохранитель (BACKEND_RULES §5.3):

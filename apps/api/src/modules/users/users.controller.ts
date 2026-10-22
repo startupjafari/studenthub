@@ -13,7 +13,7 @@ import {
 } from '@nestjs/common'
 import { ApiBody, ApiConsumes, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger'
 import { Throttle } from '@nestjs/throttler'
-import { Role } from '@studenthub/shared-types'
+import { RESTRICTED_ROLES, Role } from '@studenthub/shared-types'
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import { Roles } from '../../common/decorators/roles.decorator'
 import { MiniAllowed } from '../../common/decorators/mini-allowed.decorator'
@@ -37,7 +37,7 @@ import { UpdateAcademicRecordDto } from './dto/update-academic-record.dto'
 import { ResetTwoFactorDto } from './dto/reset-two-factor.dto'
 import { DeleteAccountDto } from './dto/delete-account.dto'
 import { AcceptConsentDto } from './dto/accept-consent.dto'
-import { SecurityAllowed } from '../../common/decorators/security-allowed.decorator'
+import { RestrictedAllowed } from '../../common/decorators/restricted-allowed.decorator'
 
 @ApiTags('Пользователи')
 @Controller('users')
@@ -50,21 +50,21 @@ export class UsersController {
     @Inject(ACTION_CONFIRMATION) private readonly confirmation: ActionConfirmation,
   ) {}
 
-  @SecurityAllowed()
+  @RestrictedAllowed(...RESTRICTED_ROLES)
   @Get('me')
   @ApiOperation({ summary: 'Мой профиль' })
   me(@CurrentUser() user: CurrentUserData) {
     return this.users.findById(user.sub)
   }
 
-  @SecurityAllowed()
+  @RestrictedAllowed(...RESTRICTED_ROLES)
   @Patch('me')
   @ApiOperation({ summary: 'Обновить свой профиль (имя, настройка приватности email)' })
   updateMe(@CurrentUser() user: CurrentUserData, @Body() dto: UpdateProfileDto) {
     return this.users.updateProfile(user.sub, user.role, dto)
   }
 
-  @SecurityAllowed()
+  @RestrictedAllowed(...RESTRICTED_ROLES)
   @Get('me/consent')
   @ApiOperation({
     summary:
@@ -75,7 +75,7 @@ export class UsersController {
     return this.users.consentState(user.sub)
   }
 
-  @SecurityAllowed()
+  @RestrictedAllowed(...RESTRICTED_ROLES)
   @Post('me/consent')
   @ApiOperation({
     summary:
@@ -97,14 +97,14 @@ export class UsersController {
     })
   }
 
-  @SecurityAllowed()
+  @RestrictedAllowed(...RESTRICTED_ROLES)
   @Patch('me/username')
   @ApiOperation({ summary: 'Сменить имя пользователя (имя входа); 409 USERNAME_TAKEN если занято' })
   updateUsername(@CurrentUser() user: CurrentUserData, @Body() dto: UpdateUsernameDto) {
     return this.users.updateUsername(user.sub, dto.username)
   }
 
-  @SecurityAllowed()
+  @RestrictedAllowed(...RESTRICTED_ROLES)
   @Patch('me/password')
   @ApiOperation({ summary: 'Сменить пароль (разлогинивает все устройства)' })
   @ApiResponse({ status: 200, description: 'Пароль изменён, все сессии погашены' })
@@ -125,7 +125,7 @@ export class UsersController {
     return null
   }
 
-  @SecurityAllowed()
+  @RestrictedAllowed(...RESTRICTED_ROLES)
   @Post('me/avatar')
   @ApiConsumes('multipart/form-data')
   @ApiBody({
@@ -141,7 +141,7 @@ export class UsersController {
     return this.users.setAvatar(user.sub, buffer)
   }
 
-  @SecurityAllowed()
+  @RestrictedAllowed(...RESTRICTED_ROLES)
   @Delete('me/avatar')
   @ApiOperation({ summary: 'Удалить аватар' })
   removeAvatar(@CurrentUser() user: CurrentUserData) {
@@ -178,7 +178,7 @@ export class UsersController {
    * у кого в руках открытая вкладка или access-токен. Последнего администратора платформы
    * удалить нельзя: его выдаёт только сид, инвайтом нового не завести.
    */
-  @SecurityAllowed()
+  @RestrictedAllowed(...RESTRICTED_ROLES)
   @Delete('me')
   @ApiOperation({
     summary:

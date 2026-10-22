@@ -2,15 +2,16 @@ import { Controller, Get, Query, Req, Res } from '@nestjs/common'
 import { Throttle } from '@nestjs/throttler'
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger'
 import type { FastifyReply, FastifyRequest } from 'fastify'
+import { RESTRICTED_ROLES } from '@studenthub/shared-types'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
 import { ExportBrandingService } from '../../common/export/export-branding.service'
 import { DataExportService } from './data-export.service'
-import { SecurityAllowed } from '../../common/decorators/security-allowed.decorator'
+import { RestrictedAllowed } from '../../common/decorators/restricted-allowed.decorator'
 
 @ApiTags('Мои данные')
 @ApiBearerAuth()
-@SecurityAllowed()
+@RestrictedAllowed(...RESTRICTED_ROLES)
 @Controller('me')
 export class DataExportController {
   constructor(

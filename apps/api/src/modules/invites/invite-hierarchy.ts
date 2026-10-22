@@ -29,8 +29,9 @@ export const ALLOWED_ISSUERS: Record<Role, Role[]> = {
   // Работодателя нельзя пригласить по этой цепочке: компания регистрируется сама и
   // получает допуск от вуза (CompanyUniversityAccess), а не инвайт на роль.
   [Role.EMPLOYER]: [],
-  // Охрану нанимает вуз: выдаёт только его админ, на свой вуз.
+  // Охрану и библиотекаря нанимает вуз: выдаёт только его админ, на свой вуз.
   [Role.SECURITY_GUARD]: [Role.UNIVERSITY_ADMIN],
+  [Role.LIBRARIAN]: [Role.UNIVERSITY_ADMIN],
 }
 
 // Выводит фактический scope инвайта из иерархии и scope создателя.
@@ -63,6 +64,7 @@ export function resolveInviteTarget(issuer: JwtPayload, input: InviteRequest): I
 
     case Role.UNIVERSITY_MODERATOR:
     case Role.SECURITY_GUARD:
+    case Role.LIBRARIAN:
       return { universityId: issuerUniversity(issuer), facultyId: null, groupId: null }
 
     case Role.DEAN:
