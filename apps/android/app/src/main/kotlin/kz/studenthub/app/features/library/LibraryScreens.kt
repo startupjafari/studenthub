@@ -605,6 +605,7 @@ private fun rememberDayFormat(): (LocalDate) -> String {
     val locale = currentLocale()
     return remember(locale) {
         val formatter = DateTimeFormatter.ofPattern("d MMM", locale)
-        { day: LocalDate -> day.format(formatter) }
+        val format: (LocalDate) -> String = { day -> day.format(formatter) }
+        format
     }
 }
