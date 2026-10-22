@@ -67,6 +67,12 @@ describe('parseQrTarget', () => {
 
   it('хвостовой слэш и пробелы вокруг не мешают', () => {
     expect(parseQrTarget(`  ${WEB}/r/ABCD2345/ \n`)?.kind).toBe('room')
+    expect(parseQrTarget(`${WEB}/c/ABCD2345`)).toEqual({
+      kind: 'bookCopy',
+      href: '/c/ABCD2345',
+      value: 'ABCD2345',
+    })
+    expect(parseQrTarget(`${WEB}/c/abcd`)).toBeNull()
   })
 
   it('чужие ссылки и не-ссылки отклоняются', () => {

@@ -135,6 +135,7 @@ const SECURITY_GUARD: QuickAction[] = [
 // добавят задачи Фазы 20. «Документы» ему не добавляются — как и охране.
 const LIBRARIAN: QuickAction[] = [
   { navKey: 'libraryHome', href: '/library', icon: Library },
+  { navKey: 'libraryCatalog', href: '/library/catalog', icon: BookOpen },
   { navKey: 'scan', href: '/scan', icon: ScanQrCode },
 ]
 

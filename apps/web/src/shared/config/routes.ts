@@ -34,8 +34,9 @@ const ACCOUNT_PATHS = ['/settings', '/setup-2fa', '/qr'] as const
 const RESTRICTED_ROLE_PATHS: Partial<Record<Role, readonly string[]>> = {
   // Подтверждение входа на компьютере по QR (`/qr?t=`) и страница помещения (`/r/<код>`).
   [Role.SECURITY_GUARD]: ['/security', '/scan', '/verify-id', '/r', ...ACCOUNT_PATHS],
-  // Сканер — для входа на компьютере; удостоверения читателей добавит выдача книг (20.4).
-  [Role.LIBRARIAN]: ['/library', '/scan', ...ACCOUNT_PATHS],
+  // Сканер — для входа на компьютере и наклеек книг (`/c/<код>`); удостоверения читателей
+  // добавит выдача книг (20.4).
+  [Role.LIBRARIAN]: ['/library', '/scan', '/c', ...ACCOUNT_PATHS],
 }
 
 /** Можно ли роли с запретом по умолчанию открыть этот путь. Остальным ролям — всегда да. */

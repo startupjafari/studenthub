@@ -286,6 +286,7 @@ export const SECURITY_GUARD_NAV: NavItem[] = [
 // 20.3–20.8; сканер для входа на компьютере — в шапке, как у всех.
 export const LIBRARIAN_NAV: NavItem[] = [
   { key: 'libraryHome', href: '/library', icon: Library, exact: true },
+  { key: 'libraryCatalog', href: '/library/catalog', icon: BookOpen },
 ]
 
 // Навигация определяется РОЛЬЮ пользователя, а не route-группой: общие страницы
