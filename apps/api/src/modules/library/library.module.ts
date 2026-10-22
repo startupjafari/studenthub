@@ -11,6 +11,7 @@ import { LibraryLoansService } from './library-loans.service'
 import { LibraryNotifier } from './library-notifier'
 import { LibraryIdAccessController } from './library-id-access.controller'
 import { LibraryIdAccessService } from './library-id-access.service'
+import { LibraryRemindersService } from './library-reminders.service'
 
 // Библиотека вуза (Фаза 20, docs/PROJECT.md §3.11). Владеет таблицами `library_settings`,
 // `books`, `book_copies`, `loans`, `reservations`, `library_id_access_logs`. FilesModule —
@@ -30,7 +31,8 @@ import { LibraryIdAccessService } from './library-id-access.service'
     LibraryLoansService,
     LibraryNotifier,
     LibraryIdAccessService,
+    LibraryRemindersService,
   ],
-  exports: [LibrarySettingsService],
+  exports: [LibrarySettingsService, LibraryRemindersService],
 })
 export class LibraryModule {}

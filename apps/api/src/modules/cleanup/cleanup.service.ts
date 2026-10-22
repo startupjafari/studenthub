@@ -31,6 +31,7 @@ import {
   type PlatformStateReader,
 } from '../platform/platform.constants'
 import { MediaService } from '../media/media.service'
+import { LibraryRemindersService } from '../library/library-reminders.service'
 import { variantOwnerId } from '../media/media-keys'
 
 // Единственный дом для cron-задач (docs/PROJECT.md §10.2, docs/BACKEND_RULES.md §9.3).
@@ -74,6 +75,7 @@ const LOCK_TTL_MS = {
   watchServices: 4 * 60 * 1000,
   reportStorageUsage: 10 * 60 * 1000,
   resumeMediaProcessing: 9 * 60 * 1000,
+  remindLibraryLoans: 30 * 60 * 1000,
 } as const
 const NOTIFICATION_RETENTION_DAYS = 30
 // Непрочитанные живут дольше прочитанных, но не вечно: кто три месяца не открывал
@@ -238,6 +240,7 @@ export class CleanupService {
     private readonly applications: ApplicationNotifier,
     private readonly documentRequests: DocumentRequestsService,
     private readonly users: UserService,
+    private readonly libraryReminders: LibraryRemindersService,
   ) {}
 
   // Напоминания за час до события (docs/BACKEND_RULES.md §9.3): каждые 15 мин, окно (now, now+70] —
@@ -247,6 +250,20 @@ export class CleanupService {
   async scheduleEventReminders(): Promise<number | null> {
     return this.locks.run('scheduleEventReminders', LOCK_TTL_MS.scheduleEventReminders, () =>
       this.events.remindDue(),
+    )
+  }
+
+  // Напоминания библиотеки о сроке (Фаза 20.7): ежечасно, в 10 минут. Шлём только днём по
+  // часам вуза; за два дня, в последний день и о просрочке — по отметкам в выдаче, так что
+  // пропущенный тик догоняет следующий. Логика — в LibraryRemindersService (владелец домена).
+  @Cron('10 * * * *', { name: 'remindLibraryLoans' })
+  async remindLibraryLoans(): Promise<{
+    dueSoon: number
+    dueToday: number
+    overdue: number
+  } | null> {
+    return this.locks.run('remindLibraryLoans', LOCK_TTL_MS.remindLibraryLoans, () =>
+      this.libraryReminders.remindDue(),
     )
   }
 
