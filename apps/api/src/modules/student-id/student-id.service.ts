@@ -125,13 +125,14 @@ export class StudentIdService {
     await this.claimToken(token, payload.exp, verifier.sub)
     const card = this.toCard(user)
     // Староста, преподаватель и охрана проверяют, что перед ними студент вуза (на паре, на
-    // мероприятии, на входе) — им хватает ФИО, фото, группы и статуса. Дата рождения,
-    // грант/платное и общежитие нужны деканату и администрации, а не однокурснику, лектору
-    // или вахте.
+    // мероприятии, на входе, на выдаче книг) — им хватает ФИО, фото, группы и статуса. Дата
+    // рождения, грант/платное и общежитие нужны деканату и администрации, а не однокурснику,
+    // лектору, вахте или библиотеке.
     const narrow =
       verifier.role === Role.STAROSTA ||
       verifier.role === Role.TEACHER ||
-      verifier.role === Role.SECURITY_GUARD
+      verifier.role === Role.SECURITY_GUARD ||
+      verifier.role === Role.LIBRARIAN
     const shown = {
       ...card,
       ...(narrow ? { birthDate: null, fundingType: null, dormitory: null } : {}),

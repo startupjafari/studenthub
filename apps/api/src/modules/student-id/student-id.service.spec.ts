@@ -147,6 +147,18 @@ describe('StudentIdService — непрозрачный токен', () => {
     expect(guard.lastName).toBe(student.lastName)
   })
 
+  it('библиотекарю — та же узкая карта: читателя сверяют по ФИО, фото, группе и статусу', async () => {
+    const { service, prisma } = setup()
+    const card = await service.myCard(viewer('stu-1', 'uni-A'))
+    prisma.user.findFirst.mockResolvedValue(student)
+    const librarian = await service.verify(
+      { ...viewer('l', 'uni-A'), role: Role.LIBRARIAN },
+      card.token,
+    )
+    expect(librarian).toMatchObject({ birthDate: null, fundingType: null, dormitory: null })
+    expect(librarian.studentCardNumber).toBe(student.studentCardNumber)
+  })
+
   it('дата рождения — «со слов студента»: помечена в selfDeclared, если она есть в ответе', async () => {
     const { service, prisma } = setup()
     const card = await service.myCard(viewer('stu-1', 'uni-A'))

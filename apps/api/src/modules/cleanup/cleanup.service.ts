@@ -31,6 +31,8 @@ import {
   type PlatformStateReader,
 } from '../platform/platform.constants'
 import { MediaService } from '../media/media.service'
+import { LibraryRemindersService } from '../library/library-reminders.service'
+import { LibraryReservationsService } from '../library/library-reservations.service'
 import { variantOwnerId } from '../media/media-keys'
 
 // Единственный дом для cron-задач (docs/PROJECT.md §10.2, docs/BACKEND_RULES.md §9.3).
@@ -74,6 +76,8 @@ const LOCK_TTL_MS = {
   watchServices: 4 * 60 * 1000,
   reportStorageUsage: 10 * 60 * 1000,
   resumeMediaProcessing: 9 * 60 * 1000,
+  remindLibraryLoans: 30 * 60 * 1000,
+  expireLibraryHolds: 30 * 60 * 1000,
 } as const
 const NOTIFICATION_RETENTION_DAYS = 30
 // Непрочитанные живут дольше прочитанных, но не вечно: кто три месяца не открывал
@@ -134,7 +138,7 @@ const EMPLOYER_UNVERIFIED_DAYS = 30
 const DETACHED_FILES_MAX_BATCHES = 200
 
 // Ни одной связи, кроме поста: медиа удалённого поста уходит, только если на файл не
-// ссылается ничто другое (сторис, альбом, сообщение).
+// ссылается ничто другое (сторис, альбом, сообщение, обложка книги).
 const NO_OWNER_BUT_POST_WHERE = {
   messageId: null,
   materialId: null,
@@ -143,6 +147,7 @@ const NO_OWNER_BUT_POST_WHERE = {
   submissionId: null,
   stories: { none: {} },
   albumsCovered: { none: {} },
+  bookCovers: { none: {} },
 } satisfies Prisma.FileWhereInput
 
 // Ни одной связи с сущностью-владельцем — та же проверка, что у FileService.deleteDetached.
@@ -237,6 +242,8 @@ export class CleanupService {
     private readonly applications: ApplicationNotifier,
     private readonly documentRequests: DocumentRequestsService,
     private readonly users: UserService,
+    private readonly libraryReminders: LibraryRemindersService,
+    private readonly libraryReservations: LibraryReservationsService,
   ) {}
 
   // Напоминания за час до события (docs/BACKEND_RULES.md §9.3): каждые 15 мин, окно (now, now+70] —
@@ -246,6 +253,30 @@ export class CleanupService {
   async scheduleEventReminders(): Promise<number | null> {
     return this.locks.run('scheduleEventReminders', LOCK_TTL_MS.scheduleEventReminders, () =>
       this.events.remindDue(),
+    )
+  }
+
+  // Напоминания библиотеки о сроке (Фаза 20.7): ежечасно, в 10 минут. Шлём только днём по
+  // часам вуза; за два дня, в последний день и о просрочке — по отметкам в выдаче, так что
+  // пропущенный тик догоняет следующий. Логика — в LibraryRemindersService (владелец домена).
+  @Cron('10 * * * *', { name: 'remindLibraryLoans' })
+  async remindLibraryLoans(): Promise<{
+    dueSoon: number
+    dueToday: number
+    overdue: number
+  } | null> {
+    return this.locks.run('remindLibraryLoans', LOCK_TTL_MS.remindLibraryLoans, () =>
+      this.libraryReminders.remindDue(),
+    )
+  }
+
+  // Готовые брони библиотеки, которые не забрали к сроку (Фаза 20.8): ежечасно, в 20 минут.
+  // Бронь держится до конца дня по часам вуза — час задержки ничего не меняет. Экземпляр
+  // уходит следующему в очереди. Логика — в LibraryReservationsService.
+  @Cron('20 * * * *', { name: 'expireLibraryHolds' })
+  async expireLibraryHolds(): Promise<number | null> {
+    return this.locks.run('expireLibraryHolds', LOCK_TTL_MS.expireLibraryHolds, () =>
+      this.libraryReservations.expireDue(),
     )
   }
 

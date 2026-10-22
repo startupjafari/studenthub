@@ -5,6 +5,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Assignment
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.outlined.AccountCircle
+import androidx.compose.material.icons.outlined.Bookmarks
 import androidx.compose.material.icons.outlined.CalendarMonth
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material.icons.outlined.Description
@@ -16,6 +17,7 @@ import androidx.compose.material.icons.outlined.Group
 import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Inbox
+import androidx.compose.material.icons.outlined.LocalLibrary
 import androidx.compose.material.icons.outlined.MoreHoriz
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.School
@@ -63,6 +65,10 @@ enum class MoreSection(@StringRes val title: Int, val icon: ImageVector) {
     MATERIALS(R.string.study_materials, Icons.Outlined.Folder),
     NOTIFICATIONS(R.string.home_notifications, Icons.Outlined.Notifications),
     SERVICE_CATALOG(R.string.applications_catalog, Icons.Outlined.GridView),
+
+    // Библиотека вуза: студент и староста, и только если вуз её включил.
+    LIBRARY(R.string.books_title, Icons.Outlined.LocalLibrary),
+    MY_BOOKS(R.string.books_myBooks, Icons.Outlined.Bookmarks),
     ;
 
     companion object {
@@ -75,6 +81,21 @@ enum class MoreSection(@StringRes val title: Int, val icon: ImageVector) {
             Role.TEACHER -> common + listOf(SUBJECTS, GROUPS)
             // Роли вне MVP приложение не ведёт — им остаётся веб.
             else -> emptyList()
+        }
+
+        /** Кто берёт книги в библиотеке вуза: читатели — студент и староста. */
+        fun readsLibrary(role: Role): Boolean = role == Role.STUDENT || role == Role.STAROSTA
+
+        /**
+         * Список «Ещё» с библиотекой. Включает её админ вуза, поэтому пункт зависит не
+         * только от роли, но и от ответа `GET /library/settings`: выключенной библиотеки
+         * в списке нет. Встаёт перед настройками — они всегда последние.
+         */
+        fun sections(role: Role, libraryEnabled: Boolean): List<MoreSection> {
+            val base = sections(role)
+            if (!libraryEnabled || !readsLibrary(role)) return base
+            val at = base.indexOf(SETTINGS).takeIf { it >= 0 } ?: base.size
+            return base.take(at) + LIBRARY + base.drop(at)
         }
     }
 }

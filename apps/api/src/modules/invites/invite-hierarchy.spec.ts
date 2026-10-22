@@ -207,4 +207,32 @@ describe('resolveInviteTarget — матрица иерархии выдачи �
       )
     })
   })
+
+  describe('LIBRARIAN', () => {
+    it('UNIVERSITY_ADMIN выдаёт на свой вуз, без факультета и группы', () => {
+      expect(resolveInviteTarget(uniAdminA, { role: Role.LIBRARIAN })).toEqual({
+        universityId: 'uni-A',
+        facultyId: null,
+        groupId: null,
+      })
+    })
+    it('вуз из тела игнорируется: библиотекарь — только в вуз создателя', () => {
+      expect(
+        resolveInviteTarget(uniAdminA, { role: Role.LIBRARIAN, universityId: 'uni-B' }),
+      ).toMatchObject({ universityId: 'uni-A' })
+    })
+    it('никто, кроме админа вуза, библиотекаря не выдаёт — и охрана тоже', () => {
+      const guard = issuer(Role.SECURITY_GUARD, { universityId: 'uni-A' })
+      for (const who of [platformAdmin, deanA, starostaA, student, guard]) {
+        expectCode(() => resolveInviteTarget(who, { role: Role.LIBRARIAN }), 'FORBIDDEN')
+      }
+    })
+    it('библиотекарь сам инвайтов не выдаёт', () => {
+      const librarian = issuer(Role.LIBRARIAN, { universityId: 'uni-A' })
+      expectCode(
+        () => resolveInviteTarget(librarian, { role: Role.STUDENT, groupId: 'grp-A' }),
+        'FORBIDDEN',
+      )
+    })
+  })
 })

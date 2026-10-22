@@ -120,6 +120,11 @@ function makeService() {
   const documentRequests = { closeOverdue: jest.fn(async () => 0) as Mock }
   // Штатное удаление аккаунта — путь, который cron передаёт уборке неподтверждённых компаний.
   const users = { softDeleteSelf: jest.fn(async () => undefined) as Mock }
+  // Напоминания библиотеки: cron только делегирует, отбор — в library-reminders.spec.ts.
+  const libraryReminders = {
+    remindDue: jest.fn(async () => ({ dueSoon: 0, dueToday: 0, overdue: 0 })) as Mock,
+  }
+  const libraryReservations = { expireDue: jest.fn(async () => 0) as Mock }
   const service = new CleanupService(
     prisma as never,
     minio as never,
@@ -142,6 +147,8 @@ function makeService() {
     applications as never,
     documentRequests as never,
     users as never,
+    libraryReminders as never,
+    libraryReservations as never,
   )
   return {
     companies,

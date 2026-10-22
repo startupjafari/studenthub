@@ -32,6 +32,7 @@ import { SpecialtiesModule } from './modules/specialties/specialties.module'
 import { GroupsModule } from './modules/groups/groups.module'
 import { RoomsModule } from './modules/rooms/rooms.module'
 import { CamerasModule } from './modules/cameras/cameras.module'
+import { LibraryModule } from './modules/library/library.module'
 import { SchedulesModule } from './modules/schedules/schedules.module'
 import { CoursesModule } from './modules/courses/courses.module'
 import { AssignmentsModule } from './modules/assignments/assignments.module'
@@ -137,6 +138,7 @@ import { AppController } from './app.controller'
     GroupsModule,
     RoomsModule,
     CamerasModule,
+    LibraryModule,
     SchedulesModule,
     CoursesModule,
     AssignmentsModule,

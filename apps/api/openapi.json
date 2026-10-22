@@ -4075,6 +4075,1105 @@
         ]
       }
     },
+    "/library/settings": {
+      "get": {
+        "operationId": "LibrarySettingsController_get",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Настройки; модуль по умолчанию выключен"
+          },
+          "403": {
+            "description": "Роли библиотека не положена"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Включена ли библиотека вуза и правила выдачи",
+        "tags": [
+          "Библиотека"
+        ]
+      },
+      "patch": {
+        "operationId": "LibrarySettingsController_update",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateLibrarySettingsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Новые настройки"
+          },
+          "422": {
+            "description": "Срок по умолчанию больше максимального"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Включить или выключить библиотеку, поменять правила выдачи",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/books": {
+      "get": {
+        "operationId": "LibraryCatalogController_list",
+        "parameters": [],
+        "responses": {
+          "409": {
+            "description": "Библиотека вуза выключена (для читателей)"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Каталог: поиск по названию, авторам и ISBN, наличие экземпляров",
+        "tags": [
+          "Библиотека"
+        ]
+      },
+      "post": {
+        "operationId": "LibraryCatalogController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateBookDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "422": {
+            "description": "Неверные поля карточки"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Завести книгу в каталог",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/books/sections": {
+      "get": {
+        "operationId": "LibraryCatalogController_sections",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Разделы каталога вуза — для фильтра",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/books/{id}": {
+      "get": {
+        "operationId": "LibraryCatalogController_detail",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "404": {
+            "description": "Книги нет или она чужого вуза"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Книга: фонду — с экземплярами и выдачами, читателю — наличие",
+        "tags": [
+          "Библиотека"
+        ]
+      },
+      "patch": {
+        "operationId": "LibraryCatalogController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateBookDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "409": {
+            "description": "В архив нельзя: экземпляры выданы или под бронью"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Правка карточки, архив и возврат из архива",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/books/{id}/cover": {
+      "post": {
+        "operationId": "LibraryCatalogController_cover",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Загрузить обложку книги (картинка до 10 МБ)",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/books/{id}/copies": {
+      "post": {
+        "operationId": "LibraryCatalogController_addCopies",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddBookCopiesDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "409": {
+            "description": "Инвентарный номер уже есть в фонде"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Завести экземпляры: номерами списком или количеством по порядку",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/copies/labels": {
+      "post": {
+        "operationId": "LibraryCatalogController_labels",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BookCopyLabelsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "QR-наклейки экземпляров для печати",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/copies/by-code/{code}": {
+      "get": {
+        "operationId": "LibraryCatalogController_byCode",
+        "parameters": [
+          {
+            "name": "code",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "404": {
+            "description": "Код неизвестен, устарел или чужого вуза"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Экземпляр по коду с наклейки",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/copies/{id}": {
+      "patch": {
+        "operationId": "LibraryCatalogController_updateCopy",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateBookCopyDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "409": {
+            "description": "Экземпляр выдан или под бронью; номер занят"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Правка экземпляра: номер, состояние, заметка, вывод из оборота",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/copies/{id}/code/rotate": {
+      "post": {
+        "operationId": "LibraryCatalogController_rotateCode",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Перевыпустить код наклейки: старая распечатка перестаёт работать",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/import/preview": {
+      "post": {
+        "operationId": "LibraryCatalogController_importPreview",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "400": {
+            "description": "Формат файла или нет колонки «Название»"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Импорт фонда: проверить CSV/XLSX без записи",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/import": {
+      "post": {
+        "operationId": "LibraryCatalogController_importCommit",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LibraryImportCommitDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "409": {
+            "description": "Инвентарный номер успели занять"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Импорт фонда: записать проверенные строки",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/readers/resolve": {
+      "post": {
+        "operationId": "LibraryLoansController_resolve",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveReaderDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "409": {
+            "description": "QR уже проверил другой сотрудник; библиотека выключена"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Скан студенческого: читатель, может ли брать книги, пропуск на выдачу",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/loans": {
+      "post": {
+        "operationId": "LibraryLoansController_issue",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IssueLoanDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "409": {
+            "description": "details.field: status | overdue | limit — читателю нельзя; onLoan | reserved | withdrawn | archived — экземпляр; ticket — пропуск истёк; module"
+          },
+          "422": {
+            "description": "Срок вне правил библиотеки (field = dueDate)"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Выдать экземпляр читателю по пропуску",
+        "tags": [
+          "Библиотека"
+        ]
+      },
+      "get": {
+        "operationId": "LibraryLoansController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Выдачи вуза: на руках, просроченные, закрытые",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/returns": {
+      "post": {
+        "operationId": "LibraryLoansController_returnCopy",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReturnLoanDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "409": {
+            "description": "details.field = notOnLoan — экземпляр не выдан"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Принять книгу: скан экземпляра, состояние; очередь броней — отложить",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/loans/{id}/renew": {
+      "post": {
+        "operationId": "LibraryLoansController_renew",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenewLoanDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "409": {
+            "description": "details.field: renewals | queue | notOnLoan"
+          },
+          "422": {
+            "description": "Срок вне правил (field = dueDate)"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Продлить выдачу",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/loans/{id}/lost": {
+      "post": {
+        "operationId": "LibraryLoansController_lost",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Книга утеряна читателем: выдача закрыта, экземпляр — из оборота",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/loans/{id}/cancel": {
+      "post": {
+        "operationId": "LibraryLoansController_cancel",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelLoanDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Отменить ошибочную выдачу с причиной",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/me/loans": {
+      "get": {
+        "operationId": "LibraryLoansController_mine",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Мои книги: на руках и история",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/loans/{id}/dispute": {
+      "post": {
+        "operationId": "LibraryLoansController_dispute",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "404": {
+            "description": "Не своя выдача"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "«Это не я»: читатель отмечает выдачу как ошибочную",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/loans/{id}/reader": {
+      "get": {
+        "operationId": "LibraryIdAccessController_readerCard",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "403": {
+            "description": "Выдача закрыта — карточка недоступна"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Удостоверение читателя по открытой выдаче (просмотр — в журнал)",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/id-access": {
+      "get": {
+        "operationId": "LibraryIdAccessController_journal",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Журнал просмотров удостоверений читателей",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/books/{id}/reservations": {
+      "post": {
+        "operationId": "LibraryReservationsController_reserve",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "409": {
+            "description": "details.field: status | overdue — читателю нельзя; reservationLimit | alreadyReserved | alreadyBorrowed | noCopies; module"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Забронировать книгу: свободный экземпляр — сразу, иначе в очередь",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/me/reservations": {
+      "get": {
+        "operationId": "LibraryReservationsController_mine",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Мои брони: готовые, в очереди, недавняя история",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/me/reservations/{id}/cancel": {
+      "post": {
+        "operationId": "LibraryReservationsController_cancelMine",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "409": {
+            "description": "details.field = closed — бронь уже закрыта"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Отменить свою бронь",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/reservations": {
+      "get": {
+        "operationId": "LibraryReservationsController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Брони вуза: полка броней, очередь, закрытые",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/reservations/{id}/cancel": {
+      "post": {
+        "operationId": "LibraryReservationsController_cancel",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "409": {
+            "description": "details.field = closed — бронь уже закрыта"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Снять бронь читателя",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/readers/{id}/debts": {
+      "get": {
+        "operationId": "LibraryDebtsController_readerDebts",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "403": {
+            "description": "Студент вне области: чужой факультет или вуз"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Книги на руках у студента — при смене статуса и для библиотекаря",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/me/clearance": {
+      "get": {
+        "operationId": "LibraryDebtsController_clearance",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Справка: задолженностей в библиотеке нет (или что вернуть)",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/reports/summary": {
+      "get": {
+        "operationId": "LibraryReportsController_summary",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Сводка: фонд, выдачи, должники, брони",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/reports/popular": {
+      "get": {
+        "operationId": "LibraryReportsController_popular",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Самые выдаваемые книги за 30, 90 или 365 дней",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/inventory/scan": {
+      "post": {
+        "operationId": "LibraryReportsController_scan",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InventoryScanDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Инвентаризация: экземпляр на месте",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/inventory": {
+      "get": {
+        "operationId": "LibraryReportsController_inventory",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Ход инвентаризации с даты: отмечено и не найдено",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/student-id/me": {
+      "get": {
+        "operationId": "StudentIdController_me",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Мой цифровой студенческий (карта + QR)",
+        "tags": [
+          "Студенческий билет"
+        ]
+      }
+    },
+    "/student-id/verify": {
+      "get": {
+        "operationId": "StudentIdController_verify",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Карта студента с отметкой проверки"
+          },
+          "409": {
+            "description": "CONFLICT — этот код уже проверил другой сотрудник: студенту обновить карту"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Проверить студенческий по QR (сотрудник)",
+        "tags": [
+          "Студенческий билет"
+        ]
+      }
+    },
     "/schedules": {
       "post": {
         "operationId": "SchedulesController_create",
@@ -7070,49 +8169,6 @@
         "summary": "Удалить запись портфолио",
         "tags": [
           "Портфолио"
-        ]
-      }
-    },
-    "/student-id/me": {
-      "get": {
-        "operationId": "StudentIdController_me",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Мой цифровой студенческий (карта + QR)",
-        "tags": [
-          "Студенческий билет"
-        ]
-      }
-    },
-    "/student-id/verify": {
-      "get": {
-        "operationId": "StudentIdController_verify",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": "Карта студента с отметкой проверки"
-          },
-          "409": {
-            "description": "CONFLICT — этот код уже проверил другой сотрудник: студенту обновить карту"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Проверить студенческий по QR (сотрудник)",
-        "tags": [
-          "Студенческий билет"
         ]
       }
     },
@@ -16376,6 +17432,58 @@
         "properties": {}
       },
       "CameraAgentSyncDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "UpdateLibrarySettingsDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "CreateBookDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "UpdateBookDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "AddBookCopiesDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "BookCopyLabelsDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "UpdateBookCopyDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "LibraryImportCommitDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "ResolveReaderDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "IssueLoanDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "ReturnLoanDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "RenewLoanDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "CancelLoanDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "InventoryScanDto": {
         "type": "object",
         "properties": {}
       },

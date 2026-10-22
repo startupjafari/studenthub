@@ -50,8 +50,9 @@ const ALLOWED_AUDIENCES: Record<Role, PostAudience[]> = {
   // вуз, а компания в них участвует.
   [Role.EMPLOYER]: [],
   [Role.STUDENT]: [PostAudience.GROUP],
-  // Охрана событий не создаёт.
+  // Охрана и библиотекарь событий не создают.
   [Role.SECURITY_GUARD]: [],
+  [Role.LIBRARIAN]: [],
 }
 
 // Окно напоминаний за час (docs/BACKEND_RULES.md §9.3): (now, now+70м] — всё, что ещё не

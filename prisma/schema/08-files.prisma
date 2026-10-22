@@ -60,6 +60,7 @@ model File {
   album         Album?        @relation("AlbumFiles", fields: [albumId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   // Альбомы, для которых этот файл — обложка (обычно один).
   albumsCovered Album[]       @relation("AlbumCover")
+  bookCovers    Book[]        @relation("BookCover")
   document      Document?     @relation(fields: [documentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   // Cascade, а не SetNull, как у материалов: файлы сдач лежат в бакете applications, который
   // cleanDetachedFiles не обходит, — отвязанная строка жила бы вечно. Удалили сдачу — уходит

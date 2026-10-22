@@ -344,6 +344,7 @@ const ru = {
   personRolePlatformAdmin: 'Администратор платформы',
   personRolePlatformModerator: 'Модератор платформы',
   personRoleSecurityGuard: 'Охрана',
+  personRoleLibrarian: 'Библиотекарь',
 
   // ── Предупреждение и срок блокировки ───────────────────────────────────
   complaintWarnUser: 'Предупредить',
@@ -794,6 +795,7 @@ const kk: Record<MessageKey, string> = {
   personRolePlatformAdmin: 'Платформа әкімшісі',
   personRolePlatformModerator: 'Платформа модераторы',
   personRoleSecurityGuard: 'Күзет',
+  personRoleLibrarian: 'Кітапханашы',
 
   // ── Ескерту және бұғаттау мерзімі ──────────────────────────────────────
   complaintWarnUser: 'Ескерту жасау',
@@ -1242,6 +1244,7 @@ const en: Record<MessageKey, string> = {
   personRolePlatformAdmin: 'Platform admin',
   personRolePlatformModerator: 'Platform moderator',
   personRoleSecurityGuard: 'Security',
+  personRoleLibrarian: 'Librarian',
 
   // ── Warning and block term ─────────────────────────────────────────────
   complaintWarnUser: 'Warn',

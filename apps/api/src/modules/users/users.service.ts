@@ -2488,12 +2488,14 @@ export class UserService {
   }
 
   // Дефолт видимости профиля по роли: сотрудники/руководство — открыты (PUBLIC),
-  // студенты/старосты/модераторы — в пределах вуза (UNIVERSITY), охрана — закрыт (PRIVATE):
-  // её профиль на платформе никому не нужен, а кто дежурит на вахте — сведения вуза.
+  // студенты/старосты/модераторы — в пределах вуза (UNIVERSITY), охрана и библиотекарь —
+  // закрыт (PRIVATE): их профиль на платформе никому не нужен, а кто дежурит на вахте или
+  // выдаёт книги — сведения вуза.
   // Владелец меняет в настройках.
   private defaultVisibilityFor(role: Role): string {
     switch (role) {
       case Role.SECURITY_GUARD:
+      case Role.LIBRARIAN:
         return 'PRIVATE'
       case Role.PLATFORM_ADMIN:
       case Role.UNIVERSITY_ADMIN:

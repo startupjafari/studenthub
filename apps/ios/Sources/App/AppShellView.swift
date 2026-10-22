@@ -89,6 +89,8 @@ struct AppShellView: View {
             ServiceCatalogView()
         case .section(.documents):
             DocumentsView()
+        case .section(.library):
+            LibraryCatalogView()
         case .section(let section):
             PlaceholderScreen(title: section.title)
         case .chat(let id):
@@ -111,6 +113,12 @@ struct AppShellView: View {
             }
         case .assignment(let id):
             AssignmentDetailView(assignmentID: id)
+        case .myBooks:
+            MyBooksView()
+        case .book(let id):
+            LibraryBookView(bookID: id)
+        case .bookCopy(let code):
+            LibraryCopyView(code: code)
         }
     }
 }

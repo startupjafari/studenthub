@@ -26,6 +26,8 @@ enum MoreSection: String, CaseIterable, Identifiable, Hashable {
     case materials
     case notifications
     case serviceCatalog
+    /// Библиотека вуза: студент и староста. Пункт за модулем — см. `modules(for:)`.
+    case library
 
     var id: String { rawValue }
 
@@ -42,6 +44,18 @@ enum MoreSection: String, CaseIterable, Identifiable, Hashable {
             return common + [.subjects, .groups]
         default:
             // Роли вне MVP приложение не ведёт — им остаётся веб.
+            return []
+        }
+    }
+
+    /// Разделы за модулем вуза: роль даёт право, а пункт в списке появляется, только
+    /// когда вуз модуль включил. Диплинк в такой раздел роль пропускает — выключенный
+    /// модуль экран объяснит сам, а не браузер.
+    static func modules(for role: Role) -> [MoreSection] {
+        switch role {
+        case .student, .starosta:
+            return [.library]
+        default:
             return []
         }
     }
@@ -78,6 +92,8 @@ enum MoreSection: String, CaseIterable, Identifiable, Hashable {
             return String(localized: "home.notifications", defaultValue: "Уведомления")
         case .serviceCatalog:
             return String(localized: "applications.catalog", defaultValue: "Каталог услуг")
+        case .library:
+            return String(localized: "library.title", defaultValue: "Библиотека")
         }
     }
 
@@ -98,6 +114,7 @@ enum MoreSection: String, CaseIterable, Identifiable, Hashable {
         case .materials: return "folder"
         case .notifications: return "bell"
         case .serviceCatalog: return "square.grid.2x2"
+        case .library: return "books.vertical"
         }
     }
 }

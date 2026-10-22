@@ -152,6 +152,28 @@ const RU = {
   // Компании: новый отклик (свёрнутое — одна строка на вакансию).
   'career.newApplication.title': 'Новый отклик',
   'career.newApplication.body': 'Вакансия «{title}»',
+
+  // Библиотека (Фаза 20). Дата — «ДД.ММ.ГГГГ» по часам вуза.
+  'library.loanIssued.title': 'Вы взяли книгу',
+  'library.loanIssued.body': '«{title}», инв. {number}. Вернуть до {date}',
+  'library.loanReturned.title': 'Книга возвращена',
+  'library.loanRenewed.title': 'Срок продлён',
+  'library.loanRenewed.body': '«{title}» — вернуть до {date}',
+  'library.loanCancelled.title': 'Выдача отменена',
+  'library.loanDisputed.title': 'Читатель оспорил выдачу',
+  'library.loanDisputed.body': '{name}: «{title}», инв. {number}',
+  'library.dueSoon.title': 'Скоро вернуть книгу',
+  'library.dueSoon.body': '«{title}» — вернуть до {date}',
+  'library.dueToday.title': 'Сегодня вернуть книгу',
+  'library.dueToday.body': '«{title}» — сегодня последний день',
+  'library.overdue.title': 'Книга просрочена',
+  'library.overdue.body':
+    '«{title}» нужно было вернуть {date}. Пока книга не вернётся, новые выдачи и брони закрыты',
+  'library.book.body': '«{title}»',
+  'library.reservationReady.title': 'Бронь готова',
+  'library.reservationReady.body': '«{title}» ждёт вас до {date}',
+  'library.reservationExpired.title': 'Бронь истекла',
+  'library.reservationCancelled.title': 'Бронь отменена',
 } as const
 
 /** Ключ словарной статьи. Тип выводится из русского каталога — он и есть эталон состава. */
@@ -265,6 +287,27 @@ const KK: Record<NotificationMessageKey, string> = {
   'career.vacancyReason.body': '«{title}» — {university}: {reason}',
   'career.newApplication.title': 'Жаңа өтініш',
   'career.newApplication.body': '«{title}» вакансиясы',
+
+  'library.loanIssued.title': 'Сіз кітап алдыңыз',
+  'library.loanIssued.body': '«{title}», түг. {number}. {date} дейін қайтару',
+  'library.loanReturned.title': 'Кітап қайтарылды',
+  'library.loanRenewed.title': 'Мерзім ұзартылды',
+  'library.loanRenewed.body': '«{title}» — {date} дейін қайтару',
+  'library.loanCancelled.title': 'Беру жойылды',
+  'library.loanDisputed.title': 'Оқырман беруге наразылық білдірді',
+  'library.loanDisputed.body': '{name}: «{title}», түг. {number}',
+  'library.dueSoon.title': 'Кітапты жақында қайтару керек',
+  'library.dueSoon.body': '«{title}» — {date} дейін қайтару',
+  'library.dueToday.title': 'Кітапты бүгін қайтару керек',
+  'library.dueToday.body': '«{title}» — бүгін соңғы күн',
+  'library.overdue.title': 'Кітаптың мерзімі өтті',
+  'library.overdue.body':
+    '«{title}» кітабын {date} қайтару керек еді. Кітап қайтарылмайынша жаңа беру мен бронь жабық',
+  'library.book.body': '«{title}»',
+  'library.reservationReady.title': 'Бронь дайын',
+  'library.reservationReady.body': '«{title}» сізді {date} дейін күтеді',
+  'library.reservationExpired.title': 'Броньның мерзімі өтті',
+  'library.reservationCancelled.title': 'Бронь жойылды',
 }
 
 const EN: Record<NotificationMessageKey, string> = {
@@ -375,6 +418,27 @@ const EN: Record<NotificationMessageKey, string> = {
   'career.vacancyReason.body': '“{title}” — {university}: {reason}',
   'career.newApplication.title': 'New application',
   'career.newApplication.body': 'Vacancy “{title}”',
+
+  'library.loanIssued.title': 'You borrowed a book',
+  'library.loanIssued.body': '“{title}”, inv. {number}. Return by {date}',
+  'library.loanReturned.title': 'Book returned',
+  'library.loanRenewed.title': 'Loan renewed',
+  'library.loanRenewed.body': '“{title}” — return by {date}',
+  'library.loanCancelled.title': 'Loan cancelled',
+  'library.loanDisputed.title': 'A reader disputed a loan',
+  'library.loanDisputed.body': '{name}: “{title}”, inv. {number}',
+  'library.dueSoon.title': 'Book due soon',
+  'library.dueSoon.body': '“{title}” — return by {date}',
+  'library.dueToday.title': 'Book due today',
+  'library.dueToday.body': '“{title}” — today is the last day',
+  'library.overdue.title': 'Book overdue',
+  'library.overdue.body':
+    '“{title}” was due {date}. New loans and holds are closed until it is returned',
+  'library.book.body': '“{title}”',
+  'library.reservationReady.title': 'Hold is ready',
+  'library.reservationReady.body': '“{title}” is waiting for you until {date}',
+  'library.reservationExpired.title': 'Hold expired',
+  'library.reservationCancelled.title': 'Hold cancelled',
 }
 
 export const NOTIFICATION_MESSAGES: Record<Locale, Record<NotificationMessageKey, string>> = {

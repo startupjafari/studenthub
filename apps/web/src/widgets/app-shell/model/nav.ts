@@ -1,8 +1,11 @@
-import { Role } from '@studenthub/shared-types'
+import { Role, isRestrictedRole } from '@studenthub/shared-types'
 import {
   Award,
   BarChart3,
+  BookDown,
   BookOpen,
+  BookUp,
+  BookmarkCheck,
   BriefcaseBusiness,
   Building2,
   CalendarClock,
@@ -23,6 +26,7 @@ import {
   Inbox,
   IdCard,
   LayoutDashboard,
+  Library,
   LifeBuoy,
   ListChecks,
   MessagesSquare,
@@ -66,6 +70,7 @@ export type NavVariant =
   | 'university-moderator'
   | 'employer'
   | 'security'
+  | 'library'
 
 // Навигация студенческого дашборда (docs/PROJECT.md §12).
 // Профиль — плашка пользователя внизу сайдбара (см. AppSidebar), не пункт навигации.
@@ -85,6 +90,8 @@ export const STUDENT_NAV: NavItem[] = [
   { key: 'appointments', href: '/appointments', icon: CalendarClock, group: 'services' },
   { key: 'portfolio', href: '/portfolio', icon: BriefcaseBusiness, group: 'services' },
   { key: 'studentId', href: '/student-id', icon: IdCard, group: 'services' },
+  // Библиотека вуза (Фаза 20): пункт прячется, пока админ вуза не включил модуль (AppShell).
+  { key: 'books', href: '/books', icon: Library, group: 'services' },
   { key: 'applications', href: '/applications', icon: FileText, group: 'services' },
   { key: 'chats', href: '/chats', icon: MessagesSquare, group: 'communication' },
   { key: 'events', href: '/events', icon: CalendarClock, group: 'communication' },
@@ -137,6 +144,8 @@ export const UNIVERSITY_ADMIN_NAV: NavItem[] = [
   // Каталог услуг вуза: что студент может заказать и что для этого приложить (§3.2).
   { key: 'serviceCatalog', href: '/university-admin/services', icon: ClipboardList, group: 'services' }, // prettier-ignore
   { key: 'documentTypes', href: '/university-admin/document-types', icon: FileCog, group: 'services' }, // prettier-ignore
+  // Библиотека вуза (Фаза 20): выключатель, правила выдачи; фонд ведёт библиотекарь.
+  { key: 'library', href: '/university-admin/library', icon: Library, group: 'services' },
 
   // Коммуникации вуза.
   { key: 'posts', href: '/university-admin/posts', icon: Newspaper, group: 'communication' },
@@ -278,6 +287,19 @@ export const SECURITY_GUARD_NAV: NavItem[] = [
   { key: 'securityRooms', href: '/security/rooms', icon: DoorClosed },
 ]
 
+// Библиотекарь вуза (docs/PROJECT.md §2, Фаза 20). Каталог, выдачи и брони добавят задачи
+// 20.3–20.8; сканер для входа на компьютере — в шапке, как у всех.
+export const LIBRARIAN_NAV: NavItem[] = [
+  { key: 'libraryHome', href: '/library', icon: Library, exact: true },
+  { key: 'libraryIssue', href: '/library/issue', icon: BookUp },
+  { key: 'libraryReturn', href: '/library/return', icon: BookDown },
+  { key: 'libraryLoans', href: '/library/loans', icon: ListChecks },
+  { key: 'libraryReservations', href: '/library/reservations', icon: BookmarkCheck },
+  { key: 'libraryCatalog', href: '/library/catalog', icon: BookOpen },
+  { key: 'libraryInventory', href: '/library/inventory', icon: ClipboardCheck },
+  { key: 'libraryReports', href: '/library/reports', icon: BarChart3 },
+]
+
 // Навигация определяется РОЛЬЮ пользователя, а не route-группой: общие страницы
 // (например /profile) должны сохранять сайдбар текущей роли. AppShell берёт вариант отсюда.
 export const ROLE_TO_VARIANT: Record<Role, NavVariant> = {
@@ -291,6 +313,7 @@ export const ROLE_TO_VARIANT: Record<Role, NavVariant> = {
   [Role.STUDENT]: 'student',
   [Role.EMPLOYER]: 'employer',
   [Role.SECURITY_GUARD]: 'security',
+  [Role.LIBRARIAN]: 'library',
 }
 
 // Документы — общий пункт для всех ролей: защищённое хранилище (Ф15, отдельный раздел /documents).
@@ -334,8 +357,9 @@ export const NAV_BY_VARIANT: Record<NavVariant, NavItem[]> = {
   // Без withCommon: общий раздел «Документы» — хранилище участника вуза, работодателя
   // оно не касается.
   employer: EMPLOYER_NAV,
-  // Без withCommon: хранилище документов участника вуза охране не нужно.
+  // Без withCommon: хранилище документов участника вуза охране и библиотекарю не нужно.
   security: SECURITY_GUARD_NAV,
+  library: LIBRARIAN_NAV,
 }
 
 // ── StudentHub Карьера ──────────────────────────────────────────────────────
@@ -392,8 +416,10 @@ const CAREER_NAV_BY_ROLE: Record<Role, NavItem[]> = {
   // Работодатель в /career не заходит — его продукт целиком в зоне /employer.
   // Значение задано, чтобы карта была исчерпывающей и не пришлось падать на undefined.
   [Role.EMPLOYER]: EMPLOYER_NAV,
-  // У охраны карьерного продукта нет: переключатель под логотипом ей не показывается.
+  // У охраны и библиотекаря карьерного продукта нет: переключатель под логотипом им не
+  // показывается.
   [Role.SECURITY_GUARD]: [],
+  [Role.LIBRARIAN]: [],
 }
 
 /** Навигация карьерного продукта для роли. */
@@ -419,16 +445,16 @@ export function hasCareerProduct(role: Role | undefined): boolean {
 }
 
 /**
- * Куда ведёт плашка пользователя. Обычно — свой профиль, но у охраны профиля на
- * платформе нет (посты, портфолио и друзья ей закрыты): её плашка ведёт в настройки.
+ * Куда ведёт плашка пользователя. Обычно — свой профиль, но у охраны и библиотекаря
+ * профиля на платформе нет (посты, портфолио и друзья им закрыты): плашка ведёт в настройки.
  */
 export function ownProfileHref(role: Role | undefined): string {
-  return role === Role.SECURITY_GUARD ? '/settings' : '/profile'
+  return isRestrictedRole(role) ? '/settings' : '/profile'
 }
 
 /** Есть ли у роли чаты — без них бейдж непрочитанного не запрашивается. */
 export function hasChats(role: Role | undefined): boolean {
-  return role !== Role.SECURITY_GUARD
+  return !isRestrictedRole(role)
 }
 
 /** Путь относится к карьерному продукту. */

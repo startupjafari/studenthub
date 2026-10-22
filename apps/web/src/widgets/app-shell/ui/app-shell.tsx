@@ -31,6 +31,7 @@ import {
 } from '../model/nav'
 import { fetchMe, userKeys } from '../../../entities/user'
 import { usePlatformState, isNavKeyDisabled } from '../../../entities/platform'
+import { fetchLibrarySettings, libraryKeys } from '../../../entities/library'
 import { fetchUnreadCount, notificationKeys } from '../../../entities/notification'
 import { useRealtimeEvent } from '../../../shared/realtime'
 import { useChatsUnread } from '../../../entities/chat'
@@ -515,13 +516,25 @@ export function AppShell({
   // Карьера — отдельный продукт: под /career сайдбар показывает её разделы, а не разделы
   // платформы. Обратно — через переключатель под логотипом.
   const { disabledSections } = usePlatformState()
+  // Библиотека у читателя — только когда вуз её включил: пункт, ведущий на «библиотека
+  // выключена», хуже отсутствующего. Настройки спрашиваем лишь у студента и старосты.
+  const reader = effectiveVariant === 'student' || effectiveVariant === 'starosta'
+  const library = useQuery({
+    queryKey: libraryKeys.settings(),
+    queryFn: fetchLibrarySettings,
+    enabled: reader && Boolean(me.data),
+    staleTime: 5 * 60_000,
+  })
+  const libraryOn = library.data?.enabled === true
   // Погашенный раздел уходит из навигации целиком. Это не защита — сервер всё равно
   // решает сам, — а обещание: пункт, ведущий на заглушку, хуже отсутствующего пункта.
   const nav = (
     isCareerPath(pathname)
       ? careerNavFor(me.data?.role)
       : (NAV_BY_VARIANT[effectiveVariant] ?? STUDENT_NAV)
-  ).filter((item) => !isNavKeyDisabled(item.key, disabledSections))
+  )
+    .filter((item) => !isNavKeyDisabled(item.key, disabledSections))
+    .filter((item) => item.key !== 'books' || libraryOn)
   const chatsMode = pathname.endsWith('/chats')
   const [listSlot, setListSlot] = useState<HTMLElement | null>(null)
 

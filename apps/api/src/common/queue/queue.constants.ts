@@ -83,6 +83,11 @@ export const NOTIFICATION_JOBS = {
   // Участникам события: организатор перенёс или отменил событие.
   EVENT_RESCHEDULED: 'event-rescheduled',
   EVENT_CANCELLED: 'event-cancelled',
+  // Библиотека (Фаза 20): читателю — выдача, возврат, продление, напоминания о сроке;
+  // библиотекарям вуза — «это не я» по выдаче; брони — готова, истекла, отменена.
+  LIBRARY_LOAN: 'library-loan',
+  LIBRARY_REMINDER: 'library-reminder',
+  LIBRARY_RESERVATION: 'library-reservation',
 } as const
 
 export const FILE_JOBS = {

@@ -224,14 +224,24 @@ model User {
 
   // Scope-связи с академической структурой (Фаза 5). onDelete: Restrict — вуз/факультет/группу
   // нельзя удалить, пока в них есть пользователи (дублируется сервис-гвардами).
-  university            University?         @relation(fields: [universityId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  faculty               Faculty?            @relation(fields: [facultyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  group                 Group?              @relation("GroupMembers", fields: [groupId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  groupAsStarosta       Group?              @relation("GroupStarosta")
+  university             University?          @relation(fields: [universityId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  faculty                Faculty?             @relation(fields: [facultyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  group                  Group?               @relation("GroupMembers", fields: [groupId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  groupAsStarosta        Group?               @relation("GroupStarosta")
   // Камеры (docs/PROJECT.md §3.10): кто завёл агента и кто последним переключал модуль.
-  cameraAgentsCreated   CameraAgent[]       @relation("CameraAgentCreatedBy")
-  cameraSettingsUpdated CameraSettings[]    @relation("CameraSettingsUpdatedBy")
-  cameraViews           CameraViewSession[] @relation("CameraViewSessions")
+  cameraAgentsCreated    CameraAgent[]        @relation("CameraAgentCreatedBy")
+  cameraSettingsUpdated  CameraSettings[]     @relation("CameraSettingsUpdatedBy")
+  cameraViews            CameraViewSession[]  @relation("CameraViewSessions")
+  // Библиотека (Фаза 20): свои выдачи и брони читателя, действия библиотекаря, журнал.
+  librarySettingsUpdated LibrarySettings[]    @relation("LibrarySettingsUpdatedBy")
+  booksCreated           Book[]               @relation("BookCreatedBy")
+  loansAsReader          Loan[]               @relation("LoanReader")
+  loansIssued            Loan[]               @relation("LoanIssuedBy")
+  loansReceived          Loan[]               @relation("LoanReturnedTo")
+  loansCancelled         Loan[]               @relation("LoanCancelledBy")
+  reservations           Reservation[]        @relation("ReservationReader")
+  libraryIdAccessDone    LibraryIdAccessLog[] @relation("LibraryIdAccessLibrarian")
+  libraryIdAccessOfMe    LibraryIdAccessLog[] @relation("LibraryIdAccessReader")
 
   @@index([role])
   @@index([universityId])

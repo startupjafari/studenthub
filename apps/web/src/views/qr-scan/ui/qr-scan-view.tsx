@@ -3,6 +3,8 @@
 import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
 import { useTranslations } from 'next-intl'
+import { Role } from '@studenthub/shared-types'
+import { useAppSelector } from '../../../shared/store'
 import { Skeleton } from '../../../shared/ui'
 import { parseQrTarget } from '../../../features/qr-scan'
 
@@ -22,6 +24,7 @@ const QrScanner = dynamic(() => import('../../../features/qr-scan').then((m) => 
  */
 export function QrScanView() {
   const t = useTranslations('QrScan')
+  const role = useAppSelector((s) => s.auth.role)
   const router = useRouter()
 
   return (
@@ -33,6 +36,11 @@ export function QrScanView() {
         onScan={(raw) => {
           const target = parseQrTarget(raw)
           if (!target) return false
+          // Библиотекарю студенческий нужен для выдачи книг, а не для проверки на входе.
+          if (role === Role.LIBRARIAN && target.kind === 'studentId') {
+            router.push(`/library/issue?t=${encodeURIComponent(target.value)}`)
+            return true
+          }
           router.push(target.href)
           return true
         }}

@@ -15,7 +15,7 @@
  * сервер, а вход по QR сначала показывает, чьё устройство его просит.
  */
 export type QrTargetKind =
-  'login' | 'studentId' | 'checkin' | 'room' | 'document' | 'resume' | 'chatInvite'
+  'login' | 'studentId' | 'checkin' | 'room' | 'bookCopy' | 'document' | 'resume' | 'chatInvite'
 
 export interface QrTarget {
   kind: QrTargetKind
@@ -66,6 +66,10 @@ export function parseQrTarget(raw: string): QrTarget | null {
   }
   if (head === 'r' && segments.length === 2 && ROOM_CODE.test(second!)) {
     return { kind: 'room', href: `/r/${second}`, value: second! }
+  }
+  // Наклейка экземпляра книги (Фаза 20.3): тот же алфавит кодов, что у помещений.
+  if (head === 'c' && segments.length === 2 && ROOM_CODE.test(second!)) {
+    return { kind: 'bookCopy', href: `/c/${second}`, value: second! }
   }
   if (head === 'verify' && segments.length === 2 && SLUG.test(second!)) {
     return { kind: 'document', href: `/verify/${second}`, value: second! }

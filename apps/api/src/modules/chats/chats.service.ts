@@ -407,8 +407,10 @@ const AUTO_CHATS_BY_ROLE: Record<Role, readonly AutoChat[]> = {
   [Role.PLATFORM_MODERATOR]: ['SAVED'],
   // Работодатель — единственная роль вне вуза совсем (Ф18).
   [Role.EMPLOYER]: ['SAVED'],
-  // Охране чаты не положены вовсе (docs/PROJECT.md §2): ни «Сохранённых», ни поддержки.
+  // Охране и библиотекарю чаты не положены вовсе (docs/PROJECT.md §2): ни «Сохранённых»,
+  // ни поддержки.
   [Role.SECURITY_GUARD]: [],
+  [Role.LIBRARIAN]: [],
 }
 
 // Антифлуд отправки: не больше FLOOD_MAX сообщений за окно (см. assertNotFlooding).

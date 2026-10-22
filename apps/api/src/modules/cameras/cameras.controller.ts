@@ -12,11 +12,11 @@ import {
   Req,
 } from '@nestjs/common'
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger'
-import { Role } from '@studenthub/shared-types'
 import type { FastifyRequest } from 'fastify'
+import { Role } from '@studenthub/shared-types'
 import { Roles } from '../../common/decorators/roles.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
-import { SecurityAllowed } from '../../common/decorators/security-allowed.decorator'
+import { RestrictedAllowed } from '../../common/decorators/restricted-allowed.decorator'
 import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
 import { CamerasService } from './cameras.service'
@@ -38,7 +38,7 @@ export class CamerasController {
 
   @Get()
   @Roles(Role.UNIVERSITY_ADMIN, Role.SECURITY_GUARD)
-  @SecurityAllowed()
+  @RestrictedAllowed(Role.SECURITY_GUARD)
   @ApiOperation({
     summary: 'Камеры своего вуза: охране — включённые и без адресов, админу — все с подробностями',
   })
@@ -51,7 +51,7 @@ export class CamerasController {
 
   @Get('settings')
   @Roles(Role.UNIVERSITY_ADMIN, Role.SECURITY_GUARD)
-  @SecurityAllowed()
+  @RestrictedAllowed(Role.SECURITY_GUARD)
   @ApiOperation({ summary: 'Включён ли модуль камер вуза' })
   settings(@CurrentUser() user: CurrentUserData) {
     return this.cameras.settings(user)
@@ -72,7 +72,7 @@ export class CamerasController {
 
   @Post('views/:sessionId/heartbeat')
   @Roles(Role.UNIVERSITY_ADMIN, Role.SECURITY_GUARD)
-  @SecurityAllowed()
+  @RestrictedAllowed(Role.SECURITY_GUARD)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Продлить просмотр: свежий токен ретранслятора, раз в ~30 с' })
   @ApiResponse({ status: 404, description: 'NOT_FOUND — сессии нет, она чужая или закрыта' })
@@ -86,7 +86,7 @@ export class CamerasController {
 
   @Post('views/:sessionId/end')
   @Roles(Role.UNIVERSITY_ADMIN, Role.SECURITY_GUARD)
-  @SecurityAllowed()
+  @RestrictedAllowed(Role.SECURITY_GUARD)
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Закончить просмотр' })
   async endView(
@@ -98,7 +98,7 @@ export class CamerasController {
 
   @Post(':id/views')
   @Roles(Role.UNIVERSITY_ADMIN, Role.SECURITY_GUARD)
-  @SecurityAllowed()
+  @RestrictedAllowed(Role.SECURITY_GUARD)
   @ApiOperation({
     summary: 'Начать просмотр камеры: адрес LL-HLS и токен ретранслятора на 2 минуты',
   })

@@ -83,6 +83,7 @@ const DETACHED_WHERE = {
   submissionId: null,
   stories: { none: {} },
   albumsCovered: { none: {} },
+  bookCovers: { none: {} },
 } satisfies Prisma.FileWhereInput
 
 const ATTACHMENT_SELECT = {
@@ -92,7 +93,7 @@ const ATTACHMENT_SELECT = {
   albumId: true,
   documentId: true,
   submissionId: true,
-  _count: { select: { stories: true, albumsCovered: true } },
+  _count: { select: { stories: true, albumsCovered: true, bookCovers: true } },
 } satisfies Prisma.FileSelect
 
 /** Есть ли у файла сущность-владелец — та же проверка, что в DETACHED_WHERE, но по строке. */
@@ -105,7 +106,8 @@ function isAttached(file: Prisma.FileGetPayload<{ select: typeof ATTACHMENT_SELE
     file.documentId !== null ||
     file.submissionId !== null ||
     file._count.stories > 0 ||
-    file._count.albumsCovered > 0
+    file._count.albumsCovered > 0 ||
+    file._count.bookCovers > 0
   )
 }
 
