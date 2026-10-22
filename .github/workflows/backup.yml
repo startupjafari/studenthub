@@ -56,7 +56,7 @@ jobs:
 
     services:
       # Одноразовая база для проверки восстановлением. Версия та же, что в проде
-      # (docker-compose.prod.yml): дамп, снятый 17-м, в 16-й не восстановится.
+      # (docker/prod/compose.yml): дамп, снятый 17-м, в 16-й не восстановится.
       drill:
         image: postgres:17-alpine
         env:

@@ -1526,12 +1526,12 @@ POSTGRES_PORT=5432  REDIS_PORT=6379
 ```bash
 pnpm install
 
-cp docker/.env.example docker/.env
+cp docker/dev/.env.example docker/dev/.env
 cp apps/api/.env.example apps/api/.env
 cp apps/web/.env.example apps/web/.env.local
 # заполнить секреты
 
-docker compose -f docker/docker-compose.yml up -d postgres redis minio
+docker compose -f docker/dev/compose.yml up -d postgres redis minio
 # дождаться healthy (~10 с)
 
 pnpm --filter api prisma migrate deploy

@@ -1,9 +1,9 @@
 # StudentHub — production-стек (docs/IMPLEMENTATION_PLAN.md 13.9).
-# Запуск: docker compose -f docker/docker-compose.prod.yml --env-file docker/.env up -d --build
+# Запуск: docker compose -f docker/prod/compose.yml up -d --build
 # Все сервисы restart: always; данные — в named volumes; TLS терминирует nginx.
 # Миграции применяются ОТДЕЛЬНО до старта api (см. docs/RUNBOOK.md), не автоматически.
 #
-# Переменные окружения (домены, секреты, адреса сервисов) — docker/.env.example.
+# Переменные окружения (домены, секреты, адреса сервисов) — docker/prod/.env.example.
 # Первый запуск и выпуск сертификата — docs/RUNBOOK.md, «Прод-стек: первый запуск».
 
 name: studenthub-prod
@@ -90,7 +90,7 @@ services:
 
   api:
     build:
-      context: ..
+      context: ../..
       dockerfile: apps/api/Dockerfile
     restart: always
     logging: *logging
@@ -118,7 +118,7 @@ services:
   # ffmpeg не делит CPU с HTTP-запросами. Порт не слушает, поэтому healthcheck нет.
   worker:
     build:
-      context: ..
+      context: ../..
       dockerfile: apps/api/Dockerfile
     command: ['node', 'dist/worker.js']
     restart: always
@@ -133,11 +133,11 @@ services:
 
   web:
     build:
-      context: ..
+      context: ../..
       dockerfile: apps/web/Dockerfile
       args:
         # API_PROXY_TARGET намеренно не передаётся: запросы /api/* проксирует nginx, а не сам
-        # web (см. docker/nginx/templates/default.conf.template). NEXT_PUBLIC_API_URL поэтому
+        # web (см. docker/prod/nginx/templates/default.conf.template). NEXT_PUBLIC_API_URL поэтому
         # должен быть путём на том же домене — `https://app.<домен>/api/v1`.
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
     restart: always
@@ -163,7 +163,7 @@ services:
   # пересборки образа, а не рестарта контейнера.
   landing:
     build:
-      context: ..
+      context: ../..
       dockerfile: apps/landing/Dockerfile
       args:
         NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL}
@@ -190,7 +190,7 @@ services:
   # он не найдёт. Запрос идёт через тот же nginx, что и остальной трафик.
   mini-app:
     build:
-      context: ..
+      context: ../..
       dockerfile: apps/mini-app/Dockerfile
     restart: always
     logging: *logging

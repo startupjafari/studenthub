@@ -5,7 +5,7 @@
 # так у Hikvision по умолчанию, и наш агент обязан её проходить. Остальные протоколы
 # MediaMTX выключены — у настоящей камеры есть только RTSP.
 #
-# Пароль зрителя задаётся из docker-compose переменной MTX_AUTHINTERNALUSERS_1_PASS:
+# Пароль зрителя задаётся из compose.yml переменной MTX_AUTHINTERNALUSERS_1_PASS:
 # MediaMTX подставляет переменные MTX_* поверх этого файла.
 
 logLevel: info

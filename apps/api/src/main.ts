@@ -57,7 +57,7 @@ async function bootstrap(): Promise<void> {
       const value = Array.isArray(header) ? header[0] : header
       return value && REQUEST_ID_RE.test(value) ? value : randomUUID()
     },
-    // §14.5 — в проде API стоит за прокси (nginx из docker/nginx/nginx.conf либо edge
+    // §14.5 — в проде API стоит за прокси (nginx из docker/prod/nginx/nginx.conf либо edge
     // Railway), который проставляет X-Forwarded-For/X-Real-IP. Без trustProxy req.ip у
     // всех клиентов = внутренний адрес прокси, из-за чего IP-throttling логина
     // (auth.controller.ts) становится общим на всю платформу (DoS на аутентификацию),

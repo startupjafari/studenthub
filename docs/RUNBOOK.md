@@ -1,7 +1,8 @@
 # StudentHub — Runbook (эксплуатация)
 
-Что делать при инцидентах и рутинных операциях. Прод-архитектура — `docker/docker-compose.prod.yml`
-+ nginx (TLS, WS-upgrade). Приложение: API (`:3001`, префикс `/api/v1`) + Web (`:3000`).
+Что делать при инцидентах и рутинных операциях. Прод живёт на Railway (`docs/RAILWAY.md`);
+самостоятельный хостинг — `docker/prod/compose.yml` + nginx (TLS, WS-upgrade), карта стеков —
+`docker/README.md`. Приложение: API (`:3001`, префикс `/api/v1`) + Web (`:3000`).
 
 ## Быстрая диагностика
 
@@ -43,9 +44,9 @@ pnpm --filter web build && apps/web/node_modules/.bin/next start apps/web -p 300
 
 ## Прод-стек: первый запуск и сертификаты
 
-Самостоятельный хостинг — `docker/docker-compose.prod.yml`. Домены, секреты и адреса сервисов
-лежат в `docker/.env`, образец со списком обязательных — `docker/.env.example`. Четыре имени
-ведут A-записями на машину со стеком: корневой домен — лендинг, `app.*` — платформа, `files.*` —
+Самостоятельный хостинг — `docker/prod/compose.yml`. Домены, секреты и адреса сервисов
+лежат в `docker/prod/.env`, образец со списком обязательных — `docker/prod/.env.example`.
+Четыре имени ведут A-записями на машину со стеком: корневой домен — лендинг, `app.*` — платформа, `files.*` —
 MinIO (по нему браузер кладёт и забирает файлы), `mini.*` — мини-апп Telegram.
 
 **1. Сертификат выпускается до первого старта nginx.** Без файлов сертификата nginx не
@@ -53,8 +54,8 @@ MinIO (по нему браузер кладёт и забирает файлы)
 идёт в режиме standalone, на свободном 80-м порту:
 
 ```bash
-cd docker && set -a && . ./.env && set +a
-docker compose -f docker-compose.prod.yml run --rm -p 80:80 --entrypoint certbot certbot \
+cd docker/prod && set -a && . ./.env && set +a
+docker compose run --rm -p 80:80 --entrypoint certbot certbot \
   certonly --standalone --agree-tos --non-interactive -m "$CERTBOT_EMAIL" \
   -d "$SH_DOMAIN" -d "www.$SH_DOMAIN" -d "$SH_APP_DOMAIN" -d "$SH_FILES_DOMAIN" -d "$SH_MINI_DOMAIN"
 ```
@@ -68,21 +69,21 @@ docker compose -f docker-compose.prod.yml run --rm -p 80:80 --entrypoint certbot
 на петлевом интерфейсе:
 
 ```bash
-docker compose -f docker-compose.prod.yml up -d postgres
+docker compose up -d postgres
 DATABASE_URL="postgresql://postgres:<пароль>@127.0.0.1:5432/studenthub" pnpm db:deploy
 ```
 
 **3. Запуск стека:**
 
 ```bash
-docker compose -f docker-compose.prod.yml --env-file .env up -d --build
+docker compose up -d --build
 ```
 
 nginx стартует последним — ждёт, пока api, web, лендинг и мини-апп начнут слушать свои порты.
 
 **Продление сертификата идёт само:** сервис `certbot` раз в 12 часов делает `renew` через общий
 с nginx каталог проверки, а nginx раз в 6 часов перечитывает конфигурацию и подхватывает новый
-файл. Посмотреть сроки: `docker compose -f docker-compose.prod.yml exec certbot certbot certificates`.
+файл. Посмотреть сроки: `docker compose exec certbot certbot certificates`.
 
 **Правка `NEXT_PUBLIC_*` требует пересборки** (`up -d --build`), а не рестарта: они инлайнятся
 в образы web и лендинга во время сборки.
@@ -205,7 +206,7 @@ media/<имя>`. Бакет `stories-media` не зеркалится и не в
 
 ## Ротация логов
 
-- API пишет `pino` (JSON) в stdout; ротация задана в `docker/docker-compose.prod.yml` —
+- API пишет `pino` (JSON) в stdout; ротация задана в `docker/prod/compose.yml` —
   json-file по 10 МБ, 5 файлов на сервис (или внешний коллектор вместо неё). Секреты (`authorization`, `password`, `token`)
   редактируются на уровне pino — в логах их нет.
 
