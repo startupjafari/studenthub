@@ -1,11 +1,6 @@
-// xlsx ставится ТАРБОЛЛОМ с cdn.sheetjs.com, а не из npm, и это не прихоть: в реестре
-// последняя опубликованная версия — 0.18.5 с прототипным загрязнением (CVE-2023-30533) и
-// ReDoS, а исправления живут только в вендорской раздаче (0.19.3+/0.20.2+). Здесь как раз
-// разбирается ЗАГРУЖЕННЫЙ пользователем файл, то есть ровно тот путь, по которому эти
-// уязвимости и срабатывают. Следствие: сборке (CI, Docker) нужен доступ к cdn.sheetjs.com.
-import * as XLSX from 'xlsx'
 import { BULK_INVITE_MAX_ROWS } from '@studenthub/shared-schemas'
 import { AppException } from '../../common/exceptions/app.exception'
+import { readTableFile } from '../../common/import/table-file'
 
 // Разбор загруженного файла массового приглашения в нормализованные строки.
 // Поддержка CSV (без внешних зависимостей) и XLSX/XLS (SheetJS). Колонки распознаём
@@ -61,78 +56,6 @@ function resolveColumns(headers: string[]): Record<BulkColumn, number> {
   return { email, group: find('group'), role: find('role'), faculty: find('faculty') }
 }
 
-// ── CSV: минимальный корректный парсер (кавычки, экранирование "", ,/; разделитель) ──
-function detectDelimiter(firstLine: string): string {
-  const commas = (firstLine.match(/,/g) ?? []).length
-  const semicolons = (firstLine.match(/;/g) ?? []).length
-  return semicolons > commas ? ';' : ','
-}
-
-function parseCsv(text: string): string[][] {
-  const stripped = text.replace(/^\uFEFF/, '') // BOM
-  const firstLineEnd = stripped.indexOf('\n')
-  const delimiter = detectDelimiter(
-    firstLineEnd === -1 ? stripped : stripped.slice(0, firstLineEnd),
-  )
-  const rows: string[][] = []
-  let field = ''
-  let row: string[] = []
-  let inQuotes = false
-  for (let i = 0; i < stripped.length; i++) {
-    const c = stripped[i]
-    if (inQuotes) {
-      if (c === '"') {
-        if (stripped[i + 1] === '"') {
-          field += '"'
-          i++
-        } else {
-          inQuotes = false
-        }
-      } else {
-        field += c
-      }
-    } else if (c === '"') {
-      inQuotes = true
-    } else if (c === delimiter) {
-      row.push(field)
-      field = ''
-    } else if (c === '\n') {
-      row.push(field)
-      rows.push(row)
-      row = []
-      field = ''
-      if (rows.length >= MAX_PARSED_ROWS) return rows
-    } else if (c !== '\r') {
-      field += c
-    }
-  }
-  if (field.length > 0 || row.length > 0) {
-    row.push(field)
-    rows.push(row)
-  }
-  return rows
-}
-
-// ── XLSX: первый лист → матрица строк ──
-function parseXlsx(buffer: Buffer): string[][] {
-  // sheetRows — строки дальше потолка парсер пропускает, не создавая ячеек; dense — лист
-  // массивом строк, а не объектом с ключом на каждую ячейку.
-  const wb = XLSX.read(buffer, { type: 'buffer', sheetRows: MAX_PARSED_ROWS, dense: true })
-  const sheetName = wb.SheetNames[0]
-  if (!sheetName) throw new AppException('BAD_REQUEST', 'В книге нет листов')
-  const sheet = wb.Sheets[sheetName]
-  if (!sheet?.['!ref']) throw new AppException('BAD_REQUEST', 'Первый лист книги пуст')
-  const range = XLSX.utils.decode_range(sheet['!ref'])
-  range.e.c = Math.min(range.e.c, range.s.c + MAX_PARSED_COLUMNS - 1)
-  // header:1 → массив массивов; defval гарантирует одинаковую длину строк.
-  return XLSX.utils.sheet_to_json<string[]>(sheet, {
-    header: 1,
-    defval: '',
-    blankrows: false,
-    range,
-  })
-}
-
 // Матрица (первая строка — заголовки) → нормализованные строки email/group/role/faculty.
 function toRows(matrix: string[][]): RawBulkRow[] {
   const nonEmpty = matrix.filter((r) => r.some((c) => String(c ?? '').trim() !== ''))
@@ -152,14 +75,9 @@ function toRows(matrix: string[][]): RawBulkRow[] {
   }))
 }
 
-// Точка входа: буфер + имя файла → строки. Формат по расширению, XLS(X) как бинарь.
+// Точка входа: буфер + имя файла → строки (чтение таблицы — common/import/table-file).
 export function parseBulkInviteFile(buffer: Buffer, filename: string): RawBulkRow[] {
-  const ext = filename.toLowerCase().split('.').pop() ?? ''
-  if (ext === 'csv' || ext === 'txt') {
-    return toRows(parseCsv(buffer.toString('utf8')))
-  }
-  if (ext === 'xlsx' || ext === 'xls') {
-    return toRows(parseXlsx(buffer))
-  }
-  throw new AppException('BAD_REQUEST', 'Поддерживаются только файлы .csv, .xlsx, .xls')
+  return toRows(
+    readTableFile(buffer, filename, { maxRows: MAX_PARSED_ROWS, maxColumns: MAX_PARSED_COLUMNS }),
+  )
 }
