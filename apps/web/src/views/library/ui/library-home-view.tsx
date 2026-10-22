@@ -1,13 +1,18 @@
+'use client'
+
 import Link from 'next/link'
-import { getTranslations } from 'next-intl/server'
-import { ChevronRight, Library, ScanQrCode } from 'lucide-react'
-import { Card, EmptyState, PageHeader } from '../../../shared/ui'
+import { useQuery } from '@tanstack/react-query'
+import { useTranslations } from 'next-intl'
+import { ChevronRight, Library, PowerOff, ScanQrCode } from 'lucide-react'
+import { Card, EmptyState, PageHeader, Skeleton } from '../../../shared/ui'
+import { fetchLibrarySettings, libraryKeys } from '../../../entities/library'
 
 // Главная библиотекаря (docs/PROJECT.md §2, Фаза 20). Каталог, выдача и возврат, брони и
-// должники появятся здесь задачами 20.3–20.8; пока у роли есть вход, свой аккаунт и сканер
-// для подтверждения входа на компьютере.
-export async function LibraryHomeView() {
-  const t = await getTranslations('Library')
+// должники появятся здесь задачами 20.3–20.8. Модуль выключен — говорим об этом прямо:
+// иначе пустой экран выглядел бы поломкой.
+export function LibraryHomeView() {
+  const t = useTranslations('Library')
+  const settings = useQuery({ queryKey: libraryKeys.settings(), queryFn: fetchLibrarySettings })
 
   return (
     <div className="flex w-full flex-col gap-6">
@@ -27,11 +32,21 @@ export async function LibraryHomeView() {
           <ChevronRight className="size-5 shrink-0 text-muted-foreground" aria-hidden />
         </Card>
       </Link>
-      <EmptyState
-        icon={<Library className="size-6" aria-hidden />}
-        title={t('soonTitle')}
-        description={t('soonDescription')}
-      />
+      {settings.isPending ? (
+        <Skeleton className="h-40 w-full rounded-xl" />
+      ) : settings.data?.enabled === false ? (
+        <EmptyState
+          icon={<PowerOff className="size-6" aria-hidden />}
+          title={t('disabledTitle')}
+          description={t('disabledDescription')}
+        />
+      ) : (
+        <EmptyState
+          icon={<Library className="size-6" aria-hidden />}
+          title={t('soonTitle')}
+          description={t('soonDescription')}
+        />
+      )}
     </div>
   )
 }

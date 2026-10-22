@@ -60,6 +60,7 @@
     "scan": "Scan QR",
     "securityPost": "Security post",
     "libraryHome": "Library",
+    "library": "Library",
     "securityRooms": "Rooms",
     "settings": "Settings",
     "consultations": "Consultations",
@@ -4005,7 +4006,41 @@
     "scanTitle": "QR scanner",
     "scanDescription": "Confirm sign-in on a computer",
     "soonTitle": "Coming soon",
-    "soonDescription": "The catalogue, book loans, holds and overdue readers will appear here in upcoming updates."
+    "soonDescription": "The catalogue, book loans, holds and overdue readers will appear here in upcoming updates.",
+    "disabledTitle": "The library is turned off",
+    "disabledDescription": "The university administrator turns it on in the Library section. While it is off, loans and holds are unavailable."
+  },
+  "LibraryAdmin": {
+    "title": "Library",
+    "subtitle": "Module switch and lending rules. The librarian manages the collection and loans.",
+    "enable": "Turn on the library",
+    "disable": "Turn off the library",
+    "enabledToast": "Library turned on",
+    "disabledToast": "Library turned off",
+    "savedToast": "Rules saved",
+    "disableConfirmTitle": "Turn off the library?",
+    "disableConfirmDesc": "Loans, returns and holds will stop. The catalogue, books on loan and history stay — turn it back on and everything is in place.",
+    "rulesTitle": "Lending rules",
+    "rulesSubtitle": "Apply to all readers of the university — students and group leaders.",
+    "save": "Save",
+    "defaultOverMax": "The default period cannot be longer than the maximum",
+    "ruleRange": "A number from {min} to {max}",
+    "rule": {
+      "defaultLoanDays": "Default loan period, days",
+      "maxLoanDays": "Maximum period, days",
+      "maxActiveLoans": "Books on loan at once",
+      "maxActiveReservations": "Active holds per reader",
+      "reservationHoldDays": "How long a ready hold is kept, days",
+      "maxRenewals": "Renewals per loan"
+    },
+    "ruleHint": {
+      "defaultLoanDays": "Filled in at checkout; the librarian can change it",
+      "maxLoanDays": "E.g. a textbook for a term — 120",
+      "maxActiveLoans": "No more loans until the reader returns a book",
+      "maxActiveReservations": "0 — holds are off",
+      "reservationHoldDays": "Then the hold passes to the next in the queue",
+      "maxRenewals": "The librarian renews; 0 — no renewals"
+    }
   },
   "Cameras": {
     "adminTitle": "Cameras",

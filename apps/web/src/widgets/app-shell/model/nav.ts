@@ -139,6 +139,8 @@ export const UNIVERSITY_ADMIN_NAV: NavItem[] = [
   // Каталог услуг вуза: что студент может заказать и что для этого приложить (§3.2).
   { key: 'serviceCatalog', href: '/university-admin/services', icon: ClipboardList, group: 'services' }, // prettier-ignore
   { key: 'documentTypes', href: '/university-admin/document-types', icon: FileCog, group: 'services' }, // prettier-ignore
+  // Библиотека вуза (Фаза 20): выключатель, правила выдачи; фонд ведёт библиотекарь.
+  { key: 'library', href: '/university-admin/library', icon: Library, group: 'services' },
 
   // Коммуникации вуза.
   { key: 'posts', href: '/university-admin/posts', icon: Newspaper, group: 'communication' },
