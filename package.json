@@ -31,7 +31,15 @@
     "db:seed:media": "SEED_ONLY=media node prisma/seed.mjs",
     "db:seed:kato": "SEED_ONLY=kato node prisma/seed.mjs",
     "db:reset:admin": "node prisma/reset-to-admin.mjs",
-    "test:seed": "node --test 'prisma/seed/**/*.test.mjs'"
+    "test:seed": "node --test 'prisma/seed/**/*.test.mjs'",
+    "infra:up": "docker compose -f docker/dev/compose.yml up -d --wait",
+    "infra:down": "docker compose -f docker/dev/compose.yml down",
+    "infra:ps": "docker compose -f docker/dev/compose.yml ps",
+    "infra:logs": "docker compose -f docker/dev/compose.yml logs -f --tail=100",
+    "cameras:up": "docker compose -f docker/camera-sim/compose.yml up -d",
+    "cameras:down": "docker compose -f docker/camera-sim/compose.yml --profile '*' down",
+    "relay:up": "docker compose -f docker/media-relay/compose.yml up -d --build",
+    "relay:down": "docker compose -f docker/media-relay/compose.yml down"
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx,mjs,cjs}": [

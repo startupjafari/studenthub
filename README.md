@@ -35,9 +35,9 @@
 # 1. Зависимости
 pnpm install
 
-# 2. Инфраструктура (postgres:16, redis:7, minio)
-docker compose -f docker/dev/compose.yml up -d postgres redis minio
-#    Дождитесь healthy: docker compose -f docker/dev/compose.yml ps
+# 2. Инфраструктура (postgres:16, redis:7, minio, mailpit) — подробнее в docker/README.md
+cp docker/dev/.env.example docker/dev/.env    # заполните пароли
+pnpm infra:up                                 # ждёт, пока все сервисы станут healthy
 
 # 3. Переменные окружения
 cp apps/api/.env.example apps/api/.env        # проверьте DATABASE_URL / REDIS / MINIO

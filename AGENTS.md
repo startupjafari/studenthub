@@ -28,7 +28,8 @@ pnpm dev                                    # api:3001 + web:3000
 pnpm lint                                   # весь монорепо
 pnpm build
 
-docker compose -f docker/dev/compose.yml up -d postgres redis minio
+pnpm infra:up                               # postgres, redis, minio, mailpit (docker/README.md)
+pnpm infra:down
 
 pnpm --filter api test                      # unit
 pnpm --filter api test:e2e
