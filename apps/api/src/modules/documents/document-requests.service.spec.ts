@@ -108,7 +108,13 @@ function setup() {
 // Документы студента, найденные проверкой владения в saveSubmission.
 // Тип — тот же, что у позиций forSave: сверка типа с позицией проходит.
 function owned(...ids: string[]) {
-  return ids.map((id) => ({ id, type: 'ID_CARD', status: 'UPLOADED', issuedByUniversity: false }))
+  return ids.map((id) => ({
+    id,
+    type: 'ID_CARD',
+    status: 'UPLOADED',
+    issuedByUniversity: false,
+    _count: { files: 1 },
+  }))
 }
 
 const OK_ITEM = { documentType: 'ID_CARD', title: 'Удостоверение', required: true }
@@ -1053,6 +1059,17 @@ describe('DocumentRequestsService — область сотрудника и с�
         create: expect.objectContaining({ requestItemId: 'it2', documentId: 'id-1' }),
       }),
     )
+  })
+
+  it('документ без файлов к запросу не приложить → BAD_REQUEST', async () => {
+    const { service, prisma } = setup()
+    prisma.documentRequest.findFirst.mockResolvedValue(forSave())
+    prisma.document.findMany.mockResolvedValue([{ ...owned('empty-1')[0], _count: { files: 0 } }])
+    const err = await service
+      .saveSubmission(student(), 'r1', { items: [{ requestItemId: 'it1', documentId: 'empty-1' }] })
+      .catch((e) => e)
+    expect(err.code).toBe('BAD_REQUEST')
+    expect(prisma.documentSubmission.upsert).not.toHaveBeenCalled()
   })
 
   it('отозванную вузом справку к запросу не приложить → BAD_REQUEST', async () => {

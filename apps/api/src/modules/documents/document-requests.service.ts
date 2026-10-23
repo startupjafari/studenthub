@@ -1162,7 +1162,13 @@ export class DocumentRequestsService {
     if (docIds.length > 0) {
       const owned = await this.prisma.document.findMany({
         where: { id: { in: docIds }, ownerId: actor.sub, deletedAt: null },
-        select: { id: true, type: true, status: true, issuedByUniversity: true },
+        select: {
+          id: true,
+          type: true,
+          status: true,
+          issuedByUniversity: true,
+          _count: { select: { files: true } },
+        },
         take: REQUEST_ITEMS_LIMIT,
       })
       if (owned.length !== new Set(docIds).size) {
@@ -1177,10 +1183,17 @@ export class DocumentRequestsService {
       // «только учебные» открывал проверяющему удостоверение личности (§15.2).
       // Сверяем только меняемые позиции: привязка, сохранённая до этого правила, не должна
       // блокировать студенту сохранение остального чек-листа.
-      const docType = new Map(owned.map((d) => [d.id, d.type]))
+      // Документ без единой страницы (черновик, файлы не загружены) проверяющему открыть
+      // нечего — в позицию он не встаёт.
+      const ownedById = new Map(owned.map((d) => [d.id, d]))
       for (const it of changes) {
-        if (it.documentId && docType.get(it.documentId) !== itemType.get(it.requestItemId)) {
+        if (!it.documentId) continue
+        const doc = ownedById.get(it.documentId)
+        if (doc?.type !== itemType.get(it.requestItemId)) {
           throw new AppException('BAD_REQUEST', 'Тип документа не совпадает с позицией запроса')
+        }
+        if (doc._count.files === 0) {
+          throw new AppException('BAD_REQUEST', 'В документе нет загруженных файлов')
         }
       }
     }

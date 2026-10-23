@@ -707,8 +707,8 @@ export class DocumentsService {
         }),
       ),
     )
-    // Черновик без файлов → «Загружен»; подтверждённый вузом или проверенный документ с
-    // новыми страницами — уже не тот, что проверяли (D-F30, 15.3).
+    // Черновик с первыми страницами → «Загружен»; подтверждённый вузом или проверенный
+    // документ с новыми страницами — уже не тот, что проверяли (D-F30, 15.3).
     await this.prisma.document.updateMany({
       where: { id, status: 'DRAFT' },
       data: { status: 'UPLOADED' },
@@ -1150,7 +1150,11 @@ export class DocumentsService {
         issuedAt: input.issuedAt ?? null,
         expiresAt: (await this.inclusiveUntil(input.expiresAt, actor.universityId)) ?? null,
         comment: input.comment || null,
-        status: input.status === 'DRAFT' ? 'DRAFT' : 'UPLOADED',
+        // Документ рождается без страниц (файлы прикрепляются отдельно), поэтому он черновик:
+        // «Загружен» ставит attachFiles с первыми страницами. Раньше пустой документ сразу
+        // был «Загружен», плитка «Нужно загрузить» не считала его никогда, а в запрос он
+        // уходил без единого файла.
+        status: 'DRAFT',
       },
       select: { id: true },
     })
