@@ -2818,6 +2818,51 @@ describe('ChatsService.banMember', () => {
   })
 })
 
+describe('ChatsService.removeMember', () => {
+  const owner = { ...user('owner'), universityId: 'uni1' }
+
+  function kickSetup() {
+    const ctx = setup()
+    ctx.prisma.chatMember.findUnique.mockResolvedValue({ isAdmin: true, bannedAt: null })
+    ctx.prisma.chat.findUnique.mockResolvedValue({
+      id: 'g1',
+      type: 'GROUP',
+      title: 'Проект',
+      avatarUrl: null,
+      createdById: 'owner',
+    })
+    ctx.prisma.user.findUnique.mockResolvedValue({ firstName: 'Ая', lastName: 'Ли' })
+    ctx.prisma.message.create.mockResolvedValue({ id: 'sys', createdAt: new Date() })
+    ctx.prisma.chatMember.findFirst.mockResolvedValue({ lastReadAt: new Date() })
+    return ctx
+  }
+
+  // BUG-176: исключение того, кого в группе нет, писало в ленту ложное «исключил X».
+  it('не участник → NOT_FOUND, без служебной строки и смены ссылки', async () => {
+    const { service, prisma } = kickSetup()
+    prisma.chatMember.deleteMany.mockResolvedValueOnce({ count: 0 })
+
+    const err = await service.removeMember(owner, 'g1', 'ghost').catch((e) => e)
+
+    expect(err.code).toBe('NOT_FOUND')
+    expect(prisma.message.create).not.toHaveBeenCalled()
+    expect(prisma.chat.update).not.toHaveBeenCalled()
+  })
+
+  it('участник исключается со служебной строкой', async () => {
+    const { service, prisma } = kickSetup()
+    prisma.chatMember.deleteMany.mockResolvedValueOnce({ count: 1 })
+
+    await service.removeMember(owner, 'g1', 'u2')
+
+    expect(prisma.message.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ systemType: 'member_removed' }),
+      }),
+    )
+  })
+})
+
 describe('ChatsService — запрос на переписку (§50)', () => {
   // Личный чат, ждущий решения u2. Тот же объект отдаёт и findUnique (проверки внутри
   // отправки), и findFirst (адресация accept/decline).

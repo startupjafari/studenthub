@@ -1865,7 +1865,10 @@ export class ChatsService implements OnModuleInit {
       where: { id: userId },
       select: { firstName: true, lastName: true },
     })
-    await this.prisma.chatMember.deleteMany({ where: { chatId, userId } })
+    const { count } = await this.prisma.chatMember.deleteMany({ where: { chatId, userId } })
+    // Не участник — исключать некого: без проверки в ленту уходило ложное «исключил X», а
+    // ссылка-приглашение сменялась зря.
+    if (count === 0) throw new AppException('NOT_FOUND', 'Участник не найден')
     // Исключённого выводим из комнаты и гасим ссылку-приглашение: старую он знает и иначе
     // вернулся бы по ней сразу же.
     this.realtime.leaveRoom(userId, `chat:${chatId}`)
