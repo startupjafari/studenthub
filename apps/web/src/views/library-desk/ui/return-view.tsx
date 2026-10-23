@@ -44,7 +44,7 @@ import { CopyPicker, copyRefInput, hasCopyRef, type CopyRef } from './copy-picke
 // Ошибочно принятую книгу здесь же можно вернуть за читателем — «Отменить возврат» у строки.
 
 // «Принято сейчас»: книга · инв. номер · читатель · срок · куда · действия.
-const COLS = ['auto', '7rem', '24%', '9rem', '10rem', '3.5rem'] as const
+const COLS = ['auto', '9rem', '24%', '9rem', '10rem', '3.5rem'] as const
 // На узком экране — книга и куда её нести: это и нужно у стойки сразу после приёма.
 const COLS_NARROW = ['auto', '0', '0', '0', '8.5rem', '3.5rem'] as const
 const HIDE = {

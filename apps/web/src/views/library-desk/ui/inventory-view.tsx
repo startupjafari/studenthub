@@ -56,7 +56,7 @@ const QrScanner = dynamic(() => import('../../../features/qr-scan').then((m) => 
 const PAGE_SIZES = [20, 50, 100] as const
 
 // «Не найдено»: инв. номер · книга · авторы · последняя отметка · статус.
-const COLS = ['7rem', '34%', '24%', 'calc(42% - 16rem)', '9rem'] as const
+const COLS = ['9rem', '34%', '24%', 'calc(42% - 18rem)', '9rem'] as const
 // На узком экране — номер, книга и статус: этого хватает, чтобы пойти искать на полке.
 const COLS_NARROW = ['5.5rem', 'calc(100% - 13rem)', '0', '0', '7.5rem'] as const
 const HIDE = { authors: 'hidden md:table-cell', lastSeen: 'hidden md:table-cell' } as const
