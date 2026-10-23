@@ -6,6 +6,7 @@ import { Role, isHigherRole } from '@studenthub/shared-types'
 import { DEFAULT_LOCALE, TTL } from '@studenthub/shared-config'
 import {
   BULK_INVITE_MAX_ROWS,
+  BulkInviteCommitRowSchema,
   type InviteListQueryInput,
   type InviteSortValue,
   type SortOrderValue,
@@ -337,7 +338,11 @@ export class InviteService {
         error,
       })
 
-      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return err('Некорректный email')
+      // Та же схема адреса, что у подтверждения: свой regex пропускал «ivan..petrov@uni.kz»
+      // и «иван@uni.kz», предпросмотр показывал «Готово», а подтверждение отклоняло весь файл.
+      if (!email || !BulkInviteCommitRowSchema.shape.email.safeParse(email).success) {
+        return err('Некорректный email')
+      }
       if (role === null) return err(`Неизвестная роль: ${raw.role}`)
 
       // Группа — у тех, кто в ней учится; факультет — у декана (обязательно) и, по желанию,

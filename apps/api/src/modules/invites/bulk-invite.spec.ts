@@ -165,6 +165,17 @@ describe('InviteService.bulkPreview', () => {
     expect(res.rows[0]).toMatchObject({ status: 'ERROR' })
   })
 
+  // Предпросмотр проверяет адрес той же схемой, что подтверждение: иначе строка «Готово»
+  // в предпросмотре валила всю пачку на POST /invites/bulk.
+  it('адрес, который не примет подтверждение, → ERROR уже в предпросмотре', async () => {
+    const { service } = setup()
+    const res = await service.bulkPreview(dean, [
+      { line: 2, email: 'ivan..petrov@uni.kz', group: 'BT-101', role: '', faculty: '' },
+      { line: 3, email: 'иван@uni.kz', group: 'BT-101', role: '', faculty: '' },
+    ])
+    expect(res.rows.map((r) => r.status)).toEqual(['ERROR', 'ERROR'])
+  })
+
   it('уже приглашённый email → DUPLICATE', async () => {
     const { service, invite } = setup()
     invite.findMany.mockResolvedValue([{ email: 'dupe@x.kz' }])
