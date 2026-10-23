@@ -26,7 +26,7 @@ import {
   Textarea,
 } from '../../../shared/ui'
 import { toApiError } from '../../../shared/lib'
-import { courseKeys, fetchCourses } from '../../../entities/course'
+import { CourseSelect, courseKeys, fetchAllCourses } from '../../../entities/course'
 import {
   assignmentKeys,
   createAssignmentRequest,
@@ -51,8 +51,8 @@ export function CreateAssignmentModal({ onClose, assignment }: Props) {
   const qc = useQueryClient()
   const editing = !!assignment
   const courses = useQuery({
-    queryKey: courseKeys.list({ mine: true }),
-    queryFn: () => fetchCourses({ mine: true }),
+    queryKey: courseKeys.listAll({ mine: true }),
+    queryFn: () => fetchAllCourses({ mine: true }),
     retry: false,
     enabled: !editing,
   })
@@ -167,19 +167,15 @@ export function CreateAssignmentModal({ onClose, assignment }: Props) {
           </div>
         ) : (
           <div className="flex flex-col gap-1.5">
-            <Label>{t('course')}</Label>
-            <Select value={courseId} onValueChange={setCourseId}>
-              <SelectTrigger aria-invalid={!!show('course')}>
-                <SelectValue placeholder={t('selectCourse')} />
-              </SelectTrigger>
-              <SelectContent>
-                {(courses.data ?? []).map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.subject.name} · {c.group.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Label htmlFor="a-course">{t('course')}</Label>
+            <CourseSelect
+              id="a-course"
+              courses={courses.data ?? []}
+              value={courseId}
+              onChange={setCourseId}
+              loading={courses.isFetching}
+              placeholder={t('selectCourse')}
+            />
           </div>
         )}
 

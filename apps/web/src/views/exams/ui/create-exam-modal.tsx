@@ -19,7 +19,7 @@ import {
   SelectValue,
 } from '../../../shared/ui'
 import { toApiError } from '../../../shared/lib'
-import { courseKeys, fetchCourses } from '../../../entities/course'
+import { CourseSelect, courseKeys, fetchAllCourses } from '../../../entities/course'
 import { examKeys, createExamRequest } from '../../../entities/exam'
 import { EXAM_FORMAT_KEY } from '../lib/visuals'
 
@@ -35,8 +35,8 @@ export function CreateExamModal({ mine, onClose }: Props) {
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
   const courses = useQuery({
-    queryKey: courseKeys.list({ mine }),
-    queryFn: () => fetchCourses({ mine }),
+    queryKey: courseKeys.listAll({ mine }),
+    queryFn: () => fetchAllCourses({ mine }),
     retry: false,
   })
 
@@ -93,19 +93,15 @@ export function CreateExamModal({ mine, onClose }: Props) {
     <Modal onClose={onClose} title={t('newExam')}>
       <div className="flex flex-col gap-4">
         <div className="flex flex-col gap-1.5">
-          <Label>{t('course')}</Label>
-          <Select value={courseId} onValueChange={setCourseId}>
-            <SelectTrigger aria-invalid={!!show('course')}>
-              <SelectValue placeholder={t('selectCourse')} />
-            </SelectTrigger>
-            <SelectContent>
-              {(courses.data ?? []).map((c) => (
-                <SelectItem key={c.id} value={c.id}>
-                  {c.subject.name} · {c.group.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <Label htmlFor="exam-course">{t('course')}</Label>
+          <CourseSelect
+            id="exam-course"
+            courses={courses.data ?? []}
+            value={courseId}
+            onChange={setCourseId}
+            loading={courses.isFetching}
+            placeholder={t('selectCourse')}
+          />
           <FieldError>{show('course')}</FieldError>
         </div>
         <div className="grid grid-cols-2 gap-3">
