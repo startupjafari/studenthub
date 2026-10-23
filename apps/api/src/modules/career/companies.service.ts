@@ -263,7 +263,8 @@ export class CompaniesService {
    * До подтверждения адреса аккаунт, созданный публичной регистрацией, пользовался общими
    * ручками платформы (загрузкой файлов и т.п.) под непроверенной почтой. Теперь вход ждёт
    * перехода по ссылке. Заблокированную платформой компанию вход пускает: владелец должен
-   * увидеть причину блокировки в кабинете, а действия компании закрывает assertCompanyActive.
+   * увидеть причину блокировки в кабинете. Действия компании закрывает
+   * CareerAccessService.assertCompanyActive, доступ к студентам — условие ACTIVE_COMPANY_WHERE.
    */
   async loginDenial(companyId: string): Promise<AppException | null> {
     const company = await this.prisma.company.findFirst({
@@ -309,7 +310,7 @@ export class CompaniesService {
   async requestAccess(viewer: JwtPayload, input: RequestCompanyAccessInput, ctx: RequestContext) {
     const companyId = this.access.requireCompany(viewer)
     await this.assertOwner(viewer, companyId)
-    await this.assertCompanyActive(companyId)
+    await this.access.assertCompanyActive(companyId)
 
     const university = await this.prisma.university.findFirst({
       where: { id: input.universityId, status: 'ACTIVE' },
@@ -784,20 +785,6 @@ export class CompaniesService {
     }
     if (member.role !== 'OWNER') {
       throw new AppException('FORBIDDEN', 'Действие доступно владельцу компании')
-    }
-  }
-
-  private async assertCompanyActive(companyId: string): Promise<void> {
-    const company = await this.prisma.company.findFirst({
-      where: { id: companyId, deletedAt: null },
-      select: { status: true, blockedReason: true },
-    })
-    if (!company) throw new AppException('NOT_FOUND', 'Компания не найдена')
-    if (company.status === 'PENDING_EMAIL') {
-      throw new AppException('FORBIDDEN', 'Сначала подтвердите email компании')
-    }
-    if (company.status === 'BLOCKED') {
-      throw new AppException('FORBIDDEN', company.blockedReason ?? 'Компания заблокирована')
     }
   }
 

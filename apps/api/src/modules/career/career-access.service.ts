@@ -26,6 +26,16 @@ export function activeAccessWhere(
 }
 
 /**
+ * Компания работает на платформе: почта подтверждена, платформа её не заблокировала.
+ * BLOCKED перекрывает любые выданные допуски (26-career.prisma) — поэтому условие стоит
+ * рядом с каждой проверкой допуска, а не только у подачи заявки в вуз.
+ */
+export const ACTIVE_COMPANY_WHERE = {
+  status: 'ACTIVE',
+  deletedAt: null,
+} as const satisfies Prisma.CompanyWhereInput
+
+/**
  * Вакансия видна студентам вуза: опубликована, одобрена ЭТИМ вузом, и компания допущена в
  * него прямо сейчас. Одно условие на витрину, карточку и отклик.
  *
@@ -41,7 +51,10 @@ export function vacancyVisibleWhere(
     deletedAt: null,
     status: 'PUBLISHED',
     reviews: { some: { universityId, status: 'APPROVED' } },
-    company: { universityAccess: { some: activeAccessWhere(universityId, now) } },
+    company: {
+      ...ACTIVE_COMPANY_WHERE,
+      universityAccess: { some: activeAccessWhere(universityId, now) },
+    },
   }
 }
 
@@ -104,7 +117,8 @@ export class CareerAccessService {
   /** Одобренные допуски компании из БД — с записью в кэш. */
   private async loadGrants(companyId: string): Promise<CachedGrant[]> {
     const rows = await this.prisma.companyUniversityAccess.findMany({
-      where: { companyId, status: 'APPROVED' },
+      // Заблокированная компания не видит ни одного вуза, какие бы допуски у неё ни были.
+      where: { companyId, status: 'APPROVED', company: ACTIVE_COMPANY_WHERE },
       select: { universityId: true, status: true, expiresAt: true },
       // Компания не может быть допущена в тысячи вузов; take страхует от промаха в фильтре
       // (BACKEND_RULES §5.3 — findMany без take запрещён).
@@ -133,13 +147,16 @@ export class CareerAccessService {
    * (REQUESTED/REJECTED), — момент новой заявки: допуска к тому времени уже не было.
    *
    * Без кэша: воронку открывают редко, а нужны все строки допуска, не только активные.
+   *
+   * Заблокированная платформой компания не видит откликов вовсе: блокировка перекрывает
+   * допуски, в том числе прошлые.
    */
   async applicationScopeWhere(
     companyId: string,
     now: Date = new Date(),
   ): Promise<Prisma.CareerApplicationWhereInput> {
     const rows = await this.prisma.companyUniversityAccess.findMany({
-      where: { companyId },
+      where: { companyId, company: ACTIVE_COMPANY_WHERE },
       select: {
         universityId: true,
         status: true,
@@ -189,6 +206,25 @@ export class CareerAccessService {
     const companyId = this.requireCompany(viewer)
     if (!(await this.canAccessUniversity(companyId, universityId))) {
       throw new AppException('WRONG_SCOPE', 'Компания не допущена к студентам этого университета')
+    }
+  }
+
+  /**
+   * Компания может действовать: почта подтверждена и платформа её не заблокировала.
+   * Вход заблокированную компанию пускает (владелец должен увидеть причину), поэтому
+   * каждое действие компании проверяет статус сам.
+   */
+  async assertCompanyActive(companyId: string): Promise<void> {
+    const company = await this.prisma.company.findFirst({
+      where: { id: companyId, deletedAt: null },
+      select: { status: true, blockedReason: true },
+    })
+    if (!company) throw new AppException('NOT_FOUND', 'Компания не найдена')
+    if (company.status === 'PENDING_EMAIL') {
+      throw new AppException('FORBIDDEN', 'Сначала подтвердите email компании')
+    }
+    if (company.status === 'BLOCKED') {
+      throw new AppException('FORBIDDEN', company.blockedReason ?? 'Компания заблокирована')
     }
   }
 

@@ -11,6 +11,7 @@ import { AppException } from '../../common/exceptions/app.exception'
 function setup(rows: Array<{ universityId: string; status: string; expiresAt: Date | null }> = []) {
   const prisma = {
     companyUniversityAccess: { findMany: jest.fn().mockResolvedValue(rows) },
+    company: { findFirst: jest.fn().mockResolvedValue({ status: 'ACTIVE', blockedReason: null }) },
   }
   // Кэш выключен: get всегда мимо, чтобы тест проверял решение по данным, а не по Redis.
   const redis = {
@@ -63,6 +64,14 @@ describe('CareerAccessService — какие вузы видит компани�
     await expect(service.canAccessUniversity('co-1', 'uni-2')).resolves.toBe(false)
   })
 
+  it('заблокированная компания не видит ни одного вуза — BLOCKED перекрывает допуски', async () => {
+    const { service, prisma } = setup()
+    await service.allowedUniversityIds('co-1')
+    expect(prisma.companyUniversityAccess.findMany.mock.calls[0][0].where).toMatchObject({
+      company: { status: 'ACTIVE', deletedAt: null },
+    })
+  })
+
   it('выборка ограничена take — findMany без предела запрещён (§5.3)', async () => {
     const { service, prisma } = setup()
     await service.allowedUniversityIds('co-1')
@@ -96,6 +105,23 @@ describe('CareerAccessService — барьер запроса', () => {
     }
     await expect(service.assertCanAccessUniversity(admin, 'uni-1')).resolves.toBeUndefined()
     expect(prisma.companyUniversityAccess.findMany).not.toHaveBeenCalled()
+  })
+
+  it('действовать может только активная компания: почта подтверждена, блокировки нет', async () => {
+    const { service, prisma } = setup()
+    await expect(service.assertCompanyActive('co-1')).resolves.toBeUndefined()
+
+    prisma.company.findFirst.mockResolvedValue({ status: 'PENDING_EMAIL', blockedReason: null })
+    await expect(service.assertCompanyActive('co-1')).rejects.toMatchObject({ code: 'FORBIDDEN' })
+
+    prisma.company.findFirst.mockResolvedValue({ status: 'BLOCKED', blockedReason: 'спам' })
+    await expect(service.assertCompanyActive('co-1')).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      message: 'спам',
+    })
+
+    prisma.company.findFirst.mockResolvedValue(null)
+    await expect(service.assertCompanyActive('co-1')).rejects.toMatchObject({ code: 'NOT_FOUND' })
   })
 
   it('аккаунт работодателя без компании не пускается дальше', () => {
@@ -173,8 +199,12 @@ describe('CareerAccessService — граница воронки откликов
   it('компания без единого допуска откликов не видит вовсе', async () => {
     const { service, prisma } = withRows([])
     await expect(service.applicationScopeWhere('co-1', now)).resolves.toEqual({ id: { in: [] } })
+    // Заблокированная компания откликов не видит: условие на её статус — в той же выборке.
     expect(prisma.companyUniversityAccess.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { companyId: 'co-1' }, take: expect.any(Number) }),
+      expect.objectContaining({
+        where: { companyId: 'co-1', company: { status: 'ACTIVE', deletedAt: null } },
+        take: expect.any(Number),
+      }),
     )
   })
 })

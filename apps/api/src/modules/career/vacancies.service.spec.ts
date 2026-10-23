@@ -67,6 +67,7 @@ function setup(allowedUniversities: string[] = ['uni-1']) {
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const access = {
     requireCompany: jest.fn().mockReturnValue('co-1'),
+    assertCompanyActive: jest.fn().mockResolvedValue(undefined),
     allowedUniversityIds: jest.fn().mockResolvedValue(allowedUniversities),
   }
   // Уведомления компании о решениях вуза: сборка и доставка — в career-notifier.spec.ts.
@@ -79,6 +80,31 @@ function setup(allowedUniversities: string[] = ['uni-1']) {
   )
   return { service, prisma, tx, audit, access, notifier }
 }
+
+describe('VacanciesService — заблокированная компания', () => {
+  it('не создаёт, не правит и не публикует вакансии — блокировка перекрывает допуски', async () => {
+    const { service, prisma, tx, access } = setup(['uni-1'])
+    access.assertCompanyActive.mockRejectedValue(new AppException('FORBIDDEN', 'Заблокирована'))
+    const input = {
+      title: 'Стажёр',
+      description: 'x'.repeat(50),
+      employmentType: 'INTERNSHIP' as const,
+      workFormat: 'REMOTE' as const,
+      experienceLevel: 'NO_EXPERIENCE' as const,
+      skills: [],
+      languages: [],
+    }
+
+    await expect(service.create(employer, input, ctx)).rejects.toBeInstanceOf(AppException)
+    await expect(service.update(employer, 'v-1', { title: 'Новое' }, ctx)).rejects.toBeInstanceOf(
+      AppException,
+    )
+    await expect(service.publish(employer, 'v-1', ctx)).rejects.toBeInstanceOf(AppException)
+    expect(prisma.vacancy.create).not.toHaveBeenCalled()
+    expect(tx.vacancy.update).not.toHaveBeenCalled()
+    expect(tx.vacancy.updateMany).not.toHaveBeenCalled()
+  })
+})
 
 describe('VacanciesService — публикация', () => {
   it('создаёт по строке модерации на каждый допустивший вуз', async () => {

@@ -22,6 +22,7 @@ import { Paginated } from '../../common/http/paginated'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
 import {
+  ACTIVE_COMPANY_WHERE,
   activeAccessWhere,
   CareerAccessService,
   vacancyVisibleWhere,
@@ -114,6 +115,7 @@ export class VacanciesService {
 
   async create(viewer: JwtPayload, input: VacancyInput, ctx: RequestContext) {
     const companyId = this.access.requireCompany(viewer)
+    await this.access.assertCompanyActive(companyId)
     this.assertSalaryRange(input)
 
     const vacancy = await this.prisma.vacancy.create({
@@ -146,6 +148,7 @@ export class VacanciesService {
    */
   async update(viewer: JwtPayload, id: string, input: UpdateVacancyInput, ctx: RequestContext) {
     const companyId = this.access.requireCompany(viewer)
+    await this.access.assertCompanyActive(companyId)
     const existing = await this.prisma.vacancy.findFirst({
       where: { id, companyId, deletedAt: null },
       select: REVIEWED_SELECT,
@@ -196,6 +199,7 @@ export class VacanciesService {
    */
   async publish(viewer: JwtPayload, id: string, ctx: RequestContext) {
     const companyId = this.access.requireCompany(viewer)
+    await this.access.assertCompanyActive(companyId)
     const vacancy = await this.ownVacancy(companyId, id)
     const from = this.assertTransition(vacancy.status, 'PUBLISHED')
 
@@ -422,7 +426,10 @@ export class VacanciesService {
               vacancy: {
                 deletedAt: null,
                 status: 'PUBLISHED',
-                company: { universityAccess: { some: activeAccessWhere(universityId) } },
+                company: {
+                  ...ACTIVE_COMPANY_WHERE,
+                  universityAccess: { some: activeAccessWhere(universityId) },
+                },
               },
             }
           : {}),

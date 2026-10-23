@@ -55,6 +55,7 @@ function setup() {
   const queue = { enqueue: jest.fn().mockResolvedValue(undefined) }
   const access = {
     requireCompany: jest.fn().mockReturnValue('co-1'),
+    assertCompanyActive: jest.fn().mockResolvedValue(undefined),
     invalidate: jest.fn().mockResolvedValue(undefined),
   }
   const config = { get: jest.fn().mockReturnValue('https://app.studenthub.kz') }
@@ -255,20 +256,15 @@ describe('CompaniesService — заявка на допуск', () => {
     return s
   }
 
-  it('компания с неподтверждённым email заявку подать не может', async () => {
+  // Сами правила статуса (неподтверждённая почта, блокировка) — в career-access.service.spec.ts.
+  it('неактивная компания заявку подать не может', async () => {
     const s = ownerSetup()
-    s.prisma.company.findFirst.mockResolvedValue({ status: 'PENDING_EMAIL', blockedReason: null })
+    s.access.assertCompanyActive.mockRejectedValue(new AppException('FORBIDDEN', 'спам'))
     await expect(
       s.service.requestAccess(employer, { universityId: 'uni-1' }, ctx),
     ).rejects.toBeInstanceOf(AppException)
-  })
-
-  it('заблокированная платформой компания заявку подать не может', async () => {
-    const s = ownerSetup()
-    s.prisma.company.findFirst.mockResolvedValue({ status: 'BLOCKED', blockedReason: 'спам' })
-    await expect(
-      s.service.requestAccess(employer, { universityId: 'uni-1' }, ctx),
-    ).rejects.toBeInstanceOf(AppException)
+    expect(s.access.assertCompanyActive).toHaveBeenCalledWith('co-1')
+    expect(s.prisma.companyUniversityAccess.create).not.toHaveBeenCalled()
   })
 
   it('не владелец компании заявку подать не может', async () => {
