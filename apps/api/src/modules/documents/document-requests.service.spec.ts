@@ -906,3 +906,127 @@ describe('DocumentRequestsService — подтверждение сертифи�
     }
   })
 })
+
+describe('DocumentRequestsService — прогресс группы для старосты', () => {
+  function starosta(over: Partial<JwtPayload> = {}): JwtPayload {
+    return {
+      sub: 'st-1',
+      role: Role.STAROSTA,
+      universityId: 'uni-1',
+      facultyId: 'fac-1',
+      groupId: 'grp-1',
+      ...over,
+    }
+  }
+  const MEMBERS = [
+    { id: 'st-1', firstName: 'Староста', lastName: 'Алиев' },
+    { id: 'm2', firstName: 'Асем', lastName: 'Бекова' },
+    { id: 'm3', firstName: 'Ерлан', lastName: 'Жумабаев' },
+  ]
+
+  function ready() {
+    const ctx = setup()
+    ctx.prisma.group.findFirst.mockResolvedValue({ id: 'grp-1', facultyId: 'fac-1' })
+    ctx.prisma.user.findMany.mockResolvedValue(MEMBERS)
+    ctx.prisma.documentRequest.findMany.mockResolvedValue([
+      {
+        id: 'acad',
+        title: 'Учебные',
+        status: 'OPEN',
+        dueAt: null,
+        items: [{ documentType: 'TRANSCRIPT' }],
+      },
+      {
+        id: 'pers',
+        title: 'Личные',
+        status: 'OPEN',
+        dueAt: null,
+        items: [{ documentType: 'PASSPORT' }],
+      },
+    ])
+    ctx.prisma.documentSubmission.findMany.mockResolvedValue([
+      { requestId: 'acad', studentId: 'st-1', status: 'ACCEPTED' },
+      { requestId: 'acad', studentId: 'm2', status: 'REJECTED' },
+      { requestId: 'pers', studentId: 'm2', status: 'REJECTED' },
+      { requestId: 'pers', studentId: 'm3', status: 'SUBMITTED' },
+    ])
+    return ctx
+  }
+
+  it('не староста или без группы в токене → FORBIDDEN', async () => {
+    for (const actor of [student(), staff(), starosta({ groupId: null })]) {
+      const { service, prisma } = setup()
+      const err = await service.groupProgress(actor).catch((e) => e)
+      expect(err.code).toBe('FORBIDDEN')
+      expect(prisma.documentRequest.findMany).not.toHaveBeenCalled()
+    }
+  })
+
+  it('группа из токена ищется только в своём вузе; чужая → WRONG_SCOPE', async () => {
+    const { service, prisma } = setup()
+    prisma.group.findFirst.mockResolvedValue(null)
+    const err = await service.groupProgress(starosta()).catch((e) => e)
+    expect(prisma.group.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'grp-1', faculty: { universityId: 'uni-1' } } }),
+    )
+    expect(err.code).toBe('WRONG_SCOPE')
+  })
+
+  it('берёт запросы на группу, её факультет и вуз; одногруппников — только своей группы', async () => {
+    const { service, prisma } = ready()
+    await service.groupProgress(starosta())
+    expect(prisma.documentRequest.findMany.mock.calls[0][0].where).toEqual({
+      universityId: 'uni-1',
+      status: 'OPEN',
+      targets: {
+        some: {
+          OR: [
+            { targetType: 'UNIVERSITY' },
+            { targetType: 'FACULTY', targetId: 'fac-1' },
+            { targetType: 'GROUP', targetId: 'grp-1' },
+          ],
+        },
+      },
+    })
+    expect(prisma.user.findMany.mock.calls[0][0].where).toMatchObject({
+      groupId: 'grp-1',
+      universityId: 'uni-1',
+    })
+  })
+
+  it('учебный запрос — поимённо со статусом комплекта, личный — только счётчики', async () => {
+    const { service } = ready()
+    const [acad, pers] = await service.groupProgress(starosta())
+
+    expect(acad).toMatchObject({
+      kind: 'ACADEMIC',
+      counts: { total: 3, notSubmitted: 1, submitted: 0, needsFix: 1, accepted: 1 },
+      members: [
+        { id: 'st-1', name: 'Алиев Староста', status: 'ACCEPTED' },
+        { id: 'm2', name: 'Бекова Асем', status: 'NEEDS_FIX' },
+        { id: 'm3', name: 'Жумабаев Ерлан', status: 'NOT_STARTED' },
+      ],
+    })
+    // Отказ по личным документам не выделяется и не привязывается к человеку.
+    expect(pers).toMatchObject({
+      kind: 'PERSONAL',
+      counts: { total: 3, notSubmitted: 2, submitted: 1, needsFix: null, accepted: 0 },
+      members: null,
+    })
+  })
+
+  it('в ответе нет ничего о документах — только статус комплекта', async () => {
+    const { service, prisma } = ready()
+    const res = await service.groupProgress(starosta())
+    // Комплекты читаются без позиций и документов.
+    expect(prisma.documentSubmission.findMany.mock.calls[0][0].select).toEqual({
+      requestId: true,
+      studentId: true,
+      status: true,
+    })
+    const json = JSON.stringify(res)
+    for (const leak of ['TRANSCRIPT', 'PASSPORT', 'documentId', 'numberMasked', 'files']) {
+      expect(json).not.toContain(leak)
+    }
+  })
+})
