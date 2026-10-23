@@ -249,6 +249,11 @@ model User {
   reservations           Reservation[]        @relation("ReservationReader")
   libraryIdAccessDone    LibraryIdAccessLog[] @relation("LibraryIdAccessLibrarian")
   libraryIdAccessOfMe    LibraryIdAccessLog[] @relation("LibraryIdAccessReader")
+  // Журналы охраны: кто записал посетителя и отметил выход, чьи проходы.
+  visitorsRecorded       SecurityVisitor[]    @relation("SecurityVisitorCreatedBy")
+  visitorsExited         SecurityVisitor[]    @relation("SecurityVisitorExitedBy")
+  passesChecked          SecurityPass[]       @relation("SecurityPassGuard")
+  passesOfMe             SecurityPass[]       @relation("SecurityPassStudent")
 
   @@index([role])
   @@index([universityId])

@@ -5,10 +5,19 @@ import dynamic from 'next/dynamic'
 import { useSearchParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
-import { BadgeCheck, Clock, Info, Loader2, ScanLine, TriangleAlert } from 'lucide-react'
+import {
+  BadgeCheck,
+  Clock,
+  Info,
+  Loader2,
+  ScanLine,
+  ShieldCheck,
+  ShieldX,
+  TriangleAlert,
+} from 'lucide-react'
 import { Role } from '@studenthub/shared-types'
 import { Button, Card, CardContent, Skeleton } from '../../../shared/ui'
-import { toApiError } from '../../../shared/lib'
+import { cn, toApiError } from '../../../shared/lib'
 import { useAppSelector } from '../../../shared/store'
 import { studentIdKeys, verifyStudentId } from '../../../entities/student-id'
 import { parseQrTarget } from '../../../features/qr-scan'
@@ -100,6 +109,10 @@ export function VerifyIdView() {
     return (
       <CenterCard>
         <TriangleAlert className="size-10 text-destructive" aria-hidden />
+        {/* Охране отказ проверки — это отказ в проходе: так и пишем, крупно. */}
+        {role === Role.SECURITY_GUARD && (
+          <p className="text-xl font-bold text-destructive">{t('entryDenied')}</p>
+        )}
         <h1 className="text-lg font-semibold">{t('verifyFailed')}</h1>
         <p className="text-sm text-muted-foreground">
           {/* QR — разовый пропуск: код, уже проверенный другим сотрудником, отвечает 409. */}
@@ -124,6 +137,28 @@ export function VerifyIdView() {
 
   return (
     <div className="mx-auto flex w-full max-w-md flex-col gap-4">
+      {/* Охране — решение о проходе крупно: на входе смотрят на него, а не на поля карты.
+          Карта бывает настоящей, а пропускать по ней нельзя — отчислен, выпускник. */}
+      {q.data.entry && (
+        <div
+          className={cn(
+            'flex items-center justify-center gap-2 rounded-xl p-4 text-lg font-bold',
+            q.data.entry.allowed
+              ? 'bg-success/15 text-success'
+              : 'bg-destructive/15 text-destructive',
+          )}
+        >
+          {q.data.entry.allowed ? (
+            <ShieldCheck className="size-6" aria-hidden />
+          ) : (
+            <ShieldX className="size-6" aria-hidden />
+          )}
+          {q.data.entry.allowed ? t('entryAllowed') : t('entryDenied')}
+        </div>
+      )}
+      {q.data.entry && !q.data.entry.allowed && (
+        <p className="-mt-2 text-center text-sm text-destructive">{t('entryDeniedStatus')}</p>
+      )}
       {/* Явный визуальный статус «✓ Подтверждено StudentHub». */}
       <div className="flex items-center justify-center gap-2 rounded-xl bg-success/10 p-3 text-sm font-semibold text-success">
         <BadgeCheck className="size-5" aria-hidden />

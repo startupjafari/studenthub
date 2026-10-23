@@ -10,7 +10,7 @@ import { store } from '../shared/store'
 import { makeQueryClient } from '../shared/api'
 import { SessionInitializer } from '../shared/session'
 import { RealtimeProvider } from '../shared/realtime'
-import { ConfirmProvider, Toaster, TooltipProvider } from '../shared/ui'
+import { ConfirmProvider, OverflowHint, Toaster, TooltipProvider } from '../shared/ui'
 import { usePlatformState } from '../entities/platform'
 import { CommandPalette } from '../widgets/command-palette'
 // Ради побочного эффекта: модуль вешает слушатель `beforeinstallprompt` на уровне
@@ -66,6 +66,8 @@ export function AppProviders({ locale, messages, timeZone, children }: AppProvid
                     <WhatsNewDialog />
                     {/* Toaster внутри ThemeProvider — тосты следуют выбранной теме (useTheme). */}
                     <Toaster />
+                    {/* Полный текст с копированием у любого обрезанного многоточием текста. */}
+                    <OverflowHint />
                   </ConfirmProvider>
                 </TooltipProvider>
               </RealtimeProvider>

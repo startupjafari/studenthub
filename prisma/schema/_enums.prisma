@@ -268,3 +268,24 @@ enum ReservationStatus {
   CANCELLED
   EXPIRED
 }
+
+// Документ посетителя (журнал охраны): хранится только тип и четыре последние цифры.
+enum VisitorDocumentType {
+  ID_CARD
+  PASSPORT
+  DRIVER_LICENSE
+  OTHER
+}
+
+// Почему студента не пропустили на входе.
+enum PassDenyReason {
+  // Учебный статус «отчислен», «выпускник», «переведён».
+  STATUS
+  // Аккаунт заблокирован или удалён.
+  BLOCKED
+  OTHER_UNIVERSITY
+  INVALID_QR
+  EXPIRED_QR
+  // Код уже проверил другой сотрудник: скриншот чужого QR.
+  REUSED_QR
+}

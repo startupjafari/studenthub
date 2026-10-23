@@ -64,6 +64,7 @@ const MODELS = [
   'loan',
   'reservation',
   'libraryIdAccessLog',
+  'securityPass',
 ] as const
 
 function account(over: Record<string, unknown> = {}) {

@@ -45,6 +45,8 @@ model University {
   loans            Loan[]
   reservations     Reservation[]
   libraryIdAccess  LibraryIdAccessLog[]
+  securityVisitors SecurityVisitor[]
+  securityPasses   SecurityPass[]
 
   @@index([status])
   @@map("universities")

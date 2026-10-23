@@ -26,6 +26,8 @@ function makeService() {
     loan: model(),
     libraryIdAccessLog: model(),
     cameraViewSession: model(),
+    securityPass: model(),
+    securityVisitor: model(),
     grade: model(),
     examResult: model(),
     attendance: model(),
@@ -150,12 +152,19 @@ describe('PdRetentionService.purgeViewLogs', () => {
     const { service, prisma } = makeService()
     prisma.libraryIdAccessLog.count.mockResolvedValue(3)
     prisma.cameraViewSession.count.mockResolvedValue(4)
+    prisma.securityPass.count.mockResolvedValue(5)
+    prisma.securityVisitor.count.mockResolvedValue(6)
     const before = Date.now()
 
     await expect(service.purgeViewLogs(true)).resolves.toEqual({
       LibraryIdAccessLog: 3,
       CameraViewSession: 4,
+      SecurityPass: 5,
+      SecurityVisitor: 6,
     })
+    expectYearAgo(prisma.securityPass.count.mock.calls[0][0].where.createdAt.lt, before)
+    expectYearAgo(prisma.securityVisitor.count.mock.calls[0][0].where.enteredAt.lt, before)
+    expect(prisma.securityPass.deleteMany).not.toHaveBeenCalled()
     expectYearAgo(prisma.libraryIdAccessLog.count.mock.calls[0][0].where.createdAt.lt, before)
     expectYearAgo(prisma.cameraViewSession.count.mock.calls[0][0].where.startedAt.lt, before)
     expect(prisma.libraryIdAccessLog.deleteMany).not.toHaveBeenCalled()

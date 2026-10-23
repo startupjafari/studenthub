@@ -1,0 +1,59 @@
+// Журналы поста охраны (docs/PROJECT.md §3.12): посетители и проходы студентов.
+//
+// Оба журнала — персональные данные: срок хранения год после записи (docs/PERSONAL_DATA.md
+// §4, `purgeViewLogs`), ведёт охрана своего вуза, смотрит админ вуза. Имена — снимком, как в
+// журнале камер: запись остаётся читаемой и после удаления аккаунта.
+
+// Посетитель: гость, родитель, курьер, подрядчик. Состав полей — решение владельца
+// (октябрь 2026): документ — только тип и четыре последние цифры, полного номера и ИИН нет.
+model SecurityVisitor {
+  id            String               @id @default(uuid())
+  universityId  String               @map("university_id")
+  fullName      String               @map("full_name")
+  // К кому и зачем: «в деканат ФИТ, к Ахметову», «курьер».
+  purpose       String
+  documentType  VisitorDocumentType? @map("document_type")
+  documentLast4 String?              @map("document_last4")
+  phone         String?
+  enteredAt     DateTime             @default(now()) @map("entered_at")
+  exitedAt      DateTime?            @map("exited_at")
+  createdById   String?              @map("created_by_id")
+  createdByName String               @map("created_by_name")
+  exitedById    String?              @map("exited_by_id")
+
+  university University @relation(fields: [universityId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  createdBy  User?      @relation("SecurityVisitorCreatedBy", fields: [createdById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  exitedBy   User?      @relation("SecurityVisitorExitedBy", fields: [exitedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([universityId, enteredAt])
+  // «Кто сейчас в здании» — записи без выхода.
+  @@index([universityId, exitedAt])
+  @@index([createdById])
+  @@index([exitedById])
+  @@map("security_visitors")
+}
+
+// Проход студента: каждая проверка студенческого охраной на входе — пропущен или нет и
+// почему. Отказ по недействительному коду или чужому вузу пишется без студента: кто это,
+// неизвестно или знать не положено.
+model SecurityPass {
+  id           String          @id @default(uuid())
+  universityId String          @map("university_id")
+  guardId      String?         @map("guard_id")
+  guardName    String          @map("guard_name")
+  studentId    String?         @map("student_id")
+  studentName  String?         @map("student_name")
+  studentGroup String?         @map("student_group")
+  allowed      Boolean
+  denyReason   PassDenyReason? @map("deny_reason")
+  createdAt    DateTime        @default(now()) @map("created_at")
+
+  university University @relation(fields: [universityId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  guard      User?      @relation("SecurityPassGuard", fields: [guardId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  student    User?      @relation("SecurityPassStudent", fields: [studentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([universityId, createdAt])
+  @@index([guardId, createdAt])
+  @@index([studentId])
+  @@map("security_passes")
+}

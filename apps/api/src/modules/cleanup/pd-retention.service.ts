@@ -135,6 +135,9 @@ export class PdRetentionService {
     const cutoff = retentionCutoff()
     const idAccess: Prisma.LibraryIdAccessLogWhereInput = { createdAt: { lt: cutoff } }
     const camera: Prisma.CameraViewSessionWhereInput = { startedAt: { lt: cutoff } }
+    // Журналы поста охраны — год после записи (решение владельца, октябрь 2026).
+    const passes: Prisma.SecurityPassWhereInput = { createdAt: { lt: cutoff } }
+    const visitors: Prisma.SecurityVisitorWhereInput = { enteredAt: { lt: cutoff } }
     return this.run('purgeViewLogs', dryRun, [
       {
         label: 'LibraryIdAccessLog',
@@ -159,6 +162,30 @@ export class PdRetentionService {
           }),
         deleteByIds: async (ids) =>
           (await this.prisma.cameraViewSession.deleteMany({ where: { id: { in: ids } } })).count,
+      },
+      {
+        label: 'SecurityPass',
+        count: () => this.prisma.securityPass.count({ where: passes }),
+        findBatch: () =>
+          this.prisma.securityPass.findMany({
+            where: passes,
+            select: { id: true },
+            take: BATCH_SIZE,
+          }),
+        deleteByIds: async (ids) =>
+          (await this.prisma.securityPass.deleteMany({ where: { id: { in: ids } } })).count,
+      },
+      {
+        label: 'SecurityVisitor',
+        count: () => this.prisma.securityVisitor.count({ where: visitors }),
+        findBatch: () =>
+          this.prisma.securityVisitor.findMany({
+            where: visitors,
+            select: { id: true },
+            take: BATCH_SIZE,
+          }),
+        deleteByIds: async (ids) =>
+          (await this.prisma.securityVisitor.deleteMany({ where: { id: { in: ids } } })).count,
       },
     ])
   }

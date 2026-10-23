@@ -724,6 +724,7 @@ export class DataExportService {
       libraryLoans,
       libraryReservations,
       libraryIdViews,
+      securityPasses,
     ] = await Promise.all([
       this.prisma.complaint.findMany({
         where: { reporterId: userId },
@@ -851,6 +852,14 @@ export class DataExportService {
         orderBy: { createdAt: 'desc' },
         take,
       }),
+      // Свои проходы на посту охраны (§3.12): когда, пропущен ли и почему. Кто проверял —
+      // данные охранника, их нет, как нет библиотекаря в просмотрах удостоверения.
+      this.prisma.securityPass.findMany({
+        where: { studentId: userId },
+        select: { createdAt: true, allowed: true, denyReason: true },
+        orderBy: { createdAt: 'desc' },
+        take,
+      }),
     ])
     return {
       complaintsFiled: section(complaints, SECTION_LIMIT),
@@ -874,6 +883,7 @@ export class DataExportService {
         libraryIdViews.map((v) => ({ viewedAt: v.createdAt, book: v.loan?.bookTitle ?? null })),
         SECTION_LIMIT,
       ),
+      securityPasses: section(securityPasses, SECTION_LIMIT),
     }
   }
 
@@ -1197,4 +1207,10 @@ export const USER_RELATIONS: Readonly<Record<string, { section: string } | { exc
     'Loan.cancelledById': { excluded: STAFF_WORK },
     'Loan.lostSettledById': { excluded: STAFF_WORK },
     'LibraryIdAccessLog.librarianId': { excluded: STAFF_WORK },
+    // Пост охраны (§3.12): свои проходы — разделом; записи посетителей, отметки выхода и
+    // проверки студентов — работа охраны.
+    'SecurityPass.studentId': { section: 'securityPasses' },
+    'SecurityPass.guardId': { excluded: STAFF_WORK },
+    'SecurityVisitor.createdById': { excluded: STAFF_WORK },
+    'SecurityVisitor.exitedById': { excluded: STAFF_WORK },
   }
