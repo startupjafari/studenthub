@@ -34,12 +34,9 @@ const SECTIONS: { id: Section; icon: LucideIcon }[] = [
 ]
 
 // Кому студенты открывают документы из веба: деканату факультета (декан) и вузу
-// (администрация). Остальным раздел «Открытые мне» был бы всегда пуст.
-const SHARED_RECIPIENT_ROLES: ReadonlySet<Role> = new Set([
-  Role.DEAN,
-  Role.UNIVERSITY_ADMIN,
-  Role.UNIVERSITY_MODERATOR,
-])
+// (модератор вуза). Остальным раздел «Открытые мне» был бы всегда пуст. Админа вуза здесь
+// нет: содержимое чужих документов ему не открывается ни по какому гранту (§15.2).
+const SHARED_RECIPIENT_ROLES: ReadonlySet<Role> = new Set([Role.DEAN, Role.UNIVERSITY_MODERATOR])
 
 // Раздел «Документы» (Ф15): защищённое хранилище с под-навигацией (ТЗ §2).
 export function DocumentsView() {

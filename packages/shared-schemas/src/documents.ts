@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { SortOrderSchema } from './pagination.js'
+import { OptionalCursorPaginationSchema, SortOrderSchema } from './pagination.js'
 
 // Схемы модуля «Документы» (Ф15, задача 15.3). Значения enum зеркалят справочник в
 // @studenthub/shared-config (DOCUMENT_CATEGORIES/…); сам `type` валидируется как строка,
@@ -79,6 +79,11 @@ export const ReorderDocumentFilesSchema = z
   .strict()
 export type ReorderDocumentFilesInput = z.infer<typeof ReorderDocumentFilesSchema>
 
+// Замена одной страницы: новый (уже загруженный, ещё не прикреплённый) файл встаёт на место
+// старой страницы с тем же порядковым номером, старый файл удаляется из хранилища.
+export const ReplaceDocumentFileSchema = z.object({ fileId: z.string().min(1) }).strict()
+export type ReplaceDocumentFileInput = z.infer<typeof ReplaceDocumentFileSchema>
+
 // Колонки таблицы документов, по которым разрешена сортировка. Именно колонки, а не
 // пресеты «новые/старые»: таблица сортируется кликом по заголовку, и набор значений
 // должен совпадать с тем, что видит пользователь. Номер сюда не входит — наружу уходит
@@ -110,6 +115,10 @@ export const DocumentListQuerySchema = z
     // показывала другое.
     preset: z.enum(['active', 'shared', 'issued']).optional(),
     view: z.enum(['active', 'archived']).default('active'),
+    // Страница по запросу (как у комментариев): без `limit`/`cursor` — прежний ответ
+    // массивом, его читают веб и Android; с ними — страница с meta.cursor/hasNext/total.
+    // Без этих полей `.strict()` отвечал 400 iOS-клиенту, который шлёт `?limit=50`.
+    ...OptionalCursorPaginationSchema.shape,
   })
   .strict()
 export type DocumentListQueryInput = z.infer<typeof DocumentListQuerySchema>
@@ -287,4 +296,74 @@ export interface GroupRequestProgress {
   }
   // Только у учебных запросов; у личных — null.
   members: { id: string; name: string; status: GroupProgressStatus }[] | null
+}
+
+// ── Журнал документов вуза для админа вуза (15.2: «читает журнал», без содержимого) ──
+
+// Действия журнала DocumentEvent, по которым можно фильтровать.
+export const DOCUMENT_JOURNAL_ACTIONS = [
+  'UPLOAD',
+  'VIEW',
+  'DOWNLOAD',
+  'EDIT',
+  'REPLACE',
+  'PAGE_ADD',
+  'PAGE_REMOVE',
+  'GRANT',
+  'REVOKE',
+  'SUBMIT',
+  'REVIEW',
+  'ACCEPT',
+  'REJECT',
+  'ARCHIVE',
+  'DELETE',
+  'EXPIRING',
+  'EXPIRE',
+] as const
+export const DocumentJournalActionSchema = z.enum(DOCUMENT_JOURNAL_ACTIONS)
+export type DocumentJournalAction = z.infer<typeof DocumentJournalActionSchema>
+
+// Админская таблица с номером страницы — offset допустим (BACKEND_RULES §5.3).
+// `q` — ФИО того, кто действовал, или владельца документа; `userId` — точный человек в
+// любой из двух ролей. Период — по дате события, `to` включительно (до конца дня — в вебе).
+export const DocumentJournalQuerySchema = z
+  .object({
+    page: z.coerce.number().int().positive().default(1),
+    limit: z.coerce.number().int().positive().max(100).default(20),
+    action: DocumentJournalActionSchema.optional(),
+    from: z.coerce.date().optional(),
+    to: z.coerce.date().optional(),
+    q: z.string().trim().min(1).max(100).optional(),
+    userId: z.string().min(1).max(64).optional(),
+  })
+  .strict()
+export type DocumentJournalQueryInput = z.infer<typeof DocumentJournalQuerySchema>
+
+// Через что совершено действие: свой документ, грант доступа, запрос вуза, заявка,
+// спец-режим платформы или автоматика (крон срока).
+export const DOCUMENT_JOURNAL_VIA = [
+  'OWNER',
+  'GRANT',
+  'REQUEST',
+  'APPLICATION',
+  'PLATFORM',
+  'SYSTEM',
+  'STAFF',
+] as const
+export type DocumentJournalVia = (typeof DOCUMENT_JOURNAL_VIA)[number]
+
+// Строка журнала. Только метаданные: ни названия, ни номера, ни файлов документа —
+// тип и категория говорят, «что за документ», не раскрывая содержимого.
+export interface DocumentJournalItem {
+  id: string
+  createdAt: string
+  action: string
+  actor: { id: string; name: string; role: string | null }
+  owner: { id: string; name: string }
+  document: { id: string; category: string; type: string; deleted: boolean }
+  via: DocumentJournalVia
+  // Для GRANT/REVOKE/VIEW по гранту — кому выдан доступ (UNIVERSITY | DEPARTMENT | USER).
+  granteeType: string | null
+  // Для событий по запросу вуза — его название.
+  request: { id: string; title: string } | null
 }

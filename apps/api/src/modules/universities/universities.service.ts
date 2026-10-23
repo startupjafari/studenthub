@@ -16,6 +16,7 @@ import { Paginated } from '../../common/http/paginated'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
 import { InviteService } from '../invites/invites.service'
+import { RealtimeGateway } from '../../common/realtime/realtime.gateway'
 import { UniversityAccessService } from './university-access.service'
 
 const UNIVERSITY_SELECT = {
@@ -54,6 +55,7 @@ export class UniversityService {
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
     private readonly access: UniversityAccessService,
     private readonly invites: InviteService,
+    private readonly realtime: RealtimeGateway,
   ) {}
 
   /** Создание вуза (PLATFORM_ADMIN). Статус по умолчанию PENDING. */
@@ -152,6 +154,8 @@ export class UniversityService {
    * (UniversityAccessService). BLOCKED закрывает вход, refresh, регистрацию по инвайту и
    * запросы с уже выданными токенами. Сессии при блокировке не гасятся, а перестают
    * приниматься: после разблокировки люди продолжают работу без повторного входа.
+   * Открытые сокеты пользователей вуза при блокировке рвутся: токен у них проверяется только
+   * на входе, и без разрыва они продолжали бы получать события и писать в чаты.
    */
   async setStatus(
     actor: JwtPayload,
@@ -167,6 +171,13 @@ export class UniversityService {
     })
     // Этот инстанс начинает пускать по новому статусу сразу, остальные — по истечении памяти.
     this.access.remember(id, university.status)
+    if (university.status === 'BLOCKED') {
+      // Статус уже записан и запомнен: разрыв не должен откатывать блокировку, а сбой
+      // разрыва — превращать её в 500. Не дорванные сокеты закроет первое же событие чата.
+      await this.realtime.disconnectUniversity(id).catch((error: unknown) => {
+        this.logger.warn({ err: error }, `Сокеты заблокированного вуза ${id} не разорваны`)
+      })
+    }
     await this.audit.record({
       userId: actor.sub,
       action: 'university_status_changed',

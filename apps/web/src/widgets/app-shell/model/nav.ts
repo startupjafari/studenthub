@@ -15,6 +15,7 @@ import {
   ClipboardCheck,
   ClipboardList,
   DoorClosed,
+  FileClock,
   FileCog,
   FileText,
   FolderLock,
@@ -155,6 +156,8 @@ export const UNIVERSITY_ADMIN_NAV: NavItem[] = [
   // Контроль: разбор жалоб и журнал действий.
   { key: 'complaints', href: '/university-admin/complaints', icon: ShieldAlert, group: 'control' },
   { key: 'audit', href: '/university-admin/audit', icon: ScrollText, group: 'control' },
+  // Журнал действий с документами вуза: кто, над чьим документом, когда — без содержимого.
+  { key: 'documentJournal', href: '/university-admin/document-journal', icon: FileClock, group: 'control' }, // prettier-ignore
 ]
 
 // Ролевые дашборды (docs/PROJECT.md §12). У каждого пункта ниже есть свой экран;
@@ -226,12 +229,6 @@ export const STAROSTA_NAV: NavItem[] = [
   ...STUDENT_NAV,
   { key: 'myGroup', href: '/starosta/group', icon: Users, group: 'starosta' },
   { key: 'classmates', href: '/starosta/classmates', icon: GraduationCap, group: 'starosta' },
-  {
-    key: 'groupRequests',
-    href: '/starosta/group-requests',
-    icon: ClipboardList,
-    group: 'starosta',
-  },
   // Кто из группы сдал комплект по запросу документов — без самих документов.
   {
     key: 'groupDocuments',
