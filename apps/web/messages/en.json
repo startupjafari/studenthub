@@ -3718,7 +3718,10 @@
     "rosterInvalid": "The roster has errors — fix the highlighted fields",
     "scoreOutOfRange": "Score from 0 to {max}",
     "notAdmittedStatus": "A student who isn't admitted can't be marked Passed or Failed",
-    "scheduleConflict": "The group, room or examiner already has another exam at this time"
+    "scheduleConflict": "The group, room or examiner already has another exam at this time",
+    "confirmDeleteTitle": "Delete the exam?",
+    "confirmDeleteDesc": "“{subject}”, group {group}. Students of the group will be notified of the cancellation.",
+    "confirmDeletePastDesc": "“{subject}”, group {group}. This cannot be undone."
   },
   "StudyPlan": {
     "title": "Study plan",

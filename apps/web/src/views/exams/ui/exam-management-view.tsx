@@ -29,6 +29,7 @@ import {
   TableSkeletonRows,
   TableText,
   parseYmd,
+  useConfirm,
   useTableSort,
   type DateRange,
 } from '../../../shared/ui'
@@ -92,6 +93,7 @@ export function ExamManagementView({ mine }: { mine: boolean }) {
   const tErr = useTranslations('Errors')
   const locale = useLocale()
   const qc = useQueryClient()
+  const confirm = useConfirm()
   const [creating, setCreating] = useState(false)
   const [rosterId, setRosterId] = useState<string | null>(null)
   const role = useAppSelector((s) => s.auth.role)
@@ -285,7 +287,23 @@ export function ExamManagementView({ mine }: { mine: boolean }) {
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
                               variant="destructive"
-                              onClick={() => remove.mutate(e.id)}
+                              onClick={async () => {
+                                // Необратимо, и группа получит уведомление об отмене —
+                                // один промах по пункту меню не должен этого делать.
+                                const ok = await confirm({
+                                  title: t('confirmDeleteTitle'),
+                                  // Об отмене сервер сообщает только по предстоящему.
+                                  description: t(
+                                    new Date(e.date).getTime() > Date.now()
+                                      ? 'confirmDeleteDesc'
+                                      : 'confirmDeletePastDesc',
+                                    { subject: e.course.subject.name, group: e.group.name },
+                                  ),
+                                  confirmLabel: t('delete'),
+                                  destructive: true,
+                                })
+                                if (ok) remove.mutate(e.id)
+                              }}
                             >
                               <Trash2 aria-hidden />
                               {t('delete')}

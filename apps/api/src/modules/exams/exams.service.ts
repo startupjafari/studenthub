@@ -287,7 +287,7 @@ export class ExamsService {
   }
 
   async remove(actor: JwtPayload, id: string, ctx: RequestContext): Promise<void> {
-    await this.findManageable(actor, id)
+    const exam = await this.findManageable(actor, id)
     // Экзамен с выставленными результатами не удаляем: каскад стёр бы ведомость.
     const scored = await this.prisma.examResult.count({
       where: { examId: id, OR: [{ score: { not: null } }, { status: { not: 'SCHEDULED' } }] },
@@ -297,6 +297,17 @@ export class ExamsService {
     }
     await this.prisma.exam.delete({ where: { id } })
     await this.record(actor, 'exam_deleted', id, ctx)
+    // Отмена предстоящего экзамена — такая же новость для группы, как назначение и перенос:
+    // иначе студенты узнавали бы о ней, только не найдя экзамен в «Экзаменах».
+    if (exam.date.getTime() > Date.now()) {
+      await this.notifyStudents(
+        exam,
+        NOTIFICATION_JOBS.EXAM_CANCELLED,
+        'exams.cancelled.title',
+        'SCHEDULE_CHANGE',
+        `exam-cancelled:${id}`,
+      )
+    }
   }
 
   async setResults(actor: JwtPayload, input: SetExamResultsInput, ctx: RequestContext) {
