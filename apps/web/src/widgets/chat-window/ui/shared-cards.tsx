@@ -25,7 +25,7 @@ import { cn } from '../../../shared/lib/utils'
 export function ChatSharedPost({ post, mine }: { post: SharedPostPreview; mine: boolean }) {
   const t = useTranslations('Feed')
 
-  if (post.deletedAt) {
+  if (post.deletedAt || !post.author) {
     return (
       <div className="rounded-xl border border-border bg-card px-3 py-2 text-xs text-muted-foreground">
         {t('postUnavailable')}

@@ -553,6 +553,53 @@ describe('ChatsService.getMessages — cursor + членство', () => {
     expect(prisma.message.findMany).not.toHaveBeenCalled()
   })
 
+  // BUG-070/096: удалённое не отдаётся и чужой связью — ни цитатой ответа, ни карточкой поста.
+  it('цитата удалённого оригинала и карточка снятого поста приходят пустыми', async () => {
+    const { service, prisma } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1' })
+    const deletedAt = new Date()
+    prisma.message.findMany.mockResolvedValue([
+      {
+        id: 'reply',
+        replyQuote: 'кусок удалённого',
+        replyTo: { id: 'x', content: 'удалённый текст', senderId: 'u2', deletedAt, sender: {} },
+        sharedPost: {
+          id: 'p1',
+          title: 'Снятый пост',
+          content: 'текст поста',
+          authorId: 'u3',
+          deletedAt,
+          author: { id: 'u3', firstName: 'A', lastName: 'B', avatarUrl: null },
+          media: [{ id: 'f1', mime: 'image/png' }],
+          _count: { comments: 4, reactions: 9 },
+        },
+      },
+      {
+        id: 'alive',
+        replyQuote: 'живая цитата',
+        replyTo: { id: 'y', content: 'живой текст', senderId: 'u2', deletedAt: null, sender: {} },
+        sharedPost: null,
+      },
+    ])
+
+    const res = await service.getMessages(user('u1'), 'c1', { limit: 20 })
+
+    const [reply, alive] = res.items
+    expect(reply?.replyQuote).toBeNull()
+    expect(reply?.replyTo).toMatchObject({ id: 'x', content: '', deletedAt })
+    expect(reply?.sharedPost).toMatchObject({
+      id: 'p1',
+      title: null,
+      content: '',
+      author: null,
+      media: [],
+      deletedAt,
+    })
+    // Живой оригинал не трогаем.
+    expect(alive?.replyQuote).toBe('живая цитата')
+    expect(alive?.replyTo?.content).toBe('живой текст')
+  })
+
   it('без курсора — новейшая страница по убыванию seq', async () => {
     const { service, prisma } = setup()
     prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1' })

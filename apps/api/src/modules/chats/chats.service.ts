@@ -284,8 +284,10 @@ const MESSAGE_SELECT = {
   replyQuote: true,
   // «Без звука»: клиенту нужен для пометки у своего сообщения («отправлено без звука»).
   silent: true,
+  // deletedAt — чтобы цитату удалённого оригинала вычистить перед отдачей (см. toClientMessage)
+  // и показать клиенту «сообщение удалено» вместо пустого блока.
   replyTo: {
-    select: { id: true, content: true, senderId: true, sender: SENDER_SELECT },
+    select: { id: true, content: true, senderId: true, deletedAt: true, sender: SENDER_SELECT },
   },
   forwardedFrom: {
     select: { id: true, senderId: true, sender: SENDER_SELECT },
@@ -320,7 +322,44 @@ const MESSAGE_SELECT = {
   },
 } satisfies Prisma.MessageSelect
 
-type MessageRow = Prisma.MessageGetPayload<{ select: typeof MESSAGE_SELECT }>
+type MessageDbRow = Prisma.MessageGetPayload<{ select: typeof MESSAGE_SELECT }>
+type SharedPostRow = NonNullable<MessageDbRow['sharedPost']>
+
+/** Сообщение в клиентской форме: у карточки снятого поста автора нет (см. toClientMessage). */
+type MessageRow = Omit<MessageDbRow, 'sharedPost'> & {
+  sharedPost: (Omit<SharedPostRow, 'author'> & { author: SharedPostRow['author'] | null }) | null
+}
+
+/**
+ * Удалённое не отдаётся (BACKEND_RULES §5.1) — и тогда, когда оно приехало чужой связью.
+ *
+ * Ответ на сообщение, которое потом удалил автор или снял модератор, нёс в `replyTo.content`
+ * его полный текст, а `replyQuote` — выделенный из него кусок: клиент рисовал цитату у всех до
+ * физического удаления оригинала. Карточка поста, снятого после того как им поделились, так же
+ * отдавала заголовок, текст, автора и обложку — веб их прятал, мобильные клиенты и API нет.
+ * Связь и `deletedAt` остаются: по ним клиент пишет «сообщение удалено» / «публикация
+ * недоступна» — так же, как у оригиналов репостов в ленте.
+ */
+function toClientMessage(row: MessageDbRow | MessageRow): MessageRow {
+  let out: MessageRow = row
+  if (row.replyTo?.deletedAt) {
+    out = { ...out, replyQuote: null, replyTo: { ...row.replyTo, content: '' } }
+  }
+  if (row.sharedPost?.deletedAt) {
+    out = {
+      ...out,
+      sharedPost: {
+        ...row.sharedPost,
+        title: null,
+        content: '',
+        author: null,
+        media: [],
+        _count: { comments: 0, reactions: 0 },
+      },
+    }
+  }
+  return out
+}
 
 /** Вложение, принятое до создания сообщения: запись File есть, к сообщению ещё не привязана. */
 interface PendingAttachment {
@@ -595,11 +634,13 @@ export class ChatsService implements OnModuleInit {
         this.prisma,
         chatIds,
         (ids) =>
-          this.prisma.message.findMany({
-            where: { id: { in: ids } },
-            select: MESSAGE_SELECT,
-            take: ids.length,
-          }),
+          this.prisma.message
+            .findMany({
+              where: { id: { in: ids } },
+              select: MESSAGE_SELECT,
+              take: ids.length,
+            })
+            .then((rows) => rows.map(toClientMessage)),
         { by: 'createdAt' },
       ),
       // Watermark прочтения другими участниками — для статусов доставки своих сообщений (Ф9+).
@@ -1197,7 +1238,7 @@ export class ChatsService implements OnModuleInit {
             })
       const hasPrev = rows.length > limit
       const asc = hasPrev ? rows.slice(0, limit) : rows
-      const items = asc.reverse()
+      const items = asc.reverse().map(toClientMessage)
       return new Paginated(items, { prevCursor: items[0]?.id, hasPrev })
     }
 
@@ -1215,7 +1256,7 @@ export class ChatsService implements OnModuleInit {
             take: limit + 1,
           })
     const hasNext = rows.length > limit
-    const items = hasNext ? rows.slice(0, limit) : rows
+    const items = (hasNext ? rows.slice(0, limit) : rows).map(toClientMessage)
     const nextCursor = hasNext ? items[items.length - 1]?.id : undefined
     return new Paginated(items, { cursor: nextCursor, hasNext })
   }
@@ -1302,8 +1343,8 @@ export class ChatsService implements OnModuleInit {
     const overflow = createdRows.length > CHAT_UPDATES_LIMIT
 
     return {
-      created: overflow ? [] : createdRows,
-      mutated,
+      created: overflow ? [] : createdRows.map(toClientMessage),
+      mutated: mutated.map(toClientMessage),
       deletedIds: deleted.map((m) => m.id),
       latestSeq: chat?.lastSeq ?? query.since,
       overflow,
@@ -1345,7 +1386,7 @@ export class ChatsService implements OnModuleInit {
     const hasPrev = newerRows.length > limit
     const older = hasNext ? olderRows.slice(0, limit) : olderRows
     const newerDesc = (hasPrev ? newerRows.slice(0, limit) : newerRows).reverse()
-    const items = [...newerDesc, ...(targetRow ? [targetRow] : []), ...older]
+    const items = [...newerDesc, ...(targetRow ? [targetRow] : []), ...older].map(toClientMessage)
     return new Paginated(items, {
       cursor: older[older.length - 1]?.id,
       hasNext,
@@ -1495,10 +1536,12 @@ export class ChatsService implements OnModuleInit {
       return message.id
     })
     await this.bumpChat(chatId)
-    const message = await this.prisma.message.findUniqueOrThrow({
-      where: { id: messageId },
-      select: MESSAGE_SELECT,
-    })
+    const message = toClientMessage(
+      await this.prisma.message.findUniqueOrThrow({
+        where: { id: messageId },
+        select: MESSAGE_SELECT,
+      }),
+    )
     await this.notifyNewMessage(chatId, senderId, message)
     this.realtime.emitToRoom(`chat:${chatId}`, 'message:new', { message, chatId })
     return message
@@ -1995,7 +2038,7 @@ export class ChatsService implements OnModuleInit {
     await this.assertMembership(senderId, input.chatId)
     await this.assertCanSend(input.chatId, senderId, opts)
     await this.assertReplyInChat(input.chatId, input.replyToId)
-    const message = await this.prisma.$transaction(async (tx) =>
+    const created = await this.prisma.$transaction(async (tx) =>
       tx.message.create({
         data: {
           chatId: input.chatId,
@@ -2009,6 +2052,7 @@ export class ChatsService implements OnModuleInit {
         select: MESSAGE_SELECT,
       }),
     )
+    const message = toClientMessage(created)
     await this.bumpChat(input.chatId)
     await this.enqueueLinkPreview(message.id, input.chatId, input.content)
     const recipientIds = await this.notifyNewMessage(input.chatId, senderId, message)
@@ -2150,10 +2194,12 @@ export class ChatsService implements OnModuleInit {
       throw error
     }
 
-    const message = await this.prisma.message.findUniqueOrThrow({
-      where: { id: created.id },
-      select: MESSAGE_SELECT,
-    })
+    const message = toClientMessage(
+      await this.prisma.message.findUniqueOrThrow({
+        where: { id: created.id },
+        select: MESSAGE_SELECT,
+      }),
+    )
     await this.bumpChat(chatId)
     await this.enqueueLinkPreview(created.id, chatId, content)
     await this.notifyNewMessage(chatId, senderId, message)
@@ -2228,10 +2274,12 @@ export class ChatsService implements OnModuleInit {
       await this.discardAttachments(uploaded)
       throw error
     }
-    const message = await this.prisma.message.findUniqueOrThrow({
-      where: { id: created.id },
-      select: MESSAGE_SELECT,
-    })
+    const message = toClientMessage(
+      await this.prisma.message.findUniqueOrThrow({
+        where: { id: created.id },
+        select: MESSAGE_SELECT,
+      }),
+    )
     await this.bumpChat(input.chatId)
     await this.enqueueLinkPreview(created.id, input.chatId, content)
     await this.notifyNewMessage(input.chatId, senderId, message)
@@ -2537,7 +2585,7 @@ export class ChatsService implements OnModuleInit {
       select: MESSAGE_SELECT,
     })
     await this.pingListsIfLatest(updated.chatId, updated.seq)
-    return updated
+    return toClientMessage(updated)
   }
 
   /**
@@ -2601,13 +2649,15 @@ export class ChatsService implements OnModuleInit {
     })
     if (!msg) throw new AppException('NOT_FOUND', 'Сообщение не найдено')
     await this.assertMembership(userId, msg.chatId)
-    const message = await this.prisma.message.update({
-      where: { id: messageId },
-      data: pinned
-        ? { pinnedAt: new Date(), pinnedById: userId }
-        : { pinnedAt: null, pinnedById: null },
-      select: MESSAGE_SELECT,
-    })
+    const message = toClientMessage(
+      await this.prisma.message.update({
+        where: { id: messageId },
+        data: pinned
+          ? { pinnedAt: new Date(), pinnedById: userId }
+          : { pinnedAt: null, pinnedById: null },
+        select: MESSAGE_SELECT,
+      }),
+    )
     this.realtime.emitToRoom(`chat:${msg.chatId}`, pinned ? 'message:pinned' : 'message:unpinned', {
       message,
       chatId: msg.chatId,
@@ -2625,21 +2675,23 @@ export class ChatsService implements OnModuleInit {
 
   /** Закреплённые сообщения чата, новые сверху. */
   /** Сообщение в клиентской форме (MESSAGE_SELECT) — для рассылки message:updated из воркеров. */
-  findMessageForClient(messageId: string): Promise<MessageRow | null> {
-    return this.prisma.message.findFirst({
+  async findMessageForClient(messageId: string): Promise<MessageRow | null> {
+    const row = await this.prisma.message.findFirst({
       where: { id: messageId, deletedAt: null },
       select: MESSAGE_SELECT,
     })
+    return row ? toClientMessage(row) : null
   }
 
   async listPinned(userId: string, chatId: string): Promise<MessageRow[]> {
     await this.assertMembership(userId, chatId)
-    return this.prisma.message.findMany({
+    const rows = await this.prisma.message.findMany({
       where: { chatId, deletedAt: null, pinnedAt: { not: null } },
       select: MESSAGE_SELECT,
       orderBy: { pinnedAt: 'desc' },
       take: 50,
     })
+    return rows.map(toClientMessage)
   }
 
   // ── Вложения (Ф9+) ───────────────────────────────────────────────────────────
@@ -2784,7 +2836,7 @@ export class ChatsService implements OnModuleInit {
       ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
     })
     const hasNext = rows.length > query.limit
-    const items = hasNext ? rows.slice(0, query.limit) : rows
+    const items = (hasNext ? rows.slice(0, query.limit) : rows).map(toClientMessage)
     const nextCursor = hasNext ? items[items.length - 1]?.id : undefined
     return new Paginated(items, { cursor: nextCursor, hasNext })
   }
@@ -2828,7 +2880,7 @@ export class ChatsService implements OnModuleInit {
       take: query.limit + 1,
     })
     const hasNext = rows.length > query.limit
-    const items = hasNext ? rows.slice(0, query.limit) : rows
+    const items = (hasNext ? rows.slice(0, query.limit) : rows).map(toClientMessage)
     const nextCursor = hasNext ? items[items.length - 1]?.id : undefined
     return new Paginated(items, { cursor: nextCursor, hasNext })
   }
@@ -2869,10 +2921,12 @@ export class ChatsService implements OnModuleInit {
       }
       await tx.messageReaction.create({ data: { messageId, userId, emoji } })
     })
-    const message = await this.prisma.message.findUniqueOrThrow({
-      where: { id: messageId },
-      select: MESSAGE_SELECT,
-    })
+    const message = toClientMessage(
+      await this.prisma.message.findUniqueOrThrow({
+        where: { id: messageId },
+        select: MESSAGE_SELECT,
+      }),
+    )
     this.realtime.emitToRoom(`chat:${msg.chatId}`, 'message:reaction', {
       message,
       chatId: msg.chatId,
@@ -2945,10 +2999,12 @@ export class ChatsService implements OnModuleInit {
       await this.discardAttachments(copies)
       throw error
     }
-    const message = await this.prisma.message.findUniqueOrThrow({
-      where: { id: created.id },
-      select: MESSAGE_SELECT,
-    })
+    const message = toClientMessage(
+      await this.prisma.message.findUniqueOrThrow({
+        where: { id: created.id },
+        select: MESSAGE_SELECT,
+      }),
+    )
     await this.bumpChat(targetChatId)
     // У оригинала превью могло не быть (сообщение старше фичи, job не успел, ссылка была
     // недоступна) — тогда пробуем сами: пересланная ссылка ничем не хуже отправленной.
@@ -2991,10 +3047,12 @@ export class ChatsService implements OnModuleInit {
         select: { id: true },
       }),
     )
-    const message = await this.prisma.message.findUniqueOrThrow({
-      where: { id: created.id },
-      select: MESSAGE_SELECT,
-    })
+    const message = toClientMessage(
+      await this.prisma.message.findUniqueOrThrow({
+        where: { id: created.id },
+        select: MESSAGE_SELECT,
+      }),
+    )
     await this.bumpChat(targetChatId)
     await this.notifyNewMessage(targetChatId, viewer.sub, message)
     this.realtime.emitToRoom(`chat:${targetChatId}`, 'message:new', {
@@ -3039,7 +3097,7 @@ export class ChatsService implements OnModuleInit {
     if (truncated) {
       this.logger.warn(`Экспорт чата ${chatId}: выгружены последние ${EXPORT_CAP} сообщений`)
     }
-    return { rows: newestFirst.slice(0, EXPORT_CAP).reverse(), truncated }
+    return { rows: newestFirst.slice(0, EXPORT_CAP).reverse().map(toClientMessage), truncated }
   }
 
   /**

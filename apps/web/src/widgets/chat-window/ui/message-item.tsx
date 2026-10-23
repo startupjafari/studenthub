@@ -298,7 +298,9 @@ function MessageItemInner({
                 <span className="font-medium">{replyToNameText}</span>
                 {/* Цитата фрагмента заменяет начало оригинала: отвечают именно на неё. */}
                 <p className="line-clamp-2">
-                  {m.replyQuote || m.replyTo.content || t('attachment')}
+                  {m.replyTo.deletedAt
+                    ? t('replyDeleted')
+                    : m.replyQuote || m.replyTo.content || t('attachment')}
                 </p>
               </button>
             )}

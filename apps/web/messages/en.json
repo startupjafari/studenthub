@@ -2346,7 +2346,8 @@
     "cancelUpload": "Cancel upload",
     "joinUnavailable": "Employer accounts have no chats, so you can't join this group",
     "inviteLinkResetAction": "Reset invite link",
-    "inviteLinkReset": "New link copied — the old one no longer works"
+    "inviteLinkReset": "New link copied — the old one no longer works",
+    "replyDeleted": "Message deleted"
   },
   "Events": {
     "title": "Events",

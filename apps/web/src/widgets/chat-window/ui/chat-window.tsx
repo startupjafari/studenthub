@@ -1833,8 +1833,16 @@ export function ChatWindow() {
     'message:deleted',
     ({ messageId, chatId }) => {
       if (chatId === activeId) {
+        // Ответы на удалённое теряют и его текст в цитате — так же их отдаст и сервер.
+        const deletedAt = new Date().toISOString()
         qc.setQueryData<ChatMessage[]>(chatKeys.messages(chatId), (old) =>
-          (old ?? []).filter((m) => m.id !== messageId),
+          (old ?? [])
+            .filter((m) => m.id !== messageId)
+            .map((m) =>
+              m.replyTo?.id === messageId
+                ? { ...m, replyQuote: null, replyTo: { ...m.replyTo, content: '', deletedAt } }
+                : m,
+            ),
         )
       }
       // Удаление последнего сообщения меняет превью списка, непрочитанного — счётчик.
