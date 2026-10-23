@@ -277,8 +277,10 @@ export class ExamsService {
         updated,
         NOTIFICATION_JOBS.EXAM_UPDATED,
         'exams.updated.title',
-        // Время и аудитория — в ключе: второй перенос того же экзамена — новое уведомление.
-        `exam-updated:${id}:${next.date.toISOString()}:${next.roomId ?? '-'}`,
+        // Ключ на сохранение, а не на состояние: перенос обратно на уже бывшее время совпал
+        // бы с ключом первого переноса, и очередь молча погасила бы уведомление. Повторы
+        // одной задачи ключ при этом не меняют — он вычислен один раз здесь.
+        `exam-updated:${id}:${Date.now()}`,
       )
     }
     return updated

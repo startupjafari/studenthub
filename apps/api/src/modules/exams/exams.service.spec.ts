@@ -335,7 +335,7 @@ describe('ExamsService.create / update — пересечения и уведо�
     expect(queue.enqueue).not.toHaveBeenCalled()
   })
 
-  it('перенос даты → проверка пересечений и уведомление с новой датой в ключе', async () => {
+  it('перенос даты → проверка пересечений и уведомление с ключом на сохранение', async () => {
     const { service, prisma, queue } = setup()
     prisma.exam.update.mockResolvedValue({
       id: 'ex-1',
@@ -347,9 +347,25 @@ describe('ExamsService.create / update — пересечения и уведо�
     expect(prisma.exam.findMany).toHaveBeenCalled()
     expect(prisma.exam.findMany.mock.calls[0][0].where.id).toEqual({ not: 'ex-1' })
     expect(queue.enqueue.mock.calls[0][1]).toBe('exam-updated')
-    expect(queue.enqueue.mock.calls[0][2].dedupeKey).toBe(
-      `exam-updated:ex-1:${future.toISOString()}:-`,
-    )
+    expect(queue.enqueue.mock.calls[0][2].dedupeKey).toMatch(/^exam-updated:ex-1:\d+$/)
+  })
+
+  it('перенос обратно на прежнее время — снова уведомление, а не погашенный дубль', async () => {
+    const { service, prisma, queue } = setup()
+    prisma.exam.update.mockResolvedValue({
+      id: 'ex-1',
+      groupId: 'grp-1',
+      date: future,
+      course: { subject: { name: 'Матанализ' } },
+    })
+    const now = jest.spyOn(Date, 'now')
+    now.mockReturnValue(1_000)
+    await service.update(dean, 'ex-1', { date: future.toISOString() }, ctx)
+    now.mockReturnValue(2_000)
+    await service.update(dean, 'ex-1', { date: future.toISOString() }, ctx)
+    now.mockRestore()
+    const keys = queue.enqueue.mock.calls.map((c) => c[2].dedupeKey)
+    expect(new Set(keys).size).toBe(2)
   })
 
   it('правка заметки — без проверки пересечений и без уведомления', async () => {
