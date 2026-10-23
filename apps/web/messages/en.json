@@ -472,6 +472,8 @@
     "goToApplications": "My applications"
   },
   "EmployerVacancies": {
+    "republish": "Publish again",
+    "republishHint": "Send for review to universities where the vacancy is missing or was declined. Approvals from other universities are kept",
     "title": "Jobs",
     "subtitle": "Publishing is not showing: each university decides separately",
     "empty": "No jobs",

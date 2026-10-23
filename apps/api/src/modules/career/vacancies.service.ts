@@ -194,8 +194,12 @@ export class VacanciesService {
    * одобрение одним из них не должно открывать вакансию студентам другого. Вузов у
    * компании единицы, поэтому строк немного.
    *
-   * Повторная публикация после правок сбрасывает решения обратно в PENDING: вуз одобрял
-   * конкретный текст, а не саму вакансию навсегда.
+   * Повторная публикация (в том числе уже опубликованной) — это «покажите её вузам, где
+   * её ещё нет»: вуз, допустивший компанию после первой публикации, получает свою строку
+   * ревью, а отклонённое решение (в том числе погашенное отзывом допуска) возвращается на
+   * модерацию. Одобрения других вузов не трогаем: вуз одобрял конкретный текст, и правка
+   * текста сама возвращает их в PENDING (см. `update`), а повторное нажатие «Опубликовать»
+   * без правок не должно снимать вакансию с витрин, где её уже пропустили.
    */
   async publish(viewer: JwtPayload, id: string, ctx: RequestContext) {
     const companyId = this.access.requireCompany(viewer)
@@ -219,13 +223,18 @@ export class VacanciesService {
         data: { status: 'PUBLISHED', publishedAt: new Date() },
       })
       if (count === 0) throw this.changedConflict()
-      for (const universityId of universities) {
-        await tx.vacancyUniversityReview.upsert({
-          where: { vacancyId_universityId: { vacancyId: id, universityId } },
-          create: { vacancyId: id, universityId, status: 'PENDING' },
-          update: { status: 'PENDING', reason: null, decidedById: null, decidedAt: null },
-        })
-      }
+      await tx.vacancyUniversityReview.createMany({
+        data: universities.map((universityId) => ({
+          vacancyId: id,
+          universityId,
+          status: 'PENDING',
+        })),
+        skipDuplicates: true,
+      })
+      await tx.vacancyUniversityReview.updateMany({
+        where: { vacancyId: id, universityId: { in: universities }, status: 'REJECTED' },
+        data: { status: 'PENDING', reason: null, decidedById: null, decidedAt: null },
+      })
     })
 
     await this.audit.record({

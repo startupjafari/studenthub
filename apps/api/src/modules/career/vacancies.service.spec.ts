@@ -39,7 +39,7 @@ function setup(allowedUniversities: string[] = ['uni-1']) {
   const tx = {
     vacancy: { update: jest.fn(), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
     vacancyUniversityReview: {
-      upsert: jest.fn(),
+      createMany: jest.fn().mockResolvedValue({ count: 1 }),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
   }
@@ -112,7 +112,14 @@ describe('VacanciesService — публикация', () => {
 
     await service.publish(employer, 'v-1', ctx)
 
-    expect(tx.vacancyUniversityReview.upsert).toHaveBeenCalledTimes(2)
+    expect(tx.vacancyUniversityReview.createMany).toHaveBeenCalledWith({
+      data: [
+        { vacancyId: 'v-1', universityId: 'uni-1', status: 'PENDING' },
+        { vacancyId: 'v-1', universityId: 'uni-2', status: 'PENDING' },
+      ],
+      // Вуз, где строка уже есть, свою строку сохраняет — с прежним решением.
+      skipDuplicates: true,
+    })
     expect(tx.vacancy.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: 'v-1', status: 'DRAFT', deletedAt: null },
@@ -121,17 +128,23 @@ describe('VacanciesService — публикация', () => {
     )
   })
 
-  it('повторная публикация сбрасывает прежние решения вузов', async () => {
-    const { service, tx } = setup(['uni-1'])
+  it('повторная публикация возвращает на модерацию только отклонённое, одобрения не трогает', async () => {
+    const { service, tx, prisma } = setup(['uni-1', 'uni-2'])
+    prisma.vacancy.findFirst.mockResolvedValue({
+      id: 'v-1',
+      status: 'PUBLISHED',
+      salaryMin: null,
+      salaryMax: null,
+    })
 
     await service.publish(employer, 'v-1', ctx)
 
-    // Вуз одобрял конкретный текст, а не вакансию навсегда.
-    expect(tx.vacancyUniversityReview.upsert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        update: expect.objectContaining({ status: 'PENDING', reason: null, decidedAt: null }),
-      }),
-    )
+    // Вуз, вернувший допуск, рассматривает вакансию заново; одобрившие — не теряют одобрения.
+    expect(tx.vacancyUniversityReview.updateMany).toHaveBeenCalledTimes(1)
+    expect(tx.vacancyUniversityReview.updateMany).toHaveBeenCalledWith({
+      where: { vacancyId: 'v-1', universityId: { in: ['uni-1', 'uni-2'] }, status: 'REJECTED' },
+      data: { status: 'PENDING', reason: null, decidedById: null, decidedAt: null },
+    })
   })
 
   it('без единого допуска публиковать нечего — отказ с объяснением', async () => {

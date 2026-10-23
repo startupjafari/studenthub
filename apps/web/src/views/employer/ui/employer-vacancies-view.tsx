@@ -175,6 +175,20 @@ function VacancyRow({
               {t('publish')}
             </Button>
           )}
+          {/* Повторная публикация опубликованной: вуз, допустивший компанию позже или
+              вернувший допуск, получает вакансию на модерацию; одобрения других вузов
+              сервер не трогает. */}
+          {vacancy.status === 'PUBLISHED' && (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busy}
+              onClick={() => onAct('publish')}
+              title={t('republishHint')}
+            >
+              {t('republish')}
+            </Button>
+          )}
           {vacancy.status === 'PUBLISHED' && (
             <Button size="sm" variant="outline" disabled={busy} onClick={() => onAct('pause')}>
               {t('pause')}
