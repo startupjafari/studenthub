@@ -35,12 +35,17 @@ import { cn } from '../../../shared/lib/utils'
 import { StaffWorkspaceModal } from './staff-workspace'
 
 type Filter = 'all' | 'overdue' | ApplicationServiceStatus
+// Вкладки — по всем статусам открытой заявки, в порядке её пути: «Новые» на «Сегодня»
+// считают и отправленные, и исправленные (RESUBMITTED), а «Готовы» — и электронные (READY),
+// и оригиналы к выдаче. Без своих вкладок эти заявки находились только в общем списке.
 const FILTERS: Filter[] = [
   'all',
   'SUBMITTED',
+  'RESUBMITTED',
   'IN_REVIEW',
-  'IN_PREPARATION',
   'NEEDS_CORRECTION',
+  'IN_PREPARATION',
+  'READY',
   'READY_FOR_PICKUP',
   'overdue',
 ]
