@@ -155,7 +155,9 @@ export function CreateInvite() {
         }
         actions={
           <>
-            <BulkInvite />
+            {/* Платформа приглашает админов вуза, а у файла импорта нет колонки вуза:
+                каждая строка падала бы с «обязателен universityId». */}
+            {me.data && me.data.role !== Role.PLATFORM_ADMIN && <BulkInvite />}
             <Button type="button" size="md" onClick={() => setCreateOpen(true)}>
               <Plus className="size-4" aria-hidden />
               {t('create')}
