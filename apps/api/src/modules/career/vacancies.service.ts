@@ -46,6 +46,9 @@ const REVIEWED_SELECT = Object.fromEntries(REVIEWED_FIELDS.map((f) => [f, true])
   true
 >
 
+/** Сколько решений вузов показываем у вакансии в кабинете компании. */
+const REVIEWS_LIMIT = 100
+
 /** Значение поля изменилось. Массивы — поэлементно: форма присылает их целиком. */
 function changed(next: unknown, prev: unknown): boolean {
   if (next === undefined) return false
@@ -97,12 +100,16 @@ export class VacanciesService {
           status: true,
           views: true,
           createdAt: true,
+          // Решения по вузам: строк столько, сколько вузов допустили компанию, — единицы,
+          // но вложенная выборка без предела запрещена (BACKEND_RULES §18 п. 8).
           reviews: {
             select: {
               status: true,
               reason: true,
               university: { select: { id: true, name: true } },
             },
+            orderBy: { createdAt: 'asc' },
+            take: REVIEWS_LIMIT,
           },
         },
         orderBy: { createdAt: 'desc' },

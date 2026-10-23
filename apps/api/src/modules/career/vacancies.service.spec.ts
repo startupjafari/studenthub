@@ -337,6 +337,15 @@ describe('VacanciesService — совпадение с профилем', () => 
   })
 })
 
+describe('VacanciesService — вакансии компании', () => {
+  it('вложенные решения вузов выбираются с пределом', async () => {
+    const { service, prisma } = setup()
+    await service.listMine(employer, 1, 20)
+    const select = prisma.vacancy.findMany.mock.calls[0][0].select
+    expect(select.reviews).toMatchObject({ take: expect.any(Number) })
+  })
+})
+
 describe('VacanciesService — фильтр зарплаты', () => {
   it('«от N» учитывает и вакансии без верхней границы', async () => {
     const { service, prisma } = setup()
