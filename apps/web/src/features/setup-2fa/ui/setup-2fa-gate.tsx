@@ -42,10 +42,11 @@ export function SetupTwoFactorGate() {
   // middleware уводит с /login на home роли, а там первый же запрос ловит 403
   // TWO_FACTOR_SETUP_REQUIRED и возвращает сюда — экран без этой кнопки был тупиком.
   // logout чистит и refresh, и sh_role (@Public на бэке, форс 2FA его не режет).
+  // Сбой выхода (сеть, 5xx) не оставляет на экране: локальный стор endSession чистит в
+  // любом исходе, и на вход ведём всегда — как «Выйти на всех устройствах» в настройках.
   const logoutMut = useMutation({
-    mutationFn: endSession,
-    onSuccess: () => window.location.assign('/login'),
-    onError: (e) => toast.error(tErr(errCode(e))),
+    mutationFn: () => endSession().catch(() => undefined),
+    onSettled: () => window.location.assign('/login'),
   })
 
   const enableMut = useMutation({

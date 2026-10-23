@@ -399,7 +399,9 @@ function SecuritySection({ me }: { me: MeResponse }) {
     // выкинет на логин без объяснений.
     onSuccess: async () => {
       form.reset({ currentPassword: '', newPassword: '' })
-      await endSession()
+      // Сбой выхода не держит на экране: сессии сервер уже погасил сменой пароля, а
+      // локальный стор endSession чистит в любом исходе — ведём на вход всегда.
+      await endSession().catch(() => undefined)
       window.location.assign('/login?reason=password-changed')
     },
     onError: (e) => showApiError(e),
@@ -1297,7 +1299,8 @@ export function DangerSection({ me }: { me: MeResponse }) {
       deleteAccountRequest({ password, ...(needCode ? { code: code.trim() } : {}) }),
     onMutate: () => setError(null),
     onSuccess: async () => {
-      await endSession()
+      // Аккаунта уже нет — сбой выхода не повод оставлять человека на экране настроек.
+      await endSession().catch(() => undefined)
       window.location.assign('/login')
     },
     // Ошибка — в том же окне: пароль и код вводятся там, и закрывать его значит заставить
