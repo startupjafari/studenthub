@@ -54,6 +54,8 @@ const RU = {
 
   'documents.request.title': 'Новый запрос документов',
   'documents.result.title': 'Результат проверки документов',
+  // Результат проверки комплекта с отклонёнными позициями: документ нужно заменить.
+  'documents.replacement.title': 'Требуется замена документа',
   'documents.expired.title': 'Срок документа истёк',
   'documents.expiring.title': 'Документ скоро истекает',
   'documents.named.body': '«{title}»',
@@ -160,6 +162,7 @@ const RU = {
   'library.loanRenewed.title': 'Срок продлён',
   'library.loanRenewed.body': '«{title}» — вернуть до {date}',
   'library.loanCancelled.title': 'Выдача отменена',
+  'library.loanReturnCancelled.title': 'Возврат отменён — книга снова за вами',
   'library.loanDisputed.title': 'Читатель оспорил выдачу',
   'library.loanDisputed.body': '{name}: «{title}», инв. {number}',
   'library.dueSoon.title': 'Скоро вернуть книгу',
@@ -203,6 +206,7 @@ const KK: Record<NotificationMessageKey, string> = {
 
   'documents.request.title': 'Жаңа құжат сұрауы',
   'documents.result.title': 'Құжаттарды тексеру нәтижесі',
+  'documents.replacement.title': 'Құжатты ауыстыру қажет',
   'documents.expired.title': 'Құжаттың мерзімі өтті',
   'documents.expiring.title': 'Құжаттың мерзімі жақында бітеді',
   'documents.named.body': '«{title}»',
@@ -294,6 +298,7 @@ const KK: Record<NotificationMessageKey, string> = {
   'library.loanRenewed.title': 'Мерзім ұзартылды',
   'library.loanRenewed.body': '«{title}» — {date} дейін қайтару',
   'library.loanCancelled.title': 'Беру жойылды',
+  'library.loanReturnCancelled.title': 'Қайтару жойылды — кітап қайтадан сізде',
   'library.loanDisputed.title': 'Оқырман беруге наразылық білдірді',
   'library.loanDisputed.body': '{name}: «{title}», түг. {number}',
   'library.dueSoon.title': 'Кітапты жақында қайтару керек',
@@ -334,6 +339,7 @@ const EN: Record<NotificationMessageKey, string> = {
 
   'documents.request.title': 'New document request',
   'documents.result.title': 'Document review result',
+  'documents.replacement.title': 'Document replacement required',
   'documents.expired.title': 'Document has expired',
   'documents.expiring.title': 'Document expires soon',
   'documents.named.body': '“{title}”',
@@ -425,6 +431,7 @@ const EN: Record<NotificationMessageKey, string> = {
   'library.loanRenewed.title': 'Loan renewed',
   'library.loanRenewed.body': '“{title}” — return by {date}',
   'library.loanCancelled.title': 'Loan cancelled',
+  'library.loanReturnCancelled.title': 'Return cancelled — the book is on your record again',
   'library.loanDisputed.title': 'A reader disputed a loan',
   'library.loanDisputed.body': '{name}: “{title}”, inv. {number}',
   'library.dueSoon.title': 'Book due soon',

@@ -91,6 +91,12 @@ model User {
   specialty         String?
   studentCardNumber String?   @map("student_card_number")
   academicStatus    String?   @map("academic_status")
+  // Когда студент ушёл из вуза: статус стал «Выпускник», «Отчислен» или «Переведён»
+  // (PATCH /users/:id/academic). От этой даты считаются сроки хранения учебных данных,
+  // переписки, документов и профиля (docs/PERSONAL_DATA.md §4). Возврат в «Обучающийся»
+  // обнуляет дату. NULL у ушедших до появления поля: дату задним числом не выдумываем,
+  // и уборка их не трогает, пока вуз не пересохранит статус.
+  leftUniversityAt  DateTime? @map("left_university_at")
   gpa               Float?
   interests         String[]  @default([])
   skills            String[]  @default([])
@@ -239,6 +245,7 @@ model User {
   loansIssued            Loan[]               @relation("LoanIssuedBy")
   loansReceived          Loan[]               @relation("LoanReturnedTo")
   loansCancelled         Loan[]               @relation("LoanCancelledBy")
+  loansLostSettled       Loan[]               @relation("LoanLostSettledBy")
   reservations           Reservation[]        @relation("ReservationReader")
   libraryIdAccessDone    LibraryIdAccessLog[] @relation("LibraryIdAccessLibrarian")
   libraryIdAccessOfMe    LibraryIdAccessLog[] @relation("LibraryIdAccessReader")
@@ -248,6 +255,8 @@ model User {
   @@index([facultyId])
   @@index([groupId])
   @@index([deletedAt])
+  // Ночная уборка по срокам хранения ищет ушедших из вуза больше года назад.
+  @@index([leftUniversityAt])
   @@map("users")
 }
 

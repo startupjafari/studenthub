@@ -140,7 +140,7 @@ export class MediaService {
     }
   }
 
-  private enqueue(
+  private async enqueue(
     kind: 'image' | 'video',
     job: string,
     data: Record<string, string>,
@@ -148,7 +148,7 @@ export class MediaService {
   ): Promise<void> {
     const queue = kind === 'video' ? QUEUES.MEDIA_VIDEO : QUEUES.MEDIA_IMAGE
     // Видео — две попытки, а не три: третья почти всегда упадёт там же, а час CPU съест.
-    return this.queue.enqueue(queue, job, data, { jobId, ...(kind === 'video' && { attempts: 2 }) })
+    await this.queue.enqueue(queue, job, data, { jobId, ...(kind === 'video' && { attempts: 2 }) })
   }
 
   /**

@@ -94,7 +94,6 @@ sealed interface DeepLink {
                 "c" -> tail?.let(::BookCopy)
                 "starosta" -> when (tail) {
                     "classmates", "group" -> Section(MoreSection.CLASSMATES)
-                    "group-requests" -> Section(MoreSection.GROUP_REQUESTS)
                     else -> null
                 }
                 // Незнакомый адрес не угадываем: старая сборка не должна «съедать» ссылку

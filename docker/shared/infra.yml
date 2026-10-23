@@ -37,6 +37,13 @@ services:
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+      # Уборка брошенных многочастных загрузок силами самого MinIO: каждые 6 часов отменяет
+      # загрузки старше суток. Правило бакета AbortIncompleteMultipartUpload MinIO не
+      # принимает (InvalidArgument), поэтому срок задаётся здесь. Значения равны встроенным
+      # по умолчанию и прописаны явно, чтобы не уехать при обновлении образа; срок совпадает
+      # с ночной задачей api sweepIncompleteUploads (docs/RAILWAY.md, §4).
+      MINIO_API_STALE_UPLOADS_EXPIRY: 24h
+      MINIO_API_STALE_UPLOADS_CLEANUP_INTERVAL: 6h
     volumes:
       - minio_data:/data
     healthcheck:

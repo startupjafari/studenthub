@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Pair } from '../../../entities/schedule'
 import type { CourseItem } from '../../../entities/course'
-import { isoWeekParity, type NowInTz } from '../../../shared/lib'
+import type { NowInTz } from '../../../shared/lib'
 import {
   buildCourses,
   courseHref,
@@ -120,11 +120,16 @@ describe('buildCourses — дисциплины из расписания', () =
       expect(math?.next).toMatchObject({ inDays: 7, dayOfWeek: 1, startTime: '08:30' })
     })
 
-    it('пара по чётным/нечётным — только в неделю своей чётности', () => {
-      const thisWeek = isoWeekParity(new Date(2026, 9, 21))
-      const otherParity = thisWeek === 'ODD' ? 'EVEN' : 'ODD'
-      const [math] = buildCourses([pair({ dayOfWeek: 3, weekType: otherParity })], [], MONDAY)
-      // Среда этой недели не подходит по чётности — следующая среда.
+    // Чётность задана явно, а не взята из isoWeekParity: иначе тест повторял бы ошибку
+    // самой функции (так прежняя формула с неверной неделей проходила незамеченной).
+    // 19–25.10.2026 — 43-я ISO-неделя, нечётная; 26.10–01.11 — 44-я, чётная.
+    it('пара по нечётным — в среду этой (43-й) недели', () => {
+      const [math] = buildCourses([pair({ dayOfWeek: 3, weekType: 'ODD' })], [], MONDAY)
+      expect(math?.next).toMatchObject({ inDays: 2, dayOfWeek: 3 })
+    })
+
+    it('пара по чётным — среда этой недели не подходит, следующая среда', () => {
+      const [math] = buildCourses([pair({ dayOfWeek: 3, weekType: 'EVEN' })], [], MONDAY)
       expect(math?.next).toMatchObject({ inDays: 9, dayOfWeek: 3 })
     })
   })

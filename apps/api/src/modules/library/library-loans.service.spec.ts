@@ -54,6 +54,7 @@ function loanRow(overrides: Record<string, unknown> = {}) {
     cancelledAt: null,
     cancelReason: null,
     disputedAt: null,
+    lostSettledAt: null,
     readerId: 'stu-1',
     readerName: 'Оспанов Нурлан Бауыржанович',
     readerGroup: 'ИТ-23-1',
@@ -78,7 +79,11 @@ function copyRow(overrides: Record<string, unknown> = {}) {
   }
 }
 
-function setup({ open = 0, overdue = 0 }: { open?: number; overdue?: number } = {}) {
+function setup({
+  open = 0,
+  overdue = 0,
+  lost = 0,
+}: { open?: number; overdue?: number; lost?: number } = {}) {
   const tx = {
     bookCopy: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
     loan: {
@@ -99,7 +104,9 @@ function setup({ open = 0, overdue = 0 }: { open?: number; overdue?: number } = 
     loan: {
       count: jest
         .fn()
-        .mockImplementation(({ where }) => Promise.resolve(where.dueAt ? overdue : open)),
+        .mockImplementation(({ where }) =>
+          Promise.resolve(where.status === 'LOST' ? lost : where.dueAt ? overdue : open),
+        ),
       findMany: jest.fn().mockResolvedValue([]),
       findUnique: jest.fn().mockResolvedValue(loanRow()),
       update: jest.fn().mockImplementation(({ data }) => Promise.resolve(loanRow(data))),
@@ -142,8 +149,22 @@ describe('LibraryLoansService — сверка читателя', () => {
     const session = await service.resolveReader(librarian, 'qr-token', ctx)
     expect(studentId.verify).toHaveBeenCalledWith(librarian, 'qr-token', ctx)
     expect(session.ticket).toEqual(expect.any(String))
-    expect(session.eligibility).toMatchObject({ canBorrow: true, blockers: [] })
+    expect(session.eligibility).toMatchObject({ canBorrow: true, blockers: [], lostLoans: 0 })
     expect(session.reader).toMatchObject({ group: 'ИТ-23-1', studentCardNumber: '2023-0042' })
+  })
+
+  it('утерянная книга без погашения — долг: читателю нельзя брать книги', async () => {
+    const { service, prisma } = setup({ lost: 1 })
+    const session = await service.resolveReader(librarian, 'qr-token', ctx)
+    expect(session.eligibility).toMatchObject({
+      canBorrow: false,
+      lostLoans: 1,
+      blockers: ['lost'],
+    })
+    // Погашенная утеря долгом не считается — в подсчёт попадают только без отметки.
+    expect(prisma.loan.count).toHaveBeenCalledWith({
+      where: { readerId: 'stu-1', status: 'LOST', lostSettledAt: null },
+    })
   })
 
   it('выдаёт только библиотекарь', async () => {
@@ -196,6 +217,7 @@ describe('LibraryLoansService — выдача', () => {
   it.each([
     [{ overdue: 1 }, 'overdue'],
     [{ open: 5 }, 'limit'],
+    [{ lost: 1 }, 'lost'],
   ])('читателю с %o не выдать: 409 %s', async (state, field) => {
     const { service } = setup(state)
     await expect(

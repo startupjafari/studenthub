@@ -89,6 +89,76 @@ struct LoanDTO: Decodable, Equatable, Identifiable {
     let disputedAt: Date?
     let book: LibraryBookRefDTO
     let copy: LibraryCopyRefDTO
+    /// Когда погашен долг по утерянной книге (заменили или возместили). Поле приходит не от
+    /// каждого сервера: старый его не знает — тогда `nil`, как и у непогашенного долга.
+    var lostSettledAt: Date? = nil
+
+    /// Утерянная книга без отметки «долг погашен» — долг читателя, как просрочка: закрывает
+    /// справку, выдачу и брони, пока библиотекарь не отметит погашение (PROJECT.md §3.11).
+    var isLostDebt: Bool { status == .lost && lostSettledAt == nil }
+}
+
+/// Справка «задолженностей в библиотеке нет» — на момент запроса (`GET /library/me/clearance`).
+///
+/// Разбор нарочно терпимый: справку открывают в очереди в деканат, и новое или пропавшее
+/// поле не должно превращать её в «Неожиданный ответ сервера». Чего нет — то пусто; только
+/// `clear` без значения считается «есть долги»: справку без подтверждения не показываем.
+struct LibraryClearanceDTO: Decodable, Equatable {
+    struct Reader: Decodable, Equatable {
+        var name = ""
+        var group: String?
+        var faculty: String?
+        var studentCardNumber: String?
+
+        private enum CodingKeys: String, CodingKey {
+            case name, group, faculty, studentCardNumber
+        }
+
+        init(name: String = "", group: String? = nil, faculty: String? = nil, studentCardNumber: String? = nil) {
+            self.name = name
+            self.group = group
+            self.faculty = faculty
+            self.studentCardNumber = studentCardNumber
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
+            group = try container.decodeIfPresent(String.self, forKey: .group)
+            faculty = try container.decodeIfPresent(String.self, forKey: .faculty)
+            studentCardNumber = try container.decodeIfPresent(String.self, forKey: .studentCardNumber)
+        }
+    }
+
+    /// Долгов нет: ни книг на руках, ни утерянных с непогашенным долгом.
+    let clear: Bool
+    /// Момент проверки. Сервер ставит его всегда; нет — экран покажет время ответа.
+    let checkedAt: Date?
+    let reader: Reader
+    let university: String
+    /// Долги: книги на руках и утерянные без погашения.
+    let loans: [LoanDTO]
+
+    private enum CodingKeys: String, CodingKey {
+        case clear, checkedAt, reader, university, loans
+    }
+
+    init(clear: Bool, checkedAt: Date?, reader: Reader, university: String, loans: [LoanDTO]) {
+        self.clear = clear
+        self.checkedAt = checkedAt
+        self.reader = reader
+        self.university = university
+        self.loans = loans
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        clear = try container.decodeIfPresent(Bool.self, forKey: .clear) ?? false
+        checkedAt = try container.decodeIfPresent(Date.self, forKey: .checkedAt)
+        reader = try container.decodeIfPresent(Reader.self, forKey: .reader) ?? Reader()
+        university = try container.decodeIfPresent(String.self, forKey: .university) ?? ""
+        loans = try container.decodeIfPresent([LoanDTO].self, forKey: .loans) ?? []
+    }
 }
 
 enum ReservationStatus: String, Decodable, Equatable {
@@ -167,6 +237,7 @@ protocol LibraryFetching: Sendable {
     func reserve(bookID: String) async throws -> ReservationDTO
     func myReservations() async throws -> [ReservationDTO]
     func cancelReservation(id: String) async throws -> ReservationDTO
+    func clearance() async throws -> LibraryClearanceDTO
 }
 
 struct LibraryAPI: LibraryFetching {
@@ -216,6 +287,11 @@ struct LibraryAPI: LibraryFetching {
 
     func cancelReservation(id: String) async throws -> ReservationDTO {
         try await client.send(.post("library/me/reservations/\(id)/cancel"), as: ReservationDTO.self)
+    }
+
+    /// Справка отвечает и при выключенной библиотеке: книги могли остаться на руках.
+    func clearance() async throws -> LibraryClearanceDTO {
+        try await client.send(.get("library/me/clearance"), as: LibraryClearanceDTO.self)
     }
 }
 

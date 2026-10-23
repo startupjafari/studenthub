@@ -92,6 +92,11 @@ export class MinioBucketsService implements OnModuleInit {
       await this.minio.setBucketPolicy(spec.name, publicReadPolicy(spec.name))
     }
 
+    // Правила `AbortIncompleteMultipartUpload` здесь нет намеренно: MinIO отвечает на него
+    // `InvalidArgument`, а `setBucketLifecycle` заменяет конфигурацию целиком — вместе с ним не
+    // встал бы и TTL сторис. Брошенные многочастные загрузки убирают встроенная уборка MinIO
+    // (`MINIO_API_STALE_UPLOADS_EXPIRY`) и ночная задача `sweepIncompleteUploads`
+    // (docs/RAILWAY.md §4, «Том под крупные файлы»).
     if (spec.expireDays !== undefined) {
       await this.minio.setBucketLifecycle(spec.name, {
         Rule: [

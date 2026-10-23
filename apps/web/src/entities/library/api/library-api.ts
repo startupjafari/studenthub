@@ -216,8 +216,20 @@ export async function markLoanLostRequest(id: string): Promise<LoanItem> {
   return data
 }
 
+/** Долг по утерянной книге погашен: читатель заменил книгу или возместил её стоимость. */
+export async function settleLostLoanRequest(id: string): Promise<LoanItem> {
+  const { data } = await api.post<LoanItem>(`/library/loans/${id}/lost/settle`)
+  return data
+}
+
 export async function cancelLoanRequest(id: string, reason: string): Promise<LoanItem> {
   const { data } = await api.post<LoanItem>(`/library/loans/${id}/cancel`, { reason })
+  return data
+}
+
+/** Отмена ошибочного возврата: выдача снова открыта с прежним сроком. */
+export async function cancelReturnRequest(id: string, reason: string): Promise<LoanItem> {
+  const { data } = await api.post<LoanItem>(`/library/loans/${id}/return/cancel`, { reason })
   return data
 }
 

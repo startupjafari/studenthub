@@ -5,6 +5,7 @@ import kz.studenthub.app.R
 import kz.studenthub.app.core.library.BookCardDto
 import kz.studenthub.app.core.library.BookRefDto
 import kz.studenthub.app.core.library.CopyRefDto
+import kz.studenthub.app.core.library.LibraryClearanceDto
 import kz.studenthub.app.core.library.LibraryApi
 import kz.studenthub.app.core.library.LibraryFetching
 import kz.studenthub.app.core.library.LibrarySettingsDto
@@ -21,6 +22,8 @@ import kz.studenthub.app.features.library.BookAction
 import kz.studenthub.app.features.library.BookModel
 import kz.studenthub.app.features.library.BookRef
 import kz.studenthub.app.features.library.CatalogModel
+import kz.studenthub.app.features.library.ClearanceModel
+import kz.studenthub.app.features.library.ClearanceSummary
 import kz.studenthub.app.features.library.LibraryBadge
 import kz.studenthub.app.features.library.LibraryErrors
 import kz.studenthub.app.features.library.MyBooksModel
@@ -103,6 +106,29 @@ class LibraryRulesTest {
         assertEquals(UiText.Res(R.string.books_overdueSince, listOf("2026-11-05")), overdue.text)
         assertEquals(LibraryBadge.Tone.DESTRUCTIVE, overdue.tone)
         assertEquals(UiText.Res(R.string.books_loanReturned), LibraryBadge.loan(loan("l1", "b1", status = "RETURNED"), format).text)
+    }
+
+    /** Утерянная: без погашения — «Утеряна», погашенная — спокойное «долг погашен». */
+    @Test
+    fun lostLoanBadgeFollowsSettlement() {
+        val format = { day: LocalDate -> day.toString() }
+        val lost = LibraryBadge.loan(loan("l1", "b1", status = "LOST"), format)
+        assertEquals(UiText.Res(R.string.books_loanLost), lost.text)
+        assertEquals(LibraryBadge.Tone.DESTRUCTIVE, lost.tone)
+        val settled = LibraryBadge.loan(loan("l1", "b1", status = "LOST").copy(lostSettledAt = Instant.EPOCH), format)
+        assertEquals(UiText.Res(R.string.books_loanLostSettled), settled.text)
+        assertEquals(LibraryBadge.Tone.NEUTRAL, settled.tone)
+    }
+
+    /** В справке утерянная — долг, книга на руках — её срок. */
+    @Test
+    fun debtBadge() {
+        val format = { day: LocalDate -> day.toString() }
+        assertEquals(UiText.Res(R.string.books_loanLostDebt), LibraryBadge.debt(loan("l1", "b1", status = "LOST"), format).text)
+        assertEquals(
+            UiText.Res(R.string.books_overdueSince, listOf("2026-11-05")),
+            LibraryBadge.debt(loan("l1", "b1", overdue = true), format).text,
+        )
     }
 
     @Test
@@ -256,6 +282,80 @@ class MyBooksModelTest {
     }
 }
 
+private fun clearance(clear: Boolean, loans: List<LoanDto> = emptyList(), checkedAt: Instant? = Instant.EPOCH) =
+    LibraryClearanceDto(
+        clear = clear,
+        checkedAt = checkedAt,
+        reader = LibraryClearanceDto.Reader(name = "Иванов Иван", group = "ИС-21"),
+        university = "КазНУ",
+        loans = loans,
+    )
+
+class ClearanceSummaryTest {
+    @Test
+    fun clearWithoutDebts() {
+        val summary = ClearanceSummary.of(clearance(clear = true))
+        assertTrue(summary.isClear)
+        assertEquals(0, summary.lostDebts)
+        assertEquals(Instant.EPOCH, summary.checkedAt)
+    }
+
+    /** Долги в ответе — справки нет, даже если `clear` пришёл `true`. */
+    @Test
+    fun debtsOverrideClearFlag() {
+        val summary = ClearanceSummary.of(clearance(clear = true, loans = listOf(loan("l1", "b1"))))
+        assertFalse(summary.isClear)
+        assertEquals(listOf("l1"), summary.debts.map { it.id })
+    }
+
+    /** Утерянная в справке — долг, даже если сервер ещё не присылает `lostSettledAt`. */
+    @Test
+    fun lostDebtsAreCounted() {
+        val summary = ClearanceSummary.of(clearance(clear = false, loans = listOf(loan("l1", "b1"), loan("l2", "b2", status = "LOST"))))
+        assertFalse(summary.isClear)
+        assertEquals(1, summary.lostDebts)
+    }
+
+    /** Нет момента проверки — берём момент ответа. */
+    @Test
+    fun missingCheckedAtUsesReceivedAt() {
+        val received = Instant.parse("2026-10-23T09:00:00Z")
+        assertEquals(received, ClearanceSummary.of(clearance(clear = true, checkedAt = null), receivedAt = received).checkedAt)
+    }
+}
+
+class ClearanceModelTest {
+    @Test
+    fun refreshLoadsSummary() = runTest {
+        val model = ClearanceModel(StubLibrary(clearance = clearance(clear = true)))
+        model.refresh()
+        assertEquals(true, model.summary?.isClear)
+        assertNull(model.failure)
+        assertFalse(model.isLoading)
+    }
+
+    @Test
+    fun debtsAreListed() = runTest {
+        val model = ClearanceModel(StubLibrary(clearance = clearance(clear = false, loans = listOf(loan("l1", "b1", overdue = true)))))
+        model.refresh()
+        assertEquals(false, model.summary?.isClear)
+        assertEquals(listOf("l1"), model.summary?.debts?.map { it.id })
+    }
+
+    /** Отказ — ошибка вместо справки: прошлое «задолженностей нет» не выдаём за свежее. */
+    @Test
+    fun failureDropsStaleSummary() = runTest {
+        val api = StubLibrary(clearance = clearance(clear = true))
+        val model = ClearanceModel(api)
+        model.refresh()
+        assertNotNull(model.summary)
+        api.clearanceFailure = ApiError.Server(ApiErrorCode.INTERNAL_ERROR, "сбой", emptyList(), 500)
+        model.refresh()
+        assertNull(model.summary)
+        assertEquals(UiText.Raw("сбой"), model.failure)
+    }
+}
+
 /** Библиотека в памяти: каталог постранично, свои выдачи и брони. */
 private class StubLibrary(
     private val books: List<BookCardDto> = emptyList(),
@@ -263,8 +363,10 @@ private class StubLibrary(
     private val reservations: List<ReservationDto> = emptyList(),
     private val failure: Exception? = null,
     private val reserveError: Exception? = null,
+    private val clearance: LibraryClearanceDto = LibraryClearanceDto(clear = true),
 ) : LibraryFetching {
     val calls = mutableListOf<String>()
+    var clearanceFailure: Exception? = null
 
     override suspend fun settings() = LibrarySettingsDto(enabled = true)
 
@@ -306,6 +408,11 @@ private class StubLibrary(
     }
 
     override suspend fun cancelReservation(id: String) = reservations.first { it.id == id }.copy(status = "CANCELLED")
+
+    override suspend fun clearance(): LibraryClearanceDto {
+        clearanceFailure?.let { throw it }
+        return clearance
+    }
 }
 
 class LibraryRequestTest {
@@ -394,6 +501,66 @@ class LibraryRequestTest {
         )
         assertEquals("b1", api.bookByCopyCode("K7Q2").id)
         assertEquals("/api/v1/library/copies/by-code/K7Q2", server.takeRequest().target)
+    }
+
+    /**
+     * Справка: долг на руках (без `lostSettledAt`, как на сервере до учёта утерянных) и
+     * утерянный с `lostSettledAt: null`; лишние поля разбор не роняют.
+     */
+    @Test
+    fun clearanceIsDecoded() = runTest {
+        server.enqueue(
+            MockResponse.Builder().code(200).body(
+                """{"success":true,"data":{"clear":false,"checkedAt":"2026-10-23T09:15:00.123Z",
+                "reader":{"name":"Иванов Иван Петрович","group":"ИС-21","faculty":"ИТ","studentCardNumber":"123456"},
+                "university":"КазНУ","somethingNew":{"a":1},"loans":[
+                {"id":"l1","status":"OPEN","issuedAt":"2026-10-01T09:00:00.000Z","dueAt":"2026-10-15T18:59:59.999Z",
+                "dueDate":"2026-10-15","overdue":true,"renewals":0,"returnedAt":null,"cancelledAt":null,"cancelReason":null,
+                "disputedAt":null,"book":{"id":"b1","title":"Алгебра","authors":"Кострикин","coverUrl":null},
+                "copy":{"id":"c1","inventoryNumber":"000123"},"reader":{"id":"u1","name":"Иванов Иван","group":"ИС-21","card":null},
+                "issuedBy":"Петрова"},
+                {"id":"l2","status":"LOST","issuedAt":"2026-09-01T09:00:00.000Z","dueDate":"2026-09-15","overdue":false,
+                "lostSettledAt":null,"book":{"id":"b2","title":"Геометрия","authors":"","coverUrl":null},
+                "copy":{"id":"c2","inventoryNumber":"000456"}}]}}""",
+            ).build(),
+        )
+        val clearance = api.clearance()
+        assertEquals("/api/v1/library/me/clearance", server.takeRequest().target)
+        assertFalse(clearance.clear)
+        assertEquals(Instant.parse("2026-10-23T09:15:00.123Z"), clearance.checkedAt)
+        assertEquals("Иванов Иван Петрович", clearance.reader.name)
+        assertEquals("ИС-21", clearance.reader.group)
+        assertEquals("КазНУ", clearance.university)
+        assertEquals(listOf("OPEN", "LOST"), clearance.loans.map { it.status })
+        assertFalse(clearance.loans[0].isLostDebt)
+        assertTrue(clearance.loans[1].isLostDebt)
+        assertNull(clearance.loans[1].lostSettledAt)
+    }
+
+    /** Пропавшие поля — значения по умолчанию; `clear` без значения — «не подтверждено». */
+    @Test
+    fun clearanceToleratesMissingFields() = runTest {
+        server.enqueue(MockResponse.Builder().code(200).body("""{"success":true,"data":{}}""").build())
+        val clearance = api.clearance()
+        assertFalse(clearance.clear)
+        assertNull(clearance.checkedAt)
+        assertEquals("", clearance.reader.name)
+        assertTrue(clearance.loans.isEmpty())
+    }
+
+    /** Погашенный долг по утерянной книге — уже не долг. */
+    @Test
+    fun settledLostLoanIsNotDebt() = runTest {
+        server.enqueue(
+            MockResponse.Builder().code(200).body(
+                """{"success":true,"data":[{"id":"l1","status":"LOST","issuedAt":"2026-10-01T09:00:00.000Z",
+                "dueDate":"2026-10-15","lostSettledAt":"2026-10-20T10:00:00.000Z",
+                "book":{"id":"b1","title":"Алгебра","authors":"","coverUrl":null},"copy":{"id":"c1","inventoryNumber":"000123"}}]}""",
+            ).build(),
+        )
+        val loan = api.myLoans().single()
+        assertNotNull(loan.lostSettledAt)
+        assertFalse(loan.isLostDebt)
     }
 
     @Test

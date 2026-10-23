@@ -339,12 +339,27 @@ export type RenewLoanInput = z.infer<typeof RenewLoanSchema>
 export const CancelLoanSchema = z.object({ reason: z.string().trim().min(3).max(300) }).strict()
 export type CancelLoanInput = z.infer<typeof CancelLoanSchema>
 
+/** Отмена ошибочного возврата — тоже с причиной, тело как у отмены выдачи. */
+export const CancelReturnSchema = CancelLoanSchema
+export type CancelReturnInput = CancelLoanInput
+
+/**
+ * Сколько часов после возврата его можно отменить. Ошибочный приём (отсканировали не ту
+ * наклейку, приняли чужую книгу) замечают у стойки или на следующей смене — суток хватает.
+ * Дальше отмена правила бы уже сложившуюся картину: экземпляр мог побывать на полке, в
+ * инвентаризации, у читателя в руках, — такое оформляют обычной выдачей, а не откатом.
+ */
+export const LIBRARY_RETURN_CANCEL_HOURS = 24
+
 export const LOAN_STATUSES = ['OPEN', 'RETURNED', 'LOST', 'CANCELLED'] as const
 export const LoanStatusSchema = z.enum(LOAN_STATUSES)
 export type LoanStatusValue = z.infer<typeof LoanStatusSchema>
 
-/** Фильтр выдач: на руках, просроченные (на руках со вчерашним сроком), закрытые, все. */
-export const LOAN_FILTERS = ['open', 'overdue', 'closed', 'all'] as const
+/**
+ * Фильтр выдач: на руках, просроченные (на руках со вчерашним сроком), утерянные с
+ * непогашенным долгом, закрытые, все.
+ */
+export const LOAN_FILTERS = ['open', 'overdue', 'lost', 'closed', 'all'] as const
 export const LoanListQuerySchema = z.object({
   page: z.coerce.number().int().positive().default(1),
   limit: z.coerce.number().int().positive().max(100).default(20),
@@ -355,8 +370,8 @@ export const LoanListQuerySchema = z.object({
 })
 export type LoanListQueryInput = z.infer<typeof LoanListQuerySchema>
 
-/** Почему читателю сейчас не выдать книгу. */
-export const READER_BLOCKERS = ['status', 'limit', 'overdue'] as const
+/** Почему читателю сейчас не выдать книгу: `lost` — утерянная книга, долг не погашен. */
+export const READER_BLOCKERS = ['status', 'limit', 'overdue', 'lost'] as const
 export type ReaderBlocker = (typeof READER_BLOCKERS)[number]
 
 /** Читатель глазами библиотеки: узкая карточка, как у охраны (без даты рождения и т. п.). */
@@ -378,6 +393,8 @@ export interface ReaderEligibility {
   activeLoans: number
   maxActiveLoans: number
   overdueLoans: number
+  /** Утерянные книги с непогашенным долгом. */
+  lostLoans: number
   blockers: ReaderBlocker[]
 }
 
@@ -394,6 +411,11 @@ export interface LoanItem {
   cancelledAt: string | null
   cancelReason: string | null
   disputedAt: string | null
+  /**
+   * Когда погашен долг по утерянной книге (заменили или возместили). У `LOST` без отметки —
+   * `null`: такая выдача — долг читателя, как просрочка.
+   */
+  lostSettledAt: string | null
   book: { id: string; title: string; authors: string; coverUrl: string | null }
   copy: { id: string; inventoryNumber: string }
   reader: { id: string | null; name: string; group: string | null; card: string | null }
@@ -506,14 +528,16 @@ export interface LibraryDebts {
   readerName: string
   /** Библиотека вуза включена; выключена — долги всё равно показываются, если остались. */
   enabled: boolean
-  /** Ни одной книги на руках. */
+  /** Ни одной книги на руках и ни одной утерянной с непогашенным долгом. */
   clear: boolean
+  /** Долги: открытые выдачи и утерянные непогашенные. */
   loans: LoanItem[]
   activeReservations: number
 }
 
 /** Справка «задолженностей в библиотеке нет» — студенту, на момент запроса. */
 export interface LibraryClearance {
+  /** Долгов нет: ни книг на руках, ни утерянных с непогашенным долгом. */
   clear: boolean
   checkedAt: string
   reader: {

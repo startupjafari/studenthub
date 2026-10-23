@@ -321,7 +321,166 @@ final class MyBooksModelTests: XCTestCase {
     }
 }
 
+/// Справка `GET /library/me/clearance`: разбор терпит новые и пропавшие поля, а утерянная
+/// книга без погашения (ветка lost-debt на сервере) — долг, как книга на руках.
+final class LibraryClearanceContractTests: XCTestCase {
+    func testClearClearanceDecodes() throws {
+        let json = Data(
+            """
+            {"success":true,"data":{"clear":true,"checkedAt":"2026-10-23T09:15:00.123Z",
+            "reader":{"name":"Серик Аян Нурланович","group":"ИС-21","faculty":"Информационные технологии",
+            "studentCardNumber":"123456"},"university":"КазНУ","loans":[],"somethingNew":{"a":1}}}
+            """.utf8
+        )
+
+        let clearance = try JSONCoding.decoder.decode(APISuccessEnvelope<LibraryClearanceDTO>.self, from: json).data
+
+        XCTAssertTrue(clearance.clear)
+        XCTAssertNotNil(clearance.checkedAt)
+        XCTAssertEqual(clearance.reader.name, "Серик Аян Нурланович")
+        XCTAssertEqual(clearance.reader.group, "ИС-21")
+        XCTAssertEqual(clearance.university, "КазНУ")
+        XCTAssertTrue(clearance.loans.isEmpty)
+    }
+
+    /// Долги: книга на руках (сервер develop) и утерянная без погашения (`lostSettledAt: null`).
+    func testDebtsDecodeWithAndWithoutLostField() throws {
+        let json = Data(
+            """
+            {"clear":false,"checkedAt":"2026-10-23T09:15:00.000Z",
+            "reader":{"name":"Серик Аян","group":null,"faculty":null,"studentCardNumber":null},
+            "university":"КазНУ","loans":[
+            {"id":"l-1","status":"OPEN","issuedAt":"2026-10-01T09:15:00.000Z","dueDate":"2026-10-15",
+            "overdue":true,"disputedAt":null,"book":{"id":"b-1","title":"Алгоритмы","authors":"Кормен","coverUrl":null},
+            "copy":{"id":"c-1","inventoryNumber":"000123"}},
+            {"id":"l-2","status":"LOST","issuedAt":"2026-09-01T09:15:00.000Z","dueDate":"2026-09-15",
+            "overdue":false,"disputedAt":null,"lostSettledAt":null,
+            "book":{"id":"b-2","title":"Матанализ","authors":"","coverUrl":null},
+            "copy":{"id":"c-2","inventoryNumber":"000456"}}]}
+            """.utf8
+        )
+
+        let clearance = try JSONCoding.decoder.decode(LibraryClearanceDTO.self, from: json)
+
+        XCTAssertFalse(clearance.clear)
+        XCTAssertNil(clearance.reader.group)
+        XCTAssertEqual(clearance.loans.map(\.status), [.open, .lost])
+        XCTAssertNil(clearance.loans[0].lostSettledAt)
+        XCTAssertFalse(clearance.loans[0].isLostDebt)
+        XCTAssertTrue(clearance.loans[1].isLostDebt)
+    }
+
+    /// Пропавшие поля не роняют разбор; `clear` без значения — «не подтверждено».
+    func testMissingFieldsFallBack() throws {
+        let clearance = try JSONCoding.decoder.decode(LibraryClearanceDTO.self, from: Data("{}".utf8))
+
+        XCTAssertFalse(clearance.clear)
+        XCTAssertNil(clearance.checkedAt)
+        XCTAssertEqual(clearance.reader.name, "")
+        XCTAssertEqual(clearance.university, "")
+        XCTAssertTrue(clearance.loans.isEmpty)
+    }
+
+    /// Погашенный долг по утерянной книге — уже не долг.
+    func testSettledLostLoanIsNotDebt() throws {
+        let json = Data(
+            """
+            {"id":"l-1","status":"LOST","issuedAt":"2026-10-01T09:15:00.000Z","dueDate":"2026-10-15",
+            "overdue":false,"disputedAt":null,"lostSettledAt":"2026-10-20T10:00:00.000Z",
+            "book":{"id":"b-1","title":"Алгоритмы","authors":"Кормен","coverUrl":null},
+            "copy":{"id":"c-1","inventoryNumber":"000123"}}
+            """.utf8
+        )
+
+        let loan = try JSONCoding.decoder.decode(LoanDTO.self, from: json)
+
+        XCTAssertNotNil(loan.lostSettledAt)
+        XCTAssertFalse(loan.isLostDebt)
+    }
+}
+
+final class ClearanceSummaryTests: XCTestCase {
+    func testClearWithoutDebts() {
+        let checked = Date(timeIntervalSince1970: 1_792_000_000)
+        let summary = ClearanceSummary(clearance(clear: true, loans: [], checkedAt: checked))
+
+        XCTAssertTrue(summary.isClear)
+        XCTAssertEqual(summary.lostDebts, 0)
+        XCTAssertEqual(summary.checkedAt, checked)
+    }
+
+    /// Долги в ответе — справки нет, даже если `clear` пришёл `true`.
+    func testDebtsOverrideClearFlag() {
+        let summary = ClearanceSummary(clearance(clear: true, loans: [loan(id: "l-1", status: .open)]))
+
+        XCTAssertFalse(summary.isClear)
+        XCTAssertEqual(summary.debts.map(\.id), ["l-1"])
+    }
+
+    /// Утерянная в справке — долг, даже если старый сервер не прислал `lostSettledAt`.
+    func testLostDebtsAreCounted() {
+        let summary = ClearanceSummary(clearance(
+            clear: false,
+            loans: [loan(id: "l-1", status: .open), loan(id: "l-2", status: .lost)]
+        ))
+
+        XCTAssertFalse(summary.isClear)
+        XCTAssertEqual(summary.lostDebts, 1)
+    }
+
+    /// Нет момента проверки — берём момент ответа, а не пустую строку в сведениях.
+    func testMissingCheckedAtUsesReceivedAt() {
+        let received = Date(timeIntervalSince1970: 1_792_000_000)
+
+        let summary = ClearanceSummary(clearance(clear: true, loans: [], checkedAt: nil), receivedAt: received)
+
+        XCTAssertEqual(summary.checkedAt, received)
+    }
+}
+
+@MainActor
+final class LibraryClearanceModelTests: XCTestCase {
+    func testRefreshLoadsSummary() async {
+        let api = StubLibrary()
+        api.clearanceResult = clearance(clear: true, loans: [])
+        let model = LibraryClearanceModel(api: api)
+
+        await model.refresh()
+
+        XCTAssertEqual(model.summary?.isClear, true)
+        XCTAssertNil(model.failure)
+    }
+
+    /// Отказ — ошибка вместо справки: прошлое «задолженностей нет» не выдаём за свежее.
+    func testFailureDropsStaleSummary() async {
+        let api = StubLibrary()
+        api.clearanceResult = clearance(clear: true, loans: [])
+        let model = LibraryClearanceModel(api: api)
+        await model.refresh()
+
+        api.clearanceResult = nil
+        await model.refresh()
+
+        XCTAssertNil(model.summary)
+        XCTAssertNotNil(model.failure)
+    }
+}
+
 // MARK: - Заготовки
+
+private func clearance(
+    clear: Bool,
+    loans: [LoanDTO],
+    checkedAt: Date? = Date(timeIntervalSince1970: 1_792_000_000)
+) -> LibraryClearanceDTO {
+    LibraryClearanceDTO(
+        clear: clear,
+        checkedAt: checkedAt,
+        reader: LibraryClearanceDTO.Reader(name: "Серик Аян", group: "ИС-21"),
+        university: "КазНУ",
+        loans: loans
+    )
+}
 
 private func availability(available: Int, total: Int) -> BookAvailabilityDTO {
     BookAvailabilityDTO(total: total, available: available, onLoan: total - available, reserved: 0)
@@ -368,6 +527,8 @@ private final class StubLibrary: LibraryFetching, @unchecked Sendable {
     var loans: [LoanDTO] = []
     var reservations: [ReservationDTO] = []
     var disputed: LoanDTO?
+    /// Ответ справки; `nil` — сервер отказал.
+    var clearanceResult: LibraryClearanceDTO?
     private(set) var cancelled: [String] = []
 
     func settings() async throws -> LibrarySettingsDTO { LibrarySettingsDTO(enabled: true) }
@@ -401,5 +562,12 @@ private final class StubLibrary: LibraryFetching, @unchecked Sendable {
     func cancelReservation(id: String) async throws -> ReservationDTO {
         lock.withLock { cancelled.append(id) }
         return reservation(id: id, status: .cancelled)
+    }
+
+    func clearance() async throws -> LibraryClearanceDTO {
+        try lock.withLock {
+            guard let clearanceResult else { throw APIError.malformedResponse(statusCode: 500) }
+            return clearanceResult
+        }
     }
 }

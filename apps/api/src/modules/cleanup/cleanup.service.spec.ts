@@ -125,6 +125,17 @@ function makeService() {
     remindDue: jest.fn(async () => ({ dueSoon: 0, dueToday: 0, overdue: 0 })) as Mock,
   }
   const libraryReservations = { expireDue: jest.fn(async () => 0) as Mock }
+  // Сроки хранения ПДн: cron только делегирует с флагом dry-run, отбор — в pd-retention.service.spec.ts.
+  const retention = {
+    purgeClosedLoans: jest.fn(async () => ({ Loan: 0 })) as Mock,
+    purgeViewLogs: jest.fn(async () => ({})) as Mock,
+    purgeDepartedAcademicRecords: jest.fn(async () => ({})) as Mock,
+    purgeDepartedApplications: jest.fn(async () => ({})) as Mock,
+    purgeDepartedMessages: jest.fn(async () => ({})) as Mock,
+    purgeDepartedDocuments: jest.fn(async () => ({})) as Mock,
+    purgeDepartedProfiles: jest.fn(async () => ({})) as Mock,
+    purgeAccountTombstones: jest.fn(async () => ({})) as Mock,
+  }
   const service = new CleanupService(
     prisma as never,
     minio as never,
@@ -149,8 +160,10 @@ function makeService() {
     users as never,
     libraryReminders as never,
     libraryReservations as never,
+    retention as never,
   )
   return {
+    retention,
     companies,
     applications,
     documentRequests,
@@ -1065,6 +1078,55 @@ describe('CleanupService.purgeUnverifiedEmployers', () => {
     await expect(service.purgeUnverifiedEmployers()).resolves.toBeNull()
     expect(locks.run).not.toHaveBeenCalled()
     expect(companies.purgeUnverified).not.toHaveBeenCalled()
+  })
+})
+
+describe('CleanupService — сроки хранения ПДн', () => {
+  const tasks = [
+    'purgeClosedLoans',
+    'purgeViewLogs',
+    'purgeDepartedAcademicRecords',
+    'purgeDepartedApplications',
+    'purgeDepartedMessages',
+    'purgeDepartedDocuments',
+    'purgeDepartedProfiles',
+    'purgeAccountTombstones',
+  ] as const
+
+  it.each(tasks)('%s: без флага — dry-run под своим локом', async (task) => {
+    const { service, retention, locks, config } = makeService()
+    config.get.mockImplementation((k: string) => (k === 'PD_RETENTION_ENABLED' ? false : k))
+
+    await service[task]()
+
+    expect(locks.run.mock.calls[0][0]).toBe(task)
+    expect(retention[task]).toHaveBeenCalledWith(true)
+  })
+
+  it.each(tasks)('%s: PD_RETENTION_ENABLED=true — удаляет', async (task) => {
+    const { service, retention, config } = makeService()
+    config.get.mockImplementation((k: string) => (k === 'PD_RETENTION_ENABLED' ? true : k))
+
+    await service[task]()
+
+    expect(retention[task]).toHaveBeenCalledWith(false)
+  })
+
+  it('флаг не задан строго как true (опечатка, строка) — остаётся dry-run', async () => {
+    const { service, retention, config } = makeService()
+    config.get.mockImplementation((k: string) => (k === 'PD_RETENTION_ENABLED' ? 'true' : k))
+
+    await service.purgeDepartedMessages()
+
+    expect(retention.purgeDepartedMessages).toHaveBeenCalledWith(true)
+  })
+
+  it('лок занят — задача не идёт', async () => {
+    const { service, retention, locks } = makeService()
+    locks.run.mockResolvedValue(null)
+
+    await expect(service.purgeDepartedProfiles()).resolves.toBeNull()
+    expect(retention.purgeDepartedProfiles).not.toHaveBeenCalled()
   })
 })
 

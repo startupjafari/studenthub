@@ -101,7 +101,14 @@ struct LoanDueBadge: View {
         case .returned:
             LibraryBadge(text: String(localized: "library.statusReturned", defaultValue: "Возвращена"), tone: .neutral)
         case .lost:
-            LibraryBadge(text: String(localized: "library.statusLost", defaultValue: "Утеряна"), tone: .destructive)
+            if loan.lostSettledAt != nil {
+                LibraryBadge(
+                    text: String(localized: "library.statusLostSettled", defaultValue: "Утеряна, долг погашен"),
+                    tone: .neutral
+                )
+            } else {
+                LibraryBadge(text: String(localized: "library.statusLost", defaultValue: "Утеряна"), tone: .destructive)
+            }
         case .cancelled:
             LibraryBadge(text: String(localized: "library.statusCancelled", defaultValue: "Отменена"), tone: .neutral)
         case .open, .unknown:

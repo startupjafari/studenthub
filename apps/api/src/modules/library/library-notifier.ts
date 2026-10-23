@@ -5,7 +5,9 @@ import { NOTIFICATION_JOBS, QUEUES } from '../../common/queue/queue.constants'
 
 // Уведомления библиотеки (Фаза 20): тексты — словарные статьи `library.*` (shared-config),
 // доставка — общей очередью уведомлений (WS, push, письмо офлайн-получателю). Ключ дедупа на
-// событие: повтор job'а не шлёт второе уведомление.
+// событие: повтор job'а не шлёт второе уведомление. `send` говорит, поставлено ли
+// уведомление в очередь: напоминания и «бронь готова» ставят отметку «отправлено» только
+// после успешной постановки, иначе упавший Redis терял бы их навсегда.
 
 export type LibraryJob =
   | typeof NOTIFICATION_JOBS.LIBRARY_LOAN
@@ -26,9 +28,10 @@ export interface LibraryNotice {
 export class LibraryNotifier {
   constructor(private readonly queue: QueueService) {}
 
-  async send(notice: LibraryNotice): Promise<void> {
-    if (notice.recipientIds.length === 0) return
-    await this.queue.enqueue(
+  async send(notice: LibraryNotice): Promise<boolean> {
+    // Слать некому — и терять нечего.
+    if (notice.recipientIds.length === 0) return true
+    return this.queue.enqueue(
       QUEUES.NOTIFICATIONS,
       notice.job,
       {

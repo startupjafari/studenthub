@@ -80,8 +80,19 @@ data class LoanDto(
     val book: BookRefDto,
     val copy: CopyRefDto,
     val issuedBy: String? = null,
+    /**
+     * Когда погашен долг по утерянной книге (заменили или возместили). Сервер без учёта
+     * утерянных долгов поля не присылает — тогда `null`, как у непогашенного.
+     */
+    @Serializable(InstantSerializer::class) val lostSettledAt: Instant? = null,
 ) {
     val isOpen: Boolean get() = status == "OPEN"
+
+    /**
+     * Утерянная книга без отметки «долг погашен» — долг читателя, как просрочка: закрывает
+     * справку, выдачу и брони, пока библиотекарь не отметит погашение (PROJECT.md §3.11).
+     */
+    val isLostDebt: Boolean get() = status == "LOST" && lostSettledAt == null
 
     val dueDay: LocalDate? get() = runCatching { LocalDate.parse(dueDate) }.getOrNull()
 }
@@ -109,6 +120,30 @@ data class ReservationDto(
     val holdDay: LocalDate? get() = holdDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
 }
 
+/**
+ * Справка «задолженностей в библиотеке нет» на момент запроса (`GET /library/me/clearance`).
+ * Все поля со значениями по умолчанию: справку открывают в очереди в деканат, и пропавшее
+ * поле не должно превращать её в ошибку разбора. `clear` без значения — «есть долги»:
+ * неподтверждённую справку не показываем.
+ */
+@Serializable
+data class LibraryClearanceDto(
+    val clear: Boolean = false,
+    @Serializable(InstantSerializer::class) val checkedAt: Instant? = null,
+    val reader: Reader = Reader(),
+    val university: String = "",
+    /** Долги: книги на руках и утерянные без погашения. */
+    val loans: List<LoanDto> = emptyList(),
+) {
+    @Serializable
+    data class Reader(
+        val name: String = "",
+        val group: String? = null,
+        val faculty: String? = null,
+        val studentCardNumber: String? = null,
+    )
+}
+
 /** Наклейка экземпляра: читателю приходят экземпляр без выдачи и книга — нужна только книга. */
 @Serializable
 data class CopyByCodeDto(val book: BookCardDto)
@@ -133,6 +168,8 @@ interface LibraryFetching {
     suspend fun myReservations(): List<ReservationDto>
 
     suspend fun cancelReservation(id: String): ReservationDto
+
+    suspend fun clearance(): LibraryClearanceDto
 }
 
 class LibraryApi(private val client: ApiClient) : LibraryFetching {
@@ -175,4 +212,8 @@ class LibraryApi(private val client: ApiClient) : LibraryFetching {
 
     override suspend fun cancelReservation(id: String): ReservationDto =
         client.send(Endpoint.post("library/me/reservations/$id/cancel"), ReservationDto.serializer())
+
+    /** Справка отвечает и при выключенной библиотеке: книги могли остаться на руках. */
+    override suspend fun clearance(): LibraryClearanceDto =
+        client.send(Endpoint.get("library/me/clearance"), LibraryClearanceDto.serializer())
 }
