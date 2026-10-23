@@ -232,6 +232,13 @@ export const STAROSTA_NAV: NavItem[] = [
     icon: ClipboardList,
     group: 'starosta',
   },
+  // Кто из группы сдал комплект по запросу документов — без самих документов.
+  {
+    key: 'groupDocuments',
+    href: '/starosta/group-documents',
+    icon: FolderLock,
+    group: 'starosta',
+  },
   { key: 'invites', href: '/starosta/invites', icon: Send, group: 'starosta' },
 ]
 
