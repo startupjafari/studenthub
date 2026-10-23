@@ -290,6 +290,23 @@ describe('VacanciesService — правка опубликованной вак�
   })
 })
 
+describe('VacanciesService — просмотры', () => {
+  it('просмотр считается у студента, но не у сотрудника вуза', async () => {
+    const { service, prisma } = setup()
+    prisma.vacancy.findFirst.mockResolvedValue({ id: 'v-1' })
+
+    await service.byIdForStudent(student(), 'v-1')
+    expect(prisma.vacancy.update).toHaveBeenCalledWith({
+      where: { id: 'v-1' },
+      data: { views: { increment: 1 } },
+    })
+
+    prisma.vacancy.update.mockClear()
+    await service.byIdForStudent(staff(), 'v-1')
+    expect(prisma.vacancy.update).not.toHaveBeenCalled()
+  })
+})
+
 describe('VacanciesService — фильтр зарплаты', () => {
   it('«от N» учитывает и вакансии без верхней границы', async () => {
     const { service, prisma } = setup()

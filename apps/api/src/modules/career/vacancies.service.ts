@@ -15,7 +15,7 @@ import {
   VACANCY_REVIEWED_FIELDS,
 } from '@studenthub/shared-schemas'
 import { AppException } from '../../common/exceptions/app.exception'
-import { resolveUniversityScope } from './career-scope'
+import { CAREER_STUDENT_ROLES, resolveUniversityScope } from './career-scope'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AuditService } from '../../common/audit/audit.service'
 import { Paginated } from '../../common/http/paginated'
@@ -374,7 +374,11 @@ export class VacanciesService {
     if (!vacancy) throw new AppException('NOT_FOUND', 'Вакансия не найдена')
 
     // Счётчик просмотров — не в транзакции и без ожидания консистентности: это метрика.
-    await this.prisma.vacancy.update({ where: { id }, data: { views: { increment: 1 } } })
+    // Считаем только студентов: просмотры — знаменатель «отклик на просмотр» в метриках
+    // компании, а модератор, декан или платформа откликнуться не могут и лишь занижали бы его.
+    if (CAREER_STUDENT_ROLES.includes(viewer.role)) {
+      await this.prisma.vacancy.update({ where: { id }, data: { views: { increment: 1 } } })
+    }
     return vacancy
   }
 
