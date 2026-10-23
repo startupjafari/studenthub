@@ -1,7 +1,7 @@
 import { Role } from '@studenthub/shared-types'
 import { DocumentListQuerySchema } from '@studenthub/shared-schemas'
 import type { ConfigService } from '@nestjs/config'
-import { DocumentsService } from './documents.service'
+import { DocumentsService, nextDocumentStatus, reviewVerdict } from './documents.service'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { FileService } from '../files/file.service'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
@@ -747,10 +747,13 @@ describe('DocumentsService — подтверждение вуза снимае�
     await service.update(actor(), 'd1', { comment: 'заметка' })
     expect(prisma.document.updateMany).not.toHaveBeenCalled()
 
+    prisma.document.findMany.mockResolvedValue([
+      { id: 'd1', status: 'VERIFIED', rejectionReason: null, submissionItems: [] },
+    ])
     await service.update(actor(), 'd1', { title: 'IELTS 7.5' })
     expect(prisma.document.updateMany).toHaveBeenCalledWith({
       where: { id: 'd1', status: 'VERIFIED' },
-      data: { status: 'UPLOADED' },
+      data: { status: 'UPLOADED', rejectionReason: null },
     })
   })
 })
@@ -780,12 +783,123 @@ describe('DocumentsService — спец-режим: метаданные с пр
   })
 })
 
+describe('статус документа по вердиктам проверки (15.3)', () => {
+  const item = (status: string, sub = 'SUBMITTED', req = 'OPEN', reason: string | null = null) => ({
+    status,
+    rejectionReason: reason,
+    reviewedAt: new Date(),
+    submission: { status: sub, request: { status: req } },
+  })
+
+  it('документ в нескольких запросах — худший вердикт главнее', () => {
+    expect(reviewVerdict([item('ACCEPTED', 'ACCEPTED'), item('PENDING')]).status).toBe('IN_REVIEW')
+    expect(
+      reviewVerdict([
+        item('ACCEPTED', 'ACCEPTED'),
+        item('REJECTED', 'REJECTED', 'OPEN', 'нечётко'),
+      ]),
+    ).toEqual({ status: 'NEEDS_REPLACEMENT', reason: 'нечётко' })
+    expect(reviewVerdict([item('ACCEPTED', 'ACCEPTED')]).status).toBe('ACCEPTED')
+  })
+
+  it('черновик комплекта — не проверка; вердикты закрытых запросов не пересчитывают статус', () => {
+    expect(reviewVerdict([item('PENDING', 'DRAFT')]).status).toBeNull()
+    expect(reviewVerdict([item('REJECTED', 'REJECTED', 'CLOSED')]).status).toBeNull()
+    // Отправленное в закрытом запросе ещё проверяют.
+    expect(reviewVerdict([item('PENDING', 'SUBMITTED', 'CLOSED')]).status).toBe('IN_REVIEW')
+  })
+
+  it('после правки содержимого прежние вердикты не считаются', () => {
+    expect(reviewVerdict([item('REJECTED', 'REJECTED')], true).status).toBeNull()
+    expect(reviewVerdict([item('PENDING')], true).status).toBe('IN_REVIEW')
+  })
+
+  it('какие статусы ведёт проверка', () => {
+    expect(nextDocumentStatus('UPLOADED', 'IN_REVIEW')).toBe('IN_REVIEW')
+    expect(nextDocumentStatus('NEEDS_REPLACEMENT', null)).toBe('UPLOADED')
+    // Срок и решения вуза главнее проверки.
+    for (const st of ['DRAFT', 'EXPIRED', 'ARCHIVED', 'REJECTED']) {
+      expect(nextDocumentStatus(st, 'NEEDS_REPLACEMENT')).toBeNull()
+    }
+    expect(nextDocumentStatus('VERIFIED', 'IN_REVIEW')).toBeNull()
+    expect(nextDocumentStatus('VERIFIED', 'NEEDS_REPLACEMENT')).toBe('NEEDS_REPLACEMENT')
+    expect(nextDocumentStatus('VERIFIED', null, true)).toBe('UPLOADED')
+    expect(nextDocumentStatus('EXPIRING', 'ACCEPTED')).toBeNull()
+    expect(nextDocumentStatus('EXPIRING', 'IN_REVIEW')).toBe('IN_REVIEW')
+  })
+
+  it('syncReviewStatus: пишет статус и причину условно, выданные вузом не читает', async () => {
+    const { service, prisma } = setup()
+    prisma.document.findMany.mockResolvedValue([
+      {
+        id: 'd1',
+        status: 'IN_REVIEW',
+        rejectionReason: null,
+        submissionItems: [item('REJECTED', 'REJECTED', 'OPEN', 'нет печати')],
+      },
+      { id: 'd2', status: 'ACCEPTED', rejectionReason: null, submissionItems: [item('ACCEPTED')] },
+    ])
+    await service.syncReviewStatus(['d1', 'd2', 'd1'])
+    expect(prisma.document.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: { in: ['d1', 'd2'] }, deletedAt: null, issuedByUniversity: false },
+      }),
+    )
+    expect(prisma.document.updateMany).toHaveBeenCalledTimes(1)
+    expect(prisma.document.updateMany).toHaveBeenCalledWith({
+      where: { id: 'd1', status: 'IN_REVIEW' },
+      data: { status: 'NEEDS_REPLACEMENT', rejectionReason: 'нет печати' },
+    })
+  })
+
+  it('замена страниц владельцем: отклонённый документ снова «Загружен», комплект — в черновик', async () => {
+    const { service, prisma } = setup()
+    prisma.file.findMany.mockResolvedValueOnce([{ id: 'p1' }, { id: 'p2' }])
+    prisma.documentSubmissionItem.findMany.mockResolvedValue([{ id: 'si1', submissionId: 's1' }])
+    prisma.document.findMany.mockResolvedValue([
+      {
+        id: 'd1',
+        status: 'NEEDS_REPLACEMENT',
+        rejectionReason: 'размыто',
+        // Вердикт ещё в базе (мок не применяет сброс) — после правки он не считается.
+        submissionItems: [item('REJECTED', 'REJECTED', 'OPEN', 'размыто')],
+      },
+    ])
+    await service.reorderFiles(actor(), 'd1', { fileIds: ['p2', 'p1'] })
+    expect(prisma.documentSubmission.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ['s1'] }, status: { in: ['REJECTED', 'PARTIAL'] } },
+      data: { status: 'DRAFT' },
+    })
+    expect(prisma.document.updateMany).toHaveBeenCalledWith({
+      where: { id: 'd1', status: 'NEEDS_REPLACEMENT' },
+      data: { status: 'UPLOADED', rejectionReason: null },
+    })
+  })
+
+  it('крон срока: «Скоро истекает» не перебивает «На проверке» и «Требует замены»', async () => {
+    const { service, prisma } = setup()
+    await service.sweepExpiry()
+    const expiringWhere = prisma.document.findMany.mock.calls
+      .map(
+        (c) =>
+          (c[0] as { where: { expiresAt?: { gte?: Date }; status?: { notIn: string[] } } }).where,
+      )
+      .find((w) => w.expiresAt?.gte)
+    expect(expiringWhere?.status?.notIn).toEqual(
+      expect.arrayContaining(['IN_REVIEW', 'NEEDS_REPLACEMENT']),
+    )
+  })
+})
+
 describe('DocumentsService — страницы документа: замена, удаление, порядок', () => {
   it('replaceFile: новый файл встаёт на место старого с тем же порядком, старый удаляется', async () => {
     const { service, prisma, files } = setup()
     prisma.file.findFirst
       .mockResolvedValueOnce({ id: 'old', order: 1 }) // заменяемая страница документа
       .mockResolvedValueOnce({ id: 'new' }) // свой неприкреплённый файл
+    prisma.document.findMany.mockResolvedValue([
+      { id: 'd1', status: 'VERIFIED', rejectionReason: null, submissionItems: [] },
+    ])
     await service.replaceFile(actor(), 'd1', 'old', { fileId: 'new' })
 
     expect(prisma.file.updateMany).toHaveBeenCalledWith({
@@ -805,10 +919,10 @@ describe('DocumentsService — страницы документа: замена
         }),
       }),
     )
-    // Подтверждение вуза относится к прежнему скану.
+    // Подтверждение вуза относится к прежнему скану: пересчёт статуса после правки (15.3).
     expect(prisma.document.updateMany).toHaveBeenCalledWith({
       where: { id: 'd1', status: 'VERIFIED' },
-      data: { status: 'UPLOADED' },
+      data: { status: 'UPLOADED', rejectionReason: null },
     })
   })
 

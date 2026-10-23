@@ -76,7 +76,10 @@ const STAFF_REVIEWABLE = ['SUBMITTED', 'PARTIAL']
 const DAY_MS = 24 * 60 * 60 * 1000
 // Из каких статусов принятый в запросе сертификат становится подтверждённым: просроченный,
 // отклонённый (в т.ч. отозванный вузом), архивный и черновик подтверждением не становятся.
-const VERIFIABLE_STATUSES = ['UPLOADED', 'IN_REVIEW', 'NEEDS_REPLACEMENT', 'ACCEPTED']
+// Проверяется уже пересчитанный по вердиктам статус (syncReviewStatus): «требует замены»
+// или «на проверке» по другому запросу подтверждением не перекрываются — худший статус
+// главнее, подтверждение придёт с принятием там.
+const VERIFIABLE_STATUSES = ['UPLOADED', 'ACCEPTED']
 
 // Строка комплекта в карточке запроса у сотрудника.
 const SUBMISSION_SUMMARY_SELECT = {
@@ -303,6 +306,42 @@ export class DocumentRequestsService {
     await this.prisma.documentEvent.create({
       data: { actorId, requestId, action, metadata: metadata as Prisma.InputJsonValue | undefined },
     })
+  }
+
+  /**
+   * Событие проверки по документам (SUBMIT/REVIEW/ACCEPT/REJECT): запись на каждый документ
+   * с `documentId` И `requestId` — так она видна и в истории документа у владельца, и в
+   * журнале запроса. Комплект без единого документа (все позиции необязательны и пусты) даёт
+   * одну запись только по запросу, чтобы действие не пропало из журнала.
+   */
+  private async logDocumentEvents(
+    actorId: string,
+    requestId: string,
+    action: string,
+    documentIds: readonly (string | null)[],
+    metadata?: Record<string, unknown>,
+  ): Promise<void> {
+    const ids = [...new Set(documentIds.filter((d): d is string => !!d))]
+    if (ids.length === 0) return this.logEvent(actorId, requestId, action, metadata)
+    await this.prisma.documentEvent.createMany({
+      data: ids.map((documentId) => ({
+        actorId,
+        requestId,
+        documentId,
+        action,
+        metadata: metadata as Prisma.InputJsonValue | undefined,
+      })),
+    })
+  }
+
+  // Документы, приложенные к позициям комплекта (для событий и пересчёта статусов).
+  private async submissionDocumentIds(submissionId: string): Promise<string[]> {
+    const items = await this.prisma.documentSubmissionItem.findMany({
+      where: { submissionId, documentId: { not: null } },
+      select: { documentId: true },
+      take: REQUEST_ITEMS_LIMIT,
+    })
+    return items.map((i) => i.documentId).filter((d): d is string => !!d)
   }
 
   // Сдача закрыта: запрос закрыт автором или истёк срок.
@@ -715,14 +754,19 @@ export class DocumentRequestsService {
     if (updated.count === 0) {
       throw new AppException('CONFLICT', 'Комплект изменился — обновите страницу')
     }
-    await this.logEvent(
+    await this.logDocumentEvents(
       actor.sub,
       item.submission.requestId,
       input.status === 'ACCEPTED' ? 'ACCEPT' : 'REJECT',
+      [item.documentId],
       {
         submissionItemId,
+        ...(input.status === 'REJECTED' ? { reason: input.rejectionReason ?? null } : {}),
       },
     )
+    // Вердикт сразу в статус документа (15.3): владелец видит «принят» / «требует замены»
+    // с причиной. Сертификат после этого может стать VERIFIED (он главнее «принят»).
+    if (item.documentId) await this.documents.syncReviewStatus([item.documentId])
     if (input.status === 'ACCEPTED') await this.verifyCertificate(actor, item)
     return this.getSubmissionForStaff(actor, item.submission.id)
   }
@@ -792,16 +836,23 @@ export class DocumentRequestsService {
     if (updated.count === 0) {
       throw new AppException('CONFLICT', 'Комплект изменился — обновите страницу')
     }
-    await this.logEvent(actor.sub, sub.requestId, 'REVIEW', { status })
+    const documentIds = await this.submissionDocumentIds(submissionId)
+    await this.logDocumentEvents(actor.sub, sub.requestId, 'REVIEW', documentIds, {
+      status,
+      submissionId,
+    })
+    await this.documents.syncReviewStatus(documentIds)
     // Уведомляем студента о результате проверки (§15.19). dedupeKey включает статус,
-    // чтобы повторная проверка (изменение вердикта) дошла новым уведомлением.
+    // чтобы повторная проверка (изменение вердикта) дошла новым уведомлением. Есть
+    // отклонённые позиции — заголовок прямо говорит, что документ нужно заменить: это
+    // единственное уведомление о «требует замены», отдельного на каждый документ нет.
     await this.queue.enqueue(
       QUEUES.NOTIFICATIONS,
       NOTIFICATION_JOBS.DOCUMENT_RESULT,
       {
         recipientIds: [sub.studentId],
         type: 'SYSTEM',
-        titleKey: 'documents.result.title',
+        titleKey: status === 'REJECTED' ? 'documents.replacement.title' : 'documents.result.title',
         bodyKey: 'documents.named.body',
         params: { title: sub.request.title },
         data: { requestId: sub.requestId, status, url: '/documents' },
@@ -986,6 +1037,12 @@ export class DocumentRequestsService {
       }
     }
     if (existing && changes.length === 0) return this.getForStudent(actor, requestId)
+    // Чьи статусы могут поменяться: документы комплекта до правки (у отвязанного пропадает
+    // вердикт, возврат в черновик снимает «на проверке») и вновь выбранные.
+    const touchedDocs = [
+      ...(existing?.items ?? []).map((i) => i.documentId),
+      ...changes.map((c) => c.documentId),
+    ].filter((d): d is string => !!d)
 
     await this.prisma.$transaction(async (tx) => {
       const submission = await tx.documentSubmission.upsert({
@@ -1035,6 +1092,7 @@ export class DocumentRequestsService {
         }
       }
     })
+    await this.documents.syncReviewStatus(touchedDocs)
     return this.getForStudent(actor, requestId)
   }
 
@@ -1089,7 +1147,12 @@ export class DocumentRequestsService {
         data: { status: 'PENDING', rejectionReason: null },
       })
     })
-    await this.logEvent(actor.sub, requestId, 'SUBMIT', { submissionId: sub.id })
+    // Отправка — документы позиций «на проверке» (15.3), событие — в истории каждого.
+    const documentIds = await this.submissionDocumentIds(sub.id)
+    await this.logDocumentEvents(actor.sub, requestId, 'SUBMIT', documentIds, {
+      submissionId: sub.id,
+    })
+    await this.documents.syncReviewStatus(documentIds)
     await this.notifyAuthorSubmitted(actor, req, sub.id)
     return this.getForStudent(actor, requestId)
   }

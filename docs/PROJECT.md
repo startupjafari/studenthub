@@ -423,7 +423,22 @@ status `DRAFT|UPLOADED|IN_REVIEW|VERIFIED|ACCEPTED|REJECTED|NEEDS_REPLACEMENT|EX
 преподавателю — только `ACADEMIC`, деканату и модератору вуза — любые. Иначе позиция выглядит
 неприложенной, файл — `404`. `review`/`finalize` — только из `SUBMITTED`/`PARTIAL`.
 `GET /document-requests(/:id)` отдают `acceptsSubmissions`. Принятая позиция `CERTIFICATE` своего
-типа переводит документ студента в `VERIFIED`. `GET manage/:id` отдаёт первые 200 комплектов и
+типа переводит документ студента в `VERIFIED` (если по вердиктам он `UPLOADED`/`ACCEPTED`).
+
+**Статус документа по вердикту проверки (15.3).** Отправка комплекта → документы позиций
+`IN_REVIEW`; позиция принята → `ACCEPTED`; отклонена → `NEEDS_REPLACEMENT` с `rejectionReason`
+(причина последнего отклонения). Документ в нескольких запросах получает худший статус:
+`NEEDS_REPLACEMENT` > `IN_REVIEW` > `ACCEPTED`; позиция «ждёт проверки» считается только в
+отправленном комплекте (`SUBMITTED`/`PARTIAL`), вердикты — только по открытым запросам (закрытый
+запрос статус не пересчитывает). Пересчёт — при отправке, вердикте, завершении проверки, правке
+черновика комплекта, возврате из архива и правке содержимого владельцем (после неё прежние
+вердикты не считаются: документ снова `UPLOADED`, либо `IN_REVIEW`, пока его отправленный комплект
+ждёт). Не трогаются: выданные вузом (`issuedByUniversity`), `DRAFT`, `ARCHIVED`, `EXPIRED`,
+`REJECTED` (отзыв справки вузом); `VERIFIED` уступает только `NEEDS_REPLACEMENT` и правке, `EXPIRING`
+— `NEEDS_REPLACEMENT` и `IN_REVIEW` (крон срока, в свою очередь, не ставит `EXPIRING` поверх них).
+События `SUBMIT`/`ACCEPT`/`REJECT` (с `metadata.reason`)/`REVIEW` пишутся на каждый документ с
+`documentId` и `requestId` — видны в истории документа. Итог проверки с отклонениями приходит
+уведомлением `documents.replacement.title` вместо `documents.result.title`. `GET manage/:id` отдаёт первые 200 комплектов и
 `submissionCount`, остальные — `GET manage/:id/submissions?cursor&limit≤50`; `POST manage/:id/close`
 идемпотентен.
 
