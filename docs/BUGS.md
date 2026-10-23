@@ -26,8 +26,9 @@
 
 ## Сводка
 
-Проход 23.10.2026 — статический разбор кода по ролям (восемь направлений), без запуска. 68 записей,
-из них 20 касаются безопасности 🔒.
+Два прохода статического разбора кода, без запуска: 23.10.2026 — по ролям (BUG-001…068),
+24.10.2026 — по техническим областям (BUG-069…130). 130 записей, из них 37 касаются
+безопасности 🔒.
 
 | Роль / область | 🔴 | 🟠 | 🟡 | 🟢 | Записи |
 |---|---|---|---|---|---|
@@ -39,21 +40,39 @@
 | Карьера и работодатель | — | 1 | 4 | 5 | 007, 019–022, 045–049 |
 | Охрана и библиотека | — | 2 | 5 | 3 | 002–003, 023–027, 050–052 |
 | Взаимодействие ролей | — | — | 4 | 6 | 028–030, 038, 053–058 |
-| **Всего** | **0** | **9** | **30** | **29** | **68** |
+| *Проход 1, итого* | *0* | *9* | *30* | *29* | *68* |
+| Вход и сессии | — | 1 | 4 | 1 | 069, 076–079, 108 |
+| Файлы и медиа | — | 1 | 3 | 2 | 071, 087–089, 115–116 |
+| Realtime, уведомления, очереди | — | 1 | 5 | 3 | 070, 081, 090–093, 112–114 |
+| Cron и сроки хранения | — | — | 3 | 3 | 094–096, 109–111 |
+| Каркас веба | — | — | 5 | 4 | 082–086, 117–120 |
+| Мини-апп и мобильные | — | 3 | 3 | 2 | 073–075, 080, 106–107, 124–125 |
+| Время и расписание | — | 1 | 7 | 3 | 072, 097–103, 121–123 |
+| Контракты и валидация | — | — | 2 | 5 | 104–105, 126–130 |
+| *Проход 2, итого* | *0* | *7* | *32* | *23* | *62* |
+| **Всего** | **0** | **16** | **62** | **52** | **130** |
 
 Повторяющиеся корни, которые стоит чинить разом:
 
 - **Фильтр из запроса перезаписывает scope через spread** — BUG-001. В assignments, exams,
   materials уже сделано через `AND`.
-- **`z.coerce.boolean()` в query: `"false"` → `true`** — BUG-019, BUG-061. В `pagination.ts` уже
+- **`z.coerce.boolean()` в query: `"false"` → `true`** — BUG-019, BUG-061, BUG-127. В `pagination.ts` уже
   есть `queryBoolean`.
 - **Проверка состояния и запись без условия** — BUG-025, BUG-027, BUG-050, BUG-058 (а также
   `exams.remove` и `gradebook.deleteColumn`). Образец — условный `updateMany` и `lockBookQueue`.
 - **Учебный статус двумя представлениями** (код `EXPELLED` и строка «Отчислен») — BUG-002.
 - **Удаление аккаунта не гасит то, что выдал или занял человек** — BUG-008, BUG-030, BUG-067.
 - **UI не совпадает с матрицей §2.2** — BUG-004, BUG-005, BUG-016, BUG-032, BUG-033, BUG-064.
+- **«Гашение всех сессий» гасит не всё** — refresh в гонке (BUG-069), push-подписки (BUG-081),
+  ожидающий секрет TOTP (BUG-108), состояние мобильных клиентов (BUG-107).
+- **`dedupeKey` на объект, а не на событие** — BUG-090, BUG-094: повторное событие молча
+  проглатывается.
+- **Удалённое отдаётся через связанные выборки** — BUG-070 (`replyTo`), BUG-096 (`sharedPost`).
+- **Ночная задача с потолком без сохранённого курсора** — BUG-095, BUG-111.
+- **Мобильные DTO разошлись с API** — BUG-073, BUG-074, BUG-106.
+- **Время в поясе браузера вместо пояса вуза** — BUG-097, BUG-098, BUG-103, BUG-124.
 
-## Баги
+## Проход 1 — по ролям (23.10.2026)
 
 ### 🟠 Высокие
 
@@ -562,6 +581,452 @@
 - **Где:** `apps/web/src/views/dean-analytics/ui/dean-analytics-view.tsx:78-96,140-151`
 - **Ожидается:** пустое состояние «Сначала заведите факультет» и ошибка загрузки факультетов
   (FRONTEND_RULES §9).
+
+## Проход 2 — технические области (24.10.2026)
+
+Сквозные области, которые роли задевают краешком: вход и сессии, файлы и медиа, realtime и
+очереди, cron и сроки хранения, каркас веба, мини-апп и мобильные клиенты, время и расписание,
+контракты и валидация. Статический разбор, без запуска.
+
+### 🟠 Высокие
+
+#### BUG-069 · 🟠 🔒 Refresh во время «гашения всех сессий» выдаёт токен, который это гашение переживает
+- **Роль:** все (смена/сброс пароля, «Завершить сессии», сброс 2FA, блокировка) · **Статус:** подтверждён
+- **Где:** `apps/api/src/modules/auth/auth.service.ts:516-559` (ротация под `advisoryXactLock refresh:<familyId>`), `:593-604` (`revokeAllUserSessions` — `updateMany` без лока), `apps/api/src/common/redis/session-revocation.service.ts:41-44,69`
+- **Сценарий:** ротация читает `current`, затем создаёт преемника; `revokeAllUserSessions` гасит
+  `revokedAt: null` одним UPDATE без того же лока. Строку, вставленную ещё не закоммиченной
+  ротацией, UPDATE не видит (READ COMMITTED) — новый refresh живёт 30 дней. Злоумышленник с
+  непрерывным циклом refresh держит окно открытым. Метка отзыва access в секундах
+  (`iat < mark`) пропускает токен той же секунды.
+- **Ожидается:** BACKEND_RULES §6.2, PROJECT §7.2 — сброс пароля гасит всё, «открытая у
+  злоумышленника сессия не должна пережить». Сериализовать гашение с ротацией или перепроверять
+  поколение/метку отзыва в ротации.
+
+#### BUG-070 · 🟠 🔒 В ответах на удалённое или снятое модератором сообщение виден его полный текст
+- **Роль:** все участники чатов, модераторы · **Статус:** подтверждён
+- **Где:** `apps/api/src/modules/chats/chats.service.ts:287-289` (`MESSAGE_SELECT.replyTo` без `deletedAt`), `:2549` (`deleteMessage`), `apps/api/src/modules/complaints/complaints.service.ts:853` (`softDeleteTarget`), веб `apps/web/src/widgets/chat-window/ui/message-item.tsx:301`
+- **Сценарий:** B ответил на X; X удалён автором или снят по жалобе. История, `/updates`,
+  `/pinned` и WS-события отдают у ответа `replyTo.content` с текстом X — клиент рисует его в
+  цитате у всех, до физического удаления X (год или бессрочно).
+- **Ожидается:** удалённое не отдаётся (BACKEND_RULES §5.1): при `deletedAt` — `content: null`,
+  как у оригиналов репостов (`posts.service.ts:521-526`). `deliverDueScheduled` это уже учитывает.
+
+#### BUG-071 · 🟠 🔒 Подписанная ссылка на PUT работает и после `confirm`: проверенный файл подменяется, в публичном `profile-media` — на HTML со скриптом
+- **Роль:** все с прямой загрузкой; хуже всего медиа профиля · **Статус:** подтверждён
+- **Где:** `apps/api/src/modules/files/file.service.ts:242-252` (`presignPut`), `:419-518` (`confirmDirectUpload`, `copyObject` в тот же ключ), `apps/api/src/modules/profile-content/profile-content.service.ts:344,353,383`
+- **Сценарий:** ссылка подписана на 15 минут только по ключу. После `confirm` (magic bytes, размер,
+  закрепление `Content-Type`) тем же URL кладётся `text/html` со скриптом или файл на гигабайты —
+  ключ и строка `File` прежние, публичный URL отдаёт HTML на домене MinIO, квота и лимит
+  обойдены (в БД старый `size`). В приватных бакетах — подмена вложения чата, скана, сдачи после
+  того, как их увидели.
+- **Ожидается:** BACKEND_RULES §8.1 «три недоверия», §14.9: на `confirm` переносить объект на
+  серверный ключ, недоступный выданной подписи, или подписывать тип и длину.
+
+#### BUG-072 · 🟠 Если у пары на дату несколько изменений, веб показывает только последнее
+- **Роль:** STUDENT, STAROSTA, TEACHER, DEAN · **Статус:** подтверждён
+- **Где:** `apps/web/src/entities/schedule/lib/day.ts:39-41` (`todayChanges.set(c.pairId, c)`), `apps/web/src/views/calendar/lib/calendar-events.ts:38-39`, `apps/web/src/widgets/schedule-grid/ui/schedule-grid.tsx:113-117`; сервер складывает их в `apps/api/src/modules/schedules/schedules.service.ts:230-242` (`effectiveSlot`)
+- **Сценарий:** пара пн 10:00, ауд. 101 → `MOVED` на 14:00, затем `ROOM_CHANGED` на 305. Сервер:
+  14:00 в 305 (по нему проверка конфликтов и QR-окно). Веб: 10:00 в 305 — студенты приходят в
+  10:00, преподаватель жмёт QR и получает `409`.
+- **Ожидается:** изменения накладываются как в `effectiveSlot` (PROJECT §3.1; один источник
+  истины с сервером).
+
+#### BUG-073 · 🟠 На телефоне не видны разовые изменения расписания: `GET /schedule/changes` всегда `422`
+- **Роль:** STUDENT, STAROSTA, TEACHER — iOS и Android · **Статус:** подтверждён
+- **Где:** `apps/ios/Sources/Core/Study/ScheduleAPI.swift:66-75`, `apps/android/app/src/main/kotlin/kz/studenthub/app/core/study/StudyApi.kt:45-49`, схема `packages/shared-schemas/src/schedule.ts:27,169-172`
+- **Сценарий:** клиенты шлют `from`/`to` меткой времени (`2026-10-24T00:00:00.000Z`), схема
+  принимает только `YYYY-MM-DD` — `422`. Пары сохраняются, изменения нет, ошибка на каждом
+  обновлении; отмены, переносы и замены на телефоне не видны, заменяющий не видит свою пару.
+- **Ожидается:** `from`/`to` датой по дню вуза (§3.1, §8.3 «Расписание»).
+
+#### BUG-074 · 🟠 Сводка посещаемости разошлась с API: iOS — экран падает, Android — «8500%» и нули
+- **Роль:** STUDENT, STAROSTA — iOS и Android · **Статус:** подтверждён
+- **Где:** `apps/api/src/modules/attendance/attendance.service.ts:227-242`, `apps/ios/Sources/Core/Study/StudyAPI.swift:58-61`, `apps/ios/Sources/Features/Study/StudyView.swift:130,139`, `apps/android/.../core/study/StudyDto.kt:80`, `.../features/study/StudyScreens.kt:174,180`
+- **Сценарий:** API отдаёт `{ total, present, late, absent, excused, rate }`, `rate` — целый
+  процент. iOS ждёт обязательное `counts` — keyNotFound, «Неожиданный ответ сервера». Android:
+  `counts` пуст — нули, `rate * 100` — «8500%».
+- **Ожидается:** DTO совпадают с ответом (§8.3 «Посещаемость»).
+
+#### BUG-075 · 🟠 🔒 iOS при выходе не стирает локальную базу: следующий человек видит чужие чаты
+- **Роль:** все на iOS при смене аккаунта · **Статус:** новый
+- **Где:** `apps/ios/Sources/App/AppSessionModel.swift:51-60`, `apps/ios/Sources/Core/Chats/ChatStore.swift:19-25` (сравнить с Android `apps/android/.../shell/AppServices.kt:155-158` — `clearAllTables()`)
+- **Сценарий:** выход рвёт сокет, отвязывает пуш, гасит сессию, но `chats.sqlite` (чаты с превью,
+  сообщения, расписание) остаётся. B входит — список читается из базы и только дописывается
+  upsert'ом: чаты и сообщения A у B навсегда.
+- **Ожидается:** как в Android — данные прежнего человека не достаются следующему (§11.3,
+  PERSONAL_DATA).
+
+### 🟡 Средние
+
+#### BUG-076 · 🟡 🔒 Второй фактор перебирается без счётчика на учётку — все лимиты по IP
+- **Роль:** все с 2FA (злоумышленник знает пароль) · **Статус:** новый
+- **Где:** `apps/api/src/common/guards/user-throttler.guard.ts:132-137`, `apps/api/src/modules/auth/auth.service.ts:38,408-429`, `apps/api/src/modules/auth/auth.controller.ts:69-71,86`
+- **Сценарий:** каждый `/auth/login` даёт challenge на 3 кода, challenge ограничены «5/15 мин на
+  IP + логин» (email и username — два логина), `/login/2fa` тоже по IP. Счётчика неверных кодов
+  на пользователя нет — с ротацией адресов перебор TOTP не ограничен.
+- **Ожидается:** нарастающая блокировка второго шага по `userId`, как у пароля в
+  `login-attempts.service.ts` (BACKEND_RULES §6.3, PROJECT §7.4).
+
+#### BUG-077 · 🟡 🔒 Счётчики неверных паролей и кодов обходятся параллельными запросами
+- **Роль:** все, особенно привилегированные; подтверждение действий в мини-аппе · **Статус:** новый
+- **Где:** `apps/api/src/modules/users/users.service.ts:1600-1621` (`assertCurrentPassword`), `apps/api/src/modules/auth/two-factor.service.ts:203-222` (`verifyWithLimit`), `apps/api/src/modules/auth/login-attempts.service.ts:55-68`
+- **Сценарий:** счётчик читается (`GET`), потом bcrypt сотни мс, потом `INCR`. 100 одновременных
+  `PATCH /users/me/password` с украденным access все видят `fails=0` — ~100 попыток вместо 5;
+  то же для кодов 2FA и порога `LOGIN_LOCKED`.
+- **Ожидается:** атомарный `INCR` до проверки или лок на пользователя (BACKEND_RULES §6.3, §14).
+
+#### BUG-078 · 🟡 🔒 Выход в одной вкладке не завершает сессию в остальных; токен следующего человека тихо подхватывается
+- **Роль:** все, общие компьютеры · **Статус:** новый
+- **Где:** `apps/web/src/shared/session/session.ts:62-69`, `apps/web/src/shared/api/instance.ts:77-84`, `apps/web/src/shared/realtime/realtime-context.tsx:113-120`, `apps/api/src/modules/auth/auth.service.ts:563-576`
+- **Сценарий:** выход в B не сообщается вкладке A (нет `BroadcastChannel`), logout не отзывает
+  access — A ещё 15 минут читает чаты, получает WS и наполняет офлайн-кэши SW; владелец кэша
+  записан `null`, поэтому `claimDeviceCache` следующего не чистит. Когда входит B, первый refresh
+  во вкладке A приносит токен B, `setAccessToken` кладёт его без сверки `sub` — интерфейс A с
+  действиями от имени B.
+- **Ожидается:** FRONTEND_RULES §6, PROJECT §7.2 п. 3 — выход гасит все вкладки, отзывает access;
+  токен другого пользователя после refresh — сброс сессии.
+
+#### BUG-079 · 🟡 `POST /auth/refresh` гасит cookie на любой ошибке, включая 5xx и блокировку вуза
+- **Роль:** все · **Статус:** подтверждён
+- **Где:** `apps/api/src/modules/auth/auth.controller.ts:233-243`; расходится с `apps/web/src/shared/api/auth-retry.ts:85-87` и `apps/api/src/modules/auth/auth.service.ts:496-501`
+- **Сценарий:** `catch { clearAuthCookies(); throw }` срабатывает и на сбой БД/таймаут лока —
+  клиент считает 5xx «сессия жива», но cookie уже нет, следующий refresh — 401 и выход «посреди
+  пары». При `UNIVERSITY_BLOCKED` сервис намеренно не гасит цепочку, а контроллер стирает cookie.
+- **Ожидается:** PROJECT §7.2 — гасить cookie только при отказе в сессии (401).
+
+#### BUG-080 · 🟡 Мини-апп теряет сессию через 15 минут: продление идёт со старым initData
+- **Роль:** PLATFORM_ADMIN, PLATFORM_MODERATOR — мини-апп · **Статус:** новый
+- **Где:** `apps/mini-app/src/api/client.ts:42-60,108-112,138-142`, `apps/api/src/modules/mini/init-data.ts:34-35,73-74`
+- **Сценарий:** токен живёт 15 минут, после 401 клиент шлёт `webApp().initData` — Telegram выдаёт
+  его один раз при открытии, а сервер принимает `auth_date` не старше 5 минут. Действие
+  модератора, разбирающего жалобу дольше 15 минут, падает с «Telegram не привязан». Так же
+  экран привязки, если сходить за кодом в веб дольше 5 минут.
+- **Ожидается:** §8.3 «Мини-апп» обещает «клиент присылает свежий initData», но взять его
+  негде: отдельное окно возраста для продления или явный экран «переоткройте».
+
+#### BUG-081 · 🟡 🔒 Push приходит на устройства после сброса сессий и смены пароля
+- **Роль:** все (выгнать угонщика) · **Статус:** новый
+- **Где:** `apps/api/src/modules/auth/auth.service.ts:593-604`, `apps/api/src/modules/push/push.service.ts:156-165,175-228`, `apps/api/src/modules/cleanup/cleanup.service.ts:678-680`, `apps/android/.../core/push/MessagingService.kt:37-44`
+- **Сценарий:** `revokeAllUserSessions` не трогает `PushSubscription` и `DeviceToken` — на
+  устройство угонщика идут имена отправителей, результаты документов, оценки, пока провайдер не
+  ответит 404/410 или cron не снимет токен через 90 дней.
+- **Ожидается:** §8.3 «Сброс сессий выгоняет чужого» — отзыв сессий снимает и привязки устройств.
+
+#### BUG-082 · 🟡 🔒 «Выйти» при сбое сети ничего не делает — сессия тихо восстанавливается
+- **Роль:** все · **Статус:** новый
+- **Где:** `apps/web/src/widgets/app-shell/ui/app-sidebar.tsx:80-83`, `apps/web/src/widgets/app-shell/ui/app-shell.tsx:152-155`, `apps/web/src/features/accept-consent/ui/consent-dialog.tsx:94-97`, `apps/web/src/shared/session/session.ts:62-69`
+- **Сценарий:** офлайн/5xx на `POST /auth/logout`: `endSession` пробрасывает исключение, переход
+  на `/login` не выполняется, данные на экране, следующий запрос делает refresh — человек снова
+  внутри и уходит от общего компьютера, считая, что вышел.
+- **Ожидается:** локальная очистка и переход на `/login` в любом исходе (FRONTEND_RULES §6, §5.4).
+
+#### BUG-083 · 🟡 У ролевых зон нет `error.tsx`: падение экрана убирает всю оболочку
+- **Роль:** все, кроме студента · **Статус:** новый
+- **Где:** `apps/web/src/app/{dean,teacher,university-admin,platform-admin,moderator/platform,moderator/university,starosta}/` — `error.tsx` только у `*/chats` и корневой `app/error.tsx`
+- **Сценарий:** ошибка рендера на `/dean/students` поднимается до корневого boundary — полноэкранная
+  ошибка без сайдбара, уйти в соседний раздел нельзя.
+- **Ожидается:** `error.tsx` у каждого сегмента (FRONTEND_RULES §2.2), минимум под `AppShell`.
+
+#### BUG-084 · 🟡 Глобальный поиск ведёт сотрудников на студенческие экраны
+- **Роль:** TEACHER, DEAN, UNIVERSITY_ADMIN, UNIVERSITY_MODERATOR, PLATFORM_* · **Статус:** новый
+- **Где:** `apps/web/src/entities/search/model/use-search-items.ts:91,101,111`, `apps/api/src/modules/search/search.service.ts:140-156`
+- **Сценарий:** преподаватель находит своё задание → `/assignments?open=<id>` со «Сдать» и
+  «Сохранить черновик»; дисциплины и материалы — студенческий Course Workspace.
+- **Ожидается:** ссылки по роли (FRONTEND_RULES §3, PROJECT §12).
+
+#### BUG-085 · 🟡 Коды `LOGIN_LOCKED` и `MAINTENANCE` не переведены — в тосте «Errors.LOGIN_LOCKED»
+- **Роль:** все (вход, техработы) · **Статус:** подтверждён
+- **Где:** `apps/web/messages/{ru,kk,en}.json` (`Errors`), коды в `packages/shared-types/src/error-codes.ts:31,35`; потребитель `apps/web/src/features/login/ui/login-form.tsx:53` и все `tErr(...)`
+- **Сценарий:** после серии неверных паролей `429 LOGIN_LOCKED` — человек видит сырой ключ и не
+  понимает, что надо подождать; во время техработ до обновления `PlatformGate` — «Errors.MAINTENANCE».
+- **Ожидается:** у каждого кода реестра перевод (PROJECT §8.2, FRONTEND_RULES §10).
+
+#### BUG-086 · 🟡 Офлайн-страница PWA подменяется домашним экраном роли
+- **Роль:** все с установленным PWA · **Статус:** новый
+- **Где:** `apps/web/src/middleware.ts:16,39-51`, `apps/web/next.config.mjs:23`
+- **Сценарий:** precache `/offline` уходит с cookie `sh_role`, middleware редиректит вошедшего на
+  `ROLE_HOME`, Workbox кладёт HTML дашборда под ключ `/offline` — без сети вместо «Нет сети»
+  открывается оболочка со стеной ошибок.
+- **Ожидается:** `/offline` пропускается и для вошедших (задача 13.2).
+
+#### BUG-087 · 🟡 🔒 Общий `POST /files/confirm` удаляет объект уже отправленной сдачи-архива
+- **Роль:** STUDENT, STAROSTA → TEACHER, DEAN · **Статус:** новый
+- **Где:** `apps/api/src/modules/files/files.controller.ts:34-39,102-110`, `apps/api/src/modules/files/file.service.ts:463-466,541-550`, `apps/api/src/modules/assignments/assignments.service.ts:597-617,969-970`
+- **Сценарий:** бакет сдач `applications` открыт общему `confirm`; студент вызывает его с ключом
+  своего отправленного архива — `allowArchives` не передан, `discard()` делает `removeObject`, не
+  проверив живой `File`. У преподавателя `NoSuchKey`, запрет «работа уже отправлена» обойдён.
+- **Ожидается:** прикреплённый файл снимает только модуль-владелец (BACKEND_RULES §8): `confirm`
+  отказывает по ключу с существующим `File`, `discard` не удаляет объект со ссылками.
+
+#### BUG-088 · 🟡 🔒 Оригиналы фото с EXIF и GPS отдаются всем зрителям постов и профиля
+- **Роль:** авторы постов и медиа профиля → любой зритель · **Статус:** новый
+- **Где:** `apps/api/src/modules/media/image-pipeline.ts:25-29`, `apps/api/src/modules/profile-content/profile-content.service.ts:383`, `apps/api/src/modules/posts/posts.service.ts:505-513`; веб `apps/web/src/features/create-post/ui/create-post-form.tsx:162`, `apps/web/src/entities/profile-content/api/profile-content-api.ts:169`
+- **Сценарий:** веб грузит оригинал без пережатия, воркер чистит EXIF/GPS только в WebP-копиях, а
+  API всегда отдаёт `url` оригинала — зритель читает координаты съёмки (часто дом студента).
+- **Ожидается:** метаданные чистить при приёме или не отдавать оригинал чужим (PROJECT «Медиа»,
+  §11.3).
+
+#### BUG-089 · 🟡 В вебе к посту нельзя прикрепить видео больше 10 МБ
+- **Роль:** все, кто публикует посты · **Статус:** новый
+- **Где:** `apps/web/src/features/create-post/ui/create-post-form.tsx:154-167`, `apps/api/src/main.ts:111`, `apps/api/src/common/http/read-upload.ts:9-20`
+- **Сценарий:** форма грузит видео буферно — после заливки всего файла `FILE_DIRECT_UPLOAD_REQUIRED`.
+  Прямая загрузка в `POSTS` на сервере есть и в вебе используется для сторис.
+- **Ожидается:** лимит видео 500 МБ (BACKEND_RULES §8) — крупное через presign, как у сторис.
+
+#### BUG-090 · 🟡 Повторное отклонение того же комплекта документов не доходит до студента
+- **Роль:** DEAN и сотрудники → STUDENT · **Статус:** новый
+- **Где:** `apps/api/src/modules/documents/document-requests.service.ts:884-886` (`dedupeKey = doc-result:${submissionId}:${status}`), `:1179-1191`, `:1252-1260`, `apps/api/src/modules/notifications/notifications.processor.ts:254-265`
+- **Сценарий:** отклонили → студент заменил → снова отклонили: ключ `doc-result:<id>:REJECTED`
+  уже есть, уведомление молча пропускается.
+- **Ожидается:** ключ на событие проверки (например, с `reviewedAt`), как у переоценки заданий;
+  BACKEND_RULES §9.2 — идемпотентность против повтора job'а, а не против нового события.
+
+#### BUG-091 · 🟡 Напоминания о событиях и сроки документов помечаются отправленными, даже если job не поставлен
+- **Роль:** участники событий, владельцы документов · **Статус:** новый
+- **Где:** `apps/api/src/modules/events/events.service.ts:620-654`, `apps/api/src/modules/documents/documents.service.ts:1670-1689`, контракт `apps/api/src/common/queue/queue.service.ts:74-77`
+- **Сценарий:** Redis недоступен — `enqueue` возвращает `false`, а `reminderSentAt` и статус
+  EXPIRING/EXPIRED всё равно пишутся; следующий прогон их не выберет, напоминание потеряно.
+- **Ожидается:** помечать только поставленное, как в `library-reminders.service.ts:192-196`
+  (BACKEND_RULES §9.2–9.3).
+
+#### BUG-092 · 🟡 Ведомая вкладка перестаёт получать сообщения открытого чата после закрытия вкладки-мастера
+- **Роль:** все с чатами (несколько вкладок) · **Статус:** новый
+- **Где:** `apps/web/src/shared/realtime/realtime-context.tsx:209-216`, `apps/web/src/shared/realtime/realtime-client.ts:85-86,124-131,154-158`, `apps/web/src/widgets/chat-window/ui/chat-window.tsx:1564-1578`
+- **Сценарий:** мастер A закрыт, лидером стала B с пустой картой комнат; ведомая C не получала
+  `conn:false`, поэтому `conn:true` от B для неё ничего не меняет — нет `chat:join` и догона,
+  сообщения в открытом чате перестают приходить, индикатор «в сети».
+- **Ожидается:** FRONTEND_RULES §8, PROJECT §9.2b — новый лидер собирает комнаты ведомых.
+
+#### BUG-093 · 🟡 Бейдж колокольчика не уменьшается после прочтения чата
+- **Роль:** все с чатами · **Статус:** новый
+- **Где:** `apps/api/src/modules/chats/chats.service.ts:2367,2376-2387`, `apps/web/src/entities/chat/lib/use-chats-unread.ts:66`, `apps/web/src/widgets/app-shell/ui/app-shell.tsx:111-118`, `apps/web/src/widgets/notifications-bell/ui/notifications-bell.tsx:104-110`
+- **Сценарий:** сервер гасит свёрнутое уведомление чата и шлёт только `chat:read`; клиент обновляет
+  счётчик чатов, но не `notificationKeys.unreadCount()` — бейдж висит до нового уведомления.
+- **Ожидается:** PROJECT §10.1 — прочтение чата снимает бейдж; инвалидировать счётчик на `chat:read`.
+
+#### BUG-094 · 🟡 После продления книги напоминания «скоро сдавать» и «сегодня последний день» не приходят
+- **Роль:** STUDENT, STAROSTA · **Статус:** новый
+- **Где:** `apps/api/src/modules/library/library-reminders.service.ts:189` (ключ без срока), `apps/api/src/modules/library/library-loans.service.ts:419-425`, `apps/api/src/modules/notifications/notifications.processor.ts:251-262`
+- **Сценарий:** продление сбрасывает отметки «чтобы напоминания пришли заново», но ключ
+  `library-dueSoon:<loanId>` уже есть у читателя (уведомления живут 30–90 дней) — процессор
+  отбрасывает новое, а `dueSoonSentAt` ставится.
+- **Ожидается:** три напоминания на каждый срок (§3.11) — в ключ срок, как `event-reminder:<id>:<startsAt>`.
+
+#### BUG-095 · 🟡 Физическое удаление «надгробий» встаёт навсегда на 200 заблокированных
+- **Роль:** удалённые аккаунты; сроки хранения ПДн · **Статус:** новый
+- **Где:** `apps/api/src/modules/cleanup/pd-retention.service.ts:443-476` (курсор только внутри прогона, `TOMBSTONE_MAX_PER_RUN = 200` считает пропущенных), `:45-54` (`eventsOrganized` в блокирующих), `apps/api/src/modules/events/events.controller.ts:30-37`
+- **Сценарий:** каждую ночь проверяются первые 200 по uuid; когда все они заблокированные (автор
+  колонки, экзамена, организатор события, владелец чужих файлов), удаление встаёт. Блокирующих
+  больше, чем ожидает документ: события создают и студенты.
+- **Ожидается:** физическое удаление через год (PERSONAL_DATA §5, где неверно сказано «у студента
+  таких связей нет»): курсор между прогонами или исключение заблокированных в запросе.
+
+#### BUG-096 · 🟡 🔒 Пост, расшаренный в чат, отдаётся с заголовком и текстом после удаления или снятия
+- **Роль:** участники чатов, модерация · **Статус:** новый
+- **Где:** `apps/api/src/modules/chats/chats.service.ts:294-305` (`sharedPost`)
+- **Сценарий:** веб прячет карточку («Публикация недоступна»), но API, iOS и Android получают
+  заголовок, текст, автора и медиа снятого поста бессрочно.
+- **Ожидается:** BACKEND_RULES §5.1 — при `deletedAt` обнулять поля на сервере, как
+  `availableOriginals` у репостов.
+
+#### BUG-097 · 🟡 Главная студента: «Пары на сегодня» без изменений расписания и по дню браузера
+- **Роль:** STUDENT, STAROSTA · **Статус:** новый
+- **Где:** `apps/web/src/views/home/ui/home-sidebar.tsx:17-28`
+- **Сценарий:** виджет берёт только `GET /schedule` — отменённая пара показана, у перенесённой
+  старое время; день и чётность — по `new Date()` браузера.
+- **Ожидается:** как в `widgets/today` (`buildDayPairs` + `nowInTz`), FRONTEND_RULES §9.
+
+#### BUG-098 · 🟡 Документ становится «Просрочен» в последний день срока действия
+- **Роль:** STUDENT, STAROSTA, проверяющие · **Статус:** новый
+- **Где:** `apps/web/src/views/documents/ui/upload-wizard.tsx:108`, `document-actions.tsx:378` (`new Date('ГГГГ-ММ-ДД')` — UTC-полночь), `apps/api/src/modules/documents/documents.service.ts:1558`, `apps/web/src/views/documents/ui/documents-list.tsx:149`
+- **Сценарий:** срок 31.12 пишется как 05:00 31.12 по Алматы — с утра срок красный, крон в 08:30
+  ставит `EXPIRED` и шлёт «Документ истёк» в последний действительный день; окно EXPIRING тоже
+  сдвинуто.
+- **Ожидается:** «до даты» включает день по часам вуза — конец дня, как `endOfDay` библиотеки.
+
+#### BUG-099 · 🟡 Разовое изменение не сверяет чётность даты: принимается на неделю без пары и даёт ложный конфликт
+- **Роль:** DEAN, UNIVERSITY_ADMIN → группа · **Статус:** новый
+- **Где:** `apps/api/src/modules/schedules/schedules.service.ts:894,1104` (`weekTypesOverlap`), веб `apps/web/src/features/manage-schedule/ui/pair-details-modal.tsx:213-218`
+- **Сценарий:** пара `ODD` по пн; `CANCELLED` на 26.10.2026 (неделя 44, чётная) принимается и
+  уходит push группе, а настоящие занятия не отменены. Перенос `BOTH`-пары на неделю 43 в слот
+  `EVEN`-пары даёт `409 «Группа уже занята»`, хотя та пара в эту дату не проводится.
+- **Ожидается:** изменение — только на дату, когда пара проводится; конфликты по сетке даты
+  (PROJECT «Расписание»).
+
+#### BUG-100 · 🟡 Перенос с новой аудиторией (`MOVED` + `newRoomId`) не проверяет занятость новой аудитории
+- **Роль:** DEAN, UNIVERSITY_ADMIN · **Статус:** новый
+- **Где:** `apps/api/src/modules/schedules/schedules.service.ts:230-242` (`effectiveSlot` берёт `newRoomId` только у `ROOM_CHANGED`), `prisma/schema/03-schedule.prisma:77`, `apps/api/src/modules/rooms/room-qr.service.ts:224-230`, `apps/web/src/views/calendar/lib/calendar-events.ts:52`
+- **Сценарий:** перенос на 14:00 в 305, где уже пара — проверка идёт по старой 101, две группы в
+  одной аудитории. Страница помещения и календарь при этом показывают 305.
+- **Ожидается:** занятость по аудитории, где пара фактически пройдёт.
+
+#### BUG-101 · 🟡 Заменяющий преподаватель не видит пары по замене в «Расписании» и «Календаре»
+- **Роль:** TEACHER · **Статус:** новый
+- **Где:** `apps/web/src/widgets/schedule-grid/ui/schedule-grid.tsx:87-90,121-128`, `apps/web/src/views/calendar/ui/calendar-view.tsx:69-78`; `substitutionPairs` (`entities/schedule/lib/day.ts:110`) вызывается только в «Посещаемости» и `/me/today`
+- **Ожидается:** PROJECT «Расписание» — изменения, «где он заменяющий», накладываются на сетку и
+  календарь.
+
+#### BUG-102 · 🟡 Календарь показывает только ближайшие 50 событий — прошедшие и дальние месяцы пустые
+- **Роль:** все роли вуза · **Статус:** новый
+- **Где:** `apps/web/src/views/calendar/ui/calendar-view.tsx:75-78` (`fetchEvents({ limit: 50, filter: 'upcoming' })`, ключ без месяца)
+- **Ожидается:** события за видимые недели, как дедлайны и экзамены (`dueRange`; задача 9 «Единый
+  академический календарь»).
+
+#### BUG-103 · 🟡 Время событий, сроков и экзаменов — в поясе браузера, а пары — в поясе вуза
+- **Роль:** TEACHER, DEAN, STUDENT (пояс устройства ≠ поясу вуза) · **Статус:** новый
+- **Где:** ввод `apps/web/src/features/create-event/ui/event-details-fields.tsx:25-35`, `views/assignments/ui/create-assignment-modal.tsx:135`, `views/assignments/lib/assignment-patch.ts:64`; показ `views/calendar/lib/calendar-events.ts:73-125`, `widgets/schedule-grid/ui/schedule-grid.tsx:162-164`; чётность `widgets/today/ui/teacher-today.tsx:53`, `dean-today.tsx:34`
+- **Сценарий:** преподаватель в Москве ставит срок «31.10 23:59» — у студентов 01.11 01:59,
+  дедлайн в календаре на 1 ноября; линия «сейчас» в сетке смещена; с 00:00 до 05:00 пн в браузере
+  с UTC чётность прошлой недели.
+- **Ожидается:** FRONTEND_RULES §9 — расписание и события в поясе вуза.
+
+#### BUG-104 · 🟡 🔒 Работодатель регистрируется с паролем «aaaaaaaa» — общая политика паролей не действует
+- **Роль:** EMPLOYER · **Статус:** новый
+- **Где:** `packages/shared-schemas/src/career.ts:107` (`z.string().min(8).max(72)` вместо `PasswordSchema`), `apps/api/src/modules/career/companies.controller.ts:46`, `apps/web/src/views/employer/ui/employer-signup-view.tsx:30`; попутно `packages/shared-schemas/src/auth.ts:24` — у `PasswordSchema` нет верхней границы, bcrypt (`apps/api/src/common/security/password.service.ts:15`) молча обрезает до 72 байт (~36 кириллических символов)
+- **Ожидается:** BACKEND_RULES §3 — правило пароля живёт в `PasswordSchema`, плюс предел длины в байтах.
+
+#### BUG-105 · 🟡 Каталог услуг: размер страницы 150 и 200 даёт `422` (корень BUG-020)
+- **Роль:** UNIVERSITY_ADMIN, PLATFORM_ADMIN · **Статус:** новый
+- **Где:** `apps/web/src/views/service-catalog/ui/service-catalog-view.tsx:41,73,178`, `packages/shared-schemas/src/application-services.ts:359`
+- **Ожидается:** `AdminLimitSchema` там, где селектор до 200, или селектор [20, 50, 100].
+
+#### BUG-106 · 🟡 Материалы на телефоне без файлов и ссылок; у заданий нет дисциплины, в профиле iOS — группы
+- **Роль:** STUDENT, STAROSTA, TEACHER — iOS и Android · **Статус:** новый
+- **Где:** `apps/api/src/modules/materials/materials.service.ts:23-43`, `apps/ios/Sources/Core/Study/StudyAPI.swift:100,106-119`, `apps/ios/Sources/Features/Study/AssignmentsView.swift:50,201`, `apps/android/.../core/study/StudyDto.kt:121,137-143`, `.../features/study/StudyScreens.kt:259,344`, `apps/api/src/modules/assignments/assignments.service.ts:113-128`, `apps/ios/Sources/Core/Feed/FeedAPI.swift:81-82`
+- **Сценарий:** API отдаёт вложения в `media` и ссылку в `url` — клиенты ждут `files`; дисциплина
+  в `course.subject.name`, клиенты читают `subject`; iOS ждёт `groupName`/`facultyName` в
+  `/users/me`, а там только id.
+- **Ожидается:** DTO совпадают с ответом API (§8.3).
+
+#### BUG-107 · 🟡 🔒 Отозванная или истёкшая сессия на телефоне не ведёт на экран входа
+- **Роль:** все — iOS и Android · **Статус:** новый
+- **Где:** `apps/android/.../core/session/SessionStore.kt:101-111`, `apps/android/.../shell/AppSessionModel.kt:53-58`, `apps/ios/Sources/Core/Session/SessionStore.swift:91-103`, `apps/ios/Sources/App/RootView.swift:22-30`
+- **Сценарий:** refresh 401 → хранилище очищено, но UI остаётся `signedIn`: на каждом экране
+  «Требуется авторизация», пуш-токен не отвязан, локальная база не чищена.
+- **Ожидается:** §7.2 — отказ refresh ведёт на вход с той же уборкой, что ручной выход.
+
+### 🟢 Низкие
+
+#### BUG-108 · 🟢 🔒 Ожидающий секрет TOTP переживает смену пароля и выдаётся повторно
+- **Роль:** роли с 2FA по желанию, новые привилегированные учётки · **Статус:** новый
+- **Где:** `apps/api/src/modules/auth/two-factor.service.ts:68-82`, `apps/api/src/modules/users/users.service.ts:1514-1520` (а также `changePassword`, `setPasswordAfterReset`)
+- **Сценарий:** злоумышленник вызвал `POST /auth/2fa/setup` и получил секрет S; владелец сменил
+  пароль — S остаётся; позже владелец включает 2FA и сканирует тот же S.
+- **Ожидается:** смена пароля и `revokeAllUserSessions` стирают неподтверждённый секрет (§6.2).
+
+#### BUG-109 · 🟢 Удаление надгробия бывшего админа группы уносит аватар группы у всех
+- **Роль:** участники пользовательских групп · **Статус:** новый
+- **Где:** `apps/api/src/modules/chats/chats.service.ts:3448-3454`, `apps/api/src/modules/cleanup/pd-retention.service.ts:507-520`, `apps/api/src/modules/cleanup/cleanup.service.ts:862-863`
+- **Ожидается:** каскад не уносит чужое (PERSONAL_DATA §5): аватары групп в `foreignFiles` или файл на создателя чата.
+
+#### BUG-110 · 🟢 🔒 Удаление аккаунта оставляет работодателю сопроводительные письма откликов
+- **Роль:** STUDENT, STAROSTA → EMPLOYER · **Статус:** новый
+- **Где:** `apps/api/src/modules/users/users.service.ts:2119-2142`, `apps/api/src/modules/career/applications.service.ts:211-246`
+- **Ожидается:** удаление аккаунта удаляет личный контент (PERSONAL_DATA §5, PROJECT §11.3), включая отклики, резюме, карьерный профиль и согласия.
+
+#### BUG-111 · 🟢 `closeStaleTickets` перестаёт закрывать обращения на 200 «вечных»
+- **Роль:** PLATFORM_ADMIN, PLATFORM_MODERATOR · **Статус:** новый
+- **Где:** `apps/api/src/modules/chats/support.service.ts:619-628` (`take: 200` без курсора, фильтр «последней писала команда» после выборки)
+- **Ожидается:** PROJECT §10.2 — отбор по последнему отправителю в запросе или курсор до исчерпания.
+
+#### BUG-112 · 🟢 Правка сообщения не обновляет превью ссылки
+- **Роль:** все участники чатов · **Статус:** новый
+- **Где:** `apps/api/src/modules/chats/chats.service.ts:2518-2546`, `apps/api/src/modules/chats/link-preview.processor.ts:57-60`
+- **Сценарий:** ссылку заменили — у всех остаётся карточка старой (можно выдать легитимный заголовок у подменённой ссылки).
+- **Ожидается:** при правке сбросить превью или поставить новый job.
+
+#### BUG-113 · 🟢 Догон чата после обрыва берёт границу по часам клиента
+- **Роль:** все участники чатов · **Статус:** новый
+- **Где:** `apps/web/src/widgets/chat-window/ui/chat-window.tsx:361,1549,1557,1575`, `apps/api/src/modules/chats/chats.service.ts:1268,1284-1298`
+- **Ожидается:** граница по серверному времени (PROJECT §9.2c).
+
+#### BUG-114 · 🟢 Кэш счётчика непрочитанных не сбрасывается при удалении уведомлений о дружбе и запросе на переписку
+- **Роль:** все с друзьями и чатами · **Статус:** новый
+- **Где:** `apps/api/src/modules/friends/friends.service.ts:502-506`, `apps/api/src/modules/chats/chats.service.ts:1036,1093,3287`, `apps/api/src/modules/notifications/notifications.service.ts:100-116`
+- **Сценарий:** «Принять» в колокольчике удаляет строку без `invalidateUnread` — бейдж 1 до 5 минут при пустом списке.
+- **Ожидается:** любая мутация уведомлений сбрасывает кэш (§10.1).
+
+#### BUG-115 · 🟢 🔒 Обложки статей профиля — неограниченное публичное хранилище без уборки
+- **Роль:** любая роль с профилем · **Статус:** новый
+- **Где:** `apps/api/src/modules/profile-content/profile-content.service.ts:535-544,676-707`, `apps/api/src/modules/cleanup/cleanup.service.ts:584-628`
+- **Ожидается:** BACKEND_RULES §8 — замена и удаление статьи удаляют обложку, брошенные чистятся, квота учитывает бакет.
+
+#### BUG-116 · 🟢 Медиа профиля: `expiresAt: null` при HLS-токене на 15 минут — видео перестаёт играть
+- **Роль:** все, кто смотрит видео в профиле · **Статус:** новый
+- **Где:** `apps/api/src/modules/media/media.service.ts:242-253`, `apps/web/src/shared/lib/use-hls.ts:60`
+- **Ожидается:** `expiresAt` несёт срок токена, если есть `hls` (контракт `MediaInfo`).
+
+#### BUG-117 · 🟢 Выключатель разделов не закрывает ролевые адреса, палитра его не учитывает
+- **Роль:** все роли вуза и платформы · **Статус:** новый
+- **Где:** `apps/web/src/entities/platform/lib/sections.ts:37-40`, `apps/web/src/widgets/command-palette/model/quick-actions.ts:171`, `apps/web/src/widgets/command-palette/ui/command-palette.tsx:70`
+- **Сценарий:** «Чаты» погашены, а `/dean/chats`, `/teacher/chats` и т. п. открываются из Ctrl+K.
+- **Ожидается:** погашенный раздел закрыт по всем маршрутам (комментарий в `sections.ts`).
+
+#### BUG-118 · 🟢 Результаты поиска «Чаты» и «События» не открывают найденное
+- **Роль:** все с поиском · **Статус:** новый
+- **Где:** `apps/web/src/entities/search/model/use-search-items.ts:119,127`
+- **Ожидается:** `/chats?c=<id>` и `/events/<id>`.
+
+#### BUG-119 · 🟢 Работодателю переключатель продуктов предлагает «Учёбу» и отмечает её активной
+- **Роль:** EMPLOYER · **Статус:** новый
+- **Где:** `apps/web/src/widgets/app-shell/model/nav.ts:419,439-446`, `apps/web/src/widgets/app-shell/ui/app-sidebar.tsx:103-106`
+- **Ожидается:** у работодателя только карьерный продукт.
+
+#### BUG-120 · 🟢 Захардкоженные строки в общих компонентах
+- **Роль:** все, kk и en · **Статус:** новый
+- **Где:** `apps/web/src/shared/ui/dialog.tsx:62` (sr-only «Close»), `apps/web/src/views/materials/ui/material-detail-modal.tsx:111` («КБ»), `apps/web/src/shared/ui/file-upload.tsx:27` («МБ»)
+- **Ожидается:** FRONTEND_RULES §10, §15 п. 3 — через i18n (`shared/lib/format-bytes`).
+
+#### BUG-121 · 🟢 Дашборд преподавателя и декана: «сейчас» застывает в момент открытия
+- **Роль:** TEACHER, DEAN · **Статус:** новый
+- **Где:** `apps/web/src/widgets/today/ui/teacher-today.tsx:52-53`, `dean-today.tsx:33-34`
+- **Ожидается:** живые часы для состояний `now`/`past`, смена даты и чётности после полуночи.
+
+#### BUG-122 · 🟢 Напоминание «начнётся примерно через час» о событии через 10 минут
+- **Роль:** участники событий · **Статус:** новый
+- **Где:** `apps/api/src/modules/events/events.service.ts:58-65,590-600`, `packages/shared-config/src/notification-messages.ts:101`
+- **Ожидается:** текст по остатку времени — например, «в 14:10» по часам вуза.
+
+#### BUG-123 · 🟢 Изменение расписания на прошедшую дату рассылает уведомление группе
+- **Роль:** DEAN, UNIVERSITY_ADMIN → группа · **Статус:** новый
+- **Где:** `apps/api/src/modules/schedules/schedules.service.ts:872-980` (`createChange`; у `removeChange:1024` проверка есть)
+- **Ожидается:** о прошедшей дате не уведомлять, как у `removeChange`.
+
+#### BUG-124 · 🟢 iOS считает чётность недели по UTC, а веб и Android — по местной дате
+- **Роль:** STUDENT, STAROSTA, TEACHER — iOS · **Статус:** новый
+- **Где:** `apps/ios/Sources/Core/Study/WeekParity.swift:17-28,38-43`, `apps/ios/Sources/Features/Study/ScheduleModel.swift:41-42`; эталон `apps/web/src/shared/lib/tz-date.ts:52-68`, `apps/android/.../core/study/WeekParity.kt:28-31`
+- **Сценарий:** с 00:00 до 05:00 понедельника в Казахстане iOS показывает чётность прошлой недели.
+- **Ожидается:** одни правила чётности (§3.9) — дата в поясе вуза (`ScheduleDTO.timezone`).
+
+#### BUG-125 · 🟢 Мобильные клиенты показывают русский текст ошибок сервера; в iOS 50 строк без казахского
+- **Роль:** все на iOS и Android с казахским языком · **Статус:** новый
+- **Где:** `apps/android/.../core/network/ApiError.kt:76`, `apps/ios/Sources/Core/Network/APIError.swift:81-84`, `apps/ios/Resources/Localizable.xcstrings`
+- **Ожидается:** §8.2 — клиент реагирует на `code`, тексты через i18n; словари kk полные.
+
+#### BUG-126 · 🟢 Огромные числа во входных данных дают `500` вместо `422`
+- **Роль:** все · **Статус:** новый
+- **Где:** `packages/shared-schemas/src/chats.ts:197` (`MuteSchema.minutes`), `:176` (`since`), `packages/shared-schemas/src/career.ts:465` (`salaryFrom`), `packages/shared-schemas/src/pagination.ts:5` и копии `page` без `max`; фильтр `apps/api/src/common/filters/http-exception.filter.ts:67-77` не переводит `PrismaClientValidationError`
+- **Ожидается:** BACKEND_RULES §3, §4.4 — предел значений в схеме, сырая ошибка Prisma наружу не уходит.
+
+#### BUG-127 · 🟢 `z.coerce.boolean()` остался ещё в шести схемах (корень BUG-019, BUG-061)
+- **Роль:** все (проявится у первого клиента, шлющего явный `false`) · **Статус:** новый
+- **Где:** `packages/shared-schemas/src/notifications.ts:6` (`unreadOnly`), `application-services.ts:238,239` (`overdue`, `dueToday`), `events.ts:102` (`mine`), `chats.ts:188` (`hasFile`), `chats.ts:269,280,282` (multipart `spoiler`, `asFiles`, `silent`)
+- **Ожидается:** `queryBoolean` из `pagination.ts:22`. Правка `shared-schemas` — стоп-точка.
+
+#### BUG-128 · 🟢 Поле «О себе» карьерного профиля нельзя очистить (корень BUG-047)
+- **Роль:** STUDENT, STAROSTA · **Статус:** новый
+- **Где:** `packages/shared-schemas/src/career.ts:257`, `apps/web/src/views/career/ui/career-profile-view.tsx:286-287`, `apps/api/src/modules/career/career-profile.service.ts:102-106`
+- **Ожидается:** пустое поле записывается `null`.
+
+#### BUG-129 · 🟢 24 схемы тел запросов без `.strict()` — лишние поля молча отбрасываются
+- **Роль:** EMPLOYER, карьерный центр, PLATFORM_*, все (поддержка, мини-апп) · **Статус:** новый
+- **Где:** `packages/shared-schemas/src/career.ts:105,115,125,132,144,154,247,262,396,412,435,601,611,630`, `platform.ts:47,70,80,89,113,170`, `support.ts:11,16`, `mini.ts:16,20`
+- **Ожидается:** BACKEND_RULES §3 — `.strict()` на создании и обновлении.
+
+#### BUG-130 · 🟢 Входные данные мимо Zod-схем из `shared-schemas`
+- **Роль:** EMPLOYER, STUDENT, сотрудники заявок · **Статус:** новый
+- **Где:** `apps/api/src/modules/career/companies.controller.ts:115` (`@Query('search')` без схемы — массив даёт `500`), `apps/api/src/modules/career/resume.controller.ts:61` (TS-тип вместо DTO), `apps/api/src/modules/application-services/dto/revoke-certificate.dto.ts:6` (схема в `apps/api`)
+- **Ожидается:** BACKEND_RULES §3 — все входные данные через схему `shared-schemas`, query так же строго, как body.
 
 ## Замечено попутно
 
