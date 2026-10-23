@@ -122,9 +122,9 @@ class ScheduleTest {
      */
     @Test
     fun modelShowsPairsOfDayForCurrentParity() = runTest {
-        // Вторник 6 октября 2026 — по формуле веба 40-я неделя, чётная.
+        // Вторник 13 октября 2026 — 42-я ISO-неделя, чётная.
         val zone = ZoneId.of("Asia/Almaty")
-        val clock = Clock.fixed(Instant.parse("2026-10-06T04:00:00Z"), zone)
+        val clock = Clock.fixed(Instant.parse("2026-10-13T04:00:00Z"), zone)
         store.save(
             ScheduleDto(
                 null,
@@ -136,7 +136,7 @@ class ScheduleTest {
                 ),
             ),
         )
-        val dayStart = LocalDate.of(2026, 10, 6).atStartOfDay(zone).toInstant()
+        val dayStart = LocalDate.of(2026, 10, 13).atStartOfDay(zone).toInstant()
         store.saveChanges(listOf(ScheduleChangeDto("c-1", "even", "CANCELLED", dayStart.plusSeconds(3_600))), dayStart)
 
         val model = ScheduleModel(db, NoNetworkSchedule(), prefs = null, clock = clock)
