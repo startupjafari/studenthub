@@ -6,6 +6,7 @@ import type { AuditService } from '../../common/audit/audit.service'
 import type { UniversityService } from '../universities/universities.service'
 import type { UserService } from '../users/users.service'
 import type { InviteService } from '../invites/invites.service'
+import type { AnalyticsService } from '../analytics/analytics.service'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 
 const ctx = { ip: '127.0.0.1', userAgent: 'jest' }
@@ -42,14 +43,16 @@ function setup() {
     afterStarostaChange: jest.fn().mockResolvedValue(undefined),
   }
   const invites = { revokePendingInScope: jest.fn().mockResolvedValue(0) }
+  const analytics = { invalidateFaculty: jest.fn().mockResolvedValue(undefined) }
   const service = new GroupService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
     universities as unknown as UniversityService,
     users as unknown as UserService,
     invites as unknown as InviteService,
+    analytics as unknown as AnalyticsService,
   )
-  return { service, prisma, audit, universities, users, invites }
+  return { service, prisma, audit, universities, users, invites, analytics }
 }
 
 function viewer(role: Role, scope: Partial<JwtPayload> = {}): JwtPayload {
@@ -75,7 +78,7 @@ const GROUP = {
 
 describe('GroupService — create scope', () => {
   it('UNIVERSITY_ADMIN своего вуза — создаёт', async () => {
-    const { service, prisma, universities } = setup()
+    const { service, prisma, universities, analytics } = setup()
     prisma.faculty.findUnique.mockResolvedValue({ id: 'fac-1', universityId: 'uni-1' })
     prisma.group.create.mockResolvedValue(GROUP)
     const res = await service.create(
@@ -85,6 +88,8 @@ describe('GroupService — create scope', () => {
     )
     expect(res.universityId).toBe('uni-1')
     expect(universities.invalidateStats).toHaveBeenCalledWith('uni-1')
+    // Новая группа — новая строка в обзоре факультета: кэш обзора сбрасывается.
+    expect(analytics.invalidateFaculty).toHaveBeenCalledWith('fac-1')
   })
 
   it('чужой вуз → WRONG_SCOPE', async () => {
@@ -392,7 +397,7 @@ describe('GroupService — assignStarosta: роль, а не только отм
 
 describe('GroupService — remove', () => {
   it('пустая группа удаляется под блокировкой строки, в одной транзакции с подсчётом', async () => {
-    const { service, prisma, universities, audit } = setup()
+    const { service, prisma, universities, audit, analytics } = setup()
     prisma.group.findUnique.mockResolvedValue(GROUP)
     prisma.group.delete.mockResolvedValue(GROUP)
     await service.remove(viewer(Role.UNIVERSITY_ADMIN, { universityId: 'uni-1' }), 'grp-1', ctx)
@@ -403,6 +408,7 @@ describe('GroupService — remove', () => {
     )
     expect(prisma.group.delete).toHaveBeenCalledWith({ where: { id: 'grp-1' } })
     expect(universities.invalidateStats).toHaveBeenCalledWith('uni-1')
+    expect(analytics.invalidateFaculty).toHaveBeenCalledWith('fac-1', 'grp-1')
     expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: 'group_deleted' }))
   })
 
