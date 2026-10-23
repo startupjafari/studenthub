@@ -397,7 +397,12 @@ status `DRAFT|UPLOADED|IN_REVIEW|VERIFIED|ACCEPTED|REJECTED|NEEDS_REPLACEMENT|EX
 **Комплект по запросу.** Студент сохраняет и отправляет комплект только в `DRAFT`/`REJECTED`/
 `PARTIAL`; `SUBMITTED`/`ACCEPTED`, закрытый запрос или истёкший `dueAt` → `409`. `dueAt` без
 времени действует до конца дня. Правка возвращённого комплекта переводит его в `DRAFT`, вердикты
-нетронутых позиций сохраняются. `review`/`finalize` — только из `SUBMITTED`/`PARTIAL`.
+нетронутых позиций сохраняются. Документ в позиции — ровно того типа, что она требует (позиция
+всегда задаёт конкретный тип каталога, «любого документа» у запросов нет); другой тип → `400`.
+Проверяющему (`GET submissions/:id`, `GET submission-items/:id/files/:fileId/url`) приложенный
+документ открывается, только если тип совпадает с позицией и категория положена его роли:
+преподавателю — только `ACADEMIC`, деканату и модератору вуза — любые. Иначе позиция выглядит
+неприложенной, файл — `404`. `review`/`finalize` — только из `SUBMITTED`/`PARTIAL`.
 `GET /document-requests(/:id)` отдают `acceptsSubmissions`. Принятая позиция `CERTIFICATE` своего
 типа переводит документ студента в `VERIFIED`. `GET manage/:id` отдаёт первые 200 комплектов и
 `submissionCount`, остальные — `GET manage/:id/submissions?cursor&limit≤50`; `POST manage/:id/close`
