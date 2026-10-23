@@ -7,6 +7,7 @@ import {
   canTransitionAccess,
   isAccessActive,
   type CompanyAccessStatus,
+  type CompanyListQueryInput,
   type DecideCompanyAccessInput,
   type EmployerSignupInput,
   type RequestCompanyAccessInput,
@@ -458,16 +459,17 @@ export class CompaniesService {
    * админ одного вуза читал бы очередь другого. Параметр действует только для
    * платформенных ролей, у которых своего вуза нет (см. resolveUniversityScope).
    */
-  async universityAccessList(
-    viewer: JwtPayload,
-    query: { status?: CompanyAccessStatus; page: number; limit: number; universityId?: string },
-  ) {
+  async universityAccessList(viewer: JwtPayload, query: CompanyListQueryInput) {
     const universityId = resolveUniversityScope(viewer, query.universityId)
     const where: Prisma.CompanyUniversityAccessWhereInput = {
       universityId,
       ...(query.status ? { status: query.status } : {}),
       // Компанию с неподтверждённым адресом вуз не видит вовсе.
-      company: { status: { not: 'PENDING_EMAIL' }, deletedAt: null },
+      company: {
+        status: { not: 'PENDING_EMAIL' },
+        deletedAt: null,
+        ...(query.search ? { name: { contains: query.search, mode: 'insensitive' as const } } : {}),
+      },
     }
 
     const [items, total] = await Promise.all([
@@ -494,13 +496,31 @@ export class CompaniesService {
             },
           },
         },
-        orderBy: [{ status: 'asc' }, { requestedAt: 'desc' }],
+        orderBy: this.accessOrderBy(query),
         skip: (query.page - 1) * query.limit,
         take: query.limit,
       }),
       this.prisma.companyUniversityAccess.count({ where }),
     ])
     return { items, total }
+  }
+
+  /**
+   * Порядок очереди по колонке таблицы. «Дата» у заявки — момент последней подачи
+   * (`requestedAt`): повторная заявка после отказа встаёт в очередь заново, а не туда, где
+   * была первая. Вторым ключом — свежие сверху, чтобы порядок внутри равных был стабильным.
+   */
+  private accessOrderBy(
+    query: CompanyListQueryInput,
+  ): Prisma.CompanyUniversityAccessOrderByWithRelationInput[] {
+    switch (query.sort) {
+      case 'name':
+        return [{ company: { name: query.order } }, { requestedAt: 'desc' }]
+      case 'status':
+        return [{ status: query.order }, { requestedAt: 'desc' }]
+      default:
+        return [{ requestedAt: query.order }]
+    }
   }
 
   /** Решение вуза по заявке: одобрить, отказать или отозвать выданный допуск. */

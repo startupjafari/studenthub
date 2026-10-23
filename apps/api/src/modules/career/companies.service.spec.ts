@@ -604,6 +604,41 @@ describe('CompaniesService — уборка неподтверждённых к�
   })
 })
 
+describe('CompaniesService — очередь заявок вуза', () => {
+  const uniAdmin: JwtPayload = {
+    sub: 'adm-1',
+    role: Role.UNIVERSITY_ADMIN,
+    universityId: 'uni-1',
+    facultyId: null,
+    groupId: null,
+  }
+  const base = { page: 1, limit: 20, sort: 'createdAt' as const, order: 'desc' as const }
+
+  it('поиск по названию компании и сортировка по колонке доходят до выборки', async () => {
+    const { service, prisma } = setup()
+    await service.universityAccessList(uniAdmin, {
+      ...base,
+      search: 'Acme',
+      sort: 'name',
+      order: 'asc',
+    })
+    const args = prisma.companyUniversityAccess.findMany.mock.calls[0][0]
+    expect(args.where.company).toMatchObject({
+      name: { contains: 'Acme', mode: 'insensitive' },
+    })
+    expect(args.orderBy).toEqual([{ company: { name: 'asc' } }, { requestedAt: 'desc' }])
+    expect(prisma.companyUniversityAccess.count.mock.calls[0][0].where).toEqual(args.where)
+  })
+
+  it('по умолчанию — по дате заявки, порядок из запроса', async () => {
+    const { service, prisma } = setup()
+    await service.universityAccessList(uniAdmin, { ...base, order: 'asc' })
+    expect(prisma.companyUniversityAccess.findMany.mock.calls[0][0].orderBy).toEqual([
+      { requestedAt: 'asc' },
+    ])
+  })
+})
+
 describe('CompaniesService — истечение допуска по сроку', () => {
   const now = new Date('2026-10-17T12:40:00Z')
   const expired = { id: 'a-1', companyId: 'co-1', universityId: 'uni-1' }
