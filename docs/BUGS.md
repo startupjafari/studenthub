@@ -1475,6 +1475,134 @@
 #### BUG-246 · 🟢 Уведомления «Новый запрос» и «Результат проверки» ведут на «Обзор», а не на запросы
 - **Где:** `apps/api/src/modules/documents/document-requests.service.ts:215,883` (`url: '/documents'` вместо `?section=requests`) · **Статус:** новый
 
+### Библиотека, помещения, камеры
+
+#### BUG-247 · 🟠 Охрана и админ не видят камеры дальше сотой: список без пагинации
+- **Роль:** SECURITY_GUARD, UNIVERSITY_ADMIN · **Статус:** новый
+- **Где:** `apps/web/src/entities/camera/api/camera-api.ts:48` (`limit: 100`, одна страница), `apps/web/src/widgets/camera-wall/ui/camera-wall.tsx:43-48`, `apps/web/src/views/cameras/ui/cameras-admin-view.tsx:83-86`
+- **Сценарий:** контракт допускает 50 агентов по 200 камер; 101-я по алфавиту не открывается охраной и не правится админом.
+- **Ожидается:** §3.10 «охрана видит все камеры своего вуза» — догрузка или пагинация с поиском.
+
+#### BUG-248 · 🟡 Импорт фонда целиком падает, если в файле есть строки с номерами и без
+- **Где:** `apps/api/src/modules/library/library-catalog.service.ts:381-399`, `library-import.service.ts:178-188,253`, `apps/web/src/views/library-catalog/ui/library-import-modal.tsx:89` · **Статус:** новый
+- **Сценарий:** автонумерация не обходит явные номера той же пачки — P2002, откат всего файла, общий тост `Errors.CONFLICT`.
+
+#### BUG-249 · 🟡 Очередь броней отдаёт экземпляр читателю, которому выдача закрыта
+- **Где:** `apps/api/src/modules/library/library-holds.ts:226-242,258-276`, `library-loans.service.ts:190-193` · **Статус:** новый
+- **Сценарий:** у первого в очереди появилась просрочка, утеря или статус «отчислен» — экземпляр откладывается ему, выдача даёт `409`, книга лежит до 30 дней.
+- **Ожидается:** §3.11 — пропускать или снимать бронь такого читателя.
+
+#### BUG-250 · 🟢 Архив книги с очередью: брони висят вечно и занимают лимит; возврат экземпляра обслуживает очередь архивной книги
+- **Где:** `apps/api/src/modules/library/library-catalog.service.ts:269-276,474-477` · **Статус:** новый
+
+#### BUG-251 · 🟢 Импорт: «Количество = 0» в предпросмотре — 0 экземпляров, при записи — 1
+- **Где:** `apps/api/src/modules/library/library-import.service.ts:171-179,253` · **Статус:** новый
+
+#### BUG-252 · 🟢 Импорт дублирует книги: сопоставление по первым 20 000 карточкам без порядка и без архива
+- **Где:** `apps/api/src/modules/library/library-import.service.ts:219-225` · **Статус:** новый
+
+#### BUG-253 · 🟢 CSV из Excel в cp1251 отклоняется с неверной причиной «нет колонки „Название“»
+- **Где:** `apps/api/src/common/import/table-file.ts:95`, `apps/api/src/modules/library/library-import.service.ts:83-88` (касается и импорта инвайтов) · **Статус:** новый
+
+#### BUG-254 · 🟢 Повторный приём выдачи после «Отменить возврат» не уведомляет читателя (корень BUG-094)
+- **Где:** `apps/api/src/modules/library/library-loans.service.ts:369` (ключ `library-loan-returned:<loanId>` без момента возврата) · **Статус:** новый
+
+#### BUG-255 · 🟢 «Это не я» по закрытой выдаче показывает «вы отчислены»
+- **Где:** `apps/api/src/modules/library/library-loans.service.ts:742` (`field = status`), `apps/web/src/views/library-reader/lib/reader-errors.ts:222` · **Статус:** новый
+
+#### BUG-256 · 🟢 «Продлить» без даты падает `422`, хотя продлить на меньший срок можно
+- **Где:** `apps/api/src/modules/library/library-loans.service.ts:407-416`, `apps/web/src/views/library-desk/ui/loan-actions.tsx:76,177-183` · **Статус:** новый
+
+#### BUG-257 · 🟢 Дата «ГГГГ-ММ-ДД» принимает несуществующие дни (`2026-02-31` → 03.03)
+- **Где:** `packages/shared-schemas/src/library.ts:299-301`, `apps/api/src/modules/library/library-loans.service.ts:197-203,295` · **Статус:** новый
+
+#### BUG-258 · 🟢 Предел книг и броней проверяется вне транзакции (корень BUG-025/BUG-050)
+- **Где:** `apps/api/src/modules/library/library-loans.service.ts:191,224-230`, `library-reservations.service.ts:84-106,110-116` · **Статус:** новый
+
+#### BUG-259 · 🟢 Агенты камер одного вуза за NAT делят лимит 60/мин на `sync` — видео не стартует
+- **Где:** `apps/api/src/modules/cameras/camera-agent-sync.controller.ts:187`, `apps/api/src/common/guards/user-throttler.guard.ts:112-115` (счётчик по IP, а не по агенту) · **Статус:** новый
+
+#### BUG-260 · 🟢 Состояние камеры «В сети» не гаснет, когда агент пропал или модуль выключен
+- **Где:** `apps/api/src/modules/cameras/camera-agent-sync.service.ts:147-165`, `cameras.service.ts:59-68`, `apps/web/src/widgets/camera-wall/ui/camera-wall.tsx:121-123` · **Статус:** новый
+
+#### BUG-261 · 🟢 Один сбой продления навсегда гасит окно камеры; ошибка адреса потока — по-русски на всех языках
+- **Где:** `apps/web/src/features/watch-camera/model/use-camera-view.ts:45-54,65-71`, `apps/web/src/views/cameras/ui/camera-form-modal.tsx:174`, `packages/shared-schemas/src/cameras.ts:35-47` · **Статус:** новый
+
+#### BUG-262 · 🟢 Помещения: печать QR пачкой на корпус или этаж убрана из веба
+- **Где:** `apps/web/src/views/rooms/ui/rooms-admin-view.tsx:139-147,299,366-369` (§3.9 обещает пачку — поправить код или PROJECT) · **Статус:** новый
+
+Попутно в этом модуле: даты библиотеки «ГГГГ-ММ-ДД» разбираются полночью браузера (`entities/library/ui/loan-due-badge.tsx:16-17`, `reservation-badge.tsx:15-16`, `library-debts-notice.tsx:62-63`, `views/library-desk/ui/reader-card-dialog.tsx:52`) — корень BUG-103; «Выбрать все» у книги больше чем с 200 экземплярами даёт `422` (`book-detail-view.tsx:309`), карточка показывает только первые 500 экземпляров (`library-catalog.service.ts:193`).
+
+### Лента, сторис, опросы, профиль, друзья, поиск
+
+#### BUG-263 · 🟡 Отложенный пост и опубликованный черновик стоят в ленте на дате создания, а не публикации
+- **Где:** `apps/api/src/modules/posts/posts.service.ts:563-572,867-874,996-999`, веб `apps/web/src/widgets/feed-list/ui/post-card.tsx:144-147,274`, `post-lightbox.tsx:553` · **Статус:** новый
+- **Ожидается:** §3.3, §8.3 — порядок и дата по `publishedAt ?? createdAt`.
+
+#### BUG-264 · 🟡 Сторис: фото без подписи и ссылку без подписи опубликовать нельзя, блок ссылки не закрывается
+- **Где:** `apps/web/src/features/create-story/ui/create-story-form.tsx:77,210,245,286,295`, `packages/shared-schemas/src/stories.ts:56,65` · **Статус:** новый
+- **Ожидается:** §3.4 «медиа ИЛИ текст» — пустые поля как `undefined` (`OPTIONAL_TEXT`).
+
+#### BUG-265 · 🟡 Декан не может опубликовать пост и сторис для группы: «Не указана группа»
+- **Где:** `apps/web/src/entities/post/model/audiences.ts:13,33`, `entities/story/model/audiences.ts:10,19`, `features/create-post/ui/create-post-form.tsx:105`, `features/repost-post/ui/repost-dialog.tsx:59`, `features/create-story/ui/create-story-form.tsx:89`; сервер `posts.service.ts:1429-1430`, `stories.service.ts:684-685` · **Статус:** новый
+
+#### BUG-266 · 🟡 «Опубликовать» во время загрузки фото: пост уходит без него, фото теряется
+- **Где:** `apps/web/src/features/create-post/ui/create-post-form.tsx:145-152,155-169,483-487` · **Статус:** новый
+
+#### BUG-267 · 🟡 Закладка и лайк в карточке и полном просмотре расходятся — «Сохранить» убирает закладку
+- **Где:** `apps/web/src/features/bookmark-post/model/use-bookmark.ts:18-38`, `widgets/feed-list/ui/post-card.tsx:113,130`, `post-lightbox.tsx:330,454` · **Статус:** новый
+- **Ожидается:** FRONTEND_RULES §5.5 — одно состояние на пост в кэше с откатом.
+
+#### BUG-268 · 🟡 Окно «Друзья» показывает только первые 20 друзей и заявок
+- **Где:** `apps/web/src/widgets/friends-panel/ui/friends-modal.tsx:42-50`, `entities/friendship/api/friendship-api.ts:58-72` · **Статус:** новый
+
+#### BUG-269 · 🟡 Принятая дружба не снимает запрос на переписку: чат в «Запросах», инициатор упирается в 5 сообщений
+- **Где:** `apps/api/src/modules/friends/friends.service.ts:186-209,401-438`, `apps/api/src/modules/chats/chats.service.ts:1079,3351-3360` · **Статус:** новый
+- **Ожидается:** §3.6 — пометка снимается и появлением дружбы.
+
+#### BUG-270 · 🟡 🔒 Поиск отдаёт декану дисциплины, задания и материалы чужих факультетов
+- **Где:** `apps/api/src/modules/search/search.service.ts:150-171` (модули сужают до факультета: `courses.service.ts:529`, `assignments.service.ts:783`, `materials.service.ts:245`) · **Статус:** новый
+
+#### BUG-271 · 🟡 Правка опроса сдвигает время закрытия на смещение пояса (−5 ч за каждую правку)
+- **Где:** `apps/web/src/widgets/user-profile/ui/poll-create-modal.tsx:58-60,91` · **Статус:** новый
+
+#### BUG-272 · 🟡 Посты преподавателя «по предмету» стоят в ленте ниже студенческих
+- **Где:** `apps/api/src/modules/posts/posts.service.ts:76-84,1334-1338` (SUBJECT 27 < GROUP студента 30) · **Статус:** новый
+- **Ожидается:** §3.3 — посты преподавателей выше постов студентов.
+
+#### BUG-273 · 🟢 Комментарий уходит дважды при быстром повторном Enter
+- **Где:** `apps/web/src/widgets/feed-list/ui/post-lightbox.tsx:996`, `widgets/user-profile/ui/content-comments.tsx:282` · **Статус:** новый
+
+#### BUG-274 · 🟢 Реакции сторис — любая строка вместо белого списка; пятая своя реакция приходит `mine:false`
+- **Где:** `packages/shared-schemas/src/stories.ts:84`, `apps/api/src/modules/stories/stories.service.ts:275-281` (`take: ids.length * 4`) · **Статус:** новый
+
+#### BUG-275 · 🟢 Охране и библиотекарю приходят заявки в друзья, личные посты и упоминания, которые им не открыть
+- **Где:** `apps/api/src/modules/friends/friends.service.ts:89-92`, `posts.service.ts:1282-1315,1492-1501`, веб `widgets/user-profile/ui/public-user-profile.tsx:192` · **Статус:** новый
+
+#### BUG-276 · 🟢 🔒 Поиск людей не учитывает личную блокировку
+- **Где:** `apps/api/src/modules/search/search.service.ts:41-56` (справочник исключает, `/search` — нет) · **Статус:** новый
+
+#### BUG-277 · 🟢 Отмена и повтор заявки в друзья будят адресата без ограничения
+- **Где:** `apps/api/src/modules/friends/friends.service.ts:169-181,212-232` · **Статус:** новый
+
+#### BUG-278 · 🟢 «Друзья» в чужом профиле удаляет дружбу одним нажатием
+- **Где:** `apps/web/src/widgets/user-profile/ui/public-user-profile.tsx:323-334`, `widgets/friends-panel/ui/friends-modal.tsx:83-93` · **Статус:** новый
+
+#### BUG-279 · 🟢 «Запланировать» на прошедшее время публикует сразу, а тост говорит «запланировано»
+- **Где:** `apps/web/src/features/create-post/ui/create-post-form.tsx:131-137,410-415`, `apps/api/src/modules/posts/posts.service.ts:860-863` · **Статус:** новый
+
+#### BUG-280 · 🟢 Новая запись портфолио ломает ручной порядок
+- **Где:** `apps/api/src/modules/portfolio/portfolio.service.ts:35-39,120-143` (`order` по умолчанию 0) · **Статус:** новый
+
+#### BUG-281 · 🟢 Голосование и удаление в сторис падают молча, прочие ошибки — «Внутренняя ошибка» (тот же приём, что BUG-042)
+- **Где:** `apps/web/src/widgets/stories-rail/ui/story-viewer.tsx:184-196`, `features/bookmark-post/model/use-bookmark.ts:35`, `widgets/friends-panel/model/use-friendship-mutations.ts:35,47`, `widgets/feed-list/ui/post-card.tsx:138-141` · **Статус:** новый
+
+#### BUG-282 · 🟢 Заметку репоста нельзя очистить правкой
+- **Где:** `packages/shared-schemas/src/posts.ts:47-53`, `apps/web/src/features/edit-post/ui/edit-post-modal.tsx:39,92` · **Статус:** новый
+
+#### BUG-283 · 🟢 Список зрителей сторис: «Далее» вместо «Показать ещё»
+- **Где:** `apps/web/src/widgets/stories-rail/ui/story-viewers-sheet.tsx:58-67` · **Статус:** новый
+
 <!-- P3-END -->
 
 ## Замечено попутно
