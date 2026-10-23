@@ -3,7 +3,8 @@ import { createHash } from 'node:crypto'
 import type Redis from 'ioredis'
 import { renderQrDataUrl } from '../../common/qr/qr-image'
 import { Prisma } from '@prisma/client'
-import { Role } from '@studenthub/shared-types'
+import { Role, type ErrorCode } from '@studenthub/shared-types'
+import type { EntryDecision, PassDenyReasonValue } from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import { CryptoService } from '../../common/security/crypto.service'
@@ -13,6 +14,8 @@ import { ConfigService } from '@nestjs/config'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { EnvVars } from '../../config/env.schema'
 import { webBaseUrl } from '../../config/web-base'
+import { isTerminalAcademicStatus } from '../users/academic-status'
+import { SecurityPassesService, type PassRecord } from '../security-journal/security-passes.service'
 
 // TTL токена верификации ~2 мин: QR на фронте ротируется каждые ~45с (принцип «динамический QR
 // каждые 30-60с»), TTL держим чуть длиннее интервала, чтобы только что показанный код был
@@ -66,6 +69,21 @@ const CARD_SELECT = {
  */
 const SELF_DECLARED = ['birthDate'] as const
 
+/**
+ * Отказ проверки с причиной для журнала проходов охраны. Наружу уходит как обычная
+ * AppException того же кода; причина и студент нужны только для записи прохода.
+ */
+class PassDeniedException extends AppException {
+  constructor(
+    code: ErrorCode,
+    message: string,
+    readonly reason: PassDenyReasonValue,
+    readonly student: PassRecord['student'] = null,
+  ) {
+    super(code, message)
+  }
+}
+
 function isPlatform(role: Role): boolean {
   return role === Role.PLATFORM_ADMIN || role === Role.PLATFORM_MODERATOR
 }
@@ -79,6 +97,7 @@ export class StudentIdService {
     private readonly crypto: CryptoService,
     private readonly config: ConfigService<EnvVars, true>,
     private readonly audit: AuditService,
+    private readonly passes: SecurityPassesService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {}
 
@@ -109,20 +128,78 @@ export class StudentIdService {
     }
   }
 
-  /** Верификация карты сотрудником: расшифровка токена + область видимости (тот же вуз). */
+  /**
+   * Верификация карты сотрудником: расшифровка токена + область видимости (тот же вуз).
+   *
+   * Охрана на входе получает ещё решение о проходе (`entry`), и каждая её проверка пишется в
+   * журнал проходов поста — и пропуск, и отказ с причиной (docs/PROJECT.md §3.12). Повторное
+   * открытие того же результата (перезагрузка) — тот же проход, вторая строка не пишется.
+   */
   async verify(verifier: JwtPayload, token: string, ctx: { ip?: string; userAgent?: string } = {}) {
+    if (verifier.role !== Role.SECURITY_GUARD) return (await this.check(verifier, token, ctx)).card
+    let checked: Awaited<ReturnType<StudentIdService['check']>>
+    try {
+      checked = await this.check(verifier, token, ctx)
+    } catch (error) {
+      if (error instanceof PassDeniedException) {
+        await this.passes.record({
+          guard: verifier,
+          student: error.student,
+          allowed: false,
+          denyReason: error.reason,
+        })
+      }
+      throw error
+    }
+    const { card, fresh } = checked
+    // Отчисленный, выпускник и переведённый — уже не студенты вуза: карта настоящая, но
+    // пропускать по ней нельзя.
+    const entry: EntryDecision = isTerminalAcademicStatus(card.academicStatus)
+      ? { allowed: false, denyReason: 'STATUS' }
+      : { allowed: true, denyReason: null }
+    if (fresh) {
+      await this.passes.record({
+        guard: verifier,
+        student: { id: card.id, name: `${card.lastName} ${card.firstName}`, group: card.group },
+        ...entry,
+      })
+    }
+    return { ...card, entry }
+  }
+
+  private async check(
+    verifier: JwtPayload,
+    token: string,
+    ctx: { ip?: string; userAgent?: string },
+  ) {
     const payload = this.verifyIdToken(token)
     // Исключаем удалённых/заблокированных: их билет недействителен даже в пределах TTL токена.
     const user = await this.prisma.user.findFirst({
       where: { id: payload.sub, deletedAt: null, isBlocked: false },
       select: CARD_SELECT,
     })
-    if (!user) throw new AppException('NOT_FOUND', 'Студент не найден или билет недействителен')
+    if (!user) {
+      throw new PassDeniedException(
+        'NOT_FOUND',
+        'Студент не найден или билет недействителен',
+        'BLOCKED',
+        await this.blockedStudent(verifier, payload.sub),
+      )
+    }
     if (!isPlatform(verifier.role) && user.universityId !== verifier.universityId) {
-      throw new AppException('WRONG_SCOPE', 'Студент другого университета')
+      // Кто это, охране чужого вуза знать не положено — в журнал без студента.
+      throw new PassDeniedException(
+        'WRONG_SCOPE',
+        'Студент другого университета',
+        'OTHER_UNIVERSITY',
+      )
     }
     // После проверки области: сотрудник чужого вуза код не «забирает».
-    await this.claimToken(token, payload.exp, verifier.sub)
+    const fresh = await this.claimToken(token, payload.exp, verifier.sub, {
+      id: user.id,
+      name: `${user.lastName} ${user.firstName}`,
+      group: user.group?.name ?? null,
+    })
     const card = this.toCard(user)
     // Староста, преподаватель и охрана проверяют, что перед ними студент вуза (на паре, на
     // мероприятии, на входе, на выдаче книг) — им хватает ФИО, фото, группы и статуса. Дата
@@ -151,11 +228,29 @@ export class StudentIdService {
     // Время проверки — для отображения на странице верификации (когда сотрудник сканировал).
     // selfDeclared — только те поля «со слов студента», что реально есть в ответе.
     return {
-      valid: true,
-      verifiedAt: new Date().toISOString(),
-      ...shown,
-      selfDeclared: SELF_DECLARED.filter((field) => shown[field] != null),
+      fresh,
+      card: {
+        valid: true,
+        verifiedAt: new Date().toISOString(),
+        ...shown,
+        selfDeclared: SELF_DECLARED.filter((field) => shown[field] != null),
+      },
     }
+  }
+
+  /**
+   * Заблокированный или удалённый студент своего вуза — для журнала проходов охраны. Только
+   * охране и только свой вуз: остальным проверяющим журнал не пишется, лишний запрос не нужен.
+   */
+  private async blockedStudent(verifier: JwtPayload, userId: string) {
+    if (verifier.role !== Role.SECURITY_GUARD || !verifier.universityId) return null
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, universityId: verifier.universityId },
+      select: { firstName: true, lastName: true, group: { select: { name: true } } },
+    })
+    return user
+      ? { id: userId, name: `${user.lastName} ${user.firstName}`, group: user.group?.name ?? null }
+      : null
   }
 
   // ── helpers ──────────────────────────────────────────────────────────────
@@ -168,7 +263,12 @@ export class StudentIdService {
    * IV), токены не повторяются. Redis недоступен — пропускаем без отметки: проверка карты
    * на вахте важнее, а срок токена всё равно короткий.
    */
-  private async claimToken(token: string, exp: number, verifierId: string): Promise<void> {
+  private async claimToken(
+    token: string,
+    exp: number,
+    verifierId: string,
+    student: PassRecord['student'],
+  ): Promise<boolean> {
     const key = `student-id:used:${createHash('sha256').update(token).digest('hex')}`
     try {
       const first = await this.redis.set(
@@ -178,15 +278,21 @@ export class StudentIdService {
         Math.max(exp - Date.now(), 1000),
         'NX',
       )
-      if (first === 'OK' || (await this.redis.get(key)) === verifierId) return
+      if (first === 'OK') return true
+      if ((await this.redis.get(key)) === verifierId) return false
     } catch (error) {
       this.logger.warn(
         { err: error },
         'Redis недоступен — одноразовость кода студенческого не проверена',
       )
-      return
+      return true
     }
-    throw new AppException('CONFLICT', 'Код уже проверен — попросите студента обновить карту')
+    throw new PassDeniedException(
+      'CONFLICT',
+      'Код уже проверен — попросите студента обновить карту',
+      'REUSED_QR',
+      student,
+    )
   }
 
   private toCard(user: Prisma.UserGetPayload<{ select: typeof CARD_SELECT }>) {
@@ -223,13 +329,13 @@ export class StudentIdService {
       payload = JSON.parse(this.crypto.decrypt(token)) as IdPayload
     } catch {
       // Битый/подделанный/чужой шифртекст — decrypt бросит на неверном auth-tag.
-      throw new AppException('UNAUTHORIZED', 'Недействительный код')
+      throw new PassDeniedException('UNAUTHORIZED', 'Недействительный код', 'INVALID_QR')
     }
     if (payload.typ !== ID_TYP || typeof payload.sub !== 'string') {
-      throw new AppException('BAD_REQUEST', 'Некорректный код')
+      throw new PassDeniedException('BAD_REQUEST', 'Некорректный код', 'INVALID_QR')
     }
     if (typeof payload.exp !== 'number' || Date.now() > payload.exp) {
-      throw new AppException('BAD_REQUEST', 'Код истёк — обновите карту')
+      throw new PassDeniedException('BAD_REQUEST', 'Код истёк — обновите карту', 'EXPIRED_QR')
     }
     return payload
   }

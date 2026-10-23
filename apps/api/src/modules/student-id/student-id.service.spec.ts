@@ -19,6 +19,7 @@ import type { EnvVars } from '../../config/env.schema'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { AuditService } from '../../common/audit/audit.service'
 import type Redis from 'ioredis'
+import type { SecurityPassesService } from '../security-journal/security-passes.service'
 
 const config = {
   get: (k: string) =>
@@ -68,6 +69,7 @@ function setup() {
   }
   const crypto = new CryptoService(config)
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
+  const passes = { record: jest.fn().mockResolvedValue(undefined) }
   // Redis как Map: отметки «код уже проверен» (SET NX).
   const store = new Map<string, string>()
   const redis = {
@@ -84,9 +86,10 @@ function setup() {
     crypto,
     config,
     audit as unknown as AuditService,
+    passes as unknown as SecurityPassesService,
     redis as unknown as Redis,
   )
-  return { service, prisma, crypto, audit, redis }
+  return { service, prisma, crypto, audit, passes, redis }
 }
 
 describe('StudentIdService — непрозрачный токен', () => {
@@ -266,5 +269,123 @@ describe('StudentIdService — журнал и разовый код', () => {
     await expect(
       service.verify({ ...viewer('dean-1', 'uni-A'), role: Role.DEAN }, card.token),
     ).resolves.toMatchObject({ valid: true })
+  })
+})
+
+// Пост охраны (docs/PROJECT.md §3.12): каждая проверка охраной — строка журнала проходов,
+// и пропуск, и отказ с причиной. Остальные проверяющие журнал проходов не пишут.
+describe('StudentIdService — журнал проходов охраны', () => {
+  const guard = (universityId = 'uni-A'): JwtPayload => ({
+    ...viewer('guard-1', universityId),
+    role: Role.SECURITY_GUARD,
+  })
+
+  it('действующий студент — пропущен, проход записан со студентом', async () => {
+    const { service, prisma, passes } = setup()
+    const card = await service.myCard(viewer('stu-1', 'uni-A'))
+    prisma.user.findFirst.mockResolvedValue(student)
+
+    await expect(service.verify(guard(), card.token)).resolves.toMatchObject({
+      entry: { allowed: true, denyReason: null },
+    })
+    expect(passes.record).toHaveBeenCalledWith({
+      guard: guard(),
+      student: { id: 'stu-1', name: 'Петров Иван', group: 'BT-201' },
+      allowed: true,
+      denyReason: null,
+    })
+  })
+
+  it('отчисленный — карта показана, но проход запрещён по статусу', async () => {
+    const { service, prisma, passes } = setup()
+    const card = await service.myCard(viewer('stu-1', 'uni-A'))
+    prisma.user.findFirst.mockResolvedValue({ ...student, academicStatus: 'Отчислен' })
+
+    await expect(service.verify(guard(), card.token)).resolves.toMatchObject({
+      valid: true,
+      entry: { allowed: false, denyReason: 'STATUS' },
+    })
+    expect(passes.record).toHaveBeenCalledWith(
+      expect.objectContaining({ allowed: false, denyReason: 'STATUS' }),
+    )
+  })
+
+  it('повторное открытие того же результата — второй строки нет', async () => {
+    const { service, prisma, passes } = setup()
+    const card = await service.myCard(viewer('stu-1', 'uni-A'))
+    prisma.user.findFirst.mockResolvedValue(student)
+
+    await service.verify(guard(), card.token)
+    await service.verify(guard(), card.token)
+    expect(passes.record).toHaveBeenCalledTimes(1)
+  })
+
+  it('студент другого вуза — отказ без студента в журнале', async () => {
+    const { service, prisma, passes } = setup()
+    const card = await service.myCard(viewer('stu-1', 'uni-A'))
+    prisma.user.findFirst.mockResolvedValue(student)
+
+    await expect(service.verify(guard('uni-B'), card.token)).rejects.toMatchObject({
+      code: 'WRONG_SCOPE',
+    })
+    expect(passes.record).toHaveBeenCalledWith({
+      guard: guard('uni-B'),
+      student: null,
+      allowed: false,
+      denyReason: 'OTHER_UNIVERSITY',
+    })
+  })
+
+  it('чужой скриншот QR — отказ REUSED_QR со студентом', async () => {
+    const { service, prisma, passes } = setup()
+    const card = await service.myCard(viewer('stu-1', 'uni-A'))
+    prisma.user.findFirst.mockResolvedValue(student)
+    await service.verify({ ...viewer('dean-1', 'uni-A'), role: Role.DEAN }, card.token)
+
+    await expect(service.verify(guard(), card.token)).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(passes.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        allowed: false,
+        denyReason: 'REUSED_QR',
+        student: { id: 'stu-1', name: 'Петров Иван', group: 'BT-201' },
+      }),
+    )
+  })
+
+  it('заблокированный — отказ BLOCKED, студент своего вуза в журнале', async () => {
+    const { service, prisma, passes } = setup()
+    const card = await service.myCard(viewer('stu-1', 'uni-A'))
+    prisma.user.findFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ firstName: 'Иван', lastName: 'Петров', group: { name: 'BT-201' } })
+
+    await expect(service.verify(guard(), card.token)).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    expect(prisma.user.findFirst.mock.calls[1][0].where).toEqual({
+      id: 'stu-1',
+      universityId: 'uni-A',
+    })
+    expect(passes.record).toHaveBeenCalledWith(
+      expect.objectContaining({ allowed: false, denyReason: 'BLOCKED' }),
+    )
+  })
+
+  it('подделанный код — отказ INVALID_QR без студента', async () => {
+    const { service, passes } = setup()
+    await expect(service.verify(guard(), 'garbage')).rejects.toMatchObject({
+      code: 'UNAUTHORIZED',
+    })
+    expect(passes.record).toHaveBeenCalledWith(
+      expect.objectContaining({ student: null, denyReason: 'INVALID_QR' }),
+    )
+  })
+
+  it('не охрана — журнал проходов не пишется и решения о проходе в ответе нет', async () => {
+    const { service, prisma, passes } = setup()
+    const card = await service.myCard(viewer('stu-1', 'uni-A'))
+    prisma.user.findFirst.mockResolvedValue(student)
+
+    const result = await service.verify({ ...viewer('t', 'uni-A'), role: Role.TEACHER }, card.token)
+    expect(result).not.toHaveProperty('entry')
+    expect(passes.record).not.toHaveBeenCalled()
   })
 })
