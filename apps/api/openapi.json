@@ -4767,6 +4767,48 @@
         ]
       }
     },
+    "/library/loans/{id}/return/cancel": {
+      "post": {
+        "operationId": "LibraryLoansController_cancelReturn",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelReturnDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "404": {
+            "description": "Выдача не найдена или чужого вуза"
+          },
+          "409": {
+            "description": "details.field: notReturned — выдача не закрыта возвратом; returnWindow — прошло больше суток; reissued — экземпляр выдан другому; heldForReservation — отложен под бронь; withdrawn — утерян или списан"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Отменить ошибочный возврат с причиной: выдача снова открыта с прежним сроком",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
     "/library/me/loans": {
       "get": {
         "operationId": "LibraryLoansController_mine",
@@ -17480,6 +17522,10 @@
         "properties": {}
       },
       "CancelLoanDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "CancelReturnDto": {
         "type": "object",
         "properties": {}
       },
