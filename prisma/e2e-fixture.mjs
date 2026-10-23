@@ -49,7 +49,7 @@ const SUBJECT = 'Машинное обучение'
 // г. Алматы. `University.city` хранит код КАТО, а не название.
 const ALMATY = '750000000'
 
-// Один хэш на всех: bcrypt с cost=12 стоит ~0.3 с, а аккаунтов восемь — на прогоне это
+// Один хэш на всех: bcrypt с cost=12 стоит ~0.3 с, а аккаунтов десять — на прогоне это
 // заметно, и никакой пользы от разных хэшей у одного и того же пароля нет.
 const passwordHash = await bcrypt.hash(PASSWORD, 12)
 
@@ -137,6 +137,10 @@ const USERS = [
   ['TEACHER', 'teacher@studenthub.app', 'Елена', 'Иванова', fac],
   ['STAROSTA', 'starosta@studenthub.app', 'Аружан', 'Серикова', grp],
   ['STUDENT', 'student@studenthub.app', 'Нурлан', 'Оспанов', grp],
+  // Роли с запретом по умолчанию (RESTRICTED_ROLES): у каждой свой раздел — /security и
+  // /library. Сценариям они не нужны, но без них axe и UI-аудит не открывают эти экраны вовсе.
+  ['SECURITY_GUARD', 'security@studenthub.app', 'Ерлан', 'Жумабаев', uni],
+  ['LIBRARIAN', 'librarian@studenthub.app', 'Гульнара', 'Сапарова', uni],
 ]
 
 for (const [role, email, firstName, lastName, scope] of USERS) {

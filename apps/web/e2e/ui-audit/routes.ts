@@ -1,5 +1,6 @@
 import { readdirSync } from 'node:fs'
 import { join } from 'node:path'
+import type { Page } from '@playwright/test'
 import { REPO_ROOT } from '../support/test-env.cjs'
 import { ACCOUNTS } from '../support/sign-in'
 
@@ -42,10 +43,14 @@ export interface AuditRoute {
 const PUBLIC_PREFIXES = [
   '/login',
   '/register',
+  '/forgot-password',
+  '/reset-password',
   '/offline',
   '/employer/signup',
   '/employer/verify',
   '/demo',
+  '/r/resume',
+  '/verify',
   // Политика конфиденциальности и пользовательское соглашение.
   '/legal',
 ]
@@ -62,12 +67,17 @@ const ZONE_AUDIENCE: Array<[prefix: string, audience: Audience]> = [
   ['/dean', 'dean'],
   ['/teacher', 'teacher'],
   ['/starosta', 'starosta'],
+  // Роли с запретом по умолчанию: свой раздел, остальное middleware им не открывает.
+  ['/security', 'securityGuard'],
+  ['/library', 'librarian'],
 ]
 
 /** Маршруты, которые не проверяем, и честная причина для отчёта. */
 const SKIPS: Array<[match: (url: string) => boolean, reason: string]> = [
   [
-    (url) => url.startsWith('/employer'),
+    // Регистрация работодателя публична и аккаунта не требует — она проверяется гостем.
+    (url) =>
+      url.startsWith('/employer') && url !== '/employer/signup' && url !== '/employer/verify',
     'нет аккаунта EMPLOYER: фикстура e2e работодателя не заводит — компаний и вакансий на тестовом стенде нет',
   ],
   [
@@ -79,7 +89,7 @@ const SKIPS: Array<[match: (url: string) => boolean, reason: string]> = [
     'catch-all: пункт навигации без своей страницы — заглушка, остальное — 404; конкретные вкладки секции проверяются отдельно',
   ],
   [
-    (url) => url === '/demo/verify',
+    (url) => url === '/demo/verify' || url === '/employer/verify' || url === '/reset-password',
     'экран по ссылке из письма: без валидного токена проверяется не он, а состояние «ссылка недействительна»',
   ],
   [
@@ -167,4 +177,27 @@ export function discoverRoutes(): AuditRoute[] {
       return route
     })
     .sort((a, b) => a.url.localeCompare(b.url))
+}
+
+/**
+ * Достать значение динамического сегмента из самого приложения: открыть страницу-список и
+ * взять первую подходящую ссылку. Не нашли — `null`, и экран пропускается с честной причиной,
+ * а не проверяется по выдуманному id (это проверило бы страницу «не найдено»).
+ *
+ * Живёт рядом с реестром, а не в одном из обходов: им пользуются и UI-аудит, и axe-обход
+ * (a11y-axe.e2e.ts), и копия разъехалась бы с оригиналом при первой же правке.
+ */
+export async function resolveDynamic(page: Page, route: AuditRoute): Promise<string | null> {
+  if (route.discover === undefined) return null
+  const { from, linkPrefix } = route.discover
+  try {
+    await page.goto(from, { waitUntil: 'domcontentloaded' })
+    const href = await page
+      .locator(`a[href^="${linkPrefix}"]`)
+      .first()
+      .getAttribute('href', { timeout: 5_000 })
+    return href
+  } catch {
+    return null
+  }
 }

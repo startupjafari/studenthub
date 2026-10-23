@@ -455,10 +455,11 @@ jobs:
   web-e2e:
     name: Веб · сквозные сценарии Playwright
     runs-on: ubuntu-24.04
-    # Прогон поднимает api (nest build) и web (next dev) и идёт около десяти минут.
+    # Прогон поднимает api (nest build) и web (next build) и идёт около десяти минут, плюс
+    # axe-обход всех экранов всех ролей (e2e/a11y-axe.e2e.ts) — порядка ста сорока экранов.
     # Потолок нужен против зависших серверов: Playwright ждёт порт до 180 с на каждый,
     # а упавший на старте api оставляет прогон висеть на ретраях.
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     services:
       postgres:
@@ -605,39 +606,13 @@ jobs:
           PW_RETRIES: ${{ github.event_name == 'schedule' && '0' || '' }}
         run: pnpm --filter web e2e
 
-      # Находки axe — в сводку запуска. Сам сценарий на них не падает (см. комментарий
-      # в e2e/a11y.e2e.ts), поэтому единственный способ их увидеть — напечатать здесь.
+      # Находки axe — в сводку запуска. Обход (e2e/a11y-axe.e2e.ts) идёт по всем экранам
+      # всех ролей и падает на serious/critical вне allowlist (e2e/support/axe-allowlist.ts),
+      # а minor/moderate и терпимое по allowlist видно только здесь. Отчёт — по файлу на
+      # зону в apps/web/a11y-axe/, сводку из них собирает скрипт.
       - name: Доступность — находки axe в сводку
         if: always()
-        run: |
-          f=apps/web/a11y-axe.json
-          if [ ! -s "$f" ]; then
-            {
-              echo "## Доступность · axe"
-              echo ""
-              echo "Списка нет — сценарий доступности не дошёл до конца."
-            } >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-
-          count=$(jq 'length' "$f")
-          {
-            echo "## Доступность · axe"
-            echo ""
-            if [ "$count" = 0 ]; then
-              echo "Нарушений WCAG 2.1 A/AA на ключевых экранах не найдено."
-            else
-              echo "Найдено **$count** нарушений. Сценарий на них не падает: сначала"
-              echo "смотрим список, потом ставим утверждение на нужном уровне серьёзности."
-              echo ""
-              echo "| Экран | Правило | Серьёзность | Элементов | Что не так |"
-              echo "|---|---|---|---|---|"
-              jq -r '
-                sort_by(.route, .rule)[]
-                | "| `\(.route)` | \(.rule) | \(.impact) | \(.elements) | \(.help) |"
-              ' "$f"
-            fi
-          } >> "$GITHUB_STEP_SUMMARY"
+        run: node apps/web/e2e/support/axe-summary.mjs apps/web/a11y-axe >> "$GITHUB_STEP_SUMMARY"
 
       # Отчёт нужен именно при падении: по нему видно шаг, скриншот и трассу повтора.
       - name: Отчёт Playwright — только при падении
