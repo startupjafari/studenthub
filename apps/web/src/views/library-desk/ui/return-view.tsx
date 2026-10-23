@@ -123,12 +123,15 @@ export function ReturnView() {
               </Select>
             </div>
             {error && <p className="text-sm text-destructive">{error}</p>}
-            <div>
-              <Button type="submit" disabled={!hasCopyRef(copy)} loading={mutation.isPending}>
-                <BookDown className="size-4" aria-hidden />
-                {t('acceptReturn')}
-              </Button>
-            </div>
+            <Button
+              type="submit"
+              className="w-full"
+              disabled={!hasCopyRef(copy)}
+              loading={mutation.isPending}
+            >
+              <BookDown className="size-4" aria-hidden />
+              {t('acceptReturn')}
+            </Button>
           </form>
         </SectionPanel>
 
