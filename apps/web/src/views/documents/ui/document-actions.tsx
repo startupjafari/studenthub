@@ -10,6 +10,7 @@ import {
   Download,
   FileText,
   Hash,
+  Files,
   History,
   MoreHorizontal,
   Pencil,
@@ -52,6 +53,7 @@ import {
   useConfirm,
 } from '../../../shared/ui'
 import { DocModal } from './doc-modal'
+import { DocumentPagesModal } from './document-pages-modal'
 
 function errCode(e: unknown): string {
   return (e as { code?: string }).code ?? 'INTERNAL_ERROR'
@@ -68,6 +70,7 @@ export function DocumentActions({ doc }: { doc: DocumentDto }) {
   const [editing, setEditing] = useState(false)
   const [history, setHistory] = useState(false)
   const [access, setAccess] = useState(false)
+  const [pages, setPages] = useState(false)
   const [viewerIndex, setViewerIndex] = useState<number | null>(null)
 
   const invalidate = () => {
@@ -107,6 +110,14 @@ export function DocumentActions({ doc }: { doc: DocumentDto }) {
     } catch (e) {
       err(e)
     }
+  }
+
+  // Из окна страниц: снимок открываем в просмотрщике, закрыв окно (просмотрщик не живёт
+  // поверх модального диалога — тот держит фокус и клики), PDF — вкладкой, окно остаётся.
+  function openFromPages(fileId: string): void {
+    const file = doc.files.find((f) => f.id === fileId)
+    if (file && isViewableMedia(file.mime)) setPages(false)
+    void openFile(fileId)
   }
 
   async function downloadFile(fileId: string): Promise<void> {
@@ -154,6 +165,12 @@ export function DocumentActions({ doc }: { doc: DocumentDto }) {
           <DropdownMenuItem onSelect={() => setEditing(true)}>
             <Pencil aria-hidden /> {t('actionEdit')}
           </DropdownMenuItem>
+          {/* Страницы выданного вузом документа меняет только вуз (сервер отвечает 403). */}
+          {!doc.issuedByUniversity && (
+            <DropdownMenuItem onSelect={() => setPages(true)}>
+              <Files aria-hidden /> {t('actionPages')}
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem onSelect={() => setAccess(true)}>
             <Users aria-hidden /> {t('actionAccess')}
           </DropdownMenuItem>
@@ -204,6 +221,9 @@ export function DocumentActions({ doc }: { doc: DocumentDto }) {
       {editing && <EditModal doc={doc} onClose={() => setEditing(false)} />}
       {history && <HistoryModal docId={doc.id} onClose={() => setHistory(false)} />}
       {access && <AccessModal docId={doc.id} onClose={() => setAccess(false)} />}
+      {pages && (
+        <DocumentPagesModal doc={doc} onOpenPage={openFromPages} onClose={() => setPages(false)} />
+      )}
     </>
   )
 }
@@ -304,6 +324,10 @@ function HistoryModal({ docId, onClose }: { docId: string; onClose: () => void }
           {events.map((e) => (
             <li key={e.id} className="flex flex-col border-l-2 border-border pl-3">
               <span className="text-sm font-medium">{t(`evt_${e.action}`)}</span>
+              {/* Причина отклонения по запросу — ровно то, что нужно исправить. */}
+              {e.action === 'REJECT' && typeof e.metadata?.reason === 'string' && (
+                <span className="text-xs text-destructive">{e.metadata.reason}</span>
+              )}
               <span className="text-xs text-muted-foreground">
                 {new Date(e.createdAt).toLocaleString(locale, {
                   day: '2-digit',

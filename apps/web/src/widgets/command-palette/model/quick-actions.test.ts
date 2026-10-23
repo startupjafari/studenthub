@@ -29,6 +29,13 @@ describe('quickActionsFor', () => {
     expect(quickActionsFor(Role.LIBRARIAN).map((a) => a.navKey)).not.toContain('documents')
   })
 
+  // Регрессия: староста видел заявки одногруппников («Обращения группы»). Название услуги само
+  // раскрывает тему — академический отпуск, военный стол, — поэтому раздел убран целиком.
+  it('у старосты нет раздела с заявками одногруппников', () => {
+    const hrefs = quickActionsFor(Role.STAROSTA).map((a) => a.href)
+    expect(hrefs).not.toContain('/starosta/group-requests')
+  })
+
   it('без роли действий нет', () => {
     expect(quickActionsFor(null)).toEqual([])
   })

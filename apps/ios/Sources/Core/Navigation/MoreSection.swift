@@ -14,7 +14,6 @@ enum MoreSection: String, CaseIterable, Identifiable, Hashable {
     case settings
     /// Староста.
     case classmates
-    case groupRequests
     /// Преподаватель.
     case subjects
     case groups
@@ -39,7 +38,7 @@ enum MoreSection: String, CaseIterable, Identifiable, Hashable {
         case .student:
             return common
         case .starosta:
-            return common + [.classmates, .groupRequests]
+            return common + [.classmates]
         case .teacher:
             return common + [.subjects, .groups]
         default:
@@ -74,8 +73,6 @@ enum MoreSection: String, CaseIterable, Identifiable, Hashable {
             return String(localized: "more.settings", defaultValue: "Настройки")
         case .classmates:
             return String(localized: "more.classmates", defaultValue: "Одногруппники")
-        case .groupRequests:
-            return String(localized: "more.groupRequests", defaultValue: "Обращения группы")
         case .subjects:
             return String(localized: "more.subjects", defaultValue: "Дисциплины")
         case .groups:
@@ -105,7 +102,6 @@ enum MoreSection: String, CaseIterable, Identifiable, Hashable {
         case .documents: return "folder"
         case .settings: return "gearshape"
         case .classmates: return "person.3"
-        case .groupRequests: return "tray.full"
         case .subjects: return "book"
         case .groups: return "person.2"
         case .grades: return "graduationcap"

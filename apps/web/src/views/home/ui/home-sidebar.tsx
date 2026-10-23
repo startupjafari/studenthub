@@ -7,15 +7,7 @@ import { scheduleKeys, fetchSchedule } from '../../../entities/schedule'
 import { eventKeys, fetchEvents } from '../../../entities/event'
 import { FriendsPanel } from '../../../widgets/friends-panel'
 import { Card, CardContent, CardHeader, CardTitle, EmptyState, Skeleton } from '../../../shared/ui'
-
-// Чётность текущей ISO-недели (как в schedule-grid) — для выбора пар ODD/EVEN.
-function isoWeek(d: Date): number {
-  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()))
-  const dayNum = (date.getUTCDay() + 6) % 7
-  date.setUTCDate(date.getUTCDate() - dayNum + 3)
-  const firstThursday = new Date(Date.UTC(date.getUTCFullYear(), 0, 4))
-  return 1 + Math.round(((date.getTime() - firstThursday.getTime()) / 86400000 - 3) / 7)
-}
+import { isoWeekParity } from '../../../shared/lib'
 
 // Виджеты правой колонки главной студента: пары на сегодня, ближайшие события и друзья.
 export function HomeSidebar() {
@@ -30,7 +22,7 @@ export function HomeSidebar() {
 
   const now = new Date()
   const dow = ((now.getDay() + 6) % 7) + 1 // 1=Пн … 7=Вс
-  const parity = isoWeek(now) % 2 === 1 ? 'ODD' : 'EVEN'
+  const parity = isoWeekParity(now)
   const todayPairs = (schedQ.data?.pairs ?? [])
     .filter((p) => p.dayOfWeek === dow && (p.weekType === 'BOTH' || p.weekType === parity))
     .sort((a, b) => a.startTime.localeCompare(b.startTime))
