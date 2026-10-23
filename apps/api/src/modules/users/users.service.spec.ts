@@ -1837,6 +1837,56 @@ describe('UserService — учебные данные ведёт вуз', () => 
     ).rejects.toMatchObject({ code: 'WRONG_SCOPE' })
   })
 
+  // От даты ухода считаются сроки хранения ПДн (PERSONAL_DATA §4).
+  describe('дата ухода из вуза (leftUniversityAt)', () => {
+    const admin = viewer(Role.UNIVERSITY_ADMIN, { universityId: 'uni-A' })
+    const student = (leftUniversityAt: Date | null) => ({
+      id: 's1',
+      role: Role.STUDENT,
+      universityId: 'uni-A',
+      facultyId: 'fac-A',
+      specialty: null,
+      leftUniversityAt,
+    })
+
+    it('«Отчислен» проставляет дату ухода', async () => {
+      const { service, prisma } = setup()
+      prisma.user.findFirst.mockResolvedValue(student(null))
+      prisma.user.update.mockResolvedValue({ id: 's1' })
+      const before = Date.now()
+      await service.updateAcademicRecord(admin, 's1', { academicStatus: 'Отчислен' })
+      const data = prisma.user.update.mock.calls[0][0].data
+      expect(data.academicStatus).toBe('Отчислен')
+      expect(data.leftUniversityAt).toBeInstanceOf(Date)
+      expect(data.leftUniversityAt.getTime()).toBeGreaterThanOrEqual(before)
+    })
+
+    it('смена одного терминального статуса на другой не сдвигает дату', async () => {
+      const { service, prisma } = setup()
+      const left = new Date('2026-06-30T00:00:00Z')
+      prisma.user.findFirst.mockResolvedValue(student(left))
+      prisma.user.update.mockResolvedValue({ id: 's1' })
+      await service.updateAcademicRecord(admin, 's1', { academicStatus: 'Переведён' })
+      expect(prisma.user.update.mock.calls[0][0].data.leftUniversityAt).toBe(left)
+    })
+
+    it('возврат к учёбе обнуляет дату — действующий студент уборкой не задет', async () => {
+      const { service, prisma } = setup()
+      prisma.user.findFirst.mockResolvedValue(student(new Date('2025-01-01T00:00:00Z')))
+      prisma.user.update.mockResolvedValue({ id: 's1' })
+      await service.updateAcademicRecord(admin, 's1', { academicStatus: 'Обучающийся' })
+      expect(prisma.user.update.mock.calls[0][0].data.leftUniversityAt).toBeNull()
+    })
+
+    it('правка без статуса дату не трогает', async () => {
+      const { service, prisma } = setup()
+      prisma.user.findFirst.mockResolvedValue(student(new Date('2025-01-01T00:00:00Z')))
+      prisma.user.update.mockResolvedValue({ id: 's1' })
+      await service.updateAcademicRecord(admin, 's1', { course: 4 })
+      expect(prisma.user.update.mock.calls[0][0].data).toEqual({ course: 4 })
+    })
+  })
+
   it('у не-студента учебных данных нет', async () => {
     const { service, prisma } = setup()
     prisma.user.findFirst.mockResolvedValue({
