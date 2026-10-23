@@ -313,6 +313,21 @@ describe('CoursesService.listCourses — устойчивый порядок', (
     expect(findMany.mock.calls[0][0].orderBy).toEqual([{ subject: { name: 'asc' } }, { id: 'asc' }])
   })
 
+  it('?groupId= студента не подменяет его группу, а сужает её', async () => {
+    const { service, findMany } = listSetup()
+    const student: JwtPayload = {
+      sub: 'st-1',
+      role: Role.STUDENT,
+      universityId: 'uni-1',
+      facultyId: 'fac-1',
+      groupId: 'grp-1',
+    }
+    await service.listCourses(student, { page: 1, limit: 20, groupId: 'grp-other' } as never)
+    expect(findMany.mock.calls[0][0].where).toEqual({
+      AND: [{ groupId: 'grp-1' }, { groupId: 'grp-other' }],
+    })
+  })
+
   it('по колонке — id замыкает и её', async () => {
     const { service, findMany } = listSetup()
     await service.listCourses(admin, { page: 1, limit: 20, sort: 'term', order: 'desc' } as never)
