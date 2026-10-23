@@ -36,6 +36,7 @@ import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { EnvVars } from '../../config/env.schema'
 import sharp from 'sharp'
 import { FileService } from '../files/file.service'
+import { LibraryReservationsService } from '../library/library-reservations.service'
 import { RealtimeGateway } from '../../common/realtime'
 import { QueueService, QUEUES, EMAIL_JOBS, FILE_JOBS, NOTIFICATION_JOBS } from '../../common/queue'
 import { REDIS_CLIENT } from '../../common/redis/redis.constants'
@@ -289,6 +290,7 @@ export class UserService {
     private readonly branding: ExportBrandingService,
     private readonly exports: ExportRegistryService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    private readonly libraryReservations: LibraryReservationsService,
   ) {}
 
   /** Статус присутствия пользователя (онлайн по активным WS-соединениям, docs/PROJECT.md §9). */
@@ -2169,7 +2171,21 @@ export class UserService {
       await tx.resume.deleteMany({ where: { userId } })
       await tx.careerProfile.deleteMany({ where: { userId } })
       await tx.careerConsent.deleteMany({ where: { userId } })
+      // Предстоящие записи на консультации освобождаются — слот снова открыт другим, как
+      // при отмене студентом. Прошедшие остаются историей приёма преподавателя.
+      await tx.consultationSlot.updateMany({
+        where: { studentId: userId, status: 'BOOKED', startsAt: { gt: new Date() } },
+        data: { status: 'OPEN', studentId: null, topic: null },
+      })
     })
+    // Брони книг закрывает модуль библиотеки: готовая бронь держит экземпляр, и его надо
+    // отдать следующему в очереди. Best-effort, как медиа: ПДн уже затёрты, а сбой здесь
+    // не должен оставлять аккаунт полуудалённым.
+    try {
+      await this.libraryReservations.cancelAllOfReader(userId)
+    } catch (err) {
+      this.logger.warn(`Не удалось закрыть брони книг пользователя ${userId}: ${String(err)}`)
+    }
     await this.authService.revokeAllUserSessions(userId)
     // Строка журнала переживает анонимизацию: в ней только id, без ПДн удалённого.
     await this.audit.record({

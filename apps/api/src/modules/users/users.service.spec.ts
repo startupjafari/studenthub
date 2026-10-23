@@ -13,6 +13,7 @@ import type { RealtimeGateway } from '../../common/realtime'
 import type { AuditService } from '../../common/audit/audit.service'
 import type { ExportBrandingService } from '../../common/export/export-branding.service'
 import type { ExportRegistryService } from '../../common/export/export-registry.service'
+import type { LibraryReservationsService } from '../library/library-reservations.service'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { EnvVars } from '../../config/env.schema'
 import type Redis from 'ioredis'
@@ -58,6 +59,7 @@ function setup() {
     resume: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
     careerProfile: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
     careerConsent: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    consultationSlot: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
     // advisory-лок (проверка последнего администратора платформы при удалении аккаунта).
     $executeRaw: jest.fn().mockResolvedValue(1),
     // Пакетная транзакция — массивом запросов; интерактивная получает этот же мок как tx.
@@ -110,6 +112,8 @@ function setup() {
       return chain
     }),
   }
+  // Брони книг удаляемого закрывает модуль библиотеки (softDeleteSelf).
+  const libraryReservations = { cancelAllOfReader: jest.fn().mockResolvedValue(0) }
   const service = new UserService(
     prisma as unknown as PrismaService,
     passwords as unknown as PasswordService,
@@ -122,6 +126,7 @@ function setup() {
     branding as unknown as ExportBrandingService,
     exportRegistry as unknown as ExportRegistryService,
     redis as unknown as Redis,
+    libraryReservations as unknown as LibraryReservationsService,
   )
   return {
     redis,
@@ -136,6 +141,7 @@ function setup() {
     audit,
     branding,
     exportRegistry,
+    libraryReservations,
   }
 }
 
@@ -866,6 +872,30 @@ describe('UserService — softDeleteSelf', () => {
     for (const model of [prisma.resume, prisma.careerProfile, prisma.careerConsent]) {
       expect(model.deleteMany).toHaveBeenCalledWith({ where: { userId: 'u' } })
     }
+  })
+
+  // Очередь отдавала книгу «Удалённому пользователю», слот консультации оставался занят.
+  it('освобождает предстоящие консультации и закрывает брони книг', async () => {
+    const { service, prisma, passwords, config, libraryReservations } = setup()
+    withBuckets(config)
+    passwords.hash.mockResolvedValue('anon')
+    prisma.user.update.mockResolvedValue({})
+    await service.softDeleteSelf('u')
+    expect(prisma.consultationSlot.updateMany).toHaveBeenCalledWith({
+      where: { studentId: 'u', status: 'BOOKED', startsAt: { gt: expect.any(Date) } },
+      data: { status: 'OPEN', studentId: null, topic: null },
+    })
+    expect(libraryReservations.cancelAllOfReader).toHaveBeenCalledWith('u')
+  })
+
+  it('сбой библиотеки не срывает удаление аккаунта', async () => {
+    const { service, prisma, passwords, config, libraryReservations, authService } = setup()
+    withBuckets(config)
+    passwords.hash.mockResolvedValue('anon')
+    prisma.user.update.mockResolvedValue({})
+    libraryReservations.cancelAllOfReader.mockRejectedValue(new Error('db down'))
+    await expect(service.softDeleteSelf('u')).resolves.toBeUndefined()
+    expect(authService.revokeAllUserSessions).toHaveBeenCalledWith('u')
   })
 
   // Бакеты профиля публичные: без удаления объектов фото и видео оставались доступны по

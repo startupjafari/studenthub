@@ -247,6 +247,34 @@ describe('Отмена и истечение', () => {
   })
 })
 
+describe('Удаление аккаунта читателя', () => {
+  it('закрывает действующие брони, экземпляр — следующему; удалённому без уведомления', async () => {
+    const { service, prisma, tx, loans, notifier } = setup({
+      queueHead: {
+        id: 'res-2',
+        readerId: 'stu-2',
+        reader: { firstName: 'Айгерим', lastName: 'Ахметова', group: null },
+      },
+    })
+    prisma.reservation.findMany.mockResolvedValueOnce([{ id: 'res-1' }])
+    await expect(service.cancelAllOfReader('stu-1')).resolves.toBe(1)
+    expect(prisma.reservation.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { readerId: 'stu-1', status: { in: ['QUEUED', 'READY'] } },
+      }),
+    )
+    expect(tx.reservation.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: 'CANCELLED' }) }),
+    )
+    expect(loans.notifyHeld).toHaveBeenCalledWith(
+      expect.objectContaining({ readerId: 'stu-2' }),
+      'Русская литература',
+      'Asia/Almaty',
+    )
+    expect(notifier.send).not.toHaveBeenCalled()
+  })
+})
+
 describe('Догонялка «бронь готова»', () => {
   const NOW = new Date('2026-10-23T07:00:00Z')
   const pending = (id: string) => ({

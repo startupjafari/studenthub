@@ -256,6 +256,26 @@ export class LibraryReservationsService {
     return this.close(actor, id, 'CANCELLED', ctx)
   }
 
+  /**
+   * Удаление аккаунта читателя (UserService.softDeleteSelf): действующие брони закрываются,
+   * отложенный под готовую бронь экземпляр уходит следующему в очереди или на полку. Иначе
+   * очередь отдавала экземпляр «Удалённому пользователю» на весь срок брони, а остальные
+   * ждали. Уведомлений удалённому нет: закрывает он сам (actorId = readerId).
+   */
+  async cancelAllOfReader(readerId: string): Promise<number> {
+    const rows = await this.prisma.reservation.findMany({
+      where: { readerId, status: { in: ['QUEUED', 'READY'] } },
+      select: { id: true },
+      take: MY_RESERVATIONS,
+    })
+    const now = new Date()
+    let closed = 0
+    for (const row of rows) {
+      if (await this.closeRow(row.id, 'CANCELLED', now, readerId)) closed++
+    }
+    return closed
+  }
+
   // ── Экземпляры, появившиеся в обороте ────────────────────────────────────────────
 
   /**
