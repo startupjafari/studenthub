@@ -54,7 +54,7 @@ export function DeanTodayBlock() {
   const todayChanges = changes.data ?? []
 
   if (schedule.isLoading) {
-    return <Skeleton className="h-24 w-full rounded-xl" />
+    return <Skeleton fill className="min-h-24 rounded-xl" />
   }
 
   return (

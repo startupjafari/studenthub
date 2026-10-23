@@ -227,7 +227,7 @@ export function ScheduleGrid({ filters = {} }: ScheduleGridProps) {
       </div>
 
       {schedule.isLoading ? (
-        <Skeleton className="h-[28rem] w-full" />
+        <Skeleton fill className="min-h-[28rem]" />
       ) : schedule.isError ? (
         <EmptyState title={tErr('INTERNAL_ERROR')} />
       ) : pairs.length === 0 ? (

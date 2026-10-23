@@ -853,9 +853,9 @@ function NotificationsSection() {
     <SectionCard icon={Bell} title={tS('notificationsTitle')} desc={tS('notificationsDesc')}>
       {settings.isLoading && (
         <div className="flex flex-col gap-3">
-          <Skeleton className="h-12 w-full rounded-lg" />
-          <Skeleton className="h-12 w-full rounded-lg" />
-          <Skeleton className="h-12 w-full rounded-lg" />
+          <Skeleton fill className="min-h-12 rounded-lg" />
+          <Skeleton fill className="min-h-12 rounded-lg" />
+          <Skeleton fill className="min-h-12 rounded-lg" />
         </div>
       )}
       {settings.isError && <p className="text-sm text-destructive">{tErr('INTERNAL_ERROR')}</p>}
@@ -1480,7 +1480,7 @@ function SectionSkeleton() {
   return (
     <div className="flex flex-col gap-6">
       <Skeleton className="h-56 w-full rounded-xl" />
-      <Skeleton className="h-64 w-full rounded-xl" />
+      <Skeleton fill className="min-h-64 rounded-xl" />
     </div>
   )
 }

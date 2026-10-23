@@ -102,7 +102,7 @@ export function ApplicationDetail({
       {q.isLoading ? (
         <div className="flex flex-col gap-4">
           <Skeleton className="h-28 w-full rounded-xl" />
-          <Skeleton className="h-56 w-full rounded-xl" />
+          <Skeleton fill className="min-h-56 rounded-xl" />
         </div>
       ) : q.isError || !app ? (
         <EmptyState
