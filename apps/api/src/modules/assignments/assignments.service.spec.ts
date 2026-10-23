@@ -573,6 +573,22 @@ describe('AssignmentsService — оценка, переоценка и возв�
     expect(prisma.submission.update).not.toHaveBeenCalled()
   })
 
+  it('первая оценка без отзыва стирает комментарий «на доработку» прошлой попытки', async () => {
+    const { service, prisma } = withSubmission('SUBMITTED')
+    await service.grade(teacher, 'sub-1', { score: 8 }, ctx)
+    expect(prisma.submission.update.mock.calls[0][0].data.feedback).toBeNull()
+  })
+
+  it('переоценка: пустой отзыв очищает поле, не переданный — оставляет прежний', async () => {
+    const cleared = withSubmission('GRADED')
+    await cleared.service.grade(teacher, 'sub-1', { score: 9, feedback: '  ' }, ctx)
+    expect(cleared.prisma.submission.update.mock.calls[0][0].data.feedback).toBeNull()
+
+    const kept = withSubmission('GRADED')
+    await kept.service.grade(teacher, 'sub-1', { score: 9 }, ctx)
+    expect(kept.prisma.submission.update.mock.calls[0][0].data.feedback).toBeUndefined()
+  })
+
   it('черновик и возвращённую не оценить → CONFLICT', async () => {
     for (const status of ['DRAFT', 'RETURNED']) {
       const { service, prisma } = withSubmission(status)

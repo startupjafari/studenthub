@@ -50,7 +50,11 @@ export function GradeSubmissionModal({
   // и увёл кнопки из-под курсора ровно при повторной попытке.
   const errorToast = useErrorToast(`grade-${submission.id}`)
   const [score, setScore] = useState(submission.score != null ? String(submission.score) : '')
-  const [feedback, setFeedback] = useState(submission.feedback ?? '')
+  // Отзыв подставляется только у оценённой (переоценка). У сданной в поле был бы комментарий
+  // «на доработку» к прошлой попытке — и он молча стал бы отзывом к итоговой оценке.
+  const [feedback, setFeedback] = useState(
+    submission.status === 'GRADED' ? (submission.feedback ?? '') : '',
+  )
   // Ошибка балла — под полем, а не тостом: исправляют её там же (DESIGN_SYSTEM §10.3).
   const [scoreError, setScoreError] = useState<string | null>(null)
   const ceiling = maxScore ?? SCORE_CEILING
@@ -67,7 +71,8 @@ export function GradeSubmissionModal({
     mutationFn: () =>
       gradeSubmissionRequest(submission.id, {
         score: Number(score),
-        ...(feedback.trim() ? { feedback: feedback.trim() } : {}),
+        // Пустой отзыв уходит пустой строкой: сервер очищает поле, а не оставляет прежний.
+        feedback: feedback.trim(),
       }),
     onSuccess: () => {
       invalidate()

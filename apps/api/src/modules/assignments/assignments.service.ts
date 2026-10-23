@@ -690,6 +690,11 @@ export class AssignmentsService {
         { field: 'score', message: `Не больше ${max}` },
       ])
     }
+    // Отзыв к оценке. Пустой — очищает поле: при первой оценке там мог остаться комментарий
+    // «на доработку» к прошлой попытке, при переоценке его стёрли намеренно. Не передан
+    // при переоценке — прежний отзыв остаётся (клиенты, правящие только балл).
+    const feedback =
+      regrade && input.feedback === undefined ? undefined : input.feedback?.trim() || null
     const gradedAt = new Date()
     const graded = await this.prisma.submission
       .update({
@@ -701,7 +706,7 @@ export class AssignmentsService {
         data: {
           status: 'GRADED',
           score: input.score,
-          feedback: input.feedback,
+          feedback,
           gradedById: actor.sub,
           gradedAt,
         },
