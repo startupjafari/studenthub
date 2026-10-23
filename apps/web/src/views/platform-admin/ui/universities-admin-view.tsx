@@ -83,10 +83,13 @@ export function UniversitiesAdminView() {
   // а не только открытая страница.
   const { sort, toggle } = useSortState()
 
+  // Поле хранит ввод как есть, обрезается только запрос: trim прямо в onChange съедал
+  // пробел, едва его набирали, и «Евразийский национальный» было не ввести.
+  const searchQuery = search.trim()
   const query = {
     page,
     limit,
-    ...(search ? { search } : {}),
+    ...(searchQuery ? { search: searchQuery } : {}),
     ...(sort ? { sort: sort.key as UniversitySortValue, order: sort.dir } : {}),
   }
 
@@ -139,7 +142,7 @@ export function UniversitiesAdminView() {
                 аббревиатуре, по всей выборке, а не по открытой странице. */}
             <Input
               value={search}
-              onChange={(e) => refilter(() => setSearch(e.target.value.trim()))}
+              onChange={(e) => refilter(() => setSearch(e.target.value))}
               placeholder={t('searchPlaceholder')}
               size="md"
               className="w-40 sm:w-56"
@@ -159,7 +162,7 @@ export function UniversitiesAdminView() {
       ) : !universities.isLoading && rows.length === 0 ? (
         <EmptyState
           icon={<Building2 className="size-6" aria-hidden />}
-          title={search ? t('nothingFound') : t('empty')}
+          title={searchQuery ? t('nothingFound') : t('empty')}
         />
       ) : (
         <Card className="flex min-h-0 flex-1 flex-col gap-0 py-0">

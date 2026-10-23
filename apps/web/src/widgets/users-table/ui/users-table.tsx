@@ -155,9 +155,12 @@ export function UsersTable({ title, subtitle, role, showRoleFilter = false }: Us
   const { sort, toggle } = useSortState()
 
   const effectiveRole = role ?? (roleFilter === 'all' ? undefined : roleFilter)
+  // Поле хранит ввод как есть, обрезается только запрос: trim прямо в onChange съедал
+  // пробел, едва его набирали, и имя с фамилией было не ввести.
+  const searchQuery = search.trim()
   const filters = {
     ...(effectiveRole ? { role: effectiveRole } : {}),
-    ...(search ? { search } : {}),
+    ...(searchQuery ? { search: searchQuery } : {}),
     ...(sort ? { sort: sort.key as UserSortValue, order: sort.dir } : {}),
   }
   const query = { ...filters, page, limit }
@@ -211,7 +214,7 @@ export function UsersTable({ title, subtitle, role, showRoleFilter = false }: Us
           <>
             <Input
               value={search}
-              onChange={(e) => refilter(() => setSearch(e.target.value.trim()))}
+              onChange={(e) => refilter(() => setSearch(e.target.value))}
               placeholder={t('searchPlaceholder')}
               size="md"
               className="w-40 sm:w-56"
