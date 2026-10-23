@@ -9,6 +9,8 @@ export {
   updateDocument,
   attachDocumentFiles,
   reorderDocumentFiles,
+  replaceDocumentFile,
+  removeDocumentFile,
   fetchDocumentFileUrl,
   archiveDocument,
   unarchiveDocument,
