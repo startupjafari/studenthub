@@ -2499,6 +2499,61 @@
 - **Где:** `.github/workflows/android.yml` (`paths: apps/android/**`, `import_ios_strings.py && git diff --exit-code`), `.github/workflows/android-release.yml` · **Статус:** новый
 - **Попутно, не подтверждено:** nginx мини-аппа слушает только IPv4 (`apps/mini-app/nginx.conf.template:9`) — на Railway (IPv6) дало бы 502.
 
+### Схема Prisma, миграции, сид
+
+#### BUG-527 · 🟡 🔒 На боевой базе сид оставляет живые инвайты с предсказуемым токеном, в том числе инвайт старосты
+- **Роль:** любой посторонний → STUDENT/STAROSTA сид-вуза · **Статус:** подтверждён
+- **Где:** `prisma/seed/steps/30-people.mjs:220-240` (`token: ${id(index,'invite',i)}-pending` — i=0 STUDENT, i=3 STAROSTA с `groupId`, срок 2–30 дней), приём сырого токена — `apps/api/src/modules/invites/invite-token.ts:28-33`, `invites.service.ts:758-783`; прогон на прод — `.github/workflows/seed.yml:268-272` (`SEED_ALLOW_REMOTE=1`)
+- **Сценарий:** `u001-invite-3-pending` из репозитория → регистрация старостой группы (сидовый разжалован) → выдача STUDENT-инвайтов.
+- **Ожидается:** §2.1, §7.3 — PENDING-инвайты сида со случайным токеном, либо только USED/EXPIRED/REVOKED; §14.0 этот риск уже признаёт для демо-вуза.
+
+#### BUG-528 · 🟡 После prodDbReset каталог услуг пуст, и штатно вернуть его нельзя
+- **Где:** `prisma/reset-to-admin.mjs:110-113` (TRUNCATE всего), `.github/workflows/reset-db.yml:136-142` (только `db:seed:kato`), `prisma/seed.mjs:183-186,218` (`SEED_ONLY=kato` выходит до `seedServiceCatalog`); категории создаются только сидом (`seed/steps/05-service-catalog.mjs`), `catalog-admin.service.ts` `assertCategory` · **Статус:** новый
+- **Ожидается:** каталог — справочник (комментарий `seed.mjs:212-217`, §14.0), переживает сброс, как КАТО.
+
+#### BUG-529 · 🟡 Внешние ключи без индекса: каждое удаление пользователя, файла или документа — seq scan больших таблиц
+- **Где:** `attendance.marked_by_id` (`19-attendance.prisma:21`), `submissions.graded_by_id` (`18-assignments.prisma:55`), `grade_columns.created_by_id` (`20-gradebook.prisma:19`), `exams.created_by_id`/`room_id` (`21-exams.prisma:22`), `albums.cover_file_id` (`13-profile.prisma:76`), `application_results.document_id` (`16-application-services.prisma:257`), `content_comments.author_id`, `scheduled_messages.sender_id`, `deanery_appointments.assigned_to_id`, `complaints.reviewing_by_id`, `moderation_warnings.issued_by_id`/`complaint_id`, `bookmarks.article_id`, `document_submission_items.request_item_id`, `application_documents.requirement_id` · **Статус:** новый
+- **Сценарий:** `purgeAccountTombstones` (200 человек в транзакции 120 с), уборка сида по 2000 пользователей (`prisma/seed/cleanup.mjs:44-63`), удаление `File` пачками по 500 — RI-триггеры сканируют миллионы строк `attendance`.
+- **Ожидается:** BACKEND_RULES §5.1, PROJECT §6.2 — `@@index` на каждый FK.
+
+#### BUG-530 · 🟡 Сид раздаёт действующим студентам и старостам статусы «отчислен», «выпускник», «академ»
+- **Где:** `prisma/seed/data/profiles.mjs:74` (`random.pick(ACADEMIC_STATUSES)`), `data/people.mjs:53`, `steps/30-people.mjs:166-194` · **Статус:** новый
+- **Сценарий:** ~37% учащихся, включая старост, — `EXPELLED`/`GRADUATED`/`ACADEMIC_LEAVE` без `leftUniversityAt`, но с текущей учёбой. Сейчас скрыто BUG-002; после его исправления четверть стенда получит отказ на входе и в библиотеке.
+- **Ожидается:** PERSONAL_DATA §4, §3.11–3.12.
+
+#### BUG-531 · 🟢 Сид пишет постам `priority = 0`, сервис ставит 20–52 — любой новый пост навсегда выше всех сидовых
+- **Где:** `prisma/seed/steps/50-social.mjs:73-117,178-190`, `prisma/seed.mjs` (`postRows`, ~`:1341`); сервис — `apps/api/src/modules/posts/posts.service.ts:76-84,1334-1338` · **Статус:** новый
+
+#### BUG-532 · 🟢 Сид академики создаёт невозможные состояния
+- **Где:** `prisma/seed/steps/40-academics.mjs` · **Статус:** новый
+- **Что:** `:233-250` — посещаемость на ещё не наступившие дни, в августе до семестра и на отменённые пары; `:270-285` — у экзаменов через 10–40 дней ~30% результатов уже выставлены; `:141` — разовое изменение на день, когда пары нет (новое место BUG-099).
+
+#### BUG-533 · 🟢 Сид документов и услуг: состояния вне контракта
+- **Где:** `prisma/seed/steps/70-services.mjs` · **Статус:** новый
+- **Что:** `:289-318` — комплект `DRAFT` с `reviewedById` и всеми позициями `ACCEPTED` (ср. BUG-232); `:432` — `ApplicationResult.type: 'DOCUMENT'` вне `ApplicationResultTypeSchema`; `:356-357` — `formData` без обязательных `reason`/`family-status`, `ELECTRONIC` у услуги только `PAPER`; `:458` — жалобы `COMMENT`/`MESSAGE` указывают на id поста; `50-social.mjs:330-357` + `60-chats.mjs:101-108` — блокировка при одновременной дружбе и личном чате.
+
+#### BUG-534 · 🟢 История откликов в сиде карьеры: переходы «из ниоткуда» и время вразнобой
+- **Где:** `prisma/seed/steps/80-career.mjs:154,174,179` · **Статус:** новый
+- **Ожидается:** `fromStatus` = `toStatus` предыдущего события, время монотонно — журнал служит основанием в споре (`26-career.prisma`, `CareerApplicationEvent`).
+
+#### BUG-535 · 🟢 Сид инвайтов: DEAN без `facultyId`, инвайты STUDENT и DEAN «использованы» преподавателем
+- **Где:** `prisma/seed/steps/30-people.mjs:231-238` · **Статус:** подтверждён
+
+#### BUG-536 · 🟢 Даты сида: демо-вуз застыл в «Осени 2025», семестры генератора зависят от месяца прогона
+- **Где:** `prisma/seed.mjs:690-700,956,1030`, `prisma/seed/steps/20-structure.mjs:128-146` · **Статус:** новый
+
+#### BUG-537 · 🟢 Обращение в поддержку двоится при параллельной отправке
+- **Где:** `apps/api/src/modules/chats/support.service.ts:162-181` (`findFirst` → `createTicket` без лока; ср. advisory-лок официальных чатов `chats.service.ts:1663-1673`) · **Статус:** новый
+
+#### BUG-538 · 🟢 🔒 Согласие на передачу данных работодателю: гонка выдачи и отзыва — отзыв гасит не всё
+- **Роль:** STUDENT → EMPLOYER · **Статус:** подтверждён
+- **Где:** `apps/api/src/modules/career/career-profile.service.ts:127-145` (`findFirst` → `create`/`update` без транзакции и лока; уникальности нет намеренно — `26-career.prisma`, `CareerConsent`)
+- **Сценарий:** две выдачи из двух вкладок — две активные строки, отзыв гасит одну, GPA/телефон/почта продолжают уходить работодателю.
+- **Ожидается:** отзыв действует немедленно и полностью — лок по `(userId, field, companyId)` или `updateMany` по всем активным.
+
+#### BUG-539 · 🟢 Горячие выборки без индекса: email без учёта регистра и инвайты вуза
+- **Где:** `apps/api/src/modules/users/users.service.ts:272-273,357-363,1664-1676` (`LOWER(email)` без индекса по `lower(email)`), `apps/api/src/modules/invites/invites.service.ts:727` (у `invites` нет индекса по `university_id`/`faculty_id`/`group_id` — `01-users.prisma:330-334`) · **Статус:** новый
+
 <!-- P3-END -->
 
 ## Замечено попутно
