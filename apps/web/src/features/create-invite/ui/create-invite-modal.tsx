@@ -55,13 +55,21 @@ export function CreateInviteModal({ onClose }: Props) {
   const [created, setCreated] = useState<CreatedInvite | null>(null)
 
   const me = useQuery({ queryKey: userKeys.me(), queryFn: fetchMe })
-  const faculties = useQuery({ queryKey: facultyKeys.list(), queryFn: () => fetchFaculties() })
+  const faculties = useQuery({
+    queryKey: facultyKeys.list(),
+    queryFn: () => fetchFaculties(),
+    enabled: me.data !== undefined && me.data.role !== Role.DEAN,
+  })
 
   const invitable = me.data ? (INVITABLE_ROLES[me.data.role] ?? []) : []
 
   const form = useForm<CreateInviteInput>({ resolver: zodResolver(CreateInviteSchema) })
   const role = form.watch('role')
-  const needsFaculty = role !== undefined && FACULTY_ROLES.includes(role)
+  // Декан приглашает преподавателя только на свой факультет — сервер берёт его из токена
+  // (invite-hierarchy.ts), поэтому выбирать нечего: в селекте были чужие факультеты, и
+  // выбор любого из них давал 403 WRONG_SCOPE.
+  const facultyFromIssuer = me.data?.role === Role.DEAN
+  const needsFaculty = role !== undefined && FACULTY_ROLES.includes(role) && !facultyFromIssuer
   const needsGroup = role !== undefined && GROUP_ROLES.includes(role)
   // Приглашение админа вуза выдаёт платформа — целевой вуз она указывает явно
   // (invite-hierarchy.ts: scope не выводится из выдающего).
