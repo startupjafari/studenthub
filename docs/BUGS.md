@@ -2028,6 +2028,68 @@
 - **Где:** `docs/BACKEND_RULES.md:218-246` против `modules/onboarding/demo-requests.controller.ts:42,54`, `modules/telegram-hook/telegram-hook.controller.ts:22`, `modules/platform/platform.controller.ts:46` · **Статус:** новый
 - **Ожидается:** список §6.1 синхронизирован с кодом (стоп-точка — согласует человек).
 
+### Общие компоненты веба (`shared/**`) и оставшиеся экраны
+
+#### BUG-399 · 🟠 Выпадающие списки-порталы внутри модального окна не нажимаются: клик уходит на подложку и закрывает окно
+- **Роль:** DEAN, UNIVERSITY_ADMIN («Учебные данные студента» — 7 из 11 полей), автор статьи в профиле; на телефоне — все окна со свёрнутым рядом вкладок · **Статус:** подтверждён
+- **Где:** `apps/web/src/shared/ui/dict-single-select.tsx:145-159` (портал в `body` без `pointerEvents: 'auto'`, `autoFocus` поиска перехватывает ловушка фокуса), `apps/web/src/shared/ui/segmented-tabs.tsx:136-197` (свёрнутый селектор); места — `features/edit-academic-record/ui/academic-record-modal.tsx:81,136-146`, `widgets/user-profile/ui/article-editor-modal.tsx:274`, `widgets/friends-panel/ui/friends-modal.tsx:107-120`, `views/moderation/ui/complaint-detail-modal.tsx:285`. В `widgets/user-profile/ui/dict-multi-select.tsx:169` обход уже есть — образец.
+- **Сценарий:** Radix Dialog ставит `body { pointer-events: none }`, меню в `body` наследует его — нажатие по пункту проходит на подложку (окно закрывается, ввод теряется), набрать в поиске нельзя. Статус «Отчислен/Выпускник» не выставить. Попутно у `DictSingleSelect` нет `id`, `<Label htmlFor>` ни к чему не привязан.
+- **Ожидается:** DESIGN_SYSTEM §5.3 — вложенный Radix-слой или `pointer-events: auto`; FRONTEND_RULES §9 — связанный `<label>`.
+
+#### BUG-400 · 🟡 Цифровой студенческий показывает просроченный QR после возврата на вкладку
+- **Где:** `apps/web/src/views/student-id/ui/student-id-view.tsx:20-26,55-63`, `apps/web/src/shared/api/query-client.ts:15` (`refetchOnWindowFocus: false`) · **Статус:** новый
+- **Сценарий:** экран заблокирован 1–2 минуты → до 45 с на экране QR старше TTL, счётчик «через 0 с», охрана — «Код истёк»; ручного обновления нет.
+
+#### BUG-401 · 🟡 Файл чата больше 400 МБ скачивается и тут же выбрасывается — сохранить нельзя
+- **Где:** `apps/web/src/shared/lib/file-download.ts:38` (`CACHE_LIMIT` 400 МБ < лимита 500 МБ), `:79-88` (`trimCache` вытесняет и только что скачанный; порядок по вставке ключа, а не по давности) · **Статус:** подтверждён
+
+#### BUG-402 · 🟡 Многочастная загрузка падает через 15 минут: подписи всех частей берутся разом и протухают
+- **Где:** `apps/web/src/shared/api/multipart-upload.ts:175-183,187-212`, `packages/shared-config/src/constants.ts:17` (TTL 15 мин), `apps/api/src/modules/files/file.service.ts:311-326` · **Статус:** новый
+- **Сценарий:** 500 МБ при 3 Мбит/с — части после 15-й минуты получают 403, три повтора той же ссылкой, загрузка падает, каждый раз заново.
+- **Ожидается:** §19 «переживает обрыв» — подписывать порциями или перевыпускать на 403.
+
+#### BUG-403 · 🟡 Esc в просмотрщике файла, открытом из модалки, закрывает и модалку; кнопки просмотрщика недостижимы с клавиатуры
+- **Где:** `apps/web/src/shared/ui/media-viewer.tsx:144-170` (нет `role="dialog"`, `aria-modal`, своего Esc-слоя); место — `views/documents/ui/staff-requests.tsx:787` · **Статус:** новый
+
+#### BUG-404 · 🟡 Проверка документа по коду: 429, 5xx и обрыв сети показываются как «Документ не найден»
+- **Роль:** внешний проверяющий, `/verify/<код>` · **Статус:** новый
+- **Где:** `apps/web/src/views/verify-document/ui/verify-document-view.tsx:25-52` (`isError` → «не найден», `retry: false`, «Повторить» нет); лимит 20/мин с IP — `apps/api/src/common/export/export-verify.controller.ts:29`
+- **Сценарий:** банк проверяет пачку справок с одного IP → подлинный документ выглядит поддельным.
+
+#### BUG-405 · 🟡 Главная студента: сбой расписания или событий показывается как «Сегодня пар нет» / «Нет событий» (корень BUG-190)
+- **Где:** `apps/web/src/views/home/ui/home-sidebar.tsx:43,76` · **Статус:** новый
+
+#### BUG-406 · 🟢 Ошибки шага загрузки в хранилище показываются сырым ключом «Errors.ERR_NETWORK»
+- **Где:** `apps/web/src/shared/api/direct-upload.ts:41-64`, `multipart-upload.ts:93`, `shared/ui/file-upload.tsx:121-122`, `views/assignments/ui/submission-files.tsx:83`, `shared/lib/api-error.ts:166-173` · **Статус:** новый
+
+#### BUG-407 · 🟢 Проверка студенческого: на ошибки — «Неверный email или пароль», «Некорректный запрос» (класс BUG-314)
+- **Где:** `apps/web/src/views/student-id/ui/verify-id-view.tsx:108-119`, `apps/api/src/modules/student-id/student-id.service.ts:332,335,338`; `verifyFailedHint` не показывается никогда · **Статус:** новый
+
+#### BUG-408 · 🟢 Результат проверки студенческого перезапрашивается при переподключении сокета или сети (новый триггер BUG-023)
+- **Где:** `apps/web/src/shared/realtime/realtime-context.tsx:57-63`, `views/student-id/ui/verify-id-view.tsx:59-64` · **Статус:** новый
+- **Сценарий:** связь моргнула через 2 минуты → повторный `verify` → «Проход запрещён» и лишняя строка отказа в журнале проходов.
+
+#### BUG-409 · 🟢 Пагинация: страница за пределами выборки — пустая таблица, а подвал показывает «последнюю страницу»
+- **Где:** `apps/web/src/shared/ui/table.tsx:607` (зажатие `current` только для показа); место — `views/rooms/ui/rooms-admin-view.tsx:114-118`; починено лишь в `groups-view.tsx:240` · **Статус:** новый
+
+#### BUG-410 · 🟢 `saveFile` снимает blob-ссылку сразу после клика — в Safari скачивание выгрузок обрывается
+- **Где:** `apps/web/src/shared/lib/download-file.ts:28-35` (ср. `file-download.ts:173-175` — там уже отложено) · **Статус:** подтверждён
+
+#### BUG-411 · 🟢 Кнопка «Очистить» в выпадающих списках недоступна с клавиатуры и вложена в кнопку
+- **Где:** `apps/web/src/shared/ui/async-select.tsx:115-128`, `dict-single-select.tsx:124-136` (`<span role="button" tabIndex={-1}>` внутри `<button>`) · **Статус:** новый
+
+#### BUG-412 · 🟢 Контекстное меню строки, открытое с клавиатуры, не получает фокус; `role="menu"` вложен в `role="menu"`
+- **Где:** `apps/web/src/shared/ui/row-context-menu.tsx:94-107,203-266`, `views/notifications/ui/notifications-view.tsx:211-226` · **Статус:** новый
+
+#### BUG-413 · 🟢 Поле системного «prompt» без доступного имени
+- **Где:** `apps/web/src/shared/ui/prompt-dialog.tsx:380-395`, `views/university-admin/ui/rename-button.tsx:51` · **Статус:** новый
+
+#### BUG-414 · 🟢 Захардкоженные `aria-label="Close"` у шторок и `"breadcrumb"` (новые места BUG-120)
+- **Где:** `apps/web/src/shared/ui/sheet.tsx:184`, `apps/web/src/shared/ui/breadcrumb.tsx:10` · **Статус:** новый
+
+#### BUG-415 · 🟢 404: «Назад» ничего не делает, если страница открыта прямой ссылкой
+- **Где:** `apps/web/src/app/not-found.tsx:24`, `apps/web/src/shared/ui/status-screen.tsx:178-182` (ср. `use-escape-back.ts`) · **Статус:** новый
+
 <!-- P3-END -->
 
 ## Замечено попутно
