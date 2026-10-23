@@ -3721,7 +3721,14 @@
     "scheduleConflict": "В это время у группы, аудитории или экзаменатора уже есть другой экзамен",
     "confirmDeleteTitle": "Удалить экзамен?",
     "confirmDeleteDesc": "«{subject}», группа {group}. Студенты группы получат уведомление об отмене.",
-    "confirmDeletePastDesc": "«{subject}», группа {group}. Удаление необратимо."
+    "confirmDeletePastDesc": "«{subject}», группа {group}. Удаление необратимо.",
+    "edit": "Изменить",
+    "editExam": "Изменить экзамен",
+    "updated": "Экзамен сохранён",
+    "room": "Аудитория",
+    "examiner": "Экзаменатор",
+    "examinerPlaceholder": "Ведущий дисциплину",
+    "maxScoreBelowGraded": "Уже выставлены баллы выше — максимум не может быть меньше"
   },
   "StudyPlan": {
     "title": "Учебный план",

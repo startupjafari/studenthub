@@ -3721,7 +3721,14 @@
     "scheduleConflict": "Бұл уақытта топта, аудиторияда немесе емтихан алушыда басқа емтихан бар",
     "confirmDeleteTitle": "Емтиханды жою керек пе?",
     "confirmDeleteDesc": "«{subject}», {group} тобы. Топ студенттері болдырмау туралы хабарлама алады.",
-    "confirmDeletePastDesc": "«{subject}», {group} тобы. Жоюды қайтару мүмкін емес."
+    "confirmDeletePastDesc": "«{subject}», {group} тобы. Жоюды қайтару мүмкін емес.",
+    "edit": "Өзгерту",
+    "editExam": "Емтиханды өзгерту",
+    "updated": "Емтихан сақталды",
+    "room": "Аудитория",
+    "examiner": "Емтихан алушы",
+    "examinerPlaceholder": "Пәнді жүргізуші",
+    "maxScoreBelowGraded": "Жоғарырақ балдар қойылған — максимум одан аз бола алмайды"
   },
   "StudyPlan": {
     "title": "Оқу жоспары",

@@ -3721,7 +3721,14 @@
     "scheduleConflict": "The group, room or examiner already has another exam at this time",
     "confirmDeleteTitle": "Delete the exam?",
     "confirmDeleteDesc": "“{subject}”, group {group}. Students of the group will be notified of the cancellation.",
-    "confirmDeletePastDesc": "“{subject}”, group {group}. This cannot be undone."
+    "confirmDeletePastDesc": "“{subject}”, group {group}. This cannot be undone.",
+    "edit": "Edit",
+    "editExam": "Edit exam",
+    "updated": "Exam saved",
+    "room": "Room",
+    "examiner": "Examiner",
+    "examinerPlaceholder": "Course teacher",
+    "maxScoreBelowGraded": "Higher scores are already set — the maximum cannot be lower"
   },
   "StudyPlan": {
     "title": "Study plan",
