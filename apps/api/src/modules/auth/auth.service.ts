@@ -5,7 +5,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { Prisma } from '@prisma/client'
 import type Redis from 'ioredis'
 import { PrismaService } from '../../common/prisma/prisma.service'
-import { advisoryXactLock } from '../../common/prisma/advisory-lock'
+import { advisoryXactLock, advisoryXactLockShared } from '../../common/prisma/advisory-lock'
 import { AuditService } from '../../common/audit/audit.service'
 import { PasswordService } from '../../common/security/password.service'
 import { CryptoService } from '../../common/security/crypto.service'
@@ -58,6 +58,11 @@ function hashRefreshSecret(secret: string): string {
 // а открытым секрет сессии не должен лежать нигде, даже в Redis.
 function refreshSuccessorKey(familyId: string): string {
   return `auth:refresh:successor:${familyId}`
+}
+
+// Лок «все сессии пользователя»: гашение берёт его исключительно, ротация — разделяемо.
+function sessionsLockKey(userId: string): string {
+  return `sessions:${userId}`
 }
 
 export interface RequestContext {
@@ -515,6 +520,11 @@ export class AuthService {
     // сессии — вход, выход и повтор погашенного токена — пишутся по-прежнему.
     return this.prisma.$transaction(async (tx) => {
       await advisoryXactLock(tx, `refresh:${record.familyId}`)
+      // С гашением всех сессий пользователя (revokeAllUserSessions) ротация не пересекается:
+      // иначе преемник, вставленный ещё не закоммиченной ротацией, не попадал под UPDATE
+      // гашения (READ COMMITTED его не видит) и жил 30 дней после смены пароля. Лок
+      // разделяемый — обмены разных устройств одного человека друг друга не ждут.
+      await advisoryXactLockShared(tx, sessionsLockKey(record.userId))
       // Состояние токена — заново, под локом: пока запрос ждал, его мог ротировать соседний.
       const current = await tx.refreshToken.findUnique({
         where: { id: record.id },
@@ -591,9 +601,14 @@ export class AuthService {
 
   /** Гасит ВСЕ активные сессии пользователя. Вызывается UserService при смене пароля/блокировке/удалении. */
   async revokeAllUserSessions(userId: string): Promise<void> {
-    await this.prisma.refreshToken.updateMany({
-      where: { userId, revokedAt: null },
-      data: { revokedAt: new Date() },
+    // Под исключительным локом пользователя: идущая сейчас ротация дописывает преемника до
+    // конца, и UPDATE его видит; начавшаяся позже ждёт и находит цепочку погашенной.
+    await this.prisma.$transaction(async (tx) => {
+      await advisoryXactLock(tx, sessionsLockKey(userId))
+      await tx.refreshToken.updateMany({
+        where: { userId, revokedAt: null },
+        data: { revokedAt: new Date() },
+      })
     })
     // Уже выданные access-токены тоже: без метки отзыва заблокированный ещё до 15 минут
     // ходил в API и переподключал WS тем же токеном (JwtStrategy и gateway её проверяют).

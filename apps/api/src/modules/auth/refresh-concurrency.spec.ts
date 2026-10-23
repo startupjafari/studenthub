@@ -135,9 +135,9 @@ function setup(opts: { redisDown?: boolean } = {}) {
     {} as never,
     {} as never,
     {} as never,
-    {} as never,
+    { disconnectUser: jest.fn() } as never,
     redis as never,
-    {} as never,
+    { revokeIssuedBefore: jest.fn() } as never,
     { assertAllowed: jest.fn() } as never,
     {} as never,
     crypto,
@@ -211,6 +211,22 @@ describe('AuthService.refresh: параллельные обмены одной 
     expect(retry.refreshToken).not.toBe(first.refreshToken)
     expect(refreshToken.create).toHaveBeenCalledTimes(2)
     expect(live().map((r) => r.id)).toEqual([retry.refreshToken.split('.')[0]])
+  })
+
+  it('гашение всех сессий посреди ротации гасит и преемника (BUG-069)', async () => {
+    const { service, live, refreshToken } = setup()
+    const create = refreshToken.create.getMockImplementation()!
+    let revoking: Promise<void> | undefined
+    refreshToken.create.mockImplementationOnce(async (args) => {
+      // Смена пароля на другом устройстве — между чтением токена и вставкой преемника.
+      revoking = service.revokeAllUserSessions('u1')
+      return create(args)
+    })
+
+    await service.refresh('rt-0.good', {})
+    await revoking
+
+    expect(live()).toHaveLength(0)
   })
 
   it('цепочку погасили, пока обмен ждал (выход), — сессия не воскресает', async () => {

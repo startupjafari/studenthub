@@ -23,7 +23,12 @@ describe('SessionRevocationService', () => {
   it('токен старше метки отозван, новее — нет', async () => {
     const { service } = setup(jest.fn().mockResolvedValue('1000'))
     await expect(service.isRevoked('u1', 999)).resolves.toBe(true)
-    await expect(service.isRevoked('u1', 1000)).resolves.toBe(false)
+    await expect(service.isRevoked('u1', 1001)).resolves.toBe(false)
+  })
+
+  it('токен той же секунды, что и отзыв, тоже отозван (BUG-069)', async () => {
+    const { service } = setup(jest.fn().mockResolvedValue('1000'))
+    await expect(service.isRevoked('u1', 1000)).resolves.toBe(true)
   })
 
   it('без метки и при сбое Redis — пропускаем', async () => {

@@ -47,7 +47,14 @@ export class SessionRevocationService {
     }
   }
 
-  /** Отозван ли токен с этим `iat` (секунды). Без `iat` токен считаем старым только при метке. */
+  /**
+   * Отозван ли токен с этим `iat` (секунды). Без `iat` токен считаем старым только при метке.
+   *
+   * Метка и `iat` — в целых секундах, поэтому токен той же секунды, что и отзыв, считается
+   * отозванным: иначе access, выданный ротацией за миллисекунды до гашения сессий, жил бы
+   * ещё 15 минут. Новая сессия в ту же секунду после отзыва — вход заново сразу после смены
+   * пароля или блокировки — получит отказ на первом запросе и обменяет refresh на свежий токен.
+   */
   async isRevoked(userId: string, iat: number | undefined): Promise<boolean> {
     let raw: string | null
     let timer: NodeJS.Timeout | undefined
@@ -64,6 +71,6 @@ export class SessionRevocationService {
       clearTimeout(timer)
     }
     if (raw === null) return false
-    return (iat ?? 0) < Number(raw)
+    return (iat ?? 0) <= Number(raw)
   }
 }
