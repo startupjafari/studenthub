@@ -325,24 +325,22 @@ export function PersonalSection({ me }: { me: MeResponse }) {
             <p className="text-xs text-muted-foreground">
               {me.username ? tS('usernameHint') : tS('usernameEmptyHint')}
             </p>
+            {/* Текст правила — из словаря, а не сообщение Zod: схема общая с сервером и
+                пишет по-русски, а форма бывает на казахском и английском. */}
             <FieldError>
               {(usernameError || form.formState.errors.username) &&
-                (usernameError ?? form.formState.errors.username?.message)}
+                (usernameError ?? tS('usernameInvalid'))}
             </FieldError>
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="lastName">{tP('lastName')}</Label>
             <Input id="lastName" {...form.register('lastName')} />
-            <FieldError>
-              {form.formState.errors.lastName && form.formState.errors.lastName.message}
-            </FieldError>
+            <FieldError>{form.formState.errors.lastName && tS('nameInvalid')}</FieldError>
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="firstName">{tP('firstName')}</Label>
             <Input id="firstName" {...form.register('firstName')} />
-            <FieldError>
-              {form.formState.errors.firstName && form.formState.errors.firstName.message}
-            </FieldError>
+            <FieldError>{form.formState.errors.firstName && tS('nameInvalid')}</FieldError>
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="middleName">{tP('middleName')}</Label>
@@ -423,8 +421,14 @@ function SecuritySection({ me }: { me: MeResponse }) {
             id="currentPassword"
             type="password"
             autoComplete="current-password"
+            aria-invalid={!!form.formState.errors.currentPassword}
             {...form.register('currentPassword')}
           />
+          {/* Без строки ошибки пустое поле молча блокировало отправку: кнопка нажималась,
+              а ничего не происходило. */}
+          <FieldError>
+            {form.formState.errors.currentPassword && tS('currentPasswordRequired')}
+          </FieldError>
         </div>
         <div className="flex flex-col gap-2">
           <Label htmlFor="newPassword">{tP('newPassword')}</Label>
@@ -432,10 +436,16 @@ function SecuritySection({ me }: { me: MeResponse }) {
             id="newPassword"
             type="password"
             autoComplete="new-password"
+            aria-invalid={!!form.formState.errors.newPassword}
             {...form.register('newPassword')}
           />
+          {/* Правило — из словаря: сообщения PasswordSchema русские. Предел в байтах —
+              единственная проверка-refine (тип `custom`), остальное — правило состава. */}
           <FieldError>
-            {form.formState.errors.newPassword && form.formState.errors.newPassword.message}
+            {form.formState.errors.newPassword &&
+              (form.formState.errors.newPassword.type === 'custom'
+                ? tS('passwordTooLong')
+                : tS('passwordPolicy'))}
           </FieldError>
         </div>
         <Button type="submit" loading={mut.isPending} className="w-full">
