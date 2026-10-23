@@ -174,6 +174,19 @@ function mergeRanges(ranges: { from: Date; to: Date }[]): { from: Date; to: Date
   return out
 }
 
+/**
+ * Есть ли цитата в тексте оригинала. Сравниваются только буквы и цифры без регистра: клиент
+ * цитирует выделение отрисованного текста, а не исходник — разметка (`**`, ссылки, формулы),
+ * переносы и пробелы в нём другие. Слов, которых в оригинале нет, это сравнение не пропустит.
+ * Цитата без букв и цифр (эмодзи, знаки) сверяется как есть.
+ */
+function quoteMatches(content: string, quote: string): boolean {
+  const letters = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '')
+  const wanted = letters(quote)
+  if (wanted.length === 0) return content.includes(quote.trim())
+  return letters(content).includes(wanted)
+}
+
 function unreadFloor(m: { lastReadAt: Date | null; clearedAt: Date | null }): Date | null {
   if (!m.lastReadAt) return m.clearedAt
   if (!m.clearedAt) return m.lastReadAt
@@ -2037,7 +2050,7 @@ export class ChatsService implements OnModuleInit {
   ): Promise<{ message: MessageRow; recipientIds: string[] }> {
     await this.assertMembership(senderId, input.chatId)
     await this.assertCanSend(input.chatId, senderId, opts)
-    await this.assertReplyInChat(input.chatId, input.replyToId)
+    await this.assertReplyInChat(input.chatId, input.replyToId, input.replyQuote)
     const created = await this.prisma.$transaction(async (tx) =>
       tx.message.create({
         data: {
@@ -2142,7 +2155,7 @@ export class ChatsService implements OnModuleInit {
   ): Promise<MessageRow> {
     await this.assertMembership(senderId, chatId)
     await this.assertCanSend(chatId, senderId)
-    await this.assertReplyInChat(chatId, input.replyToId)
+    await this.assertReplyInChat(chatId, input.replyToId, input.replyQuote)
     const bucket = this.chatBucket()
     // Нормализацию текста делает схема (MessageSendUploadedSchema → messageText).
     const content = input.content ?? ''
@@ -2230,7 +2243,7 @@ export class ChatsService implements OnModuleInit {
   ): Promise<MessageRow> {
     await this.assertMembership(senderId, input.chatId)
     await this.assertCanSend(input.chatId, senderId)
-    await this.assertReplyInChat(input.chatId, input.replyToId)
+    await this.assertReplyInChat(input.chatId, input.replyToId, input.replyQuote)
     // Текст уже нормализован схемой (обрезан, без невидимых символов) — здесь только
     // проверка, что сообщение не пустое совсем: без текста оно осмысленно лишь с вложением.
     const content = input.content ?? ''
@@ -2462,14 +2475,27 @@ export class ChatsService implements OnModuleInit {
     this.realtime.emitToRoom(`chat:${chatId}`, 'message:new', { message, chatId })
   }
 
-  // Ответ (replyToId) должен ссылаться на сообщение того же чата, иначе BAD_REQUEST.
-  private async assertReplyInChat(chatId: string, replyToId?: string): Promise<void> {
+  /**
+   * Ответ (replyToId) должен ссылаться на сообщение того же чата, иначе BAD_REQUEST.
+   *
+   * Цитата (replyQuote) — фрагмент именно этого сообщения. Раньше она сохранялась как пришла,
+   * и блок цитаты с именем автора оригинала можно было наполнить любыми словами: «Пересдачи не
+   * будет» от имени декана. Теперь цитата, которой в оригинале нет, отклоняется.
+   */
+  private async assertReplyInChat(
+    chatId: string,
+    replyToId?: string,
+    replyQuote?: string,
+  ): Promise<void> {
     if (!replyToId) return
     const parent = await this.prisma.message.findFirst({
       where: { id: replyToId, chatId },
-      select: { id: true },
+      select: { id: true, content: true },
     })
     if (!parent) throw new AppException('BAD_REQUEST', 'Ответ на сообщение вне этого чата')
+    if (replyQuote && !quoteMatches(parent.content, replyQuote)) {
+      throw new AppException('BAD_REQUEST', 'Цитата не совпадает с текстом сообщения')
+    }
   }
 
   // Уведомление офлайн-участникам (9.7): всем участникам, кроме отправителя. Возвращает получателей.
@@ -3870,18 +3896,24 @@ export class ChatsService implements OnModuleInit {
       try {
         // Сообщение-адресат ответа могли удалить за время ожидания. Ронять из-за этого
         // весь текст неправильно — отправляем без ответа и цитаты.
-        const replyAlive =
-          row.replyToId != null &&
-          (await this.prisma.message.count({
-            where: { id: row.replyToId, chatId: row.chatId, deletedAt: null },
-          })) > 0
+        const replyTo =
+          row.replyToId != null
+            ? await this.prisma.message.findFirst({
+                where: { id: row.replyToId, chatId: row.chatId, deletedAt: null },
+                select: { content: true },
+              })
+            : null
+        // Цитата, которой в оригинале уже нет (его поправили), не роняет отправку — уходит
+        // обычный ответ без цитаты.
+        const quoteAlive =
+          replyTo !== null && !!row.replyQuote && quoteMatches(replyTo.content, row.replyQuote)
         const { message } = await this.createMessage(
           row.senderId,
           {
             chatId: row.chatId,
             content: row.content,
-            ...(replyAlive && row.replyToId ? { replyToId: row.replyToId } : {}),
-            ...(replyAlive && row.replyQuote ? { replyQuote: row.replyQuote } : {}),
+            ...(replyTo && row.replyToId ? { replyToId: row.replyToId } : {}),
+            ...(quoteAlive && row.replyQuote ? { replyQuote: row.replyQuote } : {}),
             silent: row.silent,
           },
           { skipFlood: true },

@@ -211,6 +211,47 @@ describe('ChatsService.createMessage', () => {
     expect(jobData.dedupeKey).toBe('new-message:msg1')
     expect(new Set(jobData.recipientIds)).toEqual(new Set(['u2', 'u3']))
   })
+
+  // BUG-160: цитату нельзя наполнить словами, которых в оригинале нет.
+  it('цитата не из оригинала → BAD_REQUEST, сообщение не создаётся', async () => {
+    const { service, prisma } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1' })
+    prisma.message.findFirst.mockResolvedValue({ id: 'dean-msg', content: 'Пересдача в пятницу' })
+    const err = await service
+      .createMessage('u1', {
+        chatId: 'c1',
+        content: 'ок',
+        replyToId: 'dean-msg',
+        replyQuote: 'Пересдачи не будет',
+      })
+      .catch((e) => e)
+    expect(err.code).toBe('BAD_REQUEST')
+    expect(prisma.message.create).not.toHaveBeenCalled()
+  })
+
+  it('цитата из отрисованного текста (без разметки и переносов) принимается', async () => {
+    const { service, prisma } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1' })
+    prisma.message.findFirst.mockResolvedValue({
+      id: 'dean-msg',
+      content: 'Пересдача **в пятницу**,\nаудитория 305',
+    })
+    prisma.message.create.mockResolvedValue({
+      id: 'msg1',
+      chatId: 'c1',
+      senderId: 'u1',
+      content: 'ок',
+      createdAt: new Date(),
+      sender: { id: 'u1', firstName: 'A', lastName: 'B', avatarUrl: null },
+    })
+    await service.createMessage('u1', {
+      chatId: 'c1',
+      content: 'ок',
+      replyToId: 'dean-msg',
+      replyQuote: 'в пятницу, аудитория',
+    })
+    expect(prisma.message.create.mock.calls[0][0].data.replyQuote).toBe('в пятницу, аудитория')
+  })
 })
 
 // F-F03: автор обращения дописывает из окна чата обычной отправкой — правила обращения
