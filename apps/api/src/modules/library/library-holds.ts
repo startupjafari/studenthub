@@ -65,7 +65,8 @@ export async function releaseCopy(
   await tx.bookCopy.update({ where: { id: copy.id }, data: { status: 'RESERVED' } })
   await tx.reservation.update({
     where: { id: next.id },
-    data: { status: 'READY', copyId: copy.id, readyAt: now, holdUntil },
+    // Отметку уведомления ставит notifyHeld, когда очередь примет «бронь готова».
+    data: { status: 'READY', copyId: copy.id, readyAt: now, holdUntil, readyNotifiedAt: null },
   })
   return heldOf(next, holdUntil)
 }
@@ -99,7 +100,7 @@ export async function serveQueue(
     await tx.bookCopy.update({ where: { id: copy.id }, data: { status: 'RESERVED' } })
     await tx.reservation.update({
       where: { id: next.id },
-      data: { status: 'READY', copyId: copy.id, readyAt: now, holdUntil },
+      data: { status: 'READY', copyId: copy.id, readyAt: now, holdUntil, readyNotifiedAt: null },
     })
     held.push(heldOf(next, holdUntil))
   }

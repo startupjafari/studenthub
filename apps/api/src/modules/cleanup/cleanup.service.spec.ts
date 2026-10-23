@@ -124,7 +124,10 @@ function makeService() {
   const libraryReminders = {
     remindDue: jest.fn(async () => ({ dueSoon: 0, dueToday: 0, overdue: 0 })) as Mock,
   }
-  const libraryReservations = { expireDue: jest.fn(async () => 0) as Mock }
+  const libraryReservations = {
+    expireDue: jest.fn(async () => 0) as Mock,
+    notifyReadyPending: jest.fn(async () => 0) as Mock,
+  }
   const service = new CleanupService(
     prisma as never,
     minio as never,

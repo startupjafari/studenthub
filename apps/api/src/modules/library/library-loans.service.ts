@@ -530,10 +530,14 @@ export class LibraryLoansService {
     return item
   }
 
-  /** Читателю, которому отложили экземпляр, — «бронь готова, заберите до…». */
-  async notifyHeld(held: HeldFor | null, title: string, timezone: string): Promise<void> {
-    if (!held) return
-    await this.notifier.send({
+  /**
+   * Читателю, которому отложили экземпляр, — «бронь готова, заберите до…». Отметка
+   * `readyNotifiedAt` — только когда очередь приняла уведомление: не принятое догонит cron
+   * (`LibraryReservationsService.notifyReadyPending`). Возвращает, ушло ли уведомление.
+   */
+  async notifyHeld(held: HeldFor | null, title: string, timezone: string): Promise<boolean> {
+    if (!held) return true
+    const queued = await this.notifier.send({
       recipientIds: [held.readerId],
       job: NOTIFICATION_JOBS.LIBRARY_RESERVATION,
       titleKey: 'library.reservationReady.title',
@@ -542,6 +546,12 @@ export class LibraryLoansService {
       url: '/my-books',
       dedupeKey: `library-reservation-ready:${held.reservationId}`,
     })
+    if (!queued) return false
+    await this.prisma.reservation.updateMany({
+      where: { id: held.reservationId, status: 'READY', readyNotifiedAt: null },
+      data: { readyNotifiedAt: new Date() },
+    })
+    return true
   }
 
   /** Открытая выдача своего вуза; чужая и несуществующая — 404, закрытая — 409. */
