@@ -352,7 +352,26 @@ describe('DocumentRequestsService — проверка (15.16)', () => {
     const [, jobName, payload] = queue.enqueue.mock.calls[0]
     expect(jobName).toBe('document-result')
     expect(payload.recipientIds).toEqual(['stu-1'])
-    expect(payload.dedupeKey).toBe('doc-result:s1:REJECTED')
+    expect(payload.dedupeKey).toMatch(/^doc-result:s1:\d+$/)
+  })
+
+  it('finalize: повторное отклонение того же комплекта — новый ключ уведомления', async () => {
+    const { service, prisma, queue } = setup()
+    prisma.documentSubmission.findFirst
+      .mockResolvedValueOnce(toFinalize('SUBMITTED', [{ status: 'REJECTED' }]))
+      .mockResolvedValueOnce({ ...STAFF_VIEW, status: 'REJECTED' })
+      .mockResolvedValueOnce(toFinalize('SUBMITTED', [{ status: 'REJECTED' }]))
+      .mockResolvedValue({ ...STAFF_VIEW, status: 'REJECTED' })
+    jest.useFakeTimers().setSystemTime(new Date('2026-10-01T09:00:00Z'))
+    try {
+      await service.finalizeSubmission(staff(), 's1')
+      jest.setSystemTime(new Date('2026-10-02T09:00:00Z'))
+      await service.finalizeSubmission(staff(), 's1')
+    } finally {
+      jest.useRealTimers()
+    }
+    const [first, second] = queue.enqueue.mock.calls.map((c) => c[2].dedupeKey)
+    expect(first).not.toBe(second)
   })
 
   it('finalize: все ACCEPTED → комплект ACCEPTED', async () => {

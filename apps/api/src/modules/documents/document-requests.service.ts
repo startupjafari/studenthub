@@ -854,9 +854,10 @@ export class DocumentRequestsService {
     const status = hasRejected ? 'REJECTED' : allAccepted ? 'ACCEPTED' : 'PARTIAL'
     // Условный UPDATE: если студент успел вернуть комплект в черновик (заменить документ),
     // итог по прочитанным вердиктам уже неверен — отвечаем 409, а не «принимаем» новый файл.
+    const reviewedAt = new Date()
     const updated = await this.prisma.documentSubmission.updateMany({
       where: { id: submissionId, status: { in: STAFF_REVIEWABLE } },
-      data: { status, reviewedById: actor.sub, reviewedAt: new Date() },
+      data: { status, reviewedById: actor.sub, reviewedAt },
     })
     if (updated.count === 0) {
       throw new AppException('CONFLICT', 'Комплект изменился — обновите страницу')
@@ -867,10 +868,12 @@ export class DocumentRequestsService {
       submissionId,
     })
     await this.documents.syncReviewStatus(documentIds)
-    // Уведомляем студента о результате проверки (§15.19). dedupeKey включает статус,
-    // чтобы повторная проверка (изменение вердикта) дошла новым уведомлением. Есть
-    // отклонённые позиции — заголовок прямо говорит, что документ нужно заменить: это
-    // единственное уведомление о «требует замены», отдельного на каждый документ нет.
+    // Уведомляем студента о результате проверки (§15.19). Ключ — на событие проверки
+    // (момент завершения), а не на комплект и статус: отклонили → студент заменил → снова
+    // отклонили — это новое уведомление, а прежний ключ `…:REJECTED` его молча глушил
+    // (идемпотентность — против повтора job'а, BACKEND_RULES §9.2). Есть отклонённые
+    // позиции — заголовок прямо говорит, что документ нужно заменить: это единственное
+    // уведомление о «требует замены», отдельного на каждый документ нет.
     await this.queue.enqueue(
       QUEUES.NOTIFICATIONS,
       NOTIFICATION_JOBS.DOCUMENT_RESULT,
@@ -881,9 +884,9 @@ export class DocumentRequestsService {
         bodyKey: 'documents.named.body',
         params: { title: sub.request.title },
         data: { requestId: sub.requestId, status, url: '/documents' },
-        dedupeKey: `doc-result:${submissionId}:${status}`,
+        dedupeKey: `doc-result:${submissionId}:${reviewedAt.getTime()}`,
       },
-      { jobId: `doc-result:${submissionId}:${status}` },
+      { jobId: `doc-result:${submissionId}:${reviewedAt.getTime()}` },
     )
     return this.getSubmissionForStaff(actor, submissionId)
   }
