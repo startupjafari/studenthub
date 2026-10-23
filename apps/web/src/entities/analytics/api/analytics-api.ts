@@ -1,4 +1,6 @@
+import type { AnalyticsReportFormat, AnalyticsReportPeriod } from '@studenthub/shared-schemas'
 import { api } from '../../../shared/api'
+import { requestFile, type DownloadedFile } from '../../../shared/lib'
 import type {
   ActivityHeatmap,
   ApplicationsFlow,
@@ -166,3 +168,29 @@ export const fetchActivityHeatmap = (r: PlatformRange, tz: string): Promise<Acti
 
 export const fetchTopActions = (r: PlatformRange): Promise<TopActions> =>
   getPlatform<TopActions>('top-actions', r)
+
+// ── Отчёт по сводке файлом (Ф14.2) ───────────────────────────────────────────
+
+export interface AnalyticsReportParams {
+  period: AnalyticsReportPeriod
+  format: AnalyticsReportFormat
+  locale: string
+  /**
+   * Факультет — только там, где роль видит больше одного (админ вуза, платформа). Декану
+   * и преподавателю область задаёт токен, параметр им не нужен.
+   */
+  facultyId?: string
+}
+
+/**
+ * Отчёт по сводке за период. Собирает его сервер: область берётся из токена, порог малых
+ * групп и лист с происхождением выгрузки — там же.
+ */
+export function exportAnalyticsReport(params: AnalyticsReportParams): Promise<DownloadedFile> {
+  return requestFile('/analytics/report/export', {
+    period: params.period,
+    format: params.format,
+    locale: params.locale,
+    ...(params.facultyId ? { facultyId: params.facultyId } : {}),
+  })
+}

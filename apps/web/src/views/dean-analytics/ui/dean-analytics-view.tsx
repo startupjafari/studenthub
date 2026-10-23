@@ -49,6 +49,7 @@ import {
   type GroupStat,
   type RiskReason,
 } from '../../../entities/analytics'
+import { ExportReportButton } from '../../../features/export-analytics-report'
 import { GroupDrilldown } from './group-drilldown'
 
 // Запасной порог «требует внимания» на случай, если сводка риска ещё не пришла:
@@ -113,20 +114,25 @@ export function DeanAnalyticsView() {
       <PageHeader
         title={t('title')}
         actions={
-          picksFaculty ? (
-            <Select value={facultyId} onValueChange={setFacultyId}>
-              <SelectTrigger size="md" className="w-56" aria-label={t('faculty')}>
-                <SelectValue placeholder={t('faculty')} />
-              </SelectTrigger>
-              <SelectContent>
-                {faculties.data?.map((f) => (
-                  <SelectItem key={f.id} value={f.id}>
-                    {f.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          ) : null
+          <>
+            {picksFaculty ? (
+              <Select value={facultyId} onValueChange={setFacultyId}>
+                <SelectTrigger size="md" className="w-56" aria-label={t('faculty')}>
+                  <SelectValue placeholder={t('faculty')} />
+                </SelectTrigger>
+                <SelectContent>
+                  {faculties.data?.map((f) => (
+                    <SelectItem key={f.id} value={f.id}>
+                      {f.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : null}
+            {/* Отчёт того же факультета, что на экране: строка на группу. Декану факультет
+                задаёт токен; без выбранного факультета админ получил бы отчёт по вузу. */}
+            <ExportReportButton facultyId={scope} disabled={!ready} />
+          </>
         }
       />
 
