@@ -421,7 +421,14 @@ function BottomNav({
                         </span>
                       )}
                     </span>
-                    <span className="w-full truncate text-center leading-tight">
+                    {/* Подпись 10px на пилюле: синий на ней не дотягивает до контраста 4.5, поэтому
+                        цвет раздела несёт иконка, а подпись активного пункта — основной текст. */}
+                    <span
+                      className={cn(
+                        'w-full truncate text-center leading-tight',
+                        active && 'text-foreground',
+                      )}
+                    >
                       {tNav(item.key)}
                     </span>
                   </Link>

@@ -303,7 +303,7 @@ function PostBody({ title, text }: { title: string | null; text: string }) {
 
   return (
     <div className="flex flex-col gap-1.5 px-4 pt-3">
-      {title && <h3 className="text-base leading-snug font-semibold">{title}</h3>}
+      {title && <h2 className="text-base leading-snug font-semibold">{title}</h2>}
       {text &&
         (expanded || !collapsible ? (
           <Markdown source={text} />
