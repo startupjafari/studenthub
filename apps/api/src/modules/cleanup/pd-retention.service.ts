@@ -31,6 +31,9 @@ const PROFILE_MAX_PER_RUN = 200
 // Физическое удаление «надгробия» уносит каскадом всё, что на нём держится (сообщения, посты,
 // заявки), — это одна тяжёлая транзакция на человека. Потолок — тоже в людях.
 const TOMBSTONE_MAX_PER_RUN = 200
+// Сколько кандидатов прогон успевает проверить на чужие файлы. Потолок удалений выше
+// считает только тех, кого удаляют, — проверка дешевле, но и её не крутим без конца.
+const TOMBSTONE_SCAN_LIMIT = 5000
 // Отдельная транзакция на человека может удалять десятки тысяч строк каскадом: штатных
 // пяти секунд интерактивной транзакции Prisma на это не хватает.
 const TOMBSTONE_TX_TIMEOUT_MS = 120_000
@@ -52,6 +55,16 @@ const TOMBSTONE_BLOCKERS = [
   'eventsOrganized',
   'consultationSlots',
 ] as const satisfies readonly (keyof Prisma.UserCountOutputType)[]
+
+type TombstoneBlocker = (typeof TOMBSTONE_BLOCKERS)[number]
+
+/** Условие «у пользователя есть (some) / нет (none) записей по связи». */
+function relationFilter(
+  filter: 'some' | 'none',
+  relations: readonly TombstoneBlocker[],
+): Prisma.UserWhereInput {
+  return Object.fromEntries(relations.map((k) => [k, { [filter]: {} }])) as Prisma.UserWhereInput
+}
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -439,29 +452,44 @@ export class PdRetentionService {
     const cutoff = retentionCutoff()
     const where: Prisma.UserWhereInput = { deletedAt: { lt: cutoff } }
     const counts: RetentionCounts = { 'User.tombstones': await this.prisma.user.count({ where }) }
+    // Заблокированные связями в выборку не попадают вовсе, а в лог идут счётчиком по
+    // причине. Раньше их пропускали по одному внутри прогона: курсор жил до конца прогона,
+    // потолок считал и пропущенных, и когда первые 200 по id оказывались заблокированными
+    // (автор колонки, экзамена, организатор события — события создают и студенты),
+    // удаление вставало навсегда.
+    for (const reason of TOMBSTONE_BLOCKERS) {
+      const blocked = await this.prisma.user.count({
+        where: { AND: [where, relationFilter('some', [reason])] },
+      })
+      if (blocked > 0) counts[`blocked.${reason}`] = blocked
+    }
+    const candidates: Prisma.UserWhereInput = {
+      AND: [where, relationFilter('none', TOMBSTONE_BLOCKERS)],
+    }
     const removed: string[] = []
-    let checked = 0
+    // Потолок — в удалениях (и «удалил бы» в dry-run); владельцы чужих файлов его не тратят.
+    let processed = 0
+    let scanned = 0
     let afterId: string | null = null
-    // Курсор по id, а не «первые N»: пропущенные надгробия остаются в таблице, и выборка
+    // Курсор по id, а не «первые N»: владельцы чужих файлов остаются в таблице, и выборка
     // с начала крутилась бы на них же.
-    while (checked < TOMBSTONE_MAX_PER_RUN) {
+    while (processed < TOMBSTONE_MAX_PER_RUN && scanned < TOMBSTONE_SCAN_LIMIT) {
       const batch: { id: string }[] = await this.prisma.user.findMany({
-        where: afterId ? { ...where, id: { gt: afterId } } : where,
+        where: afterId ? { AND: [candidates, { id: { gt: afterId } }] } : candidates,
         select: { id: true },
         orderBy: { id: 'asc' },
-        take: Math.min(BATCH_SIZE, TOMBSTONE_MAX_PER_RUN - checked),
+        take: Math.min(BATCH_SIZE, TOMBSTONE_SCAN_LIMIT - scanned),
       })
       if (batch.length === 0) break
       for (const { id } of batch) {
-        checked++
+        if (processed >= TOMBSTONE_MAX_PER_RUN) break
+        scanned++
         afterId = id
-        const blockers = await this.tombstoneBlockers(id)
-        if (blockers.length > 0) {
-          for (const reason of blockers) {
-            counts[`blocked.${reason}`] = (counts[`blocked.${reason}`] ?? 0) + 1
-          }
+        if (await this.ownsForeignFiles(id)) {
+          counts['blocked.foreignFiles'] = (counts['blocked.foreignFiles'] ?? 0) + 1
           continue
         }
+        processed++
         if (dryRun) {
           counts.User = (counts.User ?? 0) + 1
           continue
@@ -486,24 +514,11 @@ export class PdRetentionService {
     return counts
   }
 
-  /** Почему надгробие удалять нельзя: имена связей, пустой список — можно. */
-  private async tombstoneBlockers(userId: string): Promise<string[]> {
-    const row = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        _count: {
-          select: Object.fromEntries(TOMBSTONE_BLOCKERS.map((k) => [k, true])) as Record<
-            (typeof TOMBSTONE_BLOCKERS)[number],
-            true
-          >,
-        },
-      },
-    })
-    if (!row) return []
-    const counts = row._count as Record<string, number>
-    const reasons: string[] = TOMBSTONE_BLOCKERS.filter((k) => (counts[k] ?? 0) > 0)
-    // Файлы человека, привязанные к ЧУЖОМУ: удалились бы каскадом по File.owner. Сканы
-    // чужих документов сюда не входят — их переписывают на владельца документа.
+  /**
+   * Файлы человека, привязанные к ЧУЖОМУ: удалились бы каскадом по File.owner. Сканы
+   * чужих документов сюда не входят — их переписывают на владельца документа.
+   */
+  private async ownsForeignFiles(userId: string): Promise<boolean> {
     const foreignFiles = await this.prisma.file.count({
       where: {
         ownerId: userId,
@@ -518,8 +533,7 @@ export class PdRetentionService {
         ],
       },
     })
-    if (foreignFiles > 0) reasons.push('foreignFiles')
-    return reasons
+    return foreignFiles > 0
   }
 
   /** Физически удалить одно надгробие; false — его успели восстановить или удалить. */
