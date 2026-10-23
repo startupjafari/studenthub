@@ -676,6 +676,47 @@ describe('DocumentRequestsService — ответ студента (15.15)', () =
     expect(prisma.documentEvent.create).not.toHaveBeenCalled()
   })
 
+  it('submitSubmission: удалённый документ обязательную позицию не заполняет', async () => {
+    const { service, prisma } = setup()
+    prisma.documentRequest.findFirst.mockResolvedValue(forSubmit('DRAFT'))
+    await service.submitSubmission(student(), 'r1').catch((e) => e)
+    expect(prisma.documentSubmissionItem.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ document: { is: { deletedAt: null } } }),
+      }),
+    )
+  })
+
+  it('getForStudent: удалённый документ в позиции отдаётся как неприложенный', async () => {
+    const { service, prisma } = setup()
+    prisma.documentRequest.findFirst.mockResolvedValue({
+      id: 'r1',
+      title: 't',
+      description: null,
+      dueAt: null,
+      status: 'OPEN',
+      createdAt: new Date(),
+      items: [],
+      submissions: [
+        {
+          id: 's1',
+          status: 'DRAFT',
+          submittedAt: null,
+          items: [
+            {
+              requestItemId: 'it1',
+              status: 'PENDING',
+              rejectionReason: null,
+              document: { id: 'doc-1', title: 'Паспорт', type: 'ID_CARD', deletedAt: new Date() },
+            },
+          ],
+        },
+      ],
+    })
+    const res = await service.getForStudent(student(), 'r1')
+    expect(res.submission?.items[0]?.document).toBeNull()
+  })
+
   it('submitSubmission: все обязательные заполнены → SUBMITTED + событие SUBMIT', async () => {
     const { service, prisma } = setup()
     prisma.documentRequest.findFirst

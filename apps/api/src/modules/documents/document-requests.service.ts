@@ -99,6 +99,12 @@ const STUDENT_EDITABLE = ['DRAFT', 'REJECTED', 'PARTIAL']
 const STAFF_REVIEWABLE = ['SUBMITTED', 'PARTIAL']
 
 const DAY_MS = 24 * 60 * 60 * 1000
+// Позиция заполнена живым документом: удалённый владельцем (D-F21) обязательную позицию
+// не закрывает и на проверку не уходит.
+const ATTACHED_LIVE = {
+  documentId: { not: null },
+  document: { is: { deletedAt: null } },
+} satisfies Prisma.DocumentSubmissionItemWhereInput
 // Из каких статусов принятый в запросе сертификат становится подтверждённым: просроченный,
 // отклонённый (в т.ч. отозванный вузом), архивный и черновик подтверждением не становятся.
 // Проверяется уже пересчитанный по вердиктам статус (syncReviewStatus): «требует замены»
@@ -1018,7 +1024,8 @@ export class DocumentRequestsService {
           where: { studentId: actor.sub },
           select: {
             status: true,
-            items: { where: { documentId: { not: null } }, select: { requestItemId: true } },
+            // Удалённый владельцем документ позицию не заполняет (D-F21).
+            items: { where: ATTACHED_LIVE, select: { requestItemId: true } },
           },
         },
       },
@@ -1069,7 +1076,7 @@ export class DocumentRequestsService {
                 requestItemId: true,
                 status: true,
                 rejectionReason: true,
-                document: { select: { id: true, title: true, type: true } },
+                document: { select: { id: true, title: true, type: true, deletedAt: true } },
               },
             },
           },
@@ -1097,7 +1104,12 @@ export class DocumentRequestsService {
               requestItemId: it.requestItemId,
               status: it.status,
               rejectionReason: it.rejectionReason,
-              document: it.document,
+              // Удалённый документ позицию не заполняет: клиент видит её пустой и при
+              // сохранении присылает null (иначе — id удалённого и отказ «недоступны»).
+              document:
+                it.document && !it.document.deletedAt
+                  ? { id: it.document.id, title: it.document.title, type: it.document.type }
+                  : null,
             })),
           }
         : null,
@@ -1269,7 +1281,7 @@ export class DocumentRequestsService {
         throw new AppException('CONFLICT', 'Комплект уже отправлен на проверку или принят')
       }
       const filled = await tx.documentSubmissionItem.findMany({
-        where: { submissionId: sub.id, documentId: { not: null } },
+        where: { submissionId: sub.id, ...ATTACHED_LIVE },
         select: { requestItemId: true },
         take: REQUEST_ITEMS_LIMIT,
       })
