@@ -4306,7 +4306,11 @@
       "alreadyReserved": "You already have a hold on this book",
       "alreadyBorrowed": "You already have this book",
       "noCopies": "The library has no copies of this book",
-      "closed": "The hold is already closed"
+      "closed": "The hold is already closed",
+      "notReturned": "This loan was not closed by a return",
+      "returnWindow": "A return can only be cancelled within 24 hours",
+      "reissued": "The copy has since been lent to another reader",
+      "heldForReservation": "The copy is already held for another reader’s reservation"
     },
     "acceptReturn": "Check in",
     "byDefault": "Default",
@@ -4412,7 +4416,11 @@
     "noOverdue": "Nothing overdue",
     "invProgressSince": "Since {date}",
     "invManualHint": "Label worn off — enter the inventory number",
-    "invRecentEmpty": "Scan the first label — marked copies appear here"
+    "invRecentEmpty": "Scan the first label — marked copies appear here",
+    "cancelReturn": "Cancel return",
+    "cancelReturnTitle": "Cancel the return of “{title}”? The book goes back on {name}’s record with the same due date",
+    "cancelReturnReason": "Reason: e.g. the wrong book was checked in",
+    "returnCancelledToast": "Return cancelled — the book is on {name}’s record again"
   },
   "Cameras": {
     "adminTitle": "Cameras",

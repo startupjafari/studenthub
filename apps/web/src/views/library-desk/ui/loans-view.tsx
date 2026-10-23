@@ -46,7 +46,10 @@ export interface LoansViewProps {
   subtitle?: string
   headerTabs?: ReactNode
   headerActions?: ReactNode
-  /** Действия над выдачей в строке (у библиотекаря); нет — только просмотр. */
+  /**
+   * Действия над выдачей в строке (у библиотекаря); нет — только просмотр. Вызывается для
+   * каждой строки: что доступно (открытой, недавно возвращённой), решает вызывающий.
+   */
   actions?: (loan: LoanItem) => ReactNode
 }
 
@@ -196,9 +199,7 @@ export function LoansView({ title, subtitle, headerTabs, headerActions, actions 
                     </div>
                   </TableCell>
                   <TableCell>
-                    {actions && loan.status === 'OPEN' && (
-                      <div className="flex justify-end">{actions(loan)}</div>
-                    )}
+                    {actions && <div className="flex justify-end">{actions(loan)}</div>}
                   </TableCell>
                 </TableRow>
               ))}
