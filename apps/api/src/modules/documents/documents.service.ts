@@ -1470,25 +1470,21 @@ export class DocumentsService {
   /**
    * Метаданные любого документа для платформенного админа (без полного номера — только маска).
    * Обращение фиксируется: журнал документа (VIEW, platformMode) + аудит, с причиной (D-F24).
-   * `reason` не передаёт только прежний GET без тела — он оставлен для совместимости.
+   * Причина обязательна: прежний GET без тела, открывавший документ без неё, убран.
    */
-  async platformGet(actor: JwtPayload, id: string, reason?: string): Promise<DocumentDto> {
+  async platformGet(actor: JwtPayload, id: string, reason: string): Promise<DocumentDto> {
     const doc = await this.prisma.document.findFirst({
       where: { id, deletedAt: null },
       select: DOCUMENT_SELECT,
     })
     if (!doc) throw new AppException('NOT_FOUND', 'Документ не найден')
-    await this.logEvent(actor.sub, id, 'VIEW', {
-      platformMode: true,
-      meta: true,
-      ...(reason ? { reason } : {}),
-    })
+    await this.logEvent(actor.sub, id, 'VIEW', { platformMode: true, meta: true, reason })
     await this.audit.record({
       userId: actor.sub,
       action: 'DOCUMENT_PLATFORM_VIEW',
       entity: 'Document',
       entityId: id,
-      ...(reason ? { metadata: { reason } } : {}),
+      metadata: { reason },
     })
     return this.toDto(doc)
   }
