@@ -26,6 +26,11 @@ const SERVICE_FORM_FIELDS_LIMIT = 100
 const SERVICE_REQUIREMENTS_LIMIT = 100
 // Страниц у одного документа — тот же потолок, что в домене «Документы».
 const DOCUMENT_FILES_LIMIT = 30
+// История заявки: десятки событий за жизнь заявки, потолок — с большим запасом. Берутся
+// последние, чтобы при упоре в потолок обрезалось начало истории, а не свежие шаги.
+const APPLICATION_EVENTS_LIMIT = 500
+// Результатов по заявке — единицы (справка, перевыпуск после отзыва, бумажный оригинал).
+const APPLICATION_RESULTS_LIMIT = 100
 
 const SCOPE_SELECT = {
   studentId: true,
@@ -319,7 +324,8 @@ export class ApplicationsService {
           },
         },
         events: {
-          orderBy: { createdAt: 'asc' },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          take: APPLICATION_EVENTS_LIMIT,
           select: {
             id: true,
             action: true,
@@ -332,6 +338,8 @@ export class ApplicationsService {
         },
         documents: {
           orderBy: { submittedAt: 'asc' },
+          // Строка документа — одна на требование услуги (unique), требований не больше потолка.
+          take: SERVICE_REQUIREMENTS_LIMIT,
           select: {
             id: true,
             requirementId: true,
@@ -364,6 +372,7 @@ export class ApplicationsService {
         },
         results: {
           orderBy: { createdAt: 'desc' },
+          take: APPLICATION_RESULTS_LIMIT,
           select: {
             id: true,
             type: true,
@@ -380,6 +389,8 @@ export class ApplicationsService {
     // ответ читают веб, iOS, Android). Ссылку на страницу выдаёт GET …/documents/:docId/url?fileId=.
     return {
       ...app,
+      // Выбраны последние события — клиенту история нужна по порядку, от первого шага.
+      events: [...app.events].reverse(),
       documents: app.documents.map(({ document, ...doc }) => ({
         ...doc,
         files: document?.files ?? [],

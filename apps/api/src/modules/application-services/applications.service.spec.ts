@@ -27,7 +27,7 @@ const staleStatus = () =>
 function setup(overrides: Record<string, jest.Mock> = {}) {
   const application = {
     findFirst: jest.fn(),
-    findUnique: jest.fn().mockResolvedValue({ documents: [] }),
+    findUnique: jest.fn().mockResolvedValue({ documents: [], events: [], results: [] }),
     findMany: jest.fn().mockResolvedValue([]),
     update: jest.fn().mockResolvedValue({}),
     create: jest.fn().mockResolvedValue({ id: 'new' }),
@@ -508,6 +508,8 @@ describe('ApplicationsService.getById — страницы документов'
     ]
     application.findUnique.mockResolvedValue({
       id: 'a1',
+      events: [],
+      results: [],
       documents: [
         { id: 'ad1', documentId: 'doc1', status: 'PENDING', document: { files: pages } },
         { id: 'ad2', documentId: null, status: 'PENDING', document: null },
@@ -573,5 +575,30 @@ describe('ApplicationsService.list — устойчивый порядок ст�
       { status: 'asc' },
       { id: 'asc' },
     ])
+  })
+})
+
+describe('ApplicationsService.getById — потолки вложенных выборок', () => {
+  it('события, документы и результаты — с take; история — по порядку, от первого шага', async () => {
+    const { service, application } = setup()
+    application.findFirst.mockResolvedValue({
+      studentId: 'stud',
+      facultyId: 'fac',
+      universityId: 'uni',
+    })
+    application.findUnique.mockResolvedValue({
+      id: 'a1',
+      documents: [],
+      results: [],
+      // Выборка идёт с конца (desc) — клиенту отдаётся в хронологическом порядке.
+      events: [{ id: 'e2' }, { id: 'e1' }],
+    })
+    const app = await service.getById(student, 'a1')
+    expect(app?.events).toEqual([{ id: 'e1' }, { id: 'e2' }])
+    const select = application.findUnique.mock.calls[0][0].select
+    expect(select.events.take).toBeGreaterThan(0)
+    expect(select.events.orderBy).toEqual([{ createdAt: 'desc' }, { id: 'desc' }])
+    expect(select.documents.take).toBeGreaterThan(0)
+    expect(select.results.take).toBeGreaterThan(0)
   })
 })
