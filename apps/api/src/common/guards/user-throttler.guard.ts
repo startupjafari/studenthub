@@ -24,9 +24,12 @@ export interface ThrottleWindow {
  * - `refresh` — id refresh-токена из cookie (часть до точки);
  * - `invite-body` / `invite-param` — хэш токена инвайта из тела / из пути;
  * - `login` — адрес + идентификатор входа (email или username, без учёта регистра);
- * - `login-2fa` — адрес + владелец проверенного challenge-токена.
+ * - `login-2fa` — адрес + владелец проверенного challenge-токена;
+ * - `password-forgot` — адрес почты из тела (без учёта регистра), БЕЗ адреса клиента: лимит
+ *   защищает чужой ящик, а ротация IP иначе давала поток писем на один адрес.
  */
-export type AuthThrottleKey = 'refresh' | 'invite-body' | 'invite-param' | 'login' | 'login-2fa'
+export type AuthThrottleKey =
+  'refresh' | 'invite-body' | 'invite-param' | 'login' | 'login-2fa' | 'password-forgot'
 
 interface AuthThrottlePolicy {
   key: AuthThrottleKey
@@ -140,6 +143,11 @@ export class UserThrottlerGuard extends ThrottlerGuard {
       case 'login-2fa': {
         const sub = this.challengeSubject(body.challengeToken)
         return sub ? `login-2fa:${ip}:${sub}` : null
+      }
+      case 'password-forgot': {
+        const email = body.email
+        if (typeof email !== 'string' || !email.trim()) return null
+        return `password-forgot:${digest(email.trim().toLowerCase())}`
       }
     }
   }
