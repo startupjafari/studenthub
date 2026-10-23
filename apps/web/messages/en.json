@@ -1649,7 +1649,8 @@
     "removeChangeConfirmHint": "The regular schedule will apply on this date again. If the date is still ahead, the group and teachers will be notified.",
     "changeRemoved": "Change removed",
     "changeWrongDay": "This class is on {day}. Pick a date that falls on that day",
-    "changeWrongWeek": "This class only runs on “{parity}”. Pick a date in such a week"
+    "changeWrongWeek": "This class only runs on “{parity}”. Pick a date in such a week",
+    "changeDraftHint": "One-off changes for a date are only available in the active schedule version — the group can't see this one yet."
   },
   "Applications": {
     "title": "Applications",

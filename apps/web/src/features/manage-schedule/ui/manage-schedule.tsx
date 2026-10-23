@@ -335,6 +335,7 @@ export function ManageSchedule({ mode = 'admin' }: { mode?: 'admin' | 'teacher' 
           canEdit={canEditPair(selectedPair)}
           isTeacher={isTeacher}
           containerId={containerId}
+          containerActive={containers.data?.find((c) => c.id === containerId)?.isActive ?? false}
           onClose={() => setSelectedPair(null)}
         />
       )}

@@ -384,6 +384,7 @@ const changedPair = {
   startTime: '09:00',
   endTime: '10:30',
   weekType: 'BOTH',
+  schedule: { isActive: true },
 }
 
 // ── 6.5 Замена → WS + уведомление ───────────────────────────────────────────
@@ -401,9 +402,10 @@ describe('SchedulesService.createChange — WS + очередь (6.5)', () => {
     })
     prisma.user.findMany.mockResolvedValue([{ id: 's-1' }, { id: 's-2' }])
 
+    // Вторник в будущем: о прошедшей дате уведомление не уходит.
     const res = await service.createChange(
       admin,
-      { pairId: 'pair-1', type: 'CANCELLED', date: '2026-09-15' },
+      { pairId: 'pair-1', type: 'CANCELLED', date: '2030-09-17' },
       ctx,
     )
     expect(res.id).toBe('chg-1')
@@ -418,6 +420,34 @@ describe('SchedulesService.createChange — WS + очередь (6.5)', () => {
     expect(new Set(jobArg.recipientIds)).toEqual(new Set(['s-1', 's-2', 't-1']))
     expect(jobArg.type).toBe('SCHEDULE_CHANGE')
     expect(jobArg.dedupeKey).toBe('schedule-changed:chg-1')
+  })
+
+  it('прошедшая дата: изменение пишется и транслируется, но уведомления нет', async () => {
+    const { service, prisma, realtime, queue } = setup()
+    prisma.pair.findUnique.mockResolvedValue(changedPair)
+    prisma.group.findUnique.mockResolvedValue(GROUP_CTX)
+    prisma.scheduleChange.create.mockResolvedValue({ id: 'chg-1', pairId: 'pair-1' })
+    await service.createChange(
+      admin,
+      { pairId: 'pair-1', type: 'CANCELLED', date: '2020-01-07' },
+      ctx,
+    )
+    expect(prisma.scheduleChange.create).toHaveBeenCalled()
+    expect(realtime.emitToRoom).toHaveBeenCalled()
+    expect(queue.enqueue).not.toHaveBeenCalled()
+  })
+
+  it('пара черновой версии → VALIDATION_ERROR(pairId), ни записи, ни уведомления', async () => {
+    const { service, prisma, queue } = setup()
+    prisma.pair.findUnique.mockResolvedValue({ ...changedPair, schedule: { isActive: false } })
+    prisma.group.findUnique.mockResolvedValue(GROUP_CTX)
+    const err = await service
+      .createChange(admin, { pairId: 'pair-1', type: 'CANCELLED', date: '2030-09-17' }, ctx)
+      .catch((e) => e)
+    expect(err.code).toBe('VALIDATION_ERROR')
+    expect(err.details).toEqual([expect.objectContaining({ field: 'pairId' })])
+    expect(prisma.scheduleChange.create).not.toHaveBeenCalled()
+    expect(queue.enqueue).not.toHaveBeenCalled()
   })
 })
 

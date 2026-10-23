@@ -87,6 +87,7 @@ export function PairDetailsModal({
   canEdit,
   isTeacher,
   containerId,
+  containerActive,
   onClose,
 }: {
   pair: Pair
@@ -95,6 +96,8 @@ export function PairDetailsModal({
   canEdit: boolean
   isTeacher: boolean
   containerId: string
+  // Версия действует: разовые изменения есть только у её пар (черновик группе не виден).
+  containerActive: boolean
   onClose: () => void
 }) {
   const t = useTranslations('Schedule')
@@ -226,7 +229,7 @@ export function PairDetailsModal({
   const changes = useQuery({
     queryKey: scheduleKeys.changes(changesRange),
     queryFn: () => fetchScheduleChanges(changesRange),
-    enabled: !isTeacher,
+    enabled: !isTeacher && containerActive,
   })
   const pairChanges = (changes.data ?? []).filter((c) => c.pairId === pair.id)
 
@@ -391,8 +394,15 @@ export function PairDetailsModal({
           </form>
         )}
 
-        {/* Разовое изменение на дату — только админ/декан (бэк: @Roles без TEACHER). */}
-        {!isTeacher && (
+        {/* Разовое изменение на дату — только админ/декан (бэк: @Roles без TEACHER) и только
+            у пары действующей версии: черновик группе не виден, а пуш ушёл бы всем. */}
+        {!isTeacher && !containerActive && (
+          <>
+            <div className="border-t border-border" />
+            <p className="text-xs text-muted-foreground">{t('changeDraftHint')}</p>
+          </>
+        )}
+        {!isTeacher && containerActive && (
           <>
             <div className="border-t border-border" />
             <div>

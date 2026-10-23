@@ -905,6 +905,7 @@ export class SchedulesService {
         startTime: true,
         endTime: true,
         weekType: true,
+        schedule: { select: { isActive: true } },
       },
     })
     if (!pair) {
@@ -912,6 +913,14 @@ export class SchedulesService {
     }
     const gctx = await this.resolveGroupContext(pair.groupId)
     this.assertManageScopeForGroup(actor, gctx)
+
+    // Черновая или архивная версия группе не показывается: изменение её пары никто не
+    // увидит, а уведомление ушло бы всей группе.
+    if (!pair.schedule.isActive) {
+      throw new AppException('VALIDATION_ERROR', 'Пара не из действующего расписания', [
+        { field: 'pairId', message: 'Разовые изменения — только для действующей версии' },
+      ])
+    }
 
     if (isoDayOfWeek(input.date) !== pair.dayOfWeek) {
       throw new AppException('VALIDATION_ERROR', 'В этот день пары нет', [
@@ -996,12 +1005,16 @@ export class SchedulesService {
     })
 
     // Уведомление участникам группы (+ преподавателям пары/замены) через очередь `notifications`.
-    await this.enqueueChangeNotification(pair, change.id, {
-      date: input.date,
-      label: CHANGE_TYPE_LABEL[type],
-      newTeacherId,
-      dedupeKey: `schedule-changed:${change.id}`,
-    })
+    // О прошедшей дате — как и при удалении изменения — не пишем: правка задним числом
+    // поправляет историю, а не зовёт группу на занятие.
+    if (input.date >= localDateString(new Date(), gctx.timezone)) {
+      await this.enqueueChangeNotification(pair, change.id, {
+        date: input.date,
+        label: CHANGE_TYPE_LABEL[type],
+        newTeacherId,
+        dedupeKey: `schedule-changed:${change.id}`,
+      })
+    }
 
     return change
   }
