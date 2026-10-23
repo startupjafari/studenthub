@@ -2090,6 +2090,133 @@
 #### BUG-415 · 🟢 404: «Назад» ничего не делает, если страница открыта прямой ссылкой
 - **Где:** `apps/web/src/app/not-found.tsx:24`, `apps/web/src/shared/ui/status-screen.tsx:178-182` (ср. `use-escape-back.ts`) · **Статус:** новый
 
+### Android-клиент (`apps/android`)
+
+Пути ниже — от `apps/android/app/src/main/kotlin/kz/studenthub/app/`, если не указано иное.
+
+#### BUG-416 · 🟠 🔒 Вход по QR подтверждается вслепую: телефон не показывает, кто просит вход
+- **Роль:** STUDENT, STAROSTA, TEACHER · **Статус:** подтверждён
+- **Где:** `features/auth/QrApprove.kt:89-110,176-193`, `core/session/QrLoginApi.kt:40-53` (только `auth/qr/approve`, `preview` не вызывается)
+- **Сценарий:** злоумышленник присылает QR со своего `/qr` → жертва сканирует, видит общее предупреждение без браузера/ОС/IP → «Подтвердить» → сессия у злоумышленника.
+- **Ожидается:** §8.3 «Вход по QR» — `POST /auth/qr/preview` и показ `requester` до кнопки, как в вебе.
+
+#### BUG-417 · 🟠 «Оценки» целиком падают, если у любой колонки журнала нет максимального балла
+- **Роль:** STUDENT, STAROSTA · **Статус:** подтверждён
+- **Где:** `core/study/StudyDto.kt:63` (`maxScore: Int` обязательный); сервер — `prisma/schema/20-gradebook.prisma:12` (`Int?`), `packages/shared-schemas/src/gradebook.ts:13`
+- **Сценарий:** колонка без максимума → `"maxScore": null` → `ApiError.Decoding` → «Неожиданный ответ сервера», ни одной оценки.
+
+#### BUG-418 · 🟠 Скачивание документа или справки роняет приложение на Android 8–9
+- **Где:** `features/applications/ApplicationScreens.kt:98-105` (`setDestinationInExternalPublicDir`), `:394,463` (в `onSuccess` без обработчика); `AndroidManifest.xml:9-11` (`WRITE_EXTERNAL_STORAGE` в рантайме не запрашивается) · **Статус:** новый
+- **Ожидается:** запрос разрешения на API ≤ 28 или MediaStore/каталог приложения и перехват `SecurityException`.
+
+#### BUG-419 · 🟠 В открытом чате пропадают сообщения, пришедшие с прошлого визита
+- **Где:** `core/chats/ChatStore.kt:82` (`lastSeq` поднимается превью из списка и `PushSync`), `features/chats/ChatThreadModel.kt:128` (`catchUp(known)`); сервер `chats.service.ts:1273` · **Статус:** подтверждён
+- **Сценарий:** локально M1–M50, пришли M51–M70 → список поднял `lastSeq` до 70 → `updates?since=70` пуст → в ленте M50, сразу M70; якорь непрочитанного не там.
+- **Ожидается:** §9.2c — позиция догона = «всё до N у клиента есть», превью её не двигает.
+
+#### BUG-420 · 🟡 «Без звука» всегда откатывается с ошибкой: POST без тела → 422
+- **Где:** `core/chats/ChatsApi.kt:71-75` (`Endpoint.post(path)` без тела); `chats.controller.ts:437-447`, `packages/shared-schemas/src/chats.ts:195-200` (`MuteSchema` без `.default({})`) · **Статус:** подтверждён
+
+#### BUG-421 · 🟡 Преподавателю «Журнал» и «Посещаемость» во вкладке «Учёба» отвечают 403, «Задания» — студенческой формой сдачи
+- **Роль:** TEACHER · **Статус:** новый
+- **Где:** `features/study/StudyScreens.kt:8-32,201-251`, `core/study/StudyApi.kt:51-54` → `gradebook.controller.ts:35-36`, `attendance.controller.ts:52-53` (`@Roles(...STUDENT_ROLES)`)
+
+#### BUG-422 · 🟡 Посещаемость отмечается только для сегодняшней даты: любая другая пара — 422
+- **Роль:** TEACHER · **Статус:** новый
+- **Где:** `features/study/StudyModels.kt:187` (`LocalDate.now()`), `features/study/ScheduleScreen.kt:41`, `shell/ShellRoutes.kt:275` (`AppRoute.Lesson` без даты); сервер `attendance.service.ts:397-401`
+
+#### BUG-423 · 🟡 Черновики чата не синхронизируются с сервером; отправленный текст воскресает черновиком
+- **Где:** `features/chats/ChatThreadModel.kt:224-233` (`isSynced = false`, `PUT /chats/:id/draft` не вызывается), `core/chats/ChatStore.kt:94-105` · **Статус:** новый
+
+#### BUG-424 · 🟡 Очередь отправки: дубли при параллельной досылке, одно отвергнутое сообщение блокирует очередь навсегда
+- **Где:** `core/chats/MessageOutbox.kt:56-62` (`flush` без блокировки, стоп на первой неудаче), `core/chats/OutboxWorker.kt` (`Result.retry()`), `features/chats/ChatThreadModel.kt:130,270` · **Статус:** новый
+
+#### BUG-425 · 🟡 🔒 Чаты, из которых человека убрали, остаются на телефоне с историей навсегда
+- **Где:** `core/chats/ChatStore.kt:23-25` (`saveChats` только добавляет), `ChatDao.delete` не вызывается; сервер такие чаты не отдаёт — `chats.service.ts:548-549` · **Статус:** новый
+- **Ожидается:** §11.3 — локальная база повторяет доступ на сервере.
+
+#### BUG-426 · 🟡 Список чатов не обновляется в реальном времени: `chat:activity` не слушается
+- **Где:** `core/realtime/RealtimeEvent.kt:67`; сервер `chats.service.ts:2440-2449` · **Статус:** новый
+
+#### BUG-427 · 🟡 В групповых и официальных чатах не видно автора сообщения
+- **Где:** `core/chats/ChatDto.kt:76-90` (`sender` не читается), `core/storage/Entities.kt:150-173`, `features/chats/MessageBubble.kt:115-163`, `MessageTimeline.kt:21-22` · **Статус:** новый
+
+#### BUG-428 · 🟡 Голосовые показываются файлом: признак требует `audio/*`, а сервер хранит `video/webm`/`video/mp4`
+- **Где:** `core/storage/Entities.kt:150`; ср. веб `apps/web/src/entities/chat/lib/attachment-kind.ts:8-14` (по имени `voice-…`) · **Статус:** новый
+
+#### BUG-429 · 🟡 Свёрнутое приложение с открытым чатом глушит уведомления по нему на всех устройствах
+- **Где:** `features/chats/ChatThreadScreen.kt:130` (`leave()` только при уходе экрана, нет `ProcessLifecycleOwner`), `core/realtime/RealtimeCoordinator.kt:67-77`; сервер `chats.service.ts:2450-2486` · **Статус:** новый
+
+#### BUG-430 · 🟡 🔒 После выхода телефон показывает чужие пуши, старые плашки и кэши файлов остаются (клиентская часть BUG-081)
+- **Где:** `core/push/MessagingService.kt:37-45` (без проверки сессии), `core/push/Push.kt:88-94` (отвязка офлайн молча проваливается), `shell/AppServices.kt:148-158` (нет `cancelAll()`, не чистятся `cacheDir/outgoing` и кэш Coil) · **Статус:** новый
+
+#### BUG-431 · 🟡 Каждое открытие услуги заводит новый пустой черновик заявки, а ответы живут только в памяти
+- **Где:** `features/applications/ApplicationModels.kt:88` (`createDraft` в `load()`), `:119-127`; сервер `applications.service.ts:95-110` · **Статус:** новый
+
+#### BUG-432 · 🟡 Поворот экрана, смена темы или языка стирают состояние всех экранов оболочки
+- **Где:** `shell/AppShell.kt:53-54` (`remember { RouteStores() }` + `stores.clear()`), `configChanges` в манифесте нет · **Статус:** новый
+- **Сценарий:** преподаватель отметил 25 студентов, повернул телефон — всё потеряно, сохранение в полёте отменено.
+
+#### BUG-433 · 🟡 Прочтение уходит только по сокету и теряется без связи
+- **Где:** `features/chats/ChatThreadModel.kt:201-214`, `core/realtime/RealtimeTransport.kt:106` (`if (!connected) return`) · **Статус:** новый
+
+#### BUG-434 · 🟡 Падение приложения на `message:new` для чата, которого нет в локальной базе
+- **Где:** `core/realtime/RealtimeCoordinator.kt:145-150` (FK-ошибка вставки), `:69` (`collect` в `MainScope` без обработчика) · **Статус:** новый
+
+#### BUG-435 · 🟡 Уменьшенные перед отправкой снимки теряют EXIF-поворот и приходят набок
+- **Где:** `features/chats/OutgoingFiles.kt:41-58` · **Статус:** новый
+
+#### BUG-436 · 🟡 Разовые изменения расписания разложены неверно: старая аудитория и преподаватель, чужая неделя (новое место BUG-072; проявится после BUG-073)
+- **Где:** `core/study/StudyDto.kt:133-142`, `core/storage/Entities.kt:296-305` (`newRoom`/`newTeacher` отбрасываются), `features/study/ScheduleScreen.kt:116-119`, `features/study/StudyModels.kt:86-90,138` · **Статус:** новый
+
+#### BUG-437 · 🟢 Системные сообщения группы в ленте пустые
+- **Где:** `features/chats/MessageBubble.kt:92-101`; сервер `chats.service.ts:2335` (`content: ''`, §8.3 «текст рендерит клиент по типу») · **Статус:** новый
+
+#### BUG-438 · 🟢 `chat:updated` не разбирается: ждёт полный `ChatListItemDto`, а сервер шлёт `{ chatId, title|avatarUrl }`
+- **Где:** `core/realtime/RealtimeEvent.kt:94-96`; сервер `chats.service.ts:3473,3489,3587` · **Статус:** новый
+
+#### BUG-439 · 🟢 Ссылки из пушей на профиль, ленту и записи в деканат ничего не открывают
+- **Где:** `core/navigation/DeepLink.kt:89` (`/profile/<id>` → null), нет `/appointments`; ссылки — `friends.service.ts:179,436`, `polls.service.ts:628`, `profile-content.service.ts:919`, `appointments.service.ts:334` · **Статус:** новый
+
+#### BUG-440 · 🟢 Уведомления одного раздела затирают друг друга в шторке
+- **Где:** `core/push/MessagingService.kt:57` (`id = (url ?: title).hashCode()`, `data.tag` не читается); сервер `fcm.payload.ts:38` · **Статус:** новый
+
+#### BUG-441 · 🟢 Нельзя очистить «О себе», ответ или ссылку в сдаче работы
+- **Где:** `features/feed/FeedModels.kt:290`, `features/study/StudyModels.kt:303` (пустое → null), `core/network/ApiEnvelope.kt:51` (`explicitNulls = false`); сервер оставляет пропущенное поле — `users.service.ts:803`, `assignments.service.ts:485` · **Статус:** новый
+
+#### BUG-442 · 🟢 Дробные оценки обрезаются (8.5 → 8), тип колонки выводится кодом «CONTROL»
+- **Где:** `features/study/StudyScreens.kt:146,149` · **Статус:** новый
+
+#### BUG-443 · 🟢 Отозвать заявку в IN_REVIEW и RESUBMITTED нельзя, хотя сервер разрешает
+- **Где:** `features/applications/ApplicationModels.kt:43`; `packages/shared-schemas/src/application-services.ts` (`STUDENT_CANCELLABLE_STATUSES`) · **Статус:** новый
+
+#### BUG-444 · 🟢 Казахский перевод неполный: 67 строк по-русски (новое место BUG-125)
+- **Где:** `apps/android/app/src/main/res/values-kk/strings.xml`, `values-kk/strings_ios.xml` (нет `error_network`, `error_unexpected`, `tab_home`, `study_submit`, `update_*`, `schedule_empty` и др.) · **Статус:** новый
+
+#### BUG-445 · 🟢 Плеер голосового «мёртв» после сбоя загрузки или повторного нажатия во время подготовки
+- **Где:** `features/chats/Voice.kt:192-217` (нет `OnErrorListener`, `start()` у неподготовленного плеера) · **Статус:** новый
+
+#### BUG-446 · 🟢 Отменённый запрос не закрывает пришедший ответ — утечка соединений OkHttp
+- **Где:** `core/network/ApiClient.kt:171` (`resume(response)` без `onCancellation { response.close() }`) · **Статус:** новый
+
+#### BUG-447 · 🟢 🔒 Идентификаторы из диплинков не проверяются, `..` в пути разрешается OkHttp
+- **Где:** `core/navigation/DeepLink.kt:57-104` (любой https-хост, `URLDecoder`), `core/network/ApiClient.kt:132` (`addPathSegment("..")`); `MainActivity` экспортирована · **Статус:** новый
+- **Сценарий:** `studenthub://chats?c=..%2F..%2Fusers%2Fme` — запрос с токеном пользователя уходит на другой путь API.
+- **Ожидается:** id только `[A-Za-z0-9_-]`, https — только домен веба.
+
+#### BUG-448 · 🟢 Часы телефона, ушедшие вперёд, вызывают refresh перед каждым запросом
+- **Где:** `core/session/AccessToken.kt:30`, `core/session/SessionStore.kt:448-452` · **Статус:** новый
+
+#### BUG-449 · 🟢 Мелкие расхождения с контрактом в списках и экранах Android
+- **Статус:** новый
+- **Где и что:**
+  - `core/applications/ApplicationsApi.kt:217`, `core/study/StudyApi.kt:57,68`, `core/feed/FeedApi.kt:75` — первая страница (50) без догрузки (новое место BUG-147); `features/study/StudyScreens.kt:204-207` ищет задание только в них.
+  - `features/chats/ChatThreadModel.kt:449` — граница догона по `createdAt` с часов телефона (новое место BUG-113).
+  - `features/feed/FeedScreens.kt:163-212` — «Пост» по ссылке показывает только комментарии; `:26` — «сейчас» заморожено (как BUG-121).
+  - `features/applications/ApplicationScreens.kt:394,463` — файлы без расширения.
+  - `core/realtime/RealtimeCoordinator.kt:119` — каждая `connect_error` запускает ротацию refresh.
+  - Доступность: выбранное передано только цветом — `StudyScreens.kt:336-347`, `ChatListScreen.kt:58-73`, `FeedScreens.kt:116-127`.
+
 <!-- P3-END -->
 
 ## Замечено попутно
