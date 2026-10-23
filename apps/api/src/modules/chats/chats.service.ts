@@ -3804,9 +3804,12 @@ export class ChatsService implements OnModuleInit {
     // проверки читался бы каждый участник факультетского чата.
     const member = await this.prisma.chatMember.findUnique({
       where: { chatId_userId: { chatId, userId: actor.sub } },
-      select: { id: true },
+      select: { id: true, bannedAt: true },
     })
     if (!member) throw new AppException('WRONG_SCOPE', 'Вы не участник этого чата')
+    // Бан живёт в строке членства (§9.1): выход забаненного стирал бы её вместе с баном, и он
+    // возвращался по ссылке-приглашению. Чата в его списке и так нет — выходить ему не из чего.
+    if (member.bannedAt) throw new AppException('FORBIDDEN', 'Вы заблокированы в этом чате')
     // Владелец группы удаляет всю группу.
     if (chat.type === ChatType.GROUP && chat.createdById === actor.sub) {
       await this.deleteGroup(chatId)

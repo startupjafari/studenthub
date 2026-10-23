@@ -1505,8 +1505,18 @@ describe('ChatsService.deleteOrLeaveChat', () => {
     expect(prisma.chat.findUnique.mock.calls[0]?.[0].select).not.toHaveProperty('members')
     expect(prisma.chatMember.findUnique).toHaveBeenCalledWith({
       where: { chatId_userId: { chatId: 'c1', userId: 'u1' } },
-      select: { id: true },
+      select: { id: true, bannedAt: true },
     })
+  })
+
+  // BUG-162: выход забаненного стирал строку с баном, и ссылка-приглашение пускала его обратно.
+  it('забаненный не выходит из группы — строка с баном остаётся', async () => {
+    const { service, prisma } = setup()
+    prisma.chat.findUnique.mockResolvedValue({ id: 'c1', type: 'GROUP', createdById: 'u2' })
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'mem1', bannedAt: new Date() })
+    const err = await service.deleteOrLeaveChat(actor('u1'), 'c1').catch((e) => e)
+    expect(err.code).toBe('FORBIDDEN')
+    expect(prisma.chatMember.deleteMany).not.toHaveBeenCalled()
   })
 
   // F-F17: официальный чат вернулся бы сам через ensureOfficialChat, «Сохранённые»
