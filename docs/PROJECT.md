@@ -413,7 +413,10 @@ status `DRAFT|UPLOADED|IN_REVIEW|VERIFIED|ACCEPTED|REJECTED|NEEDS_REPLACEMENT|EX
 (`document-shared`, §10.1).
 
 **Эндпоинты** (база `/documents`, `/document-requests`, `/document-types`): CRUD документов,
-`/upload`+`/files`(+`/order`), `GET :id/files/:fileId/url` (presigned), `access` (grant/revoke),
+`GET /documents` (фильтры, `sort`/`order`, `view`) без `limit`/`cursor` отдаёт массив до 200
+документов (веб, Android), с ними — страницу той же сортировки (`limit ≤ 50`, `meta.cursor`/
+`hasNext`/`total`; курсор непрозрачный, голый id своего документа тоже принимается; страница
+с `sort=access` → `400`), `/upload`+`/files`(+`/order`), `GET :id/files/:fileId/url` (presigned), `access` (grant/revoke),
 `overview`, `events`; `GET /documents/shared-with-me?cursor&limit≤50` — активные гранты на меня
 (`USER`), мой факультет (`DEPARTMENT`, декану), мой вуз (`UNIVERSITY`, администрации), без своих
 документов; запросы — создание/список/`manage`, submission (save/submit), review
