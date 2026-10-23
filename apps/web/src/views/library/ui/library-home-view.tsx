@@ -40,7 +40,7 @@ interface DeskAction {
   description: string
 }
 
-const PANEL_LIMIT = 6
+const PANEL_LIMIT = 10
 
 // Главная библиотекаря (docs/PROJECT.md §3.11, Фаза 20): сначала — что требует внимания
 // (на руках, просрочки, книги на полке броней), потом крупные действия стойки и два списка,
@@ -81,11 +81,11 @@ export function LibraryHomeView() {
   ]
 
   return (
-    <div className="flex w-full flex-col gap-6">
+    <div className="flex w-full flex-col gap-6 xl:flex-1">
       <PageHeader title={t('title')} subtitle={t('subtitle')} />
 
       {settings.isPending ? (
-        <Skeleton className="h-24 w-full rounded-xl" />
+        <Skeleton fill className="min-h-24 rounded-xl" />
       ) : !enabled ? (
         <EmptyState
           icon={<PowerOff className="size-6" aria-hidden />}
@@ -158,7 +158,8 @@ export function LibraryHomeView() {
             ))}
           </ul>
 
-          <div className="grid items-start gap-6 xl:grid-cols-2">
+          {/* На компьютере панели добирают высоту окна до низа, обе вровень. */}
+          <div className="grid items-start gap-6 xl:flex-1 xl:grid-cols-2 xl:items-stretch">
             <OverduePanel />
             <HoldShelfPanel />
           </div>
@@ -180,7 +181,7 @@ function PanelSkeleton() {
   return (
     <div className="flex flex-col gap-2">
       {Array.from({ length: 4 }, (_, i) => (
-        <Skeleton key={i} className="h-11 w-full rounded-lg" />
+        <Skeleton key={i} fill className="min-h-11 rounded-lg" />
       ))}
     </div>
   )

@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from 'react'
 import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { BookOpen, FileUp, Plus, PowerOff, Search } from 'lucide-react'
@@ -19,10 +20,19 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-  Skeleton,
+  Table,
+  TableBody,
+  TableCell,
+  TableEmpty,
+  TableHead,
+  TableHeader,
   TablePagination,
+  TableRow,
+  TableSkeletonRows,
+  TableText,
+  usePagedSort,
 } from '../../../shared/ui'
-import { toApiError } from '../../../shared/lib'
+import { cn, toApiError } from '../../../shared/lib'
 import {
   BookCover,
   fetchBookSections,
@@ -37,11 +47,36 @@ import { LibraryImportModal } from './library-import-modal'
 // Каталог библиотеки (Фаза 20, docs/PROJECT.md §3.11). Два режима одного экрана:
 //   staff  — библиотекарь и админ вуза: заведение книг, импорт, архив;
 //   reader — студент и староста: поиск, наличие, переход к брони.
-// Список — карточками-строками (идиом системы), пагинация серверная.
+// Список — таблицей: фонд вуза — тысячи книг, их листают и упорядочивают. Страница и
+// порядок считаются на сервере (`usePagedSort`): сортировка в браузере переставляла бы
+// только открытую страницу.
 
 const PAGE_SIZES = [20, 50, 100] as const
 const DEBOUNCE_MS = 250
 const ALL_SECTIONS = '__all__'
+
+type BookSort = NonNullable<BookListParams['sort']>
+
+// Колонки: название · авторы · год · раздел · наличие · выдано (только staff).
+const COLS_STAFF = ['34%', '22%', '5.5rem', '16%', '10rem', '7rem'] as const
+const COLS_READER = ['38%', '24%', '5.5rem', '18%', '10rem'] as const
+// На узком экране остаются название и наличие: они и отвечают «есть ли книга».
+const COLS_NARROW = ['60%', '0', '0', '0', '40%', '0'] as const
+const HIDE = {
+  authors: 'hidden md:table-cell',
+  year: 'hidden lg:table-cell',
+  section: 'hidden lg:table-cell',
+  onLoan: 'hidden md:table-cell',
+}
+const SKELETON_STAFF = [
+  undefined,
+  HIDE.authors,
+  HIDE.year,
+  HIDE.section,
+  undefined,
+  HIDE.onLoan,
+] as const
+const SKELETON_READER = SKELETON_STAFF.slice(0, 5)
 
 export interface CatalogViewProps {
   mode: 'staff' | 'reader'
@@ -53,6 +88,7 @@ export interface CatalogViewProps {
 
 export function CatalogView({ mode, basePath, headerTabs }: CatalogViewProps) {
   const t = useTranslations('LibraryCatalog')
+  const router = useRouter()
   const staff = mode === 'staff'
 
   const [search, setSearch] = useState('')
@@ -60,12 +96,12 @@ export function CatalogView({ mode, basePath, headerTabs }: CatalogViewProps) {
   const [section, setSection] = useState(ALL_SECTIONS)
   const [available, setAvailable] = useState(false)
   const [archived, setArchived] = useState(false)
-  const [page, setPage] = useState(1)
-  const [limit, setLimit] = useState<number>(PAGE_SIZES[0])
+  const paged = usePagedSort<BookSort>(PAGE_SIZES[0])
   const [creating, setCreating] = useState(false)
   const [importing, setImporting] = useState(false)
 
   // Запрос — после паузы в наборе, со сбросом на первую страницу.
+  const { setPage } = paged
   useEffect(() => {
     const next = search.trim().slice(0, 100)
     if (next === debounced) return
@@ -74,11 +110,10 @@ export function CatalogView({ mode, basePath, headerTabs }: CatalogViewProps) {
       setPage(1)
     }, DEBOUNCE_MS)
     return () => clearTimeout(timer)
-  }, [search, debounced])
+  }, [search, debounced, setPage])
 
   const params: BookListParams = {
-    page,
-    limit,
+    ...paged.query,
     ...(debounced ? { q: debounced } : {}),
     ...(section !== ALL_SECTIONS ? { section } : {}),
     ...(available ? { available: true } : {}),
@@ -101,8 +136,12 @@ export function CatalogView({ mode, basePath, headerTabs }: CatalogViewProps) {
     setPage(1)
   }
 
+  const head = (key: BookSort) => ({ sortKey: key, sort: paged.sort, onSort: paged.toggle })
+
   return (
-    <div className="flex w-full flex-col gap-6">
+    // Сквозная flex-цепочка до таблицы: `Table fill` доходит до низа окна, только если
+    // каждый предок отдаёт ей высоту.
+    <div className="flex min-h-0 w-full flex-1 flex-col gap-6">
       <PageHeader
         title={t('title')}
         subtitle={staff ? t('subtitleStaff') : t('subtitleReader')}
@@ -183,65 +222,77 @@ export function CatalogView({ mode, basePath, headerTabs }: CatalogViewProps) {
           title={t('disabledTitle')}
           description={t('disabledDescription')}
         />
+      ) : books.isError ? (
+        <EmptyState
+          icon={<BookOpen className="size-6" aria-hidden />}
+          title={t('loadError')}
+          action={
+            <Button type="button" variant="outline" onClick={() => void books.refetch()}>
+              {t('retry')}
+            </Button>
+          }
+        />
+      ) : !books.isPending && items.length === 0 ? (
+        <EmptyState
+          icon={<BookOpen className="size-6" aria-hidden />}
+          title={filtered ? t('nothingFound') : t('emptyTitle')}
+          description={filtered ? undefined : staff ? t('emptyStaffHint') : t('emptyReaderHint')}
+          action={
+            staff && !filtered ? (
+              <Button type="button" onClick={() => setCreating(true)}>
+                <Plus className="size-4" aria-hidden />
+                {t('addBook')}
+              </Button>
+            ) : undefined
+          }
+        />
       ) : (
-        <>
-          {books.isPending ? (
-            <div className="flex flex-col gap-2">
-              {Array.from({ length: 5 }, (_, i) => (
-                <Skeleton key={i} className="h-24 w-full rounded-xl" />
-              ))}
-            </div>
-          ) : books.isError ? (
-            <EmptyState
-              icon={<BookOpen className="size-6" aria-hidden />}
-              title={t('loadError')}
-              action={
-                <Button type="button" variant="outline" onClick={() => void books.refetch()}>
-                  {t('retry')}
-                </Button>
-              }
-            />
-          ) : items.length === 0 ? (
-            <EmptyState
-              icon={<BookOpen className="size-6" aria-hidden />}
-              title={filtered ? t('nothingFound') : t('emptyTitle')}
-              description={
-                filtered ? undefined : staff ? t('emptyStaffHint') : t('emptyReaderHint')
-              }
-              action={
-                staff && !filtered ? (
-                  <Button type="button" onClick={() => setCreating(true)}>
-                    <Plus className="size-4" aria-hidden />
-                    {t('addBook')}
-                  </Button>
-                ) : undefined
-              }
-            />
-          ) : (
-            <>
-              <ul className="flex flex-col gap-2">
-                {items.map((book) => (
-                  <li key={book.id}>
-                    <BookRow book={book} href={`${basePath}/${book.id}`} staff={staff} />
-                  </li>
-                ))}
-              </ul>
-              <Card className="gap-0 py-0">
-                <TablePagination
-                  page={page}
-                  total={total}
-                  limit={limit}
-                  onPageChange={setPage}
-                  limitOptions={PAGE_SIZES}
-                  onLimitChange={(n) => {
-                    setLimit(n)
-                    setPage(1)
-                  }}
+        <Card className="flex min-h-0 flex-1 flex-col gap-0 py-0">
+          <Table
+            fixed
+            scrollBody
+            fill
+            cols={staff ? COLS_STAFF : COLS_READER}
+            colsNarrow={COLS_NARROW}
+          >
+            <TableHeader>
+              <TableRow>
+                <TableHead {...head('title')}>{t('fieldTitle')}</TableHead>
+                <TableHead {...head('authors')} className={HIDE.authors}>
+                  {t('fieldAuthors')}
+                </TableHead>
+                <TableHead {...head('year')} className={HIDE.year}>
+                  {t('colYear')}
+                </TableHead>
+                <TableHead className={HIDE.section}>{t('section')}</TableHead>
+                <TableHead>{t('colAvailability')}</TableHead>
+                {staff && <TableHead className={HIDE.onLoan}>{t('colOnLoan')}</TableHead>}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {books.isPending && (
+                <TableSkeletonRows columns={staff ? SKELETON_STAFF : SKELETON_READER} />
+              )}
+              {items.map((book) => (
+                <BookRow
+                  key={book.id}
+                  book={book}
+                  href={`${basePath}/${book.id}`}
+                  staff={staff}
+                  onOpen={(href) => router.push(href)}
                 />
-              </Card>
-            </>
-          )}
-        </>
+              ))}
+            </TableBody>
+          </Table>
+          <TablePagination
+            page={paged.page}
+            total={total}
+            limit={paged.limit}
+            onPageChange={setPage}
+            limitOptions={PAGE_SIZES}
+            onLimitChange={paged.setLimit}
+          />
+        </Card>
       )}
 
       {creating && <BookFormModal basePath={basePath} onClose={() => setCreating(false)} />}
@@ -250,40 +301,65 @@ export function CatalogView({ mode, basePath, headerTabs }: CatalogViewProps) {
   )
 }
 
-function BookRow({ book, href, staff }: { book: BookCard; href: string; staff: boolean }) {
+function BookRow({
+  book,
+  href,
+  staff,
+  onOpen,
+}: {
+  book: BookCard
+  href: string
+  staff: boolean
+  onOpen: (href: string) => void
+}) {
   const t = useTranslations('LibraryCatalog')
-  const { available, total } = book.availability
-  const meta = [book.authors, book.year ? String(book.year) : null].filter(Boolean).join(' · ')
+  const { available, total, onLoan } = book.availability
   return (
-    <Link
-      href={href}
-      className="group block rounded-xl outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
-    >
-      <Card className="flex-row items-center gap-4 px-4 py-3 transition-colors group-hover:bg-muted/40">
-        <BookCover url={book.coverUrl} title={book.title} />
-        <span className="flex min-w-0 flex-1 flex-col gap-1">
-          <span className="truncate font-semibold">{book.title}</span>
-          {meta && <span className="truncate text-sm text-muted-foreground">{meta}</span>}
-          <span className="flex flex-wrap items-center gap-1.5">
-            {book.section && <Badge variant="secondary">{book.section}</Badge>}
-            {book.archived && <Badge variant="outline">{t('archived')}</Badge>}
+    // Строка открывает книгу целиком; ссылка в названии — для клавиатуры и «открыть
+    // в новой вкладке».
+    <TableRow onClick={() => onOpen(href)} className="cursor-pointer hover:bg-muted/40">
+      <TableCell>
+        <span className="flex min-w-0 items-center gap-3">
+          <BookCover url={book.coverUrl} title={book.title} className="w-8" />
+          <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+            <Link
+              href={href}
+              onClick={(e) => e.stopPropagation()}
+              className="block min-w-0 font-medium outline-none focus-visible:underline"
+            >
+              <TableText value={book.title} />
+            </Link>
+            {book.archived && (
+              <span>
+                <Badge variant="outline">{t('archived')}</Badge>
+              </span>
+            )}
           </span>
         </span>
-        <span className="flex shrink-0 flex-col items-end gap-1 text-right">
-          {total === 0 ? (
-            <Badge variant="outline">{t('noCopies')}</Badge>
-          ) : available > 0 ? (
-            <Badge variant="success">{t('availableOf', { available, total })}</Badge>
-          ) : (
-            <Badge variant="warning">{t('allOut')}</Badge>
-          )}
-          {staff && book.availability.onLoan > 0 && (
-            <span className="text-xs text-muted-foreground">
-              {t('onLoanCount', { count: book.availability.onLoan })}
-            </span>
-          )}
-        </span>
-      </Card>
-    </Link>
+      </TableCell>
+      <TableCell className={cn(HIDE.authors, 'text-muted-foreground')}>
+        <TableText value={book.authors} />
+      </TableCell>
+      <TableCell className={cn(HIDE.year, 'text-muted-foreground tabular-nums')}>
+        {book.year ?? <TableEmpty />}
+      </TableCell>
+      <TableCell className={cn(HIDE.section, 'text-muted-foreground')}>
+        <TableText value={book.section} />
+      </TableCell>
+      <TableCell>
+        {total === 0 ? (
+          <Badge variant="outline">{t('noCopies')}</Badge>
+        ) : available > 0 ? (
+          <Badge variant="success">{t('availableOf', { available, total })}</Badge>
+        ) : (
+          <Badge variant="warning">{t('allOut')}</Badge>
+        )}
+      </TableCell>
+      {staff && (
+        <TableCell className={cn(HIDE.onLoan, 'text-muted-foreground tabular-nums')}>
+          {onLoan > 0 ? onLoan : <TableEmpty />}
+        </TableCell>
+      )}
+    </TableRow>
   )
 }

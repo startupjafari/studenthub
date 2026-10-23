@@ -57,7 +57,7 @@ export function CameraWall({ header }: { header: Omit<PageHeaderProps, 'nav'> })
   )
 
   if (settings.isPending || cameras.isPending) {
-    return shell(<Skeleton className="min-h-64 w-full flex-1 rounded-xl" />)
+    return shell(<Skeleton fill className="min-h-64 rounded-xl" />)
   }
   if (!settings.data?.enabled) {
     return shell(

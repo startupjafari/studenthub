@@ -34,7 +34,7 @@ export function GroupDocumentsProgressView() {
       {q.isPending ? (
         <div className="flex flex-col gap-2">
           {Array.from({ length: 3 }).map((_, i) => (
-            <Skeleton key={i} className="h-24 w-full rounded-xl" />
+            <Skeleton key={i} fill className="min-h-24 rounded-xl" />
           ))}
         </div>
       ) : q.isError ? (

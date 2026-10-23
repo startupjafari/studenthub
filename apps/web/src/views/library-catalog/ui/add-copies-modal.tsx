@@ -108,6 +108,8 @@ export function AddCopiesModal({
           value={mode}
           collapsible={false}
           aria-label={t('addCopies')}
+          // Два способа на равных: каждая вкладка — половина ряда.
+          className="[&>button]:flex-1 [&>button]:basis-0 [&>button]:justify-center"
           onChange={(v) => {
             setMode(v)
             setError(null)

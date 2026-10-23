@@ -272,7 +272,7 @@ export function GradebookTable({
       />
 
       {q.isLoading ? (
-        <Skeleton className="h-80 w-full rounded-xl" />
+        <Skeleton fill className="min-h-80 rounded-xl" />
       ) : columns.length === 0 ? (
         <EmptyState icon={<Plus />} title={t('noColumns')} description={t('noColumnsHint')} />
       ) : isDesktop ? (

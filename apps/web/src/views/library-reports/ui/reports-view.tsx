@@ -31,6 +31,9 @@ import {
 type Period = `${(typeof POPULAR_PERIODS)[number]}`
 const OVERDUE_PREVIEW = 10
 
+const PANEL_FILL = 'xl:min-h-0'
+const PANEL_BODY_FILL = 'xl:min-h-0 xl:flex-1 xl:overflow-y-auto xl:overscroll-contain'
+
 export interface ReportsViewProps {
   headerTabs?: ReactNode
   /** Куда ведут «все должники» и книги: у библиотекаря — его разделы, у админа — свои. */
@@ -55,7 +58,9 @@ export function ReportsView({ headerTabs, loansHref, catalogHref }: ReportsViewP
   const loading = summary.isPending
 
   return (
-    <div className="flex w-full flex-col gap-6">
+    // `min-h-0` обязателен: без него корень растёт до полной высоты списков (минимум
+    // grid-а с `1fr` считается по содержимому), и прокручивается вся страница, а не панели.
+    <div className="flex w-full flex-col gap-6 xl:min-h-0 xl:flex-1">
       <PageHeader title={t('title')} subtitle={t('subtitle')} tabs={headerTabs} />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -130,8 +135,13 @@ export function ReportsView({ headerTabs, loansHref, catalogHref }: ReportsViewP
         />
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-2">
+      {/* На компьютере панели — до низа окна, списки прокручиваются внутри них, а не всей
+          страницей: шапка панели и переключатель периода остаются на виду. Ниже 20rem
+          не сжимаем — на низком окне прокручивается уже страница. */}
+      <div className="grid gap-4 xl:min-h-80 xl:flex-1 xl:grid-cols-2 xl:grid-rows-[minmax(0,1fr)]">
         <SectionPanel
+          className={PANEL_FILL}
+          bodyClassName={PANEL_BODY_FILL}
           title={t('debtorsTitle')}
           subtitle={t('debtorsSubtitle')}
           actions={
@@ -143,7 +153,7 @@ export function ReportsView({ headerTabs, loansHref, catalogHref }: ReportsViewP
           }
         >
           {overdue.isPending ? (
-            <Skeleton className="h-32 w-full rounded-xl" />
+            <Skeleton fill className="min-h-32 rounded-xl" />
           ) : (overdue.data?.items.length ?? 0) === 0 ? (
             <p className="text-sm text-muted-foreground">{t('noDebtors')}</p>
           ) : (
@@ -164,6 +174,8 @@ export function ReportsView({ headerTabs, loansHref, catalogHref }: ReportsViewP
         </SectionPanel>
 
         <SectionPanel
+          className={PANEL_FILL}
+          bodyClassName={PANEL_BODY_FILL}
           title={t('popularTitle')}
           subtitle={t('popularSubtitle')}
           actions={
@@ -179,7 +191,7 @@ export function ReportsView({ headerTabs, loansHref, catalogHref }: ReportsViewP
           }
         >
           {popular.isPending ? (
-            <Skeleton className="h-32 w-full rounded-xl" />
+            <Skeleton fill className="min-h-32 rounded-xl" />
           ) : (popular.data?.length ?? 0) === 0 ? (
             <p className="text-sm text-muted-foreground">{t('noPopular')}</p>
           ) : (

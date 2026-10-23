@@ -290,8 +290,8 @@ export function GroupsAdminView() {
 
       {groups.isLoading ? (
         <div className="flex flex-col gap-2">
-          <Skeleton className="h-16 w-full" />
-          <Skeleton className="h-16 w-full" />
+          <Skeleton fill className="min-h-16" />
+          <Skeleton fill className="min-h-16" />
         </div>
       ) : groups.isError ? (
         <EmptyState title={tErr('INTERNAL_ERROR')} />

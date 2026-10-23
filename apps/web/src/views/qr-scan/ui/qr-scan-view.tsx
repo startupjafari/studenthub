@@ -11,7 +11,7 @@ import { parseQrTarget } from '../../../features/qr-scan'
 // Камера — только на клиенте: на сервере ни видео, ни getUserMedia нет.
 const QrScanner = dynamic(() => import('../../../features/qr-scan').then((m) => m.QrScanner), {
   ssr: false,
-  loading: () => <Skeleton className="min-h-0 w-full flex-1 rounded-3xl" />,
+  loading: () => <Skeleton fill className="min-h-0 rounded-3xl" />,
 })
 
 /**

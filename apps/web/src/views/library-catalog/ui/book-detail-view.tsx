@@ -1,6 +1,7 @@
 'use client'
 
 import { useRef, useState } from 'react'
+import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
@@ -58,6 +59,16 @@ import { CopyEditModal } from './copy-edit-modal'
 import { CopyHistoryModal } from './copy-history-modal'
 import { useConditionLabels } from '../lib/use-condition-labels'
 
+// Кадрирование обложки — тот же редактор, что у фото и обложки профиля. Грузится только
+// при выборе файла: canvas-кроппер не нужен на каждом открытии карточки.
+const ImageCropModal = dynamic(
+  () => import('../../../shared/ui/image-crop-modal').then((m) => m.ImageCropModal),
+  { ssr: false },
+)
+/** Обложка в пропорциях книги (2:3, как `BookCover`); 600 px хватает на карточку. */
+const COVER_ASPECT = 2 / 3
+const COVER_WIDTH = 600
+
 // Книга глазами фонда (Фаза 20.3): карточка, экземпляры с кому выдано и до какого срока,
 // печать QR-наклеек, заведение и правка экземпляров, архив.
 
@@ -73,6 +84,7 @@ export function BookDetailView({ bookId, basePath }: { bookId: string; basePath:
   const qc = useQueryClient()
   const conditionLabel = useConditionLabels()
   const coverInput = useRef<HTMLInputElement>(null)
+  const [coverFile, setCoverFile] = useState<File | null>(null)
 
   const book = useQuery({
     queryKey: libraryKeys.book(bookId),
@@ -119,6 +131,7 @@ export function BookDetailView({ bookId, basePath }: { bookId: string; basePath:
     mutationFn: (file: File) => uploadBookCoverRequest(bookId, file),
     onSuccess: () => {
       invalidate()
+      setCoverFile(null)
       toast.success(t('coverSaved'))
     },
     onError,
@@ -129,7 +142,7 @@ export function BookDetailView({ bookId, basePath }: { bookId: string; basePath:
       <div className="flex w-full flex-col gap-6">
         <Skeleton className="h-16 w-full" />
         <Skeleton className="h-48 w-full rounded-xl" />
-        <Skeleton className="h-64 w-full rounded-xl" />
+        <Skeleton fill className="min-h-64 rounded-xl" />
       </div>
     )
   }
@@ -229,7 +242,7 @@ export function BookDetailView({ bookId, basePath }: { bookId: string; basePath:
               onChange={(e) => {
                 const file = e.target.files?.[0]
                 e.target.value = ''
-                if (file) coverMut.mutate(file)
+                if (file) setCoverFile(file)
               }}
             />
             <Button
@@ -455,6 +468,18 @@ export function BookDetailView({ bookId, basePath }: { bookId: string; basePath:
       )}
       {editingCopy && <CopyEditModal copy={editingCopy} onClose={() => setEditingCopy(null)} />}
       {historyCopy && <CopyHistoryModal copy={historyCopy} onClose={() => setHistoryCopy(null)} />}
+      {coverFile && (
+        <ImageCropModal
+          file={coverFile}
+          aspect={COVER_ASPECT}
+          outputWidth={COVER_WIDTH}
+          shape="square"
+          title={t('cover')}
+          saving={coverMut.isPending}
+          onCancel={() => setCoverFile(null)}
+          onSave={(f) => coverMut.mutate(f)}
+        />
+      )}
       {/* Лист для печати: на экране скрыт, при печати — единственное, что попадает на бумагу. */}
       {sheet.length > 0 && <BookLabelSheet items={sheet} />}
     </div>

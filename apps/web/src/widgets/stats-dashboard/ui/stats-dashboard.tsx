@@ -172,7 +172,7 @@ export function StatsDashboard() {
           bodyClassName={FILL_BODY}
         >
           {analyticsLoading ? (
-            <Skeleton className="h-64 w-full" />
+            <Skeleton fill className="min-h-64" />
           ) : worst.length === 0 ? (
             <Empty text={t('noAttendance')} />
           ) : (
@@ -202,7 +202,7 @@ export function StatsDashboard() {
         <InvitesFunnelPanel />
         <SectionPanel title={t('atRiskTitle')} subtitle={t('atRiskHint')} bodyClassName={FILL_BODY}>
           {analyticsLoading ? (
-            <Skeleton className="h-64 w-full" />
+            <Skeleton fill className="min-h-64" />
           ) : atRisk.length === 0 ? (
             <Empty text={t('atRiskEmpty')} />
           ) : (
@@ -273,7 +273,7 @@ function AttendanceTrendPanel() {
   return (
     <SectionPanel title={t('trendTitle')} subtitle={t('trendHint')} bodyClassName={FILL_BODY}>
       {q.isPending ? (
-        <Skeleton className="h-64 w-full" />
+        <Skeleton fill className="min-h-64" />
       ) : series.length === 0 ? (
         <Empty text={t('noAttendance')} />
       ) : (
@@ -326,7 +326,7 @@ function AttendanceBreakdownPanel() {
       bodyClassName={FILL_BODY}
     >
       {q.isPending ? (
-        <Skeleton className="h-64 w-full" />
+        <Skeleton fill className="min-h-64" />
       ) : items.length === 0 ? (
         <Empty text={t('noAttendance')} />
       ) : (
@@ -415,7 +415,7 @@ function RoomLoadPanel() {
       bodyClassName={FILL_BODY}
     >
       {q.isPending ? (
-        <Skeleton className="h-64 w-full" />
+        <Skeleton fill className="min-h-64" />
       ) : !q.data || q.data.peak === 0 ? (
         <Empty text={t('noSchedule')} />
       ) : (
@@ -485,7 +485,7 @@ function ExamResultsPanel() {
       bodyClassName={FILL_BODY}
     >
       {q.isPending ? (
-        <Skeleton className="h-64 w-full" />
+        <Skeleton fill className="min-h-64" />
       ) : items.length === 0 ? (
         <Empty text={t('noExamResults')} />
       ) : (
@@ -528,7 +528,7 @@ function ApplicationsFlowPanel() {
   return (
     <SectionPanel title={t('appsFlowTitle')} subtitle={t('appsFlowHint')} bodyClassName={FILL_BODY}>
       {q.isPending ? (
-        <Skeleton className="h-64 w-full" />
+        <Skeleton fill className="min-h-64" />
       ) : empty ? (
         <Empty text={t('noApplications')} />
       ) : (
@@ -567,7 +567,7 @@ function InvitesFunnelPanel() {
   return (
     <SectionPanel title={t('invitesTitle')} subtitle={t('invitesHint')} bodyClassName={FILL_BODY}>
       {q.isPending ? (
-        <Skeleton className="h-40 w-full" />
+        <Skeleton fill className="min-h-40" />
       ) : !d || d.total === 0 ? (
         <Empty text={t('noInvites')} />
       ) : (

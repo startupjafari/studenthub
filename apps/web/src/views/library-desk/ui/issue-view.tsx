@@ -75,12 +75,12 @@ export function IssueView() {
   }
 
   return (
-    <div className="flex w-full flex-col gap-6">
+    <div className="flex w-full flex-col gap-6 lg:flex-1">
       <PageHeader title={t('issueTitle')} subtitle={t('issueSubtitle')} />
-      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
-        {/* Окно камеры — по размеру окна сканирования, а не во весь экран: на компьютере
-            чёрное поле на всю ширину читалось как поломка. */}
-        <div className="flex aspect-[3/4] w-full flex-col sm:aspect-[4/3] lg:aspect-auto lg:h-[min(68vh,40rem)]">
+      {/* На компьютере экран стойки занимает всю высоту окна: камера слева, справа три
+          панели, последняя добирает остаток. На узких — колонкой, камера по пропорции. */}
+      <div className="grid items-start gap-6 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-stretch">
+        <div className="flex aspect-[3/4] w-full flex-col sm:aspect-[4/3] lg:aspect-auto lg:min-h-[24rem]">
           {resolveMut.isPending ? (
             <Skeleton className="min-h-0 w-full flex-1 rounded-3xl" />
           ) : error ? (
@@ -129,7 +129,7 @@ export function IssueView() {
               ))}
             </ol>
           </SectionPanel>
-          <RecentLoans />
+          <RecentLoans className="lg:flex-1" />
         </div>
       </div>
     </div>
@@ -203,7 +203,7 @@ function ManualCode({ busy, onCode }: { busy: boolean; onCode: (token: string) =
 const RECENT_LIMIT = 5
 
 /** Последние выдачи — чтобы видеть, что только что оформлено, не уходя со стойки. */
-function RecentLoans() {
+function RecentLoans({ className }: { className?: string }) {
   const t = useTranslations('LibraryDesk')
   const params = { filter: 'all' as const, page: 1, limit: RECENT_LIMIT }
   const recent = useQuery({
@@ -212,11 +212,11 @@ function RecentLoans() {
   })
   const items = recent.data?.items ?? []
   return (
-    <SectionPanel title={t('recentTitle')} subtitle={t('recentHint')}>
+    <SectionPanel title={t('recentTitle')} subtitle={t('recentHint')} className={className}>
       {recent.isPending ? (
         <div className="flex flex-col gap-2">
           {Array.from({ length: 3 }, (_, i) => (
-            <Skeleton key={i} className="h-10 w-full rounded-lg" />
+            <Skeleton key={i} fill className="min-h-10 rounded-lg" />
           ))}
         </div>
       ) : items.length === 0 ? (

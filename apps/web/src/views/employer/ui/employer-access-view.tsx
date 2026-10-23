@@ -73,7 +73,11 @@ export function EmployerAccessView() {
       {options.isLoading ? (
         <ul className="flex flex-col gap-2" aria-busy>
           {['62%', '48%', '55%'].map((w) => (
-            <li key={w} className="rounded-xl border border-border p-4">
+            <li
+              key={w}
+              data-skeleton-fill=""
+              className="flex flex-1 items-center rounded-xl border border-border p-4"
+            >
               <Skeleton className="h-4 rounded-md" style={{ width: w }} />
             </li>
           ))}

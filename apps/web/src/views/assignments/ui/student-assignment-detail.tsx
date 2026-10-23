@@ -103,7 +103,7 @@ export function StudentAssignmentDetail({ id, onBack, asModal = false }: Props) 
     const loading = (
       <>
         <Skeleton className="h-8 w-48" />
-        <Skeleton className="h-64 w-full rounded-xl" />
+        <Skeleton fill className="min-h-64 rounded-xl" />
       </>
     )
     if (asModal) {

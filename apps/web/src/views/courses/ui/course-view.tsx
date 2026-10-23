@@ -214,7 +214,7 @@ export function CourseView({ subject }: CourseViewProps) {
     return (
       <div className="flex w-full flex-1 flex-col gap-4">
         <Skeleton className="h-8 w-64" />
-        <Skeleton className="h-64 w-full rounded-xl" />
+        <Skeleton fill className="min-h-64 rounded-xl" />
       </div>
     )
   }
@@ -384,7 +384,7 @@ export function CourseView({ subject }: CourseViewProps) {
               description={t('noCourseLinkHint')}
             />
           ) : assignments.isLoading ? (
-            <Skeleton className="h-40 w-full rounded-xl" />
+            <Skeleton fill className="min-h-40 rounded-xl" />
           ) : (assignments.data ?? []).length === 0 ? (
             <EmptyState icon={<FileText />} title={t('noAssignments')} />
           ) : (

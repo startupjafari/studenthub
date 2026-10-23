@@ -679,7 +679,7 @@ function SkeletonList() {
   return (
     <div className="flex flex-col gap-2">
       {Array.from({ length: 5 }).map((_, i) => (
-        <Skeleton key={i} className="h-16 w-full rounded-xl" />
+        <Skeleton key={i} fill className="min-h-16 rounded-xl" />
       ))}
     </div>
   )

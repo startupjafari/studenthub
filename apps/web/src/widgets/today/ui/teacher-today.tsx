@@ -86,7 +86,7 @@ export function TeacherToday() {
     return (
       <div className="flex w-full flex-1 flex-col gap-4">
         <PageHeader title={tNav('dashboard')} subtitle={greetingDate} />
-        <Skeleton className="h-40 w-full rounded-xl" />
+        <Skeleton fill className="min-h-40 rounded-xl" />
       </div>
     )
   }

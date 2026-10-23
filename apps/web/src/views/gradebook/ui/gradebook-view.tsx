@@ -64,7 +64,7 @@ export function GradebookView() {
       {/* Дисциплины есть, но `courseId` ещё не проставлен эффектом — это тот же кадр
           загрузки, а не «нет дисциплин»: иначе на мгновение мигало бы пустое состояние. */}
       {courses.isLoading || hasCourses ? (
-        <Skeleton className="h-80 w-full rounded-xl" />
+        <Skeleton fill className="min-h-80 rounded-xl" />
       ) : (
         <EmptyState icon={<BookOpen />} title={t('noCourses')} description={t('noCoursesHint')} />
       )}
