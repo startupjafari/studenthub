@@ -1052,7 +1052,7 @@ describe('DocumentRequestsService — подтверждение сертифи�
       where: {
         id: 'doc-cert',
         deletedAt: null,
-        status: { in: ['UPLOADED', 'ACCEPTED'] },
+        status: { in: ['UPLOADED', 'ACCEPTED', 'EXPIRING'] },
       },
       data: { status: 'VERIFIED' },
     })

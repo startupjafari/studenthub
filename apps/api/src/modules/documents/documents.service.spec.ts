@@ -903,6 +903,18 @@ describe('статус документа по вердиктам проверк
       expect.arrayContaining(['IN_REVIEW', 'NEEDS_REPLACEMENT']),
     )
   })
+
+  it('крон срока: подтверждённый сертификат не становится «Скоро истекает» (§3.8)', async () => {
+    const { service, prisma } = setup()
+    await service.sweepExpiry()
+    const expiringWhere = prisma.document.findMany.mock.calls
+      .map(
+        (c) =>
+          (c[0] as { where: { expiresAt?: { gte?: Date }; status?: { notIn: string[] } } }).where,
+      )
+      .find((w) => w.expiresAt?.gte)
+    expect(expiringWhere?.status?.notIn).toContain('VERIFIED')
+  })
 })
 
 describe('DocumentsService — страницы документа: замена, удаление, порядок', () => {

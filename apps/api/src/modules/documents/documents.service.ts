@@ -1604,9 +1604,19 @@ export class DocumentsService {
         archivedAt: null,
         expiresAt: { gte: now, lte: soon },
         // «Требует замены» и «На проверке» главнее «Скоро истекает» (см. nextDocumentStatus):
-        // они ждут действия, а близость срока видна в обзоре по самой дате.
+        // они ждут действия, а близость срока видна в обзоре по самой дате. «Подтверждён»
+        // уступает только «требует замены» и правке (§3.8): иначе за месяц до срока
+        // сертификат пропадал из резюме и карточки кандидата.
         status: {
-          notIn: ['DRAFT', 'ARCHIVED', 'EXPIRED', 'EXPIRING', 'IN_REVIEW', 'NEEDS_REPLACEMENT'],
+          notIn: [
+            'DRAFT',
+            'ARCHIVED',
+            'EXPIRED',
+            'EXPIRING',
+            'IN_REVIEW',
+            'NEEDS_REPLACEMENT',
+            'VERIFIED',
+          ],
         },
       },
       'EXPIRING',
