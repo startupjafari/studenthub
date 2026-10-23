@@ -100,6 +100,7 @@ export interface ApplicationServiceRef {
   descriptionKk?: string | null
   descriptionEn?: string | null
   // Есть только в деталях заявки (GET /applications/:id).
+  deliveryModes?: DeliveryMode[]
   formFields?: ApplicationFormField[]
 }
 

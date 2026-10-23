@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
@@ -28,6 +29,7 @@ import {
 } from '../../../shared/ui'
 import { DocumentChecklist } from './document-checklist'
 import { FormAnswers } from './form-answers'
+import { CorrectionFormModal } from './correction-form-modal'
 import { useActionError } from '../lib/use-action-error'
 
 export function ApplicationDetail({
@@ -50,6 +52,8 @@ export function ApplicationDetail({
   const qc = useQueryClient()
   const confirm = useConfirm()
   const err = useActionError()
+  // Окно правки ответов анкеты (только в NEEDS_CORRECTION).
+  const [editingAnswers, setEditingAnswers] = useState(false)
 
   // placeholderData: при переключении заявок держим прошлую, пока грузится новая (без скелета).
   const q = useQuery({
@@ -151,8 +155,19 @@ export function ApplicationDetail({
             )}
           </Card>
 
-          {/* Что студент указал в анкете: после отправки ответы иначе было негде увидеть. */}
-          <FormAnswers fields={app.service.formFields ?? []} formData={app.formData} />
+          {/* Что студент указал в анкете: после отправки ответы иначе было негде увидеть.
+              В исправлении их можно поправить — сотрудник мог попросить уточнить поле. */}
+          <FormAnswers
+            fields={app.service.formFields ?? []}
+            formData={app.formData}
+            action={
+              editableDocs ? (
+                <Button variant="outline" size="sm" onClick={() => setEditingAnswers(true)}>
+                  {t('editAnswers')}
+                </Button>
+              ) : undefined
+            }
+          />
 
           {app.status === 'NEEDS_CORRECTION' && (
             <Card className="flex items-start gap-3 border-warning/40 bg-warning/5 p-4">
@@ -267,11 +282,16 @@ export function ApplicationDetail({
     </>
   )
 
+  const correctionModal = editingAnswers && app && app.status === 'NEEDS_CORRECTION' && (
+    <CorrectionFormModal app={app} onClose={() => setEditingAnswers(false)} />
+  )
+
   // В окне заголовок и «назад» рисует сама оболочка окна — второй шапки внутри не нужно.
   if (asModal) {
     return (
       <Modal onClose={onBack} title={serviceName || t('title')} size="2xl">
         <div className="flex flex-col gap-4">{body}</div>
+        {correctionModal}
       </Modal>
     )
   }
@@ -280,6 +300,7 @@ export function ApplicationDetail({
     <div className="flex w-full flex-col gap-4">
       <PageHeader title={serviceName || t('title')} onBack={onBack} backLabel={t('backBtn')} />
       {body}
+      {correctionModal}
     </div>
   )
 }

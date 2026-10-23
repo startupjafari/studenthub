@@ -115,9 +115,17 @@ export class ApplicationsService {
     })
   }
 
-  /** Правка черновика (способ получения + ответы формы). Только владелец, только DRAFT (§8). */
+  /**
+   * Правка способа получения и ответов формы (§8). Только владелец: черновик — и заявка,
+   * возвращённая на исправление (NEEDS_CORRECTION): сотрудник мог попросить уточнить поле
+   * анкеты, а не только заменить документ, — раньше править было негде, и оставалось
+   * отправить без изменений или подать заново с новым номером и сроком.
+   */
   async updateDraft(viewer: JwtPayload, id: string, dto: UpdateDraftInput) {
-    const app = await this.loadOwnedDraft(viewer, id)
+    const app = await this.loadOwned(viewer, id)
+    if (!ANSWERS_EDITABLE.includes(app.status as ApplicationServiceStatus)) {
+      throw new AppException('BAD_REQUEST', 'Заявку уже нельзя редактировать')
+    }
     const data: Prisma.ApplicationUpdateInput = {}
     if (dto.deliveryType !== undefined) {
       const service = await this.serviceOf(app.serviceId)
@@ -130,10 +138,23 @@ export class ApplicationsService {
       const fields = await this.formFieldsOf(app.serviceId)
       data.formData = pickFormFields(fields, dto.formData) as Prisma.InputJsonValue
     }
-    // Статус — в условии записи: черновик, отправленный параллельным запросом, уже не правится.
-    return this.prisma.application
-      .update({ where: { id, status: 'DRAFT' }, data, select: APP_SELECT })
-      .catch(rethrowStaleStatus)
+    // Статус — в условии записи: черновик, отправленный параллельным запросом (или
+    // исправление, уже отправленное повторно), не правится.
+    if (app.status === 'DRAFT') {
+      return this.prisma.application
+        .update({ where: { id, status: 'DRAFT' }, data, select: APP_SELECT })
+        .catch(rethrowStaleStatus)
+    }
+    // Поданную заявку сотрудник уже читал: правка ответов — шаг её истории.
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.application
+        .update({ where: { id, status: app.status }, data, select: APP_SELECT })
+        .catch(rethrowStaleStatus)
+      await tx.applicationEvent.create({
+        data: { applicationId: id, actorId: viewer.sub, action: 'FORM_UPDATED' },
+      })
+      return updated
+    })
   }
 
   /** Отправить заявку: DRAFT → SUBMITTED. Присваивает номер, срок по SLA, валидирует форму (§13/§14/§40). */
@@ -241,6 +262,9 @@ export class ApplicationsService {
     if (pending > 0) {
       throw new AppException('BAD_REQUEST', 'Замените все документы, отмеченные к исправлению')
     }
+    // Ответы в исправлении правятся (updateDraft) — и проверяются заново, как при подаче.
+    const formError = formDataError(await this.formFieldsOf(app.serviceId), app.formData)
+    if (formError) throw new AppException('BAD_REQUEST', formError)
     // Комплект проверяется заново, как при первой отправке: документ, отмеченный к замене,
     // можно было просто удалить — строк REPLACEMENT_REQUIRED не оставалось, и заявка уходила
     // дальше без обязательного документа.
@@ -321,6 +345,8 @@ export class ApplicationsService {
             descriptionRu: true,
             descriptionKk: true,
             descriptionEn: true,
+            // Способы получения — для правки ответов в исправлении (NEEDS_CORRECTION).
+            deliveryModes: true,
             // Поля анкеты — чтобы показать ответы formData с подписями (обработчику и
             // студенту): сами ответы хранятся кодами полей. Выключенные поля тоже нужны —
             // ответы на них в поданных заявках остались; `active` отличает действующие.
@@ -602,6 +628,9 @@ function rethrowNumberTaken(error: unknown): never {
   }
   throw error
 }
+
+// Статусы, в которых владелец правит способ получения и ответы анкеты.
+const ANSWERS_EDITABLE: ApplicationServiceStatus[] = ['DRAFT', 'NEEDS_CORRECTION']
 
 // Статусы, при которых заявка «не просрочена по смыслу» (готова/выдана/завершена).
 const DONE_OR_READY: ApplicationServiceStatus[] = [

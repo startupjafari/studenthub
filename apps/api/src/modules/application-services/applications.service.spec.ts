@@ -280,6 +280,65 @@ describe('ApplicationsService.updateDraft — только поля анкеты
   })
 })
 
+// Сотрудник просит уточнить поле анкеты — раньше PATCH отвечал 400, и править было негде.
+describe('ApplicationsService.updateDraft — исправление ответов (NEEDS_CORRECTION)', () => {
+  it('в исправлении ответы правятся, с условием на статус и событием в истории', async () => {
+    const { service, application, serviceFormField, prisma } = setup()
+    application.findFirst.mockResolvedValue({
+      id: 'a1',
+      studentId: 'stud',
+      status: 'NEEDS_CORRECTION',
+      serviceId: 's1',
+    })
+    serviceFormField.findMany.mockResolvedValue([{ code: 'purpose' }])
+    await service.updateDraft(student, 'a1', { formData: { purpose: 'в банк «Альфа»' } })
+    expect(application.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'a1', status: 'NEEDS_CORRECTION' },
+        data: { formData: { purpose: 'в банк «Альфа»' } },
+      }),
+    )
+    expect(prisma.applicationEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ applicationId: 'a1', action: 'FORM_UPDATED' }),
+    })
+  })
+
+  it.each(['SUBMITTED', 'IN_REVIEW', 'RESUBMITTED', 'IN_PREPARATION'])(
+    'в статусе %s ответы не правятся → BAD_REQUEST',
+    async (status) => {
+      const { service, application } = setup()
+      application.findFirst.mockResolvedValue({ id: 'a1', studentId: 'stud', status })
+      await expect(
+        service.updateDraft(student, 'a1', { formData: { purpose: 'x' } }),
+      ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+      expect(application.update).not.toHaveBeenCalled()
+    },
+  )
+
+  it('повторная отправка проверяет ответы заново', async () => {
+    const { service, application, serviceFormField } = setup()
+    application.findFirst.mockResolvedValue({
+      id: 'a1',
+      studentId: 'stud',
+      status: 'NEEDS_CORRECTION',
+      serviceId: 's1',
+      formData: {},
+    })
+    serviceFormField.findMany.mockResolvedValue([
+      {
+        code: 'purpose',
+        type: 'TEXT',
+        required: true,
+        options: null,
+        validation: null,
+        labelRu: 'Цель',
+      },
+    ])
+    await expect(service.resubmit(student, 'a1')).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    expect(application.update).not.toHaveBeenCalled()
+  })
+})
+
 describe('ApplicationsService.updateDraft — условие на статус', () => {
   it('черновик отправили между проверкой и записью → CONFLICT', async () => {
     const { service, application } = setup()
