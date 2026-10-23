@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { OffsetPaginationSchema, SortOrderSchema } from './pagination.js'
+import { PasswordSchema } from './auth.js'
 
 // Карьера (Фаза 18): компании-работодатели и их допуск к студентам вузов.
 // Единый источник истины для валидации на бэке и типов на фронте — дублировать
@@ -104,7 +105,8 @@ export const CompanyWebsiteSchema = z
  */
 export const EmployerSignupSchema = z.object({
   email: z.string().trim().toLowerCase().email().max(160),
-  password: z.string().min(8).max(72),
+  // Та же политика, что у всех: без неё работодатель регистрировался с «aaaaaaaa».
+  password: PasswordSchema,
   firstName: z.string().trim().min(1).max(60),
   lastName: z.string().trim().min(1).max(60),
   companyName: CompanyNameSchema,
