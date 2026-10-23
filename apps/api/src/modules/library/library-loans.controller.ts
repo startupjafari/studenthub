@@ -14,6 +14,7 @@ import { ResolveReaderDto } from './dto/resolve-reader.dto'
 import { ReturnLoanDto } from './dto/return-loan.dto'
 import { RenewLoanDto } from './dto/renew-loan.dto'
 import { CancelLoanDto } from './dto/cancel-loan.dto'
+import { CancelReturnDto } from './dto/cancel-return.dto'
 
 // Выдачи библиотеки (docs/PROJECT.md §3.11). Выдаёт и принимает библиотекарь; выдачи вуза
 // видит и админ; читатель — свои книги и «это не я» по ошибочной выдаче.
@@ -119,6 +120,26 @@ export class LibraryLoansController {
     @Req() req: FastifyRequest,
   ) {
     return this.loans.cancel(user, id, dto, this.ctx(req))
+  }
+
+  @Post('loans/:id/return/cancel')
+  @Roles(Role.LIBRARIAN)
+  @ApiOperation({
+    summary: 'Отменить ошибочный возврат с причиной: выдача снова открыта с прежним сроком',
+  })
+  @ApiResponse({ status: 404, description: 'Выдача не найдена или чужого вуза' })
+  @ApiResponse({
+    status: 409,
+    description:
+      'details.field: notReturned — выдача не закрыта возвратом; returnWindow — прошло больше суток; reissued — экземпляр выдан другому; heldForReservation — отложен под бронь; withdrawn — утерян или списан',
+  })
+  cancelReturn(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: CancelReturnDto,
+    @Req() req: FastifyRequest,
+  ) {
+    return this.loans.cancelReturn(user, id, dto, this.ctx(req))
   }
 
   @Get('loans')

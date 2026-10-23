@@ -227,6 +227,12 @@ export async function cancelLoanRequest(id: string, reason: string): Promise<Loa
   return data
 }
 
+/** Отмена ошибочного возврата: выдача снова открыта с прежним сроком. */
+export async function cancelReturnRequest(id: string, reason: string): Promise<LoanItem> {
+  const { data } = await api.post<LoanItem>(`/library/loans/${id}/return/cancel`, { reason })
+  return data
+}
+
 export async function disputeLoanRequest(id: string): Promise<LoanItem> {
   const { data } = await api.post<LoanItem>(`/library/loans/${id}/dispute`)
   return data

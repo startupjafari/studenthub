@@ -23,6 +23,10 @@ type DeskField =
   | 'alreadyBorrowed'
   | 'noCopies'
   | 'closed'
+  | 'notReturned'
+  | 'returnWindow'
+  | 'reissued'
+  | 'heldForReservation'
   | 'notLost'
   | 'settled'
 
@@ -49,6 +53,10 @@ export function useDeskErrors(): (error: unknown) => string {
     alreadyBorrowed: t('error.alreadyBorrowed'),
     noCopies: t('error.noCopies'),
     closed: t('error.closed'),
+    notReturned: t('error.notReturned'),
+    returnWindow: t('error.returnWindow'),
+    reissued: t('error.reissued'),
+    heldForReservation: t('error.heldForReservation'),
     notLost: t('error.notLost'),
     settled: t('error.settled'),
   }
