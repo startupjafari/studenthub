@@ -321,6 +321,28 @@ export class ApplicationsService {
             descriptionRu: true,
             descriptionKk: true,
             descriptionEn: true,
+            // Поля анкеты — чтобы показать ответы formData с подписями (обработчику и
+            // студенту): сами ответы хранятся кодами полей. Выключенные поля тоже нужны —
+            // ответы на них в поданных заявках остались; `active` отличает действующие.
+            formFields: {
+              orderBy: [{ sortOrder: 'asc' }, { code: 'asc' }],
+              take: SERVICE_FORM_FIELDS_LIMIT,
+              select: {
+                id: true,
+                code: true,
+                type: true,
+                labelRu: true,
+                labelKk: true,
+                labelEn: true,
+                placeholderRu: true,
+                placeholderKk: true,
+                placeholderEn: true,
+                required: true,
+                options: true,
+                validation: true,
+                active: true,
+              },
+            },
           },
         },
         events: {

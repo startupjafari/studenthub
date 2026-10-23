@@ -44,6 +44,7 @@ import {
 import { toApiError } from '../../../shared/lib'
 import { TERMINAL_STATUSES } from '@studenthub/shared-schemas'
 import { ResultModal } from './result-modal'
+import { FormAnswers } from './form-answers'
 import { useActionError } from '../lib/use-action-error'
 
 // Состояние текстового промпта для действий сотрудника.
@@ -125,6 +126,10 @@ export function StaffWorkspaceModal({ id, onClose }: { id: string; onClose: () =
             <AssigneeRow app={app} onChanged={() => void q.refetch()} />
             {app.pickupCode && <Row label={t('pickupCodeLabel')} value={app.pickupCode} />}
           </Card>
+
+          {/* Ответы анкеты — на всех этапах: по ним решают «подготовить или отклонить», а
+              при подготовке берут, например, организацию для справки. */}
+          <FormAnswers fields={app.service.formFields ?? []} formData={app.formData} />
 
           {/* Шаг «Проверка» — документы заявки */}
           {viewStep === 0 && app.documents.length > 0 && (

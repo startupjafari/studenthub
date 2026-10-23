@@ -650,3 +650,21 @@ describe('ApplicationsService.getById — id сотрудника не уход�
     ])
   })
 })
+
+// Обработчик видел студента, документы и историю, но не ответы анкеты: formData хранится
+// кодами полей, а подписей в карточке не было.
+describe('ApplicationsService.getById — поля анкеты для ответов', () => {
+  it('отдаёт поля услуги с подписями, включая выключенные', async () => {
+    const { service, application } = setup()
+    application.findFirst.mockResolvedValue({
+      studentId: 'stud',
+      facultyId: 'fac',
+      universityId: 'uni',
+    })
+    await service.getById(dean, 'a1')
+    const formFields = application.findUnique.mock.calls[0][0].select.service.select.formFields
+    expect(formFields.where).toBeUndefined()
+    expect(formFields.take).toBeGreaterThan(0)
+    expect(formFields.select).toMatchObject({ code: true, labelRu: true, active: true })
+  })
+})

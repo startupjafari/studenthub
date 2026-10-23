@@ -27,6 +27,7 @@ import {
   useConfirm,
 } from '../../../shared/ui'
 import { DocumentChecklist } from './document-checklist'
+import { FormAnswers } from './form-answers'
 import { useActionError } from '../lib/use-action-error'
 
 export function ApplicationDetail({
@@ -149,6 +150,9 @@ export function ApplicationDetail({
               <Row label={t('status2_REJECTED')} value={app.rejectionReason} />
             )}
           </Card>
+
+          {/* Что студент указал в анкете: после отправки ответы иначе было негде увидеть. */}
+          <FormAnswers fields={app.service.formFields ?? []} formData={app.formData} />
 
           {app.status === 'NEEDS_CORRECTION' && (
             <Card className="flex items-start gap-3 border-warning/40 bg-warning/5 p-4">

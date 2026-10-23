@@ -83,6 +83,12 @@ export interface ServiceDetail extends ServiceCard {
   formFields: ServiceFormField[]
 }
 
+/** Поле анкеты в карточке заявки: по нему ответы formData показываются с подписями. */
+export interface ApplicationFormField extends ServiceFormField {
+  // Выключенное поле: ответ на него в заявке остался, править его уже нельзя.
+  active: boolean
+}
+
 export interface ApplicationServiceRef {
   id: string
   code: string
@@ -93,6 +99,8 @@ export interface ApplicationServiceRef {
   descriptionRu?: string | null
   descriptionKk?: string | null
   descriptionEn?: string | null
+  // Есть только в деталях заявки (GET /applications/:id).
+  formFields?: ApplicationFormField[]
 }
 
 export interface ApplicationListItem {

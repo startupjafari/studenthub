@@ -37,6 +37,7 @@ import {
   Textarea,
 } from '../../../shared/ui'
 import { DocumentChecklist } from './document-checklist'
+import { FormAnswers } from './form-answers'
 
 type Step = 'catalog' | 'info' | 'form' | 'docs' | 'review'
 
@@ -464,18 +465,9 @@ export function CreateWizard({
             {deliveryType && (
               <Row label={t('deliveryTitle')} value={t(`delivery_${deliveryType}`)} />
             )}
-            {service.formFields.map((f) => {
-              const v = formData[f.code]
-              if (v === undefined || v === null || v === '') return null
-              return (
-                <Row
-                  key={f.id}
-                  label={pickLocale(f as unknown as Record<string, unknown>, 'label', locale)}
-                  value={String(v)}
-                />
-              )
-            })}
           </Card>
+          {/* Ответы — подписями вариантов и «Да/Нет», а не кодами и true/false. */}
+          <FormAnswers fields={service.formFields} formData={formData} />
           <div className="flex sm:justify-end">
             <Button
               className="w-full sm:w-auto"
