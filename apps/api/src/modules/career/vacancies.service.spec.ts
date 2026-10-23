@@ -37,7 +37,10 @@ const staff = (universityId: string | null = 'uni-1'): JwtPayload => ({
 
 function setup(allowedUniversities: string[] = ['uni-1']) {
   const tx = {
-    vacancy: { update: jest.fn(), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    vacancy: {
+      update: jest.fn().mockResolvedValue({}),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
     vacancyUniversityReview: {
       createMany: jest.fn().mockResolvedValue({ count: 1 }),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
@@ -251,6 +254,29 @@ describe('VacanciesService — правка опубликованной вак�
 
     expect(tx.vacancy.update).toHaveBeenCalled()
     expect(tx.vacancyUniversityReview.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('закрытую вакансию править нельзя — и на модерацию она не возвращается', async () => {
+    const { service, prisma, tx } = setup()
+    prisma.vacancy.findFirst.mockResolvedValue({ ...approved, status: 'CLOSED' })
+
+    await expect(
+      service.update(employer, 'v-1', { description: 'y'.repeat(50) }, ctx),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(tx.vacancy.update).not.toHaveBeenCalled()
+    expect(tx.vacancyUniversityReview.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('правка пишется с условием «не закрыта» — параллельное закрытие не обойти', async () => {
+    const { service, prisma, tx } = setup()
+    prisma.vacancy.findFirst.mockResolvedValue({ ...approved, status: 'PUBLISHED' })
+
+    await service.update(employer, 'v-1', { title: 'Frontend-стажёр (React)' }, ctx)
+
+    expect(tx.vacancy.update.mock.calls[0][0].where).toEqual({
+      id: 'v-1',
+      status: { not: 'CLOSED' },
+    })
   })
 
   it('чужую вакансию править нельзя', async () => {

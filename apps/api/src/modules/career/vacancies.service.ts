@@ -28,6 +28,7 @@ import {
   vacancyVisibleWhere,
 } from './career-access.service'
 import { CareerNotifier } from './career-notifier'
+import { rethrowStaleStatus } from '../../common/prisma/stale-status'
 
 /**
  * Поля, которые читает студент и одобрял вуз (общий список с формой компании — shared-schemas).
@@ -145,29 +146,39 @@ export class VacanciesService {
    * встаёт в очередь модерации. Как в `publish`, но гасим только APPROVED: отклонённую
    * вакансию правка в очередь не возвращает (для этого есть повторная публикация), а
    * ожидающая и так покажет модератору новый текст.
+   *
+   * Закрытая вакансия — конечное состояние (VACANCY_TRANSITIONS): её не правят, иначе
+   * правка возвращала бы в очередь модерации то, что компания уже закрыла.
    */
   async update(viewer: JwtPayload, id: string, input: UpdateVacancyInput, ctx: RequestContext) {
     const companyId = this.access.requireCompany(viewer)
     await this.access.assertCompanyActive(companyId)
     const existing = await this.prisma.vacancy.findFirst({
       where: { id, companyId, deletedAt: null },
-      select: REVIEWED_SELECT,
+      select: { ...REVIEWED_SELECT, status: true },
     })
     if (!existing) throw new AppException('NOT_FOUND', 'Вакансия не найдена')
+    if (existing.status === 'CLOSED') {
+      throw new AppException('CONFLICT', 'Закрытую вакансию изменить нельзя')
+    }
     this.assertSalaryRange({ ...existing, ...input })
 
     const reReview = REVIEWED_FIELDS.some((field) => changed(input[field], existing[field]))
 
     const reset = await this.prisma.$transaction(async (tx) => {
-      await tx.vacancy.update({
-        where: { id },
-        data: {
-          ...input,
-          ...(input.deadline !== undefined
-            ? { deadline: input.deadline ? new Date(input.deadline) : null }
-            : {}),
-        },
-      })
+      // Условие на «не закрыта» — и в самой записи: параллельное закрытие между чтением и
+      // правкой не должно вернуть закрытую вакансию на модерацию.
+      await tx.vacancy
+        .update({
+          where: { id, status: { not: 'CLOSED' } },
+          data: {
+            ...input,
+            ...(input.deadline !== undefined
+              ? { deadline: input.deadline ? new Date(input.deadline) : null }
+              : {}),
+          },
+        })
+        .catch(rethrowStaleStatus)
       if (!reReview) return 0
       const { count } = await tx.vacancyUniversityReview.updateMany({
         where: { vacancyId: id, status: 'APPROVED' },
