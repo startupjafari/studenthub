@@ -444,14 +444,6 @@ export function hasCareerProduct(role: Role | undefined): boolean {
   return careerNavFor(role).length > 0
 }
 
-/**
- * Куда ведёт плашка пользователя. Обычно — свой профиль, но у охраны и библиотекаря
- * профиля на платформе нет (посты, портфолио и друзья им закрыты): плашка ведёт в настройки.
- */
-export function ownProfileHref(role: Role | undefined): string {
-  return isRestrictedRole(role) ? '/settings' : '/profile'
-}
-
 /** Есть ли у роли чаты — без них бейдж непрочитанного не запрашивается. */
 export function hasChats(role: Role | undefined): boolean {
   return !isRestrictedRole(role)

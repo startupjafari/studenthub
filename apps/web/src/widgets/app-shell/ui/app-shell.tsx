@@ -6,16 +6,7 @@ import { usePathname } from 'next/navigation'
 import { useTranslations } from 'next-intl'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Role } from '@studenthub/shared-types'
-import {
-  Bell,
-  LogOut,
-  MoreHorizontal,
-  ScanQrCode,
-  Search,
-  Settings,
-  UserRound,
-  X,
-} from 'lucide-react'
+import { Bell, LogOut, MoreHorizontal, ScanQrCode, Search, UserRound, X } from 'lucide-react'
 import { AppSidebar } from './app-sidebar'
 import { endSession } from '../../../shared/session'
 import {
@@ -25,7 +16,6 @@ import {
   careerNavFor,
   hasChats,
   isCareerPath,
-  ownProfileHref,
   type NavItem,
   type NavVariant,
 } from '../model/nav'
@@ -74,7 +64,6 @@ function BottomNav({
   const pathname = usePathname()
   const tNav = useTranslations('Nav')
   const chatsUnread = useChatsUnread(role ? hasChats(role) : false)
-  const profileHref = ownProfileHref(role)
   const searchable = canSearch(role)
   const tShell = useTranslations('Dashboard')
   const tSearch = useTranslations('Command')
@@ -158,7 +147,7 @@ function BottomNav({
   // Ссылка ведёт на СВОЙ профиль (`/profile`), а `/profile/<id>` — это чужой. Со
   // `startsWith` открытый профиль другого пользователя подсвечивался так, будто читатель
   // стоит на своём: навигация указывала не туда, где он находится.
-  const profileActive = pathname === profileHref
+  const profileActive = pathname === '/profile'
 
   async function logout(): Promise<void> {
     await endSession()
@@ -348,19 +337,14 @@ function BottomNav({
             <div className={hairline} aria-hidden />
 
             {/* Профиль и выход — не разделы роли, поэтому отбиты в последнюю группу. */}
-            {/* У охраны профиля на платформе нет — на его месте настройки. */}
             <Link
-              href={profileHref}
+              href="/profile"
               onClick={() => setMoreOpen(false)}
               aria-current={profileActive ? 'page' : undefined}
               className={cn(menuRow, profileActive && 'bg-primary/10 text-primary')}
             >
-              {profileHref === '/settings' ? (
-                <Settings className="size-5 shrink-0 opacity-80" aria-hidden />
-              ) : (
-                <UserRound className="size-5 shrink-0 opacity-80" aria-hidden />
-              )}
-              {profileHref === '/settings' ? tNav('settings') : tNav('profile')}
+              <UserRound className="size-5 shrink-0 opacity-80" aria-hidden />
+              {tNav('profile')}
             </Link>
             {/* Выход — опасное действие: последним и за своей линией (правило для всех меню). */}
             <div className={hairline} aria-hidden />
