@@ -251,3 +251,73 @@ export const ReviewSubmissionItemSchema = z
     path: ['rejectionReason'],
   })
 export type ReviewSubmissionItemInput = z.infer<typeof ReviewSubmissionItemSchema>
+
+// ── Журнал документов вуза для админа вуза (15.2: «читает журнал», без содержимого) ──
+
+// Действия журнала DocumentEvent, по которым можно фильтровать.
+export const DOCUMENT_JOURNAL_ACTIONS = [
+  'UPLOAD',
+  'VIEW',
+  'DOWNLOAD',
+  'EDIT',
+  'REPLACE',
+  'PAGE_ADD',
+  'PAGE_REMOVE',
+  'GRANT',
+  'REVOKE',
+  'SUBMIT',
+  'REVIEW',
+  'ACCEPT',
+  'REJECT',
+  'ARCHIVE',
+  'DELETE',
+  'EXPIRING',
+  'EXPIRE',
+] as const
+export const DocumentJournalActionSchema = z.enum(DOCUMENT_JOURNAL_ACTIONS)
+export type DocumentJournalAction = z.infer<typeof DocumentJournalActionSchema>
+
+// Админская таблица с номером страницы — offset допустим (BACKEND_RULES §5.3).
+// `q` — ФИО того, кто действовал, или владельца документа; `userId` — точный человек в
+// любой из двух ролей. Период — по дате события, `to` включительно (до конца дня — в вебе).
+export const DocumentJournalQuerySchema = z
+  .object({
+    page: z.coerce.number().int().positive().default(1),
+    limit: z.coerce.number().int().positive().max(100).default(20),
+    action: DocumentJournalActionSchema.optional(),
+    from: z.coerce.date().optional(),
+    to: z.coerce.date().optional(),
+    q: z.string().trim().min(1).max(100).optional(),
+    userId: z.string().min(1).max(64).optional(),
+  })
+  .strict()
+export type DocumentJournalQueryInput = z.infer<typeof DocumentJournalQuerySchema>
+
+// Через что совершено действие: свой документ, грант доступа, запрос вуза, заявка,
+// спец-режим платформы или автоматика (крон срока).
+export const DOCUMENT_JOURNAL_VIA = [
+  'OWNER',
+  'GRANT',
+  'REQUEST',
+  'APPLICATION',
+  'PLATFORM',
+  'SYSTEM',
+  'STAFF',
+] as const
+export type DocumentJournalVia = (typeof DOCUMENT_JOURNAL_VIA)[number]
+
+// Строка журнала. Только метаданные: ни названия, ни номера, ни файлов документа —
+// тип и категория говорят, «что за документ», не раскрывая содержимого.
+export interface DocumentJournalItem {
+  id: string
+  createdAt: string
+  action: string
+  actor: { id: string; name: string; role: string | null }
+  owner: { id: string; name: string }
+  document: { id: string; category: string; type: string; deleted: boolean }
+  via: DocumentJournalVia
+  // Для GRANT/REVOKE/VIEW по гранту — кому выдан доступ (UNIVERSITY | DEPARTMENT | USER).
+  granteeType: string | null
+  // Для событий по запросу вуза — его название.
+  request: { id: string; title: string } | null
+}
