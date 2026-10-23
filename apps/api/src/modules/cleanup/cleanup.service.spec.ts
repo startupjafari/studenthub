@@ -134,6 +134,7 @@ function makeService() {
     purgeDepartedMessages: jest.fn(async () => ({})) as Mock,
     purgeDepartedDocuments: jest.fn(async () => ({})) as Mock,
     purgeDepartedProfiles: jest.fn(async () => ({})) as Mock,
+    purgeAccountTombstones: jest.fn(async () => ({})) as Mock,
   }
   const service = new CleanupService(
     prisma as never,
@@ -1089,6 +1090,7 @@ describe('CleanupService — сроки хранения ПДн', () => {
     'purgeDepartedMessages',
     'purgeDepartedDocuments',
     'purgeDepartedProfiles',
+    'purgeAccountTombstones',
   ] as const
 
   it.each(tasks)('%s: без флага — dry-run под своим локом', async (task) => {

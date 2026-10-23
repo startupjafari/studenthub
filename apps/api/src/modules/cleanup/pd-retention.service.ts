@@ -28,6 +28,30 @@ const MAX_BATCHES = 200
 // Профиль удаляется штатным softDeleteSelf: снос медиа в MinIO и разлогин — секунды на
 // человека, поэтому потолок в людях, а не в строках.
 const PROFILE_MAX_PER_RUN = 200
+// Физическое удаление «надгробия» уносит каскадом всё, что на нём держится (сообщения, посты,
+// заявки), — это одна тяжёлая транзакция на человека. Потолок — тоже в людях.
+const TOMBSTONE_MAX_PER_RUN = 200
+// Отдельная транзакция на человека может удалять десятки тысяч строк каскадом: штатных
+// пяти секунд интерактивной транзакции Prisma на это не хватает.
+const TOMBSTONE_TX_TIMEOUT_MS = 120_000
+
+/**
+ * Связи, из-за которых «надгробие» удалять НЕЛЬЗЯ: они объявлены `onDelete: Cascade`, а на
+ * них держатся данные ДРУГИХ людей или вуза. Удаление автора колонки журнала унесло бы
+ * оценки всей группы, автора экзамена — результаты студентов, автора запроса документов —
+ * комплекты студентов. Такой аккаунт остаётся надгробием, пока схема не изменится (связь
+ * станет SetNull) или вуз сам не удалит эти записи. Список — `_count` модели User.
+ */
+const TOMBSTONE_BLOCKERS = [
+  'gradeColumnsMade',
+  'examsCreated',
+  'assignmentsCreated',
+  'materials',
+  'scheduleChangesCreated',
+  'documentRequestsAuthored',
+  'eventsOrganized',
+  'consultationSlots',
+] as const satisfies readonly (keyof Prisma.UserCountOutputType)[]
 
 const DAY_MS = 24 * 60 * 60 * 1000
 
@@ -363,6 +387,138 @@ export class PdRetentionService {
       })
     }
     return counts
+  }
+
+  /**
+   * «Надгробия» удалённых аккаунтов — физическое удаление через год после `deletedAt`
+   * (задача 14.6). Удаление аккаунта (`softDeleteSelf`) уже затёрло ПДн в самой строке, но
+   * на ней держатся сообщения, посты, заявки и прочее содержимое человека — с удалением
+   * строки оно уходит каскадом. Год — тот же срок, что у остальных групп: запас на жалобу,
+   * спор и ошибку.
+   *
+   * Что делается перед удалением, чтобы каскад не унёс чужое:
+   * - аккаунт с «блокирующими» связями (TOMBSTONE_BLOCKERS) пропускается — см. список;
+   * - аккаунт, владеющий чужими файлами (обложка книги библиотеки, медиа чужого поста,
+   *   вложение чужого сообщения и т. п.), пропускается: `File.owner` — Cascade;
+   * - сканы чужих документов, заведённые на этого человека (справка, выданная им как
+   *   сотрудником вуза, — issueToOwner), переписываются на владельца документа;
+   * - в чужих ответах на его сообщения стирается цитата — копия его текста;
+   * - персональные гранты на чужие документы, выданные ему, удаляются.
+   * Скаляры без FK (`AuditLog.userId`, `DocumentEvent.actorId`, `ApplicationEvent.actorId`,
+   * `DocumentExport.userId` …) остаются висеть: так они и задуманы — журнал переживает
+   * удаление человека, а ПДн в них нет.
+   */
+  async purgeAccountTombstones(dryRun: boolean): Promise<RetentionCounts> {
+    const cutoff = retentionCutoff()
+    const where: Prisma.UserWhereInput = { deletedAt: { lt: cutoff } }
+    const counts: RetentionCounts = { 'User.tombstones': await this.prisma.user.count({ where }) }
+    const removed: string[] = []
+    let checked = 0
+    let afterId: string | null = null
+    // Курсор по id, а не «первые N»: пропущенные надгробия остаются в таблице, и выборка
+    // с начала крутилась бы на них же.
+    while (checked < TOMBSTONE_MAX_PER_RUN) {
+      const batch: { id: string }[] = await this.prisma.user.findMany({
+        where: afterId ? { ...where, id: { gt: afterId } } : where,
+        select: { id: true },
+        orderBy: { id: 'asc' },
+        take: Math.min(BATCH_SIZE, TOMBSTONE_MAX_PER_RUN - checked),
+      })
+      if (batch.length === 0) break
+      for (const { id } of batch) {
+        checked++
+        afterId = id
+        const blockers = await this.tombstoneBlockers(id)
+        if (blockers.length > 0) {
+          for (const reason of blockers) {
+            counts[`blocked.${reason}`] = (counts[`blocked.${reason}`] ?? 0) + 1
+          }
+          continue
+        }
+        if (dryRun) {
+          counts.User = (counts.User ?? 0) + 1
+          continue
+        }
+        try {
+          if (await this.deleteTombstone(id, cutoff)) removed.push(id)
+        } catch (err) {
+          counts['User.failed'] = (counts['User.failed'] ?? 0) + 1
+          this.logger.warn(`purgeAccountTombstones: ${id} не удалён: ${String(err)}`)
+        }
+      }
+    }
+    if (!dryRun) counts.User = removed.length
+    this.report('purgeAccountTombstones', dryRun, counts)
+    if (removed.length > 0) {
+      await this.audit.record({
+        action: 'pd_retention_purged',
+        entity: 'User',
+        metadata: { task: 'purgeAccountTombstones', counts, userIds: removed },
+      })
+    }
+    return counts
+  }
+
+  /** Почему надгробие удалять нельзя: имена связей, пустой список — можно. */
+  private async tombstoneBlockers(userId: string): Promise<string[]> {
+    const row = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        _count: {
+          select: Object.fromEntries(TOMBSTONE_BLOCKERS.map((k) => [k, true])) as Record<
+            (typeof TOMBSTONE_BLOCKERS)[number],
+            true
+          >,
+        },
+      },
+    })
+    if (!row) return []
+    const counts = row._count as Record<string, number>
+    const reasons: string[] = TOMBSTONE_BLOCKERS.filter((k) => (counts[k] ?? 0) > 0)
+    // Файлы человека, привязанные к ЧУЖОМУ: удалились бы каскадом по File.owner. Сканы
+    // чужих документов сюда не входят — их переписывают на владельца документа.
+    const foreignFiles = await this.prisma.file.count({
+      where: {
+        ownerId: userId,
+        OR: [
+          { bookCovers: { some: {} } },
+          { post: { authorId: { not: userId } } },
+          { message: { senderId: { not: userId } } },
+          { material: { teacherId: { not: userId } } },
+          { submission: { studentId: { not: userId } } },
+          { album: { userId: { not: userId } } },
+          { stories: { some: { authorId: { not: userId } } } },
+        ],
+      },
+    })
+    if (foreignFiles > 0) reasons.push('foreignFiles')
+    return reasons
+  }
+
+  /** Физически удалить одно надгробие; false — его успели восстановить или удалить. */
+  private async deleteTombstone(userId: string, cutoff: Date): Promise<boolean> {
+    return this.prisma.$transaction(
+      async (tx) => {
+        // Скан справки, выданной этим сотрудником студенту, заведён на сотрудника
+        // (DocumentsService.issueToOwner) — без переписи он ушёл бы каскадом вместе с ним.
+        await tx.$executeRaw`
+          UPDATE "files" AS f SET "owner_id" = d."owner_id"
+          FROM "documents" AS d
+          WHERE f."document_id" = d."id" AND f."owner_id" = ${userId} AND d."owner_id" <> ${userId}
+        `
+        await tx.message.updateMany({
+          where: { replyTo: { senderId: userId }, replyQuote: { not: null } },
+          data: { replyQuote: null },
+        })
+        await tx.documentAccess.deleteMany({ where: { granteeType: 'USER', granteeId: userId } })
+        // Условие срока — и здесь: строку могли тронуть между выборкой и удалением.
+        const { count } = await tx.user.deleteMany({
+          where: { id: userId, deletedAt: { lt: cutoff } },
+        })
+        return count > 0
+      },
+      { timeout: TOMBSTONE_TX_TIMEOUT_MS },
+    )
   }
 
   /** Цель «строки ушедшего студента»: условие отбора повторяется и в самом удалении. */
