@@ -102,7 +102,7 @@ export function EventDetailView({ eventId }: { eventId: string }) {
       />
 
       {event.isLoading ? (
-        <Skeleton className="h-64 w-full rounded-xl" />
+        <Skeleton fill className="min-h-64 rounded-xl" />
       ) : event.isError || !event.data ? (
         <EmptyState
           icon={<CalendarClock className="size-6" aria-hidden />}

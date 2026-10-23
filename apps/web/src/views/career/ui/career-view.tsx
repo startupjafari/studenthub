@@ -228,7 +228,7 @@ function StaffOverview() {
             }
           >
             {!d ? (
-              <Skeleton className="h-20 w-full" />
+              <Skeleton fill className="min-h-20" />
             ) : (
               <div className="grid gap-1 sm:grid-cols-2 lg:grid-cols-4">
                 <QueueItem
@@ -275,7 +275,7 @@ function StaffOverview() {
           <div className="grid gap-4 lg:grid-cols-2">
             <SectionPanel title={tA('chartFunnel')} subtitle={tA('chartFunnelHint')}>
               {!d ? (
-                <Skeleton className="h-56 w-full" />
+                <Skeleton fill className="min-h-56" />
               ) : funnelValues.every((v) => v === 0) ? (
                 <EmptyState title={tA('noData')} className="border-0 p-6" />
               ) : (
@@ -292,7 +292,7 @@ function StaffOverview() {
 
             <SectionPanel title={tA('chartVacancies')} subtitle={tA('chartVacanciesHint')}>
               {!d ? (
-                <Skeleton className="h-56 w-full" />
+                <Skeleton fill className="min-h-56" />
               ) : vacancyValues.every((v) => v === 0) ? (
                 <EmptyState title={tA('noData')} className="border-0 p-6" />
               ) : (
@@ -311,7 +311,7 @@ function StaffOverview() {
           {/* Итог за всё время не показывает, стало ли лучше. Недельный ряд показывает. */}
           <SectionPanel title={tA('chartWeekly')} subtitle={tA('chartWeeklyHint')}>
             {!d ? (
-              <Skeleton className="h-56 w-full" />
+              <Skeleton fill className="min-h-56" />
             ) : weeklyEmpty ? (
               <EmptyState title={tA('noData')} className="border-0 p-6" />
             ) : (
@@ -347,7 +347,7 @@ function StaffOverview() {
           <div className="grid gap-4 lg:grid-cols-2">
             <SectionPanel title={tA('chartSkills')} subtitle={tA('chartSkillsHint')}>
               {!d ? (
-                <Skeleton className="h-40 w-full" />
+                <Skeleton fill className="min-h-40" />
               ) : d.skills.length === 0 ? (
                 <EmptyState title={tA('noData')} className="border-0 p-6" />
               ) : (
@@ -361,7 +361,7 @@ function StaffOverview() {
                 // стоят в одной строке сетки и растягиваются по высоте до самой высокой,
                 // поэтому и заготовка у них общая — иначе одна закрыта целиком, а вторая
                 // висит короткой плашкой посреди пустой карточки.
-                <Skeleton className="h-40 w-full" />
+                <Skeleton fill className="min-h-40" />
               ) : (
                 <ul className="flex flex-col gap-3">
                   {[
@@ -602,7 +602,7 @@ function SeekerOverview() {
           }
         >
           {vacQ.isLoading ? (
-            <Skeleton className="h-32 w-full rounded-lg" />
+            <Skeleton fill className="min-h-32 rounded-lg" />
           ) : (vacQ.data?.items.length ?? 0) === 0 ? (
             <EmptyState title={tHome('noVacancies')} className="border-0 p-6" />
           ) : (
@@ -627,7 +627,7 @@ function SeekerOverview() {
           }
         >
           {eventsQ.isLoading ? (
-            <Skeleton className="h-32 w-full rounded-lg" />
+            <Skeleton fill className="min-h-32 rounded-lg" />
           ) : (eventsQ.data?.items.length ?? 0) === 0 ? (
             <EmptyState title={tHome('noEvents')} className="border-0 p-6" />
           ) : (

@@ -55,8 +55,8 @@ export function FacultiesAdminView() {
 
       {faculties.isLoading ? (
         <div className="flex flex-col gap-2">
-          <Skeleton className="h-14 w-full" />
-          <Skeleton className="h-14 w-full" />
+          <Skeleton fill className="min-h-14" />
+          <Skeleton fill className="min-h-14" />
         </div>
       ) : faculties.isError ? (
         <EmptyState title={tErr('INTERNAL_ERROR')} />
