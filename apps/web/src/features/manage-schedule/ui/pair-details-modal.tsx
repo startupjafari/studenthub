@@ -42,7 +42,7 @@ import {
   useConfirm,
   FieldError,
 } from '../../../shared/ui'
-import { useErrorToast } from '../../../shared/lib'
+import { isoWeekParity, useErrorToast } from '../../../shared/lib'
 
 const DAYS = [1, 2, 3, 4, 5, 6, 7]
 const WEEK_TYPES = ['BOTH', 'ODD', 'EVEN'] as const
@@ -202,6 +202,13 @@ export function PairDetailsModal({
     // Изменение на день, когда пары нет, никто не увидит — сервер его тоже отклонит.
     if (isoDayOfWeek(values.date) !== pair.dayOfWeek) {
       changeForm.setError('date', { type: 'wrongDay' })
+      return
+    }
+    // То же с чётностью: пара нечётных недель на чётной не проводится (ISO-неделя, как на
+    // сервере и в сетке).
+    const parity = isoWeekParity(new Date(`${values.date}T00:00:00`))
+    if (pair.weekType !== 'BOTH' && pair.weekType !== parity) {
+      changeForm.setError('date', { type: 'wrongWeek' })
       return
     }
     createChange.mutate(values)
@@ -499,7 +506,9 @@ export function PairDetailsModal({
                       <>
                         {changeForm.formState.errors.date.type === 'wrongDay'
                           ? t('changeWrongDay', { day: t(`day${pair.dayOfWeek}`) })
-                          : t('required')}
+                          : changeForm.formState.errors.date.type === 'wrongWeek'
+                            ? t('changeWrongWeek', { parity: t(`parity${pair.weekType}`) })
+                            : t('required')}
                       </>
                     )}
                   </FieldError>

@@ -205,6 +205,23 @@ function isoDayOfWeek(date: string): number {
   return day === 0 ? 7 : day
 }
 
+/**
+ * Чётность ISO-недели календарной даты YYYY-MM-DD — та же формула, что у веба, iOS и Android
+ * (`isoWeekParity`): неделя с понедельника, первая — та, где первый четверг года.
+ */
+function isoWeekParity(date: string): WeekType {
+  const d = new Date(`${date}T00:00:00Z`)
+  // Четверг той же недели: его год — год ISO-недели.
+  d.setUTCDate(d.getUTCDate() + 3 - ((d.getUTCDay() + 6) % 7))
+  const week = 1 + Math.floor((d.getTime() - Date.UTC(d.getUTCFullYear(), 0, 1)) / (7 * 86_400_000))
+  return week % 2 === 1 ? WeekType.ODD : WeekType.EVEN
+}
+
+/** Пара с такой чётностью проводится в неделю с чётностью `parity`. */
+function heldInWeek(weekType: WeekType, parity: WeekType): boolean {
+  return weekType === WeekType.BOTH || weekType === parity
+}
+
 // Изменение пары на дату — то, что нужно для расчёта её фактического слота.
 interface DatedChange {
   type: ScheduleChangeType
@@ -862,16 +879,17 @@ export class SchedulesService {
   /**
    * Разовое изменение пары на дату (C-F16 — проверки).
    *
-   * Дата должна быть днём этой пары: изменение на вторник для пары по понедельникам никто не
+   * Дата должна быть днём этой пары — и днём недели, и неделей её чётности: изменение на
+   * вторник для пары по понедельникам или на чётную неделю для пары нечётных никто не
    * увидит, а уведомление о нём уйдёт всей группе. Отменённое занятие не переносят и не
    * заменяют, и вторая отмена на ту же дату — дубль (уведомление ушло бы дважды): сначала
    * убирают отмену (`removeChange`). Перенос, смена аудитории и замена проверяются на
    * занятость преподавателя, аудитории и группы в фактической сетке этой даты.
    *
-   * Чётность недели сервер не сверяет — как и посещаемость: формула недели у клиентов
-   * расходится с ISO 8601 и ждёт решения продукта (пересечения считаются по чётности пар).
-   * Проверка и запись — в транзакции под advisory-локом даты вуза: два параллельных
-   * изменения не займут одну аудиторию.
+   * Чётность — по ISO-неделе, как у всех клиентов; конфликты считаются по сетке этой даты
+   * (пара другой чётности в эту дату не проводится и места не занимает). Проверка и запись —
+   * в транзакции под advisory-локом даты вуза: два параллельных изменения не займут одну
+   * аудиторию.
    */
   async createChange(actor: JwtPayload, input: CreateScheduleChangeInput, ctx: RequestContext) {
     const pair = await this.prisma.pair.findUnique({
@@ -898,6 +916,11 @@ export class SchedulesService {
     if (isoDayOfWeek(input.date) !== pair.dayOfWeek) {
       throw new AppException('VALIDATION_ERROR', 'В этот день пары нет', [
         { field: 'date', message: 'День недели не совпадает с днём пары' },
+      ])
+    }
+    if (!heldInWeek(pair.weekType, isoWeekParity(input.date))) {
+      throw new AppException('VALIDATION_ERROR', 'В эту неделю пары нет', [
+        { field: 'date', message: 'Пара идёт по неделям другой чётности' },
       ])
     }
 
@@ -1067,6 +1090,9 @@ export class SchedulesService {
   ): Promise<void> {
     const slot = effectiveSlot(pair, changes)
     if (!slot) return
+    // Чётность самой даты, а не пересечение чётностей шаблонов: пара EVEN в нечётную неделю
+    // не проводится и группу, преподавателя или аудиторию не занимает.
+    const parity = isoWeekParity(day.toISOString().slice(0, 10))
     const orResource: Prisma.PairWhereInput[] = [{ groupId: pair.groupId }]
     if (slot.teacherId) {
       orResource.push(
@@ -1107,7 +1133,7 @@ export class SchedulesService {
 
     const conflicts: { field: string; message: string }[] = []
     for (const c of candidates) {
-      if (!weekTypesOverlap(pair.weekType, c.weekType)) continue
+      if (!heldInWeek(c.weekType, parity)) continue
       const other = effectiveSlot(c, c.changes)
       if (!other) continue
       if (!timeOverlap(slot.startTime, slot.endTime, other.startTime, other.endTime)) continue

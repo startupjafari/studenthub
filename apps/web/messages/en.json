@@ -1648,7 +1648,8 @@
     "removeChangeConfirm": "Remove this change?",
     "removeChangeConfirmHint": "The regular schedule will apply on this date again. If the date is still ahead, the group and teachers will be notified.",
     "changeRemoved": "Change removed",
-    "changeWrongDay": "This class is on {day}. Pick a date that falls on that day"
+    "changeWrongDay": "This class is on {day}. Pick a date that falls on that day",
+    "changeWrongWeek": "This class only runs on “{parity}”. Pick a date in such a week"
   },
   "Applications": {
     "title": "Applications",

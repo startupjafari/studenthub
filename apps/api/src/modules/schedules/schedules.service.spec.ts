@@ -811,6 +811,37 @@ describe('SchedulesService — разовые изменения (C-F16)', () =>
     expect(queue.enqueue).not.toHaveBeenCalled()
   })
 
+  it('дата на неделе другой чётности → VALIDATION_ERROR(date), уведомления нет', async () => {
+    const { service, prisma, queue } = prime()
+    prisma.pair.findUnique.mockResolvedValue({ ...changedPair, weekType: 'ODD' })
+    // 15.09.2026 — 38-я ISO-неделя, чётная.
+    const err = await service
+      .createChange(admin, { pairId: 'pair-1', type: 'CANCELLED', date: '2026-09-15' }, ctx)
+      .catch((e) => e)
+    expect(err.code).toBe('VALIDATION_ERROR')
+    expect(err.details).toEqual([expect.objectContaining({ field: 'date' })])
+    expect(prisma.scheduleChange.create).not.toHaveBeenCalled()
+    expect(queue.enqueue).not.toHaveBeenCalled()
+  })
+
+  it('пара другой чётности в эту дату не проводится и не мешает переносу', async () => {
+    const { service, prisma } = prime()
+    // Чётная неделя: пара ODD той же группы в это время в эту дату не идёт.
+    prisma.pair.findMany.mockResolvedValue([otherPair({ groupId: 'grp-1', weekType: 'ODD' })])
+    await service.createChange(
+      admin,
+      {
+        pairId: 'pair-1',
+        type: 'MOVED',
+        date: '2026-09-15',
+        newStartTime: '10:00',
+        newEndTime: '11:30',
+      },
+      ctx,
+    )
+    expect(prisma.scheduleChange.create).toHaveBeenCalled()
+  })
+
   it('вторая отмена на ту же дату → CONFLICT, без второго уведомления', async () => {
     const { service, prisma, queue } = prime()
     prisma.scheduleChange.findMany.mockResolvedValue([{ type: 'CANCELLED' }])
