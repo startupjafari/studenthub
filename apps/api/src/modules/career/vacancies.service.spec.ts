@@ -307,6 +307,36 @@ describe('VacanciesService — просмотры', () => {
   })
 })
 
+describe('VacanciesService — совпадение с профилем', () => {
+  it('страна студента не сравнивается с городом вакансии', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findFirst.mockResolvedValue({
+      skills: [],
+      country: 'Казахстан',
+      careerProfile: { employmentTypes: [], workFormats: [], relocationReady: false },
+    })
+    prisma.vacancy.findMany.mockResolvedValue([
+      {
+        id: 'v-1',
+        skills: [],
+        employmentType: 'FULL_TIME',
+        workFormat: 'ONSITE',
+        city: 'Алматы',
+      },
+    ])
+
+    const page = await service.search(student(), {
+      page: 1,
+      limit: 20,
+      sort: 'publishedAt',
+      order: 'desc',
+    })
+
+    // Без требований и предпочтений — полное совпадение, город не отнимает своих 15.
+    expect(page.items[0]?.match?.score).toBe(100)
+  })
+})
+
 describe('VacanciesService — фильтр зарплаты', () => {
   it('«от N» учитывает и вакансии без верхней границы', async () => {
     const { service, prisma } = setup()

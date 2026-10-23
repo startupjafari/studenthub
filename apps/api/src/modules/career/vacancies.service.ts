@@ -511,14 +511,17 @@ export class VacanciesService {
   private async matchProfile(userId: string) {
     const user = await this.prisma.user.findFirst({
       where: { id: userId },
-      select: { skills: true, country: true, careerProfile: true },
+      select: { skills: true, careerProfile: true },
     })
     if (!user?.careerProfile) return null
     return {
       skills: user.skills,
       employmentTypes: user.careerProfile.employmentTypes as EmploymentType[],
       workFormats: user.careerProfile.workFormats as WorkFormat[],
-      city: user.country,
+      // Города студента в модели нет. Раньше сюда шла страна (`User.country`), и «Алматы»
+      // вакансии не совпадало с «Казахстан» никогда — каждая очная вакансия теряла 15 баллов.
+      // Неизвестный город — не ограничение (matchVacancy), а не повод занижать процент.
+      city: null,
       relocationReady: user.careerProfile.relocationReady,
     }
   }
