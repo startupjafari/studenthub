@@ -2154,6 +2154,14 @@ export class UserService {
       await tx.album.deleteMany({ where: { userId } })
       await tx.portfolioItem.deleteMany({ where: { userId } })
       await tx.bookmark.deleteMany({ where: { userId } })
+      // Доступы к своим документам, выданные человеком, гаснут вместе с аккаунтом: иначе
+      // декан или другой получатель гранта ещё год, до уборки надгробия, скачивал сканы
+      // паспорта «Удалённого пользователя». Отзыв, а не удаление: журнал документа хранит,
+      // по какому гранту файл открывали.
+      await tx.documentAccess.updateMany({
+        where: { document: { ownerId: userId }, revokedAt: null },
+        data: { revokedAt: new Date() },
+      })
     })
     await this.authService.revokeAllUserSessions(userId)
     // Строка журнала переживает анонимизацию: в ней только id, без ПДн удалённого.

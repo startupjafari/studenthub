@@ -51,6 +51,8 @@ function setup() {
     album: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
     portfolioItem: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
     bookmark: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    // Гранты на свои документы гаснут вместе с аккаунтом (softDeleteSelf).
+    documentAccess: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
     // advisory-лок (проверка последнего администратора платформы при удалении аккаунта).
     $executeRaw: jest.fn().mockResolvedValue(1),
     // Пакетная транзакция — массивом запросов; интерактивная получает этот же мок как tx.
@@ -833,6 +835,19 @@ describe('UserService — softDeleteSelf', () => {
     ]) {
       expect(model.deleteMany).toHaveBeenCalledWith({ where: { userId: 'u' } })
     }
+  })
+
+  // Получатель гранта ещё год, до уборки надгробия, скачивал сканы удалённого владельца.
+  it('отзывает выданные доступы к своим документам в той же транзакции', async () => {
+    const { service, prisma, passwords, config } = setup()
+    withBuckets(config)
+    passwords.hash.mockResolvedValue('anon')
+    prisma.user.update.mockResolvedValue({})
+    await service.softDeleteSelf('u')
+    expect(prisma.documentAccess.updateMany).toHaveBeenCalledWith({
+      where: { document: { ownerId: 'u' }, revokedAt: null },
+      data: { revokedAt: expect.any(Date) },
+    })
   })
 
   // Бакеты профиля публичные: без удаления объектов фото и видео оставались доступны по
