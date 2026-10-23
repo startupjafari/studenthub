@@ -818,7 +818,12 @@
     "deleteFacultyConfirm": "«{name}» факультетін жою керек пе?",
     "facultyCreated": "Факультет құрылды",
     "facultyDeleted": "Факультет жойылды",
-    "facultyHasGroups": "Топтары бар факультетті жою мүмкін емес",
+    "facultyDeleteBlocked": "Факультетті жою мүмкін емес",
+    "facultyDeleteBlockedList": "Онда бар: {list}",
+    "facultyBlockers": {
+      "groups": "топтар",
+      "users": "пайдаланушылар"
+    },
     "noFaculties": "Факультеттер әзірге жоқ",
     "noFacultiesHint": "Жоғарыда алғашқы факультетті қосыңыз.",
     "groupsTitle": "Топтар",

@@ -19,6 +19,16 @@ function errCode(e: unknown): string {
   return (e as { code?: string }).code ?? 'INTERNAL_ERROR'
 }
 
+// Что мешает удалить факультет — сервер кладёт вид записей в details.field
+// (faculties.service.ts): группы или люди, например декан.
+const FACULTY_BLOCKERS = ['groups', 'users'] as const
+type FacultyBlocker = (typeof FACULTY_BLOCKERS)[number]
+
+function facultyBlockers(e: unknown): FacultyBlocker[] {
+  const details = (e as { details?: { field?: string }[] }).details ?? []
+  return FACULTY_BLOCKERS.filter((b) => details.some((d) => d.field === b))
+}
+
 export function FacultiesAdminView() {
   const t = useTranslations('UniAdmin')
   const tErr = useTranslations('Errors')
@@ -37,7 +47,20 @@ export function FacultiesAdminView() {
     },
     onError: (e) => {
       const code = errCode(e)
-      toast.error(code === 'CONFLICT' ? t('facultyHasGroups') : tErr(code))
+      if (code !== 'CONFLICT') {
+        toast.error(tErr(code))
+        return
+      }
+      // Сервер перечислил, что держит факультет: «есть группы» вводило в заблуждение,
+      // когда мешал декан, а групп не было.
+      const blockers = facultyBlockers(e)
+      toast.error(t('facultyDeleteBlocked'), {
+        description: blockers.length
+          ? t('facultyDeleteBlockedList', {
+              list: blockers.map((b) => t(`facultyBlockers.${b}`)).join(', '),
+            })
+          : undefined,
+      })
     },
   })
 

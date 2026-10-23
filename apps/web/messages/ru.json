@@ -818,7 +818,12 @@
     "deleteFacultyConfirm": "Удалить факультет «{name}»?",
     "facultyCreated": "Факультет создан",
     "facultyDeleted": "Факультет удалён",
-    "facultyHasGroups": "Нельзя удалить факультет с группами",
+    "facultyDeleteBlocked": "Факультет нельзя удалить",
+    "facultyDeleteBlockedList": "На нём есть: {list}",
+    "facultyBlockers": {
+      "groups": "группы",
+      "users": "пользователи"
+    },
     "noFaculties": "Факультетов пока нет",
     "noFacultiesHint": "Добавьте первый факультет выше.",
     "groupsTitle": "Группы",

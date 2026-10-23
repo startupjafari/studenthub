@@ -792,6 +792,8 @@ describe('UserService — softDeleteSelf', () => {
     const { data } = prisma.user.update.mock.calls[0][0]
     expect(data.username).toBeNull()
     expect(data.groupId).toBeNull()
+    // Факультет тоже: связь Restrict, и надгробие не давало удалить факультет.
+    expect(data.facultyId).toBeNull()
     expect(data.role).toBe(Role.STUDENT)
     expect(prisma.group.updateMany).toHaveBeenCalledWith({
       where: { starostaId: 'u' },

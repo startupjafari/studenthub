@@ -1858,6 +1858,19 @@ export class UserService {
   }
 
   /**
+   * Удаляемый факультет отпускает удалённые аккаунты (FacultyService.remove, в его
+   * транзакции). Связь пользователя с факультетом — Restrict, и надгробие, удалённое до того,
+   * как удаление аккаунта стало снимать факультет, держало его навсегда.
+   */
+  async detachDeletedFromFaculty(tx: PrismaTx, facultyId: string): Promise<number> {
+    const { count } = await tx.user.updateMany({
+      where: { facultyId, deletedAt: { not: null } },
+      data: { facultyId: null },
+    })
+    return count
+  }
+
+  /**
    * Учебные данные студента — правит вуз (STAFF_MANAGED_STUDENT_FIELDS): декан своего
    * факультета или админ своего вуза. Из этих полей печатаются справка об обучении и
    * студенческий, поэтому каждая правка пишется в аудит со списком изменённых полей.
@@ -2051,9 +2064,11 @@ export class UserService {
         email: anonymizedEmail,
         // Имя входа — тоже ПДн, и без обнуления оно оставалось занятым навсегда.
         username: null,
-        // Из группы удалённый выходит: иначе группу нельзя было удалить (FK Restrict), а
-        // он сам числился в её составе. Оценки и посещаемость привязаны к студенту, не к группе.
+        // Из группы и с факультета удалённый выходит: иначе их нельзя было удалить (FK
+        // Restrict), а он сам числился в составе. Оценки и посещаемость привязаны к
+        // студенту, не к группе.
         groupId: null,
+        facultyId: null,
         ...demoted,
         passwordHash: anonymizedHash,
         firstName: 'Удалённый',

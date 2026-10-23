@@ -818,7 +818,12 @@
     "deleteFacultyConfirm": "Delete faculty \"{name}\"?",
     "facultyCreated": "Faculty created",
     "facultyDeleted": "Faculty deleted",
-    "facultyHasGroups": "Cannot delete a faculty with groups",
+    "facultyDeleteBlocked": "The faculty can’t be deleted",
+    "facultyDeleteBlockedList": "It still has: {list}",
+    "facultyBlockers": {
+      "groups": "groups",
+      "users": "users"
+    },
     "noFaculties": "No faculties yet",
     "noFacultiesHint": "Add the first faculty above.",
     "groupsTitle": "Groups",
