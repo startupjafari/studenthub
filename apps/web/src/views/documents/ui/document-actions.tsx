@@ -304,6 +304,10 @@ function HistoryModal({ docId, onClose }: { docId: string; onClose: () => void }
           {events.map((e) => (
             <li key={e.id} className="flex flex-col border-l-2 border-border pl-3">
               <span className="text-sm font-medium">{t(`evt_${e.action}`)}</span>
+              {/* Причина отклонения по запросу — ровно то, что нужно исправить. */}
+              {e.action === 'REJECT' && typeof e.metadata?.reason === 'string' && (
+                <span className="text-xs text-destructive">{e.metadata.reason}</span>
+              )}
               <span className="text-xs text-muted-foreground">
                 {new Date(e.createdAt).toLocaleString(locale, {
                   day: '2-digit',
