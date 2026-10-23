@@ -212,7 +212,8 @@ export class DocumentRequestsService {
           titleKey: 'documents.request.title',
           bodyKey: 'documents.named.body',
           params: { title },
-          data: { requestId, url: '/documents' },
+          // Сразу в раздел запросов, а не на «Обзор»: студенту отвечать именно там.
+          data: { requestId, url: '/documents?section=requests' },
           dedupeKey: `doc-request:${requestId}`,
         },
         { jobId: `doc-request:${requestId}:${batch}` },
@@ -883,7 +884,7 @@ export class DocumentRequestsService {
         titleKey: status === 'REJECTED' ? 'documents.replacement.title' : 'documents.result.title',
         bodyKey: 'documents.named.body',
         params: { title: sub.request.title },
-        data: { requestId: sub.requestId, status, url: '/documents' },
+        data: { requestId: sub.requestId, status, url: '/documents?section=requests' },
         dedupeKey: `doc-result:${submissionId}:${reviewedAt.getTime()}`,
       },
       { jobId: `doc-result:${submissionId}:${reviewedAt.getTime()}` },
