@@ -35,17 +35,12 @@ function setup() {
     }),
     get: jest.fn(async (key: string) => store.get(key) ?? null),
     del: jest.fn(async (key: string) => (store.delete(key) ? 1 : 0)),
-    multi: jest.fn(() => {
-      const chain = {
-        incr: (key: string) => {
-          store.set(key, String(Number(store.get(key) ?? 0) + 1))
-          return chain
-        },
-        expire: () => chain,
-        exec: async () => [],
-      }
-      return chain
+    incr: jest.fn(async (key: string) => {
+      const next = Number(store.get(key) ?? 0) + 1
+      store.set(key, String(next))
+      return next
     }),
+    expire: jest.fn(async () => 1),
   }
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const service = new TwoFactorService(
@@ -193,6 +188,33 @@ describe('TwoFactorService', () => {
     await expect(service.verifyForUser('u1', authenticator.generate(secret))).rejects.toMatchObject(
       { code: 'RATE_LIMIT' },
     )
+  })
+
+  // BUG-077: попытка занимается до проверки — пачка одновременных запросов не видит пустой
+  // счётчик, и кодов проверяется не больше порога.
+  it('verifyForUser: параллельная пачка проверяет не больше пяти кодов', async () => {
+    const { service, users, passwords } = setup()
+    users.getTwoFactorForLogin.mockResolvedValue(
+      loginRecord({ twoFactorBackupCodes: ['hash:ABCD1234'] }),
+    )
+
+    const results = await Promise.allSettled(
+      Array.from({ length: 20 }, () => service.verifyForUser('u1', 'WRONGONE')),
+    )
+
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(5)
+    expect(passwords.compare).toHaveBeenCalledTimes(5)
+  })
+
+  it('verifyForUser: верный код возвращает попытку — счётчик стирается', async () => {
+    const { service, users, store } = setup()
+    users.getTwoFactorForLogin.mockResolvedValue(
+      loginRecord({ twoFactorBackupCodes: ['hash:ABCD1234'] }),
+    )
+    await service.verifyForUser('u1', 'WRONGONE')
+
+    await expect(service.verifyForUser('u1', 'ABCD1234')).resolves.toBe(true)
+    expect(store.has('2fa:confirm-fails:u1')).toBe(false)
   })
 
   it('verifyCode: неверный код → false', async () => {

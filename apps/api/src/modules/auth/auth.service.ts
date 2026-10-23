@@ -116,8 +116,9 @@ export class AuthService {
   /** Проверка идентификатор (email/username) + пароль для LocalStrategy. Не раскрывает, что именно неверно. */
   async validateUser(identifier: string, password: string): Promise<JwtPayload> {
     // До сверки пароля: серия неудач по этому логину закрывает вход независимо от того,
-    // с какого адреса пришла следующая попытка (login-attempts.service.ts — зачем).
-    await this.loginAttempts.assertNotLocked(identifier)
+    // с какого адреса пришла следующая попытка (login-attempts.service.ts — зачем). Попытка
+    // засчитывается здесь же, атомарно, — параллельная пачка не проскочит порог.
+    await this.loginAttempts.beginAttempt(identifier)
 
     const user = await this.users.findByLoginIdentifierForAuth(identifier)
     // Несуществующий пользователь тоже стоит одного bcrypt: без холостого сравнения ответ
@@ -127,7 +128,6 @@ export class AuthService {
       ? await this.passwords.compare(password, user.passwordHash)
       : await this.passwords.compareWithDummy(password)
     if (!user || !passwordOk) {
-      await this.loginAttempts.registerFailure(identifier)
       throw new AppException('UNAUTHORIZED', 'Неверный email или пароль')
     }
     // Пароль верный — серия прервана, даже если аккаунт заблокирован администратором:

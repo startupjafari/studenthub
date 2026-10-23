@@ -199,24 +199,25 @@ export class TwoFactorService {
    * 2FA перебирались под общим лимитом 100 запросов в минуту — миллион кодов за пару недель
    * с одной сессии. Redis недоступен — проверяем без счётчика: запереть админов из-за сбоя
    * кэша хуже.
+   *
+   * Попытка занимается атомарным `INCR` ДО проверки кода, а верный код её возвращает
+   * (счётчик стирается). «Прочитать → проверить → INCR» пропускал пачку одновременных
+   * запросов: все видели пустой счётчик, и пять попыток превращались в сотню.
    */
   private async verifyWithLimit(userId: string, check: () => Promise<boolean>): Promise<boolean> {
     const key = `2fa:confirm-fails:${userId}`
-    const fails = Number((await this.redis.get(key).catch(() => null)) ?? 0)
-    if (fails >= CONFIRM_MAX_FAILS) {
+    const attempt = await this.redis
+      .incr(key)
+      .then(async (count) => {
+        if (count === 1) await this.redis.expire(key, CONFIRM_FAIL_WINDOW_SEC)
+        return count
+      })
+      .catch(() => 0)
+    if (attempt > CONFIRM_MAX_FAILS) {
       throw new AppException('RATE_LIMIT', 'Слишком много неверных кодов — попробуйте позже')
     }
     const ok = await check()
-    if (ok) {
-      await this.redis.del(key).catch(() => undefined)
-    } else {
-      await this.redis
-        .multi()
-        .incr(key)
-        .expire(key, CONFIRM_FAIL_WINDOW_SEC)
-        .exec()
-        .catch(() => undefined)
-    }
+    if (ok) await this.redis.del(key).catch(() => undefined)
     return ok
   }
 

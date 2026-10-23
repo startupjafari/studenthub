@@ -1609,6 +1609,10 @@ export class UserService {
    * перебирать пароль через удаление вместо смены ничего не даёт. Пять промахов за 15 минут
    * закрывают проверку до конца окна, даже с верным паролем; Redis недоступен — проверяем
    * без счётчика.
+   *
+   * Попытка занимается атомарным `INCR` ДО bcrypt, верный пароль её возвращает. «Прочитать
+   * → сверить (сотни миллисекунд) → INCR» пропускал сотню одновременных запросов с
+   * украденным access: все видели пустой счётчик — сто паролей вместо пяти.
    */
   private async assertCurrentPassword(
     userId: string,
@@ -1616,18 +1620,18 @@ export class UserService {
     passwordHash: string,
   ): Promise<void> {
     const failKey = `password-change:fails:${userId}`
-    const fails = Number((await this.redis.get(failKey).catch(() => null)) ?? 0)
-    if (fails >= PASSWORD_CHANGE_MAX_FAILS) {
+    const attempt = await this.redis
+      .incr(failKey)
+      .then(async (count) => {
+        if (count === 1) await this.redis.expire(failKey, PASSWORD_CHANGE_FAIL_WINDOW_SEC)
+        return count
+      })
+      .catch(() => 0)
+    if (attempt > PASSWORD_CHANGE_MAX_FAILS) {
       throw new AppException('RATE_LIMIT', 'Слишком много неверных паролей — попробуйте позже')
     }
     const ok = await this.passwords.compare(password, passwordHash)
     if (!ok) {
-      await this.redis
-        .multi()
-        .incr(failKey)
-        .expire(failKey, PASSWORD_CHANGE_FAIL_WINDOW_SEC)
-        .exec()
-        .catch(() => undefined)
       // 400, а не 401 — чтобы не триггерить авто-refresh на фронте.
       throw new AppException('BAD_REQUEST', 'Неверный текущий пароль')
     }

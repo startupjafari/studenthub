@@ -68,8 +68,7 @@ function setup(status: 'ACTIVE' | 'BLOCKED' | 'PENDING') {
     markUsed: jest.fn(),
   }
   const loginAttempts = {
-    assertNotLocked: jest.fn(),
-    registerFailure: jest.fn(),
+    beginAttempt: jest.fn(),
     reset: jest.fn(),
   }
   const passwords = { compare: jest.fn().mockResolvedValue(true), hash: jest.fn() }
