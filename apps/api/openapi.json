@@ -7651,6 +7651,259 @@
         ]
       }
     },
+    "/security/summary": {
+      "get": {
+        "operationId": "SecurityJournalController_summary",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Счётчики за день по часам вуза"
+          },
+          "403": {
+            "description": "FORBIDDEN — не охрана и не админ вуза"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Сводка поста за сегодня: проходы и посетители",
+        "tags": [
+          "Пост охраны"
+        ]
+      }
+    },
+    "/security/passes": {
+      "get": {
+        "operationId": "SecurityJournalController_listPasses",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "default": 1
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "maximum": 100,
+              "default": 20
+            }
+          },
+          {
+            "name": "date",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          },
+          {
+            "name": "allowed",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Страница журнала"
+          },
+          "403": {
+            "description": "FORBIDDEN — не охрана и не админ вуза"
+          },
+          "422": {
+            "description": "VALIDATION_ERROR — неверный фильтр"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Журнал проходов студентов своего вуза, новые сверху",
+        "tags": [
+          "Пост охраны"
+        ]
+      }
+    },
+    "/security/visitors": {
+      "get": {
+        "operationId": "SecurityJournalController_listVisitors",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "default": 1
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "maximum": 100,
+              "default": 20
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "inside",
+                "all"
+              ],
+              "default": "all"
+            }
+          },
+          {
+            "name": "date",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Страница журнала"
+          },
+          "403": {
+            "description": "FORBIDDEN — не охрана и не админ вуза"
+          },
+          "422": {
+            "description": "VALIDATION_ERROR — неверный фильтр"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Журнал посетителей своего вуза; `status=inside` — кто в здании",
+        "tags": [
+          "Пост охраны"
+        ]
+      },
+      "post": {
+        "operationId": "SecurityJournalController_createVisitor",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateVisitorDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Запись создана, вход — сейчас"
+          },
+          "403": {
+            "description": "FORBIDDEN — не охрана"
+          },
+          "422": {
+            "description": "VALIDATION_ERROR — поля записи"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Записать посетителя на входе",
+        "tags": [
+          "Пост охраны"
+        ]
+      }
+    },
+    "/security/visitors/{id}/exit": {
+      "post": {
+        "operationId": "SecurityJournalController_exitVisitor",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Выход отмечен"
+          },
+          "404": {
+            "description": "NOT_FOUND — нет записи в своём вузе"
+          },
+          "409": {
+            "description": "CONFLICT (`exited`) — выход уже отмечен"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Отметить выход посетителя",
+        "tags": [
+          "Пост охраны"
+        ]
+      }
+    },
     "/schedules": {
       "post": {
         "operationId": "SchedulesController_create",
@@ -23971,6 +24224,43 @@
             "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
           }
         },
+        "additionalProperties": false
+      },
+      "CreateVisitorDto": {
+        "type": "object",
+        "properties": {
+          "fullName": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 150
+          },
+          "purpose": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 300
+          },
+          "documentType": {
+            "type": "string",
+            "enum": [
+              "ID_CARD",
+              "PASSPORT",
+              "DRIVER_LICENSE",
+              "OTHER"
+            ]
+          },
+          "documentLast4": {
+            "type": "string",
+            "pattern": "^\\d{4}$"
+          },
+          "phone": {
+            "type": "string",
+            "maxLength": 20
+          }
+        },
+        "required": [
+          "fullName",
+          "purpose"
+        ],
         "additionalProperties": false
       },
       "CreateScheduleDto": {
