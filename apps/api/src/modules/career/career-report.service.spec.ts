@@ -251,6 +251,12 @@ describe('Границы периода', () => {
     expect(range.previousFrom.toISOString()).toBe('2024-09-01T00:00:00.000Z')
   })
 
+  it('год идёт — сравнение с той же частью прошлого учебного года, а не с ним целиком', () => {
+    const range = resolveRange('year', new Date('2026-03-10T00:00:00.000Z'))
+    // 1 сен 2025 → 10 мар 2026 против 1 сен 2024 → той же длины (10 мар 2025).
+    expect(range.previousTo.toISOString()).toBe('2025-03-10T00:00:00.000Z')
+  })
+
   it('после 1 сентября учебный год считается новым', () => {
     expect(academicYearStart(new Date('2026-09-13T00:00:00.000Z')).toISOString()).toBe(
       '2026-09-01T00:00:00.000Z',
@@ -262,6 +268,7 @@ describe('Границы периода', () => {
     const month = resolveRange('month', now)
     expect(month.from.toISOString()).toBe('2026-08-14T00:00:00.000Z')
     expect(month.previousFrom.toISOString()).toBe('2026-07-15T00:00:00.000Z')
+    expect(month.previousTo.toISOString()).toBe(month.from.toISOString())
     const quarter = resolveRange('quarter', now)
     expect(quarter.from.toISOString()).toBe('2026-06-15T00:00:00.000Z')
   })

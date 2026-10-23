@@ -43,8 +43,9 @@ const DAY_MS = 86_400_000
 export interface ReportRange {
   from: Date
   to: Date
-  /** Предыдущий период той же длины — для дельт. */
+  /** Предыдущий период той же длины — для дельт: [previousFrom, previousTo). */
   previousFrom: Date
+  previousTo: Date
 }
 
 @Injectable()
@@ -120,7 +121,7 @@ export class CareerReportService {
             AND a.created_at >= ${range.from} AND a.created_at < ${range.to}) AS applications,
         (SELECT COUNT(*) FROM career_applications a
           WHERE a.university_id = ${universityId}
-            AND a.created_at >= ${range.previousFrom} AND a.created_at < ${range.from}) AS applications_prev,
+            AND a.created_at >= ${range.previousFrom} AND a.created_at < ${range.previousTo}) AS applications_prev,
         (SELECT COUNT(DISTINCT e.application_id)
            FROM career_application_events e
            JOIN career_applications a ON a.id = e.application_id
@@ -130,7 +131,7 @@ export class CareerReportService {
            FROM career_application_events e
            JOIN career_applications a ON a.id = e.application_id
           WHERE a.university_id = ${universityId} AND e.to_status = 'HIRED'
-            AND e.created_at >= ${range.previousFrom} AND e.created_at < ${range.from}) AS hired_prev,
+            AND e.created_at >= ${range.previousFrom} AND e.created_at < ${range.previousTo}) AS hired_prev,
         (SELECT COUNT(*) FROM vacancy_university_reviews r
            JOIN vacancies v ON v.id = r.vacancy_id
           WHERE r.university_id = ${universityId} AND r.status = 'APPROVED'
@@ -138,13 +139,13 @@ export class CareerReportService {
         (SELECT COUNT(*) FROM vacancy_university_reviews r
            JOIN vacancies v ON v.id = r.vacancy_id
           WHERE r.university_id = ${universityId} AND r.status = 'APPROVED'
-            AND v.published_at >= ${range.previousFrom} AND v.published_at < ${range.from}) AS vacancies_prev,
+            AND v.published_at >= ${range.previousFrom} AND v.published_at < ${range.previousTo}) AS vacancies_prev,
         (SELECT COUNT(*) FROM company_university_access c
           WHERE c.university_id = ${universityId} AND c.status = 'APPROVED'
             AND c.decided_at >= ${range.from} AND c.decided_at < ${range.to}) AS companies,
         (SELECT COUNT(*) FROM company_university_access c
           WHERE c.university_id = ${universityId} AND c.status = 'APPROVED'
-            AND c.decided_at >= ${range.previousFrom} AND c.decided_at < ${range.from}) AS companies_prev
+            AND c.decided_at >= ${range.previousFrom} AND c.decided_at < ${range.previousTo}) AS companies_prev
     `
     const r = rows[0]
     const pair = (key: string) => ({
@@ -661,11 +662,15 @@ export function resolveRange(period: CareerReportPeriod, now: Date = new Date())
     const previousFrom = new Date(
       Date.UTC(from.getUTCFullYear() - 1, from.getUTCMonth(), from.getUTCDate()),
     )
-    return { from, to: now, previousFrom }
+    // Текущий учебный год ещё идёт, поэтому сравниваем с ТОЙ ЖЕ его частью год назад:
+    // «с 1 сентября по сегодня» против «с 1 сентября по эту же дату прошлого года».
+    // Полный прошлый год против неполного текущего давал падение почти по всем плиткам.
+    const previousTo = new Date(previousFrom.getTime() + (now.getTime() - from.getTime()))
+    return { from, to: now, previousFrom, previousTo }
   }
   const days = period === 'month' ? 30 : 90
   const from = new Date(now.getTime() - days * DAY_MS)
-  return { from, to: now, previousFrom: new Date(from.getTime() - days * DAY_MS) }
+  return { from, to: now, previousFrom: new Date(from.getTime() - days * DAY_MS), previousTo: from }
 }
 
 /** 1 сентября текущего учебного года (UTC). */
