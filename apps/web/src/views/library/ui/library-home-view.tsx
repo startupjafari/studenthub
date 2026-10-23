@@ -81,7 +81,7 @@ export function LibraryHomeView() {
   ]
 
   return (
-    <div className="flex w-full flex-col gap-6">
+    <div className="flex w-full flex-col gap-6 xl:flex-1">
       <PageHeader title={t('title')} subtitle={t('subtitle')} />
 
       {settings.isPending ? (
@@ -158,7 +158,8 @@ export function LibraryHomeView() {
             ))}
           </ul>
 
-          <div className="grid items-start gap-6 xl:grid-cols-2">
+          {/* На компьютере панели добирают высоту окна до низа, обе вровень. */}
+          <div className="grid items-start gap-6 xl:flex-1 xl:grid-cols-2 xl:items-stretch">
             <OverduePanel />
             <HoldShelfPanel />
           </div>
