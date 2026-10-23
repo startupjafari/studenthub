@@ -40,7 +40,7 @@ interface DeskAction {
   description: string
 }
 
-const PANEL_LIMIT = 6
+const PANEL_LIMIT = 10
 
 // Главная библиотекаря (docs/PROJECT.md §3.11, Фаза 20): сначала — что требует внимания
 // (на руках, просрочки, книги на полке броней), потом крупные действия стойки и два списка,
