@@ -403,6 +403,16 @@ status `DRAFT|UPLOADED|IN_REVIEW|VERIFIED|ACCEPTED|REJECTED|NEEDS_REPLACEMENT|EX
 `submissionCount`, остальные — `GET manage/:id/submissions?cursor&limit≤50`; `POST manage/:id/close`
 идемпотентен.
 
+**Прогресс группы для старосты.** `GET /document-requests/group-progress` — только `STAROSTA`,
+группа из токена (ищется в его вузе, иначе `403 WRONG_SCOPE`). Открытые запросы, адресованные
+группе целиком (`GROUP` своей группы, `FACULTY` её факультета, `UNIVERSITY`; персональные `USER`
+не входят), до 30. По каждому: `kind` (`ACADEMIC` — все позиции учебных типов, иначе `PERSONAL`),
+`counts { total, notSubmitted, submitted, needsFix, accepted }`, `members`. Поимённо (`members:
+[{ id, name, status: NOT_STARTED|IN_PROGRESS|SUBMITTED|NEEDS_FIX|ACCEPTED }]`) — только у учебных;
+у личных `members: null`, `needsFix: null` (возвращённые входят в `notSubmitted`), чтобы отказ
+по паспорту не привязывался к человеку. Документов, их типов, номеров, файлов и вердиктов по
+позициям в ответе нет. Экран — `/starosta/group-documents`.
+
 **Автоматизация.** Cron `sweepDocumentExpiry` (ежедневно): `expiresAt` → `EXPIRING`/`EXPIRED`,
 затем архив по сроку хранения — по типам с `retentionDays`, пачками до исчерпания. Cron
 `closeOverdueDocumentRequests` (03:35) закрывает запросы с прошедшим сроком. Уведомления BullMQ

@@ -10319,6 +10319,29 @@
         ]
       }
     },
+    "/document-requests/group-progress": {
+      "get": {
+        "operationId": "DocumentRequestsController_groupProgress",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Запросы со счётчиками комплектов; members — только у учебных запросов"
+          },
+          "403": {
+            "description": "FORBIDDEN — только староста с группой"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Прогресс своей группы по открытым запросам (староста): счётчики, поимённо — только учебные",
+        "tags": [
+          "Документы: запросы"
+        ]
+      }
+    },
     "/document-requests/{id}": {
       "get": {
         "operationId": "DocumentRequestsController_getForStudent",
