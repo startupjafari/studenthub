@@ -292,6 +292,10 @@ export class CareerReportService {
    * «на факультете 4 студента, трудоустроен 1» — это сведения о конкретном человеке,
    * а не агрегат. Сколько строк скрыто — возвращаем числом, чтобы таблица не выглядела
    * полной, когда это не так.
+   *
+   * Это не топ, а разрез: строки показываются все, а не первые десять — иначе в большом вузе
+   * таблица молча теряла факультеты, и `suppressed` об этом не говорил. Факультетов у вуза
+   * десятки, а не тысячи, и выборка ограничена одним вузом.
    */
   private async faculties(universityId: string, range: ReportRange) {
     const rows = await this.prisma.$queryRaw<
@@ -321,7 +325,7 @@ export class CareerReportService {
     }))
     const visible = mapped.filter((r) => r.students >= MIN_CELL)
     return {
-      items: visible.slice(0, TOP_LIMIT).map((r) => ({
+      items: visible.map((r) => ({
         ...r,
         appliedShare: rate(r.applied, r.students),
         hiredShare: rate(r.hired, r.students),

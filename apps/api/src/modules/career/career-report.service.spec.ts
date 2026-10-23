@@ -172,6 +172,20 @@ describe('CareerReportService', () => {
     expect(report.faculties.minCell).toBe(5)
   })
 
+  it('разрез по факультетам не обрезается десяткой — показываются все крупные', async () => {
+    const many = Array.from({ length: 14 }, (_, i) => ({
+      id: `f-${i}`,
+      name: `Факультет ${i}`,
+      students: 50n,
+      applied: 10n,
+      hired: 1n,
+    }))
+    const { service } = setup({ faculties: many })
+    const report = await service.forUniversity(staff(), 'quarter')
+    expect(report.faculties.items).toHaveLength(14)
+    expect(report.faculties.suppressed).toBe(0)
+  })
+
   it('пустой город не попадает в географию', async () => {
     const { service } = setup()
     const report = await service.forUniversity(staff(), 'quarter')
