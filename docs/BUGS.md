@@ -1876,6 +1876,90 @@
 #### BUG-359 · 🟢 Срок в письме подтверждения компании — в UTC без пояса (новое место BUG-296)
 - **Где:** `apps/api/src/modules/career/companies.service.ts:144,205` · **Статус:** новый
 
+### События, уведомления, модерация, поддержка
+
+#### BUG-360 · 🟠 Пожаловаться на сообщение, человека или сторис нельзя ни из одного клиента
+- **Роль:** STUDENT, STAROSTA, TEACHER → модераторы · **Статус:** подтверждён
+- **Где:** `ReportModal`/`createComplaintRequest` вызываются только в `apps/web/src/widgets/feed-list/ui/post-tile-menu.tsx:210` (POST) и `post-lightbox.tsx:1152` (COMMENT); в `widgets/chat-window`, `widgets/user-profile`, `widgets/stories-rail`, `apps/ios`, `apps/android` жалоб нет
+- **Сценарий:** студента травят в личке — «Пожаловаться» нет ни у сообщения, ни в профиле, ни в сторис. API принимает `MESSAGE`/`USER`/`STORY` с приоритетом HIGH, а «доступ к чату по жалобе» недостижим.
+- **Ожидается:** §2.2 «Жалобы — создание: Студент ✅»; §3.4 жалоба на сторис.
+
+#### BUG-361 · 🟡 🔒 Новая блокировка перезаписывает действующую: бессрочная становится недельной; крон снимает продлённую
+- **Где:** `apps/api/src/modules/users/users.service.ts:2282-2285` (`blockedUntil: until` без учёта текущего), вызовы `complaints.service.ts:510-514`, `users.controller.ts:389-390`; гонка `apps/api/src/modules/cleanup/cleanup.service.ts:358-368` (`updateMany` по `id` без `blockedUntil <= now`) · **Статус:** подтверждён
+- **Ожидается:** срок только растёт (`null` = бессрочно), крон снимает условно (корень BUG-025/027).
+
+#### BUG-362 · 🟡 Админ вуза, декан и модераторы не видят событий, которыми по правилам управляют и которые модерируют
+- **Где:** `apps/api/src/modules/events/event-visibility.ts:10-25`, `events.service.ts:205-213,488-492` против `canManageEvent :835-843`, `canModerateEventComment :852-868` · **Статус:** новый
+- **Сценарий:** события факультетов, групп и «для преподавателей» админу вуза отвечают `404`, хотя `PATCH`/`DELETE` ему разрешены; модератор не может открыть обсуждение и снять комментарий.
+- **Ожидается:** scope модерации добавляется к видимости, как `moderationWhere` у постов; §3.5.
+
+#### BUG-363 · 🟡 Взятая в разбор жалоба пропадает из очереди по умолчанию
+- **Где:** `apps/web/src/views/moderation/ui/complaints-queue-view.tsx:43` (`STATUS_TABS` без `REVIEWING`), `:65,74` · **Статус:** подтверждён
+- **Ожидается:** «В очереди» = PENDING + REVIEWING, как `OPEN_STATUSES` на сервере.
+
+#### BUG-364 · 🟡 Взятая жалоба или обращение навсегда закреплены за человеком: ни отпустить, ни передать
+- **Где:** `apps/api/src/modules/complaints/complaints.controller.ts` (только `take`), `apps/web/src/views/moderation/ui/complaint-detail-modal.tsx:81,304-353` (при `takenByOther` решения скрыты); `apps/api/src/modules/chats/support.service.ts:497-503`, `support-thread-modal.tsx:146,248,369` · **Статус:** новый
+- **Сценарий:** взявший ушёл в отпуск или разжалован — жалобу в вебе решить некому, на обращение ответить нельзя.
+
+#### BUG-365 · 🟡 Охрана и библиотекарь не могут написать в поддержку: вкладка есть, отправка — 403
+- **Где:** `apps/api/src/modules/chats/support.controller.ts:36-91` (нет `@RestrictedAllowed`), `apps/web/src/widgets/account-settings/ui/account-settings-panels.tsx:146,222`; ответ обещан «в Чатах», которых у этих ролей нет · **Статус:** подтверждён
+- **Ожидается:** §8.3 «`POST /support` (любая роль)».
+
+#### BUG-366 · 🟡 Тумблер «Push в браузере» выключает пуши и на телефонах, а с телефона обратно не включить
+- **Где:** `account-settings-panels.tsx:819-835,875-889`, `apps/api/src/modules/push/push.service.ts:133-139`, `apps/api/src/modules/notifications/notifications.processor.ts:200,457-460` (один `pushEnabled` на все каналы) · **Статус:** новый
+
+#### BUG-367 · 🟡 Декан не может создать событие для группы: в форме нет выбора группы (новое место BUG-265)
+- **Где:** `apps/web/src/features/create-event/ui/create-event-modal.tsx:42,59` (`GROUP_PICKER_ROLES` без DEAN), `apps/api/src/modules/events/events.service.ts:776-779` (`400 «Не указана группа»`) · **Статус:** новый
+
+#### BUG-368 · 🟢 Форма события молча не отправляется после переключения «Онлайн» туда и обратно
+- **Где:** `apps/web/src/features/create-event/ui/event-details-fields.tsx:149-151` (`setValueAs` только в `edit`), `packages/shared-schemas/src/events.ts:67` · **Статус:** новый
+
+#### BUG-369 · 🟢 «Мероприятия» показывают только первые 50 событий (новое место BUG-102)
+- **Где:** `apps/web/src/entities/event/api/event-api.ts:8,26-31`, `views/events/ui/events-view.tsx:51-55` · **Статус:** новый
+
+#### BUG-370 · 🟢 Список участников события молча обрезан на 1000
+- **Где:** `apps/web/src/entities/event/api/event-api.ts:69-72` (без `limit`/`cursor`), `apps/api/src/modules/events/events.service.ts:117,435-441`, `event-detail-view.tsx:195,248` · **Статус:** новый
+
+#### BUG-371 · 🟢 Организатор без регистрации не видит «Присоединиться» к встрече своего события
+- **Где:** `apps/web/src/views/events/ui/events-view.tsx:303`, `event-detail-view.tsx:219`; сервер пускает — `events.service.ts:252` · **Статус:** новый
+
+#### BUG-372 · 🟢 Перенос события на прежнее время: уведомление и напоминание проглатываются (корень BUG-090/BUG-094)
+- **Где:** `apps/api/src/modules/events/events.service.ts:365,636` · **Статус:** новый
+
+#### BUG-373 · 🟢 Время в уведомлениях о событиях платформы — в UTC без пометки (корень BUG-103)
+- **Где:** `apps/api/src/modules/events/events.service.ts:357-361,379,391,747-754` · **Статус:** новый
+
+#### BUG-374 · 🟢 Окно жалобы не обновляется после «Взять» — повторное нажатие даёт «разбирает другой»
+- **Где:** `apps/web/src/views/moderation/ui/complaints-queue-view.tsx:69,174,236`, `complaint-detail-modal.tsx:111-122,309` · **Статус:** новый
+
+#### BUG-375 · 🟢 «Удалить контент» по жалобе — без подтверждения (класс BUG-014)
+- **Где:** `apps/web/src/views/moderation/ui/complaint-detail-modal.tsx:136-149,334-343` · **Статус:** новый
+
+#### BUG-376 · 🟢 🔒 В аудите блокировки, предупреждения и «взял» нет IP и user-agent, у блокировки по жалобе нет `complaintId`
+- **Где:** `apps/api/src/modules/users/users.service.ts:2291-2297,2338-2344`, `apps/api/src/modules/complaints/complaints.service.ts:229-234` · **Статус:** новый
+- **Ожидается:** §11.4.
+
+#### BUG-377 · 🟢 Курсор ленты уведомлений ломается на свёрнутых и удалённых строках
+- **Где:** `apps/api/src/modules/notifications/notifications.service.ts:72-84` (Prisma-курсор по `id` при `orderBy createdAt`), `notifications.processor.ts:324-327` · **Статус:** новый
+- **Сценарий:** свёрнутая строка чата «подпрыгнула» — дубли страницы; курсорную удалили — `[]`.
+- **Ожидается:** keyset по (`createdAt`, `id`), как `keysetFrom` в событиях.
+
+#### BUG-378 · 🟢 «Прочитать всё» неактивно, когда непрочитанные старше 50 загруженных — бейдж не сбросить
+- **Где:** `apps/web/src/views/notifications/ui/notifications-view.tsx:116,156,261` · **Статус:** новый
+
+#### BUG-379 · 🟢 Переписка обращения в поддержку — только 50 последних сообщений
+- **Где:** `apps/api/src/modules/chats/support.service.ts:299,311`, `apps/web/src/views/support-desk/ui/support-thread-modal.tsx:149,215-246` · **Статус:** новый
+
+#### BUG-380 · 🟢 Любой CONFLICT в окне обращения — «Обращение уже разбирает другой» (класс BUG-042)
+- **Где:** `apps/web/src/views/support-desk/ui/support-thread-modal.tsx:81-84` · **Статус:** новый
+
+#### BUG-381 · 🟢 🔒 Админ вуза читает личную переписку по жалобе, хотя матрица открывает ему только официальные чаты
+- **Где:** `apps/api/src/modules/complaints/complaints.controller.ts:20-25,95-107` (`MODERATOR_ROLES` с UNIVERSITY_ADMIN) · **Статус:** новый
+- **Ожидается:** §2.2 «Личные чаты: Адм. вуза ⚠️ официальные» — поправить код или матрицу.
+
+#### BUG-382 · 🟢 Нет раздела «События» у админа платформы; сотрудник платформы через «Поддержку» заводит обращение без автора
+- **Где:** `apps/web/src/widgets/app-shell/model/nav.ts` (`PLATFORM_ADMIN_NAV` без events, класс BUG-005/064); `apps/api/src/modules/chats/support.service.ts:699-709,796-798`, `account-settings-panels.tsx:146` · **Статус:** новый
+
 <!-- P3-END -->
 
 ## Замечено попутно
