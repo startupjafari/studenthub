@@ -3,12 +3,19 @@ import type { JwtService } from '@nestjs/jwt'
 import type { Server, Socket } from 'socket.io'
 import type { EnvVars } from '../../config/env.schema'
 import { RealtimeGateway } from './realtime.gateway'
+import { UniversityAccessService } from '../../modules/universities/university-access.service'
+import type { PrismaService } from '../prisma/prisma.service'
 
 // WS-аутентификация в handshake (план 9.8): без токена/с невалидным токеном — разрыв;
 // с валидным — автоматический вход в свои комнаты и учёт присутствия.
 function setup(enforceTwoFactor = true) {
   const jwt = { verifyAsync: jest.fn() }
-  const prisma = { user: { update: jest.fn().mockResolvedValue({}) } }
+  const prisma = {
+    user: { update: jest.fn().mockResolvedValue({}) },
+    // Статус вуза читает настоящий UniversityAccessService — тот же, что у HTTP.
+    university: { findUnique: jest.fn().mockResolvedValue({ status: 'ACTIVE' }) },
+  }
+  const universityAccess = new UniversityAccessService(prisma as unknown as PrismaService)
   const config = { get: jest.fn(() => enforceTwoFactor) }
   const revocation = { isRevoked: jest.fn().mockResolvedValue(false) }
   const gateway = new RealtimeGateway(
@@ -16,12 +23,13 @@ function setup(enforceTwoFactor = true) {
     prisma as unknown as import('../prisma/prisma.service').PrismaService,
     config as unknown as ConfigService<EnvVars, true>,
     revocation as unknown as import('../redis/session-revocation.service').SessionRevocationService,
+    universityAccess,
   )
   // Присутствие рассылается адресно: server.to(rooms).emit(...). Мокаем цепочку to→emit.
   const roomEmit = jest.fn()
   const server = { emit: jest.fn(), to: jest.fn(() => ({ emit: roomEmit })) }
   ;(gateway as unknown as { server: Server }).server = server as unknown as Server
-  return { gateway, jwt, server, roomEmit, revocation }
+  return { gateway, jwt, server, roomEmit, revocation, prisma, universityAccess }
 }
 
 /** Дать отработать отложенной рассылке присутствия (аудитория читается асинхронно). */
@@ -409,5 +417,96 @@ describe('RealtimeGateway — отозванные сессии', () => {
     expect(revocation.isRevoked).toHaveBeenCalledWith('u1', 100)
     expect(client.disconnect).toHaveBeenCalled()
     expect(client.join).not.toHaveBeenCalled()
+  })
+})
+
+// Регрессия: блокировка вуза не закрывала WebSocket. HTTP пользователям закрытого вуза уже
+// отвечал UNIVERSITY_BLOCKED, а сокет открывался, продлевался и принимал события чата.
+describe('RealtimeGateway — заблокированный вуз', () => {
+  const student = { sub: 'u1', role: 'STUDENT', universityId: 'uni1', groupId: 'g1' }
+
+  it('handshake пользователя заблокированного вуза — разрыв, без комнат и без онлайна', async () => {
+    const { gateway, jwt, prisma } = setup(false)
+    jwt.verifyAsync.mockResolvedValue(student)
+    prisma.university.findUnique.mockResolvedValue({ status: 'BLOCKED' })
+    const client = socket('tok')
+    await gateway.handleConnection(client)
+    expect(prisma.university.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'uni1' } }),
+    )
+    expect(client.disconnect).toHaveBeenCalled()
+    expect(client.join).not.toHaveBeenCalled()
+    expect(gateway.isOnline('u1')).toBe(false)
+  })
+
+  it('платформенную роль статус вуза не касается', async () => {
+    const { gateway, jwt, prisma } = setup(false)
+    jwt.verifyAsync.mockResolvedValue({ sub: 'p1', role: 'PLATFORM_ADMIN', universityId: 'uni1' })
+    prisma.university.findUnique.mockResolvedValue({ status: 'BLOCKED' })
+    const client = socket('tok')
+    await gateway.handleConnection(client)
+    expect(client.disconnect).not.toHaveBeenCalled()
+  })
+
+  it('сбой чтения статуса соединение не рвёт — как и HTTP-запрос', async () => {
+    const { gateway, jwt, prisma } = setup(false)
+    jwt.verifyAsync.mockResolvedValue(student)
+    prisma.university.findUnique.mockRejectedValue(new Error('db down'))
+    const client = socket('tok')
+    await gateway.handleConnection(client)
+    expect(client.disconnect).not.toHaveBeenCalled()
+    expect(client.join).toHaveBeenCalledWith('user:u1')
+  })
+
+  it('auth:refresh после блокировки вуза рвёт соединение, а не продлевает его', async () => {
+    const { gateway, jwt, universityAccess } = setup(false)
+    jwt.verifyAsync.mockResolvedValue(student)
+    const client = socket('tok')
+    await gateway.handleConnection(client)
+    expect(client.disconnect).not.toHaveBeenCalled()
+
+    universityAccess.remember('uni1', 'BLOCKED')
+    await gateway.handleAuthRefresh(client, { token: 'fresh' })
+    expect(client.disconnect).toHaveBeenCalled()
+  })
+
+  it('disconnectUniversity рвёт сокеты вуза, кроме платформенных ролей', async () => {
+    const { gateway, universityAccess } = setup(false)
+    universityAccess.remember('uni1', 'BLOCKED')
+    const member = {
+      data: { userId: 'u1', role: 'STUDENT', universityId: 'uni1' },
+      disconnect: jest.fn(),
+    }
+    const platform = {
+      data: { userId: 'p1', role: 'PLATFORM_ADMIN', universityId: 'uni1' },
+      disconnect: jest.fn(),
+    }
+    const fetchSockets = jest.fn().mockResolvedValue([member, platform])
+    const server = { in: jest.fn(() => ({ fetchSockets })) }
+    ;(gateway as unknown as { server: Server }).server = server as unknown as Server
+
+    await gateway.disconnectUniversity('uni1')
+
+    expect(server.in).toHaveBeenCalledWith('university:uni1')
+    expect(member.disconnect).toHaveBeenCalledWith(true)
+    expect(platform.disconnect).not.toHaveBeenCalled()
+  })
+
+  it('admitSocket: живой сокет заблокированного вуза получает UNIVERSITY_BLOCKED и рвётся', async () => {
+    const { gateway, universityAccess } = setup(false)
+    const client = socket()
+    client.emit = jest.fn() as unknown as Socket['emit']
+    Object.assign(client.data, { userId: 'u1', role: 'STUDENT', universityId: 'uni1' })
+
+    await expect(gateway.admitSocket(client, 'message:send')).resolves.toBe(true)
+    expect(client.disconnect).not.toHaveBeenCalled()
+
+    universityAccess.remember('uni1', 'BLOCKED')
+    await expect(gateway.admitSocket(client, 'message:send')).resolves.toBe(false)
+    expect(client.emit).toHaveBeenCalledWith('error', {
+      event: 'message:send',
+      code: 'UNIVERSITY_BLOCKED',
+    })
+    expect(client.disconnect).toHaveBeenCalledWith(true)
   })
 })

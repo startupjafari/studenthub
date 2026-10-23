@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { SortOrderSchema } from './pagination.js'
+import { OptionalCursorPaginationSchema, SortOrderSchema } from './pagination.js'
 
 // Схемы модуля «Документы» (Ф15, задача 15.3). Значения enum зеркалят справочник в
 // @studenthub/shared-config (DOCUMENT_CATEGORIES/…); сам `type` валидируется как строка,
@@ -79,6 +79,11 @@ export const ReorderDocumentFilesSchema = z
   .strict()
 export type ReorderDocumentFilesInput = z.infer<typeof ReorderDocumentFilesSchema>
 
+// Замена одной страницы: новый (уже загруженный, ещё не прикреплённый) файл встаёт на место
+// старой страницы с тем же порядковым номером, старый файл удаляется из хранилища.
+export const ReplaceDocumentFileSchema = z.object({ fileId: z.string().min(1) }).strict()
+export type ReplaceDocumentFileInput = z.infer<typeof ReplaceDocumentFileSchema>
+
 // Колонки таблицы документов, по которым разрешена сортировка. Именно колонки, а не
 // пресеты «новые/старые»: таблица сортируется кликом по заголовку, и набор значений
 // должен совпадать с тем, что видит пользователь. Номер сюда не входит — наружу уходит
@@ -110,6 +115,10 @@ export const DocumentListQuerySchema = z
     // показывала другое.
     preset: z.enum(['active', 'shared', 'issued']).optional(),
     view: z.enum(['active', 'archived']).default('active'),
+    // Страница по запросу (как у комментариев): без `limit`/`cursor` — прежний ответ
+    // массивом, его читают веб и Android; с ними — страница с meta.cursor/hasNext/total.
+    // Без этих полей `.strict()` отвечал 400 iOS-клиенту, который шлёт `?limit=50`.
+    ...OptionalCursorPaginationSchema.shape,
   })
   .strict()
 export type DocumentListQueryInput = z.infer<typeof DocumentListQuerySchema>

@@ -36,17 +36,21 @@ import { UploadWizard } from './upload-wizard'
 
 export type DocumentsPreset = 'active' | 'archived' | 'shared' | 'issued'
 
-// Тон бейджа статуса.
-const STATUS_TONE: Record<string, 'secondary' | 'info' | 'success' | 'outline'> = {
+// Тон бейджа статуса. Статусы проверки (15.3) теперь реально выставляются: «требует
+// замены» и «отклонён» ждут действия владельца — красным, близкий срок — предупреждением.
+const STATUS_TONE: Record<
+  string,
+  'secondary' | 'info' | 'success' | 'outline' | 'warning' | 'destructive'
+> = {
   DRAFT: 'secondary',
-  UPLOADED: 'info',
+  UPLOADED: 'outline',
   IN_REVIEW: 'info',
   VERIFIED: 'success',
   ACCEPTED: 'success',
-  REJECTED: 'outline',
-  NEEDS_REPLACEMENT: 'outline',
-  EXPIRING: 'outline',
-  EXPIRED: 'outline',
+  REJECTED: 'destructive',
+  NEEDS_REPLACEMENT: 'destructive',
+  EXPIRING: 'warning',
+  EXPIRED: 'destructive',
   ARCHIVED: 'secondary',
 }
 
