@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { randomUUID } from 'node:crypto'
 import { InviteStatus, Prisma } from '@prisma/client'
-import { Role } from '@studenthub/shared-types'
+import { Role, isHigherRole } from '@studenthub/shared-types'
 import { DEFAULT_LOCALE, TTL } from '@studenthub/shared-config'
 import {
   BULK_INVITE_MAX_ROWS,
@@ -643,15 +643,17 @@ export class InviteService {
         facultyId: true,
         groupId: true,
         expiresAt: true,
+        createdById: true,
       },
     })
     if (!invite) {
       throw new AppException('NOT_FOUND', 'Инвайт не найден')
     }
     this.assertUsable(invite.status, invite.expiresAt)
-    // Ссылка в группу или на факультет, которых уже нет: сказать об этом сразу, а не после
-    // заполненной формы регистрации.
+    // Ссылка в группу или на факультет, которых уже нет, или от выдавшего, который больше
+    // не вправе её выдать: сказать об этом сразу, а не после заполненной формы регистрации.
     await this.assertScopeAlive(this.prisma, invite)
+    await this.assertIssuerEntitled(this.prisma, invite)
 
     return {
       role: invite.role,
@@ -670,13 +672,16 @@ export class InviteService {
   /**
    * Отзыв инвайта: создатель, платформенный админ или админ вуза в своём scope. Только PENDING.
    *
+   * Админ вуза отзывает только роли строго ниже своей (§2.1): приглашение второго админа
+   * вуза выдаёт платформа, и отозвать его — то же, что решить за неё, кому управлять вузом.
+   *
    * Запись условная — статус стоит в WHERE: регистрация между проверкой и записью занимала
    * инвайт (USED), а безусловный update переписывал его в REVOKED при живом пользователе.
    */
   async revoke(issuer: JwtPayload, id: string, ctx: RequestContext) {
     const invite = await this.prisma.invite.findUnique({
       where: { id },
-      select: { id: true, status: true, createdById: true, universityId: true },
+      select: { id: true, status: true, role: true, createdById: true, universityId: true },
     })
     if (!invite) {
       throw new AppException('NOT_FOUND', 'Инвайт не найден')
@@ -685,7 +690,9 @@ export class InviteService {
     const canRevoke =
       invite.createdById === issuer.sub ||
       issuer.role === Role.PLATFORM_ADMIN ||
-      (issuer.role === Role.UNIVERSITY_ADMIN && invite.universityId === issuer.universityId)
+      (issuer.role === Role.UNIVERSITY_ADMIN &&
+        invite.universityId === issuer.universityId &&
+        isHigherRole(issuer.role, invite.role))
     if (!canRevoke) {
       throw new AppException('FORBIDDEN', 'Нет прав на отзыв этого инвайта')
     }
@@ -781,6 +788,7 @@ export class InviteService {
     const invite = await tx.invite.findFirstOrThrow({ where: { token: { in: lookups } } })
     // Захват откатится вместе с транзакцией регистрации — ссылка не станет «использованной».
     await this.assertScopeAlive(tx, invite)
+    await this.assertIssuerEntitled(tx, invite)
     return invite
   }
 
@@ -832,6 +840,67 @@ export class InviteService {
         (await db.group.findUnique({ where: { id: scope.groupId }, select: { id: true } })))
     if (!alive) {
       throw new AppException('INVITE_REVOKED', 'Инвайт отозван: группа, факультет или вуз удалены')
+    }
+  }
+
+  /**
+   * Выдавший по-прежнему вправе выдать это приглашение: не удалён, не заблокирован, роль
+   * всё ещё строго выше и scope тот же (§2.1, BACKEND_RULES §7). Нет — для приглашённого
+   * это отзыв.
+   *
+   * Проверка при использовании, а не отзыв при смене роли: старосту снимают, декана
+   * переводят на другой факультет, админа блокируют и удаляют разными путями, и каждый из
+   * них пришлось бы помнить. Здесь же право сверяется ровно тем правилом, по которому
+   * инвайт выдавали (`resolveInviteTarget`), но с текущими ролью и scope выдавшего.
+   */
+  private async assertIssuerEntitled(
+    db: Prisma.TransactionClient,
+    invite: {
+      role: Role
+      createdById: string
+      universityId: string | null
+      facultyId: string | null
+      groupId: string | null
+    },
+  ): Promise<void> {
+    const issuer = await db.user.findUnique({
+      where: { id: invite.createdById },
+      select: {
+        id: true,
+        role: true,
+        isBlocked: true,
+        deletedAt: true,
+        universityId: true,
+        facultyId: true,
+        groupId: true,
+      },
+    })
+    let entitled = issuer !== null && !issuer.isBlocked && issuer.deletedAt === null
+    if (issuer && entitled) {
+      try {
+        const scope = resolveInviteTarget(
+          {
+            sub: issuer.id,
+            role: issuer.role,
+            universityId: issuer.universityId,
+            facultyId: issuer.facultyId,
+            groupId: issuer.groupId,
+          },
+          invite,
+        )
+        entitled =
+          scope.universityId === invite.universityId &&
+          scope.facultyId === invite.facultyId &&
+          scope.groupId === invite.groupId
+      } catch {
+        entitled = false
+      }
+    }
+    if (!entitled) {
+      throw new AppException(
+        'INVITE_REVOKED',
+        'Инвайт отозван: у выдавшего больше нет права на это приглашение',
+      )
     }
   }
 
