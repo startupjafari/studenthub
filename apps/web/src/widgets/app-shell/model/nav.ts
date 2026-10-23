@@ -229,6 +229,13 @@ export const STAROSTA_NAV: NavItem[] = [
   ...STUDENT_NAV,
   { key: 'myGroup', href: '/starosta/group', icon: Users, group: 'starosta' },
   { key: 'classmates', href: '/starosta/classmates', icon: GraduationCap, group: 'starosta' },
+  // Кто из группы сдал комплект по запросу документов — без самих документов.
+  {
+    key: 'groupDocuments',
+    href: '/starosta/group-documents',
+    icon: FolderLock,
+    group: 'starosta',
+  },
   { key: 'invites', href: '/starosta/invites', icon: Send, group: 'starosta' },
 ]
 

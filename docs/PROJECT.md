@@ -442,6 +442,16 @@ status `DRAFT|UPLOADED|IN_REVIEW|VERIFIED|ACCEPTED|REJECTED|NEEDS_REPLACEMENT|EX
 `submissionCount`, остальные — `GET manage/:id/submissions?cursor&limit≤50`; `POST manage/:id/close`
 идемпотентен.
 
+**Прогресс группы для старосты.** `GET /document-requests/group-progress` — только `STAROSTA`,
+группа из токена (ищется в его вузе, иначе `403 WRONG_SCOPE`). Открытые запросы, адресованные
+группе целиком (`GROUP` своей группы, `FACULTY` её факультета, `UNIVERSITY`; персональные `USER`
+не входят), до 30. По каждому: `kind` (`ACADEMIC` — все позиции учебных типов, иначе `PERSONAL`),
+`counts { total, notSubmitted, submitted, needsFix, accepted }`, `members`. Поимённо (`members:
+[{ id, name, status: NOT_STARTED|IN_PROGRESS|SUBMITTED|NEEDS_FIX|ACCEPTED }]`) — только у учебных;
+у личных `members: null`, `needsFix: null` (возвращённые входят в `notSubmitted`), чтобы отказ
+по паспорту не привязывался к человеку. Документов, их типов, номеров, файлов и вердиктов по
+позициям в ответе нет. Экран — `/starosta/group-documents`.
+
 **Журнал документов вуза.** `GET /document-journal?page&limit≤100&action&from&to&q&userId` —
 только `UNIVERSITY_ADMIN`, вуз — из токена (`Document.universityId`), чужой вуз не виден ни
 фильтром, ни поиском (`q` ищет ФИО только среди людей своего вуза; `userId` — человек как

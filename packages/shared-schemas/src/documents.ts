@@ -261,6 +261,43 @@ export const ReviewSubmissionItemSchema = z
   })
 export type ReviewSubmissionItemInput = z.infer<typeof ReviewSubmissionItemSchema>
 
+// ── Прогресс группы по запросам документов — старосте (15.2/15.6) ────────────────
+
+// Статус комплекта одногруппника глазами старосты: без документов, их типов, номеров и
+// файлов. NOT_STARTED — комплекта нет, IN_PROGRESS — черновик, SUBMITTED — отправлен и
+// ждёт проверки, NEEDS_FIX — возвращён на исправление, ACCEPTED — принят.
+export const GROUP_PROGRESS_STATUS_VALUES = [
+  'NOT_STARTED',
+  'IN_PROGRESS',
+  'SUBMITTED',
+  'NEEDS_FIX',
+  'ACCEPTED',
+] as const
+export type GroupProgressStatus = (typeof GROUP_PROGRESS_STATUS_VALUES)[number]
+
+// Запрос «учебный», если все его позиции — учебные документы (категория ACADEMIC): по
+// нему староста видит одногруппников поимённо. Запрос с личными документами (паспорт,
+// справки и т.п.) — только счётчики, и «возвращён на исправление» в них не выделяется:
+// поимённый или отдельный счёт отказов по личным документам раскрывал бы, у кого из
+// одногруппников проблемы с паспортом.
+export interface GroupRequestProgress {
+  id: string
+  title: string
+  dueAt: string | null
+  acceptsSubmissions: boolean
+  kind: 'ACADEMIC' | 'PERSONAL'
+  counts: {
+    total: number
+    notSubmitted: number
+    submitted: number
+    // Только у учебных запросов; у личных такие комплекты входят в notSubmitted.
+    needsFix: number | null
+    accepted: number
+  }
+  // Только у учебных запросов; у личных — null.
+  members: { id: string; name: string; status: GroupProgressStatus }[] | null
+}
+
 // ── Журнал документов вуза для админа вуза (15.2: «читает журнал», без содержимого) ──
 
 // Действия журнала DocumentEvent, по которым можно фильтровать.
