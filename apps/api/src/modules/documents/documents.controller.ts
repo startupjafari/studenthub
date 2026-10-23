@@ -89,6 +89,12 @@ export class DocumentsController {
 
   @Get()
   @ApiOperation({ summary: 'Мои документы (фильтры/поиск/сортировка; view=active|archived)' })
+  @ApiResponse({
+    status: 200,
+    description:
+      'Без limit/cursor — массив (до 200). С ними — страница (limit ≤ 50): meta.cursor/hasNext/total',
+  })
+  @ApiResponse({ status: 400, description: 'BAD_REQUEST — страница с sort=access' })
   list(@CurrentUser() user: CurrentUserData, @Query() query: DocumentListQueryDto) {
     return this.documents.list(user, query)
   }
@@ -105,7 +111,7 @@ export class DocumentsController {
   @Get('shared-with-me')
   @ApiOperation({
     summary:
-      'Документы, открытые мне по активному гранту (на меня, мой факультет — декану, мой вуз — администрации)',
+      'Документы, открытые мне по активному гранту (на меня, мой факультет — декану, мой вуз — модератору вуза и декану; админу вуза — пусто)',
   })
   @ApiResponse({
     status: 200,

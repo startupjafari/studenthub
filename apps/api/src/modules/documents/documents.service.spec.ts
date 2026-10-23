@@ -1,4 +1,5 @@
 import { Role } from '@studenthub/shared-types'
+import { DocumentListQuerySchema } from '@studenthub/shared-schemas'
 import type { ConfigService } from '@nestjs/config'
 import { DocumentsService } from './documents.service'
 import type { PrismaService } from '../../common/prisma/prisma.service'
@@ -431,6 +432,50 @@ describe('DocumentsService — доступ (15.11)', () => {
     )
   })
 
+  it('админ вуза не открывает чужой документ ни по гранту «Университет», ни по персональному', async () => {
+    const { service, prisma, files } = setup()
+    prisma.document.findFirst.mockResolvedValue({
+      id: 'd1',
+      ownerId: 'other',
+      universityId: 'uni-1',
+    })
+    // Грант есть — но админу вуза содержимое не положено (§15.2).
+    prisma.documentAccess.findFirst.mockResolvedValue({ id: 'g1' })
+    prisma.file.findFirst.mockResolvedValue({ id: 'f1' })
+    const admin = { ...actor('admin-1'), role: Role.UNIVERSITY_ADMIN }
+    const err = await service.getFileUrl(admin, 'd1', 'f1').catch((e) => e)
+    expect(err.code).toBe('NOT_FOUND')
+    expect(files.getPresignedUrl).not.toHaveBeenCalled()
+    expect(prisma.documentEvent.create).not.toHaveBeenCalled()
+  })
+
+  it('админ вуза открывает свои документы как владелец', async () => {
+    const { service, prisma, files } = setup()
+    prisma.document.findFirst.mockResolvedValue({
+      id: 'd1',
+      ownerId: 'admin-1',
+      universityId: 'uni-1',
+    })
+    prisma.file.findFirst.mockResolvedValue({ id: 'f1' })
+    const admin = { ...actor('admin-1'), role: Role.UNIVERSITY_ADMIN }
+    await service.getFileUrl(admin, 'd1', 'f1')
+    expect(files.getPresignedUrl).toHaveBeenCalledWith('f1', undefined, false)
+  })
+
+  it('модератор вуза попадает под грант «Университет»', async () => {
+    const { service, prisma } = setup()
+    prisma.document.findFirst.mockResolvedValue({
+      id: 'd1',
+      ownerId: 'other',
+      universityId: 'uni-1',
+    })
+    prisma.documentAccess.findFirst.mockResolvedValue(null)
+    const moderator = { ...actor('mod-1'), role: Role.UNIVERSITY_MODERATOR }
+    await service.getFileUrl(moderator, 'd1', 'f1').catch(() => null)
+    const or = prisma.documentAccess.findFirst.mock.calls[0][0].where.OR
+    expect(or).toEqual([{ granteeType: 'USER', granteeId: 'mod-1' }, { granteeType: 'UNIVERSITY' }])
+  })
+
   it('getFileUrl: не владелец без гранта → NOT_FOUND', async () => {
     const { service, prisma, files } = setup()
     prisma.document.findFirst.mockResolvedValue({
@@ -497,6 +542,29 @@ describe('DocumentsService — открытые мне документы (D-F10
     expect((item.document as unknown as Record<string, unknown>).numberLast4).toBeUndefined()
     expect(item.document.fileCount).toBe(1)
     expect(res.meta).toEqual({ cursor: undefined, hasNext: false })
+  })
+
+  it('админу вуза «Открытые мне» пусты: без выборки грантов и метаданных', async () => {
+    const { service, prisma } = setup()
+    prisma.documentAccess.findMany.mockResolvedValue([grantRow('a1')])
+    const admin = { ...actor('admin-1'), role: Role.UNIVERSITY_ADMIN }
+    const res = await service.listSharedWithMe(admin, { limit: 20 })
+    expect(res.items).toEqual([])
+    expect(res.meta).toEqual({ hasNext: false })
+    expect(prisma.documentAccess.findMany).not.toHaveBeenCalled()
+  })
+
+  it('персональный грант: админ вуза не получает уведомления о доступе', async () => {
+    const { service, prisma } = setup()
+    prisma.document.findFirst.mockResolvedValue({ id: 'd1' })
+    await service.grantAccess(actor(), 'd1', {
+      granteeType: 'USER',
+      granteeId: 'admin-1',
+      reason: 'личное дело',
+    })
+    expect(prisma.user.findMany.mock.calls[0][0].where).toEqual(
+      expect.objectContaining({ id: 'admin-1', role: { notIn: [Role.UNIVERSITY_ADMIN] } }),
+    )
   })
 
   it('студенту — только персональные гранты', async () => {
@@ -892,5 +960,128 @@ describe('DocumentsService — страницы документа: замена
         data: expect.objectContaining({ action: 'PAGE_ADD', metadata: { added: 1 } }),
       }),
     )
+  })
+})
+
+describe('DocumentsService — список: страница по запросу (iOS шлёт ?limit=50)', () => {
+  const docs = (n: number) =>
+    Array.from({ length: n }, (_, i) =>
+      row({ id: `d${i + 1}`, createdAt: new Date(Date.UTC(2026, 0, 30 - i)) }),
+    )
+
+  it('схема принимает limit и cursor; limit > 50 и лишние поля по-прежнему отклоняются', () => {
+    expect(DocumentListQuerySchema.safeParse({ limit: '50' }).success).toBe(true)
+    expect(DocumentListQuerySchema.parse({ limit: '50', cursor: 'x' })).toEqual({
+      limit: 50,
+      cursor: 'x',
+      view: 'active',
+    })
+    expect(DocumentListQuerySchema.safeParse({ limit: '51' }).success).toBe(false)
+    expect(DocumentListQuerySchema.safeParse({ page: '2' }).success).toBe(false)
+  })
+
+  it('без limit/cursor — прежний ответ массивом (веб, Android), потолок 200', async () => {
+    const { service, prisma } = setup()
+    prisma.document.findMany.mockResolvedValue(docs(2))
+    const res = await service.list(actor(), { view: 'active' })
+    expect(Array.isArray(res)).toBe(true)
+    const args = prisma.document.findMany.mock.calls[0][0]
+    expect(args.take).toBe(200)
+    expect(args.orderBy).toEqual([{ createdAt: 'desc' }, { id: 'desc' }])
+    expect(prisma.document.count).not.toHaveBeenCalled()
+  })
+
+  it('limit: страница limit + 1 строк → hasNext, total и курсор последней строки', async () => {
+    const { service, prisma } = setup()
+    prisma.document.findMany.mockResolvedValue(docs(3))
+    prisma.document.count.mockResolvedValue(7)
+    const res = await service.list(actor(), { view: 'active', limit: 2 })
+    if (Array.isArray(res)) throw new Error('ожидалась страница')
+    expect(prisma.document.findMany.mock.calls[0][0].take).toBe(3)
+    expect(res.items.map((d) => d.id)).toEqual(['d1', 'd2'])
+    expect(res.meta.hasNext).toBe(true)
+    expect(res.meta.total).toBe(7)
+    expect(res.meta.cursor).toEqual(expect.any(String))
+    // Номер — по-прежнему только маской.
+    expect((res.items[0] as unknown as Record<string, unknown>).numberLast4).toBeUndefined()
+  })
+
+  it('cursor: следующая страница строго после позиции последней строки', async () => {
+    const { service, prisma } = setup()
+    prisma.document.findMany.mockResolvedValue(docs(3))
+    const first = await service.list(actor(), { view: 'active', limit: 2 })
+    if (Array.isArray(first)) throw new Error('ожидалась страница')
+    prisma.document.findMany.mockResolvedValue([])
+    await service.list(actor(), { view: 'active', limit: 2, cursor: first.meta.cursor })
+    const where = prisma.document.findMany.mock.calls[1][0].where
+    const at = new Date(Date.UTC(2026, 0, 29))
+    expect(where.AND[0]).toEqual(expect.objectContaining({ ownerId: 'me', deletedAt: null }))
+    expect(where.AND[1]).toEqual({
+      OR: [{ createdAt: { lt: at } }, { createdAt: at, id: { lt: 'd2' } }],
+    })
+    // Свой курсор той же сортировки не требует похода в БД за позицией.
+    expect(prisma.document.findFirst).not.toHaveBeenCalled()
+  })
+
+  it('cursor по дате с пустыми значениями: после даты идут и строки без неё', async () => {
+    const { service, prisma } = setup()
+    prisma.document.findMany.mockResolvedValue([
+      row({ id: 'a', expiresAt: new Date(Date.UTC(2027, 0, 1)) }),
+      row({ id: 'b', expiresAt: null }),
+      row({ id: 'c', expiresAt: null }),
+    ])
+    const query = { view: 'active' as const, sort: 'expiresAt' as const, order: 'asc' as const }
+    const p1 = await service.list(actor(), { ...query, limit: 1 })
+    const p2 = await service.list(actor(), { ...query, limit: 2 })
+    if (Array.isArray(p1) || Array.isArray(p2)) throw new Error('ожидалась страница')
+    prisma.document.findMany.mockResolvedValue([])
+    await service.list(actor(), { ...query, limit: 1, cursor: p1.meta.cursor })
+    await service.list(actor(), { ...query, limit: 1, cursor: p2.meta.cursor })
+    const at = new Date(Date.UTC(2027, 0, 1))
+    expect(prisma.document.findMany.mock.calls[2][0].where.AND[1]).toEqual({
+      OR: [{ expiresAt: { gt: at } }, { expiresAt: at, id: { gt: 'a' } }, { expiresAt: null }],
+    })
+    expect(prisma.document.findMany.mock.calls[3][0].where.AND[1]).toEqual({
+      expiresAt: null,
+      id: { gt: 'b' },
+    })
+  })
+
+  it('голый id или курсор другой сортировки — позиция по своему документу', async () => {
+    const { service, prisma } = setup()
+    prisma.document.findFirst.mockResolvedValue(row({ id: 'd5', title: 'Диплом' }))
+    await service.list(actor(), { view: 'active', sort: 'title', limit: 10, cursor: 'd5' })
+    expect(prisma.document.findFirst.mock.calls[0][0].where).toEqual({ id: 'd5', ownerId: 'me' })
+    expect(prisma.document.findMany.mock.calls[0][0].where.AND[1]).toEqual({
+      OR: [{ title: { gt: 'Диплом' } }, { title: 'Диплом', id: { gt: 'd5' } }],
+    })
+  })
+
+  it('курсор на чужой или несуществующий документ — пустая страница, без выборки', async () => {
+    const { service, prisma } = setup()
+    prisma.document.findFirst.mockResolvedValue(null)
+    prisma.document.count.mockResolvedValue(4)
+    const res = await service.list(actor(), { view: 'active', limit: 10, cursor: 'foreign' })
+    expect(res).toEqual(expect.objectContaining({ items: [], meta: { hasNext: false, total: 4 } }))
+    expect(prisma.document.findMany).not.toHaveBeenCalled()
+  })
+
+  it('подделанный курсор (строка вместо даты) не доходит до БД как дата', async () => {
+    const { service, prisma } = setup()
+    prisma.document.findFirst.mockResolvedValue(null)
+    const forged = Buffer.from(
+      JSON.stringify({ s: 'createdAt:desc', v: 'not-a-date', id: 'd1' }),
+    ).toString('base64url')
+    await service.list(actor(), { view: 'active', limit: 10, cursor: forged })
+    expect(prisma.document.findFirst.mock.calls[0][0].where).toEqual({ id: 'd1', ownerId: 'me' })
+    expect(prisma.document.findMany).not.toHaveBeenCalled()
+  })
+
+  it('страница с сортировкой по числу доступов → BAD_REQUEST', async () => {
+    const { service } = setup()
+    const err = await service
+      .list(actor(), { view: 'active', sort: 'access', limit: 10 })
+      .catch((e) => e)
+    expect(err.code).toBe('BAD_REQUEST')
   })
 })

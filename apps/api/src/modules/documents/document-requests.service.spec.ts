@@ -100,11 +100,23 @@ function setup() {
 }
 
 // Документы студента, найденные проверкой владения в saveSubmission.
+// Тип — тот же, что у позиций forSave: сверка типа с позицией проходит.
 function owned(...ids: string[]) {
-  return ids.map((id) => ({ id, status: 'UPLOADED', issuedByUniversity: false }))
+  return ids.map((id) => ({ id, type: 'ID_CARD', status: 'UPLOADED', issuedByUniversity: false }))
 }
 
 const OK_ITEM = { documentType: 'ID_CARD', title: 'Удостоверение', required: true }
+
+// Позиция комплекта для выдачи файла проверяющему: документ типа `type` категории `category`
+// в позиции, требующей `itemType` (по умолчанию — тот же тип).
+function fileItem(type: string, category: string, itemType = type) {
+  return {
+    documentId: 'd1',
+    submission: { requestId: 'r1' },
+    requestItem: { documentType: itemType },
+    document: { type, category },
+  }
+}
 
 describe('DocumentRequestsService — создание запроса (15.14)', () => {
   it('не сотрудник (студент) → FORBIDDEN', async () => {
@@ -383,10 +395,7 @@ describe('DocumentRequestsService — проверка (15.16)', () => {
   // D-F21: студент удалил документ, а проверяющий по запросу продолжал его открывать.
   it('getSubmissionFileUrl: документ удалён владельцем → NOT_FOUND, ссылки и журнала нет', async () => {
     const { service, prisma, documents } = setup()
-    prisma.documentSubmissionItem.findFirst.mockResolvedValue({
-      documentId: 'd1',
-      submission: { requestId: 'r1' },
-    })
+    prisma.documentSubmissionItem.findFirst.mockResolvedValue(fileItem('PASSPORT', 'PERSONAL'))
     prisma.file.findFirst.mockResolvedValue(null)
     const err = await service.getSubmissionFileUrl(staff(), 'si1', 'f1').catch((e) => e)
     expect(err.code).toBe('NOT_FOUND')
@@ -405,6 +414,7 @@ describe('DocumentRequestsService — проверка (15.16)', () => {
       id,
       title: 'Паспорт',
       type: 'PASSPORT',
+      category: 'PERSONAL',
       numberLast4: '4821',
       deletedAt,
       files: [{ id: `${id}-f`, mime: 'application/pdf' }],
@@ -427,13 +437,99 @@ describe('DocumentRequestsService — проверка (15.16)', () => {
   })
 })
 
+describe('DocumentRequestsService — что открывается проверяющему (§15.2)', () => {
+  it('преподавателю учебный документ своей позиции открывается, с записью VIEW', async () => {
+    const { service, prisma } = setup()
+    prisma.documentSubmissionItem.findFirst.mockResolvedValue(fileItem('DIPLOMA', 'ACADEMIC'))
+    prisma.file.findFirst.mockResolvedValue({ id: 'f1' })
+    const url = await service.getSubmissionFileUrl(staff(Role.TEACHER), 'si1', 'f1')
+    expect(url).toBe('https://minio/signed')
+    expect(prisma.documentEvent.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ action: 'VIEW' }) }),
+    )
+  })
+
+  it('преподавателю удостоверение и мед. справка не открываются → NOT_FOUND', async () => {
+    for (const [type, category] of [
+      ['ID_CARD', 'PERSONAL'],
+      ['MEDICAL', 'CERTIFICATE'],
+    ] as const) {
+      const { service, prisma, documents } = setup()
+      prisma.documentSubmissionItem.findFirst.mockResolvedValue(fileItem(type, category))
+      prisma.file.findFirst.mockResolvedValue({ id: 'f1' })
+      const err = await service
+        .getSubmissionFileUrl(staff(Role.TEACHER), 'si1', 'f1')
+        .catch((e) => e)
+      expect([type, err.code]).toEqual([type, 'NOT_FOUND'])
+      expect(documents.presign).not.toHaveBeenCalled()
+      expect(prisma.documentEvent.create).not.toHaveBeenCalled()
+    }
+  })
+
+  it('деканату и модератору открываются документы любой категории своей позиции', async () => {
+    for (const role of [Role.DEAN, Role.UNIVERSITY_MODERATOR]) {
+      const { service, prisma, documents } = setup()
+      prisma.documentSubmissionItem.findFirst.mockResolvedValue(fileItem('PASSPORT', 'PERSONAL'))
+      prisma.file.findFirst.mockResolvedValue({ id: 'f1' })
+      await service.getSubmissionFileUrl(staff(role), 'si1', 'f1')
+      expect(documents.presign).toHaveBeenCalledWith('f1')
+    }
+  })
+
+  it('документ не того типа, что требует позиция (привязка до сверки), не открывается никому', async () => {
+    for (const role of [Role.DEAN, Role.TEACHER]) {
+      const { service, prisma, documents } = setup()
+      prisma.documentSubmissionItem.findFirst.mockResolvedValue(
+        fileItem('PASSPORT', 'PERSONAL', 'DIPLOMA'),
+      )
+      prisma.file.findFirst.mockResolvedValue({ id: 'f1' })
+      const err = await service.getSubmissionFileUrl(staff(role), 'si1', 'f1').catch((e) => e)
+      expect(err.code).toBe('NOT_FOUND')
+      expect(documents.presign).not.toHaveBeenCalled()
+    }
+  })
+
+  it('карточка комплекта у преподавателя: неположенный документ показан неприложенным', async () => {
+    const { service, prisma } = setup()
+    const item = (id: string, documentType: string, type: string, category: string) => ({
+      id,
+      status: 'PENDING',
+      rejectionReason: null,
+      requestItem: { id: `ri-${id}`, title: 't', documentType, required: true, order: 0 },
+      document: {
+        id: `doc-${id}`,
+        title: 'Документ',
+        type,
+        category,
+        numberLast4: '4821',
+        deletedAt: null,
+        files: [{ id: `${id}-f`, mime: 'application/pdf' }],
+        _count: { files: 1 },
+      },
+    })
+    prisma.documentSubmission.findFirst.mockResolvedValue({
+      ...STAFF_VIEW,
+      items: [
+        item('ok', 'DIPLOMA', 'DIPLOMA', 'ACADEMIC'),
+        item('swap', 'DIPLOMA', 'PASSPORT', 'PERSONAL'),
+      ],
+    })
+    const view = await service.getSubmissionForStaff(staff(Role.TEACHER), 's1')
+    expect(view.items.find((i) => i.id === 'ok')!.document).toMatchObject({ id: 'doc-ok' })
+    expect(view.items.find((i) => i.id === 'swap')!.document).toBeNull()
+  })
+})
+
 // Запрос для сохранения ответа: две позиции, свой комплект в заданном статусе.
 function forSave(over: Record<string, unknown> = {}, submission: unknown = null) {
   return {
     id: 'r1',
     status: 'OPEN',
     dueAt: null,
-    items: [{ id: 'it1' }, { id: 'it2' }],
+    items: [
+      { id: 'it1', documentType: 'ID_CARD' },
+      { id: 'it2', documentType: 'ID_CARD' },
+    ],
     submissions: submission ? [submission] : [],
     ...over,
   }
@@ -840,6 +936,57 @@ describe('DocumentRequestsService — область сотрудника и с�
       collapseKey: 'doc-submitted:r1',
       emailFallback: false,
     })
+  })
+
+  it('документ не того типа, что требует позиция → BAD_REQUEST, комплект не пишется', async () => {
+    const { service, prisma } = setup()
+    prisma.documentRequest.findFirst.mockResolvedValue(
+      forSave({ items: [{ id: 'it1', documentType: 'DIPLOMA' }] }),
+    )
+    prisma.document.findMany.mockResolvedValue([
+      { id: 'pass-1', type: 'PASSPORT', status: 'UPLOADED', issuedByUniversity: false },
+    ])
+    const err = await service
+      .saveSubmission(student(), 'r1', { items: [{ requestItemId: 'it1', documentId: 'pass-1' }] })
+      .catch((e) => e)
+    expect(err.code).toBe('BAD_REQUEST')
+    expect(prisma.documentSubmission.upsert).not.toHaveBeenCalled()
+    expect(prisma.documentSubmissionItem.upsert).not.toHaveBeenCalled()
+  })
+
+  it('прежняя привязка не того типа не мешает сохранить другие позиции', async () => {
+    const { service, prisma } = setup()
+    prisma.documentRequest.findFirst.mockResolvedValue(
+      forSave(
+        {
+          items: [
+            { id: 'it1', documentType: 'DIPLOMA' },
+            { id: 'it2', documentType: 'ID_CARD' },
+          ],
+        },
+        {
+          id: 's1',
+          status: 'DRAFT',
+          items: [{ requestItemId: 'it1', documentId: 'pass-old' }],
+        },
+      ),
+    )
+    prisma.document.findMany.mockResolvedValue([
+      { id: 'pass-old', type: 'PASSPORT', status: 'UPLOADED', issuedByUniversity: false },
+      ...owned('id-1'),
+    ])
+    await service.saveSubmission(student(), 'r1', {
+      items: [
+        { requestItemId: 'it1', documentId: 'pass-old' },
+        { requestItemId: 'it2', documentId: 'id-1' },
+      ],
+    })
+    expect(prisma.documentSubmissionItem.upsert).toHaveBeenCalledTimes(1)
+    expect(prisma.documentSubmissionItem.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        create: expect.objectContaining({ requestItemId: 'it2', documentId: 'id-1' }),
+      }),
+    )
   })
 
   it('отозванную вузом справку к запросу не приложить → BAD_REQUEST', async () => {

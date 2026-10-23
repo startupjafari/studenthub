@@ -16,7 +16,6 @@ import { AuditService } from '../../common/audit/audit.service'
 import { localDateString } from '../../common/time/local-label'
 import { AppException } from '../../common/exceptions/app.exception'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
-import { isPlatformRole } from '../../common/auth/group-scope'
 import type { RequestContext } from '../auth/auth.service'
 import { RealtimeGateway } from '../../common/realtime'
 import { NOTIFICATION_JOBS, QUEUES, QueueService } from '../../common/queue'
@@ -143,6 +142,19 @@ interface PairSlot {
 }
 
 // Календарная дата "YYYY-MM-DD" → значение колонки @db.Date (полночь UTC).
+// Расписание по матрице доступа (docs/PROJECT.md §2.2) из платформенных ролей видит только
+// админ платформы — все вузы. Модератору платформы оно закрыто: его зона — контент и жалобы.
+// Раньше scope держался на общем isPlatformRole, и модератор читал расписание всех вузов.
+function seesAllSchedules(role: Role): boolean {
+  return role === Role.PLATFORM_ADMIN
+}
+
+function assertCanReadSchedule(viewer: JwtPayload): void {
+  if (viewer.role === Role.PLATFORM_MODERATOR) {
+    throw new AppException('FORBIDDEN', 'Расписание недоступно модератору платформы')
+  }
+}
+
 function dateOnly(date: string): Date {
   return new Date(`${date}T00:00:00.000Z`)
 }
@@ -251,13 +263,15 @@ export class SchedulesService {
 
   /**
    * Активное расписание по scope смотрящего: студент/староста → своя группа,
-   * преподаватель → свои пары, декан → факультет, админ/модератор вуза → вуз, платформа → всё.
+   * преподаватель → свои пары, декан → факультет, админ/модератор вуза → вуз, админ платформы →
+   * всё; модератору платформы — FORBIDDEN (§2.2).
    * Возвращает пары + таймзону вуза (время «настенное» в этой зоне, docs/FRONTEND_RULES.md §9).
    */
   async getSchedule(
     viewer: JwtPayload,
     query: ScheduleQueryInput,
   ): Promise<{ timezone: string | null; pairs: PairDto[] }> {
+    assertCanReadSchedule(viewer)
     const where = this.buildReadWhere(viewer, query)
     const pairs = await this.prisma.pair.findMany({
       where,
@@ -317,7 +331,7 @@ export class SchedulesService {
       where.group = { is: { facultyId: viewer.facultyId ?? '__none__' } }
       if (q.groupId) where.groupId = q.groupId
       if (q.teacherId) where.teacherId = q.teacherId
-    } else if (isPlatformRole(viewer.role)) {
+    } else if (seesAllSchedules(viewer.role)) {
       if (q.groupId) where.groupId = q.groupId
       if (q.teacherId) where.teacherId = q.teacherId
     } else {
@@ -341,6 +355,7 @@ export class SchedulesService {
   // ── Контейнеры расписания (Schedule) ───────────────────────────────────────
 
   async listSchedules(viewer: JwtPayload, groupId?: string) {
+    assertCanReadSchedule(viewer)
     const where = this.scheduleScopeWhere(viewer, groupId)
     return this.prisma.schedule.findMany({
       where,
@@ -351,6 +366,7 @@ export class SchedulesService {
   }
 
   async getScheduleById(viewer: JwtPayload, id: string) {
+    assertCanReadSchedule(viewer)
     const schedule = await this.prisma.schedule.findUnique({
       where: { id },
       select: SCHEDULE_SELECT,
@@ -1136,6 +1152,7 @@ export class SchedulesService {
   }
 
   async listChanges(viewer: JwtPayload, query: ScheduleChangeQueryInput) {
+    assertCanReadSchedule(viewer)
     const range = { gte: dateOnly(query.from), lte: dateOnly(query.to) }
     const pairWhere = this.changePairScope(viewer, query, range)
     return this.prisma.scheduleChange.findMany({
@@ -1213,7 +1230,7 @@ export class SchedulesService {
       })
       return uni?.timezone ?? null
     }
-    if (groupId && isPlatformRole(viewer.role)) {
+    if (groupId && seesAllSchedules(viewer.role)) {
       const group = await this.prisma.group.findUnique({
         where: { id: groupId },
         select: { faculty: { select: { university: { select: { timezone: true } } } } },
@@ -1306,7 +1323,7 @@ export class SchedulesService {
   }
 
   private assertManageScopeForGroup(actor: JwtPayload, gctx: GroupContext): void {
-    if (isPlatformRole(actor.role)) return
+    if (seesAllSchedules(actor.role)) return
     if (actor.role === Role.DEAN) {
       if (actor.facultyId === gctx.facultyId) return
       throw new AppException('WRONG_SCOPE', 'Ресурс другого факультета')
@@ -1319,7 +1336,7 @@ export class SchedulesService {
 
   // Чтение конкретного контейнера: платформа/вуз-роли — свой вуз; декан — свой факультет; студент/староста — своя группа.
   private assertReadScopeForGroup(viewer: JwtPayload, gctx: GroupContext): void {
-    if (isPlatformRole(viewer.role)) return
+    if (seesAllSchedules(viewer.role)) return
     if (viewer.role === Role.STUDENT || viewer.role === Role.STAROSTA) {
       if (viewer.groupId === gctx.groupId) return
       throw new AppException('WRONG_SCOPE', 'Доступна только своя группа')
@@ -1333,7 +1350,7 @@ export class SchedulesService {
   }
 
   private scheduleScopeWhere(viewer: JwtPayload, groupId?: string): Prisma.ScheduleWhereInput {
-    if (isPlatformRole(viewer.role)) {
+    if (seesAllSchedules(viewer.role)) {
       return groupId ? { groupId } : {}
     }
     if (viewer.role === Role.STUDENT || viewer.role === Role.STAROSTA) {
@@ -1384,7 +1401,7 @@ export class SchedulesService {
     const where: Prisma.PairWhereInput = {}
     if (viewer.role === Role.DEAN) {
       where.group = { is: { facultyId: viewer.facultyId ?? '__none__' } }
-    } else if (!isPlatformRole(viewer.role)) {
+    } else if (!seesAllSchedules(viewer.role)) {
       where.group = { is: { faculty: { is: { universityId: viewer.universityId ?? '__none__' } } } }
     }
     if (query.groupId) where.groupId = query.groupId

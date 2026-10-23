@@ -405,41 +405,42 @@ describe('ApplicationsService.cancel / resubmit', () => {
   })
 })
 
-describe('ApplicationsService.listGroupRequests — только группа старосты', () => {
+// Регрессия: староста видел все поданные заявки одногруппников (ФИО, услуга, статус) через
+// GET /applications/group-requests. Название услуги само раскрывает тему — академический отпуск,
+// военный стол, финансы. «Групповых обращений» в модели нет, поэтому старосте чужие заявки не
+// видны вообще: у него права студента — только свои (PROJECT.md §2.2, §11.1).
+describe('ApplicationsService — староста видит только свои заявки', () => {
   const query = { page: 1, limit: 20, sortBy: 'createdAt', sortOrder: 'desc' } as never
-  const starosta = {
+  const starosta: JwtPayload = {
     sub: 'st',
     role: Role.STAROSTA,
     universityId: 'uni',
     facultyId: 'fac',
-    groupId: 'g1',
+    groupId: 'g',
   }
 
-  it('без группы → пусто, БД не трогаем', async () => {
-    const { service, application } = setup()
-    await service.listGroupRequests({ ...starosta, groupId: null }, query)
-    expect(application.findMany).not.toHaveBeenCalled()
+  it('отдельной выборки «обращений группы» больше нет', () => {
+    const { service } = setup()
+    expect((service as unknown as Record<string, unknown>).listGroupRequests).toBeUndefined()
   })
 
-  it('со группой → where по student.groupId', async () => {
+  it('список — только по себе, без фильтра по группе', async () => {
     const { service, application } = setup()
-    await service.listGroupRequests(starosta, query)
-    const arg = application.findMany.mock.calls[0][0] as { where: Record<string, unknown> }
-    expect(arg.where.student).toEqual({ is: { groupId: 'g1' } })
-    expect(arg.where.deletedAt).toBeNull()
-    // Черновики одногруппников — не обращения, старосте их не показываем.
-    expect(arg.where.AND).toEqual([{ status: { not: 'DRAFT' } }])
+    await service.list(starosta, query)
+    const where = application.findMany.mock.calls[0][0].where as Record<string, unknown>
+    expect(where.AND as unknown[]).toContainEqual({ studentId: 'st' })
+    expect(JSON.stringify(where)).not.toContain('groupId')
   })
 
-  it('не отдаёт formData одногруппников — там свободный текст (§14.7)', async () => {
+  it('заявка одногруппника по id → WRONG_SCOPE', async () => {
     const { service, application } = setup()
-    await service.listGroupRequests(starosta, query)
-    const arg = application.findMany.mock.calls[0][0] as { select: Record<string, unknown> }
-    expect(arg.select.formData).toBeUndefined()
-    expect(arg.select.assignedToId).toBeUndefined()
-    // Список старосты рисует имя, номер и статус — они остаются.
-    expect(arg.select.status).toBe(true)
-    expect(arg.select.student).toBeDefined()
+    application.findFirst.mockResolvedValue({
+      studentId: 'classmate',
+      facultyId: 'fac',
+      universityId: 'uni',
+    })
+    await expect(service.getById(starosta, 'a1')).rejects.toMatchObject({ code: 'WRONG_SCOPE' })
+    expect(application.findUnique).not.toHaveBeenCalled()
   })
 })
 
