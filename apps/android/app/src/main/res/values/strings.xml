@@ -128,4 +128,22 @@
     <string name="books_errorClosed">Бронь уже закрыта</string>
     <string name="books_errorModule">Библиотека выключена</string>
     <string name="books_errorNotFound">Книга не найдена</string>
+    <string name="books_loanLostDebt">Утеряна — долг</string>
+    <string name="books_loanLostSettled">Утеряна, долг погашен</string>
+    <string name="books_clearanceTitle">Справка из библиотеки</string>
+    <string name="books_clearanceSubtitle">Для обходного листа при выпуске или переводе</string>
+    <string name="books_clearanceShowHint">Покажите этот экран в библиотеке или деканате. Распечатать справку можно в веб-версии.</string>
+    <string name="books_clearTitle">Задолженностей нет</string>
+    <string name="books_clearBody">За %1$s нет книг на руках на %2$s.</string>
+    <string name="books_notClearTitle">Долгов перед библиотекой: %1$d. Верните книги, чтобы получить справку.</string>
+    <string name="books_debtsTitle">Что вернуть</string>
+    <string name="books_inventoryNumber">инв. %1$s</string>
+    <string name="books_lostHint">Утерянную книгу замените или возместите её стоимость в библиотеке — библиотекарь отметит, что долг погашен.</string>
+    <string name="books_clearanceDetails">Сведения</string>
+    <string name="books_clearanceName">ФИО</string>
+    <string name="books_clearanceGroup">Группа</string>
+    <string name="books_clearanceFaculty">Факультет</string>
+    <string name="books_clearanceCard">№ студенческого</string>
+    <string name="books_clearanceUniversity">Вуз</string>
+    <string name="books_clearanceChecked">Проверено</string>
 </resources>
