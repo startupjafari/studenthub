@@ -181,6 +181,7 @@ describe('AssignmentsService — файлы в сдаче (C-F06)', () => {
     const { service, prisma, files } = setup()
     prisma.submission.findUnique.mockResolvedValue({
       studentId: 'stu-2',
+      status: 'SUBMITTED',
       assignment: { course },
     })
     prisma.file.findFirst.mockResolvedValue({ id: 'f-1' })
@@ -188,6 +189,52 @@ describe('AssignmentsService — файлы в сдаче (C-F06)', () => {
       url: 'https://minio/signed',
     })
     expect(files.getPresignedUrl).toHaveBeenCalledWith('f-1', undefined, true)
+  })
+
+  it('файл неотправленного черновика проверяющему не отдаётся', async () => {
+    const { service, prisma, files } = setup()
+    prisma.submission.findUnique.mockResolvedValue({
+      studentId: 'stu-2',
+      status: 'DRAFT',
+      assignment: { course },
+    })
+    prisma.file.findFirst.mockResolvedValue({ id: 'f-1' })
+    await expect(service.getSubmissionFileUrl(teacher, 'sub-2', 'f-1')).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    })
+    expect(files.getPresignedUrl).not.toHaveBeenCalled()
+  })
+
+  it('модератор платформы файл сдачи не скачает — круг тот же, что у списка сдач', async () => {
+    const { service, prisma, files } = setup()
+    prisma.submission.findUnique.mockResolvedValue({
+      studentId: 'stu-2',
+      status: 'SUBMITTED',
+      assignment: { course },
+    })
+    prisma.file.findFirst.mockResolvedValue({ id: 'f-1' })
+    const moderator: JwtPayload = {
+      sub: 'pm-1',
+      role: Role.PLATFORM_MODERATOR,
+      universityId: null,
+      facultyId: null,
+      groupId: null,
+    }
+    await expect(service.getSubmissionFileUrl(moderator, 'sub-2', 'f-1')).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    })
+    expect(files.getPresignedUrl).not.toHaveBeenCalled()
+  })
+
+  it('список сдач проверяющего — без неотправленных черновиков', async () => {
+    const { service, prisma } = setup()
+    const findMany = jest.fn().mockResolvedValue([])
+    Object.assign(prisma.submission, { findMany })
+    await service.submissions(teacher, 'as-1')
+    expect(findMany.mock.calls[0][0].where).toEqual({
+      assignmentId: 'as-1',
+      status: { not: 'DRAFT' },
+    })
   })
 })
 

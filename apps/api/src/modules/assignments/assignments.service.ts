@@ -34,6 +34,10 @@ export const SUBMISSION_FILES_LIMIT = 10
 
 const STUDENT_ROLES: Role[] = [Role.STUDENT, Role.STAROSTA]
 
+// Кто проверяет работы: тот же список ролей, что у `GET /assignments/:id/submissions` и
+// оценки. Модератор платформы в него не входит, хотя `isPlatform` пропускает его в scope.
+const REVIEWER_ROLES: Role[] = [Role.PLATFORM_ADMIN, Role.UNIVERSITY_ADMIN, Role.DEAN, Role.TEACHER]
+
 type AssignmentStatus = 'DRAFT' | 'PUBLISHED' | 'CLOSED'
 
 /**
@@ -328,8 +332,10 @@ export class AssignmentsService {
     })
     if (!assignment) throw new AppException('NOT_FOUND', 'Задание не найдено')
     await this.assertManage(viewer, assignment.course)
+    // Черновик — ещё не работа: студент его не отправлял, и проверяющему он не виден
+    // (как неотправленные заявки, BACKEND_RULES §14.7).
     return this.prisma.submission.findMany({
-      where: { assignmentId },
+      where: { assignmentId, status: { not: 'DRAFT' } },
       select: SUBMISSION_SELECT,
       orderBy: [{ status: 'asc' }, { submittedAt: 'asc' }],
       take: 500,
@@ -626,14 +632,23 @@ export class AssignmentsService {
   async getSubmissionFileUrl(viewer: JwtPayload, submissionId: string, fileId: string) {
     const sub = await this.prisma.submission.findUnique({
       where: { id: submissionId },
-      select: { studentId: true, assignment: { select: { course: { select: COURSE_MINI } } } },
+      select: {
+        studentId: true,
+        status: true,
+        assignment: { select: { course: { select: COURSE_MINI } } },
+      },
     })
     if (!sub) throw new AppException('NOT_FOUND', 'Работа не найдена')
     if (STUDENT_ROLES.includes(viewer.role)) {
       // Чужую работу студенту не раскрываем даже фактом существования.
       if (sub.studentId !== viewer.sub) throw new AppException('NOT_FOUND', 'Работа не найдена')
     } else {
+      if (!REVIEWER_ROLES.includes(viewer.role)) {
+        throw new AppException('FORBIDDEN', 'Недостаточно прав')
+      }
       await this.assertManage(viewer, sub.assignment.course)
+      // Файлы неотправленного черновика — тот же черновик, что скрыт из списка сдач.
+      if (sub.status === 'DRAFT') throw new AppException('NOT_FOUND', 'Работа не найдена')
     }
     const file = await this.prisma.file.findFirst({
       where: { id: fileId, submissionId },
