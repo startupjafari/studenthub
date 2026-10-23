@@ -4,6 +4,7 @@ import type { ApplicationServiceStatus } from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { QueueService, QUEUES, NOTIFICATION_JOBS } from '../../common/queue'
 import type { NotificationJobData } from '../notifications/notification-job.type'
+import { ApplicationPolicy } from './application.policy'
 
 // Сигналы стороне вуза (D-F16). Студент получает уведомление на каждом шаге заявки, а
 // обработчики о новой или исправленной заявке узнавали, только открыв очередь сами, и
@@ -44,6 +45,12 @@ interface Recipient {
   role: Role
 }
 
+/** Сотрудник со scope — столько, сколько нужно ApplicationPolicy.canProcess. */
+interface StaffScope extends Recipient {
+  universityId: string | null
+  facultyId: string | null
+}
+
 export interface HandledApplication {
   id: string
   number: string | null
@@ -59,6 +66,7 @@ export class ApplicationNotifier {
   constructor(
     private readonly prisma: PrismaService,
     private readonly queue: QueueService,
+    private readonly policy: ApplicationPolicy,
   ) {}
 
   /**
@@ -135,9 +143,10 @@ export class ApplicationNotifier {
     }
     for (const g of groups) {
       const assignee = g.assignedToId ? staff.byId.get(g.assignedToId) : undefined
-      // Ответственный уволен или заблокирован — заявка снова «ничья» для сводки.
+      // Ответственный уволен, заблокирован или потерял право обработки (стал преподавателем,
+      // перешёл на другой факультет) — заявка снова «ничья» для сводки.
       add(
-        assignee && assignee.universityId === g.universityId
+        assignee && this.canProcess(assignee, g)
           ? [assignee]
           : staff.handlers(g.universityId, g.facultyId),
         g._count._all,
@@ -169,6 +178,28 @@ export class ApplicationNotifier {
 
   // ── helpers ────────────────────────────────────────────────────────────────
 
+  /**
+   * Вправе ли сотрудник обрабатывать заявки этого вуза и факультета сейчас — то же правило,
+   * что у действий и назначения (ApplicationPolicy). Ответственный, которого перевели в
+   * преподаватели или на другой факультет, иначе оставался единственным адресатом: его
+   * роли нет очереди заявок, и уведомление не уходило никому.
+   */
+  private canProcess(
+    staff: StaffScope,
+    app: { universityId: string; facultyId: string | null },
+  ): boolean {
+    return this.policy.canProcess(
+      {
+        sub: staff.id,
+        role: staff.role,
+        universityId: staff.universityId,
+        facultyId: staff.facultyId,
+        groupId: null,
+      },
+      { studentId: '', universityId: app.universityId, facultyId: app.facultyId },
+    )
+  }
+
   /** Обработчики одной заявки (см. notifyHandlers). */
   private async handlersOf(app: HandledApplication): Promise<Recipient[]> {
     if (app.assignedToId) {
@@ -179,9 +210,11 @@ export class ApplicationNotifier {
           deletedAt: null,
           isBlocked: false,
         },
-        select: { id: true, role: true },
+        select: { id: true, role: true, universityId: true, facultyId: true },
       })
-      if (assignee) return [assignee]
+      if (assignee && this.canProcess(assignee, app)) {
+        return [{ id: assignee.id, role: assignee.role }]
+      }
     }
     const staff = await this.prisma.user.findMany({
       where: {

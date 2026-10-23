@@ -1,5 +1,6 @@
 import { Role } from '@studenthub/shared-types'
 import { ApplicationNotifier, type HandledApplication } from './application-notifier'
+import { ApplicationPolicy } from './application.policy'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { QueueService } from '../../common/queue'
 
@@ -15,6 +16,7 @@ function setup() {
   const notifier = new ApplicationNotifier(
     prisma as unknown as PrismaService,
     queue as unknown as QueueService,
+    new ApplicationPolicy(),
   )
   return { notifier, prisma, queue }
 }
@@ -65,7 +67,12 @@ describe('ApplicationNotifier.notifyHandlers (D-F16)', () => {
 
   it('исправленная заявка — её ответственному, а не всем', async () => {
     const { notifier, prisma, queue } = setup()
-    prisma.user.findFirst.mockResolvedValue({ id: 'dean-2', role: Role.DEAN })
+    prisma.user.findFirst.mockResolvedValue({
+      id: 'dean-2',
+      role: Role.DEAN,
+      universityId: 'uni',
+      facultyId: 'fac',
+    })
     await notifier.notifyHandlers({ ...app, assignedToId: 'dean-2' }, 'resubmitted', 'ev-2')
     expect(prisma.user.findMany).not.toHaveBeenCalled()
     expect(jobs(queue)).toEqual([
@@ -74,6 +81,19 @@ describe('ApplicationNotifier.notifyHandlers (D-F16)', () => {
         titleKey: 'applications.resubmitted.title',
       }),
     ])
+  })
+
+  // Бывший декан стал преподавателем или ведёт другой факультет: его роли нет очереди заявок,
+  // и уведомление о повторной отправке раньше не уходило никому.
+  it.each([
+    ['стал преподавателем', { role: Role.TEACHER, facultyId: 'fac' }],
+    ['ведёт другой факультет', { role: Role.DEAN, facultyId: 'fac-2' }],
+  ])('ответственный %s — уведомление деканам факультета', async (_case, scope) => {
+    const { notifier, prisma, queue } = setup()
+    prisma.user.findFirst.mockResolvedValue({ id: 'ex-dean', universityId: 'uni', ...scope })
+    prisma.user.findMany.mockResolvedValue([{ id: 'dean-1', role: Role.DEAN }])
+    await notifier.notifyHandlers({ ...app, assignedToId: 'ex-dean' }, 'resubmitted', 'ev-3')
+    expect(jobs(queue)).toEqual([expect.objectContaining({ recipientIds: ['dean-1'] })])
   })
 
   it('сбой поиска адресатов не роняет подачу', async () => {
@@ -127,6 +147,24 @@ describe('ApplicationNotifier.notifyOverdue (D-F16)', () => {
         take: expect.any(Number),
       }),
     )
+  })
+
+  it('ответственный потерял право обработки — его просрочка уходит деканам факультета', async () => {
+    const { notifier, prisma, queue } = setup()
+    prisma.application.groupBy.mockResolvedValue([
+      { universityId: 'uni', facultyId: 'fac', assignedToId: 'ex-dean', _count: { _all: 2 } },
+    ])
+    prisma.user.findMany
+      .mockResolvedValueOnce([
+        { id: 'ex-dean', role: Role.TEACHER, universityId: 'uni', facultyId: 'fac' },
+      ])
+      .mockResolvedValueOnce([
+        { id: 'dean-1', role: Role.DEAN, universityId: 'uni', facultyId: 'fac' },
+      ])
+    await expect(notifier.notifyOverdue(now)).resolves.toBe(1)
+    expect(jobs(queue)).toEqual([
+      expect.objectContaining({ recipientIds: ['dean-1'], data: { url: '/dean/applications' } }),
+    ])
   })
 
   it('просроченных нет — ни запросов к людям, ни уведомлений', async () => {
