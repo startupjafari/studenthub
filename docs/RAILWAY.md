@@ -224,7 +224,9 @@ Branch). Ветка задаётся в интерфейсе Railway, а не в
    в `docker/shared/infra.yml`. Официальные `minio/minio` и `quay.io/minio/minio` больше не
    раздаются (`docker/README.md`, «Решения»).
 2. **Settings → Deploy → Custom Start Command**: `server /data --console-address ":9001"`.
-3. **Variables**: `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD` (≥8 симв.).
+3. **Variables**: `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD` (≥8 симв.), а также
+   `MINIO_API_STALE_UPLOADS_EXPIRY=24h` и `MINIO_API_STALE_UPLOADS_CLEANUP_INTERVAL=6h` —
+   уборка брошенных многочастных загрузок (см. «Том под крупные файлы»).
 4. **Settings → Volumes** — примонтировать том на `/data` (иначе файлы не переживут редеплой).
 5. В `api` указать `MINIO_ENDPOINT` = приватный домен этого сервиса
    (`<minio>.railway.internal`), `MINIO_PORT=9000`, `MINIO_USE_SSL=false`,
@@ -267,9 +269,26 @@ Branch). Ветка задаётся в интерфейсе Railway, а не в
 ### Том под крупные файлы
 
 Предел видео и документов — 500 МБ (`FILE_UPLOAD.MAX_BYTES`), и это прямо переводится в размер тома
-на `/data`. Незавершённые части тоже занимают место: их отменяет ночная задача
-`sweepIncompleteUploads` (старше суток), но лучше продублировать правилом на бакете —
-`AbortIncompleteMultipartUpload` работает и тогда, когда приложение лежит.
+на `/data`. Незавершённые части тоже занимают место, поэтому их убирают два независимых рубежа:
+
+| Рубеж | Что делает | Где задано |
+|---|---|---|
+| MinIO, `api stale_uploads_expiry=24h`, `stale_uploads_cleanup_interval=6h` | каждые 6 часов отменяет загрузки старше суток — работает, даже когда `api` лежит | env MinIO: `MINIO_API_STALE_UPLOADS_EXPIRY`, `MINIO_API_STALE_UPLOADS_CLEANUP_INTERVAL` (`docker/shared/infra.yml`, на Railway — Variables minio-сервиса) |
+| `api`, ночная задача `sweepIncompleteUploads` (04:30) | отменяет загрузки старше суток во всех девяти бакетах | `cleanup.service.ts` — основная гарантия: не зависит от настроек хранилища |
+
+Значения env равны встроенным в MinIO по умолчанию; прописаны явно, чтобы обновление образа
+или ручной `mc admin config set` не сдвинули срок незаметно (env имеет приоритет над
+`mc admin config`). Проверить действующие: `mc admin config get <alias> api`.
+
+**Правило бакета `AbortIncompleteMultipartUpload` в MinIO не работает.** Проверено 23.10.2026
+на `pgsty/minio:RELEASE.2026-08-04T00-00-00Z` и `minio/minio:RELEASE.2025-04-22T22-12-26Z`:
+`PutBucketLifecycle` с таким правилом отвечает `InvalidArgument` («The XML you provided was not
+well-formed…»), в том числе вместе с правилом `Expiration`, а правило из одного `Expiration`
+принимается. Поэтому `api` при старте его не ставит: `setBucketLifecycle` заменяет конфигурацию
+целиком, и попытка добавить такое правило к `stories-media` сломала бы и TTL сторис.
+
+Во **внешнем S3** (вариант Б) правило поддерживается — его стоит задать в настройках бакетов
+у провайдера (у R2 — Object lifecycle rules); ночная задача `api` работает и там.
 
 Трафик загрузки идёт в minio-сервис напрямую, **мимо `api`**. Лимиты тела запроса и таймауты
 маршрутов `api` к нему отношения не имеют — упереться можно только в том и в сеть.
