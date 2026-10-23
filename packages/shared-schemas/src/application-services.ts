@@ -214,6 +214,14 @@ export const IssueApplicationSchema = z
   .default({})
 export type IssueApplicationInput = z.infer<typeof IssueApplicationSchema>
 
+// Ссылка на страницу документа заявки (GET /applications/:id/documents/:docId/url).
+// `fileId` — страница из `documents[].files` карточки заявки; без него — первая страница.
+// Через схему, а не голым @Query: повторённый параметр приходил массивом и ронял запрос в 500.
+export const ApplicationDocumentUrlQuerySchema = z
+  .object({ fileId: z.string().min(1).max(64).optional() })
+  .strict()
+export type ApplicationDocumentUrlQueryInput = z.infer<typeof ApplicationDocumentUrlQuerySchema>
+
 // Статусы документа заявки (для фронта).
 export const APPLICATION_DOCUMENT_STATUSES = [
   'PENDING',
