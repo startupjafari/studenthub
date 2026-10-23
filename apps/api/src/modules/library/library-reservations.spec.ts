@@ -126,6 +126,13 @@ describe('Бронь', () => {
     })
   })
 
+  it('утерянная книга с непогашенным долгом закрывает бронь — 409 lost', async () => {
+    const { service } = setup({ blockers: ['lost'] })
+    await expect(service.reserve(student, 'book-1', ctx)).rejects.toMatchObject({
+      details: [{ field: 'lost' }],
+    })
+  })
+
   it('предел броней — 409 reservationLimit', async () => {
     const { service } = setup({
       counts: { active: 3, sameBook: 0, borrowed: 0, inCirculation: 2 },

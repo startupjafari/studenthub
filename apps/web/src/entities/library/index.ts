@@ -23,6 +23,7 @@ export {
   returnCopyRequest,
   renewLoanRequest,
   markLoanLostRequest,
+  settleLostLoanRequest,
   cancelLoanRequest,
   fetchLoanReader,
   fetchIdAccess,
@@ -46,6 +47,7 @@ export {
   type BookCopyLabel,
 } from './api/library-api'
 export { formatCopyCode } from './lib/format-code'
+export { isLostDebt } from './lib/loan-debt'
 export { CopyStatusBadge } from './ui/copy-status-badge'
 export { BookCover } from './ui/book-cover'
 export { ReaderCard } from './ui/reader-card'

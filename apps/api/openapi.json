@@ -4592,7 +4592,7 @@
         },
         "responses": {
           "409": {
-            "description": "details.field: status | overdue | limit — читателю нельзя; onLoan | reserved | withdrawn | archived — экземпляр; ticket — пропуск истёк; module"
+            "description": "details.field: status | overdue | lost | limit — читателю нельзя; onLoan | reserved | withdrawn | archived — экземпляр; ticket — пропуск истёк; module"
           },
           "422": {
             "description": "Срок вне правил библиотеки (field = dueDate)"
@@ -4722,7 +4722,39 @@
             "bearer": []
           }
         ],
-        "summary": "Книга утеряна читателем: выдача закрыта, экземпляр — из оборота",
+        "summary": "Книга утеряна читателем: выдача закрыта, экземпляр — из оборота, долг за читателем",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/loans/{id}/lost/settle": {
+      "post": {
+        "operationId": "LibraryLoansController_settleLost",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "404": {
+            "description": "Выдача не найдена или чужого вуза"
+          },
+          "409": {
+            "description": "details.field: notLost — выдача не утеряна; settled — долг уже погашен"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Долг по утерянной книге погашен: книгу заменили или возместили",
         "tags": [
           "Библиотека"
         ]

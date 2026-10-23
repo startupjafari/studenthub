@@ -5,14 +5,15 @@ import { PrismaService } from '../../common/prisma/prisma.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import { LibrarySettingsService } from './library-settings.service'
-import { LOAN_SELECT, LibraryLoansService } from './library-loans.service'
+import { LOAN_SELECT, LibraryLoansService, UNSETTLED_DEBT_WHERE } from './library-loans.service'
 import { READER_ROLES, readerLibrary } from './library-scope'
 
 // Долги библиотеки при выпуске и отчислении (Фаза 20.11, docs/PROJECT.md §3.11). Смену
 // статуса книги не блокируют — декан видит, что за студентом числится, и решает сам; это
-// предупреждение и список, а не запрет. Студенту — справка «задолженностей нет».
+// предупреждение и список, а не запрет. Студенту — справка «задолженностей нет». Долг — книга
+// на руках или утерянная, за которую ещё не рассчитались (UNSETTLED_DEBT_WHERE).
 
-/** Сколько открытых выдач показываем — больше предела выдачи у читателя не бывает. */
+/** Сколько долгов показываем — больше предела выдачи у читателя на руках не бывает. */
 const MAX_OPEN = 50
 
 @Injectable()
@@ -52,7 +53,7 @@ export class LibraryDebtsService {
     const [settings, rows, activeReservations] = await Promise.all([
       this.settings.get(universityId),
       this.prisma.loan.findMany({
-        where: { readerId: reader.id, universityId, status: 'OPEN' },
+        where: { readerId: reader.id, universityId, ...UNSETTLED_DEBT_WHERE },
         orderBy: [{ dueAt: 'asc' }, { id: 'asc' }],
         take: MAX_OPEN,
         select: LOAN_SELECT,
@@ -71,7 +72,10 @@ export class LibraryDebtsService {
     }
   }
 
-  /** Справка студенту: на руках ничего — «задолженностей нет», иначе — что вернуть. */
+  /**
+   * Справка студенту: ни книг на руках, ни непогашенных утерянных — «задолженностей нет»,
+   * иначе — что вернуть или возместить.
+   */
   async clearance(actor: JwtPayload): Promise<LibraryClearance> {
     const universityId = readerLibrary(actor)
     const reader = await this.prisma.user.findFirst({
@@ -88,7 +92,7 @@ export class LibraryDebtsService {
     })
     if (!reader) throw new AppException('NOT_FOUND', 'Пользователь не найден')
     const rows = await this.prisma.loan.findMany({
-      where: { readerId: actor.sub, universityId, status: 'OPEN' },
+      where: { readerId: actor.sub, universityId, ...UNSETTLED_DEBT_WHERE },
       orderBy: [{ dueAt: 'asc' }, { id: 'asc' }],
       take: MAX_OPEN,
       select: LOAN_SELECT,

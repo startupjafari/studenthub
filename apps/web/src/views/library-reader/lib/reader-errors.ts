@@ -6,6 +6,7 @@ import { toApiError } from '../../../shared/lib'
 type ReaderField =
   | 'status'
   | 'overdue'
+  | 'lost'
   | 'reservationLimit'
   | 'alreadyReserved'
   | 'alreadyBorrowed'
@@ -19,6 +20,7 @@ export function useReaderErrors(): (error: unknown) => string {
   const byField: Record<ReaderField, string> = {
     status: t('error.status'),
     overdue: t('error.overdue'),
+    lost: t('error.lost'),
     reservationLimit: t('error.reservationLimit'),
     alreadyReserved: t('error.alreadyReserved'),
     alreadyBorrowed: t('error.alreadyBorrowed'),
