@@ -30,10 +30,8 @@ export const viewport: Viewport = {
   themeColor: '#2563eb',
   width: 'device-width',
   initialScale: 1,
-  // Полностью отключаем масштабирование на мобильных (iOS/Android): без пинч-зума и зума при фокусе.
-  maximumScale: 1,
-  minimumScale: 1,
-  userScalable: false,
+  // Пинч-зум не запрещаем (WCAG 1.4.4, Lighthouse/axe meta-viewport): кому-то без него текст
+  // не прочитать. Зум при фокусе на поле снимает правило 16px для тач-экранов в globals.css.
   // Клавиатура ужимает layout-viewport (и svh/dvh) — поле ввода чата остаётся над клавиатурой (iOS/Android).
   interactiveWidget: 'resizes-content',
 }
