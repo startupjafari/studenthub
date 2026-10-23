@@ -183,6 +183,18 @@ describe('ApplicationsService — отклик студента', () => {
   })
 })
 
+describe('ApplicationsService — свои отклики студента', () => {
+  it('фильтр по вакансии доходит до выборки — окно вакансии спрашивает именно про неё', async () => {
+    const { service, prisma } = setup()
+    await service.listMine(student(), { page: 1, limit: 1, vacancyId: 'v-2' })
+    const where = prisma.careerApplication.findMany.mock.calls[0][0].where
+    expect(where).toMatchObject({ studentId: 'stu-1', vacancyId: 'v-2' })
+    expect(prisma.careerApplication.count.mock.calls[0][0].where).toMatchObject({
+      vacancyId: 'v-2',
+    })
+  })
+})
+
 describe('ApplicationsService — воронка компании', () => {
   it('недопустимый переход отклоняется', async () => {
     const { service, prisma } = setup()
