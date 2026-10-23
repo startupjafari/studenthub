@@ -173,6 +173,9 @@ export function PairDetailsModal({
     defaultValues: { type: 'CANCELLED', pairId: pair.id },
   })
   const changeType = changeForm.watch('type')
+  // Ошибки полей разового изменения — под полями: раньше показывалась только дата, и
+  // кнопка без аудитории, заменяющего или времени молча ничего не делала.
+  const changeErrors = changeForm.formState.errors
 
   const createChange = useMutation({
     mutationFn: (input: CreateScheduleChangeInput) => createScheduleChangeRequest(input),
@@ -255,6 +258,7 @@ export function PairDetailsModal({
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="e-subject">{t('subject')}</Label>
               <Input id="e-subject" {...editForm.register('subject')} />
+              <FieldError>{editForm.formState.errors.subject && t('required')}</FieldError>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">
@@ -309,6 +313,7 @@ export function PairDetailsModal({
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="e-start">{t('startTime')}</Label>
                 <Input id="e-start" type="time" {...editForm.register('startTime')} />
+                <FieldError>{editForm.formState.errors.startTime && t('timeInvalid')}</FieldError>
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="e-end">{t('endTime')}</Label>
@@ -516,6 +521,7 @@ export function PairDetailsModal({
                       />
                     )}
                   />
+                  <FieldError>{changeErrors.newRoomId && t('required')}</FieldError>
                 </div>
               )}
 
@@ -524,10 +530,15 @@ export function PairDetailsModal({
                   <div className="flex flex-col gap-1.5">
                     <Label htmlFor="nstart">{t('newStartTime')}</Label>
                     <Input id="nstart" type="time" {...changeForm.register('newStartTime')} />
+                    <FieldError>{changeErrors.newStartTime && t('required')}</FieldError>
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <Label htmlFor="nend">{t('newEndTime')}</Label>
                     <Input id="nend" type="time" {...changeForm.register('newEndTime')} />
+                    <FieldError>
+                      {changeErrors.newEndTime &&
+                        (changeForm.getValues('newEndTime') ? t('timeInvalid') : t('required'))}
+                    </FieldError>
                   </div>
                 </div>
               )}
@@ -544,6 +555,7 @@ export function PairDetailsModal({
                       changeForm.setValue('newTeacherId', u?.id ?? null)
                     }}
                   />
+                  <FieldError>{changeErrors.newTeacherId && t('required')}</FieldError>
                 </div>
               )}
 
