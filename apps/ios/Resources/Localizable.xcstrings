@@ -2956,23 +2956,6 @@
         }
       }
     },
-    "more.groupRequests": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Обращения группы"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Топ өтініштері"
-          }
-        }
-      }
-    },
     "more.groups": {
       "extractionState": "manual",
       "localizations": {

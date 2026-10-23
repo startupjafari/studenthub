@@ -104,8 +104,6 @@ enum DeepLink: Equatable {
             self = .section(.settings)
         case ("starosta", "classmates"), ("starosta", "group"):
             self = .section(.classmates)
-        case ("starosta", "group-requests"):
-            self = .section(.groupRequests)
 
         // Библиотека читателя. Сюда же ведут её уведомления: `data.url = "/my-books"`.
         case ("books", nil):

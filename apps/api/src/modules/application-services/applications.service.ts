@@ -33,20 +33,6 @@ const SCOPE_SELECT = {
   universityId: true,
 } satisfies Prisma.ApplicationSelect
 
-// Урезанная проекция для старосты (§2.2): только то, что рисует его список — кто, какая услуга и
-// на каком шаге. Без formData, дат обработки и назначенного сотрудника: это чужие данные, в
-// интерфейсе они не показываются, а в formData попадает свободный текст вроде причины
-// академического отпуска (docs/BACKEND_RULES.md §14.7).
-const GROUP_REQUEST_SELECT = {
-  id: true,
-  number: true,
-  status: true,
-  createdAt: true,
-  submittedAt: true,
-  service: { select: { id: true, code: true, nameRu: true, nameKk: true, nameEn: true } },
-  student: { select: { id: true, firstName: true, lastName: true, groupId: true } },
-} satisfies Prisma.ApplicationSelect
-
 // Карточка заявки в списках/деталях.
 const APP_SELECT = {
   id: true,
@@ -287,36 +273,6 @@ export class ApplicationsService {
       this.prisma.application.findMany({
         where,
         select: APP_SELECT,
-        orderBy: { [query.sortBy]: query.sortOrder },
-        skip: (query.page - 1) * query.limit,
-        take: query.limit,
-      }),
-      this.prisma.application.count({ where }),
-    ])
-    return new Paginated(rows, { total })
-  }
-
-  /**
-   * Обращения своей группы для старосты (§2.2, только чтение). Scope жёстко ограничен группой
-   * старосты через связь student.groupId — политика/scopeWhere остальных ролей не затрагивается.
-   * Проекция — GROUP_REQUEST_SELECT: старосте отдаём ровно то, что рисует его список.
-   */
-  async listGroupRequests(
-    viewer: JwtPayload,
-    query: ApplicationQueryInput,
-  ): Promise<Paginated<unknown>> {
-    if (!viewer.groupId) return new Paginated([], { total: 0 })
-    const where: Prisma.ApplicationWhereInput = {
-      deletedAt: null,
-      student: { is: { groupId: viewer.groupId } },
-      // Черновик — ещё не обращение: студент его никуда не подавал, и старосте его видеть
-      // незачем (в т.ч. что одногруппник «собирался» оформить академический отпуск).
-      AND: [{ status: { not: 'DRAFT' } }, ...(query.status ? [{ status: query.status }] : [])],
-    }
-    const [rows, total] = await this.prisma.$transaction([
-      this.prisma.application.findMany({
-        where,
-        select: GROUP_REQUEST_SELECT,
         orderBy: { [query.sortBy]: query.sortOrder },
         skip: (query.page - 1) * query.limit,
         take: query.limit,

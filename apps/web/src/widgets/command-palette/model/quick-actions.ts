@@ -75,7 +75,6 @@ const STAROSTA: QuickAction[] = [
   ...STUDENT,
   { navKey: 'myGroup', href: '/starosta/group', icon: Users },
   { navKey: 'classmates', href: '/starosta/classmates', icon: GraduationCap },
-  { navKey: 'groupRequests', href: '/starosta/group-requests', icon: ClipboardList },
 ]
 
 const UNIVERSITY_ADMIN: QuickAction[] = [
