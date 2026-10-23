@@ -88,6 +88,12 @@ export class DocumentsController {
 
   @Get()
   @ApiOperation({ summary: 'Мои документы (фильтры/поиск/сортировка; view=active|archived)' })
+  @ApiResponse({
+    status: 200,
+    description:
+      'Без limit/cursor — массив (до 200). С ними — страница (limit ≤ 50): meta.cursor/hasNext/total',
+  })
+  @ApiResponse({ status: 400, description: 'BAD_REQUEST — страница с sort=access' })
   list(@CurrentUser() user: CurrentUserData, @Query() query: DocumentListQueryDto) {
     return this.documents.list(user, query)
   }

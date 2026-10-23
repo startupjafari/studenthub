@@ -1,4 +1,5 @@
 import { Role } from '@studenthub/shared-types'
+import { DocumentListQuerySchema } from '@studenthub/shared-schemas'
 import type { ConfigService } from '@nestjs/config'
 import { DocumentsService } from './documents.service'
 import type { PrismaService } from '../../common/prisma/prisma.service'
@@ -695,5 +696,128 @@ describe('DocumentsService — спец-режим: метаданные с пр
         metadata: { reason: 'Обращение в поддержку №12' },
       }),
     )
+  })
+})
+
+describe('DocumentsService — список: страница по запросу (iOS шлёт ?limit=50)', () => {
+  const docs = (n: number) =>
+    Array.from({ length: n }, (_, i) =>
+      row({ id: `d${i + 1}`, createdAt: new Date(Date.UTC(2026, 0, 30 - i)) }),
+    )
+
+  it('схема принимает limit и cursor; limit > 50 и лишние поля по-прежнему отклоняются', () => {
+    expect(DocumentListQuerySchema.safeParse({ limit: '50' }).success).toBe(true)
+    expect(DocumentListQuerySchema.parse({ limit: '50', cursor: 'x' })).toEqual({
+      limit: 50,
+      cursor: 'x',
+      view: 'active',
+    })
+    expect(DocumentListQuerySchema.safeParse({ limit: '51' }).success).toBe(false)
+    expect(DocumentListQuerySchema.safeParse({ page: '2' }).success).toBe(false)
+  })
+
+  it('без limit/cursor — прежний ответ массивом (веб, Android), потолок 200', async () => {
+    const { service, prisma } = setup()
+    prisma.document.findMany.mockResolvedValue(docs(2))
+    const res = await service.list(actor(), { view: 'active' })
+    expect(Array.isArray(res)).toBe(true)
+    const args = prisma.document.findMany.mock.calls[0][0]
+    expect(args.take).toBe(200)
+    expect(args.orderBy).toEqual([{ createdAt: 'desc' }, { id: 'desc' }])
+    expect(prisma.document.count).not.toHaveBeenCalled()
+  })
+
+  it('limit: страница limit + 1 строк → hasNext, total и курсор последней строки', async () => {
+    const { service, prisma } = setup()
+    prisma.document.findMany.mockResolvedValue(docs(3))
+    prisma.document.count.mockResolvedValue(7)
+    const res = await service.list(actor(), { view: 'active', limit: 2 })
+    if (Array.isArray(res)) throw new Error('ожидалась страница')
+    expect(prisma.document.findMany.mock.calls[0][0].take).toBe(3)
+    expect(res.items.map((d) => d.id)).toEqual(['d1', 'd2'])
+    expect(res.meta.hasNext).toBe(true)
+    expect(res.meta.total).toBe(7)
+    expect(res.meta.cursor).toEqual(expect.any(String))
+    // Номер — по-прежнему только маской.
+    expect((res.items[0] as unknown as Record<string, unknown>).numberLast4).toBeUndefined()
+  })
+
+  it('cursor: следующая страница строго после позиции последней строки', async () => {
+    const { service, prisma } = setup()
+    prisma.document.findMany.mockResolvedValue(docs(3))
+    const first = await service.list(actor(), { view: 'active', limit: 2 })
+    if (Array.isArray(first)) throw new Error('ожидалась страница')
+    prisma.document.findMany.mockResolvedValue([])
+    await service.list(actor(), { view: 'active', limit: 2, cursor: first.meta.cursor })
+    const where = prisma.document.findMany.mock.calls[1][0].where
+    const at = new Date(Date.UTC(2026, 0, 29))
+    expect(where.AND[0]).toEqual(expect.objectContaining({ ownerId: 'me', deletedAt: null }))
+    expect(where.AND[1]).toEqual({
+      OR: [{ createdAt: { lt: at } }, { createdAt: at, id: { lt: 'd2' } }],
+    })
+    // Свой курсор той же сортировки не требует похода в БД за позицией.
+    expect(prisma.document.findFirst).not.toHaveBeenCalled()
+  })
+
+  it('cursor по дате с пустыми значениями: после даты идут и строки без неё', async () => {
+    const { service, prisma } = setup()
+    prisma.document.findMany.mockResolvedValue([
+      row({ id: 'a', expiresAt: new Date(Date.UTC(2027, 0, 1)) }),
+      row({ id: 'b', expiresAt: null }),
+      row({ id: 'c', expiresAt: null }),
+    ])
+    const query = { view: 'active' as const, sort: 'expiresAt' as const, order: 'asc' as const }
+    const p1 = await service.list(actor(), { ...query, limit: 1 })
+    const p2 = await service.list(actor(), { ...query, limit: 2 })
+    if (Array.isArray(p1) || Array.isArray(p2)) throw new Error('ожидалась страница')
+    prisma.document.findMany.mockResolvedValue([])
+    await service.list(actor(), { ...query, limit: 1, cursor: p1.meta.cursor })
+    await service.list(actor(), { ...query, limit: 1, cursor: p2.meta.cursor })
+    const at = new Date(Date.UTC(2027, 0, 1))
+    expect(prisma.document.findMany.mock.calls[2][0].where.AND[1]).toEqual({
+      OR: [{ expiresAt: { gt: at } }, { expiresAt: at, id: { gt: 'a' } }, { expiresAt: null }],
+    })
+    expect(prisma.document.findMany.mock.calls[3][0].where.AND[1]).toEqual({
+      expiresAt: null,
+      id: { gt: 'b' },
+    })
+  })
+
+  it('голый id или курсор другой сортировки — позиция по своему документу', async () => {
+    const { service, prisma } = setup()
+    prisma.document.findFirst.mockResolvedValue(row({ id: 'd5', title: 'Диплом' }))
+    await service.list(actor(), { view: 'active', sort: 'title', limit: 10, cursor: 'd5' })
+    expect(prisma.document.findFirst.mock.calls[0][0].where).toEqual({ id: 'd5', ownerId: 'me' })
+    expect(prisma.document.findMany.mock.calls[0][0].where.AND[1]).toEqual({
+      OR: [{ title: { gt: 'Диплом' } }, { title: 'Диплом', id: { gt: 'd5' } }],
+    })
+  })
+
+  it('курсор на чужой или несуществующий документ — пустая страница, без выборки', async () => {
+    const { service, prisma } = setup()
+    prisma.document.findFirst.mockResolvedValue(null)
+    prisma.document.count.mockResolvedValue(4)
+    const res = await service.list(actor(), { view: 'active', limit: 10, cursor: 'foreign' })
+    expect(res).toEqual(expect.objectContaining({ items: [], meta: { hasNext: false, total: 4 } }))
+    expect(prisma.document.findMany).not.toHaveBeenCalled()
+  })
+
+  it('подделанный курсор (строка вместо даты) не доходит до БД как дата', async () => {
+    const { service, prisma } = setup()
+    prisma.document.findFirst.mockResolvedValue(null)
+    const forged = Buffer.from(
+      JSON.stringify({ s: 'createdAt:desc', v: 'not-a-date', id: 'd1' }),
+    ).toString('base64url')
+    await service.list(actor(), { view: 'active', limit: 10, cursor: forged })
+    expect(prisma.document.findFirst.mock.calls[0][0].where).toEqual({ id: 'd1', ownerId: 'me' })
+    expect(prisma.document.findMany).not.toHaveBeenCalled()
+  })
+
+  it('страница с сортировкой по числу доступов → BAD_REQUEST', async () => {
+    const { service } = setup()
+    const err = await service
+      .list(actor(), { view: 'active', sort: 'access', limit: 10 })
+      .catch((e) => e)
+    expect(err.code).toBe('BAD_REQUEST')
   })
 })

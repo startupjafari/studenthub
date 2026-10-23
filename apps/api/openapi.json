@@ -9463,7 +9463,10 @@
         "parameters": [],
         "responses": {
           "200": {
-            "description": ""
+            "description": "Без limit/cursor — массив (до 200). С ними — страница (limit ≤ 50): meta.cursor/hasNext/total"
+          },
+          "400": {
+            "description": "BAD_REQUEST — страница с sort=access"
           }
         },
         "security": [
