@@ -33,6 +33,9 @@ apps/web/a11y-axe.json
 # Рабочий каталог сравнения OpenAPI-схем в прогоне.
 .oasdiff/
 playwright-report/
+# Lighthouse CI (.github/workflows/lighthouse.yml): сырые прогоны и отчёты — артефакты.
+.lighthouseci/
+lhci-report/
 test-results/
 
 # Editor / OS
