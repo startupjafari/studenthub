@@ -33,6 +33,7 @@ import {
   updateDocument,
   type DocumentDto,
 } from '../../../entities/document'
+import { UserPicker, type PickedUser } from '../../../entities/user'
 import { useAppSelector } from '../../../shared/store'
 import {
   Badge,
@@ -354,12 +355,16 @@ function AccessModal({ docId, onClose }: { docId: string; onClose: () => void })
   const qc = useQueryClient()
   const myFacultyId = useAppSelector((s) => s.auth.facultyId)
 
-  const [target, setTarget] = useState<'UNIVERSITY' | 'DEPARTMENT'>('UNIVERSITY')
+  const [target, setTarget] = useState<'UNIVERSITY' | 'DEPARTMENT' | 'USER'>('UNIVERSITY')
+  // Персональный доступ (USER): так документ открывают студенты и преподаватели (§3.8) —
+  // гранты «Университет» и «Факультет» пускают только администрацию.
+  const [person, setPerson] = useState<PickedUser | null>(null)
   const [reason, setReason] = useState('')
   const [expiresAt, setExpiresAt] = useState('')
   const [submitted, setSubmitted] = useState(false)
   // Основание обязательно: оно уходит в журнал документа и в аудит.
   const reasonError = !reason.trim() ? tCommon('fieldRequired') : null
+  const personError = target === 'USER' && !person ? tCommon('fieldRequired') : null
 
   const q = useQuery({
     queryKey: documentKeys.access(docId),
@@ -373,7 +378,12 @@ function AccessModal({ docId, onClose }: { docId: string; onClose: () => void })
     mutationFn: () =>
       grantDocumentAccess(docId, {
         granteeType: target,
-        granteeId: target === 'DEPARTMENT' ? (myFacultyId ?? undefined) : undefined,
+        granteeId:
+          target === 'DEPARTMENT'
+            ? (myFacultyId ?? undefined)
+            : target === 'USER'
+              ? person?.id
+              : undefined,
         reason: reason.trim(),
         expiresAt: expiresAt ? new Date(expiresAt) : undefined,
       }),
@@ -382,6 +392,7 @@ function AccessModal({ docId, onClose }: { docId: string; onClose: () => void })
       void qc.invalidateQueries({ queryKey: documentKeys.all })
       setReason('')
       setExpiresAt('')
+      setPerson(null)
       setSubmitted(false)
       toast.success(t('granted'))
     },
@@ -455,9 +466,16 @@ function AccessModal({ docId, onClose }: { docId: string; onClose: () => void })
             <SelectContent>
               <SelectItem value="UNIVERSITY">{t('grantUniversity')}</SelectItem>
               {myFacultyId && <SelectItem value="DEPARTMENT">{t('grantDepartment')}</SelectItem>}
+              <SelectItem value="USER">{t('grantUser')}</SelectItem>
             </SelectContent>
           </Select>
         </label>
+        {target === 'USER' && (
+          <div className="flex flex-col gap-1 text-sm">
+            <UserPicker value={person} onSelect={setPerson} />
+            <FieldError>{submitted ? personError : null}</FieldError>
+          </div>
+        )}
         <label className="flex flex-col gap-1 text-sm">
           {t('grantReason')}
           <Input
@@ -479,7 +497,7 @@ function AccessModal({ docId, onClose }: { docId: string; onClose: () => void })
             loading={grantMut.isPending}
             onClick={() => {
               setSubmitted(true)
-              if (!reasonError) grantMut.mutate()
+              if (!reasonError && !personError) grantMut.mutate()
             }}
           >
             {t('grantSubmit')}
