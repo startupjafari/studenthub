@@ -238,6 +238,44 @@ describe('AssignmentsService — файлы в сдаче (C-F06)', () => {
   })
 })
 
+describe('AssignmentsService — задания прежней группы после перевода', () => {
+  const moved: JwtPayload = { ...student, groupId: 'grp-2' }
+
+  it('scope студента: текущая группа или задания с его отправленной работой', async () => {
+    const { service, prisma } = setup()
+    const findMany = jest.fn().mockResolvedValue([])
+    const count = jest.fn().mockResolvedValue(0)
+    Object.assign(prisma.assignment, { findMany, count })
+    Object.assign(prisma, { $transaction: jest.fn((ops: unknown[]) => Promise.all(ops)) })
+    await service.list(moved, { page: 1, limit: 20, sort: 'dueAt' })
+    const scope = findMany.mock.calls[0][0].where.AND[0]
+    expect(scope).toEqual({
+      status: { in: ['PUBLISHED', 'CLOSED'] },
+      OR: [
+        { course: { is: { groupId: 'grp-2' } } },
+        { submissions: { some: { studentId: 'stu-1', status: { not: 'DRAFT' } } } },
+      ],
+    })
+  })
+
+  it('задание прежней группы открывается по своей сданной работе, по черновику — нет', async () => {
+    const { service, prisma } = setup()
+    const row = { id: 'as-1', status: 'PUBLISHED', course }
+    prisma.assignment.findUnique.mockResolvedValue({
+      ...row,
+      submissions: [{ id: 'sub-1', status: 'GRADED' }],
+    })
+    await expect(service.getById(moved, 'as-1')).resolves.toMatchObject({
+      mySubmission: { status: 'GRADED' },
+    })
+    prisma.assignment.findUnique.mockResolvedValue({
+      ...row,
+      submissions: [{ id: 'sub-1', status: 'DRAFT' }],
+    })
+    await expect(service.getById(moved, 'as-1')).rejects.toMatchObject({ code: 'WRONG_SCOPE' })
+  })
+})
+
 describe('AssignmentsService.remove — сданные работы не стираются (C-F07)', () => {
   it('есть отправленные работы → CONFLICT', async () => {
     const { service, prisma } = setup()

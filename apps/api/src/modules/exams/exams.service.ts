@@ -135,10 +135,13 @@ export class ExamsService {
       select: withMine ? this.selectWithMine(viewer.sub) : EXAM_SELECT,
     })
     if (!exam) throw new AppException('NOT_FOUND', 'Экзамен не найден')
+    const mine = (exam as Record<string, unknown>).results
     await this.assertRead(viewer, {
       groupId: exam.groupId,
       teacherId: exam.course.teacherId,
       examinerId: exam.examiner?.id ?? null,
+      // Свой результат по экзамену прежней группы — тот же признак, что в `scopeWhere`.
+      ownResult: Array.isArray(mine) && mine.length > 0,
     })
     return this.mapMine(exam)
   }
@@ -384,7 +387,16 @@ export class ExamsService {
 
   private scopeWhere(viewer: JwtPayload): Prisma.ExamWhereInput {
     if (isPlatform(viewer.role)) return {}
-    if (STUDENT_ROLES.includes(viewer.role)) return { groupId: viewer.groupId ?? '__none__' }
+    if (STUDENT_ROLES.includes(viewer.role)) {
+      // Экзамены текущей группы И те, где у студента есть результат: после перевода в другую
+      // группу выборка только по группе прятала всю прежнюю сессию (как в журнале оценок).
+      return {
+        OR: [
+          { groupId: viewer.groupId ?? '__none__' },
+          { results: { some: { studentId: viewer.sub } } },
+        ],
+      }
+    }
     if (viewer.role === Role.TEACHER) {
       return { OR: [{ course: { is: { teacherId: viewer.sub } } }, { examinerId: viewer.sub }] }
     }
@@ -398,11 +410,16 @@ export class ExamsService {
 
   private async assertRead(
     viewer: JwtPayload,
-    exam: { groupId: string; teacherId: string | null; examinerId: string | null },
+    exam: {
+      groupId: string
+      teacherId: string | null
+      examinerId: string | null
+      ownResult?: boolean
+    },
   ): Promise<void> {
     if (isPlatform(viewer.role)) return
     if (STUDENT_ROLES.includes(viewer.role)) {
-      if (viewer.groupId === exam.groupId) return
+      if (viewer.groupId === exam.groupId || exam.ownResult) return
       throw new AppException('WRONG_SCOPE', 'Экзамен другой группы')
     }
     // Преподаватель — то же условие, что в `scopeWhere`: своя дисциплина или он экзаменатор.

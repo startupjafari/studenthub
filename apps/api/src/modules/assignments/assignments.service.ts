@@ -315,7 +315,13 @@ export class AssignmentsService {
       select: withMine ? this.selectWithMine(viewer.sub) : ASSIGNMENT_SELECT,
     })
     if (!assignment) throw new AppException('NOT_FOUND', 'Задание не найдено')
-    await this.assertRead(viewer, assignment.course)
+    const mine = (assignment as Record<string, unknown>).submissions
+    await this.assertRead(viewer, {
+      ...assignment.course,
+      // Отправленная работа по заданию прежней группы — тот же признак, что в `scopeWhere`.
+      ownWork:
+        Array.isArray(mine) && (mine as { status: string }[]).some((s) => s.status !== 'DRAFT'),
+    })
     // Черновик виден только тем, кто ведёт дисциплину. Студенту/старосте getById не должен
     // раскрывать DRAFT (list его прячет через scope) — иначе утечка title/условий до публикации.
     if (STUDENT_ROLES.includes(viewer.role) && assignment.status === 'DRAFT') {
@@ -799,7 +805,13 @@ export class AssignmentsService {
     if (STUDENT_ROLES.includes(viewer.role)) {
       return {
         status: { in: ['PUBLISHED', 'CLOSED'] },
-        course: { is: { groupId: viewer.groupId ?? '__none__' } },
+        // Задания текущей группы И те, по которым студент отправлял работу: после перевода в
+        // другую группу выборка только по группе прятала прежние работы и оценки за них (как
+        // в журнале оценок). Черновик в прежней группе — не работа, его не считаем.
+        OR: [
+          { course: { is: { groupId: viewer.groupId ?? '__none__' } } },
+          { submissions: { some: { studentId: viewer.sub, status: { not: 'DRAFT' } } } },
+        ],
       }
     }
     if (viewer.role === Role.TEACHER) {
@@ -819,11 +831,11 @@ export class AssignmentsService {
 
   private async assertRead(
     viewer: JwtPayload,
-    course: { groupId: string; teacherId: string | null },
+    course: { groupId: string; teacherId: string | null; ownWork?: boolean },
   ): Promise<void> {
     if (isPlatform(viewer.role)) return
     if (STUDENT_ROLES.includes(viewer.role)) {
-      if (viewer.groupId === course.groupId) return
+      if (viewer.groupId === course.groupId || course.ownWork) return
       throw new AppException('WRONG_SCOPE', 'Задание другой группы')
     }
     if (viewer.role === Role.TEACHER) {

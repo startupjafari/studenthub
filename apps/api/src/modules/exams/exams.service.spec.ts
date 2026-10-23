@@ -388,6 +388,44 @@ describe('ExamsService.getById — преподаватель видит тол�
   })
 })
 
+describe('ExamsService — экзамены прежней группы после перевода', () => {
+  const movedStudent: JwtPayload = {
+    sub: 'st-1',
+    role: Role.STUDENT,
+    universityId: 'uni-1',
+    facultyId: 'fac-1',
+    groupId: 'grp-2',
+  }
+
+  it('список студента: текущая группа или экзамены с его результатом', async () => {
+    const { service, prisma } = setup()
+    await service.list(movedStudent, {})
+    const where = prisma.exam.findMany.mock.calls[0][0].where
+    expect(where.AND[0]).toEqual({
+      OR: [{ groupId: 'grp-2' }, { results: { some: { studentId: 'st-1' } } }],
+    })
+  })
+
+  it('экзамен прежней группы со своим результатом открывается, без результата — нет', async () => {
+    const { service, prisma } = setup()
+    const row = {
+      id: 'ex-1',
+      groupId: 'grp-1',
+      course: { teacherId: 'lecturer' },
+      examiner: { id: 'examiner' },
+    }
+    prisma.exam.findUnique.mockResolvedValue({ ...row, results: [{ id: 'r-1', status: 'PASSED' }] })
+    await expect(service.getById(movedStudent, 'ex-1')).resolves.toMatchObject({
+      id: 'ex-1',
+      myResult: { status: 'PASSED' },
+    })
+    prisma.exam.findUnique.mockResolvedValue({ ...row, results: [] })
+    await expect(service.getById(movedStudent, 'ex-1')).rejects.toMatchObject({
+      code: 'WRONG_SCOPE',
+    })
+  })
+})
+
 // ── C-F10: пересдача не затирает попытку бесследно ───────────────────────────
 describe('planExamResults', () => {
   it('итог после «Пересдачи» — следующая попытка; прежнее значение — в changes', () => {
