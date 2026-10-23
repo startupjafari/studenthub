@@ -55,6 +55,7 @@ function setup() {
       count: jest.fn().mockResolvedValue(0),
     },
     user: { findMany: jest.fn().mockResolvedValue([]) },
+    university: { findUnique: jest.fn().mockResolvedValue({ timezone: 'Asia/Almaty' }) },
     documentEvent: {
       create: jest.fn().mockResolvedValue({}),
       createMany: jest.fn().mockResolvedValue({ count: 0 }),
@@ -132,6 +133,19 @@ describe('DocumentsService', () => {
     expect(dto.numberMasked).toBe('******4821')
     // Полный номер НЕ должен присутствовать в DTO.
     expect((dto as unknown as Record<string, unknown>).number).toBeUndefined()
+  })
+
+  it('create: срок датой без времени действует до конца этого дня по часам вуза', async () => {
+    const { service, prisma } = setup()
+    await service.create(actor(), {
+      category: 'PERSONAL',
+      type: 'ID_CARD',
+      title: 'Удостоверение',
+      expiresAt: new Date('2026-12-31'),
+    })
+    const data = prisma.document.create.mock.calls[0][0].data
+    // 23:59:59.999 31.12 по Алматы (UTC+5), а не 05:00 того же дня.
+    expect(data.expiresAt).toEqual(new Date('2026-12-31T18:59:59.999Z'))
   })
 
   it('create: неизвестный тип для категории → BAD_REQUEST', async () => {

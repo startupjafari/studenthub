@@ -24,6 +24,7 @@ import { FileService } from '../files/file.service'
 import { NOTIFICATION_JOBS, QUEUES, QueueService } from '../../common/queue'
 import { AuditService } from '../../common/audit/audit.service'
 import { Paginated } from '../../common/http/paginated'
+import { endOfDay } from '../library/library-dates'
 import { DocumentTypesService, type RetentionRule } from './document-types.service'
 
 // Документы принимаем только как PDF/JPG/PNG (ТЗ §5, шаг 2).
@@ -49,6 +50,8 @@ const DOCUMENT_MIME = new Set(['application/pdf', 'image/jpeg', 'image/png'])
 // Порог «скоро истекает» — 30 дней.
 const EXPIRING_WINDOW_MS = 30 * 24 * 60 * 60 * 1000
 const DAY_MS = 24 * 60 * 60 * 1000
+// Пояс, если вуз не указан (документы пользователей платформы): как у платформы.
+const DEFAULT_TIMEZONE = 'Asia/Almaty'
 // Статусы, которые выводятся из срока действия: при возврате из архива их пересчитываем.
 const EXPIRY_STATUSES: ReadonlySet<string> = new Set(['UPLOADED', 'EXPIRING', 'EXPIRED'])
 // Размер пачки ночного крона (правила сроков хранения, документы к архиву).
@@ -416,6 +419,30 @@ export class DocumentsService {
   /** Presigned-URL к уже проверенному по scope файлу (используется сервисом запросов). */
   presign(fileId: string): Promise<string> {
     return this.files.getPresignedUrl(fileId)
+  }
+
+  /**
+   * «Действует до 31.12» — включая 31.12 по часам вуза. Клиенты присылают срок датой без
+   * времени (полночь UTC), и так сохранённый срок истекал в 05:00 последнего дня по Алматы:
+   * с утра документ уже «Просрочен», крон слал «Документ истёк», окно «Скоро истекает»
+   * сдвигалось. Дата без времени хранится последним моментом этого дня в поясе вуза (как
+   * срок выдачи библиотеки); срок с явным временем — как прислан.
+   */
+  private async inclusiveUntil(
+    value: Date | null | undefined,
+    universityId: string | null | undefined,
+  ): Promise<Date | null | undefined> {
+    if (!value || value.getTime() % DAY_MS !== 0) return value
+    return endOfDay(value.toISOString().slice(0, 10), await this.timezoneOf(universityId))
+  }
+
+  private async timezoneOf(universityId: string | null | undefined): Promise<string> {
+    if (!universityId) return DEFAULT_TIMEZONE
+    const university = await this.prisma.university.findUnique({
+      where: { id: universityId },
+      select: { timezone: true },
+    })
+    return university?.timezone || DEFAULT_TIMEZONE
   }
 
   private mask(last4: string | null): string | null {
@@ -1002,7 +1029,7 @@ export class DocumentsService {
         granteeId: input.granteeType === 'UNIVERSITY' ? null : (input.granteeId ?? null),
         reason: input.reason,
         grantedById: actor.sub,
-        expiresAt: input.expiresAt ?? null,
+        expiresAt: (await this.inclusiveUntil(input.expiresAt, actor.universityId)) ?? null,
       },
       select: { id: true },
     })
@@ -1121,7 +1148,7 @@ export class DocumentsService {
         numberLast4: this.last4(input.number),
         issuedBy: input.issuedBy || null,
         issuedAt: input.issuedAt ?? null,
-        expiresAt: input.expiresAt ?? null,
+        expiresAt: (await this.inclusiveUntil(input.expiresAt, actor.universityId)) ?? null,
         comment: input.comment || null,
         status: input.status === 'DRAFT' ? 'DRAFT' : 'UPLOADED',
       },
@@ -1204,11 +1231,12 @@ export class DocumentsService {
     return doc
   }
 
-  async update(actor: JwtPayload, id: string, input: UpdateDocumentInput): Promise<DocumentDto> {
+  async update(actor: JwtPayload, id: string, patch: UpdateDocumentInput): Promise<DocumentDto> {
     const doc = await this.prisma.document.findFirst({
       where: { id, ownerId: actor.sub, deletedAt: null },
       select: {
         id: true,
+        universityId: true,
         issuedByUniversity: true,
         title: true,
         number: true,
@@ -1218,9 +1246,20 @@ export class DocumentsService {
       },
     })
     if (!doc) throw new AppException('NOT_FOUND', 'Документ не найден')
+    // Срок — в том же виде, в каком хранится (конец дня по часам вуза): иначе та же дата из
+    // формы выглядела бы правкой содержимого и снимала подтверждение. Срок, сохранённый до
+    // этого правила полуночью UTC, сравнивается так же.
+    const input: UpdateDocumentInput = {
+      ...patch,
+      expiresAt: await this.inclusiveUntil(patch.expiresAt, doc.universityId),
+    }
+    const stored = {
+      ...doc,
+      expiresAt: (await this.inclusiveUntil(doc.expiresAt, doc.universityId)) ?? null,
+    }
     // Изменилось ли содержимое, а не просто пришло ли поле: веб присылает форму целиком, и
     // правка одной заметки не должна ни упираться в запрет, ни снимать подтверждение вуза.
-    const contentChanged = changedContent(input, doc)
+    const contentChanged = changedContent(input, stored)
     // У выданного вузом документа владелец меняет только свою заметку (comment) — она
     // никому, кроме него, не показывается.
     if (contentChanged) {
