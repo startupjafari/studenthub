@@ -20,6 +20,7 @@ import {
   SectionPanel,
   Skeleton,
   TablePagination,
+  FieldError,
 } from '../../../shared/ui'
 import {
   CopyStatusBadge,
@@ -195,11 +196,7 @@ export function InventoryView() {
                 {t('invMark')}
               </Button>
             </form>
-            {error && (
-              <p role="alert" className="mt-2 text-xs text-destructive">
-                {error}
-              </p>
-            )}
+            <FieldError>{error && error}</FieldError>
           </SectionPanel>
 
           <SectionPanel title={t('invRecent')} subtitle={t('invRecentHint')}>

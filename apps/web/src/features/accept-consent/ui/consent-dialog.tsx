@@ -18,6 +18,7 @@ import {
   Input,
   Label,
   LegalLinks,
+  FieldError,
 } from '../../../shared/ui'
 import { useErrorToast } from '../../../shared/lib'
 import { endSession } from '../../../shared/session'
@@ -128,11 +129,8 @@ export function ConsentDialog({
                 aria-invalid={!!errors.birthDate}
                 {...register('birthDate')}
               />
-              {errors.birthDate ? (
-                <p className="text-xs text-destructive">{errors.birthDate.message}</p>
-              ) : (
-                <p className="text-xs text-muted-foreground">{tAuth('birthDateHint')}</p>
-              )}
+              <p className="text-xs text-muted-foreground">{tAuth('birthDateHint')}</p>
+              <FieldError>{errors.birthDate && errors.birthDate.message}</FieldError>
             </div>
           )}
 
@@ -146,7 +144,7 @@ export function ConsentDialog({
               />
               <span className="text-muted-foreground">{tAuth('consent')}</span>
             </label>
-            {errors.consent && <p className="text-xs text-destructive">{t('consentRequired')}</p>}
+            <FieldError>{errors.consent && t('consentRequired')}</FieldError>
 
             {needsGuardian && (
               <>
@@ -159,9 +157,7 @@ export function ConsentDialog({
                   />
                   <span className="text-muted-foreground">{tAuth('guardianConsent')}</span>
                 </label>
-                {errors.guardianConsent && (
-                  <p className="text-xs text-destructive">{errors.guardianConsent.message}</p>
-                )}
+                <FieldError>{errors.guardianConsent && errors.guardianConsent.message}</FieldError>
               </>
             )}
           </div>

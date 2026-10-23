@@ -19,6 +19,7 @@ import {
   PageHeader,
   SectionPanel,
   Skeleton,
+  FieldError,
 } from '../../../shared/ui'
 import {
   LoanDueBadge,
@@ -193,11 +194,7 @@ function ManualCode({ busy, onCode }: { busy: boolean; onCode: (token: string) =
             {t('manualSubmit')}
           </Button>
         </div>
-        {invalid && (
-          <p role="alert" className="text-xs text-destructive">
-            {t('manualInvalid')}
-          </p>
-        )}
+        <FieldError>{invalid && t('manualInvalid')}</FieldError>
       </form>
     </SectionPanel>
   )

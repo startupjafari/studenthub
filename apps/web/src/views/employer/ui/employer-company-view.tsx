@@ -16,6 +16,7 @@ import {
   PageHeader,
   PageLoader,
   Textarea,
+  FieldError,
 } from '../../../shared/ui'
 import { useFormAlert } from '../../../shared/lib'
 
@@ -80,27 +81,25 @@ export function EmployerCompanyView() {
         <div className="flex flex-col gap-2">
           <Label htmlFor="name">{t('fieldName')}</Label>
           <Input id="name" aria-invalid={!!errors.name} {...register('name')} />
-          {errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}
+          <FieldError>{errors.name && errors.name.message}</FieldError>
         </div>
 
         <div className="flex flex-col gap-2">
           <Label htmlFor="description">{t('fieldDescription')}</Label>
           <Textarea id="description" rows={5} {...register('description')} />
-          {errors.description && (
-            <p className="text-xs text-destructive">{errors.description.message}</p>
-          )}
+          <FieldError>{errors.description && errors.description.message}</FieldError>
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-2">
             <Label htmlFor="website">{t('fieldWebsite')}</Label>
             <Input id="website" placeholder="https://" {...register('website')} />
-            {errors.website && <p className="text-xs text-destructive">{errors.website.message}</p>}
+            <FieldError>{errors.website && errors.website.message}</FieldError>
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="city">{t('fieldCity')}</Label>
             <Input id="city" {...register('city')} />
-            {errors.city && <p className="text-xs text-destructive">{errors.city.message}</p>}
+            <FieldError>{errors.city && errors.city.message}</FieldError>
           </div>
         </div>
 

@@ -81,6 +81,7 @@ import {
   SelectValue,
   Skeleton,
   type FlagCode,
+  FieldError,
 } from '../../../shared/ui'
 import { MARITAL_STATUS_DICT } from '../../../shared/config'
 import {
@@ -321,29 +322,27 @@ export function PersonalSection({ me }: { me: MeResponse }) {
                 {...form.register('username', { onChange: () => setUsernameError(null) })}
               />
             </div>
-            {usernameError || form.formState.errors.username ? (
-              <p role="alert" className="text-xs text-destructive">
-                {usernameError ?? form.formState.errors.username?.message}
-              </p>
-            ) : (
-              <p className="text-xs text-muted-foreground">
-                {me.username ? tS('usernameHint') : tS('usernameEmptyHint')}
-              </p>
-            )}
+            <p className="text-xs text-muted-foreground">
+              {me.username ? tS('usernameHint') : tS('usernameEmptyHint')}
+            </p>
+            <FieldError>
+              {(usernameError || form.formState.errors.username) &&
+                (usernameError ?? form.formState.errors.username?.message)}
+            </FieldError>
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="lastName">{tP('lastName')}</Label>
             <Input id="lastName" {...form.register('lastName')} />
-            {form.formState.errors.lastName && (
-              <p className="text-xs text-destructive">{form.formState.errors.lastName.message}</p>
-            )}
+            <FieldError>
+              {form.formState.errors.lastName && form.formState.errors.lastName.message}
+            </FieldError>
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="firstName">{tP('firstName')}</Label>
             <Input id="firstName" {...form.register('firstName')} />
-            {form.formState.errors.firstName && (
-              <p className="text-xs text-destructive">{form.formState.errors.firstName.message}</p>
-            )}
+            <FieldError>
+              {form.formState.errors.firstName && form.formState.errors.firstName.message}
+            </FieldError>
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="middleName">{tP('middleName')}</Label>
@@ -435,9 +434,9 @@ function SecuritySection({ me }: { me: MeResponse }) {
             autoComplete="new-password"
             {...form.register('newPassword')}
           />
-          {form.formState.errors.newPassword && (
-            <p className="text-xs text-destructive">{form.formState.errors.newPassword.message}</p>
-          )}
+          <FieldError>
+            {form.formState.errors.newPassword && form.formState.errors.newPassword.message}
+          </FieldError>
         </div>
         <Button type="submit" loading={mut.isPending} className="w-full">
           {tP('changePassword')}

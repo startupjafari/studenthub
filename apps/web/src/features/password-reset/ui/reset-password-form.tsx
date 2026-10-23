@@ -7,7 +7,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useTranslations } from 'next-intl'
 import { CircleCheck, CircleX, Eye, EyeOff } from 'lucide-react'
 import { ResetPasswordSchema, type ResetPasswordInput } from '@studenthub/shared-schemas'
-import { Button, FormAlert, Input, Label } from '../../../shared/ui'
+import { Button, FormAlert, Input, Label, FieldError } from '../../../shared/ui'
 import { toApiError, useFormAlert } from '../../../shared/lib'
 import { resetPasswordRequest } from '../../../shared/api'
 
@@ -121,7 +121,7 @@ export function ResetPasswordForm({ token }: ResetPasswordFormProps) {
             </button>
           </div>
           {/* Сообщения политики пароля — из общей схемы, как и на форме регистрации. */}
-          {errors.password && <p className="text-xs text-destructive">{errors.password.message}</p>}
+          <FieldError>{errors.password && errors.password.message}</FieldError>
         </div>
         <Button type="submit" loading={isSubmitting}>
           {t('resetSubmit')}

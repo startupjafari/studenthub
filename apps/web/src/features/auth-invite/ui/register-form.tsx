@@ -17,7 +17,7 @@ import {
   RegisterByInviteSchema,
   type RegisterByInviteInput,
 } from '@studenthub/shared-schemas'
-import { Badge, Button, Input, Label, Skeleton } from '../../../shared/ui'
+import { Badge, Button, Input, Label, Skeleton, FieldError } from '../../../shared/ui'
 import { useErrorToast } from '../../../shared/lib'
 import { previewInviteRequest, registerByInviteRequest } from '../../../shared/api'
 import { uploadAvatarRequest } from '../../../entities/user'
@@ -327,16 +327,12 @@ export function RegisterByInviteForm({ token }: { token: string }) {
           <div className="flex flex-col gap-2">
             <Label htmlFor="firstName">{t('firstName')}</Label>
             <Input id="firstName" autoComplete="given-name" {...register('firstName')} />
-            {errors.firstName && (
-              <p className="text-xs text-destructive">{errors.firstName.message}</p>
-            )}
+            <FieldError>{errors.firstName && errors.firstName.message}</FieldError>
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="lastName">{t('lastName')}</Label>
             <Input id="lastName" autoComplete="family-name" {...register('lastName')} />
-            {errors.lastName && (
-              <p className="text-xs text-destructive">{errors.lastName.message}</p>
-            )}
+            <FieldError>{errors.lastName && errors.lastName.message}</FieldError>
           </div>
         </div>
 
@@ -349,11 +345,8 @@ export function RegisterByInviteForm({ token }: { token: string }) {
             aria-invalid={!!errors.username}
             {...register('username')}
           />
-          {errors.username ? (
-            <p className="text-xs text-destructive">{errors.username.message}</p>
-          ) : (
-            <p className="text-xs text-muted-foreground">{t('usernameHint')}</p>
-          )}
+          <p className="text-xs text-muted-foreground">{t('usernameHint')}</p>
+          <FieldError>{errors.username && errors.username.message}</FieldError>
         </div>
 
         {emailRequired && (
@@ -368,11 +361,8 @@ export function RegisterByInviteForm({ token }: { token: string }) {
               aria-invalid={!!errors.email}
               {...register('email')}
             />
-            {errors.email ? (
-              <p className="text-xs text-destructive">{errors.email.message}</p>
-            ) : (
-              <p className="text-xs text-muted-foreground">{t('emailInviteHint')}</p>
-            )}
+            <p className="text-xs text-muted-foreground">{t('emailInviteHint')}</p>
+            <FieldError>{errors.email && errors.email.message}</FieldError>
           </div>
         )}
 
@@ -385,11 +375,8 @@ export function RegisterByInviteForm({ token }: { token: string }) {
             aria-invalid={!!errors.birthDate}
             {...register('birthDate')}
           />
-          {errors.birthDate ? (
-            <p className="text-xs text-destructive">{errors.birthDate.message}</p>
-          ) : (
-            <p className="text-xs text-muted-foreground">{t('birthDateHint')}</p>
-          )}
+          <p className="text-xs text-muted-foreground">{t('birthDateHint')}</p>
+          <FieldError>{errors.birthDate && errors.birthDate.message}</FieldError>
         </div>
 
         <div className="flex flex-col gap-2">
@@ -427,7 +414,7 @@ export function RegisterByInviteForm({ token }: { token: string }) {
               </p>
             </div>
           )}
-          {errors.password && <p className="text-xs text-destructive">{errors.password.message}</p>}
+          <FieldError>{errors.password && errors.password.message}</FieldError>
         </div>
 
         {/* Согласие — явным действием, а не мелким шрифтом под кнопкой: нужно доказуемое
@@ -442,7 +429,7 @@ export function RegisterByInviteForm({ token }: { token: string }) {
             />
             <span className="text-muted-foreground">{t('consent')}</span>
           </label>
-          {errors.consent && <p className="text-xs text-destructive">{t('consentRequired')}</p>}
+          <FieldError>{errors.consent && t('consentRequired')}</FieldError>
 
           {needsGuardian && (
             <>
@@ -455,9 +442,7 @@ export function RegisterByInviteForm({ token }: { token: string }) {
                 />
                 <span className="text-muted-foreground">{t('guardianConsent')}</span>
               </label>
-              {errors.guardianConsent && (
-                <p className="text-xs text-destructive">{errors.guardianConsent.message}</p>
-              )}
+              <FieldError>{errors.guardianConsent && errors.guardianConsent.message}</FieldError>
             </>
           )}
         </div>

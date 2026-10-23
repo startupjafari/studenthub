@@ -10,7 +10,7 @@ import { toast } from 'sonner'
 import { Eye, EyeOff, QrCode } from 'lucide-react'
 import type { ApiErrorBody } from '@studenthub/shared-types'
 import { LoginSchema, type LoginInput } from '@studenthub/shared-schemas'
-import { Button, CodeInput, Input, Label, LegalLinks } from '../../../shared/ui'
+import { Button, CodeInput, Input, Label, LegalLinks, FieldError } from '../../../shared/ui'
 // safeNextPath — то же правило, что в middleware (защита от открытого редиректа).
 import { useFormAlert, safeNextPath, toApiError } from '../../../shared/lib'
 import { loginRequest, loginVerify2faRequest } from '../../../shared/api'
@@ -158,20 +158,25 @@ export function LoginForm() {
               aria-invalid={!!errors.identifier}
               {...register('identifier')}
             />
-            {errors.identifier && (
-              <p className="text-xs text-destructive">{errors.identifier.message}</p>
-            )}
+            <FieldError>{errors.identifier && errors.identifier.message}</FieldError>
           </div>
 
           <div className="flex flex-col gap-2">
-            <div className="flex items-center justify-between">
-              <Label htmlFor="password">{t('password')}</Label>
+            {/* Строка подписи несёт и ссылку «Забыли пароль?», поэтому ошибка поля встаёт в
+                неё сама, между подписью и ссылкой (DESIGN_SYSTEM §10.3). */}
+            <div className="flex items-center gap-3">
+              <Label htmlFor="password" className="shrink-0">
+                {t('password')}
+              </Label>
+              <FieldError className="flex-1 text-right">
+                {errors.password && errors.password.message}
+              </FieldError>
               <Link
                 href="/forgot-password"
                 // Отступы растят область нажатия до 28px по высоте (16px текста — вдвое
                 // меньше минимума WCAG 2.5.8), отрицательные внешние их гасят: строка с
                 // подписью «Пароль» остаётся той же высоты, а правый край — на месте.
-                className="-mx-1 -my-1.5 cursor-pointer rounded px-1 py-1.5 text-xs font-medium text-primary underline-offset-4 transition-colors outline-none hover:text-primary/70 hover:underline focus-visible:ring-2 focus-visible:ring-ring/30"
+                className="-mx-1 -my-1.5 ml-auto shrink-0 cursor-pointer rounded px-1 py-1.5 text-xs font-medium text-primary underline-offset-4 transition-colors outline-none hover:text-primary/70 hover:underline focus-visible:ring-2 focus-visible:ring-ring/30"
               >
                 {t('forgotPassword')}
               </Link>
@@ -194,9 +199,6 @@ export function LoginForm() {
                 {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
               </button>
             </div>
-            {errors.password && (
-              <p className="text-xs text-destructive">{errors.password.message}</p>
-            )}
           </div>
 
           <Button type="submit" size="xl" loading={isSubmitting} className="mt-2 w-full">
