@@ -45,6 +45,12 @@ const DAY_MS = 24 * 60 * 60 * 1000
 const EXPIRY_STATUSES: ReadonlySet<string> = new Set(['UPLOADED', 'EXPIRING', 'EXPIRED'])
 // Размер пачки ночного крона (правила сроков хранения, документы к архиву).
 const SWEEP_BATCH = 500
+// Комплекты, которые студент ещё ведёт (как STUDENT_EDITABLE в сервисе запросов): правка
+// документа снимает вердикт его позиции, а уже проверенный комплект (REJECTED/PARTIAL)
+// возвращается в черновик до повторной отправки — так же, как при выборе другого документа.
+const SUBMISSION_REOPENABLE = ['DRAFT', 'REJECTED', 'PARTIAL']
+// Позиций комплектов с одним документом — единицы (документ в нескольких запросах).
+const SUBMISSION_ITEMS_LIMIT = 200
 
 const DOCUMENT_SELECT = {
   id: true,
@@ -90,6 +96,97 @@ function changedContent(
     (input.issuedAt !== undefined && time(input.issuedAt) !== time(doc.issuedAt)) ||
     (input.expiresAt !== undefined && time(input.expiresAt) !== time(doc.expiresAt))
   )
+}
+
+/**
+ * Статус документа по вердиктам проверки в запросах вуза (решение владельца, 15.3).
+ *
+ * Документ бывает приложен к нескольким запросам сразу, и статус один, поэтому берётся
+ * ХУДШИЙ: «требует замены» > «на проверке» > «принят». Отклонение хотя бы в одном запросе —
+ * это действие, которого ждут от владельца, и принятие в другом запросе его не отменяет;
+ * пока хоть один комплект ждёт проверки, документ ещё не «принят».
+ *
+ * - позиция отклонена в открытом запросе → NEEDS_REPLACEMENT (с причиной);
+ * - позиция ждёт проверки в отправленном комплекте (SUBMITTED/PARTIAL) → IN_REVIEW — и в
+ *   закрытом запросе: проверить отправленное сотрудник может и после закрытия;
+ * - позиция принята в открытом запросе → ACCEPTED.
+ * Вердикты закрытых запросов — история: они не пересчитывают статус заново (тот, что они
+ * поставили, остаётся до следующего события). `ignoreVerdicts` — содержимое документа
+ * поменялось после вердиктов, они относятся к прежней версии и не считаются.
+ */
+export const REVIEW_STATUS_RANK = ['NEEDS_REPLACEMENT', 'IN_REVIEW', 'ACCEPTED'] as const
+export type ReviewStatus = (typeof REVIEW_STATUS_RANK)[number]
+
+export interface ReviewItemState {
+  status: string
+  rejectionReason: string | null
+  reviewedAt: Date | null
+  submission: { status: string; request: { status: string } }
+}
+
+export function reviewVerdict(
+  items: ReviewItemState[],
+  ignoreVerdicts = false,
+): { status: ReviewStatus | null; reason: string | null } {
+  let best: ReviewStatus | null = null
+  let reason: string | null = null
+  let reasonAt = -1
+  for (const it of items) {
+    const open = it.submission.request.status === 'OPEN'
+    let st: ReviewStatus | null = null
+    if (it.status === 'PENDING' && ['SUBMITTED', 'PARTIAL'].includes(it.submission.status)) {
+      st = 'IN_REVIEW'
+    } else if (!ignoreVerdicts && open && it.status === 'REJECTED') {
+      st = 'NEEDS_REPLACEMENT'
+      // Причина — из последнего отклонения: её владелец и увидит в карточке.
+      const at = it.reviewedAt?.getTime() ?? 0
+      if (at >= reasonAt) {
+        reasonAt = at
+        reason = it.rejectionReason
+      }
+    } else if (!ignoreVerdicts && open && it.status === 'ACCEPTED') {
+      st = 'ACCEPTED'
+    }
+    if (
+      st &&
+      (best === null || REVIEW_STATUS_RANK.indexOf(st) < REVIEW_STATUS_RANK.indexOf(best))
+    ) {
+      best = st
+    }
+  }
+  return { status: best, reason: best === 'NEEDS_REPLACEMENT' ? reason : null }
+}
+
+/**
+ * Какой статус поставить документу при вердикте `target`; `null` — не трогать.
+ *
+ * Проверка управляет только «рабочими» статусами: UPLOADED и тремя своими. Не трогает
+ * черновик, архив, истёкший (срок главнее любого вердикта) и REJECTED — его ставит вуз,
+ * отзывая выданную справку. Два статуса уступают не всякому вердикту:
+ * - VERIFIED (сертификат подтверждён вузом, D-F30) снимают только «требует замены» и правка
+ *   содержимого — повторная сдача в другой запрос подтверждение не отменяет;
+ * - EXPIRING уступает «требует замены» и «на проверке» (они требуют действия), а «принят»
+ *   и отсутствие вердикта его не перебивают — срок по-прежнему близко.
+ */
+export function nextDocumentStatus(
+  current: string,
+  target: ReviewStatus | null,
+  contentChanged = false,
+): string | null {
+  switch (current) {
+    case 'UPLOADED':
+    case 'IN_REVIEW':
+    case 'ACCEPTED':
+    case 'NEEDS_REPLACEMENT':
+      return target ?? 'UPLOADED'
+    case 'VERIFIED':
+      if (contentChanged) return target ?? 'UPLOADED'
+      return target === 'NEEDS_REPLACEMENT' ? target : null
+    case 'EXPIRING':
+      return target === 'NEEDS_REPLACEMENT' || target === 'IN_REVIEW' ? target : null
+    default:
+      return null
+  }
 }
 
 /**
@@ -250,14 +347,87 @@ export class DocumentsService {
   }
 
   /**
-   * Подтверждение вуза (VERIFIED, D-F30) относится к проверенному содержимому: правка данных
-   * или страниц владельцем возвращает документ в «Загружен».
+   * После правки содержимого (данные, страницы) владельцем. Подтверждение вуза (VERIFIED,
+   * D-F30) и вердикты проверки относятся к прежней версии: позиции комплектов, которые
+   * студент ещё ведёт, снова ждут проверки, проверенный комплект возвращается в черновик, а
+   * документ — в «Загружен» (или «На проверке», если его отправленный комплект ещё ждёт).
    */
-  private async dropVerification(id: string): Promise<void> {
-    await this.prisma.document.updateMany({
-      where: { id, status: 'VERIFIED' },
-      data: { status: 'UPLOADED' },
+  private async afterContentChange(id: string): Promise<void> {
+    await this.reopenSubmissions(id)
+    await this.syncReviewStatus([id], { contentChanged: true })
+  }
+
+  // Позиции с этим документом в комплектах открытых запросов → снова «ожидает проверки»;
+  // проверенный комплект (REJECTED/PARTIAL) → черновик: сотрудник не примет и не досмотрит
+  // состав, который поменялся после его вердикта. Условие на статус — в самих UPDATE.
+  private async reopenSubmissions(id: string): Promise<void> {
+    const items = await this.prisma.documentSubmissionItem.findMany({
+      where: {
+        documentId: id,
+        submission: { status: { in: SUBMISSION_REOPENABLE }, request: { status: 'OPEN' } },
+      },
+      select: { id: true, submissionId: true },
+      take: SUBMISSION_ITEMS_LIMIT,
     })
+    if (items.length === 0) return
+    const submissionIds = [...new Set(items.map((i) => i.submissionId))]
+    await this.prisma.$transaction([
+      this.prisma.documentSubmissionItem.updateMany({
+        where: {
+          id: { in: items.map((i) => i.id) },
+          submission: { status: { in: SUBMISSION_REOPENABLE } },
+        },
+        data: { status: 'PENDING', rejectionReason: null, reviewedById: null, reviewedAt: null },
+      }),
+      this.prisma.documentSubmission.updateMany({
+        where: { id: { in: submissionIds }, status: { in: ['REJECTED', 'PARTIAL'] } },
+        data: { status: 'DRAFT' },
+      }),
+    ])
+  }
+
+  /**
+   * Пересчитать статус документов по вердиктам проверки в запросах (reviewVerdict →
+   * nextDocumentStatus). Вызывается сервисом запросов после отправки комплекта, вердикта,
+   * завершения проверки и правки черновика, а здесь — после правки содержимого и возврата
+   * из архива. Выданные вузом документы не трогаются: их статус ведёт вуз (отзыв справки).
+   * Запись условная (статус не изменился с чтения): параллельный пересчёт не затрёт чужой.
+   */
+  async syncReviewStatus(
+    documentIds: readonly string[],
+    opts: { contentChanged?: boolean } = {},
+  ): Promise<void> {
+    const ids = [...new Set(documentIds)]
+    if (ids.length === 0) return
+    const docs = await this.prisma.document.findMany({
+      where: { id: { in: ids }, deletedAt: null, issuedByUniversity: false },
+      select: {
+        id: true,
+        status: true,
+        rejectionReason: true,
+        submissionItems: {
+          select: {
+            status: true,
+            rejectionReason: true,
+            reviewedAt: true,
+            submission: { select: { status: true, request: { select: { status: true } } } },
+          },
+          take: SUBMISSION_ITEMS_LIMIT,
+        },
+      },
+      take: ids.length,
+    })
+    for (const doc of docs) {
+      const verdict = reviewVerdict(doc.submissionItems, opts.contentChanged)
+      const next = nextDocumentStatus(doc.status, verdict.status, opts.contentChanged)
+      if (next === null) continue
+      const reason = next === 'NEEDS_REPLACEMENT' ? verdict.reason : null
+      if (next === doc.status && reason === doc.rejectionReason) continue
+      await this.prisma.document.updateMany({
+        where: { id: doc.id, status: doc.status },
+        data: { status: next, rejectionReason: reason },
+      })
+    }
   }
 
   /**
@@ -368,12 +538,13 @@ export class DocumentsService {
         }),
       ),
     )
-    // Черновик без файлов → «Загружен»; подтверждённый вузом с новыми страницами — уже не
-    // тот, что проверяли (D-F30).
+    // Черновик без файлов → «Загружен»; подтверждённый вузом или проверенный документ с
+    // новыми страницами — уже не тот, что проверяли (D-F30, 15.3).
     await this.prisma.document.updateMany({
-      where: { id, status: { in: ['DRAFT', 'VERIFIED'] } },
+      where: { id, status: 'DRAFT' },
       data: { status: 'UPLOADED' },
     })
+    if (existing > 0) await this.afterContentChange(id)
     await this.logEvent(actor.sub, id, existing === 0 ? 'UPLOAD' : 'REPLACE', {
       added: input.fileIds.length,
     })
@@ -401,7 +572,7 @@ export class DocumentsService {
         this.prisma.file.update({ where: { id: fileId }, data: { order: i } }),
       ),
     )
-    await this.dropVerification(id)
+    await this.afterContentChange(id)
     await this.logEvent(actor.sub, id, 'EDIT', { reordered: true })
     return this.getOwnedDto(actor, id)
   }
@@ -795,7 +966,7 @@ export class DocumentsService {
     if (input.expiresAt !== undefined) data.expiresAt = input.expiresAt
     if (input.comment !== undefined) data.comment = input.comment || null
     await this.prisma.document.update({ where: { id }, data })
-    if (contentChanged) await this.dropVerification(id)
+    if (contentChanged) await this.afterContentChange(id)
     await this.logEvent(actor.sub, id, 'EDIT')
     return this.getOwnedDto(actor, id)
   }
@@ -863,7 +1034,12 @@ export class DocumentsService {
         where: { id, archivedAt: { not: null } },
         data: { archivedAt: null, status },
       })
-      if (count > 0) await this.logEvent(actor.sub, id, 'ARCHIVE', { archived, status })
+      if (count > 0) {
+        await this.logEvent(actor.sub, id, 'ARCHIVE', { archived, status })
+        // Пока документ лежал в архиве, проверка его статус не вела (ARCHIVED не
+        // пересчитывается): восстановленный «на проверке» мог давно стать «принят».
+        await this.syncReviewStatus([id])
+      }
     }
     return this.getOwnedDto(actor, id)
   }
@@ -1048,7 +1224,11 @@ export class DocumentsService {
         deletedAt: null,
         archivedAt: null,
         expiresAt: { gte: now, lte: soon },
-        status: { notIn: ['DRAFT', 'ARCHIVED', 'EXPIRED', 'EXPIRING'] },
+        // «Требует замены» и «На проверке» главнее «Скоро истекает» (см. nextDocumentStatus):
+        // они ждут действия, а близость срока видна в обзоре по самой дате.
+        status: {
+          notIn: ['DRAFT', 'ARCHIVED', 'EXPIRED', 'EXPIRING', 'IN_REVIEW', 'NEEDS_REPLACEMENT'],
+        },
       },
       'EXPIRING',
       NOTIFICATION_JOBS.DOCUMENT_EXPIRING,

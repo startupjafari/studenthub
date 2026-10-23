@@ -62,7 +62,10 @@ function setup() {
       findMany: jest.fn().mockResolvedValue([]),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
-    documentEvent: { create: jest.fn().mockResolvedValue({}) },
+    documentEvent: {
+      create: jest.fn().mockResolvedValue({}),
+      createMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
     file: { findFirst: jest.fn() },
     documentType: {
       findMany: jest.fn().mockResolvedValue([]),
@@ -83,7 +86,10 @@ function setup() {
         : Promise.all(arg as Promise<unknown>[]),
     ),
   }
-  const documents = { presign: jest.fn().mockResolvedValue('https://minio/signed') }
+  const documents = {
+    presign: jest.fn().mockResolvedValue('https://minio/signed'),
+    syncReviewStatus: jest.fn().mockResolvedValue(undefined),
+  }
   const queue = { enqueue: jest.fn().mockResolvedValue(undefined) }
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const types = new DocumentTypesService(
@@ -880,7 +886,7 @@ describe('DocumentRequestsService — подтверждение сертифи�
       where: {
         id: 'doc-cert',
         deletedAt: null,
-        status: { in: ['UPLOADED', 'IN_REVIEW', 'NEEDS_REPLACEMENT', 'ACCEPTED'] },
+        status: { in: ['UPLOADED', 'ACCEPTED'] },
       },
       data: { status: 'VERIFIED' },
     })
@@ -904,5 +910,104 @@ describe('DocumentRequestsService — подтверждение сертифи�
       await service.reviewItem(staff(), 'si1', { status, rejectionReason: 'нет' })
       expect(prisma.document.updateMany).not.toHaveBeenCalled()
     }
+  })
+})
+
+describe('DocumentRequestsService — статусы документов по вердикту (15.3)', () => {
+  it('отправка комплекта: событие SUBMIT в истории каждого документа и пересчёт статусов', async () => {
+    const { service, prisma, documents } = setup()
+    prisma.documentRequest.findFirst
+      .mockResolvedValueOnce(forSubmit('DRAFT', { title: 'Комплект', createdById: 'staff-1' }))
+      .mockResolvedValue({ ...forSave(), title: 't', description: null, createdAt: new Date() })
+    prisma.documentSubmissionItem.findMany
+      .mockResolvedValueOnce([{ requestItemId: 'req-required' }]) // проверка обязательных
+      .mockResolvedValueOnce([{ documentId: 'doc-1' }, { documentId: 'doc-2' }])
+    await service.submitSubmission(student(), 'r1')
+
+    expect(prisma.documentEvent.createMany).toHaveBeenCalledWith({
+      data: ['doc-1', 'doc-2'].map((documentId) => ({
+        actorId: 'stu-1',
+        requestId: 'r1',
+        documentId,
+        action: 'SUBMIT',
+        metadata: { submissionId: 's1' },
+      })),
+    })
+    expect(documents.syncReviewStatus).toHaveBeenCalledWith(['doc-1', 'doc-2'])
+  })
+
+  it('вердикт по позиции: событие с documentId и причиной, статус документа пересчитан', async () => {
+    const { service, prisma, documents } = setup()
+    prisma.documentSubmissionItem.findFirst.mockResolvedValue({
+      id: 'si1',
+      documentId: 'doc-1',
+      submission: { id: 's1', requestId: 'r1', status: 'SUBMITTED' },
+      requestItem: { documentType: 'ID_CARD' },
+      document: { category: 'PERSONAL', type: 'ID_CARD' },
+    })
+    prisma.documentSubmission.findFirst.mockResolvedValue(STAFF_VIEW)
+    await service.reviewItem(staff(), 'si1', { status: 'REJECTED', rejectionReason: 'размыто' })
+
+    expect(prisma.documentEvent.createMany).toHaveBeenCalledWith({
+      data: [
+        {
+          actorId: 'staff-1',
+          requestId: 'r1',
+          documentId: 'doc-1',
+          action: 'REJECT',
+          metadata: { submissionItemId: 'si1', reason: 'размыто' },
+        },
+      ],
+    })
+    expect(documents.syncReviewStatus).toHaveBeenCalledWith(['doc-1'])
+  })
+
+  it('завершение с отклонением: REVIEW по документам и уведомление «требуется замена»', async () => {
+    const { service, prisma, queue, documents } = setup()
+    prisma.documentSubmission.findFirst
+      .mockResolvedValueOnce(toFinalize('SUBMITTED', [{ status: 'REJECTED' }]))
+      .mockResolvedValue({ ...STAFF_VIEW, status: 'REJECTED' })
+    prisma.documentSubmissionItem.findMany.mockResolvedValueOnce([{ documentId: 'doc-1' }])
+    await service.finalizeSubmission(staff(), 's1')
+
+    expect(prisma.documentEvent.createMany).toHaveBeenCalledWith({
+      data: [
+        expect.objectContaining({
+          documentId: 'doc-1',
+          requestId: 'r1',
+          action: 'REVIEW',
+          metadata: { status: 'REJECTED', submissionId: 's1' },
+        }),
+      ],
+    })
+    expect(documents.syncReviewStatus).toHaveBeenCalledWith(['doc-1'])
+    expect(queue.enqueue.mock.calls[0][2].titleKey).toBe('documents.replacement.title')
+  })
+
+  it('принятый комплект — обычное уведомление о результате', async () => {
+    const { service, prisma, queue } = setup()
+    prisma.documentSubmission.findFirst
+      .mockResolvedValueOnce(toFinalize('SUBMITTED', [{ status: 'ACCEPTED' }]))
+      .mockResolvedValue({ ...STAFF_VIEW, status: 'ACCEPTED' })
+    await service.finalizeSubmission(staff(), 's1')
+    expect(queue.enqueue.mock.calls[0][2].titleKey).toBe('documents.result.title')
+  })
+
+  it('правка черновика: пересчёт и прежнего документа позиции, и нового', async () => {
+    const { service, prisma, documents } = setup()
+    prisma.documentRequest.findFirst
+      .mockResolvedValueOnce(
+        forSave(
+          {},
+          { id: 's1', status: 'REJECTED', items: [{ requestItemId: 'it1', documentId: 'old' }] },
+        ),
+      )
+      .mockResolvedValue({ ...forSave(), title: 't', description: null, createdAt: new Date() })
+    prisma.document.findMany.mockResolvedValue(owned('new'))
+    prisma.documentSubmissionItem.upsert.mockResolvedValue({})
+    await service.saveSubmission(student(), 'r1', {
+      items: [{ requestItemId: 'it1', documentId: 'new' }],
+    })
+    expect(documents.syncReviewStatus).toHaveBeenCalledWith(['old', 'new'])
   })
 })
