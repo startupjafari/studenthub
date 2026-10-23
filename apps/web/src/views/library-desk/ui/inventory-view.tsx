@@ -10,6 +10,7 @@ import type { InventoryScanResult, InventoryWarning } from '@studenthub/shared-s
 import {
   Badge,
   Button,
+  Card,
   DatePicker,
   EmptyState,
   Input,
@@ -111,7 +112,8 @@ export function InventoryView() {
   const percent = r && r.expected > 0 ? Math.round((r.checked / r.expected) * 100) : null
 
   return (
-    <div className="flex w-full flex-col gap-6">
+    // `min-h-0` у корня: список «Не найдено» прокручивается внутри панели, а не страницей.
+    <div className="flex w-full flex-col gap-6 lg:min-h-0 lg:flex-1">
       <PageHeader
         title={t('inventoryTitle')}
         subtitle={t('inventorySubtitle')}
@@ -133,105 +135,125 @@ export function InventoryView() {
         }
       />
 
-      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-        <div className="flex min-w-0 flex-col gap-6">
-          <SectionPanel
-            title={t('invProgress')}
-            subtitle={t('invProgressSince', {
-              date: format.dateTime(new Date(`${since}T00:00:00`), {
-                day: 'numeric',
-                month: 'long',
-              }),
-            })}
-          >
+      {/* Слева — ход и список «Не найдено» до низа окна, справа (~30%) — ручная отметка и
+          только что отмеченные. На узком экране — колонкой: ход, отметка, отмеченные, а
+          длинный список последним, чтобы стойка не листала его до поля ввода. */}
+      <div className="grid gap-6 lg:min-h-80 lg:flex-1 lg:grid-cols-[minmax(0,7fr)_minmax(18rem,3fr)] lg:grid-rows-[auto_minmax(0,1fr)]">
+        {/* Ход — компактной плиткой, как KPI: цифра и полоса, без шапки панели. */}
+        <Card className="gap-2 px-4 py-3">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex min-w-0 flex-col">
+              <span className="text-sm font-semibold">{t('invProgress')}</span>
+              <span className="text-xs text-muted-foreground">
+                {t('invProgressSince', {
+                  date: format.dateTime(new Date(`${since}T00:00:00`), {
+                    day: 'numeric',
+                    month: 'long',
+                  }),
+                })}
+              </span>
+            </div>
             {report.isPending ? (
-              <Skeleton className="h-16 w-full rounded-xl" />
-            ) : r ? (
-              <div className="flex flex-col gap-3">
-                <div className="flex items-baseline justify-between gap-3">
-                  <span className="text-3xl font-bold tabular-nums">
-                    {percent !== null ? `${percent}%` : '—'}
-                  </span>
-                  <span className="text-sm text-muted-foreground">
-                    {t('invChecked', { checked: r.checked, expected: r.expected })}
-                  </span>
-                </div>
-                {percent !== null && <Progress value={percent} />}
-                <p className="text-xs text-muted-foreground">
-                  {[t('invProgressHint'), r.onLoan > 0 ? t('invOnLoan', { count: r.onLoan }) : null]
-                    .filter(Boolean)
-                    .join(' · ')}
-                </p>
-              </div>
-            ) : null}
-          </SectionPanel>
-
-          <SectionPanel title={t('invManual')} subtitle={t('invManualHint')}>
-            <form
-              className="flex gap-2"
-              onSubmit={(e) => {
-                e.preventDefault()
-                const raw = manual.trim()
-                if (!raw) return
-                const target = parseQrTarget(raw)
-                scanMut.mutate(
-                  target?.kind === 'bookCopy'
-                    ? { copyCode: target.value, since }
-                    : { inventoryNumber: raw, since },
-                )
-              }}
-            >
-              <Label htmlFor="inv-number" className="sr-only">
-                {t('invManual')}
-              </Label>
-              <Input
-                id="inv-number"
-                value={manual}
-                onChange={(e) => setManual(e.target.value)}
-                placeholder={t('invNumberPlaceholder')}
-                autoComplete="off"
-                className="min-w-0 flex-1"
-              />
-              <Button type="submit" variant="outline" loading={scanMut.isPending}>
-                {t('invMark')}
-              </Button>
-            </form>
-            <FieldError>{error && error}</FieldError>
-          </SectionPanel>
-
-          <SectionPanel title={t('invRecent')} subtitle={t('invRecentHint')}>
-            {recent.length === 0 ? (
-              <p className="text-sm text-muted-foreground">{t('invRecentEmpty')}</p>
+              <Skeleton className="h-8 w-16" />
             ) : (
-              <ul className="flex flex-col divide-y divide-border">
-                {recent.map((item) => (
-                  <li key={item.copy.id} className="flex items-center gap-3 py-2">
-                    {item.warning ? (
-                      <TriangleAlert className="size-5 shrink-0 text-warning" aria-hidden />
-                    ) : (
-                      <CheckCircle2 className="size-5 shrink-0 text-success" aria-hidden />
-                    )}
-                    <div className="flex min-w-0 flex-1 flex-col">
-                      <span className="truncate text-sm font-medium">{item.book.title}</span>
-                      <span className="truncate text-xs text-muted-foreground">
-                        {[
-                          t('inventoryShort', { number: item.copy.inventoryNumber }),
-                          item.warning ? warningText[item.warning] : null,
-                          item.alreadyChecked ? t('invAlready') : null,
-                        ]
-                          .filter(Boolean)
-                          .join(' · ')}
-                      </span>
-                    </div>
-                    <CopyStatusBadge status={item.copy.status} />
-                  </li>
-                ))}
-              </ul>
+              <span className="text-2xl leading-none font-bold tabular-nums">
+                {percent !== null ? `${percent}%` : '—'}
+              </span>
             )}
-          </SectionPanel>
-        </div>
+          </div>
+          {report.isPending ? (
+            <Skeleton className="h-2 w-full rounded-full" />
+          ) : r ? (
+            <>
+              {percent !== null && <Progress value={percent} />}
+              <p className="text-xs text-muted-foreground">
+                {[
+                  t('invChecked', { checked: r.checked, expected: r.expected }),
+                  t('invProgressHint'),
+                  r.onLoan > 0 ? t('invOnLoan', { count: r.onLoan }) : null,
+                ]
+                  .filter(Boolean)
+                  .join(' · ')}
+              </p>
+            </>
+          ) : null}
+        </Card>
 
-        <SectionPanel title={t('invMissing')} subtitle={t('invMissingHint')}>
+        <SectionPanel title={t('invManual')} subtitle={t('invManualHint')}>
+          <form
+            className="flex gap-2"
+            onSubmit={(e) => {
+              e.preventDefault()
+              const raw = manual.trim()
+              if (!raw) return
+              const target = parseQrTarget(raw)
+              scanMut.mutate(
+                target?.kind === 'bookCopy'
+                  ? { copyCode: target.value, since }
+                  : { inventoryNumber: raw, since },
+              )
+            }}
+          >
+            <Label htmlFor="inv-number" className="sr-only">
+              {t('invManual')}
+            </Label>
+            <Input
+              id="inv-number"
+              value={manual}
+              onChange={(e) => setManual(e.target.value)}
+              placeholder={t('invNumberPlaceholder')}
+              autoComplete="off"
+              className="min-w-0 flex-1"
+            />
+            <Button type="submit" variant="outline" loading={scanMut.isPending}>
+              {t('invMark')}
+            </Button>
+          </form>
+          <FieldError>{error && error}</FieldError>
+        </SectionPanel>
+
+        <SectionPanel
+          title={t('invRecent')}
+          subtitle={t('invRecentHint')}
+          className="lg:col-start-2 lg:row-start-2 lg:min-h-0"
+          bodyClassName="lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:overscroll-contain"
+        >
+          {recent.length === 0 ? (
+            <p className="text-sm text-muted-foreground">{t('invRecentEmpty')}</p>
+          ) : (
+            <ul className="flex flex-col divide-y divide-border">
+              {recent.map((item) => (
+                <li key={item.copy.id} className="flex items-center gap-3 py-2">
+                  {item.warning ? (
+                    <TriangleAlert className="size-5 shrink-0 text-warning" aria-hidden />
+                  ) : (
+                    <CheckCircle2 className="size-5 shrink-0 text-success" aria-hidden />
+                  )}
+                  <div className="flex min-w-0 flex-1 flex-col">
+                    <span className="truncate text-sm font-medium">{item.book.title}</span>
+                    <span className="truncate text-xs text-muted-foreground">
+                      {[
+                        t('inventoryShort', { number: item.copy.inventoryNumber }),
+                        item.warning ? warningText[item.warning] : null,
+                        item.alreadyChecked ? t('invAlready') : null,
+                      ]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </span>
+                  </div>
+                  <CopyStatusBadge status={item.copy.status} />
+                </li>
+              ))}
+            </ul>
+          )}
+        </SectionPanel>
+
+        <SectionPanel
+          title={t('invMissing')}
+          subtitle={t('invMissingHint')}
+          className="lg:col-start-1 lg:row-start-2 lg:min-h-0"
+          bodyClassName="flex flex-col lg:min-h-0 lg:flex-1"
+        >
           {report.isPending ? (
             <Skeleton fill className="min-h-32 rounded-xl" />
           ) : !r || r.items.length === 0 ? (
@@ -241,7 +263,7 @@ export function InventoryView() {
             />
           ) : (
             <>
-              <ul className="flex flex-col divide-y divide-border">
+              <ul className="flex flex-col divide-y divide-border lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:overscroll-contain">
                 {r.items.map((item) => (
                   <li key={item.copyId}>
                     <Link
