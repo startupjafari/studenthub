@@ -10550,6 +10550,32 @@
         ]
       }
     },
+    "/document-journal": {
+      "get": {
+        "operationId": "DocumentJournalController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Страница журнала; meta.total"
+          },
+          "403": {
+            "description": "FORBIDDEN — только администратор вуза"
+          },
+          "422": {
+            "description": "VALIDATION_ERROR — неверные фильтры"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Журнал действий с документами своего вуза: кто, над чьим документом (тип/категория), что, когда, через что",
+        "tags": [
+          "Документы"
+        ]
+      }
+    },
     "/posts": {
       "get": {
         "operationId": "PostsController_feed",
