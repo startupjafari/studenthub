@@ -20,6 +20,7 @@ import {
 import { Role } from '@studenthub/shared-types'
 import type { ZodSchema } from 'zod'
 import { captureUnexpected, isExpectedBusinessError } from '../../common/monitoring'
+import { RealtimeGateway } from '../../common/realtime/realtime.gateway'
 import { PLATFORM_STATE, type PlatformStateReader } from '../platform/platform.constants'
 import { ChatsService } from './chats.service'
 import { takeToken, type TokenBucketLimit } from './ws-rate-limit'
@@ -57,6 +58,8 @@ export class ChatGateway {
     private readonly chats: ChatsService,
     // По токену, как в MaintenanceGuard: класс PlatformService втянул бы домен auth.
     @Inject(PLATFORM_STATE) private readonly platform: PlatformStateReader,
+    // Допуск по статусу вуза для уже открытого сокета (§8.2 UNIVERSITY_BLOCKED).
+    private readonly realtime: RealtimeGateway,
   ) {}
 
   private userId(client: Socket): string | null {
@@ -145,6 +148,7 @@ export class ChatGateway {
     const uid = this.userId(client)
     const data = this.parse(client, 'chat:join', ChatJoinSchema, raw)
     if (!uid || !data) return
+    if (!(await this.realtime.admitSocket(client, 'chat:join'))) return
     // В комнату chat: — только после проверки членства в БД (§10).
     if (!(await this.chats.isMember(uid, data.chatId))) {
       client.emit('error', { event: 'chat:join', code: 'WRONG_SCOPE' })
@@ -171,6 +175,7 @@ export class ChatGateway {
     const uid = this.userId(client)
     const data = this.parse(client, 'message:send', MessageSendSchema, raw)
     if (!uid || !data) return
+    if (!(await this.realtime.admitSocket(client, 'message:send'))) return
     if (await this.halted(client, 'message:send')) return
     try {
       const { message } = await this.chats.createMessage(uid, data)
@@ -193,6 +198,7 @@ export class ChatGateway {
     const uid = this.userId(client)
     const data = this.parse(client, 'message:edit', MessageEditSchema, raw)
     if (!uid || !data) return
+    if (!(await this.realtime.admitSocket(client, 'message:edit'))) return
     if (await this.halted(client, 'message:edit')) return
     try {
       const message = await this.chats.editMessage(uid, data.messageId, data.content)
@@ -213,6 +219,7 @@ export class ChatGateway {
     const uid = this.userId(client)
     const data = this.parse(client, 'message:delete', MessageDeleteSchema, raw)
     if (!uid || !data) return
+    if (!(await this.realtime.admitSocket(client, 'message:delete'))) return
     if (await this.halted(client, 'message:delete')) return
     try {
       const { chatId } = await this.chats.deleteMessage(uid, data.messageId)
@@ -233,6 +240,7 @@ export class ChatGateway {
     const uid = this.userId(client)
     const data = this.parse(client, 'message:read', MessageReadSchema, raw)
     if (!uid || !data) return
+    if (!(await this.realtime.admitSocket(client, 'message:read'))) return
     try {
       const payload = await this.chats.markRead(uid, data.chatId, data.messageId)
       this.server.to(`chat:${data.chatId}`).emit('message:read', payload)
@@ -303,6 +311,7 @@ export class ChatGateway {
     const uid = this.userId(client)
     if (!uid) return
     if (!takeToken(this.socketStore(client), 'wsActions', ACTION_LIMIT)) return
+    if (!(await this.realtime.admitSocket(client, event))) return
     try {
       const payload = { chatId, userId: uid, action }
       const audience = await this.chats.actionAudience(uid, chatId)

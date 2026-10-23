@@ -25,10 +25,12 @@ import {
 } from '../../../shared/ui'
 import { LoanDueBadge, fetchLoans, libraryKeys, returnCopyRequest } from '../../../entities/library'
 import { useDeskErrors } from '../lib/desk-errors'
+import { CancelReturnAction } from './cancel-return-action'
 import { CopyPicker, copyRefInput, hasCopyRef, type CopyRef } from './copy-picker'
 
 // Приём книг (Фаза 20.5): скан наклейки или инвентарный номер, состояние книги — и выдача
 // закрыта. Если книгу ждёт очередь броней, экран крупно говорит, на чьё имя её отложить.
+// Ошибочно принятую книгу здесь же можно вернуть за читателем — «Отменить возврат» у строки.
 
 export function ReturnView() {
   const t = useTranslations('LibraryDesk')
@@ -147,9 +149,21 @@ export function ReturnView() {
                           .join(' · ')}
                       </span>
                     </div>
-                    <span className="text-sm text-muted-foreground">
-                      {heldFor ? t('toHoldShelf') : t('toShelf')}
-                    </span>
+                    <div className="flex shrink-0 flex-col items-end gap-1 sm:flex-row sm:items-center sm:gap-2">
+                      <span className="text-sm text-muted-foreground">
+                        {heldFor ? t('toHoldShelf') : t('toShelf')}
+                      </span>
+                      {/* Отложенную под бронь книгу откатить нельзя — сервер ответит 409. */}
+                      {!heldFor && (
+                        <CancelReturnAction
+                          loan={loan}
+                          variant="button"
+                          onDone={() =>
+                            setReturned((prev) => prev.filter((r) => r.loan.id !== loan.id))
+                          }
+                        />
+                      )}
+                    </div>
                   </li>
                 ))}
               </ul>

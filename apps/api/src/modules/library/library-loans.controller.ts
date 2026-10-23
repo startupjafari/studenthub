@@ -14,6 +14,7 @@ import { ResolveReaderDto } from './dto/resolve-reader.dto'
 import { ReturnLoanDto } from './dto/return-loan.dto'
 import { RenewLoanDto } from './dto/renew-loan.dto'
 import { CancelLoanDto } from './dto/cancel-loan.dto'
+import { CancelReturnDto } from './dto/cancel-return.dto'
 
 // Выдачи библиотеки (docs/PROJECT.md §3.11). Выдаёт и принимает библиотекарь; выдачи вуза
 // видит и админ; читатель — свои книги и «это не я» по ошибочной выдаче.
@@ -47,7 +48,7 @@ export class LibraryLoansController {
   @ApiResponse({
     status: 409,
     description:
-      'details.field: status | overdue | limit — читателю нельзя; onLoan | reserved | withdrawn | archived — экземпляр; ticket — пропуск истёк; module',
+      'details.field: status | overdue | lost | limit — читателю нельзя; onLoan | reserved | withdrawn | archived — экземпляр; ticket — пропуск истёк; module',
   })
   @ApiResponse({ status: 422, description: 'Срок вне правил библиотеки (field = dueDate)' })
   issue(
@@ -86,9 +87,27 @@ export class LibraryLoansController {
 
   @Post('loans/:id/lost')
   @Roles(Role.LIBRARIAN)
-  @ApiOperation({ summary: 'Книга утеряна читателем: выдача закрыта, экземпляр — из оборота' })
+  @ApiOperation({
+    summary: 'Книга утеряна читателем: выдача закрыта, экземпляр — из оборота, долг за читателем',
+  })
   lost(@CurrentUser() user: CurrentUserData, @Param('id') id: string, @Req() req: FastifyRequest) {
     return this.loans.markLost(user, id, this.ctx(req))
+  }
+
+  @Post('loans/:id/lost/settle')
+  @Roles(Role.LIBRARIAN)
+  @ApiOperation({ summary: 'Долг по утерянной книге погашен: книгу заменили или возместили' })
+  @ApiResponse({ status: 404, description: 'Выдача не найдена или чужого вуза' })
+  @ApiResponse({
+    status: 409,
+    description: 'details.field: notLost — выдача не утеряна; settled — долг уже погашен',
+  })
+  settleLost(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Req() req: FastifyRequest,
+  ) {
+    return this.loans.settleLost(user, id, this.ctx(req))
   }
 
   @Post('loans/:id/cancel')
@@ -101,6 +120,26 @@ export class LibraryLoansController {
     @Req() req: FastifyRequest,
   ) {
     return this.loans.cancel(user, id, dto, this.ctx(req))
+  }
+
+  @Post('loans/:id/return/cancel')
+  @Roles(Role.LIBRARIAN)
+  @ApiOperation({
+    summary: 'Отменить ошибочный возврат с причиной: выдача снова открыта с прежним сроком',
+  })
+  @ApiResponse({ status: 404, description: 'Выдача не найдена или чужого вуза' })
+  @ApiResponse({
+    status: 409,
+    description:
+      'details.field: notReturned — выдача не закрыта возвратом; returnWindow — прошло больше суток; reissued — экземпляр выдан другому; heldForReservation — отложен под бронь; withdrawn — утерян или списан',
+  })
+  cancelReturn(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: CancelReturnDto,
+    @Req() req: FastifyRequest,
+  ) {
+    return this.loans.cancelReturn(user, id, dto, this.ctx(req))
   }
 
   @Get('loans')

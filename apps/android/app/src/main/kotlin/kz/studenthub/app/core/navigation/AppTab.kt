@@ -16,12 +16,12 @@ import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Group
 import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.Inbox
 import androidx.compose.material.icons.outlined.LocalLibrary
 import androidx.compose.material.icons.outlined.MoreHoriz
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.School
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Verified
 import androidx.compose.ui.graphics.vector.ImageVector
 import kz.studenthub.app.R
 import kz.studenthub.app.core.model.Role
@@ -52,7 +52,6 @@ enum class MoreSection(@StringRes val title: Int, val icon: ImageVector) {
 
     // Староста.
     CLASSMATES(R.string.more_classmates, Icons.Outlined.Groups),
-    GROUP_REQUESTS(R.string.more_groupRequests, Icons.Outlined.Inbox),
 
     // Преподаватель.
     SUBJECTS(R.string.more_subjects, Icons.AutoMirrored.Outlined.MenuBook),
@@ -69,6 +68,9 @@ enum class MoreSection(@StringRes val title: Int, val icon: ImageVector) {
     // Библиотека вуза: студент и староста, и только если вуз её включил.
     LIBRARY(R.string.books_title, Icons.Outlined.LocalLibrary),
     MY_BOOKS(R.string.books_myBooks, Icons.Outlined.Bookmarks),
+
+    /** Справка «задолженностей в библиотеке нет» — из «Моих книг», в списке «Ещё» её нет. */
+    LIBRARY_CLEARANCE(R.string.books_clearanceTitle, Icons.Outlined.Verified),
     ;
 
     companion object {
@@ -77,7 +79,7 @@ enum class MoreSection(@StringRes val title: Int, val icon: ImageVector) {
 
         fun sections(role: Role): List<MoreSection> = when (role) {
             Role.STUDENT -> common
-            Role.STAROSTA -> common + listOf(CLASSMATES, GROUP_REQUESTS)
+            Role.STAROSTA -> common + listOf(CLASSMATES)
             Role.TEACHER -> common + listOf(SUBJECTS, GROUPS)
             // Роли вне MVP приложение не ведёт — им остаётся веб.
             else -> emptyList()

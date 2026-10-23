@@ -22,6 +22,11 @@ import { libraryConflict, librarianLibrary, readerLibrary, staffLibrary } from '
 // бронь держится `reservationHoldDays` дней и истекает сама (cron `expireLibraryHolds`).
 
 const BATCH_SIZE = 500
+/**
+ * Готовую бронь cron дошлёт не раньше, чем через столько: уведомление, поставленное сразу
+ * после транзакции, к этому времени уже отмечено, и повтора не будет.
+ */
+const READY_NOTICE_GRACE_MS = 5 * 60 * 1000
 /** «Мои брони»: действующие (их не больше предела вуза) и недавняя история. */
 const MY_RESERVATIONS = 50
 const MY_HISTORY = 20
@@ -117,6 +122,13 @@ export class LibraryReservationsService {
         holdDays: settings.reservationHoldDays,
         timezone,
       })
+      // Своя готовая бронь видна читателю в ответе — догонять её уведомлением незачем.
+      if (served.some((h) => h.reservationId === created.id)) {
+        await tx.reservation.update({
+          where: { id: created.id },
+          data: { readyNotifiedAt: new Date() },
+        })
+      }
       return { id: created.id, held: served }
     })
     await this.audit.record({
@@ -310,6 +322,66 @@ export class LibraryReservationsService {
     }
     if (expired > 0) this.logger.log(`expireLibraryHolds: истекло броней ${expired}`)
     return expired
+  }
+
+  /**
+   * Догонялка «бронь готова»: готовые брони, чьё уведомление очередь не приняла (Redis
+   * лежал в момент возврата или отмены). Без неё читатель не узнал бы о брони, и она
+   * истекла бы впустую. Повтор безопасен: у уведомления тот же ключ дедупа. На первой
+   * неудаче останавливаемся — очередь всё ещё недоступна, остаток уйдёт следующим тиком.
+   */
+  async notifyReadyPending(now = new Date()): Promise<number> {
+    let sent = 0
+    let cursor: string | undefined
+    const timezones = new Map<string, string>()
+    for (;;) {
+      const rows = await this.prisma.reservation.findMany({
+        where: {
+          status: 'READY',
+          readyNotifiedAt: null,
+          holdUntil: { gte: now },
+          readyAt: { lt: new Date(now.getTime() - READY_NOTICE_GRACE_MS) },
+          ...(cursor ? { id: { gt: cursor } } : {}),
+        },
+        orderBy: { id: 'asc' },
+        take: BATCH_SIZE,
+        select: {
+          id: true,
+          universityId: true,
+          readerId: true,
+          holdUntil: true,
+          book: { select: { title: true } },
+        },
+      })
+      for (const row of rows) {
+        if (!row.holdUntil) continue
+        let timezone = timezones.get(row.universityId)
+        if (!timezone) {
+          timezone = await this.loans.timezoneOf(row.universityId)
+          timezones.set(row.universityId, timezone)
+        }
+        const ok = await this.loans.notifyHeld(
+          {
+            reservationId: row.id,
+            readerId: row.readerId,
+            name: '',
+            group: null,
+            holdUntil: row.holdUntil,
+          },
+          row.book.title,
+          timezone,
+        )
+        if (!ok) {
+          this.logger.warn(`notifyReadyPending: очередь недоступна, дослано ${sent}`)
+          return sent
+        }
+        sent += 1
+      }
+      if (rows.length < BATCH_SIZE) break
+      cursor = rows[rows.length - 1]?.id
+    }
+    if (sent > 0) this.logger.log(`notifyReadyPending: дослано «бронь готова» ${sent}`)
+    return sent
   }
 
   // ── Внутреннее ───────────────────────────────────────────────────────────────────

@@ -1834,6 +1834,210 @@
         }
       }
     },
+    "library.clearBody": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "За {name} нет книг на руках на {date}."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "{date} күйі бойынша {name} қолында кітап жоқ."
+          }
+        }
+      }
+    },
+    "library.clearTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Задолженностей нет"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Берешек жоқ"
+          }
+        }
+      }
+    },
+    "library.clearance": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Справка из библиотеки"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кітапханадан анықтама"
+          }
+        }
+      }
+    },
+    "library.clearanceCard": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "№ студенческого"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Студенттік билет №"
+          }
+        }
+      }
+    },
+    "library.clearanceChecked": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Проверено"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Тексерілді"
+          }
+        }
+      }
+    },
+    "library.clearanceDetails": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Сведения"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мәліметтер"
+          }
+        }
+      }
+    },
+    "library.clearanceFaculty": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Факультет"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Факультет"
+          }
+        }
+      }
+    },
+    "library.clearanceGroup": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Группа"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Топ"
+          }
+        }
+      }
+    },
+    "library.clearanceName": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ФИО"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Аты-жөні"
+          }
+        }
+      }
+    },
+    "library.clearanceShowHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Покажите этот экран в библиотеке или деканате. Распечатать справку можно в веб-версии."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бұл экранды кітапханада немесе деканатта көрсетіңіз. Анықтаманы веб-нұсқада басып шығаруға болады."
+          }
+        }
+      }
+    },
+    "library.clearanceSubtitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Для обходного листа при выпуске или переводе"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Бітіргенде немесе ауысқанда айналма парақ үшін"
+          }
+        }
+      }
+    },
+    "library.clearanceUniversity": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вуз"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ЖОО"
+          }
+        }
+      }
+    },
     "library.copyNotFound": {
       "extractionState": "manual",
       "localizations": {
@@ -1864,6 +2068,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Жапсырма табылмады"
+          }
+        }
+      }
+    },
+    "library.debtsTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Что вернуть"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нені қайтару керек"
           }
         }
       }
@@ -2225,6 +2446,23 @@
         }
       }
     },
+    "library.inventoryNumber": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "инв. {number}"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "түг. {number}"
+          }
+        }
+      }
+    },
     "library.isbn": {
       "extractionState": "manual",
       "localizations": {
@@ -2276,6 +2514,23 @@
         }
       }
     },
+    "library.lostHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Утерянную книгу замените или возместите её стоимость в библиотеке — библиотекарь отметит, что долг погашен."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жоғалған кітапты ауыстырыңыз немесе кітапханада құнын өтеңіз — кітапханашы қарыздың өтелгенін белгілейді."
+          }
+        }
+      }
+    },
     "library.noCopies": {
       "extractionState": "manual",
       "localizations": {
@@ -2323,6 +2578,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Брондар жоқ"
+          }
+        }
+      }
+    },
+    "library.notClearTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Долгов перед библиотекой: {count}. Верните книги, чтобы получить справку."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кітапхана алдындағы берешек: {count}. Анықтама алу үшін кітаптарды қайтарыңыз."
           }
         }
       }
@@ -2837,6 +3109,40 @@
         }
       }
     },
+    "library.statusLostDebt": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Утеряна — долг"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жоғалды — қарыз"
+          }
+        }
+      }
+    },
+    "library.statusLostSettled": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Утеряна, долг погашен"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жоғалды, қарыз өтелді"
+          }
+        }
+      }
+    },
     "library.statusReturned": {
       "extractionState": "manual",
       "localizations": {
@@ -2952,23 +3258,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "Іс-шаралар"
-          }
-        }
-      }
-    },
-    "more.groupRequests": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Обращения группы"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Топ өтініштері"
           }
         }
       }

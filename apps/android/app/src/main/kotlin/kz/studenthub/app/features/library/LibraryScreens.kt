@@ -21,9 +21,12 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.MenuBook
 import androidx.compose.material.icons.outlined.ArrowDropDown
+import androidx.compose.material.icons.filled.Verified
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.outlined.Bookmarks
 import androidx.compose.material.icons.outlined.PowerOff
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.Verified
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
@@ -44,10 +47,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -77,14 +83,15 @@ import kz.studenthub.app.designsystem.currentLocale
 import kz.studenthub.app.features.study.EmptyRow
 import kz.studenthub.app.shell.LocalServices
 import kz.studenthub.app.shell.ScreenScaffold
+import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 /*
  * Библиотека вуза у студента и старосты (Фаза 20.10) — повторяет веб
- * (`views/library-reader`, каталог в режиме `reader`): каталог с поиском, книга с бронью
- * и «Мои книги». Выдаёт и принимает книги библиотекарь — в вебе, не здесь.
+ * (`views/library-reader`, каталог в режиме `reader`): каталог с поиском, книга с бронью,
+ * «Мои книги» и справка «задолженностей нет». Выдаёт и принимает книги библиотекарь — в вебе, не здесь.
  */
 
 /** Каталог: поиск, раздел, «есть на полке»; страницы догружаются по прокрутке. */
@@ -366,6 +373,17 @@ fun MyBooksScreen() {
                 }
                 if (!model.loaded) return@LazyColumn
 
+                // Справка для обходного листа — там же, где в вебе: в «Моих книгах».
+                item(key = "clearance") {
+                    ListGroup {
+                        ListRow(
+                            title = stringResource(R.string.books_clearanceTitle),
+                            icon = Icons.Outlined.Verified,
+                            subtitle = stringResource(R.string.books_clearanceSubtitle),
+                        ) { services.router.push(AppRoute.Section(MoreSection.LIBRARY_CLEARANCE)) }
+                    }
+                }
+
                 item(key = "onHands") { SectionHeader(R.string.books_onHands, R.string.books_onHandsSubtitle) }
                 if (model.onHands.isEmpty()) {
                     item(key = "noLoans") {
@@ -440,6 +458,136 @@ fun MyBooksScreen() {
     }
 }
 
+/**
+ * Справка «задолженностей в библиотеке нет» (`/my-books/clearance` в вебе): статус на
+ * момент запроса, при долгах — что вернуть, и сведения для обходного листа. Печать — в вебе;
+ * здесь справку показывают с экрана.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ClearanceScreen() {
+    val services = LocalServices.current
+    val model = viewModel { ClearanceModel(services.libraryApi) }
+    // Справка — на момент запроса: перечитываем при каждом открытии.
+    LaunchedEffect(model) { model.refresh() }
+    val formatDay = rememberDayFormat()
+    val formatMoment = rememberMomentFormat()
+    val colors = AppTheme.colors
+
+    ScreenScaffold(title = stringResource(R.string.books_clearanceTitle)) {
+        PullToRefreshBox(isRefreshing = model.isLoading, onRefresh = model::refreshNow, modifier = Modifier.fillMaxSize()) {
+            LazyColumn(
+                verticalArrangement = Arrangement.spacedBy(Spacing.md),
+                contentPadding = PaddingValues(Spacing.xl),
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                model.failure?.let { item(key = "failure") { FormAlert(it.resolve()) } }
+                val summary = model.summary ?: return@LazyColumn
+                val checkedAt = formatMoment(summary.checkedAt)
+
+                item(key = "status") {
+                    if (summary.isClear) {
+                        ClearanceStatus(
+                            icon = Icons.Filled.Verified,
+                            tint = colors.success,
+                            title = stringResource(R.string.books_clearTitle),
+                            body = stringResource(R.string.books_clearBody, summary.reader.name, checkedAt),
+                        )
+                    } else {
+                        ClearanceStatus(
+                            icon = Icons.Filled.Warning,
+                            tint = colors.destructive,
+                            title = stringResource(R.string.books_notClearTitle, summary.debts.size),
+                            body = null,
+                        )
+                    }
+                }
+                item(key = "hint") {
+                    Text(
+                        stringResource(if (summary.isClear) R.string.books_clearanceShowHint else R.string.books_clearanceSubtitle),
+                        style = AppType.meta,
+                        color = colors.mutedForeground,
+                    )
+                }
+
+                if (!summary.isClear) {
+                    item(key = "debtsTitle") {
+                        Text(
+                            stringResource(R.string.books_debtsTitle),
+                            style = AppType.sectionTitle,
+                            color = colors.foreground,
+                            modifier = Modifier.padding(top = Spacing.sm),
+                        )
+                    }
+                    items(summary.debts, key = { "debt-${it.id}" }) { loan ->
+                        LibraryCard(coverUrl = loan.book.coverUrl, onOpen = { services.router.push(AppRoute.Book(loan.book.id)) }) {
+                            Text(loan.book.title, style = AppType.cardTitle, color = colors.foreground, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            Text(
+                                stringResource(R.string.books_inventoryNumber, loan.copy.inventoryNumber),
+                                style = AppType.meta,
+                                color = colors.mutedForeground,
+                            )
+                            LibraryBadgeView(LibraryBadge.debt(loan, formatDay))
+                        }
+                    }
+                    if (summary.lostDebts > 0) {
+                        item(key = "lostHint") {
+                            Text(stringResource(R.string.books_lostHint), style = AppType.meta, color = colors.mutedForeground)
+                        }
+                    }
+                }
+
+                item(key = "details") {
+                    // Пустое поле (нет группы, не указан билет) не рисуется вовсе.
+                    val rows = listOf(
+                        stringResource(R.string.books_clearanceName) to summary.reader.name,
+                        stringResource(R.string.books_clearanceGroup) to summary.reader.group,
+                        stringResource(R.string.books_clearanceFaculty) to summary.reader.faculty,
+                        stringResource(R.string.books_clearanceCard) to summary.reader.studentCardNumber,
+                        stringResource(R.string.books_clearanceUniversity) to summary.university,
+                        stringResource(R.string.books_clearanceChecked) to checkedAt,
+                    ).mapNotNull { (label, value) -> value?.takeIf { it.isNotBlank() }?.let { label to it } }
+                    Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm), modifier = Modifier.padding(top = Spacing.sm)) {
+                        Text(stringResource(R.string.books_clearanceDetails), style = AppType.sectionTitle, color = colors.foreground)
+                        ListGroup {
+                            rows.forEachIndexed { index, (label, value) ->
+                                if (index > 0) ListDivider(inset = false)
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(Spacing.lg),
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.xl, vertical = Spacing.md),
+                                ) {
+                                    Text(label, style = AppType.meta, color = colors.mutedForeground, modifier = Modifier.weight(1f))
+                                    Text(value, style = AppType.meta, color = colors.foreground, textAlign = TextAlign.End, modifier = Modifier.weight(1f))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Итог справки: иконка тона, заголовок и пояснение на бледной подложке того же тона. */
+@Composable
+private fun ClearanceStatus(icon: ImageVector, tint: Color, title: String, body: String?) {
+    val colors = AppTheme.colors
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(Spacing.lg),
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(tint.copy(alpha = 0.1f), RoundedCornerShape(Radius.xl))
+            .semantics(mergeDescendants = true) {}
+            .padding(Spacing.lg),
+    ) {
+        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(28.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs), modifier = Modifier.weight(1f)) {
+            Text(title, style = AppType.cardTitle, color = colors.foreground)
+            body?.let { Text(it, style = AppType.body, color = colors.foreground) }
+        }
+    }
+}
+
 @Composable
 private fun LoanCard(loan: LoanDto, formatDay: (LocalDate) -> String, isBusy: Boolean, onOpen: () -> Unit, onDispute: () -> Unit) {
     val colors = AppTheme.colors
@@ -502,7 +650,7 @@ private fun LibraryCard(coverUrl: String?, onOpen: () -> Unit, content: @Composa
 
 /** Тихое действие в карточке; пока идёт запрос — индикатор вместо подписи. */
 @Composable
-private fun CardAction(text: String, color: androidx.compose.ui.graphics.Color, isBusy: Boolean, onClick: () -> Unit) {
+private fun CardAction(text: String, color: Color, isBusy: Boolean, onClick: () -> Unit) {
     if (isBusy) {
         CircularProgressIndicator(color = color, strokeWidth = 2.dp, modifier = Modifier.padding(vertical = Spacing.sm).size(18.dp))
     } else {
@@ -597,6 +745,17 @@ private fun ConfirmDialog(
             TextButton(onClick = onDismiss) { Text(stringResource(R.string.common_close), color = colors.foreground) }
         },
     )
+}
+
+/** Момент проверки справки — «23 октября 2026, 14:05» в часовом поясе телефона, как в вебе. */
+@Composable
+private fun rememberMomentFormat(): (Instant) -> String {
+    val locale = currentLocale()
+    return remember(locale) {
+        val formatter = DateTimeFormatter.ofPattern("d MMMM yyyy, HH:mm", locale)
+        val format: (Instant) -> String = { moment -> moment.atZone(ZoneId.systemDefault()).format(formatter) }
+        format
+    }
 }
 
 /** Дата срока или брони — «5 нояб.»: день приходит строкой по часам вуза, показываем его как есть. */

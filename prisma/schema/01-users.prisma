@@ -245,6 +245,7 @@ model User {
   loansIssued            Loan[]               @relation("LoanIssuedBy")
   loansReceived          Loan[]               @relation("LoanReturnedTo")
   loansCancelled         Loan[]               @relation("LoanCancelledBy")
+  loansLostSettled       Loan[]               @relation("LoanLostSettledBy")
   reservations           Reservation[]        @relation("ReservationReader")
   libraryIdAccessDone    LibraryIdAccessLog[] @relation("LibraryIdAccessLibrarian")
   libraryIdAccessOfMe    LibraryIdAccessLog[] @relation("LibraryIdAccessReader")
