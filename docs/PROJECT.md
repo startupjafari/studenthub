@@ -1125,6 +1125,26 @@ Email при регистрации сохраняется в нижнем ре�
 
 Без новых моделей — агрегация поверх `User`/`University`/`Complaint`/`Invite`/`AuditLog`.
 
+**Отчёт по сводке файлом** (Ф14.2) — `GET /analytics/report/export?period=month|quarter|year&facultyId=&format=xlsx|csv&locale=ru|kk|en`
+(`PLATFORM_ADMIN`/`PLATFORM_MODERATOR`, `UNIVERSITY_ADMIN`/`UNIVERSITY_MODERATOR`, `DEAN`, `TEACHER`;
+лимит 5/мин с пользователя). Период как у отчёта карьеры: 30 / 90 дней, `year` — учебный год с
+1 сентября. Область — по роли из JWT: платформа (строка на вуз), свой вуз (строка на факультет),
+факультет (строка на группу; декану — всегда свой, админу вуза — `facultyId` своего вуза, иначе
+`403 WRONG_SCOPE`, платформенным ролям — любой), преподаватель — свои группы, причём посещаемость
+только по его парам, оценки/экзамены/работы только по его курсам (`facultyId` → `403 FORBIDDEN`).
+Колонки: студенты, отметки посещаемости, доля не-пропусков %, пропуски, опоздания, уважительные,
+средний процент по опубликованным колонкам и число оценок, исходы экзаменов периода
+(PASSED/FAILED/ABSENT/RETAKE), заявки (поступило по `submitted_at` / закрыто по `ready_at` / с
+просрочкой), сданные работы, активные студенты по журналу аудита; у преподавателя колонок заявок
+и активности нет. Подразделение привязывается через группу. **Порог малых групп**: меньше 5
+студентов — строка остаётся с названием и пометкой, без чисел; итог последней строкой, а если
+скрытые вместе меньше порога — итог без них с пометкой (иначе разность раскрыла бы группу).
+Больше 1000 строк → `400 BAD_REQUEST` (обрезанный файл не отдаётся). Расчёт кэшируется в Redis на
+5 мин, ключ `analytics:report:<уровень>:<область|all>:<период>`. Файл — через `ExportBrandingService`
+(`ExportKind = 'analytics-report'`, листы «Данные» и «Инфо»), запись `analytics_report_export` в
+`AuditLog` и в реестр `DocumentExport`. Веб: кнопка «Выгрузить отчёт» с выбором периода и формата
+на дашбордах платформы, вуза, декана, аналитики факультета и преподавателя.
+
 **Экзамены** (Academic Core, задача 11) — `GET /exams` (по роли; фильтры `groupId/courseId/mine`, необязательные `from` (вкл.) и `to` (не вкл.); до 200 экзаменов, ближайших к текущему моменту, по возрастанию даты; студент видит свою сессию + поле `myResult`; `mine=false|0` — `false`) · `GET /exams/:id` (для `TEACHER` — только свой курс или где он экзаменатор, иначе `403`) · `POST /exams` (декан/препод: дисциплина+дата+формат+аудитория?+экзаменатор?) · `PATCH|DELETE /exams/:id` (`POST`/`PATCH` → `409` с `details` `date`/`roomId`/`examinerId`, если у группы, аудитории или экзаменатора есть другой экзамен в пределах часа; совместный поток в той же аудитории в то же время допустим) · `GET /exams/:id/results` (ведомость: студенты группы + результаты) · `PUT /exams/results` (массово: `{examId,entries:[{studentId,admitted,status,score?,note?}]}`; `RETAKE` → итог ставит `attempt+1`; опущенный `note` не затирается; `admitted=false` с `PASSED`/`FAILED` → `VALIDATION_ERROR`; балл выше `maxScore` → `VALIDATION_ERROR` `entries.<i>.score`). Уведомления студентам группы: `exam-scheduled`, `exam-updated` (`SCHEDULE_CHANGE`), `exam-result` (`SYSTEM`). Формат: `ORAL|WRITTEN|TEST|PROJECT|OTHER`; статус результата: `SCHEDULED|PASSED|FAILED|ABSENT|RETAKE`; допуск — `admitted:boolean`; пересдача — `attempt`. Модели: `Exam` (courseId/groupId/examinerId?/roomId?/date/format/maxScore), `ExamResult` (`@@unique([examId,studentId])`).
 
 **Журнал оценок** (Academic Core, задача 7) — `GET /gradebook/course/:courseId` (преподаватель: колонки+студенты+матрица оценок) · `POST /gradebook/columns` · `PATCH /gradebook/columns/:id` · `POST /gradebook/columns/:id/publish|unpublish` (черновик vs опубликовано) · `DELETE /gradebook/columns/:id` · `PUT /gradebook/grades` (массовое сохранение оценок колонки, score=null очищает; пишутся только изменённые ячейки; балл выше `maxScore` колонки → `VALIDATION_ERROR`; понижение `maxScore` ниже выставленного → `409`) · `GET /gradebook/me` (студент: опубликованные оценки по дисциплинам — задача 8; включает курсы прежних групп с опубликованными оценками). WS `grade.published` уходит и при правке опубликованной колонки, и при снятии публикации. Модели: `GradeColumn` (контрольная точка курса: kind `LAB|CONTROL|EXAM|OTHER` строкой, maxScore, position, `published`), `Grade` (`@@unique([columnId,studentId])`, score Float). Студент видит только оценки опубликованных колонок.

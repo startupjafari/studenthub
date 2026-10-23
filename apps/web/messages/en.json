@@ -3774,6 +3774,19 @@
     "riskEmptyHint": "No student in the faculty has low attendance, overdue work or low grades.",
     "groupsCount": "{n} groups"
   },
+  "AnalyticsReport": {
+    "button": "Export report",
+    "title": "Summary report",
+    "period": "Period",
+    "periodMonth": "Last 30 days",
+    "periodQuarter": "Last 90 days",
+    "periodYear": "Academic year",
+    "format": "Format",
+    "formatXlsx": "Excel (XLSX)",
+    "formatCsv": "CSV",
+    "hint": "Attendance, performance, exams, requests and activity by unit. Aggregates only: units with fewer than 5 students are exported without figures.",
+    "submit": "Export"
+  },
   "Command": {
     "title": "Search & commands",
     "placeholder": "Search people, courses, assignments…",
