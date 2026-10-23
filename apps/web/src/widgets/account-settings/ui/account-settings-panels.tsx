@@ -9,7 +9,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import type { Locale } from '@studenthub/shared-config'
-import { Role } from '@studenthub/shared-types'
+import { Role, isTwoFactorRequired } from '@studenthub/shared-types'
 import { writeLocaleCookie } from '../../../shared/i18n/locale-cookie'
 import { useLocale, useTranslations } from 'next-intl'
 import { ContactSupportForm } from '../../../features/contact-support'
@@ -715,44 +715,48 @@ function TwoFactorManager({ me }: { me: MeResponse }) {
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button type="button" variant="destructive" size="sm">
-                {tS('twoFactorDisable')}
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>{tS('twoFactorDisable')}</AlertDialogTitle>
-                <AlertDialogDescription>{tS('twoFactorDisableDesc')}</AlertDialogDescription>
-              </AlertDialogHeader>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="disable2fa">{tS('twoFactorEnterCode')}</Label>
-                <Input
-                  id="disable2fa"
-                  inputMode="numeric"
-                  autoComplete="one-time-code"
-                  placeholder="123456"
-                  value={disableCode}
-                  onChange={(e) => setDisableCode(e.target.value)}
-                />
-              </div>
-              <AlertDialogFooter>
-                <AlertDialogCancel onClick={() => setDisableCode('')}>
-                  {tS('twoFactorCancel')}
-                </AlertDialogCancel>
-                <Button
-                  type="button"
-                  variant="destructive"
-                  loading={disableMut.isPending}
-                  disabled={!disableCode.trim()}
-                  onClick={() => disableMut.mutate()}
-                >
+          {/* Роли с обязательной 2FA отключить её не могут (сервер отвечает 403) — только
+              перевыпустить коды; потерянный телефон — сброс 2FA старшим по роли. */}
+          {!isTwoFactorRequired(me.role) && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button type="button" variant="destructive" size="sm">
                   {tS('twoFactorDisable')}
                 </Button>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>{tS('twoFactorDisable')}</AlertDialogTitle>
+                  <AlertDialogDescription>{tS('twoFactorDisableDesc')}</AlertDialogDescription>
+                </AlertDialogHeader>
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="disable2fa">{tS('twoFactorEnterCode')}</Label>
+                  <Input
+                    id="disable2fa"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    placeholder="123456"
+                    value={disableCode}
+                    onChange={(e) => setDisableCode(e.target.value)}
+                  />
+                </div>
+                <AlertDialogFooter>
+                  <AlertDialogCancel onClick={() => setDisableCode('')}>
+                    {tS('twoFactorCancel')}
+                  </AlertDialogCancel>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    loading={disableMut.isPending}
+                    disabled={!disableCode.trim()}
+                    onClick={() => disableMut.mutate()}
+                  >
+                    {tS('twoFactorDisable')}
+                  </Button>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
         </div>
       </SettingRow>
     )

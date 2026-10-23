@@ -2,6 +2,7 @@ import { forwardRef, Inject, Injectable } from '@nestjs/common'
 import { randomBytes } from 'node:crypto'
 import type Redis from 'ioredis'
 import { authenticator } from 'otplib'
+import { isTwoFactorRequired } from '@studenthub/shared-types'
 import { REDIS_CLIENT } from '../../common/redis/redis.constants'
 import { AuditService } from '../../common/audit/audit.service'
 import { renderQrDataUrl } from '../../common/qr/qr-image'
@@ -161,11 +162,20 @@ export class TwoFactorService {
     return { backupCodes, hashes }
   }
 
-  /** Отключить 2FA (требует действующий TOTP или backup-код). */
+  /**
+   * Отключить 2FA (требует действующий TOTP или backup-код).
+   *
+   * Ролям с обязательной 2FA (§8.3 «Форс 2FA») — отказ: иначе привилегированная учётка
+   * снимала второй фактор сама и до 15 минут работала по токену с `tfa=true`. Потерянный
+   * телефон — перевыпуск резервных кодов или сброс 2FA старшим по роли.
+   */
   async disable(userId: string, code: string, ctx: TwoFactorRequestContext = {}): Promise<void> {
     const rec = await this.users.getTwoFactorForLogin(userId)
     if (!rec?.twoFactorEnabled) {
       throw new AppException('BAD_REQUEST', 'Двухфакторная аутентификация не включена')
+    }
+    if (isTwoFactorRequired(rec.role)) {
+      throw new AppException('FORBIDDEN', 'Для вашей роли двухфакторная аутентификация обязательна')
     }
     const ok = await this.verifyWithLimit(userId, () => this.verifyCode(rec, code))
     if (!ok) {

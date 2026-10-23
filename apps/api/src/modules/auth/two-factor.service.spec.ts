@@ -217,6 +217,20 @@ describe('TwoFactorService', () => {
     expect(store.has('2fa:confirm-fails:u1')).toBe(false)
   })
 
+  // BUG-347: обязательную 2FA привилегированная роль не снимает сама — даже верным кодом.
+  it('disable: роли с обязательной 2FA — FORBIDDEN, 2FA остаётся', async () => {
+    const { service, users } = setup()
+    users.getTwoFactorForLogin.mockResolvedValue(
+      loginRecord({
+        role: 'DEAN' as TwoFactorLoginRecord['role'],
+        twoFactorBackupCodes: ['hash:ABCD1234'],
+      }),
+    )
+    await expect(service.disable('u1', 'ABCD1234')).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(users.disableTwoFactor).not.toHaveBeenCalled()
+    expect(users.consumeBackupCode).not.toHaveBeenCalled()
+  })
+
   it('verifyCode: неверный код → false', async () => {
     const { service } = setup()
     const rec = loginRecord({ twoFactorBackupCodes: ['hash:ABCD1234'] })
