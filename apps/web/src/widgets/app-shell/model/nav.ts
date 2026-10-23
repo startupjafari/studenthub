@@ -34,7 +34,6 @@ import {
   Milestone,
   Newspaper,
   ScanLine,
-  ScanQrCode,
   ScrollText,
   Search,
   Send,
@@ -280,13 +279,11 @@ export const UNIVERSITY_MODERATOR_NAV: NavItem[] = [
   { key: 'chats', href: '/moderator/university/chats', icon: MessagesSquare },
 ]
 
-// Охрана вуза (docs/PROJECT.md §2): пост, камеры, сканер, проверка студенческого, помещения.
-// Сканер есть и в шапке, но на посту это главное действие — оно и в навигации.
+// Охрана вуза (docs/PROJECT.md §2): пост, камеры, помещения. Сканера и проверки
+// студенческого в навигации нет: сканер — кнопка у профиля, проверка открывается сканом.
 export const SECURITY_GUARD_NAV: NavItem[] = [
   { key: 'securityPost', href: '/security', icon: LayoutDashboard, exact: true },
   { key: 'cameras', href: '/security/cameras', icon: Cctv },
-  { key: 'scan', href: '/scan', icon: ScanQrCode },
-  { key: 'verifyId', href: '/verify-id', icon: ScanLine },
   // Своя подпись: «Помещения и QR» — раздел админа с печатью наклеек, у охраны её нет.
   { key: 'securityRooms', href: '/security/rooms', icon: DoorClosed },
 ]
