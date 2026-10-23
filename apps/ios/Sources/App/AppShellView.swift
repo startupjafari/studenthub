@@ -115,6 +115,8 @@ struct AppShellView: View {
             AssignmentDetailView(assignmentID: id)
         case .myBooks:
             MyBooksView()
+        case .libraryClearance:
+            LibraryClearanceView()
         case .book(let id):
             LibraryBookView(bookID: id)
         case .bookCopy(let code):

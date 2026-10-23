@@ -3,6 +3,7 @@ import SwiftUI
 /// «Мои книги»: что на руках и до какого срока, брони — готовые и в очереди, история.
 ///
 /// Выдачу, записанную по ошибке, читатель отмечает «Это не я» — решает библиотекарь.
+/// Отсюда же — справка «задолженностей нет» (`LibraryClearanceView`).
 /// Уведомления библиотеки (`/my-books`) ведут сюда.
 struct MyBooksView: View {
     @State private var model = MyBooksModel()
@@ -28,6 +29,7 @@ struct MyBooksView: View {
                     if books.overdueCount > 0 {
                         overdueBanner(books.overdueCount)
                     }
+                    clearanceLink
                     onHandsSection(books)
                     reservationsSection(books)
                     if !books.history.isEmpty {
@@ -82,6 +84,25 @@ struct MyBooksView: View {
     }
 
     // MARK: - Секции
+
+    /// Справка для обходного листа — там же, где в вебе: в «Моих книгах».
+    private var clearanceLink: some View {
+        Section {
+            NavigationLink(value: AppRoute.libraryClearance) {
+                Label(
+                    String(localized: "library.clearance", defaultValue: "Справка из библиотеки"),
+                    systemImage: "checkmark.seal"
+                )
+                .font(Typography.body)
+            }
+        } footer: {
+            Text(String(
+                localized: "library.clearanceSubtitle",
+                defaultValue: "Для обходного листа при выпуске или переводе"
+            ))
+        }
+        .listRowBackground(Palette.card)
+    }
 
     /// Просрочка закрывает новые выдачи и брони — об этом надо сказать до того, как
     /// человек пойдёт бронировать и получит отказ.
