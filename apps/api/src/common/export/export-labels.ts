@@ -57,6 +57,7 @@ const RU: ExportLabels = {
     chat: 'Экспорт переписки',
     'career-report': 'Отчёт карьерного центра',
     'my-data': 'Выгрузка моих данных',
+    'analytics-report': 'Отчёт по сводке',
   },
 }
 
@@ -81,6 +82,7 @@ const KK: ExportLabels = {
     chat: 'Хат алмасу экспорты',
     'career-report': 'Карьера орталығының есебі',
     'my-data': 'Жеке деректерімді жүктеу',
+    'analytics-report': 'Жиынтық бойынша есеп',
   },
 }
 
@@ -103,6 +105,7 @@ const EN: ExportLabels = {
     chat: 'Chat export',
     'career-report': 'Career centre report',
     'my-data': 'My data export',
+    'analytics-report': 'Analytics summary report',
   },
 }
 
