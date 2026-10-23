@@ -24,6 +24,7 @@ import {
   disputeLoanRequest,
   fetchMyLoans,
   fetchMyReservations,
+  isLostDebt,
   libraryKeys,
 } from '../../../entities/library'
 import { useReaderErrors } from '../lib/reader-errors'
@@ -31,7 +32,8 @@ import { LibraryReaderTabs } from './library-reader-tabs'
 
 // «Мои книги» студента (Фаза 20.9): что на руках и до какого срока, брони — готовые и в
 // очереди, история. Выдачу, записанную по ошибке, читатель отмечает «Это не я» — решает
-// библиотекарь.
+// библиотекарь. Утерянная книга, за которую не рассчитались, — долг: она остаётся в верхнем
+// списке, пока библиотекарь не отметит погашение.
 
 export function MyBooksView() {
   const t = useTranslations('LibraryReader')
@@ -41,8 +43,9 @@ export function MyBooksView() {
     queryFn: fetchMyReservations,
   })
 
-  const open = loans.data?.filter((l) => l.status === 'OPEN') ?? []
-  const closed = loans.data?.filter((l) => l.status !== 'OPEN') ?? []
+  const open = loans.data?.filter((l) => l.status === 'OPEN' || isLostDebt(l)) ?? []
+  const closed = loans.data?.filter((l) => l.status !== 'OPEN' && !isLostDebt(l)) ?? []
+  const lost = open.filter(isLostDebt).length
   const active =
     reservations.data?.filter((r) => r.status === 'READY' || r.status === 'QUEUED') ?? []
   const overdue = open.filter((l) => l.overdue).length
@@ -67,6 +70,13 @@ export function MyBooksView() {
         <Card className="flex-row items-start gap-3 border-destructive/30 bg-destructive/5 p-4">
           <TriangleAlert className="mt-0.5 size-5 shrink-0 text-destructive" aria-hidden />
           <p className="text-sm">{t('overdueBanner', { count: overdue })}</p>
+        </Card>
+      )}
+
+      {lost > 0 && (
+        <Card className="flex-row items-start gap-3 border-destructive/30 bg-destructive/5 p-4">
+          <TriangleAlert className="mt-0.5 size-5 shrink-0 text-destructive" aria-hidden />
+          <p className="text-sm">{t('lostBanner', { count: lost })}</p>
         </Card>
       )}
 

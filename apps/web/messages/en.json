@@ -4267,7 +4267,6 @@
     "dueUntil": "due {date}",
     "overdueSince": "overdue since {date}",
     "statusReturned": "Returned",
-    "statusLost": "Lost",
     "statusCancelled": "Cancelled",
     "loansTitle": "Loans",
     "loansSubtitle": "Who has the books and until when",
@@ -4306,7 +4305,10 @@
       "alreadyReserved": "You already have a hold on this book",
       "alreadyBorrowed": "You already have this book",
       "noCopies": "The library has no copies of this book",
-      "closed": "The hold is already closed"
+      "closed": "The hold is already closed",
+      "lost": "The reader still owes for a lost book",
+      "notLost": "The book is not marked as lost",
+      "settled": "The debt is already settled"
     },
     "acceptReturn": "Check in",
     "byDefault": "Default",
@@ -4317,7 +4319,7 @@
     "holdFor": "{name} ({group}) — hold kept until {date}",
     "holdForTitle": "Put “{title}” on the holds shelf",
     "loanActions": "Loan actions",
-    "lostDesc": "“{title}” borrowed by {name} will be marked lost and the copy leaves circulation.",
+    "lostDesc": "“{title}” borrowed by {name} will be marked lost and the copy leaves circulation. The reader owes for it until the book is replaced or paid for.",
     "lostTitle": "Book lost?",
     "lostToast": "Marked as lost",
     "markLost": "Book lost",
@@ -4412,7 +4414,14 @@
     "noOverdue": "Nothing overdue",
     "invProgressSince": "Since {date}",
     "invManualHint": "Label worn off — enter the inventory number",
-    "invRecentEmpty": "Scan the first label — marked copies appear here"
+    "invRecentEmpty": "Scan the first label — marked copies appear here",
+    "statusLostDebt": "Lost — owed",
+    "statusLostSettled": "Lost, settled",
+    "filterLost": "Lost",
+    "settleLost": "Debt settled",
+    "settleLostTitle": "Mark the debt as settled?",
+    "settleLostDesc": "{name} replaced “{title}” or paid for it. Their clearance, borrowing and holds will reopen.",
+    "settledToast": "Debt settled"
   },
   "Cameras": {
     "adminTitle": "Cameras",
@@ -5068,7 +5077,8 @@
       "noCopies": "The library has no copies of this book",
       "closed": "The hold is already closed",
       "module": "The library is turned off",
-      "notFound": "Book not found"
+      "notFound": "Book not found",
+      "lost": "You owe for a lost book — replace it or pay for it at the library"
     },
     "historySubtitle": "Returned and closed loans",
     "descriptionSubtitle": "Summary from the library record",
@@ -5078,21 +5088,24 @@
     "print": "Print",
     "clearTitle": "No outstanding books",
     "clearBody": "{name} has no books checked out as of {date}.",
-    "notClearTitle": "{count, plural, one {# book checked out — return it to get the certificate} other {# books checked out — return them to get the certificate}}",
+    "notClearTitle": "{count, plural, one {# book is on your record — return it to get the certificate} other {# books are on your record — return them to get the certificate}}",
     "sheetTitle": "Certificate",
     "sheetBody": "This certifies that {name} has no outstanding obligations to the library.",
     "sheetFaculty": "Faculty",
     "sheetGroup": "Group",
     "sheetCard": "Student ID no.",
     "sheetChecked": "As of {date}",
-    "sheetSignature": "Librarian ____________________"
+    "sheetSignature": "Librarian ____________________",
+    "lostBanner": "{count, plural, one {You owe for # lost book} other {You owe for # lost books}}. Replace it or pay for it at the library — until then new books, holds and the clearance certificate are closed.",
+    "lostHint": "Replace the lost book or pay for it at the library — the librarian will mark the debt as settled."
   },
   "LibraryDebts": {
     "title": "{count, plural, one {The student has # library book} other {The student has # library books}}",
     "loanLine": "“{title}”, inv. {number}, due {date}",
     "overdue": "overdue",
     "reservations": "{count, plural, one {And # active hold} other {And # active holds}}",
-    "hint": "You can save the status, but the books must be returned before the student leaves."
+    "hint": "You can save the status, but the books must be returned before the student leaves.",
+    "lostLine": "“{title}”, inv. {number}, lost — not paid for"
   },
   "LibraryReports": {
     "title": "Reports",

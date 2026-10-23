@@ -33,7 +33,7 @@ import { LoanDueBadge, fetchLoans, libraryKeys } from '../../../entities/library
 const PAGE_SIZES = [20, 50, 100] as const
 const DEBOUNCE_MS = 250
 
-type Filter = 'open' | 'overdue' | 'closed' | 'all'
+type Filter = 'open' | 'overdue' | 'lost' | 'closed' | 'all'
 
 // Книга · читатель · выдана · срок · действия. На телефоне — книга, срок и действия.
 const COLS = ['32%', '28%', '14%', 'calc(26% - 3.5rem)', '3.5rem'] as const
@@ -46,7 +46,10 @@ export interface LoansViewProps {
   subtitle?: string
   headerTabs?: ReactNode
   headerActions?: ReactNode
-  /** Действия над выдачей в строке (у библиотекаря); нет — только просмотр. */
+  /**
+   * Действия над выдачей в строке (у библиотекаря); нет — только просмотр. Вызывается для
+   * каждой строки: что доступно (открытой, утерянной с долгом), решает вызывающий.
+   */
   actions?: (loan: LoanItem) => ReactNode
 }
 
@@ -97,6 +100,7 @@ export function LoansView({ title, subtitle, headerTabs, headerActions, actions 
               items={[
                 { value: 'open', label: t('filterOpen') },
                 { value: 'overdue', label: t('filterOverdue') },
+                { value: 'lost', label: t('filterLost') },
                 { value: 'closed', label: t('filterClosed') },
                 { value: 'all', label: t('filterAll') },
               ]}
@@ -196,9 +200,7 @@ export function LoansView({ title, subtitle, headerTabs, headerActions, actions 
                     </div>
                   </TableCell>
                   <TableCell>
-                    {actions && loan.status === 'OPEN' && (
-                      <div className="flex justify-end">{actions(loan)}</div>
-                    )}
+                    {actions && <div className="flex justify-end">{actions(loan)}</div>}
                   </TableCell>
                 </TableRow>
               ))}
