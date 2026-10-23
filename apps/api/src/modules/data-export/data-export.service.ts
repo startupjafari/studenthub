@@ -1195,5 +1195,6 @@ export const USER_RELATIONS: Readonly<Record<string, { section: string } | { exc
     'Loan.issuedById': { excluded: STAFF_WORK },
     'Loan.returnedToId': { excluded: STAFF_WORK },
     'Loan.cancelledById': { excluded: STAFF_WORK },
+    'Loan.lostSettledById': { excluded: STAFF_WORK },
     'LibraryIdAccessLog.librarianId': { excluded: STAFF_WORK },
   }
