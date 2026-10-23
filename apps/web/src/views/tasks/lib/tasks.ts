@@ -74,7 +74,8 @@ export function buildTasks({
 
   for (const a of assignments) {
     const st = studentAssignmentStatus(a)
-    if (st === 'SUBMITTED') continue // ждём проверку — не задача пользователя
+    // Ждём проверку или задание закрыто (сдать уже нельзя) — не задача пользователя.
+    if (st === 'SUBMITTED' || st === 'CLOSED') continue
     if (st === 'GRADED') {
       items.push({
         id: `assignment-${a.id}`,

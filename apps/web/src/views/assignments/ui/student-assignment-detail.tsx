@@ -233,6 +233,13 @@ export function StudentAssignmentDetail({ id, onBack, asModal = false }: Props) 
             </p>
           )}
 
+          {/* Почему формы нет: срок истёк или приём закрыт — иначе «Отправить» вело бы к 409. */}
+          {(st === 'OVERDUE' || st === 'CLOSED') && (
+            <p className="text-sm text-muted-foreground">
+              {st === 'CLOSED' ? t('closedHint') : t('deadlinePassedHint')}
+            </p>
+          )}
+
           {editable && (
             <div className="flex flex-wrap justify-end gap-2">
               <Button

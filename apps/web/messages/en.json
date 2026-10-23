@@ -3435,7 +3435,8 @@
       "submitted": "In review",
       "graded": "Graded",
       "returned": "Needs fixes",
-      "overdue": "Overdue"
+      "overdue": "Overdue",
+      "closed": "Closed"
     },
     "astatus": {
       "DRAFT": "Draft",
@@ -3541,7 +3542,9 @@
     "regrade": "Change grade",
     "saveGrade": "Save grade",
     "regraded": "Grade updated",
-    "maxScoreBelowGraded": "Higher scores have already been given — the maximum can't be lower"
+    "maxScoreBelowGraded": "Higher scores have already been given — the maximum can't be lower",
+    "closedHint": "The assignment is closed — submissions are no longer accepted",
+    "deadlinePassedHint": "The deadline has passed — the work can no longer be submitted"
   },
   "Attendance": {
     "title": "Attendance",
