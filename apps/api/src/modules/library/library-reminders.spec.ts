@@ -26,7 +26,7 @@ function setup(loansByKind: Partial<Record<string, unknown[]>> = {}) {
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
   }
-  const notifier = { send: jest.fn().mockResolvedValue(undefined) }
+  const notifier = { send: jest.fn().mockResolvedValue(true) }
   return {
     service: new LibraryRemindersService(prisma as never, notifier as never),
     prisma,
@@ -83,5 +83,35 @@ describe('Напоминания библиотеки', () => {
         dedupeKey: expect.stringMatching(/^library-overdue:loan-2:\d{4}-\d{2}-\d{2}$/),
       }),
     )
+  })
+
+  it('очередь не приняла уведомление — отметка не ставится, прогон останавливается', async () => {
+    const { service, prisma, notifier } = setup({
+      dueSoon: [loan('loan-1', '2026-10-24T18:59:59.999Z')],
+      overdue: [loan('loan-2', '2026-10-10T18:59:59.999Z')],
+    })
+    notifier.send.mockResolvedValue(false)
+    const counts = await service.remindDue(NOON)
+    expect(counts).toEqual({ dueSoon: 0, dueToday: 0, overdue: 0 })
+    expect(prisma.loan.updateMany).not.toHaveBeenCalled()
+    // Redis лежит — дальше по выборке не идём, каждая попытка ждала бы таймаут.
+    expect(notifier.send).toHaveBeenCalledTimes(1)
+  })
+
+  it('отмечаются только поставленные: сорвавшиеся догонит следующий тик', async () => {
+    const { service, prisma, notifier } = setup({
+      dueSoon: [
+        loan('loan-1', '2026-10-24T18:59:59.999Z'),
+        loan('loan-3', '2026-10-24T18:59:59.999Z'),
+      ],
+    })
+    notifier.send.mockResolvedValueOnce(true).mockResolvedValueOnce(false)
+    const counts = await service.remindDue(NOON)
+    expect(counts.dueSoon).toBe(1)
+    expect(prisma.loan.updateMany).toHaveBeenCalledTimes(1)
+    expect(prisma.loan.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ['loan-1'] } },
+      data: { dueSoonSentAt: expect.any(Date) },
+    })
   })
 })

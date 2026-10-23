@@ -141,3 +141,29 @@ export const UniversityWeeksQuerySchema = z
   })
   .strict()
 export type UniversityWeeksQueryInput = z.infer<typeof UniversityWeeksQuerySchema>
+
+// ── Отчёт по сводке файлом (Ф14.2, решение владельца: «выгрузка сводок в XLSX/CSV») ─
+// Одна ручка на все уровни: что попадёт в отчёт — платформа, вуз, факультет или курсы
+// преподавателя — решает роль из токена. Параметром область сужается только до
+// факультета: админ вуза и платформенные роли смотрят его на экране аналитики факультета.
+//
+// Период — те же три значения, что у отчёта карьеры: `year` — УЧЕБНЫЙ год с 1 сентября.
+
+export const ANALYTICS_REPORT_PERIODS = ['month', 'quarter', 'year'] as const
+export const AnalyticsReportPeriodSchema = z.enum(ANALYTICS_REPORT_PERIODS)
+export type AnalyticsReportPeriod = z.infer<typeof AnalyticsReportPeriodSchema>
+
+export const ANALYTICS_REPORT_FORMATS = ['xlsx', 'csv'] as const
+export const AnalyticsReportFormatSchema = z.enum(ANALYTICS_REPORT_FORMATS)
+export type AnalyticsReportFormat = z.infer<typeof AnalyticsReportFormatSchema>
+
+export const AnalyticsReportQuerySchema = z
+  .object({
+    period: AnalyticsReportPeriodSchema.default('quarter'),
+    facultyId: z.string().min(1).optional(),
+    format: AnalyticsReportFormatSchema.default('xlsx'),
+    /** Язык заголовков файла. Значения из БД (названия групп) не переводятся. */
+    locale: z.enum(['ru', 'kk', 'en']).optional(),
+  })
+  .strict()
+export type AnalyticsReportQueryInput = z.infer<typeof AnalyticsReportQuerySchema>

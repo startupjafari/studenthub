@@ -413,3 +413,61 @@ final class MyBooksModel {
         }
     }
 }
+
+// MARK: - Справка
+
+/// Справка «задолженностей в библиотеке нет»: что показать на экране.
+///
+/// Решение «чисто» принимает сервер, но экран перестраховывается: если в ответе пришли
+/// долги, справку не показываем, даже когда `clear` почему-то `true`.
+struct ClearanceSummary: Equatable {
+    let isClear: Bool
+    let debts: [LoanDTO]
+    /// Утерянные без погашения: их не вернуть — только заменить или возместить.
+    let lostDebts: Int
+    let reader: LibraryClearanceDTO.Reader
+    let university: String
+    let checkedAt: Date
+
+    init(_ clearance: LibraryClearanceDTO, receivedAt: Date = Date()) {
+        isClear = clearance.clear && clearance.loans.isEmpty
+        debts = clearance.loans
+        // В справку сервер кладёт только долги, поэтому утерянная здесь — долг, даже если
+        // старый сервер не прислал `lostSettledAt`.
+        lostDebts = clearance.loans.filter { $0.status == .lost && $0.lostSettledAt == nil }.count
+        reader = clearance.reader
+        university = clearance.university
+        checkedAt = clearance.checkedAt ?? receivedAt
+    }
+}
+
+@Observable
+final class LibraryClearanceModel {
+    private(set) var summary: ClearanceSummary?
+    private(set) var isLoading = false
+    private(set) var failure: String?
+
+    private let api: LibraryFetching
+
+    init(api: LibraryFetching = LibraryAPI()) {
+        self.api = api
+    }
+
+    /// Справка — на момент запроса, поэтому перечитываем при каждом открытии и по жесту.
+    @MainActor
+    func refresh() async {
+        guard !isLoading else { return }
+        isLoading = true
+        defer { isLoading = false }
+        do {
+            let clearance = try await api.clearance()
+            summary = ClearanceSummary(clearance)
+            failure = nil
+        } catch {
+            // Прошлую справку не показываем как свежую: дата на ней — момент проверки,
+            // и человек унёс бы в деканат устаревшее «задолженностей нет».
+            summary = nil
+            failure = LibraryReaderError.message(for: error)
+        }
+    }
+}

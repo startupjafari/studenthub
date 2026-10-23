@@ -6,6 +6,7 @@ import { toApiError } from '../../../shared/lib'
 type DeskField =
   | 'status'
   | 'overdue'
+  | 'lost'
   | 'limit'
   | 'onLoan'
   | 'reserved'
@@ -22,6 +23,12 @@ type DeskField =
   | 'alreadyBorrowed'
   | 'noCopies'
   | 'closed'
+  | 'notReturned'
+  | 'returnWindow'
+  | 'reissued'
+  | 'heldForReservation'
+  | 'notLost'
+  | 'settled'
 
 export function useDeskErrors(): (error: unknown) => string {
   const t = useTranslations('LibraryDesk')
@@ -29,6 +36,7 @@ export function useDeskErrors(): (error: unknown) => string {
   const byField: Record<DeskField, string> = {
     status: t('error.status'),
     overdue: t('error.overdue'),
+    lost: t('error.lost'),
     limit: t('error.limit'),
     onLoan: t('error.onLoan'),
     reserved: t('error.reserved'),
@@ -45,6 +53,12 @@ export function useDeskErrors(): (error: unknown) => string {
     alreadyBorrowed: t('error.alreadyBorrowed'),
     noCopies: t('error.noCopies'),
     closed: t('error.closed'),
+    notReturned: t('error.notReturned'),
+    returnWindow: t('error.returnWindow'),
+    reissued: t('error.reissued'),
+    heldForReservation: t('error.heldForReservation'),
+    notLost: t('error.notLost'),
+    settled: t('error.settled'),
   }
   return (error) => {
     const err = toApiError(error)

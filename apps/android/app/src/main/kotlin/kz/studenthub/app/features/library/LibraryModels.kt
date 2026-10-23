@@ -12,6 +12,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kz.studenthub.app.R
 import kz.studenthub.app.core.library.BookCardDto
+import kz.studenthub.app.core.library.LibraryClearanceDto
 import kz.studenthub.app.core.library.LibraryFetching
 import kz.studenthub.app.core.library.LoanDto
 import kz.studenthub.app.core.library.ReservationDto
@@ -19,6 +20,7 @@ import kz.studenthub.app.core.network.ApiError
 import kz.studenthub.app.core.network.ApiErrorCode
 import kz.studenthub.app.core.network.displayMessage
 import kz.studenthub.app.core.ui.UiText
+import java.time.Instant
 import java.time.LocalDate
 
 /**
@@ -73,12 +75,22 @@ data class LibraryBadge(val text: UiText, val tone: Tone) {
             val day = loan.dueDay?.let(formatDay) ?: loan.dueDate
             return when {
                 loan.status == "RETURNED" -> LibraryBadge(UiText.Res(R.string.books_loanReturned), Tone.NEUTRAL)
+                loan.status == "LOST" && loan.lostSettledAt != null ->
+                    LibraryBadge(UiText.Res(R.string.books_loanLostSettled), Tone.NEUTRAL)
                 loan.status == "LOST" -> LibraryBadge(UiText.Res(R.string.books_loanLost), Tone.DESTRUCTIVE)
                 loan.status == "CANCELLED" -> LibraryBadge(UiText.Res(R.string.books_loanCancelled), Tone.NEUTRAL)
                 loan.overdue -> LibraryBadge(UiText.Res(R.string.books_overdueSince, listOf(day)), Tone.DESTRUCTIVE)
                 else -> LibraryBadge(UiText.Res(R.string.books_dueUntil, listOf(day)), Tone.INFO)
             }
         }
+
+        /**
+         * Долг в справке: книга на руках — срок, утерянная — «Утеряна — долг». В справку
+         * сервер кладёт только долги, поэтому утерянная там — долг, даже если сервер ещё не
+         * присылает `lostSettledAt`.
+         */
+        fun debt(debt: LoanDto, formatDay: (LocalDate) -> String): LibraryBadge =
+            if (debt.status == "LOST") LibraryBadge(UiText.Res(R.string.books_loanLostDebt), Tone.DESTRUCTIVE) else loan(debt, formatDay)
 
         /** Бронь: готова до такого-то дня, место в очереди или чем закончилась. */
         fun reservation(reservation: ReservationDto, formatDay: (LocalDate) -> String): LibraryBadge = when (reservation.status) {
@@ -496,5 +508,65 @@ class MyBooksModel(private val api: LibraryFetching) : ViewModel() {
 
     fun noticeShown() {
         notice = null
+    }
+}
+
+/**
+ * Справка «задолженностей нет» глазами экрана. Решение «чисто» принимает сервер, но экран
+ * перестраховывается: пришли долги — справки нет, даже если `clear` почему-то `true`.
+ */
+data class ClearanceSummary(
+    val isClear: Boolean,
+    val debts: List<LoanDto>,
+    /** Утерянные без погашения: их не вернуть — только заменить или возместить. */
+    val lostDebts: Int,
+    val reader: LibraryClearanceDto.Reader,
+    val university: String,
+    val checkedAt: Instant,
+) {
+    companion object {
+        fun of(clearance: LibraryClearanceDto, receivedAt: Instant = Instant.now()) = ClearanceSummary(
+            isClear = clearance.clear && clearance.loans.isEmpty(),
+            debts = clearance.loans,
+            // В справке только долги: утерянная здесь — долг и без `lostSettledAt` от сервера.
+            lostDebts = clearance.loans.count { it.status == "LOST" && it.lostSettledAt == null },
+            reader = clearance.reader,
+            university = clearance.university,
+            checkedAt = clearance.checkedAt ?: receivedAt,
+        )
+    }
+}
+
+/**
+ * Справка для обходного листа: на момент запроса, поэтому перечитывается при каждом
+ * открытии экрана и по жесту обновления.
+ */
+class ClearanceModel(private val api: LibraryFetching) : ViewModel() {
+    var summary by mutableStateOf<ClearanceSummary?>(null)
+        private set
+    var isLoading by mutableStateOf(false)
+        private set
+    var failure by mutableStateOf<UiText?>(null)
+        private set
+
+    fun refreshNow() {
+        viewModelScope.launch { refresh() }
+    }
+
+    suspend fun refresh() {
+        if (isLoading) return
+        isLoading = true
+        try {
+            summary = ClearanceSummary.of(api.clearance())
+            failure = null
+        } catch (error: Exception) {
+            if (error is kotlinx.coroutines.CancellationException) throw error
+            // Прошлую справку как свежую не показываем: дата на ней — момент проверки, и
+            // человек унёс бы в деканат устаревшее «задолженностей нет».
+            summary = null
+            failure = LibraryErrors.message(error)
+        } finally {
+            isLoading = false
+        }
     }
 }

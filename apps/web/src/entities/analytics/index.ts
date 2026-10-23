@@ -21,6 +21,8 @@ export {
   fetchInvitesFunnel,
   fetchActivityHeatmap,
   fetchTopActions,
+  exportAnalyticsReport,
+  type AnalyticsReportParams,
   type PlatformRange,
 } from './api/analytics-api'
 export type {

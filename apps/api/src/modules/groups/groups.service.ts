@@ -17,6 +17,7 @@ import type { RequestContext } from '../auth/auth.service'
 import { UserService } from '../users/users.service'
 import { UniversityService } from '../universities/universities.service'
 import { InviteService } from '../invites/invites.service'
+import { AnalyticsService } from '../analytics/analytics.service'
 
 // Внутренняя выборка для scope: год/факультет + universityId факультета.
 const GROUP_SELECT = {
@@ -97,6 +98,7 @@ export class GroupService {
     private readonly universities: UniversityService,
     private readonly users: UserService,
     private readonly invites: InviteService,
+    private readonly analytics: AnalyticsService,
   ) {}
 
   /** Создание группы (PLATFORM_ADMIN / UNIVERSITY_ADMIN своего вуза). */
@@ -119,6 +121,8 @@ export class GroupService {
       })
     })
     await this.universities.invalidateStats(faculty.universityId)
+    // Новая группа — новая строка в обзоре факультета и число групп в его плитке.
+    await this.analytics.invalidateFaculty(faculty.id)
     await this.audit.record({
       userId: actor.sub,
       action: 'group_created',
@@ -309,6 +313,7 @@ export class GroupService {
       throw error
     }
     await this.universities.invalidateStats(group.universityId)
+    await this.analytics.invalidateFaculty(group.facultyId, id)
     await this.audit.record({
       userId: actor.sub,
       action: 'group_deleted',

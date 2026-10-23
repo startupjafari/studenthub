@@ -4,6 +4,8 @@ import { Role } from '@studenthub/shared-types'
 import type {
   CreateDocumentRequestInput,
   CursorPaginationInput,
+  GroupProgressStatus,
+  GroupRequestProgress,
   ReviewSubmissionItemInput,
   SaveSubmissionInput,
 } from '@studenthub/shared-schemas'
@@ -28,6 +30,31 @@ const REQUEST_STAFF_ROLES: ReadonlySet<Role> = new Set([
   Role.TEACHER,
 ])
 
+// Какие категории приложенных документов открываются проверяющему (§15.2). Преподаватель
+// проверяет только учебные: удостоверения личности и справки (в т.ч. медицинские) ему не
+// показываются, даже если оказались приложены к его запросу. Деканат и модератор вуза видят
+// любые документы запросов своей области. Роли нет в таблице — проверять ей нечего.
+const REVIEWER_CATEGORIES: Partial<Record<Role, ReadonlySet<string> | 'ALL'>> = {
+  [Role.DEAN]: 'ALL',
+  [Role.UNIVERSITY_MODERATOR]: 'ALL',
+  [Role.TEACHER]: new Set(['ACADEMIC']),
+}
+
+/**
+ * Видит ли проверяющий приложенный документ: роль допускает его категорию, и документ того
+ * типа, что требует позиция. Тип сверяется и здесь — для привязок, сохранённых до сверки в
+ * saveSubmission: паспорт в учебной позиции не должен открываться ни по какой ветке.
+ */
+function reviewerSees(
+  actor: JwtPayload,
+  requestItem: { documentType: string },
+  document: { type: string; category: string },
+): boolean {
+  if (document.type !== requestItem.documentType) return false
+  const allowed = REVIEWER_CATEGORIES[actor.role]
+  return allowed === 'ALL' || (allowed?.has(document.category) ?? false)
+}
+
 // Позиций в запросе не больше, чем разрешает схема создания (30).
 const REQUEST_ITEMS_LIMIT = 30
 // Адресаты уведомления о новом запросе читаются и рассылаются пачками без общего потолка:
@@ -38,6 +65,29 @@ const RECIPIENTS_BATCH = 1000
 const MANAGE_SUBMISSIONS_LIMIT = 200
 // Пачка крона закрытия запросов по сроку.
 const CLOSE_BATCH = 500
+// Прогресс группы для старосты: открытых запросов на группу — единицы, людей в группе —
+// десятки; потолки держат выборку комплектов в пределах запросов × людей.
+const GROUP_PROGRESS_REQUESTS_LIMIT = 30
+const GROUP_MEMBERS_LIMIT = 200
+
+// Статус комплекта → статус для старосты (без содержимого).
+function progressStatus(submissionStatus: string | undefined): GroupProgressStatus {
+  switch (submissionStatus) {
+    case undefined:
+      return 'NOT_STARTED'
+    case 'DRAFT':
+      return 'IN_PROGRESS'
+    case 'SUBMITTED':
+    case 'PARTIAL':
+      return 'SUBMITTED'
+    case 'REJECTED':
+      return 'NEEDS_FIX'
+    case 'ACCEPTED':
+      return 'ACCEPTED'
+    default:
+      return 'IN_PROGRESS'
+  }
+}
 
 // Кто сейчас ведёт комплект. Студент меняет и отправляет его, пока комплект не отправлен
 // (DRAFT) или возвращён ему после проверки (REJECTED; PARTIAL — проверены не все позиции).
@@ -51,7 +101,10 @@ const STAFF_REVIEWABLE = ['SUBMITTED', 'PARTIAL']
 const DAY_MS = 24 * 60 * 60 * 1000
 // Из каких статусов принятый в запросе сертификат становится подтверждённым: просроченный,
 // отклонённый (в т.ч. отозванный вузом), архивный и черновик подтверждением не становятся.
-const VERIFIABLE_STATUSES = ['UPLOADED', 'IN_REVIEW', 'NEEDS_REPLACEMENT', 'ACCEPTED']
+// Проверяется уже пересчитанный по вердиктам статус (syncReviewStatus): «требует замены»
+// или «на проверке» по другому запросу подтверждением не перекрываются — худший статус
+// главнее, подтверждение придёт с принятием там.
+const VERIFIABLE_STATUSES = ['UPLOADED', 'ACCEPTED']
 
 // Строка комплекта в карточке запроса у сотрудника.
 const SUBMISSION_SUMMARY_SELECT = {
@@ -278,6 +331,42 @@ export class DocumentRequestsService {
     await this.prisma.documentEvent.create({
       data: { actorId, requestId, action, metadata: metadata as Prisma.InputJsonValue | undefined },
     })
+  }
+
+  /**
+   * Событие проверки по документам (SUBMIT/REVIEW/ACCEPT/REJECT): запись на каждый документ
+   * с `documentId` И `requestId` — так она видна и в истории документа у владельца, и в
+   * журнале запроса. Комплект без единого документа (все позиции необязательны и пусты) даёт
+   * одну запись только по запросу, чтобы действие не пропало из журнала.
+   */
+  private async logDocumentEvents(
+    actorId: string,
+    requestId: string,
+    action: string,
+    documentIds: readonly (string | null)[],
+    metadata?: Record<string, unknown>,
+  ): Promise<void> {
+    const ids = [...new Set(documentIds.filter((d): d is string => !!d))]
+    if (ids.length === 0) return this.logEvent(actorId, requestId, action, metadata)
+    await this.prisma.documentEvent.createMany({
+      data: ids.map((documentId) => ({
+        actorId,
+        requestId,
+        documentId,
+        action,
+        metadata: metadata as Prisma.InputJsonValue | undefined,
+      })),
+    })
+  }
+
+  // Документы, приложенные к позициям комплекта (для событий и пересчёта статусов).
+  private async submissionDocumentIds(submissionId: string): Promise<string[]> {
+    const items = await this.prisma.documentSubmissionItem.findMany({
+      where: { submissionId, documentId: { not: null } },
+      select: { documentId: true },
+      take: REQUEST_ITEMS_LIMIT,
+    })
+    return items.map((i) => i.documentId).filter((d): d is string => !!d)
   }
 
   // Сдача закрыта: запрос закрыт автором или истёк срок.
@@ -560,6 +649,7 @@ export class DocumentRequestsService {
                 id: true,
                 title: true,
                 type: true,
+                category: true,
                 numberLast4: true,
                 deletedAt: true,
                 files: { select: { id: true, mime: true }, orderBy: { order: 'asc' } },
@@ -590,9 +680,13 @@ export class DocumentRequestsService {
           requestItemTitle: it.requestItem.title,
           documentType: it.requestItem.documentType,
           required: it.requestItem.required,
-          // Удалённый владельцем документ проверяющий видит как неприложенный (D-F21).
+          // Удалённый владельцем документ проверяющий видит как неприложенный (D-F21); так же —
+          // документ, который ему не положен по §15.2 (см. reviewerSees): без метаданных и
+          // списка страниц.
           document:
-            it.document && !it.document.deletedAt
+            it.document &&
+            !it.document.deletedAt &&
+            reviewerSees(actor, it.requestItem, it.document)
               ? {
                   id: it.document.id,
                   title: it.document.title,
@@ -619,9 +713,20 @@ export class DocumentRequestsService {
         documentId: { not: null },
         submission: { request: this.staffScopeWhere(actor) },
       },
-      select: { documentId: true, submission: { select: { requestId: true } } },
+      select: {
+        documentId: true,
+        submission: { select: { requestId: true } },
+        requestItem: { select: { documentType: true } },
+        document: { select: { type: true, category: true } },
+      },
     })
     if (!item?.documentId) throw new AppException('NOT_FOUND', 'Документ не найден')
+    // Категория документа должна быть положена роли проверяющего (§15.2): преподавателю —
+    // только учебные. Ответ NOT_FOUND, как у чужого документа: не подтверждаем, что в позиции
+    // лежит удостоверение.
+    if (!item.document || !reviewerSees(actor, item.requestItem, item.document)) {
+      throw new AppException('NOT_FOUND', 'Документ не найден')
+    }
     // Удалённый владельцем документ через запрос не открывается (D-F21): удаление из
     // кабинета закрывает его и для проверяющего, а сами сканы позже снимет ночная уборка.
     const file = await this.prisma.file.findFirst({
@@ -674,14 +779,19 @@ export class DocumentRequestsService {
     if (updated.count === 0) {
       throw new AppException('CONFLICT', 'Комплект изменился — обновите страницу')
     }
-    await this.logEvent(
+    await this.logDocumentEvents(
       actor.sub,
       item.submission.requestId,
       input.status === 'ACCEPTED' ? 'ACCEPT' : 'REJECT',
+      [item.documentId],
       {
         submissionItemId,
+        ...(input.status === 'REJECTED' ? { reason: input.rejectionReason ?? null } : {}),
       },
     )
+    // Вердикт сразу в статус документа (15.3): владелец видит «принят» / «требует замены»
+    // с причиной. Сертификат после этого может стать VERIFIED (он главнее «принят»).
+    if (item.documentId) await this.documents.syncReviewStatus([item.documentId])
     if (input.status === 'ACCEPTED') await this.verifyCertificate(actor, item)
     return this.getSubmissionForStaff(actor, item.submission.id)
   }
@@ -751,16 +861,23 @@ export class DocumentRequestsService {
     if (updated.count === 0) {
       throw new AppException('CONFLICT', 'Комплект изменился — обновите страницу')
     }
-    await this.logEvent(actor.sub, sub.requestId, 'REVIEW', { status })
+    const documentIds = await this.submissionDocumentIds(submissionId)
+    await this.logDocumentEvents(actor.sub, sub.requestId, 'REVIEW', documentIds, {
+      status,
+      submissionId,
+    })
+    await this.documents.syncReviewStatus(documentIds)
     // Уведомляем студента о результате проверки (§15.19). dedupeKey включает статус,
-    // чтобы повторная проверка (изменение вердикта) дошла новым уведомлением.
+    // чтобы повторная проверка (изменение вердикта) дошла новым уведомлением. Есть
+    // отклонённые позиции — заголовок прямо говорит, что документ нужно заменить: это
+    // единственное уведомление о «требует замены», отдельного на каждый документ нет.
     await this.queue.enqueue(
       QUEUES.NOTIFICATIONS,
       NOTIFICATION_JOBS.DOCUMENT_RESULT,
       {
         recipientIds: [sub.studentId],
         type: 'SYSTEM',
-        titleKey: 'documents.result.title',
+        titleKey: status === 'REJECTED' ? 'documents.replacement.title' : 'documents.result.title',
         bodyKey: 'documents.named.body',
         params: { title: sub.request.title },
         data: { requestId: sub.requestId, status, url: '/documents' },
@@ -769,6 +886,112 @@ export class DocumentRequestsService {
       { jobId: `doc-result:${submissionId}:${status}` },
     )
     return this.getSubmissionForStaff(actor, submissionId)
+  }
+
+  // ── Староста: прогресс группы (15.2/15.6) ───────────────────────────────────
+
+  /**
+   * Прогресс своей группы по открытым запросам документов, адресованным ей целиком (группе,
+   * её факультету или всему вузу; персональные запросы отдельным студентам сюда не входят).
+   * Группа — только из JWT старосты.
+   *
+   * Староста не видит документов: ни типов, ни номеров, ни файлов, ни вердиктов по
+   * позициям — только статус комплекта. Поимённо — лишь по учебным запросам (все позиции —
+   * категории ACADEMIC); по запросу с личными документами — только счётчики, где
+   * «возвращён на исправление» не выделяется (§14.7 BACKEND_RULES: староста не видит
+   * документы одногруппников). Тип, не найденный в каталоге вуза, считается личным —
+   * ошибка в эту сторону ничего не раскрывает.
+   */
+  async groupProgress(actor: JwtPayload): Promise<GroupRequestProgress[]> {
+    if (actor.role !== Role.STAROSTA || !actor.groupId || !actor.universityId) {
+      throw new AppException('FORBIDDEN', 'Прогресс группы доступен старосте своей группы')
+    }
+    const universityId = actor.universityId
+    const group = await this.prisma.group.findFirst({
+      where: { id: actor.groupId, faculty: { universityId } },
+      select: { id: true, facultyId: true },
+    })
+    if (!group) throw new AppException('WRONG_SCOPE', 'Группа не найдена в вашем вузе')
+
+    const requests = await this.prisma.documentRequest.findMany({
+      where: {
+        universityId,
+        status: 'OPEN',
+        targets: {
+          some: {
+            OR: [
+              { targetType: 'UNIVERSITY' },
+              { targetType: 'FACULTY', targetId: group.facultyId },
+              { targetType: 'GROUP', targetId: group.id },
+            ],
+          },
+        },
+      },
+      orderBy: [{ dueAt: { sort: 'asc', nulls: 'last' } }, { createdAt: 'desc' }],
+      take: GROUP_PROGRESS_REQUESTS_LIMIT,
+      select: {
+        id: true,
+        title: true,
+        status: true,
+        dueAt: true,
+        items: { select: { documentType: true }, take: REQUEST_ITEMS_LIMIT },
+      },
+    })
+    if (requests.length === 0) return []
+
+    const members = await this.prisma.user.findMany({
+      where: {
+        groupId: group.id,
+        universityId,
+        deletedAt: null,
+        isBlocked: false,
+        role: { in: [Role.STUDENT, Role.STAROSTA] },
+      },
+      orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
+      select: { id: true, firstName: true, lastName: true },
+      take: GROUP_MEMBERS_LIMIT,
+    })
+    const memberIds = members.map((m) => m.id)
+    const submissions = memberIds.length
+      ? await this.prisma.documentSubmission.findMany({
+          where: { requestId: { in: requests.map((r) => r.id) }, studentId: { in: memberIds } },
+          select: { requestId: true, studentId: true, status: true },
+          take: requests.length * memberIds.length,
+        })
+      : []
+    const statusOf = new Map(submissions.map((s) => [`${s.requestId}:${s.studentId}`, s.status]))
+
+    const catalog = await this.types.effective(universityId)
+    const categoryOf = new Map(catalog.map((t) => [t.typeId, t.category]))
+
+    return requests.map((r) => {
+      const academic =
+        r.items.length > 0 && r.items.every((i) => categoryOf.get(i.documentType) === 'ACADEMIC')
+      const rows = members.map((m) => ({
+        id: m.id,
+        name: `${m.lastName} ${m.firstName}`.trim(),
+        status: progressStatus(statusOf.get(`${r.id}:${m.id}`)),
+      }))
+      const count = (...st: GroupProgressStatus[]) =>
+        rows.filter((x) => st.includes(x.status)).length
+      return {
+        id: r.id,
+        title: r.title,
+        dueAt: r.dueAt ? r.dueAt.toISOString() : null,
+        acceptsSubmissions: acceptsSubmissions(r),
+        kind: academic ? ('ACADEMIC' as const) : ('PERSONAL' as const),
+        counts: {
+          total: rows.length,
+          notSubmitted: academic
+            ? count('NOT_STARTED', 'IN_PROGRESS')
+            : count('NOT_STARTED', 'IN_PROGRESS', 'NEEDS_FIX'),
+          submitted: count('SUBMITTED'),
+          needsFix: academic ? count('NEEDS_FIX') : null,
+          accepted: count('ACCEPTED'),
+        },
+        members: academic ? rows : null,
+      }
+    })
   }
 
   // ── Студент: свои запросы и ответы (15.15) ──────────────────────────────────
@@ -888,7 +1111,7 @@ export class DocumentRequestsService {
         id: true,
         status: true,
         dueAt: true,
-        items: { select: { id: true } },
+        items: { select: { id: true, documentType: true } },
         submissions: {
           where: { studentId: actor.sub },
           select: {
@@ -903,27 +1126,10 @@ export class DocumentRequestsService {
     this.assertAcceptsSubmissions(req)
     const existing = req.submissions[0] ?? null
     if (existing) this.assertStudentEditable(existing.status)
-    const itemIds = new Set(req.items.map((i) => i.id))
+    const itemType = new Map(req.items.map((i) => [i.id, i.documentType]))
     for (const it of input.items) {
-      if (!itemIds.has(it.requestItemId)) {
+      if (!itemType.has(it.requestItemId)) {
         throw new AppException('BAD_REQUEST', 'Позиция не принадлежит запросу')
-      }
-    }
-    // Проверяем, что выбранные документы принадлежат студенту. Отозванная вузом справка
-    // (issuedByUniversity + REJECTED) в кабинете остаётся, но подтверждением уже не служит —
-    // приложить её к запросу нельзя, как и к заявке (P2-D-services-followup).
-    const docIds = input.items.map((i) => i.documentId).filter((d): d is string => !!d)
-    if (docIds.length > 0) {
-      const owned = await this.prisma.document.findMany({
-        where: { id: { in: docIds }, ownerId: actor.sub, deletedAt: null },
-        select: { id: true, status: true, issuedByUniversity: true },
-        take: REQUEST_ITEMS_LIMIT,
-      })
-      if (owned.length !== new Set(docIds).size) {
-        throw new AppException('BAD_REQUEST', 'Некоторые документы недоступны')
-      }
-      if (owned.some((d) => d.issuedByUniversity && d.status === 'REJECTED')) {
-        throw new AppException('BAD_REQUEST', 'Документ отозван университетом')
       }
     }
     // Пишем только позиции, где выбран другой документ: веб присылает весь чек-лист при
@@ -932,7 +1138,42 @@ export class DocumentRequestsService {
     const changes = input.items.filter(
       (it) => (current.get(it.requestItemId) ?? null) !== it.documentId,
     )
+    // Проверяем, что выбранные документы принадлежат студенту. Отозванная вузом справка
+    // (issuedByUniversity + REJECTED) в кабинете остаётся, но подтверждением уже не служит —
+    // приложить её к запросу нельзя, как и к заявке (P2-D-services-followup).
+    const docIds = input.items.map((i) => i.documentId).filter((d): d is string => !!d)
+    if (docIds.length > 0) {
+      const owned = await this.prisma.document.findMany({
+        where: { id: { in: docIds }, ownerId: actor.sub, deletedAt: null },
+        select: { id: true, type: true, status: true, issuedByUniversity: true },
+        take: REQUEST_ITEMS_LIMIT,
+      })
+      if (owned.length !== new Set(docIds).size) {
+        throw new AppException('BAD_REQUEST', 'Некоторые документы недоступны')
+      }
+      if (owned.some((d) => d.issuedByUniversity && d.status === 'REJECTED')) {
+        throw new AppException('BAD_REQUEST', 'Документ отозван университетом')
+      }
+      // Документ позиции — того типа, что она требует. Позиция всегда задаёт конкретный тип
+      // из каталога вуза (createRequest его проверяет), варианта «любой документ» у запросов
+      // нет. Без сверки к учебной позиции преподавателя прикладывался паспорт, и запрос
+      // «только учебные» открывал проверяющему удостоверение личности (§15.2).
+      // Сверяем только меняемые позиции: привязка, сохранённая до этого правила, не должна
+      // блокировать студенту сохранение остального чек-листа.
+      const docType = new Map(owned.map((d) => [d.id, d.type]))
+      for (const it of changes) {
+        if (it.documentId && docType.get(it.documentId) !== itemType.get(it.requestItemId)) {
+          throw new AppException('BAD_REQUEST', 'Тип документа не совпадает с позицией запроса')
+        }
+      }
+    }
     if (existing && changes.length === 0) return this.getForStudent(actor, requestId)
+    // Чьи статусы могут поменяться: документы комплекта до правки (у отвязанного пропадает
+    // вердикт, возврат в черновик снимает «на проверке») и вновь выбранные.
+    const touchedDocs = [
+      ...(existing?.items ?? []).map((i) => i.documentId),
+      ...changes.map((c) => c.documentId),
+    ].filter((d): d is string => !!d)
 
     await this.prisma.$transaction(async (tx) => {
       const submission = await tx.documentSubmission.upsert({
@@ -982,6 +1223,7 @@ export class DocumentRequestsService {
         }
       }
     })
+    await this.documents.syncReviewStatus(touchedDocs)
     return this.getForStudent(actor, requestId)
   }
 
@@ -1036,7 +1278,12 @@ export class DocumentRequestsService {
         data: { status: 'PENDING', rejectionReason: null },
       })
     })
-    await this.logEvent(actor.sub, requestId, 'SUBMIT', { submissionId: sub.id })
+    // Отправка — документы позиций «на проверке» (15.3), событие — в истории каждого.
+    const documentIds = await this.submissionDocumentIds(sub.id)
+    await this.logDocumentEvents(actor.sub, requestId, 'SUBMIT', documentIds, {
+      submissionId: sub.id,
+    })
+    await this.documents.syncReviewStatus(documentIds)
     await this.notifyAuthorSubmitted(actor, req, sub.id)
     return this.getForStudent(actor, requestId)
   }

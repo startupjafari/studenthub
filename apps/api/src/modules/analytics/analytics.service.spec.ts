@@ -1,5 +1,7 @@
+import type Redis from 'ioredis'
 import { Role } from '@studenthub/shared-types'
 import { AnalyticsService } from './analytics.service'
+import { AppException } from '../../common/exceptions/app.exception'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 
@@ -38,9 +40,22 @@ function setup(raw: jest.Mock, over: Record<string, unknown> = {}) {
     faculty: { findUnique: jest.fn().mockResolvedValue({ id: 'fac-1', universityId: 'uni-1' }) },
     ...over,
   }
+  // Кэш — настоящий словарь, а не заглушка «всегда промах»: так тесты кэша видят, что
+  // именно записано и под каким ключом.
+  const store = new Map<string, string>()
+  const redis = {
+    get: jest.fn(async (key: string) => store.get(key) ?? null),
+    set: jest.fn(async (key: string, value: string) => {
+      store.set(key, value)
+      return 'OK'
+    }),
+    del: jest.fn(async (...keys: string[]) => keys.filter((k) => store.delete(k)).length),
+  }
   return {
-    service: new AnalyticsService(prisma as unknown as PrismaService),
+    service: new AnalyticsService(prisma as unknown as PrismaService, redis as unknown as Redis),
     prisma,
+    redis,
+    store,
   }
 }
 
@@ -220,5 +235,117 @@ describe('AnalyticsService.groupAttendance — drill-down из агрегата'
       code: 'WRONG_SCOPE',
     })
     expect(raw).not.toHaveBeenCalled()
+  })
+})
+
+describe('AnalyticsService — кэш обзора факультета и drill-down группы', () => {
+  const admin: JwtPayload = {
+    sub: 'a1',
+    role: Role.UNIVERSITY_ADMIN,
+    universityId: 'uni-1',
+    facultyId: null,
+    groupId: null,
+  }
+  const groupOf = (facultyId: string, universityId = 'uni-1') => ({
+    findMany: jest.fn().mockResolvedValue([{ id: 'g1', name: 'ИТ-26-1' }]),
+    findUnique: jest.fn().mockResolvedValue({ facultyId, faculty: { universityId } }),
+  })
+
+  it('второй вызов обзора берётся из кэша и в базу не идёт', async () => {
+    const raw = rawMock({ 'GROUP BY p.group_id': [{ groupId: 'g1', total: 10n, absent: 1n }] })
+    const { service, prisma, redis } = setup(raw)
+
+    const first = await service.facultyOverview(dean)
+    const second = await service.facultyOverview(dean)
+
+    expect(second).toEqual(first)
+    expect(raw).toHaveBeenCalledTimes(1)
+    expect(prisma.group.findMany).toHaveBeenCalledTimes(1)
+    expect(redis.set).toHaveBeenCalledWith(
+      'analytics:faculty:overview:fac-1',
+      expect.any(String),
+      'EX',
+      300,
+    )
+  })
+
+  it('разные факультеты не пересекаются: ключ — проверенный факультет', async () => {
+    const raw = rawMock({})
+    const { service, redis } = setup(raw, {
+      faculty: {
+        findUnique: jest.fn().mockResolvedValue({ universityId: 'uni-1' }),
+      },
+    })
+
+    await service.facultyOverview(admin, 'fac-1')
+    await service.facultyOverview(admin, 'fac-2')
+
+    expect(redis.set.mock.calls.map((c) => c[0])).toEqual([
+      'analytics:faculty:overview:fac-1',
+      'analytics:faculty:overview:fac-2',
+    ])
+    // Второй факультет посчитан заново, а не отдан из кэша первого.
+    expect(raw.mock.calls.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('кэш не обходит проверку области: чужой факультет — отказ, даже если он в кэше', async () => {
+    const raw = rawMock({})
+    const { service, store } = setup(raw, {
+      faculty: { findUnique: jest.fn().mockResolvedValue({ universityId: 'uni-7' }) },
+    })
+    store.set('analytics:faculty:overview:fac-9', JSON.stringify({ facultyId: 'fac-9' }))
+
+    await expect(service.facultyOverview(admin, 'fac-9')).rejects.toBeInstanceOf(AppException)
+  })
+
+  it('drill-down группы кэшируется по группе, разные группы не пересекаются', async () => {
+    const raw = rawMock({ 'p.group_id =': [] })
+    const { service, prisma, redis } = setup(raw, {
+      group: groupOf('fac-1'),
+      user: { findMany: jest.fn().mockResolvedValue([]) },
+    })
+
+    await service.groupAttendance(dean, 'g1')
+    await service.groupAttendance(dean, 'g1')
+    await service.groupAttendance(dean, 'g2')
+
+    expect(prisma.user.findMany).toHaveBeenCalledTimes(2)
+    expect(redis.set.mock.calls.map((c) => c[0])).toEqual([
+      'analytics:group:attendance:g1',
+      'analytics:group:attendance:g2',
+    ])
+  })
+
+  it('кэш группы не отдаётся декану чужого факультета', async () => {
+    const raw = rawMock({})
+    const { service, store } = setup(raw, { group: groupOf('fac-2') })
+    store.set('analytics:group:attendance:g9', JSON.stringify({ groupId: 'g9', students: [] }))
+
+    await expect(service.groupAttendance(dean, 'g9')).rejects.toMatchObject({
+      code: 'WRONG_SCOPE',
+    })
+  })
+
+  it('сброс факультета удаляет обзор и, если передана, группу', async () => {
+    const raw = rawMock({})
+    const { service, store } = setup(raw)
+    store.set('analytics:faculty:overview:fac-1', '{}')
+    store.set('analytics:group:attendance:g1', '{}')
+    store.set('analytics:faculty:overview:fac-2', '{}')
+
+    await service.invalidateFaculty('fac-1', 'g1')
+
+    expect([...store.keys()]).toEqual(['analytics:faculty:overview:fac-2'])
+  })
+
+  it('Redis недоступен — обзор считается напрямую, сброс не роняет вызывающего', async () => {
+    const raw = rawMock({})
+    const { service, redis } = setup(raw)
+    redis.get.mockRejectedValue(new Error('down'))
+    redis.set.mockRejectedValue(new Error('down'))
+    redis.del.mockRejectedValue(new Error('down'))
+
+    await expect(service.facultyOverview(dean)).resolves.toMatchObject({ facultyId: 'fac-1' })
+    await expect(service.invalidateFaculty('fac-1')).resolves.toBeUndefined()
   })
 })

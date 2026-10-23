@@ -13,6 +13,7 @@ export {
   fetchRequestForStudent,
   saveSubmission,
   submitSubmission,
+  fetchGroupProgress,
   type RequestItem,
   type RequestTarget,
   type StaffRequestSummary,

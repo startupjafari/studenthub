@@ -263,6 +263,7 @@ function ReaderSession({
   const blockerText: Record<ReaderBlocker, string> = {
     status: t('error.status'),
     overdue: t('error.overdue'),
+    lost: t('error.lost'),
     limit: t('error.limit'),
   }
   const openLoans = session.loans.filter((l) => l.status === 'OPEN')

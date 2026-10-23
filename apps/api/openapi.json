@@ -16,6 +16,306 @@
         ]
       }
     },
+    "/universities": {
+      "post": {
+        "operationId": "UniversitiesController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateUniversityDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Создать университет (PLATFORM_ADMIN)",
+        "tags": [
+          "Университеты"
+        ]
+      },
+      "get": {
+        "operationId": "UniversitiesController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Список университетов (платформа)",
+        "tags": [
+          "Университеты"
+        ]
+      }
+    },
+    "/universities/{id}": {
+      "get": {
+        "operationId": "UniversitiesController_getById",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Профиль вуза (платформа — любой, иначе свой)",
+        "tags": [
+          "Университеты"
+        ]
+      },
+      "patch": {
+        "operationId": "UniversitiesController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateUniversityDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Обновить реквизиты вуза (PLATFORM_ADMIN)",
+        "tags": [
+          "Университеты"
+        ]
+      },
+      "delete": {
+        "operationId": "UniversitiesController_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "summary": "Удалить вуз (только пустой)",
+        "tags": [
+          "Университеты"
+        ]
+      }
+    },
+    "/universities/{id}/stats": {
+      "get": {
+        "operationId": "UniversitiesController_stats",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Статистика вуза (кэш 5 мин)",
+        "tags": [
+          "Университеты"
+        ]
+      }
+    },
+    "/universities/{id}/status": {
+      "patch": {
+        "operationId": "UniversitiesController_setStatus",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateUniversityStatusDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Сменить статус вуза (PLATFORM_ADMIN)",
+        "tags": [
+          "Университеты"
+        ]
+      }
+    },
+    "/invites": {
+      "post": {
+        "operationId": "InvitesController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateInviteDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Выдать инвайт (роль строго ниже своей, в своём scope)",
+        "tags": [
+          "Инвайты"
+        ]
+      },
+      "get": {
+        "operationId": "InvitesController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Мои выданные инвайты",
+        "tags": [
+          "Инвайты"
+        ]
+      }
+    },
+    "/invites/bulk/preview": {
+      "post": {
+        "operationId": "InvitesController_bulkPreview",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Массовый импорт: разбор CSV/XLSX и валидация без записи",
+        "tags": [
+          "Инвайты"
+        ]
+      }
+    },
+    "/invites/bulk": {
+      "post": {
+        "operationId": "InvitesController_bulkCreate",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkInviteCommitDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Массовый импорт: создать инвайты по подтверждённым строкам",
+        "tags": [
+          "Инвайты"
+        ]
+      }
+    },
+    "/invites/{token}/preview": {
+      "get": {
+        "operationId": "InvitesController_preview",
+        "parameters": [
+          {
+            "name": "token",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Публичный предпросмотр инвайта по токену",
+        "tags": [
+          "Инвайты"
+        ]
+      }
+    },
+    "/invites/{id}/revoke": {
+      "patch": {
+        "operationId": "InvitesController_revoke",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Отозвать ожидающий инвайт",
+        "tags": [
+          "Инвайты"
+        ]
+      }
+    },
     "/audit": {
       "get": {
         "operationId": "AuditController_list",
@@ -1049,306 +1349,6 @@
         "summary": "Разблокировать пользователя (в своём scope)",
         "tags": [
           "Пользователи"
-        ]
-      }
-    },
-    "/invites": {
-      "post": {
-        "operationId": "InvitesController_create",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateInviteDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "summary": "Выдать инвайт (роль строго ниже своей, в своём scope)",
-        "tags": [
-          "Инвайты"
-        ]
-      },
-      "get": {
-        "operationId": "InvitesController_list",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "summary": "Мои выданные инвайты",
-        "tags": [
-          "Инвайты"
-        ]
-      }
-    },
-    "/invites/bulk/preview": {
-      "post": {
-        "operationId": "InvitesController_bulkPreview",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "summary": "Массовый импорт: разбор CSV/XLSX и валидация без записи",
-        "tags": [
-          "Инвайты"
-        ]
-      }
-    },
-    "/invites/bulk": {
-      "post": {
-        "operationId": "InvitesController_bulkCreate",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/BulkInviteCommitDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "summary": "Массовый импорт: создать инвайты по подтверждённым строкам",
-        "tags": [
-          "Инвайты"
-        ]
-      }
-    },
-    "/invites/{token}/preview": {
-      "get": {
-        "operationId": "InvitesController_preview",
-        "parameters": [
-          {
-            "name": "token",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "summary": "Публичный предпросмотр инвайта по токену",
-        "tags": [
-          "Инвайты"
-        ]
-      }
-    },
-    "/invites/{id}/revoke": {
-      "patch": {
-        "operationId": "InvitesController_revoke",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "summary": "Отозвать ожидающий инвайт",
-        "tags": [
-          "Инвайты"
-        ]
-      }
-    },
-    "/universities": {
-      "post": {
-        "operationId": "UniversitiesController_create",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateUniversityDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "summary": "Создать университет (PLATFORM_ADMIN)",
-        "tags": [
-          "Университеты"
-        ]
-      },
-      "get": {
-        "operationId": "UniversitiesController_list",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "summary": "Список университетов (платформа)",
-        "tags": [
-          "Университеты"
-        ]
-      }
-    },
-    "/universities/{id}": {
-      "get": {
-        "operationId": "UniversitiesController_getById",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "summary": "Профиль вуза (платформа — любой, иначе свой)",
-        "tags": [
-          "Университеты"
-        ]
-      },
-      "patch": {
-        "operationId": "UniversitiesController_update",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateUniversityDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "summary": "Обновить реквизиты вуза (PLATFORM_ADMIN)",
-        "tags": [
-          "Университеты"
-        ]
-      },
-      "delete": {
-        "operationId": "UniversitiesController_remove",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": ""
-          }
-        },
-        "summary": "Удалить вуз (только пустой)",
-        "tags": [
-          "Университеты"
-        ]
-      }
-    },
-    "/universities/{id}/stats": {
-      "get": {
-        "operationId": "UniversitiesController_stats",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "summary": "Статистика вуза (кэш 5 мин)",
-        "tags": [
-          "Университеты"
-        ]
-      }
-    },
-    "/universities/{id}/status": {
-      "patch": {
-        "operationId": "UniversitiesController_setStatus",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateUniversityStatusDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "summary": "Сменить статус вуза (PLATFORM_ADMIN)",
-        "tags": [
-          "Университеты"
         ]
       }
     },
@@ -3354,6 +3354,398 @@
         ]
       }
     },
+    "/analytics/faculty": {
+      "get": {
+        "operationId": "AnalyticsController_faculty",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Обзор факультета (показатели, группы, требует внимания)",
+        "tags": [
+          "Аналитика"
+        ]
+      }
+    },
+    "/analytics/at-risk": {
+      "get": {
+        "operationId": "AnalyticsController_atRisk",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Студенты «требует внимания» с явными причинами (Early Warning)",
+        "tags": [
+          "Аналитика"
+        ]
+      }
+    },
+    "/analytics/group/{id}/attendance": {
+      "get": {
+        "operationId": "AnalyticsController_groupAttendance",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Посещаемость по студентам группы (drill-down)",
+        "tags": [
+          "Аналитика"
+        ]
+      }
+    },
+    "/analytics/university/overview": {
+      "get": {
+        "description": "`attendanceRate` — доля не-пропусков по всем отметкам вуза (null — не отмечали). `groups` — не больше 100 групп с отмеченной посещаемостью, худшие первыми; `atRisk` — те из них, что ниже порога «требует внимания».",
+        "operationId": "UniversityAnalyticsController_overview",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Плитки дашборда вуза: посещаемость, работы на проверке, экзамены, худшие группы",
+        "tags": [
+          "Аналитика"
+        ]
+      }
+    },
+    "/analytics/university/attendance-trend": {
+      "get": {
+        "operationId": "UniversityAnalyticsController_attendanceTrend",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Посещаемость по неделям, отдельным рядом на факультет",
+        "tags": [
+          "Аналитика"
+        ]
+      }
+    },
+    "/analytics/university/attendance-breakdown": {
+      "get": {
+        "operationId": "UniversityAnalyticsController_attendanceBreakdown",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Структура посещаемости по факультетам (present/late/absent/excused)",
+        "tags": [
+          "Аналитика"
+        ]
+      }
+    },
+    "/analytics/university/room-load": {
+      "get": {
+        "operationId": "UniversityAnalyticsController_roomLoad",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Загрузка аудиторий: сетка «день недели × час», 7×24",
+        "tags": [
+          "Аналитика"
+        ]
+      }
+    },
+    "/analytics/university/exam-results": {
+      "get": {
+        "operationId": "UniversityAnalyticsController_examResults",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Исход экзаменов по факультетам (passed/failed/absent/retake)",
+        "tags": [
+          "Аналитика"
+        ]
+      }
+    },
+    "/analytics/university/applications-flow": {
+      "get": {
+        "operationId": "UniversityAnalyticsController_applicationsFlow",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Заявки по неделям: поступило, закрыто, закрыто с просрочкой",
+        "tags": [
+          "Аналитика"
+        ]
+      }
+    },
+    "/analytics/university/invites-funnel": {
+      "get": {
+        "operationId": "UniversityAnalyticsController_invitesFunnel",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Воронка приглашений вуза: выдано, принято, истекло, отозвано",
+        "tags": [
+          "Аналитика"
+        ]
+      }
+    },
+    "/analytics/platform/overview": {
+      "get": {
+        "operationId": "PlatformAnalyticsController_overview",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Плитки дашборда: вузы, пользователи, жалобы, DAU/WAU",
+        "tags": [
+          "Аналитика платформы"
+        ]
+      }
+    },
+    "/analytics/platform/users-growth": {
+      "get": {
+        "operationId": "PlatformAnalyticsController_usersGrowth",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Новые пользователи по корзинам: студенты/преподаватели/сотрудники",
+        "tags": [
+          "Аналитика платформы"
+        ]
+      }
+    },
+    "/analytics/platform/active-users": {
+      "get": {
+        "operationId": "PlatformAnalyticsController_activeUsers",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "DAU/WAU по журналу аудита",
+        "tags": [
+          "Аналитика платформы"
+        ]
+      }
+    },
+    "/analytics/platform/universities-size": {
+      "get": {
+        "description": "`items` — не больше 200 вузов, крупнейшие первыми. `totals` — итоги по всей платформе, а не сумма `items`.",
+        "operationId": "PlatformAnalyticsController_universitiesSize",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Размер вузов: люди, факультеты, группы и аудитории по каждому",
+        "tags": [
+          "Аналитика платформы"
+        ]
+      }
+    },
+    "/analytics/platform/complaints-flow": {
+      "get": {
+        "operationId": "PlatformAnalyticsController_complaintsFlow",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Жалобы: поступило и разобрано по корзинам",
+        "tags": [
+          "Аналитика платформы"
+        ]
+      }
+    },
+    "/analytics/platform/complaints-latency": {
+      "get": {
+        "operationId": "PlatformAnalyticsController_complaintsLatency",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Время разбора жалоб: распределение по корзинам и медиана",
+        "tags": [
+          "Аналитика платформы"
+        ]
+      }
+    },
+    "/analytics/platform/invites-funnel": {
+      "get": {
+        "operationId": "PlatformAnalyticsController_invitesFunnel",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Воронка инвайтов: конверсия и статусы по корзинам",
+        "tags": [
+          "Аналитика платформы"
+        ]
+      }
+    },
+    "/analytics/platform/activity-heatmap": {
+      "get": {
+        "description": "Часы раскладываются в зоне `tz` (IANA-имя, по умолчанию UTC). `days[dow]` — сколько календарных дат этого дня недели попало в период: делитель для сравнения будней с выходными.",
+        "operationId": "PlatformAnalyticsController_activityHeatmap",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Активность по дням недели и часам, 7×24 + число дат каждого дня недели",
+        "tags": [
+          "Аналитика платформы"
+        ]
+      }
+    },
+    "/analytics/platform/top-actions": {
+      "get": {
+        "operationId": "PlatformAnalyticsController_topActions",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Топ действий в аудите за период",
+        "tags": [
+          "Аналитика платформы"
+        ]
+      }
+    },
     "/rooms": {
       "post": {
         "operationId": "RoomsController_create",
@@ -4110,6 +4502,67 @@
             }
           }
         },
+        "responses": {
+          "409": {
+            "description": "details.field: renewals | queue | notOnLoan"
+          },
+          "422": {
+            "description": "Срок вне правил (field = dueDate)"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Продлить выдачу",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/loans/{id}/lost": {
+      "post": {
+        "operationId": "LibraryLoansController_lost",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Книга утеряна читателем: выдача закрыта, экземпляр — из оборота, долг за читателем",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/loans/{id}/lost/settle": {
+      "post": {
+        "operationId": "LibraryLoansController_settleLost",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Новые настройки"
@@ -7110,398 +7563,6 @@
         ]
       }
     },
-    "/analytics/faculty": {
-      "get": {
-        "operationId": "AnalyticsController_faculty",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Обзор факультета (показатели, группы, требует внимания)",
-        "tags": [
-          "Аналитика"
-        ]
-      }
-    },
-    "/analytics/at-risk": {
-      "get": {
-        "operationId": "AnalyticsController_atRisk",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Студенты «требует внимания» с явными причинами (Early Warning)",
-        "tags": [
-          "Аналитика"
-        ]
-      }
-    },
-    "/analytics/group/{id}/attendance": {
-      "get": {
-        "operationId": "AnalyticsController_groupAttendance",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Посещаемость по студентам группы (drill-down)",
-        "tags": [
-          "Аналитика"
-        ]
-      }
-    },
-    "/analytics/university/overview": {
-      "get": {
-        "description": "`attendanceRate` — доля не-пропусков по всем отметкам вуза (null — не отмечали). `groups` — не больше 100 групп с отмеченной посещаемостью, худшие первыми; `atRisk` — те из них, что ниже порога «требует внимания».",
-        "operationId": "UniversityAnalyticsController_overview",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Плитки дашборда вуза: посещаемость, работы на проверке, экзамены, худшие группы",
-        "tags": [
-          "Аналитика"
-        ]
-      }
-    },
-    "/analytics/university/attendance-trend": {
-      "get": {
-        "operationId": "UniversityAnalyticsController_attendanceTrend",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Посещаемость по неделям, отдельным рядом на факультет",
-        "tags": [
-          "Аналитика"
-        ]
-      }
-    },
-    "/analytics/university/attendance-breakdown": {
-      "get": {
-        "operationId": "UniversityAnalyticsController_attendanceBreakdown",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Структура посещаемости по факультетам (present/late/absent/excused)",
-        "tags": [
-          "Аналитика"
-        ]
-      }
-    },
-    "/analytics/university/room-load": {
-      "get": {
-        "operationId": "UniversityAnalyticsController_roomLoad",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Загрузка аудиторий: сетка «день недели × час», 7×24",
-        "tags": [
-          "Аналитика"
-        ]
-      }
-    },
-    "/analytics/university/exam-results": {
-      "get": {
-        "operationId": "UniversityAnalyticsController_examResults",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Исход экзаменов по факультетам (passed/failed/absent/retake)",
-        "tags": [
-          "Аналитика"
-        ]
-      }
-    },
-    "/analytics/university/applications-flow": {
-      "get": {
-        "operationId": "UniversityAnalyticsController_applicationsFlow",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Заявки по неделям: поступило, закрыто, закрыто с просрочкой",
-        "tags": [
-          "Аналитика"
-        ]
-      }
-    },
-    "/analytics/university/invites-funnel": {
-      "get": {
-        "operationId": "UniversityAnalyticsController_invitesFunnel",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Воронка приглашений вуза: выдано, принято, истекло, отозвано",
-        "tags": [
-          "Аналитика"
-        ]
-      }
-    },
-    "/analytics/platform/overview": {
-      "get": {
-        "operationId": "PlatformAnalyticsController_overview",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Плитки дашборда: вузы, пользователи, жалобы, DAU/WAU",
-        "tags": [
-          "Аналитика платформы"
-        ]
-      }
-    },
-    "/analytics/platform/users-growth": {
-      "get": {
-        "operationId": "PlatformAnalyticsController_usersGrowth",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Новые пользователи по корзинам: студенты/преподаватели/сотрудники",
-        "tags": [
-          "Аналитика платформы"
-        ]
-      }
-    },
-    "/analytics/platform/active-users": {
-      "get": {
-        "operationId": "PlatformAnalyticsController_activeUsers",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "DAU/WAU по журналу аудита",
-        "tags": [
-          "Аналитика платформы"
-        ]
-      }
-    },
-    "/analytics/platform/universities-size": {
-      "get": {
-        "description": "`items` — не больше 200 вузов, крупнейшие первыми. `totals` — итоги по всей платформе, а не сумма `items`.",
-        "operationId": "PlatformAnalyticsController_universitiesSize",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Размер вузов: люди, факультеты, группы и аудитории по каждому",
-        "tags": [
-          "Аналитика платформы"
-        ]
-      }
-    },
-    "/analytics/platform/complaints-flow": {
-      "get": {
-        "operationId": "PlatformAnalyticsController_complaintsFlow",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Жалобы: поступило и разобрано по корзинам",
-        "tags": [
-          "Аналитика платформы"
-        ]
-      }
-    },
-    "/analytics/platform/complaints-latency": {
-      "get": {
-        "operationId": "PlatformAnalyticsController_complaintsLatency",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Время разбора жалоб: распределение по корзинам и медиана",
-        "tags": [
-          "Аналитика платформы"
-        ]
-      }
-    },
-    "/analytics/platform/invites-funnel": {
-      "get": {
-        "operationId": "PlatformAnalyticsController_invitesFunnel",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Воронка инвайтов: конверсия и статусы по корзинам",
-        "tags": [
-          "Аналитика платформы"
-        ]
-      }
-    },
-    "/analytics/platform/activity-heatmap": {
-      "get": {
-        "description": "Часы раскладываются в зоне `tz` (IANA-имя, по умолчанию UTC). `days[dow]` — сколько календарных дат этого дня недели попало в период: делитель для сравнения будней с выходными.",
-        "operationId": "PlatformAnalyticsController_activityHeatmap",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Активность по дням недели и часам, 7×24 + число дат каждого дня недели",
-        "tags": [
-          "Аналитика платформы"
-        ]
-      }
-    },
-    "/analytics/platform/top-actions": {
-      "get": {
-        "operationId": "PlatformAnalyticsController_topActions",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Топ действий в аудите за период",
-        "tags": [
-          "Аналитика платформы"
-        ]
-      }
-    },
     "/search": {
       "get": {
         "description": "types — источники через запятую (people,courses,assignments,materials,events,chats); без него ищутся все. Не запрошенные источники приходят пустыми массивами.",
@@ -8464,26 +8525,6 @@
           }
         ],
         "summary": "Счётчики очереди сотрудника по scope (новые/в работе/готовы/просрочены)",
-        "tags": [
-          "Заявки"
-        ]
-      }
-    },
-    "/applications/group-requests": {
-      "get": {
-        "operationId": "ApplicationsController_groupRequests",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Обращения своей группы (староста, только чтение)",
         "tags": [
           "Заявки"
         ]
@@ -9463,7 +9504,10 @@
         "parameters": [],
         "responses": {
           "200": {
-            "description": ""
+            "description": "Без limit/cursor — массив (до 200). С ними — страница (limit ≤ 50): meta.cursor/hasNext/total"
+          },
+          "400": {
+            "description": "BAD_REQUEST — страница с sort=access"
           }
         },
         "security": [
@@ -9511,7 +9555,7 @@
             "bearer": []
           }
         ],
-        "summary": "Документы, открытые мне по активному гранту (на меня, мой факультет — декану, мой вуз — администрации)",
+        "summary": "Документы, открытые мне по активному гранту (на меня, мой факультет — декану, мой вуз — модератору вуза и декану; админу вуза — пусто)",
         "tags": [
           "Документы"
         ]
@@ -9683,6 +9727,114 @@
           }
         ],
         "summary": "Изменить порядок страниц",
+        "tags": [
+          "Документы"
+        ]
+      }
+    },
+    "/documents/{id}/files/{fileId}/replace": {
+      "post": {
+        "operationId": "DocumentsController_replaceFile",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "fileId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReplaceDocumentFileDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Документ с обновлённым списком страниц"
+          },
+          "400": {
+            "description": "BAD_REQUEST — файл недоступен для прикрепления"
+          },
+          "403": {
+            "description": "FORBIDDEN — документ выдан университетом"
+          },
+          "404": {
+            "description": "NOT_FOUND — документ или страница не найдены"
+          },
+          "409": {
+            "description": "CONFLICT — документ на проверке или принят по открытому запросу"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Заменить страницу: новый загруженный файл встаёт на её место (порядок сохраняется), старый удаляется из хранилища",
+        "tags": [
+          "Документы"
+        ]
+      }
+    },
+    "/documents/{id}/files/{fileId}": {
+      "delete": {
+        "operationId": "DocumentsController_removeFile",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "fileId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Документ с обновлённым списком страниц"
+          },
+          "400": {
+            "description": "BAD_REQUEST — единственную страницу не удалить"
+          },
+          "403": {
+            "description": "FORBIDDEN — документ выдан университетом"
+          },
+          "404": {
+            "description": "NOT_FOUND — документ или страница не найдены"
+          },
+          "409": {
+            "description": "CONFLICT — документ на проверке или принят по открытому запросу"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Удалить страницу (кроме единственной); остальные перенумеровываются подряд",
         "tags": [
           "Документы"
         ]
@@ -10319,6 +10471,29 @@
         ]
       }
     },
+    "/document-requests/group-progress": {
+      "get": {
+        "operationId": "DocumentRequestsController_groupProgress",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Запросы со счётчиками комплектов; members — только у учебных запросов"
+          },
+          "403": {
+            "description": "FORBIDDEN — только староста с группой"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Прогресс своей группы по открытым запросам (староста): счётчики, поимённо — только учебные",
+        "tags": [
+          "Документы: запросы"
+        ]
+      }
+    },
     "/document-requests/{id}": {
       "get": {
         "operationId": "DocumentRequestsController_getForStudent",
@@ -10547,6 +10722,32 @@
         "summary": "Сбросить настройку типа (удалить custom / вернуть статический к дефолту)",
         "tags": [
           "Документы: типы"
+        ]
+      }
+    },
+    "/document-journal": {
+      "get": {
+        "operationId": "DocumentJournalController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Страница журнала; meta.total"
+          },
+          "403": {
+            "description": "FORBIDDEN — только администратор вуза"
+          },
+          "422": {
+            "description": "VALIDATION_ERROR — неверные фильтры"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Журнал действий с документами своего вуза: кто, над чьим документом (тип/категория), что, когда, через что",
+        "tags": [
+          "Документы"
         ]
       }
     },
@@ -17191,6 +17392,26 @@
       }
     },
     "schemas": {
+      "CreateUniversityDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "UpdateUniversityDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "UpdateUniversityStatusDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "CreateInviteDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "BulkInviteCommitDto": {
+        "type": "object",
+        "properties": {}
+      },
       "TwoFactorVerifyDto": {
         "type": "object",
         "properties": {}
@@ -17248,26 +17469,6 @@
         "properties": {}
       },
       "ResetTwoFactorDto": {
-        "type": "object",
-        "properties": {}
-      },
-      "CreateInviteDto": {
-        "type": "object",
-        "properties": {}
-      },
-      "BulkInviteCommitDto": {
-        "type": "object",
-        "properties": {}
-      },
-      "CreateUniversityDto": {
-        "type": "object",
-        "properties": {}
-      },
-      "UpdateUniversityDto": {
-        "type": "object",
-        "properties": {}
-      },
-      "UpdateUniversityStatusDto": {
         "type": "object",
         "properties": {}
       },
@@ -17483,6 +17684,10 @@
         "type": "object",
         "properties": {}
       },
+      "CancelReturnDto": {
+        "type": "object",
+        "properties": {}
+      },
       "InventoryScanDto": {
         "type": "object",
         "properties": {}
@@ -17684,6 +17889,10 @@
         "properties": {}
       },
       "DocumentFilesDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "ReplaceDocumentFileDto": {
         "type": "object",
         "properties": {}
       },

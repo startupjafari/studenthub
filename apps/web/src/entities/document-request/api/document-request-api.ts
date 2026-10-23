@@ -1,5 +1,6 @@
 import type {
   CreateDocumentRequestInput,
+  GroupRequestProgress,
   ReviewSubmissionItemInput,
   SaveSubmissionInput,
 } from '@studenthub/shared-schemas'
@@ -12,6 +13,7 @@ export const documentRequestKeys = {
   submission: (id: string) => ['document-requests', 'submission', id] as const,
   mine: () => ['document-requests', 'mine'] as const,
   detail: (id: string) => ['document-requests', 'detail', id] as const,
+  groupProgress: () => ['document-requests', 'group-progress'] as const,
 }
 
 export interface RequestItem {
@@ -217,5 +219,14 @@ export async function saveSubmission(
 }
 export async function submitSubmission(id: string): Promise<StudentRequestDetail> {
   const { data } = await api.post<StudentRequestDetail>(`/document-requests/${id}/submit`)
+  return data
+}
+
+// ── Староста: прогресс группы ────────────────────────────────────────────────
+
+// Статусы комплектов одногруппников по открытым запросам на группу. Поимённо — только
+// у учебных запросов; документов в ответе нет.
+export async function fetchGroupProgress(): Promise<GroupRequestProgress[]> {
+  const { data } = await api.get<GroupRequestProgress[]>('/document-requests/group-progress')
   return data
 }

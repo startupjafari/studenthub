@@ -12,6 +12,12 @@ import { addDays, endOfDay, formatDay, todayIn } from './library-dates'
 // таблицы. Три напоминания: за два дня, в последний день и о просрочке (повтор раз в неделю,
 // пока книга не вернётся). Каждое — по отметке в выдаче, поэтому пропущенный тик догоняет
 // следующий, а повторный не шлёт второе. Продление отметки сбрасывает (20.5).
+//
+// Отметка ставится только тем выдачам, чьё уведомление очередь действительно приняла:
+// QueueService ошибку постановки глушит, и отметка «вслепую» при упавшем Redis теряла бы
+// напоминание навсегда. Первая же неудача останавливает прогон — Redis, скорее всего, лежит,
+// и каждая следующая попытка лишь ждала бы таймаут постановки; недоставленное догонит
+// следующий тик.
 
 const BATCH_SIZE = 500
 /** Местные часы, в которые шлём: ночью уведомление о книге никому не нужно. */
@@ -40,6 +46,12 @@ export interface ReminderCounts {
   overdue: number
 }
 
+/** Итог одного вида напоминаний: сколько ушло и сорвалась ли постановка в очередь. */
+interface RunResult {
+  sent: number
+  failed: boolean
+}
+
 @Injectable()
 export class LibraryRemindersService {
   private readonly logger = new Logger(LibraryRemindersService.name)
@@ -53,7 +65,8 @@ export class LibraryRemindersService {
   async remindDue(now = new Date()): Promise<ReminderCounts> {
     const counts: ReminderCounts = { dueSoon: 0, dueToday: 0, overdue: 0 }
     let cursor: string | undefined
-    for (;;) {
+    let failed = false
+    while (!failed) {
       const libraries = await this.prisma.librarySettings.findMany({
         where: { enabled: true },
         orderBy: { universityId: 'asc' },
@@ -65,9 +78,13 @@ export class LibraryRemindersService {
         const timezone = lib.university.timezone || 'Asia/Almaty'
         if (!isDaytime(now, timezone)) continue
         const sent = await this.remindUniversity(lib.universityId, timezone, now)
-        counts.dueSoon += sent.dueSoon
-        counts.dueToday += sent.dueToday
-        counts.overdue += sent.overdue
+        counts.dueSoon += sent.counts.dueSoon
+        counts.dueToday += sent.counts.dueToday
+        counts.overdue += sent.counts.overdue
+        if (sent.failed) {
+          failed = true
+          break
+        }
       }
       if (libraries.length < BATCH_SIZE) break
       cursor = libraries[libraries.length - 1]?.universityId
@@ -78,6 +95,11 @@ export class LibraryRemindersService {
         `remindLibraryLoans: скоро ${counts.dueSoon}, сегодня ${counts.dueToday}, просрочка ${counts.overdue}`,
       )
     }
+    if (failed) {
+      this.logger.warn(
+        'remindLibraryLoans: очередь уведомлений недоступна — остаток на следующий тик',
+      )
+    }
     return counts
   }
 
@@ -85,41 +107,66 @@ export class LibraryRemindersService {
     universityId: string,
     timezone: string,
     now: Date,
-  ): Promise<ReminderCounts> {
+  ): Promise<{ counts: ReminderCounts; failed: boolean }> {
     const today = todayIn(timezone, now)
     const endOfToday = endOfDay(today, timezone)
     // Начало сегодняшних суток: книгу, взятую сегодня, «скоро сдавать» не напоминаем.
     const startOfToday = new Date(endOfDay(addDays(today, -1), timezone).getTime() + 1)
     const base = { universityId, status: 'OPEN' as const }
-    return {
-      dueSoon: await this.run('dueSoon', timezone, {
-        ...base,
-        dueAt: { gt: endOfToday, lte: endOfDay(addDays(today, 2), timezone) },
-        issuedAt: { lt: startOfToday },
-        dueSoonSentAt: null,
-      }),
-      dueToday: await this.run('dueToday', timezone, {
-        ...base,
-        dueAt: { gte: startOfToday, lte: endOfToday },
-        issuedAt: { lt: startOfToday },
-        dueTodaySentAt: null,
-      }),
-      overdue: await this.run('overdue', timezone, {
-        ...base,
-        dueAt: { lt: now },
-        OR: [
-          { overdueSentAt: null },
-          { overdueSentAt: { lt: new Date(now.getTime() - OVERDUE_REPEAT_DAYS * 86_400_000) } },
-        ],
-      }),
+    const plan: [Kind, Prisma.LoanWhereInput][] = [
+      [
+        'dueSoon',
+        {
+          ...base,
+          dueAt: { gt: endOfToday, lte: endOfDay(addDays(today, 2), timezone) },
+          issuedAt: { lt: startOfToday },
+          dueSoonSentAt: null,
+        },
+      ],
+      [
+        'dueToday',
+        {
+          ...base,
+          dueAt: { gte: startOfToday, lte: endOfToday },
+          issuedAt: { lt: startOfToday },
+          dueTodaySentAt: null,
+        },
+      ],
+      [
+        'overdue',
+        {
+          ...base,
+          dueAt: { lt: now },
+          OR: [
+            { overdueSentAt: null },
+            { overdueSentAt: { lt: new Date(now.getTime() - OVERDUE_REPEAT_DAYS * 86_400_000) } },
+          ],
+        },
+      ],
+    ]
+    const counts: ReminderCounts = { dueSoon: 0, dueToday: 0, overdue: 0 }
+    for (const [kind, where] of plan) {
+      const result = await this.run(kind, timezone, where)
+      counts[kind] = result.sent
+      if (result.failed) return { counts, failed: true }
     }
+    return { counts, failed: false }
   }
 
-  /** Батчами по курсору: шлём уведомление и ставим отметку, пока выборка не опустеет. */
-  private async run(kind: Kind, timezone: string, where: Prisma.LoanWhereInput): Promise<number> {
+  /**
+   * Батчами по курсору: шлём уведомление и отмечаем выдачи, чьё уведомление очередь приняла.
+   * На первой неудаче — отмечаем уже поставленные и выходим: неотмеченные остаются в выборке
+   * и уйдут на следующем тике.
+   */
+  private async run(
+    kind: Kind,
+    timezone: string,
+    where: Prisma.LoanWhereInput,
+  ): Promise<RunResult> {
     let sent = 0
+    let failed = false
     let cursor: string | undefined
-    for (;;) {
+    while (!failed) {
       // Курсор — условием, а не `cursor:`: отмеченные строки из выборки уже выпали.
       const loans = await this.prisma.loan.findMany({
         where: cursor ? { AND: [where, { id: { gt: cursor } }] } : where,
@@ -127,10 +174,11 @@ export class LibraryRemindersService {
         take: BATCH_SIZE,
         select: { id: true, readerId: true, bookTitle: true, dueAt: true },
       })
+      const queued: string[] = []
       for (const loan of loans) {
         if (!loan.readerId) continue
         const dueDate = todayIn(timezone, loan.dueAt)
-        await this.notifier.send({
+        const ok = await this.notifier.send({
           recipientIds: [loan.readerId],
           job: NOTIFICATION_JOBS.LIBRARY_REMINDER,
           titleKey: TEXT[kind].title,
@@ -140,18 +188,23 @@ export class LibraryRemindersService {
           // Просрочка повторяется — в ключе день отправки, иначе повтор отбросит очередь.
           dedupeKey: `library-${kind}:${loan.id}${kind === 'overdue' ? `:${todayIn(timezone)}` : ''}`,
         })
+        if (!ok) {
+          failed = true
+          break
+        }
+        queued.push(loan.id)
         sent += 1
       }
-      if (loans.length > 0) {
+      if (queued.length > 0) {
         await this.prisma.loan.updateMany({
-          where: { id: { in: loans.map((l) => l.id) } },
+          where: { id: { in: queued } },
           data: { [MARK[kind]]: new Date() },
         })
       }
       if (loans.length < BATCH_SIZE) break
       cursor = loans[loans.length - 1]?.id
     }
-    return sent
+    return { sent, failed }
   }
 }
 

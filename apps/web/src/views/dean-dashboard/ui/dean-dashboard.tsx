@@ -23,6 +23,7 @@ import {
 } from '../../../entities/analytics'
 import { applicationKeys, fetchQueueStats } from '../../../entities/application-service'
 import { DeanTodayBlock } from '../../../widgets/today'
+import { ExportReportButton } from '../../../features/export-analytics-report'
 
 // Тяжёлый recharts — только на клиенте, со скелетоном (FRONTEND_RULES §4, §11).
 // Опции у вызова свои: SWC-трансформ next/dynamic читает их статически и принимает
@@ -131,7 +132,12 @@ export function DeanDashboard() {
     // показывала полторы полосы вместо двенадцати. Раньше страница почти умещалась в
     // экран и сжатия не было видно; блок дня сверху сделал его заметным.
     <div className="flex w-full flex-1 flex-col gap-4">
-      <PageHeader title={tNav('dashboard')} subtitle={greetingDate} />
+      {/* Отчёт факультета декана — строка на группу; факультет задаёт токен. */}
+      <PageHeader
+        title={tNav('dashboard')}
+        subtitle={greetingDate}
+        actions={<ExportReportButton />}
+      />
       <SeasonGreeting />
 
       <DeanTodayBlock />
