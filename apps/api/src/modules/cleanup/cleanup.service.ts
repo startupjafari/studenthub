@@ -88,6 +88,7 @@ const LOCK_TTL_MS = {
   purgeDepartedMessages: 30 * 60 * 1000,
   purgeDepartedDocuments: 30 * 60 * 1000,
   purgeDepartedProfiles: 30 * 60 * 1000,
+  purgeAccountTombstones: 30 * 60 * 1000,
 } as const
 const NOTIFICATION_RETENTION_DAYS = 30
 // Непрочитанные живут дольше прочитанных, но не вечно: кто три месяца не открывал
@@ -1153,6 +1154,15 @@ export class CleanupService {
   async purgeDepartedProfiles(): Promise<RetentionCounts | null> {
     return this.locks.run('purgeDepartedProfiles', LOCK_TTL_MS.purgeDepartedProfiles, () =>
       this.retention.purgeDepartedProfiles(this.pdRetentionDryRun()),
+    )
+  }
+
+  // «Надгробия» удалённых аккаунтов — физическое удаление через год после удаления (14.6).
+  // 03:10, после профилей: обезличенный сегодня профиль станет надгробием через год.
+  @Cron('10 3 * * *', { name: 'purgeAccountTombstones' })
+  async purgeAccountTombstones(): Promise<RetentionCounts | null> {
+    return this.locks.run('purgeAccountTombstones', LOCK_TTL_MS.purgeAccountTombstones, () =>
+      this.retention.purgeAccountTombstones(this.pdRetentionDryRun()),
     )
   }
 
