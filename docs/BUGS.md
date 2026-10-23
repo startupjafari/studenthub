@@ -1816,6 +1816,66 @@
 #### BUG-343 · 🟢 В плитке «Статус» академической сводки — сырой код `ACTIVE`/`EXPELLED` (новое место BUG-002)
 - **Где:** `apps/web/src/views/academic/ui/academic-view.tsx:169` · **Статус:** новый
 
+### Платформа, бот, auth (2FA, сброс пароля, согласие), настройки
+
+#### BUG-344 · 🟡 Во время техработ платформенный админ не может войти в веб: заглушка закрывает /login
+- **Роль:** PLATFORM_ADMIN, PLATFORM_MODERATOR без сессии; любой посетитель `/legal/*`, `/reset-password` · **Статус:** подтверждён
+- **Где:** `apps/web/src/widgets/platform-gate/ui/platform-gate.tsx:37-55` (`role === null` → `isStaff=false`, исключений по `pathname` нет), `apps/web/src/app/layout.tsx:65`; сервер пускает — `apps/api/src/modules/auth/auth.controller.ts:50-51`
+- **Ожидается:** §8.3 «Принуждение»: админ обязан суметь войти в остановленную платформу — вход, 2FA и `/legal` вне заглушки.
+
+#### BUG-345 · 🟡 Код 2FA после сгоревшего или истёкшего challenge — «Неверный email или пароль», возврата к паролю нет
+- **Где:** `apps/web/src/features/login/ui/login-form.tsx:123-140`, `apps/api/src/modules/auth/auth.service.ts:329-338,347-358,415-423` · **Статус:** новый
+- **Сценарий:** три неверных кода или 5 минут ожидания → любой следующий код, даже верный, — `401`, экран кода остаётся.
+- **Ожидается:** §8.3 Auth — «дальше нужен повторный ввод пароля»: возврат к шагу пароля с понятным текстом.
+
+#### BUG-346 · 🟡 🔒 2FA включается без пароля: чужая открытая сессия навсегда запирает владельца
+- **Роль:** STUDENT, STAROSTA, TEACHER, EMPLOYER · **Статус:** подтверждён
+- **Где:** `apps/api/src/modules/auth/two-factor.controller.ts:29-46` (`setup`/`enable` — только код), `two-factor.service.ts:68-124`; сброс пароля 2FA не снимает — `auth.controller.ts:202-206`
+- **Сценарий:** доступ к незакрытой вкладке → `setup` + `enable` своим TOTP → владельцу не помогают ни «Забыли пароль», ни «Выйти везде».
+- **Ожидается:** повторная аутентификация паролем, как у удаления аккаунта.
+
+#### BUG-347 · 🟢 🔒 Обязательную 2FA привилегированная роль отключает сама и до 15 минут работает с `tfa=true`
+- **Где:** `apps/api/src/modules/auth/two-factor.service.ts:165-182` (роль не проверяется), `apps/web/src/widgets/account-settings/ui/account-settings-panels.tsx:718-755`, `apps/api/src/common/guards/two-factor.guard.ts:53` · **Статус:** подтверждён
+- **Ожидается:** §8.3 «Форс 2FA» — для `TWO_FACTOR_REQUIRED_ROLES` отключение запрещено или заменено перевыпуском.
+
+#### BUG-348 · 🟢 Резервный код в настройках и при удалении аккаунта не принимается из-за регистра и цифровой клавиатуры
+- **Где:** `apps/api/src/modules/auth/two-factor.service.ts:250-256` (без trim/upper), `account-settings-panels.tsx:697-703,731-738` (`inputMode="numeric"`), `:1363-1369`; на входе нормализуется — `shared/ui/code-input.tsx:88` · **Статус:** новый
+
+#### BUG-349 · 🟢 🔒 «Забыли пароль»: лимит только по IP, каждая новая ссылка гасит прежние (корень BUG-076)
+- **Где:** `apps/api/src/modules/auth/auth.controller.ts:184-200`, `apps/api/src/modules/auth/password-reset.service.ts:58-67` · **Статус:** новый
+- **Сценарий:** ротация IP → поток писем на чужой ящик, жертва всегда открывает уже погашенную ссылку.
+
+#### BUG-350 · 🟢 Вебхук бота при сбое БД отвечает 500 — `/status` в аварию молчит, Telegram повторяет
+- **Где:** `apps/api/src/modules/telegram-hook/telegram-hook.service.ts:257-277` (`actorFor` вне `catch`), `telegram-hook.controller.ts:35-45` · **Статус:** новый
+- **Ожидается:** §8.3 «Вебхук бота» — ответ всегда 200.
+
+#### BUG-351 · 🟢 `/duty` называет «следующим» не того, кому крон передаст дежурство
+- **Где:** `apps/api/src/modules/telegram-hook/telegram-hook.service.ts:143-152,383-384` против `apps/api/src/modules/platform/platform.service.ts:483-501` (пропуск недоступных, очередь < 2) · **Статус:** новый
+
+#### BUG-352 · 🟢 Сводка, назначенная на тихий час, не приходит никогда, а бот обещает её время
+- **Где:** `apps/api/src/common/telegram/telegram-notify.service.ts:103-107`, `apps/api/src/modules/cleanup/cleanup.service.ts:978-1002`, `telegram-hook.service.ts:395-397`; нет проверки в `SetNotificationsSchema` · **Статус:** новый
+
+#### BUG-353 · 🟢 `/setup-2fa` — тупик, если 2FA уже включена (перезагрузка на шаге кодов, другая вкладка)
+- **Где:** `apps/web/src/features/setup-2fa/ui/setup-2fa-gate.tsx:35-39,146-157` · **Статус:** новый
+
+#### BUG-354 · 🟢 «Выйти» на экране форса 2FA, после смены пароля и удаления аккаунта не доводит до /login при сбое (новые места BUG-082)
+- **Где:** `apps/web/src/features/setup-2fa/ui/setup-2fa-gate.tsx:45-49`, `account-settings-panels.tsx:402-406,1282-1285` · **Статус:** новый
+
+#### BUG-355 · 🟢 Настройки и окно согласия показывают сообщения Zod на русском/английском в kk/en (новые места BUG-211/BUG-295)
+- **Где:** `account-settings-panels.tsx:254-255,329-345,396,437-439`, `apps/web/src/features/accept-consent/ui/consent-dialog.tsx:83-98,171,198`, `packages/shared-schemas/src/users.ts:176-201` (русская ошибка перекрывает `t('guardianRequired')`) · **Статус:** новый
+
+#### BUG-356 · 🟢 Смена пароля с пустым «текущим паролем» молча не отправляется
+- **Где:** `account-settings-panels.tsx:396,420-428` (нет `FieldError`) · **Статус:** новый
+
+#### BUG-357 · 🟢 Сброс пароля по усечённой ссылке: «Сохранить» ничего не делает вместо «Ссылка недействительна»
+- **Где:** `apps/web/src/features/password-reset/ui/reset-password-form.tsx:24,30-33,97` · **Статус:** новый
+
+#### BUG-358 · 🟢 Вкладка «Безопасность» шлёт `GET /mini/link` от любой роли и получает 403 (приём BUG-062)
+- **Где:** `apps/web/src/features/link-telegram/ui/telegram-link-row.tsx:41,73`, `apps/api/src/modules/mini/mini.controller.ts:51-57` · **Статус:** новый
+
+#### BUG-359 · 🟢 Срок в письме подтверждения компании — в UTC без пояса (новое место BUG-296)
+- **Где:** `apps/api/src/modules/career/companies.service.ts:144,205` · **Статус:** новый
+
 <!-- P3-END -->
 
 ## Замечено попутно
