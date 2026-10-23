@@ -899,6 +899,28 @@ describe('SchedulesService — разовые изменения (C-F16)', () =>
     expect(err.details).toEqual([expect.objectContaining({ field: 'newRoomId' })])
   })
 
+  it('перенос с новой аудиторией проверяет занятость новой аудитории', async () => {
+    const { service, prisma } = prime()
+    prisma.pair.findMany.mockResolvedValue([otherPair({ roomId: 'r-7' })])
+    const err = await service
+      .createChange(
+        admin,
+        {
+          pairId: 'pair-1',
+          type: 'MOVED',
+          date: '2026-09-15',
+          newStartTime: '10:00',
+          newEndTime: '11:30',
+          newRoomId: 'r-7',
+        },
+        ctx,
+      )
+      .catch((e) => e)
+    expect(err.code).toBe('CONFLICT')
+    expect(err.details).toEqual([expect.objectContaining({ field: 'roomId' })])
+    expect(prisma.scheduleChange.create).not.toHaveBeenCalled()
+  })
+
   it('пара, отменённая на эту дату, место не занимает — перенос проходит', async () => {
     const { service, prisma } = prime()
     prisma.pair.findMany.mockResolvedValue([

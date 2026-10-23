@@ -226,6 +226,8 @@ interface EffectiveSlot {
  * Слот пары в дату с учётом её изменений на эту дату (по порядку создания: позднее
  * перекрывает раннее). Отменённое занятие места не занимает — `null`. Правила те же, что у
  * посещаемости (MOVED — новое время, отмена — занятия нет) и у замен (решает последняя).
+ * Перенос может сменить и аудиторию (`MOVED` + `newRoomId`, схема 03-schedule.prisma): её
+ * занятость считаем по новой — там, где пара фактически пройдёт.
  */
 function effectiveSlot(base: EffectiveSlot, changes: DatedChange[]): EffectiveSlot | null {
   if (changes.some((c) => c.type === ScheduleChangeType.CANCELLED)) return null
@@ -236,7 +238,9 @@ function effectiveSlot(base: EffectiveSlot, changes: DatedChange[]): EffectiveSl
       slot.endTime = c.newEndTime
     }
     if (c.type === ScheduleChangeType.SUBSTITUTED && c.newTeacherId) slot.teacherId = c.newTeacherId
-    if (c.type === ScheduleChangeType.ROOM_CHANGED && c.newRoomId) slot.roomId = c.newRoomId
+    const changesRoom =
+      c.type === ScheduleChangeType.ROOM_CHANGED || c.type === ScheduleChangeType.MOVED
+    if (changesRoom && c.newRoomId) slot.roomId = c.newRoomId
   }
   return slot
 }
