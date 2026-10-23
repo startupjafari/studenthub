@@ -9,6 +9,7 @@ import type {
   SortOrderValue,
   GrantDocumentAccessInput,
   ReorderDocumentFilesInput,
+  ReplaceDocumentFileInput,
   UpdateDocumentInput,
 } from '@studenthub/shared-schemas'
 import type { NotificationMessageKey } from '@studenthub/shared-config'
@@ -45,6 +46,17 @@ const DAY_MS = 24 * 60 * 60 * 1000
 const EXPIRY_STATUSES: ReadonlySet<string> = new Set(['UPLOADED', 'EXPIRING', 'EXPIRED'])
 // Размер пачки ночного крона (правила сроков хранения, документы к архиву).
 const SWEEP_BATCH = 500
+// Комплекты по ОТКРЫТОМУ запросу, на которые вуз сейчас опирается: на проверке (SUBMITTED)
+// или уже принят (ACCEPTED). Страницы и данные приложенного к ним документа не меняются:
+// проверяющий обязан видеть ровно то, что отправлено, а принятая версия — то, что принято
+// (старый файл при замене удаляется, вернуть его было бы неоткуда).
+const SUBMISSION_LOCKING = ['SUBMITTED', 'ACCEPTED']
+// Комплекты, которые студент ещё ведёт (как STUDENT_EDITABLE в сервисе запросов): правка
+// документа снимает вердикт его позиции, а уже проверенный комплект (REJECTED/PARTIAL)
+// возвращается в черновик до повторной отправки — так же, как при выборе другого документа.
+const SUBMISSION_REOPENABLE = ['DRAFT', 'REJECTED', 'PARTIAL']
+// Позиций комплектов с одним документом — единицы (документ в нескольких запросах).
+const SUBMISSION_ITEMS_LIMIT = 200
 
 const DOCUMENT_SELECT = {
   id: true,
@@ -261,6 +273,68 @@ export class DocumentsService {
   }
 
   /**
+   * Документ приложен к комплекту по открытому запросу, который сейчас проверяют или уже
+   * приняли, — его содержимое (страницы, данные) не меняется, `409 CONFLICT`. Новую версию
+   * владелец загружает отдельным документом. Закрытые запросы содержимое не держат: их
+   * комплекты — уже история, иначе однажды принятый паспорт нельзя было бы обновить никогда.
+   */
+  private async assertNotLockedByReview(id: string): Promise<void> {
+    const locked = await this.prisma.documentSubmissionItem.findFirst({
+      where: {
+        documentId: id,
+        submission: { status: { in: SUBMISSION_LOCKING }, request: { status: 'OPEN' } },
+      },
+      select: { submission: { select: { status: true } } },
+    })
+    if (!locked) return
+    throw new AppException(
+      'CONFLICT',
+      locked.submission.status === 'SUBMITTED'
+        ? 'Документ на проверке по запросу — дождитесь результата'
+        : 'Документ принят по запросу — новую версию загрузите отдельным документом',
+    )
+  }
+
+  /**
+   * После правки содержимого: снимается подтверждение вуза, а вердикты позиций комплектов,
+   * которые студент ещё ведёт, перестают относиться к документу (15.3: замена требует
+   * повторной проверки).
+   */
+  private async afterContentChange(id: string): Promise<void> {
+    await this.dropVerification(id)
+    await this.reopenSubmissions(id)
+  }
+
+  // Позиции с этим документом в комплектах открытых запросов → снова «ожидает проверки»;
+  // проверенный комплект (REJECTED/PARTIAL) → черновик: сотрудник не примет и не досмотрит
+  // состав, который поменялся после его вердикта. Условие на статус — в самих UPDATE.
+  private async reopenSubmissions(id: string): Promise<void> {
+    const items = await this.prisma.documentSubmissionItem.findMany({
+      where: {
+        documentId: id,
+        submission: { status: { in: SUBMISSION_REOPENABLE }, request: { status: 'OPEN' } },
+      },
+      select: { id: true, submissionId: true },
+      take: SUBMISSION_ITEMS_LIMIT,
+    })
+    if (items.length === 0) return
+    const submissionIds = [...new Set(items.map((i) => i.submissionId))]
+    await this.prisma.$transaction([
+      this.prisma.documentSubmissionItem.updateMany({
+        where: {
+          id: { in: items.map((i) => i.id) },
+          submission: { status: { in: SUBMISSION_REOPENABLE } },
+        },
+        data: { status: 'PENDING', rejectionReason: null, reviewedById: null, reviewedAt: null },
+      }),
+      this.prisma.documentSubmission.updateMany({
+        where: { id: { in: submissionIds }, status: { in: ['REJECTED', 'PARTIAL'] } },
+        data: { status: 'DRAFT' },
+      }),
+    ])
+  }
+
+  /**
    * Содержимое выданного вузом документа владельцу не правится (D-F22): справка уходит в
    * заявки и запросы как выданная университетом, и дописанная страница или исправленный
    * номер выдавались бы за подлинник. Владельцу остаются архив, удаление и личная заметка.
@@ -346,6 +420,7 @@ export class DocumentsService {
     input: ReorderDocumentFilesInput,
   ): Promise<DocumentDto> {
     this.assertContentEditable(await this.findOwnedOrThrow(actor, id))
+    await this.assertNotLockedByReview(id)
     const files = await this.prisma.file.findMany({
       where: {
         id: { in: input.fileIds },
@@ -374,10 +449,122 @@ export class DocumentsService {
       where: { id, status: { in: ['DRAFT', 'VERIFIED'] } },
       data: { status: 'UPLOADED' },
     })
-    await this.logEvent(actor.sub, id, existing === 0 ? 'UPLOAD' : 'REPLACE', {
+    await this.reopenSubmissions(id)
+    // Первые страницы — загрузка документа; дописанные к уже загруженному — добавление
+    // страниц (раньше писалось REPLACE, хотя ничего не заменялось).
+    await this.logEvent(actor.sub, id, existing === 0 ? 'UPLOAD' : 'PAGE_ADD', {
       added: input.fileIds.length,
     })
     return this.getOwnedDto(actor, id)
+  }
+
+  /**
+   * Заменить страницу: новый файл (загружен владельцем, ещё не прикреплён) встаёт на место
+   * старого с тем же порядковым номером, старый файл удаляется из хранилища сразу — это
+   * скан персональных данных, держать прежнюю версию незачем. Если удалить объект не вышло,
+   * отвязанную строку подберёт ночная cleanDetachedFiles.
+   */
+  async replaceFile(
+    actor: JwtPayload,
+    id: string,
+    fileId: string,
+    input: ReplaceDocumentFileInput,
+  ): Promise<DocumentDto> {
+    this.assertContentEditable(await this.findOwnedOrThrow(actor, id))
+    await this.assertNotLockedByReview(id)
+    if (input.fileId === fileId) {
+      throw new AppException('BAD_REQUEST', 'Новый файл совпадает с заменяемой страницей')
+    }
+    const old = await this.prisma.file.findFirst({
+      where: { id: fileId, documentId: id },
+      select: { id: true, order: true },
+    })
+    if (!old) throw new AppException('NOT_FOUND', 'Страница не найдена')
+    const next = await this.prisma.file.findFirst({
+      where: { id: input.fileId, ownerId: actor.sub, bucket: this.bucket, documentId: null },
+      select: { id: true },
+    })
+    if (!next) throw new AppException('BAD_REQUEST', 'Файл недоступен для прикрепления')
+
+    await this.prisma.$transaction(async (tx) => {
+      // Условные UPDATE: страницу могли удалить, а файл — прикрепить в другом окне между
+      // чтением и записью. Тогда откатываем обе половины, а не оставляем документ без
+      // страницы или с файлом в двух местах.
+      const detached = await tx.file.updateMany({
+        where: { id: old.id, documentId: id },
+        data: { documentId: null, order: null },
+      })
+      const attached = await tx.file.updateMany({
+        where: { id: next.id, ownerId: actor.sub, documentId: null },
+        data: { documentId: id, order: old.order },
+      })
+      if (detached.count === 0 || attached.count === 0) {
+        throw new AppException('CONFLICT', 'Страницы документа изменились — обновите страницу')
+      }
+    })
+    await this.purgePage(old.id)
+    await this.afterContentChange(id)
+    await this.logEvent(actor.sub, id, 'REPLACE', {
+      fileId: next.id,
+      replacedFileId: old.id,
+      order: old.order,
+    })
+    return this.getOwnedDto(actor, id)
+  }
+
+  /**
+   * Удалить страницу. Единственную — нельзя: документ без файлов выглядел бы загруженным,
+   * а в запросе или заявке уходил бы пустым. Чтобы поменять единственный скан, его
+   * заменяют; чтобы убрать документ целиком — удаляют документ (это отдельное действие с
+   * подтверждением и своим сроком хранения сканов). Оставшиеся страницы перенумеровываются
+   * подряд, порядок сохраняется.
+   */
+  async removeFile(actor: JwtPayload, id: string, fileId: string): Promise<DocumentDto> {
+    this.assertContentEditable(await this.findOwnedOrThrow(actor, id))
+    await this.assertNotLockedByReview(id)
+    const removed = await this.prisma.$transaction(async (tx) => {
+      // Блокировка строки документа: два параллельных удаления двух последних страниц иначе
+      // оба увидели бы «останется одна» и оставили документ пустым.
+      await tx.document.update({
+        where: { id },
+        data: { updatedAt: new Date() },
+        select: { id: true },
+      })
+      const pages = await tx.file.findMany({
+        where: { documentId: id },
+        select: { id: true },
+        orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
+        take: DOCUMENT_FILES_LIMIT,
+      })
+      const index = pages.findIndex((p) => p.id === fileId)
+      if (index < 0) throw new AppException('NOT_FOUND', 'Страница не найдена')
+      if (pages.length === 1) {
+        throw new AppException(
+          'BAD_REQUEST',
+          'Единственную страницу не удалить — замените её или удалите документ',
+        )
+      }
+      await tx.file.update({ where: { id: fileId }, data: { documentId: null, order: null } })
+      const rest = pages.filter((p) => p.id !== fileId)
+      for (const [i, page] of rest.entries()) {
+        await tx.file.update({ where: { id: page.id }, data: { order: i } })
+      }
+      return { order: index }
+    })
+    await this.purgePage(fileId)
+    await this.afterContentChange(id)
+    await this.logEvent(actor.sub, id, 'PAGE_REMOVE', { fileId, order: removed.order })
+    return this.getOwnedDto(actor, id)
+  }
+
+  // Снятая со страницы запись файла и её объект в хранилище. Ошибка не роняет уже
+  // выполненную замену: отвязанную строку ночью снимет cleanDetachedFiles.
+  private async purgePage(fileId: string): Promise<void> {
+    try {
+      await this.files.delete(fileId)
+    } catch (err: unknown) {
+      this.logger.warn({ err, fileId }, 'Не удалось удалить снятую страницу документа')
+    }
   }
 
   /** Изменить порядок страниц документа. */
@@ -387,6 +574,7 @@ export class DocumentsService {
     input: ReorderDocumentFilesInput,
   ): Promise<DocumentDto> {
     this.assertContentEditable(await this.findOwnedOrThrow(actor, id))
+    await this.assertNotLockedByReview(id)
     const files = await this.prisma.file.findMany({
       where: { documentId: id },
       select: { id: true },
@@ -401,7 +589,7 @@ export class DocumentsService {
         this.prisma.file.update({ where: { id: fileId }, data: { order: i } }),
       ),
     )
-    await this.dropVerification(id)
+    await this.afterContentChange(id)
     await this.logEvent(actor.sub, id, 'EDIT', { reordered: true })
     return this.getOwnedDto(actor, id)
   }
@@ -783,7 +971,10 @@ export class DocumentsService {
     const contentChanged = changedContent(input, doc)
     // У выданного вузом документа владелец меняет только свою заметку (comment) — она
     // никому, кроме него, не показывается.
-    if (contentChanged) this.assertContentEditable(doc)
+    if (contentChanged) {
+      this.assertContentEditable(doc)
+      await this.assertNotLockedByReview(id)
+    }
     const data: Prisma.DocumentUpdateInput = {}
     if (input.title !== undefined) data.title = input.title
     if (input.number !== undefined) {
@@ -795,7 +986,7 @@ export class DocumentsService {
     if (input.expiresAt !== undefined) data.expiresAt = input.expiresAt
     if (input.comment !== undefined) data.comment = input.comment || null
     await this.prisma.document.update({ where: { id }, data })
-    if (contentChanged) await this.dropVerification(id)
+    if (contentChanged) await this.afterContentChange(id)
     await this.logEvent(actor.sub, id, 'EDIT')
     return this.getOwnedDto(actor, id)
   }

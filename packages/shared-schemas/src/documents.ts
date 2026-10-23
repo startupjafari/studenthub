@@ -79,6 +79,11 @@ export const ReorderDocumentFilesSchema = z
   .strict()
 export type ReorderDocumentFilesInput = z.infer<typeof ReorderDocumentFilesSchema>
 
+// Замена одной страницы: новый (уже загруженный, ещё не прикреплённый) файл встаёт на место
+// старой страницы с тем же порядковым номером, старый файл удаляется из хранилища.
+export const ReplaceDocumentFileSchema = z.object({ fileId: z.string().min(1) }).strict()
+export type ReplaceDocumentFileInput = z.infer<typeof ReplaceDocumentFileSchema>
+
 // Колонки таблицы документов, по которым разрешена сортировка. Именно колонки, а не
 // пресеты «новые/старые»: таблица сортируется кликом по заголовку, и набор значений
 // должен совпадать с тем, что видит пользователь. Номер сюда не входит — наружу уходит

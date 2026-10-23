@@ -70,15 +70,29 @@ function setup() {
       findMany: jest.fn().mockResolvedValue([]),
       findFirst: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       count: jest.fn().mockResolvedValue(0),
     },
+    // Комплекты запросов с этим документом: по умолчанию документ никуда не приложен.
+    documentSubmissionItem: {
+      findFirst: jest.fn().mockResolvedValue(null),
+      findMany: jest.fn().mockResolvedValue([]),
+      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
+    documentSubmission: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
     // Пустые оверрайды → эффективный каталог = статические 25 типов (валидация типов идёт по нему).
     documentType: {
       findMany: jest.fn().mockResolvedValue([]),
       findUnique: jest.fn().mockResolvedValue(null),
     },
-    $transaction: jest.fn((ops: unknown) => Promise.all(ops as Promise<unknown>[])),
+    $transaction: jest.fn(),
   }
+  // Пакет операций — как раньше; колбэк получает тот же мок вместо клиента транзакции.
+  prisma.$transaction.mockImplementation((arg: unknown) =>
+    typeof arg === 'function'
+      ? (arg as (tx: typeof prisma) => Promise<unknown>)(prisma)
+      : Promise.all(arg as Promise<unknown>[]),
+  )
   const files = {
     upload: jest.fn(),
     delete: jest.fn(),
@@ -693,6 +707,189 @@ describe('DocumentsService — спец-режим: метаданные с пр
       expect.objectContaining({
         action: 'DOCUMENT_PLATFORM_VIEW',
         metadata: { reason: 'Обращение в поддержку №12' },
+      }),
+    )
+  })
+})
+
+describe('DocumentsService — страницы документа: замена, удаление, порядок', () => {
+  it('replaceFile: новый файл встаёт на место старого с тем же порядком, старый удаляется', async () => {
+    const { service, prisma, files } = setup()
+    prisma.file.findFirst
+      .mockResolvedValueOnce({ id: 'old', order: 1 }) // заменяемая страница документа
+      .mockResolvedValueOnce({ id: 'new' }) // свой неприкреплённый файл
+    await service.replaceFile(actor(), 'd1', 'old', { fileId: 'new' })
+
+    expect(prisma.file.updateMany).toHaveBeenCalledWith({
+      where: { id: 'old', documentId: 'd1' },
+      data: { documentId: null, order: null },
+    })
+    expect(prisma.file.updateMany).toHaveBeenCalledWith({
+      where: { id: 'new', ownerId: 'me', documentId: null },
+      data: { documentId: 'd1', order: 1 },
+    })
+    expect(files.delete).toHaveBeenCalledWith('old')
+    expect(prisma.documentEvent.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          action: 'REPLACE',
+          metadata: { fileId: 'new', replacedFileId: 'old', order: 1 },
+        }),
+      }),
+    )
+    // Подтверждение вуза относится к прежнему скану.
+    expect(prisma.document.updateMany).toHaveBeenCalledWith({
+      where: { id: 'd1', status: 'VERIFIED' },
+      data: { status: 'UPLOADED' },
+    })
+  })
+
+  it('replaceFile: чужой или уже прикреплённый файл → BAD_REQUEST, ничего не трогаем', async () => {
+    const { service, prisma, files } = setup()
+    prisma.file.findFirst.mockResolvedValueOnce({ id: 'old', order: 0 }).mockResolvedValueOnce(null)
+    const err = await service
+      .replaceFile(actor(), 'd1', 'old', { fileId: 'foreign' })
+      .catch((e) => e)
+    expect(err.code).toBe('BAD_REQUEST')
+    expect(prisma.file.updateMany).not.toHaveBeenCalled()
+    expect(files.delete).not.toHaveBeenCalled()
+  })
+
+  it('replaceFile: страница другого документа → NOT_FOUND', async () => {
+    const { service, prisma } = setup()
+    prisma.file.findFirst.mockResolvedValueOnce(null)
+    const err = await service.replaceFile(actor(), 'd1', 'x', { fileId: 'new' }).catch((e) => e)
+    expect(err.code).toBe('NOT_FOUND')
+  })
+
+  it('replaceFile: гонка (страницу уже сняли) → CONFLICT, старый файл не удаляется', async () => {
+    const { service, prisma, files } = setup()
+    prisma.file.findFirst
+      .mockResolvedValueOnce({ id: 'old', order: 0 })
+      .mockResolvedValueOnce({ id: 'new' })
+    prisma.file.updateMany.mockResolvedValueOnce({ count: 0 })
+    const err = await service.replaceFile(actor(), 'd1', 'old', { fileId: 'new' }).catch((e) => e)
+    expect(err.code).toBe('CONFLICT')
+    expect(files.delete).not.toHaveBeenCalled()
+  })
+
+  it('removeFile: снимает страницу, перенумеровывает остальные подряд, файл — из хранилища', async () => {
+    const { service, prisma, files } = setup()
+    prisma.file.findMany.mockResolvedValueOnce([{ id: 'p1' }, { id: 'p2' }, { id: 'p3' }])
+    await service.removeFile(actor(), 'd1', 'p2')
+
+    expect(prisma.file.update).toHaveBeenCalledWith({
+      where: { id: 'p2' },
+      data: { documentId: null, order: null },
+    })
+    expect(prisma.file.update).toHaveBeenCalledWith({ where: { id: 'p1' }, data: { order: 0 } })
+    expect(prisma.file.update).toHaveBeenCalledWith({ where: { id: 'p3' }, data: { order: 1 } })
+    expect(files.delete).toHaveBeenCalledWith('p2')
+    expect(prisma.documentEvent.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          action: 'PAGE_REMOVE',
+          metadata: { fileId: 'p2', order: 1 },
+        }),
+      }),
+    )
+  })
+
+  it('removeFile: единственную страницу не удалить → BAD_REQUEST', async () => {
+    const { service, prisma, files } = setup()
+    prisma.file.findMany.mockResolvedValueOnce([{ id: 'p1' }])
+    const err = await service.removeFile(actor(), 'd1', 'p1').catch((e) => e)
+    expect(err.code).toBe('BAD_REQUEST')
+    expect(prisma.file.update).not.toHaveBeenCalled()
+    expect(files.delete).not.toHaveBeenCalled()
+  })
+
+  it('removeFile/replaceFile: выданный вузом документ → FORBIDDEN', async () => {
+    const { service, prisma } = setup()
+    prisma.document.findFirst.mockResolvedValue(row({ issuedByUniversity: true }))
+    const rm = await service.removeFile(actor(), 'd1', 'p1').catch((e) => e)
+    const rp = await service.replaceFile(actor(), 'd1', 'p1', { fileId: 'n' }).catch((e) => e)
+    expect([rm.code, rp.code]).toEqual(['FORBIDDEN', 'FORBIDDEN'])
+  })
+
+  it('чужой документ — NOT_FOUND, без утечки существования', async () => {
+    const { service, prisma } = setup()
+    prisma.document.findFirst.mockResolvedValue(null)
+    const err = await service.removeFile(actor('other'), 'd1', 'p1').catch((e) => e)
+    expect(err.code).toBe('NOT_FOUND')
+  })
+
+  it('документ на проверке или принят по открытому запросу — содержимое не меняется (409)', async () => {
+    const { service, prisma, files } = setup()
+    prisma.documentSubmissionItem.findFirst.mockResolvedValue({
+      submission: { status: 'SUBMITTED' },
+    })
+    const results = await Promise.all([
+      service.replaceFile(actor(), 'd1', 'p1', { fileId: 'n' }).catch((e) => e.code),
+      service.removeFile(actor(), 'd1', 'p1').catch((e) => e.code),
+      service.attachFiles(actor(), 'd1', { fileIds: ['n'] }).catch((e) => e.code),
+      service.reorderFiles(actor(), 'd1', { fileIds: ['p1'] }).catch((e) => e.code),
+      service.update(actor(), 'd1', { title: 'Новое' }).catch((e) => e.code),
+    ])
+    expect(results).toEqual(['CONFLICT', 'CONFLICT', 'CONFLICT', 'CONFLICT', 'CONFLICT'])
+    expect(prisma.documentSubmissionItem.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          documentId: 'd1',
+          submission: { status: { in: ['SUBMITTED', 'ACCEPTED'] }, request: { status: 'OPEN' } },
+        },
+      }),
+    )
+    expect(files.delete).not.toHaveBeenCalled()
+    // Заметка — не содержимое: её правка в проверку не упирается.
+    await expect(service.update(actor(), 'd1', { comment: 'x' })).resolves.toBeDefined()
+  })
+
+  it('правка страниц возвращает проверенный комплект в черновик и снимает вердикт позиции', async () => {
+    const { service, prisma } = setup()
+    prisma.file.findMany.mockResolvedValueOnce([{ id: 'p1' }, { id: 'p2' }])
+    prisma.documentSubmissionItem.findMany.mockResolvedValue([
+      { id: 'si1', submissionId: 's1' },
+      { id: 'si2', submissionId: 's1' },
+    ])
+    await service.removeFile(actor(), 'd1', 'p2')
+
+    expect(prisma.documentSubmissionItem.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          documentId: 'd1',
+          submission: {
+            status: { in: ['DRAFT', 'REJECTED', 'PARTIAL'] },
+            request: { status: 'OPEN' },
+          },
+        },
+      }),
+    )
+    expect(prisma.documentSubmissionItem.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: { in: ['si1', 'si2'] },
+        submission: { status: { in: ['DRAFT', 'REJECTED', 'PARTIAL'] } },
+      },
+      data: { status: 'PENDING', rejectionReason: null, reviewedById: null, reviewedAt: null },
+    })
+    expect(prisma.documentSubmission.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ['s1'] }, status: { in: ['REJECTED', 'PARTIAL'] } },
+      data: { status: 'DRAFT' },
+    })
+  })
+
+  it('attachFiles к загруженному документу пишет PAGE_ADD, а не REPLACE', async () => {
+    const { service, prisma } = setup()
+    prisma.file.findMany.mockResolvedValueOnce([{ id: 'n' }])
+    prisma.file.count.mockResolvedValueOnce(2)
+    await service.attachFiles(actor(), 'd1', { fileIds: ['n'] })
+    expect(prisma.file.update).toHaveBeenCalledWith({
+      where: { id: 'n' },
+      data: { documentId: 'd1', order: 2 },
+    })
+    expect(prisma.documentEvent.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ action: 'PAGE_ADD', metadata: { added: 1 } }),
       }),
     )
   })
