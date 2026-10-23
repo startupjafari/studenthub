@@ -25,6 +25,7 @@ function loanRow(overrides: Record<string, unknown> = {}) {
     cancelledAt: null,
     cancelReason: null,
     disputedAt: null,
+    lostSettledAt: null,
     readerId: 'stu-1',
     readerName: 'Оспанов Нурлан',
     readerGroup: 'ИТ-23-1',
@@ -62,6 +63,8 @@ function setup({ queued = null as null | Record<string, unknown>, queueCount = 0
         .fn()
         .mockResolvedValue({ id: 'loan-1', readerId: 'stu-1', bookTitle: 'Русская литература' }),
       findUnique: jest.fn().mockResolvedValue(loanRow()),
+      findUniqueOrThrow: jest.fn().mockResolvedValue(loanRow({ status: 'LOST' })),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       update: jest
         .fn()
         .mockImplementation(({ data }) => Promise.resolve(loanRow({ ...data, renewals: 1 }))),
@@ -75,12 +78,15 @@ function setup({ queued = null as null | Record<string, unknown>, queueCount = 0
         book: { id: 'book-1', title: 'Русская литература', archivedAt: null },
       }),
     },
-    reservation: { count: jest.fn().mockResolvedValue(queueCount) },
+    reservation: {
+      count: jest.fn().mockResolvedValue(queueCount),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
     university: { findUnique: jest.fn().mockResolvedValue({ timezone: 'Asia/Almaty' }) },
     $transaction: jest.fn().mockImplementation((fn: (t: typeof tx) => unknown) => fn(tx)),
   }
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
-  const notifier = { send: jest.fn().mockResolvedValue(undefined) }
+  const notifier = { send: jest.fn().mockResolvedValue(true) }
   const rules = {
     enabled: true,
     defaultLoanDays: 14,
@@ -225,6 +231,50 @@ describe('Утеря и отмена', () => {
     expect(tx.bookCopy.update).toHaveBeenCalledWith({
       where: { id: 'copy-1' },
       data: { status: 'LOST' },
+    })
+  })
+
+  it('долг по утерянной погашен — отметка, кто погасил, и аудит', async () => {
+    const { service, prisma, audit } = setup()
+    prisma.loan.findUnique.mockResolvedValue(loanRow({ status: 'LOST' }))
+    const settledAt = new Date('2026-10-23T06:00:00Z')
+    prisma.loan.findUniqueOrThrow.mockResolvedValue(
+      loanRow({ status: 'LOST', lostSettledAt: settledAt }),
+    )
+    const item = await service.settleLost(librarian, 'loan-1', ctx)
+    expect(prisma.loan.updateMany).toHaveBeenCalledWith({
+      where: { id: 'loan-1', status: 'LOST', lostSettledAt: null },
+      data: { lostSettledAt: expect.any(Date), lostSettledById: 'lib-1' },
+    })
+    expect(item.lostSettledAt).toBe(settledAt.toISOString())
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'library_loan_lost_settled', entityId: 'loan-1' }),
+    )
+  })
+
+  it('погасить можно только утерянную — 409 notLost', async () => {
+    const { service, prisma } = setup()
+    await expect(service.settleLost(librarian, 'loan-1', ctx)).rejects.toMatchObject({
+      details: [expect.objectContaining({ field: 'notLost' })],
+    })
+    expect(prisma.loan.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('погашенный долг второй раз не погасить — 409 settled', async () => {
+    const { service, prisma, audit } = setup()
+    prisma.loan.findUnique.mockResolvedValue(loanRow({ status: 'LOST' }))
+    prisma.loan.updateMany.mockResolvedValue({ count: 0 })
+    await expect(service.settleLost(librarian, 'loan-1', ctx)).rejects.toMatchObject({
+      details: [expect.objectContaining({ field: 'settled' })],
+    })
+    expect(audit.record).not.toHaveBeenCalled()
+  })
+
+  it('выдача чужого вуза — 404', async () => {
+    const { service, prisma } = setup()
+    prisma.loan.findUnique.mockResolvedValue(loanRow({ status: 'LOST', universityId: 'uni-2' }))
+    await expect(service.settleLost(librarian, 'loan-1', ctx)).rejects.toMatchObject({
+      code: 'NOT_FOUND',
     })
   })
 
@@ -376,5 +426,31 @@ describe('Отмена возврата', () => {
         ctx,
       ),
     ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+  })
+})
+
+describe('«Бронь готова»', () => {
+  const held = {
+    reservationId: 'res-1',
+    readerId: 'stu-2',
+    name: 'Ахметова Айгерим',
+    group: null,
+    holdUntil: new Date('2026-10-25T18:59:59.999Z'),
+  }
+
+  it('очередь приняла — отметка в брони', async () => {
+    const { service, prisma } = setup()
+    await expect(service.notifyHeld(held, 'Русская литература', 'Asia/Almaty')).resolves.toBe(true)
+    expect(prisma.reservation.updateMany).toHaveBeenCalledWith({
+      where: { id: 'res-1', status: 'READY', readyNotifiedAt: null },
+      data: { readyNotifiedAt: expect.any(Date) },
+    })
+  })
+
+  it('очередь не приняла — отметки нет, догонит cron', async () => {
+    const { service, prisma, notifier } = setup()
+    notifier.send.mockResolvedValue(false)
+    await expect(service.notifyHeld(held, 'Русская литература', 'Asia/Almaty')).resolves.toBe(false)
+    expect(prisma.reservation.updateMany).not.toHaveBeenCalled()
   })
 })

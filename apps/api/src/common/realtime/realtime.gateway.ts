@@ -17,6 +17,7 @@ import { TWO_FACTOR_REQUIRED_ROLES } from '../guards/two-factor.guard'
 import type { EnvVars } from '../../config/env.schema'
 import { PrismaService } from '../prisma/prisma.service'
 import { SessionRevocationService } from '../redis/session-revocation.service'
+import { UniversityAccessService } from '../../modules/universities/university-access.service'
 
 // CORS для WS читаем из env на этапе загрузки модуля (декоратор вычисляется при импорте).
 const WS_CORS_ORIGIN = (process.env.CORS_ORIGIN ?? 'http://localhost:3000').split(',')
@@ -44,6 +45,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     private readonly prisma: PrismaService,
     private readonly config: ConfigService<EnvVars, true>,
     private readonly revocation: SessionRevocationService,
+    private readonly universityAccess: UniversityAccessService,
   ) {}
 
   /**
@@ -63,7 +65,11 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     }
     try {
       const payload = await this.jwt.verifyAsync<JwtPayload & { iat?: number }>(token)
-      if (!this.isUsableAccessToken(payload) || (await this.isRevoked(payload))) {
+      if (
+        !this.isUsableAccessToken(payload) ||
+        (await this.isRevoked(payload)) ||
+        (await this.isUniversityBlocked(payload))
+      ) {
         client.disconnect()
         return
       }
@@ -178,9 +184,13 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     try {
       const p = await this.jwt.verifyAsync<JwtPayload & { iat?: number }>(token)
       // Те же требования, что и в handshake: промежуточный токен 2FA, токен мини-аппа,
-      // непройденный второй фактор и отозванная сессия не должны продлевать уже открытое
-      // соединение.
-      if (!this.isUsableAccessToken(p) || (await this.isRevoked(p))) {
+      // непройденный второй фактор, отозванная сессия и заблокированный вуз не должны
+      // продлевать уже открытое соединение.
+      if (
+        !this.isUsableAccessToken(p) ||
+        (await this.isRevoked(p)) ||
+        (await this.isUniversityBlocked(p))
+      ) {
         client.disconnect()
         return
       }
@@ -204,6 +214,55 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     if (!(await this.revocation.isRevoked(payload.sub, payload.iat))) return false
     this.logger.warn(`WS отклонён: сессии пользователя отозваны (user=${payload.sub})`)
     return true
+  }
+
+  /**
+   * Вуз пользователя заблокирован платформой (§8.2 `UNIVERSITY_BLOCKED`). Источник тот же,
+   * что у HTTP (JwtStrategy) и входа, — UniversityAccessService с его памятью статуса: иначе
+   * пользователи закрытого вуза, которым HTTP уже отказывает, продолжали бы получать события
+   * и писать в чаты по сокету.
+   *
+   * Сбой чтения статуса соединение не рвёт — так же, как JwtStrategy не роняет запрос:
+   * отказ базы иначе разом отключил бы реальное время у всех.
+   */
+  private async isUniversityBlocked(member: {
+    sub?: string
+    role: JwtPayload['role']
+    universityId?: string | null
+  }): Promise<boolean> {
+    try {
+      const denial = await this.universityAccess.denial({
+        role: member.role,
+        universityId: member.universityId ?? null,
+      })
+      if (!denial) return false
+      this.logger.warn(`WS отклонён: вуз заблокирован (user=${member.sub ?? '?'})`)
+      return true
+    } catch (error) {
+      this.logger.warn(`Статус вуза не прочитан — WS-допуск без проверки: ${String(error)}`)
+      return false
+    }
+  }
+
+  /**
+   * Пускает ли вуз владельца уже открытого сокета. Для событий, которые пишут в базу или
+   * открывают доступ к переписке (ChatGateway): handshake и `auth:refresh` проверяют вуз
+   * только в момент входа, а сокет на соседнем инстансе блокировка вуза не рвёт
+   * (`disconnectUniversity` видит только свои соединения). Отказ — `error` с кодом
+   * `UNIVERSITY_BLOCKED` и разрыв: дальше клиент упрётся в тот же отказ на refresh.
+   */
+  async admitSocket(client: Socket, event: string): Promise<boolean> {
+    const role = client.data?.role as JwtPayload['role'] | undefined
+    if (!role) return true
+    const blocked = await this.isUniversityBlocked({
+      sub: client.data?.userId as string | undefined,
+      role,
+      universityId: (client.data?.universityId as string | null | undefined) ?? null,
+    })
+    if (!blocked) return true
+    client.emit('error', { event, code: 'UNIVERSITY_BLOCKED' })
+    client.disconnect(true)
+    return false
   }
 
   /**
@@ -247,6 +306,30 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
    */
   disconnectUser(userId: string): void {
     this.server?.in(`user:${userId}`).disconnectSockets(true)
+  }
+
+  /**
+   * Рвёт соединения пользователей вуза, который платформа только что заблокировала. Без
+   * этого HTTP им уже отказывал, а открытый сокет продолжал получать события и принимать
+   * `message:send` в обход `UNIVERSITY_BLOCKED`. Решает тот же UniversityAccessService, что
+   * и handshake: платформенные роли, оказавшиеся в комнате вуза, остаются на связи.
+   *
+   * Видит только соединения этого инстанса (адаптер socket.io — в памяти процесса); на
+   * соседних сокет закроется на первом же событии чата (`admitSocket`) или переподключении.
+   */
+  async disconnectUniversity(universityId: string): Promise<void> {
+    if (!this.server) return
+    const sockets = await this.server.in(`university:${universityId}`).fetchSockets()
+    for (const socket of sockets) {
+      const role = socket.data?.role as JwtPayload['role'] | undefined
+      if (!role) continue
+      const blocked = await this.isUniversityBlocked({
+        sub: socket.data?.userId as string | undefined,
+        role,
+        universityId: (socket.data?.universityId as string | null | undefined) ?? universityId,
+      })
+      if (blocked) socket.disconnect(true)
+    }
   }
 
   /**

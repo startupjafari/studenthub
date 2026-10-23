@@ -126,6 +126,13 @@ describe('Бронь', () => {
     })
   })
 
+  it('утерянная книга с непогашенным долгом закрывает бронь — 409 lost', async () => {
+    const { service } = setup({ blockers: ['lost'] })
+    await expect(service.reserve(student, 'book-1', ctx)).rejects.toMatchObject({
+      details: [{ field: 'lost' }],
+    })
+  })
+
   it('предел броней — 409 reservationLimit', async () => {
     const { service } = setup({
       counts: { active: 3, sameBook: 0, borrowed: 0, inCirculation: 2 },
@@ -165,6 +172,11 @@ describe('Бронь', () => {
         data: expect.objectContaining({ status: 'READY', copyId: 'copy-1' }),
       }),
     )
+    // Свою готовую бронь читатель видит в ответе — cron её уведомлением не догоняет.
+    expect(tx.reservation.update).toHaveBeenCalledWith({
+      where: { id: 'res-1' },
+      data: { readyNotifiedAt: expect.any(Date) },
+    })
   })
 
   it('свободных нет — бронь остаётся в очереди', async () => {
@@ -232,5 +244,39 @@ describe('Отмена и истечение', () => {
     expect(notifier.send).toHaveBeenCalledWith(
       expect.objectContaining({ titleKey: 'library.reservationExpired.title' }),
     )
+  })
+})
+
+describe('Догонялка «бронь готова»', () => {
+  const NOW = new Date('2026-10-23T07:00:00Z')
+  const pending = (id: string) => ({
+    id,
+    universityId: 'uni-1',
+    readerId: 'stu-2',
+    holdUntil: new Date('2026-10-25T18:59:59.999Z'),
+    book: { title: 'Русская литература' },
+  })
+
+  it('досылает готовые брони без отметки, с запасом от момента готовности', async () => {
+    const { service, prisma, loans } = setup()
+    loans.notifyHeld.mockResolvedValue(true)
+    prisma.reservation.findMany.mockResolvedValueOnce([pending('res-5')])
+    await expect(service.notifyReadyPending(NOW)).resolves.toBe(1)
+    const where = prisma.reservation.findMany.mock.calls[0][0].where
+    expect(where).toMatchObject({ status: 'READY', readyNotifiedAt: null, holdUntil: { gte: NOW } })
+    expect(where.readyAt.lt.getTime()).toBe(NOW.getTime() - 5 * 60 * 1000)
+    expect(loans.notifyHeld).toHaveBeenCalledWith(
+      expect.objectContaining({ reservationId: 'res-5', readerId: 'stu-2' }),
+      'Русская литература',
+      'Asia/Almaty',
+    )
+  })
+
+  it('очередь недоступна — останавливается на первой неудаче', async () => {
+    const { service, prisma, loans } = setup()
+    loans.notifyHeld.mockResolvedValue(false)
+    prisma.reservation.findMany.mockResolvedValueOnce([pending('res-5'), pending('res-6')])
+    await expect(service.notifyReadyPending(NOW)).resolves.toBe(0)
+    expect(loans.notifyHeld).toHaveBeenCalledTimes(1)
   })
 })

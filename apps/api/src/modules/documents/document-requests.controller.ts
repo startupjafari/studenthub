@@ -119,6 +119,22 @@ export class DocumentRequestsController {
     return this.requests.listForStudent(user)
   }
 
+  // Статический маршрут — до `:id`.
+  @Get('group-progress')
+  @Roles(Role.STAROSTA)
+  @ApiOperation({
+    summary:
+      'Прогресс своей группы по открытым запросам (староста): счётчики, поимённо — только учебные',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Запросы со счётчиками комплектов; members — только у учебных запросов',
+  })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN — только староста с группой' })
+  groupProgress(@CurrentUser() user: CurrentUserData) {
+    return this.requests.groupProgress(user)
+  }
+
   @Get(':id')
   @Roles(...RESPONDERS)
   @ApiOperation({ summary: 'Запрос с чек-листом и моим ответом (студент)' })

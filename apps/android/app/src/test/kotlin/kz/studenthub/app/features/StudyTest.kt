@@ -33,32 +33,28 @@ import java.time.Clock
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
-import java.time.temporal.IsoFields
 
 class WeekParityTest {
     /**
-     * Чётность обязана совпадать с вебом и iOS день в день. Значения — по формуле веба,
-     * а не по ISO 8601: в 2026 году номер недели на единицу меньше стандартного.
+     * Чётность обязана совпадать с вебом и iOS день в день. Значения — по ISO 8601, те же,
+     * что в тесте веба (`tz-date.test.ts`).
      */
     @Test
-    fun parityMatchesWebFormula() {
+    fun parityMatchesIsoWeek() {
         listOf(
-            Triple(LocalDate.of(2026, 1, 5), WeekParity.ODD, 1L),
-            Triple(LocalDate.of(2026, 1, 12), WeekParity.EVEN, 2L),
-            Triple(LocalDate.of(2026, 10, 7), WeekParity.EVEN, 40L),
+            Triple(LocalDate.of(2026, 10, 23), WeekParity.ODD, 43L),
+            Triple(LocalDate.of(2026, 10, 26), WeekParity.EVEN, 44L),
+            Triple(LocalDate.of(2026, 1, 5), WeekParity.EVEN, 2L),
+            Triple(LocalDate.of(2026, 1, 12), WeekParity.ODD, 3L),
+            Triple(LocalDate.of(2026, 10, 7), WeekParity.ODD, 41L),
             Triple(LocalDate.of(2024, 1, 4), WeekParity.ODD, 1L),
+            // Конец декабря — уже 1-я неделя следующего года, начало января — ещё 53-я.
+            Triple(LocalDate.of(2025, 12, 29), WeekParity.ODD, 1L),
+            Triple(LocalDate.of(2027, 1, 3), WeekParity.ODD, 53L),
         ).forEach { (date, parity, week) ->
             assertEquals("неделя для $date", week, WeekParity.weekNumber(date))
             assertEquals("чётность для $date", parity, WeekParity.of(date))
         }
-    }
-
-    /** Расхождение с ISO — зафиксированное решение: тест упадёт, если «починить» в одном месте. */
-    @Test
-    fun divergenceFromIsoIsDeliberate() {
-        val date = LocalDate.of(2026, 1, 5)
-        assertEquals(1L, WeekParity.weekNumber(date))
-        assertEquals(2, date.get(IsoFields.WEEK_OF_WEEK_BASED_YEAR))
     }
 
     @Test

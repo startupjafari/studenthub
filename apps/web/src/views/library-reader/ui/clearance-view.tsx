@@ -6,11 +6,12 @@ import { useFormatter, useTranslations } from 'next-intl'
 import { ArrowLeft, BadgeCheck, Printer, TriangleAlert } from 'lucide-react'
 import type { LibraryClearance } from '@studenthub/shared-schemas'
 import { Button, Card, EmptyState, PageHeader, Skeleton } from '../../../shared/ui'
-import { LoanDueBadge, fetchClearance, libraryKeys } from '../../../entities/library'
+import { LoanDueBadge, fetchClearance, isLostDebt, libraryKeys } from '../../../entities/library'
 
 // Справка «задолженностей в библиотеке нет» (Фаза 20.11): на момент запроса, для обходного
 // листа при выпуске или переводе. Есть книги на руках — вместо справки список того, что
-// вернуть. Печатается только лист справки (правила @media print в globals.css).
+// вернуть, а утерянную книгу без погашения — заменить или возместить. Печатается только лист
+// справки (правила @media print в globals.css).
 export function ClearanceView() {
   const t = useTranslations('LibraryReader')
   const format = useFormatter()
@@ -89,6 +90,9 @@ export function ClearanceView() {
               </li>
             ))}
           </ul>
+          {c.loans.some(isLostDebt) && (
+            <p className="text-sm text-muted-foreground">{t('lostHint')}</p>
+          )}
         </Card>
       )}
       {c.clear && <ClearanceSheet clearance={c} checked={checked} />}

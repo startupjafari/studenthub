@@ -48,7 +48,7 @@ export class LibraryLoansController {
   @ApiResponse({
     status: 409,
     description:
-      'details.field: status | overdue | limit — читателю нельзя; onLoan | reserved | withdrawn | archived — экземпляр; ticket — пропуск истёк; module',
+      'details.field: status | overdue | lost | limit — читателю нельзя; onLoan | reserved | withdrawn | archived — экземпляр; ticket — пропуск истёк; module',
   })
   @ApiResponse({ status: 422, description: 'Срок вне правил библиотеки (field = dueDate)' })
   issue(
@@ -87,9 +87,27 @@ export class LibraryLoansController {
 
   @Post('loans/:id/lost')
   @Roles(Role.LIBRARIAN)
-  @ApiOperation({ summary: 'Книга утеряна читателем: выдача закрыта, экземпляр — из оборота' })
+  @ApiOperation({
+    summary: 'Книга утеряна читателем: выдача закрыта, экземпляр — из оборота, долг за читателем',
+  })
   lost(@CurrentUser() user: CurrentUserData, @Param('id') id: string, @Req() req: FastifyRequest) {
     return this.loans.markLost(user, id, this.ctx(req))
+  }
+
+  @Post('loans/:id/lost/settle')
+  @Roles(Role.LIBRARIAN)
+  @ApiOperation({ summary: 'Долг по утерянной книге погашен: книгу заменили или возместили' })
+  @ApiResponse({ status: 404, description: 'Выдача не найдена или чужого вуза' })
+  @ApiResponse({
+    status: 409,
+    description: 'details.field: notLost — выдача не утеряна; settled — долг уже погашен',
+  })
+  settleLost(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Req() req: FastifyRequest,
+  ) {
+    return this.loans.settleLost(user, id, this.ctx(req))
   }
 
   @Post('loans/:id/cancel')

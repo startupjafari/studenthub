@@ -139,6 +139,65 @@ describe('SchedulesService.getSchedule — ролевая выборка (6.3)',
     const where = await whereFor(viewer(Role.STUDENT, { groupId: 'grp-1' }), { groupId: 'grp-999' })
     expect(where.groupId).toBe('grp-1')
   })
+
+  it('админ платформы — все вузы, фильтр группы сужает', async () => {
+    expect(await whereFor(viewer(Role.PLATFORM_ADMIN))).toEqual({
+      schedule: { is: { isActive: true } },
+    })
+    const where = await whereFor(viewer(Role.PLATFORM_ADMIN), { groupId: 'grp-9' })
+    expect(where.groupId).toBe('grp-9')
+  })
+})
+
+// ── Модератор платформы: «Расписание — чтение» ❌ (docs/PROJECT.md §2.2) ──────
+// Раньше read-scope держался на isPlatformRole, и модератор платформы читал расписание всех
+// вузов (сетку, разовые изменения, версии с парами), хотя по матрице доступа его у него нет.
+describe('SchedulesService — модератору платформы расписание закрыто', () => {
+  const moderator = viewer(Role.PLATFORM_MODERATOR)
+
+  async function expectForbidden(run: Promise<unknown>) {
+    await expect(run).rejects.toBeInstanceOf(AppException)
+    await expect(run).rejects.toMatchObject({ code: 'FORBIDDEN' })
+  }
+
+  it('GET /schedule — FORBIDDEN, в базу не ходим (и с фильтром группы)', async () => {
+    const { service, prisma } = setup()
+    await expectForbidden(service.getSchedule(moderator, {} as never))
+    await expectForbidden(service.getSchedule(moderator, { groupId: 'grp-1' } as never))
+    expect(prisma.pair.findMany).not.toHaveBeenCalled()
+  })
+
+  it('GET /schedule/changes — FORBIDDEN', async () => {
+    const { service, prisma } = setup()
+    await expectForbidden(
+      service.listChanges(moderator, { from: '2026-10-19', to: '2026-10-25' } as never),
+    )
+    expect(prisma.scheduleChange.findMany).not.toHaveBeenCalled()
+  })
+
+  it('GET /schedules и GET /schedules/:id — FORBIDDEN', async () => {
+    const { service, prisma } = setup()
+    prisma.schedule.findUnique.mockResolvedValue({ id: 'sch-1', groupId: 'grp-1' })
+    prisma.group.findUnique.mockResolvedValue(GROUP_CTX)
+    await expectForbidden(service.listSchedules(moderator, 'grp-1'))
+    await expectForbidden(service.getScheduleById(moderator, 'sch-1'))
+    expect(prisma.schedule.findMany).not.toHaveBeenCalled()
+    expect(prisma.pair.findMany).not.toHaveBeenCalled()
+  })
+
+  it('админ платформы по-прежнему читает версии и изменения любого вуза', async () => {
+    const { service, prisma } = setup()
+    prisma.schedule.findMany.mockResolvedValue([])
+    prisma.schedule.findUnique.mockResolvedValue({ id: 'sch-1', groupId: 'grp-1' })
+    prisma.group.findUnique.mockResolvedValue(GROUP_CTX)
+    const admin = viewer(Role.PLATFORM_ADMIN)
+
+    await service.listSchedules(admin)
+    expect(prisma.schedule.findMany.mock.calls[0][0].where).toEqual({})
+    await expect(service.getScheduleById(admin, 'sch-1')).resolves.toBeDefined()
+    await service.listChanges(admin, { from: '2026-10-19', to: '2026-10-25' } as never)
+    expect(prisma.scheduleChange.findMany.mock.calls[0][0].where.pair).toEqual({ is: {} })
+  })
 })
 
 // ── 6.6 weekType в фильтре чтения ───────────────────────────────────────────

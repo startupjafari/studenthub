@@ -5,10 +5,12 @@ import { useFormatter, useTranslations } from 'next-intl'
 import { TriangleAlert } from 'lucide-react'
 import { Card } from '../../../shared/ui'
 import { fetchReaderDebts, libraryKeys } from '../api/library-api'
+import { isLostDebt } from '../lib/loan-debt'
 
 /**
  * Предупреждение о книгах за студентом (Фаза 20.11): показывается, когда декан или админ
- * вуза переводит студента в «выпускник», «отчислен» или «переведён». Это не запрет —
+ * вуза переводит студента в «выпускник», «отчислен» или «переведён». В списке — книги на
+ * руках и утерянные, за которые ещё не рассчитались. Это не запрет —
  * статус сохранится, — а напоминание, что книги нужно вернуть до выхода из вуза.
  */
 export function LibraryDebtsNotice({ userId }: { userId: string }) {
@@ -29,12 +31,18 @@ export function LibraryDebtsNotice({ userId }: { userId: string }) {
         <ul className="flex flex-col gap-0.5">
           {loans.map((loan) => (
             <li key={loan.id} className="truncate">
-              {t('loanLine', {
-                title: loan.book.title,
-                number: loan.copy.inventoryNumber,
-                date: dayOf(loan.dueDate, format),
-              })}
-              {loan.overdue ? ` · ${t('overdue')}` : ''}
+              {isLostDebt(loan) ? (
+                t('lostLine', { title: loan.book.title, number: loan.copy.inventoryNumber })
+              ) : (
+                <>
+                  {t('loanLine', {
+                    title: loan.book.title,
+                    number: loan.copy.inventoryNumber,
+                    date: dayOf(loan.dueDate, format),
+                  })}
+                  {loan.overdue ? ` · ${t('overdue')}` : ''}
+                </>
+              )}
             </li>
           ))}
         </ul>

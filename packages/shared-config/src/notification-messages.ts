@@ -54,6 +54,8 @@ const RU = {
 
   'documents.request.title': 'Новый запрос документов',
   'documents.result.title': 'Результат проверки документов',
+  // Результат проверки комплекта с отклонёнными позициями: документ нужно заменить.
+  'documents.replacement.title': 'Требуется замена документа',
   'documents.expired.title': 'Срок документа истёк',
   'documents.expiring.title': 'Документ скоро истекает',
   'documents.named.body': '«{title}»',
@@ -204,6 +206,7 @@ const KK: Record<NotificationMessageKey, string> = {
 
   'documents.request.title': 'Жаңа құжат сұрауы',
   'documents.result.title': 'Құжаттарды тексеру нәтижесі',
+  'documents.replacement.title': 'Құжатты ауыстыру қажет',
   'documents.expired.title': 'Құжаттың мерзімі өтті',
   'documents.expiring.title': 'Құжаттың мерзімі жақында бітеді',
   'documents.named.body': '«{title}»',
@@ -336,6 +339,7 @@ const EN: Record<NotificationMessageKey, string> = {
 
   'documents.request.title': 'New document request',
   'documents.result.title': 'Document review result',
+  'documents.replacement.title': 'Document replacement required',
   'documents.expired.title': 'Document has expired',
   'documents.expiring.title': 'Document expires soon',
   'documents.named.body': '“{title}”',

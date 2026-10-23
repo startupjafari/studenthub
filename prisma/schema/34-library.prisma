@@ -112,6 +112,11 @@ model Loan {
   cancelReason    String?        @map("cancel_reason")
   // Читатель нажал «Это не я» в уведомлении о выдаче.
   disputedAt      DateTime?      @map("disputed_at")
+  // Утерянная книга — долг читателя, пока библиотекарь не отметит, что его погасили (книгу
+  // заменили или возместили). До отметки выдача LOST держит справку и закрывает выдачу и
+  // брони, как просрочка.
+  lostSettledAt   DateTime?      @map("lost_settled_at")
+  lostSettledById String?        @map("lost_settled_by_id")
   // Снимок читателя и книги на момент выдачи.
   readerName      String         @map("reader_name")
   readerGroup     String?        @map("reader_group")
@@ -125,14 +130,15 @@ model Loan {
   createdAt       DateTime       @default(now()) @map("created_at")
   updatedAt       DateTime       @updatedAt @map("updated_at")
 
-  university  University           @relation(fields: [universityId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  copy        BookCopy             @relation(fields: [copyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  reader      User?                @relation("LoanReader", fields: [readerId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  issuedBy    User?                @relation("LoanIssuedBy", fields: [issuedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  returnedTo  User?                @relation("LoanReturnedTo", fields: [returnedToId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  cancelledBy User?                @relation("LoanCancelledBy", fields: [cancelledById], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  idAccesses  LibraryIdAccessLog[]
-  reservation Reservation?         @relation("ReservationFulfilledBy")
+  university    University           @relation(fields: [universityId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  copy          BookCopy             @relation(fields: [copyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  reader        User?                @relation("LoanReader", fields: [readerId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  issuedBy      User?                @relation("LoanIssuedBy", fields: [issuedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  returnedTo    User?                @relation("LoanReturnedTo", fields: [returnedToId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  cancelledBy   User?                @relation("LoanCancelledBy", fields: [cancelledById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  lostSettledBy User?                @relation("LoanLostSettledBy", fields: [lostSettledById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  idAccesses    LibraryIdAccessLog[]
+  reservation   Reservation?         @relation("ReservationFulfilledBy")
 
   @@index([universityId, status, dueAt])
   @@index([readerId, status])
@@ -140,23 +146,28 @@ model Loan {
   @@index([issuedById])
   @@index([returnedToId])
   @@index([cancelledById])
+  @@index([lostSettledById])
   @@map("loans")
 }
 
 model Reservation {
-  id           String            @id @default(uuid())
-  universityId String            @map("university_id")
-  bookId       String            @map("book_id")
-  readerId     String            @map("reader_id")
-  status       ReservationStatus @default(QUEUED)
+  id              String            @id @default(uuid())
+  universityId    String            @map("university_id")
+  bookId          String            @map("book_id")
+  readerId        String            @map("reader_id")
+  status          ReservationStatus @default(QUEUED)
   // Отложенный экземпляр: есть только у брони в статусе READY.
-  copyId       String?           @map("copy_id")
-  readyAt      DateTime?         @map("ready_at")
-  holdUntil    DateTime?         @map("hold_until")
-  loanId       String?           @unique @map("loan_id")
-  closedAt     DateTime?         @map("closed_at")
-  createdAt    DateTime          @default(now()) @map("created_at")
-  updatedAt    DateTime          @updatedAt @map("updated_at")
+  copyId          String?           @map("copy_id")
+  readyAt         DateTime?         @map("ready_at")
+  holdUntil       DateTime?         @map("hold_until")
+  // Очередь приняла уведомление «бронь готова». Пусто у готовой брони — уведомление не
+  // ушло (Redis лежал): cron `expireLibraryHolds` догоняет, иначе читатель не узнал бы о
+  // брони, и она истекла бы впустую.
+  readyNotifiedAt DateTime?         @map("ready_notified_at")
+  loanId          String?           @unique @map("loan_id")
+  closedAt        DateTime?         @map("closed_at")
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
 
   university University @relation(fields: [universityId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   book       Book       @relation(fields: [bookId], references: [id], onDelete: Restrict, onUpdate: Cascade)
