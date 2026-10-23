@@ -18,6 +18,7 @@ import {
   Input,
   Label,
   Modal,
+  PhoneInput,
   Select,
   SelectContent,
   SelectItem,
@@ -160,13 +161,19 @@ export function RecordVisitorModal({ onClose }: { onClose: () => void }) {
 
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="visitor-phone">{t('visitorPhone')}</Label>
-          <Input
-            id="visitor-phone"
-            type="tel"
-            autoComplete="off"
-            placeholder="+7 700 000 00 00"
-            aria-invalid={!!errors.phone}
-            {...form.register('phone')}
+          <Controller
+            control={form.control}
+            name="phone"
+            render={({ field }) => (
+              <PhoneInput
+                id="visitor-phone"
+                autoComplete="off"
+                value={field.value}
+                onChange={(v) => field.onChange(v || undefined)}
+                onBlur={field.onBlur}
+                aria-invalid={!!errors.phone}
+              />
+            )}
           />
           <FieldError>{errors.phone && t('visitorPhoneInvalid')}</FieldError>
         </div>

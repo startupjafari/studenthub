@@ -8,6 +8,7 @@ export {
 } from './control-size'
 export { Button, buttonVariants } from './button'
 export { Input } from './input'
+export { PhoneInput, isCompletePhone } from './phone-input'
 export { CodeInput, type CodeAlphabet, type CodeInputProps } from './code-input'
 export { SegmentedTabs, type SegmentedTabItem, type SegmentedTabsProps } from './segmented-tabs'
 export { Label } from './label'

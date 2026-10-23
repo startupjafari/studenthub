@@ -27,6 +27,7 @@ import {
   Input,
   Label,
   LanguageFlag,
+  PhoneInput,
   Select,
   SelectContent,
   SelectItem,
@@ -54,7 +55,6 @@ import { fetchSpecialties, specialtyKeys } from '../../../entities/specialty'
 import { cn } from '../../../shared/lib/utils'
 import type { FieldDef, Section } from './sections'
 import { DictMultiSelect } from './dict-multi-select'
-import { PhoneInput } from './phone-input'
 import { HandleInput } from './handle-input'
 
 const DICT_OPTIONS: Record<string, string[]> = {

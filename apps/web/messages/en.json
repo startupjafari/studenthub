@@ -973,7 +973,8 @@
     "byteUnitB": "B",
     "byteUnitKb": "KB",
     "byteUnitMb": "MB",
-    "byteUnitGb": "GB"
+    "byteUnitGb": "GB",
+    "phoneIncomplete": "Enter the full number: +7 (777) 777-77-77"
   },
   "Auth": {
     "loginTitle": "Sign in",
@@ -4095,7 +4096,7 @@
     "visitorDocLast4Invalid": "Exactly 4 digits",
     "visitorDocHint": "The full document number and IIN are not recorded — only the type and last 4 digits",
     "visitorPhone": "Phone (optional)",
-    "visitorPhoneInvalid": "Phone: digits, spaces, brackets and hyphens",
+    "visitorPhoneInvalid": "Full number: +7 (777) 777-77-77",
     "cancel": "Cancel"
   },
   "Library": {

@@ -973,7 +973,8 @@
     "byteUnitB": "Б",
     "byteUnitKb": "КБ",
     "byteUnitMb": "МБ",
-    "byteUnitGb": "ГБ"
+    "byteUnitGb": "ГБ",
+    "phoneIncomplete": "Нөмірді толық теріңіз: +7 (777) 777-77-77"
   },
   "Auth": {
     "loginTitle": "Кіру",
@@ -4095,7 +4096,7 @@
     "visitorDocLast4Invalid": "Дәл 4 сан",
     "visitorDocHint": "Құжаттың толық нөмірі мен ЖСН жазылмайды — тек түрі және соңғы 4 саны",
     "visitorPhone": "Телефон (міндетті емес)",
-    "visitorPhoneInvalid": "Телефон: сандар, бос орын, жақша және сызықша",
+    "visitorPhoneInvalid": "Нөмір толық: +7 (777) 777-77-77",
     "cancel": "Болдырмау"
   },
   "Library": {

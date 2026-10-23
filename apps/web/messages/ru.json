@@ -973,7 +973,8 @@
     "byteUnitB": "Б",
     "byteUnitKb": "КБ",
     "byteUnitMb": "МБ",
-    "byteUnitGb": "ГБ"
+    "byteUnitGb": "ГБ",
+    "phoneIncomplete": "Наберите номер полностью: +7 (777) 777-77-77"
   },
   "Auth": {
     "loginTitle": "Вход",
@@ -4095,7 +4096,7 @@
     "visitorDocLast4Invalid": "Ровно 4 цифры",
     "visitorDocHint": "Полный номер документа и ИИН не записываются — только тип и 4 последние цифры",
     "visitorPhone": "Телефон (необязательно)",
-    "visitorPhoneInvalid": "Телефон: цифры, пробелы, скобки и дефис",
+    "visitorPhoneInvalid": "Номер целиком: +7 (777) 777-77-77",
     "cancel": "Отмена"
   },
   "Library": {
