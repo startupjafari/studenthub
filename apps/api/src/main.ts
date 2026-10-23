@@ -13,10 +13,11 @@ import { IoAdapter } from '@nestjs/platform-socket.io'
 import helmet from '@fastify/helmet'
 import cookie from '@fastify/cookie'
 import multipart from '@fastify/multipart'
-import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger'
+import { SwaggerModule } from '@nestjs/swagger'
 import { Logger as PinoLogger } from 'nestjs-pino'
 import { FILE_UPLOAD } from '@studenthub/shared-config'
 import { AppModule } from './app.module'
+import { createOpenApiDocument } from './common/swagger/openapi-document'
 import type { EnvVars } from './config/env.schema'
 
 const REQUEST_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -126,16 +127,8 @@ async function bootstrap(): Promise<void> {
 
   // §12 — Swagger только в development, по пути /api/docs.
   if (config.get('NODE_ENV', { infer: true }) === 'development') {
-    // TODO(Ф1): patchNestJsSwagger() для createZodDto-схем — включить после согласования
-    // совместимых версий nestjs-zod ↔ @nestjs/swagger (в 4.3.1 патч ломается о swagger 11).
-    const swaggerConfig = new DocumentBuilder()
-      .setTitle('StudentHub API')
-      .setDescription('Внутренний API образовательной платформы StudentHub')
-      .setVersion('1.0')
-      .addBearerAuth()
-      .build()
-    const document = SwaggerModule.createDocument(app, swaggerConfig)
-    SwaggerModule.setup('api/docs', app, document)
+    // Тот же документ, что экспортируется в openapi.json, со схемами zod-DTO.
+    SwaggerModule.setup('api/docs', app, createOpenApiDocument(app))
   }
 
   const port = config.get('PORT', { infer: true })
