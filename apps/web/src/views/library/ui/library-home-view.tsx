@@ -85,7 +85,7 @@ export function LibraryHomeView() {
       <PageHeader title={t('title')} subtitle={t('subtitle')} />
 
       {settings.isPending ? (
-        <Skeleton className="h-24 w-full rounded-xl" />
+        <Skeleton fill className="min-h-24 rounded-xl" />
       ) : !enabled ? (
         <EmptyState
           icon={<PowerOff className="size-6" aria-hidden />}
@@ -181,7 +181,7 @@ function PanelSkeleton() {
   return (
     <div className="flex flex-col gap-2">
       {Array.from({ length: 4 }, (_, i) => (
-        <Skeleton key={i} className="h-11 w-full rounded-lg" />
+        <Skeleton key={i} fill className="min-h-11 rounded-lg" />
       ))}
     </div>
   )

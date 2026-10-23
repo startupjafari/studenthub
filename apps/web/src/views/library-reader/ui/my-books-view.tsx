@@ -82,7 +82,7 @@ export function MyBooksView() {
 
       <SectionPanel title={t('onHands')} subtitle={t('onHandsSubtitle')}>
         {loans.isPending ? (
-          <Skeleton className="h-20 w-full rounded-xl" />
+          <Skeleton fill className="min-h-20 rounded-xl" />
         ) : loans.isError ? (
           <p className="text-sm text-destructive">{t('loadError')}</p>
         ) : open.length === 0 ? (
@@ -108,7 +108,7 @@ export function MyBooksView() {
 
       <SectionPanel title={t('reservations')} subtitle={t('reservationsSubtitle')}>
         {reservations.isPending ? (
-          <Skeleton className="h-20 w-full rounded-xl" />
+          <Skeleton fill className="min-h-20 rounded-xl" />
         ) : reservations.isError ? (
           <p className="text-sm text-destructive">{t('loadError')}</p>
         ) : active.length === 0 ? (

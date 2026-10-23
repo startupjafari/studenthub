@@ -192,7 +192,7 @@ function DueTodayPanel() {
       {overdue.isPending ? (
         <div className="flex flex-col gap-2">
           {Array.from({ length: 3 }, (_, i) => (
-            <Skeleton key={i} className="h-10 w-full rounded-lg" />
+            <Skeleton key={i} fill className="min-h-10 rounded-lg" />
           ))}
         </div>
       ) : items.length === 0 ? (

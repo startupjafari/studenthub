@@ -79,7 +79,7 @@ export function ReaderBookView({ bookId }: { bookId: string }) {
     return (
       <div className="flex w-full flex-col gap-6">
         <Skeleton className="h-10 w-64 rounded-lg" />
-        <Skeleton className="h-56 w-full rounded-xl" />
+        <Skeleton fill className="min-h-56 rounded-xl" />
       </div>
     )
   }

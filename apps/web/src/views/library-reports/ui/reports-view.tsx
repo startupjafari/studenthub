@@ -153,7 +153,7 @@ export function ReportsView({ headerTabs, loansHref, catalogHref }: ReportsViewP
           }
         >
           {overdue.isPending ? (
-            <Skeleton className="h-32 w-full rounded-xl" />
+            <Skeleton fill className="min-h-32 rounded-xl" />
           ) : (overdue.data?.items.length ?? 0) === 0 ? (
             <p className="text-sm text-muted-foreground">{t('noDebtors')}</p>
           ) : (
@@ -191,7 +191,7 @@ export function ReportsView({ headerTabs, loansHref, catalogHref }: ReportsViewP
           }
         >
           {popular.isPending ? (
-            <Skeleton className="h-32 w-full rounded-xl" />
+            <Skeleton fill className="min-h-32 rounded-xl" />
           ) : (popular.data?.length ?? 0) === 0 ? (
             <p className="text-sm text-muted-foreground">{t('noPopular')}</p>
           ) : (

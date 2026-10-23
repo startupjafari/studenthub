@@ -233,7 +233,7 @@ export function InventoryView() {
 
         <SectionPanel title={t('invMissing')} subtitle={t('invMissingHint')}>
           {report.isPending ? (
-            <Skeleton className="h-32 w-full rounded-xl" />
+            <Skeleton fill className="min-h-32 rounded-xl" />
           ) : !r || r.items.length === 0 ? (
             <EmptyState
               icon={<ClipboardCheck className="size-6" aria-hidden />}

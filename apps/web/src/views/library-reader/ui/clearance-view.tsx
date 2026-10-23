@@ -30,7 +30,7 @@ export function ClearanceView() {
     </Button>
   )
 
-  if (clearance.isPending) return <Skeleton className="h-64 w-full rounded-xl" />
+  if (clearance.isPending) return <Skeleton fill className="min-h-64 rounded-xl" />
   if (clearance.isError) {
     return (
       <EmptyState

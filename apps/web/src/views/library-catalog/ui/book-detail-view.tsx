@@ -142,7 +142,7 @@ export function BookDetailView({ bookId, basePath }: { bookId: string; basePath:
       <div className="flex w-full flex-col gap-6">
         <Skeleton className="h-16 w-full" />
         <Skeleton className="h-48 w-full rounded-xl" />
-        <Skeleton className="h-64 w-full rounded-xl" />
+        <Skeleton fill className="min-h-64 rounded-xl" />
       </div>
     )
   }
