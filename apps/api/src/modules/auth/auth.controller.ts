@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   HttpCode,
+  HttpException,
   HttpStatus,
   Logger,
   Post,
@@ -235,7 +236,11 @@ export class AuthController {
       // cookie, а не только отвечаем 401. Иначе role-cookie переживает мёртвую сессию, и
       // middleware гоняет пользователя с /login обратно на его home, где refresh падает снова:
       // получается бесконечный редирект и до формы входа не добраться (§7.2).
-      this.clearAuthCookies(reply)
+      //
+      // Только при отказе в сессии (401/403 — то же, что клиент считает отказом и ведёт на
+      // /login). Сбой БД, таймаут лока и прочие 5xx — не решение сервера: клиент считает
+      // сессию живой и повторит обмен, а стёртая cookie выкинула бы человека посреди пары.
+      if (isSessionRefusal(error)) this.clearAuthCookies(reply)
       throw error
     }
     this.setAuthCookies(reply, session)
@@ -311,4 +316,12 @@ export class AuthController {
     reply.clearCookie(REFRESH_COOKIE, { path: AUTH_COOKIE_PATH })
     reply.clearCookie(ROLE_COOKIE, { path: '/' })
   }
+}
+
+// Отказ в сессии — 401 (токен мёртв) или 403 (вуз заблокирован, почта работодателя не
+// подтверждена). 5xx и непредвиденные исключения отказом не считаются.
+function isSessionRefusal(error: unknown): boolean {
+  if (!(error instanceof HttpException)) return false
+  const status = error.getStatus()
+  return status === HttpStatus.UNAUTHORIZED || status === HttpStatus.FORBIDDEN
 }

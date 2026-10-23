@@ -80,6 +80,28 @@ describe('AuthController.refresh — cookie при отказе', () => {
   })
 })
 
+describe('AuthController.refresh — cookie при сбое (BUG-079)', () => {
+  it('5xx не отказ в сессии: cookie остаются, ошибка пробрасывается', async () => {
+    const { controller, reply, req, clearCookie } = setup(() =>
+      Promise.reject(new Error("Can't reach database server")),
+    )
+
+    await expect(controller.refresh(req, reply)).rejects.toThrow('database')
+
+    expect(clearCookie).not.toHaveBeenCalled()
+  })
+
+  it('INTERNAL_ERROR из сервиса — тоже не отказ', async () => {
+    const { controller, reply, req, clearCookie } = setup(() =>
+      Promise.reject(new AppException('INTERNAL_ERROR', 'Сбой')),
+    )
+
+    await controller.refresh(req, reply).catch(() => undefined)
+
+    expect(clearCookie).not.toHaveBeenCalled()
+  })
+})
+
 describe('AuthController.qrApprove — только по свежему access-токену', () => {
   const jwt = new JwtService({ secret: 'test-secret' })
   const user = { sub: 'u1', role: 'STUDENT', universityId: null, facultyId: null, groupId: null }
