@@ -27,9 +27,8 @@ function setup() {
   const config = { get: jest.fn().mockReturnValue('https://app.studenthub.kz') }
   const users = {
     findForPasswordReset: jest.fn(),
-    setPasswordAfterReset: jest
-      .fn()
-      .mockResolvedValue({ email: 'aliya@uni.kz', username: 'aliya' }),
+    setPasswordAfterReset: jest.fn().mockResolvedValue(undefined),
+    loginIdentifiersOf: jest.fn().mockResolvedValue({ email: 'aliya@uni.kz', username: 'aliya' }),
   }
   const service = new PasswordResetService(
     prisma as unknown as PrismaService,

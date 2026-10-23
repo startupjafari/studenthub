@@ -112,14 +112,17 @@ export class PasswordResetService {
       throw new AppException('BAD_REQUEST', 'Ссылка недействительна или устарела')
     }
 
-    const login = await this.users.setPasswordAfterReset(record.userId, input.password)
+    await this.users.setPasswordAfterReset(record.userId, input.password)
     // Блокировка входа защищала прежний пароль от подбора; с новым ждать её конца незачем.
     // Подбор считается отдельно по email и по логину — снимаем оба.
-    await Promise.all(
-      [login.email, ...(login.username ? [login.username] : [])].map((id) =>
-        this.loginAttempts.unlock(id),
-      ),
-    )
+    const login = await this.users.loginIdentifiersOf(record.userId)
+    if (login) {
+      await Promise.all(
+        [login.email, ...(login.username ? [login.username] : [])].map((id) =>
+          this.loginAttempts.unlock(id),
+        ),
+      )
+    }
 
     await this.audit.record({
       userId: record.userId,

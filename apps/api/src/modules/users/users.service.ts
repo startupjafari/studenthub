@@ -1735,10 +1735,7 @@ export class UserService {
    * AuthModule. Все сессии гаснут, как при обычной смене пароля: сброс часто делают именно
    * потому, что пароль утёк, и открытая у злоумышленника сессия не должна пережить его.
    */
-  async setPasswordAfterReset(
-    userId: string,
-    newPassword: string,
-  ): Promise<{ email: string; username: string | null }> {
+  async setPasswordAfterReset(userId: string, newPassword: string): Promise<void> {
     // Аккаунт могли удалить, пока письмо лежало в ящике: затёртой учётке пароль не задаём.
     const alive = await this.prisma.user.findFirst({
       where: { id: userId, deletedAt: null },
@@ -1748,14 +1745,27 @@ export class UserService {
       throw new AppException('NOT_FOUND', 'Пользователь не найден')
     }
     const passwordHash = await this.passwords.hash(newPassword)
-    // Возвращаем, чем человек входит: AuthModule снимет по ним блокировку подбора.
-    const user = await this.prisma.user.update({
+    await this.prisma.user.update({
       where: { id: userId },
       data: { passwordHash },
-      select: { email: true, username: true },
+      select: { id: true },
     })
     await this.authService.revokeAllUserSessions(userId)
-    return user
+  }
+
+  /**
+   * Чем человек входит — email и логин. Нужно сбросу пароля, чтобы снять блокировку подбора
+   * по обоим. Отдельным методом, а не ответом `setPasswordAfterReset`: ответ функции «про
+   * пароль» анализатор (CodeQL) считает паролем, и sha256 ключа счётчика у него выглядел
+   * как слабое хеширование пароля.
+   */
+  async loginIdentifiersOf(
+    userId: string,
+  ): Promise<{ email: string; username: string | null } | null> {
+    return this.prisma.user.findFirst({
+      where: { id: userId, deletedAt: null },
+      select: { email: true, username: true },
+    })
   }
 
   /**
