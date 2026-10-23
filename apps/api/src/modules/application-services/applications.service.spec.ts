@@ -367,6 +367,29 @@ describe('ApplicationsService.cancel / resubmit', () => {
     expect(application.update).not.toHaveBeenCalled()
   })
 
+  // Приложенный документ потом удалили из хранилища (или сняли с него все страницы):
+  // строка привязки осталась, а открыть по заявке нечего.
+  it('комплект считается только по живым документам со страницами', async () => {
+    const { service, application, serviceRequirement, applicationDocument } = setup()
+    application.findFirst.mockResolvedValue({
+      id: 'a1',
+      studentId: 'stud',
+      status: 'NEEDS_CORRECTION',
+      serviceId: 's1',
+    })
+    serviceRequirement.findMany.mockResolvedValue([{ id: 'r1', titleRu: 'Удостоверение' }])
+    // Живого документа по требованию нет — выборка с условием на документ пуста.
+    applicationDocument.findMany.mockResolvedValue([])
+    await expect(service.resubmit(student, 'a1')).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    expect(applicationDocument.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          document: { is: { deletedAt: null, files: { some: {} } } },
+        }),
+      }),
+    )
+  })
+
   it('resubmit с полным комплектом → RESUBMITTED с условием на NEEDS_CORRECTION', async () => {
     const { service, application, serviceRequirement, applicationDocument } = setup()
     application.findFirst.mockResolvedValue({

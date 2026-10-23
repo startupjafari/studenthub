@@ -492,6 +492,8 @@ export class ApplicationsService {
   }
 
   // Все обязательные требования услуги должны иметь приложенный документ (не «требует замены»).
+  // Документ при этом должен быть жив: приложенный и затем удалённый из хранилища (или
+  // лишившийся всех страниц) открыть по заявке нельзя — сотрудник получил бы пустое место.
   private async assertRequiredDocuments(serviceId: string, applicationId: string): Promise<void> {
     const reqs = await this.prisma.serviceRequirement.findMany({
       where: { serviceId, active: true, required: true },
@@ -504,6 +506,7 @@ export class ApplicationsService {
         applicationId,
         requirementId: { in: reqs.map((r) => r.id) },
         status: { not: 'REPLACEMENT_REQUIRED' },
+        document: { is: { deletedAt: null, files: { some: {} } } },
       },
       select: { requirementId: true },
       // Документов не больше, чем требований, по которым мы их и спрашиваем.
