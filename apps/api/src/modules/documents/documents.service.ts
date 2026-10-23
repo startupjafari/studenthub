@@ -30,12 +30,14 @@ const DOCUMENT_FILES_LIMIT = 30
 const DOCUMENT_ACCESS_LIMIT = 200
 // Деканов одного факультета — единицы; потолок на адресатов уведомления о гранте.
 const GRANT_RECIPIENTS_LIMIT = 50
-// Кто открывает документ по гранту «Университет»: администрация вуза, не все его люди.
-const UNIVERSITY_GRANT_ROLES: ReadonlySet<Role> = new Set([
-  Role.UNIVERSITY_ADMIN,
-  Role.UNIVERSITY_MODERATOR,
-  Role.DEAN,
-])
+// Кто открывает документ по гранту «Университет»: администрация вуза, которая работает с
+// документами студентов (модератор вуза, деканы), а не все его люди. Админа вуза здесь нет
+// намеренно — см. CONTENT_BARRED_ROLES.
+const UNIVERSITY_GRANT_ROLES: ReadonlySet<Role> = new Set([Role.UNIVERSITY_MODERATOR, Role.DEAN])
+// Роли, которым содержимое чужих документов не открывается ни по какому гранту (§15.2,
+// решение владельца): админ вуза управляет типами, сроками хранения и журналом, но сканы
+// паспортов и дипломов студентов ему не положены. Раньше грант «Университет» открывал их и ему.
+const CONTENT_BARRED_ROLES: ReadonlySet<Role> = new Set([Role.UNIVERSITY_ADMIN])
 
 const DOCUMENT_MIME = new Set(['application/pdf', 'image/jpeg', 'image/png'])
 // Порог «скоро истекает» — 30 дней.
@@ -419,7 +421,10 @@ export class DocumentsService {
     })
     if (!doc) throw new AppException('NOT_FOUND', 'Документ не найден')
     const isOwner = doc.ownerId === actor.sub
-    if (!isOwner && !(await this.hasActiveGrant(actor, doc))) {
+    if (
+      !isOwner &&
+      (CONTENT_BARRED_ROLES.has(actor.role) || !(await this.hasActiveGrant(actor, doc)))
+    ) {
       throw new AppException('NOT_FOUND', 'Документ не найден')
     }
     const file = await this.prisma.file.findFirst({
@@ -480,6 +485,9 @@ export class DocumentsService {
     actor: JwtPayload,
     query: CursorPaginationInput,
   ): Promise<Paginated<SharedDocumentDto>> {
+    // Открыть отсюда такой роли нечего (getFileUrl ей откажет), а метаданные чужих документов
+    // — название, маска номера, сроки — тоже часть содержимого.
+    if (CONTENT_BARRED_ROLES.has(actor.role)) return new Paginated([], { hasNext: false })
     const now = new Date()
     const rows = await this.prisma.documentAccess.findMany({
       where: {
@@ -592,6 +600,8 @@ export class DocumentsService {
         deletedAt: null,
         isBlocked: false,
         NOT: { id: actor.sub },
+        // Админ вуза документ не откроет и по персональному гранту — не зовём его смотреть.
+        role: { notIn: [...CONTENT_BARRED_ROLES] },
         ...(input.granteeType === 'USER'
           ? { id: input.granteeId }
           : { role: Role.DEAN, facultyId: input.granteeId }),

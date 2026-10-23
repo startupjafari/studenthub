@@ -417,6 +417,50 @@ describe('DocumentsService — доступ (15.11)', () => {
     )
   })
 
+  it('админ вуза не открывает чужой документ ни по гранту «Университет», ни по персональному', async () => {
+    const { service, prisma, files } = setup()
+    prisma.document.findFirst.mockResolvedValue({
+      id: 'd1',
+      ownerId: 'other',
+      universityId: 'uni-1',
+    })
+    // Грант есть — но админу вуза содержимое не положено (§15.2).
+    prisma.documentAccess.findFirst.mockResolvedValue({ id: 'g1' })
+    prisma.file.findFirst.mockResolvedValue({ id: 'f1' })
+    const admin = { ...actor('admin-1'), role: Role.UNIVERSITY_ADMIN }
+    const err = await service.getFileUrl(admin, 'd1', 'f1').catch((e) => e)
+    expect(err.code).toBe('NOT_FOUND')
+    expect(files.getPresignedUrl).not.toHaveBeenCalled()
+    expect(prisma.documentEvent.create).not.toHaveBeenCalled()
+  })
+
+  it('админ вуза открывает свои документы как владелец', async () => {
+    const { service, prisma, files } = setup()
+    prisma.document.findFirst.mockResolvedValue({
+      id: 'd1',
+      ownerId: 'admin-1',
+      universityId: 'uni-1',
+    })
+    prisma.file.findFirst.mockResolvedValue({ id: 'f1' })
+    const admin = { ...actor('admin-1'), role: Role.UNIVERSITY_ADMIN }
+    await service.getFileUrl(admin, 'd1', 'f1')
+    expect(files.getPresignedUrl).toHaveBeenCalledWith('f1', undefined, false)
+  })
+
+  it('модератор вуза попадает под грант «Университет»', async () => {
+    const { service, prisma } = setup()
+    prisma.document.findFirst.mockResolvedValue({
+      id: 'd1',
+      ownerId: 'other',
+      universityId: 'uni-1',
+    })
+    prisma.documentAccess.findFirst.mockResolvedValue(null)
+    const moderator = { ...actor('mod-1'), role: Role.UNIVERSITY_MODERATOR }
+    await service.getFileUrl(moderator, 'd1', 'f1').catch(() => null)
+    const or = prisma.documentAccess.findFirst.mock.calls[0][0].where.OR
+    expect(or).toEqual([{ granteeType: 'USER', granteeId: 'mod-1' }, { granteeType: 'UNIVERSITY' }])
+  })
+
   it('getFileUrl: не владелец без гранта → NOT_FOUND', async () => {
     const { service, prisma, files } = setup()
     prisma.document.findFirst.mockResolvedValue({
@@ -483,6 +527,29 @@ describe('DocumentsService — открытые мне документы (D-F10
     expect((item.document as unknown as Record<string, unknown>).numberLast4).toBeUndefined()
     expect(item.document.fileCount).toBe(1)
     expect(res.meta).toEqual({ cursor: undefined, hasNext: false })
+  })
+
+  it('админу вуза «Открытые мне» пусты: без выборки грантов и метаданных', async () => {
+    const { service, prisma } = setup()
+    prisma.documentAccess.findMany.mockResolvedValue([grantRow('a1')])
+    const admin = { ...actor('admin-1'), role: Role.UNIVERSITY_ADMIN }
+    const res = await service.listSharedWithMe(admin, { limit: 20 })
+    expect(res.items).toEqual([])
+    expect(res.meta).toEqual({ hasNext: false })
+    expect(prisma.documentAccess.findMany).not.toHaveBeenCalled()
+  })
+
+  it('персональный грант: админ вуза не получает уведомления о доступе', async () => {
+    const { service, prisma } = setup()
+    prisma.document.findFirst.mockResolvedValue({ id: 'd1' })
+    await service.grantAccess(actor(), 'd1', {
+      granteeType: 'USER',
+      granteeId: 'admin-1',
+      reason: 'личное дело',
+    })
+    expect(prisma.user.findMany.mock.calls[0][0].where).toEqual(
+      expect.objectContaining({ id: 'admin-1', role: { notIn: [Role.UNIVERSITY_ADMIN] } }),
+    )
   })
 
   it('студенту — только персональные гранты', async () => {
