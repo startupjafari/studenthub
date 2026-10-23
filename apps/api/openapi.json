@@ -8469,26 +8469,6 @@
         ]
       }
     },
-    "/applications/group-requests": {
-      "get": {
-        "operationId": "ApplicationsController_groupRequests",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Обращения своей группы (староста, только чтение)",
-        "tags": [
-          "Заявки"
-        ]
-      }
-    },
     "/applications/{id}": {
       "get": {
         "operationId": "ApplicationsController_getById",
