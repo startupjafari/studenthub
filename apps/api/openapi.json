@@ -9671,6 +9671,114 @@
         ]
       }
     },
+    "/documents/{id}/files/{fileId}/replace": {
+      "post": {
+        "operationId": "DocumentsController_replaceFile",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "fileId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReplaceDocumentFileDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Документ с обновлённым списком страниц"
+          },
+          "400": {
+            "description": "BAD_REQUEST — файл недоступен для прикрепления"
+          },
+          "403": {
+            "description": "FORBIDDEN — документ выдан университетом"
+          },
+          "404": {
+            "description": "NOT_FOUND — документ или страница не найдены"
+          },
+          "409": {
+            "description": "CONFLICT — документ на проверке или принят по открытому запросу"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Заменить страницу: новый загруженный файл встаёт на её место (порядок сохраняется), старый удаляется из хранилища",
+        "tags": [
+          "Документы"
+        ]
+      }
+    },
+    "/documents/{id}/files/{fileId}": {
+      "delete": {
+        "operationId": "DocumentsController_removeFile",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "fileId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Документ с обновлённым списком страниц"
+          },
+          "400": {
+            "description": "BAD_REQUEST — единственную страницу не удалить"
+          },
+          "403": {
+            "description": "FORBIDDEN — документ выдан университетом"
+          },
+          "404": {
+            "description": "NOT_FOUND — документ или страница не найдены"
+          },
+          "409": {
+            "description": "CONFLICT — документ на проверке или принят по открытому запросу"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Удалить страницу (кроме единственной); остальные перенумеровываются подряд",
+        "tags": [
+          "Документы"
+        ]
+      }
+    },
     "/documents/{id}/files/{fileId}/url": {
       "get": {
         "operationId": "DocumentsController_fileUrl",
@@ -17667,6 +17775,10 @@
         "properties": {}
       },
       "DocumentFilesDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "ReplaceDocumentFileDto": {
         "type": "object",
         "properties": {}
       },
