@@ -1741,6 +1741,81 @@
 #### BUG-323 · 🟢 `GET /gradebook/me`: вложенная выборка колонок без `take` (корень BUG-049)
 - **Где:** `apps/api/src/modules/gradebook/gradebook.service.ts:286-297` · **Статус:** новый
 
+### Расписание, дисциплины, материалы, учебный план
+
+#### BUG-324 · 🟡 Форма разового изменения отправляет поля прежнего типа: «заменяющий» в смене аудитории, уведомление постороннему
+- **Роль:** DEAN, UNIVERSITY_ADMIN → STUDENT, TEACHER · **Статус:** подтверждён
+- **Где:** `apps/web/src/features/manage-schedule/ui/pair-details-modal.tsx:170-175,492-536` (поля `new*` не сбрасываются при смене типа), `packages/shared-schemas/src/schedule.ts:126-170` (`superRefine` проверяет только обязательные поля), `apps/api/src/modules/schedules/schedules.service.ts:936-947,964-975,1176-1178`; показ — `widgets/schedule-grid/ui/pair-detail-modal.tsx:64-65`, `views/calendar/lib/calendar-events.ts:52-53`
+- **Сценарий:** «Замена» → X → передумал, «Смена аудитории» → 305 → сохранить. Уходит `ROOM_CHANGED` + `newTeacherId=X`: X получает пуш, у студентов преподавателем стоит X, конфликты X не проверялись. `ROOM_CHANGED`→`MOVED` даёт сценарий BUG-100 из обычного UI.
+- **Ожидается:** только поля своего типа; сервер отклоняет лишние (`422`) или отбрасывает, форма их сбрасывает.
+
+#### BUG-325 · 🟡 «Убрать изменение» не проверяет конфликты — восстановленная пара встаёт в занятую аудиторию
+- **Где:** `apps/api/src/modules/schedules/schedules.service.ts:988-1036` (`removeChange`: `deleteMany` без `assertNoConflictOnDate` и без лока даты) · **Статус:** подтверждён
+- **Сценарий:** пару A (101, 10:00) перенесли на D 14:00, в 101 на 10:00 поставили пару B другой группы, потом перенос A удалили — в 101 две группы. Так же с удалением отмены.
+- **Ожидается:** проверка восстановленного слота под локом `schedule-change:<вуз>:<дата>`, `409` с `details[]`.
+
+#### BUG-326 · 🟡 Правка шаблона (создание, перенос пары, активация версии) не видит разовых изменений будущих дат; локи разные
+- **Где:** `apps/api/src/modules/schedules/schedules.service.ts:728-779` (`assertNoConflict`), `:787-854` (`assertActivationNoConflict`), локи `:534-536,1282-1290` (`schedule-slot:`) против `:910` (`schedule-change:`) · **Статус:** новый
+- **Сценарий:** A перенесена на D 14:00 в 101; другой группе создают пару пн 14:00 в 101 — проверка видит A в 10:00 и пропускает. Параллельные `POST /pairs` и `POST /schedule/changes` не ждут друг друга.
+
+#### BUG-327 · 🟡 Активация новой версии расписания молча теряет будущие отмены, переносы и замены
+- **Где:** `apps/api/src/modules/schedules/schedules.service.ts:431-451` (`ScheduleChange` остаются на парах старой версии), `:303` (`substitutionPairs` требует `isActive`), `apps/web/src/entities/schedule/lib/day.ts:39-41`, `widgets/schedule-grid/ui/schedule-grid.tsx:113-117`, `features/manage-schedule/ui/manage-schedule.tsx:108-124` · **Статус:** новый
+- **Сценарий:** на неделю вперёд заведены отмена и замена (пуши ушли) → активирована исправленная версия с новыми id пар → отмена пропала, пара снова идёт, заменяющий X не видит пару и не ведёт журнал; уведомлений нет, а в «Проблемах расписания» декана старые изменения висят.
+- **Ожидается:** перенос изменений на соответствующие пары или предупреждение и уведомление об их снятии.
+
+#### BUG-328 · 🟡 «Академическая сводка» засчитывает кредиты по первой же оценке и расходится с «Учебным планом»
+- **Роль:** STUDENT, STAROSTA · **Статус:** подтверждён
+- **Где:** `apps/web/src/views/academic/ui/academic-view.tsx:84-91` против `views/study-plan/lib/plan-status.ts:45-60`, `study-plan-view.tsx:108-114`
+- **Сценарий:** одна лабораторная 3/10 — в /academic кредиты «набраны» (и проваленные тоже), в /study-plan дисциплина «изучается».
+- **Ожидается:** один расчёт по правилу C-F26 (`planStatus`).
+
+#### BUG-329 · 🟡 Разовое изменение принимается для пары черновой или архивной версии, а пуш уходит всей группе
+- **Где:** `apps/api/src/modules/schedules/schedules.service.ts:873-892` (пара без `schedule.isActive`), `:970-975`; `features/manage-schedule/ui/pair-details-modal.tsx:383-551` · **Статус:** новый
+
+#### BUG-330 · 🟢 Ошибки формы изменения и правки пары не выводятся — кнопка молча ничего не делает
+- **Где:** `apps/web/src/features/manage-schedule/ui/pair-details-modal.tsx:480-488` (только `errors.date`), `:492-536`, `:256-257` · **Статус:** новый
+
+#### BUG-331 · 🟢 🔒 Преподаватель читает сетки и материалы любой группы вуза (корень BUG-015)
+- **Где:** `apps/api/src/modules/schedules/schedules.service.ts:1348,1365-1369`, `apps/api/src/modules/materials/materials.service.ts:248-266` (подписанные ссылки на файлы любой группы); `features/manage-schedule/ui/manage-schedule.tsx:196-204` · **Статус:** новый
+- **Ожидается:** §2.2 «Препод. ✅ свои»; §5.5 бакет `materials` — участникам группы и автору.
+
+#### BUG-332 · 🟢 В пикерах расписания нельзя выбрать декана преподавателем пары или заменяющим
+- **Где:** `apps/web/src/features/manage-schedule/ui/pair-details-modal.tsx:345,528`, `add-pair-modal.tsx:190` (`roleFilter={Role.TEACHER}`); сервер разрешает DEAN — `schedules.service.ts:1265` · **Статус:** новый
+
+#### BUG-333 · 🟢 Уведомление об изменении расписания и тексты конфликтов — по-русски в kk/en
+- **Где:** `apps/api/src/modules/schedules/schedules.service.ts:187-200,1189` (`{change}` — готовая русская строка), `packages/shared-config/src/notification-messages.ts:196,329`; тосты `pair-details-modal.tsx:143-145,190-193`, `manage-schedule.tsx:119-121,136-138`, `add-pair-modal.tsx:83-86` · **Статус:** новый
+
+#### BUG-334 · 🟢 Плитка декана «Пар сегодня» считает отменённые, «Проблемы расписания» — изменения неактивных версий
+- **Где:** `apps/web/src/widgets/today/ui/dean-today.tsx:58,70,78` · **Статус:** новый
+
+#### BUG-335 · 🟢 Карточки дисциплин прошлых семестров и без пар показывают «0 материалов»
+- **Где:** `apps/web/src/views/courses/lib/build-courses.ts:135-146,178,181` (`materialsCount: 0` вместо `materialCounts`) · **Статус:** новый
+
+#### BUG-336 · 🟢 «Ближайшее занятие» дисциплины не учитывает отмены и переносы (новое место BUG-097)
+- **Где:** `apps/web/src/views/courses/lib/build-courses.ts:37-60`, `views/courses/ui/course-view.tsx:273-295` · **Статус:** новый
+
+#### BUG-337 · 🟢 Календарь ведёт преподавателя и декана на студенческие «Задания» и «Экзамены» (новое место BUG-084)
+- **Где:** `apps/web/src/views/calendar/lib/calendar-events.ts:106,128` · **Статус:** новый
+
+#### BUG-338 · 🟢 «Учебный план» отличает прошлый семестр от будущего по `isActive`, а не по датам
+- **Где:** `apps/web/src/views/study-plan/lib/plan-status.ts:45-60`, `study-plan-view.tsx:92-97` · **Статус:** новый
+- **Сценарий:** прошлый семестр без оценок — «Предстоит»; будущий с ранней оценкой — «Пройдена/Не сдана»; без активного семестра возвращается регрессия C-F26.
+
+#### BUG-339 · 🟢 Файлы материала без имени: в окне только MIME-тип
+- **Где:** `apps/api/src/modules/materials/materials.controller.ts` (`readSingleUpload` теряет `filename`), `materials.service.ts:23-43`, `apps/web/src/views/materials/ui/material-detail-modal.tsx:105-112` · **Статус:** новый
+
+#### BUG-340 · 🟢 Число файлов у материала не ограничено, вложенная `media` без `take` (корень BUG-049)
+- **Где:** `apps/api/src/modules/materials/materials.service.ts:33-43,127-178` · **Статус:** новый
+
+#### BUG-341 · 🟢 Две параллельные «создать активную версию» оставляют группе две активные сетки
+- **Где:** `apps/api/src/modules/schedules/schedules.service.ts:392-404` (без лока, уникальности в БД нет) · **Статус:** новый
+
+#### BUG-342 · 🟢 `GET /schedule/changes` молча обрезается на 500 (новое место BUG-018)
+- **Где:** `apps/api/src/modules/schedules/schedules.service.ts:1154-1164`; потребитель `views/calendar/ui/calendar-view.tsx:69-73` · **Статус:** новый
+
+#### BUG-343 · 🟢 В плитке «Статус» академической сводки — сырой код `ACTIVE`/`EXPELLED` (новое место BUG-002)
+- **Где:** `apps/web/src/views/academic/ui/academic-view.tsx:169` · **Статус:** новый
+
 <!-- P3-END -->
 
 ## Замечено попутно
