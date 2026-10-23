@@ -401,7 +401,14 @@ export class ExamsService {
       return { OR: [{ course: { is: { teacherId: viewer.sub } } }, { examinerId: viewer.sub }] }
     }
     if (viewer.role === Role.DEAN) {
-      return { group: { is: { facultyId: viewer.facultyId ?? '__none__' } } }
+      // Экзаменатором бывает и декан другого факультета (председатель комиссии): экзамен,
+      // который он принимает, он видит, как и преподаватель-экзаменатор.
+      return {
+        OR: [
+          { group: { is: { facultyId: viewer.facultyId ?? '__none__' } } },
+          { examinerId: viewer.sub },
+        ],
+      }
     }
     return {
       group: { is: { faculty: { is: { universityId: viewer.universityId ?? '__none__' } } } },
@@ -428,6 +435,7 @@ export class ExamsService {
       if (exam.teacherId === viewer.sub || exam.examinerId === viewer.sub) return
       throw new AppException('FORBIDDEN', 'Не ваш экзамен')
     }
+    if (viewer.role === Role.DEAN && exam.examinerId === viewer.sub) return
     const meta = await this.resolveGroup(exam.groupId)
     if (viewer.role === Role.DEAN) {
       if (viewer.facultyId === meta.facultyId) return
@@ -496,7 +504,13 @@ export class ExamsService {
       maxScore: exam.maxScore ?? null,
       subject: exam.course.subject.name,
     }
-    if (opts.examiner && actor.role === Role.TEACHER && exam.examinerId === actor.sub) {
+    // Экзаменатор — преподаватель или декан (`assertSameUniversity`); декан другого
+    // факультета без этой ветки упирался бы в scope своего факультета.
+    if (
+      opts.examiner &&
+      (actor.role === Role.TEACHER || actor.role === Role.DEAN) &&
+      exam.examinerId === actor.sub
+    ) {
       return found
     }
     this.assertManageCourse(actor, {

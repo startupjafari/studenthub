@@ -213,7 +213,9 @@ describe('ExamsService.list — ближайшие экзамены, а не с�
       to: '2026-02-01T00:00:00.000Z',
     })
     const where = (findMany.mock.calls[0]?.[0] as unknown as { where: { AND: unknown[] } }).where
-    expect(where.AND[0]).toEqual({ group: { is: { facultyId: 'fac-1' } } })
+    expect(where.AND[0]).toEqual({
+      OR: [{ group: { is: { facultyId: 'fac-1' } } }, { examinerId: 'dean-1' }],
+    })
     expect(where.AND).toContainEqual({ date: { gte: new Date('2026-01-01T00:00:00.000Z') } })
     expect(where.AND).toContainEqual({ date: { lt: new Date('2026-02-01T00:00:00.000Z') } })
   })
@@ -384,6 +386,44 @@ describe('ExamsService.getById — преподаватель видит тол�
     })
     await expect(service.getById(teacher('lecturer'), 'ex-1')).resolves.toMatchObject({
       id: 'ex-1',
+    })
+  })
+})
+
+describe('ExamsService — декан другого факультета, назначенный экзаменатором', () => {
+  const otherDean: JwtPayload = {
+    sub: 'examiner',
+    role: Role.DEAN,
+    universityId: 'uni-1',
+    facultyId: 'fac-2',
+    groupId: null,
+  }
+
+  it('открывает экзамен и заполняет ведомость', async () => {
+    const { service, prisma } = setup()
+    await expect(service.results(otherDean, 'ex-1')).resolves.toMatchObject({ examId: 'ex-1' })
+    await service.setResults(
+      otherDean,
+      {
+        examId: 'ex-1',
+        entries: [{ studentId: 'st-1', admitted: true, status: 'PASSED', score: 85 }],
+      },
+      ctx,
+    )
+    expect(prisma.examResult.upsert).toHaveBeenCalled()
+    prisma.exam.findUnique.mockResolvedValue({
+      id: 'ex-1',
+      groupId: 'grp-1',
+      course: { teacherId: 'lecturer' },
+      examiner: { id: 'examiner' },
+    })
+    await expect(service.getById(otherDean, 'ex-1')).resolves.toMatchObject({ id: 'ex-1' })
+  })
+
+  it('править сам экзамен не может — это за деканатом факультета', async () => {
+    const { service } = setup()
+    await expect(service.remove(otherDean, 'ex-1', ctx)).rejects.toMatchObject({
+      code: 'WRONG_SCOPE',
     })
   })
 })
