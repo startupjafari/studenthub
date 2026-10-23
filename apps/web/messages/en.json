@@ -4439,6 +4439,7 @@
     "colInventoryNumber": "Inv. number",
     "colAuthors": "Authors",
     "colLastSeen": "Last checked",
+    "colDestination": "Goes to",
     "howToIssue": "How to lend",
     "howToIssueHint": "Two scans and the loan is done",
     "step1": "The student opens “Student ID” in the app",

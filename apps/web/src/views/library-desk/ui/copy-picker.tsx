@@ -6,6 +6,7 @@ import { useTranslations } from 'next-intl'
 import { ScanQrCode, X } from 'lucide-react'
 import { Badge, Button, Input, Label, Modal, Skeleton } from '../../../shared/ui'
 import { formatCopyCode } from '../../../entities/library'
+import { cn } from '../../../shared/lib'
 import { parseQrTarget } from '../../../features/qr-scan'
 
 const QrScanner = dynamic(() => import('../../../features/qr-scan').then((m) => m.QrScanner), {
@@ -35,15 +36,18 @@ export function hasCopyRef(ref: CopyRef): boolean {
 export function CopyPicker({
   value,
   onChange,
+  stacked = false,
 }: {
   value: CopyRef
   onChange: (v: CopyRef) => void
+  /** Поле и кнопка скана друг под другом — для узкой колонки, где в ряд они не влезают. */
+  stacked?: boolean
 }) {
   const t = useTranslations('LibraryDesk')
   const tScan = useTranslations('QrScan')
   const [scanning, setScanning] = useState(false)
   return (
-    <div className="grid gap-4 md:grid-cols-[1fr_auto]">
+    <div className={cn('grid gap-4', !stacked && 'md:grid-cols-[1fr_auto]')}>
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="copy-ref">{t('copyField')}</Label>
         {value.copyCode ? (
@@ -83,7 +87,12 @@ export function CopyPicker({
         )}
       </div>
       <div className="flex items-end">
-        <Button type="button" variant="outline" onClick={() => setScanning(true)}>
+        <Button
+          type="button"
+          variant="outline"
+          className={cn(stacked && 'w-full')}
+          onClick={() => setScanning(true)}
+        >
           <ScanQrCode className="size-4" aria-hidden />
           {t('scanCopy')}
         </Button>

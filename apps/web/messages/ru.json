@@ -4439,6 +4439,7 @@
     "colInventoryNumber": "Инв. номер",
     "colAuthors": "Авторы",
     "colLastSeen": "Последняя отметка",
+    "colDestination": "Куда",
     "howToIssue": "Как выдать",
     "howToIssueHint": "Два скана — и выдача оформлена",
     "step1": "Студент открывает «Студенческий» в приложении",
