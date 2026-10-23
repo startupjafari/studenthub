@@ -36,6 +36,14 @@ const SKILLS_LIMIT = 8
  */
 const CACHE_TTL_SECONDS = 60
 
+/**
+ * Вакансия, решение по которой ещё что-то значит: опубликована и не удалена. Очередь
+ * модерации (VacanciesService.reviewQueue) показывает только такие, и сводка обязана
+ * считать по тому же условию: решения по снятым и закрытым вакансиям давали «2 на
+ * модерации» при пустой очереди.
+ */
+const LIVE_VACANCY = { deletedAt: null, status: 'PUBLISHED' } as const
+
 const HOUR_MS = 3_600_000
 const DAY_MS = 24 * HOUR_MS
 
@@ -64,7 +72,7 @@ export class CareerAnalyticsService {
       }),
       this.prisma.vacancyUniversityReview.groupBy({
         by: ['status'],
-        where: { universityId },
+        where: { universityId, vacancy: LIVE_VACANCY },
         _count: { _all: true },
       }),
       this.prisma.careerApplication.groupBy({
@@ -174,9 +182,11 @@ export class CareerAnalyticsService {
    */
   private async queue(universityId: string, now: Date) {
     const [pending, oldest, decision, requested, expiring, stale] = await Promise.all([
-      this.prisma.vacancyUniversityReview.count({ where: { universityId, status: 'PENDING' } }),
+      this.prisma.vacancyUniversityReview.count({
+        where: { universityId, status: 'PENDING', vacancy: LIVE_VACANCY },
+      }),
       this.prisma.vacancyUniversityReview.findFirst({
-        where: { universityId, status: 'PENDING' },
+        where: { universityId, status: 'PENDING', vacancy: LIVE_VACANCY },
         orderBy: { createdAt: 'asc' },
         select: { createdAt: true },
       }),
