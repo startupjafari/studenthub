@@ -45,9 +45,13 @@ export const CreateVisitorSchema = z
       .trim()
       .regex(/^\d{4}$/, 'Четыре последние цифры документа')
       .optional(),
-    phone: optionalText(20).refine((v) => v === undefined || /^\+?[\d\s()-]{7,20}$/.test(v), {
-      message: 'Телефон: цифры, пробелы, скобки и дефис',
-    }),
+    // Телефон Казахстана в том виде, в каком его набирает маска поля: +7 (777) 777-77-77.
+    phone: optionalText(20).refine(
+      (v) => v === undefined || /^\+7 \(\d{3}\) \d{3}-\d{2}-\d{2}$/.test(v),
+      {
+        message: 'Телефон в формате +7 (777) 777-77-77',
+      },
+    ),
   })
   .strict()
   .refine((v) => !v.documentLast4 || v.documentType, {

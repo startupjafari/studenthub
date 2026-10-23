@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { useForm } from 'react-hook-form'
+import { Controller, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useTranslations } from 'next-intl'
 import { MailCheck } from 'lucide-react'
@@ -13,6 +13,8 @@ import {
   Checkbox,
   FieldError,
   Input,
+  PhoneInput,
+  isCompletePhone,
   Label,
   LegalLinks,
   Textarea,
@@ -41,12 +43,14 @@ import { OPTIONAL_NUMBER, OPTIONAL_TEXT, useErrorToast } from '../../../shared/l
  */
 export function DemoRequestView() {
   const t = useTranslations('Demo')
+  const tCommon = useTranslations('Common')
   const [sentTo, setSentTo] = useState<string | null>(null)
   // id свой у формы: повторный отказ обновляет тот же тост, а не копит стопку.
   const { show: showError } = useErrorToast('demo-request')
 
   const {
     register,
+    control,
     handleSubmit,
     setValue,
     watch,
@@ -166,7 +170,20 @@ export function DemoRequestView() {
           <Label htmlFor="phone">
             <OptionalLabel text={t('fieldPhone')} optional={t('optional')} />
           </Label>
-          <Input id="phone" type="tel" autoComplete="tel" {...register('phone', OPTIONAL_TEXT)} />
+          <Controller
+            control={control}
+            name="phone"
+            rules={{ validate: (v) => !v || isCompletePhone(v) || tCommon('phoneIncomplete') }}
+            render={({ field }) => (
+              <PhoneInput
+                id="phone"
+                value={field.value}
+                onChange={(v) => field.onChange(v || undefined)}
+                onBlur={field.onBlur}
+                aria-invalid={!!errors.phone}
+              />
+            )}
+          />
           <FieldError>{errors.phone?.message}</FieldError>
         </div>
 

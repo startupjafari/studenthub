@@ -1,6 +1,6 @@
 'use client'
 
-import { useForm } from 'react-hook-form'
+import { Controller, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
@@ -16,6 +16,8 @@ import {
   Button,
   FieldError,
   Input,
+  PhoneInput,
+  isCompletePhone,
   Label,
   Modal,
   Select,
@@ -182,7 +184,21 @@ export function CreateRoomModal({ onClose, room }: Props) {
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="room-phone">{t('phone')}</Label>
-              <Input id="room-phone" {...form.register('phone', OPTIONAL_TEXT)} />
+              <Controller
+                control={form.control}
+                name="phone"
+                rules={{ validate: (v) => !v || isCompletePhone(v) || tCommon('phoneIncomplete') }}
+                render={({ field }) => (
+                  <PhoneInput
+                    id="room-phone"
+                    value={field.value}
+                    onChange={(v) => field.onChange(v || undefined)}
+                    onBlur={field.onBlur}
+                    aria-invalid={!!form.formState.errors.phone}
+                  />
+                )}
+              />
+              <FieldError>{form.formState.errors.phone?.message}</FieldError>
             </div>
           </div>
         )}
