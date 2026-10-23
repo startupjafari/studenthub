@@ -195,7 +195,7 @@ export function CalendarView() {
       </div>
 
       {isLoading ? (
-        <Skeleton className="h-96 w-full rounded-xl" />
+        <Skeleton fill className="min-h-96 rounded-xl" />
       ) : effectiveView === 'month' ? (
         <MonthGrid
           cells={cells}

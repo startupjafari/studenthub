@@ -195,7 +195,7 @@ export function DeanDashboard() {
           карточки полосы сжимаются до неразличимых. */}
       <SectionPanel title={t('chartAttendance')} subtitle={t('chartAttendanceHint')}>
         {overview.isLoading ? (
-          <Skeleton className="h-64 w-full" />
+          <Skeleton fill className="min-h-64" />
         ) : groups.length === 0 ? (
           <EmptyState title={t('chartNoAttendance')} className="border-0 p-6" />
         ) : (
@@ -213,7 +213,7 @@ export function DeanDashboard() {
       <div className="grid gap-4 lg:grid-cols-2">
         <SectionPanel title={t('chartRisk')} subtitle={t('chartRiskHint')}>
           {risk.isLoading ? (
-            <Skeleton className="h-48 w-full" />
+            <Skeleton fill className="min-h-48" />
           ) : students.length === 0 ? (
             <EmptyState title={t('chartNoRisk')} className="border-0 p-6" />
           ) : (
@@ -243,7 +243,7 @@ export function DeanDashboard() {
           }
         >
           {queue.isLoading ? (
-            <Skeleton className="h-48 w-full" />
+            <Skeleton fill className="min-h-48" />
           ) : queueValues.every((v) => v === 0) ? (
             <EmptyState title={t('chartNoQueue')} className="border-0 p-6" />
           ) : (

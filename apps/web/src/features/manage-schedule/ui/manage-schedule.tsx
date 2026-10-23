@@ -275,7 +275,7 @@ export function ManageSchedule({ mode = 'admin' }: { mode?: 'admin' | 'teacher' 
           description={isTeacher ? t('noScheduleTeacherHint') : t('createContainerHint')}
         />
       ) : container.isLoading ? (
-        <Skeleton className="min-h-0 w-full flex-1" />
+        <Skeleton fill className="min-h-0" />
       ) : (
         <>
           {/* Телефон: один день списком. Недельная сетка на 360 px нечитаема. */}

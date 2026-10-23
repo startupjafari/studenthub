@@ -87,7 +87,7 @@ export function StudentConsultationsView() {
           backLabel={t('back')}
         />
         {teacherSlots.isLoading ? (
-          <Skeleton className="h-64 w-full rounded-xl" />
+          <Skeleton fill className="min-h-64 rounded-xl" />
         ) : (teacherSlots.data ?? []).length === 0 ? (
           <EmptyState
             icon={<CalendarClock />}
@@ -148,7 +148,7 @@ export function StudentConsultationsView() {
         </CardHeader>
         <CardContent>
           {mine.isLoading ? (
-            <Skeleton className="h-16 w-full rounded-lg" />
+            <Skeleton fill className="min-h-16 rounded-lg" />
           ) : (mine.data?.items ?? []).length === 0 ? (
             <EmptyState title={t('noBookings')} className="border-0 p-6" />
           ) : (
@@ -188,7 +188,7 @@ export function StudentConsultationsView() {
         </CardHeader>
         <CardContent>
           {teachers.isLoading ? (
-            <Skeleton className="h-16 w-full rounded-lg" />
+            <Skeleton fill className="min-h-16 rounded-lg" />
           ) : (teachers.data ?? []).length === 0 ? (
             <EmptyState title={t('noTeachers')} className="border-0 p-6" />
           ) : (

@@ -39,7 +39,7 @@ export function HomeSidebar() {
         </CardHeader>
         <CardContent>
           {schedQ.isLoading ? (
-            <Skeleton className="h-16 w-full rounded-lg" />
+            <Skeleton fill className="min-h-16 rounded-lg" />
           ) : todayPairs.length === 0 ? (
             <EmptyState title={t('noPairsToday')} className="border-0 p-6" />
           ) : (
@@ -72,7 +72,7 @@ export function HomeSidebar() {
         </CardHeader>
         <CardContent>
           {eventsQ.isLoading ? (
-            <Skeleton className="h-16 w-full rounded-lg" />
+            <Skeleton fill className="min-h-16 rounded-lg" />
           ) : events.length === 0 ? (
             <EmptyState title={t('noUpcomingEvents')} className="border-0 p-6" />
           ) : (

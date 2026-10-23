@@ -173,7 +173,7 @@ export function ExamResultsRoster({
       />
 
       {q.isLoading ? (
-        <Skeleton className="h-80 w-full rounded-xl" />
+        <Skeleton fill className="min-h-80 rounded-xl" />
       ) : (
         <Card className="flex min-h-0 flex-1 flex-col gap-0 py-0">
           {/*

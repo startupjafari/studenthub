@@ -287,7 +287,7 @@ export function UniversityModeratorDashboard() {
 
       <SectionPanel title={t('chartFlow')} subtitle={t('chartFlowHint')}>
         {recent.isLoading ? (
-          <Skeleton className="h-56 w-full" />
+          <Skeleton fill className="min-h-56" />
         ) : flowEmpty ? (
           <EmptyState title={t('chartFlowEmpty')} className="border-0 p-6" />
         ) : (
@@ -340,7 +340,7 @@ export function UniversityModeratorDashboard() {
       <div className="grid gap-4 lg:grid-cols-2">
         <SectionPanel title={t('chartTargets')} subtitle={t('chartTargetsHint')}>
           {pending.isLoading ? (
-            <Skeleton className="h-48 w-full" />
+            <Skeleton fill className="min-h-48" />
           ) : targets.length === 0 ? (
             <EmptyState title={t('chartQueueEmpty')} className="border-0 p-6" />
           ) : (
@@ -357,7 +357,7 @@ export function UniversityModeratorDashboard() {
 
         <SectionPanel title={t('chartAging')} subtitle={t('chartAgingHint')}>
           {pending.isLoading ? (
-            <Skeleton className="h-48 w-full" />
+            <Skeleton fill className="min-h-48" />
           ) : overdue === 0 && aging.fresh === 0 ? (
             <EmptyState title={t('chartQueueEmpty')} className="border-0 p-6" />
           ) : (
@@ -387,7 +387,7 @@ export function UniversityModeratorDashboard() {
           {pending.isLoading ? (
             <div className="flex flex-col gap-2">
               {Array.from({ length: LIST_ROWS }).map((_, i) => (
-                <Skeleton key={i} className="h-11 w-full" />
+                <Skeleton key={i} fill className="min-h-11" />
               ))}
             </div>
           ) : oldest.length === 0 ? (
@@ -439,7 +439,7 @@ export function UniversityModeratorDashboard() {
           {audit.isLoading ? (
             <div className="flex flex-col gap-2">
               {Array.from({ length: LIST_ROWS }).map((_, i) => (
-                <Skeleton key={i} className="h-11 w-full" />
+                <Skeleton key={i} fill className="min-h-11" />
               ))}
             </div>
           ) : actions.length === 0 ? (

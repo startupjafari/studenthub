@@ -185,7 +185,7 @@ export function CamerasAdminView() {
       >
         {agents.isPending ? (
           <div className="p-4">
-            <Skeleton className="h-10 w-full" />
+            <Skeleton fill className="min-h-10" />
           </div>
         ) : agentList.length === 0 ? (
           <EmptyState
@@ -299,7 +299,7 @@ export function CamerasAdminView() {
       >
         {cameras.isPending ? (
           <div className="p-4">
-            <Skeleton className="h-10 w-full" />
+            <Skeleton fill className="min-h-10" />
           </div>
         ) : cameraList.length === 0 ? (
           <EmptyState
