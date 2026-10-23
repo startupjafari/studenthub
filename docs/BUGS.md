@@ -2348,6 +2348,97 @@
 #### BUG-485 · 🟢 Мини-апп: в kk/en отказы показываются русским текстом сервера (новое место BUG-125)
 - **Где:** `apps/mini-app/src/screens/complaint.tsx:163,180,376`, `person.tsx:75,96`, `control.tsx:108,221`, `support.tsx:321,343,373,395,412,427,661,679`, `people.tsx:178`; образец — `link.tsx:94-110` · **Статус:** новый
 
+### Лендинг (`apps/landing`) и промо (`apps/promo`, ветка `feat/promo-video`)
+
+#### BUG-486 · 🟡 Ссылка «Страница проверки» на лендинге ведёт на 404
+- **Где:** `apps/landing/src/config/site.ts:52` (`${APP_URL}/verify`), `apps/landing/src/ui/faq.tsx:332-343`; в вебе только `apps/web/src/app/verify/[code]/page.tsx`. Промо (`apps/promo/src/copy.ts:121-131`) показывает несуществующий экран ввода кода · **Статус:** подтверждён
+- **Ожидается:** страница ввода кода на `/verify` либо ссылка туда, где проверка возможна.
+
+#### BUG-487 · 🟡 Редиректы лендинга на платформу неполные: QR-наклейки книг `/c/<код>`, `/settings` из писем, `/legal`, сброс пароля — 404 после переезда на `app.<домен>`
+- **Где:** `apps/landing/next.config.mjs:39-57` (`PLATFORM_SEGMENTS` без `c`, `reset-password`, `forgot-password`, `settings`, `legal`, `checkin`, `verify-id`, `library`, `security` и студенческих корней); источники ссылок — `apps/api/src/modules/library/library-catalog.service.ts:538-540`, `apps/api/src/modules/email/templates.ts:486-490` · **Статус:** подтверждён
+- **Ожидается:** `docs/LANDING.md §2` — редиректы для всех корневых сегментов `apps/web/src/app`.
+
+#### BUG-488 · 🟡 Незаданные `NEXT_PUBLIC_*` в Docker-сборке лендинга становятся пустой строкой: `mailto:` без адресата, «Войти» и 308 на localhost
+- **Где:** `apps/landing/Dockerfile:37-42`, `apps/landing/src/config/site.ts:30,36` (`??` не ловит `''`), `docker/prod/compose.yml:126` · **Статус:** новый
+- **Сценарий:** пустой `NEXT_PUBLIC_APP_URL` → все ссылки и постоянные 308-редиректы на `http://localhost:3000`; браузеры запоминают 308 навсегда.
+- **Ожидается:** пустое = не задано; прод-сборка без адресов падает.
+
+#### BUG-489 · 🟢 Язык теряется при переходе с лендинга на платформу
+- **Где:** `apps/landing/src/config/site.ts:41-53`, `apps/web/src/i18n/request.ts:7-12` (только cookie `NEXT_LOCALE`) · **Статус:** новый
+
+#### BUG-490 · 🟢 Подписи кнопок не совпадают с действием: «Написать нам» открывает форму, «Обсудить внедрение» — то форму, то `mailto:`
+- **Где:** `apps/landing/src/ui/cta.tsx:261-268`, `content/ru.ts:245`, `en.ts:241`, `kk.ts:246`, `ui/doors.tsx:112` · **Статус:** новый
+
+#### BUG-491 · 🟢 Расхождение гидрации у вкладки «Роли» при `prefers-reduced-motion` — свечение остаётся
+- **Где:** `apps/landing/src/ui/roles.tsx:43,114-124` (`useReducedMotion()` — `null` на сервере, `true` в первом клиентском рендере) · **Статус:** новый
+
+#### BUG-492 · 🟢 Открытое мобильное меню при расширении окна оставляет прокрутку заблокированной; нет Esc и фокус-ловушки
+- **Где:** `apps/landing/src/ui/site-header.tsx:129-134,157,276-285`, `apps/landing/src/app/globals.css:866-868`; три `<nav>` с одной меткой `dict.nav.product` · **Статус:** новый
+
+#### BUG-493 · 🟢 Счётчики «Масштаб» без JS и для роботов показывают нули
+- **Где:** `apps/landing/src/ui/scale.tsx:205`, `apps/landing/src/app/root-shell.tsx:35-37` · **Статус:** новый
+
+#### BUG-494 · 🟢 «Ролей у платформы восемь», а в enum 11 (EMPLOYER, SECURITY_GUARD, LIBRARIAN)
+- **Где:** `apps/landing/src/content/ru.ts:184`, `en.ts:178`, `kk.ts:183`, `ui/roles.tsx:17`; `prisma/schema/_enums.prisma:4-22` · **Статус:** новый
+
+#### BUG-495 · 🟢 «Как получить доступ» прокручивает к вопросу FAQ, но не раскрывает его
+- **Где:** `apps/landing/src/ui/doors.tsx:127`, `ui/faq.tsx:305-308`, `ui/accordion-motion.tsx:435-441` (нет `hashchange`) · **Статус:** новый
+
+#### BUG-496 · 🟢 Маска краёв ряда вкладок срезает активную вкладку на десктопе
+- **Где:** `apps/landing/src/ui/roles.tsx:79` (`sh-fade-x` без `--sm-only`), `app/globals.css:780-811` · **Статус:** новый
+
+#### BUG-497 · 🟢 В клиентский бандл уходят тексты всех трёх языков; `og:locale` не в формате `ru_RU`
+- **Где:** `apps/landing/src/ui/language-menu.tsx:7,31,91` (клиентский `getDictionary`), `src/config/metadata.ts:35` · **Статус:** новый
+
+#### BUG-498 · 🟢 Телефон в форме заявки на демо и в «Помещениях» пропускает неполный номер
+- **Где:** `apps/web/src/views/demo/ui/demo-request-view.tsx:58,176`, `apps/web/src/views/rooms/ui/create-room-modal.tsx:50,190` (`rules` у `Controller` не работают при `zodResolver`), `packages/shared-schemas/src/onboarding.ts:56` (`min(5)`) · **Статус:** новый
+- **Ожидается:** проверка полноты номера в схеме (`refine` с `isCompletePhone`).
+
+#### BUG-499 · 🟢 Промо: шот `starosta-group` снимает удалённый раздел «Обращения группы»
+- **Где:** `apps/promo/capture/shots/admin.mjs` (ветка `feat/promo-video`); раздел убран в develop коммитом `f71d82e7` · **Статус:** новый
+
+### Агент камер, ретранслятор, медиа-воркер
+
+#### BUG-500 · 🟡 🔒 Агент пишет пароль камеры в журнал и показывает его в списке процессов
+- **Роль:** UNIVERSITY_ADMIN; любой с доступом к `docker logs`/`ps` хоста агента · **Статус:** подтверждён
+- **Где:** `apps/camera-agent/src/agent.ts:120,155` (`withCredentials` → `user:pass@`), `apps/camera-agent/src/publisher.ts:32-33` (адрес в argv ffmpeg), `:123` (stderr в `log.warn`, маскируется только `pass=` токена), `apps/camera-agent/src/probe.ts:17-33`
+- **Ожидается:** §3.10 «пароли — только в памяти», шапка `log.ts`: маскировать `rtsp(s)://…@` в stderr, не передавать учётку через argv.
+
+#### BUG-501 · 🟡 🔒 Перевыпуск токена агента не обрывает публикацию и выдаёт отозванному агенту свежие токены
+- **Где:** `apps/api/src/modules/cameras/camera-agents.service.ts:151,168`, `camera-agent-sync.service.ts:73-84,128-136` (длинный опрос со старым `AgentPrincipal` получает новую ревизию с токенами публикации на 10 мин), `docker/media-relay/mediamtx.yml` (`api: false` — оборвать поток нечем) · **Статус:** новый
+- **Ожидается:** перепроверять `tokenHash` перед ответом опроса; обрывать публикацию при отзыве; сигнал и у `remove`.
+
+#### BUG-502 · 🟡 Поток агента виснет навсегда, если камера пропала без разрыва соединения
+- **Где:** `apps/camera-agent/src/publisher.ts:20-42` (нет `-timeout`/`-rw_timeout`; у ffprobe в `probe.ts:27-28` таймаут есть) · **Статус:** подтверждён
+- **Сценарий:** питание камеры пропало без FIN/RST → ffmpeg ждёт вечно, перезапуска нет, ffprobe показывает `ONLINE`, видео не вернётся до ухода всех зрителей.
+
+#### BUG-503 · 🟡 Плеер камеры не переживает перезапуск потока: «Не удалось» навсегда, а просмотр продлевается и держит слот
+- **Где:** `apps/web/src/features/watch-camera/lib/live-hls.ts:44-85` (`shouldRetry` только у `manifestLoadPolicy`), `features/watch-camera/model/use-camera-view.ts:65-72` · **Статус:** новый
+- **Сценарий:** ffmpeg агента перезапустился → 404 на плейлист варианта → `failed`; продление идёт каждые 30 с, агент гонит видео, окно занимает один из 4 слотов.
+
+#### BUG-504 · 🟢 Агент без связи с платформой бесконечно перезапускает публикацию с протухшим токеном
+- **Где:** `apps/camera-agent/src/agent.ts:71-73,190-205` (при 401/409/недоступности `publisher` не трогается), `publisher.ts:112-126` · **Статус:** новый
+- **Ожидается:** §3.10 «поток наружу только пока смотрят» — `stopAll()` при 401/409 и после срока токена без опроса.
+
+#### BUG-505 · 🟢 «Закрыл и сразу открыл ту же камеру»: спрос снимается у нового зрителя
+- **Где:** `apps/api/src/modules/cameras/camera-views.service.ts:76-90` против `:129-147`; в `heartbeat` (`:121`) нет `bump` · **Статус:** новый
+
+#### BUG-506 · 🟢 `RTSP://…` в верхнем регистре проходит валидацию, но ffmpeg его не открывает — камера вечно «Не в сети»
+- **Где:** `packages/shared-schemas/src/cameras.ts:19` (`/i`), `apps/camera-agent/src/rtsp.ts:6` · **Статус:** новый
+
+#### BUG-507 · 🟢 Сбой запуска ffmpeg роняет весь агент (нет обработчика `error`)
+- **Где:** `apps/camera-agent/src/publisher.ts:103-127` (только `close`; в `probe.ts:39` `error` есть) · **Статус:** подтверждён
+
+#### BUG-508 · 🟢 Видео FAILED навсегда оставляет в бакете постер и частично залитый HLS
+- **Где:** `apps/api/src/modules/media/media-processing.service.ts:286-317`, `media-job.ts:41-51` (`markFailed` только статус), `cleanup.service.ts:886-930` (`liveVariantKeys` по живому владельцу) · **Статус:** новый
+
+#### BUG-509 · 🟢 Временные каталоги убитого воркера медиа чистятся только при старте и только старше 12 ч
+- **Где:** `apps/api/src/modules/media/media-processing.service.ts:34-35,80-94` (`sweepStaleTmp` только в `onModuleInit`) · **Статус:** новый
+- **Сценарий:** цикл OOM на одном ролике копит частичные HLS, пока не кончится диск.
+
+#### BUG-510 · 🟢 Голосовые чата (`video/webm`/`video/mp4`) идут в видеоочередь, гоняют ffprobe и помечаются FAILED (корень BUG-428)
+- **Где:** `apps/api/src/modules/media/media.service.ts:78-83` (`kindOf` по mime), `apps/api/src/modules/files/file.service.ts:212,221,226`, `media-processing.service.ts:155-164,277-282` · **Статус:** новый
+
 <!-- P3-END -->
 
 ## Замечено попутно
