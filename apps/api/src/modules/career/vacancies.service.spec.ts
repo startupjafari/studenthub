@@ -290,6 +290,24 @@ describe('VacanciesService — правка опубликованной вак�
   })
 })
 
+describe('VacanciesService — фильтр зарплаты', () => {
+  it('«от N» учитывает и вакансии без верхней границы', async () => {
+    const { service, prisma } = setup()
+    await service.search(student(), {
+      page: 1,
+      limit: 20,
+      sort: 'publishedAt',
+      order: 'desc',
+      salaryFrom: 300_000,
+    })
+    const where = prisma.vacancy.findMany.mock.calls[0][0].where
+    expect(where.AND).toContainEqual({
+      OR: [{ salaryMax: { gte: 300_000 } }, { salaryMax: null, salaryMin: { gte: 300_000 } }],
+    })
+    expect(where).not.toHaveProperty('salaryMax')
+  })
+})
+
 describe('VacanciesService — видимость для студента', () => {
   const query = { page: 1, limit: 20, sort: 'publishedAt' as const, order: 'desc' as const }
 

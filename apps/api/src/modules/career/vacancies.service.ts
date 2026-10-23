@@ -301,13 +301,24 @@ export class VacanciesService {
       ...(query.workFormat ? { workFormat: query.workFormat } : {}),
       ...(query.experienceLevel ? { experienceLevel: query.experienceLevel } : {}),
       ...(query.city ? { city: query.city } : {}),
-      ...(query.salaryFrom ? { salaryMax: { gte: query.salaryFrom } } : {}),
       ...(query.skills?.length ? { skills: { hasSome: query.skills } } : {}),
       // Два независимых условия-ИЛИ собираем через AND: если оба положить ключом `OR`
       // в один объект, второй молча затрёт первый и фильтр по тексту пропадёт.
       AND: [
         // Просроченные не показываем: отклик на них всё равно не примут.
         { OR: [{ deadline: null }, { deadline: { gte: new Date() } }] },
+        // «Зарплата от N»: вилка достаёт до N. У вакансии «от M» без верхней границы
+        // потолка нет — по ней судим о нижней границе, иначе такие вакансии выпадали всегда.
+        ...(query.salaryFrom
+          ? [
+              {
+                OR: [
+                  { salaryMax: { gte: query.salaryFrom } },
+                  { salaryMax: null, salaryMin: { gte: query.salaryFrom } },
+                ],
+              },
+            ]
+          : []),
         ...(query.search
           ? [
               {
