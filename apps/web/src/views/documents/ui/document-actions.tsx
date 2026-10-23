@@ -99,11 +99,13 @@ export function DocumentActions({ doc }: { doc: DocumentDto }) {
   })
 
   // Картинки и видео открываем в общем просмотрщике (как в чате и постах), остальное —
-  // PDF, docx — отдаём браузеру вкладкой: показать их просмотрщик не умеет.
+  // PDF, docx — отдаём браузеру вкладкой: показать их просмотрщик не умеет. Листает он
+  // только снимки: PDF-страница в его списке закрывала бы просмотр на полпути.
+  const media = doc.files.filter((f) => isViewableMedia(f.mime))
   async function openFile(fileId: string): Promise<void> {
-    const file = doc.files.find((f) => f.id === fileId)
-    if (file && isViewableMedia(file.mime)) {
-      setViewerIndex(doc.files.indexOf(file))
+    const file = media.find((f) => f.id === fileId)
+    if (file) {
+      setViewerIndex(media.indexOf(file))
       return
     }
     try {
@@ -116,8 +118,7 @@ export function DocumentActions({ doc }: { doc: DocumentDto }) {
   // Из окна страниц: снимок открываем в просмотрщике, закрыв окно (просмотрщик не живёт
   // поверх модального диалога — тот держит фокус и клики), PDF — вкладкой, окно остаётся.
   function openFromPages(fileId: string): void {
-    const file = doc.files.find((f) => f.id === fileId)
-    if (file && isViewableMedia(file.mime)) setPages(false)
+    if (media.some((f) => f.id === fileId)) setPages(false)
     void openFile(fileId)
   }
 
@@ -212,7 +213,7 @@ export function DocumentActions({ doc }: { doc: DocumentDto }) {
 
       {viewerIndex !== null && (
         <DocumentFileViewer
-          files={doc.files}
+          files={media}
           index={viewerIndex}
           onIndexChange={setViewerIndex}
           onClose={() => setViewerIndex(null)}
