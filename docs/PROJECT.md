@@ -442,6 +442,16 @@ status `DRAFT|UPLOADED|IN_REVIEW|VERIFIED|ACCEPTED|REJECTED|NEEDS_REPLACEMENT|EX
 `submissionCount`, остальные — `GET manage/:id/submissions?cursor&limit≤50`; `POST manage/:id/close`
 идемпотентен.
 
+**Журнал документов вуза.** `GET /document-journal?page&limit≤100&action&from&to&q&userId` —
+только `UNIVERSITY_ADMIN`, вуз — из токена (`Document.universityId`), чужой вуз не виден ни
+фильтром, ни поиском (`q` ищет ФИО только среди людей своего вуза; `userId` — человек как
+действующий или как владелец). Строка: `createdAt`, `action`, `actor { id, name, role }`,
+`owner { id, name }`, `document { id, category, type, deleted }`, `via`
+(`OWNER|GRANT|REQUEST|APPLICATION|PLATFORM|SYSTEM|STAFF`), `granteeType`, `request { id, title }`;
+`meta.total`. Без содержимого: ни названия, ни номера, ни файлов, ни `metadata` события (админ
+вуза документы не открывает). Просмотр по гранту пишет в `DocumentEvent.metadata`
+`accessId`/`granteeType`, отзыв — `granteeType`. Экран — `/university-admin/document-journal`.
+
 **Автоматизация.** Cron `sweepDocumentExpiry` (ежедневно): `expiresAt` → `EXPIRING`/`EXPIRED`,
 затем архив по сроку хранения — по типам с `retentionDays`, пачками до исчерпания. Cron
 `closeOverdueDocumentRequests` (03:35) закрывает запросы с прошедшим сроком. Уведомления BullMQ

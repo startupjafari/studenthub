@@ -21,6 +21,7 @@ export {
   fetchDocumentPlatform,
   platformDocumentFileUrls,
   fetchSharedWithMe,
+  fetchDocumentJournal,
   type SharedDocument,
   type SharedDocumentsPage,
   type DocumentDto,
