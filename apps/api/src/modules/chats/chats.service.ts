@@ -2592,11 +2592,15 @@ export class ChatsService implements OnModuleInit {
   async editMessage(senderId: string, messageId: string, content: string): Promise<MessageRow> {
     const msg = await this.prisma.message.findFirst({
       where: { id: messageId, deletedAt: null },
-      select: { id: true, chatId: true, senderId: true, createdAt: true },
+      select: { id: true, chatId: true, senderId: true, createdAt: true, forwardedFromId: true },
     })
     if (!msg) throw new AppException('NOT_FOUND', 'Сообщение не найдено')
     if (msg.senderId !== senderId)
       throw new AppException('WRONG_SCOPE', 'Можно править только свои сообщения')
+    // Пересылка — чужие слова под подписью «Переслано от X»: правка подделала бы цитату автора.
+    if (msg.forwardedFromId) {
+      throw new AppException('FORBIDDEN', 'Пересланное сообщение нельзя изменить')
+    }
     await this.assertMembership(senderId, msg.chatId)
     // Редактирование доступно ограниченное время после отправки (Ф9+).
     if (Date.now() - msg.createdAt.getTime() > MESSAGE_EDIT_WINDOW_MS) {

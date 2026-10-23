@@ -323,6 +323,21 @@ describe('ChatsService.editMessage / deleteMessage — только автор',
     expect(prisma.message.update).toHaveBeenCalled()
   })
 
+  // BUG-161: подпись «Переслано от X» не должна стоять над чужими словами, которых X не писал.
+  it('правка пересланного сообщения → FORBIDDEN', async () => {
+    const { service, prisma } = setup()
+    prisma.message.findFirst.mockResolvedValue({
+      id: 'm1',
+      chatId: 'c1',
+      senderId: 'u1',
+      createdAt: new Date(),
+      forwardedFromId: 'src',
+    })
+    const err = await service.editMessage('u1', 'm1', 'x').catch((e) => e)
+    expect(err.code).toBe('FORBIDDEN')
+    expect(prisma.message.update).not.toHaveBeenCalled()
+  })
+
   it('правка своего старого сообщения (>10 мин) → BAD_REQUEST', async () => {
     const { service, prisma } = setup()
     prisma.message.findFirst.mockResolvedValue({

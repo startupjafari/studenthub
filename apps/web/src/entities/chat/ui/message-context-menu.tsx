@@ -185,8 +185,11 @@ export function MessageContextMenu({
     dismiss()
   }
 
+  // Пересланное — чужие слова под подписью «Переслано от X»: их не правят (сервер тоже откажет).
   const canEdit =
-    mine && Date.now() - new Date(message.createdAt).getTime() < MESSAGE_EDIT_WINDOW_MS
+    mine &&
+    !message.forwardedFromId &&
+    Date.now() - new Date(message.createdAt).getTime() < MESSAGE_EDIT_WINDOW_MS
   const items: ActionDef[] = [
     { key: 'reply', label: t('reply'), icon: Reply, onClick: actions.onReply },
     ...(canEdit ? [{ key: 'edit', label: t('edit'), icon: Pencil, onClick: actions.onEdit }] : []),
