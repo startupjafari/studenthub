@@ -34,6 +34,7 @@ import { MediaService } from '../media/media.service'
 import { LibraryRemindersService } from '../library/library-reminders.service'
 import { LibraryReservationsService } from '../library/library-reservations.service'
 import { variantOwnerId } from '../media/media-keys'
+import { PdRetentionService, type RetentionCounts } from './pd-retention.service'
 
 // Единственный дом для cron-задач (docs/PROJECT.md §10.2, docs/BACKEND_RULES.md §9.3).
 // Разбрасывать @Cron по модулям запрещено. Все задачи работают батчами и логируют счётчик.
@@ -78,6 +79,15 @@ const LOCK_TTL_MS = {
   resumeMediaProcessing: 9 * 60 * 1000,
   remindLibraryLoans: 30 * 60 * 1000,
   expireLibraryHolds: 30 * 60 * 1000,
+  // Сроки хранения ПДн: первый прогон после включения флага разбирает хвост за годы, отсюда
+  // запас. Задачи ежедневные, так что TTL меньше интервала заведомо.
+  purgeClosedLoans: 30 * 60 * 1000,
+  purgeViewLogs: 30 * 60 * 1000,
+  purgeDepartedAcademicRecords: 30 * 60 * 1000,
+  purgeDepartedApplications: 30 * 60 * 1000,
+  purgeDepartedMessages: 30 * 60 * 1000,
+  purgeDepartedDocuments: 30 * 60 * 1000,
+  purgeDepartedProfiles: 30 * 60 * 1000,
 } as const
 const NOTIFICATION_RETENTION_DAYS = 30
 // Непрочитанные живут дольше прочитанных, но не вечно: кто три месяца не открывал
@@ -244,6 +254,7 @@ export class CleanupService {
     private readonly users: UserService,
     private readonly libraryReminders: LibraryRemindersService,
     private readonly libraryReservations: LibraryReservationsService,
+    private readonly retention: PdRetentionService,
   ) {}
 
   // Напоминания за час до события (docs/BACKEND_RULES.md §9.3): каждые 15 мин, окно (now, now+70] —
@@ -1074,6 +1085,83 @@ export class CleanupService {
     return this.locks.run('notifyOverdueApplications', LOCK_TTL_MS.notifyOverdueApplications, () =>
       this.applications.notifyOverdue(),
     )
+  }
+
+  // ── Сроки хранения ПДн (docs/PERSONAL_DATA.md §4) ──────────────────────────
+  //
+  // Год после того, как цель обработки достигнута. Логика — в PdRetentionService, здесь
+  // расписание и локи. Все задачи — ночью, раньше cleanDetachedFiles (03:45) и
+  // cleanOrphanFiles (04:00): объекты MinIO удалённых строк File снимаются той же ночью.
+  //
+  // Предохранитель PD_RETENTION_ENABLED (по умолчанию выключен): без него задачи всё равно
+  // идут по расписанию, но только считают и пишут в лог, сколько удалили бы. Так цифры видны
+  // заранее, а включение — осознанное действие (docs/RUNBOOK.md).
+
+  // Закрытые выдачи книг — год после возврата, утери или отмены. Ежедневно, 02:05.
+  @Cron('5 2 * * *', { name: 'purgeClosedLoans' })
+  async purgeClosedLoans(): Promise<RetentionCounts | null> {
+    return this.locks.run('purgeClosedLoans', LOCK_TTL_MS.purgeClosedLoans, () =>
+      this.retention.purgeClosedLoans(this.pdRetentionDryRun()),
+    )
+  }
+
+  // Журналы просмотров удостоверений и камер — год после записи. Ежедневно, 02:10.
+  @Cron('10 2 * * *', { name: 'purgeViewLogs' })
+  async purgeViewLogs(): Promise<RetentionCounts | null> {
+    return this.locks.run('purgeViewLogs', LOCK_TTL_MS.purgeViewLogs, () =>
+      this.retention.purgeViewLogs(this.pdRetentionDryRun()),
+    )
+  }
+
+  // Оценки, экзамены, посещаемость, сдачи ушедшего студента — год после ухода. 02:20.
+  @Cron('20 2 * * *', { name: 'purgeDepartedAcademicRecords' })
+  async purgeDepartedAcademicRecords(): Promise<RetentionCounts | null> {
+    return this.locks.run(
+      'purgeDepartedAcademicRecords',
+      LOCK_TTL_MS.purgeDepartedAcademicRecords,
+      () => this.retention.purgeDepartedAcademicRecords(this.pdRetentionDryRun()),
+    )
+  }
+
+  // Заявки и ответы на запросы документов ушедшего студента — год после ухода. 02:30.
+  @Cron('30 2 * * *', { name: 'purgeDepartedApplications' })
+  async purgeDepartedApplications(): Promise<RetentionCounts | null> {
+    return this.locks.run('purgeDepartedApplications', LOCK_TTL_MS.purgeDepartedApplications, () =>
+      this.retention.purgeDepartedApplications(this.pdRetentionDryRun()),
+    )
+  }
+
+  // Сообщения ушедшего студента и вложения к ним — год после ухода. 02:40.
+  @Cron('40 2 * * *', { name: 'purgeDepartedMessages' })
+  async purgeDepartedMessages(): Promise<RetentionCounts | null> {
+    return this.locks.run('purgeDepartedMessages', LOCK_TTL_MS.purgeDepartedMessages, () =>
+      this.retention.purgeDepartedMessages(this.pdRetentionDryRun()),
+    )
+  }
+
+  // Документы и сканы ушедшего студента — год после ухода. 02:50.
+  @Cron('50 2 * * *', { name: 'purgeDepartedDocuments' })
+  async purgeDepartedDocuments(): Promise<RetentionCounts | null> {
+    return this.locks.run('purgeDepartedDocuments', LOCK_TTL_MS.purgeDepartedDocuments, () =>
+      this.retention.purgeDepartedDocuments(this.pdRetentionDryRun()),
+    )
+  }
+
+  // Профиль ушедшего студента — год после ухода, штатным удалением аккаунта. 03:00 —
+  // последним: остальные задачи ищут его данные по дате ухода, а не по живому профилю.
+  @Cron('0 3 * * *', { name: 'purgeDepartedProfiles' })
+  async purgeDepartedProfiles(): Promise<RetentionCounts | null> {
+    return this.locks.run('purgeDepartedProfiles', LOCK_TTL_MS.purgeDepartedProfiles, () =>
+      this.retention.purgeDepartedProfiles(this.pdRetentionDryRun()),
+    )
+  }
+
+  /**
+   * Dry-run, пока флаг не включён явно. Сравнение строгое: всё, кроме настоящего `true`
+   * (пропуск, опечатка, мок конфига в тесте), оставляет уборку считающей, а не удаляющей.
+   */
+  private pdRetentionDryRun(): boolean {
+    return this.config.get('PD_RETENTION_ENABLED', { infer: true }) !== true
   }
 
   // Работодатели, не подтвердившие почту компании (D-F28). Ежедневно в 04:20.

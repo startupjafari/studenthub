@@ -43,6 +43,7 @@ import { REDIS_CLIENT } from '../../common/redis/redis.constants'
 // смена пароля/удаление/блокировка обязаны погасить сессии, которыми владеет AuthService.
 import { AuthService } from '../auth/auth.service'
 import { canonicalSpecialtyName } from '../specialties/specialty-name'
+import { nextLeftUniversityAt } from './academic-status'
 import { birthDateIso, CONSENT_SELECT, consentStateOf, type ConsentState } from './consent'
 
 type PrismaTx = Prisma.TransactionClient
@@ -1859,7 +1860,14 @@ export class UserService {
   ): Promise<UserProfile> {
     const target = await this.prisma.user.findFirst({
       where: { id: userId, deletedAt: null },
-      select: { id: true, role: true, universityId: true, facultyId: true, specialty: true },
+      select: {
+        id: true,
+        role: true,
+        universityId: true,
+        facultyId: true,
+        specialty: true,
+        leftUniversityAt: true,
+      },
     })
     if (!target) throw new AppException('NOT_FOUND', 'Пользователь не найден')
     if (target.role !== Role.STUDENT && target.role !== Role.STAROSTA) {
@@ -1873,9 +1881,15 @@ export class UserService {
           : false
     if (!inScope) throw new AppException('WRONG_SCOPE', 'Студент вне вашей области')
 
+    // Дата ухода из вуза — служебное поле, не часть контракта: из неё уборка считает сроки
+    // хранения (PERSONAL_DATA §4), поэтому ставится здесь, на единственном пути смены статуса.
+    const leftUniversityAt = nextLeftUniversityAt(data.academicStatus, target.leftUniversityAt)
     const updated = await this.prisma.user.update({
       where: { id: userId },
-      data: await this.withDictionarySpecialty(target, data),
+      data: {
+        ...(await this.withDictionarySpecialty(target, data)),
+        ...(leftUniversityAt !== undefined ? { leftUniversityAt } : {}),
+      },
       select: PROFILE_SELECT,
     })
     await this.audit.record({
