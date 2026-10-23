@@ -19,6 +19,7 @@ import {
   type UniversitySize,
   type PlatformRange,
 } from '../../../entities/analytics'
+import { ExportReportButton } from '../../../features/export-analytics-report'
 import {
   Button,
   Card,
@@ -178,12 +179,16 @@ export function PlatformDashboard() {
         title={tNav('dashboard')}
         subtitle={t('subtitleRange', { period })}
         actions={
-          <SegmentedTabs
-            aria-label={t('rangeLabel')}
-            value={rangeKey}
-            onChange={setRangeKey}
-            items={RANGES.map((r) => ({ value: r.key, label: t('rangeDays', { days: r.days }) }))}
-          />
+          <>
+            <SegmentedTabs
+              aria-label={t('rangeLabel')}
+              value={rangeKey}
+              onChange={setRangeKey}
+              items={RANGES.map((r) => ({ value: r.key, label: t('rangeDays', { days: r.days }) }))}
+            />
+            {/* Строки отчёта платформы — вузы; период выбирается в окне выгрузки. */}
+            <ExportReportButton />
+          </>
         }
       />
       <SeasonGreeting />

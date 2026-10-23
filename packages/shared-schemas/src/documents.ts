@@ -260,3 +260,110 @@ export const ReviewSubmissionItemSchema = z
     path: ['rejectionReason'],
   })
 export type ReviewSubmissionItemInput = z.infer<typeof ReviewSubmissionItemSchema>
+
+// ── Прогресс группы по запросам документов — старосте (15.2/15.6) ────────────────
+
+// Статус комплекта одногруппника глазами старосты: без документов, их типов, номеров и
+// файлов. NOT_STARTED — комплекта нет, IN_PROGRESS — черновик, SUBMITTED — отправлен и
+// ждёт проверки, NEEDS_FIX — возвращён на исправление, ACCEPTED — принят.
+export const GROUP_PROGRESS_STATUS_VALUES = [
+  'NOT_STARTED',
+  'IN_PROGRESS',
+  'SUBMITTED',
+  'NEEDS_FIX',
+  'ACCEPTED',
+] as const
+export type GroupProgressStatus = (typeof GROUP_PROGRESS_STATUS_VALUES)[number]
+
+// Запрос «учебный», если все его позиции — учебные документы (категория ACADEMIC): по
+// нему староста видит одногруппников поимённо. Запрос с личными документами (паспорт,
+// справки и т.п.) — только счётчики, и «возвращён на исправление» в них не выделяется:
+// поимённый или отдельный счёт отказов по личным документам раскрывал бы, у кого из
+// одногруппников проблемы с паспортом.
+export interface GroupRequestProgress {
+  id: string
+  title: string
+  dueAt: string | null
+  acceptsSubmissions: boolean
+  kind: 'ACADEMIC' | 'PERSONAL'
+  counts: {
+    total: number
+    notSubmitted: number
+    submitted: number
+    // Только у учебных запросов; у личных такие комплекты входят в notSubmitted.
+    needsFix: number | null
+    accepted: number
+  }
+  // Только у учебных запросов; у личных — null.
+  members: { id: string; name: string; status: GroupProgressStatus }[] | null
+}
+
+// ── Журнал документов вуза для админа вуза (15.2: «читает журнал», без содержимого) ──
+
+// Действия журнала DocumentEvent, по которым можно фильтровать.
+export const DOCUMENT_JOURNAL_ACTIONS = [
+  'UPLOAD',
+  'VIEW',
+  'DOWNLOAD',
+  'EDIT',
+  'REPLACE',
+  'PAGE_ADD',
+  'PAGE_REMOVE',
+  'GRANT',
+  'REVOKE',
+  'SUBMIT',
+  'REVIEW',
+  'ACCEPT',
+  'REJECT',
+  'ARCHIVE',
+  'DELETE',
+  'EXPIRING',
+  'EXPIRE',
+] as const
+export const DocumentJournalActionSchema = z.enum(DOCUMENT_JOURNAL_ACTIONS)
+export type DocumentJournalAction = z.infer<typeof DocumentJournalActionSchema>
+
+// Админская таблица с номером страницы — offset допустим (BACKEND_RULES §5.3).
+// `q` — ФИО того, кто действовал, или владельца документа; `userId` — точный человек в
+// любой из двух ролей. Период — по дате события, `to` включительно (до конца дня — в вебе).
+export const DocumentJournalQuerySchema = z
+  .object({
+    page: z.coerce.number().int().positive().default(1),
+    limit: z.coerce.number().int().positive().max(100).default(20),
+    action: DocumentJournalActionSchema.optional(),
+    from: z.coerce.date().optional(),
+    to: z.coerce.date().optional(),
+    q: z.string().trim().min(1).max(100).optional(),
+    userId: z.string().min(1).max(64).optional(),
+  })
+  .strict()
+export type DocumentJournalQueryInput = z.infer<typeof DocumentJournalQuerySchema>
+
+// Через что совершено действие: свой документ, грант доступа, запрос вуза, заявка,
+// спец-режим платформы или автоматика (крон срока).
+export const DOCUMENT_JOURNAL_VIA = [
+  'OWNER',
+  'GRANT',
+  'REQUEST',
+  'APPLICATION',
+  'PLATFORM',
+  'SYSTEM',
+  'STAFF',
+] as const
+export type DocumentJournalVia = (typeof DOCUMENT_JOURNAL_VIA)[number]
+
+// Строка журнала. Только метаданные: ни названия, ни номера, ни файлов документа —
+// тип и категория говорят, «что за документ», не раскрывая содержимого.
+export interface DocumentJournalItem {
+  id: string
+  createdAt: string
+  action: string
+  actor: { id: string; name: string; role: string | null }
+  owner: { id: string; name: string }
+  document: { id: string; category: string; type: string; deleted: boolean }
+  via: DocumentJournalVia
+  // Для GRANT/REVOKE/VIEW по гранту — кому выдан доступ (UNIVERSITY | DEPARTMENT | USER).
+  granteeType: string | null
+  // Для событий по запросу вуза — его название.
+  request: { id: string; title: string } | null
+}

@@ -844,10 +844,11 @@ export class DocumentsService {
     })
     if (!doc) throw new AppException('NOT_FOUND', 'Документ не найден')
     const isOwner = doc.ownerId === actor.sub
-    if (
-      !isOwner &&
-      (CONTENT_BARRED_ROLES.has(actor.role) || !(await this.hasActiveGrant(actor, doc)))
-    ) {
+    // Админу вуза содержимое чужих документов не открывается ни по какому гранту (§15.2);
+    // грант нужен и дальше — журнал документов вуза пишет, по какому доступу открыт файл.
+    const grant =
+      isOwner || CONTENT_BARRED_ROLES.has(actor.role) ? null : await this.activeGrant(actor, doc)
+    if (!isOwner && !grant) {
       throw new AppException('NOT_FOUND', 'Документ не найден')
     }
     const file = await this.prisma.file.findFirst({
@@ -855,7 +856,13 @@ export class DocumentsService {
       select: { id: true },
     })
     if (!file) throw new AppException('NOT_FOUND', 'Файл не найден')
-    await this.logEvent(actor.sub, id, isOwner ? 'DOWNLOAD' : 'VIEW', { fileId })
+    // По какому гранту открыт чужой документ — видно в журнале документов вуза.
+    await this.logEvent(
+      actor.sub,
+      id,
+      isOwner ? 'DOWNLOAD' : 'VIEW',
+      grant ? { fileId, accessId: grant.id, granteeType: grant.granteeType } : { fileId },
+    )
     return this.files.getPresignedUrl(fileId, undefined, asAttachment)
   }
 
@@ -878,11 +885,11 @@ export class DocumentsService {
     return or
   }
 
-  // Есть ли у смотрящего активный (не отозван, не истёк) грант на документ.
-  private async hasActiveGrant(
+  // Активный (не отозван, не истёк) грант смотрящего на документ или null.
+  private async activeGrant(
     actor: JwtPayload,
     doc: { id: string; universityId: string | null },
-  ): Promise<boolean> {
+  ): Promise<{ id: string; granteeType: string } | null> {
     const now = new Date()
     const sameUniversity = !!actor.universityId && doc.universityId === actor.universityId
     const grant = await this.prisma.documentAccess.findFirst({
@@ -892,9 +899,9 @@ export class DocumentsService {
         AND: [{ OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] }],
         OR: this.granteeOr(actor, sameUniversity ? { granteeType: 'UNIVERSITY' } : null),
       },
-      select: { id: true },
+      select: { id: true, granteeType: true },
     })
-    return grant !== null
+    return grant
   }
 
   /**
@@ -1081,7 +1088,7 @@ export class DocumentsService {
     await this.findOwnedOrThrow(actor, id)
     const access = await this.prisma.documentAccess.findFirst({
       where: { id: accessId, documentId: id },
-      select: { id: true, revokedAt: true },
+      select: { id: true, revokedAt: true, granteeType: true },
     })
     if (!access) throw new AppException('NOT_FOUND', 'Доступ не найден')
     if (!access.revokedAt) {
@@ -1089,7 +1096,7 @@ export class DocumentsService {
         where: { id: accessId },
         data: { revokedAt: new Date() },
       })
-      await this.logEvent(actor.sub, id, 'REVOKE')
+      await this.logEvent(actor.sub, id, 'REVOKE', { granteeType: access.granteeType })
     }
     return this.listAccess(actor, id)
   }

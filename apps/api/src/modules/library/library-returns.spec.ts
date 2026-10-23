@@ -25,6 +25,7 @@ function loanRow(overrides: Record<string, unknown> = {}) {
     cancelledAt: null,
     cancelReason: null,
     disputedAt: null,
+    lostSettledAt: null,
     readerId: 'stu-1',
     readerName: 'Оспанов Нурлан',
     readerGroup: 'ИТ-23-1',
@@ -44,8 +45,13 @@ function setup({ queued = null as null | Record<string, unknown>, queueCount = 0
     loan: {
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       findUniqueOrThrow: jest.fn().mockResolvedValue(loanRow({ status: 'RETURNED' })),
+      count: jest.fn().mockResolvedValue(0),
     },
-    bookCopy: { update: jest.fn().mockResolvedValue({}) },
+    bookCopy: {
+      update: jest.fn().mockResolvedValue({}),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      findUniqueOrThrow: jest.fn().mockResolvedValue({ status: 'AVAILABLE' }),
+    },
     reservation: {
       findFirst: jest.fn().mockResolvedValue(queued),
       update: jest.fn().mockResolvedValue({}),
@@ -57,6 +63,8 @@ function setup({ queued = null as null | Record<string, unknown>, queueCount = 0
         .fn()
         .mockResolvedValue({ id: 'loan-1', readerId: 'stu-1', bookTitle: 'Русская литература' }),
       findUnique: jest.fn().mockResolvedValue(loanRow()),
+      findUniqueOrThrow: jest.fn().mockResolvedValue(loanRow({ status: 'LOST' })),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       update: jest
         .fn()
         .mockImplementation(({ data }) => Promise.resolve(loanRow({ ...data, renewals: 1 }))),
@@ -70,12 +78,15 @@ function setup({ queued = null as null | Record<string, unknown>, queueCount = 0
         book: { id: 'book-1', title: 'Русская литература', archivedAt: null },
       }),
     },
-    reservation: { count: jest.fn().mockResolvedValue(queueCount) },
+    reservation: {
+      count: jest.fn().mockResolvedValue(queueCount),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
     university: { findUnique: jest.fn().mockResolvedValue({ timezone: 'Asia/Almaty' }) },
     $transaction: jest.fn().mockImplementation((fn: (t: typeof tx) => unknown) => fn(tx)),
   }
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
-  const notifier = { send: jest.fn().mockResolvedValue(undefined) }
+  const notifier = { send: jest.fn().mockResolvedValue(true) }
   const rules = {
     enabled: true,
     defaultLoanDays: 14,
@@ -223,6 +234,50 @@ describe('Утеря и отмена', () => {
     })
   })
 
+  it('долг по утерянной погашен — отметка, кто погасил, и аудит', async () => {
+    const { service, prisma, audit } = setup()
+    prisma.loan.findUnique.mockResolvedValue(loanRow({ status: 'LOST' }))
+    const settledAt = new Date('2026-10-23T06:00:00Z')
+    prisma.loan.findUniqueOrThrow.mockResolvedValue(
+      loanRow({ status: 'LOST', lostSettledAt: settledAt }),
+    )
+    const item = await service.settleLost(librarian, 'loan-1', ctx)
+    expect(prisma.loan.updateMany).toHaveBeenCalledWith({
+      where: { id: 'loan-1', status: 'LOST', lostSettledAt: null },
+      data: { lostSettledAt: expect.any(Date), lostSettledById: 'lib-1' },
+    })
+    expect(item.lostSettledAt).toBe(settledAt.toISOString())
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'library_loan_lost_settled', entityId: 'loan-1' }),
+    )
+  })
+
+  it('погасить можно только утерянную — 409 notLost', async () => {
+    const { service, prisma } = setup()
+    await expect(service.settleLost(librarian, 'loan-1', ctx)).rejects.toMatchObject({
+      details: [expect.objectContaining({ field: 'notLost' })],
+    })
+    expect(prisma.loan.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('погашенный долг второй раз не погасить — 409 settled', async () => {
+    const { service, prisma, audit } = setup()
+    prisma.loan.findUnique.mockResolvedValue(loanRow({ status: 'LOST' }))
+    prisma.loan.updateMany.mockResolvedValue({ count: 0 })
+    await expect(service.settleLost(librarian, 'loan-1', ctx)).rejects.toMatchObject({
+      details: [expect.objectContaining({ field: 'settled' })],
+    })
+    expect(audit.record).not.toHaveBeenCalled()
+  })
+
+  it('выдача чужого вуза — 404', async () => {
+    const { service, prisma } = setup()
+    prisma.loan.findUnique.mockResolvedValue(loanRow({ status: 'LOST', universityId: 'uni-2' }))
+    await expect(service.settleLost(librarian, 'loan-1', ctx)).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    })
+  })
+
   it('отмена — с причиной в выдаче и аудите, экземпляр освобождается', async () => {
     const { service, tx, audit } = setup()
     tx.loan.findUniqueOrThrow.mockResolvedValue(loanRow({ status: 'CANCELLED' }))
@@ -253,5 +308,149 @@ describe('Утеря и отмена', () => {
     await expect(
       service.cancel(librarian, 'loan-1', { reason: 'ошибка' }, ctx),
     ).rejects.toMatchObject({ code: 'CONFLICT' })
+  })
+})
+
+describe('Отмена возврата', () => {
+  const reason = 'Приняли не ту книгу'
+  // Вернули час назад: окно отмены ещё открыто.
+  const returned = (over: Record<string, unknown> = {}) =>
+    loanRow({
+      status: 'RETURNED',
+      returnedAt: new Date(Date.now() - 3_600_000),
+      returnedToId: 'lib-1',
+      ...over,
+    })
+
+  it('выдача снова открыта с прежним сроком, экземпляр — выдан; аудит и уведомление', async () => {
+    const { service, prisma, tx, audit, notifier } = setup()
+    prisma.loan.findUnique.mockResolvedValue(returned())
+    tx.loan.findUniqueOrThrow.mockResolvedValue(loanRow())
+    const item = await service.cancelReturn(librarian, 'loan-1', { reason }, ctx)
+    // Под локом очереди книги — тем же, что у возврата и броней.
+    expect(tx.$executeRaw).toHaveBeenCalled()
+    expect(tx.bookCopy.updateMany).toHaveBeenCalledWith({
+      where: { id: 'copy-1', status: 'AVAILABLE' },
+      data: { status: 'ON_LOAN' },
+    })
+    expect(tx.loan.updateMany).toHaveBeenCalledWith({
+      where: { id: 'loan-1', status: 'RETURNED' },
+      data: { status: 'OPEN', returnedAt: null, returnedToId: null, returnCondition: null },
+    })
+    // Срок не трогаем — он остаётся прежним.
+    expect(tx.loan.updateMany.mock.calls[0][0].data).not.toHaveProperty('dueAt')
+    expect(item.status).toBe('OPEN')
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'library_loan_return_cancelled',
+        metadata: expect.objectContaining({ reason, returnedToId: 'lib-1' }),
+      }),
+    )
+    expect(notifier.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recipientIds: ['stu-1'],
+        titleKey: 'library.loanReturnCancelled.title',
+      }),
+    )
+  })
+
+  it.each([
+    ['ON_LOAN', 'reissued'],
+    ['RESERVED', 'heldForReservation'],
+    ['LOST', 'withdrawn'],
+    ['WRITTEN_OFF', 'withdrawn'],
+  ])('экземпляр в статусе %s — 409 %s, ничего не меняется', async (status, field) => {
+    const { service, prisma, tx, audit } = setup()
+    prisma.loan.findUnique.mockResolvedValue(returned())
+    tx.bookCopy.findUniqueOrThrow.mockResolvedValue({ status })
+    await expect(service.cancelReturn(librarian, 'loan-1', { reason }, ctx)).rejects.toMatchObject({
+      code: 'CONFLICT',
+      details: [expect.objectContaining({ field })],
+    })
+    expect(tx.loan.updateMany).not.toHaveBeenCalled()
+    expect(audit.record).not.toHaveBeenCalled()
+  })
+
+  it('экземпляр после возврата выдавали другому — 409 reissued', async () => {
+    const { service, prisma, tx } = setup()
+    prisma.loan.findUnique.mockResolvedValue(returned())
+    tx.loan.count.mockResolvedValue(1)
+    await expect(service.cancelReturn(librarian, 'loan-1', { reason }, ctx)).rejects.toMatchObject({
+      details: [expect.objectContaining({ field: 'reissued' })],
+    })
+    expect(tx.bookCopy.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('экземпляр выдали в ту же секунду — 409 reissued, выдача не открывается', async () => {
+    const { service, prisma, tx } = setup()
+    prisma.loan.findUnique.mockResolvedValue(returned())
+    tx.bookCopy.updateMany.mockResolvedValue({ count: 0 })
+    await expect(service.cancelReturn(librarian, 'loan-1', { reason }, ctx)).rejects.toMatchObject({
+      details: [expect.objectContaining({ field: 'reissued' })],
+    })
+    expect(tx.loan.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('больше суток после возврата — 409 returnWindow', async () => {
+    const { service, prisma } = setup()
+    prisma.loan.findUnique.mockResolvedValue(
+      returned({ returnedAt: new Date(Date.now() - 25 * 3_600_000) }),
+    )
+    await expect(service.cancelReturn(librarian, 'loan-1', { reason }, ctx)).rejects.toMatchObject({
+      details: [expect.objectContaining({ field: 'returnWindow' })],
+    })
+  })
+
+  it('открытую выдачу «отменить возврат» нельзя — 409 notReturned', async () => {
+    const { service } = setup()
+    await expect(service.cancelReturn(librarian, 'loan-1', { reason }, ctx)).rejects.toMatchObject({
+      details: [expect.objectContaining({ field: 'notReturned' })],
+    })
+  })
+
+  it('выдача чужого вуза — 404', async () => {
+    const { service, prisma } = setup()
+    prisma.loan.findUnique.mockResolvedValue(returned({ universityId: 'uni-2' }))
+    await expect(service.cancelReturn(librarian, 'loan-1', { reason }, ctx)).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    })
+  })
+
+  it('отменяет только библиотекарь', async () => {
+    const { service } = setup()
+    await expect(
+      service.cancelReturn(
+        { ...librarian, role: Role.UNIVERSITY_ADMIN },
+        'loan-1',
+        { reason },
+        ctx,
+      ),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+  })
+})
+
+describe('«Бронь готова»', () => {
+  const held = {
+    reservationId: 'res-1',
+    readerId: 'stu-2',
+    name: 'Ахметова Айгерим',
+    group: null,
+    holdUntil: new Date('2026-10-25T18:59:59.999Z'),
+  }
+
+  it('очередь приняла — отметка в брони', async () => {
+    const { service, prisma } = setup()
+    await expect(service.notifyHeld(held, 'Русская литература', 'Asia/Almaty')).resolves.toBe(true)
+    expect(prisma.reservation.updateMany).toHaveBeenCalledWith({
+      where: { id: 'res-1', status: 'READY', readyNotifiedAt: null },
+      data: { readyNotifiedAt: expect.any(Date) },
+    })
+  })
+
+  it('очередь не приняла — отметки нет, догонит cron', async () => {
+    const { service, prisma, notifier } = setup()
+    notifier.send.mockResolvedValue(false)
+    await expect(service.notifyHeld(held, 'Русская литература', 'Asia/Almaty')).resolves.toBe(false)
+    expect(prisma.reservation.updateMany).not.toHaveBeenCalled()
   })
 })

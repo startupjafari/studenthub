@@ -1,6 +1,8 @@
-import { Injectable } from '@nestjs/common'
+import { Inject, Injectable, Logger } from '@nestjs/common'
+import type Redis from 'ioredis'
 import { Role } from '@studenthub/shared-types'
 import { PrismaService } from '../../common/prisma/prisma.service'
+import { REDIS_CLIENT } from '../../common/redis/redis.module'
 import { AppException } from '../../common/exceptions/app.exception'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 
@@ -32,9 +34,64 @@ interface RiskReason {
   value: number
 }
 
+/**
+ * Кэш обзора факультета и drill-down группы — тот же подход, что у статистики вуза
+ * (UniversityService.getStats) и сводки вуза: Redis, TTL 5 мин, сбой Redis — расчёт
+ * напрямую. Обзор открывают с главной декана при каждом заходе, а считается он по всей
+ * истории посещаемости факультета.
+ *
+ * Ключ — по уже ПРОВЕРЕННОЙ области: факультет или группа, к которым смотрящий допущен.
+ * Проверка доступа идёт до чтения кэша, поэтому общий ключ для декана и админа вуза
+ * безопасен: оба видят ровно одно и то же. Других параметров у этих сводок нет.
+ */
+const CACHE_TTL_SECONDS = 300
+export const facultyOverviewKey = (facultyId: string): string =>
+  `analytics:faculty:overview:${facultyId}`
+export const groupAttendanceKey = (groupId: string): string =>
+  `analytics:group:attendance:${groupId}`
+
 @Injectable()
 export class AnalyticsService {
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly logger = new Logger(AnalyticsService.name)
+
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(REDIS_CLIENT) private readonly redis: Redis,
+  ) {}
+
+  /**
+   * Сброс кэша при смене состава факультета — те же события, на которых сбрасывается
+   * статистика вуза: группа создана или удалена (GroupService). Отметки посещаемости кэш
+   * не сбрасывают, как и у сводки вуза: их ставят пачками по паре, и пересчёт обзора на
+   * каждую отметку свёл бы кэш на нет — свежесть держит TTL.
+   */
+  async invalidateFaculty(facultyId: string, groupId?: string): Promise<void> {
+    const keys = [facultyOverviewKey(facultyId)]
+    if (groupId) keys.push(groupAttendanceKey(groupId))
+    try {
+      await this.redis.del(...keys)
+    } catch (error) {
+      this.logger.warn(
+        `Не удалось сбросить кэш аналитики факультета ${facultyId}: ${(error as Error).message}`,
+      )
+    }
+  }
+
+  private async cached<T>(key: string, compute: () => Promise<T>): Promise<T> {
+    try {
+      const hit = await this.redis.get(key)
+      if (hit) return JSON.parse(hit) as T
+    } catch {
+      // Redis недоступен — считаем напрямую: обзор без кэша лучше, чем без обзора.
+    }
+    const value = await compute()
+    try {
+      await this.redis.set(key, JSON.stringify(value), 'EX', CACHE_TTL_SECONDS)
+    } catch {
+      // см. выше
+    }
+    return value
+  }
 
   // ── Агрегаты считает база (Ф13.6) ──────────────────────────────────────────
   //
@@ -169,7 +226,12 @@ export class AnalyticsService {
 
   /** Обзор факультета: показатели + посещаемость по группам + «требует внимания». */
   async facultyOverview(viewer: JwtPayload, requestedFacultyId?: string) {
+    // Область проверяется до кэша: из кэша отдаётся только то, к чему смотрящий допущен.
     const facultyId = await this.resolveFaculty(viewer, requestedFacultyId)
+    return this.cached(facultyOverviewKey(facultyId), () => this.computeFacultyOverview(facultyId))
+  }
+
+  private async computeFacultyOverview(facultyId: string) {
     const now = new Date()
 
     const [groups, students, attendance, submissionsPending, examsUpcoming] = await Promise.all([
@@ -257,6 +319,10 @@ export class AnalyticsService {
    */
   async groupAttendance(viewer: JwtPayload, groupId: string) {
     await this.assertGroupScope(viewer, groupId)
+    return this.cached(groupAttendanceKey(groupId), () => this.computeGroupAttendance(groupId))
+  }
+
+  private async computeGroupAttendance(groupId: string) {
     const [students, attendance] = await Promise.all([
       this.prisma.user.findMany({
         where: {

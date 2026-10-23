@@ -1,14 +1,18 @@
 import type { AxiosProgressEvent } from 'axios'
 import type {
   CreateDocumentInput,
+  DocumentJournalItem,
+  DocumentJournalQueryInput,
   DocumentListQueryInput,
   GrantDocumentAccessInput,
   UpdateDocumentInput,
 } from '@studenthub/shared-schemas'
 import {
   api,
+  getPaged,
   needsDirectUpload,
   uploadDirect,
+  type Paged,
   type PresignedTarget,
   type ResponseWithMeta,
 } from '../../../shared/api'
@@ -21,6 +25,7 @@ export const documentKeys = {
   events: (id: string) => ['documents', id, 'events'] as const,
   access: (id: string) => ['documents', id, 'access'] as const,
   sharedWithMe: () => ['documents', 'shared-with-me'] as const,
+  journal: (q: Partial<DocumentJournalQueryInput>) => ['documents', 'journal', q] as const,
 }
 
 export interface DocumentFile {
@@ -301,4 +306,13 @@ export async function platformDocumentFileUrls(
     { fileIds, reason },
   )
   return data.urls
+}
+
+// ── Журнал документов вуза (админ вуза) ───────────────────────────────────────
+
+// Метаданные действий без содержимого документа: тип и категория, без названия и номера.
+export async function fetchDocumentJournal(
+  params: Partial<DocumentJournalQueryInput> = {},
+): Promise<Paged<DocumentJournalItem>> {
+  return getPaged<DocumentJournalItem>('/document-journal', { page: 1, limit: 20, ...params })
 }

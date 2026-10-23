@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common'
 import { ScheduleModule } from '@nestjs/schedule'
 import { CronMonitorService } from '../../common/monitoring/cron-monitor.service'
 import { CleanupService } from './cleanup.service'
+import { PdRetentionService } from './pd-retention.service'
 import { EventsModule } from '../events/events.module'
 import { PostsModule } from '../posts/posts.module'
 import { StoriesModule } from '../stories/stories.module'
@@ -27,6 +28,8 @@ import { LibraryModule } from '../library/library.module'
 // DocumentsModule — ещё и для closeOverdueDocumentRequests (запросы документов по сроку).
 // UsersModule — штатное удаление аккаунта для purgeUnverifiedEmployers (UserService.softDeleteSelf).
 // LibraryModule — напоминания о сроке выдачи книг (remindLibraryLoans).
+// PdRetentionService — сроки хранения ПДн (PERSONAL_DATA §4): отбор и удаление по срокам,
+// расписание — в CleanupService; профили удаляет штатный UserService.softDeleteSelf.
 @Module({
   imports: [
     ScheduleModule.forRoot(),
@@ -42,7 +45,7 @@ import { LibraryModule } from '../library/library.module'
     UsersModule,
     LibraryModule,
   ],
-  providers: [CleanupService, CronMonitorService],
+  providers: [CleanupService, PdRetentionService, CronMonitorService],
   exports: [CleanupService],
 })
 export class CleanupModule {}

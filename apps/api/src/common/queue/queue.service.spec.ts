@@ -48,6 +48,17 @@ describe('QueueService.enqueue', () => {
     expect(opts.jobId).not.toContain(':')
   })
 
+  it('успешная постановка — true', async () => {
+    const { service } = makeService()
+    await expect(service.enqueue(QUEUES.EMAIL, 'send-invite', { to: 'a@b.c' })).resolves.toBe(true)
+  })
+
+  it('Redis недоступен — не бросает, а возвращает false', async () => {
+    const { service, add } = makeService()
+    add.mockRejectedValueOnce(new Error('Connection is closed'))
+    await expect(service.enqueue(QUEUES.EMAIL, 'send-invite', { to: 'a@b.c' })).resolves.toBe(false)
+  })
+
   it('requestId не утекает в jobOptions', async () => {
     const { service, add } = makeService()
     await service.enqueue(QUEUES.EMAIL, 'send-invite', { to: 'a@b.c' }, { requestId: 'r' })

@@ -4,6 +4,8 @@ import { Role } from '@studenthub/shared-types'
 import type {
   CreateDocumentRequestInput,
   CursorPaginationInput,
+  GroupProgressStatus,
+  GroupRequestProgress,
   ReviewSubmissionItemInput,
   SaveSubmissionInput,
 } from '@studenthub/shared-schemas'
@@ -63,6 +65,29 @@ const RECIPIENTS_BATCH = 1000
 const MANAGE_SUBMISSIONS_LIMIT = 200
 // Пачка крона закрытия запросов по сроку.
 const CLOSE_BATCH = 500
+// Прогресс группы для старосты: открытых запросов на группу — единицы, людей в группе —
+// десятки; потолки держат выборку комплектов в пределах запросов × людей.
+const GROUP_PROGRESS_REQUESTS_LIMIT = 30
+const GROUP_MEMBERS_LIMIT = 200
+
+// Статус комплекта → статус для старосты (без содержимого).
+function progressStatus(submissionStatus: string | undefined): GroupProgressStatus {
+  switch (submissionStatus) {
+    case undefined:
+      return 'NOT_STARTED'
+    case 'DRAFT':
+      return 'IN_PROGRESS'
+    case 'SUBMITTED':
+    case 'PARTIAL':
+      return 'SUBMITTED'
+    case 'REJECTED':
+      return 'NEEDS_FIX'
+    case 'ACCEPTED':
+      return 'ACCEPTED'
+    default:
+      return 'IN_PROGRESS'
+  }
+}
 
 // Кто сейчас ведёт комплект. Студент меняет и отправляет его, пока комплект не отправлен
 // (DRAFT) или возвращён ему после проверки (REJECTED; PARTIAL — проверены не все позиции).
@@ -861,6 +886,112 @@ export class DocumentRequestsService {
       { jobId: `doc-result:${submissionId}:${status}` },
     )
     return this.getSubmissionForStaff(actor, submissionId)
+  }
+
+  // ── Староста: прогресс группы (15.2/15.6) ───────────────────────────────────
+
+  /**
+   * Прогресс своей группы по открытым запросам документов, адресованным ей целиком (группе,
+   * её факультету или всему вузу; персональные запросы отдельным студентам сюда не входят).
+   * Группа — только из JWT старосты.
+   *
+   * Староста не видит документов: ни типов, ни номеров, ни файлов, ни вердиктов по
+   * позициям — только статус комплекта. Поимённо — лишь по учебным запросам (все позиции —
+   * категории ACADEMIC); по запросу с личными документами — только счётчики, где
+   * «возвращён на исправление» не выделяется (§14.7 BACKEND_RULES: староста не видит
+   * документы одногруппников). Тип, не найденный в каталоге вуза, считается личным —
+   * ошибка в эту сторону ничего не раскрывает.
+   */
+  async groupProgress(actor: JwtPayload): Promise<GroupRequestProgress[]> {
+    if (actor.role !== Role.STAROSTA || !actor.groupId || !actor.universityId) {
+      throw new AppException('FORBIDDEN', 'Прогресс группы доступен старосте своей группы')
+    }
+    const universityId = actor.universityId
+    const group = await this.prisma.group.findFirst({
+      where: { id: actor.groupId, faculty: { universityId } },
+      select: { id: true, facultyId: true },
+    })
+    if (!group) throw new AppException('WRONG_SCOPE', 'Группа не найдена в вашем вузе')
+
+    const requests = await this.prisma.documentRequest.findMany({
+      where: {
+        universityId,
+        status: 'OPEN',
+        targets: {
+          some: {
+            OR: [
+              { targetType: 'UNIVERSITY' },
+              { targetType: 'FACULTY', targetId: group.facultyId },
+              { targetType: 'GROUP', targetId: group.id },
+            ],
+          },
+        },
+      },
+      orderBy: [{ dueAt: { sort: 'asc', nulls: 'last' } }, { createdAt: 'desc' }],
+      take: GROUP_PROGRESS_REQUESTS_LIMIT,
+      select: {
+        id: true,
+        title: true,
+        status: true,
+        dueAt: true,
+        items: { select: { documentType: true }, take: REQUEST_ITEMS_LIMIT },
+      },
+    })
+    if (requests.length === 0) return []
+
+    const members = await this.prisma.user.findMany({
+      where: {
+        groupId: group.id,
+        universityId,
+        deletedAt: null,
+        isBlocked: false,
+        role: { in: [Role.STUDENT, Role.STAROSTA] },
+      },
+      orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
+      select: { id: true, firstName: true, lastName: true },
+      take: GROUP_MEMBERS_LIMIT,
+    })
+    const memberIds = members.map((m) => m.id)
+    const submissions = memberIds.length
+      ? await this.prisma.documentSubmission.findMany({
+          where: { requestId: { in: requests.map((r) => r.id) }, studentId: { in: memberIds } },
+          select: { requestId: true, studentId: true, status: true },
+          take: requests.length * memberIds.length,
+        })
+      : []
+    const statusOf = new Map(submissions.map((s) => [`${s.requestId}:${s.studentId}`, s.status]))
+
+    const catalog = await this.types.effective(universityId)
+    const categoryOf = new Map(catalog.map((t) => [t.typeId, t.category]))
+
+    return requests.map((r) => {
+      const academic =
+        r.items.length > 0 && r.items.every((i) => categoryOf.get(i.documentType) === 'ACADEMIC')
+      const rows = members.map((m) => ({
+        id: m.id,
+        name: `${m.lastName} ${m.firstName}`.trim(),
+        status: progressStatus(statusOf.get(`${r.id}:${m.id}`)),
+      }))
+      const count = (...st: GroupProgressStatus[]) =>
+        rows.filter((x) => st.includes(x.status)).length
+      return {
+        id: r.id,
+        title: r.title,
+        dueAt: r.dueAt ? r.dueAt.toISOString() : null,
+        acceptsSubmissions: acceptsSubmissions(r),
+        kind: academic ? ('ACADEMIC' as const) : ('PERSONAL' as const),
+        counts: {
+          total: rows.length,
+          notSubmitted: academic
+            ? count('NOT_STARTED', 'IN_PROGRESS')
+            : count('NOT_STARTED', 'IN_PROGRESS', 'NEEDS_FIX'),
+          submitted: count('SUBMITTED'),
+          needsFix: academic ? count('NEEDS_FIX') : null,
+          accepted: count('ACCEPTED'),
+        },
+        members: academic ? rows : null,
+      }
+    })
   }
 
   // ── Студент: свои запросы и ответы (15.15) ──────────────────────────────────

@@ -201,8 +201,8 @@ export class CareerNotifier {
     return university?.shortName || university?.name || ''
   }
 
-  private send(job: NotificationJobData): Promise<void> {
-    return this.queue.enqueue(QUEUES.NOTIFICATIONS, NOTIFICATION_JOBS.APPLICATION_UPDATED, job, {
+  private async send(job: NotificationJobData): Promise<void> {
+    await this.queue.enqueue(QUEUES.NOTIFICATIONS, NOTIFICATION_JOBS.APPLICATION_UPDATED, job, {
       jobId: job.dedupeKey,
     })
   }
