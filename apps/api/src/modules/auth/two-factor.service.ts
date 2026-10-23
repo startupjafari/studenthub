@@ -246,7 +246,11 @@ export class TwoFactorService {
    * терять его на отказе («код входа уже использован»). TOTP-шаг занимается здесь же —
    * повтор кода отсекается атомарно, а потерять шаг не страшно: через 30 с будет новый.
    */
-  async checkCode(rec: TwoFactorLoginRecord, code: string): Promise<ConsumeTwoFactorCode | null> {
+  async checkCode(rec: TwoFactorLoginRecord, raw: string): Promise<ConsumeTwoFactorCode | null> {
+    // Коды переписывают с бумаги и вставляют из заметок: пробелы по краям, дефис посередине
+    // и строчные буквы (мобильная клавиатура, автокапитализация) — не повод отвергнуть
+    // верный код. Ячейки на входе нормализуют сами, а поля настроек и мини-апп — нет.
+    const code = raw.trim()
     if (/^\d{6}$/.test(code)) {
       if (!rec.twoFactorSecret) return null
       const secret = this.crypto.decrypt(rec.twoFactorSecret)
@@ -260,8 +264,9 @@ export class TwoFactorService {
     }
     // Backup-код: ищем совпадающий хэш; сжигается он условной записью — из двух
     // одновременных входов с одним кодом пройдёт один.
+    const backup = code.replace(/[\s-]/g, '').toUpperCase()
     for (const hash of rec.twoFactorBackupCodes) {
-      if (await this.passwords.compare(code, hash)) {
+      if (await this.passwords.compare(backup, hash)) {
         return () => this.users.consumeBackupCode(rec.id, hash)
       }
     }

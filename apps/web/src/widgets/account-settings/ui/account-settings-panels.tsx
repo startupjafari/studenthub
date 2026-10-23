@@ -697,6 +697,8 @@ function TwoFactorManager({ me }: { me: MeResponse }) {
                 <Input
                   id="regen2fa"
                   autoComplete="one-time-code"
+                  autoCapitalize="characters"
+                  spellCheck={false}
                   placeholder="123456"
                   value={regenCode}
                   onChange={(e) => setRegenCode(e.target.value)}
@@ -733,8 +735,9 @@ function TwoFactorManager({ me }: { me: MeResponse }) {
                   <Label htmlFor="disable2fa">{tS('twoFactorEnterCode')}</Label>
                   <Input
                     id="disable2fa"
-                    inputMode="numeric"
                     autoComplete="one-time-code"
+                    autoCapitalize="characters"
+                    spellCheck={false}
                     placeholder="123456"
                     value={disableCode}
                     onChange={(e) => setDisableCode(e.target.value)}
@@ -1367,6 +1370,8 @@ export function DangerSection({ me }: { me: MeResponse }) {
                     <Input
                       id="delete-account-code"
                       autoComplete="one-time-code"
+                      autoCapitalize="characters"
+                      spellCheck={false}
                       placeholder="123456"
                       value={code}
                       onChange={(e) => setCode(e.target.value)}

@@ -356,6 +356,22 @@ describe('TwoFactorService.checkCode — проверка без списани�
     expect(users.consumeBackupCode).toHaveBeenCalledWith('u1', 'hash:ABCD1234')
   })
 
+  // BUG-348: код с бумаги или из заметок — строчными, с пробелами и дефисом.
+  it('backup-код принимается строчными, с пробелами и дефисом', async () => {
+    const { service } = setup()
+    const rec = loginRecord({ twoFactorBackupCodes: ['hash:ABCD1234'] })
+    expect(await service.checkCode(rec, ' abcd-1234 ')).toEqual(expect.any(Function))
+  })
+
+  it('TOTP с пробелами по краям принимается', async () => {
+    const { service } = setup()
+    const secret = authenticator.generateSecret()
+    const rec = loginRecord({ twoFactorSecret: `enc(${secret})` })
+    expect(await service.checkCode(rec, ` ${authenticator.generate(secret)} `)).toEqual(
+      expect.any(Function),
+    )
+  })
+
   it('неверный код → null', async () => {
     const { service } = setup()
     const rec = loginRecord({ twoFactorBackupCodes: ['hash:ABCD1234'] })
