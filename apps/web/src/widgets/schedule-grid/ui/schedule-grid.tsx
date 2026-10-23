@@ -19,6 +19,10 @@ import { EmptyState, Skeleton } from '../../../shared/ui'
 import { isoWeekParity, useScrollRow } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 import { PairDetailModal } from './pair-detail-modal'
+import {
+  keysToRefreshOnScheduleChanged,
+  type ScheduleChangedPayload,
+} from '../lib/schedule-changed'
 
 interface ScheduleGridProps {
   // Доп. фильтры сверх ролевого scope (группа/преподаватель/аудитория) — для декана/админа/преподавателя.
@@ -96,11 +100,12 @@ export function ScheduleGrid({ filters = {} }: ScheduleGridProps) {
     queryFn: () => fetchScheduleChanges(changesQuery),
   })
 
-  // Инвалидируем только queries изменений (['schedule','changes',*]), а не весь scheduleKeys.all:
-  // событие несёт override/отмену пары (наложение из changes), базовая сетка пар им не меняется.
-  // Так рефетчим одну лёгкую выборку вместо всех расписаний по всем фильтрам.
-  useRealtimeEvent<{ groupId: string }>('schedule:changed', () => {
-    void qc.invalidateQueries({ queryKey: ['schedule', 'changes'] })
+  // Не весь scheduleKeys.all: разовое изменение перечитывает только выборку изменений, правка
+  // или удаление пары действующей сетки — ещё и саму сетку (keysToRefreshOnScheduleChanged).
+  useRealtimeEvent<ScheduleChangedPayload>('schedule:changed', (payload) => {
+    for (const queryKey of keysToRefreshOnScheduleChanged(payload)) {
+      void qc.invalidateQueries({ queryKey })
+    }
     toast.info(t('changedToast'))
   })
 
