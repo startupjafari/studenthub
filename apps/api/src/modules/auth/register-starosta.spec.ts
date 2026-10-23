@@ -48,6 +48,7 @@ function setup(role: 'STAROSTA' | 'STUDENT', groupId: string | null = 'grp-1') {
     { assertAllowed: jest.fn() } as never,
     {} as never,
     {} as never,
+    { removeAllForUser: jest.fn() } as never,
   )
   return { service, users, tx }
 }

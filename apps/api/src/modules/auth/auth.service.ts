@@ -22,6 +22,7 @@ import { UserService, type UserProfile } from '../users/users.service'
 import { InviteService } from '../invites/invites.service'
 import { UniversityAccessService } from '../universities/university-access.service'
 import { CompaniesService } from '../career/companies.service'
+import { PushService } from '../push/push.service'
 import { TwoFactorService } from './two-factor.service'
 import { LoginAttemptsService } from './login-attempts.service'
 import { parseDurationMs } from './auth.constants'
@@ -108,6 +109,8 @@ export class AuthService {
     private readonly universityAccess: UniversityAccessService,
     private readonly companies: CompaniesService,
     private readonly crypto: CryptoService,
+    // PushModule глобальный и сам ничего из auth/users не импортирует — кольца нет.
+    private readonly push: PushService,
   ) {}
 
   /** Проверка идентификатор (email/username) + пароль для LocalStrategy. Не раскрывает, что именно неверно. */
@@ -616,6 +619,8 @@ export class AuthService {
     // Открытый WS живёт сам по себе: рвём соединения сразу, переподключиться старым
     // токеном не даст метка отзыва.
     this.realtime.disconnectUser(userId)
+    // Push-привязки — тоже часть сессии: «выйти везде» должно выгнать и телефон угонщика.
+    await this.push.removeAllForUser(userId)
   }
 
   // --- приватные ---

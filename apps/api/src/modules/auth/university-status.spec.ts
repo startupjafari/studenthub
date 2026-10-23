@@ -90,6 +90,7 @@ function setup(status: 'ACTIVE' | 'BLOCKED' | 'PENDING') {
     access,
     {} as never,
     {} as never,
+    { removeAllForUser: jest.fn() } as never,
   )
   return { service, prisma, tx, users, invites, loginAttempts }
 }

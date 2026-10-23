@@ -47,6 +47,7 @@ function setup(owner: string | null) {
     { assertAllowed: jest.fn() } as never,
     {} as never,
     {} as never,
+    { removeAllForUser: jest.fn() } as never,
   )
   return { service, users, invites }
 }

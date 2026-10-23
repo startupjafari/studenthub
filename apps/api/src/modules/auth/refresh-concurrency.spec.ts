@@ -125,6 +125,7 @@ function setup(opts: { redisDown?: boolean } = {}) {
     ),
   }
   const crypto = new CryptoService({ get: () => 'k'.repeat(32) } as never)
+  const push = { removeAllForUser: jest.fn() }
   const service = new AuthService(
     prisma as never,
     { sign: jest.fn(() => 'access') } as never,
@@ -141,8 +142,9 @@ function setup(opts: { redisDown?: boolean } = {}) {
     { assertAllowed: jest.fn() } as never,
     {} as never,
     crypto,
+    push as never,
   )
-  return { service, rows, live, redis, audit, users, refreshToken }
+  return { service, rows, live, redis, audit, users, refreshToken, push }
 }
 
 describe('AuthService.refresh: параллельные обмены одной cookie (A-F30)', () => {
@@ -227,6 +229,14 @@ describe('AuthService.refresh: параллельные обмены одной 
     await revoking
 
     expect(live()).toHaveLength(0)
+  })
+
+  it('гашение всех сессий снимает и push-привязки устройств (BUG-081)', async () => {
+    const { service, push } = setup()
+
+    await service.revokeAllUserSessions('u1')
+
+    expect(push.removeAllForUser).toHaveBeenCalledWith('u1')
   })
 
   it('цепочку погасили, пока обмен ждал (выход), — сессия не воскресает', async () => {

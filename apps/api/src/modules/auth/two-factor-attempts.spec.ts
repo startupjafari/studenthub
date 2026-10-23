@@ -64,6 +64,7 @@ describe('AuthService: попытки ввода кода 2FA', () => {
       // Компания работодателя подтверждена — вход не упирается в почту (D-F28).
       { loginDenial: jest.fn().mockResolvedValue(null) } as never,
       {} as never,
+      { removeAllForUser: jest.fn() } as never,
     )
     // Выдача сессии — не предмет этого теста: она тянет Prisma и подпись токенов.
     const withPrivate = service as unknown as {
