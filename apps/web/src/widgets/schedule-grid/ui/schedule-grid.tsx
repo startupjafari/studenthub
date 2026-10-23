@@ -16,7 +16,7 @@ import {
 } from '../../../entities/schedule'
 import { useRealtimeEvent } from '../../../shared/realtime'
 import { EmptyState, Skeleton } from '../../../shared/ui'
-import { useScrollRow } from '../../../shared/lib'
+import { isoWeekParity, useScrollRow } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 import { PairDetailModal } from './pair-detail-modal'
 
@@ -58,14 +58,6 @@ function addDays(d: Date, n: number): Date {
   r.setDate(d.getDate() + n)
   return r
 }
-// Номер ISO-недели — для авто-определения чётности.
-function isoWeek(d: Date): number {
-  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()))
-  const dayNum = (date.getUTCDay() + 6) % 7
-  date.setUTCDate(date.getUTCDate() - dayNum + 3)
-  const firstThursday = new Date(Date.UTC(date.getUTCFullYear(), 0, 4))
-  return 1 + Math.round((date.getTime() - firstThursday.getTime()) / (7 * 86_400_000))
-}
 
 export function ScheduleGrid({ filters = {} }: ScheduleGridProps) {
   const t = useTranslations('Schedule')
@@ -84,7 +76,7 @@ export function ScheduleGrid({ filters = {} }: ScheduleGridProps) {
     () => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)),
     [weekStart],
   )
-  const autoParity: WeekType = isoWeek(weekStart) % 2 === 1 ? 'ODD' : 'EVEN'
+  const autoParity: WeekType = isoWeekParity(weekStart)
   const effectiveParity: WeekType = parityMode === 'AUTO' ? autoParity : parityMode
 
   // Пары — без фильтра по чётности (получаем все, фильтруем по неделе на клиенте).
