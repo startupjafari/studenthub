@@ -135,8 +135,15 @@ export class ApplicationProcessService {
           select: PROC_SELECT,
         })
         .catch(rethrowStaleStatus)
+      // Кого назначили — в metadata, а не в comment: comment история показывает студенту
+      // как текст, и там оказывался внутренний id сотрудника.
       await tx.applicationEvent.create({
-        data: { applicationId: app.id, actorId: viewer.sub, action: 'ASSIGNED', comment: userId },
+        data: {
+          applicationId: app.id,
+          actorId: viewer.sub,
+          action: 'ASSIGNED',
+          metadata: { assigneeId: userId },
+        },
       })
       return u
     })

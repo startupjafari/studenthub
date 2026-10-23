@@ -419,6 +419,21 @@ describe('ApplicationProcessService.assign — кому можно поручи�
     )
   })
 
+  // id сотрудника в comment история показывала студенту как текст.
+  it('кого назначили — в metadata события, comment пустой', async () => {
+    const { service, prisma, users } = setup({ ...base, status: 'IN_REVIEW' })
+    users.findAssigneeScope.mockResolvedValue({
+      id: 'ua',
+      role: Role.UNIVERSITY_ADMIN,
+      universityId: 'uni',
+      facultyId: null,
+    })
+    await service.assign(dean, 'a1', 'ua')
+    const data = prisma.applicationEvent.create.mock.calls[0][0].data
+    expect(data).toMatchObject({ action: 'ASSIGNED', metadata: { assigneeId: 'ua' } })
+    expect(data.comment).toBeUndefined()
+  })
+
   it('декану другого факультета — нельзя: он заявку даже не увидит', async () => {
     const { service, prisma, users } = setup({ ...base, status: 'IN_REVIEW' })
     users.findAssigneeScope.mockResolvedValue({

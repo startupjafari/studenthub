@@ -390,7 +390,11 @@ export class ApplicationsService {
     return {
       ...app,
       // Выбраны последние события — клиенту история нужна по порядку, от первого шага.
-      events: [...app.events].reverse(),
+      // У назначений, записанных до переноса id в metadata, в comment лежит id сотрудника —
+      // это не текст для истории, наружу его не отдаём.
+      events: [...app.events]
+        .reverse()
+        .map((e) => (e.action === 'ASSIGNED' ? { ...e, comment: null } : e)),
       documents: app.documents.map(({ document, ...doc }) => ({
         ...doc,
         files: document?.files ?? [],

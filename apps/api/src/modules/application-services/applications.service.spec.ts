@@ -602,3 +602,28 @@ describe('ApplicationsService.getById — потолки вложенных вы
     expect(select.results.take).toBeGreaterThan(0)
   })
 })
+
+describe('ApplicationsService.getById — id сотрудника не уходит в историю', () => {
+  it('у назначения прежнего формата (id в comment) comment не отдаётся', async () => {
+    const { service, application } = setup()
+    application.findFirst.mockResolvedValue({
+      studentId: 'stud',
+      facultyId: 'fac',
+      universityId: 'uni',
+    })
+    application.findUnique.mockResolvedValue({
+      id: 'a1',
+      documents: [],
+      results: [],
+      events: [
+        { id: 'e2', action: 'ASSIGNED', comment: 'staff-uuid' },
+        { id: 'e1', action: 'REJECTED', comment: 'нет справки' },
+      ],
+    })
+    const app = await service.getById(student, 'a1')
+    expect(app?.events).toEqual([
+      { id: 'e1', action: 'REJECTED', comment: 'нет справки' },
+      { id: 'e2', action: 'ASSIGNED', comment: null },
+    ])
+  })
+})

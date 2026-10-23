@@ -333,7 +333,8 @@ function Timeline({ events }: { events: TimelineEvent[] }) {
               <span className="text-xs text-muted-foreground">
                 {new Date(e.createdAt).toLocaleString(locale)}
               </span>
-              {e.comment && (
+              {/* У назначения comment не текст (старые записи хранили там id сотрудника). */}
+              {e.comment && e.action !== 'ASSIGNED' && (
                 <span className="mt-0.5 text-sm text-muted-foreground">{e.comment}</span>
               )}
             </div>

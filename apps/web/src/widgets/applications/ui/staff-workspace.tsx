@@ -171,7 +171,7 @@ export function StaffWorkspaceModal({ id, onClose }: { id: string; onClose: () =
                       <span className="text-xs text-muted-foreground">
                         {new Date(e.createdAt).toLocaleString(locale)}
                       </span>
-                      {/* У назначения в comment лежит id сотрудника, а не текст — его не показываем. */}
+                      {/* У назначения comment не текст (старые записи хранили там id сотрудника). */}
                       {e.comment && e.action !== 'ASSIGNED' && (
                         <span className="text-xs text-muted-foreground">{e.comment}</span>
                       )}
