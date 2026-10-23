@@ -66,7 +66,7 @@ apps/api/src/
 │   ├── guards/                   # JwtAuthGuard, RolesGuard, ScopeGuard, JwtWsGuard
 │   ├── decorators/               # @Roles, @CurrentUser, @Public, @Scope
 │   ├── filters/                  # HttpExceptionFilter
-│   ├── interceptors/             # ResponseInterceptor, LoggingInterceptor, AuditInterceptor
+│   ├── interceptors/             # ResponseInterceptor, LoggingInterceptor
 │   ├── pipes/                    # ZodValidationPipe
 │   └── prisma/                   # PrismaModule, PrismaService
 ├── config/                       # ConfigModule + Zod-валидация env
@@ -440,7 +440,7 @@ ScopeGuard     (universityId / facultyId / groupId из токена = scope р�
 - Обязательный контекст в логах: `requestId`, `userId`, `path`, `action`. `requestId` генерируется в middleware и прокидывается в job'ы очередей.
 - **Никогда не логируются:** пароли, `passwordHash`, access/refresh-токены, токены инвайтов, содержимое личных сообщений, вложения заявок.
 - Уровни: `error` — сбой; `warn` — деградация, retry, подозрительная активность; `log` — бизнес-события (логин, создание инвайта, смена статуса заявки); `debug`/`verbose` — только dev.
-- `AuditLog` пишется через `AuditInterceptor` или явно в сервисе для: login, logout, всех операций с инвайтами, смены роли, смены статуса университета, блокировки пользователя, решений модератора, доступа администратора к личным чатам по жалобе.
+- `AuditLog` пишется явно в сервисе (`AuditService.log`, перехватчика аудита нет — IMPLEMENTATION_PLAN 11.6) для: login, logout, всех операций с инвайтами, смены роли, смены статуса университета, блокировки пользователя, решений модератора, доступа администратора к личным чатам по жалобе.
 - `GET /health` (`@nestjs/terminus`, публичный): проверки Prisma, Redis, MinIO.
 
 ### 13.1 Sentry (Ф13.8)
