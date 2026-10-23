@@ -883,11 +883,14 @@ export class DocumentsService {
       select: { id: true },
     })
     if (!file) throw new AppException('NOT_FOUND', 'Файл не найден')
-    // По какому гранту открыт чужой документ — видно в журнале документов вуза.
+    // По какому гранту открыт чужой документ — видно в журнале документов вуза. Действие —
+    // по самой ссылке: вложением (`download=1`) — скачивание, иначе просмотр. Раньше его
+    // выводили из того, кто смотрит: просмотр владельцем писался скачиванием, а скачивание
+    // получателем гранта — просмотром.
     await this.logEvent(
       actor.sub,
       id,
-      isOwner ? 'DOWNLOAD' : 'VIEW',
+      asAttachment ? 'DOWNLOAD' : 'VIEW',
       grant ? { fileId, accessId: grant.id, granteeType: grant.granteeType } : { fileId },
     )
     return this.files.getPresignedUrl(fileId, undefined, asAttachment)

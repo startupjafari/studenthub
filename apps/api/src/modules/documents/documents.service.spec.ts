@@ -413,6 +413,23 @@ describe('DocumentsService — доступ (15.11)', () => {
     )
   })
 
+  it('getFileUrl: действие в журнале — по ссылке, а не по тому, кто смотрит', async () => {
+    const cases: [string, boolean, string][] = [
+      ['me', false, 'VIEW'], // владелец смотрит — не «скачал»
+      ['me', true, 'DOWNLOAD'],
+      ['other', true, 'DOWNLOAD'], // получатель гранта скачал — не «посмотрел»
+    ]
+    for (const [ownerId, download, action] of cases) {
+      const { service, prisma } = setup()
+      prisma.document.findFirst.mockResolvedValue({ id: 'd1', ownerId, universityId: 'uni-1' })
+      prisma.documentAccess.findFirst.mockResolvedValue({ id: 'g1', granteeType: 'USER' })
+      prisma.file.findFirst.mockResolvedValue({ id: 'f1' })
+      await service.getFileUrl(actor(), 'd1', 'f1', download)
+      expect(prisma.documentEvent.create).toHaveBeenCalledTimes(1)
+      expect(prisma.documentEvent.create.mock.calls[0][0].data.action).toBe(action)
+    }
+  })
+
   it('гранты «Университет» и «факультет» не действуют для студента — только USER', async () => {
     const { service, prisma } = setup()
     prisma.document.findFirst.mockResolvedValue({
