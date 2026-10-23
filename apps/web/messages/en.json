@@ -801,7 +801,11 @@
       "USED": "Used",
       "EXPIRED": "Expired",
       "REVOKED": "Revoked"
-    }
+    },
+    "scopeLabel": "Whose invites",
+    "scopeMine": "Mine",
+    "scopeUniversity": "Whole university",
+    "issuedBy": "Issued by {name}"
   },
   "UniAdmin": {
     "facultiesTitle": "Faculties",

@@ -801,7 +801,11 @@
       "USED": "Использовано",
       "EXPIRED": "Истекло",
       "REVOKED": "Отозвано"
-    }
+    },
+    "scopeLabel": "Чьи приглашения",
+    "scopeMine": "Мои",
+    "scopeUniversity": "Весь вуз",
+    "issuedBy": "Выдал: {name}"
   },
   "UniAdmin": {
     "facultiesTitle": "Факультеты",

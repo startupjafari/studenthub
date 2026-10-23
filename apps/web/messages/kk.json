@@ -801,7 +801,11 @@
       "USED": "Пайдаланылды",
       "EXPIRED": "Мерзімі бітті",
       "REVOKED": "Қайтарып алынды"
-    }
+    },
+    "scopeLabel": "Кімнің шақырулары",
+    "scopeMine": "Менікі",
+    "scopeUniversity": "Бүкіл ЖОО",
+    "issuedBy": "Берген: {name}"
   },
   "UniAdmin": {
     "facultiesTitle": "Факультеттер",
