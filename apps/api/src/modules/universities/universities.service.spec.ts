@@ -7,6 +7,7 @@ import type { AuditService } from '../../common/audit/audit.service'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { UniversityAccessService } from './university-access.service'
 import type { InviteService } from '../invites/invites.service'
+import type { RealtimeGateway } from '../../common/realtime/realtime.gateway'
 
 const ctx = { ip: '127.0.0.1', userAgent: 'jest' }
 
@@ -34,14 +35,16 @@ function setup() {
   const redis = { get: jest.fn(), set: jest.fn(), del: jest.fn() }
   const access = { remember: jest.fn() }
   const invites = { revokePendingInScope: jest.fn().mockResolvedValue(0) }
+  const realtime = { disconnectUniversity: jest.fn().mockResolvedValue(undefined) }
   const service = new UniversityService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
     redis as unknown as Redis,
     access as unknown as UniversityAccessService,
     invites as unknown as InviteService,
+    realtime as unknown as RealtimeGateway,
   )
-  return { service, prisma, audit, redis, access, invites }
+  return { service, prisma, audit, redis, access, invites, realtime }
 }
 
 function viewer(role: Role, universityId: string | null = null, sub = 'u'): JwtPayload {
@@ -118,6 +121,43 @@ describe('UniversityService — status/create/delete', () => {
     prisma.university.update.mockResolvedValue({ ...UNI, status: 'BLOCKED' })
     await service.setStatus(viewer(Role.PLATFORM_ADMIN), 'uni-1', { status: 'BLOCKED' }, ctx)
     expect(access.remember).toHaveBeenCalledWith('uni-1', 'BLOCKED')
+  })
+
+  // Регрессия: HTTP пользователям заблокированного вуза уже отказывал, а открытый сокет
+  // продолжал получать события и принимать message:send в обход UNIVERSITY_BLOCKED.
+  it('setStatus BLOCKED: рвёт сокеты вуза — после того, как статус запомнен', async () => {
+    const { service, prisma, access, realtime } = setup()
+    prisma.university.findUnique.mockResolvedValue(UNI)
+    prisma.university.update.mockResolvedValue({ ...UNI, status: 'BLOCKED' })
+    await service.setStatus(viewer(Role.PLATFORM_ADMIN), 'uni-1', { status: 'BLOCKED' }, ctx)
+    expect(realtime.disconnectUniversity).toHaveBeenCalledWith('uni-1')
+    // Разрыв решает по статусу из памяти допуска: она должна знать о блокировке раньше.
+    expect(access.remember.mock.invocationCallOrder[0]).toBeLessThan(
+      realtime.disconnectUniversity.mock.invocationCallOrder[0] as number,
+    )
+  })
+
+  it('setStatus ACTIVE/PENDING: сокеты не трогает', async () => {
+    for (const status of ['ACTIVE', 'PENDING'] as const) {
+      const { service, prisma, realtime } = setup()
+      prisma.university.findUnique.mockResolvedValue({ ...UNI, status: 'BLOCKED' })
+      prisma.university.update.mockResolvedValue({ ...UNI, status })
+      await service.setStatus(viewer(Role.PLATFORM_ADMIN), 'uni-1', { status }, ctx)
+      expect(realtime.disconnectUniversity).not.toHaveBeenCalled()
+    }
+  })
+
+  it('setStatus BLOCKED: сбой разрыва сокетов не откатывает блокировку и не даёт 500', async () => {
+    const { service, prisma, audit, realtime } = setup()
+    prisma.university.findUnique.mockResolvedValue(UNI)
+    prisma.university.update.mockResolvedValue({ ...UNI, status: 'BLOCKED' })
+    realtime.disconnectUniversity.mockRejectedValue(new Error('adapter down'))
+    await expect(
+      service.setStatus(viewer(Role.PLATFORM_ADMIN), 'uni-1', { status: 'BLOCKED' }, ctx),
+    ).resolves.toMatchObject({ status: 'BLOCKED' })
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'university_status_changed' }),
+    )
   })
 
   it('remove: FK-нарушение (P2003) → CONFLICT', async () => {

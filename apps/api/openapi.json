@@ -16,6 +16,306 @@
         ]
       }
     },
+    "/universities": {
+      "post": {
+        "operationId": "UniversitiesController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateUniversityDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Создать университет (PLATFORM_ADMIN)",
+        "tags": [
+          "Университеты"
+        ]
+      },
+      "get": {
+        "operationId": "UniversitiesController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Список университетов (платформа)",
+        "tags": [
+          "Университеты"
+        ]
+      }
+    },
+    "/universities/{id}": {
+      "get": {
+        "operationId": "UniversitiesController_getById",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Профиль вуза (платформа — любой, иначе свой)",
+        "tags": [
+          "Университеты"
+        ]
+      },
+      "patch": {
+        "operationId": "UniversitiesController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateUniversityDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Обновить реквизиты вуза (PLATFORM_ADMIN)",
+        "tags": [
+          "Университеты"
+        ]
+      },
+      "delete": {
+        "operationId": "UniversitiesController_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "summary": "Удалить вуз (только пустой)",
+        "tags": [
+          "Университеты"
+        ]
+      }
+    },
+    "/universities/{id}/stats": {
+      "get": {
+        "operationId": "UniversitiesController_stats",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Статистика вуза (кэш 5 мин)",
+        "tags": [
+          "Университеты"
+        ]
+      }
+    },
+    "/universities/{id}/status": {
+      "patch": {
+        "operationId": "UniversitiesController_setStatus",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateUniversityStatusDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Сменить статус вуза (PLATFORM_ADMIN)",
+        "tags": [
+          "Университеты"
+        ]
+      }
+    },
+    "/invites": {
+      "post": {
+        "operationId": "InvitesController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateInviteDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Выдать инвайт (роль строго ниже своей, в своём scope)",
+        "tags": [
+          "Инвайты"
+        ]
+      },
+      "get": {
+        "operationId": "InvitesController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Мои выданные инвайты",
+        "tags": [
+          "Инвайты"
+        ]
+      }
+    },
+    "/invites/bulk/preview": {
+      "post": {
+        "operationId": "InvitesController_bulkPreview",
+        "parameters": [],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Массовый импорт: разбор CSV/XLSX и валидация без записи",
+        "tags": [
+          "Инвайты"
+        ]
+      }
+    },
+    "/invites/bulk": {
+      "post": {
+        "operationId": "InvitesController_bulkCreate",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkInviteCommitDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "summary": "Массовый импорт: создать инвайты по подтверждённым строкам",
+        "tags": [
+          "Инвайты"
+        ]
+      }
+    },
+    "/invites/{token}/preview": {
+      "get": {
+        "operationId": "InvitesController_preview",
+        "parameters": [
+          {
+            "name": "token",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Публичный предпросмотр инвайта по токену",
+        "tags": [
+          "Инвайты"
+        ]
+      }
+    },
+    "/invites/{id}/revoke": {
+      "patch": {
+        "operationId": "InvitesController_revoke",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "summary": "Отозвать ожидающий инвайт",
+        "tags": [
+          "Инвайты"
+        ]
+      }
+    },
     "/audit": {
       "get": {
         "operationId": "AuditController_list",
@@ -1049,306 +1349,6 @@
         "summary": "Разблокировать пользователя (в своём scope)",
         "tags": [
           "Пользователи"
-        ]
-      }
-    },
-    "/invites": {
-      "post": {
-        "operationId": "InvitesController_create",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateInviteDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "summary": "Выдать инвайт (роль строго ниже своей, в своём scope)",
-        "tags": [
-          "Инвайты"
-        ]
-      },
-      "get": {
-        "operationId": "InvitesController_list",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "summary": "Мои выданные инвайты",
-        "tags": [
-          "Инвайты"
-        ]
-      }
-    },
-    "/invites/bulk/preview": {
-      "post": {
-        "operationId": "InvitesController_bulkPreview",
-        "parameters": [],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "summary": "Массовый импорт: разбор CSV/XLSX и валидация без записи",
-        "tags": [
-          "Инвайты"
-        ]
-      }
-    },
-    "/invites/bulk": {
-      "post": {
-        "operationId": "InvitesController_bulkCreate",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/BulkInviteCommitDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "summary": "Массовый импорт: создать инвайты по подтверждённым строкам",
-        "tags": [
-          "Инвайты"
-        ]
-      }
-    },
-    "/invites/{token}/preview": {
-      "get": {
-        "operationId": "InvitesController_preview",
-        "parameters": [
-          {
-            "name": "token",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "summary": "Публичный предпросмотр инвайта по токену",
-        "tags": [
-          "Инвайты"
-        ]
-      }
-    },
-    "/invites/{id}/revoke": {
-      "patch": {
-        "operationId": "InvitesController_revoke",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "summary": "Отозвать ожидающий инвайт",
-        "tags": [
-          "Инвайты"
-        ]
-      }
-    },
-    "/universities": {
-      "post": {
-        "operationId": "UniversitiesController_create",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateUniversityDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "summary": "Создать университет (PLATFORM_ADMIN)",
-        "tags": [
-          "Университеты"
-        ]
-      },
-      "get": {
-        "operationId": "UniversitiesController_list",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "summary": "Список университетов (платформа)",
-        "tags": [
-          "Университеты"
-        ]
-      }
-    },
-    "/universities/{id}": {
-      "get": {
-        "operationId": "UniversitiesController_getById",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "summary": "Профиль вуза (платформа — любой, иначе свой)",
-        "tags": [
-          "Университеты"
-        ]
-      },
-      "patch": {
-        "operationId": "UniversitiesController_update",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateUniversityDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "summary": "Обновить реквизиты вуза (PLATFORM_ADMIN)",
-        "tags": [
-          "Университеты"
-        ]
-      },
-      "delete": {
-        "operationId": "UniversitiesController_remove",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": ""
-          }
-        },
-        "summary": "Удалить вуз (только пустой)",
-        "tags": [
-          "Университеты"
-        ]
-      }
-    },
-    "/universities/{id}/stats": {
-      "get": {
-        "operationId": "UniversitiesController_stats",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "summary": "Статистика вуза (кэш 5 мин)",
-        "tags": [
-          "Университеты"
-        ]
-      }
-    },
-    "/universities/{id}/status": {
-      "patch": {
-        "operationId": "UniversitiesController_setStatus",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateUniversityStatusDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "summary": "Сменить статус вуза (PLATFORM_ADMIN)",
-        "tags": [
-          "Университеты"
         ]
       }
     },
@@ -17171,6 +17171,26 @@
       }
     },
     "schemas": {
+      "CreateUniversityDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "UpdateUniversityDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "UpdateUniversityStatusDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "CreateInviteDto": {
+        "type": "object",
+        "properties": {}
+      },
+      "BulkInviteCommitDto": {
+        "type": "object",
+        "properties": {}
+      },
       "TwoFactorVerifyDto": {
         "type": "object",
         "properties": {}
@@ -17228,26 +17248,6 @@
         "properties": {}
       },
       "ResetTwoFactorDto": {
-        "type": "object",
-        "properties": {}
-      },
-      "CreateInviteDto": {
-        "type": "object",
-        "properties": {}
-      },
-      "BulkInviteCommitDto": {
-        "type": "object",
-        "properties": {}
-      },
-      "CreateUniversityDto": {
-        "type": "object",
-        "properties": {}
-      },
-      "UpdateUniversityDto": {
-        "type": "object",
-        "properties": {}
-      },
-      "UpdateUniversityStatusDto": {
         "type": "object",
         "properties": {}
       },
