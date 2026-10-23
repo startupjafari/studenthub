@@ -43,6 +43,19 @@ describe('form-validation — анкета услуги (D-F15)', () => {
     expect(formDataError([f], { f: 'завтра' })).not.toBeNull()
   })
 
+  // Обязательный флажок проходил снятым: false — не «пусто», и сервер считал поле заполненным.
+  it('обязательный CHECKBOX — только отмеченный; обязательный BOOLEAN принимает «нет»', () => {
+    const checkbox = field({ type: 'CHECKBOX', required: true })
+    expect(formDataError([checkbox], { f: false })).toContain('Заполните поле')
+    expect(formDataError([checkbox], { f: 'false' })).toContain('Заполните поле')
+    expect(formDataError([checkbox], { f: true })).toBeNull()
+    expect(formDataError([checkbox], { f: 'true' })).toBeNull()
+
+    const yesNo = field({ type: 'BOOLEAN', required: true })
+    expect(formDataError([yesNo], { f: false })).toBeNull()
+    expect(formDataError([yesNo], {})).toContain('Заполните поле')
+  })
+
   it('BOOLEAN/CHECKBOX: флажок или "true"/"false"', () => {
     const f = field({ type: 'CHECKBOX' })
     expect(formDataError([f], { f: false })).toBeNull()

@@ -1729,6 +1729,8 @@
     "deliveryTitle": "Алу тәсілі",
     "requirementsTitle": "Қажетті құжаттар",
     "optional": "міндетті емес",
+    "answerYes": "Иә",
+    "answerNo": "Жоқ",
     "formTitle": "Өтінім деректері",
     "reviewTitle": "Жіберер алдында тексеріңіз",
     "saveDraft": "Жоба ретінде сақтау",

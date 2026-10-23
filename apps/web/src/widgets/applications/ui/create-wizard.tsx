@@ -190,6 +190,8 @@ export function CreateWizard({
     return service.formFields.some((f) => {
       if (!f.required) return false
       const v = formData[f.code]
+      // Обязательный флажок — только отмеченный, как и на сервере (form-validation.ts).
+      if (f.type === 'CHECKBOX') return v !== true && v !== 'true'
       return v === undefined || v === null || v === ''
     })
   }, [service, deliveryType, formData])
@@ -367,6 +369,8 @@ export function CreateWizard({
                   value={formData[f.code]}
                   onChange={(v) => setFormData((prev) => ({ ...prev, [f.code]: v }))}
                   optionalLabel={t('optional')}
+                  yesLabel={t('answerYes')}
+                  noLabel={t('answerNo')}
                 />
               ))}
             </div>
@@ -601,12 +605,16 @@ function DynamicField({
   value,
   onChange,
   optionalLabel,
+  yesLabel,
+  noLabel,
 }: {
   field: ServiceFormField
   locale: string
   value: unknown
   onChange: (v: unknown) => void
   optionalLabel: string
+  yesLabel: string
+  noLabel: string
 }) {
   const rec = field as unknown as Record<string, unknown>
   const label = pickLocale(rec, 'label', locale)
@@ -616,7 +624,7 @@ function DynamicField({
 
   return (
     <div className="flex flex-col gap-2">
-      <Label htmlFor={id}>
+      <Label htmlFor={id} id={`${id}-label`}>
         {label}
         {!field.required && (
           <span className="ml-1 text-xs text-muted-foreground">({optionalLabel})</span>
@@ -644,12 +652,30 @@ function DynamicField({
             </option>
           ))}
         </select>
-      ) : field.type === 'BOOLEAN' || field.type === 'CHECKBOX' ? (
+      ) : field.type === 'BOOLEAN' ? (
+        // Вопрос «да/нет» — два варианта: одним флажком ответ «нет» требовал двух кликов
+        // (отметить и снять), а неотмеченный флажок не отличался от пропущенного вопроса.
+        <div role="radiogroup" aria-labelledby={`${id}-label`} className="flex gap-4">
+          {[true, false].map((answer) => (
+            <label key={String(answer)} className="flex items-center gap-2 text-sm">
+              <input
+                type="radio"
+                name={id}
+                className="size-4 accent-primary"
+                // iOS хранит флажки строкой — черновик с телефона открывается тем же ответом.
+                checked={value === answer || value === String(answer)}
+                onChange={() => onChange(answer)}
+              />
+              {answer ? yesLabel : noLabel}
+            </label>
+          ))}
+        </div>
+      ) : field.type === 'CHECKBOX' ? (
         <label className="flex items-center gap-2 text-sm">
           <input
             type="checkbox"
             className="size-4 accent-primary"
-            checked={Boolean(value)}
+            checked={value === true || value === 'true'}
             onChange={(e) => onChange(e.target.checked)}
           />
           {placeholder || label}

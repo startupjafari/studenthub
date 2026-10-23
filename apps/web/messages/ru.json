@@ -1729,6 +1729,8 @@
     "deliveryTitle": "Способ получения",
     "requirementsTitle": "Необходимые документы",
     "optional": "необязательно",
+    "answerYes": "Да",
+    "answerNo": "Нет",
     "formTitle": "Данные заявки",
     "reviewTitle": "Проверьте перед отправкой",
     "saveDraft": "Сохранить как черновик",

@@ -1729,6 +1729,8 @@
     "deliveryTitle": "Delivery method",
     "requirementsTitle": "Required documents",
     "optional": "optional",
+    "answerYes": "Yes",
+    "answerNo": "No",
     "formTitle": "Application details",
     "reviewTitle": "Review before submitting",
     "saveDraft": "Save as draft",
