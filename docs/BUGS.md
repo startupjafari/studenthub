@@ -2114,8 +2114,8 @@
 - **Сценарий:** локально M1–M50, пришли M51–M70 → список поднял `lastSeq` до 70 → `updates?since=70` пуст → в ленте M50, сразу M70; якорь непрочитанного не там.
 - **Ожидается:** §9.2c — позиция догона = «всё до N у клиента есть», превью её не двигает.
 
-#### BUG-420 · 🟡 «Без звука» всегда откатывается с ошибкой: POST без тела → 422
-- **Где:** `core/chats/ChatsApi.kt:71-75` (`Endpoint.post(path)` без тела); `chats.controller.ts:437-447`, `packages/shared-schemas/src/chats.ts:195-200` (`MuteSchema` без `.default({})`) · **Статус:** подтверждён
+#### BUG-420 · 🟡 «Без звука» в Android и iOS всегда откатывается с ошибкой: POST без тела → 422
+- **Где:** Android `core/chats/ChatsApi.kt:71-75` (`Endpoint.post(path)` без тела), iOS `apps/ios/Sources/Core/Chats/ChatsAPI.swift:116-122` — то же; `chats.controller.ts:437-447`, `packages/shared-schemas/src/chats.ts:195-200` (`MuteSchema` без `.default({})`) · **Статус:** подтверждён
 
 #### BUG-421 · 🟡 Преподавателю «Журнал» и «Посещаемость» во вкладке «Учёба» отвечают 403, «Задания» — студенческой формой сдачи
 - **Роль:** TEACHER · **Статус:** новый
@@ -2216,6 +2216,137 @@
   - `features/applications/ApplicationScreens.kt:394,463` — файлы без расширения.
   - `core/realtime/RealtimeCoordinator.kt:119` — каждая `connect_error` запускает ротацию refresh.
   - Доступность: выбранное передано только цветом — `StudyScreens.kt:336-347`, `ChatListScreen.kt:58-73`, `FeedScreens.kt:116-127`.
+
+### iOS-клиент (`apps/ios`) и мини-апп (`apps/mini-app`)
+
+Пути iOS ниже — от `apps/ios/Sources/`, если не указано иное.
+
+#### BUG-450 · 🟠 iOS: пуши не приходят вообще — в проекте нет entitlement `aps-environment`
+- **Роль:** все на iOS · **Статус:** подтверждён
+- **Где:** `apps/ios/project.yml` (нет `entitlements:`, в репозитории нет ни одного `*.entitlements`), `App/AppDelegate.swift:68-74` (ошибка регистрации глушится), `Core/Push/PushRegistrar.swift:22-27`
+- **Сценарий:** разрешил уведомления → `didFailToRegister…` («no valid aps-environment entitlement») → `POST /push/devices` не вызывается ни разу.
+- **Ожидается:** §8.3 «Пуши на устройства»; `RELEASE_IOS.md` заявляет готовность пушей.
+
+#### BUG-451 · 🟠 iOS: лента на «Главной» не открывается — `reactions` массив, а клиент ждёт словарь
+- **Роль:** STUDENT, STAROSTA, TEACHER · **Статус:** подтверждён
+- **Где:** `Core/Feed/FeedAPI.swift:28-32` (`reactions: [String: Int]?`, `myReactions`, `commentsCount`); сервер `apps/api/src/modules/posts/posts.service.ts:139-142,558` (массив `[{emoji,userId}]`, `reactionSummary`, `_count.comments`)
+- **Сценарий:** typeMismatch на всей странице → «Неожиданный ответ сервера».
+
+#### BUG-452 · 🟠 iOS: каталог услуг и подача заявки не работают — DTO не совпадают с API
+- **Роль:** STUDENT, STAROSTA · **Статус:** новый
+- **Где:** `Core/Applications/ApplicationsAPI.swift:5-50`, `Features/Applications/ApplicationFormView.swift:93-100,124-165`; сервер `apps/api/src/modules/application-services/catalog.service.ts:19-140`, `applications.service.ts:37-58`, `packages/shared-schemas/src/application-services.ts:31-57,113-131`
+- **Сценарий:** `nameRu/Kk/En`, `code`, `labelRu…`, `options` объектами против `name`/`key`/`label`/`[String]` → keyNotFound; `formData` с числом/булевым роняет список заявок; нет статусов `NEEDS_CORRECTION`, `RESUBMITTED`, `IN_PREPARATION`, `READY_FOR_PICKUP`, `DELIVERED`; таймлайн из `history` вместо `events`; каждый заход создаёт DRAFT (как BUG-431).
+
+#### BUG-453 · 🟠 iOS: преподаватель не может отметить посещаемость — ростер не разбирается (`id` против `studentId`)
+- **Роль:** TEACHER · **Статус:** подтверждён
+- **Где:** `Core/Study/StudyAPI.swift:66-80`; сервер `apps/api/src/modules/attendance/attendance.service.ts:108-120`
+
+#### BUG-454 · 🟠 iOS: своё сообщение раздваивается и помечается «Не отправлено», повтор шлёт дубль
+- **Роль:** все в чатах · **Статус:** новый
+- **Где:** `Core/Chats/MessageSender.swift:261-283`, `AttachmentUploader.swift:138-153`, `MessageStore.swift:80-115`, `RealtimeCoordinator.swift:155-173`, `AppDatabase+Migrations.swift:115` (`remoteId … .unique()`); сервер `chats.service.ts:2159-2162,2236-2243`
+- **Сценарий:** `message:new` приходит раньше HTTP-ответа → вставлена вторая строка с серверным id → `deliver` упирается в UNIQUE → `failed` → «Отправить ещё раз» даёт дубль у всех.
+- **Ожидается:** §9.1a — сверка по `nonce`, терпимость к обратному порядку.
+
+#### BUG-455 · 🟠 iOS: реальное время умирает после первого переподключения позже 15 минут
+- **Где:** `Core/Realtime/RealtimeTransport.swift:62,311-323` (`refresh(token:)` объявлен, но не вызывается), `RealtimeCoordinator.swift:52-61,197-200` (`guard pump == nil`); сервер `realtime.gateway.ts:57-74` · **Статус:** подтверждён
+- **Сценарий:** смена сети/сворачивание → handshake с просроченным токеном → `disconnect()` → до перезапуска нет сообщений, «печатает», статусов заявок и догона.
+
+#### BUG-456 · 🟠 iOS: фото с камеры и аватар (HEIC под видом `image/jpeg`) и голосовые (m4a) отклоняются сервером
+- **Где:** `Features/Chats/Thread/MessageComposerView.swift:141-148`, `Features/Feed/ProfileView.swift:147-157` (оригинал PhotosPicker без перекодирования), `Features/Chats/Thread/VoiceRecorder.swift:30-36,77-84`; сервер `packages/shared-config/src/constants.ts:71-81` · **Статус:** новый
+- **Сценарий:** HEIC → `image/heic` по magic bytes → `FILE_TYPE_NOT_ALLOWED`; m4a — BUG-383. С оригиналом уходят EXIF и GPS (корень BUG-088).
+- **Ожидается:** клиент перекодирует в JPEG; белый список сервера — BUG-383.
+
+#### BUG-457 · 🟠 iOS: в переписке пропадают сообщения, пришедшие пока чат был закрыт (то же, что BUG-419 в Android)
+- **Где:** `Core/Chats/ChatStore.swift:97,104-106`, `RealtimeCoordinator.swift:161-165`, `Features/Chats/Thread/ChatThreadModel.swift:112-118,307-323` · **Статус:** новый
+
+#### BUG-458 · 🟡 iOS: список чатов не обновляется вживую — `chat:activity` не слушается, `chat:updated` ждёт другой формат (как BUG-426/438)
+- **Где:** `Core/Realtime/RealtimeTransport.swift:409-415`, `RealtimeEvent.swift:248`; сервер `chats.service.ts:2394-2397,2413-2414,3473,3489,3587` · **Статус:** новый
+
+#### BUG-459 · 🟡 iOS: после выхода и входа без перезапуска реального времени нет совсем
+- **Где:** `Core/Realtime/RealtimeCoordinator.swift:52-71`, `RealtimeTransport.swift:290-305,346-349` (отмена задачи закрывает единственный `AsyncStream` навсегда; `subscribe()` навешивает обработчики повторно) · **Статус:** новый
+
+#### BUG-460 · 🟡 iOS: чат, открытый из пуша, пустой, если его ещё нет в базе (FK `message.chatId → chat`; как BUG-434)
+- **Где:** `Core/Storage/AppDatabase+Migrations.swift:116-118`, `Core/Chats/MessageStore.swift:17-25`, `Features/Chats/Thread/ChatThreadModel.swift:294-304` · **Статус:** новый
+
+#### BUG-461 · 🟡 iOS: пуш при холодном старте не открывает документы, библиотеку и события
+- **Где:** `App/AppDelegate.swift:100-111`, `Core/Navigation/AppRouter.swift:77-101` (роль `.unknown` до подъёма сессии) · **Статус:** новый
+
+#### BUG-462 · 🟡 🔒 iOS: выход оставляет навигацию, бейдж и id в Sentry прежнего человека (рядом с BUG-075, корень в памяти)
+- **Где:** `App/AppSessionModel.swift:51-60`, `AppServices.swift:131` (синглтон `router`), `Core/Push/PushSync.swift:128-143`, `App/RootView.swift:425-432` · **Статус:** новый
+- **Сценарий:** B после входа оказывается в открытом чате A; сбои B уходят в трекер под id A; пуш, нажатый на экране входа, кладёт маршрут для следующего.
+
+#### BUG-463 · 🟡 iOS: у преподавателя «Журнал», «Посещаемость» и «Сдать работу» отвечают 403 (как BUG-421)
+- **Где:** `Features/Study/StudyView.swift:15-34`, `AssignmentsView.swift:114-133`; `assignments.controller.ts:140-151` · **Статус:** новый
+
+#### BUG-464 · 🟡 iOS: «Оценки» падают целиком при `maxScore: null`; дробь обрезается, `kind` — кодом (как BUG-417/442)
+- **Где:** `Core/Study/StudyAPI.swift:15-21,37`, `Features/Study/StudyView.swift:73,78` · **Статус:** новый
+
+#### BUG-465 · 🟡 🔒 iOS: подтверждение входа по QR не показывает, кто просит вход (как BUG-416)
+- **Где:** `Features/Auth/QRApproveModel.swift:34-62`, `Core/Session/QRLoginAPI.swift`; эталон — `apps/web/src/shared/api/auth-api.ts:211` · **Статус:** новый
+
+#### BUG-466 · 🟡 🔒 iOS: повторное согласие на обработку ПДн не запрашивается
+- **Где:** в `apps/ios/Sources` нет обращений к `consentRequired`; сервер `auth.service.ts:584-589`; веб — `features/accept-consent/ui/consent-dialog.tsx` · **Статус:** новый
+- **Ожидается:** PERSONAL_DATA, §7.2 — без действующего согласия клиент не работает с ПДн.
+
+#### BUG-467 · 🟡 iOS: три строки показывают сырой Swift-код «Оценка \(score)\(maxPart)»
+- **Где:** `apps/ios/Resources/Localizable.xcstrings` (`study.graded`, `applications.days`, `schedule.syncedAt` без `%lld`/`%@`), `Features/Study/StudyModels.swift:144`, `Features/Applications/ApplicationsView.swift:100`, `Features/Study/ScheduleView.swift:41`; поломку закрепляет `apps/ios/Tests/StudentHubTests/LocalizationTests.swift:33-41` · **Статус:** новый
+
+#### BUG-468 · 🟡 Мини-апп: любой 401 считается истёкшим токеном — неверный код 2FA выбивает из сессии
+- **Роль:** PLATFORM_* · **Статус:** новый
+- **Где:** `apps/mini-app/src/api/client.ts:102-113,138-143`; `INVALID_2FA_CODE` → 401 (`packages/shared-types/src/error-codes.ts:70`, `common/guards/action-confirm.guard.ts:56-58`)
+- **Сценарий:** опечатка в коде позже 5 минут после открытия → initData протух, токена нет, всё падает до перезапуска; раньше — код уходит дважды и съедает лимит.
+- **Ожидается:** §8.2 — продлевать только на `UNAUTHORIZED`/`TOKEN_EXPIRED` по `code`.
+
+#### BUG-469 · 🟡 Мини-апп: взятая жалоба пропадает из очереди, отклонённых нет в «Разобранных» (как BUG-363)
+- **Где:** `apps/mini-app/src/screens/complaints.tsx:108-111,174-189`, `api/badges.ts:114` · **Статус:** новый
+
+#### BUG-470 · 🟡 iOS: модель переписки не освобождается — наблюдения GRDB копятся с каждым открытым чатом
+- **Где:** `Features/Chats/Thread/ChatThreadModel.swift:355-366,374-381` (`guard let self` в бесконечном `for await` → цикл ссылок), `ChatThreadView.swift:333-350` · **Статус:** новый
+
+#### BUG-471 · 🟡 iOS: в групповых чатах не видно автора сообщения (как BUG-427)
+- **Где:** `Features/Chats/Thread/MessageBubbleView.swift:216-287`, `Core/Chats/ChatDTO.swift:44-58`, `Core/Storage/Records.swift` · **Статус:** новый
+
+#### BUG-472 · 🟡 iOS: покинутые, удалённые и забаненные чаты не исчезают из списка (как BUG-425)
+- **Где:** `Core/Chats/ChatStore.swift:198-204`, `Features/Chats/ChatListModel.swift:62-81`; сервер `chats.service.ts:550` · **Статус:** новый
+
+#### BUG-473 · 🟡 iOS: системные сообщения и их превью — пустые строки (как BUG-437)
+- **Где:** `Features/Chats/Thread/MessageBubbleView.swift:223-225,355-366`, `ChatListQuery.swift:199-203`; сервер `chats.service.ts:2321-2337` · **Статус:** новый
+
+#### BUG-474 · 🟢 iOS: черновики не уходят на сервер, серверный черновик из веба игнорируется (как BUG-423)
+- **Где:** `Features/Chats/Thread/ChatThreadModel.swift:251-266`, `Core/Chats/ChatStore.swift:316-319` · **Статус:** новый
+
+#### BUG-475 · 🟢 🔒 iOS: файл во вложении не открыть, видео показывается файлом, спойлер не скрыт
+- **Где:** `Features/Chats/Thread/AttachmentView.swift:14-22,67-89`, `Core/Storage/Records.swift` (нет `spoiler`) · **Статус:** новый
+
+#### BUG-476 · 🟢 iOS: «Ближайшая пара» показывает уже прошедшую
+- **Где:** `Features/Feed/HomeView.swift:24` · **Статус:** новый
+
+#### BUG-477 · 🟢 iOS: посещаемость всегда на сегодня; ручная чётность накладывает изменения текущей недели (как BUG-422/436)
+- **Где:** `Features/Study/StudyModels.swift:148`, `Features/Study/ScheduleModel.swift:66-69,127-132` · **Статус:** новый
+
+#### BUG-478 · 🟢 iOS: задание из ссылки ищется в первых 50; «Ответ», «Ссылка», «О себе» нельзя очистить (корень BUG-047/BUG-128, как BUG-441)
+- **Где:** `Features/Study/AssignmentsView.swift:88-90,146,163-167`, `Features/Feed/ProfileView.swift:134-138` · **Статус:** новый
+
+#### BUG-479 · 🟢 iOS: после сгоревшего challenge 2FA экран остаётся на шаге кода (как BUG-345)
+- **Где:** `Features/Auth/LoginModel.swift:66-86,121-149` · **Статус:** новый
+
+#### BUG-480 · 🟢 iOS: переходы из пушей и колокольчика неполные; бейдж и баннер расходятся с сервером
+- **Где:** `Core/Navigation/DeepLink.swift:244-299` (нет `/feed`, `/profile/:id`), `Features/Feed/FeedScreens.swift:5-60,186-188` (строка уведомления никуда не ведёт, пост без самого поста), `Core/Push/PushSync.swift:128-143` (бейдж = сумма чатов), `App/AppDelegate.swift:91-97` (баннер для открытого чата) · **Статус:** новый
+
+#### BUG-481 · 🟢 🔒 iOS: refresh-токен в связке ключей без `ThisDeviceOnly` — попадает в бэкапы и клонирует сессию
+- **Где:** `Core/Session/SecretStore.swift:517-523` (`kSecAttrAccessibleAfterFirstUnlock`) · **Статус:** новый
+
+#### BUG-482 · 🟢 iOS: без казахского 66 строк (было 50), системные запросы камеры и микрофона только по-русски (продолжение BUG-125)
+- **Где:** `apps/ios/Resources/Localizable.xcstrings`, `apps/ios/project.yml:84-87` (нет kk `InfoPlist.strings`) · **Статус:** новый
+
+#### BUG-483 · 🟢 🔒 Мини-апп: ожидающие приглашения ищутся только в 20 последних любых статусов — отозвать с телефона нельзя
+- **Где:** `apps/mini-app/src/api/people.ts:92-94`, `screens/people.tsx:141-146`; `packages/shared-schemas/src/invites.ts:24-28` (фильтра по статусу нет) · **Статус:** новый
+
+#### BUG-484 · 🟢 Мини-апп: очередь жалоб молча обрезана на 30, бейдж показывает полный `total`
+- **Где:** `apps/mini-app/src/api/complaints.ts:164-172`, `screens/complaints.tsx:108-112,197-199` · **Статус:** новый
+
+#### BUG-485 · 🟢 Мини-апп: в kk/en отказы показываются русским текстом сервера (новое место BUG-125)
+- **Где:** `apps/mini-app/src/screens/complaint.tsx:163,180,376`, `person.tsx:75,96`, `control.tsx:108,221`, `support.tsx:321,343,373,395,412,427,661,679`, `people.tsx:178`; образец — `link.tsx:94-110` · **Статус:** новый
 
 <!-- P3-END -->
 
