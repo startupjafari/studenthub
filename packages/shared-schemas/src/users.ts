@@ -226,8 +226,19 @@ const UNIVERSITY_STAFF: readonly Role[] = [
 /** Платформенные роли — вне вуза: только служебный минимум. */
 const PLATFORM_STAFF: readonly Role[] = [Role.PLATFORM_ADMIN, Role.PLATFORM_MODERATOR]
 const MODERATOR_ROLES: readonly Role[] = [Role.PLATFORM_MODERATOR, Role.UNIVERSITY_MODERATOR]
+/**
+ * Служебный персонал вуза — охрана и библиотекарь. Соцполей у них нет (постов и друзей тоже,
+ * docs/PROJECT.md §2), но служебная карточка как у сотрудников: должность, табельный номер,
+ * кабинет или пост, рабочий телефон, зона ответственности.
+ */
+const SERVICE_STAFF: readonly Role[] = [Role.SECURITY_GUARD, Role.LIBRARIAN]
 /** Все не-студенты. */
-const STAFF_ROLES: readonly Role[] = [...PLATFORM_STAFF, ...UNIVERSITY_STAFF, Role.TEACHER]
+const STAFF_ROLES: readonly Role[] = [
+  ...PLATFORM_STAFF,
+  ...UNIVERSITY_STAFF,
+  Role.TEACHER,
+  ...SERVICE_STAFF,
+]
 /**
  * Роли, у которых профиль «человеческий», а не служебный: студенты, преподаватели и
  * платформенная команда. Последнюю включили осознанно (решение владельца): платформенный
@@ -237,7 +248,7 @@ const STAFF_ROLES: readonly Role[] = [...PLATFORM_STAFF, ...UNIVERSITY_STAFF, Ro
 const PERSONAL_ROLES: readonly Role[] = [...STUDENT_ROLES, ...ACADEMIC_ROLES, ...PLATFORM_STAFF]
 /** Витринные поля — навыки, интересы, соцсети: студенты и платформенная команда. */
 const SHOWCASE_ROLES: readonly Role[] = [...STUDENT_ROLES, ...PLATFORM_STAFF]
-const EMPLOYEE_ROLES: readonly Role[] = [...ACADEMIC_ROLES, ...UNIVERSITY_STAFF]
+const EMPLOYEE_ROLES: readonly Role[] = [...ACADEMIC_ROLES, ...UNIVERSITY_STAFF, ...SERVICE_STAFF]
 
 export type ProfileFieldKey = keyof UpdateProfileInput
 
@@ -303,7 +314,7 @@ export const PROFILE_FIELD_ROLES: Readonly<Record<ProfileFieldKey, readonly Role
   // Служебные у всех не-студентов.
   position: STAFF_ROLES,
   workPhone: STAFF_ROLES,
-  responsibilities: [...UNIVERSITY_STAFF, ...PLATFORM_STAFF],
+  responsibilities: [...UNIVERSITY_STAFF, ...PLATFORM_STAFF, ...SERVICE_STAFF],
   // Зона модерации — только у модераторов.
   moderationAreas: MODERATOR_ROLES,
 }

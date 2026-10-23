@@ -148,6 +148,7 @@ export class UsersController {
     return this.users.removeAvatar(user.sub)
   }
 
+  @RestrictedAllowed(...RESTRICTED_ROLES)
   @Post('me/cover')
   @ApiConsumes('multipart/form-data')
   @ApiBody({
@@ -165,6 +166,7 @@ export class UsersController {
     return this.users.setCover(user.sub, buffer)
   }
 
+  @RestrictedAllowed(...RESTRICTED_ROLES)
   @Delete('me/cover')
   @ApiOperation({ summary: 'Удалить обложку профиля' })
   @ApiResponse({ status: 200, description: 'Профиль без обложки' })
