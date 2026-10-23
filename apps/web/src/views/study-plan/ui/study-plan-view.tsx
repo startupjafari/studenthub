@@ -146,7 +146,7 @@ export function StudyPlanView() {
       {courses.isLoading ? (
         <div className="flex flex-col gap-3">
           <Skeleton className="h-24 w-full rounded-xl" />
-          <Skeleton className="h-40 w-full rounded-xl" />
+          <Skeleton fill className="min-h-40 rounded-xl" />
         </div>
       ) : courses.isError ? (
         <EmptyState

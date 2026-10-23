@@ -108,8 +108,8 @@ export function TasksView() {
 
       {isLoading ? (
         <div className="flex flex-col gap-3">
-          <Skeleton className="h-24 w-full rounded-xl" />
-          <Skeleton className="h-24 w-full rounded-xl" />
+          <Skeleton fill className="min-h-24 rounded-xl" />
+          <Skeleton fill className="min-h-24 rounded-xl" />
         </div>
       ) : isError ? (
         <EmptyState

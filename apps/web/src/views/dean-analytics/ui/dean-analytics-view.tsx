@@ -139,7 +139,7 @@ export function DeanAnalyticsView() {
       {q.isLoading ? (
         <div className="flex flex-col gap-3">
           <Skeleton className="h-24 w-full rounded-xl" />
-          <Skeleton className="h-64 w-full rounded-xl" />
+          <Skeleton fill className="min-h-64 rounded-xl" />
         </div>
       ) : q.isError ? (
         <EmptyState
@@ -326,7 +326,7 @@ function RiskStudentsTab({
     return null
   })
 
-  if (loading) return <Skeleton className="h-64 w-full rounded-xl" />
+  if (loading) return <Skeleton fill className="min-h-64 rounded-xl" />
   if (rows.length === 0) {
     return (
       <EmptyState
