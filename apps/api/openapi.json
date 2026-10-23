@@ -7179,6 +7179,39 @@
         ]
       }
     },
+    "/analytics/report/export": {
+      "get": {
+        "description": "Строка на подразделение области (вуз / факультет / группа) и «Итого»: посещаемость, успеваемость, экзамены, заявки, активность. Подразделение меньше 5 студентов выгружается без чисел.",
+        "operationId": "AnalyticsReportController_export",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Файл отчёта"
+          },
+          "400": {
+            "description": "BAD_REQUEST — подразделений больше предела"
+          },
+          "403": {
+            "description": "FORBIDDEN / WRONG_SCOPE — чужой факультет"
+          },
+          "422": {
+            "description": "VALIDATION_ERROR — неверный период или формат"
+          },
+          "429": {
+            "description": "RATE_LIMIT — больше 5 выгрузок в минуту"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Выгрузить отчёт по сводке за период (XLSX/CSV)",
+        "tags": [
+          "Аналитика"
+        ]
+      }
+    },
     "/analytics/university/overview": {
       "get": {
         "description": "`attendanceRate` — доля не-пропусков по всем отметкам вуза (null — не отмечали). `groups` — не больше 100 групп с отмеченной посещаемостью, худшие первыми; `atRisk` — те из них, что ниже порога «требует внимания».",
