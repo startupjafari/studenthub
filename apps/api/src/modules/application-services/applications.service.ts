@@ -273,7 +273,9 @@ export class ApplicationsService {
       this.prisma.application.findMany({
         where,
         select: APP_SELECT,
-        orderBy: { [query.sortBy]: query.sortOrder },
+        // Тай-брейкер по id: у статуса и дат много равных значений, и без уникального ключа
+        // порядок строк между запросами страниц не определён — дубли и пропуски на стыках.
+        orderBy: [{ [query.sortBy]: query.sortOrder }, { id: query.sortOrder }],
         skip: (query.page - 1) * query.limit,
         take: query.limit,
       }),

@@ -559,3 +559,19 @@ describe('ApplicationsService.list — «срок сегодня»', () => {
     }
   })
 })
+
+describe('ApplicationsService.list — устойчивый порядок страниц', () => {
+  it('после поля сортировки — тай-брейкер по id в том же направлении', async () => {
+    const { service, application } = setup()
+    await service.list(dean, {
+      page: 2,
+      limit: 20,
+      sortBy: 'status',
+      sortOrder: 'asc',
+    } as never)
+    expect(application.findMany.mock.calls[0][0].orderBy).toEqual([
+      { status: 'asc' },
+      { id: 'asc' },
+    ])
+  })
+})
