@@ -154,10 +154,10 @@ export function InventoryView() {
         }
       />
 
-      {/* Слева — ход и список «Не найдено» до низа окна, справа (~30%) — ручная отметка и
+      {/* Слева — ход и список «Не найдено» до низа окна, справа (~20%) — ручная отметка и
           только что отмеченные. На узком экране — колонкой: ход, отметка, отмеченные, а
           длинный список последним, чтобы стойка не листала его до поля ввода. */}
-      <div className="grid gap-6 lg:min-h-80 lg:flex-1 lg:grid-cols-[minmax(0,7fr)_minmax(18rem,3fr)] lg:grid-rows-[auto_minmax(0,1fr)]">
+      <div className="grid gap-6 lg:min-h-80 lg:flex-1 lg:grid-cols-[minmax(0,4fr)_minmax(16rem,1fr)] lg:grid-rows-[auto_minmax(0,1fr)]">
         {/* Ход — компактной плиткой, как KPI: цифра и полоса, без шапки панели. */}
         <Card className="gap-2 px-4 py-3">
           <div className="flex items-start justify-between gap-3">
