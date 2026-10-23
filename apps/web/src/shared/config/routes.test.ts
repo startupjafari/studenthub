@@ -15,12 +15,19 @@ describe('isRestrictedRolePath', () => {
     }
   })
 
+  it('свой профиль открыт, чужой — нет', () => {
+    for (const role of RESTRICTED_ROLES) {
+      expect(isRestrictedRolePath(role, '/profile'), role).toBe(true)
+      expect(isRestrictedRolePath(role, '/profile/abc'), role).toBe(false)
+    }
+  })
+
   it('библиотекарю закрыты чужие разделы, в том числе раздел охраны', () => {
     for (const path of [
       '/',
       '/schedule',
       '/chats',
-      '/profile',
+      '/profile/abc',
       '/security',
       '/verify-id',
       '/r/abc',

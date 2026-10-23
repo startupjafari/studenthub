@@ -14,7 +14,7 @@ import { cn } from '../../../shared/lib/utils'
 import { NotificationsPanel } from '../../../views/notifications'
 import { ROLE_HOME } from '../../../shared/config'
 import { ProductSwitcher } from './product-switcher'
-import { careerHomeFor, hasCareerProduct, hasChats, ownProfileHref } from '../model/nav'
+import { careerHomeFor, hasCareerProduct, hasChats } from '../model/nav'
 import type { NavItem } from '../model/nav'
 
 function isActive(item: NavItem, pathname: string): boolean {
@@ -76,7 +76,6 @@ export function AppSidebar({
   // Пока роль неизвестна, бейдж не запрашиваем: охране чатов не положено, и её запрос
   // ушёл бы в 403 на каждом экране.
   const chatsUnread = useChatsUnread(me.data ? hasChats(me.data.role) : false)
-  const profileHref = ownProfileHref(me.data?.role)
 
   async function logout() {
     await endSession()
@@ -86,7 +85,7 @@ export function AppSidebar({
   // Плашка ведёт на СВОЙ профиль (`/profile`), а `/profile/<id>` — это чужой. Со
   // `startsWith` открытый профиль другого пользователя подсвечивал плашку так, будто
   // читатель стоит на своём: раздел в навигации указывал не туда, где он находится.
-  const profileActive = pathname === profileHref
+  const profileActive = pathname === '/profile'
 
   return (
     <aside className="hidden w-72 shrink-0 flex-col border-r border-border bg-sidebar lg:flex">
@@ -208,7 +207,7 @@ export function AppSidebar({
             </div>
           ) : (
             <Link
-              href={profileHref}
+              href="/profile"
               aria-current={profileActive ? 'page' : undefined}
               className="flex min-w-0 flex-1 items-center gap-3"
             >

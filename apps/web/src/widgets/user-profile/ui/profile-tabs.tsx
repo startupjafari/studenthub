@@ -55,6 +55,9 @@ interface ProfileTabsProps {
   locked?: boolean
   // Шапка профиля над табами; в режиме locked закрепляется вместе с табами (скролл — только контент).
   stickyTop?: ReactNode
+  // Вкладки контента (посты, фото, видео, статьи, опросы). У охраны и библиотекаря их нет
+  // (docs/PROJECT.md §2): остаются «Профиль» и «Настройки», а списки не запрашиваются.
+  content?: boolean
 }
 
 export function ProfileTabs({
@@ -69,24 +72,28 @@ export function ProfileTabs({
   onCreateConsumed,
   locked = false,
   stickyTop,
+  content = true,
 }: ProfileTabsProps) {
   const t = useTranslations('Profile')
 
   // Счётчики для бейджей на табах. Ключи совпадают с ключами вкладок-контента,
   // поэтому запросы шарят кэш с ProfilePosts/MediaGrid/Articles/Polls (без двойной загрузки).
   // Посты — вид вкладки по умолчанию: его `total` — все видимые посты автора.
-  const postsQ = useInfiniteQuery(authorPostsQuery(userId))
+  const postsQ = useInfiniteQuery({ ...authorPostsQuery(userId), enabled: content })
   const mediaQ = useQuery({
     queryKey: profileContentKeys.media(userId),
     queryFn: () => fetchProfileMedia(userId),
+    enabled: content,
   })
   const articlesQ = useQuery({
     queryKey: profileContentKeys.articles(userId),
     queryFn: () => fetchProfileArticles(userId),
+    enabled: content,
   })
   const pollsQ = useQuery({
     queryKey: pollKeys.byUser(userId),
     queryFn: () => fetchPollsByUser(userId),
+    enabled: content,
   })
 
   // Медиа, статьи и опросы приходят списком с потолком: пока список короче потолка, его
@@ -149,11 +156,15 @@ export function ProfileTabs({
 
   const tabs: { id: ProfileTabId; label: string; icon: LucideIcon }[] = [
     { id: 'profile', label: t('tabProfile'), icon: UserRound },
-    { id: 'posts', label: t('tabPosts'), icon: Newspaper },
-    { id: 'photos', label: t('tabPhotos'), icon: ImageIcon },
-    { id: 'videos', label: t('tabVideos'), icon: Video },
-    { id: 'articles', label: t('tabArticles'), icon: FileText },
-    { id: 'polls', label: t('tabPolls'), icon: BarChart3 },
+    ...(content
+      ? [
+          { id: 'posts' as const, label: t('tabPosts'), icon: Newspaper },
+          { id: 'photos' as const, label: t('tabPhotos'), icon: ImageIcon },
+          { id: 'videos' as const, label: t('tabVideos'), icon: Video },
+          { id: 'articles' as const, label: t('tabArticles'), icon: FileText },
+          { id: 'polls' as const, label: t('tabPolls'), icon: BarChart3 },
+        ]
+      : []),
     ...(settings ? [{ id: 'settings' as const, label: t('settings'), icon: Settings }] : []),
   ]
 

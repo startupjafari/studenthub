@@ -7,6 +7,7 @@ import Image from 'next/image'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useTranslations } from 'next-intl'
+import { isRestrictedRole } from '@studenthub/shared-types'
 import {
   BarChart3,
   Camera,
@@ -159,6 +160,9 @@ export function UserProfile() {
     )
 
   const u = me.data
+  // Охрана и библиотекарь: служебный профиль без постов и медиа (docs/PROJECT.md §2) —
+  // без вкладок контента, меню «+» и «Поделиться» (чатов у них тоже нет).
+  const social = !isRestrictedRole(u.role)
 
   return (
     // flex-1 — профиль занимает всю высоту страницы: пустая вкладка растягивает свою
@@ -170,10 +174,12 @@ export function UserProfile() {
         tab={tab}
         onTabChange={setTab}
         locked={editing}
+        content={social}
         settings={<AccountSettingsPanels />}
         stickyTop={
           <ProfileHeader
             me={u}
+            social={social}
             editing={editing}
             saving={updateMut.isPending}
             onToggleEdit={() => {
@@ -207,9 +213,11 @@ export function UserProfile() {
       </ProfileTabs>
 
       {/* `?post=` — свой пост, на который нажали в чате: сразу поверх профиля. */}
-      <Suspense fallback={null}>
-        <PostFromUrl onOpen={() => setTab('posts')} />
-      </Suspense>
+      {social && (
+        <Suspense fallback={null}>
+          <PostFromUrl onOpen={() => setTab('posts')} />
+        </Suspense>
+      )}
 
       {createModal === 'post' && <PostCreateModal onClose={() => setCreateModal(null)} />}
       <input
@@ -251,12 +259,14 @@ const COVER_WIDTH = 1500
 // ── Шапка своего профиля: обложка + аватар (со сменой фото) + действия ──────
 function ProfileHeader({
   me,
+  social,
   editing,
   saving,
   onToggleEdit,
   onQuickCreate,
 }: {
   me: MeResponse
+  social: boolean
   editing: boolean
   saving: boolean
   onToggleEdit: () => void
@@ -340,7 +350,9 @@ function ProfileHeader({
     <Card className={`relative overflow-hidden p-0 ${ENTER}`}>
       {/* Действия — над обложкой справа (Telegram/VK-стиль): поделиться + редактировать/сохранить. */}
       <div className="absolute top-3 right-3 z-20 flex items-center gap-2 sm:top-4 sm:right-4">
-        <ShareProfileButton userId={me.id} name={fullNameOf(me)} className="shadow-md" />
+        {social && (
+          <ShareProfileButton userId={me.id} name={fullNameOf(me)} className="shadow-md" />
+        )}
         <Button
           type="button"
           variant={editing ? 'secondary' : 'default'}
@@ -464,7 +476,7 @@ function ProfileHeader({
             </span>
           </div>
           {/* Меню «+» — внизу справа, вне group аватара (чтобы не триггерить оверлей) */}
-          <AvatarCreateMenu onSelect={onQuickCreate} />
+          {social && <AvatarCreateMenu onSelect={onQuickCreate} />}
           <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onPick} />
         </div>
 
