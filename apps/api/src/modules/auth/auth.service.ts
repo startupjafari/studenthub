@@ -621,6 +621,8 @@ export class AuthService {
     this.realtime.disconnectUser(userId)
     // Push-привязки — тоже часть сессии: «выйти везде» должно выгнать и телефон угонщика.
     await this.push.removeAllForUser(userId)
+    // Неподтверждённый секрет 2FA мог выдать себе тот, кого сейчас выгоняют.
+    await this.users.clearPendingTwoFactorSecret(userId)
   }
 
   // --- приватные ---

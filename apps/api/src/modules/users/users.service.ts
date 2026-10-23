@@ -1518,6 +1518,19 @@ export class UserService {
     })
   }
 
+  /**
+   * Стереть неподтверждённый секрет 2FA (setup без enable). Вызывается гашением всех сессий:
+   * секрет, выданный чужой открытой сессии, иначе переживал смену пароля, а `setup`
+   * отдавал его владельцу повторно — и тот сканировал QR, известный злоумышленнику.
+   * Включённую 2FA не трогает.
+   */
+  async clearPendingTwoFactorSecret(userId: string): Promise<void> {
+    await this.prisma.user.updateMany({
+      where: { id: userId, twoFactorEnabled: false, twoFactorSecret: { not: null } },
+      data: { twoFactorSecret: null },
+    })
+  }
+
   /** Включить 2FA после подтверждения кодом: сохранить bcrypt-хэши backup-кодов. */
   async enableTwoFactor(userId: string, backupHashes: string[]): Promise<void> {
     await this.prisma.user.update({

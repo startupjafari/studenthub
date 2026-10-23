@@ -118,7 +118,10 @@ function setup(opts: { redisDown?: boolean } = {}) {
     }),
   }
   const audit = { record: jest.fn() }
-  const users = { findByIdForAuth: jest.fn().mockResolvedValue(STUDENT) }
+  const users = {
+    findByIdForAuth: jest.fn().mockResolvedValue(STUDENT),
+    clearPendingTwoFactorSecret: jest.fn(),
+  }
   const config = {
     get: jest.fn((k: string) =>
       k === 'JWT_REFRESH_EXPIRES_IN' ? '30d' : k === 'REFRESH_REUSE_GRACE_MS' ? GRACE_MS : 0,
@@ -237,6 +240,14 @@ describe('AuthService.refresh: параллельные обмены одной 
     await service.revokeAllUserSessions('u1')
 
     expect(push.removeAllForUser).toHaveBeenCalledWith('u1')
+  })
+
+  it('гашение всех сессий стирает неподтверждённый секрет 2FA (BUG-108)', async () => {
+    const { service, users } = setup()
+
+    await service.revokeAllUserSessions('u1')
+
+    expect(users.clearPendingTwoFactorSecret).toHaveBeenCalledWith('u1')
   })
 
   it('цепочку погасили, пока обмен ждал (выход), — сессия не воскресает', async () => {
