@@ -2439,6 +2439,66 @@
 #### BUG-510 · 🟢 Голосовые чата (`video/webm`/`video/mp4`) идут в видеоочередь, гоняют ffprobe и помечаются FAILED (корень BUG-428)
 - **Где:** `apps/api/src/modules/media/media.service.ts:78-83` (`kindOf` по mime), `apps/api/src/modules/files/file.service.ts:212,221,226`, `media-processing.service.ts:155-164,277-282` · **Статус:** новый
 
+### CI, Docker, деплой, бэкапы
+
+#### BUG-511 · 🟠 Compose-прод: nginx стартует без шаблонов — нет 443, маршрутов и ACME (самостоятельный хостинг)
+- **Где:** `docker/prod/compose.yml:147-160` (`command: ['sh','-c', …]` — при `$1 = sh` точка входа образа не запускает `20-envsubst-on-templates.sh`), `docker/prod/nginx/nginx.conf:38` · **Статус:** новый
+- **Сценарий:** `conf.d/` содержит только стоковый `default.conf` — «Welcome to nginx» на 80, certbot renew не проходит.
+- **Ожидается:** вызывать `/docker-entrypoint.sh nginx …` или рендерить шаблон в команде.
+
+#### BUG-512 · 🟠 Compose-прод: healthcheck web никогда не зелёный — nginx не стартует вовсе
+- **Где:** `docker/prod/compose.yml:22-30,103-116,165-169`, `apps/web/Dockerfile:76-85` (нет `HOSTNAME=::`, Next слушает имя контейнера, проба — `127.0.0.1`); CI это обходит — `.github/workflows/ci.yml:967-980`; у лендинга исправлено · **Статус:** новый
+- **Ожидается:** `HOSTNAME=::` в CMD web, как у лендинга; убрать `startCommand` из `apps/web/railway.json:8`.
+
+#### BUG-513 · 🟠 Проверка «Миграции прод-БД применены» всегда зелёная и ничего не проверяет
+- **Где:** `.github/workflows/ci.yml:1267-1303` (нет `environment: production`, секрет `DATABASE_PUBLIC_URL` живёт в окружении — `docs/RELEASE.md:147`; без секрета `exit 0`) · **Статус:** подтверждён
+- **Сценарий:** релизный PR в main проходит с неприменёнными миграциями — Railway выкатывает код на старую схему.
+
+#### BUG-514 · 🟠 🔒 Прогон seed на общей с продом базе снимает 2FA с боевого платформенного админа
+- **Где:** `prisma/seed.mjs:86-90,198-211` (`upsert … update: TWO_FACTOR_RESET`), путь — `.github/workflows/seed.yml:266-278`; последствия описаны в `prisma/seed/lib/seed-password.mjs:5-8` · **Статус:** подтверждён
+- **Ожидается:** при `SEED_ALLOW_REMOTE=1` существующего админа не трогать.
+
+#### BUG-515 · 🟠 🔒 Сгенерированный пароль сид-аккаунтов и админа после сброса печатается в публичный лог Actions
+- **Где:** `prisma/seed/lib/seed-password.mjs:56-66`, `prisma/seed.mjs:229-232`, `prisma/reset-to-admin.mjs:91,134`; `.github/workflows/seed.yml:32-34,272`, `.github/workflows/reset-db.yml:24-25,135,159-161` (без `::add-mask::`, репозиторий публичный, логи до 90 дней) · **Статус:** новый
+- **Ожидается:** без секрета на удалённой базе — отказ, либо маска и зашифрованный артефакт.
+
+#### BUG-516 · 🟡 Seed и reset накатывают на прод миграции выбранной в форме ветки без показа SQL
+- **Где:** `.github/workflows/seed.yml:29,242-243`, `.github/workflows/reset-db.yml:125-127` (`pnpm db:deploy`) · **Статус:** новый
+- **Ожидается:** стоп-точка AGENTS.md «миграция к непустой БД — сначала SQL»: в seed/reset только `migrate status`, применять через `migrate.yml`, либо только `main`.
+
+#### BUG-517 · 🟡 Smoke после выкатки зеленеет на старой версии — новый образ не проверяется
+- **Где:** `.github/workflows/smoke.yml:129-176`; в `/health` нет версии (а `app-version.ts` умеет `RAILWAY_GIT_COMMIT_SHA`) · **Статус:** новый
+
+#### BUG-518 · 🟡 🔒 Образы api и web работают от root; api запускает ffmpeg на пользовательских файлах
+- **Где:** `apps/api/Dockerfile:60-82`, `apps/web/Dockerfile:76-85` (нет `USER`) · **Статус:** подтверждён
+
+#### BUG-519 · 🟡 Бэкап медиа: бакет `profile-covers` не зеркалится, ошибка доступа к бакету молча пропускается
+- **Где:** `scripts/backup-db.sh:81-86`; бакеты — `apps/api/src/config/env.schema.ts:76-85` · **Статус:** новый
+
+#### BUG-520 · 🟡 Зеркало медиа с `--remove`: удаление на проде за ночь стирает и бэкап
+- **Где:** `scripts/backup-db.sh:84`; обещание защиты — `.github/workflows/backup.yml:33-35` · **Статус:** новый
+
+#### BUG-521 · 🟡 Compose-прод: web собирается без `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, `NEXT_PUBLIC_MINIO_URL`, `NEXT_PUBLIC_SENTRY_*`
+- **Где:** `docker/prod/compose.yml:103-110` (`build.args` только `NEXT_PUBLIC_API_URL`), `docker/prod/.env.api.example:56-58` · **Статус:** новый
+- **Сценарий:** Web Push не подписывается, Sentry в браузере выключен, картинки своего хранилища в markdown показываются ссылками.
+
+#### BUG-522 · 🟡 CI никогда не запускает тесты mini-app и camera-agent (17 файлов тестов)
+- **Где:** `.github/workflows/ci.yml` (`turbo run test:cov --filter=api --filter=web`), `apps/mini-app/package.json`, `apps/camera-agent/package.json` · **Статус:** новый
+
+#### BUG-523 · 🟢 Версия сборки web на Railway всегда `dev-<время>`: turbo strict срезает `RAILWAY_GIT_COMMIT_SHA`
+- **Где:** `turbo.json:156-160` (`env: ["API_PROXY_TARGET"]`), `apps/web/Dockerfile:52,65,73`, `apps/web/next.config.mjs:116-121`; ожидание — `docs/RELEASE.md:60-62` · **Статус:** новый
+
+#### BUG-524 · 🟢 Выбор образов к пересборке и dependabot обходят часть файлов и образов
+- **Где:** `.github/workflows/ci.yml:661,713` (`.dockerignore`, `.npmrc`, `prisma.config.ts` не триггерят; media-relay и camera-agent не собираются и не проходят hadolint/trivy), `.github/dependabot.yml` (не следит за ними и за `pgsty/minio`, `nginx`, `certbot`, `bluenviron/mediamtx`) · **Статус:** новый
+
+#### BUG-525 · 🟢 🔒 Сторож аптайма принимает за свой инцидент любой открытый issue «Прод не отвечает»
+- **Где:** `.github/workflows/uptime.yml:170-181,237-267` (без фильтра автора, `--limit 100`) · **Статус:** новый
+- **Сценарий:** чужой issue глушит тревогу «упало» или вызывает повторяемый спам «прод отвечает» в Telegram.
+
+#### BUG-526 · 🟢 Android-прогон не срабатывает на правку строк iOS, которые сверяет; раннеры на `ubuntu-latest`
+- **Где:** `.github/workflows/android.yml` (`paths: apps/android/**`, `import_ios_strings.py && git diff --exit-code`), `.github/workflows/android-release.yml` · **Статус:** новый
+- **Попутно, не подтверждено:** nginx мини-аппа слушает только IPv4 (`apps/mini-app/nginx.conf.template:9`) — на Railway (IPv6) дало бы 502.
+
 <!-- P3-END -->
 
 ## Замечено попутно
