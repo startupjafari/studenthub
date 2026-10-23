@@ -335,6 +335,8 @@ export function TableText({
           onMouseEnter={check}
           onFocus={check}
           tabIndex={clipped ? 0 : undefined}
+          // Своя подсказка — общая (OverflowHint) здесь была бы второй.
+          data-overflow-hint="off"
           className={cn('block truncate', className)}
         >
           {value}
