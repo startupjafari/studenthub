@@ -35,7 +35,8 @@ final class DeepLinkTests: XCTestCase {
 
     func testStarostaSectionsAreRecognised() {
         XCTAssertEqual(link("https://studenthub.kz/starosta/classmates"), .section(.classmates))
-        XCTAssertEqual(link("https://studenthub.kz/starosta/group-requests"), .section(.groupRequests))
+        // «Обращений группы» больше нет: заявки одногруппников старосте не видны.
+        XCTAssertNil(link("https://studenthub.kz/starosta/group-requests"))
     }
 
     func testApplicationAndEventCards() {
@@ -139,12 +140,12 @@ final class AppRouterTests: XCTestCase {
     }
 
     /// Ссылка в чужой раздел не должна открывать пустой экран: у студента нет
-    /// обращений группы.
+    /// раздела одногруппников.
     func testSectionForeignToTheRoleIsRefused() {
         let router = AppRouter()
 
-        XCTAssertFalse(router.open(.section(.groupRequests), for: .student))
-        XCTAssertTrue(router.open(.section(.groupRequests), for: .starosta))
+        XCTAssertFalse(router.open(.section(.classmates), for: .student))
+        XCTAssertTrue(router.open(.section(.classmates), for: .starosta))
     }
 }
 

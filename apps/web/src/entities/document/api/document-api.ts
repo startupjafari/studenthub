@@ -155,6 +155,25 @@ export async function reorderDocumentFiles(id: string, fileIds: string[]): Promi
   return data
 }
 
+// Замена страницы: загруженный файл встаёт на место `fileId` с тем же порядком, старый
+// сервер удаляет из хранилища.
+export async function replaceDocumentFile(
+  id: string,
+  fileId: string,
+  newFileId: string,
+): Promise<DocumentDto> {
+  const { data } = await api.post<DocumentDto>(`/documents/${id}/files/${fileId}/replace`, {
+    fileId: newFileId,
+  })
+  return data
+}
+
+// Удаление страницы (единственную сервер не удаляет — 400).
+export async function removeDocumentFile(id: string, fileId: string): Promise<DocumentDto> {
+  const { data } = await api.delete<DocumentDto>(`/documents/${id}/files/${fileId}`)
+  return data
+}
+
 /**
  * Presigned-ссылка на файл документа.
  *

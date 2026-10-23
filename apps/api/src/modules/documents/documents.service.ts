@@ -1,15 +1,18 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { Prisma } from '@prisma/client'
-import type {
-  CreateDocumentInput,
-  CursorPaginationInput,
-  DocumentListQueryInput,
-  DocumentSortValue,
-  SortOrderValue,
-  GrantDocumentAccessInput,
-  ReorderDocumentFilesInput,
-  UpdateDocumentInput,
+import {
+  DEFAULT_PAGE_LIMIT,
+  isPageRequested,
+  type CreateDocumentInput,
+  type CursorPaginationInput,
+  type DocumentListQueryInput,
+  type DocumentSortValue,
+  type SortOrderValue,
+  type GrantDocumentAccessInput,
+  type ReorderDocumentFilesInput,
+  type ReplaceDocumentFileInput,
+  type UpdateDocumentInput,
 } from '@studenthub/shared-schemas'
 import type { NotificationMessageKey } from '@studenthub/shared-config'
 import { Role } from '@studenthub/shared-types'
@@ -28,14 +31,19 @@ import { DocumentTypesService, type RetentionRule } from './document-types.servi
 // схема reorder (30), грантов на документ — единицы; лимит фиксируем в запросе.
 const DOCUMENT_FILES_LIMIT = 30
 const DOCUMENT_ACCESS_LIMIT = 200
+// Потолок прежнего ответа массивом (без limit/cursor): так читают веб и Android. Документов
+// у человека — десятки; кому нужно больше, листает страницами.
+const DOCUMENTS_LEGACY_LIMIT = 200
 // Деканов одного факультета — единицы; потолок на адресатов уведомления о гранте.
 const GRANT_RECIPIENTS_LIMIT = 50
-// Кто открывает документ по гранту «Университет»: администрация вуза, не все его люди.
-const UNIVERSITY_GRANT_ROLES: ReadonlySet<Role> = new Set([
-  Role.UNIVERSITY_ADMIN,
-  Role.UNIVERSITY_MODERATOR,
-  Role.DEAN,
-])
+// Кто открывает документ по гранту «Университет»: администрация вуза, которая работает с
+// документами студентов (модератор вуза, деканы), а не все его люди. Админа вуза здесь нет
+// намеренно — см. CONTENT_BARRED_ROLES.
+const UNIVERSITY_GRANT_ROLES: ReadonlySet<Role> = new Set([Role.UNIVERSITY_MODERATOR, Role.DEAN])
+// Роли, которым содержимое чужих документов не открывается ни по какому гранту (§15.2,
+// решение владельца): админ вуза управляет типами, сроками хранения и журналом, но сканы
+// паспортов и дипломов студентов ему не положены. Раньше грант «Университет» открывал их и ему.
+const CONTENT_BARRED_ROLES: ReadonlySet<Role> = new Set([Role.UNIVERSITY_ADMIN])
 
 const DOCUMENT_MIME = new Set(['application/pdf', 'image/jpeg', 'image/png'])
 // Порог «скоро истекает» — 30 дней.
@@ -45,6 +53,11 @@ const DAY_MS = 24 * 60 * 60 * 1000
 const EXPIRY_STATUSES: ReadonlySet<string> = new Set(['UPLOADED', 'EXPIRING', 'EXPIRED'])
 // Размер пачки ночного крона (правила сроков хранения, документы к архиву).
 const SWEEP_BATCH = 500
+// Комплекты по ОТКРЫТОМУ запросу, на которые вуз сейчас опирается: на проверке (SUBMITTED)
+// или уже принят (ACCEPTED). Страницы и данные приложенного к ним документа не меняются:
+// проверяющий обязан видеть ровно то, что отправлено, а принятая версия — то, что принято
+// (старый файл при замене удаляется, вернуть его было бы неоткуда).
+const SUBMISSION_LOCKING = ['SUBMITTED', 'ACCEPTED']
 // Комплекты, которые студент ещё ведёт (как STUDENT_EDITABLE в сервисе запросов): правка
 // документа снимает вердикт его позиции, а уже проверенный комплект (REJECTED/PARTIAL)
 // возвращается в черновик до повторной отправки — так же, как при выборе другого документа.
@@ -96,6 +109,20 @@ function changedContent(
     (input.issuedAt !== undefined && time(input.issuedAt) !== time(doc.issuedAt)) ||
     (input.expiresAt !== undefined && time(input.expiresAt) !== time(doc.expiresAt))
   )
+}
+
+/** Колонка сортировки списка и направление — после подстановки умолчаний. */
+interface DocumentSortSpec {
+  sort: DocumentSortValue | undefined
+  dir: SortOrderValue
+}
+
+function documentSortSpec(
+  sort: DocumentSortValue | undefined,
+  order: SortOrderValue | undefined,
+): DocumentSortSpec {
+  // Порядок по умолчанию — свежие сверху, как было до появления сортировки по колонкам.
+  return sort ? { sort, dir: order ?? 'asc' } : { sort: undefined, dir: 'desc' }
 }
 
 /**
@@ -195,31 +222,122 @@ export function nextDocumentStatus(
  * Даты и срок действия бывают пустыми: `nulls: 'last'` держит такие строки в конце
  * при любом направлении — иначе при сортировке по возрастанию сверху оказывалась бы
  * пачка документов без даты, а не самые ранние.
+ *
+ * Второй ключ — id в том же направлении: у документов с одинаковым названием или статусом
+ * порядок иначе случаен, и на стыке страниц строки терялись бы или повторялись.
  */
-function documentOrderBy(
-  sort: DocumentSortValue | undefined,
-  order: SortOrderValue | undefined,
-): Prisma.DocumentOrderByWithRelationInput {
-  const dir = order ?? 'asc'
-  switch (sort) {
+function documentOrderBy(spec: DocumentSortSpec): Prisma.DocumentOrderByWithRelationInput[] {
+  const { dir } = spec
+  const tie = { id: dir }
+  switch (spec.sort) {
     case 'title':
-      return { title: dir }
+      return [{ title: dir }, tie]
     case 'category':
-      return { category: dir }
+      return [{ category: dir }, tie]
     case 'status':
-      return { status: dir }
+      return [{ status: dir }, tie]
     case 'issuedAt':
-      return { issuedAt: { sort: dir, nulls: 'last' } }
+      return [{ issuedAt: { sort: dir, nulls: 'last' } }, tie]
     case 'expiresAt':
-      return { expiresAt: { sort: dir, nulls: 'last' } }
+      return [{ expiresAt: { sort: dir, nulls: 'last' } }, tie]
     case 'access':
-      return { access: { _count: dir } }
+      return [{ access: { _count: dir } }, tie]
     case 'createdAt':
-      return { createdAt: dir }
-    default:
-      // Порядок по умолчанию — свежие сверху, как было до появления сортировки по колонкам.
-      return { createdAt: 'desc' }
+    case undefined:
+      return [{ createdAt: dir }, tie]
   }
+}
+
+// ── Курсор страницы списка документов ─────────────────────────────────────────
+//
+// Список сортируется по любой колонке таблицы, поэтому курсор несёт значение этой колонки
+// у последней строки страницы и её id — а не голый id для Prisma-курсора: тот при удалённой
+// или ушедшей в архив курсорной строке съедал бы соседнюю (см. keyset-cursor.ts).
+// Формат непрозрачный (base64url от JSON), клиент возвращает meta.cursor как есть.
+
+type KeysetColumn = 'title' | 'category' | 'status' | 'issuedAt' | 'expiresAt' | 'createdAt'
+const NULLABLE_COLUMNS: ReadonlySet<KeysetColumn> = new Set(['issuedAt', 'expiresAt'])
+const DATE_COLUMNS: ReadonlySet<KeysetColumn> = new Set(['issuedAt', 'expiresAt', 'createdAt'])
+
+interface KeysetPosition {
+  /** Значение колонки у последней строки: строка, момент в мс или null (пустая дата). */
+  v: string | number | null
+  id: string
+}
+
+interface DocumentKeyset extends KeysetPosition {
+  /** Сортировка, под которую выдан курсор: `колонка:направление`. */
+  s: string
+}
+
+// Колонка keyset-позиции. Число доступов — агрегат по связи, условием WHERE его в Prisma
+// не выразить, поэтому у сортировки по доступу постраничной выдачи нет.
+function keysetColumn(spec: DocumentSortSpec): KeysetColumn | null {
+  return spec.sort === 'access' ? null : (spec.sort ?? 'createdAt')
+}
+
+function keysetTag(column: KeysetColumn, spec: DocumentSortSpec): string {
+  return `${column}:${spec.dir}`
+}
+
+function positionOf(
+  column: KeysetColumn,
+  row: Pick<DocumentRow, KeysetColumn | 'id'>,
+): KeysetPosition {
+  const value = row[column]
+  return { v: value instanceof Date ? value.getTime() : value, id: row.id }
+}
+
+function encodeDocumentKeyset(
+  column: KeysetColumn,
+  spec: DocumentSortSpec,
+  row: Pick<DocumentRow, KeysetColumn | 'id'>,
+): string {
+  const keyset: DocumentKeyset = { s: keysetTag(column, spec), ...positionOf(column, row) }
+  return Buffer.from(JSON.stringify(keyset)).toString('base64url')
+}
+
+function decodeDocumentKeyset(cursor: string): DocumentKeyset | null {
+  try {
+    const raw: unknown = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'))
+    if (typeof raw !== 'object' || raw === null) return null
+    const { s, v, id } = raw as Record<string, unknown>
+    if (typeof s !== 'string' || typeof id !== 'string' || !id) return null
+    if (v !== null && typeof v !== 'string' && typeof v !== 'number') return null
+    return { s, v, id }
+  } catch {
+    return null
+  }
+}
+
+// Курсор приходит от клиента: значение должно подходить колонке, иначе подделанный курсор
+// (строка вместо даты) доходил бы до Prisma и отвечал 500 вместо пустой позиции.
+function fitsColumn(column: KeysetColumn, v: string | number | null): boolean {
+  if (v === null) return NULLABLE_COLUMNS.has(column)
+  return DATE_COLUMNS.has(column)
+    ? typeof v === 'number' && Number.isFinite(v)
+    : typeof v === 'string'
+}
+
+/**
+ * Условие «строго после позиции» для порядка documentOrderBy. Пустые даты стоят в конце при
+ * любом направлении: после непустого значения идут и все строки без даты, а позиция среди
+ * пустых сравнивается уже только по id.
+ */
+function documentsAfter(
+  column: KeysetColumn,
+  dir: SortOrderValue,
+  position: KeysetPosition,
+): Prisma.DocumentWhereInput {
+  const cmp = dir === 'asc' ? 'gt' : 'lt'
+  if (position.v === null) return { [column]: null, id: { [cmp]: position.id } }
+  const value = DATE_COLUMNS.has(column) ? new Date(position.v) : position.v
+  const or: Prisma.DocumentWhereInput[] = [
+    { [column]: { [cmp]: value } },
+    { [column]: value, id: { [cmp]: position.id } },
+  ]
+  if (NULLABLE_COLUMNS.has(column)) or.push({ [column]: null })
+  return { OR: or }
 }
 
 export interface DocumentFileDto {
@@ -431,6 +549,29 @@ export class DocumentsService {
   }
 
   /**
+   * Документ приложен к комплекту по открытому запросу, который сейчас проверяют или уже
+   * приняли, — его содержимое (страницы, данные) не меняется, `409 CONFLICT`. Новую версию
+   * владелец загружает отдельным документом. Закрытые запросы содержимое не держат: их
+   * комплекты — уже история, иначе однажды принятый паспорт нельзя было бы обновить никогда.
+   */
+  private async assertNotLockedByReview(id: string): Promise<void> {
+    const locked = await this.prisma.documentSubmissionItem.findFirst({
+      where: {
+        documentId: id,
+        submission: { status: { in: SUBMISSION_LOCKING }, request: { status: 'OPEN' } },
+      },
+      select: { submission: { select: { status: true } } },
+    })
+    if (!locked) return
+    throw new AppException(
+      'CONFLICT',
+      locked.submission.status === 'SUBMITTED'
+        ? 'Документ на проверке по запросу — дождитесь результата'
+        : 'Документ принят по запросу — новую версию загрузите отдельным документом',
+    )
+  }
+
+  /**
    * Содержимое выданного вузом документа владельцу не правится (D-F22): справка уходит в
    * заявки и запросы как выданная университетом, и дописанная страница или исправленный
    * номер выдавались бы за подлинник. Владельцу остаются архив, удаление и личная заметка.
@@ -516,6 +657,7 @@ export class DocumentsService {
     input: ReorderDocumentFilesInput,
   ): Promise<DocumentDto> {
     this.assertContentEditable(await this.findOwnedOrThrow(actor, id))
+    await this.assertNotLockedByReview(id)
     const files = await this.prisma.file.findMany({
       where: {
         id: { in: input.fileIds },
@@ -545,10 +687,121 @@ export class DocumentsService {
       data: { status: 'UPLOADED' },
     })
     if (existing > 0) await this.afterContentChange(id)
-    await this.logEvent(actor.sub, id, existing === 0 ? 'UPLOAD' : 'REPLACE', {
+    // Первые страницы — загрузка документа; дописанные к уже загруженному — добавление
+    // страниц (раньше писалось REPLACE, хотя ничего не заменялось).
+    await this.logEvent(actor.sub, id, existing === 0 ? 'UPLOAD' : 'PAGE_ADD', {
       added: input.fileIds.length,
     })
     return this.getOwnedDto(actor, id)
+  }
+
+  /**
+   * Заменить страницу: новый файл (загружен владельцем, ещё не прикреплён) встаёт на место
+   * старого с тем же порядковым номером, старый файл удаляется из хранилища сразу — это
+   * скан персональных данных, держать прежнюю версию незачем. Если удалить объект не вышло,
+   * отвязанную строку подберёт ночная cleanDetachedFiles.
+   */
+  async replaceFile(
+    actor: JwtPayload,
+    id: string,
+    fileId: string,
+    input: ReplaceDocumentFileInput,
+  ): Promise<DocumentDto> {
+    this.assertContentEditable(await this.findOwnedOrThrow(actor, id))
+    await this.assertNotLockedByReview(id)
+    if (input.fileId === fileId) {
+      throw new AppException('BAD_REQUEST', 'Новый файл совпадает с заменяемой страницей')
+    }
+    const old = await this.prisma.file.findFirst({
+      where: { id: fileId, documentId: id },
+      select: { id: true, order: true },
+    })
+    if (!old) throw new AppException('NOT_FOUND', 'Страница не найдена')
+    const next = await this.prisma.file.findFirst({
+      where: { id: input.fileId, ownerId: actor.sub, bucket: this.bucket, documentId: null },
+      select: { id: true },
+    })
+    if (!next) throw new AppException('BAD_REQUEST', 'Файл недоступен для прикрепления')
+
+    await this.prisma.$transaction(async (tx) => {
+      // Условные UPDATE: страницу могли удалить, а файл — прикрепить в другом окне между
+      // чтением и записью. Тогда откатываем обе половины, а не оставляем документ без
+      // страницы или с файлом в двух местах.
+      const detached = await tx.file.updateMany({
+        where: { id: old.id, documentId: id },
+        data: { documentId: null, order: null },
+      })
+      const attached = await tx.file.updateMany({
+        where: { id: next.id, ownerId: actor.sub, documentId: null },
+        data: { documentId: id, order: old.order },
+      })
+      if (detached.count === 0 || attached.count === 0) {
+        throw new AppException('CONFLICT', 'Страницы документа изменились — обновите страницу')
+      }
+    })
+    await this.purgePage(old.id)
+    await this.afterContentChange(id)
+    await this.logEvent(actor.sub, id, 'REPLACE', {
+      fileId: next.id,
+      replacedFileId: old.id,
+      order: old.order,
+    })
+    return this.getOwnedDto(actor, id)
+  }
+
+  /**
+   * Удалить страницу. Единственную — нельзя: документ без файлов выглядел бы загруженным,
+   * а в запросе или заявке уходил бы пустым. Чтобы поменять единственный скан, его
+   * заменяют; чтобы убрать документ целиком — удаляют документ (это отдельное действие с
+   * подтверждением и своим сроком хранения сканов). Оставшиеся страницы перенумеровываются
+   * подряд, порядок сохраняется.
+   */
+  async removeFile(actor: JwtPayload, id: string, fileId: string): Promise<DocumentDto> {
+    this.assertContentEditable(await this.findOwnedOrThrow(actor, id))
+    await this.assertNotLockedByReview(id)
+    const removed = await this.prisma.$transaction(async (tx) => {
+      // Блокировка строки документа: два параллельных удаления двух последних страниц иначе
+      // оба увидели бы «останется одна» и оставили документ пустым.
+      await tx.document.update({
+        where: { id },
+        data: { updatedAt: new Date() },
+        select: { id: true },
+      })
+      const pages = await tx.file.findMany({
+        where: { documentId: id },
+        select: { id: true },
+        orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
+        take: DOCUMENT_FILES_LIMIT,
+      })
+      const index = pages.findIndex((p) => p.id === fileId)
+      if (index < 0) throw new AppException('NOT_FOUND', 'Страница не найдена')
+      if (pages.length === 1) {
+        throw new AppException(
+          'BAD_REQUEST',
+          'Единственную страницу не удалить — замените её или удалите документ',
+        )
+      }
+      await tx.file.update({ where: { id: fileId }, data: { documentId: null, order: null } })
+      const rest = pages.filter((p) => p.id !== fileId)
+      for (const [i, page] of rest.entries()) {
+        await tx.file.update({ where: { id: page.id }, data: { order: i } })
+      }
+      return { order: index }
+    })
+    await this.purgePage(fileId)
+    await this.afterContentChange(id)
+    await this.logEvent(actor.sub, id, 'PAGE_REMOVE', { fileId, order: removed.order })
+    return this.getOwnedDto(actor, id)
+  }
+
+  // Снятая со страницы запись файла и её объект в хранилище. Ошибка не роняет уже
+  // выполненную замену: отвязанную строку ночью снимет cleanDetachedFiles.
+  private async purgePage(fileId: string): Promise<void> {
+    try {
+      await this.files.delete(fileId)
+    } catch (err: unknown) {
+      this.logger.warn({ err, fileId }, 'Не удалось удалить снятую страницу документа')
+    }
   }
 
   /** Изменить порядок страниц документа. */
@@ -558,6 +811,7 @@ export class DocumentsService {
     input: ReorderDocumentFilesInput,
   ): Promise<DocumentDto> {
     this.assertContentEditable(await this.findOwnedOrThrow(actor, id))
+    await this.assertNotLockedByReview(id)
     const files = await this.prisma.file.findMany({
       where: { documentId: id },
       select: { id: true },
@@ -590,7 +844,10 @@ export class DocumentsService {
     })
     if (!doc) throw new AppException('NOT_FOUND', 'Документ не найден')
     const isOwner = doc.ownerId === actor.sub
-    if (!isOwner && !(await this.hasActiveGrant(actor, doc))) {
+    if (
+      !isOwner &&
+      (CONTENT_BARRED_ROLES.has(actor.role) || !(await this.hasActiveGrant(actor, doc)))
+    ) {
       throw new AppException('NOT_FOUND', 'Документ не найден')
     }
     const file = await this.prisma.file.findFirst({
@@ -651,6 +908,9 @@ export class DocumentsService {
     actor: JwtPayload,
     query: CursorPaginationInput,
   ): Promise<Paginated<SharedDocumentDto>> {
+    // Открыть отсюда такой роли нечего (getFileUrl ей откажет), а метаданные чужих документов
+    // — название, маска номера, сроки — тоже часть содержимого.
+    if (CONTENT_BARRED_ROLES.has(actor.role)) return new Paginated([], { hasNext: false })
     const now = new Date()
     const rows = await this.prisma.documentAccess.findMany({
       where: {
@@ -763,6 +1023,8 @@ export class DocumentsService {
         deletedAt: null,
         isBlocked: false,
         NOT: { id: actor.sub },
+        // Админ вуза документ не откроет и по персональному гранту — не зовём его смотреть.
+        role: { notIn: [...CONTENT_BARRED_ROLES] },
         ...(input.granteeType === 'USER'
           ? { id: input.granteeId }
           : { role: Role.DEAN, facultyId: input.granteeId }),
@@ -954,7 +1216,10 @@ export class DocumentsService {
     const contentChanged = changedContent(input, doc)
     // У выданного вузом документа владелец меняет только свою заметку (comment) — она
     // никому, кроме него, не показывается.
-    if (contentChanged) this.assertContentEditable(doc)
+    if (contentChanged) {
+      this.assertContentEditable(doc)
+      await this.assertNotLockedByReview(id)
+    }
     const data: Prisma.DocumentUpdateInput = {}
     if (input.title !== undefined) data.title = input.title
     if (input.number !== undefined) {
@@ -971,7 +1236,15 @@ export class DocumentsService {
     return this.getOwnedDto(actor, id)
   }
 
-  async list(actor: JwtPayload, query: DocumentListQueryInput): Promise<DocumentDto[]> {
+  /**
+   * Мои документы. Без `limit`/`cursor` — прежний ответ массивом до DOCUMENTS_LEGACY_LIMIT
+   * (веб, Android); с ними — страница той же сортировки: `meta.cursor` — позиция последней
+   * строки, `meta.hasNext`, `meta.total` — сколько документов под фильтром всего.
+   */
+  async list(
+    actor: JwtPayload,
+    query: DocumentListQueryInput,
+  ): Promise<DocumentDto[] | Paginated<DocumentDto>> {
     const where: Prisma.DocumentWhereInput = {
       ownerId: actor.sub,
       deletedAt: null,
@@ -992,14 +1265,78 @@ export class DocumentsService {
       ...(query.preset === 'shared' ? { access: { some: {} } } : {}),
       ...(query.preset === 'issued' ? { issuedByUniversity: true } : {}),
     }
-    const orderBy = documentOrderBy(query.sort, query.order)
+    const spec = documentSortSpec(query.sort, query.order)
+    const orderBy = documentOrderBy(spec)
+    if (!isPageRequested(query)) {
+      const rows = await this.prisma.document.findMany({
+        where,
+        select: DOCUMENT_SELECT,
+        orderBy,
+        take: DOCUMENTS_LEGACY_LIMIT,
+      })
+      return rows.map((r) => this.toDto(r))
+    }
+
+    const column = keysetColumn(spec)
+    if (!column) {
+      throw new AppException('BAD_REQUEST', 'Постраничная выдача не сортируется по доступу')
+    }
+    const limit = query.limit ?? DEFAULT_PAGE_LIMIT
+    const position = query.cursor
+      ? await this.keysetPosition(actor, column, spec, query.cursor)
+      : null
+    const total = await this.prisma.document.count({ where })
+    // Курсор указывает на документ, которого у смотрящего нет, — листать не от чего.
+    if (query.cursor && !position) return new Paginated([], { hasNext: false, total })
     const rows = await this.prisma.document.findMany({
-      where,
+      where: position ? { AND: [where, documentsAfter(column, spec.dir, position)] } : where,
       select: DOCUMENT_SELECT,
       orderBy,
-      take: 200,
+      take: limit + 1,
     })
-    return rows.map((r) => this.toDto(r))
+    const hasNext = rows.length > limit
+    const items = hasNext ? rows.slice(0, limit) : rows
+    const last = items.at(-1)
+    return new Paginated(
+      items.map((r) => this.toDto(r)),
+      {
+        cursor: hasNext && last ? encodeDocumentKeyset(column, spec, last) : undefined,
+        hasNext,
+        total,
+      },
+    )
+  }
+
+  /**
+   * Позиция курсора: свой курсор той же сортировки — сразу; голый id документа или курсор
+   * другой сортировки (клиент сменил колонку, а курсор оставил) — значения колонки
+   * дочитываются по id. Только свои документы: чужой id не должен давать позицию в выдаче.
+   * Удалённый или ушедший в архив документ позицию даёт — по его значениям листание
+   * продолжается без потерь.
+   */
+  private async keysetPosition(
+    actor: JwtPayload,
+    column: KeysetColumn,
+    spec: DocumentSortSpec,
+    cursor: string,
+  ): Promise<KeysetPosition | null> {
+    const decoded = decodeDocumentKeyset(cursor)
+    if (decoded && decoded.s === keysetTag(column, spec) && fitsColumn(column, decoded.v)) {
+      return { v: decoded.v, id: decoded.id }
+    }
+    const doc = await this.prisma.document.findFirst({
+      where: { id: decoded?.id ?? cursor, ownerId: actor.sub },
+      select: {
+        id: true,
+        title: true,
+        category: true,
+        status: true,
+        issuedAt: true,
+        expiresAt: true,
+        createdAt: true,
+      },
+    })
+    return doc ? positionOf(column, doc) : null
   }
 
   getById(actor: JwtPayload, id: string): Promise<DocumentDto> {

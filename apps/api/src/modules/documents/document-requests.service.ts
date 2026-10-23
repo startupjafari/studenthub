@@ -28,6 +28,31 @@ const REQUEST_STAFF_ROLES: ReadonlySet<Role> = new Set([
   Role.TEACHER,
 ])
 
+// Какие категории приложенных документов открываются проверяющему (§15.2). Преподаватель
+// проверяет только учебные: удостоверения личности и справки (в т.ч. медицинские) ему не
+// показываются, даже если оказались приложены к его запросу. Деканат и модератор вуза видят
+// любые документы запросов своей области. Роли нет в таблице — проверять ей нечего.
+const REVIEWER_CATEGORIES: Partial<Record<Role, ReadonlySet<string> | 'ALL'>> = {
+  [Role.DEAN]: 'ALL',
+  [Role.UNIVERSITY_MODERATOR]: 'ALL',
+  [Role.TEACHER]: new Set(['ACADEMIC']),
+}
+
+/**
+ * Видит ли проверяющий приложенный документ: роль допускает его категорию, и документ того
+ * типа, что требует позиция. Тип сверяется и здесь — для привязок, сохранённых до сверки в
+ * saveSubmission: паспорт в учебной позиции не должен открываться ни по какой ветке.
+ */
+function reviewerSees(
+  actor: JwtPayload,
+  requestItem: { documentType: string },
+  document: { type: string; category: string },
+): boolean {
+  if (document.type !== requestItem.documentType) return false
+  const allowed = REVIEWER_CATEGORIES[actor.role]
+  return allowed === 'ALL' || (allowed?.has(document.category) ?? false)
+}
+
 // Позиций в запросе не больше, чем разрешает схема создания (30).
 const REQUEST_ITEMS_LIMIT = 30
 // Адресаты уведомления о новом запросе читаются и рассылаются пачками без общего потолка:
@@ -599,6 +624,7 @@ export class DocumentRequestsService {
                 id: true,
                 title: true,
                 type: true,
+                category: true,
                 numberLast4: true,
                 deletedAt: true,
                 files: { select: { id: true, mime: true }, orderBy: { order: 'asc' } },
@@ -629,9 +655,13 @@ export class DocumentRequestsService {
           requestItemTitle: it.requestItem.title,
           documentType: it.requestItem.documentType,
           required: it.requestItem.required,
-          // Удалённый владельцем документ проверяющий видит как неприложенный (D-F21).
+          // Удалённый владельцем документ проверяющий видит как неприложенный (D-F21); так же —
+          // документ, который ему не положен по §15.2 (см. reviewerSees): без метаданных и
+          // списка страниц.
           document:
-            it.document && !it.document.deletedAt
+            it.document &&
+            !it.document.deletedAt &&
+            reviewerSees(actor, it.requestItem, it.document)
               ? {
                   id: it.document.id,
                   title: it.document.title,
@@ -658,9 +688,20 @@ export class DocumentRequestsService {
         documentId: { not: null },
         submission: { request: this.staffScopeWhere(actor) },
       },
-      select: { documentId: true, submission: { select: { requestId: true } } },
+      select: {
+        documentId: true,
+        submission: { select: { requestId: true } },
+        requestItem: { select: { documentType: true } },
+        document: { select: { type: true, category: true } },
+      },
     })
     if (!item?.documentId) throw new AppException('NOT_FOUND', 'Документ не найден')
+    // Категория документа должна быть положена роли проверяющего (§15.2): преподавателю —
+    // только учебные. Ответ NOT_FOUND, как у чужого документа: не подтверждаем, что в позиции
+    // лежит удостоверение.
+    if (!item.document || !reviewerSees(actor, item.requestItem, item.document)) {
+      throw new AppException('NOT_FOUND', 'Документ не найден')
+    }
     // Удалённый владельцем документ через запрос не открывается (D-F21): удаление из
     // кабинета закрывает его и для проверяющего, а сами сканы позже снимет ночная уборка.
     const file = await this.prisma.file.findFirst({
@@ -939,7 +980,7 @@ export class DocumentRequestsService {
         id: true,
         status: true,
         dueAt: true,
-        items: { select: { id: true } },
+        items: { select: { id: true, documentType: true } },
         submissions: {
           where: { studentId: actor.sub },
           select: {
@@ -954,27 +995,10 @@ export class DocumentRequestsService {
     this.assertAcceptsSubmissions(req)
     const existing = req.submissions[0] ?? null
     if (existing) this.assertStudentEditable(existing.status)
-    const itemIds = new Set(req.items.map((i) => i.id))
+    const itemType = new Map(req.items.map((i) => [i.id, i.documentType]))
     for (const it of input.items) {
-      if (!itemIds.has(it.requestItemId)) {
+      if (!itemType.has(it.requestItemId)) {
         throw new AppException('BAD_REQUEST', 'Позиция не принадлежит запросу')
-      }
-    }
-    // Проверяем, что выбранные документы принадлежат студенту. Отозванная вузом справка
-    // (issuedByUniversity + REJECTED) в кабинете остаётся, но подтверждением уже не служит —
-    // приложить её к запросу нельзя, как и к заявке (P2-D-services-followup).
-    const docIds = input.items.map((i) => i.documentId).filter((d): d is string => !!d)
-    if (docIds.length > 0) {
-      const owned = await this.prisma.document.findMany({
-        where: { id: { in: docIds }, ownerId: actor.sub, deletedAt: null },
-        select: { id: true, status: true, issuedByUniversity: true },
-        take: REQUEST_ITEMS_LIMIT,
-      })
-      if (owned.length !== new Set(docIds).size) {
-        throw new AppException('BAD_REQUEST', 'Некоторые документы недоступны')
-      }
-      if (owned.some((d) => d.issuedByUniversity && d.status === 'REJECTED')) {
-        throw new AppException('BAD_REQUEST', 'Документ отозван университетом')
       }
     }
     // Пишем только позиции, где выбран другой документ: веб присылает весь чек-лист при
@@ -983,6 +1007,35 @@ export class DocumentRequestsService {
     const changes = input.items.filter(
       (it) => (current.get(it.requestItemId) ?? null) !== it.documentId,
     )
+    // Проверяем, что выбранные документы принадлежат студенту. Отозванная вузом справка
+    // (issuedByUniversity + REJECTED) в кабинете остаётся, но подтверждением уже не служит —
+    // приложить её к запросу нельзя, как и к заявке (P2-D-services-followup).
+    const docIds = input.items.map((i) => i.documentId).filter((d): d is string => !!d)
+    if (docIds.length > 0) {
+      const owned = await this.prisma.document.findMany({
+        where: { id: { in: docIds }, ownerId: actor.sub, deletedAt: null },
+        select: { id: true, type: true, status: true, issuedByUniversity: true },
+        take: REQUEST_ITEMS_LIMIT,
+      })
+      if (owned.length !== new Set(docIds).size) {
+        throw new AppException('BAD_REQUEST', 'Некоторые документы недоступны')
+      }
+      if (owned.some((d) => d.issuedByUniversity && d.status === 'REJECTED')) {
+        throw new AppException('BAD_REQUEST', 'Документ отозван университетом')
+      }
+      // Документ позиции — того типа, что она требует. Позиция всегда задаёт конкретный тип
+      // из каталога вуза (createRequest его проверяет), варианта «любой документ» у запросов
+      // нет. Без сверки к учебной позиции преподавателя прикладывался паспорт, и запрос
+      // «только учебные» открывал проверяющему удостоверение личности (§15.2).
+      // Сверяем только меняемые позиции: привязка, сохранённая до этого правила, не должна
+      // блокировать студенту сохранение остального чек-листа.
+      const docType = new Map(owned.map((d) => [d.id, d.type]))
+      for (const it of changes) {
+        if (it.documentId && docType.get(it.documentId) !== itemType.get(it.requestItemId)) {
+          throw new AppException('BAD_REQUEST', 'Тип документа не совпадает с позицией запроса')
+        }
+      }
+    }
     if (existing && changes.length === 0) return this.getForStudent(actor, requestId)
     // Чьи статусы могут поменяться: документы комплекта до правки (у отвязанного пропадает
     // вердикт, возврат в черновик снимает «на проверке») и вновь выбранные.
