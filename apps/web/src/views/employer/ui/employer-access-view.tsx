@@ -5,7 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { Check, Clock, Search, ShieldX, Undo2 } from 'lucide-react'
-import type { CompanyAccessStatus } from '@studenthub/shared-schemas'
+import { isAccessActive, type CompanyAccessStatus } from '@studenthub/shared-schemas'
 import {
   companyKeys,
   fetchCompanyUniversityOptions,
@@ -155,8 +155,11 @@ function AccessAction({
 }) {
   const t = useTranslations('Employer')
   const status = option.access?.status
+  // Срок допуска проверяется в каждом запросе, а в REVOKED его переводит ежечасный cron:
+  // одобренный, но истёкший допуск — уже не «Доступ открыт», и заявку можно подать снова.
+  const expired = status === 'APPROVED' && !isAccessActive(option.access)
 
-  if (status === 'APPROVED') {
+  if (status === 'APPROVED' && !expired) {
     return (
       <Badge variant="secondary" className="shrink-0 gap-1">
         <Check className="size-3.5" aria-hidden />
@@ -175,7 +178,8 @@ function AccessAction({
 
   // Отказ и отзыв различаем: после отзыва компания знала доступ и потеряла его, после
   // отказа — не получала. Кнопка повторной заявки есть в обоих случаях.
-  const label: Record<Exclude<CompanyAccessStatus, 'APPROVED' | 'REQUESTED'>, string> = {
+  const label: Record<Exclude<CompanyAccessStatus, 'REQUESTED'>, string> = {
+    APPROVED: t('statusExpired'),
     REJECTED: t('statusRejected'),
     REVOKED: t('statusRevoked'),
   }
@@ -184,10 +188,10 @@ function AccessAction({
     <div className="flex shrink-0 items-center gap-2">
       {status && (
         <Badge variant="outline" className="gap-1">
-          {status === 'REVOKED' ? (
-            <Undo2 className="size-3.5" aria-hidden />
-          ) : (
+          {status === 'REJECTED' ? (
             <ShieldX className="size-3.5" aria-hidden />
+          ) : (
+            <Undo2 className="size-3.5" aria-hidden />
           )}
           {label[status]}
         </Badge>

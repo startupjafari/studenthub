@@ -113,6 +113,7 @@
     }
   },
   "Employer": {
+    "statusExpired": "Access expired",
     "title": "Company",
     "subtitle": "Student access and company profile",
     "save": "Save",

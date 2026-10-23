@@ -5,6 +5,7 @@ import { Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
 import {
   canTransitionAccess,
+  isAccessActive,
   type CompanyAccessStatus,
   type DecideCompanyAccessInput,
   type EmployerSignupInput,
@@ -322,17 +323,28 @@ export class CompaniesService {
 
     const existing = await this.prisma.companyUniversityAccess.findUnique({
       where: { companyId_universityId: { companyId, universityId: input.universityId } },
-      select: { id: true, status: true },
+      select: { id: true, status: true, expiresAt: true },
     })
     const requestedAt = new Date()
 
     if (existing) {
-      const from = existing.status as CompanyAccessStatus
+      let from = existing.status as CompanyAccessStatus
       if (from === 'REQUESTED') {
         throw new AppException('CONFLICT', 'Заявка уже на рассмотрении')
       }
       if (from === 'APPROVED') {
-        throw new AppException('CONFLICT', 'Доступ уже открыт')
+        if (isAccessActive({ status: from, expiresAt: existing.expiresAt }, requestedAt)) {
+          throw new AppException('CONFLICT', 'Доступ уже открыт')
+        }
+        // Срок истёк, а cron ещё не перевёл допуск в REVOKED. Доступа у компании уже нет, и
+        // ждать час до повторной заявки незачем: закрываем допуск тем же шагом, что и cron
+        // (решения по вакансиям гаснут — вуз рассмотрит их заново), и подаём заявку как
+        // после отзыва.
+        await this.expireOne(
+          { id: existing.id, companyId, universityId: input.universityId },
+          requestedAt,
+        )
+        from = 'REVOKED'
       }
       if (!canTransitionAccess(from, 'REQUESTED')) {
         throw new AppException('CONFLICT', 'Повторная заявка сейчас невозможна')
@@ -601,40 +613,59 @@ export class CompaniesService {
       if (batch.length === 0) break
 
       for (const record of batch) {
-        const expired = await this.prisma.$transaction(async (tx) => {
-          // Условие повторяем в записи: между выборкой и ней вуз мог отозвать допуск сам.
-          const { count } = await tx.companyUniversityAccess.updateMany({
-            where: { id: record.id, status: 'APPROVED', expiresAt: { lte: now } },
-            data: {
-              status: 'REVOKED',
-              reason: EXPIRED_ACCESS_REASON,
-              decidedById: null,
-              decidedAt: now,
-            },
-          })
-          if (count === 0) return false
-          await this.closeVacancyReviews(tx, record.companyId, record.universityId, {
-            reason: EXPIRED_REVIEW_REASON,
-            decidedById: null,
-            decidedAt: now,
-          })
-          return true
-        })
-        if (!expired) continue
-
+        if (!(await this.expireOne(record, now))) continue
         total += 1
-        await this.access.invalidate(record.companyId)
-        await this.audit.record({
-          action: 'company_access_expired',
-          entity: 'CompanyUniversityAccess',
-          entityId: record.id,
-          metadata: { companyId: record.companyId, universityId: record.universityId },
+        // Компания узнаёт, что допуск кончился, а не обнаруживает пустую витрину.
+        await this.notifier.accessExpired({
+          accessId: record.id,
+          companyId: record.companyId,
+          universityId: record.universityId,
+          expiredAt: now,
         })
       }
       if (batch.length < EXPIRE_BATCH) break
     }
     if (total > 0) this.logger.log(`expireAccess: закрыто допусков по сроку ${total}`)
     return total
+  }
+
+  /**
+   * Один истёкший допуск → REVOKED с каскадом на вакансии, сбросом кэша и аудитом. false —
+   * допуск уже не одобрен или срок не наступил (вуз успел решить сам, обработал другой проход).
+   */
+  private async expireOne(
+    record: { id: string; companyId: string; universityId: string },
+    now: Date,
+  ): Promise<boolean> {
+    const expired = await this.prisma.$transaction(async (tx) => {
+      // Условие повторяем в записи: между выборкой и ней вуз мог отозвать допуск сам.
+      const { count } = await tx.companyUniversityAccess.updateMany({
+        where: { id: record.id, status: 'APPROVED', expiresAt: { lte: now } },
+        data: {
+          status: 'REVOKED',
+          reason: EXPIRED_ACCESS_REASON,
+          decidedById: null,
+          decidedAt: now,
+        },
+      })
+      if (count === 0) return false
+      await this.closeVacancyReviews(tx, record.companyId, record.universityId, {
+        reason: EXPIRED_REVIEW_REASON,
+        decidedById: null,
+        decidedAt: now,
+      })
+      return true
+    })
+    if (!expired) return false
+
+    await this.access.invalidate(record.companyId)
+    await this.audit.record({
+      action: 'company_access_expired',
+      entity: 'CompanyUniversityAccess',
+      entityId: record.id,
+      metadata: { companyId: record.companyId, universityId: record.universityId },
+    })
+    return true
   }
 
   /**
