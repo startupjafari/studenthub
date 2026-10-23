@@ -40,6 +40,7 @@ import {
   SelectTrigger,
   SelectValue,
   useConfirm,
+  FieldError,
 } from '../../../shared/ui'
 import { useErrorToast } from '../../../shared/lib'
 
@@ -312,11 +313,10 @@ export function PairDetailsModal({
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="e-end">{t('endTime')}</Label>
                 <Input id="e-end" type="time" {...editForm.register('endTime')} />
-                {editForm.formState.errors.endTime && (
-                  <p className="text-xs text-destructive">
-                    {editForm.formState.errors.endTime.message ?? t('timeInvalid')}
-                  </p>
-                )}
+                <FieldError>
+                  {editForm.formState.errors.endTime &&
+                    (editForm.formState.errors.endTime.message ?? t('timeInvalid'))}
+                </FieldError>
               </div>
             </div>
 
@@ -477,13 +477,15 @@ export function PairDetailsModal({
                       />
                     )}
                   />
-                  {changeForm.formState.errors.date && (
-                    <p className="text-xs text-destructive">
-                      {changeForm.formState.errors.date.type === 'wrongDay'
-                        ? t('changeWrongDay', { day: t(`day${pair.dayOfWeek}`) })
-                        : t('required')}
-                    </p>
-                  )}
+                  <FieldError>
+                    {changeForm.formState.errors.date && (
+                      <>
+                        {changeForm.formState.errors.date.type === 'wrongDay'
+                          ? t('changeWrongDay', { day: t(`day${pair.dayOfWeek}`) })
+                          : t('required')}
+                      </>
+                    )}
+                  </FieldError>
                 </div>
               </div>
 

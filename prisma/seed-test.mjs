@@ -22,7 +22,7 @@ import { PrismaClient } from '@prisma/client'
 import bcrypt from 'bcrypt'
 import { loadConfig } from './seed/config.mjs'
 import { loadEnv } from './seed/lib/env.mjs'
-import { makeRandom } from './seed/lib/rng.mjs'
+import { makeRandom, SEED_BASE } from './seed/lib/rng.mjs'
 import { reportSeedPassword, resolveSeedPassword } from './seed/lib/seed-password.mjs'
 import { createProgress } from './seed/lib/progress.mjs'
 import { createStorage } from './seed/lib/storage.mjs'
@@ -33,6 +33,7 @@ import { staffProfile } from './seed/data/profiles.mjs'
 import { seedUniversities } from './seed/index.mjs'
 import { seedKato } from './seed/steps/00-kato.mjs'
 import { seedServiceCatalog } from './seed/steps/05-service-catalog.mjs'
+import { seedLibrary } from './seed/steps/45-library.mjs'
 import { assignAvatars, seedMedia } from './seed/steps/10-media.mjs'
 import { seedCompanies } from './seed/steps/15-companies.mjs'
 import { seedUserMedia } from './seed/steps/57-user-media.mjs'
@@ -240,6 +241,24 @@ async function main() {
   for (const staff of RESTRICTED_STAFF) {
     const created = await seedRestrictedStaff(passwordHash, staff)
     console.log(`  ${staff.role}: ${created.length}`)
+  }
+
+  // Библиотека (Фаза 20): после библиотекаря — выдачи записываются на него. Вуз на стенде
+  // один; повторный прогон шаг пропускает сам.
+  const standUniversity = await prisma.university.findFirst({
+    orderBy: { createdAt: 'asc' },
+    select: { id: true },
+  })
+  if (standUniversity) {
+    const library = await seedLibrary(prisma, {
+      universityId: standUniversity.id,
+      random: makeRandom(SEED_BASE + 45),
+    })
+    if (!library.skipped) {
+      console.log(
+        `  библиотека: ${library.books} книг, ${library.copies} экз., ${library.loans} выдач`,
+      )
+    }
   }
 
   // Аватары тем, кто появился ПОСЛЕ раздачи в шаге медиа: работодатели и вузовские

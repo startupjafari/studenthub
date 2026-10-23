@@ -68,7 +68,16 @@ export function CopyPicker({
           <Input
             id="copy-ref"
             value={value.inventoryNumber}
-            onChange={(e) => onChange({ copyCode: null, inventoryNumber: e.target.value })}
+            onChange={(e) => {
+              // Ручной сканер «печатает» ссылку с наклейки в это поле — это код экземпляра,
+              // а не инвентарный номер.
+              const target = parseQrTarget(e.target.value.trim())
+              if (target?.kind === 'bookCopy') {
+                onChange({ copyCode: target.value, inventoryNumber: '' })
+                return
+              }
+              onChange({ copyCode: null, inventoryNumber: e.target.value })
+            }}
             placeholder={t('inventoryPlaceholder')}
           />
         )}

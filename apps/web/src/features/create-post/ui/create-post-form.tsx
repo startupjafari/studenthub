@@ -36,6 +36,7 @@ import {
   SelectTrigger,
   SelectValue,
   RichTextField,
+  FieldError,
 } from '../../../shared/ui'
 
 interface UploadedMedia {
@@ -257,9 +258,7 @@ export function CreatePostForm({
           </div>
         )}
       </div>
-      {form.formState.errors.content && (
-        <p className="text-xs text-destructive">{t('contentRequired')}</p>
-      )}
+      <FieldError>{form.formState.errors.content && t('contentRequired')}</FieldError>
 
       <input
         ref={fileRef}

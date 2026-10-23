@@ -77,7 +77,7 @@ export function ReaderBookView({ bookId }: { bookId: string }) {
 
   if (book.isPending) {
     return (
-      <div className="flex w-full flex-col gap-4">
+      <div className="flex w-full flex-col gap-6">
         <Skeleton className="h-10 w-64 rounded-lg" />
         <Skeleton className="h-56 w-full rounded-xl" />
       </div>
@@ -117,7 +117,7 @@ export function ReaderBookView({ bookId }: { bookId: string }) {
   }
 
   return (
-    <div className="flex w-full flex-col gap-4">
+    <div className="flex w-full flex-col gap-6">
       <PageHeader title={b.title} subtitle={b.authors || undefined} actions={back} />
       <Card className="flex-col gap-4 p-4 sm:flex-row">
         <BookCover url={b.coverUrl} title={b.title} className="w-28 self-start sm:w-36" />

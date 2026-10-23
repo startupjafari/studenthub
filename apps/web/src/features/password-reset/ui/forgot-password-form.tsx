@@ -7,7 +7,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useTranslations } from 'next-intl'
 import { MailCheck } from 'lucide-react'
 import { ForgotPasswordSchema, type ForgotPasswordInput } from '@studenthub/shared-schemas'
-import { Button, FormAlert, Input, Label } from '../../../shared/ui'
+import { Button, FormAlert, Input, Label, FieldError } from '../../../shared/ui'
 import { useFormAlert } from '../../../shared/lib'
 import { forgotPasswordRequest } from '../../../shared/api'
 
@@ -71,7 +71,7 @@ export function ForgotPasswordForm() {
             aria-invalid={!!errors.email}
             {...register('email')}
           />
-          {errors.email && <p className="text-xs text-destructive">{t('emailInvalid')}</p>}
+          <FieldError>{errors.email && t('emailInvalid')}</FieldError>
         </div>
         <Button type="submit" loading={isSubmitting}>
           {t('forgotSubmit')}

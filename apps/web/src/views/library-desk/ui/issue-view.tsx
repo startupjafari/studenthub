@@ -3,10 +3,10 @@
 import { useEffect, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 import { useSearchParams } from 'next/navigation'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useFormatter, useTranslations } from 'next-intl'
-import { BookCheck, ScanLine, TriangleAlert, UserRoundX } from 'lucide-react'
+import { BookCheck, Keyboard, ScanLine, TriangleAlert, UserRoundX } from 'lucide-react'
 import type { LibraryReaderSession, LoanItem, ReaderBlocker } from '@studenthub/shared-schemas'
 import {
   Badge,
@@ -14,14 +14,17 @@ import {
   Card,
   DatePicker,
   EmptyState,
+  Input,
   Label,
   PageHeader,
   SectionPanel,
   Skeleton,
+  FieldError,
 } from '../../../shared/ui'
 import {
   LoanDueBadge,
   ReaderCard,
+  fetchLoans,
   issueLoanRequest,
   libraryKeys,
   resolveReaderRequest,
@@ -72,38 +75,166 @@ export function IssueView() {
   }
 
   return (
-    <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
+    <div className="flex w-full flex-col gap-6">
       <PageHeader title={t('issueTitle')} subtitle={t('issueSubtitle')} />
-      {resolveMut.isPending ? (
-        <Skeleton className="min-h-80 w-full flex-1 rounded-3xl" />
-      ) : error ? (
-        <EmptyState
-          icon={<UserRoundX className="size-6" aria-hidden />}
-          title={t('readerFailed')}
-          description={error}
-          action={
-            <Button type="button" onClick={() => setError(null)}>
-              <ScanLine className="size-4" aria-hidden />
-              {t('scanAgain')}
-            </Button>
-          }
-        />
-      ) : (
-        <div className="flex min-h-80 w-full flex-1 flex-col">
-          <QrScanner
-            title={t('scanReaderTitle')}
-            hint={t('scanReaderHint')}
-            rejectNotice={tScan('notStudentId')}
-            onScan={(raw) => {
-              const target = parseQrTarget(raw)
-              if (target?.kind !== 'studentId') return false
-              resolveMut.mutate(target.value)
-              return true
+      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
+        {/* Окно камеры — по размеру окна сканирования, а не во весь экран: на компьютере
+            чёрное поле на всю ширину читалось как поломка. */}
+        <div className="flex aspect-[3/4] w-full flex-col sm:aspect-[4/3] lg:aspect-auto lg:h-[min(68vh,40rem)]">
+          {resolveMut.isPending ? (
+            <Skeleton className="min-h-0 w-full flex-1 rounded-3xl" />
+          ) : error ? (
+            <EmptyState
+              icon={<UserRoundX className="size-6" aria-hidden />}
+              title={t('readerFailed')}
+              description={error}
+              action={
+                <Button type="button" onClick={() => setError(null)}>
+                  <ScanLine className="size-4" aria-hidden />
+                  {t('scanAgain')}
+                </Button>
+              }
+            />
+          ) : (
+            <QrScanner
+              title={t('scanReaderTitle')}
+              hint={t('scanReaderHint')}
+              rejectNotice={tScan('notStudentId')}
+              onScan={(raw) => {
+                const target = parseQrTarget(raw)
+                if (target?.kind !== 'studentId') return false
+                resolveMut.mutate(target.value)
+                return true
+              }}
+            />
+          )}
+        </div>
+        <div className="flex flex-col gap-6">
+          <ManualCode
+            busy={resolveMut.isPending}
+            onCode={(token) => {
+              setError(null)
+              resolveMut.mutate(token)
             }}
           />
+          <SectionPanel title={t('howToIssue')} subtitle={t('howToIssueHint')}>
+            <ol className="flex flex-col gap-3">
+              {[t('step1'), t('step2'), t('step3')].map((text, i) => (
+                <li key={text} className="flex items-start gap-3 text-sm">
+                  <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                    {i + 1}
+                  </span>
+                  <span className="pt-0.5">{text}</span>
+                </li>
+              ))}
+            </ol>
+          </SectionPanel>
+          <RecentLoans />
         </div>
-      )}
+      </div>
     </div>
+  )
+}
+
+/**
+ * Код студенческого без камеры: настольный ручной сканер «печатает» содержимое QR в поле
+ * как клавиатура и жмёт Enter, а скопированную ссылку можно вставить. Принимается то же,
+ * что и с камеры — ссылка проверки студенческого (разовый код), а не номер билета.
+ */
+function ManualCode({ busy, onCode }: { busy: boolean; onCode: (token: string) => void }) {
+  const t = useTranslations('LibraryDesk')
+  const [value, setValue] = useState('')
+  const [invalid, setInvalid] = useState(false)
+
+  function submit(): void {
+    const raw = value.trim()
+    if (!raw) return
+    const target = parseQrTarget(raw)
+    if (target?.kind === 'studentId') {
+      onCode(target.value)
+      setValue('')
+      setInvalid(false)
+      return
+    }
+    setInvalid(true)
+  }
+
+  return (
+    <SectionPanel title={t('manualTitle')} subtitle={t('manualHint')}>
+      <form
+        className="flex flex-col gap-2"
+        onSubmit={(e) => {
+          e.preventDefault()
+          submit()
+        }}
+      >
+        <Label htmlFor="reader-code" className="sr-only">
+          {t('manualTitle')}
+        </Label>
+        <div className="flex gap-2">
+          <div className="relative min-w-0 flex-1">
+            <Keyboard
+              className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+              aria-hidden
+            />
+            <Input
+              id="reader-code"
+              value={value}
+              onChange={(e) => {
+                setValue(e.target.value)
+                setInvalid(false)
+              }}
+              placeholder={t('manualPlaceholder')}
+              aria-invalid={invalid}
+              autoComplete="off"
+              className="pl-9"
+            />
+          </div>
+          <Button type="submit" variant="outline" loading={busy}>
+            {t('manualSubmit')}
+          </Button>
+        </div>
+        <FieldError>{invalid && t('manualInvalid')}</FieldError>
+      </form>
+    </SectionPanel>
+  )
+}
+
+const RECENT_LIMIT = 5
+
+/** Последние выдачи — чтобы видеть, что только что оформлено, не уходя со стойки. */
+function RecentLoans() {
+  const t = useTranslations('LibraryDesk')
+  const params = { filter: 'all' as const, page: 1, limit: RECENT_LIMIT }
+  const recent = useQuery({
+    queryKey: libraryKeys.loans(params),
+    queryFn: () => fetchLoans(params),
+  })
+  const items = recent.data?.items ?? []
+  return (
+    <SectionPanel title={t('recentTitle')} subtitle={t('recentHint')}>
+      {recent.isPending ? (
+        <div className="flex flex-col gap-2">
+          {Array.from({ length: 3 }, (_, i) => (
+            <Skeleton key={i} className="h-10 w-full rounded-lg" />
+          ))}
+        </div>
+      ) : items.length === 0 ? (
+        <p className="text-sm text-muted-foreground">{t('noLoans')}</p>
+      ) : (
+        <ul className="flex flex-col divide-y divide-border">
+          {items.map((loan) => (
+            <li key={loan.id} className="flex items-center gap-3 py-2">
+              <div className="flex min-w-0 flex-1 flex-col">
+                <span className="truncate text-sm font-medium">{loan.book.title}</span>
+                <span className="truncate text-xs text-muted-foreground">{loan.reader.name}</span>
+              </div>
+              <LoanDueBadge loan={loan} />
+            </li>
+          ))}
+        </ul>
+      )}
+    </SectionPanel>
   )
 }
 
@@ -163,7 +294,7 @@ function ReaderSession({
   const ready = hasCopyRef(copy) && blockers.length === 0
 
   return (
-    <div className="flex w-full flex-col gap-4">
+    <div className="flex w-full flex-col gap-6">
       <PageHeader
         title={t('issueTitle')}
         subtitle={t('ticketUntil', {
@@ -180,70 +311,75 @@ function ReaderSession({
         }
       />
 
-      <ReaderCard reader={session.reader}>
-        <div className="flex flex-wrap gap-1.5">
-          <Badge variant={blockers.length === 0 ? 'success' : 'destructive'}>
-            {blockers.length === 0 ? t('canBorrow') : t('cannotBorrow')}
-          </Badge>
-          <Badge variant="secondary">
-            {t('onHands', { count: active, max: session.eligibility.maxActiveLoans })}
-          </Badge>
+      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_24rem]">
+        <div className="flex min-w-0 flex-col gap-6">
+          <ReaderCard reader={session.reader}>
+            <div className="flex flex-wrap gap-1.5">
+              <Badge variant={blockers.length === 0 ? 'success' : 'destructive'}>
+                {blockers.length === 0 ? t('canBorrow') : t('cannotBorrow')}
+              </Badge>
+              <Badge variant="secondary">
+                {t('onHands', { count: active, max: session.eligibility.maxActiveLoans })}
+              </Badge>
+            </div>
+          </ReaderCard>
+
+          {blockers.length > 0 && (
+            <Card className="flex-row items-start gap-3 border-destructive/30 bg-destructive/5 p-4">
+              <TriangleAlert className="mt-0.5 size-5 shrink-0 text-destructive" aria-hidden />
+              <ul className="flex flex-col gap-1 text-sm">
+                {blockers.map((b) => (
+                  <li key={b}>{blockerText[b]}</li>
+                ))}
+              </ul>
+            </Card>
+          )}
+
+          <SectionPanel title={t('issueBook')} subtitle={t('issueBookHint')}>
+            <form
+              className="flex flex-col gap-4"
+              onSubmit={(e) => {
+                e.preventDefault()
+                if (ready) issueMut.mutate()
+              }}
+            >
+              <CopyPicker value={copy} onChange={setCopy} />
+              <div className="flex flex-col gap-1.5 sm:max-w-xs">
+                <Label>{t('dueDate')}</Label>
+                <DatePicker
+                  value={dueDate}
+                  onChange={setDueDate}
+                  min={localToday()}
+                  max={session.maxDueDate}
+                  aria-label={t('dueDate')}
+                />
+              </div>
+              {error && <p className="text-sm text-destructive">{error}</p>}
+              <div>
+                <Button type="submit" disabled={!ready} loading={issueMut.isPending}>
+                  <BookCheck className="size-4" aria-hidden />
+                  {t('issue')}
+                </Button>
+              </div>
+            </form>
+          </SectionPanel>
         </div>
-      </ReaderCard>
+        <div className="flex min-w-0 flex-col gap-6">
+          {issued.length > 0 && (
+            <SectionPanel title={t('issuedNow')} subtitle={t('issuedNowHint')}>
+              <LoanList loans={issued} />
+            </SectionPanel>
+          )}
 
-      {blockers.length > 0 && (
-        <Card className="flex-row items-start gap-3 border-destructive/30 bg-destructive/5 p-4">
-          <TriangleAlert className="mt-0.5 size-5 shrink-0 text-destructive" aria-hidden />
-          <ul className="flex flex-col gap-1 text-sm">
-            {blockers.map((b) => (
-              <li key={b}>{blockerText[b]}</li>
-            ))}
-          </ul>
-        </Card>
-      )}
-
-      <SectionPanel title={t('issueBook')} subtitle={t('issueBookHint')}>
-        <form
-          className="flex flex-col gap-4"
-          onSubmit={(e) => {
-            e.preventDefault()
-            if (ready) issueMut.mutate()
-          }}
-        >
-          <CopyPicker value={copy} onChange={setCopy} />
-          <div className="flex flex-col gap-1.5 sm:max-w-xs">
-            <Label>{t('dueDate')}</Label>
-            <DatePicker
-              value={dueDate}
-              onChange={setDueDate}
-              min={localToday()}
-              max={session.maxDueDate}
-              aria-label={t('dueDate')}
-            />
-          </div>
-          {error && <p className="text-sm text-destructive">{error}</p>}
-          <div>
-            <Button type="submit" disabled={!ready} loading={issueMut.isPending}>
-              <BookCheck className="size-4" aria-hidden />
-              {t('issue')}
-            </Button>
-          </div>
-        </form>
-      </SectionPanel>
-
-      {issued.length > 0 && (
-        <SectionPanel title={t('issuedNow')} subtitle={t('issuedNowHint')}>
-          <LoanList loans={issued} />
-        </SectionPanel>
-      )}
-
-      <SectionPanel title={t('readerLoans')} subtitle={t('readerLoansHint')}>
-        {openLoans.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{t('noOpenLoans')}</p>
-        ) : (
-          <LoanList loans={openLoans} />
-        )}
-      </SectionPanel>
+          <SectionPanel title={t('readerLoans')} subtitle={t('readerLoansHint')}>
+            {openLoans.length === 0 ? (
+              <p className="text-sm text-muted-foreground">{t('noOpenLoans')}</p>
+            ) : (
+              <LoanList loans={openLoans} />
+            )}
+          </SectionPanel>
+        </div>
+      </div>
     </div>
   )
 }

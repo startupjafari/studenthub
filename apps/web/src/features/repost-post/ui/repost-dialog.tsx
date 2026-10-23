@@ -31,6 +31,7 @@ import {
   SelectTrigger,
   SelectValue,
   Textarea,
+  FieldError,
 } from '../../../shared/ui'
 
 // Какая цель не выбрана — ошибка показывается под соответствующим полем (FRONTEND_RULES §7).
@@ -153,9 +154,7 @@ export function RepostDialog({ post, onClose }: { post: FeedPost; onClose: () =>
                 />
               )}
             />
-            {missing === 'group' && (
-              <p className="text-xs text-destructive">{t('targetRequired')}</p>
-            )}
+            <FieldError>{missing === 'group' && t('targetRequired')}</FieldError>
           </div>
         )}
 
@@ -182,9 +181,7 @@ export function RepostDialog({ post, onClose }: { post: FeedPost; onClose: () =>
                 </Select>
               )}
             />
-            {missing === 'faculty' && (
-              <p className="text-xs text-destructive">{t('targetRequired')}</p>
-            )}
+            <FieldError>{missing === 'faculty' && t('targetRequired')}</FieldError>
           </div>
         )}
 
@@ -192,9 +189,7 @@ export function RepostDialog({ post, onClose }: { post: FeedPost; onClose: () =>
           <div className="flex flex-col gap-1.5">
             <Label className="text-xs">{tPeople('pickUser')}</Label>
             <UserPicker value={target} onSelect={setTarget} />
-            {missing === 'user' && (
-              <p className="text-xs text-destructive">{t('targetRequired')}</p>
-            )}
+            <FieldError>{missing === 'user' && t('targetRequired')}</FieldError>
           </div>
         )}
 
@@ -208,9 +203,7 @@ export function RepostDialog({ post, onClose }: { post: FeedPost; onClose: () =>
             placeholder={t('repostPlaceholder')}
             {...form.register('content')}
           />
-          {form.formState.errors.content && (
-            <p className="text-xs text-destructive">{t('contentTooLong')}</p>
-          )}
+          <FieldError>{form.formState.errors.content && t('contentTooLong')}</FieldError>
         </div>
 
         <div className="flex items-center justify-between gap-2">
