@@ -1338,6 +1338,13 @@ Excel: книга из двух листов — **«Данные» первым
 | `expireCompanyAccess` | `40 * * * *` | Истёкшие допуски компаний → `REVOKED` («Истёк срок допуска») + решения по вакансиям компании в этом вузе → `REJECTED`; `expiresAt` сохраняется, кэш допусков сбрасывается, аудит `company_access_expired` |
 | `cleanAuditLogs` | `0 1 1 * *` | `AuditLog` старше 90 дней |
 | `cleanOldNotifications` | `0 2 * * 0` | Прочитанные уведомления старше 30 дней, непрочитанные — старше 90 |
+| `purgeClosedLoans` | `5 2 * * *` | Сроки хранения ПДн (`docs/PERSONAL_DATA.md` §4; все задачи этой группы — за `PD_RETENTION_ENABLED`, иначе только счёт в лог): закрытые выдачи книг — год после возврата, утери или отмены; открытые не трогаются |
+| `purgeViewLogs` | `10 2 * * *` | `LibraryIdAccessLog` и `CameraViewSession` старше года |
+| `purgeDepartedAcademicRecords` | `20 2 * * *` | `Grade`, `ExamResult`, `Attendance`, `Submission` (+ файлы сдач) студентов и старост с `leftUniversityAt` старше года |
+| `purgeDepartedApplications` | `30 2 * * *` | `Application` (каскадом история, привязки, результаты) и `DocumentSubmission` тех же студентов |
+| `purgeDepartedMessages` | `40 2 * * *` | Их сообщения во всех чатах со строками вложений, отложенные сообщения, черновики; цитаты в чужих ответах стираются |
+| `purgeDepartedDocuments` | `50 2 * * *` | Их документы (в том числе выданные справки) со строками сканов; журнал и гранты — каскадом |
+| `purgeDepartedProfiles` | `0 3 * * *` | Их профили — штатным `softDeleteSelf` (обезличивание, снос медиа, разлогин), до 200 за ночь |
 | `purgePasswordResetTokens` | `15 3 * * *` | Ссылки сброса пароля, истёкшие или использованные больше суток назад |
 | `sweepDocumentExpiry` | `30 3 * * *` | Документы по `expiresAt` → `EXPIRING`/`EXPIRED` + уведомления владельцам; архив по `retentionDays` типа |
 | `closeOverdueDocumentRequests` | `35 3 * * *` | Запросы документов с прошедшим сроком → `CLOSED` |
