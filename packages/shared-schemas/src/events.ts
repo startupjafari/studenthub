@@ -43,7 +43,11 @@ export function meetingProviderOf(url: string): MeetingProviderValue {
     .replace(/:\d+$/, '')
   if (host === 'zoom.us' || host.endsWith('.zoom.us')) return 'ZOOM'
   if (host === 'meet.google.com') return 'GOOGLE_MEET'
-  if (host.endsWith('teams.microsoft.com') || host.endsWith('teams.live.com')) return 'TEAMS'
+  // Строго по границе домена, как у Zoom: голый `endsWith('teams.microsoft.com')` засчитал бы
+  // любой хост, который просто кончается этими символами (`xteams.microsoft.com`), а подпись
+  // «Teams» в карточке — обещание, что ссылка ведёт именно к сервису Microsoft.
+  const teams = ['teams.microsoft.com', 'teams.live.com']
+  if (teams.some((d) => host === d || host.endsWith(`.${d}`))) return 'TEAMS'
   return 'OTHER'
 }
 
