@@ -27,6 +27,7 @@ import {
   useConfirm,
 } from '../../../shared/ui'
 import { DocumentChecklist } from './document-checklist'
+import { useActionError } from '../lib/use-action-error'
 
 export function ApplicationDetail({
   id,
@@ -47,6 +48,7 @@ export function ApplicationDetail({
   const locale = useLocale()
   const qc = useQueryClient()
   const confirm = useConfirm()
+  const err = useActionError()
 
   // placeholderData: при переключении заявок держим прошлую, пока грузится новая (без скелета).
   const q = useQuery({
@@ -61,7 +63,7 @@ export function ApplicationDetail({
       toast.success(t('cancelledToast'))
       onBack()
     },
-    onError: () => toast.error(t('loadError')),
+    onError: err,
   })
   // Оптимистично переводим бейдж в RESUBMITTED сразу по клику (SSOT: NEEDS_CORRECTION→RESUBMITTED),
   // сервер подтверждает в фоне; при ошибке — откат снимка.
@@ -76,9 +78,9 @@ export function ApplicationDetail({
       )
       return { prev }
     },
-    onError: (_e, _v, ctx) => {
+    onError: (e, _v, ctx) => {
       if (ctx?.prev !== undefined) qc.setQueryData(applicationKeys.detail(id), ctx.prev)
-      toast.error(t('loadError'))
+      err(e)
     },
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: applicationKeys.all })
@@ -283,10 +285,11 @@ export function ApplicationDetail({
 // вложением (`download`), а не открываем вкладкой: студенту нужен файл, а не просмотр.
 function ResultRow({ appId, result }: { appId: string; result: ApplicationResultItem }) {
   const t = useTranslations('Applications')
+  const err = useActionError()
   const downloadMut = useMutation({
     mutationFn: () => fetchApplicationResultUrl(appId, result.id, true),
     onSuccess: (url) => window.open(url, '_blank', 'noopener'),
-    onError: () => toast.error(t('loadError')),
+    onError: err,
   })
   return (
     <div className="flex items-center gap-2 text-sm">

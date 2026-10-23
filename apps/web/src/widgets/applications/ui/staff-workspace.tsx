@@ -44,6 +44,7 @@ import {
 import { toApiError } from '../../../shared/lib'
 import { TERMINAL_STATUSES } from '@studenthub/shared-schemas'
 import { ResultModal } from './result-modal'
+import { useActionError } from '../lib/use-action-error'
 
 // Состояние текстового промпта для действий сотрудника.
 interface Prompt {
@@ -194,7 +195,7 @@ function StaffActions({ app, onDone }: { app: ApplicationDetail; onDone: () => v
     void qc.invalidateQueries({ queryKey: applicationKeys.all })
     onDone()
   }
-  const err = () => toast.error(t('loadError'))
+  const err = useActionError()
 
   const takeMut = useMutation({
     mutationFn: () => takeApplication(app.id),
@@ -389,7 +390,7 @@ function StaffDocumentReview({
     void qc.invalidateQueries({ queryKey: applicationKeys.detail(appId) })
     onChanged()
   }
-  const err = () => toast.error(t('loadError'))
+  const err = useActionError()
   const [replaceFor, setReplaceFor] = useState<string | null>(null)
   const acceptMut = useMutation({
     mutationFn: (docId: string) => acceptDocumentRequest(appId, docId),
@@ -500,11 +501,12 @@ function ResultRow({
   }
 }) {
   const t = useTranslations('Applications')
+  const err = useActionError()
   const downloadMut = useMutation({
     mutationFn: () => fetchApplicationResultUrl(appId, result.id, true),
     // Ссылка presigned и одноразовая по сути — открываем её сразу, файл уходит вложением.
     onSuccess: (url) => window.open(url, '_blank', 'noopener'),
-    onError: () => toast.error(t('loadError')),
+    onError: err,
   })
   return (
     <div className="flex items-center gap-2 text-sm">
