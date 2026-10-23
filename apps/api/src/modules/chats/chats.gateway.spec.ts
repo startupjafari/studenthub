@@ -2,6 +2,7 @@ import { ChatGateway } from './chats.gateway'
 import type { ChatsService } from './chats.service'
 import type { PlatformStateReader } from '../platform/platform.constants'
 import type { Server, Socket } from 'socket.io'
+import type { RealtimeGateway } from '../../common/realtime/realtime.gateway'
 
 // Мок socket.io: client с data.userId, join/leave/emit; client.to(room).emit и server.to(room).emit.
 function makeClient(userId: string | null) {
@@ -19,11 +20,14 @@ function makeClient(userId: string | null) {
 function setup(
   chats: Partial<Record<keyof ChatsService, jest.Mock>>,
   maintenance: jest.Mock = jest.fn().mockResolvedValue(false),
+  admitSocket: jest.Mock = jest.fn().mockResolvedValue(true),
 ) {
   const platform = { maintenanceActive: maintenance }
+  const realtime = { admitSocket }
   const gateway = new ChatGateway(
     chats as unknown as ChatsService,
     platform as unknown as PlatformStateReader,
+    realtime as unknown as RealtimeGateway,
   )
   const serverEmit = jest.fn()
   const server = { to: jest.fn().mockReturnValue({ emit: serverEmit }) }
@@ -457,5 +461,46 @@ describe('ChatGateway — режим техработ', () => {
     const { client } = makeClient('u1')
     await gateway.onMessageSend(client as unknown as Socket, { chatId: 'c1', content: 'hi' })
     expect(createMessage).toHaveBeenCalled()
+  })
+})
+
+// Регрессия: message:send по уже открытому сокету работал в обход UNIVERSITY_BLOCKED (§8.2) —
+// HTTP пользователю закрытого вуза отказывал, а сокет на соседнем инстансе жил дальше.
+describe('ChatGateway — заблокированный вуз', () => {
+  it('message:send: допуск вуза спрашивается до записи; отказ — сообщение не создаётся', async () => {
+    const createMessage = jest.fn()
+    const admitSocket = jest.fn().mockResolvedValue(false)
+    const { gateway, server } = setup({ createMessage }, undefined, admitSocket)
+    const { client } = makeClient('u1')
+    await gateway.onMessageSend(client as unknown as Socket, {
+      chatId: '11111111-1111-4111-8111-111111111111',
+      content: 'привет',
+    })
+    expect(admitSocket).toHaveBeenCalledWith(client, 'message:send')
+    expect(createMessage).not.toHaveBeenCalled()
+    expect(server.to).not.toHaveBeenCalled()
+  })
+
+  it('chat:join: отказ вуза — в комнату чата не входит', async () => {
+    const isMember = jest.fn().mockResolvedValue(true)
+    const admitSocket = jest.fn().mockResolvedValue(false)
+    const { gateway } = setup({ isMember }, undefined, admitSocket)
+    const { client } = makeClient('u1')
+    await gateway.onJoin(client as unknown as Socket, { chatId: 'c1' })
+    expect(isMember).not.toHaveBeenCalled()
+    expect(client.join).not.toHaveBeenCalled()
+  })
+
+  it('message:edit и message:delete при отказе вуза в базу не идут', async () => {
+    const editMessage = jest.fn()
+    const deleteMessage = jest.fn()
+    const admitSocket = jest.fn().mockResolvedValue(false)
+    const { gateway } = setup({ editMessage, deleteMessage }, undefined, admitSocket)
+    const { client } = makeClient('u1')
+    const messageId = '22222222-2222-4222-8222-222222222222'
+    await gateway.onMessageEdit(client as unknown as Socket, { messageId, content: 'x' })
+    await gateway.onMessageDelete(client as unknown as Socket, { messageId })
+    expect(editMessage).not.toHaveBeenCalled()
+    expect(deleteMessage).not.toHaveBeenCalled()
   })
 })

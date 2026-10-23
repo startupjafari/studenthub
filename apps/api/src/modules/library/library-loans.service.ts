@@ -64,6 +64,7 @@ export const LOAN_SELECT = {
   cancelledAt: true,
   cancelReason: true,
   disputedAt: true,
+  lostSettledAt: true,
   readerId: true,
   readerName: true,
   readerGroup: true,
@@ -80,6 +81,15 @@ export const LOAN_SELECT = {
 } satisfies Prisma.LoanSelect
 
 export type LoanRow = Prisma.LoanGetPayload<{ select: typeof LOAN_SELECT }>
+
+/**
+ * Долги читателя в библиотеке: книги на руках и утерянные, по которым долг ещё не погашен.
+ * Утерянная книга закрывает выдачу, но не долг — иначе потерявший получал бы справку
+ * «задолженностей нет» (20.11).
+ */
+export const UNSETTLED_DEBT_WHERE = {
+  OR: [{ status: 'OPEN' }, { status: 'LOST', lostSettledAt: null }],
+} satisfies Prisma.LoanWhereInput
 
 const READER_SELECT = {
   id: true,
@@ -438,7 +448,10 @@ export class LibraryLoansService {
     return item
   }
 
-  /** Книга утеряна читателем: выдача закрывается как LOST, экземпляр выходит из оборота. */
+  /**
+   * Книга утеряна читателем: выдача закрывается как LOST, экземпляр выходит из оборота. Долг
+   * остаётся за читателем, пока библиотекарь не отметит погашение (`settleLost`).
+   */
   async markLost(actor: JwtPayload, loanId: string, ctx: RequestContext): Promise<LoanItem> {
     const universityId = librarianLibrary(actor)
     const loan = await this.openLoan(universityId, loanId)
@@ -458,6 +471,42 @@ export class LibraryLoansService {
       entityId: loanId,
       metadata: { universityId, copyId: loan.copyId, readerId: loan.readerId },
       ...ctx,
+    })
+    const [item] = await this.toItems([updated], await this.timezoneOf(universityId))
+    if (!item) throw new AppException('INTERNAL_ERROR', 'Выдача не найдена')
+    return item
+  }
+
+  /**
+   * Долг по утерянной книге погашен: читатель принёс замену или возместил стоимость. Выдача
+   * остаётся LOST (история не правится), но перестаёт быть долгом — справка снова чистая,
+   * выдача и брони открыты. Экземпляр не трогаем: замену библиотекарь заводит новым
+   * экземпляром, а нашедшуюся книгу возвращает в оборот в карточке экземпляра.
+   */
+  async settleLost(actor: JwtPayload, loanId: string, ctx: RequestContext): Promise<LoanItem> {
+    const universityId = librarianLibrary(actor)
+    const loan = await this.prisma.loan.findUnique({ where: { id: loanId }, select: LOAN_SELECT })
+    if (!loan || loan.universityId !== universityId) {
+      throw new AppException('NOT_FOUND', 'Выдача не найдена')
+    }
+    if (loan.status !== 'LOST') throw libraryConflict('notLost', 'Книга не отмечена утерянной')
+    // Условная запись: двойной клик или два библиотекаря не перезапишут, кто погасил первым.
+    const { count } = await this.prisma.loan.updateMany({
+      where: { id: loanId, status: 'LOST', lostSettledAt: null },
+      data: { lostSettledAt: new Date(), lostSettledById: actor.sub },
+    })
+    if (count === 0) throw libraryConflict('settled', 'Долг уже погашен')
+    await this.audit.record({
+      userId: actor.sub,
+      action: 'library_loan_lost_settled',
+      entity: 'Loan',
+      entityId: loanId,
+      metadata: { universityId, copyId: loan.copyId, readerId: loan.readerId },
+      ...ctx,
+    })
+    const updated = await this.prisma.loan.findUniqueOrThrow({
+      where: { id: loanId },
+      select: LOAN_SELECT,
     })
     const [item] = await this.toItems([updated], await this.timezoneOf(universityId))
     if (!item) throw new AppException('INTERNAL_ERROR', 'Выдача не найдена')
@@ -626,6 +675,7 @@ export class LibraryLoansService {
       universityId,
       ...(query.filter === 'open' ? { status: 'OPEN' } : {}),
       ...(query.filter === 'overdue' ? { status: 'OPEN', dueAt: { lt: now } } : {}),
+      ...(query.filter === 'lost' ? { status: 'LOST', lostSettledAt: null } : {}),
       ...(query.filter === 'closed' ? { status: { in: ['RETURNED', 'LOST', 'CANCELLED'] } } : {}),
       ...(query.readerId ? { readerId: query.readerId } : {}),
       ...(query.copyId ? { copyId: query.copyId } : {}),
@@ -678,17 +728,29 @@ export class LibraryLoansService {
     maxActiveLoans: number,
   ): Promise<ReaderEligibility> {
     const now = new Date()
-    const [activeLoans, overdueLoans] = await Promise.all([
+    const [activeLoans, overdueLoans, lostLoans] = await Promise.all([
       this.prisma.loan.count({ where: { readerId: reader.id, status: 'OPEN' } }),
       this.prisma.loan.count({
         where: { readerId: reader.id, status: 'OPEN', dueAt: { lt: now } },
+      }),
+      // Утерянная и не возмещённая книга — тот же долг, что просрочка: новых книг не дают.
+      this.prisma.loan.count({
+        where: { readerId: reader.id, status: 'LOST', lostSettledAt: null },
       }),
     ])
     const blockers: ReaderBlocker[] = []
     if (isBlockedStatus(reader.academicStatus)) blockers.push('status')
     if (overdueLoans > 0) blockers.push('overdue')
+    if (lostLoans > 0) blockers.push('lost')
     if (activeLoans >= maxActiveLoans) blockers.push('limit')
-    return { canBorrow: blockers.length === 0, activeLoans, maxActiveLoans, overdueLoans, blockers }
+    return {
+      canBorrow: blockers.length === 0,
+      activeLoans,
+      maxActiveLoans,
+      overdueLoans,
+      lostLoans,
+      blockers,
+    }
   }
 
   blockerConflict(blocker: ReaderBlocker): AppException {
@@ -697,6 +759,8 @@ export class LibraryLoansService {
         return libraryConflict('status', 'Студент отчислен, выпущен или переведён')
       case 'overdue':
         return libraryConflict('overdue', 'У читателя просрочена книга — сначала её возврат')
+      case 'lost':
+        return libraryConflict('lost', 'У читателя не погашен долг за утерянную книгу')
       case 'limit':
         return libraryConflict('limit', 'У читателя на руках предельное число книг')
     }
@@ -780,6 +844,7 @@ export class LibraryLoansService {
       cancelledAt: r.cancelledAt?.toISOString() ?? null,
       cancelReason: r.cancelReason,
       disputedAt: r.disputedAt?.toISOString() ?? null,
+      lostSettledAt: r.lostSettledAt?.toISOString() ?? null,
       book: {
         id: r.copy.book.id,
         title: r.copy.book.title,

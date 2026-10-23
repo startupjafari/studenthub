@@ -50,7 +50,8 @@ class DeepLinkTest {
     @Test
     fun starostaSectionsAreRecognised() {
         assertEquals(DeepLink.Section(MoreSection.CLASSMATES), DeepLink.parse("https://studenthub.kz/starosta/classmates"))
-        assertEquals(DeepLink.Section(MoreSection.GROUP_REQUESTS), DeepLink.parse("https://studenthub.kz/starosta/group-requests"))
+        // «Обращений группы» больше нет: заявки одногруппников старосте не видны.
+        assertNull(DeepLink.parse("https://studenthub.kz/starosta/group-requests"))
     }
 
     @Test
@@ -120,12 +121,12 @@ class AppRouterTest {
         assertFalse(router.pop())
     }
 
-    /** Ссылка в чужой раздел не открывает пустой экран: у студента нет обращений группы. */
+    /** Ссылка в чужой раздел не открывает пустой экран: у студента нет раздела одногруппников. */
     @Test
     fun sectionForeignToTheRoleIsRefused() {
         val router = AppRouter()
-        assertFalse(router.open(DeepLink.Section(MoreSection.GROUP_REQUESTS), Role.STUDENT))
-        assertTrue(router.open(DeepLink.Section(MoreSection.GROUP_REQUESTS), Role.STAROSTA))
+        assertFalse(router.open(DeepLink.Section(MoreSection.CLASSMATES), Role.STUDENT))
+        assertTrue(router.open(DeepLink.Section(MoreSection.CLASSMATES), Role.STAROSTA))
     }
 }
 

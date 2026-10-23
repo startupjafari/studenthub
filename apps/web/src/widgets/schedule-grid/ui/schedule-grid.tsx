@@ -16,9 +16,13 @@ import {
 } from '../../../entities/schedule'
 import { useRealtimeEvent } from '../../../shared/realtime'
 import { EmptyState, Skeleton } from '../../../shared/ui'
-import { useScrollRow } from '../../../shared/lib'
+import { isoWeekParity, useScrollRow } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 import { PairDetailModal } from './pair-detail-modal'
+import {
+  keysToRefreshOnScheduleChanged,
+  type ScheduleChangedPayload,
+} from '../lib/schedule-changed'
 
 interface ScheduleGridProps {
   // Доп. фильтры сверх ролевого scope (группа/преподаватель/аудитория) — для декана/админа/преподавателя.
@@ -58,14 +62,6 @@ function addDays(d: Date, n: number): Date {
   r.setDate(d.getDate() + n)
   return r
 }
-// Номер ISO-недели — для авто-определения чётности.
-function isoWeek(d: Date): number {
-  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()))
-  const dayNum = (date.getUTCDay() + 6) % 7
-  date.setUTCDate(date.getUTCDate() - dayNum + 3)
-  const firstThursday = new Date(Date.UTC(date.getUTCFullYear(), 0, 4))
-  return 1 + Math.round((date.getTime() - firstThursday.getTime()) / (7 * 86_400_000))
-}
 
 export function ScheduleGrid({ filters = {} }: ScheduleGridProps) {
   const t = useTranslations('Schedule')
@@ -84,7 +80,7 @@ export function ScheduleGrid({ filters = {} }: ScheduleGridProps) {
     () => Array.from({ length: 7 }, (_, i) => addDays(weekStart, i)),
     [weekStart],
   )
-  const autoParity: WeekType = isoWeek(weekStart) % 2 === 1 ? 'ODD' : 'EVEN'
+  const autoParity: WeekType = isoWeekParity(weekStart)
   const effectiveParity: WeekType = parityMode === 'AUTO' ? autoParity : parityMode
 
   // Пары — без фильтра по чётности (получаем все, фильтруем по неделе на клиенте).
@@ -104,11 +100,12 @@ export function ScheduleGrid({ filters = {} }: ScheduleGridProps) {
     queryFn: () => fetchScheduleChanges(changesQuery),
   })
 
-  // Инвалидируем только queries изменений (['schedule','changes',*]), а не весь scheduleKeys.all:
-  // событие несёт override/отмену пары (наложение из changes), базовая сетка пар им не меняется.
-  // Так рефетчим одну лёгкую выборку вместо всех расписаний по всем фильтрам.
-  useRealtimeEvent<{ groupId: string }>('schedule:changed', () => {
-    void qc.invalidateQueries({ queryKey: ['schedule', 'changes'] })
+  // Не весь scheduleKeys.all: разовое изменение перечитывает только выборку изменений, правка
+  // или удаление пары действующей сетки — ещё и саму сетку (keysToRefreshOnScheduleChanged).
+  useRealtimeEvent<ScheduleChangedPayload>('schedule:changed', (payload) => {
+    for (const queryKey of keysToRefreshOnScheduleChanged(payload)) {
+      void qc.invalidateQueries({ queryKey })
+    }
     toast.info(t('changedToast'))
   })
 
