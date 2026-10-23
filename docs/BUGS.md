@@ -1675,6 +1675,72 @@
 #### BUG-303 · 🟢 У старосты, пришедшего по инвайту, `starostaSince` пустой
 - **Где:** `apps/api/src/modules/users/users.service.ts:1802-1807,2480-2486` · **Статус:** новый
 
+### Задания, журнал оценок, экзамены, посещаемость, консультации
+
+#### BUG-304 · 🟡 Публикация, удаление или добавление колонки журнала стирает все несохранённые оценки
+- **Роль:** TEACHER · **Статус:** новый
+- **Где:** `apps/web/src/views/gradebook/ui/gradebook-table.tsx:99-107,163,169`, `apps/web/src/views/gradebook/ui/add-column-modal.tsx:68`
+- **Сценарий:** баллы 25 студентам без «Сохранить» → «Опубликовать» любую колонку → журнал перечитан, черновик затёрт, колонка опубликована пустой.
+- **Ожидается:** черновик сливается с ответом или действие блокируется (класс BUG-012).
+
+#### BUG-305 · 🟡 Закрытое задание у студента числится «Не начато» во «Активных» и «срочной» задачей
+- **Где:** `apps/web/src/entities/assignment/lib/status.ts:9-21` (`CLOSED` не учитывается), `views/assignments/ui/student-assignments-view.tsx:45-50,127-131`, `views/tasks/lib/tasks.ts:75-100`, `widgets/today/lib/attention.ts:57` · **Статус:** новый
+
+#### BUG-306 · 🟡 Экзамен нельзя перенести и нельзя назначить аудиторию или экзаменатора из веба
+- **Где:** `apps/web/src/entities/exam/api/exam-api.ts:31` (`updateExamRequest` не вызывается), `views/exams/ui/create-exam-modal.tsx:66-71`, `views/exams/ui/exam-management-view.tsx:278-295` · **Статус:** новый
+- **Ожидается:** §8.3 «Экзамены» — `аудитория?`, `экзаменатор?` и `PATCH /exams/:id` доступны из интерфейса.
+
+#### BUG-307 · 🟡 «Отметить всех присутствующими» перетирает уважительные причины и пропуски
+- **Где:** `apps/web/src/views/attendance/ui/attendance-roster.tsx:84-90` (нужно заполнять только `status === null`) · **Статус:** новый
+
+#### BUG-308 · 🟡 QR-самоотметка показывает зелёное «Вы уже отмечены», хотя стоит «Отсутствовал»
+- **Где:** `apps/api/src/modules/attendance/attendance.service.ts:293-295`, `apps/web/src/views/attendance/ui/checkin-view.tsx` (ветка `done`) · **Статус:** новый
+
+#### BUG-309 · 🟡 После перевода в другую группу студент теряет свои экзамены и оценки за работы прежней группы
+- **Где:** `apps/api/src/modules/exams/exams.service.ts:387`, `apps/api/src/modules/assignments/assignments.service.ts:774-778`; журнал оценок это уже учитывает (`gradebook.service.ts:263-281`) · **Статус:** новый
+
+#### BUG-310 · 🟢 В вебе нельзя изменить колонку журнала (название, максимум, порядок)
+- **Где:** `apps/web/src/entities/gradebook/api/gradebook-api.ts` (`updateColumnRequest` не используется), `views/gradebook/ui/gradebook-table.tsx:225-244` · **Статус:** новый
+
+#### BUG-311 · 🟢 Комментарий «на доработку» становится отзывом к итоговой оценке пересданной работы (новое место BUG-041)
+- **Где:** `apps/web/src/views/assignments/ui/grade-submission-modal.tsx:53,70`, `apps/api/src/modules/assignments/assignments.service.ts:550-554` · **Статус:** новый
+
+#### BUG-312 · 🟢 После сохранения ростера пара в списке дня и на дашборде остаётся «Не отмечено»
+- **Где:** `apps/web/src/views/attendance/ui/attendance-roster.tsx:77-79` (не инвалидируется `attendanceKeys.marked`), `teacher-attendance-view.tsx:95-99`, `widgets/today/ui/teacher-actions.tsx:63` · **Статус:** новый
+
+#### BUG-313 · 🟢 «Сохранить» в ростере без отметок даёт «Проверьте правильность полей»
+- **Где:** `apps/web/src/views/attendance/ui/attendance-roster.tsx:71-75,211`, `packages/shared-schemas/src/attendance.ts` (`entries.min(1)`) · **Статус:** новый
+
+#### BUG-314 · 🟢 Ошибки QR-самоотметки показываются чужими текстами («Неверный email или пароль»)
+- **Где:** `apps/web/src/views/attendance/ui/checkin-view.tsx:42`, `apps/api/src/modules/attendance/attendance.service.ts:281-283,357-370,435-440` · **Статус:** новый
+
+#### BUG-315 · 🟢 После срока сдачи форма зовёт «Отправить» и заканчивается «Конфликт данных»
+- **Где:** `apps/web/src/views/assignments/lib/assignment-status.ts:34-38`, `views/assignments/ui/student-assignment-detail.tsx:90-100`, `apps/api/src/modules/assignments/assignments.service.ts:539-546` · **Статус:** новый
+
+#### BUG-316 · 🟢 Консультации: прошедшую запись можно «отменить», живую — одним нажатием (корень BUG-155)
+- **Где:** `apps/api/src/modules/consultations/consultations.service.ts:285-326`, `apps/web/src/views/consultations/ui/student-consultations-view.tsx:41,184-189`, `teacher-consultations-view.tsx:216-225` · **Статус:** новый
+
+#### BUG-317 · 🟢 Слот, отменённый преподавателем, предлагает студенту «Записаться» и падает `409`
+- **Где:** `apps/api/src/modules/consultations/consultations.service.ts:207`, `apps/web/src/views/consultations/ui/student-consultations-view.tsx:126-134` · **Статус:** новый
+
+#### BUG-318 · 🟢 «Консультации» преподавателя открываются на самых старых слотах
+- **Где:** `apps/web/src/views/consultations/ui/teacher-consultations-view.tsx:82-87`, `packages/shared-schemas/src/consultations.ts` · **Статус:** новый
+
+#### BUG-319 · 🟢 Декан другого факультета, назначенный экзаменатором, не видит экзамен и не может заполнить ведомость
+- **Где:** `apps/api/src/modules/exams/exams.service.ts:391-393,482-484,540` · **Статус:** новый
+
+#### BUG-320 · 🟢 Повторный перенос экзамена на уже бывшее время приходит без уведомления (корень BUG-090/BUG-094)
+- **Где:** `apps/api/src/modules/exams/exams.service.ts:278` (`dedupeKey` по состоянию) · **Статус:** новый
+
+#### BUG-321 · 🟢 «Мои задачи»: сбой загрузки заданий не виден, сроки разложены по дате UTC (корень BUG-190, BUG-103)
+- **Где:** `apps/web/src/views/tasks/ui/tasks-view.tsx:75-79,96-97`, `views/tasks/lib/tasks.ts:42-46` · **Статус:** новый
+
+#### BUG-322 · 🟢 Выбор дисциплины у преподавателя обрезан первыми 100 (новое место BUG-006)
+- **Где:** `apps/web/src/views/gradebook/ui/gradebook-view.tsx:28-31,36`, `views/assignments/ui/create-assignment-modal.tsx:53-58`, `views/exams/ui/create-exam-modal.tsx:36-40` · **Статус:** новый
+
+#### BUG-323 · 🟢 `GET /gradebook/me`: вложенная выборка колонок без `take` (корень BUG-049)
+- **Где:** `apps/api/src/modules/gradebook/gradebook.service.ts:286-297` · **Статус:** новый
+
 <!-- P3-END -->
 
 ## Замечено попутно
