@@ -45,6 +45,12 @@ export function vacancyVisibleWhere(
   }
 }
 
+/** Допуск в кэше: вуз и срок (ISO). Срок сверяется при каждом чтении, а не при записи. */
+interface CachedGrant {
+  universityId: string
+  expiresAt: string | null
+}
+
 /**
  * Единственная точка, отвечающая на вопрос «видит ли эта компания студентов этого вуза».
  *
@@ -75,14 +81,28 @@ export class CareerAccessService {
   ) {}
 
   private key(companyId: string): string {
-    return `career:access:${companyId}`
+    // v2: в кэше лежат допуски вместе со сроком, а не готовый список вузов (см. ниже).
+    return `career:access:v2:${companyId}`
   }
 
-  /** Вузы, к студентам которых компания допущена прямо сейчас. */
-  async allowedUniversityIds(companyId: string): Promise<string[]> {
-    const cached = await this.readCache(companyId)
-    if (cached) return cached
+  /**
+   * Вузы, к студентам которых компания допущена прямо сейчас.
+   *
+   * В кэше — допуски вместе со сроком, а не готовый список вузов: срок, наступивший внутри
+   * окна кэша, обязан действовать сразу (PROJECT.md «Допуск к вузу» — «срок проверяется в
+   * каждом запросе»). Готовый список держал бы истёкший вуз открытым до минуты.
+   */
+  async allowedUniversityIds(companyId: string, now: Date = new Date()): Promise<string[]> {
+    const grants = (await this.readCache(companyId)) ?? (await this.loadGrants(companyId))
+    // Срок проверяем в коде, а не в WHERE: та же функция работает и на фронте, и её
+    // единственная реализация лежит в shared-schemas — иначе «истёк» разъедется.
+    return grants
+      .filter((g) => isAccessActive({ status: 'APPROVED', expiresAt: g.expiresAt }, now))
+      .map((g) => g.universityId)
+  }
 
+  /** Одобренные допуски компании из БД — с записью в кэш. */
+  private async loadGrants(companyId: string): Promise<CachedGrant[]> {
     const rows = await this.prisma.companyUniversityAccess.findMany({
       where: { companyId, status: 'APPROVED' },
       select: { universityId: true, status: true, expiresAt: true },
@@ -91,16 +111,14 @@ export class CareerAccessService {
       take: 500,
     })
 
-    // Срок проверяем в коде, а не в WHERE: та же функция работает и на фронте, и её
-    // единственная реализация лежит в shared-schemas — иначе «истёк» разъедется.
-    const ids = rows
+    const grants = rows
       .filter((r) =>
         isAccessActive({ status: r.status as CompanyAccessStatus, expiresAt: r.expiresAt }),
       )
-      .map((r) => r.universityId)
+      .map((r) => ({ universityId: r.universityId, expiresAt: r.expiresAt?.toISOString() ?? null }))
 
-    await this.writeCache(companyId, ids)
-    return ids
+    await this.writeCache(companyId, grants)
+    return grants
   }
 
   /**
@@ -199,20 +217,20 @@ export class CareerAccessService {
     }
   }
 
-  private async readCache(companyId: string): Promise<string[] | null> {
+  private async readCache(companyId: string): Promise<CachedGrant[] | null> {
     try {
       const raw = await this.redis.get(this.key(companyId))
-      return raw ? (JSON.parse(raw) as string[]) : null
+      return raw ? (JSON.parse(raw) as CachedGrant[]) : null
     } catch {
       return null
     }
   }
 
-  private async writeCache(companyId: string, ids: string[]): Promise<void> {
+  private async writeCache(companyId: string, grants: CachedGrant[]): Promise<void> {
     try {
       await this.redis.set(
         this.key(companyId),
-        JSON.stringify(ids),
+        JSON.stringify(grants),
         'EX',
         CareerAccessService.CACHE_TTL_SECONDS,
       )

@@ -189,8 +189,20 @@ describe('CareerAccessService — кэш', () => {
 
   it('готовый ответ берётся из кэша без запроса в БД', async () => {
     const { service, prisma, redis } = setup()
-    redis.get.mockResolvedValueOnce(JSON.stringify(['uni-7']))
+    redis.get.mockResolvedValueOnce(JSON.stringify([{ universityId: 'uni-7', expiresAt: null }]))
     await expect(service.allowedUniversityIds('co-1')).resolves.toEqual(['uni-7'])
     expect(prisma.companyUniversityAccess.findMany).not.toHaveBeenCalled()
+  })
+
+  it('срок, наступивший внутри окна кэша, действует сразу', async () => {
+    const { service, redis } = setup()
+    const now = new Date('2026-10-17T12:00:00Z')
+    redis.get.mockResolvedValueOnce(
+      JSON.stringify([
+        { universityId: 'uni-gone', expiresAt: '2026-10-17T11:59:59.000Z' },
+        { universityId: 'uni-live', expiresAt: '2026-10-17T12:00:01.000Z' },
+      ]),
+    )
+    await expect(service.allowedUniversityIds('co-1', now)).resolves.toEqual(['uni-live'])
   })
 })
