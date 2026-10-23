@@ -19,6 +19,9 @@ import type {
 // Фабрика ключей React Query (docs/FRONTEND_RULES.md §5.5).
 export const scheduleKeys = {
   all: ['schedule'] as const,
+  // Префиксы — для инвалидации сразу всех фильтров/диапазонов (realtime schedule:changed).
+  allViews: ['schedule', 'view'] as const,
+  allChanges: ['schedule', 'changes'] as const,
   view: (filters: ScheduleQueryInput) => ['schedule', 'view', filters] as const,
   changes: (range: ScheduleChangeQueryInput) => ['schedule', 'changes', range] as const,
   containers: (groupId?: string) => ['schedule', 'containers', groupId ?? 'all'] as const,
