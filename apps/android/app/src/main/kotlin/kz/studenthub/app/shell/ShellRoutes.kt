@@ -31,6 +31,7 @@ import kz.studenthub.app.features.feed.ProfileScreen
 import kz.studenthub.app.features.feed.SettingsScreen
 import kz.studenthub.app.features.library.BookRef
 import kz.studenthub.app.features.library.BookScreen
+import kz.studenthub.app.features.library.ClearanceScreen
 import kz.studenthub.app.features.library.LibraryScreen
 import kz.studenthub.app.features.library.MyBooksScreen
 import kz.studenthub.app.features.more.MoreScreen
@@ -81,6 +82,7 @@ fun Destination(route: AppRoute, viewer: AccessToken) {
             MoreSection.DOCUMENTS -> return DocumentsScreen()
             MoreSection.LIBRARY -> return LibraryScreen()
             MoreSection.MY_BOOKS -> return MyBooksScreen()
+            MoreSection.LIBRARY_CLEARANCE -> return ClearanceScreen()
             else -> Unit
         }
         is AppRoute.Post -> return PostDetailScreen(route.id)

@@ -21,6 +21,7 @@ import androidx.compose.material.icons.outlined.MoreHoriz
 import androidx.compose.material.icons.outlined.Notifications
 import androidx.compose.material.icons.outlined.School
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Verified
 import androidx.compose.ui.graphics.vector.ImageVector
 import kz.studenthub.app.R
 import kz.studenthub.app.core.model.Role
@@ -67,6 +68,9 @@ enum class MoreSection(@StringRes val title: Int, val icon: ImageVector) {
     // Библиотека вуза: студент и староста, и только если вуз её включил.
     LIBRARY(R.string.books_title, Icons.Outlined.LocalLibrary),
     MY_BOOKS(R.string.books_myBooks, Icons.Outlined.Bookmarks),
+
+    /** Справка «задолженностей в библиотеке нет» — из «Моих книг», в списке «Ещё» её нет. */
+    LIBRARY_CLEARANCE(R.string.books_clearanceTitle, Icons.Outlined.Verified),
     ;
 
     companion object {

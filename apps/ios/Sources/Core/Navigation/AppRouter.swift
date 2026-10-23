@@ -13,6 +13,8 @@ enum AppRoute: Hashable {
     case assignment(id: String)
     case service(id: String)
     case myBooks
+    /// Справка «задолженностей в библиотеке нет» — из «Моих книг».
+    case libraryClearance
     case book(id: String)
     case bookCopy(code: String)
 }

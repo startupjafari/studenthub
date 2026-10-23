@@ -114,4 +114,22 @@
     <string name="books_errorClosed">Бронь жабылған</string>
     <string name="books_errorModule">Кітапхана өшірулі</string>
     <string name="books_errorNotFound">Кітап табылмады</string>
+    <string name="books_loanLostDebt">Жоғалды — қарыз</string>
+    <string name="books_loanLostSettled">Жоғалды, қарыз өтелді</string>
+    <string name="books_clearanceTitle">Кітапханадан анықтама</string>
+    <string name="books_clearanceSubtitle">Бітіргенде немесе ауысқанда айналма парақ үшін</string>
+    <string name="books_clearanceShowHint">Бұл экранды кітапханада немесе деканатта көрсетіңіз. Анықтаманы веб-нұсқада басып шығаруға болады.</string>
+    <string name="books_clearTitle">Берешек жоқ</string>
+    <string name="books_clearBody">%2$s күйі бойынша %1$s қолында кітап жоқ.</string>
+    <string name="books_notClearTitle">Кітапхана алдындағы берешек: %1$d. Анықтама алу үшін кітаптарды қайтарыңыз.</string>
+    <string name="books_debtsTitle">Нені қайтару керек</string>
+    <string name="books_inventoryNumber">түг. %1$s</string>
+    <string name="books_lostHint">Жоғалған кітапты ауыстырыңыз немесе кітапханада құнын өтеңіз — кітапханашы қарыздың өтелгенін белгілейді.</string>
+    <string name="books_clearanceDetails">Мәліметтер</string>
+    <string name="books_clearanceName">Аты-жөні</string>
+    <string name="books_clearanceGroup">Топ</string>
+    <string name="books_clearanceFaculty">Факультет</string>
+    <string name="books_clearanceCard">Студенттік билет №</string>
+    <string name="books_clearanceUniversity">ЖОО</string>
+    <string name="books_clearanceChecked">Тексерілді</string>
 </resources>
