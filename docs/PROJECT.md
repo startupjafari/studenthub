@@ -394,6 +394,18 @@ status `DRAFT|UPLOADED|IN_REVIEW|VERIFIED|ACCEPTED|REJECTED|NEEDS_REPLACEMENT|EX
 архивации (`previousStatus`). Удалённый документ не открывается ни по заявке, ни по запросу; его
 сканы физически удаляются через 30 дней (`cleanDetachedFiles`).
 
+**Страницы документа.** `POST /documents/:id/files/:fileId/replace { fileId }` — новый файл
+(свой, ещё не прикреплённый) встаёт на место страницы с тем же `order`, старый файл сразу
+удаляется из хранилища (сбой удаления — строку подберёт `cleanDetachedFiles`); событие
+`REPLACE` (`metadata: fileId, replacedFileId, order`). `DELETE /documents/:id/files/:fileId` —
+снять страницу, остальные перенумеровываются подряд; единственную страницу удалить нельзя
+(`400`: её заменяют либо удаляют документ целиком); событие `PAGE_REMOVE`. Дописанные к
+загруженному документу страницы (`POST :id/files`) пишутся `PAGE_ADD`, а не `REPLACE`.
+Документ, приложенный к комплекту открытого запроса в статусе `SUBMITTED` или `ACCEPTED`,
+не меняет содержимое (страницы, порядок, данные кроме `comment`) — `409 CONFLICT`. Правка
+содержимого снимает `VERIFIED` и возвращает позиции комплектов `DRAFT`/`REJECTED`/`PARTIAL`
+в `PENDING`, проверенный комплект — в `DRAFT` (до повторной отправки).
+
 **Комплект по запросу.** Студент сохраняет и отправляет комплект только в `DRAFT`/`REJECTED`/
 `PARTIAL`; `SUBMITTED`/`ACCEPTED`, закрытый запрос или истёкший `dueAt` → `409`. `dueAt` без
 времени действует до конца дня. Правка возвращённого комплекта переводит его в `DRAFT`, вердикты
@@ -411,7 +423,7 @@ status `DRAFT|UPLOADED|IN_REVIEW|VERIFIED|ACCEPTED|REJECTED|NEEDS_REPLACEMENT|EX
 (`document-shared`, §10.1).
 
 **Эндпоинты** (база `/documents`, `/document-requests`, `/document-types`): CRUD документов,
-`/upload`+`/files`(+`/order`), `GET :id/files/:fileId/url` (presigned), `access` (grant/revoke),
+`/upload`+`/files`(+`/order`, `/:fileId/replace`, `DELETE /:fileId`), `GET :id/files/:fileId/url` (presigned), `access` (grant/revoke),
 `overview`, `events`; `GET /documents/shared-with-me?cursor&limit≤50` — активные гранты на меня
 (`USER`), мой факультет (`DEPARTMENT`, декану), мой вуз (`UNIVERSITY`, администрации), без своих
 документов; запросы — создание/список/`manage`, submission (save/submit), review
