@@ -1960,6 +1960,74 @@
 #### BUG-382 · 🟢 Нет раздела «События» у админа платформы; сотрудник платформы через «Поддержку» заводит обращение без автора
 - **Где:** `apps/web/src/widgets/app-shell/model/nav.ts` (`PLATFORM_ADMIN_NAV` без events, класс BUG-005/064); `apps/api/src/modules/chats/support.service.ts:699-709,796-798`, `account-settings-panels.tsx:146` · **Статус:** новый
 
+### Общая инфраструктура API: логи, Sentry, WS, CORS, файлы и медиа
+
+#### BUG-383 · 🟠 Голосовые с iPhone (m4a) сервер отклоняет как неподдерживаемый тип
+- **Роль:** все на iOS; вероятно, Safari-веб (MediaRecorder → `audio/mp4`) · **Статус:** подтверждён
+- **Где:** `packages/shared-config/src/constants.ts:81` (`AUDIO` без `audio/x-m4a`/`audio/mp4`), `apps/api/src/modules/files/mime-detector.ts:39-51`, file-type 22 отдаёт `audio/x-m4a` для `ftyp M4A `; `apps/ios/Sources/Features/Chats/Thread/VoiceRecorder.swift:31-33,79`
+- **Сценарий:** iOS записывает голосовое AAC в `.m4a` → `415 FILE_TYPE_NOT_ALLOWED`, сообщение не уходит.
+- **Ожидается:** BACKEND_RULES §8 — белый список совпадает с тем, что пишут клиенты.
+
+#### BUG-384 · 🟡 🔒 Токены из URL и секретные заголовки попадают в каждую строку лога запроса
+- **Где:** `apps/api/src/common/logging/logger.config.ts:20-41` (нет `serializers` для `req`, redact не покрывает `req.url`), `common/interceptors/logging.interceptor.ts:70-89`, `packages/shared-config/src/monitoring.ts:12-22` (нет `t`) · **Статус:** подтверждён
+- **Сценарий:** pino-http кладёт сырой `req` (url, headers) в child-логгер: в логи уходят токен инвайта из `/invites/<token>/preview`, HLS-токен `?t=` (и в Sentry), заголовок `x-telegram-bot-api-secret-token`.
+- **Ожидается:** BACKEND_RULES §13 — сериализатор `req` со `scrubUrl` и вырезанием секретных заголовков, `t` в `SENSITIVE_QUERY_PARAMS`.
+
+#### BUG-385 · 🟡 🔒 Хлебные крошки Sentry уносят токен Telegram-бота и ссылки из личных переписок
+- **Где:** `packages/shared-config/src/monitoring.ts:171-183`, `apps/api/src/instrument.ts:169-187` (нет `beforeBreadcrumb`/`beforeSendTransaction`), `common/telegram/telegram-notify.service.ts:189`, `modules/telegram-hook/telegram-hook.service.ts:523` (`/bot${token}/`), `common/link-preview/link-preview.service.ts:261-281` · **Статус:** новый
+- **Ожидается:** BACKEND_RULES §13.1 — маскировать `/bot<…>/`, убирать `http.query`, не писать крошки link-preview.
+
+#### BUG-386 · 🟡 🔒 Открытый WebSocket живёт без срока: истёкший или украденный access-токен даёт realtime навсегда
+- **Где:** `apps/api/src/common/realtime/realtime.gateway.ts:60-101` (проверка только в handshake), `:175-210` (невалидный `auth:refresh` связь не рвёт), `apps/api/src/modules/auth/auth.service.ts:463-464,493,563-576` (logout и детектор повтора не рвут WS) · **Статус:** новый
+- **Ожидается:** BACKEND_RULES §10, PROJECT §7.2 — разрыв на `exp` без продления, при краже refresh гасить и WS.
+
+#### BUG-387 · 🟡 Техработы шлют в Sentry каждый запрос и поднимают тревогу «Всплеск ошибок»
+- **Где:** `apps/api/src/common/filters/http-exception.filter.ts:77-108` (любой ≥500 → `captureException`, `recordServerError`), `common/guards/maintenance.guard.ts:368`, `modules/cleanup/cleanup.service.ts:217,1264-1271` · **Статус:** новый
+- **Ожидается:** BACKEND_RULES §13.1 — ожидаемые `503 MAINTENANCE` и 503 health в трекер и счётчик не идут.
+
+#### BUG-388 · 🟡 `GET /health` обёрнут в конверт: мини-апп всегда показывает базу, Redis и MinIO упавшими
+- **Роль:** PLATFORM_* (мини-апп, «Обзор») · **Статус:** подтверждён
+- **Где:** `apps/api/src/modules/health/health.controller.ts:20-35` (обещан «формат terminus прежний»), `common/interceptors/response.interceptor.ts` (исключения для health нет), `common/filters/http-exception.filter.ts:61-64,110-118`, `apps/mini-app/src/api/overview.ts:104-118` (читает `payload.info` с верхнего уровня)
+- **Сценарий:** здоровый ответ `{success,data:{info}}` → все три «error»; при отказе одного сервиса тело заменяется на `INTERNAL_ERROR`, какой лёг — не узнать. Railway/uptime, читающие формат terminus, тоже затронуты.
+
+#### BUG-389 · 🟡 CORS без `exposedHeaders`: при API на отдельном домене выгрузки скачиваются как «studenthub-export» без расширения
+- **Где:** `apps/api/src/main.ts:116-121`, `apps/web/src/shared/lib/download-file.ts:23,44-45`, `shared/api/instance.ts:94` (Retry-After), `docs/RAILWAY.md:80` · **Статус:** подтверждён
+- **Ожидается:** `exposedHeaders: ['Content-Disposition','Retry-After']`.
+
+#### BUG-390 · 🟡 🔒 Импорт XLSX: zip-бомба до 10 МБ распаковывается в памяти целиком и роняет API
+- **Роль:** админ вуза, декан (инвайты), LIBRARIAN (фонд) → вся платформа · **Статус:** новый
+- **Где:** `apps/api/src/common/import/table-file.ts:72-76` (`sheetRows` ограничивает только ячейки, `XLSX.read` синхронно распаковывает все записи архива)
+- **Ожидается:** BACKEND_RULES §14 — проверка суммарного распакованного размера до разбора или разбор в воркере с лимитом памяти.
+
+#### BUG-391 · 🟢 Ошибки Fastify в обработчике → `500 INTERNAL_ERROR` с событием в Sentry; 406/413/415 с кодом `INTERNAL_ERROR`
+- **Где:** `apps/api/src/common/filters/http-exception.filter.ts:61-75`, `common/http/read-upload.ts:10`, `modules/invites/invites.controller.ts:94`, `modules/library/library-catalog.controller.ts:198`, `packages/shared-types/src/error-codes.ts:85-104` · **Статус:** новый
+- **Сценарий:** `POST /files/upload` не multipart → 500; `readUploadWithFields` любую ошибку выдаёт за «файл больше порога».
+
+#### BUG-392 · 🟢 Копия неготового видео при пересылке перекодируется в очереди изображений
+- **Где:** `apps/api/src/modules/media/media.service.ts:114-127` (`scheduleCopy` всегда в `'image'`), `media-processing.service.ts:169-189`, `media-video.processor.ts:260-263`, `common/queue/queue.constants.ts:16-18` · **Статус:** новый
+- **Сценарий:** ffmpeg на 15 мин в очереди фото с `lockDuration` 30 с — фото ждут, ролик кодируется дважды.
+
+#### BUG-393 · 🟢 Подвисший Redis добавляет до 3–6 с к каждому запросу: у троттлера нет короткого таймаута
+- **Где:** `apps/api/src/common/security/resilient-throttler.storage.ts:299-312`, `common/redis/redis.module.ts:94-95` (`commandTimeout: 3000`); у проверки отзыва — 150 мс (`session-revocation.service.ts:13,55-60`) · **Статус:** новый
+
+#### BUG-394 · 🟢 Анимированный WebP показывается статичной картинкой
+- **Где:** `apps/api/src/modules/media/image-pipeline.ts:24-30,68-79` (GIF исключён, WebP нет; sharp без `animated`), `media-plan.ts:101-105` · **Статус:** новый
+
+#### BUG-395 · 🟢 Access-лог пишет неверные статусы и не видит отказов guard'ов
+- **Где:** `apps/api/src/common/interceptors/logging.interceptor.ts:92-96` · **Статус:** новый
+- **Сценарий:** 422 Zod пишется как 400, P2002/P2025 как 500, 201/204 как 200; 401/403/429/503 от guard'ов не логируются вовсе — перебор входа не виден.
+- **Ожидается:** BACKEND_RULES §13 — хук `onResponse` с реальным статусом.
+
+#### BUG-396 · 🟢 `CORS_ORIGIN` с пробелом после запятой молча ломает второй origin
+- **Где:** `apps/api/src/main.ts:117`, `common/realtime/realtime.gateway.ts:23` (`split(',')` без `trim`); `config/web-base.ts:18` — с `trim` · **Статус:** подтверждён
+
+#### BUG-397 · 🟢 Нативный HLS (Safari iOS < 17.1) блокируется `Cross-Origin-Resource-Policy: same-origin`
+- **Где:** `apps/api/src/main.ts:103` (helmet по умолчанию), `modules/media/media-hls.controller.ts:24-74`, `apps/web/src/shared/lib/use-hls.ts:57-63` · **Статус:** новый
+
+#### BUG-398 · 🟢 🔒 Публичных маршрутов в коде 29, а BACKEND_RULES §6.1 говорит «ровно 25»
+- **Где:** `docs/BACKEND_RULES.md:218-246` против `modules/onboarding/demo-requests.controller.ts:42,54`, `modules/telegram-hook/telegram-hook.controller.ts:22`, `modules/platform/platform.controller.ts:46` · **Статус:** новый
+- **Ожидается:** список §6.1 синхронизирован с кодом (стоп-точка — согласует человек).
+
 <!-- P3-END -->
 
 ## Замечено попутно
