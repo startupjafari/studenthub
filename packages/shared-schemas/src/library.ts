@@ -339,6 +339,18 @@ export type RenewLoanInput = z.infer<typeof RenewLoanSchema>
 export const CancelLoanSchema = z.object({ reason: z.string().trim().min(3).max(300) }).strict()
 export type CancelLoanInput = z.infer<typeof CancelLoanSchema>
 
+/** Отмена ошибочного возврата — тоже с причиной, тело как у отмены выдачи. */
+export const CancelReturnSchema = CancelLoanSchema
+export type CancelReturnInput = CancelLoanInput
+
+/**
+ * Сколько часов после возврата его можно отменить. Ошибочный приём (отсканировали не ту
+ * наклейку, приняли чужую книгу) замечают у стойки или на следующей смене — суток хватает.
+ * Дальше отмена правила бы уже сложившуюся картину: экземпляр мог побывать на полке, в
+ * инвентаризации, у читателя в руках, — такое оформляют обычной выдачей, а не откатом.
+ */
+export const LIBRARY_RETURN_CANCEL_HOURS = 24
+
 export const LOAN_STATUSES = ['OPEN', 'RETURNED', 'LOST', 'CANCELLED'] as const
 export const LoanStatusSchema = z.enum(LOAN_STATUSES)
 export type LoanStatusValue = z.infer<typeof LoanStatusSchema>
