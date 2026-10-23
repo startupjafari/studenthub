@@ -744,6 +744,11 @@ export class AssignmentsService {
   ) {
     const sub = await this.findGradableSubmission(actor, submissionId)
     if (sub.status !== 'SUBMITTED') throw new AppException('CONFLICT', 'Работа не на проверке')
+    // Закрытое задание работ не принимает: возвращённую студент не смог бы ни поправить, ни
+    // отправить снова. Сначала задание открывают заново, потом возвращают работу.
+    if (sub.assignment.status !== 'PUBLISHED') {
+      throw new AppException('CONFLICT', 'Задание закрыто — откройте его, чтобы вернуть работу')
+    }
     const returned = await this.prisma.submission
       .update({
         where: { id: submissionId, status: 'SUBMITTED' },
@@ -928,7 +933,9 @@ export class AssignmentsService {
         score: true,
         gradedAt: true,
         gradedById: true,
-        assignment: { select: { title: true, maxScore: true, course: { select: COURSE_MINI } } },
+        assignment: {
+          select: { title: true, status: true, maxScore: true, course: { select: COURSE_MINI } },
+        },
       },
     })
     if (!sub) throw new AppException('NOT_FOUND', 'Работа не найдена')

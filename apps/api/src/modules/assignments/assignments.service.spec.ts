@@ -508,7 +508,7 @@ describe('AssignmentsService — оценка, переоценка и возв�
     new Prisma.PrismaClientKnownRequestError('not found', { code: 'P2025', clientVersion: '6' })
   const gradedAt = new Date('2026-10-10T10:00:00.000Z')
 
-  function withSubmission(status: string) {
+  function withSubmission(status: string, assignmentStatus = 'PUBLISHED') {
     const env = setup()
     env.prisma.submission.findUnique.mockResolvedValue({
       id: 'sub-1',
@@ -516,7 +516,7 @@ describe('AssignmentsService — оценка, переоценка и возв�
       score: status === 'GRADED' ? 6 : null,
       gradedAt: status === 'GRADED' ? gradedAt : null,
       gradedById: status === 'GRADED' ? 't-1' : null,
-      assignment: { title: 'ЛР1', maxScore: 10, course },
+      assignment: { title: 'ЛР1', status: assignmentStatus, maxScore: 10, course },
     })
     env.prisma.submission.update.mockResolvedValue({
       id: 'sub-1',
@@ -587,6 +587,15 @@ describe('AssignmentsService — оценка, переоценка и возв�
     const kept = withSubmission('GRADED')
     await kept.service.grade(teacher, 'sub-1', { score: 9 }, ctx)
     expect(kept.prisma.submission.update.mock.calls[0][0].data.feedback).toBeUndefined()
+  })
+
+  it('в закрытом задании работу не вернуть — студенту некуда было бы её сдать', async () => {
+    const { service, prisma, queue } = withSubmission('SUBMITTED', 'CLOSED')
+    await expect(
+      service.returnForFix(teacher, 'sub-1', { feedback: 'Исправьте' }, ctx),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(prisma.submission.update).not.toHaveBeenCalled()
+    expect(queue.enqueue).not.toHaveBeenCalled()
   })
 
   it('черновик и возвращённую не оценить → CONFLICT', async () => {

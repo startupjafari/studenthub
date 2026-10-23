@@ -22,6 +22,11 @@ const SCORE_CEILING = 1000
 interface Props {
   assignmentId: string
   maxScore: number | null
+  /**
+   * Можно ли вернуть работу на доработку: только пока задание принимает работы. Из закрытого
+   * возвращённую студент не смог бы ни поправить, ни отправить снова (сервер отвечает 409).
+   */
+  returnable: boolean
   submission: SubmissionItem
   onClose: () => void
   /** Работа оценена или возвращена — родитель переходит к следующей непроверенной. */
@@ -38,6 +43,7 @@ interface Props {
 export function GradeSubmissionModal({
   assignmentId,
   maxScore,
+  returnable,
   submission,
   onClose,
   onGraded,
@@ -250,15 +256,17 @@ export function GradeSubmissionModal({
             ))}
           {gradable && (
             <div className="flex flex-wrap gap-2">
-              <Button
-                variant="outline"
-                className="gap-1.5"
-                onClick={onReturn}
-                loading={back.isPending}
-              >
-                <RotateCcw className="size-4" aria-hidden />
-                {t('returnForFix')}
-              </Button>
+              {returnable && (
+                <Button
+                  variant="outline"
+                  className="gap-1.5"
+                  onClick={onReturn}
+                  loading={back.isPending}
+                >
+                  <RotateCcw className="size-4" aria-hidden />
+                  {t('returnForFix')}
+                </Button>
+              )}
               <Button className="gap-1.5" onClick={onGrade} loading={grade.isPending}>
                 <CheckCircle2 className="size-4" aria-hidden />
                 {t('publishGrade')}
