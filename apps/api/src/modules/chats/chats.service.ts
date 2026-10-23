@@ -588,7 +588,29 @@ export class ChatsService implements OnModuleInit {
       return (await this.isMember(userId, chatId)) ? { kind: 'room' } : { kind: 'denied' }
     }
     if (!members.some((m) => m.userId === userId)) return { kind: 'denied' }
-    return { kind: 'users', userIds: members.map((m) => m.userId).filter((id) => id !== userId) }
+    const userIds = members.map((m) => m.userId).filter((id) => id !== userId)
+    // Личный чат (BUG-163): «печатает» — тоже сигнал собеседнику, и правила у него те же, что
+    // у отправки: заблокировавший его не видит, а адресат непринятого запроса не получает
+    // ничего, кроме самих сообщений (§50). Чат читаем только у пары — групповым это не нужно.
+    if (userIds.length === 1 && (await this.privateSignalBlocked(chatId, userId, userIds[0]!))) {
+      return { kind: 'denied' }
+    }
+    return { kind: 'users', userIds }
+  }
+
+  /** Закрыт ли личный канал от `userId` к `otherId`: блокировка или его непринятый запрос. */
+  private async privateSignalBlocked(
+    chatId: string,
+    userId: string,
+    otherId: string,
+  ): Promise<boolean> {
+    const chat = await this.prisma.chat.findUnique({
+      where: { id: chatId },
+      select: { type: true, requestPendingForId: true },
+    })
+    if (chat?.type !== ChatType.PRIVATE) return false
+    if (chat.requestPendingForId != null && chat.requestPendingForId !== userId) return true
+    return this.isBlockedBetween(userId, otherId)
   }
 
   // ── Список чатов (9.5/9.6) ──────────────────────────────────────────────────
@@ -2602,6 +2624,9 @@ export class ChatsService implements OnModuleInit {
       throw new AppException('FORBIDDEN', 'Пересланное сообщение нельзя изменить')
     }
     await this.assertMembership(senderId, msg.chatId)
+    // Правка — тоже отправка (BUG-163): переписать сообщение у заблокировавшего тебя человека
+    // нельзя, и частота правок считается в общий антифлуд.
+    await this.assertCanSend(msg.chatId, senderId, { skipQuota: true })
     // Редактирование доступно ограниченное время после отправки (Ф9+).
     if (Date.now() - msg.createdAt.getTime() > MESSAGE_EDIT_WINDOW_MS) {
       throw new AppException(
@@ -2679,6 +2704,10 @@ export class ChatsService implements OnModuleInit {
     })
     if (!msg) throw new AppException('NOT_FOUND', 'Сообщение не найдено')
     await this.assertMembership(userId, msg.chatId)
+    // Закрепление пишет в ленту служебное сообщение — это отправка, и правила у неё те же:
+    // блокировка, антифлуд и потолок непринятого запроса (§50). Иначе закрепами можно было
+    // писать заблокировавшему и сыпать строками «закрепил» во вкладку «Запросы».
+    await this.assertCanSend(msg.chatId, userId, { skipQuota: !pinned })
     const message = toClientMessage(
       await this.prisma.message.update({
         where: { id: messageId },
@@ -3412,7 +3441,9 @@ export class ChatsService implements OnModuleInit {
   private async assertCanSend(
     chatId: string,
     senderId: string,
-    opts: { skipFlood?: boolean } = {},
+    // skipQuota — действие над уже отправленным (правка, снятие закрепа): нового сообщения
+    // оно не добавляет, и упёршийся в потолок запроса инициатор должен мочь поправить своё.
+    opts: { skipFlood?: boolean; skipQuota?: boolean } = {},
   ): Promise<void> {
     if (!opts.skipFlood) await this.assertNotFlooding(senderId)
     const chat = await this.prisma.chat.findUnique({
@@ -3437,7 +3468,7 @@ export class ChatsService implements OnModuleInit {
     // потолка инициатор набивал бы ему во вкладку «Запросы» стену текста — канал без
     // согласия. Ответ адресата снимает запрос, а вместе с ним и потолок.
     const pendingFor = chat.requestPendingForId
-    if (pendingFor != null && pendingFor !== senderId) {
+    if (!opts.skipQuota && pendingFor != null && pendingFor !== senderId) {
       // Считаются и удалённые (F-F24): иначе потолок обходился удалением — стёр свои пять
       // и пишешь снова, без конца. Удалённое адресат всё равно успел получить.
       const sent = await this.prisma.message.count({ where: { chatId, senderId } })

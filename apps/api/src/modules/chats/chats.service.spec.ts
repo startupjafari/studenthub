@@ -3001,6 +3001,73 @@ describe('ChatsService — общие условия отправки (assertCan
     expect(posts.assertVisibleToViewer).not.toHaveBeenCalled()
   })
 
+  // BUG-163: правка, закрепление и «печатает» идут теми же правилами, что и отправка.
+  it('правка своего сообщения в чате с заблокировавшим — FORBIDDEN', async () => {
+    const { service, prisma } = blockedSetup()
+    prisma.message.findFirst.mockResolvedValue({
+      id: 'm1',
+      chatId: 'c1',
+      senderId: 'u1',
+      createdAt: new Date(),
+      forwardedFromId: null,
+    })
+    const err = await service.editMessage('u1', 'm1', 'x').catch((e) => e)
+    expect(err.code).toBe('FORBIDDEN')
+    expect(prisma.message.update).not.toHaveBeenCalled()
+  })
+
+  it('закрепление в чате с заблокировавшим — FORBIDDEN, без служебной строки', async () => {
+    const { service, prisma } = blockedSetup()
+    prisma.message.findFirst.mockResolvedValue({ id: 'm1', chatId: 'c1' })
+    const err = await service.setPinned('u1', 'm1', true).catch((e) => e)
+    expect(err.code).toBe('FORBIDDEN')
+    expect(prisma.message.update).not.toHaveBeenCalled()
+    expect(prisma.message.create).not.toHaveBeenCalled()
+  })
+
+  it('закрепление в непринятый запрос сверх потолка — FORBIDDEN', async () => {
+    const { service, prisma } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1' })
+    prisma.chat.findUnique.mockResolvedValue({ ...priv, requestPendingForId: 'u2' })
+    prisma.message.findFirst.mockResolvedValue({ id: 'm1', chatId: 'c1' })
+    prisma.message.count.mockResolvedValue(5)
+    const err = await service.setPinned('u1', 'm1', true).catch((e) => e)
+    expect(err.code).toBe('FORBIDDEN')
+  })
+
+  it('правка в непринятом запросе потолком не ограничена', async () => {
+    const { service, prisma } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1' })
+    prisma.chat.findUnique.mockResolvedValue({ ...priv, requestPendingForId: 'u2' })
+    prisma.message.findFirst.mockResolvedValue({
+      id: 'm1',
+      chatId: 'c1',
+      senderId: 'u1',
+      createdAt: new Date(),
+      forwardedFromId: null,
+    })
+    prisma.message.count.mockResolvedValue(5)
+    prisma.message.update.mockResolvedValue({ id: 'm1', chatId: 'c1', seq: 1 })
+    await expect(service.editMessage('u1', 'm1', 'x')).resolves.toMatchObject({ id: 'm1' })
+  })
+
+  it('«печатает» заблокировавшему и адресату непринятого запроса не уходит', async () => {
+    const { service, prisma } = setup()
+    prisma.chatMember.findMany.mockResolvedValue([{ userId: 'u1' }, { userId: 'u2' }])
+    prisma.chat.findUnique.mockResolvedValue({ type: 'PRIVATE', requestPendingForId: null })
+    prisma.userBlock.findFirst.mockResolvedValueOnce({ id: 'b1' })
+    await expect(service.actionAudience('u1', 'c1')).resolves.toEqual({ kind: 'denied' })
+
+    prisma.chat.findUnique.mockResolvedValue({ type: 'PRIVATE', requestPendingForId: 'u2' })
+    await expect(service.actionAudience('u1', 'c1')).resolves.toEqual({ kind: 'denied' })
+
+    // Адресат запроса сам печатает инициатору — это уже ответ, его видно.
+    await expect(service.actionAudience('u2', 'c1')).resolves.toEqual({
+      kind: 'users',
+      userIds: ['u1'],
+    })
+  })
+
   it('пересылка считается в антифлуд наравне с обычной отправкой', async () => {
     const { service, prisma, redis } = setup()
     prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1' })
