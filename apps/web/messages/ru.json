@@ -1000,6 +1000,7 @@
     "twoFactorUseAppHint": "Ввести код из приложения",
     "twoFactorVerify": "Подтвердить",
     "twoFactorBack": "Назад ко входу",
+    "twoFactorChallengeExpired": "Время на ввод кода истекло или попытки закончились — введите пароль ещё раз",
     "or": "или",
     "qrTab": "Войти по QR-коду",
     "qrTitle": "Вход по QR-коду",

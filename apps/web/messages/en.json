@@ -1000,6 +1000,7 @@
     "twoFactorUseAppHint": "Enter a code from the app",
     "twoFactorVerify": "Verify",
     "twoFactorBack": "Back to sign in",
+    "twoFactorChallengeExpired": "The sign-in code step has expired or ran out of attempts — enter your password again",
     "or": "or",
     "qrTab": "Sign in with QR",
     "qrTitle": "Sign in with QR",

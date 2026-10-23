@@ -1000,6 +1000,7 @@
     "twoFactorUseAppHint": "Қосымшадан кодты енгізу",
     "twoFactorVerify": "Растау",
     "twoFactorBack": "Кіруге оралу",
+    "twoFactorChallengeExpired": "Кодты енгізу уақыты өтті немесе әрекеттер таусылды — құпиясөзді қайта енгізіңіз",
     "or": "немесе",
     "qrTab": "QR-код арқылы кіру",
     "qrTitle": "QR-код арқылы кіру",
