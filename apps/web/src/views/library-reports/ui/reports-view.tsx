@@ -58,7 +58,9 @@ export function ReportsView({ headerTabs, loansHref, catalogHref }: ReportsViewP
   const loading = summary.isPending
 
   return (
-    <div className="flex w-full flex-col gap-6 xl:flex-1">
+    // `min-h-0` обязателен: без него корень растёт до полной высоты списков (минимум
+    // grid-а с `1fr` считается по содержимому), и прокручивается вся страница, а не панели.
+    <div className="flex w-full flex-col gap-6 xl:min-h-0 xl:flex-1">
       <PageHeader title={t('title')} subtitle={t('subtitle')} tabs={headerTabs} />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
