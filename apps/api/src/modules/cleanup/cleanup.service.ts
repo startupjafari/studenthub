@@ -272,12 +272,15 @@ export class CleanupService {
 
   // Готовые брони библиотеки, которые не забрали к сроку (Фаза 20.8): ежечасно, в 20 минут.
   // Бронь держится до конца дня по часам вуза — час задержки ничего не меняет. Экземпляр
-  // уходит следующему в очереди. Логика — в LibraryReservationsService.
+  // уходит следующему в очереди. Тем же прогоном досылается «бронь готова», которую очередь
+  // не приняла (Redis лежал). Логика — в LibraryReservationsService.
   @Cron('20 * * * *', { name: 'expireLibraryHolds' })
   async expireLibraryHolds(): Promise<number | null> {
-    return this.locks.run('expireLibraryHolds', LOCK_TTL_MS.expireLibraryHolds, () =>
-      this.libraryReservations.expireDue(),
-    )
+    return this.locks.run('expireLibraryHolds', LOCK_TTL_MS.expireLibraryHolds, async () => {
+      const expired = await this.libraryReservations.expireDue()
+      await this.libraryReservations.notifyReadyPending()
+      return expired
+    })
   }
 
   // Отложенная публикация постов: каждую минуту публикуем посты, у которых наступил scheduledAt.

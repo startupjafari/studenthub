@@ -73,12 +73,15 @@ function setup({ queued = null as null | Record<string, unknown>, queueCount = 0
         book: { id: 'book-1', title: 'Русская литература', archivedAt: null },
       }),
     },
-    reservation: { count: jest.fn().mockResolvedValue(queueCount) },
+    reservation: {
+      count: jest.fn().mockResolvedValue(queueCount),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
     university: { findUnique: jest.fn().mockResolvedValue({ timezone: 'Asia/Almaty' }) },
     $transaction: jest.fn().mockImplementation((fn: (t: typeof tx) => unknown) => fn(tx)),
   }
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
-  const notifier = { send: jest.fn().mockResolvedValue(undefined) }
+  const notifier = { send: jest.fn().mockResolvedValue(true) }
   const rules = {
     enabled: true,
     defaultLoanDays: 14,
@@ -300,5 +303,31 @@ describe('Утеря и отмена', () => {
     await expect(
       service.cancel(librarian, 'loan-1', { reason: 'ошибка' }, ctx),
     ).rejects.toMatchObject({ code: 'CONFLICT' })
+  })
+})
+
+describe('«Бронь готова»', () => {
+  const held = {
+    reservationId: 'res-1',
+    readerId: 'stu-2',
+    name: 'Ахметова Айгерим',
+    group: null,
+    holdUntil: new Date('2026-10-25T18:59:59.999Z'),
+  }
+
+  it('очередь приняла — отметка в брони', async () => {
+    const { service, prisma } = setup()
+    await expect(service.notifyHeld(held, 'Русская литература', 'Asia/Almaty')).resolves.toBe(true)
+    expect(prisma.reservation.updateMany).toHaveBeenCalledWith({
+      where: { id: 'res-1', status: 'READY', readyNotifiedAt: null },
+      data: { readyNotifiedAt: expect.any(Date) },
+    })
+  })
+
+  it('очередь не приняла — отметки нет, догонит cron', async () => {
+    const { service, prisma, notifier } = setup()
+    notifier.send.mockResolvedValue(false)
+    await expect(service.notifyHeld(held, 'Русская литература', 'Asia/Almaty')).resolves.toBe(false)
+    expect(prisma.reservation.updateMany).not.toHaveBeenCalled()
   })
 })
