@@ -26,7 +26,18 @@ module.exports = {
         // а каждая лишняя категория — секунды на каждом из прогонов.
         onlyCategories: ['performance', 'accessibility'],
         // Раннер GitHub без GPU и без sandbox-а user namespaces.
-        chromeFlags: '--no-sandbox --headless=new',
+        //
+        // Три флага против «фоновой» вкладки: headless Chrome на раннере иногда считает её
+        // скрытой и замораживает таймеры, отрисовку и CSS-анимации. Первый экран лендинга
+        // проявляется анимацией из opacity 0, и в такой вкладке он оставался прозрачным —
+        // прогон падал с NO_FCP («контент не был отрисован»), хотя страница рабочая.
+        chromeFlags: [
+          '--no-sandbox',
+          '--headless=new',
+          '--disable-background-timer-throttling',
+          '--disable-backgrounding-occluded-windows',
+          '--disable-renderer-backgrounding',
+        ].join(' '),
         locale: 'ru',
       },
     },
