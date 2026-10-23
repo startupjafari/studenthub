@@ -126,7 +126,7 @@ export function BookDetailView({ bookId, basePath }: { bookId: string; basePath:
 
   if (book.isPending) {
     return (
-      <div className="flex w-full flex-col gap-4">
+      <div className="flex w-full flex-col gap-6">
         <Skeleton className="h-16 w-full" />
         <Skeleton className="h-48 w-full rounded-xl" />
         <Skeleton className="h-64 w-full rounded-xl" />
@@ -188,7 +188,7 @@ export function BookDetailView({ bookId, basePath }: { bookId: string; basePath:
   ].filter((f): f is { label: string; value: string } => f !== null)
 
   return (
-    <div className="flex w-full flex-col gap-4">
+    <div className="flex w-full flex-col gap-6">
       <div className="sh-no-print flex flex-col gap-4">
         <PageHeader
           title={data.title}

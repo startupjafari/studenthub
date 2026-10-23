@@ -102,24 +102,78 @@ export function CatalogView({ mode, basePath, headerTabs }: CatalogViewProps) {
   }
 
   return (
-    <div className="flex w-full flex-col gap-4">
+    <div className="flex w-full flex-col gap-6">
       <PageHeader
         title={t('title')}
         subtitle={staff ? t('subtitleStaff') : t('subtitleReader')}
         tabs={headerTabs}
         actions={
-          staff ? (
+          disabled ? undefined : (
             <>
-              <Button type="button" variant="outline" size="md" onClick={() => setImporting(true)}>
-                <FileUp className="size-4" aria-hidden />
-                {t('import')}
-              </Button>
-              <Button type="button" size="md" onClick={() => setCreating(true)}>
-                <Plus className="size-4" aria-hidden />
-                {t('addBook')}
-              </Button>
+              <div className="relative w-full sm:w-64">
+                <Search
+                  className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+                  aria-hidden
+                />
+                <Input
+                  size="md"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder={t('searchPlaceholder')}
+                  aria-label={t('searchPlaceholder')}
+                  className="pl-9"
+                />
+              </div>
+              <Select value={section} onValueChange={(v) => refilter(() => setSection(v))}>
+                <SelectTrigger size="md" className="w-full sm:w-52" aria-label={t('section')}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value={ALL_SECTIONS}>{t('allSections')}</SelectItem>
+                  {(sections.data ?? []).map((s) => (
+                    <SelectItem key={s} value={s}>
+                      {s}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <div className="flex h-9 items-center gap-2">
+                <Checkbox
+                  id="catalog-available"
+                  checked={available}
+                  onCheckedChange={(v) => refilter(() => setAvailable(v === true))}
+                />
+                <Label htmlFor="catalog-available">{t('onlyAvailable')}</Label>
+              </div>
+              {staff && (
+                <div className="flex h-9 items-center gap-2">
+                  <Checkbox
+                    id="catalog-archived"
+                    checked={archived}
+                    onCheckedChange={(v) => refilter(() => setArchived(v === true))}
+                  />
+                  <Label htmlFor="catalog-archived">{t('showArchive')}</Label>
+                </div>
+              )}
+              {staff && (
+                <>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="md"
+                    onClick={() => setImporting(true)}
+                  >
+                    <FileUp className="size-4" aria-hidden />
+                    {t('import')}
+                  </Button>
+                  <Button type="button" size="md" onClick={() => setCreating(true)}>
+                    <Plus className="size-4" aria-hidden />
+                    {t('addBook')}
+                  </Button>
+                </>
+              )}
             </>
-          ) : undefined
+          )
         }
       />
 
@@ -131,54 +185,6 @@ export function CatalogView({ mode, basePath, headerTabs }: CatalogViewProps) {
         />
       ) : (
         <>
-          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
-            <div className="relative w-full sm:w-72">
-              <Search
-                className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
-                aria-hidden
-              />
-              <Input
-                size="md"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                placeholder={t('searchPlaceholder')}
-                aria-label={t('searchPlaceholder')}
-                className="pl-9"
-              />
-            </div>
-            <Select value={section} onValueChange={(v) => refilter(() => setSection(v))}>
-              <SelectTrigger size="md" className="w-full sm:w-56" aria-label={t('section')}>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value={ALL_SECTIONS}>{t('allSections')}</SelectItem>
-                {(sections.data ?? []).map((s) => (
-                  <SelectItem key={s} value={s}>
-                    {s}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <div className="flex items-center gap-2">
-              <Checkbox
-                id="catalog-available"
-                checked={available}
-                onCheckedChange={(v) => refilter(() => setAvailable(v === true))}
-              />
-              <Label htmlFor="catalog-available">{t('onlyAvailable')}</Label>
-            </div>
-            {staff && (
-              <div className="flex items-center gap-2">
-                <Checkbox
-                  id="catalog-archived"
-                  checked={archived}
-                  onCheckedChange={(v) => refilter(() => setArchived(v === true))}
-                />
-                <Label htmlFor="catalog-archived">{t('showArchive')}</Label>
-              </div>
-            )}
-          </div>
-
           {books.isPending ? (
             <div className="flex flex-col gap-2">
               {Array.from({ length: 5 }, (_, i) => (

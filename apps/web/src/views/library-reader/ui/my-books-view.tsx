@@ -48,7 +48,7 @@ export function MyBooksView() {
   const overdue = open.filter((l) => l.overdue).length
 
   return (
-    <div className="flex w-full flex-col gap-4">
+    <div className="flex w-full flex-col gap-6">
       <PageHeader
         title={t('title')}
         subtitle={t('mineSubtitle')}
