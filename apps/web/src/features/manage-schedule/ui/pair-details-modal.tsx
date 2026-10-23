@@ -449,7 +449,19 @@ export function PairDetailsModal({
                     control={changeForm.control}
                     name="type"
                     render={({ field }) => (
-                      <Select value={field.value} onValueChange={field.onChange}>
+                      <Select
+                        value={field.value}
+                        onValueChange={(next) => {
+                          field.onChange(next)
+                          // Значения прежнего типа не уходят с новым: «смена аудитории»
+                          // иначе несла заменяющего, выбранного для «замены».
+                          changeForm.setValue('newRoomId', undefined)
+                          changeForm.setValue('newTeacherId', undefined)
+                          changeForm.setValue('newStartTime', undefined)
+                          changeForm.setValue('newEndTime', undefined)
+                          setChangeTeacher(null)
+                        }}
+                      >
                         <SelectTrigger aria-label={t('changeType')}>
                           <SelectValue />
                         </SelectTrigger>

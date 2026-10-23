@@ -901,14 +901,22 @@ export class SchedulesService {
       ])
     }
 
-    const newRoomId = input.newRoomId ?? null
-    const newTeacherId = input.newTeacherId ?? null
+    // Берём только поля своего типа (схема 03-schedule.prisma): форма присылала значения,
+    // выбранные для прежнего типа, — «смена аудитории» уходила с заменяющим, тот получал пуш
+    // и вставал преподавателем пары без проверки его занятости.
+    const type = input.type as ScheduleChangeType
+    const moved = type === ScheduleChangeType.MOVED
+    const newRoomId =
+      moved || type === ScheduleChangeType.ROOM_CHANGED ? (input.newRoomId ?? null) : null
+    const newTeacherId =
+      type === ScheduleChangeType.SUBSTITUTED ? (input.newTeacherId ?? null) : null
+    const newStartTime = moved ? (input.newStartTime ?? null) : null
+    const newEndTime = moved ? (input.newEndTime ?? null) : null
     if (newRoomId) await this.rooms.assertRoomInUniversity(newRoomId, gctx.universityId)
     if (newTeacherId) {
       await this.assertAssignableTeacher(newTeacherId, gctx.universityId, 'newTeacherId')
     }
 
-    const type = input.type as ScheduleChangeType
     const day = dateOnly(input.date)
     const change = await this.prisma.$transaction(async (tx) => {
       await advisoryXactLock(tx, `schedule-change:${gctx.universityId}:${input.date}`)
@@ -928,13 +936,7 @@ export class SchedulesService {
         )
       }
       if (type !== ScheduleChangeType.CANCELLED) {
-        const next: DatedChange = {
-          type,
-          newStartTime: input.newStartTime ?? null,
-          newEndTime: input.newEndTime ?? null,
-          newTeacherId,
-          newRoomId,
-        }
+        const next: DatedChange = { type, newStartTime, newEndTime, newTeacherId, newRoomId }
         await this.assertNoConflictOnDate(tx, pair, day, [...own, next], type)
       }
       return tx.scheduleChange.create({
@@ -944,8 +946,8 @@ export class SchedulesService {
           date: day,
           newRoomId,
           newTeacherId,
-          newStartTime: input.newStartTime,
-          newEndTime: input.newEndTime,
+          newStartTime,
+          newEndTime,
           note: input.note,
           createdById: actor.sub,
         },

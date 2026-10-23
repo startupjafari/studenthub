@@ -899,6 +899,36 @@ describe('SchedulesService — разовые изменения (C-F16)', () =>
     expect(err.details).toEqual([expect.objectContaining({ field: 'newRoomId' })])
   })
 
+  it('поля чужого типа отбрасываются: смена аудитории не уносит заменяющего', async () => {
+    const { service, prisma, queue } = prime()
+    prisma.user.findMany.mockResolvedValue([{ id: 's-1' }])
+    await service.createChange(
+      admin,
+      {
+        pairId: 'pair-1',
+        type: 'ROOM_CHANGED',
+        date: '2026-09-15',
+        newRoomId: 'r-7',
+        newTeacherId: 't-x',
+        newStartTime: '12:00',
+        newEndTime: '13:30',
+      },
+      ctx,
+    )
+    expect(prisma.user.findFirst).not.toHaveBeenCalled()
+    expect(prisma.scheduleChange.create.mock.calls[0][0].data).toEqual(
+      expect.objectContaining({
+        newRoomId: 'r-7',
+        newTeacherId: null,
+        newStartTime: null,
+        newEndTime: null,
+      }),
+    )
+    for (const [, , job] of queue.enqueue.mock.calls) {
+      expect(job.recipientIds).not.toContain('t-x')
+    }
+  })
+
   it('перенос с новой аудиторией проверяет занятость новой аудитории', async () => {
     const { service, prisma } = prime()
     prisma.pair.findMany.mockResolvedValue([otherPair({ roomId: 'r-7' })])
