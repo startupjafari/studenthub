@@ -53,6 +53,11 @@ function setup() {
     bookmark: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
     // Гранты на свои документы гаснут вместе с аккаунтом (softDeleteSelf).
     documentAccess: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    // Карьерные данные удаляемого (softDeleteSelf).
+    careerApplication: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    resume: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    careerProfile: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    careerConsent: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
     // advisory-лок (проверка последнего администратора платформы при удалении аккаунта).
     $executeRaw: jest.fn().mockResolvedValue(1),
     // Пакетная транзакция — массивом запросов; интерактивная получает этот же мок как tx.
@@ -848,6 +853,19 @@ describe('UserService — softDeleteSelf', () => {
       where: { document: { ownerId: 'u' }, revokedAt: null },
       data: { revokedAt: expect.any(Date) },
     })
+  })
+
+  // Работодателю оставались сопроводительные письма откликов удалённого студента.
+  it('удаляет отклики, резюме, карьерный профиль и согласия в той же транзакции', async () => {
+    const { service, prisma, passwords, config } = setup()
+    withBuckets(config)
+    passwords.hash.mockResolvedValue('anon')
+    prisma.user.update.mockResolvedValue({})
+    await service.softDeleteSelf('u')
+    expect(prisma.careerApplication.deleteMany).toHaveBeenCalledWith({ where: { studentId: 'u' } })
+    for (const model of [prisma.resume, prisma.careerProfile, prisma.careerConsent]) {
+      expect(model.deleteMany).toHaveBeenCalledWith({ where: { userId: 'u' } })
+    }
   })
 
   // Бакеты профиля публичные: без удаления объектов фото и видео оставались доступны по

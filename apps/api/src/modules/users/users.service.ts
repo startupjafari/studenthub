@@ -2162,6 +2162,13 @@ export class UserService {
         where: { document: { ownerId: userId }, revokedAt: null },
         data: { revokedAt: new Date() },
       })
+      // Карьера — тоже личное: отклики с сопроводительными письмами оставались у
+      // работодателя, а резюме, карьерный профиль и согласия показать GPA, телефон и
+      // почту переживали удаление. История откликов уходит каскадом.
+      await tx.careerApplication.deleteMany({ where: { studentId: userId } })
+      await tx.resume.deleteMany({ where: { userId } })
+      await tx.careerProfile.deleteMany({ where: { userId } })
+      await tx.careerConsent.deleteMany({ where: { userId } })
     })
     await this.authService.revokeAllUserSessions(userId)
     // Строка журнала переживает анонимизацию: в ней только id, без ПДн удалённого.
