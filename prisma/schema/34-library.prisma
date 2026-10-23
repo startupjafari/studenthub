@@ -112,6 +112,11 @@ model Loan {
   cancelReason    String?        @map("cancel_reason")
   // Читатель нажал «Это не я» в уведомлении о выдаче.
   disputedAt      DateTime?      @map("disputed_at")
+  // Утерянная книга — долг читателя, пока библиотекарь не отметит, что его погасили (книгу
+  // заменили или возместили). До отметки выдача LOST держит справку и закрывает выдачу и
+  // брони, как просрочка.
+  lostSettledAt   DateTime?      @map("lost_settled_at")
+  lostSettledById String?        @map("lost_settled_by_id")
   // Снимок читателя и книги на момент выдачи.
   readerName      String         @map("reader_name")
   readerGroup     String?        @map("reader_group")
@@ -125,14 +130,15 @@ model Loan {
   createdAt       DateTime       @default(now()) @map("created_at")
   updatedAt       DateTime       @updatedAt @map("updated_at")
 
-  university  University           @relation(fields: [universityId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  copy        BookCopy             @relation(fields: [copyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  reader      User?                @relation("LoanReader", fields: [readerId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  issuedBy    User?                @relation("LoanIssuedBy", fields: [issuedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  returnedTo  User?                @relation("LoanReturnedTo", fields: [returnedToId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  cancelledBy User?                @relation("LoanCancelledBy", fields: [cancelledById], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  idAccesses  LibraryIdAccessLog[]
-  reservation Reservation?         @relation("ReservationFulfilledBy")
+  university    University           @relation(fields: [universityId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  copy          BookCopy             @relation(fields: [copyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  reader        User?                @relation("LoanReader", fields: [readerId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  issuedBy      User?                @relation("LoanIssuedBy", fields: [issuedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  returnedTo    User?                @relation("LoanReturnedTo", fields: [returnedToId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  cancelledBy   User?                @relation("LoanCancelledBy", fields: [cancelledById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  lostSettledBy User?                @relation("LoanLostSettledBy", fields: [lostSettledById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  idAccesses    LibraryIdAccessLog[]
+  reservation   Reservation?         @relation("ReservationFulfilledBy")
 
   @@index([universityId, status, dueAt])
   @@index([readerId, status])
@@ -140,6 +146,7 @@ model Loan {
   @@index([issuedById])
   @@index([returnedToId])
   @@index([cancelledById])
+  @@index([lostSettledById])
   @@map("loans")
 }
 
