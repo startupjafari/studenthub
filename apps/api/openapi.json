@@ -3354,6 +3354,398 @@
         ]
       }
     },
+    "/analytics/faculty": {
+      "get": {
+        "operationId": "AnalyticsController_faculty",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Обзор факультета (показатели, группы, требует внимания)",
+        "tags": [
+          "Аналитика"
+        ]
+      }
+    },
+    "/analytics/at-risk": {
+      "get": {
+        "operationId": "AnalyticsController_atRisk",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Студенты «требует внимания» с явными причинами (Early Warning)",
+        "tags": [
+          "Аналитика"
+        ]
+      }
+    },
+    "/analytics/group/{id}/attendance": {
+      "get": {
+        "operationId": "AnalyticsController_groupAttendance",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Посещаемость по студентам группы (drill-down)",
+        "tags": [
+          "Аналитика"
+        ]
+      }
+    },
+    "/analytics/university/overview": {
+      "get": {
+        "description": "`attendanceRate` — доля не-пропусков по всем отметкам вуза (null — не отмечали). `groups` — не больше 100 групп с отмеченной посещаемостью, худшие первыми; `atRisk` — те из них, что ниже порога «требует внимания».",
+        "operationId": "UniversityAnalyticsController_overview",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Плитки дашборда вуза: посещаемость, работы на проверке, экзамены, худшие группы",
+        "tags": [
+          "Аналитика"
+        ]
+      }
+    },
+    "/analytics/university/attendance-trend": {
+      "get": {
+        "operationId": "UniversityAnalyticsController_attendanceTrend",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Посещаемость по неделям, отдельным рядом на факультет",
+        "tags": [
+          "Аналитика"
+        ]
+      }
+    },
+    "/analytics/university/attendance-breakdown": {
+      "get": {
+        "operationId": "UniversityAnalyticsController_attendanceBreakdown",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Структура посещаемости по факультетам (present/late/absent/excused)",
+        "tags": [
+          "Аналитика"
+        ]
+      }
+    },
+    "/analytics/university/room-load": {
+      "get": {
+        "operationId": "UniversityAnalyticsController_roomLoad",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Загрузка аудиторий: сетка «день недели × час», 7×24",
+        "tags": [
+          "Аналитика"
+        ]
+      }
+    },
+    "/analytics/university/exam-results": {
+      "get": {
+        "operationId": "UniversityAnalyticsController_examResults",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Исход экзаменов по факультетам (passed/failed/absent/retake)",
+        "tags": [
+          "Аналитика"
+        ]
+      }
+    },
+    "/analytics/university/applications-flow": {
+      "get": {
+        "operationId": "UniversityAnalyticsController_applicationsFlow",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Заявки по неделям: поступило, закрыто, закрыто с просрочкой",
+        "tags": [
+          "Аналитика"
+        ]
+      }
+    },
+    "/analytics/university/invites-funnel": {
+      "get": {
+        "operationId": "UniversityAnalyticsController_invitesFunnel",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Воронка приглашений вуза: выдано, принято, истекло, отозвано",
+        "tags": [
+          "Аналитика"
+        ]
+      }
+    },
+    "/analytics/platform/overview": {
+      "get": {
+        "operationId": "PlatformAnalyticsController_overview",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Плитки дашборда: вузы, пользователи, жалобы, DAU/WAU",
+        "tags": [
+          "Аналитика платформы"
+        ]
+      }
+    },
+    "/analytics/platform/users-growth": {
+      "get": {
+        "operationId": "PlatformAnalyticsController_usersGrowth",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Новые пользователи по корзинам: студенты/преподаватели/сотрудники",
+        "tags": [
+          "Аналитика платформы"
+        ]
+      }
+    },
+    "/analytics/platform/active-users": {
+      "get": {
+        "operationId": "PlatformAnalyticsController_activeUsers",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "DAU/WAU по журналу аудита",
+        "tags": [
+          "Аналитика платформы"
+        ]
+      }
+    },
+    "/analytics/platform/universities-size": {
+      "get": {
+        "description": "`items` — не больше 200 вузов, крупнейшие первыми. `totals` — итоги по всей платформе, а не сумма `items`.",
+        "operationId": "PlatformAnalyticsController_universitiesSize",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Размер вузов: люди, факультеты, группы и аудитории по каждому",
+        "tags": [
+          "Аналитика платформы"
+        ]
+      }
+    },
+    "/analytics/platform/complaints-flow": {
+      "get": {
+        "operationId": "PlatformAnalyticsController_complaintsFlow",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Жалобы: поступило и разобрано по корзинам",
+        "tags": [
+          "Аналитика платформы"
+        ]
+      }
+    },
+    "/analytics/platform/complaints-latency": {
+      "get": {
+        "operationId": "PlatformAnalyticsController_complaintsLatency",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Время разбора жалоб: распределение по корзинам и медиана",
+        "tags": [
+          "Аналитика платформы"
+        ]
+      }
+    },
+    "/analytics/platform/invites-funnel": {
+      "get": {
+        "operationId": "PlatformAnalyticsController_invitesFunnel",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Воронка инвайтов: конверсия и статусы по корзинам",
+        "tags": [
+          "Аналитика платформы"
+        ]
+      }
+    },
+    "/analytics/platform/activity-heatmap": {
+      "get": {
+        "description": "Часы раскладываются в зоне `tz` (IANA-имя, по умолчанию UTC). `days[dow]` — сколько календарных дат этого дня недели попало в период: делитель для сравнения будней с выходными.",
+        "operationId": "PlatformAnalyticsController_activityHeatmap",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Активность по дням недели и часам, 7×24 + число дат каждого дня недели",
+        "tags": [
+          "Аналитика платформы"
+        ]
+      }
+    },
+    "/analytics/platform/top-actions": {
+      "get": {
+        "operationId": "PlatformAnalyticsController_topActions",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Топ действий в аудите за период",
+        "tags": [
+          "Аналитика платформы"
+        ]
+      }
+    },
     "/rooms": {
       "post": {
         "operationId": "RoomsController_create",
@@ -7107,398 +7499,6 @@
         "summary": "Ведомость экзамена (студенты + результаты)",
         "tags": [
           "Экзамены"
-        ]
-      }
-    },
-    "/analytics/faculty": {
-      "get": {
-        "operationId": "AnalyticsController_faculty",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Обзор факультета (показатели, группы, требует внимания)",
-        "tags": [
-          "Аналитика"
-        ]
-      }
-    },
-    "/analytics/at-risk": {
-      "get": {
-        "operationId": "AnalyticsController_atRisk",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Студенты «требует внимания» с явными причинами (Early Warning)",
-        "tags": [
-          "Аналитика"
-        ]
-      }
-    },
-    "/analytics/group/{id}/attendance": {
-      "get": {
-        "operationId": "AnalyticsController_groupAttendance",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Посещаемость по студентам группы (drill-down)",
-        "tags": [
-          "Аналитика"
-        ]
-      }
-    },
-    "/analytics/university/overview": {
-      "get": {
-        "description": "`attendanceRate` — доля не-пропусков по всем отметкам вуза (null — не отмечали). `groups` — не больше 100 групп с отмеченной посещаемостью, худшие первыми; `atRisk` — те из них, что ниже порога «требует внимания».",
-        "operationId": "UniversityAnalyticsController_overview",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Плитки дашборда вуза: посещаемость, работы на проверке, экзамены, худшие группы",
-        "tags": [
-          "Аналитика"
-        ]
-      }
-    },
-    "/analytics/university/attendance-trend": {
-      "get": {
-        "operationId": "UniversityAnalyticsController_attendanceTrend",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Посещаемость по неделям, отдельным рядом на факультет",
-        "tags": [
-          "Аналитика"
-        ]
-      }
-    },
-    "/analytics/university/attendance-breakdown": {
-      "get": {
-        "operationId": "UniversityAnalyticsController_attendanceBreakdown",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Структура посещаемости по факультетам (present/late/absent/excused)",
-        "tags": [
-          "Аналитика"
-        ]
-      }
-    },
-    "/analytics/university/room-load": {
-      "get": {
-        "operationId": "UniversityAnalyticsController_roomLoad",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Загрузка аудиторий: сетка «день недели × час», 7×24",
-        "tags": [
-          "Аналитика"
-        ]
-      }
-    },
-    "/analytics/university/exam-results": {
-      "get": {
-        "operationId": "UniversityAnalyticsController_examResults",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Исход экзаменов по факультетам (passed/failed/absent/retake)",
-        "tags": [
-          "Аналитика"
-        ]
-      }
-    },
-    "/analytics/university/applications-flow": {
-      "get": {
-        "operationId": "UniversityAnalyticsController_applicationsFlow",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Заявки по неделям: поступило, закрыто, закрыто с просрочкой",
-        "tags": [
-          "Аналитика"
-        ]
-      }
-    },
-    "/analytics/university/invites-funnel": {
-      "get": {
-        "operationId": "UniversityAnalyticsController_invitesFunnel",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Воронка приглашений вуза: выдано, принято, истекло, отозвано",
-        "tags": [
-          "Аналитика"
-        ]
-      }
-    },
-    "/analytics/platform/overview": {
-      "get": {
-        "operationId": "PlatformAnalyticsController_overview",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Плитки дашборда: вузы, пользователи, жалобы, DAU/WAU",
-        "tags": [
-          "Аналитика платформы"
-        ]
-      }
-    },
-    "/analytics/platform/users-growth": {
-      "get": {
-        "operationId": "PlatformAnalyticsController_usersGrowth",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Новые пользователи по корзинам: студенты/преподаватели/сотрудники",
-        "tags": [
-          "Аналитика платформы"
-        ]
-      }
-    },
-    "/analytics/platform/active-users": {
-      "get": {
-        "operationId": "PlatformAnalyticsController_activeUsers",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "DAU/WAU по журналу аудита",
-        "tags": [
-          "Аналитика платформы"
-        ]
-      }
-    },
-    "/analytics/platform/universities-size": {
-      "get": {
-        "description": "`items` — не больше 200 вузов, крупнейшие первыми. `totals` — итоги по всей платформе, а не сумма `items`.",
-        "operationId": "PlatformAnalyticsController_universitiesSize",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Размер вузов: люди, факультеты, группы и аудитории по каждому",
-        "tags": [
-          "Аналитика платформы"
-        ]
-      }
-    },
-    "/analytics/platform/complaints-flow": {
-      "get": {
-        "operationId": "PlatformAnalyticsController_complaintsFlow",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Жалобы: поступило и разобрано по корзинам",
-        "tags": [
-          "Аналитика платформы"
-        ]
-      }
-    },
-    "/analytics/platform/complaints-latency": {
-      "get": {
-        "operationId": "PlatformAnalyticsController_complaintsLatency",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Время разбора жалоб: распределение по корзинам и медиана",
-        "tags": [
-          "Аналитика платформы"
-        ]
-      }
-    },
-    "/analytics/platform/invites-funnel": {
-      "get": {
-        "operationId": "PlatformAnalyticsController_invitesFunnel",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Воронка инвайтов: конверсия и статусы по корзинам",
-        "tags": [
-          "Аналитика платформы"
-        ]
-      }
-    },
-    "/analytics/platform/activity-heatmap": {
-      "get": {
-        "description": "Часы раскладываются в зоне `tz` (IANA-имя, по умолчанию UTC). `days[dow]` — сколько календарных дат этого дня недели попало в период: делитель для сравнения будней с выходными.",
-        "operationId": "PlatformAnalyticsController_activityHeatmap",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Активность по дням недели и часам, 7×24 + число дат каждого дня недели",
-        "tags": [
-          "Аналитика платформы"
-        ]
-      }
-    },
-    "/analytics/platform/top-actions": {
-      "get": {
-        "operationId": "PlatformAnalyticsController_topActions",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Топ действий в аудите за период",
-        "tags": [
-          "Аналитика платформы"
         ]
       }
     },
