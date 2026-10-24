@@ -327,6 +327,23 @@
         }
       }
     },
+    "auth.error.challengeExpired": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Время на ввод кода истекло или попытки закончились — введите пароль ещё раз"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кодты енгізу уақыты өтті немесе әрекеттер таусылды — құпиясөзді қайта енгізіңіз"
+          }
+        }
+      }
+    },
     "auth.error.codeTooShort": {
       "extractionState": "manual",
       "localizations": {
