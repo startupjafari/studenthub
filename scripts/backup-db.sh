@@ -89,7 +89,11 @@ if [[ -n "${BACKUP_S3_ENDPOINT:-}" && -n "${BACKUP_S3_BUCKET:-}" ]]; then
         continue
       fi
       echo "→ Зеркало ${bucket}"
-      mc mirror --overwrite --remove "media/${bucket}" "backup/${BACKUP_S3_BUCKET}/media/${bucket}"
+      # Без --remove: удалённое на проде в бэкапе остаётся. С ним ошибочное удаление
+      # (оператор, баг уборки) за ночь стирало и копию — ровно то, от чего бэкап и
+      # страхует. Цена — зеркало только растёт; чистить его, если место станет
+      # проблемой, — правилом жизненного цикла бакета снимков, а не этим скриптом.
+      mc mirror --overwrite "media/${bucket}" "backup/${BACKUP_S3_BUCKET}/media/${bucket}"
     done
   fi
 
