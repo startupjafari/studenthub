@@ -3626,6 +3626,7 @@
     "columnActions": "Column actions",
     "publish": "Publish",
     "unpublish": "Unpublish",
+    "publishUnsaved": "This column has unsaved scores — save them first",
     "deleteColumn": "Delete column",
     "noColumns": "No assessments",
     "noColumnsHint": "Add a lab, test or exam.",
