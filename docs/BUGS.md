@@ -1326,7 +1326,7 @@
 - **Где:** `apps/api/src/modules/analytics/analytics-report.service.ts:546-557` (источник `audit_logs`), `apps/api/src/modules/cleanup/cleanup.service.ts:99` (`AUDIT_RETENTION_DAYS = 90`) · **Статус:** исправлен · `fix/bugs-analytics` (05371a5d)
 
 #### BUG-189 · 🟡 Любая ошибка скачивания файла — «Ошибка сервера»; протухший токен не продлевается
-- **Роль:** все, кто скачивает отчёты, `/me/export`, списки, резюме, выгрузку чата · **Статус:** новый
+- **Роль:** все, кто скачивает отчёты, `/me/export`, списки, резюме, выгрузку чата · **Статус:** исправлен · `fix/bugs-analytics` (dcf91adb)
 - **Где:** `apps/web/src/shared/lib/download-file.ts:20` (`responseType: 'blob'`), `apps/web/src/shared/api/instance.ts:115,154`
 - **Сценарий:** у ошибки тело — `Blob`, `code` всегда `undefined`: 429, 400, 403 — «Ошибка сервера»; 401 `TOKEN_EXPIRED` не лечится refresh.
 - **Ожидается:** §8.2 — разбирать Blob как JSON до проверки кода.
@@ -1435,10 +1435,10 @@
 - **Где:** `apps/api/src/modules/career/vacancies.service.ts:341-342`, `career-analytics.service.ts:369` · **Статус:** исправлен · `fix/bugs-career` (e09b89e3)
 
 #### BUG-221 · 🟢 🔒 Карточка заблокированного студента по-прежнему отдаётся работодателю
-- **Где:** `apps/api/src/modules/career/career-profile.service.ts:292-296` (только `deletedAt: null`) · **Статус:** новый
+- **Где:** `apps/api/src/modules/career/career-profile.service.ts:292-296` (только `deletedAt: null`) · **Статус:** исправлен · `fix/bugs-career` (f07b0234)
 
 #### BUG-222 · 🟢 🔒 Карточка кандидата различает «чужой вуз» и «нет такого» — оракул существования id
-- **Где:** `apps/api/src/modules/career/career-profile.service.ts:176-185` (тот же класс, что BUG-066) · **Статус:** новый
+- **Где:** `apps/api/src/modules/career/career-profile.service.ts:176-185` (тот же класс, что BUG-066) · **Статус:** исправлен · `fix/bugs-career` (f07b0234)
 
 ### Документы
 
@@ -1972,7 +1972,7 @@
 - **Где:** `apps/web/src/views/events/ui/events-view.tsx:303`, `event-detail-view.tsx:219`; сервер пускает — `events.service.ts:252` · **Статус:** новый
 
 #### BUG-372 · 🟢 Перенос события на прежнее время: уведомление и напоминание проглатываются (корень BUG-090/BUG-094)
-- **Где:** `apps/api/src/modules/events/events.service.ts:365,636` · **Статус:** новый
+- **Где:** `apps/api/src/modules/events/events.service.ts:365,636` · **Статус:** исправлен · `fix/bugs-events-moderation` (62688272)
 
 #### BUG-373 · 🟢 Время в уведомлениях о событиях платформы — в UTC без пометки (корень BUG-103)
 - **Где:** `apps/api/src/modules/events/events.service.ts:357-361,379,391,747-754` · **Статус:** новый
