@@ -10,9 +10,21 @@ function isPlatform(role: Role): boolean {
   return role === Role.PLATFORM_ADMIN || role === Role.PLATFORM_MODERATOR
 }
 
-// Доля не-пропусков: (всего − отсутствовал) / всего, в процентах.
-function rateOf(counts: { total: number; absent: number }): number {
-  return counts.total === 0 ? 0 : Math.round(((counts.total - counts.absent) / counts.total) * 100)
+// Доля не-пропусков: (всего − отсутствовал) / всего, в процентах. null — отметок не было:
+// «0 %» читалось бы как «никто не ходил» (красная плитка, группа первой среди худших), а это
+// «нечего считать». Так же отвечает сводка вуза (UniversityAnalyticsService.overview).
+function rateOf(counts: { total: number; absent: number }): number | null {
+  return counts.total === 0
+    ? null
+    : Math.round(((counts.total - counts.absent) / counts.total) * 100)
+}
+
+// Худшие первыми, группы без отметок — в конце: им нечего проигрывать.
+function byRateAsc(a: { attendanceRate: number | null }, b: { attendanceRate: number | null }) {
+  if (a.attendanceRate === null || b.attendanceRate === null) {
+    return (a.attendanceRate === null ? 1 : 0) - (b.attendanceRate === null ? 1 : 0)
+  }
+  return a.attendanceRate - b.attendanceRate
 }
 
 // Потолок на список групп факультета (BACKEND_RULES §7.2); остальные агрегаты
@@ -293,10 +305,12 @@ export class AnalyticsService {
           attendanceTracked: att.total,
         }
       })
-      .sort((a, b) => a.attendanceRate - b.attendanceRate)
+      .sort(byRateAsc)
 
-    const atRisk = groupStats.filter(
-      (g) => g.attendanceTracked > 0 && g.attendanceRate < AT_RISK_THRESHOLD,
+    const atRisk = groupStats.flatMap((g) =>
+      g.attendanceRate !== null && g.attendanceRate < AT_RISK_THRESHOLD
+        ? [{ groupId: g.groupId, name: g.name, attendanceRate: g.attendanceRate }]
+        : [],
     )
 
     return {
@@ -309,11 +323,7 @@ export class AnalyticsService {
         examsUpcoming,
       },
       groups: groupStats,
-      atRisk: atRisk.map((g) => ({
-        groupId: g.groupId,
-        name: g.name,
-        attendanceRate: g.attendanceRate,
-      })),
+      atRisk,
     }
   }
 
@@ -406,9 +416,9 @@ export class AnalyticsService {
       const reasons: RiskReason[] = []
 
       const a = att.get(s.id)
-      if (a && a.total > 0) {
-        const rate = rateOf(a)
-        if (rate < AT_RISK_THRESHOLD) reasons.push({ kind: 'LOW_ATTENDANCE', value: rate })
+      const rate = a ? rateOf(a) : null
+      if (rate !== null && rate < AT_RISK_THRESHOLD) {
+        reasons.push({ kind: 'LOW_ATTENDANCE', value: rate })
       }
 
       // Просрочено = сколько заданий своей группы с истёкшим сроком студент не сдал.

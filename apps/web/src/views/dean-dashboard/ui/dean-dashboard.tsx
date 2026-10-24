@@ -88,10 +88,11 @@ export function DeanDashboard() {
   // Худшие группы сверху: график для того и нужен, чтобы увидеть проседание.
   // Группы без отметок не рисуем вовсе — нулевой столбик прочитался бы как «ноль
   // процентов посещаемости», хотя там просто нечего считать.
-  const groups = [...(overview.data?.groups ?? [])]
-    .filter((g) => g.attendanceTracked > 0)
-    .sort((a, b) => a.attendanceRate - b.attendanceRate)
+  const groups = (overview.data?.groups ?? [])
+    .flatMap((g) => (g.attendanceRate === null ? [] : [{ name: g.name, rate: g.attendanceRate }]))
+    .sort((a, b) => a.rate - b.rate)
     .slice(0, WORST_GROUPS)
+  const attendanceRate = totals?.attendanceRate ?? null
 
   const students = risk.data?.students ?? []
   const riskCounts = [
@@ -166,9 +167,12 @@ export function DeanDashboard() {
           icon={Percent}
           tone="text-info"
           label={t('kpiAttendance')}
-          value={totals ? `${totals.attendanceRate}%` : null}
+          // null — факультет ещё не отмечали: прочерк, а не красные «0 %».
+          value={attendanceRate === null ? null : `${attendanceRate}%`}
           valueTone={
-            totals && totals.attendanceRate < lowThreshold ? 'text-destructive' : undefined
+            attendanceRate !== null && attendanceRate < lowThreshold
+              ? 'text-destructive'
+              : undefined
           }
           loading={overview.isLoading}
           href="/dean/analytics"
@@ -204,7 +208,7 @@ export function DeanDashboard() {
             palette={palette}
             height={Math.max(200, groups.length * 26 + 40)}
             labels={groups.map((g) => g.name)}
-            values={groups.map((g) => g.attendanceRate)}
+            values={groups.map((g) => g.rate)}
             seriesName={t('percentShort')}
           />
         )}

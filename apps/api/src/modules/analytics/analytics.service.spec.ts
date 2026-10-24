@@ -85,9 +85,39 @@ describe('AnalyticsService.facultyOverview — посещаемость из а�
 
     const res = await service.facultyOverview(dean)
 
-    expect(res.totals.attendanceRate).toBe(0)
-    expect(res.groups).toEqual([expect.objectContaining({ attendanceTracked: 0 })])
+    // Нечего считать — null, а не «0 %», которое экран красил бы красным (BUG-191).
+    expect(res.totals.attendanceRate).toBeNull()
+    expect(res.groups).toEqual([
+      expect.objectContaining({ attendanceTracked: 0, attendanceRate: null }),
+    ])
     expect(res.atRisk).toHaveLength(0)
+  })
+
+  it('группы без отметок идут после отмеченных, а не первыми среди худших', async () => {
+    const raw = rawMock({
+      'GROUP BY p.group_id': [
+        { groupId: 'g2', total: 10n, absent: 5n },
+        { groupId: 'g3', total: 10n, absent: 1n },
+      ],
+    })
+    const { service } = setup(raw, {
+      group: {
+        findMany: jest.fn().mockResolvedValue([
+          { id: 'g1', name: 'Без отметок' },
+          { id: 'g2', name: 'Половина' },
+          { id: 'g3', name: 'Почти все' },
+        ]),
+      },
+    })
+
+    const res = await service.facultyOverview(dean)
+
+    expect(res.groups.map((g) => [g.groupId, g.attendanceRate])).toEqual([
+      ['g2', 50],
+      ['g3', 90],
+      ['g1', null],
+    ])
+    expect(res.atRisk).toEqual([{ groupId: 'g2', name: 'Половина', attendanceRate: 50 }])
   })
 })
 
@@ -194,8 +224,14 @@ describe('AnalyticsService.groupAttendance — drill-down из агрегата'
         attendanceRate: 90,
         tracked: 30_000,
       },
-      // Без отметок — ноль отмеченных, а не пропуск строки.
-      { studentId: 's2', firstName: 'Ержан', lastName: 'Бектуров', attendanceRate: 0, tracked: 0 },
+      // Без отметок — строка остаётся, процента нет (null), а не «0 %».
+      {
+        studentId: 's2',
+        firstName: 'Ержан',
+        lastName: 'Бектуров',
+        attendanceRate: null,
+        tracked: 0,
+      },
     ])
     expect(attendanceFindMany).not.toHaveBeenCalled()
   })

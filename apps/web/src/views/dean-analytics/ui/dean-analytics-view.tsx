@@ -170,9 +170,15 @@ export function DeanAnalyticsView() {
                 icon={Percent}
                 tone="text-info"
                 label={t('kpi.attendance')}
-                value={`${q.data.totals.attendanceRate}%`}
+                // null — факультет ещё не отмечали: прочерк, а не красные «0 %».
+                value={
+                  q.data.totals.attendanceRate === null ? null : `${q.data.totals.attendanceRate}%`
+                }
                 valueTone={
-                  q.data.totals.attendanceRate < lowAttendance ? 'text-destructive' : undefined
+                  q.data.totals.attendanceRate !== null &&
+                  q.data.totals.attendanceRate < lowAttendance
+                    ? 'text-destructive'
+                    : undefined
                 }
               />
               <MetricTile
@@ -437,7 +443,7 @@ function GroupsTab({
       if (key === 'name') return g.name
       if (key === 'students') return g.students
       // Группа без отметок — не «ноль процентов», а «нечего считать»: уводим в конец.
-      if (key === 'rate') return g.attendanceTracked > 0 ? g.attendanceRate : null
+      if (key === 'rate') return g.attendanceRate
       return null
     },
     // Сортировки по умолчанию нет: порядок задаёт сервер, колонки сортируются щелчком.
@@ -470,8 +476,8 @@ function GroupsTab({
         </TableHeader>
         <TableBody>
           {sorted.map((g) => {
-            const tracked = g.attendanceTracked > 0
-            const atRisk = tracked && g.attendanceRate < threshold
+            const rate = g.attendanceRate
+            const atRisk = rate !== null && rate < threshold
             return (
               <TableRow
                 key={g.groupId}
@@ -489,17 +495,14 @@ function GroupsTab({
                 </TableCell>
                 <TableCell>
                   <span className="flex items-center gap-2">
-                    <Progress
-                      value={g.attendanceRate}
-                      indicatorClassName={rateTone(g.attendanceRate)}
-                    />
+                    <Progress value={rate ?? 0} indicatorClassName={rateTone(rate ?? 0)} />
                     <span
                       className={cn(
                         'w-10 shrink-0 text-right text-xs tabular-nums',
                         atRisk && 'font-medium text-destructive',
                       )}
                     >
-                      {tracked ? `${g.attendanceRate}%` : '—'}
+                      {rate !== null ? `${rate}%` : '—'}
                     </span>
                   </span>
                 </TableCell>

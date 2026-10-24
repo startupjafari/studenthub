@@ -1,16 +1,19 @@
 export interface FacultyTotals {
   groups: number
   students: number
-  attendanceRate: number
+  /** Доля не-пропусков, проценты; null — посещаемость ещё не отмечали. */
+  attendanceRate: number | null
   submissionsPending: number
   examsUpcoming: number
 }
 
+/** Группы факультета: худшие первыми, без отметок — в конце. */
 export interface GroupStat {
   groupId: string
   name: string
   students: number
-  attendanceRate: number
+  /** null — в группе ещё не отмечали посещаемость. */
+  attendanceRate: number | null
   attendanceTracked: number
 }
 
@@ -31,7 +34,8 @@ export interface StudentAttendanceStat {
   studentId: string
   firstName: string
   lastName: string
-  attendanceRate: number
+  /** null — студента ещё не отмечали. */
+  attendanceRate: number | null
   tracked: number
 }
 
