@@ -522,7 +522,7 @@
 - **Ожидается:** «пока долг не погашен, он считается как просрочка» (§3.11).
 
 #### BUG-052 · 🟢 Поиск помещений на посту охраны не даёт ввести пробел
-- **Роль:** SECURITY_GUARD · **Статус:** новый
+- **Роль:** SECURITY_GUARD · **Статус:** исправлен · `fix/bugs-library-security` (edb4d886)
 - **Где:** `apps/web/src/views/security/ui/security-rooms-view.tsx:84`
 - **Сценарий:** `trim()` на каждое нажатие — «Корпус А» превращается в «КорпусА».
 - **Ожидается:** обрезать при отправке запроса, как в `loans-view.tsx`.
@@ -670,7 +670,7 @@
   истины с сервером).
 
 #### BUG-073 · 🟠 На телефоне не видны разовые изменения расписания: `GET /schedule/changes` всегда `422`
-- **Роль:** STUDENT, STAROSTA, TEACHER — iOS и Android · **Статус:** подтверждён
+- **Роль:** STUDENT, STAROSTA, TEACHER — iOS и Android · **Статус:** исправлен · `fix/bugs-ios-miniapp` (9a3def36)
 - **Где:** `apps/ios/Sources/Core/Study/ScheduleAPI.swift:66-75`, `apps/android/app/src/main/kotlin/kz/studenthub/app/core/study/StudyApi.kt:45-49`, схема `packages/shared-schemas/src/schedule.ts:27,169-172`
 - **Сценарий:** клиенты шлют `from`/`to` меткой времени (`2026-10-24T00:00:00.000Z`), схема
   принимает только `YYYY-MM-DD` — `422`. Пары сохраняются, изменения нет, ошибка на каждом
@@ -820,7 +820,7 @@
   BACKEND_RULES §9.2 — идемпотентность против повтора job'а, а не против нового события.
 
 #### BUG-091 · 🟡 Напоминания о событиях и сроки документов помечаются отправленными, даже если job не поставлен
-- **Роль:** участники событий, владельцы документов · **Статус:** новый
+- **Роль:** участники событий, владельцы документов · **Статус:** исправлен · `fix/bugs-events-moderation` (3c1a7f7c)
 - **Где:** `apps/api/src/modules/events/events.service.ts:620-654`, `apps/api/src/modules/documents/documents.service.ts:1670-1689`, контракт `apps/api/src/common/queue/queue.service.ts:74-77`
 - **Сценарий:** Redis недоступен — `enqueue` возвращает `false`, а `reminderSentAt` и статус
   EXPIRING/EXPIRED всё равно пишутся; следующий прогон их не выберет, напоминание потеряно.
@@ -930,12 +930,13 @@
 - **Ожидается:** `AdminLimitSchema` там, где селектор до 200, или селектор [20, 50, 100].
 
 #### BUG-106 · 🟡 Материалы на телефоне без файлов и ссылок; у заданий нет дисциплины, в профиле iOS — группы
-- **Роль:** STUDENT, STAROSTA, TEACHER — iOS и Android · **Статус:** новый
+- **Роль:** STUDENT, STAROSTA, TEACHER — iOS и Android · **Статус:** отложен
 - **Где:** `apps/api/src/modules/materials/materials.service.ts:23-43`, `apps/ios/Sources/Core/Study/StudyAPI.swift:100,106-119`, `apps/ios/Sources/Features/Study/AssignmentsView.swift:50,201`, `apps/android/.../core/study/StudyDto.kt:121,137-143`, `.../features/study/StudyScreens.kt:259,344`, `apps/api/src/modules/assignments/assignments.service.ts:113-128`, `apps/ios/Sources/Core/Feed/FeedAPI.swift:81-82`
 - **Сценарий:** API отдаёт вложения в `media` и ссылку в `url` — клиенты ждут `files`; дисциплина
   в `course.subject.name`, клиенты читают `subject`; iOS ждёт `groupName`/`facultyName` в
   `/users/me`, а там только id.
 - **Ожидается:** DTO совпадают с ответом API (§8.3).
+- **Отложено:** расхождение в мобильных клиентах (apps/ios StudyAPI/AssignmentsView/FeedAPI, apps/android StudyDto/StudyScreens): API по §8.3 отдаёт media/url, course.subject.name и id в /users/me — править DTO клиентов в областях iOS и Android; со стороны API для материалов теперь есть media[].name (BUG-339)
 
 #### BUG-107 · 🟡 🔒 Отозванная или истёкшая сессия на телефоне не ведёт на экран входа
 - **Роль:** все — iOS и Android · **Статус:** исправлен · `fix/bugs-android` (5565a07f)
@@ -954,7 +955,7 @@
 - **Ожидается:** смена пароля и `revokeAllUserSessions` стирают неподтверждённый секрет (§6.2).
 
 #### BUG-109 · 🟢 Удаление надгробия бывшего админа группы уносит аватар группы у всех
-- **Роль:** участники пользовательских групп · **Статус:** новый
+- **Роль:** участники пользовательских групп · **Статус:** исправлен · `fix/bugs-chats` (7d99593e)
 - **Где:** `apps/api/src/modules/chats/chats.service.ts:3448-3454`, `apps/api/src/modules/cleanup/pd-retention.service.ts:507-520`, `apps/api/src/modules/cleanup/cleanup.service.ts:862-863`
 - **Ожидается:** каскад не уносит чужое (PERSONAL_DATA §5): аватары групп в `foreignFiles` или файл на создателя чата.
 
@@ -1287,7 +1288,7 @@
 - **Где:** `apps/web/src/widgets/chat-window/ui/chat-window.tsx:2170-2174,3409` · **Статус:** новый
 
 #### BUG-179 · 🟢 Реакция — любая строка до 16 знаков, а не эмодзи
-- **Где:** `packages/shared-schemas/src/chats.ts:331`, `apps/api/src/modules/chats/chats.service.ts:2842-2870` — набор из `CHAT_REACTION_EMOJIS`; правка `shared-schemas` — стоп-точка · **Статус:** новый
+- **Где:** `packages/shared-schemas/src/chats.ts:331`, `apps/api/src/modules/chats/chats.service.ts:2842-2870` — набор из `CHAT_REACTION_EMOJIS`; правка `shared-schemas` — стоп-точка · **Статус:** исправлен · `fix/bugs-chats` (0a1dd600)
 
 #### BUG-180 · 🟢 Оптимистичные медиа сверяются по размеру до сжатия; повтор теряет цитату и «без звука»
 - **Где:** `apps/web/src/widgets/chat-window/ui/chat-window.tsx:1144-1149,1183-1195,1457-1465,2363-2369` · **Статус:** новый
@@ -1322,7 +1323,7 @@
 - **Где:** `apps/api/src/modules/analytics/university-analytics.service.ts:180-207` (ряд без досыпки нулей), `apps/web/src/widgets/stats-dashboard/ui/stats-dashboard.tsx:258-271,623`, `chart-data.ts:22` · **Статус:** исправлен · `fix/bugs-analytics` (b3abf8a6)
 
 #### BUG-188 · 🟡 «Активных студентов» за учебный год считается только за последние 90 дней
-- **Где:** `apps/api/src/modules/analytics/analytics-report.service.ts:546-557` (источник `audit_logs`), `apps/api/src/modules/cleanup/cleanup.service.ts:99` (`AUDIT_RETENTION_DAYS = 90`) · **Статус:** новый
+- **Где:** `apps/api/src/modules/analytics/analytics-report.service.ts:546-557` (источник `audit_logs`), `apps/api/src/modules/cleanup/cleanup.service.ts:99` (`AUDIT_RETENTION_DAYS = 90`) · **Статус:** исправлен · `fix/bugs-analytics` (05371a5d)
 
 #### BUG-189 · 🟡 Любая ошибка скачивания файла — «Ошибка сервера»; протухший токен не продлевается
 - **Роль:** все, кто скачивает отчёты, `/me/export`, списки, резюме, выгрузку чата · **Статус:** новый
@@ -1419,7 +1420,7 @@
 - **Где:** `apps/web/src/views/employer/ui/employer-access-view.tsx:159`, `apps/api/src/modules/career/companies.service.ts:333-335` · **Статус:** исправлен · `fix/bugs-career` (031c1742)
 
 #### BUG-216 · 🟢 Рекрутёру показываются кнопки владельца, которые сервер отклоняет
-- **Где:** `apps/web/src/views/employer/ui/employer-access-view.tsx:195`, `employer-company-view.tsx:106`, `entities/company/model/types.ts:4-15` · **Статус:** новый
+- **Где:** `apps/web/src/views/employer/ui/employer-access-view.tsx:195`, `employer-company-view.tsx:106`, `entities/company/model/types.ts:4-15` · **Статус:** исправлен · `fix/bugs-career` (6628df84)
 
 #### BUG-217 · 🟢 Строки «Карьерных мероприятий» не открываются — записаться из раздела нельзя
 - **Где:** `apps/web/src/views/career/ui/career-events-view.tsx:159-209`, `career-view.tsx:715-753` · **Статус:** исправлен · `fix/bugs-career` (e7ad7d85)
@@ -1541,10 +1542,10 @@
 - **Где:** `apps/api/src/modules/library/library-import.service.ts:171-179,253` · **Статус:** исправлен · `fix/bugs-library-security` (70bda08d)
 
 #### BUG-252 · 🟢 Импорт дублирует книги: сопоставление по первым 20 000 карточкам без порядка и без архива
-- **Где:** `apps/api/src/modules/library/library-import.service.ts:219-225` · **Статус:** новый
+- **Где:** `apps/api/src/modules/library/library-import.service.ts:219-225` · **Статус:** исправлен · `fix/bugs-library-security` (5e34d6d8)
 
 #### BUG-253 · 🟢 CSV из Excel в cp1251 отклоняется с неверной причиной «нет колонки „Название“»
-- **Где:** `apps/api/src/common/import/table-file.ts:95`, `apps/api/src/modules/library/library-import.service.ts:83-88` (касается и импорта инвайтов) · **Статус:** новый
+- **Где:** `apps/api/src/common/import/table-file.ts:95`, `apps/api/src/modules/library/library-import.service.ts:83-88` (касается и импорта инвайтов) · **Статус:** исправлен · `fix/bugs-library-security` (db7cfcd5)
 
 #### BUG-254 · 🟢 Повторный приём выдачи после «Отменить возврат» не уведомляет читателя (корень BUG-094)
 - **Где:** `apps/api/src/modules/library/library-loans.service.ts:369` (ключ `library-loan-returned:<loanId>` без момента возврата) · **Статус:** исправлен · `fix/bugs-library-security` (67061548)
@@ -1582,7 +1583,7 @@
 - **Ожидается:** §3.3, §8.3 — порядок и дата по `publishedAt ?? createdAt`.
 
 #### BUG-264 · 🟡 Сторис: фото без подписи и ссылку без подписи опубликовать нельзя, блок ссылки не закрывается
-- **Где:** `apps/web/src/features/create-story/ui/create-story-form.tsx:77,210,245,286,295`, `packages/shared-schemas/src/stories.ts:56,65` · **Статус:** новый
+- **Где:** `apps/web/src/features/create-story/ui/create-story-form.tsx:77,210,245,286,295`, `packages/shared-schemas/src/stories.ts:56,65` · **Статус:** исправлен · `fix/bugs-feed-social` (da7b2ce6)
 - **Ожидается:** §3.4 «медиа ИЛИ текст» — пустые поля как `undefined` (`OPTIONAL_TEXT`).
 
 #### BUG-265 · 🟡 Декан не может опубликовать пост и сторис для группы: «Не указана группа»
@@ -1714,10 +1715,10 @@
 - **Отложено:** перевод студента между группами — новая фича с межмодульными последствиями: нужен контракт (PATCH /users/:id/group?), решение по выходу из официальных и предметных чатов прежней группы (модуль chats их не снимает), снятию старосты, гашению сессий ради нового scope в JWT и судьбе оценок/посещаемости/заявок прежней группы
 
 #### BUG-302 · 🟢 После одобрения заявки вуза ссылку-приглашение нельзя получить или выслать повторно
-- **Где:** `apps/api/src/modules/onboarding/demo-requests.service.ts:445-447,517-527,538`, `apps/web/src/views/platform-admin/ui/demo-request-modal.tsx` · **Статус:** новый
+- **Где:** `apps/api/src/modules/onboarding/demo-requests.service.ts:445-447,517-527,538`, `apps/web/src/views/platform-admin/ui/demo-request-modal.tsx` · **Статус:** исправлен · `fix/bugs-users-invites` (953ee1c1)
 
 #### BUG-303 · 🟢 У старосты, пришедшего по инвайту, `starostaSince` пустой
-- **Где:** `apps/api/src/modules/users/users.service.ts:1802-1807,2480-2486` · **Статус:** новый
+- **Где:** `apps/api/src/modules/users/users.service.ts:1802-1807,2480-2486` · **Статус:** исправлен · `fix/bugs-users-invites` (389c259b)
 
 ### Задания, журнал оценок, экзамены, посещаемость, консультации
 
@@ -1847,10 +1848,10 @@
 - **Сценарий:** прошлый семестр без оценок — «Предстоит»; будущий с ранней оценкой — «Пройдена/Не сдана»; без активного семестра возвращается регрессия C-F26.
 
 #### BUG-339 · 🟢 Файлы материала без имени: в окне только MIME-тип
-- **Где:** `apps/api/src/modules/materials/materials.controller.ts` (`readSingleUpload` теряет `filename`), `materials.service.ts:23-43`, `apps/web/src/views/materials/ui/material-detail-modal.tsx:105-112` · **Статус:** новый
+- **Где:** `apps/api/src/modules/materials/materials.controller.ts` (`readSingleUpload` теряет `filename`), `materials.service.ts:23-43`, `apps/web/src/views/materials/ui/material-detail-modal.tsx:105-112` · **Статус:** исправлен · `fix/bugs-schedule-courses` (41653730)
 
 #### BUG-340 · 🟢 Число файлов у материала не ограничено, вложенная `media` без `take` (корень BUG-049)
-- **Где:** `apps/api/src/modules/materials/materials.service.ts:33-43,127-178` · **Статус:** новый
+- **Где:** `apps/api/src/modules/materials/materials.service.ts:33-43,127-178` · **Статус:** исправлен · `fix/bugs-schedule-courses` (5cde00e1)
 
 #### BUG-341 · 🟢 Две параллельные «создать активную версию» оставляют группе две активные сетки
 - **Где:** `apps/api/src/modules/schedules/schedules.service.ts:392-404` (без лока, уникальности в БД нет) · **Статус:** исправлен · `fix/bugs-schedule-courses` (4e5a88d7)
@@ -2084,7 +2085,7 @@
 - **Ожидается:** DESIGN_SYSTEM §5.3 — вложенный Radix-слой или `pointer-events: auto`; FRONTEND_RULES §9 — связанный `<label>`.
 
 #### BUG-400 · 🟡 Цифровой студенческий показывает просроченный QR после возврата на вкладку
-- **Где:** `apps/web/src/views/student-id/ui/student-id-view.tsx:20-26,55-63`, `apps/web/src/shared/api/query-client.ts:15` (`refetchOnWindowFocus: false`) · **Статус:** новый
+- **Где:** `apps/web/src/views/student-id/ui/student-id-view.tsx:20-26,55-63`, `apps/web/src/shared/api/query-client.ts:15` (`refetchOnWindowFocus: false`) · **Статус:** исправлен · `fix/bugs-web-shared` (353b85fb)
 - **Сценарий:** экран заблокирован 1–2 минуты → до 45 с на экране QR старше TTL, счётчик «через 0 с», охрана — «Код истёк»; ручного обновления нет.
 
 #### BUG-401 · 🟡 Файл чата больше 400 МБ скачивается и тут же выбрасывается — сохранить нельзя
@@ -2110,10 +2111,10 @@
 - **Где:** `apps/web/src/shared/api/direct-upload.ts:41-64`, `multipart-upload.ts:93`, `shared/ui/file-upload.tsx:121-122`, `views/assignments/ui/submission-files.tsx:83`, `shared/lib/api-error.ts:166-173` · **Статус:** новый
 
 #### BUG-407 · 🟢 Проверка студенческого: на ошибки — «Неверный email или пароль», «Некорректный запрос» (класс BUG-314)
-- **Где:** `apps/web/src/views/student-id/ui/verify-id-view.tsx:108-119`, `apps/api/src/modules/student-id/student-id.service.ts:332,335,338`; `verifyFailedHint` не показывается никогда · **Статус:** новый
+- **Где:** `apps/web/src/views/student-id/ui/verify-id-view.tsx:108-119`, `apps/api/src/modules/student-id/student-id.service.ts:332,335,338`; `verifyFailedHint` не показывается никогда · **Статус:** исправлен · `fix/bugs-web-shared` (711e2d6e)
 
 #### BUG-408 · 🟢 Результат проверки студенческого перезапрашивается при переподключении сокета или сети (новый триггер BUG-023)
-- **Где:** `apps/web/src/shared/realtime/realtime-context.tsx:57-63`, `views/student-id/ui/verify-id-view.tsx:59-64` · **Статус:** новый
+- **Где:** `apps/web/src/shared/realtime/realtime-context.tsx:57-63`, `views/student-id/ui/verify-id-view.tsx:59-64` · **Статус:** исправлен · `fix/bugs-web-shared` (711e2d6e)
 - **Сценарий:** связь моргнула через 2 минуты → повторный `verify` → «Проход запрещён» и лишняя строка отказа в журнале проходов.
 
 #### BUG-409 · 🟢 Пагинация: страница за пределами выборки — пустая таблица, а подвал показывает «последнюю страницу»
@@ -2579,7 +2580,7 @@
 - **Что:** `:233-250` — посещаемость на ещё не наступившие дни, в августе до семестра и на отменённые пары; `:270-285` — у экзаменов через 10–40 дней ~30% результатов уже выставлены; `:141` — разовое изменение на день, когда пары нет (новое место BUG-099).
 
 #### BUG-533 · 🟢 Сид документов и услуг: состояния вне контракта
-- **Где:** `prisma/seed/steps/70-services.mjs` · **Статус:** новый
+- **Где:** `prisma/seed/steps/70-services.mjs` · **Статус:** исправлен · `fix/bugs-prisma-seed` (ae87c77f)
 - **Что:** `:289-318` — комплект `DRAFT` с `reviewedById` и всеми позициями `ACCEPTED` (ср. BUG-232); `:432` — `ApplicationResult.type: 'DOCUMENT'` вне `ApplicationResultTypeSchema`; `:356-357` — `formData` без обязательных `reason`/`family-status`, `ELECTRONIC` у услуги только `PAPER`; `:458` — жалобы `COMMENT`/`MESSAGE` указывают на id поста; `50-social.mjs:330-357` + `60-chats.mjs:101-108` — блокировка при одновременной дружбе и личном чате.
 
 #### BUG-534 · 🟢 История откликов в сиде карьеры: переходы «из ниоткуда» и время вразнобой
