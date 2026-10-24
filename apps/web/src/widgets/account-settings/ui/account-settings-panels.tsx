@@ -136,6 +136,10 @@ const SESSION_REVOKE_ROLES: Role[] = [
   Role.UNIVERSITY_MODERATOR,
 ]
 
+// Команда платформы и есть поддержка: обращение от неё заводилось без автора — в очереди
+// строка без человека, ответить некому.
+const SUPPORT_STAFF_ROLES: Role[] = [Role.PLATFORM_ADMIN, Role.PLATFORM_MODERATOR]
+
 const NAV: { id: string; labelKey: string; icon: LucideIcon }[] = [
   { id: 'personal', labelKey: 'navPersonal', icon: UserRound },
   { id: 'security', labelKey: 'navSecurity', icon: ShieldCheck },
@@ -161,6 +165,10 @@ export function AccountSettingsPanels() {
   const tErr = useTranslations('Errors')
   const me = useQuery({ queryKey: userKeys.me(), queryFn: fetchMe })
   const [tab, setTab] = useState('personal')
+  const myRole = me.data?.role
+  const nav = NAV.filter(
+    (item) => item.id !== 'support' || !myRole || !SUPPORT_STAFF_ROLES.includes(myRole),
+  )
   // На телефоне навигация по блокам — ряд с прокруткой (с `lg` это колонка слева):
   // ряд тянется, у краёв затухает.
   const row = useScrollRow<HTMLElement>()
@@ -179,7 +187,7 @@ export function AccountSettingsPanels() {
         )}
         style={{ maskImage: row.fadeMask, WebkitMaskImage: row.fadeMask }}
       >
-        {NAV.map((item) => {
+        {nav.map((item) => {
           const Icon = item.icon
           const active = tab === item.id
           const danger = item.id === 'danger'
@@ -219,7 +227,9 @@ export function AccountSettingsPanels() {
             {tab === 'appearance' && <AppearanceSection />}
             {tab === 'app' && <AppSection />}
             {tab === 'privacy' && <PrivacySection me={me.data} />}
-            {tab === 'support' && <ContactSupportForm />}
+            {tab === 'support' && nav.some((item) => item.id === 'support') && (
+              <ContactSupportForm />
+            )}
             {tab === 'danger' && <DangerSection me={me.data} />}
           </>
         )}
