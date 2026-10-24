@@ -6,7 +6,15 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { CalendarClock, FileText, Inbox, Plus } from 'lucide-react'
-import { Badge, Button, Card, EmptyState, PageHeader, Skeleton } from '../../../shared/ui'
+import {
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  PageHeader,
+  Skeleton,
+  useConfirm,
+} from '../../../shared/ui'
 import { toApiError } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 import {
@@ -25,6 +33,7 @@ export function StudentAppointmentsView() {
   const locale = useLocale()
   const qc = useQueryClient()
   const [creating, setCreating] = useState(false)
+  const confirm = useConfirm()
 
   const q = useQuery({ queryKey: appointmentKeys.mine(), queryFn: () => fetchMyAppointments() })
 
@@ -73,7 +82,17 @@ export function StudentAppointmentsView() {
               key={a.id}
               appointment={a}
               locale={locale}
-              onCancel={() => cancel.mutate(a.id)}
+              onCancel={async () => {
+                // Отмена необратима (CANCELLED — конечный статус): без подтверждения запись
+                // пропадала от случайного нажатия.
+                const ok = await confirm({
+                  title: t('cancelConfirmTitle'),
+                  description: t('cancelConfirmHint'),
+                  confirmLabel: t('cancel'),
+                  destructive: true,
+                })
+                if (ok) cancel.mutate(a.id)
+              }}
               t={t}
             />
           ))}

@@ -39,6 +39,7 @@ import {
   TableRow,
   TableSkeletonRows,
   TableText,
+  useConfirm,
   useTableSort,
 } from '../../../shared/ui'
 import { toApiError } from '../../../shared/lib'
@@ -96,6 +97,7 @@ export function DeanAppointmentsView() {
   const tErr = useTranslations('Errors')
   const locale = useLocale()
   const qc = useQueryClient()
+  const confirm = useConfirm()
   const [modal, setModal] = useState<{ id: string; mode: 'confirm' | 'reschedule' } | null>(null)
 
   const [tab, setTab] = useState<TabId>('active')
@@ -265,7 +267,16 @@ export function DeanAppointmentsView() {
                               </DropdownMenuItem>
                             )}
                             {can('COMPLETED') && (
-                              <DropdownMenuItem onClick={() => complete.mutate(a.id)}>
+                              <DropdownMenuItem
+                                onClick={async () => {
+                                  const ok = await confirm({
+                                    title: t('completeConfirmTitle'),
+                                    description: t('completeConfirmHint'),
+                                    confirmLabel: t('complete'),
+                                  })
+                                  if (ok) complete.mutate(a.id)
+                                }}
+                              >
                                 <CheckCircle2 aria-hidden />
                                 {t('complete')}
                               </DropdownMenuItem>
@@ -275,7 +286,17 @@ export function DeanAppointmentsView() {
                                 <DropdownMenuSeparator />
                                 <DropdownMenuItem
                                   variant="destructive"
-                                  onClick={() => cancel.mutate(a.id)}
+                                  onClick={async () => {
+                                    // Отмена и завершение конечны: случайный клик в меню
+                                    // раньше сразу закрывал запись и уведомлял студента.
+                                    const ok = await confirm({
+                                      title: t('cancelConfirmTitle'),
+                                      description: t('staffCancelConfirmHint'),
+                                      confirmLabel: t('cancelAppointment'),
+                                      destructive: true,
+                                    })
+                                    if (ok) cancel.mutate(a.id)
+                                  }}
                                 >
                                   <XCircle aria-hidden />
                                   {t('cancelAppointment')}

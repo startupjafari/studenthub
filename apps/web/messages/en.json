@@ -3924,7 +3924,12 @@
     "confirmed": "Appointment confirmed",
     "rescheduled": "Appointment rescheduled",
     "timeInPast": "Pick a time in the future",
-    "tooManyActive": "You already have several open appointments — wait for the dean’s office to respond or cancel the extra ones"
+    "tooManyActive": "You already have several open appointments — wait for the dean’s office to respond or cancel the extra ones",
+    "cancelConfirmTitle": "Cancel the appointment?",
+    "cancelConfirmHint": "The appointment will be cancelled and cannot be restored — you can only book a new one.",
+    "staffCancelConfirmHint": "The appointment will be cancelled and the student will be notified.",
+    "completeConfirmTitle": "Complete the appointment?",
+    "completeConfirmHint": "The appointment will move to the archive and the student will be notified."
   },
   "Portfolio": {
     "title": "Portfolio",
