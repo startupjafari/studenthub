@@ -19,7 +19,7 @@ export interface Invite {
   id: string
   email: string | null
   role: string
-  status: 'PENDING' | 'ACCEPTED' | 'EXPIRED' | 'REVOKED'
+  status: 'PENDING' | 'USED' | 'EXPIRED' | 'REVOKED'
   expiresAt: string
   createdAt: string
 }
@@ -89,8 +89,17 @@ export async function revokeSessions(id: string): Promise<void> {
   await apiPatch<null>(`/users/${id}/logout`, {})
 }
 
+/** Предел страницы `GET /invites` (общая offset-пагинация). */
+export const INVITES_PAGE_LIMIT = 100
+
+/**
+ * Приглашения ожидающими вперёд: фильтра по статусу у списка нет, а сортировка по нему
+ * есть, и PENDING в перечислении стоит первым. Раньше бралась страница последних двадцати
+ * любых статусов — живое приглашение, выданное до двадцати использованных, отозвать с
+ * телефона было нельзя.
+ */
 export async function fetchInvites(): Promise<{ items: Invite[]; total: number }> {
-  return apiGetPaged<Invite>('/invites?page=1&limit=20')
+  return apiGetPaged<Invite>(`/invites?page=1&limit=${INVITES_PAGE_LIMIT}&sort=status&order=asc`)
 }
 
 /** Отозвать ожидающий инвайт: ошибочно выданное приглашение иначе живёт до истечения. */
