@@ -33,7 +33,7 @@ export function CameraPlayer({
   const tErr = useTranslations('Errors')
   const frameRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
-  const { status, getToken } = useCameraView(camera.id)
+  const { status, getToken, release } = useCameraView(camera.id)
   const [live, setLive] = useState<LiveState>('connecting')
   const [fullscreen, setFullscreen] = useState(false)
   const hlsUrl = status.kind === 'active' ? status.ticket.hlsUrl : null
@@ -54,6 +54,12 @@ export function CameraPlayer({
       handle?.destroy()
     }
   }, [hlsUrl, getToken])
+
+  // Видео не пошло и попытки кончились — просмотр не продлеваем: он держал бы слот и гнал
+  // поток с агента впустую.
+  useEffect(() => {
+    if (live === 'failed') release()
+  }, [live, release])
 
   // Полный экран могут закрыть и мимо кнопки (Esc, жест браузера) — состояние берём из
   // события документа, а не из своего нажатия.
