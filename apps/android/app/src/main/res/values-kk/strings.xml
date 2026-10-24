@@ -12,6 +12,7 @@
     <string name="chats_readMark">Оқылды</string>
 
     <string name="study_saved">Сақталды</string>
+    <string name="study_gradebook">Журнал</string>
 
     <string name="notifications_types">Не жіберу керек</string>
     <string name="notifications_typeMessages">Хабарламалар</string>
@@ -133,10 +134,6 @@
     <string name="books_clearanceUniversity">ЖОО</string>
     <string name="books_clearanceChecked">Тексерілді</string>
 
-    <string name="study_kindLab">Зертханалық</string>
-    <string name="study_kindControl">Бақылау</string>
-    <string name="study_kindExam">Емтихан</string>
-    <string name="study_kindOther">Басқа</string>
 
     <string name="auth_qrChecking">Кодты тексеріп жатырмыз…</string>
     <string name="auth_qrApproveRequester">Кіруді сұрап тұрған</string>
@@ -158,7 +155,6 @@
     <string name="error_universityBlocked">Университетіңіздің платформаға қолжетімділігі тоқтатылған</string>
     <string name="error_internal">Серверде қате шықты. Кейінірек көріңіз</string>
     <string name="auth_error_invalidCredentials">Email немесе құпиясөз қате</string>
-    <string name="auth_error_challengeExpired">Кіру сессиясы аяқталды — қайта кіріңіз</string>
     <string name="auth_error_accountBlocked">Есептік жазба бұғатталған</string>
     <string name="auth_qrApproveTaken">Бұл QR-код бойынша кіру расталып қойған</string>
 
