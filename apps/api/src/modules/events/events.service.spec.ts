@@ -1177,3 +1177,46 @@ describe('EventsService.listComments — страница и canDelete', () => {
     expect((res as Paginated<{ canDelete: boolean }>).items[0]!.canDelete).toBe(true)
   })
 })
+
+// ── Scope управления и модерации добавляется к видимости (как moderationWhere у постов) ──
+describe('EventsService — админ и модераторы видят то, чем управляют', () => {
+  it('админ вуза открывает событие группы своего вуза: в условии — его вуз', async () => {
+    const { service, prisma } = setup()
+    prisma.event.findFirst.mockResolvedValue({
+      id: 'e',
+      organizerId: 'org',
+      universityId: 'uni1',
+      facultyId: 'f1',
+      participants: [],
+    })
+    await service.getById(user(Role.UNIVERSITY_ADMIN, { sub: 'a', universityId: 'uni1' }), 'e')
+    const where = prisma.event.findFirst.mock.calls[0][0].where
+    expect(where.OR).toContainEqual({ universityId: 'uni1' })
+  })
+
+  it('декан — события своего факультета, модератор платформы — все', async () => {
+    const { service, prisma } = setup()
+    await service.list(user(Role.DEAN, { universityId: 'uni1', facultyId: 'f1' }), {
+      filter: 'upcoming',
+      page: 1,
+      limit: 20,
+    })
+    expect(prisma.event.findMany.mock.calls[0][0].where.AND[0].OR).toContainEqual({
+      facultyId: 'f1',
+    })
+
+    await service.list(user(Role.PLATFORM_MODERATOR), { filter: 'upcoming', page: 1, limit: 20 })
+    expect(prisma.event.findMany.mock.calls[1][0].where.AND[0].OR).toContainEqual({})
+  })
+
+  it('студенту scope модерации не добавляется', async () => {
+    const { service, prisma } = setup()
+    await service.list(user(Role.STUDENT, { groupId: 'g1', universityId: 'uni1' }), {
+      filter: 'upcoming',
+      page: 1,
+      limit: 20,
+    })
+    const visibility = prisma.event.findMany.mock.calls[0][0].where.AND[0]
+    expect(visibility.OR).not.toContainEqual({ universityId: 'uni1' })
+  })
+})

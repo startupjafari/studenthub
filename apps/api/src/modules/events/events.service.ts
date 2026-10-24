@@ -14,7 +14,7 @@ import {
   type EventParticipantsQueryInput,
   type UpdateEventInput,
 } from '@studenthub/shared-schemas'
-import { eventVisibilityWhere } from './event-visibility'
+import { eventAccessWhere } from './event-visibility'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AuditService } from '../../common/audit/audit.service'
 import { AppException } from '../../common/exceptions/app.exception'
@@ -176,7 +176,7 @@ export class EventsService {
     const timeWhere = endedWhere(new Date(), query.filter === 'past')
     const where: Prisma.EventWhereInput = {
       AND: [
-        eventVisibilityWhere(viewer),
+        eventAccessWhere(viewer),
         timeWhere,
         ...(query.mine ? [{ participants: { some: { userId: viewer.sub } } }] : []),
       ],
@@ -204,7 +204,7 @@ export class EventsService {
 
   async getById(viewer: JwtPayload, id: string) {
     const event = await this.prisma.event.findFirst({
-      where: { id, ...eventVisibilityWhere(viewer) },
+      where: { id, ...eventAccessWhere(viewer) },
       select: {
         ...EVENT_SELECT,
         participants: { where: { userId: viewer.sub }, select: { id: true } },
@@ -232,7 +232,7 @@ export class EventsService {
    */
   async meeting(viewer: JwtPayload, id: string): Promise<EventMeeting> {
     const event = await this.prisma.event.findFirst({
-      where: { id, ...eventVisibilityWhere(viewer) },
+      where: { id, ...eventAccessWhere(viewer) },
       select: {
         organizerId: true,
         startsAt: true,
@@ -486,7 +486,7 @@ export class EventsService {
     query: CommentsQueryInput = {},
   ): Promise<unknown[] | Paginated<unknown>> {
     const event = await this.prisma.event.findFirst({
-      where: { id, ...eventVisibilityWhere(viewer) },
+      where: { id, ...eventAccessWhere(viewer) },
       select: { organizerId: true, universityId: true, facultyId: true },
     })
     if (!event) throw new AppException('NOT_FOUND', 'Событие не найдено')
@@ -665,7 +665,7 @@ export class EventsService {
   /** Событие видно зрителю — иначе NOT_FOUND (не раскрываем существование чужих событий). */
   private async assertVisible(viewer: JwtPayload, id: string): Promise<void> {
     const event = await this.prisma.event.findFirst({
-      where: { id, ...eventVisibilityWhere(viewer) },
+      where: { id, ...eventAccessWhere(viewer) },
       select: { id: true },
     })
     if (!event) throw new AppException('NOT_FOUND', 'Событие не найдено')
