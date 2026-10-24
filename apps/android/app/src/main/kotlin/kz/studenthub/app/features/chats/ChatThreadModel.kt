@@ -14,13 +14,13 @@ import kotlinx.coroutines.launch
 import kz.studenthub.app.core.chats.AttachmentUploader
 import kz.studenthub.app.core.chats.ChatMessagesFetching
 import kz.studenthub.app.core.chats.ChatsApi
+import kz.studenthub.app.core.chats.DraftSync
 import kz.studenthub.app.core.chats.MessageOutbox
 import kz.studenthub.app.core.chats.MessageStore
 import kz.studenthub.app.core.chats.OutgoingAttachment
 import kz.studenthub.app.core.network.displayMessage
 import kz.studenthub.app.core.realtime.RealtimeCoordinator
 import kz.studenthub.app.core.storage.AppDatabase
-import kz.studenthub.app.core.storage.DraftEntity
 import kz.studenthub.app.core.storage.MessageEntity
 import kz.studenthub.app.core.ui.UiText
 import java.time.Instant
@@ -39,6 +39,7 @@ class ChatThreadModel(
     private val api: ChatMessagesFetching,
     private val outbox: MessageOutbox,
     private val uploader: AttachmentUploader,
+    private val drafts: DraftSync,
     private val realtime: RealtimeCoordinator?,
     private val sendScope: CoroutineScope,
     private val store: MessageStore = MessageStore(db),
@@ -126,8 +127,9 @@ class ChatThreadModel(
     suspend fun open() {
         val known = store.lastSeq(chatId)
         if (known == 0 || messages.isEmpty()) loadLatest() else catchUp(known)
-        // Неотправленное с прошлого раза досылаем молча.
+        // Неотправленное с прошлого раза досылаем молча — и сообщения, и черновики.
         outbox.flush(chatId)
+        drafts.flush()
     }
 
     // --- отправка ---
@@ -221,16 +223,8 @@ class ChatThreadModel(
         realtime?.send("TYPING", chatId)
     }
 
-    private suspend fun persistDraft(text: String) {
-        runCatching {
-            if (text.isEmpty()) {
-                db.drafts().delete(chatId)
-            } else {
-                // Серверу черновик ещё не донесён: это сделает синхронизация.
-                db.drafts().upsert(DraftEntity(chatId, text, null, now(), isSynced = false))
-            }
-        }
-    }
+    /** Черновик — в базу и на сервер: его видят другие устройства человека. */
+    private suspend fun persistDraft(text: String) = drafts.save(chatId, text)
 
     /** Подгрузка вверх — когда лента подъехала к началу загруженного. */
     suspend fun loadOlder() {

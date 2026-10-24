@@ -111,6 +111,7 @@ fun ChatThreadScreen(chatId: String, viewerId: String) {
             api = services.chatsApi,
             outbox = services.outbox,
             uploader = services.uploader,
+            drafts = services.drafts,
             realtime = services.realtime,
             sendScope = services.appScope,
         ).also { it.start() }

@@ -12,6 +12,8 @@ import kz.studenthub.app.core.chats.ChatMessageDto
 import kz.studenthub.app.core.chats.ChatMessageSending
 import kz.studenthub.app.core.chats.ChatStore
 import kz.studenthub.app.core.chats.ChatUpdatesDto
+import kz.studenthub.app.core.chats.DraftSaving
+import kz.studenthub.app.core.chats.DraftSync
 import kz.studenthub.app.core.chats.MessageOutbox
 import kz.studenthub.app.core.chats.MessageStore
 import kz.studenthub.app.core.chats.OutgoingAttachment
@@ -78,6 +80,47 @@ class ChatSyncTest {
         db.drafts().upsert(DraftEntity("c1", "печатаю", null, T0, isSynced = false))
         store.saveChats(listOf(chatDto("c1", draft = "старый с сервера")))
         assertEquals("печатаю", db.drafts().get("c1")?.text)
+    }
+
+    /**
+     * Отправленный текст не воскресает черновиком: очистка живёт у себя, пока сервер её не
+     * подтвердит, и ответ списка со старым серверным черновиком её не перебивает.
+     */
+    @Test
+    fun clearedDraftSurvivesUntilServerConfirms() = runTest {
+        store.saveChats(listOf(chatDto("c1")))
+        var online = false
+        val sent = mutableListOf<String>()
+        val drafts = DraftSync(
+            db,
+            object : DraftSaving {
+                override suspend fun saveDraft(chatId: String, text: String) {
+                    if (!online) throw ApiError.Transport(IOException("offline"))
+                    sent += text
+                }
+            },
+        )
+        drafts.save("c1", "")
+        store.saveChats(listOf(chatDto("c1", draft = "уже отправленный текст")))
+        assertEquals("", db.drafts().get("c1")?.text)
+        online = true
+        drafts.flush()
+        assertEquals(listOf(""), sent)
+        assertNull(db.drafts().get("c1"))
+    }
+
+    @Test
+    fun draftIsSentToServerAndMarkedSynced() = runTest {
+        store.saveChats(listOf(chatDto("c1")))
+        val sent = mutableListOf<Pair<String, String>>()
+        val api = object : DraftSaving {
+            override suspend fun saveDraft(chatId: String, text: String) {
+                sent += chatId to text
+            }
+        }
+        DraftSync(db, api).save("c1", "печатаю")
+        assertEquals(listOf("c1" to "печатаю"), sent)
+        assertTrue(db.drafts().get("c1")!!.isSynced)
     }
 
     @Test

@@ -5,6 +5,7 @@ import kotlinx.serialization.builtins.ListSerializer
 import kz.studenthub.app.core.network.ApiClient
 import kz.studenthub.app.core.network.ApiError
 import kz.studenthub.app.core.network.Endpoint
+import kz.studenthub.app.core.network.HttpMethod
 import kz.studenthub.app.core.network.InstantSerializer
 import kz.studenthub.app.core.network.MultipartForm
 import kz.studenthub.app.core.network.Page
@@ -55,7 +56,7 @@ interface AttachmentSending {
 }
 
 class ChatsApi(private val client: ApiClient, private val storage: OkHttpClient) :
-    ChatsFetching, ChatMessagesFetching, ChatMessageSending, AttachmentSending {
+    ChatsFetching, ChatMessagesFetching, ChatMessageSending, AttachmentSending, DraftSaving {
 
     override suspend fun chats(cursor: String?, limit: Int): Page<ChatListItemDto> =
         client.page(Endpoint.get("chats", "limit" to "$limit", "cursor" to cursor), ChatListItemDto.serializer())
@@ -79,6 +80,10 @@ class ChatsApi(private val client: ApiClient, private val storage: OkHttpClient)
 
     private suspend fun toggle(on: Boolean, path: String) {
         client.send(if (on) Endpoint.post(path) else Endpoint.delete(path))
+    }
+
+    override suspend fun saveDraft(chatId: String, text: String) {
+        client.send(Endpoint.json(HttpMethod.PUT, "chats/$chatId/draft", DraftRequest.serializer(), DraftRequest(text)))
     }
 
     override suspend fun messages(chatId: String, cursor: String?, limit: Int): Page<ChatMessageDto> =
@@ -136,6 +141,9 @@ class ChatsApi(private val client: ApiClient, private val storage: OkHttpClient)
     /** Без полей уходит `{}`: срок и режим «только важные» приложение пока не выбирает. */
     @Serializable
     private data class MuteRequest(val minutes: Int? = null, val importantOnly: Boolean? = null)
+
+    @Serializable
+    private data class DraftRequest(val text: String)
 
     @Serializable
     private data class PresignRequest(val mime: String)

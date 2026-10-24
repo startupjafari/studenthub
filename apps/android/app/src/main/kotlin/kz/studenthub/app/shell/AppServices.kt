@@ -26,6 +26,7 @@ import kz.studenthub.app.core.chats.AttachmentUploader
 import kz.studenthub.app.core.chats.AttachmentUrls
 import kz.studenthub.app.core.chats.ChatStore
 import kz.studenthub.app.core.chats.ChatsApi
+import kz.studenthub.app.core.chats.DraftSync
 import kz.studenthub.app.core.chats.MessageOutbox
 import kz.studenthub.app.core.chats.MessageStore
 import kz.studenthub.app.core.chats.OutboxWorker
@@ -98,6 +99,7 @@ class AppServices(context: Context) {
     val messageStore = MessageStore(database)
     val uploader = AttachmentUploader(database, chatsApi)
     val outbox = MessageOutbox(database, chatsApi, uploader, onStuck = { OutboxWorker.schedule(appContext) })
+    val drafts = DraftSync(database, chatsApi)
 
     /** Ссылки на вложения: кэш по id файла, а не по адресу. */
     val attachmentUrls = AttachmentUrls(chatsApi::attachmentUrl)
@@ -154,6 +156,7 @@ class AppServices(context: Context) {
         push.register()
         // Неотправленное с прошлого раза уходит само, как только есть связь.
         OutboxWorker.schedule(appContext)
+        drafts.flush()
     }
 
     /**
