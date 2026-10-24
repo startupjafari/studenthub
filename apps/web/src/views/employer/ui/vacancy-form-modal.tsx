@@ -99,8 +99,8 @@ function toInput(d: Draft): VacancyInput {
     employmentType: d.employmentType,
     workFormat: d.workFormat,
     experienceLevel: d.experienceLevel,
-    // Пустой город контракт принимает как «не указан» (undefined), а не null.
-    city: d.city.trim() || undefined,
+    // Пустой город — null: так правка стирает прежний город, undefined его бы не тронул.
+    city: d.city.trim() || null,
     salaryMin: amount(d.salaryMin),
     salaryMax: amount(d.salaryMax),
     salaryCurrency: d.salaryCurrency === NO_CURRENCY ? null : d.salaryCurrency,

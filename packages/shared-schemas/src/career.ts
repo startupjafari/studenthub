@@ -74,6 +74,21 @@ const optionalText = (max: number) =>
     .optional()
     .transform((v) => (v && v.length > 0 ? v : undefined))
 
+/**
+ * Текстовое поле формы правки, которое можно очистить. `optionalText` превращал пустой
+ * input в undefined — «поле не трогать», и стереть город или описание было нельзя: сервер
+ * отвечал «Сохранено», форма возвращала старое. Здесь undefined — «не трогать», а `''`
+ * и null — «очистить» (в базу пишется null).
+ */
+const clearableText = (max: number) =>
+  z
+    .string()
+    .trim()
+    .max(max)
+    .nullable()
+    .optional()
+    .transform((v) => (v === '' ? null : v))
+
 /** Slug компании: только строчная латиница, цифры и дефис — попадает в публичный URL. */
 export const CompanySlugSchema = z
   .string()
@@ -85,14 +100,22 @@ export const CompanySlugSchema = z
 export const CompanyNameSchema = z.string().trim().min(2).max(120)
 
 /** Сайт компании: только http(s) — ссылку показываем студенту, javascript: недопустим. */
-export const CompanyWebsiteSchema = z
+const companyWebsiteUrl = z
   .string()
   .trim()
   .max(200)
   .url()
   .refine((v) => v.startsWith('http://') || v.startsWith('https://'), 'Ссылка должна быть http(s)')
+
+export const CompanyWebsiteSchema = companyWebsiteUrl
   .optional()
   .or(z.literal('').transform(() => undefined))
+
+/** Сайт в форме правки: пустое поле — «убрать сайт» (null), как у `clearableText`. */
+const ClearableCompanyWebsiteSchema = companyWebsiteUrl
+  .nullable()
+  .optional()
+  .or(z.literal('').transform(() => null))
 
 // ── Регистрация работодателя ─────────────────────────────────────────────────
 
@@ -131,9 +154,9 @@ export type ResendCompanyVerificationInput = z.infer<typeof ResendCompanyVerific
 
 export const UpdateCompanySchema = z.object({
   name: CompanyNameSchema.optional(),
-  description: optionalText(2000),
-  website: CompanyWebsiteSchema,
-  city: optionalText(24),
+  description: clearableText(2000),
+  website: ClearableCompanyWebsiteSchema,
+  city: clearableText(24),
   logoUrl: optionalText(500),
 })
 export type UpdateCompanyInput = z.infer<typeof UpdateCompanySchema>
@@ -254,7 +277,7 @@ export const UpdateCareerProfileSchema = z.object({
   desiredSalaryMin: z.number().int().nonnegative().max(100_000_000).nullable().optional(),
   desiredSalaryMax: z.number().int().nonnegative().max(100_000_000).nullable().optional(),
   salaryCurrency: z.enum(['KZT', 'USD', 'EUR', 'RUB']).nullable().optional(),
-  about: optionalText(2000),
+  about: clearableText(2000),
 })
 export type UpdateCareerProfileInput = z.infer<typeof UpdateCareerProfileSchema>
 
@@ -399,7 +422,7 @@ export const VacancyInputSchema = z.object({
   employmentType: EmploymentTypeSchema,
   workFormat: WorkFormatSchema,
   experienceLevel: ExperienceLevelSchema,
-  city: optionalText(24),
+  city: clearableText(24),
   salaryMin: salaryField,
   salaryMax: salaryField,
   salaryCurrency: z.enum(['KZT', 'USD', 'EUR', 'RUB']).nullable().optional(),
