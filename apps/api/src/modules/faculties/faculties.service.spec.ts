@@ -5,6 +5,7 @@ import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { AuditService } from '../../common/audit/audit.service'
 import type { UniversityService } from '../universities/universities.service'
 import type { InviteService } from '../invites/invites.service'
+import type { UserService } from '../users/users.service'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 
 const ctx = { ip: '127.0.0.1', userAgent: 'jest' }
@@ -21,6 +22,9 @@ function setup() {
       count: jest.fn(),
     },
     university: { findUnique: jest.fn() },
+    // Что держит факультет от удаления (deletionBlockers): по умолчанию ничего.
+    group: { count: jest.fn().mockResolvedValue(0) },
+    user: { count: jest.fn().mockResolvedValue(0) },
     $executeRaw: jest.fn().mockResolvedValue(0),
     $transaction: jest.fn(),
   }
@@ -31,13 +35,15 @@ function setup() {
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const universities = { invalidateStats: jest.fn().mockResolvedValue(undefined) }
   const invites = { revokePendingInScope: jest.fn().mockResolvedValue(0) }
+  const users = { detachDeletedFromFaculty: jest.fn().mockResolvedValue(0) }
   const service = new FacultyService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
     universities as unknown as UniversityService,
     invites as unknown as InviteService,
+    users as unknown as UserService,
   )
-  return { service, prisma, audit, universities, invites }
+  return { service, prisma, audit, universities, invites, users }
 }
 
 function viewer(role: Role, universityId: string | null = null): JwtPayload {
@@ -190,6 +196,30 @@ describe('FacultyService — remove', () => {
     await expect(service.remove(viewer(Role.PLATFORM_ADMIN), 'fac-1', ctx)).rejects.toMatchObject({
       code: 'CONFLICT',
     })
+  })
+
+  // Экран писал «есть группы», когда факультет держал декан или удалённый аккаунт.
+  it('в ответе — что именно держит факультет; удаления нет', async () => {
+    const { service, prisma } = setup()
+    prisma.faculty.findUnique.mockResolvedValue(FAC)
+    prisma.user.count.mockResolvedValue(1)
+    await expect(service.remove(viewer(Role.PLATFORM_ADMIN), 'fac-1', ctx)).rejects.toMatchObject({
+      code: 'CONFLICT',
+      details: [{ field: 'users', message: 'пользователи (1)' }],
+    })
+    expect(prisma.faculty.delete).not.toHaveBeenCalled()
+  })
+
+  it('удалённые аккаунты отвязываются до подсчёта и удаления не держат', async () => {
+    const { service, prisma, users } = setup()
+    prisma.faculty.findUnique.mockResolvedValue(FAC)
+    prisma.faculty.delete.mockResolvedValue(FAC)
+    await service.remove(viewer(Role.UNIVERSITY_ADMIN, 'uni-1'), 'fac-1', ctx)
+    expect(users.detachDeletedFromFaculty).toHaveBeenCalledWith(prisma, 'fac-1')
+    expect(users.detachDeletedFromFaculty.mock.invocationCallOrder[0]).toBeLessThan(
+      prisma.user.count.mock.invocationCallOrder[0] as number,
+    )
+    expect(prisma.faculty.delete).toHaveBeenCalledWith({ where: { id: 'fac-1' } })
   })
 
   it('ожидающие приглашения на факультет отзываются той же транзакцией, до удаления', async () => {

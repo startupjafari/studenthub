@@ -2,7 +2,12 @@ import { z } from 'zod'
 import { WebsiteSchema } from './url.js'
 import { Role } from '@studenthub/shared-types'
 import { AGE_OF_MAJORITY, PasswordSchema, UsernameSchema, ageAt } from './auth.js'
-import { AdminLimitSchema, OffsetPaginationSchema, SortOrderSchema } from './pagination.js'
+import {
+  AdminLimitSchema,
+  OffsetPaginationSchema,
+  SortOrderSchema,
+  queryBoolean,
+} from './pagination.js'
 import { RoleSchema } from './invites.js'
 
 // Колонки таблицы пользователей, по которым разрешена сортировка (docs/PROJECT.md §12.2).
@@ -17,7 +22,9 @@ export const UserListQuerySchema = OffsetPaginationSchema.extend({
   facultyId: z.string().min(1).optional(),
   groupId: z.string().min(1).optional(),
   search: z.string().min(1).max(100).optional(),
-  blocked: z.coerce.boolean().optional(),
+  // queryBoolean, а не z.coerce.boolean(): тот делал true из любой непустой строки, и
+  // `?blocked=false` отдавал только заблокированных.
+  blocked: queryBoolean.optional(),
   sort: UserSortSchema.optional(),
   order: SortOrderSchema.optional(),
   // Таблица даёт выбрать 20/100/150/200 строк на странице — предел здесь выше общего.

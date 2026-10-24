@@ -129,6 +129,9 @@ export const UNIVERSITY_ADMIN_NAV: NavItem[] = [
 
   // Люди: выдача доступа и списки по ролям.
   { key: 'invites', href: '/university-admin/invites', icon: Send, group: 'people' },
+  // Все люди вуза с фильтром роли: модераторов, охрану, библиотекарей и старост в экранах
+  // по одной роли не найти, а блокировать, сбрасывать 2FA и править учёбу их нужно так же.
+  { key: 'users', href: '/university-admin/users', icon: Users, group: 'people' },
   { key: 'students', href: '/university-admin/students', icon: GraduationCap, group: 'people' },
   { key: 'teachers', href: '/university-admin/teachers', icon: BookOpen, group: 'people' },
   { key: 'deans', href: '/university-admin/deans', icon: UserCog, group: 'people' },

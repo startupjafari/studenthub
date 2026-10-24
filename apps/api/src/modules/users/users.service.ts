@@ -36,6 +36,7 @@ import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { EnvVars } from '../../config/env.schema'
 import sharp from 'sharp'
 import { FileService } from '../files/file.service'
+import { LibraryReservationsService } from '../library/library-reservations.service'
 import { RealtimeGateway } from '../../common/realtime'
 import { QueueService, QUEUES, EMAIL_JOBS, FILE_JOBS, NOTIFICATION_JOBS } from '../../common/queue'
 import { REDIS_CLIENT } from '../../common/redis/redis.constants'
@@ -43,7 +44,7 @@ import { REDIS_CLIENT } from '../../common/redis/redis.constants'
 // смена пароля/удаление/блокировка обязаны погасить сессии, которыми владеет AuthService.
 import { AuthService } from '../auth/auth.service'
 import { canonicalSpecialtyName } from '../specialties/specialty-name'
-import { nextLeftUniversityAt } from './academic-status'
+import { canonicalAcademicStatus, nextLeftUniversityAt } from './academic-status'
 import { birthDateIso, CONSENT_SELECT, consentStateOf, type ConsentState } from './consent'
 
 type PrismaTx = Prisma.TransactionClient
@@ -224,6 +225,42 @@ const ACCOUNT_CONTENT_BATCH = 100
 // цикл не закончился бы. Остаток подберёт ночная чистка осиротевших объектов.
 const ACCOUNT_CONTENT_MAX_ROUNDS = 50
 
+/**
+ * Ответ правки учебных данных — только сами учебные поля, без номера студенческого: карточка
+ * целиком (телефон при `showPhone=false`, адрес, логин) по пустому `PATCH {}` открывала декану
+ * и админу вуза всё, что `getProfileForViewer` им не отдаёт (§3.7).
+ */
+const ACADEMIC_RECORD_SELECT = {
+  id: true,
+  course: true,
+  enrollmentYear: true,
+  graduationYear: true,
+  educationLevel: true,
+  studyForm: true,
+  fundingType: true,
+  specialty: true,
+  academicStatus: true,
+  gpa: true,
+  dormitory: true,
+} satisfies Prisma.UserSelect
+export type AcademicRecord = Prisma.UserGetPayload<{ select: typeof ACADEMIC_RECORD_SELECT }>
+
+/**
+ * Учебный статус — только из закрытого справочника, в его написании: от статуса зависят
+ * дата ухода из вуза, проход по студенческому и выдача книг, и «Отчислена» свободным
+ * текстом не закрывала ни одно из них.
+ */
+function withCanonicalAcademicStatus(data: UpdateAcademicRecordInput): UpdateAcademicRecordInput {
+  if (data.academicStatus == null) return data
+  const academicStatus = canonicalAcademicStatus(data.academicStatus)
+  if (academicStatus === null) {
+    throw new AppException('VALIDATION_ERROR', 'Учебного статуса нет в справочнике', [
+      { field: 'academicStatus', message: 'Выберите статус из справочника' },
+    ])
+  }
+  return { ...data, academicStatus }
+}
+
 // Полный профиль (собственный) выводится из select. Публичный — прячет чувствительное.
 export type UserProfile = Prisma.UserGetPayload<{ select: typeof PROFILE_SELECT }>
 // access: 'full' — карточка целиком (по правам), 'limited' — только «визитка» закрытого профиля.
@@ -297,6 +334,7 @@ export class UserService {
     private readonly branding: ExportBrandingService,
     private readonly exports: ExportRegistryService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    private readonly libraryReservations: LibraryReservationsService,
   ) {}
 
   /** Статус присутствия пользователя (онлайн по активным WS-соединениям, docs/PROJECT.md §9). */
@@ -807,7 +845,20 @@ export class UserService {
     // Дата рождения решает основание согласия на обработку ПДн (сам человек или законный
     // представитель). Правка не отклоняется, но пересматривает его: согласие хранится с
     // основанием, и расхождение с новой датой делает `consentRequired` истинным, пока
-    // согласие не примут заново (consentState, A-F29).
+    // согласие не примут заново (consentState, A-F29). Стереть дату нельзя: без неё
+    // сверка основания молча выключается (`minor === null`), и представленное за
+    // несовершеннолетнего согласие больше никогда не пересматривается.
+    if (writable.birthDate === null) {
+      const current = await this.prisma.user.findFirst({
+        where: { id: userId, deletedAt: null },
+        select: { birthDate: true },
+      })
+      if (current?.birthDate) {
+        throw new AppException('VALIDATION_ERROR', 'Дату рождения можно исправить, но не стереть', [
+          { field: 'birthDate', message: 'Дату рождения можно исправить, но не стереть' },
+        ])
+      }
+    }
     return this.prisma.user.update({
       where: { id: userId },
       data: writable,
@@ -1640,6 +1691,8 @@ export class UserService {
     firstName: string
     locale: string
     isBlocked: boolean
+    // Пояс вуза — для срока ссылки в письме.
+    university: { timezone: string } | null
   } | null> {
     const normalized = email.trim().toLowerCase()
     const select = {
@@ -1649,6 +1702,7 @@ export class UserService {
       firstName: true,
       locale: true,
       isBlocked: true,
+      university: { select: { timezone: true } },
     } satisfies Prisma.UserSelect
     const exact = await this.prisma.user.findFirst({
       where: { email: normalized, deletedAt: null },
@@ -1866,6 +1920,19 @@ export class UserService {
   }
 
   /**
+   * Удаляемый факультет отпускает удалённые аккаунты (FacultyService.remove, в его
+   * транзакции). Связь пользователя с факультетом — Restrict, и надгробие, удалённое до того,
+   * как удаление аккаунта стало снимать факультет, держало его навсегда.
+   */
+  async detachDeletedFromFaculty(tx: PrismaTx, facultyId: string): Promise<number> {
+    const { count } = await tx.user.updateMany({
+      where: { facultyId, deletedAt: { not: null } },
+      data: { facultyId: null },
+    })
+    return count
+  }
+
+  /**
    * Учебные данные студента — правит вуз (STAFF_MANAGED_STUDENT_FIELDS): декан своего
    * факультета или админ своего вуза. Из этих полей печатаются справка об обучении и
    * студенческий, поэтому каждая правка пишется в аудит со списком изменённых полей.
@@ -1875,7 +1942,7 @@ export class UserService {
     userId: string,
     data: UpdateAcademicRecordInput,
     ctx: { ip?: string; userAgent?: string } = {},
-  ): Promise<UserProfile> {
+  ): Promise<AcademicRecord> {
     const target = await this.prisma.user.findFirst({
       where: { id: userId, deletedAt: null },
       select: {
@@ -1899,16 +1966,17 @@ export class UserService {
           : false
     if (!inScope) throw new AppException('WRONG_SCOPE', 'Студент вне вашей области')
 
+    const record = withCanonicalAcademicStatus(data)
     // Дата ухода из вуза — служебное поле, не часть контракта: из неё уборка считает сроки
     // хранения (PERSONAL_DATA §4), поэтому ставится здесь, на единственном пути смены статуса.
-    const leftUniversityAt = nextLeftUniversityAt(data.academicStatus, target.leftUniversityAt)
+    const leftUniversityAt = nextLeftUniversityAt(record.academicStatus, target.leftUniversityAt)
     const updated = await this.prisma.user.update({
       where: { id: userId },
       data: {
-        ...(await this.withDictionarySpecialty(target, data)),
+        ...(await this.withDictionarySpecialty(target, record)),
         ...(leftUniversityAt !== undefined ? { leftUniversityAt } : {}),
       },
-      select: PROFILE_SELECT,
+      select: ACADEMIC_RECORD_SELECT,
     })
     await this.audit.record({
       userId: actor.sub,
@@ -2059,9 +2127,11 @@ export class UserService {
         email: anonymizedEmail,
         // Имя входа — тоже ПДн, и без обнуления оно оставалось занятым навсегда.
         username: null,
-        // Из группы удалённый выходит: иначе группу нельзя было удалить (FK Restrict), а
-        // он сам числился в её составе. Оценки и посещаемость привязаны к студенту, не к группе.
+        // Из группы и с факультета удалённый выходит: иначе их нельзя было удалить (FK
+        // Restrict), а он сам числился в составе. Оценки и посещаемость привязаны к
+        // студенту, не к группе.
         groupId: null,
+        facultyId: null,
         ...demoted,
         passwordHash: anonymizedHash,
         firstName: 'Удалённый',
@@ -2147,7 +2217,36 @@ export class UserService {
       await tx.album.deleteMany({ where: { userId } })
       await tx.portfolioItem.deleteMany({ where: { userId } })
       await tx.bookmark.deleteMany({ where: { userId } })
+      // Доступы к своим документам, выданные человеком, гаснут вместе с аккаунтом: иначе
+      // декан или другой получатель гранта ещё год, до уборки надгробия, скачивал сканы
+      // паспорта «Удалённого пользователя». Отзыв, а не удаление: журнал документа хранит,
+      // по какому гранту файл открывали.
+      await tx.documentAccess.updateMany({
+        where: { document: { ownerId: userId }, revokedAt: null },
+        data: { revokedAt: new Date() },
+      })
+      // Карьера — тоже личное: отклики с сопроводительными письмами оставались у
+      // работодателя, а резюме, карьерный профиль и согласия показать GPA, телефон и
+      // почту переживали удаление. История откликов уходит каскадом.
+      await tx.careerApplication.deleteMany({ where: { studentId: userId } })
+      await tx.resume.deleteMany({ where: { userId } })
+      await tx.careerProfile.deleteMany({ where: { userId } })
+      await tx.careerConsent.deleteMany({ where: { userId } })
+      // Предстоящие записи на консультации освобождаются — слот снова открыт другим, как
+      // при отмене студентом. Прошедшие остаются историей приёма преподавателя.
+      await tx.consultationSlot.updateMany({
+        where: { studentId: userId, status: 'BOOKED', startsAt: { gt: new Date() } },
+        data: { status: 'OPEN', studentId: null, topic: null },
+      })
     })
+    // Брони книг закрывает модуль библиотеки: готовая бронь держит экземпляр, и его надо
+    // отдать следующему в очереди. Best-effort, как медиа: ПДн уже затёрты, а сбой здесь
+    // не должен оставлять аккаунт полуудалённым.
+    try {
+      await this.libraryReservations.cancelAllOfReader(userId)
+    } catch (err) {
+      this.logger.warn(`Не удалось закрыть брони книг пользователя ${userId}: ${String(err)}`)
+    }
     await this.authService.revokeAllUserSessions(userId)
     // Строка журнала переживает анонимизацию: в ней только id, без ПДн удалённого.
     await this.audit.record({
@@ -2519,6 +2618,9 @@ export class UserService {
           ...data,
           username: data.username.trim().toLowerCase(),
           profileVisibility: this.defaultVisibilityFor(data.role),
+          // Староста по инвайту приходит уже с ролью STAROSTA, и syncGroupStarosta дату
+          // начала полномочий ему не ставит (ставит только при повышении из студентов).
+          ...(data.role === Role.STAROSTA ? { starostaSince: new Date() } : {}),
         },
         select: { id: true, role: true, universityId: true, facultyId: true, groupId: true },
       })
@@ -2536,12 +2638,16 @@ export class UserService {
         const conflictsUsername = Array.isArray(target)
           ? target.includes('username')
           : String(target).includes('username')
-        throw new AppException(
-          'CONFLICT',
-          conflictsUsername
-            ? 'Это имя пользователя уже занято'
-            : 'Пользователь с таким email уже существует',
-        )
+        // Занятое имя — свой код, как у PATCH /users/me/username: форма подсвечивает поле
+        // имени, а общий CONFLICT ей не по чему разобрать.
+        if (conflictsUsername) {
+          throw new AppException('USERNAME_TAKEN', 'Это имя пользователя уже занято', [
+            { field: 'username', message: 'Это имя пользователя уже занято' },
+          ])
+        }
+        throw new AppException('CONFLICT', 'Пользователь с таким email уже существует', [
+          { field: 'email', message: 'Пользователь с таким email уже существует' },
+        ])
       }
       throw error
     }

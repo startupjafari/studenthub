@@ -184,6 +184,7 @@ function PreviewTable({
   rows: BulkInvitePreviewRow[]
   t: ReturnType<typeof useTranslations>
 }) {
+  const tRoles = useTranslations('Roles')
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState<number>(PREVIEW_PAGE_SIZES[0])
   // Сортировка клиентская намеренно: строки — результат разбора загруженного файла,
@@ -235,7 +236,7 @@ function PreviewTable({
                 <TableText value={placeOf(r)} />
               </TableCell>
               <TableCell className="text-muted-foreground">
-                <TableText value={r.role} />
+                <TableText value={tRoles(r.role)} />
               </TableCell>
               <TableCell>
                 <Badge variant={STATUS_VARIANT[r.status]}>{t(`bulk.status${r.status}`)}</Badge>
@@ -243,7 +244,14 @@ function PreviewTable({
               {/* Колонка ошибки: у годной строки её просто нет — это не пустое значение,
                   а отсутствие проблемы, поэтому здесь без «пусто». */}
               <TableCell className="text-xs text-muted-foreground">
-                {r.error ? <TableText value={r.error} /> : null}
+                {/* Дубль объясняется словарём, а не текстом сервера: тот русский в любой
+                    локали. Причины ошибок с именем группы или факультета пока приходят
+                    готовой строкой — кода у них в контракте строки нет. */}
+                {r.status === 'DUPLICATE' ? (
+                  <TableText value={t('bulk.duplicateReason')} />
+                ) : r.error ? (
+                  <TableText value={r.error} />
+                ) : null}
               </TableCell>
             </TableRow>
           ))}

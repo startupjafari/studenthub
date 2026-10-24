@@ -2,10 +2,11 @@ import { Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { randomUUID } from 'node:crypto'
 import { InviteStatus, Prisma } from '@prisma/client'
-import { Role } from '@studenthub/shared-types'
+import { Role, isHigherRole } from '@studenthub/shared-types'
 import { DEFAULT_LOCALE, TTL } from '@studenthub/shared-config'
 import {
   BULK_INVITE_MAX_ROWS,
+  BulkInviteCommitRowSchema,
   type InviteListQueryInput,
   type InviteSortValue,
   type SortOrderValue,
@@ -25,6 +26,7 @@ import { QueueService, QUEUES, EMAIL_JOBS } from '../../common/queue'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { EnvVars } from '../../config/env.schema'
 import { webBaseUrl } from '../../config/web-base'
+import { deadlineLabel } from '../../common/time/local-label'
 import type { RequestContext } from '../auth/auth.service'
 import { resolveInviteTarget, type InviteScope } from './invite-hierarchy'
 import type { RawBulkRow } from './bulk-parse'
@@ -111,7 +113,7 @@ export class InviteService {
         invite.token,
         invite.role,
         invite.expiresAt,
-        await this.issuerLocale(issuer.sub),
+        await this.issuerMail(issuer.sub),
       )
     }
 
@@ -129,6 +131,28 @@ export class InviteService {
    */
   createInTransaction(tx: Prisma.TransactionClient, issuer: JwtPayload, input: CreateInviteInput) {
     return this.insert(tx, issuer, input)
+  }
+
+  /**
+   * Прежнее приглашение перед выдачей нового взамен (повтор приглашения по одобренной
+   * заявке вуза): ожидающее отзывается в транзакции вызывающего — по старой ссылке больше
+   * не войти. Использованное не трогается: по нему уже зарегистрировались, и это ответ
+   * «выписывать заново незачем». Истёкшее и отозванное — уже не работают.
+   */
+  async retireForReissue(
+    tx: Prisma.TransactionClient,
+    inviteId: string,
+  ): Promise<'USED' | 'RETIRED'> {
+    const invite = await tx.invite.findUnique({
+      where: { id: inviteId },
+      select: { status: true },
+    })
+    if (invite?.status === InviteStatus.USED) return 'USED'
+    await tx.invite.updateMany({
+      where: { id: inviteId, status: InviteStatus.PENDING },
+      data: { status: InviteStatus.REVOKED },
+    })
+    return 'RETIRED'
   }
 
   /** Запись о выдаче приглашения в аудит. Для инвайта из чужой транзакции — после её коммита. */
@@ -197,12 +221,17 @@ export class InviteService {
    * Отдельным запросом, а не из токена: язык меняется в настройках, а JWT живёт до
    * истечения — из токена приходил бы язык на момент входа.
    */
-  private async issuerLocale(issuerId: string): Promise<string> {
+  private async issuerMail(issuerId: string): Promise<{ locale: string; timezone: string | null }> {
     const issuer = await this.prisma.user.findUnique({
       where: { id: issuerId },
-      select: { locale: true },
+      select: { locale: true, university: { select: { timezone: true } } },
     })
-    return issuer?.locale ?? DEFAULT_LOCALE
+    // Срок — в поясе вуза приглашающего: приглашают в свой вуз. У платформы вуза нет —
+    // тогда пояс платформы (deadlineLabel).
+    return {
+      locale: issuer?.locale ?? DEFAULT_LOCALE,
+      timezone: issuer?.university?.timezone ?? null,
+    }
   }
 
   /**
@@ -216,7 +245,7 @@ export class InviteService {
     token: string,
     role: Role,
     expiresAt: Date,
-    locale: string,
+    { locale, timezone }: { locale: string; timezone: string | null },
   ): Promise<void> {
     // Адрес веба — первый origin CORS_ORIGIN, как у остальных ссылок наружу: вся строка
     // с двумя origin через запятую давала ссылку `https://a,https://b/register?...`.
@@ -232,10 +261,7 @@ export class InviteService {
           locale,
           inviteUrl,
           roleLabel: t.roles[role],
-          expiresAt: new Intl.DateTimeFormat(t.dateLocale, {
-            dateStyle: 'long',
-            timeStyle: 'short',
-          }).format(expiresAt),
+          expiresAt: deadlineLabel(expiresAt, t.dateLocale, timezone),
         },
         // jobId — по хэшу: идемпотентность та же (хэш детерминирован), а сырой токен не
         // оседает в Redis именем задачи, которое переживает саму отправку.
@@ -337,7 +363,11 @@ export class InviteService {
         error,
       })
 
-      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return err('Некорректный email')
+      // Та же схема адреса, что у подтверждения: свой regex пропускал «ivan..petrov@uni.kz»
+      // и «иван@uni.kz», предпросмотр показывал «Готово», а подтверждение отклоняло весь файл.
+      if (!email || !BulkInviteCommitRowSchema.shape.email.safeParse(email).success) {
+        return err('Некорректный email')
+      }
       if (role === null) return err(`Неизвестная роль: ${raw.role}`)
 
       // Группа — у тех, кто в ней учится; факультет — у декана (обязательно) и, по желанию,
@@ -501,12 +531,12 @@ export class InviteService {
     if (created.length > 0) {
       // Один запрос на всю пачку, и только когда есть кому писать: у загрузки без адресов
       // (приглашения выдают ссылками) ходить за языком незачем.
-      const locale = await this.issuerLocale(issuer.sub)
+      const mail = await this.issuerMail(issuer.sub)
       for (let i = 0; i < created.length; i += BULK_EMAIL_CONCURRENCY) {
         await Promise.all(
           created
             .slice(i, i + BULK_EMAIL_CONCURRENCY)
-            .map((e) => this.enqueueInviteEmail(e.email, e.token, e.role, expiresAt, locale)),
+            .map((e) => this.enqueueInviteEmail(e.email, e.token, e.role, expiresAt, mail)),
         )
       }
     }
@@ -643,15 +673,17 @@ export class InviteService {
         facultyId: true,
         groupId: true,
         expiresAt: true,
+        createdById: true,
       },
     })
     if (!invite) {
       throw new AppException('NOT_FOUND', 'Инвайт не найден')
     }
     this.assertUsable(invite.status, invite.expiresAt)
-    // Ссылка в группу или на факультет, которых уже нет: сказать об этом сразу, а не после
-    // заполненной формы регистрации.
+    // Ссылка в группу или на факультет, которых уже нет, или от выдавшего, который больше
+    // не вправе её выдать: сказать об этом сразу, а не после заполненной формы регистрации.
     await this.assertScopeAlive(this.prisma, invite)
+    await this.assertIssuerEntitled(this.prisma, invite)
 
     return {
       role: invite.role,
@@ -670,13 +702,16 @@ export class InviteService {
   /**
    * Отзыв инвайта: создатель, платформенный админ или админ вуза в своём scope. Только PENDING.
    *
+   * Админ вуза отзывает только роли строго ниже своей (§2.1): приглашение второго админа
+   * вуза выдаёт платформа, и отозвать его — то же, что решить за неё, кому управлять вузом.
+   *
    * Запись условная — статус стоит в WHERE: регистрация между проверкой и записью занимала
    * инвайт (USED), а безусловный update переписывал его в REVOKED при живом пользователе.
    */
   async revoke(issuer: JwtPayload, id: string, ctx: RequestContext) {
     const invite = await this.prisma.invite.findUnique({
       where: { id },
-      select: { id: true, status: true, createdById: true, universityId: true },
+      select: { id: true, status: true, role: true, createdById: true, universityId: true },
     })
     if (!invite) {
       throw new AppException('NOT_FOUND', 'Инвайт не найден')
@@ -685,7 +720,9 @@ export class InviteService {
     const canRevoke =
       invite.createdById === issuer.sub ||
       issuer.role === Role.PLATFORM_ADMIN ||
-      (issuer.role === Role.UNIVERSITY_ADMIN && invite.universityId === issuer.universityId)
+      (issuer.role === Role.UNIVERSITY_ADMIN &&
+        invite.universityId === issuer.universityId &&
+        isHigherRole(issuer.role, invite.role))
     if (!canRevoke) {
       throw new AppException('FORBIDDEN', 'Нет прав на отзыв этого инвайта')
     }
@@ -781,6 +818,7 @@ export class InviteService {
     const invite = await tx.invite.findFirstOrThrow({ where: { token: { in: lookups } } })
     // Захват откатится вместе с транзакцией регистрации — ссылка не станет «использованной».
     await this.assertScopeAlive(tx, invite)
+    await this.assertIssuerEntitled(tx, invite)
     return invite
   }
 
@@ -832,6 +870,67 @@ export class InviteService {
         (await db.group.findUnique({ where: { id: scope.groupId }, select: { id: true } })))
     if (!alive) {
       throw new AppException('INVITE_REVOKED', 'Инвайт отозван: группа, факультет или вуз удалены')
+    }
+  }
+
+  /**
+   * Выдавший по-прежнему вправе выдать это приглашение: не удалён, не заблокирован, роль
+   * всё ещё строго выше и scope тот же (§2.1, BACKEND_RULES §7). Нет — для приглашённого
+   * это отзыв.
+   *
+   * Проверка при использовании, а не отзыв при смене роли: старосту снимают, декана
+   * переводят на другой факультет, админа блокируют и удаляют разными путями, и каждый из
+   * них пришлось бы помнить. Здесь же право сверяется ровно тем правилом, по которому
+   * инвайт выдавали (`resolveInviteTarget`), но с текущими ролью и scope выдавшего.
+   */
+  private async assertIssuerEntitled(
+    db: Prisma.TransactionClient,
+    invite: {
+      role: Role
+      createdById: string
+      universityId: string | null
+      facultyId: string | null
+      groupId: string | null
+    },
+  ): Promise<void> {
+    const issuer = await db.user.findUnique({
+      where: { id: invite.createdById },
+      select: {
+        id: true,
+        role: true,
+        isBlocked: true,
+        deletedAt: true,
+        universityId: true,
+        facultyId: true,
+        groupId: true,
+      },
+    })
+    let entitled = issuer !== null && !issuer.isBlocked && issuer.deletedAt === null
+    if (issuer && entitled) {
+      try {
+        const scope = resolveInviteTarget(
+          {
+            sub: issuer.id,
+            role: issuer.role,
+            universityId: issuer.universityId,
+            facultyId: issuer.facultyId,
+            groupId: issuer.groupId,
+          },
+          invite,
+        )
+        entitled =
+          scope.universityId === invite.universityId &&
+          scope.facultyId === invite.facultyId &&
+          scope.groupId === invite.groupId
+      } catch {
+        entitled = false
+      }
+    }
+    if (!entitled) {
+      throw new AppException(
+        'INVITE_REVOKED',
+        'Инвайт отозван: у выдавшего больше нет права на это приглашение',
+      )
     }
   }
 

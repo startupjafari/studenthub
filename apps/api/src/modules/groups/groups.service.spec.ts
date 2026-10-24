@@ -232,6 +232,35 @@ describe('GroupService — read scope', () => {
     await service.list(viewer(Role.STUDENT, { groupId: 'grp-3' }), { page: 1, limit: 20 })
     expect(prisma.group.findMany.mock.calls[1][0].where).toEqual({ id: 'grp-3' })
   })
+
+  it('list: преподаватель — только группы, где ведёт дисциплину или пару', async () => {
+    const { service, prisma } = setup()
+    prisma.$transaction.mockResolvedValue([[], 0])
+    await service.list(viewer(Role.TEACHER, { universityId: 'uni-1' }), { page: 1, limit: 20 })
+    expect(prisma.group.findMany.mock.calls[0][0].where).toEqual({
+      faculty: { universityId: 'uni-1' },
+      OR: [
+        { courses: { some: { teacherId: 'u' } } },
+        { pairs: { some: { teacherId: 'u', schedule: { is: { isActive: true } } } } },
+      ],
+    })
+  })
+
+  it('members: преподаватель не видит состав группы, где не ведёт занятий', async () => {
+    const { service, prisma } = setup()
+    prisma.group.findUnique.mockResolvedValue(GROUP)
+    prisma.group.findFirst.mockResolvedValue(null)
+    await expect(
+      service.members(viewer(Role.TEACHER, { universityId: 'uni-1' }), 'grp-1'),
+    ).rejects.toMatchObject({ code: 'WRONG_SCOPE' })
+    expect(prisma.user.findMany).not.toHaveBeenCalled()
+
+    prisma.group.findFirst.mockResolvedValue({ id: 'grp-1' })
+    prisma.user.findMany.mockResolvedValue([])
+    await expect(
+      service.members(viewer(Role.TEACHER, { universityId: 'uni-1' }), 'grp-1'),
+    ).resolves.toEqual([])
+  })
 })
 
 describe('GroupService — list: поиск и страницы', () => {

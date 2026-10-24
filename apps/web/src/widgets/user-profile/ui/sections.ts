@@ -34,7 +34,6 @@ export type DictKind =
   | 'interests'
   | 'languages'
   | 'countries'
-  | 'maritalStatus'
   | 'timezone'
   | 'educationLevel'
   | 'studyForm'

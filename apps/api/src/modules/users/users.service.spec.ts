@@ -13,6 +13,7 @@ import type { RealtimeGateway } from '../../common/realtime'
 import type { AuditService } from '../../common/audit/audit.service'
 import type { ExportBrandingService } from '../../common/export/export-branding.service'
 import type { ExportRegistryService } from '../../common/export/export-registry.service'
+import type { LibraryReservationsService } from '../library/library-reservations.service'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { EnvVars } from '../../config/env.schema'
 import type Redis from 'ioredis'
@@ -51,6 +52,14 @@ function setup() {
     album: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
     portfolioItem: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
     bookmark: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    // Гранты на свои документы гаснут вместе с аккаунтом (softDeleteSelf).
+    documentAccess: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    // Карьерные данные удаляемого (softDeleteSelf).
+    careerApplication: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    resume: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    careerProfile: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    careerConsent: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    consultationSlot: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
     // advisory-лок (проверка последнего администратора платформы при удалении аккаунта).
     $executeRaw: jest.fn().mockResolvedValue(1),
     // Пакетная транзакция — массивом запросов; интерактивная получает этот же мок как tx.
@@ -103,6 +112,8 @@ function setup() {
       return chain
     }),
   }
+  // Брони книг удаляемого закрывает модуль библиотеки (softDeleteSelf).
+  const libraryReservations = { cancelAllOfReader: jest.fn().mockResolvedValue(0) }
   const service = new UserService(
     prisma as unknown as PrismaService,
     passwords as unknown as PasswordService,
@@ -115,6 +126,7 @@ function setup() {
     branding as unknown as ExportBrandingService,
     exportRegistry as unknown as ExportRegistryService,
     redis as unknown as Redis,
+    libraryReservations as unknown as LibraryReservationsService,
   )
   return {
     redis,
@@ -129,6 +141,7 @@ function setup() {
     audit,
     branding,
     exportRegistry,
+    libraryReservations,
   }
 }
 
@@ -546,6 +559,76 @@ describe('UserService — закрытый профиль (видимость п
     )
     void prisma
   })
+
+  it('createInvitedUser — староста по инвайту получает дату начала полномочий', async () => {
+    const { service } = setup()
+    const tx = {
+      user: {
+        create: jest.fn().mockResolvedValue({
+          id: 'n',
+          role: Role.STAROSTA,
+          universityId: 'uni-1',
+          facultyId: 'fac-1',
+          groupId: 'grp-1',
+        }),
+      },
+    }
+    const input = {
+      email: 'st@b.io',
+      username: 'starosta',
+      passwordHash: 'h',
+      firstName: 'S',
+      lastName: 'T',
+      role: Role.STAROSTA,
+      universityId: 'uni-1',
+      facultyId: 'fac-1',
+      groupId: 'grp-1',
+      birthDate: new Date('2005-01-01T00:00:00Z'),
+      consentAt: new Date('2026-09-30T00:00:00Z'),
+      consentVersion: '2026-09-30',
+      consentByGuardian: false,
+    }
+    await service.createInvitedUser(tx as never, input)
+    expect(tx.user.create.mock.calls[0][0].data.starostaSince).toBeInstanceOf(Date)
+
+    await service.createInvitedUser(tx as never, { ...input, role: Role.STUDENT })
+    expect(tx.user.create.mock.calls[1][0].data).not.toHaveProperty('starostaSince')
+  })
+
+  it('createInvitedUser — занятое имя → USERNAME_TAKEN, занятый адрес → CONFLICT по полю email', async () => {
+    const { service } = setup()
+    const p2002 = (target: string[]) =>
+      new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+        code: 'P2002',
+        clientVersion: 'test',
+        meta: { target },
+      })
+    const tx = { user: { create: jest.fn().mockRejectedValueOnce(p2002(['username'])) } }
+    const input = {
+      email: 'a@b.io',
+      username: 'taken',
+      passwordHash: 'h',
+      firstName: 'A',
+      lastName: 'B',
+      role: Role.STUDENT,
+      universityId: null,
+      facultyId: null,
+      groupId: null,
+      birthDate: new Date('2000-01-01T00:00:00Z'),
+      consentAt: new Date('2026-09-30T00:00:00Z'),
+      consentVersion: '2026-09-30',
+      consentByGuardian: false,
+    }
+    await expect(service.createInvitedUser(tx as never, input)).rejects.toMatchObject({
+      code: 'USERNAME_TAKEN',
+      details: [{ field: 'username' }],
+    })
+    tx.user.create.mockRejectedValueOnce(p2002(['email']))
+    await expect(service.createInvitedUser(tx as never, input)).rejects.toMatchObject({
+      code: 'CONFLICT',
+      details: [{ field: 'email' }],
+    })
+  })
 })
 
 describe('UserService — дружба и личная блокировка (контент профиля)', () => {
@@ -792,6 +875,8 @@ describe('UserService — softDeleteSelf', () => {
     const { data } = prisma.user.update.mock.calls[0][0]
     expect(data.username).toBeNull()
     expect(data.groupId).toBeNull()
+    // Факультет тоже: связь Restrict, и надгробие не давало удалить факультет.
+    expect(data.facultyId).toBeNull()
     expect(data.role).toBe(Role.STUDENT)
     expect(prisma.group.updateMany).toHaveBeenCalledWith({
       where: { starostaId: 'u' },
@@ -831,6 +916,56 @@ describe('UserService — softDeleteSelf', () => {
     ]) {
       expect(model.deleteMany).toHaveBeenCalledWith({ where: { userId: 'u' } })
     }
+  })
+
+  // Получатель гранта ещё год, до уборки надгробия, скачивал сканы удалённого владельца.
+  it('отзывает выданные доступы к своим документам в той же транзакции', async () => {
+    const { service, prisma, passwords, config } = setup()
+    withBuckets(config)
+    passwords.hash.mockResolvedValue('anon')
+    prisma.user.update.mockResolvedValue({})
+    await service.softDeleteSelf('u')
+    expect(prisma.documentAccess.updateMany).toHaveBeenCalledWith({
+      where: { document: { ownerId: 'u' }, revokedAt: null },
+      data: { revokedAt: expect.any(Date) },
+    })
+  })
+
+  // Работодателю оставались сопроводительные письма откликов удалённого студента.
+  it('удаляет отклики, резюме, карьерный профиль и согласия в той же транзакции', async () => {
+    const { service, prisma, passwords, config } = setup()
+    withBuckets(config)
+    passwords.hash.mockResolvedValue('anon')
+    prisma.user.update.mockResolvedValue({})
+    await service.softDeleteSelf('u')
+    expect(prisma.careerApplication.deleteMany).toHaveBeenCalledWith({ where: { studentId: 'u' } })
+    for (const model of [prisma.resume, prisma.careerProfile, prisma.careerConsent]) {
+      expect(model.deleteMany).toHaveBeenCalledWith({ where: { userId: 'u' } })
+    }
+  })
+
+  // Очередь отдавала книгу «Удалённому пользователю», слот консультации оставался занят.
+  it('освобождает предстоящие консультации и закрывает брони книг', async () => {
+    const { service, prisma, passwords, config, libraryReservations } = setup()
+    withBuckets(config)
+    passwords.hash.mockResolvedValue('anon')
+    prisma.user.update.mockResolvedValue({})
+    await service.softDeleteSelf('u')
+    expect(prisma.consultationSlot.updateMany).toHaveBeenCalledWith({
+      where: { studentId: 'u', status: 'BOOKED', startsAt: { gt: expect.any(Date) } },
+      data: { status: 'OPEN', studentId: null, topic: null },
+    })
+    expect(libraryReservations.cancelAllOfReader).toHaveBeenCalledWith('u')
+  })
+
+  it('сбой библиотеки не срывает удаление аккаунта', async () => {
+    const { service, prisma, passwords, config, libraryReservations, authService } = setup()
+    withBuckets(config)
+    passwords.hash.mockResolvedValue('anon')
+    prisma.user.update.mockResolvedValue({})
+    libraryReservations.cancelAllOfReader.mockRejectedValue(new Error('db down'))
+    await expect(service.softDeleteSelf('u')).resolves.toBeUndefined()
+    expect(authService.revokeAllUserSessions).toHaveBeenCalledWith('u')
   })
 
   // Бакеты профиля публичные: без удаления объектов фото и видео оставались доступны по
@@ -1633,6 +1768,21 @@ describe('UserService.updateProfile — набор полей по роли (PRO
     })
   })
 
+  it('дату рождения можно исправить, но не стереть — иначе молчит сверка основания согласия', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findFirst.mockResolvedValue({ birthDate: new Date('2008-05-01') })
+    await expect(
+      service.updateProfile('s1', Role.STUDENT, { birthDate: null }),
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR', details: [{ field: 'birthDate' }] })
+    expect(prisma.user.update).not.toHaveBeenCalled()
+
+    // Даты не было (учётка до сентября 2026) — пустое значение ничего не стирает.
+    prisma.user.findFirst.mockResolvedValue({ birthDate: null })
+    prisma.user.update.mockResolvedValue({ id: 's1' })
+    await service.updateProfile('s1', Role.STUDENT, { birthDate: null })
+    expect(prisma.user.update).toHaveBeenCalled()
+  })
+
   it('преподавателю отказывает в студенческих полях', async () => {
     await expectRejected(Role.TEACHER, { gpa: 5, dormitory: 'Общежитие 3' }, ['gpa', 'dormitory'])
   })
@@ -1881,6 +2031,27 @@ describe('UserService — учебные данные ведёт вуз', () => 
     )
   })
 
+  it('ответ — только учебные поля: ни телефона, ни адреса, ни номера студенческого', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findFirst.mockResolvedValue({
+      id: 's1',
+      role: Role.STUDENT,
+      universityId: 'uni-A',
+      facultyId: 'fac-A',
+    })
+    prisma.user.update.mockResolvedValue({ id: 's1' })
+    await service.updateAcademicRecord(
+      viewer(Role.DEAN, { universityId: 'uni-A', facultyId: 'fac-A' }),
+      's1',
+      {},
+    )
+    const select = prisma.user.update.mock.calls[0][0].select
+    expect(select).toMatchObject({ id: true, course: true, academicStatus: true })
+    for (const hidden of ['phone', 'address', 'studentCardNumber', 'username', 'email']) {
+      expect(select).not.toHaveProperty(hidden)
+    }
+  })
+
   it('декан чужого факультета — WRONG_SCOPE', async () => {
     const { service, prisma } = setup()
     prisma.user.findFirst.mockResolvedValue({
@@ -1937,6 +2108,21 @@ describe('UserService — учебные данные ведёт вуз', () => 
       prisma.user.update.mockResolvedValue({ id: 's1' })
       await service.updateAcademicRecord(admin, 's1', { academicStatus: 'Обучающийся' })
       expect(prisma.user.update.mock.calls[0][0].data.leftUniversityAt).toBeNull()
+    })
+
+    it('статус — из закрытого справочника: «Отчислена» отклоняется, регистр приводится', async () => {
+      const { service, prisma } = setup()
+      prisma.user.findFirst.mockResolvedValue(student(null))
+      await expect(
+        service.updateAcademicRecord(admin, 's1', { academicStatus: 'Отчислена' }),
+      ).rejects.toMatchObject({ code: 'VALIDATION_ERROR', details: [{ field: 'academicStatus' }] })
+      expect(prisma.user.update).not.toHaveBeenCalled()
+
+      prisma.user.update.mockResolvedValue({ id: 's1' })
+      await service.updateAcademicRecord(admin, 's1', { academicStatus: ' переведен ' })
+      const data = prisma.user.update.mock.calls[0][0].data
+      expect(data.academicStatus).toBe('Переведён')
+      expect(data.leftUniversityAt).toBeInstanceOf(Date)
     })
 
     it('правка без статуса дату не трогает', async () => {

@@ -44,11 +44,23 @@ const deanA: JwtPayload = {
   groupId: null,
 }
 
+const activeDean = {
+  id: 'dean-1',
+  role: Role.DEAN,
+  isBlocked: false,
+  deletedAt: null,
+  universityId: 'uni-A',
+  facultyId: 'fac-A',
+  groupId: null,
+}
+
 function setup() {
   const prisma: PrismaMock = {
     // Язык письма-приглашения берётся из профиля приглашающего (invites.service:
     // issuerLocale) — без этого мока сервис падает ещё до постановки письма в очередь.
-    user: { findUnique: jest.fn().mockResolvedValue({ locale: 'ru' }) },
+    // Тот же запрос отвечает и на проверку права выдавшего (assertIssuerEntitled): по
+    // умолчанию выдавший — действующий декан deanA.
+    user: { findUnique: jest.fn().mockResolvedValue({ locale: 'ru', ...activeDean }) },
     group: {
       findUnique: jest
         .fn()
@@ -296,6 +308,7 @@ describe('InviteService', () => {
       universityId: 'uni-A',
       facultyId: 'fac-A',
       groupId: 'grp-A',
+      createdById: 'dean-1',
     }
 
     it('не найден → NOT_FOUND', async () => {
@@ -389,6 +402,51 @@ describe('InviteService', () => {
       await expect(service.revoke(deanA, 'inv', ctx)).rejects.toMatchObject({ code: 'FORBIDDEN' })
     })
 
+    // Приглашение админа вуза выдаёт платформа — админ вуза его не отзывает (§2.1).
+    it('админ вуза не отзывает инвайт на UNIVERSITY_ADMIN своего вуза → FORBIDDEN', async () => {
+      const { service, prisma } = setup()
+      prisma.invite.findUnique.mockResolvedValue({
+        id: 'inv',
+        status: InviteStatus.PENDING,
+        role: Role.UNIVERSITY_ADMIN,
+        createdById: 'pa-1',
+        universityId: 'uni-A',
+      })
+      const uniAdmin: JwtPayload = {
+        sub: 'ua-1',
+        role: Role.UNIVERSITY_ADMIN,
+        universityId: 'uni-A',
+        facultyId: null,
+        groupId: null,
+      }
+      await expect(service.revoke(uniAdmin, 'inv', ctx)).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+      })
+      expect(prisma.invite.updateMany).not.toHaveBeenCalled()
+    })
+
+    it('админ вуза отзывает инвайт декана своего вуза', async () => {
+      const { service, prisma } = setup()
+      prisma.invite.findUnique.mockResolvedValue({
+        id: 'inv',
+        status: InviteStatus.PENDING,
+        role: Role.TEACHER,
+        createdById: 'dean-1',
+        universityId: 'uni-A',
+      })
+      const uniAdmin: JwtPayload = {
+        sub: 'ua-1',
+        role: Role.UNIVERSITY_ADMIN,
+        universityId: 'uni-A',
+        facultyId: null,
+        groupId: null,
+      }
+      await expect(service.revoke(uniAdmin, 'inv', ctx)).resolves.toEqual({
+        id: 'inv',
+        status: InviteStatus.REVOKED,
+      })
+    })
+
     it('создатель отзывает PENDING', async () => {
       const { service, prisma, audit } = setup()
       prisma.invite.findUnique.mockResolvedValue({
@@ -479,6 +537,7 @@ describe('InviteService', () => {
       universityId: 'uni-A',
       facultyId: 'fac-A',
       groupId: 'grp-A',
+      createdById: 'dean-1',
       status: InviteStatus.PENDING,
       expiresAt: new Date(Date.now() + HOUR),
     }
@@ -523,6 +582,52 @@ describe('InviteService', () => {
         where: { id: 'grp-A' },
         select: { id: true },
       })
+    })
+
+    // Право выдавшего сверяется при использовании: снятый староста, заблокированный или
+    // удалённый декан больше не приглашают.
+    const claimTx = (prisma: PrismaMock) => ({
+      ...prisma,
+      invite: {
+        ...prisma.invite,
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        findFirstOrThrow: jest.fn().mockResolvedValue({ id: 'inv-1', ...pending }),
+      },
+    })
+
+    it('claimInvite: выдавший заблокирован → INVITE_REVOKED', async () => {
+      const { service, prisma } = setup()
+      prisma.user.findUnique.mockResolvedValue({ ...activeDean, isBlocked: true })
+      await expect(
+        service.claimInvite(claimTx(prisma) as unknown as Prisma.TransactionClient, 'tok'),
+      ).rejects.toMatchObject({ code: 'INVITE_REVOKED' })
+    })
+
+    it('claimInvite: выдавший удалён → INVITE_REVOKED', async () => {
+      const { service, prisma } = setup()
+      prisma.user.findUnique.mockResolvedValue({ ...activeDean, deletedAt: new Date() })
+      await expect(
+        service.claimInvite(claimTx(prisma) as unknown as Prisma.TransactionClient, 'tok'),
+      ).rejects.toMatchObject({ code: 'INVITE_REVOKED' })
+    })
+
+    it('preview: старосту, выдавшего инвайт, сняли → INVITE_REVOKED', async () => {
+      const { service, prisma } = setup()
+      prisma.invite.findFirst.mockResolvedValue({ ...pending, createdById: 'st-1' })
+      prisma.user.findUnique.mockResolvedValue({
+        ...activeDean,
+        id: 'st-1',
+        role: Role.STUDENT,
+        groupId: 'grp-A',
+      })
+      await expect(service.preview('x')).rejects.toMatchObject({ code: 'INVITE_REVOKED' })
+    })
+
+    it('preview: декана перевели на другой факультет → INVITE_REVOKED', async () => {
+      const { service, prisma } = setup()
+      prisma.invite.findFirst.mockResolvedValue(pending)
+      prisma.user.findUnique.mockResolvedValue({ ...activeDean, facultyId: 'fac-B' })
+      await expect(service.preview('x')).rejects.toMatchObject({ code: 'INVITE_REVOKED' })
     })
 
     it('revokePendingInScope: только PENDING этого scope переводятся в REVOKED', async () => {

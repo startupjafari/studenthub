@@ -8,6 +8,7 @@ import { AppException } from '../../common/exceptions/app.exception'
 import { EMAIL_JOBS, QUEUES, QueueService } from '../../common/queue'
 import type { EnvVars } from '../../config/env.schema'
 import { webBaseUrl } from '../../config/web-base'
+import { deadlineLabel } from '../../common/time/local-label'
 import { UserService } from '../users/users.service'
 import { emailDict } from '../email/email-strings'
 import { LoginAttemptsService } from './login-attempts.service'
@@ -75,10 +76,7 @@ export class PasswordResetService {
         locale: user.locale,
         firstName: user.firstName,
         resetUrl: `${webBaseUrl(this.config)}/reset-password?token=${rawToken}`,
-        expiresAt: new Intl.DateTimeFormat(t.dateLocale, {
-          dateStyle: 'long',
-          timeStyle: 'short',
-        }).format(expiresAt),
+        expiresAt: deadlineLabel(expiresAt, t.dateLocale, user.university?.timezone),
       },
       // jobId — по хэшу, а не по сырому токену: имя задачи живёт в Redis дольше письма.
       { jobId: `password-reset:${hashToken(rawToken)}` },
