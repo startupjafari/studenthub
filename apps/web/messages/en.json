@@ -5129,6 +5129,7 @@
     "mergeWith": "Merge with request from…",
     "merge": "Merge",
     "merged": "Requests merged",
+    "mergeConflict": "One of the requests is already merged into another — refresh the window",
     "escalate": "Escalate to admin",
     "confirmEscalate": "Escalate to admins? They'll be notified immediately, bypassing duty and quiet hours.",
     "escalated": "Admins notified",

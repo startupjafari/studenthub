@@ -87,9 +87,12 @@ export function SupportThreadModal({ ticketId, onClose, onOpen }: SupportThreadM
   const refresh = async (): Promise<void> => {
     await qc.invalidateQueries({ queryKey: supportKeys.all })
   }
-  const onError = (e: unknown) => {
+  // CONFLICT значит разное: у «взять» — обращение уже за другим, у склейки — ветка уже
+  // склеена. Общий перевод «разбирает другой» на любой CONFLICT врал про склейку.
+  const onError = (e: unknown) => toast.error(tErr(toApiError(e).code))
+  const conflictError = (conflictText: string) => (e: unknown) => {
     const code = toApiError(e).code
-    toast.error(code === 'CONFLICT' ? t('takenByOther') : tErr(code))
+    toast.error(code === 'CONFLICT' ? conflictText : tErr(code))
   }
   const loadEarlier = useMutation({
     mutationFn: (cursor: string) => fetchSupportEarlierMessages(ticketId, cursor),
@@ -114,7 +117,7 @@ export function SupportThreadModal({ ticketId, onClose, onOpen }: SupportThreadM
   const assign = useMutation({
     mutationFn: (take: boolean) => assignSupportRequest(ticketId, take),
     onSuccess: refresh,
-    onError,
+    onError: conflictError(t('takenByOther')),
   })
   const tags = useMutation({
     mutationFn: (next: SupportTag[]) => setSupportTagsRequest(ticketId, next),
@@ -156,7 +159,7 @@ export function SupportThreadModal({ ticketId, onClose, onOpen }: SupportThreadM
       await refresh()
       onOpen(intoId)
     },
-    onError,
+    onError: conflictError(t('mergeConflict')),
   })
 
   const author = ticket?.author
