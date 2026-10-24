@@ -82,12 +82,23 @@ export class MediaProcessingService implements OnModuleInit {
     await this.sweepStaleTmp()
   }
 
-  /** Временные каталоги, брошенные убитым посреди перекодирования процессом. */
-  private async sweepStaleTmp(): Promise<void> {
+  /**
+   * Временные каталоги, брошенные убитым посреди перекодирования процессом. Идёт при старте
+   * и перед каждым видео: воркер, который живёт неделями, тоже должен их убирать. С
+   * `fileId` сносит и каталоги прежних попыток этого файла независимо от возраста: процесс
+   * убили на нём (OOM), job пришёл снова — иначе каждый круг копил бы ещё одну частичную
+   * HLS-раскладку, пока не кончится диск. Параллельно один файл не обрабатывается: jobId
+   * детерминирован.
+   */
+  private async sweepStaleTmp(fileId?: string): Promise<void> {
     const entries = await readdir(this.tmpRoot).catch(() => [] as string[])
     const before = Date.now() - STALE_TMP_MS
     for (const name of entries) {
       const path = join(this.tmpRoot, name)
+      if (fileId && name.startsWith(`${fileId}-`)) {
+        await rm(path, { recursive: true, force: true })
+        continue
+      }
       const info = await stat(path).catch(() => null)
       if (info && info.mtimeMs < before) await rm(path, { recursive: true, force: true })
     }
@@ -295,6 +306,7 @@ export class MediaProcessingService implements OnModuleInit {
       return
     }
 
+    await this.sweepStaleTmp(file.id)
     const dir = await mkdtemp(join(this.tmpRoot, `${file.id}-`))
     try {
       const framePath = join(dir, 'poster.jpg')
