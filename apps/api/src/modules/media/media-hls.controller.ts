@@ -7,6 +7,13 @@ import { MediaService } from './media.service'
 
 const PLAYLIST_TYPE = 'application/vnd.apple.mpegurl'
 
+// helmet по умолчанию ставит `Cross-Origin-Resource-Policy: same-origin`. Нативный HLS
+// (Safari iOS до 17.1, где нет MSE) грузит плейлисты элементом <video> без CORS, а веб
+// живёт на другом origin — такой ответ браузер блокирует, и видео не играет. Доступ здесь
+// держит токен `?t=`, а не origin, поэтому ресурс открыт для чужого origin явно.
+const CORP_HEADER = 'cross-origin-resource-policy'
+const CORP_CROSS_ORIGIN = 'cross-origin'
+
 // Плейлисты HLS отдаются по подписанному токену `?t=`, а не по JWT (BACKEND_RULES §6.1,
 // список публичных маршрутов): нативный HLS Safari/iOS запрашивает плейлисты и сегменты
 // сам и заголовок Authorization к ним не приложит. Токен выдаёт модуль-владелец файла вместе
@@ -35,6 +42,7 @@ export class MediaHlsController {
     await reply
       .header('content-type', PLAYLIST_TYPE)
       .header('cache-control', 'private, no-store')
+      .header(CORP_HEADER, CORP_CROSS_ORIGIN)
       .send(body)
   }
 
@@ -53,6 +61,7 @@ export class MediaHlsController {
     await reply
       .header('content-type', PLAYLIST_TYPE)
       .header('cache-control', 'private, max-age=300')
+      .header(CORP_HEADER, CORP_CROSS_ORIGIN)
       .send(body)
   }
 
@@ -70,6 +79,9 @@ export class MediaHlsController {
   ): Promise<void> {
     const url = await this.media.segmentUrl(fileId, rendition, segment, token)
     // Подпись стабильна в пределах окна, поэтому и редирект можно ненадолго кешировать.
-    await reply.header('cache-control', 'private, max-age=300').redirect(url, 302)
+    await reply
+      .header('cache-control', 'private, max-age=300')
+      .header(CORP_HEADER, CORP_CROSS_ORIGIN)
+      .redirect(url, 302)
   }
 }
