@@ -11,7 +11,7 @@ import {
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AuditService } from '../../common/audit/audit.service'
 import { AppException } from '../../common/exceptions/app.exception'
-import { readTableFile } from '../../common/import/table-file'
+import { nonEmptyRows, readTableFile } from '../../common/import/table-file'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
 import { LibraryCatalogService, type CopyBatch } from './library-catalog.service'
@@ -72,10 +72,10 @@ export function parseLibraryImportFile(buffer: Buffer, filename: string): RawLib
     maxRows: MAX_PARSED_ROWS,
     maxColumns: MAX_PARSED_COLUMNS,
   })
-  const nonEmpty = matrix.filter((r) => r.some((c) => String(c ?? '').trim() !== ''))
+  const nonEmpty = nonEmptyRows(matrix)
   const headerRow = nonEmpty[0]
   if (!headerRow) throw new AppException('BAD_REQUEST', 'Файл пуст')
-  const headers = headerRow.map((c) => normalizeHeader(String(c ?? '')))
+  const headers = headerRow.cells.map((c) => normalizeHeader(String(c ?? '')))
   const col = (field: Column): number => headers.findIndex((h) => HEADER_ALIASES[field].includes(h))
   const columns = Object.fromEntries(
     (Object.keys(HEADER_ALIASES) as Column[]).map((f) => [f, col(f)]),
@@ -87,8 +87,9 @@ export function parseLibraryImportFile(buffer: Buffer, filename: string): RawLib
     )
   }
   const cell = (r: string[], idx: number): string => (idx === -1 ? '' : String(r[idx] ?? '').trim())
-  return nonEmpty.slice(1).map((r, i) => ({
-    line: i + 2,
+  return nonEmpty.slice(1).map(({ line, cells: r }) => ({
+    // Номер строки в файле, а не по счёту непустых: его ищут глазами в Excel.
+    line,
     title: cell(r, columns.title),
     authors: cell(r, columns.authors),
     isbn: cell(r, columns.isbn),
