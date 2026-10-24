@@ -66,6 +66,7 @@ function setup({ enabled = true }: { enabled?: boolean } = {}) {
     book: {
       findMany: jest.fn().mockResolvedValue([]),
       create: jest.fn().mockResolvedValue({ id: 'book-new' }),
+      update: jest.fn().mockResolvedValue({}),
     },
   }
   const prisma = {
@@ -364,5 +365,40 @@ describe('Импорт фонда', () => {
     ])
     expect(preview.rows[0]?.count).toBe(1)
     expect(preview.summary).toMatchObject({ ready: 2, duplicate: 1, error: 3, copies: 5 })
+  })
+
+  it('запись: книга ищется под строки файла, архивная возвращается в каталог, а не дублируется', async () => {
+    const { service, tx } = setup()
+    const importer = new LibraryImportService(
+      {} as never,
+      { record: jest.fn().mockResolvedValue(undefined) } as never,
+      service,
+    )
+    tx.book.findMany.mockResolvedValue([
+      { id: 'book-old', title: 'Книга', authors: 'Иванов', isbn: null, archivedAt: new Date() },
+    ])
+    const row = {
+      line: 2,
+      title: 'КНИГА',
+      authors: 'иванов',
+      isbn: null,
+      publisher: null,
+      year: null,
+      section: null,
+      inventoryNumbers: [],
+      count: 1,
+    }
+    const result = await importer.commit(librarian, { rows: [row] }, ctx)
+    expect(result).toMatchObject({ books: 0, matched: 1 })
+    expect(tx.book.create).not.toHaveBeenCalled()
+    expect(tx.book.update).toHaveBeenCalledWith({
+      where: { id: 'book-old' },
+      data: { archivedAt: null },
+    })
+    // Кандидаты — по названиям и ISBN файла, без среза «первых N» карточек вуза.
+    expect(tx.book.findMany.mock.calls[0][0].where).toEqual({
+      universityId: 'uni-1',
+      OR: [{ isbn: { in: [] } }, { title: { in: ['КНИГА'], mode: 'insensitive' } }],
+    })
   })
 })
