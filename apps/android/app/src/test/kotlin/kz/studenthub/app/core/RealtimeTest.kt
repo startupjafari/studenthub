@@ -4,6 +4,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import kz.studenthub.app.core.chats.ChatStore
 import kz.studenthub.app.core.chats.MessageStore
@@ -117,6 +118,29 @@ class RealtimeCoordinatorTest {
         assertNull(realtime.actions.value["c1"])
     }
 
+    /** `chat:updated` несёт только сменившееся поле — остальное в строке чата не трогаем. */
+    @Test
+    fun chatUpdatedPatchesTitleAndAvatar() = runTest {
+        ChatStore(db).saveChats(listOf(chatDto("c1", title = "Было")))
+        val realtime = coordinator()
+        realtime.handle(RealtimeEvent.ChatUpdated("c1", title = "Стало"))
+        assertEquals("Стало", db.chats().get("c1")!!.title)
+        realtime.handle(RealtimeEvent.ChatUpdated("c1", avatarChanged = true, avatarUrl = "https://cdn/a.png"))
+        assertEquals("https://cdn/a.png", db.chats().get("c1")!!.avatarUrl)
+        assertEquals("Стало", db.chats().get("c1")!!.title)
+    }
+
+    /** `chat:activity` обновляет список; пачка сигналов — не пачка запросов. */
+    @Test
+    fun chatActivityRefreshesList() = runTest {
+        var refreshes = 0
+        val session = SessionStore(NoRefresh(), InMemorySecretStore(), MemoryCookies())
+        val realtime = RealtimeCoordinator(FakeTransport(), session, db, backgroundScope, refreshChats = { refreshes++ })
+        realtime.handle(RealtimeEvent.ChatActivity("c1"))
+        advanceUntilIdle()
+        assertEquals(1, refreshes)
+    }
+
     @Test
     fun presenceIsTracked() = runTest {
         val realtime = coordinator()
@@ -178,6 +202,16 @@ class RealtimeEventTest {
             RealtimeEvent.parse("event", """{"type":"application.status.changed","entityId":"a1","data":{"status":"APPROVED"}}"""),
         )
         assertNull(RealtimeEvent.parse("event", """{"type":"post.created","entityId":"p1","data":{}}"""))
+    }
+
+    @Test
+    fun chatUpdatedCarriesOnlyChangedField() {
+        assertEquals(RealtimeEvent.ChatUpdated("c1", title = "Группа"), RealtimeEvent.parse("chat:updated", """{"chatId":"c1","title":"Группа"}"""))
+        assertEquals(
+            RealtimeEvent.ChatUpdated("c1", avatarChanged = true, avatarUrl = null),
+            RealtimeEvent.parse("chat:updated", """{"chatId":"c1","avatarUrl":null}"""),
+        )
+        assertEquals(RealtimeEvent.ChatActivity("c1"), RealtimeEvent.parse("chat:activity", """{"chatId":"c1"}"""))
     }
 
     @Test

@@ -11,7 +11,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kz.studenthub.app.core.chats.ChatMessageDto
-import kz.studenthub.app.core.chats.ChatStore
 import kz.studenthub.app.core.chats.MessageStore
 import kz.studenthub.app.core.session.SessionStore
 import kz.studenthub.app.core.storage.AppDatabase
@@ -36,6 +35,8 @@ class RealtimeCoordinator(
     private val actionTtlMillis: Long = 4_000,
     /** Как часто продлевать токен живого соединения: access живёт 15 минут. */
     private val tokenRefreshMillis: Long = 10 * 60_000,
+    /** Догнать первую страницу списка чатов — ответ на `chat:activity`. */
+    private val refreshChats: (suspend () -> Unit)? = null,
 ) {
     private val _isConnected = MutableStateFlow(false)
     val isConnected: StateFlow<Boolean> = _isConnected
@@ -57,7 +58,8 @@ class RealtimeCoordinator(
     private val _applicationStatus = MutableStateFlow<ApplicationStatusChange?>(null)
     val applicationStatus: StateFlow<ApplicationStatusChange?> = _applicationStatus
 
-    private val chats = ChatStore(db)
+    private var listRefresh: Job? = null
+    private var listRefreshAgain = false
     private var pump: Job? = null
     private var keepAlive: Job? = null
     private val expiry = mutableMapOf<String, Job>()
@@ -93,6 +95,7 @@ class RealtimeCoordinator(
     fun stop() {
         pump?.cancel()
         keepAlive?.cancel()
+        listRefresh?.cancel()
         pump = null
         keepAlive = null
         expiry.values.forEach { it.cancel() }
@@ -150,7 +153,13 @@ class RealtimeCoordinator(
             is RealtimeEvent.Action -> apply(event.action, event.chatId, event.userId)
             is RealtimeEvent.Presence ->
                 _online.value = if (event.online) _online.value + event.userId else _online.value - event.userId
-            is RealtimeEvent.ChatUpdated -> chats.saveChats(listOf(event.chat))
+            is RealtimeEvent.ChatUpdated -> {
+                var chat = db.chats().get(event.chatId) ?: return
+                event.title?.let { chat = chat.copy(title = it) }
+                if (event.avatarChanged) chat = chat.copy(avatarUrl = event.avatarUrl)
+                db.chats().update(chat)
+            }
+            is RealtimeEvent.ChatActivity -> refreshList()
             is RealtimeEvent.ApplicationStatusChanged ->
                 _applicationStatus.value = ApplicationStatusChange(event.applicationId, event.status, Instant.now())
         }
@@ -180,6 +189,29 @@ class RealtimeCoordinator(
                 chat = chat.copy(unreadCount = chat.unreadCount + 1)
             }
             db.chats().update(chat)
+        }
+    }
+
+    /**
+     * Обновить список по `chat:activity`. Сигналы приходят пачками (каждое сообщение
+     * каждого чата), поэтому запрос один в полёте: пришедшее за время запроса сводится в
+     * ещё один проход после него, а не в десяток параллельных.
+     */
+    private fun refreshList() {
+        val refresh = refreshChats ?: return
+        if (listRefresh?.isActive == true) {
+            listRefreshAgain = true
+            return
+        }
+        listRefresh = scope.launch {
+            do {
+                listRefreshAgain = false
+                try {
+                    refresh()
+                } catch (error: Exception) {
+                    if (error is CancellationException) throw error
+                }
+            } while (listRefreshAgain)
         }
     }
 

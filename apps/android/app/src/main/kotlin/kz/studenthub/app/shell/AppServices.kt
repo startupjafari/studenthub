@@ -99,8 +99,17 @@ class AppServices(context: Context) {
     /** Ссылки на вложения: кэш по id файла, а не по адресу. */
     val attachmentUrls = AttachmentUrls(chatsApi::attachmentUrl)
 
+    val pushSync = PushSync(chatsApi, chatStore)
+
     /** Реальное время. Транспорт — единственное место, знающее про socket.io. */
-    val realtime = RealtimeCoordinator(SocketIoTransport(BuildConfig.API_BASE_URL), session, database, appScope)
+    val realtime = RealtimeCoordinator(
+        SocketIoTransport(BuildConfig.API_BASE_URL),
+        session,
+        database,
+        appScope,
+        // `chat:activity` — тот же догон первой страницы списка, что и по тихому пушу.
+        refreshChats = { pushSync.catchUp() },
+    )
 
     val studyApi = StudyApi(api)
     val feedApi = FeedApi(api)
@@ -114,7 +123,6 @@ class AppServices(context: Context) {
     }
 
     val push = PushRegistrar(appContext, api, clientVersion)
-    val pushSync = PushSync(chatsApi, chatStore)
 
     /** Навигация общая: по нажатию на уведомление переход делает не экран. */
     val router = AppRouter()
