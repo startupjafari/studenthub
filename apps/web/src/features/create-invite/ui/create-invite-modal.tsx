@@ -25,7 +25,7 @@ import { OPTIONAL_TEXT, useErrorToast } from '../../../shared/lib'
 import { fetchMe, userKeys } from '../../../entities/user'
 import { fetchFaculties, facultyKeys } from '../../../entities/faculty'
 import { GroupSelect } from '../../../entities/group'
-import { fetchUniversityOptions, universityKeys } from '../../../entities/university'
+import { UniversitySelect } from '../../../entities/university'
 import { createInviteRequest, inviteKeys, type CreatedInvite } from '../../../entities/invite'
 import {
   FACULTY_ROLES,
@@ -66,11 +66,6 @@ export function CreateInviteModal({ onClose }: Props) {
   // Приглашение админа вуза выдаёт платформа — целевой вуз она указывает явно
   // (invite-hierarchy.ts: scope не выводится из выдающего).
   const needsUniversity = role !== undefined && UNIVERSITY_ROLES.includes(role)
-  const universities = useQuery({
-    queryKey: universityKeys.options(),
-    queryFn: fetchUniversityOptions,
-    enabled: needsUniversity,
-  })
 
   const createMut = useMutation({
     mutationFn: createInviteRequest,
@@ -180,23 +175,19 @@ export function CreateInviteModal({ onClose }: Props) {
 
         {needsUniversity && (
           <div className="flex flex-col gap-1.5">
-            <Label>{t('university')}</Label>
+            <Label htmlFor="inv-university">{t('university')}</Label>
+            {/* Серверный поиск, а не справочник целиком: вузов больше, чем отдаёт одна
+                страница (предел 200), и хвост списка иначе было не выбрать. */}
             <Controller
               control={form.control}
               name="universityId"
               render={({ field }) => (
-                <Select value={field.value ?? ''} onValueChange={field.onChange}>
-                  <SelectTrigger aria-invalid={!!form.formState.errors.universityId}>
-                    <SelectValue placeholder={t('selectUniversity')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {universities.data?.map((u) => (
-                      <SelectItem key={u.id} value={u.id}>
-                        {u.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <UniversitySelect
+                  id="inv-university"
+                  value={field.value ?? null}
+                  onChange={(v) => field.onChange(v ?? undefined)}
+                  placeholder={t('selectUniversity')}
+                />
               )}
             />
             <FieldError>{form.formState.errors.universityId?.message}</FieldError>
