@@ -287,6 +287,9 @@ export class LibraryCatalogService {
       },
       select: BOOK_SELECT,
     })
+    if (archived === true && !book.archivedAt) {
+      await this.reservations.closeQueueOfArchived(id, updated.title)
+    }
     await this.audit.record({
       userId: actor.sub,
       action:

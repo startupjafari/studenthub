@@ -1,5 +1,6 @@
 import type { Prisma } from '@prisma/client'
 import { advisoryXactLock } from '../../common/prisma/advisory-lock'
+import { isTerminalAcademicStatus } from '../users/academic-status'
 import { addDays, endOfDay, todayIn } from './library-dates'
 
 // Очередь броней (Фаза 20.5/20.8): освободившийся экземпляр — после возврата, отмены выдачи,
@@ -31,10 +32,64 @@ function holdUntilOf(hold: { holdDays: number; timezone: string }, now: Date): D
 const NEXT_SELECT = {
   id: true,
   readerId: true,
-  reader: { select: { firstName: true, lastName: true, group: { select: { name: true } } } },
+  reader: {
+    select: {
+      firstName: true,
+      lastName: true,
+      academicStatus: true,
+      group: { select: { name: true } },
+    },
+  },
 } satisfies Prisma.ReservationSelect
 
 type NextRow = Prisma.ReservationGetPayload<{ select: typeof NEXT_SELECT }>
+
+/** Сколько броней очереди смотреть за раз, пропуская тех, кому выдача закрыта. */
+const QUEUE_PAGE = 20
+
+/**
+ * Первый в очереди, кому книгу можно выдать (§3.11): не заблокирован и не удалён, без
+ * просрочки и непогашенной утери, не отчислен, не выпущен и не переведён. Такому читателю
+ * экземпляр не откладывается — выдача дала бы `409`, и книга пролежала бы на полке броней
+ * весь срок. Его бронь остаётся в очереди и дождётся следующего экземпляра, когда долг
+ * закроют. Очередь архивной книги не обслуживается: её брони сняты при архивации.
+ */
+async function nextInQueue(
+  tx: Prisma.TransactionClient,
+  bookId: string,
+  now: Date,
+): Promise<NextRow | null> {
+  const where: Prisma.ReservationWhereInput = {
+    bookId,
+    status: 'QUEUED',
+    book: { archivedAt: null },
+    reader: {
+      deletedAt: null,
+      isBlocked: false,
+      loansAsReader: {
+        none: {
+          OR: [
+            { status: 'OPEN', dueAt: { lt: now } },
+            { status: 'LOST', lostSettledAt: null },
+          ],
+        },
+      },
+    },
+  }
+  for (let skip = 0; ; skip += QUEUE_PAGE) {
+    const page = await tx.reservation.findMany({
+      where,
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      skip,
+      take: QUEUE_PAGE,
+      select: NEXT_SELECT,
+    })
+    // Учебный статус — свободная строка в двух представлениях, его сверяем здесь.
+    const next = page.find((r) => !isTerminalAcademicStatus(r.reader.academicStatus))
+    if (next) return next
+    if (page.length < QUEUE_PAGE) return null
+  }
+}
 
 function heldOf(next: NextRow, holdUntil: Date): HeldFor {
   return {
@@ -61,11 +116,7 @@ export async function releaseCopy(
   now = new Date(),
 ): Promise<HeldFor | null> {
   await lockBookQueue(tx, copy.bookId)
-  const next = await tx.reservation.findFirst({
-    where: { bookId: copy.bookId, status: 'QUEUED' },
-    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-    select: NEXT_SELECT,
-  })
+  const next = await nextInQueue(tx, copy.bookId, now)
   if (!next) {
     await tx.bookCopy.update({ where: { id: copy.id }, data: { status: 'AVAILABLE' } })
     return null
@@ -93,11 +144,7 @@ export async function serveQueue(
   await lockBookQueue(tx, bookId)
   const held: HeldFor[] = []
   for (;;) {
-    const next = await tx.reservation.findFirst({
-      where: { bookId, status: 'QUEUED' },
-      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-      select: NEXT_SELECT,
-    })
+    const next = await nextInQueue(tx, bookId, now)
     if (!next) break
     const copy = await tx.bookCopy.findFirst({
       where: { bookId, status: 'AVAILABLE' },

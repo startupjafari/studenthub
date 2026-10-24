@@ -109,6 +109,7 @@ function setup({ enabled = true }: { enabled?: boolean } = {}) {
   const reservations = {
     serveCopies: jest.fn().mockResolvedValue(undefined),
     serveBook: jest.fn().mockResolvedValue(undefined),
+    closeQueueOfArchived: jest.fn().mockResolvedValue(undefined),
   }
   const service = new LibraryCatalogService(
     prisma as unknown as PrismaService,
@@ -191,6 +192,12 @@ describe('LibraryCatalogService — фонд', () => {
       code: 'CONFLICT',
       details: [expect.objectContaining({ field: 'copies' })],
     })
+  })
+
+  it('книга ушла в архив — её очередь броней снимается', async () => {
+    const { service, reservations } = setup()
+    await service.update(librarian, 'book-1', { archived: true }, ctx)
+    expect(reservations.closeQueueOfArchived).toHaveBeenCalledWith('book-1', expect.any(String))
   })
 
   it('читатель фонд не правит', async () => {

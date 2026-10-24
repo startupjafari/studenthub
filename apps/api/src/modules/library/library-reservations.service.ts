@@ -112,6 +112,12 @@ export class LibraryReservationsService {
       // брони одного читателя не пройдут обе ни на одну книгу, ни сверх предела броней.
       await lockReader(tx, reader.id)
       await lockBookQueue(tx, bookId)
+      // Книгу могли убрать в архив после проверки выше: бронь на неё повисла бы навсегда.
+      const fresh = await tx.book.findUnique({
+        where: { id: bookId },
+        select: { archivedAt: true },
+      })
+      if (!fresh || fresh.archivedAt) throw new AppException('NOT_FOUND', 'Книга не найдена')
       const [dup, current] = await Promise.all([
         tx.reservation.count({
           where: { readerId: reader.id, bookId, status: { in: ['QUEUED', 'READY'] } },
@@ -284,6 +290,49 @@ export class LibraryReservationsService {
       select: { title: true },
     })
     await this.notifyAll(held, book?.title ?? '', timezone)
+  }
+
+  /**
+   * Книгу убрали в архив: очередь на неё больше не обслуживается, и брони снимаются — иначе
+   * висели бы вечно и занимали предел броней читателя. Готовых броней тут нет: книгу с
+   * отложенным экземпляром в архив не убрать. Читателям — «бронь снята».
+   */
+  async closeQueueOfArchived(bookId: string, title: string): Promise<void> {
+    const now = new Date()
+    const closed = await this.prisma.$transaction(async (tx) => {
+      await lockBookQueue(tx, bookId)
+      const rows: { id: string; readerId: string }[] = []
+      for (;;) {
+        const page = await tx.reservation.findMany({
+          where: { bookId, status: 'QUEUED' },
+          orderBy: { id: 'asc' },
+          take: BATCH_SIZE,
+          select: { id: true, readerId: true },
+        })
+        if (page.length === 0) break
+        await tx.reservation.updateMany({
+          where: { id: { in: page.map((r) => r.id) }, status: 'QUEUED' },
+          data: { status: 'CANCELLED', closedAt: now },
+        })
+        rows.push(...page)
+        if (page.length < BATCH_SIZE) break
+      }
+      return rows
+    })
+    for (const row of closed) {
+      await this.notifier.send({
+        recipientIds: [row.readerId],
+        job: NOTIFICATION_JOBS.LIBRARY_RESERVATION,
+        titleKey: 'library.reservationCancelled.title',
+        bodyKey: 'library.book.body',
+        params: { title },
+        url: '/my-books',
+        dedupeKey: `library-reservation-cancelled:${row.id}`,
+      })
+    }
+    if (closed.length > 0) {
+      this.logger.log(`Книга ${bookId} в архиве: снято броней из очереди ${closed.length}`)
+    }
   }
 
   /** Заведённые экземпляры — очередям их книг (экземпляры, импорт). */
