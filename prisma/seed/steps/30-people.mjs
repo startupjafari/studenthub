@@ -223,6 +223,21 @@ export async function seedPeople(prisma, writer, ctx) {
   for (const [i, role] of inviteRoles.entries()) {
     const status = i % 3 === 0 ? 'PENDING' : i % 3 === 1 ? 'USED' : 'EXPIRED'
     const faculty = people.faculties[i % people.faculties.length]
+    const group = faculty.groups[0]
+    // Scope инвайта — как у сервиса выдачи: факультет у всех ролей факультета (декану
+    // тоже), группа — у учащихся.
+    const inFaculty = ['STUDENT', 'STAROSTA', 'TEACHER', 'DEAN'].includes(role)
+    const inGroup = ['STUDENT', 'STAROSTA'].includes(role)
+    // Использованный инвайт закрыт человеком ТОЙ ЖЕ роли и из того же scope: регистрация
+    // берёт роль из инвайта, и «студенческий инвайт использовал преподаватель» — состояние,
+    // которого в живой базе не бывает.
+    const usedBy = {
+      STUDENT: group.studentIds[1],
+      STAROSTA: group.starostaId,
+      TEACHER: faculty.teacherIds[0],
+      DEAN: faculty.deanId,
+      UNIVERSITY_MODERATOR: people.moderatorIds[0],
+    }[role]
     await writer.add('invite', {
       id: id(index, 'inv', i),
       // Токен уникален глобально; он же ключ ссылки-приглашения. У живого (PENDING)
@@ -238,13 +253,12 @@ export async function seedPeople(prisma, writer, ctx) {
       role,
       email: `invite.${i}@${uniId}.example.kz`,
       universityId: uniId,
-      facultyId:
-        role === 'STUDENT' || role === 'STAROSTA' || role === 'TEACHER' ? faculty.id : null,
-      groupId: role === 'STUDENT' || role === 'STAROSTA' ? faculty.groups[0].id : null,
+      facultyId: inFaculty ? faculty.id : null,
+      groupId: inGroup ? group.id : null,
       status,
       expiresAt: status === 'EXPIRED' ? random.randomDate(-30, -2) : random.randomDate(2, 30),
       createdById: adminId,
-      usedById: status === 'USED' ? faculty.teacherIds[0] : null,
+      usedById: status === 'USED' ? usedBy : null,
       usedAt: status === 'USED' ? random.randomDate(-20, -1) : null,
     })
   }
