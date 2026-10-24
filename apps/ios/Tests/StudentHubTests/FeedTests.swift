@@ -46,10 +46,33 @@ final class FeedModelTests: XCTestCase {
         XCTAssertEqual(model.count("🔥", in: "p-1"), 0)
     }
 
+    /// Лента приходит с `reactionSummary` и `_count`, а устаревший `reactions` —
+    /// массивом строк: он не должен ронять разбор.
+    func testPostDecodesServerShape() throws {
+        let json = Data(
+            """
+            {"id":"p-1","content":"текст","createdAt":"2026-10-24T10:00:00.000Z","author":null,
+            "media":[],"reactions":[{"emoji":"👍","userId":"u-1"}],
+            "reactionSummary":[{"emoji":"👍","count":2,"mine":true},{"emoji":"🔥","count":1,"mine":false}],
+            "_count":{"comments":4}}
+            """.utf8
+        )
+
+        let post = try JSONCoding.decoder.decode(PostDTO.self, from: json)
+
+        XCTAssertEqual(post.reactions, ["👍": 2, "🔥": 1])
+        XCTAssertEqual(post.myReactions, ["👍"])
+        XCTAssertEqual(post.commentsCount, 4)
+    }
+
     private func post(id: String, reactions: [String: Int], mine: [String]) -> PostDTO {
-        PostDTO(
+        let emojis = Set(reactions.keys).union(mine).sorted()
+        return PostDTO(
             id: id, content: "текст", createdAt: Date(), author: nil, media: nil,
-            commentsCount: 0, reactions: reactions, myReactions: mine
+            reactionSummary: emojis.map { emoji in
+                PostDTO.ReactionSummary(emoji: emoji, count: reactions[emoji] ?? 0, mine: mine.contains(emoji))
+            },
+            counts: PostDTO.Counts(comments: 0)
         )
     }
 }

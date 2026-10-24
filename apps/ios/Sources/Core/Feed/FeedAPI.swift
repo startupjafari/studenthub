@@ -20,16 +20,44 @@ struct PostDTO: Decodable, Equatable, Identifiable {
         let mime: String?
     }
 
+    /// Одна строка сводки реакций (`PostReactionSummary`): сколько и стоит ли своя.
+    struct ReactionSummary: Decodable, Equatable {
+        let emoji: String
+        let count: Int
+        let mine: Bool
+    }
+
+    struct Counts: Decodable, Equatable {
+        let comments: Int?
+    }
+
     let id: String
     let content: String?
     let createdAt: Date
     let author: Author?
     let media: [Media]?
-    let commentsCount: Int?
+    /// Сводка реакций. Устаревшее поле `reactions` сервер отдаёт массивом строк
+    /// `{ emoji, userId }`, а клиент ждал словарь — typeMismatch ронял всю ленту.
+    let reactionSummary: [ReactionSummary]?
+    /// Счётчики Prisma: `_count.comments` — число комментариев.
+    let counts: Counts?
+
+    enum CodingKeys: String, CodingKey {
+        case id, content, createdAt, author, media, reactionSummary
+        case counts = "_count"
+    }
+
+    var commentsCount: Int { counts?.comments ?? 0 }
+
     /// Реакции: эмодзи → сколько раз поставили.
-    let reactions: [String: Int]?
+    var reactions: [String: Int] {
+        Dictionary((reactionSummary ?? []).map { ($0.emoji, $0.count) }, uniquingKeysWith: +)
+    }
+
     /// Что поставил я — по нему кнопка показывает нажатое состояние.
-    let myReactions: [String]?
+    var myReactions: [String] {
+        (reactionSummary ?? []).filter(\.mine).map(\.emoji)
+    }
 }
 
 struct PostCommentDTO: Decodable, Equatable, Identifiable {
@@ -112,7 +140,9 @@ struct FeedAPI: FeedFetching {
     }
 
     func posts(cursor: String?) async throws -> Page<PostDTO> {
-        var query = [URLQueryItem(name: "limit", value: "20")]
+        // `reactions=summary` — без построчного списка «кто что поставил»: приложению
+        // нужна только сводка, а список растёт с каждой реакцией.
+        var query = [URLQueryItem(name: "limit", value: "20"), URLQueryItem(name: "reactions", value: "summary")]
         if let cursor { query.append(URLQueryItem(name: "cursor", value: cursor)) }
         return try await client.page(.get("posts", query: query), of: PostDTO.self)
     }

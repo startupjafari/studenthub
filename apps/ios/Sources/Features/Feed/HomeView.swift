@@ -155,7 +155,7 @@ struct PostCard: View {
 
                 NavigationLink(value: AppRoute.post(id: post.id)) {
                     Label {
-                        Text(verbatim: String(post.commentsCount ?? 0))
+                        Text(verbatim: String(post.commentsCount))
                     } icon: {
                         Image(systemName: "bubble.right")
                     }

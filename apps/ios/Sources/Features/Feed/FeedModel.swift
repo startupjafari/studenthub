@@ -32,11 +32,11 @@ final class FeedModel {
             posts = page.items
             cursor = page.meta?.hasNext == true ? page.meta?.cursor : nil
             myReactions = Dictionary(
-                page.items.map { ($0.id, Set($0.myReactions ?? [])) },
+                page.items.map { ($0.id, Set($0.myReactions)) },
                 uniquingKeysWith: { first, _ in first }
             )
             counts = Dictionary(
-                page.items.map { ($0.id, $0.reactions ?? [:]) },
+                page.items.map { ($0.id, $0.reactions) },
                 uniquingKeysWith: { first, _ in first }
             )
             failure = nil
@@ -54,6 +54,12 @@ final class FeedModel {
         do {
             let page = try await api.posts(cursor: cursor)
             posts += page.items
+            // Реакции дозагруженных постов — туда же, иначе со второй страницы все
+            // счётчики показывались нулями.
+            for post in page.items where counts[post.id] == nil {
+                myReactions[post.id] = Set(post.myReactions)
+                counts[post.id] = post.reactions
+            }
             self.cursor = page.meta?.hasNext == true ? page.meta?.cursor : nil
         } catch {
             // Молча: хвост ленты не доехал — это не повод рисовать ошибку поверх
