@@ -2174,11 +2174,11 @@
 - **Где:** Android `core/chats/ChatsApi.kt:71-75` (`Endpoint.post(path)` без тела), iOS `apps/ios/Sources/Core/Chats/ChatsAPI.swift:116-122` — то же; `chats.controller.ts:437-447`, `packages/shared-schemas/src/chats.ts:195-200` (`MuteSchema` без `.default({})`) · **Статус:** исправлен · `fix/bugs-android` (cd181918)
 
 #### BUG-421 · 🟡 Преподавателю «Журнал» и «Посещаемость» во вкладке «Учёба» отвечают 403, «Задания» — студенческой формой сдачи
-- **Роль:** TEACHER · **Статус:** новый
+- **Роль:** TEACHER · **Статус:** исправлен · `fix/bugs-android` (ed08cd6e)
 - **Где:** `features/study/StudyScreens.kt:8-32,201-251`, `core/study/StudyApi.kt:51-54` → `gradebook.controller.ts:35-36`, `attendance.controller.ts:52-53` (`@Roles(...STUDENT_ROLES)`)
 
 #### BUG-422 · 🟡 Посещаемость отмечается только для сегодняшней даты: любая другая пара — 422
-- **Роль:** TEACHER · **Статус:** новый
+- **Роль:** TEACHER · **Статус:** исправлен · `fix/bugs-android` (1b661173)
 - **Где:** `features/study/StudyModels.kt:187` (`LocalDate.now()`), `features/study/ScheduleScreen.kt:41`, `shell/ShellRoutes.kt:275` (`AppRoute.Lesson` без даты); сервер `attendance.service.ts:397-401`
 
 #### BUG-423 · 🟡 Черновики чата не синхронизируются с сервером; отправленный текст воскресает черновиком
@@ -2195,7 +2195,7 @@
 - **Где:** `core/realtime/RealtimeEvent.kt:67`; сервер `chats.service.ts:2440-2449` · **Статус:** исправлен · `fix/bugs-android` (a936b235)
 
 #### BUG-427 · 🟡 В групповых и официальных чатах не видно автора сообщения
-- **Где:** `core/chats/ChatDto.kt:76-90` (`sender` не читается), `core/storage/Entities.kt:150-173`, `features/chats/MessageBubble.kt:115-163`, `MessageTimeline.kt:21-22` · **Статус:** новый
+- **Где:** `core/chats/ChatDto.kt:76-90` (`sender` не читается), `core/storage/Entities.kt:150-173`, `features/chats/MessageBubble.kt:115-163`, `MessageTimeline.kt:21-22` · **Статус:** исправлен · `fix/bugs-android` (0a652462)
 
 #### BUG-428 · 🟡 Голосовые показываются файлом: признак требует `audio/*`, а сервер хранит `video/webm`/`video/mp4`
 - **Где:** `core/storage/Entities.kt:150`; ср. веб `apps/web/src/entities/chat/lib/attachment-kind.ts:8-14` (по имени `voice-…`) · **Статус:** исправлен · `fix/bugs-android` (409b4e22)
@@ -2223,10 +2223,10 @@
 - **Где:** `features/chats/OutgoingFiles.kt:41-58` · **Статус:** исправлен · `fix/bugs-android` (f4073269)
 
 #### BUG-436 · 🟡 Разовые изменения расписания разложены неверно: старая аудитория и преподаватель, чужая неделя (новое место BUG-072; проявится после BUG-073)
-- **Где:** `core/study/StudyDto.kt:133-142`, `core/storage/Entities.kt:296-305` (`newRoom`/`newTeacher` отбрасываются), `features/study/ScheduleScreen.kt:116-119`, `features/study/StudyModels.kt:86-90,138` · **Статус:** новый
+- **Где:** `core/study/StudyDto.kt:133-142`, `core/storage/Entities.kt:296-305` (`newRoom`/`newTeacher` отбрасываются), `features/study/ScheduleScreen.kt:116-119`, `features/study/StudyModels.kt:86-90,138` · **Статус:** исправлен · `fix/bugs-android` (3068a18a)
 
 #### BUG-437 · 🟢 Системные сообщения группы в ленте пустые
-- **Где:** `features/chats/MessageBubble.kt:92-101`; сервер `chats.service.ts:2335` (`content: ''`, §8.3 «текст рендерит клиент по типу») · **Статус:** новый
+- **Где:** `features/chats/MessageBubble.kt:92-101`; сервер `chats.service.ts:2335` (`content: ''`, §8.3 «текст рендерит клиент по типу») · **Статус:** исправлен · `fix/bugs-android` (0a652462)
 
 #### BUG-438 · 🟢 `chat:updated` не разбирается: ждёт полный `ChatListItemDto`, а сервер шлёт `{ chatId, title|avatarUrl }`
 - **Где:** `core/realtime/RealtimeEvent.kt:94-96`; сервер `chats.service.ts:3473,3489,3587` · **Статус:** исправлен · `fix/bugs-android` (a936b235)
@@ -2238,7 +2238,7 @@
 - **Где:** `core/push/MessagingService.kt:57` (`id = (url ?: title).hashCode()`, `data.tag` не читается); сервер `fcm.payload.ts:38` · **Статус:** исправлен · `fix/bugs-android` (8a73bef6)
 
 #### BUG-441 · 🟢 Нельзя очистить «О себе», ответ или ссылку в сдаче работы
-- **Где:** `features/feed/FeedModels.kt:290`, `features/study/StudyModels.kt:303` (пустое → null), `core/network/ApiEnvelope.kt:51` (`explicitNulls = false`); сервер оставляет пропущенное поле — `users.service.ts:803`, `assignments.service.ts:485` · **Статус:** новый
+- **Где:** `features/feed/FeedModels.kt:290`, `features/study/StudyModels.kt:303` (пустое → null), `core/network/ApiEnvelope.kt:51` (`explicitNulls = false`); сервер оставляет пропущенное поле — `users.service.ts:803`, `assignments.service.ts:485` · **Статус:** исправлен · `fix/bugs-android` (a65c48e4)
 
 #### BUG-442 · 🟢 Дробные оценки обрезаются (8.5 → 8), тип колонки выводится кодом «CONTROL»
 - **Где:** `features/study/StudyScreens.kt:146,149` · **Статус:** исправлен · `fix/bugs-android` (b8ab0fa2)
@@ -2285,7 +2285,7 @@
 - **Ожидается:** §8.3 «Пуши на устройства»; `RELEASE_IOS.md` заявляет готовность пушей.
 
 #### BUG-451 · 🟠 iOS: лента на «Главной» не открывается — `reactions` массив, а клиент ждёт словарь
-- **Роль:** STUDENT, STAROSTA, TEACHER · **Статус:** подтверждён
+- **Роль:** STUDENT, STAROSTA, TEACHER · **Статус:** исправлен · `fix/bugs-ios-miniapp` (900e5fd3)
 - **Где:** `Core/Feed/FeedAPI.swift:28-32` (`reactions: [String: Int]?`, `myReactions`, `commentsCount`); сервер `apps/api/src/modules/posts/posts.service.ts:139-142,558` (массив `[{emoji,userId}]`, `reactionSummary`, `_count.comments`)
 - **Сценарий:** typeMismatch на всей странице → «Неожиданный ответ сервера».
 
@@ -2299,7 +2299,7 @@
 - **Где:** `Core/Study/StudyAPI.swift:66-80`; сервер `apps/api/src/modules/attendance/attendance.service.ts:108-120`
 
 #### BUG-454 · 🟠 iOS: своё сообщение раздваивается и помечается «Не отправлено», повтор шлёт дубль
-- **Роль:** все в чатах · **Статус:** новый
+- **Роль:** все в чатах · **Статус:** исправлен · `fix/bugs-ios-miniapp` (7e798690)
 - **Где:** `Core/Chats/MessageSender.swift:261-283`, `AttachmentUploader.swift:138-153`, `MessageStore.swift:80-115`, `RealtimeCoordinator.swift:155-173`, `AppDatabase+Migrations.swift:115` (`remoteId … .unique()`); сервер `chats.service.ts:2159-2162,2236-2243`
 - **Сценарий:** `message:new` приходит раньше HTTP-ответа → вставлена вторая строка с серверным id → `deliver` упирается в UNIQUE → `failed` → «Отправить ещё раз» даёт дубль у всех.
 - **Ожидается:** §9.1a — сверка по `nonce`, терпимость к обратному порядку.
@@ -2388,7 +2388,7 @@
 - **Где:** `Features/Auth/LoginModel.swift:66-86,121-149` · **Статус:** исправлен · `fix/bugs-ios-miniapp` (5b4aaae0)
 
 #### BUG-480 · 🟢 iOS: переходы из пушей и колокольчика неполные; бейдж и баннер расходятся с сервером
-- **Где:** `Core/Navigation/DeepLink.swift:244-299` (нет `/feed`, `/profile/:id`), `Features/Feed/FeedScreens.swift:5-60,186-188` (строка уведомления никуда не ведёт, пост без самого поста), `Core/Push/PushSync.swift:128-143` (бейдж = сумма чатов), `App/AppDelegate.swift:91-97` (баннер для открытого чата) · **Статус:** новый
+- **Где:** `Core/Navigation/DeepLink.swift:244-299` (нет `/feed`, `/profile/:id`), `Features/Feed/FeedScreens.swift:5-60,186-188` (строка уведомления никуда не ведёт, пост без самого поста), `Core/Push/PushSync.swift:128-143` (бейдж = сумма чатов), `App/AppDelegate.swift:91-97` (баннер для открытого чата) · **Статус:** исправлен · `fix/bugs-ios-miniapp` (b7727e5a)
 
 #### BUG-481 · 🟢 🔒 iOS: refresh-токен в связке ключей без `ThisDeviceOnly` — попадает в бэкапы и клонирует сессию
 - **Где:** `Core/Session/SecretStore.swift:517-523` (`kSecAttrAccessibleAfterFirstUnlock`) · **Статус:** исправлен · `fix/bugs-ios-miniapp` (9ef62395)
