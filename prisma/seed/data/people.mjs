@@ -50,7 +50,6 @@ export const STREETS = ['ул. Абая','ул. Толе би','пр. Досты
 export const EDUCATION_LEVELS = ['BACHELOR', 'BACHELOR', 'BACHELOR', 'MASTER', 'PHD']
 export const STUDY_FORMS = ['FULL_TIME', 'FULL_TIME', 'FULL_TIME', 'PART_TIME', 'DISTANCE']
 export const FUNDING_TYPES = ['GRANT', 'PAID', 'PAID', 'QUOTA']
-export const ACADEMIC_STATUSES = ['ACTIVE','ACTIVE','ACTIVE','ACTIVE','ACTIVE','ACADEMIC_LEAVE','EXPELLED','GRADUATED'] // prettier-ignore
 export const PROFILE_VISIBILITY = ['UNIVERSITY', 'UNIVERSITY', 'UNIVERSITY', 'PUBLIC', 'FACULTY', 'GROUP', 'PRIVATE'] // prettier-ignore
 
 // Транслитерация для username/email: латиница из русского имени.

@@ -7,7 +7,6 @@
 // курса, ни GPA. Копировать построители во второе место нельзя — они бы разъехались.
 
 import {
-  ACADEMIC_STATUSES,
   DORMITORIES,
   EDUCATION_LEVELS,
   FUNDING_TYPES,
@@ -71,7 +70,11 @@ export function studentProfile(p, random, { group, specialties, cityName, profil
     fundingType: random.pick(FUNDING_TYPES),
     specialty: random.pick(specialties),
     studentCardNumber: `${year}${random.randInt(10000, 99999)}`,
-    academicStatus: random.pick(ACADEMIC_STATUSES),
+    // Только ACTIVE: человек из этого построителя сидит в текущей группе, ходит на пары и
+    // получает оценки. «Отчислен», «выпускник», «академ» без leftUniversityAt и при живой
+    // учёбе — состояние, которого в базе быть не может, а после распознавания кодов статуса
+    // охраной и библиотекой оно ещё и закрывало бы четверти стенда вход и выдачу книг.
+    academicStatus: 'ACTIVE',
     gpa: Number((2.0 + random.rng() * 2.0).toFixed(2)),
     interests: random.sample(INTERESTS, random.randInt(3, 6)),
     skills: random.sample(SKILLS, random.randInt(3, 7)),
