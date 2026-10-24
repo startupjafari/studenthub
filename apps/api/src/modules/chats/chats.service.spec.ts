@@ -2883,6 +2883,26 @@ describe('ChatsService.banMember', () => {
     expect(realtime.emitToRoom).not.toHaveBeenCalled()
   })
 
+  // BUG-177: разбан был беззвучным, а всё написанное за время бана становилось непрочитанным.
+  it('разбан двигает отметку прочтения и объявляет возвращение', async () => {
+    const { service, prisma, realtime } = banSetup()
+    prisma.chatMember.updateMany.mockResolvedValueOnce({ count: 1 })
+    prisma.user.findUnique.mockResolvedValueOnce({ id: 'u2', firstName: 'Ая', lastName: 'Ли' })
+
+    await expect(service.unbanMember(owner, 'g1', 'u2')).resolves.toMatchObject({
+      banned: false,
+    })
+
+    expect(prisma.chatMember.updateMany).toHaveBeenCalledWith({
+      where: { chatId: 'g1', userId: 'u2', bannedAt: { not: null } },
+      data: { bannedAt: null, lastReadAt: expect.any(Date) },
+    })
+    expect(realtime.emitToRoom).toHaveBeenCalledWith('chat:g1', 'chat:member-added', {
+      chatId: 'g1',
+      user: expect.objectContaining({ id: 'u2' }),
+    })
+  })
+
   // BUG-170: бан — только создатель группы (§8.3), админ им не распоряжается.
   it('админ, не создатель → FORBIDDEN, бана нет', async () => {
     const { service, prisma } = banSetup()

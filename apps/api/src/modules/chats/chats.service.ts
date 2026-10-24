@@ -3770,7 +3770,23 @@ export class ChatsService implements OnModuleInit {
     userId: string,
   ): Promise<{ chatId: string; userId: string; banned: boolean }> {
     await this.assertGroupCreator(actor, chatId)
-    await this.prisma.chatMember.updateMany({ where: { chatId, userId }, data: { bannedAt: null } })
+    // Отметка прочтения сдвигается на момент разбана: написанное за время бана человек не
+    // видел, но и копилкой непрочитанного, свалившейся на него разом, оно быть не должно.
+    const res = await this.prisma.chatMember.updateMany({
+      where: { chatId, userId, bannedAt: { not: null } },
+      data: { bannedAt: null, lastReadAt: new Date() },
+    })
+    // Разбан не забаненного — не событие. Иначе — как при добавлении (BUG-177): открытые окна
+    // обновляют состав, списки (и у вернувшегося) — тихим сигналом; раньше разбан был
+    // беззвучным, и группа возвращалась к человеку только после перезагрузки.
+    if (res.count > 0) {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        select: SENDER_SELECT.select,
+      })
+      this.realtime.emitToRoom(`chat:${chatId}`, 'chat:member-added', { chatId, user })
+      await this.pingChatList(chatId)
+    }
     return { chatId, userId, banned: false }
   }
 
