@@ -78,18 +78,19 @@ export function ComplaintDetailModal({
   const [showChat, setShowChat] = useState(false)
   const [applyToDuplicates, setApplyToDuplicates] = useState(false)
   const [blockDays, setBlockDays] = useState<BlockTerm>(0)
-  const reviewer = complaint.reviewingBy ?? null
-  const takenByOther = reviewer !== null && reviewer.id !== myId
-
-  const isOpen = complaint.status === 'PENDING' || complaint.status === 'REVIEWING'
-  const priorityValue = complaintPriority(complaint)
-
-  // Карточка целиком — с текстом обжалованного: строка очереди его не несёт.
+  // Карточка целиком — с текстом обжалованного: строка очереди его не несёт. Она же — свежее
+  // состояние: строка, по которой окно открыли, после «Взять» устаревает, и кнопка оставалась.
   const detail = useQuery({
     queryKey: complaintKeys.detail(complaint.id),
     queryFn: () => fetchComplaint(complaint.id),
   })
+  const current: Complaint = detail.data ?? complaint
   const preview = detail.data?.targetPreview ?? null
+  const reviewer = current.reviewingBy ?? null
+  const takenByOther = reviewer !== null && reviewer.id !== myId
+
+  const isOpen = current.status === 'PENDING' || current.status === 'REVIEWING'
+  const priorityValue = complaintPriority(current)
   const hasPreview = complaint.targetType !== 'MESSAGE' && complaint.targetType !== 'USER'
 
   const messages = useQuery({
@@ -177,8 +178,8 @@ export function ComplaintDetailModal({
             ) : (
               <Badge variant="outline">{t(`target${complaint.targetType}`)}</Badge>
             )}
-            <span className={cn(pill, STATUS_STYLE[complaint.status])}>
-              {t(`status${complaint.status}`)}
+            <span className={cn(pill, STATUS_STYLE[current.status])}>
+              {t(`status${current.status}`)}
             </span>
           </div>
           <h3 className="text-base font-semibold">{complaint.reason}</h3>
@@ -211,14 +212,14 @@ export function ComplaintDetailModal({
               либо две ячейки, либо четыре. */}
           {!isOpen && (
             <>
-              <Field label={t('resolution')}>{complaint.resolution ?? '—'}</Field>
+              <Field label={t('resolution')}>{current.resolution ?? '—'}</Field>
               <Field label={t('resolvedBy')}>
-                {complaint.resolvedBy ? (
+                {current.resolvedBy ? (
                   <ProfileLink
-                    userId={complaint.resolvedBy.id}
+                    userId={current.resolvedBy.id}
                     className="hover:text-primary hover:underline"
                   >
-                    {complaint.resolvedBy.lastName} {complaint.resolvedBy.firstName}
+                    {current.resolvedBy.lastName} {current.resolvedBy.firstName}
                   </ProfileLink>
                 ) : (
                   '—'

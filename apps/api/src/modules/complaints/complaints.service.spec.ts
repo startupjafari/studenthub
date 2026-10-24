@@ -923,6 +923,15 @@ describe('ComplaintsService.take', () => {
     expect(err.code).toBe('CONFLICT')
   })
 
+  it('повторное «беру» своей жалобы — не ошибка и без второй записи', async () => {
+    const { service, prisma } = setup()
+    prisma.complaint.findUnique.mockResolvedValue(
+      complaint({ status: 'REVIEWING', reviewingBy: { id: 'u1', firstName: 'A', lastName: 'B' } }),
+    )
+    await expect(service.take(admin, 'c1')).resolves.toEqual({ takenBy: 'u1' })
+    expect(prisma.complaint.updateMany).not.toHaveBeenCalled()
+  })
+
   it('разобранную жалобу брать нечего', async () => {
     const { service, prisma } = setup()
     prisma.complaint.findUnique.mockResolvedValue(complaint({ status: 'RESOLVED' }))

@@ -287,6 +287,9 @@ export class ComplaintsService {
     if (!OPEN_STATUSES.includes(complaint.status)) {
       throw new AppException('CONFLICT', 'Жалоба уже разобрана')
     }
+    // Уже моя — повторное «беру» (второе нажатие, кнопка в Telegram после веба) не ошибка:
+    // иначе человек получал «разбирает другой» про собственную жалобу.
+    if (complaint.reviewingBy?.id === actor.sub) return { takenBy: actor.sub }
 
     const { count } = await this.prisma.complaint.updateMany({
       where: { id, reviewingById: null, status: { in: OPEN_STATUSES } },
