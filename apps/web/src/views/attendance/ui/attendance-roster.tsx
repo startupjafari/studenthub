@@ -81,6 +81,7 @@ export function AttendanceRoster({ pairId, date, onBack }: Props) {
     },
     onSuccess: (roster) => {
       qc.setQueryData(attendanceKeys.roster(pairId, date), roster)
+      qc.invalidateQueries({ queryKey: attendanceKeys.markedAll() })
       // Сохранённое уходит из черновика; отметку, поставленную, пока запрос летел,
       // оставляем — она с ответом не совпадает.
       const saved = new Map(roster.students.map((s) => [s.studentId, s.status]))
@@ -221,7 +222,14 @@ export function AttendanceRoster({ pairId, date, onBack }: Props) {
         <span className="text-xs text-muted-foreground">
           {t('markedCount', { n: marked, total: q.data?.students.length ?? 0 })}
         </span>
-        <Button className="gap-1.5" onClick={() => save.mutate()} loading={save.isPending}>
+        {/* Пустой журнал сервер не принимает (`entries.min(1)`): без единой отметки
+            сохранять нечего, и кнопка не обещает того, что кончится ошибкой полей. */}
+        <Button
+          className="gap-1.5"
+          onClick={() => save.mutate()}
+          loading={save.isPending}
+          disabled={marked === 0}
+        >
           <Save className="size-4" aria-hidden />
           {t('save')}
         </Button>
