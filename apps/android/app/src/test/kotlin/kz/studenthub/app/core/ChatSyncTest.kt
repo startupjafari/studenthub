@@ -255,10 +255,12 @@ class AttachmentTest {
         assertEquals("/cache/f1", db.messages().attachments("m1").single().localPath)
     }
 
-    /** Голосовое узнаётся по имени, как на сервере. */
+    /** Голосовое узнаётся по имени, как на сервере; mime по содержимому бывает и `video/*`. */
     @Test
     fun voiceIsRecognisedByName() {
         assertTrue(AttachmentEntity("1", "m", "audio/m4a", "voice-1.m4a", null, null, null, null).isVoice)
+        assertTrue(AttachmentEntity("3", "m", "video/webm", "voice-2.webm", null, null, null, null).isVoice)
+        assertTrue(AttachmentEntity("4", "m", "video/mp4", "voice-3.m4a", null, null, null, null).isVoice)
         assertFalse(AttachmentEntity("2", "m", "audio/mpeg", "song.mp3", null, null, null, null).isVoice)
     }
 

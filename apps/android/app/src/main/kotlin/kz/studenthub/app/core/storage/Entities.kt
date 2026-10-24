@@ -146,8 +146,13 @@ data class AttachmentEntity(
 ) {
     val isImage: Boolean get() = mime.startsWith("image/")
 
-    /** Голосовое узнаётся по имени, как и в вебе: отдельного признака в модели нет. */
-    val isVoice: Boolean get() = mime.startsWith("audio/") && name?.startsWith("voice-") == true
+    /**
+     * Голосовое узнаётся по имени (`voice-…`), как и в вебе (`attachment-kind.ts`):
+     * отдельного признака в модели нет. Mime сервер берёт по содержимому, и запись
+     * приходит не только `audio/*`, но и `video/webm` (веб) или `video/mp4` (iOS).
+     */
+    val isVoice: Boolean
+        get() = name?.startsWith("voice-", ignoreCase = true) == true && (mime.startsWith("audio/") || mime.startsWith("video/"))
 }
 
 /** Сообщение вместе с вложениями — одним чтением, без кадра «картинка без сообщения». */
