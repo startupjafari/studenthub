@@ -14,6 +14,7 @@ import {
   type SharedDocument,
   type SharedDocumentsPage,
 } from '../../../entities/document'
+import { useDocumentTypeCatalog } from '../../../entities/document-type'
 import {
   Button,
   Card,
@@ -66,9 +67,9 @@ export function SharedWithMe() {
 
   const fmt = (iso: string | null): string | null =>
     iso ? new Date(iso).toLocaleDateString(locale) : null
-  // Собственный тип вуза в словаре не найти — показываем его код, а не ключ перевода.
-  const typeLabel = (type: string): string =>
-    t.has(`docType_${type}`) ? t(`docType_${type}`) : type
+  // Название типа — из каталога вуза: у собственного типа его задаёт вуз, в словаре его нет,
+  // и раньше здесь показывался код.
+  const { labelOf: typeLabel } = useDocumentTypeCatalog()
 
   // Снимки — в общем просмотрщике (листает только их), PDF — вкладкой браузера (как у
   // владельца). Просмотрщик не живёт поверх модального окна, поэтому список страниц
