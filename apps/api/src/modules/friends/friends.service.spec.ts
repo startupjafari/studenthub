@@ -35,12 +35,17 @@ function setup() {
     exists: jest.fn().mockResolvedValue(0),
     set: jest.fn().mockResolvedValue('OK'),
   }
+  // Кэш непрочитанных колокольчика и висящий запрос на переписку — чужие модули, заглушки.
+  const notifications = { invalidateUnread: jest.fn().mockResolvedValue(undefined) }
+  const chats = { clearRequestBetween: jest.fn().mockResolvedValue(undefined) }
   const service = new FriendsService(
     prisma as unknown as PrismaService,
     queue as unknown as QueueService,
     redis as unknown as Redis,
+    notifications as never,
+    chats as never,
   )
-  return { service, prisma, queue, redis }
+  return { service, prisma, queue, redis, notifications, chats }
 }
 
 const me: JwtPayload = {
@@ -219,6 +224,38 @@ describe('FriendsService.accept / remove', () => {
     })
   })
 
+  it('принятие сбрасывает кэш непрочитанных принявшего и снимает запрос на переписку', async () => {
+    const { service, prisma, notifications, chats } = setup()
+    prisma.friendship.findUnique.mockResolvedValue({
+      id: 'f1',
+      requesterId: 'a',
+      addresseeId: 'me',
+      status: 'PENDING',
+    })
+    prisma.notification.deleteMany.mockResolvedValue({ count: 1 })
+    await service.accept(me, 'f1')
+    expect(notifications.invalidateUnread).toHaveBeenCalledWith('me')
+    expect(chats.clearRequestBetween).toHaveBeenCalledWith('a', 'me')
+  })
+
+  it('сбой снятия запроса на переписку не ломает принятую дружбу', async () => {
+    const { service, prisma, chats, queue } = setup()
+    prisma.friendship.findUnique.mockResolvedValue({
+      id: 'f1',
+      requesterId: 'a',
+      addresseeId: 'me',
+      status: 'PENDING',
+    })
+    chats.clearRequestBetween.mockRejectedValue(new Error('db hiccup'))
+    await expect(service.accept(me, 'f1')).resolves.toBeUndefined()
+    expect(queue.enqueue).toHaveBeenCalledWith(
+      'notifications',
+      'friend-accepted',
+      expect.anything(),
+      expect.anything(),
+    )
+  })
+
   // Висящая заявка от заблокированного превращалась в дружбу, а дружба открывает закрытый профиль.
   it('принять заявку при личной блокировке в любую сторону → FORBIDDEN, дружбы нет', async () => {
     const { service, prisma, queue } = setup()
@@ -245,17 +282,20 @@ describe('FriendsService.accept / remove', () => {
   })
 
   it('отклонение/отмена (remove) — гасит уведомление и НЕ шлёт ничего отправителю', async () => {
-    const { service, prisma, queue } = setup()
+    const { service, prisma, queue, notifications } = setup()
     prisma.friendship.findUnique.mockResolvedValue({
       id: 'f1',
       requesterId: 'a',
       addresseeId: 'me',
     })
+    prisma.notification.deleteMany.mockResolvedValue({ count: 1 })
     await service.remove(me, 'f1')
     expect(prisma.friendship.delete).toHaveBeenCalledWith({ where: { id: 'f1' } })
     expect(prisma.notification.deleteMany).toHaveBeenCalledWith({
       where: { dedupeKey: 'friend-request:f1' },
     })
+    // Бейдж колокольчика у адресата заявки сбрасывается вместе со строкой.
+    expect(notifications.invalidateUnread).toHaveBeenCalledWith('me')
     // Отправителю ничего не уходит.
     expect(queue.enqueue).not.toHaveBeenCalled()
   })

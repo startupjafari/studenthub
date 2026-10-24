@@ -15,6 +15,8 @@ import { AppException } from '../../common/exceptions/app.exception'
 import { Paginated } from '../../common/http/paginated'
 import { QueueService, QUEUES, NOTIFICATION_JOBS } from '../../common/queue'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
+import { NotificationsService } from '../notifications/notifications.service'
+import { ChatsService } from '../chats/chats.service'
 
 // Публичная карточка пользователя в списках друзей/заявок (без чувствительных полей).
 const FRIEND_USER_SELECT = {
@@ -71,6 +73,8 @@ export class FriendsService {
     private readonly prisma: PrismaService,
     private readonly queue: QueueService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    private readonly notifications: NotificationsService,
+    private readonly chats: ChatsService,
   ) {}
 
   /** Отправить заявку. Если есть встречная PENDING — авто-принятие. */
@@ -229,7 +233,7 @@ export class FriendsService {
     await this.prisma.friendship.delete({ where: { id: f.id } })
     // Отклонение/отмена/удаление — гасим уведомление-заявку у получателя. Отправителю НИЧЕГО
     // не шлём (по требованию: при отклонении инициатор ничего не получает).
-    await this.clearRequestNotification(f.id)
+    await this.clearRequestNotification(f.id, f.addresseeId)
     // Отклонение — адресат снимает висящую заявку — ставит паузу на повтор. Отмена своей
     // заявки и удаление из друзей паузы не ставят.
     if (f.status === 'PENDING' && f.addresseeId === viewer.sub) {
@@ -426,15 +430,25 @@ export class FriendsService {
     return duplicate.id
   }
 
-  /** После коммита принятия: гасим уведомления-заявки и уведомляем инициатора. */
+  /**
+   * После коммита принятия: гасим уведомления-заявки, снимаем висящий запрос на переписку
+   * пары (§3.6 — дружба тоже согласие) и уведомляем инициатора.
+   */
   private async afterAccept(
     friendshipId: string,
     requesterId: string,
     accepterId: string,
     duplicateId: string | null,
   ): Promise<void> {
-    await this.clearRequestNotification(friendshipId)
-    if (duplicateId) await this.clearRequestNotification(duplicateId)
+    await this.clearRequestNotification(friendshipId, accepterId)
+    // Дубль — встречная заявка принявшего: её уведомление лежит у инициатора.
+    if (duplicateId) await this.clearRequestNotification(duplicateId, requesterId)
+    try {
+      await this.chats.clearRequestBetween(requesterId, accepterId)
+    } catch (error) {
+      // Дружба уже принята; запрос всё равно снимется первой же репликой (resolveChatRequest).
+      this.logger.warn({ err: error, friendshipId }, 'Запрос на переписку не снят после дружбы')
+    }
     await this.notify(requesterId, NOTIFICATION_JOBS.FRIEND_ACCEPTED, {
       titleKey: 'friends.accepted.title',
       bodyKey: 'friends.accepted.body',
@@ -506,9 +520,12 @@ export class FriendsService {
   }
 
   // Гасим уведомление-заявку у получателя после принятия/отклонения (dedupeKey одноразовый).
-  private async clearRequestNotification(friendshipId: string): Promise<void> {
-    await this.prisma.notification.deleteMany({
+  // Вместе со строкой сбрасываем его кэш непрочитанных: иначе бейдж колокольчика показывал
+  // удалённую заявку до истечения кэша (§10.1 — любая мутация уведомлений его сбрасывает).
+  private async clearRequestNotification(friendshipId: string, recipientId: string): Promise<void> {
+    const { count } = await this.prisma.notification.deleteMany({
       where: { dedupeKey: `friend-request:${friendshipId}` },
     })
+    if (count > 0) await this.notifications.invalidateUnread(recipientId)
   }
 }
