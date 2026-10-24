@@ -1428,7 +1428,19 @@ describe('SchedulesService — назначение преподавателя �
     prisma.pair.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([])
     await service.updateSchedule(dean, 'sch-2', { isActive: true }, ctx)
     const keys = prisma.$executeRaw.mock.calls.map((c: unknown[]) => c[1])
-    expect(keys).toEqual([1, 2, 3, 4, 5, 6, 7].map((d) => `schedule-slot:uni-1:${d}`))
-    expect(callOrder(prisma.$executeRaw, 6)).toBeLessThan(callOrder(prisma.schedule.updateMany))
+    expect(keys).toEqual([
+      'schedule-active:grp-1',
+      ...[1, 2, 3, 4, 5, 6, 7].map((d) => `schedule-slot:uni-1:${d}`),
+    ])
+    expect(callOrder(prisma.$executeRaw, 7)).toBeLessThan(callOrder(prisma.schedule.updateMany))
+  })
+
+  it('создание активной версии — под локом активной версии группы, до гашения прежней', async () => {
+    const { service, prisma } = setup()
+    prisma.group.findUnique.mockResolvedValue(GROUP_CTX)
+    prisma.schedule.create.mockResolvedValue({ id: 'sch-3', isActive: true })
+    await service.createSchedule(dean, { groupId: 'grp-1', name: 'Весна' }, ctx)
+    expect(prisma.$executeRaw.mock.calls[0].slice(1)).toEqual(['schedule-active:grp-1'])
+    expect(callOrder(prisma.$executeRaw)).toBeLessThan(callOrder(prisma.schedule.updateMany))
   })
 })

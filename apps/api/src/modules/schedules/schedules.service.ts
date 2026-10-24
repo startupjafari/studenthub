@@ -429,6 +429,9 @@ export class SchedulesService {
     const schedule = await this.prisma.$transaction(async (tx) => {
       if (makeActive) {
         // Единственность активного расписания на группу (комментарий в схеме 03-schedule.prisma).
+        // Уникального индекса нет — две параллельные «создать активную» без лока гасили
+        // только прежнюю версию и обе оставались активными.
+        await this.lockActiveSchedule(tx, input.groupId)
         await tx.schedule.updateMany({
           where: { groupId: input.groupId, isActive: true },
           data: { isActive: false },
@@ -470,6 +473,7 @@ export class SchedulesService {
       // с тех пор другие группы могли занять тех же преподавателей и аудитории (C-F13).
       // Проверка и включение — под локом всех дней вуза (C-F27): параллельно добавленная
       // пара другой группы иначе проскочила бы между ними.
+      if (input.isActive === true) await this.lockActiveSchedule(tx, existing.groupId)
       if (input.isActive === true && !existing.isActive) {
         await this.lockSlotDays(tx, gctx.universityId, ALL_DAYS)
         await this.assertActivationNoConflict(
@@ -1517,6 +1521,15 @@ export class SchedulesService {
     for (const day of [...new Set(days)].sort((a, b) => a - b)) {
       await advisoryXactLock(tx, `schedule-slot:${universityId}:${day}`)
     }
+  }
+
+  /**
+   * Лок «активной версии» группы: создание активной версии и активация существующей гасят
+   * прежнюю под ним, иначе параллельные запросы оставляли группе две активные сетки.
+   * Берётся до `lockSlotDays` — порядок локов везде один.
+   */
+  private async lockActiveSchedule(tx: Prisma.TransactionClient, groupId: string): Promise<void> {
+    await advisoryXactLock(tx, `schedule-active:${groupId}`)
   }
 
   // Управление (create/update/delete): платформа, админ своего вуза или декан своего факультета.
