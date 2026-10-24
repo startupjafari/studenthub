@@ -1116,6 +1116,15 @@ describe('DocumentsService — страницы документа: замена
     })
   })
 
+  it('attachFiles: больше 30 страниц на документ не прикрепить → BAD_REQUEST', async () => {
+    const { service, prisma } = setup()
+    prisma.file.findMany.mockResolvedValueOnce([{ id: 'n1' }, { id: 'n2' }])
+    prisma.file.count.mockResolvedValueOnce(29)
+    const err = await service.attachFiles(actor(), 'd1', { fileIds: ['n1', 'n2'] }).catch((e) => e)
+    expect(err.code).toBe('BAD_REQUEST')
+    expect(prisma.file.update).not.toHaveBeenCalled()
+  })
+
   it('attachFiles к загруженному документу пишет PAGE_ADD, а не REPLACE', async () => {
     const { service, prisma } = setup()
     prisma.file.findMany.mockResolvedValueOnce([{ id: 'n' }])

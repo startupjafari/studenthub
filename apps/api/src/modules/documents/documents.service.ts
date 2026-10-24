@@ -29,7 +29,8 @@ import { DocumentTypesService, type RetentionRule } from './document-types.servi
 
 // Документы принимаем только как PDF/JPG/PNG (ТЗ §5, шаг 2).
 // Потолки на выборки (BACKEND_RULES §7.2). Страниц у документа не больше, чем разрешает
-// схема reorder (30), грантов на документ — единицы; лимит фиксируем в запросе.
+// схема reorder (30) — attachFiles держит этот потолок на документ целиком; грантов на
+// документ — единицы; лимит фиксируем в запросе.
 const DOCUMENT_FILES_LIMIT = 30
 const DOCUMENT_ACCESS_LIMIT = 200
 // Потолок прежнего ответа массивом (без limit/cursor): так читают веб и Android. Документов
@@ -724,6 +725,14 @@ export class DocumentsService {
       throw new AppException('BAD_REQUEST', 'Некоторые файлы недоступны для прикрепления')
     }
     const existing = await this.prisma.file.count({ where: { documentId: id } })
+    // Потолок — на документ целиком, а не на одну дозагрузку: раньше страницы дописывались
+    // сверх 30, и порядок, удаление и показ получателю (все читают первые 30) ломались.
+    if (existing + input.fileIds.length > DOCUMENT_FILES_LIMIT) {
+      throw new AppException(
+        'BAD_REQUEST',
+        `У документа может быть не больше ${DOCUMENT_FILES_LIMIT} страниц`,
+      )
+    }
     await this.prisma.$transaction(
       input.fileIds.map((fileId, i) =>
         this.prisma.file.update({
