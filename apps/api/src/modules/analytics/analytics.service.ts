@@ -468,7 +468,7 @@ export class AnalyticsService {
     }
     if (!requested) throw new AppException('BAD_REQUEST', 'Не указан факультет')
     if (isPlatform(viewer.role)) return requested
-    if (viewer.role === Role.UNIVERSITY_ADMIN || viewer.role === Role.UNIVERSITY_MODERATOR) {
+    if (viewer.role === Role.UNIVERSITY_ADMIN) {
       const faculty = await this.prisma.faculty.findUnique({
         where: { id: requested },
         select: { universityId: true },
@@ -493,7 +493,7 @@ export class AnalyticsService {
       if (viewer.facultyId === group.facultyId) return
       throw new AppException('WRONG_SCOPE', 'Другой факультет')
     }
-    if (viewer.role === Role.UNIVERSITY_ADMIN || viewer.role === Role.UNIVERSITY_MODERATOR) {
+    if (viewer.role === Role.UNIVERSITY_ADMIN) {
       if (viewer.universityId === group.faculty.universityId) return
       throw new AppException('WRONG_SCOPE', 'Другой университет')
     }

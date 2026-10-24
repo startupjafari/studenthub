@@ -238,6 +238,41 @@ describe('AnalyticsService.groupAttendance — drill-down из агрегата'
   })
 })
 
+describe('AnalyticsService — модератор вуза (BUG-004)', () => {
+  const moderator: JwtPayload = {
+    sub: 'm1',
+    role: Role.UNIVERSITY_MODERATOR,
+    universityId: 'uni-1',
+    facultyId: null,
+    groupId: null,
+  }
+
+  // Матрица §2.2: аналитика модератору вуза закрыта — даже своего вуза, а поимённые
+  // сводки (ФИО, просрочки, оценки) тем более.
+  it('обзор, Early Warning и drill-down своего вуза — FORBIDDEN, в базу не идём', async () => {
+    const raw = rawMock({})
+    const { service } = setup(raw, {
+      group: {
+        findMany: jest.fn().mockResolvedValue([]),
+        findUnique: jest
+          .fn()
+          .mockResolvedValue({ facultyId: 'fac-1', faculty: { universityId: 'uni-1' } }),
+      },
+    })
+
+    await expect(service.facultyOverview(moderator, 'fac-1')).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    })
+    await expect(service.atRiskStudents(moderator, 'fac-1')).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    })
+    await expect(service.groupAttendance(moderator, 'g1')).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    })
+    expect(raw).not.toHaveBeenCalled()
+  })
+})
+
 describe('AnalyticsService — кэш обзора факультета и drill-down группы', () => {
   const admin: JwtPayload = {
     sub: 'a1',
