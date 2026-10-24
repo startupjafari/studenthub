@@ -22,6 +22,11 @@ import { SecurityPassesService, type PassRecord } from '../security-journal/secu
 // действителен при живом сканировании и не «истекал в руках» сотрудника.
 const ID_TTL_MS = 120_000
 
+// Сколько после истечения кода тот же сотрудник может снова открыть свой результат: охранник
+// уходит с экрана и возвращается через пару минут, вкладка перезагружается. Это тот же проход
+// (docs/PROJECT.md §3.12), а не новая проверка истёкшего кода.
+const REOPEN_WINDOW_MS = 15 * 60_000
+
 // Дискриминатор назначения токена (в зашифрованном payload): защита от подмены токеном
 // другого назначения.
 const ID_TYP = 'student-id'
@@ -84,6 +89,14 @@ class PassDeniedException extends AppException {
   }
 }
 
+function tokenHash(token: string): string {
+  return createHash('sha256').update(token).digest('hex')
+}
+
+function usedKey(token: string): string {
+  return `student-id:used:${tokenHash(token)}`
+}
+
 function isPlatform(role: Role): boolean {
   return role === Role.PLATFORM_ADMIN || role === Role.PLATFORM_MODERATOR
 }
@@ -141,7 +154,12 @@ export class StudentIdService {
     try {
       checked = await this.check(verifier, token, ctx)
     } catch (error) {
-      if (error instanceof PassDeniedException) {
+      // Отказ по тому же коду тем же охранником пишется один раз: повторное открытие
+      // результата — не новая попытка пройти.
+      if (
+        error instanceof PassDeniedException &&
+        (await this.firstDenial(token, verifier.sub, error.reason))
+      ) {
         await this.passes.record({
           guard: verifier,
           student: error.student,
@@ -173,6 +191,11 @@ export class StudentIdService {
     ctx: { ip?: string; userAgent?: string },
   ) {
     const payload = this.verifyIdToken(token)
+    // Срок кода проверяется после «тот же сотрудник»: свой результат открывается и после
+    // истечения, в пределах REOPEN_WINDOW_MS. Чужой или незабранный истёкший код — отказ.
+    if (Date.now() > payload.exp && !(await this.claimedBy(token, verifier.sub))) {
+      throw new PassDeniedException('BAD_REQUEST', 'Код истёк — обновите карту', 'EXPIRED_QR')
+    }
     // Исключаем удалённых/заблокированных: их билет недействителен даже в пределах TTL токена.
     const user = await this.prisma.user.findFirst({
       where: { id: payload.sub, deletedAt: null, isBlocked: false },
@@ -260,8 +283,9 @@ export class StudentIdService {
    * скриншот, пересланный другому, больше не проходит, хотя двухминутный срок не вышел.
    * Тот же сотрудник может открыть результат снова (перезагрузка, возврат назад) — это не
    * новый пропуск. Ключ — хэш токена: карта шифруется при каждом показе заново (случайный
-   * IV), токены не повторяются. Redis недоступен — пропускаем без отметки: проверка карты
-   * на вахте важнее, а срок токена всё равно короткий.
+   * IV), токены не повторяются. Отметка живёт дольше кода на REOPEN_WINDOW_MS, чтобы повтор
+   * узнавался и после его истечения. Redis недоступен — пропускаем без отметки: проверка
+   * карты на вахте важнее, а срок токена всё равно короткий.
    */
   private async claimToken(
     token: string,
@@ -269,13 +293,13 @@ export class StudentIdService {
     verifierId: string,
     student: PassRecord['student'],
   ): Promise<boolean> {
-    const key = `student-id:used:${createHash('sha256').update(token).digest('hex')}`
+    const key = usedKey(token)
     try {
       const first = await this.redis.set(
         key,
         verifierId,
         'PX',
-        Math.max(exp - Date.now(), 1000),
+        Math.max(exp - Date.now(), 1000) + REOPEN_WINDOW_MS,
         'NX',
       )
       if (first === 'OK') return true
@@ -293,6 +317,34 @@ export class StudentIdService {
       'REUSED_QR',
       student,
     )
+  }
+
+  /** Код уже забран этим сотрудником — повторное открытие его же результата. */
+  private async claimedBy(token: string, verifierId: string): Promise<boolean> {
+    try {
+      return (await this.redis.get(usedKey(token))) === verifierId
+    } catch (error) {
+      this.logger.warn({ err: error }, 'Redis недоступен — повтор проверки студенческого не узнан')
+      return false
+    }
+  }
+
+  /**
+   * Первый ли это отказ по коду у этого охранника с этой причиной. Redis недоступен — пишем:
+   * лишняя строка журнала лучше потерянного отказа.
+   */
+  private async firstDenial(
+    token: string,
+    verifierId: string,
+    reason: PassDenyReasonValue,
+  ): Promise<boolean> {
+    try {
+      const key = `student-id:denied:${tokenHash(token)}:${verifierId}:${reason}`
+      return (await this.redis.set(key, '1', 'PX', ID_TTL_MS + REOPEN_WINDOW_MS, 'NX')) === 'OK'
+    } catch (error) {
+      this.logger.warn({ err: error }, 'Redis недоступен — отказ на посту пишется без отметки')
+      return true
+    }
   }
 
   private toCard(user: Prisma.UserGetPayload<{ select: typeof CARD_SELECT }>) {
@@ -334,7 +386,7 @@ export class StudentIdService {
     if (payload.typ !== ID_TYP || typeof payload.sub !== 'string') {
       throw new PassDeniedException('BAD_REQUEST', 'Некорректный код', 'INVALID_QR')
     }
-    if (typeof payload.exp !== 'number' || Date.now() > payload.exp) {
+    if (typeof payload.exp !== 'number') {
       throw new PassDeniedException('BAD_REQUEST', 'Код истёк — обновите карту', 'EXPIRED_QR')
     }
     return payload
