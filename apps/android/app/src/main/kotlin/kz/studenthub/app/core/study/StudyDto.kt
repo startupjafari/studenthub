@@ -59,18 +59,23 @@ data class CourseGradesDto(
     @Serializable
     data class Subject(val id: String, val name: String)
 
+    /**
+     * Контрольная точка. Максимум необязателен — так в журнале (`GradeColumn.maxScore`
+     * nullable): колонка без него не должна ронять разбор всего ответа. Балл дробный.
+     */
     @Serializable
-    data class Column(val id: String, val title: String, val kind: String, val maxScore: Int, val score: Double? = null)
+    data class Column(val id: String, val title: String, val kind: String, val maxScore: Int? = null, val score: Double? = null)
 
     /**
      * Доля набранного от максимума по опубликованным точкам. Только там, где оценка
      * стоит: иначе первая контрольная показывала бы «5 из 100» и выглядела провалом.
+     * Точка без максимума в долю не входит: делить её не на что.
      */
     val ratio: Double?
         get() {
-            val graded = columns.filter { it.score != null }
+            val graded = columns.filter { it.score != null && it.maxScore != null }
             if (graded.isEmpty()) return null
-            val max = graded.sumOf { it.maxScore.toDouble() }
+            val max = graded.sumOf { (it.maxScore ?: 0).toDouble() }
             if (max <= 0) return null
             return graded.sumOf { it.score ?: 0.0 } / max
         }

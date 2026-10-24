@@ -29,10 +29,13 @@ import kz.studenthub.app.core.study.ScheduleStore
 import kz.studenthub.app.core.study.StudyFetching
 import kz.studenthub.app.core.study.WeekParity
 import kz.studenthub.app.core.ui.UiText
+import java.text.DecimalFormat
+import java.text.DecimalFormatSymbols
 import java.time.Clock
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import java.util.Locale
 
 /** Пара вместе с разовым изменением, если оно есть. */
 data class SchedulePair(val pair: PairEntity, val change: PairChangeEntity?) {
@@ -275,6 +278,24 @@ sealed interface SubmissionState {
                 else -> NotSubmitted
             }
         }
+    }
+}
+
+/** Как показать точку журнала: балл бывает дробным, тип — кодом из `GRADE_COLUMN_KINDS`. */
+object GradeFormat {
+    /** «8,5 / 10» или «8,5», если у точки нет максимума. Дробь не обрезаем: 8,5 — не 8. */
+    fun score(score: Double, max: Int?, locale: Locale): String {
+        val shown = DecimalFormat("0.##", DecimalFormatSymbols.getInstance(locale)).format(score)
+        return if (max == null) shown else "$shown / $max"
+    }
+
+    /** Название типа точки — как в вебе (`Gradebook.kind_*`). Незнакомый тип — без подписи. */
+    fun kindTitle(kind: String): Int? = when (kind) {
+        "LAB" -> R.string.study_kindLab
+        "CONTROL" -> R.string.study_kindControl
+        "EXAM" -> R.string.study_kindExam
+        "OTHER" -> R.string.study_kindOther
+        else -> null
     }
 }
 

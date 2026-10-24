@@ -3,6 +3,7 @@ package kz.studenthub.app.features
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.test.runTest
+import kz.studenthub.app.core.network.AppJson
 import kz.studenthub.app.core.storage.PairChangeEntity
 import kz.studenthub.app.core.storage.PairEntity
 import kz.studenthub.app.core.study.AssignmentDto
@@ -19,6 +20,7 @@ import kz.studenthub.app.core.study.ScheduleStore
 import kz.studenthub.app.core.study.StudyFetching
 import kz.studenthub.app.core.study.WeekParity
 import kz.studenthub.app.features.study.AttendanceMarkingModel
+import kz.studenthub.app.features.study.GradeFormat
 import kz.studenthub.app.features.study.ScheduleModel
 import kz.studenthub.app.features.study.SchedulePair
 import kz.studenthub.app.features.study.SubmissionState
@@ -33,6 +35,7 @@ import java.time.Clock
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import java.util.Locale
 
 class WeekParityTest {
     /**
@@ -166,7 +169,7 @@ class ScheduleTest {
 }
 
 class StudySectionTest {
-    private fun column(id: String, max: Int, score: Double?) = CourseGradesDto.Column(id, "КР $id", "TEST", max, score)
+    private fun column(id: String, max: Int?, score: Double?) = CourseGradesDto.Column(id, "КР $id", "TEST", max, score)
 
     private fun course(columns: List<CourseGradesDto.Column>) = CourseGradesDto("c", CourseGradesDto.Subject("s", "Алгоритмы"), null, columns)
 
@@ -182,6 +185,28 @@ class StudySectionTest {
 
     @Test
     fun ratioIsNilWhenMaximumIsZero() = assertNull(course(listOf(column("1", 0, 0.0))).ratio)
+
+    /** Точка без максимума в долю не входит: делить её не на что. */
+    @Test
+    fun ratioSkipsColumnsWithoutMaximum() {
+        val ratio = course(listOf(column("1", 10, 5.0), column("2", null, 7.0))).ratio!!
+        assertEquals(0.5, ratio, 0.001)
+    }
+
+    /** `maxScore: null` в одной колонке не роняет разбор всего ответа. */
+    @Test
+    fun columnWithoutMaximumDecodes() {
+        val json = """[{"courseId":"c","subject":{"id":"s","name":"Алгоритмы"},"columns":[{"id":"1","title":"РК","kind":"CONTROL","maxScore":null,"score":8.5}]}]"""
+        val courses = AppJson.decodeFromString(kotlinx.serialization.builtins.ListSerializer(CourseGradesDto.serializer()), json)
+        assertNull(courses.single().columns.single().maxScore)
+    }
+
+    @Test
+    fun fractionalScoreIsNotTruncated() {
+        assertEquals("8.5 / 10", GradeFormat.score(8.5, 10, Locale.ENGLISH))
+        assertEquals("8 / 10", GradeFormat.score(8.0, 10, Locale.ENGLISH))
+        assertEquals("8.5", GradeFormat.score(8.5, null, Locale.ENGLISH))
+    }
 
     private fun assignment(status: String?, score: Int? = null) =
         AssignmentDto("a", "Задание", maxScore = 100, mySubmission = status?.let { AssignmentDto.Submission("s", it, score) })

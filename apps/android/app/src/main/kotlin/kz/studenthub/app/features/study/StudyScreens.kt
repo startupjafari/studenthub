@@ -126,6 +126,7 @@ fun <T> SectionScreen(title: String, model: SectionModel<T>, content: LazyListSc
 fun GradesScreen() {
     val api = LocalServices.current.studyApi
     val model = viewModel { SectionModel<List<CourseGradesDto>> { api.grades() } }
+    val locale = currentLocale()
     SectionScreen(stringResource(R.string.study_grades), model) { courses ->
         if (courses.isEmpty()) item { EmptyRow(stringResource(R.string.study_noGrades)) }
         items(courses, key = { it.courseId }) { course ->
@@ -143,10 +144,12 @@ fun GradesScreen() {
                         ) {
                             Column(Modifier.weight(1f)) {
                                 Text(column.title, style = AppType.body, color = AppTheme.colors.foreground)
-                                Text(column.kind, style = AppType.meta, color = AppTheme.colors.mutedForeground)
+                                GradeFormat.kindTitle(column.kind)?.let {
+                                    Text(stringResource(it), style = AppType.meta, color = AppTheme.colors.mutedForeground)
+                                }
                             }
                             Text(
-                                column.score?.let { "${it.toInt()} / ${column.maxScore}" } ?: stringResource(R.string.study_noScore),
+                                column.score?.let { GradeFormat.score(it, column.maxScore, locale) } ?: stringResource(R.string.study_noScore),
                                 style = AppType.tabular(AppType.body),
                                 color = if (column.score == null) AppTheme.colors.mutedForeground else AppTheme.colors.foreground,
                             )

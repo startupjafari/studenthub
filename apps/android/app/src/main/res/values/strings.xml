@@ -146,4 +146,10 @@
     <string name="books_clearanceCard">№ студенческого</string>
     <string name="books_clearanceUniversity">Вуз</string>
     <string name="books_clearanceChecked">Проверено</string>
+
+    <!-- Тип контрольной точки журнала — как в вебе (Gradebook.kind_*) -->
+    <string name="study_kindLab">Лабораторная</string>
+    <string name="study_kindControl">Контрольная</string>
+    <string name="study_kindExam">Экзамен</string>
+    <string name="study_kindOther">Другое</string>
 </resources>

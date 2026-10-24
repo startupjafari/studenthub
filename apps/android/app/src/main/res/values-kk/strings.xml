@@ -132,4 +132,9 @@
     <string name="books_clearanceCard">Студенттік билет №</string>
     <string name="books_clearanceUniversity">ЖОО</string>
     <string name="books_clearanceChecked">Тексерілді</string>
+
+    <string name="study_kindLab">Зертханалық</string>
+    <string name="study_kindControl">Бақылау</string>
+    <string name="study_kindExam">Емтихан</string>
+    <string name="study_kindOther">Басқа</string>
 </resources>
