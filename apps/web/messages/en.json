@@ -1072,6 +1072,7 @@
     "twoFactorUseAppHint": "Enter a code from the app",
     "twoFactorVerify": "Verify",
     "twoFactorBack": "Back to sign in",
+    "twoFactorChallengeExpired": "The sign-in code step has expired or ran out of attempts — enter your password again",
     "or": "or",
     "qrTab": "Sign in with QR",
     "qrTitle": "Sign in with QR",
@@ -1169,6 +1170,7 @@
     "consentRequired": "You cannot continue without consent",
     "guardianRequired": "Consent of a legal representative is required",
     "birthDateRequired": "Enter your date of birth",
+    "birthDateInvalid": "Check your date of birth",
     "accept": "Accept",
     "logout": "Sign out"
   },
@@ -2778,7 +2780,19 @@
     "statusACTIVE": "Active",
     "statusBLOCKED": "Blocked",
     "searchPlaceholder": "Search by name",
-    "nothingFound": "Nothing found"
+    "nothingFound": "Nothing found",
+    "blockConfirmTitle": "Block the university?",
+    "blockConfirmDesc": "All users of “{name}” will be disconnected at once and won't be able to sign in until the university is unblocked.",
+    "block": "Block",
+    "edit": "University",
+    "updated": "Changes saved",
+    "timezone": "Time zone",
+    "timezoneHint": "Used for the university's gradebook day, schedule and daily digests",
+    "delete": "Delete university",
+    "deleteConfirmTitle": "Delete the university?",
+    "deleteConfirmDesc": "“{name}” will be deleted along with its unused invites. This can't be undone.",
+    "deleted": "University deleted",
+    "deleteConflict": "Only an empty university can be deleted — with no faculties, rooms or users"
   },
   "Materials": {
     "title": "Materials",
@@ -2815,7 +2829,8 @@
   "SetupTwoFactor": {
     "title": "Set up two-factor authentication",
     "subtitle": "2FA is required for your role. Scan the QR code in an authenticator app (Google Authenticator, Authy, etc.) and enter the code to continue.",
-    "continueToApp": "Continue"
+    "continueToApp": "Continue",
+    "alreadyEnabled": "Two-factor authentication is already on. If you didn't save the backup codes, regenerate them in settings"
   },
   "Settings": {
     "title": "Settings",
@@ -2938,6 +2953,11 @@
     "usernamePlaceholder": "ivan_petrov",
     "usernameHint": "You can sign in with this name instead of email. 3–32 characters: letters, digits and _",
     "usernameEmptyHint": "Not set yet — sign-in by email only. 3–32 characters: letters, digits and _",
+    "currentPasswordRequired": "Enter your current password",
+    "passwordTooLong": "Password is too long: at most 72 bytes (about 36 Cyrillic letters)",
+    "passwordPolicy": "At least 8 characters: a letter, a digit and a special character",
+    "nameInvalid": "Fill in this field — up to 100 characters",
+    "usernameInvalid": "Latin letters, digits and _ only, 3–32 characters",
     "versionTitle": "App version",
     "versionDesc": "Currently running {version}",
     "versionCheck": "Check for updates",
@@ -5081,7 +5101,8 @@
     "maintenanceStaffNotice": "Maintenance mode is on until {until}. Everyone else sees the stub.",
     "sectionOffTitle": "This section is temporarily closed",
     "sectionOffText": "We turned it off briefly to fix it. Everything else works as usual.",
-    "maintenancePlanned": "Planned maintenance from {from} to {until}. The platform will close briefly."
+    "maintenancePlanned": "Planned maintenance from {from} to {until}. The platform will close briefly.",
+    "maintenanceSignInNotice": "Maintenance is under way until {until}. Only platform staff can sign in right now."
   },
   "Support": {
     "title": "Contact support",

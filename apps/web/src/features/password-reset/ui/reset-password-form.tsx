@@ -21,7 +21,11 @@ interface ResetPasswordFormProps {
 export function ResetPasswordForm({ token }: ResetPasswordFormProps) {
   const t = useTranslations('Auth')
   const [showPassword, setShowPassword] = useState(false)
-  const [state, setState] = useState<'form' | 'done' | 'invalid'>(token ? 'form' : 'invalid')
+  // Ссылку, обрезанную почтовым клиентом или при копировании, видно сразу: токен не проходит
+  // ту же схему, что проверит сервер. Иначе ошибка скрытого поля молча глотала «Сохранить».
+  const [state, setState] = useState<'form' | 'done' | 'invalid'>(
+    ResetPasswordSchema.shape.token.safeParse(token).success ? 'form' : 'invalid',
+  )
   const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
   const {
     register,

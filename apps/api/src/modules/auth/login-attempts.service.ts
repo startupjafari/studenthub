@@ -48,49 +48,31 @@ export class LoginAttemptsService {
   constructor(@Inject(REDIS_CLIENT) private readonly redis: Redis) {}
 
   /**
-   * Бросает `LOGIN_LOCKED`, если по этому идентификатору вход сейчас закрыт.
-   * Вызывается ДО сверки пароля: верный пароль в окне блокировки сессию не выдаёт,
-   * иначе блокировка не мешала бы тому, кто пароль уже подобрал.
+   * Занять попытку входа ДО сверки пароля. Бросает `LOGIN_LOCKED`, если вход по этому
+   * идентификатору закрыт или серия попыток уже выбрала порог.
+   *
+   * Попытка считается до bcrypt, а не после неудачи: «прочитать счётчик → сверить пароль
+   * (сотни миллисекунд) → INCR» пропускал сотню одновременных запросов, и все они видели
+   * пустой счётчик — сто паролей вместо десяти. `INCR` атомарен: запросы сверх порога
+   * пароль уже не проверяют. Успешный вход серию обнуляет (`reset`), так что для честного
+   * человека это ничем не отличается от счёта одних неудач.
+   *
+   * Верный пароль в окне блокировки сессию не выдаёт, иначе блокировка не мешала бы тому,
+   * кто пароль уже подобрал.
    */
-  async assertNotLocked(identifier: string): Promise<void> {
-    const ttl = await this.safe(() => this.redis.ttl(this.lockKey(identifier)), -2)
-    if (ttl <= 0) return
-    throw new AppException(
-      'LOGIN_LOCKED',
-      `Слишком много неудачных попыток входа. Повторите через ${describeWait(ttl)}`,
-    )
-  }
-
-  /**
-   * Учесть неудачную попытку. По достижении порога ставит блокировку и обнуляет счётчик,
-   * чтобы следующая серия считалась заново.
-   */
-  async registerFailure(identifier: string): Promise<void> {
+  async beginAttempt(identifier: string): Promise<void> {
+    await this.assertNotLocked(identifier)
     const failKey = this.failKey(identifier)
-    const failures = await this.safe(async () => {
+    const attempts = await this.safe(async () => {
       const count = await this.redis.incr(failKey)
-      // EXPIRE только на первой неудаче: иначе окно продлевалось бы каждой попыткой и
+      // EXPIRE только на первой попытке: иначе окно продлевалось бы каждой попыткой и
       // счётчик не сбрасывался бы никогда — достаточно стучаться раз в 14 минут.
       if (count === 1) await this.redis.expire(failKey, FAIL_WINDOW_SECONDS)
       return count
     }, 0)
-
-    if (failures < FAIL_THRESHOLD) return
-
-    await this.safe(async () => {
-      const lockCount = await this.redis.incr(this.lockCountKey(identifier))
-      await this.redis.expire(this.lockCountKey(identifier), LOCK_COUNT_TTL_SECONDS)
-      // Последняя ступень действует и дальше: серия не растёт бесконечно, час — потолок.
-      // `??` для типов: индекс уже ограничен длиной, но компилятор этого не знает.
-      const step = Math.min(lockCount, LOCK_STEPS_SECONDS.length) - 1
-      const seconds = LOCK_STEPS_SECONDS[step] ?? LOCK_STEPS_SECONDS[0]
-      await this.redis.set(this.lockKey(identifier), '1', 'EX', seconds)
-      await this.redis.del(failKey)
-      this.logger.warn(
-        `Вход временно закрыт после ${failures} неудачных попыток (блокировка №${lockCount}, ${seconds} с)`,
-      )
-      return null
-    }, null)
+    if (attempts <= FAIL_THRESHOLD) return
+    const seconds = await this.lock(identifier, attempts - 1)
+    throw lockedError(seconds)
   }
 
   /** Успешный вход — счётчик неудач сбрасывается. Историю блокировок не трогаем. */
@@ -108,6 +90,40 @@ export class LoginAttemptsService {
   }
 
   // --- приватные ---
+
+  private async assertNotLocked(identifier: string): Promise<void> {
+    const ttl = await this.safe(() => this.redis.ttl(this.lockKey(identifier)), -2)
+    if (ttl > 0) throw lockedError(ttl)
+  }
+
+  /**
+   * Закрыть вход: ступень по счёту блокировок подряд, счётчик попыток — заново. Блокировку
+   * ставит ровно один запрос (`SET NX`): параллельная пачка сверх порога иначе засчитала бы
+   * себе десяток блокировок и сразу прыгнула на последнюю ступень. Возвращает, сколько
+   * секунд вход закрыт.
+   */
+  private async lock(identifier: string, failures: number): Promise<number> {
+    return this.safe(async () => {
+      const previous = Number((await this.redis.get(this.lockCountKey(identifier))) ?? 0)
+      // Последняя ступень действует и дальше: серия не растёт бесконечно, час — потолок.
+      // `??` для типов: индекс уже ограничен длиной, но компилятор этого не знает.
+      const step = Math.min(previous + 1, LOCK_STEPS_SECONDS.length) - 1
+      const seconds = LOCK_STEPS_SECONDS[step] ?? LOCK_STEPS_SECONDS[0]
+      const placed = await this.redis.set(this.lockKey(identifier), '1', 'EX', seconds, 'NX')
+      if (placed === null) {
+        // Соседний запрос уже закрыл вход — его срок и сообщаем.
+        const ttl = await this.redis.ttl(this.lockKey(identifier))
+        return ttl > 0 ? ttl : seconds
+      }
+      const lockCount = await this.redis.incr(this.lockCountKey(identifier))
+      await this.redis.expire(this.lockCountKey(identifier), LOCK_COUNT_TTL_SECONDS)
+      await this.redis.del(this.failKey(identifier))
+      this.logger.warn(
+        `Вход временно закрыт после ${failures} неудачных попыток (блокировка №${lockCount}, ${seconds} с)`,
+      )
+      return seconds
+    }, LOCK_STEPS_SECONDS[0])
+  }
 
   private hash(identifier: string): string {
     return createHash('sha256').update(identifier.trim().toLowerCase()).digest('hex').slice(0, 32)
@@ -137,6 +153,13 @@ export class LoginAttemptsService {
       return fallback
     }
   }
+}
+
+function lockedError(seconds: number): AppException {
+  return new AppException(
+    'LOGIN_LOCKED',
+    `Слишком много неудачных попыток входа. Повторите через ${describeWait(seconds)}`,
+  )
 }
 
 /** «через 5 минут» читается лучше, чем «через 300 секунд». */

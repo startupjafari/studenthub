@@ -130,7 +130,12 @@ export function ConsentDialog({
                 {...register('birthDate')}
               />
               <p className="text-xs text-muted-foreground">{tAuth('birthDateHint')}</p>
-              <FieldError>{errors.birthDate && errors.birthDate.message}</FieldError>
+              {/* Тексты — из словаря: сообщения общей схемы русские, а окно бывает на
+                  казахском и английском. */}
+              <FieldError>
+                {errors.birthDate &&
+                  (typedBirthDate ? t('birthDateInvalid') : t('birthDateRequired'))}
+              </FieldError>
             </div>
           )}
 
@@ -157,7 +162,7 @@ export function ConsentDialog({
                   />
                   <span className="text-muted-foreground">{tAuth('guardianConsent')}</span>
                 </label>
-                <FieldError>{errors.guardianConsent && errors.guardianConsent.message}</FieldError>
+                <FieldError>{errors.guardianConsent && t('guardianRequired')}</FieldError>
               </>
             )}
           </div>

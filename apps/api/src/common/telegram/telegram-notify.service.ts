@@ -7,6 +7,7 @@ import type { EnvVars } from '../../config/env.schema'
 import {
   PLATFORM_STATE,
   PLATFORM_TIME_ZONE,
+  isQuietHour,
   type PlatformStateReader,
 } from '../../modules/platform/platform.constants'
 
@@ -54,10 +55,7 @@ export function isQuiet(
   now: Date,
   timeZone: string = PLATFORM_TIME_ZONE,
 ): boolean {
-  if (from === null || to === null) return false
-  if (from === to) return true
-  const hour = platformHour(now, timeZone)
-  return from < to ? hour >= from && hour < to : hour >= from || hour < to
+  return isQuietHour(from, to, platformHour(now, timeZone))
 }
 
 @Injectable()

@@ -3,6 +3,7 @@ import {
   Controller,
   Get,
   HttpCode,
+  HttpException,
   HttpStatus,
   Logger,
   Post,
@@ -180,9 +181,14 @@ export class AuthController {
    * «Забыли пароль» (docs/PROJECT.md §7.2). Ответ одинаков для любого адреса — эндпоинт не
    * должен работать проверкой, кто зарегистрирован. Лимит строже входа: каждый вызов
    * отправляет письмо, и без потолка им заваливали бы чужой ящик.
+   *
+   * §6.3: 3 / 15 мин с адреса клиента и 3 / час на адрес почты. Одного лимита по IP мало:
+   * с ротацией адресов поток писем на чужой ящик не ограничивался ничем, а каждая новая
+   * ссылка гасит прежнюю — жертва открывала уже мёртвую. Счёт по почте одинаков для
+   * существующего и несуществующего адреса, так что регистрацию он не выдаёт.
    */
   @Public()
-  @Throttle({ default: { limit: 3, ttl: 15 * 60_000 } })
+  @AuthThrottle('password-forgot', { limit: 3, ttl: HOUR }, { limit: 3, ttl: 15 * MINUTE })
   @Post('password/forgot')
   @HttpCode(HttpStatus.ACCEPTED)
   @ApiOperation({ summary: 'Прислать ссылку для сброса пароля (публично)' })
@@ -235,7 +241,11 @@ export class AuthController {
       // cookie, а не только отвечаем 401. Иначе role-cookie переживает мёртвую сессию, и
       // middleware гоняет пользователя с /login обратно на его home, где refresh падает снова:
       // получается бесконечный редирект и до формы входа не добраться (§7.2).
-      this.clearAuthCookies(reply)
+      //
+      // Только при отказе в сессии (401/403 — то же, что клиент считает отказом и ведёт на
+      // /login). Сбой БД, таймаут лока и прочие 5xx — не решение сервера: клиент считает
+      // сессию живой и повторит обмен, а стёртая cookie выкинула бы человека посреди пары.
+      if (isSessionRefusal(error)) this.clearAuthCookies(reply)
       throw error
     }
     this.setAuthCookies(reply, session)
@@ -311,4 +321,12 @@ export class AuthController {
     reply.clearCookie(REFRESH_COOKIE, { path: AUTH_COOKIE_PATH })
     reply.clearCookie(ROLE_COOKIE, { path: '/' })
   }
+}
+
+// Отказ в сессии — 401 (токен мёртв) или 403 (вуз заблокирован, почта работодателя не
+// подтверждена). 5xx и непредвиденные исключения отказом не считаются.
+function isSessionRefusal(error: unknown): boolean {
+  if (!(error instanceof HttpException)) return false
+  const status = error.getStatus()
+  return status === HttpStatus.UNAUTHORIZED || status === HttpStatus.FORBIDDEN
 }

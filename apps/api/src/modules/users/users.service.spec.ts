@@ -100,17 +100,12 @@ function setup() {
     store,
     get: jest.fn(async (key: string) => store.get(key) ?? null),
     del: jest.fn(async (key: string) => (store.delete(key) ? 1 : 0)),
-    multi: jest.fn(() => {
-      const chain = {
-        incr: (key: string) => {
-          store.set(key, String(Number(store.get(key) ?? 0) + 1))
-          return chain
-        },
-        expire: () => chain,
-        exec: async () => [],
-      }
-      return chain
+    incr: jest.fn(async (key: string) => {
+      const next = Number(store.get(key) ?? 0) + 1
+      store.set(key, String(next))
+      return next
     }),
+    expire: jest.fn(async () => 1),
   }
   // Брони книг удаляемого закрывает модуль библиотеки (softDeleteSelf).
   const libraryReservations = { cancelAllOfReader: jest.fn().mockResolvedValue(0) }
@@ -759,8 +754,28 @@ describe('UserService — changePassword', () => {
     prisma.user.update.mockResolvedValue({})
     passwords.compare.mockResolvedValue(true)
     redis.get.mockRejectedValue(new Error('ECONNREFUSED'))
+    redis.incr.mockRejectedValue(new Error('ECONNREFUSED'))
     redis.del.mockRejectedValue(new Error('ECONNREFUSED'))
     await expect(service.changePassword('u', 'Old1234!', 'New1234!')).resolves.toBeUndefined()
+  })
+
+  // BUG-077: попытка занимается до bcrypt — пачка одновременных запросов с украденным
+  // access не видит пустой счётчик.
+  it('параллельная пачка сверяет не больше пяти паролей', async () => {
+    const { service, prisma, passwords } = setup()
+    prisma.user.findFirst.mockResolvedValue({ passwordHash: 'h' })
+    passwords.compare.mockResolvedValue(false)
+
+    const results = await Promise.allSettled(
+      Array.from({ length: 30 }, () => service.changePassword('u', 'guess', 'New1234!')),
+    )
+
+    expect(passwords.compare).toHaveBeenCalledTimes(5)
+    expect(
+      results.filter(
+        (r) => r.status === 'rejected' && (r.reason as { code?: string }).code === 'RATE_LIMIT',
+      ),
+    ).toHaveLength(25)
   })
 
   it('смена пароля пишется в аудит с адресом, без паролей', async () => {

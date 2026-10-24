@@ -659,6 +659,20 @@ describe('PlatformService.undoLast', () => {
     expect(updates.at(-1)).toMatchObject({ disabledSections: [] })
   })
 
+  // Запись об откате несёт состояние до отмены: второе «верни как было» отменяет отмену.
+  it('кладёт в запись об откате значения до отмены', async () => {
+    const { service, prisma, audit } = setup(row({ disabledSections: ['chats'] }))
+    prisma.auditLog.findFirst.mockResolvedValue(entry({ disabledSections: [] }))
+
+    await service.undoLast('admin')
+    expect(audit.record).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        action: 'platform.state.undo',
+        metadata: expect.objectContaining({ before: { disabledSections: ['chats'] } }),
+      }),
+    )
+  })
+
   // Снимок в журнале — JSON: даты лежат строками, и вернуть их строками в БД нельзя.
   it('поднимает даты из строк обратно', async () => {
     const past = new Date(Date.now() - 60_000).toISOString()
@@ -748,6 +762,22 @@ describe('PlatformService — дежурство по очереди', () => {
   it('очередь короче двух — передавать некому', async () => {
     const { service } = setup(row({ dutyUserId: 'a', dutyRotation: ['a'] }))
     await expect(service.rotateDuty()).resolves.toBeNull()
+  })
+
+  // BUG-351: `/duty` называет следующим того же, кого выберет крон, и ничего не пишет.
+  it('nextOnDuty пропускает недоступных, как смена', async () => {
+    const { service, updates } = setup(
+      row({ dutyUserId: 'a', dutyRotation: ['a', 'b', 'c'] }),
+      null,
+      ['b'],
+    )
+    await expect(service.nextOnDuty()).resolves.toBe('c')
+    expect(updates).toHaveLength(0)
+  })
+
+  it('nextOnDuty: очередь короче двух — следующего нет', async () => {
+    const { service } = setup(row({ dutyUserId: 'z', dutyRotation: ['a'] }))
+    await expect(service.nextOnDuty()).resolves.toBeNull()
   })
 })
 
@@ -870,5 +900,29 @@ describe('PlatformService — дежурный, которому бот не м�
 
     expect(updates.at(-1)).toMatchObject({ dutyUserId: 'a', quietFrom: 22 })
     expect(prisma.telegramAccount.findMany).not.toHaveBeenCalled()
+  })
+
+  // BUG-352: рассылка глушит сводку тем же окном — в тихий час она не пришла бы никогда.
+  it('не принимает час сводки внутри тихих часов', async () => {
+    const { service, updates } = setup(row())
+
+    await expect(
+      service.setNotifications('admin', { ...SETTINGS, digestHour: 23, dutyUserId: null }),
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' })
+    expect(updates).toHaveLength(0)
+  })
+
+  // Тишина круглые сутки — «выключить всё, не стирая настройку»: час сводки остаётся.
+  it('тишина круглые сутки не стирает час сводки', async () => {
+    const { service, updates } = setup(row())
+
+    await service.setNotifications('admin', {
+      ...SETTINGS,
+      quietFrom: 8,
+      quietTo: 8,
+      dutyUserId: null,
+    })
+
+    expect(updates.at(-1)).toMatchObject({ digestHour: 9, quietFrom: 8, quietTo: 8 })
   })
 })

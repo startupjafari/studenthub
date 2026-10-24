@@ -1,5 +1,5 @@
 import { Role } from '@studenthub/shared-types'
-import { TelegramHookService, nextInRotation, parseCommand } from './telegram-hook.service'
+import { TelegramHookService, parseCommand } from './telegram-hook.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { SupportService } from '../chats/support.service'
@@ -55,6 +55,7 @@ function setup(env: Record<string, string | boolean | undefined> = {}) {
       digestHour: null,
     }),
     duty: jest.fn().mockResolvedValue({ dutyUserId: null, rotation: [] }),
+    nextOnDuty: jest.fn().mockResolvedValue(null),
     rotateDuty: jest.fn().mockResolvedValue(null),
   }
   const redis = { ping: jest.fn().mockResolvedValue('PONG') }
@@ -258,21 +259,6 @@ describe('parseCommand', () => {
   })
 })
 
-describe('nextInRotation', () => {
-  it('идёт по кругу', () => {
-    expect(nextInRotation({ dutyUserId: 'b', rotation: ['a', 'b', 'c'] })).toBe('c')
-    expect(nextInRotation({ dutyUserId: 'c', rotation: ['a', 'b', 'c'] })).toBe('a')
-  })
-
-  it('дежурного назначили мимо очереди — следующим считается первый', () => {
-    expect(nextInRotation({ dutyUserId: 'x', rotation: ['a', 'b'] })).toBe('a')
-  })
-
-  it('пустая очередь не выдумывает дежурного', () => {
-    expect(nextInRotation({ dutyUserId: null, rotation: [] })).toBeNull()
-  })
-})
-
 describe('TelegramHookService — команды', () => {
   it('постороннему не отвечает ни одним числом', async () => {
     const { service, prisma, complaints, support } = setup({ TELEGRAM_BOT_TOKEN: 't' })
@@ -402,6 +388,54 @@ describe('TelegramHookService — команды', () => {
     cap.restore()
   })
 
+  // BUG-351: «следующего» считает тот же код, что и крон смены, — с пропуском недоступных.
+  it('/duty называет следующим того, кого выберет смена дежурства', async () => {
+    const { service, platform, prisma } = setup({ TELEGRAM_BOT_TOKEN: 't' })
+    platform.duty.mockResolvedValue({ dutyUserId: 'a', rotation: ['a', 'b', 'c'] })
+    platform.nextOnDuty.mockResolvedValue('c')
+    prisma.user.findMany.mockResolvedValue([
+      { id: 'a', firstName: 'Анна', lastName: 'А' },
+      { id: 'c', firstName: 'Сергей', lastName: 'С' },
+    ])
+    const cap = captureSend()
+
+    await service.handleMessage(privateMsg('/duty'))
+
+    expect(String(cap.sent[0]?.body.text)).toContain('Следующий: Сергей С')
+    cap.restore()
+  })
+
+  it('/duty без смены впереди «следующего» не выдумывает', async () => {
+    const { service, platform } = setup({ TELEGRAM_BOT_TOKEN: 't' })
+    platform.duty.mockResolvedValue({ dutyUserId: 'a', rotation: ['a'] })
+    const cap = captureSend()
+
+    await service.handleMessage(privateMsg('/duty'))
+
+    expect(String(cap.sent[0]?.body.text)).not.toContain('Следующий')
+    cap.restore()
+  })
+
+  // BUG-352: сводку в тихий час рассылка глушит — бот не обещает её время.
+  it('/duty не обещает сводку, которая попадает в тихие часы', async () => {
+    const { service, platform } = setup({ TELEGRAM_BOT_TOKEN: 't' })
+    platform.notificationPolicy.mockResolvedValue({
+      quietFrom: 22,
+      quietTo: 10,
+      muted: [],
+      dutyUserId: null,
+      digestHour: 9,
+    })
+    const cap = captureSend()
+
+    await service.handleMessage(privateMsg('/duty'))
+
+    const text = String(cap.sent[0]?.body.text)
+    expect(text).toContain('попадает в тихие часы и не приходит')
+    expect(text).not.toContain('Сводка приходит')
+    cap.restore()
+  })
+
   it('/digest отвечает сводкой за сутки', async () => {
     const { service, complaints, support } = setup({ TELEGRAM_BOT_TOKEN: 't' })
     complaints.dayStats.mockResolvedValue({ created: 4, closed: 4 })
@@ -440,6 +474,19 @@ describe('TelegramHookService — команды', () => {
     await service.handleMessage(privateMsg('/me'))
 
     expect(String(cap.sent[0]?.body.text)).toContain('Дежурит другой')
+    cap.restore()
+  })
+
+  // BUG-350: база не ответила на проверку привязки — исключение уходило из вебхука 500-й,
+  // и `/status` в аварию молчал, а Telegram повторял обновление.
+  it('сбой базы при проверке привязки — ответ без данных, а не исключение', async () => {
+    const { service, prisma } = setup({ TELEGRAM_BOT_TOKEN: 't' })
+    prisma.telegramAccount.findFirst.mockRejectedValue(new Error('база легла'))
+    const cap = captureSend()
+
+    await expect(service.handleMessage(privateMsg('/status'))).resolves.toBeUndefined()
+
+    expect(String(cap.sent[0]?.body.text)).toContain('Не получилось проверить привязку')
     cap.restore()
   })
 

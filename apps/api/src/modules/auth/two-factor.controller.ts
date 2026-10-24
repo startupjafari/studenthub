@@ -65,6 +65,7 @@ export class TwoFactorController {
   @Post('disable')
   @ApiOperation({ summary: 'Отключить 2FA (нужен действующий TOTP или backup-код)' })
   @ApiResponse({ status: 401, description: 'INVALID_2FA_CODE' })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN — роли 2FA обязательна, отключать нельзя' })
   async disable(
     @CurrentUser() user: CurrentUserData,
     @Body() dto: TwoFactorDisableDto,

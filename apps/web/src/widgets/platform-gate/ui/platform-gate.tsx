@@ -16,15 +16,33 @@ import { cn } from '../../../shared/lib/utils'
 // Оболочка, через которую состояние платформы доходит до человека: заглушка техработ и
 // баннер-объявление.
 //
-// Почему обёртка, а не блок внутри страницы: техработы обязаны накрыть приложение целиком,
-// включая страницу логина. Человек, который не может войти, должен прочитать причину, а не
-// биться в форму, которая всё равно не пустит.
+// Почему обёртка, а не блок внутри страницы: техработы обязаны накрыть приложение целиком.
+// Исключение — вход и то, что открыто без сессии (OPEN_DURING_MAINTENANCE): там вместо
+// заглушки полоса с причиной, иначе в остановленную платформу не вошёл бы и тот, кто её
+// снимает.
 //
 // Платформенные роли заглушку не видят: они и есть те, кто чинит. Но баннер им показывается
 // — иначе включивший режим забудет, что он включён, и обнаружит это по чужому звонку.
 // Это удобство, а не защита: доступ к данным во время техработ закрывает сервер.
 
 const STAFF_ROLES: readonly Role[] = [Role.PLATFORM_ADMIN, Role.PLATFORM_MODERATOR]
+
+// Что открыто без сессии и во время техработ. Без входа платформенный админ не попадёт в
+// остановленную платформу и не снимет режим (§8.3 «Принуждение»: вход и 2FA сервер
+// пропускает); восстановление пароля и юридические тексты тоже не должны ждать конца работ.
+// Остальные, войдя, увидят заглушку — роль у них уже будет.
+const OPEN_DURING_MAINTENANCE: readonly string[] = [
+  '/login',
+  '/forgot-password',
+  '/reset-password',
+  '/legal',
+]
+
+function isOpenDuringMaintenance(pathname: string): boolean {
+  return OPEN_DURING_MAINTENANCE.some(
+    (base) => pathname === base || pathname.startsWith(`${base}/`),
+  )
+}
 
 export function PlatformGate({ children }: { children: React.ReactNode }) {
   const { maintenance, banner, disabledSections } = usePlatformState()
@@ -35,9 +53,11 @@ export function PlatformGate({ children }: { children: React.ReactNode }) {
   const t = useTranslations('Platform')
 
   const isStaff = role !== null && STAFF_ROLES.includes(role)
+  // Страница входа без сессии: заглушку не ставим, но о работах предупреждаем полосой.
+  const openAnonymous = role === null && isOpenDuringMaintenance(pathname)
 
   // Назначенные на будущее работы платформу ещё не закрывают — о них предупреждают.
-  if (maintenance?.active && !isStaff) {
+  if (maintenance?.active && !isStaff && !openAnonymous) {
     return (
       <StatusScreen
         icon={Wrench}
@@ -78,6 +98,11 @@ export function PlatformGate({ children }: { children: React.ReactNode }) {
                 from: formatUntil(maintenance.startsAt ?? maintenance.until, locale),
                 until: formatUntil(maintenance.until, locale),
               })}
+        </Notice>
+      )}
+      {maintenance?.active && !isStaff && openAnonymous && (
+        <Notice level="WARNING" icon={Wrench}>
+          {t('maintenanceSignInNotice', { until: formatUntil(maintenance.until, locale) })}
         </Notice>
       )}
       {banner && forAudience(banner, role, universityId) && (

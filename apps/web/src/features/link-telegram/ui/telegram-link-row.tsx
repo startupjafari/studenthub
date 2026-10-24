@@ -38,7 +38,14 @@ export function TelegramLinkRow({ role }: { role: Role }) {
   // Состояние привязки: без него на экране была одна кнопка «Получить код» и ни слова о
   // том, привязан ли уже Telegram и какой. Потерянный телефон при этом отзывался только
   // правкой в базе.
-  const status = useQuery({ queryKey: linkKeys.status, queryFn: miniLinkStatusRequest })
+  // Только платформенным ролям: остальным сервер отвечает 403, а строка ниже всё равно
+  // не рисуется — запрос лишь копил ошибки в журнале (как карточка приглашений в BUG-062).
+  const allowed = MINI_APP_ROLES.includes(role)
+  const status = useQuery({
+    queryKey: linkKeys.status,
+    queryFn: miniLinkStatusRequest,
+    enabled: allowed,
+  })
 
   const revoke = useMutation({
     mutationFn: miniLinkRevokeRequest,
@@ -70,7 +77,7 @@ export function TelegramLinkRow({ role }: { role: Role }) {
     return () => clearTimeout(timer)
   }, [secondsLeft])
 
-  if (!MINI_APP_ROLES.includes(role)) return null
+  if (!allowed) return null
 
   const expired = code !== null && secondsLeft <= 0
 

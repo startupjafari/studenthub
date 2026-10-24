@@ -133,6 +133,15 @@ export function LoginForm() {
             const token = await loginVerify2faRequest(challengeToken, code)
             await completeLogin(token)
           } catch (err) {
+            // UNAUTHORIZED на втором шаге — не «неверный пароль», а мёртвый challenge: три
+            // промаха или пять минут ожидания. Любой следующий код, даже верный, его не
+            // оживит (§8.3 Auth) — возвращаем к паролю и говорим почему.
+            if (toApiError(err).code === 'UNAUTHORIZED') {
+              resetApiError()
+              setChallengeToken(null)
+              toast.error(t('twoFactorChallengeExpired'), { id: 'login-error' })
+              return
+            }
             failLogin(err)
           }
         }}

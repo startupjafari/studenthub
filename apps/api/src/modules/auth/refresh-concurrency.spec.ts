@@ -118,7 +118,10 @@ function setup(opts: { redisDown?: boolean } = {}) {
     }),
   }
   const audit = { record: jest.fn() }
-  const users = { findByIdForAuth: jest.fn().mockResolvedValue(STUDENT) }
+  const users = {
+    findByIdForAuth: jest.fn().mockResolvedValue(STUDENT),
+    clearPendingTwoFactorSecret: jest.fn(),
+  }
   const config = {
     get: jest.fn((k: string) =>
       k === 'JWT_REFRESH_EXPIRES_IN' ? '30d' : k === 'REFRESH_REUSE_GRACE_MS' ? GRACE_MS : 0,
@@ -127,6 +130,7 @@ function setup(opts: { redisDown?: boolean } = {}) {
   const crypto = new CryptoService({ get: () => 'k'.repeat(32) } as never)
   const realtime = { disconnectUser: jest.fn() }
   const revocation = { revokeIssuedBefore: jest.fn().mockResolvedValue(undefined) }
+  const push = { removeAllForUser: jest.fn() }
   const service = new AuthService(
     prisma as never,
     { sign: jest.fn(() => 'access') } as never,
@@ -143,8 +147,9 @@ function setup(opts: { redisDown?: boolean } = {}) {
     { assertAllowed: jest.fn() } as never,
     {} as never,
     crypto,
+    push as never,
   )
-  return { service, rows, live, redis, audit, users, refreshToken, realtime, revocation }
+  return { service, rows, live, redis, audit, users, refreshToken, realtime, revocation, push }
 }
 
 describe('AuthService.refresh: параллельные обмены одной cookie (A-F30)', () => {
@@ -216,6 +221,38 @@ describe('AuthService.refresh: параллельные обмены одной 
     expect(retry.refreshToken).not.toBe(first.refreshToken)
     expect(refreshToken.create).toHaveBeenCalledTimes(2)
     expect(live().map((r) => r.id)).toEqual([retry.refreshToken.split('.')[0]])
+  })
+
+  it('гашение всех сессий посреди ротации гасит и преемника (BUG-069)', async () => {
+    const { service, live, refreshToken } = setup()
+    const create = refreshToken.create.getMockImplementation()!
+    let revoking: Promise<void> | undefined
+    refreshToken.create.mockImplementationOnce(async (args) => {
+      // Смена пароля на другом устройстве — между чтением токена и вставкой преемника.
+      revoking = service.revokeAllUserSessions('u1')
+      return create(args)
+    })
+
+    await service.refresh('rt-0.good', {})
+    await revoking
+
+    expect(live()).toHaveLength(0)
+  })
+
+  it('гашение всех сессий снимает и push-привязки устройств (BUG-081)', async () => {
+    const { service, push } = setup()
+
+    await service.revokeAllUserSessions('u1')
+
+    expect(push.removeAllForUser).toHaveBeenCalledWith('u1')
+  })
+
+  it('гашение всех сессий стирает неподтверждённый секрет 2FA (BUG-108)', async () => {
+    const { service, users } = setup()
+
+    await service.revokeAllUserSessions('u1')
+
+    expect(users.clearPendingTwoFactorSecret).toHaveBeenCalledWith('u1')
   })
 
   it('цепочку погасили, пока обмен ждал (выход), — сессия не воскресает', async () => {

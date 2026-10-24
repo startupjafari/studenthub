@@ -9,7 +9,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import type { Locale } from '@studenthub/shared-config'
-import { Role } from '@studenthub/shared-types'
+import { Role, isTwoFactorRequired } from '@studenthub/shared-types'
 import { writeLocaleCookie } from '../../../shared/i18n/locale-cookie'
 import { useLocale, useTranslations } from 'next-intl'
 import { ContactSupportForm } from '../../../features/contact-support'
@@ -334,24 +334,22 @@ export function PersonalSection({ me }: { me: MeResponse }) {
             <p className="text-xs text-muted-foreground">
               {me.username ? tS('usernameHint') : tS('usernameEmptyHint')}
             </p>
+            {/* Текст правила — из словаря, а не сообщение Zod: схема общая с сервером и
+                пишет по-русски, а форма бывает на казахском и английском. */}
             <FieldError>
               {(usernameError || form.formState.errors.username) &&
-                (usernameError ?? form.formState.errors.username?.message)}
+                (usernameError ?? tS('usernameInvalid'))}
             </FieldError>
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="lastName">{tP('lastName')}</Label>
             <Input id="lastName" {...form.register('lastName')} />
-            <FieldError>
-              {form.formState.errors.lastName && form.formState.errors.lastName.message}
-            </FieldError>
+            <FieldError>{form.formState.errors.lastName && tS('nameInvalid')}</FieldError>
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="firstName">{tP('firstName')}</Label>
             <Input id="firstName" {...form.register('firstName')} />
-            <FieldError>
-              {form.formState.errors.firstName && form.formState.errors.firstName.message}
-            </FieldError>
+            <FieldError>{form.formState.errors.firstName && tS('nameInvalid')}</FieldError>
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="middleName">{tP('middleName')}</Label>
@@ -405,7 +403,9 @@ function SecuritySection({ me }: { me: MeResponse }) {
     // выкинет на логин без объяснений.
     onSuccess: async () => {
       form.reset({ currentPassword: '', newPassword: '' })
-      await endSession()
+      // Сбой выхода не держит на экране: сессии сервер уже погасил сменой пароля, а
+      // локальный стор endSession чистит в любом исходе — ведём на вход всегда.
+      await endSession().catch(() => undefined)
       window.location.assign('/login?reason=password-changed')
     },
     onError: (e) => showApiError(e),
@@ -427,8 +427,14 @@ function SecuritySection({ me }: { me: MeResponse }) {
             id="currentPassword"
             type="password"
             autoComplete="current-password"
+            aria-invalid={!!form.formState.errors.currentPassword}
             {...form.register('currentPassword')}
           />
+          {/* Без строки ошибки пустое поле молча блокировало отправку: кнопка нажималась,
+              а ничего не происходило. */}
+          <FieldError>
+            {form.formState.errors.currentPassword && tS('currentPasswordRequired')}
+          </FieldError>
         </div>
         <div className="flex flex-col gap-2">
           <Label htmlFor="newPassword">{tP('newPassword')}</Label>
@@ -436,10 +442,16 @@ function SecuritySection({ me }: { me: MeResponse }) {
             id="newPassword"
             type="password"
             autoComplete="new-password"
+            aria-invalid={!!form.formState.errors.newPassword}
             {...form.register('newPassword')}
           />
+          {/* Правило — из словаря: сообщения PasswordSchema русские. Предел в байтах —
+              единственная проверка-refine (тип `custom`), остальное — правило состава. */}
           <FieldError>
-            {form.formState.errors.newPassword && form.formState.errors.newPassword.message}
+            {form.formState.errors.newPassword &&
+              (form.formState.errors.newPassword.type === 'custom'
+                ? tS('passwordTooLong')
+                : tS('passwordPolicy'))}
           </FieldError>
         </div>
         <Button type="submit" loading={mut.isPending} className="w-full">
@@ -701,6 +713,8 @@ function TwoFactorManager({ me }: { me: MeResponse }) {
                 <Input
                   id="regen2fa"
                   autoComplete="one-time-code"
+                  autoCapitalize="characters"
+                  spellCheck={false}
                   placeholder="123456"
                   value={regenCode}
                   onChange={(e) => setRegenCode(e.target.value)}
@@ -719,44 +733,49 @@ function TwoFactorManager({ me }: { me: MeResponse }) {
               </AlertDialogFooter>
             </AlertDialogContent>
           </AlertDialog>
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button type="button" variant="destructive" size="sm">
-                {tS('twoFactorDisable')}
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>{tS('twoFactorDisable')}</AlertDialogTitle>
-                <AlertDialogDescription>{tS('twoFactorDisableDesc')}</AlertDialogDescription>
-              </AlertDialogHeader>
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="disable2fa">{tS('twoFactorEnterCode')}</Label>
-                <Input
-                  id="disable2fa"
-                  inputMode="numeric"
-                  autoComplete="one-time-code"
-                  placeholder="123456"
-                  value={disableCode}
-                  onChange={(e) => setDisableCode(e.target.value)}
-                />
-              </div>
-              <AlertDialogFooter>
-                <AlertDialogCancel onClick={() => setDisableCode('')}>
-                  {tS('twoFactorCancel')}
-                </AlertDialogCancel>
-                <Button
-                  type="button"
-                  variant="destructive"
-                  loading={disableMut.isPending}
-                  disabled={!disableCode.trim()}
-                  onClick={() => disableMut.mutate()}
-                >
+          {/* Роли с обязательной 2FA отключить её не могут (сервер отвечает 403) — только
+              перевыпустить коды; потерянный телефон — сброс 2FA старшим по роли. */}
+          {!isTwoFactorRequired(me.role) && (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button type="button" variant="destructive" size="sm">
                   {tS('twoFactorDisable')}
                 </Button>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>{tS('twoFactorDisable')}</AlertDialogTitle>
+                  <AlertDialogDescription>{tS('twoFactorDisableDesc')}</AlertDialogDescription>
+                </AlertDialogHeader>
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="disable2fa">{tS('twoFactorEnterCode')}</Label>
+                  <Input
+                    id="disable2fa"
+                    autoComplete="one-time-code"
+                    autoCapitalize="characters"
+                    spellCheck={false}
+                    placeholder="123456"
+                    value={disableCode}
+                    onChange={(e) => setDisableCode(e.target.value)}
+                  />
+                </div>
+                <AlertDialogFooter>
+                  <AlertDialogCancel onClick={() => setDisableCode('')}>
+                    {tS('twoFactorCancel')}
+                  </AlertDialogCancel>
+                  <Button
+                    type="button"
+                    variant="destructive"
+                    loading={disableMut.isPending}
+                    disabled={!disableCode.trim()}
+                    onClick={() => disableMut.mutate()}
+                  >
+                    {tS('twoFactorDisable')}
+                  </Button>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          )}
         </div>
       </SettingRow>
     )
@@ -1301,7 +1320,8 @@ export function DangerSection({ me }: { me: MeResponse }) {
       deleteAccountRequest({ password, ...(needCode ? { code: code.trim() } : {}) }),
     onMutate: () => setError(null),
     onSuccess: async () => {
-      await endSession()
+      // Аккаунта уже нет — сбой выхода не повод оставлять человека на экране настроек.
+      await endSession().catch(() => undefined)
       window.location.assign('/login')
     },
     // Ошибка — в том же окне: пароль и код вводятся там, и закрывать его значит заставить
@@ -1384,6 +1404,8 @@ export function DangerSection({ me }: { me: MeResponse }) {
                     <Input
                       id="delete-account-code"
                       autoComplete="one-time-code"
+                      autoCapitalize="characters"
+                      spellCheck={false}
                       placeholder="123456"
                       value={code}
                       onChange={(e) => setCode(e.target.value)}
