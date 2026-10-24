@@ -8,7 +8,7 @@ vi.mock('./platform', () => ({
 
 import { api } from '../api'
 import { isIosDevice, isStandalonePwa } from './platform'
-import { pushAvailability, subscribeToPush, unsubscribeFromPush } from './push'
+import { hasPushSubscription, pushAvailability, subscribeToPush, unsubscribeFromPush } from './push'
 
 // Клиентская подписка на Web Push: в jsdom нет ни service worker, ни PushManager, ни
 // Notification — подставляем их сами и проверяем, что уходит в браузер и на бэкенд.
@@ -163,5 +163,34 @@ describe('unsubscribeFromPush', () => {
   it('push не поддерживается — ничего не делает', async () => {
     await expect(unsubscribeFromPush()).resolves.toBeUndefined()
     expect(api.post).not.toHaveBeenCalled()
+  })
+})
+
+// Тумблер «Push в браузере» показывает подписку ЭТОГО браузера, а не флаг аккаунта.
+describe('hasPushSubscription', () => {
+  function installRegistration(existing: FakeSubscription | null | undefined) {
+    const pushManager = { getSubscription: vi.fn().mockResolvedValue(existing ?? null) }
+    Object.defineProperty(navigator, 'serviceWorker', {
+      configurable: true,
+      value: {
+        getRegistration: vi
+          .fn()
+          .mockResolvedValue(existing === undefined ? undefined : { pushManager }),
+      },
+    })
+    vi.stubGlobal('PushManager', function PushManager() {})
+    vi.stubGlobal('Notification', { requestPermission: vi.fn() })
+  }
+
+  it('подписка есть — true', async () => {
+    installRegistration(fakeSubscription())
+    await expect(hasPushSubscription()).resolves.toBe(true)
+  })
+
+  it('подписки нет или service worker не зарегистрирован — false', async () => {
+    installRegistration(null)
+    await expect(hasPushSubscription()).resolves.toBe(false)
+    installRegistration(undefined)
+    await expect(hasPushSubscription()).resolves.toBe(false)
   })
 })

@@ -114,6 +114,7 @@ import {
   useSeasonMotionEnabled,
 } from '../../../shared/lib'
 import {
+  hasPushSubscription,
   subscribeToPush,
   unsubscribeFromPush,
   pushAvailability,
@@ -824,8 +825,18 @@ function NotificationsSection() {
   // известно только в браузере: считаем после монтирования, иначе разойдётся гидрация.
   const [pushState, setPushState] = useState<PushAvailability>('ok')
   useEffect(() => setPushState(pushAvailability()), [])
+  // Подписан ли этот браузер. Тумблер — про браузер, а не про аккаунт: общий `pushEnabled`
+  // при выключении глушил и телефоны, а включить его обратно с телефона было нечем.
+  const [browserSubscribed, setBrowserSubscribed] = useState(false)
+  useEffect(() => {
+    void hasPushSubscription()
+      .then(setBrowserSubscribed)
+      .catch(() => setBrowserSubscribed(false))
+  }, [])
 
-  // Push (#Ф13.3): включение требует разрешения браузера + подписки SW; выключение — отписки.
+  // Push (#Ф13.3): включение требует разрешения браузера + подписки SW; выключение — отписки
+  // этого браузера. Флаг аккаунта включение поднимает (без него не уйдёт ни один push), а
+  // выключение не трогает: подписки других браузеров и телефоны продолжают получать пуши.
   const setPush = (value: boolean): void => {
     if (value) {
       if (pushState === 'ios-needs-install') {
@@ -837,10 +848,17 @@ function NotificationsSection() {
         return
       }
       void subscribeToPush()
-        .then((ok) => (ok ? set('pushEnabled', true) : toast.error(tS('pushDenied'))))
+        .then((ok) => {
+          if (!ok) {
+            toast.error(tS('pushDenied'))
+            return
+          }
+          setBrowserSubscribed(true)
+          if (!s?.pushEnabled) set('pushEnabled', true)
+        })
         .catch(() => toast.error(tS('pushDenied')))
     } else {
-      void unsubscribeFromPush().finally(() => set('pushEnabled', false))
+      void unsubscribeFromPush().finally(() => setBrowserSubscribed(false))
     }
   }
 
@@ -891,7 +909,7 @@ function NotificationsSection() {
               }
             >
               <ToggleSwitch
-                checked={s.pushEnabled}
+                checked={s.pushEnabled && browserSubscribed}
                 onChange={setPush}
                 disabled={pushState !== 'ok'}
                 label={tS('channelPush')}
