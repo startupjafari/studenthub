@@ -34,7 +34,8 @@ const DAYS = 7
 export interface WeeklyPoint {
   /** Понедельник недели, ISO. */
   at: string
-  value: number
+  /** Доля не-пропусков, проценты; null — в эту неделю на факультете не отмечали. */
+  value: number | null
 }
 
 export interface FacultySeries {
@@ -171,11 +172,17 @@ export class UniversityAnalyticsService {
   /**
    * Динамика посещаемости по неделям, отдельным рядом на факультет.
    * Отвечает на «стало лучше или хуже» — срез на сегодня этого не показывает.
+   *
+   * У каждого ряда ровно `span` точек — все недели окна, по одной и той же сетке; неделя
+   * без отметок — `null`, а не 0 («нечего считать», а не «никто не пришёл»). Раньше ряд
+   * содержал только недели с отметками, и график, раскладывающий точки по индексу, рисовал
+   * факультет, начавший отмечать позже, на чужих неделях.
    */
   attendanceTrend(viewer: JwtPayload, weeks = DEFAULT_WEEKS) {
     const universityId = this.scope(viewer)
     const span = clampWeeks(weeks)
-    return this.cached('attendance-trend', { universityId, span }, async () => {
+    // Версия в ключе: прежние записи кэша хранили ряды без пустых недель.
+    return this.cached('attendance-trend.v2', { universityId, span }, async () => {
       const from = startOfWeek(shiftDays(new Date(), -7 * (span - 1)))
       const rows = await this.prisma.$queryRaw<
         { faculty_id: string; name: string; bucket: Date; rate: number }[]
@@ -194,17 +201,22 @@ export class UniversityAnalyticsService {
          GROUP BY 1, 2, 3
          ORDER BY 3
       `
-      const byFaculty = new Map<string, FacultySeries>()
+      const calendar = Array.from({ length: span }, (_, i) => shiftDays(from, 7 * i))
+      const byFaculty = new Map<string, { name: string; rates: Map<number, number> }>()
       for (const r of rows) {
-        const cur = byFaculty.get(r.faculty_id) ?? {
-          facultyId: r.faculty_id,
-          name: r.name,
-          points: [],
-        }
-        cur.points.push({ at: r.bucket.toISOString(), value: Number(r.rate) })
+        const cur = byFaculty.get(r.faculty_id) ?? { name: r.name, rates: new Map() }
+        cur.rates.set(new Date(r.bucket).getTime(), Number(r.rate))
         byFaculty.set(r.faculty_id, cur)
       }
-      return { weeks: span, from: from.toISOString(), series: [...byFaculty.values()] }
+      const series: FacultySeries[] = [...byFaculty].map(([facultyId, f]) => ({
+        facultyId,
+        name: f.name,
+        points: calendar.map((week) => ({
+          at: week.toISOString(),
+          value: f.rates.get(week.getTime()) ?? null,
+        })),
+      }))
+      return { weeks: span, from: from.toISOString(), series }
     })
   }
 

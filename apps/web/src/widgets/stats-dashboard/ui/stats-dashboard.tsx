@@ -278,11 +278,13 @@ function AttendanceTrendPanel() {
   // Худшие — по последней известной неделе: сравнивать по среднему за семестр значит
   // прятать факультет, который просел только что.
   const ranked = [...(q.data?.series ?? [])]
-    .filter((s) => s.points.length > 0)
-    .sort((a, b) => lastValue(a.points) - lastValue(b.points))
+    .filter((s) => lastValue(s.points) !== null)
+    .sort((a, b) => (lastValue(a.points) ?? 0) - (lastValue(b.points) ?? 0))
     .slice(0, TREND_FACULTIES)
 
-  const labels = longestPoints(ranked).map((p) =>
+  // Сетка недель общая у всех рядов (сервер отдаёт каждую неделю окна, пустую — null),
+  // поэтому подписи берутся у любого ряда, а точки ложатся на свои недели.
+  const labels = (ranked[0]?.points ?? []).map((p) =>
     fmt.dateTime(new Date(p.at), { day: 'numeric', month: 'short' }),
   )
   const series: ChartSeries[] = ranked.map((s, i) => ({
@@ -309,7 +311,7 @@ function AttendanceTrendPanel() {
               label: s.label,
               color: s.color,
               line: true,
-              value: `${s.values[s.values.length - 1] ?? 0}%`,
+              value: `${lastValue(s.values.map((value) => ({ value }))) ?? 0}%`,
             }))}
           />
           <LineChart
@@ -572,7 +574,7 @@ function ApplicationsFlowPanel() {
               label: s.label,
               color: s.color,
               line: true,
-              value: String(s.values.reduce((a, b) => a + b, 0)),
+              value: String(s.values.reduce<number>((a, b) => a + (b ?? 0), 0)),
             }))}
           />
           <LineChart
@@ -662,17 +664,11 @@ function Failed({ onRetry }: { onRetry: () => void }) {
   )
 }
 
-function lastValue(points: { value: number }[]): number {
-  return points[points.length - 1]?.value ?? 0
-}
-
-/**
- * Подписи оси берём у самого длинного ряда: у факультетов, где посещаемость начали
- * отмечать позже, недель меньше, и по короткому ряду ось обрезала бы остальные.
- */
-function longestPoints<T extends { points: unknown[] }>(series: T[]): T['points'] {
-  return series.reduce<T['points']>(
-    (best, s) => (s.points.length > best.length ? s.points : best),
-    [],
-  )
+/** Последнее известное значение ряда: недели без отметок (null) пропускаются. */
+function lastValue(points: { value: number | null }[]): number | null {
+  for (let i = points.length - 1; i >= 0; i -= 1) {
+    const value = points[i]?.value
+    if (value !== null && value !== undefined) return value
+  }
+  return null
 }
