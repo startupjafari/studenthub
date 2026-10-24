@@ -182,7 +182,7 @@ function ReadyView({
         {active === 'support' && (
           <SupportScreen initialId={deepLink?.kind === 'support' ? deepLink.id : undefined} />
         )}
-        {active === 'people' && <PeopleScreen />}
+        {active === 'people' && <PeopleScreen viewerRole={role} />}
         {active === 'control' && <ControlTab userId={userId} />}
       </SwipeTabs>
       {/*

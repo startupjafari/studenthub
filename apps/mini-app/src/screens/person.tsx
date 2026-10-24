@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react'
 import { revokeSessions, setBlocked, type Person } from '../api/people'
-import { ApiError } from '../api/client'
+import { ApiError, type MiniUser } from '../api/client'
 import { confirmAction, haptic } from '../telegram/webapp'
 import { useBackHandler } from '../lib/back'
 import { t } from '../i18n'
@@ -28,12 +28,25 @@ const BLOCK_TERMS = [
   { days: 30, key: 'blockMonth' },
 ] as const
 
+/**
+ * Строго ли выше роль смотрящего — то же правило `isHigherRole`, по которому меры разрешает
+ * сервер и показывает кнопки веб. Смотрят только две верхние роли иерархии: администратор
+ * выше всех, кроме другого администратора; модератор — всех, кроме администратора и себе
+ * равного.
+ */
+function outranks(viewer: MiniUser['role'], target: string): boolean {
+  if (target === 'PLATFORM_ADMIN') return false
+  return viewer === 'PLATFORM_ADMIN' || target !== 'PLATFORM_MODERATOR'
+}
+
 export function PersonScreen({
   person,
+  viewerRole,
   onBack,
   onChanged,
 }: {
   person: Person
+  viewerRole: MiniUser['role']
   onBack: () => void
   onChanged: (next: Person) => void
 }) {
@@ -46,6 +59,7 @@ export function PersonScreen({
   useBackHandler(onBack)
 
   const name = `${person.lastName} ${person.firstName}`
+  const canAct = outranks(viewerRole, person.role)
 
   const toggleAccess = useCallback(async () => {
     const question = person.isBlocked
@@ -113,9 +127,13 @@ export function PersonScreen({
       <section className="card">
         <h2>{t('peopleAccessTitle')}</h2>
 
+        {/* К старшей или равной роли мер нет: сервер их отклонит, и кнопки обещали бы
+            действие, которого не будет. */}
+        {!canAct && <p className="hint">{t('peopleNoAuthority')}</p>}
+
         {/* Код и срок нужны только для блокировки. Разблокировке ни того, ни другого не
             требуется: вернуть доступ должно быть возможно сразу и без вопросов. */}
-        {!person.isBlocked && (
+        {canAct && !person.isBlocked && (
           <>
             <input
               className="field"
@@ -150,26 +168,30 @@ export function PersonScreen({
         {error && <p className="hint-danger">{error}</p>}
         {note && <p className="hint">{note}</p>}
 
-        <button
-          type="button"
-          className={person.isBlocked ? 'fallback-submit' : 'fallback-submit danger'}
-          disabled={busy}
-          onClick={() => void toggleAccess()}
-        >
-          {person.isBlocked ? t('peopleUnblock') : t('peopleBlock')}
-        </button>
+        {canAct && (
+          <>
+            <button
+              type="button"
+              className={person.isBlocked ? 'fallback-submit' : 'fallback-submit danger'}
+              disabled={busy}
+              onClick={() => void toggleAccess()}
+            >
+              {person.isBlocked ? t('peopleUnblock') : t('peopleBlock')}
+            </button>
 
-        {/* Сброс сессий выгоняет чужого, оставляя доступ хозяину: блокировка в случае
-            угнанного аккаунта наказала бы пострадавшего. Тише блокировки: это ответ на
-            «аккаунт увели», а не решение о человеке. */}
-        <button
-          type="button"
-          className="fallback-submit plain"
-          disabled={busy}
-          onClick={() => void endSessions()}
-        >
-          {t('peopleLogout')}
-        </button>
+            {/* Сброс сессий выгоняет чужого, оставляя доступ хозяину: блокировка в случае
+                угнанного аккаунта наказала бы пострадавшего. Тише блокировки: это ответ на
+                «аккаунт увели», а не решение о человеке. */}
+            <button
+              type="button"
+              className="fallback-submit plain"
+              disabled={busy}
+              onClick={() => void endSessions()}
+            >
+              {t('peopleLogout')}
+            </button>
+          </>
+        )}
       </section>
     </div>
   )
