@@ -3,6 +3,7 @@ export {
   fetchSupportQueue,
   fetchSupportTagCounts,
   fetchSupportThread,
+  fetchSupportEarlierMessages,
   replySupportRequest,
   assignSupportRequest,
   setSupportTagsRequest,

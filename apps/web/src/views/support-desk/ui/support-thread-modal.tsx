@@ -17,11 +17,13 @@ import {
   assignSupportRequest,
   closeSupportRequest,
   escalateSupportRequest,
+  fetchSupportEarlierMessages,
   fetchSupportThread,
   mergeSupportRequest,
   replySupportRequest,
   setSupportTagsRequest,
   supportKeys,
+  type SupportMessage,
 } from '../../../entities/support-ticket'
 import { ProfileLink, UserPicker, type PickedUser } from '../../../entities/user'
 import { complaintKeys, createComplaintFromSupportRequest } from '../../../entities/complaint'
@@ -67,6 +69,13 @@ export function SupportThreadModal({ ticketId, onClose, onOpen }: SupportThreadM
   // в вебе было нечем — только из мини-аппа. null — панель закрыта.
   const [complaintTarget, setComplaintTarget] = useState<PickedUser | null>(null)
   const [complaintOpen, setComplaintOpen] = useState(false)
+  // Дочитанная история длинного обращения (сервер отдаёт последние 50). Привязана к
+  // обращению: после склейки окно открывает другое, и чужая история здесь не нужна.
+  const [earlier, setEarlier] = useState<{
+    ticketId: string
+    items: SupportMessage[]
+    cursor: string | null
+  } | null>(null)
 
   const thread = useQuery({
     queryKey: supportKeys.thread(ticketId),
@@ -82,6 +91,16 @@ export function SupportThreadModal({ ticketId, onClose, onOpen }: SupportThreadM
     const code = toApiError(e).code
     toast.error(code === 'CONFLICT' ? t('takenByOther') : tErr(code))
   }
+  const loadEarlier = useMutation({
+    mutationFn: (cursor: string) => fetchSupportEarlierMessages(ticketId, cursor),
+    onSuccess: (page) =>
+      setEarlier((prev) => ({
+        ticketId,
+        items: [...(prev?.ticketId === ticketId ? prev.items : []), ...page.items],
+        cursor: page.cursor,
+      })),
+    onError: (e: unknown) => toast.error(tErr(toApiError(e).code)),
+  })
 
   const form = useForm<SupportReplyInput>({ resolver: zodResolver(SupportReplySchema) })
   const reply = useMutation({
@@ -145,8 +164,15 @@ export function SupportThreadModal({ ticketId, onClose, onOpen }: SupportThreadM
   const mine = ticket?.assigneeId === myId
   const takenByOther = !!ticket?.assigneeId && !mine
   const closedTicket = !!ticket?.closedAt
-  // Сервер отдаёт свежие сверху; читается переписка сверху вниз.
-  const messages = [...(data?.messages ?? [])].reverse()
+  const ownEarlier = earlier?.ticketId === ticketId ? earlier : null
+  const earlierCursor = ownEarlier ? ownEarlier.cursor : (data?.earlierCursor ?? null)
+  // Сервер отдаёт свежие сверху; читается переписка сверху вниз. Склеенные ветки идут
+  // вперемешку по времени — поэтому общий порядок, а не просто дописка в начало.
+  const messages = [
+    ...new Map(
+      [...(data?.messages ?? []), ...(ownEarlier?.items ?? [])].map((m) => [m.id, m]),
+    ).values(),
+  ].sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
 
   function toggleTag(tag: SupportTag): void {
     if (!ticket) return
@@ -213,6 +239,20 @@ export function SupportThreadModal({ ticketId, onClose, onOpen }: SupportThreadM
           </div>
 
           <ol className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto rounded-xl border border-border p-3">
+            {earlierCursor && (
+              <li className="self-center">
+                <Button
+                  type="button"
+                  variant="link"
+                  size="sm"
+                  className="h-auto px-0"
+                  loading={loadEarlier.isPending}
+                  onClick={() => loadEarlier.mutate(earlierCursor)}
+                >
+                  {t('showEarlier')}
+                </Button>
+              </li>
+            )}
             {messages.map((m) => {
               const fromAuthor = m.sender.id === author?.id
               return (
