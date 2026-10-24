@@ -18,6 +18,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  useConfirm,
 } from '../../../shared/ui'
 import { toApiError } from '../../../shared/lib'
 
@@ -35,6 +36,7 @@ export function AssignStarosta({ group, members }: AssignStarostaProps) {
   const t = useTranslations('UniAdmin')
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
+  const confirm = useConfirm()
   const candidates = members.filter((m) => m.role === Role.STUDENT || m.role === Role.STAROSTA)
 
   const assign = useMutation({
@@ -48,6 +50,38 @@ export function AssignStarosta({ group, members }: AssignStarostaProps) {
     onError: (e) => toast.error(tErr(toApiError(e).code)),
   })
 
+  const nameOf = (id: string | null): string => {
+    const m = members.find((x) => x.id === id)
+    return m ? `${m.firstName} ${m.lastName}` : ''
+  }
+
+  // Смена и снятие старосты — смена ролей: новый получает права старосты, прежний
+  // возвращается в студенты, его сессии гасятся. Промах в селекте не должен этого делать,
+  // поэтому — подтверждение, как у блокировки вуза.
+  async function change(next: string | null): Promise<void> {
+    if (next === group.starostaId) return
+    const ok = await confirm(
+      next === null
+        ? {
+            title: t('clearStarostaConfirmTitle'),
+            description: t('clearStarostaConfirmDesc', { name: nameOf(group.starostaId) }),
+            confirmLabel: t('clearStarosta'),
+            destructive: true,
+          }
+        : {
+            title: t('assignStarostaConfirmTitle'),
+            description: group.starostaId
+              ? t('replaceStarostaConfirmDesc', {
+                  name: nameOf(next),
+                  previous: nameOf(group.starostaId),
+                })
+              : t('assignStarostaConfirmDesc', { name: nameOf(next) }),
+            confirmLabel: t('assignStarostaConfirm'),
+          },
+    )
+    if (ok) assign.mutate(next)
+  }
+
   if (candidates.length === 0) return null
 
   return (
@@ -56,7 +90,7 @@ export function AssignStarosta({ group, members }: AssignStarostaProps) {
         <Label>{t('assignStarosta')}</Label>
         <Select
           value={group.starostaId ?? ''}
-          onValueChange={(v) => assign.mutate(v)}
+          onValueChange={(v) => void change(v)}
           disabled={assign.isPending}
         >
           <SelectTrigger aria-label={t('assignStarosta')}>
@@ -72,7 +106,7 @@ export function AssignStarosta({ group, members }: AssignStarostaProps) {
         </Select>
       </div>
       {group.starostaId && (
-        <Button variant="outline" onClick={() => assign.mutate(null)} loading={assign.isPending}>
+        <Button variant="outline" onClick={() => void change(null)} loading={assign.isPending}>
           {t('clearStarosta')}
         </Button>
       )}
