@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useFormatter, useLocale, useTranslations } from 'next-intl'
 import { CalendarClock, Check, MapPin, Plus, Trash2, Users, Video } from 'lucide-react'
@@ -12,7 +12,7 @@ import {
   cancelEventRequest,
   deleteEventRequest,
   eventKeys,
-  fetchEvents,
+  fetchEventsPage,
   registerEventRequest,
   type EventItem,
   MEETING_PROVIDER_NAME,
@@ -48,11 +48,18 @@ export function EventsView() {
   const role = useAppSelector((s) => s.auth.role)
   const canCreate = role !== null && !READONLY_ROLES.includes(role)
 
-  const events = useQuery({
-    queryKey: eventKeys.list(filter),
-    queryFn: () => fetchEvents({ filter }),
+  // Страницами по 50: раньше экран брал одну страницу, и всё после пятидесятого события
+  // пропадало без признака, что список неполный.
+  const events = useInfiniteQuery({
+    queryKey: eventKeys.pages(filter),
+    queryFn: ({ pageParam }) => fetchEventsPage({ filter, page: pageParam }),
+    initialPageParam: 1,
+    getNextPageParam: (last, all) => {
+      const loaded = all.reduce((sum, page) => sum + page.items.length, 0)
+      return last.items.length > 0 && loaded < last.total ? all.length + 1 : undefined
+    },
   })
-  const items = events.data ?? []
+  const items = events.data?.pages.flatMap((page) => page.items) ?? []
 
   return (
     // Без `min-h-0` (§4): сетка карточек длиннее экрана, и с ним корень сжимался до
@@ -117,6 +124,17 @@ export function EventsView() {
             />
           ))}
         </div>
+      )}
+      {events.hasNextPage && (
+        <Button
+          type="button"
+          variant="ghost"
+          className="self-center"
+          loading={events.isFetchingNextPage}
+          onClick={() => void events.fetchNextPage()}
+        >
+          {t('showMore')}
+        </Button>
       )}
 
       {createOpen && <CreateEventModal onClose={() => setCreateOpen(false)} />}

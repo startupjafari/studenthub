@@ -1,6 +1,7 @@
 export {
   eventKeys,
   fetchEvents,
+  fetchEventsPage,
   fetchEvent,
   createEventRequest,
   updateEventRequest,
