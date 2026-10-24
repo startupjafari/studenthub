@@ -222,6 +222,16 @@ describe('MediaService — HLS', () => {
     return new URL(path, 'http://x').searchParams.get('t') as string
   }
 
+  it('публичный бакет с HLS: expiresAt — срок токена плейлиста, а не null', async () => {
+    const { service, jwt } = setup()
+    const now = Date.UTC(2026, 9, 16, 10, 2, 30)
+    const info = await service.describeOne({ ...video(), bucket: 'profile-media' }, now)
+
+    expect(info.hls).not.toBeNull()
+    const { exp } = jwt.decode<{ exp: number }>(tokenFrom(info.hls as string))
+    expect(info.expiresAt).toBe(new Date(exp * 1000).toISOString())
+  })
+
   it('мастер-плейлист по master-токену перечисляет рендишны с play-токеном', async () => {
     const { service, prisma } = setup()
     const info = await service.describeOne(video())

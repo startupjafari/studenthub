@@ -255,6 +255,12 @@ export class MediaService {
     ])
     const hls = pick(MediaVariantKind.HLS).length > 0 ? this.masterPath(file, now) : null
     const signed = !isPublic && (sources.length > 0 || poster.length > 0 || hls !== null)
+    // Срок — ближайший из сроков подписанных ссылок и токена HLS. Токен плейлиста живёт
+    // 15 минут и в публичном бакете: там раньше уходил `null` («ссылки постоянные»), клиент
+    // описание не обновлял, и видео профиля переставало играть.
+    const expiries: number[] = []
+    if (signed) expiries.push(signingWindow(now).expiresAt.getTime())
+    if (hls !== null) expiries.push(this.tokenExpiry(HLS_TOKEN_TTL_SECONDS, now) * 1000)
     return {
       status: file.mediaStatus,
       placeholder: file.placeholder,
@@ -264,7 +270,7 @@ export class MediaService {
       sources,
       poster,
       hls,
-      expiresAt: signed ? signingWindow(now).expiresAt.toISOString() : null,
+      expiresAt: expiries.length > 0 ? new Date(Math.min(...expiries)).toISOString() : null,
     }
   }
 
@@ -286,10 +292,14 @@ export class MediaService {
     ttlSeconds: number,
     now = Date.now(),
   ): string {
-    const start = signingWindow(now).requestDate.getTime()
-    const exp = Math.floor(start / 1000) + ttlSeconds
+    const exp = this.tokenExpiry(ttlSeconds, now)
     const payload: HlsTokenPayload & { exp: number } = { fid: fileId, b: bucket, k: kind, exp }
     return this.jwt.sign(payload, { secret: this.tokenSecret, noTimestamp: true })
+  }
+
+  /** `exp` токена (секунды): от начала окна подписи, как и у presigned-ссылок. */
+  private tokenExpiry(ttlSeconds: number, now: number): number {
+    return Math.floor(signingWindow(now).requestDate.getTime() / 1000) + ttlSeconds
   }
 
   private verifyToken(token: string | undefined, fileId: string, kind: TokenKind): string {
