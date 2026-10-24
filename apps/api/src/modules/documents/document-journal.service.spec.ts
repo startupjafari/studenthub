@@ -148,6 +148,32 @@ describe('DocumentJournalService', () => {
     expect(prisma.documentEvent.findMany).not.toHaveBeenCalled()
   })
 
+  it('поиск по ФИО: владелец — условием по связи без потолка, действующий — по найденным id', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findMany.mockResolvedValueOnce([{ id: 'dean-1' }])
+    await service.list(admin(), { ...QUERY, q: 'Абишева' })
+    const where = prisma.documentEvent.findMany.mock.calls[0][0].where
+    expect(where.AND[1]).toEqual({
+      OR: [
+        { actorId: { in: ['dean-1'] } },
+        {
+          document: {
+            owner: {
+              AND: [
+                {
+                  OR: [
+                    { firstName: { contains: 'Абишева', mode: 'insensitive' } },
+                    { lastName: { contains: 'Абишева', mode: 'insensitive' } },
+                  ],
+                },
+              ],
+            },
+          },
+        },
+      ],
+    })
+  })
+
   it('название запроса — только из своего вуза', async () => {
     const { service, prisma } = setup()
     prisma.documentEvent.findMany.mockResolvedValue([
