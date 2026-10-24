@@ -607,6 +607,11 @@ export class EventsService {
       })
       if (events.length === 0) break
       lastId = events.at(-1)?.id
+      // Отметку получают только события, о которых напоминание поставлено целиком (все
+      // страницы участников): при недоступном Redis отметка без job'а теряла напоминание
+      // навсегда — следующий тик событие уже не выбирал (BACKEND_RULES §9.2).
+      const queued: { id: string; startsAt: Date }[] = []
+      let failed = false
       for (const event of events) {
         let cursor: string | undefined
         let page = 0
@@ -619,7 +624,7 @@ export class EventsService {
             ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
           })
           if (participants.length === 0) break
-          await this.queue.enqueue(
+          const ok = await this.queue.enqueue(
             QUEUES.NOTIFICATIONS,
             NOTIFICATION_JOBS.EVENT_REMINDER,
             {
@@ -637,23 +642,37 @@ export class EventsService {
             },
             { jobId: `event-reminder:${event.id}:${event.startsAt.getTime()}:${page}` },
           )
+          if (!ok) {
+            failed = true
+            break
+          }
           if (participants.length < PARTICIPANTS_BATCH) break
           cursor = participants.at(-1)?.id
           page += 1
         }
+        // Очередь недоступна — дальше не идём: остальные события (и это, с начала)
+        // подхватит следующий тик, повтор страниц отсечёт dedupeKey.
+        if (failed) break
+        queued.push({ id: event.id, startsAt: event.startsAt })
         total += 1
       }
       // Помечаем отправленными сразу (дедуп на уровне записи + dedupeKey job'а) — но только ту
       // версию события, о которой напомнили. Если начало успели перенести посреди прогона,
       // update уже сбросил reminderSentAt: отметка не ляжет, и следующий тик напомнит о новом
       // времени под новым dedupeKey, а не проглотит его чужой отметкой.
-      await this.prisma.event.updateMany({
-        where: {
-          reminderSentAt: null,
-          OR: events.map((e) => ({ id: e.id, startsAt: e.startsAt })),
-        },
-        data: { reminderSentAt: new Date() },
-      })
+      if (queued.length > 0) {
+        await this.prisma.event.updateMany({
+          where: {
+            reminderSentAt: null,
+            OR: queued.map((e) => ({ id: e.id, startsAt: e.startsAt })),
+          },
+          data: { reminderSentAt: new Date() },
+        })
+      }
+      if (failed) {
+        this.logger.warn('scheduleEventReminders: очередь недоступна — остаток на следующий тик')
+        break
+      }
       if (events.length < BATCH) break
     }
     if (total > 0) this.logger.log(`scheduleEventReminders: обработано событий ${total}`)

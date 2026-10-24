@@ -100,7 +100,8 @@ function setup() {
     getPresignedUrl: jest.fn().mockResolvedValue('https://minio/signed'),
   }
   const config = { get: jest.fn().mockReturnValue('documents') }
-  const queue = { enqueue: jest.fn().mockResolvedValue(undefined) }
+  // true — job поставлен: по нему крон сроков решает, помечать ли документ (BUG-091).
+  const queue = { enqueue: jest.fn().mockResolvedValue(true) }
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const types = new DocumentTypesService(
     prisma as unknown as PrismaService,
@@ -189,6 +190,20 @@ describe('DocumentsService', () => {
     expect(payload.recipientIds).toEqual(['u1'])
     expect(payload.dedupeKey).toBe('doc-expired:d1')
     expect(payload.type).toBe('SYSTEM')
+  })
+
+  // Отметка без job'а теряла уведомление навсегда: следующий прогон документ уже не выбирал.
+  it('sweepExpiry: очередь недоступна — статус не меняется, прогон останавливается', async () => {
+    const { service, prisma, queue } = setup()
+    prisma.document.findMany
+      .mockResolvedValueOnce([{ id: 'd1', ownerId: 'u1', title: 'Паспорт' }])
+      .mockResolvedValue([])
+    queue.enqueue.mockResolvedValue(false)
+    const res = await service.sweepExpiry()
+    expect(res.expired).toBe(0)
+    expect(prisma.document.updateMany).not.toHaveBeenCalledWith(
+      expect.objectContaining({ data: { status: 'EXPIRED' } }),
+    )
   })
 
   // Правило срока хранения вуза: тип ID_CARD, 30 дней после истечения.

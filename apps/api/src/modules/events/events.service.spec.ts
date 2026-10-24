@@ -41,7 +41,8 @@ function setup() {
     $transaction: jest.fn((ops: unknown) => Promise.all(ops as Promise<unknown>[])),
   }
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
-  const queue = { enqueue: jest.fn().mockResolvedValue(undefined) }
+  // true — job поставлен: по нему remindDue решает, ставить ли отметку reminderSentAt.
+  const queue = { enqueue: jest.fn().mockResolvedValue(true) }
   const service = new EventsService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
@@ -221,6 +222,20 @@ describe('EventsService.remindDue — окно и дедуп (10.4)', () => {
         data: expect.objectContaining({ reminderSentAt: expect.any(Date) }),
       }),
     )
+  })
+
+  // Отметка без job'а теряла напоминание навсегда: следующий тик событие уже не выбирал.
+  it('очередь недоступна — reminderSentAt не ставится, прогон останавливается', async () => {
+    const { service, prisma, queue } = setup()
+    prisma.event.findMany.mockResolvedValueOnce([
+      { id: 'e1', title: 'Первое', startsAt: new Date(1_000_000) },
+      { id: 'e2', title: 'Второе', startsAt: new Date(2_000_000) },
+    ])
+    prisma.eventParticipant.findMany.mockResolvedValue([{ id: 'p1', userId: 'u2' }])
+    queue.enqueue.mockResolvedValue(false)
+    await expect(service.remindDue()).resolves.toBe(0)
+    expect(queue.enqueue).toHaveBeenCalledTimes(1)
+    expect(prisma.event.updateMany).not.toHaveBeenCalled()
   })
 
   it('окно запроса — (now, now+70м], reminderSentAt null, с потолком', async () => {
