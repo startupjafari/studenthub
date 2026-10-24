@@ -778,8 +778,9 @@ describe('DocumentRequestsService — ответ студента (15.15)', () =
         data: expect.objectContaining({ status: 'SUBMITTED' }),
       }),
     )
+    // Повторная отправка возвращённого комплекта: принятые позиции сохраняют вердикт.
     expect(prisma.documentSubmissionItem.updateMany).toHaveBeenCalledWith({
-      where: { submissionId: 's1' },
+      where: { submissionId: 's1', status: { not: 'ACCEPTED' } },
       data: { status: 'PENDING', rejectionReason: null },
     })
     expect(prisma.documentEvent.create).toHaveBeenCalledWith(

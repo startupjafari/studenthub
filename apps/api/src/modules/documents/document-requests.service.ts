@@ -1320,9 +1320,12 @@ export class DocumentRequestsService {
       if (req.items.some((i) => !have.has(i.id))) {
         throw new AppException('BAD_REQUEST', 'Заполните все обязательные позиции')
       }
-      // Отправка — новая проверка всего комплекта: прежние вердикты сбрасываются.
+      // Отправка — новая проверка всего, что не принято: отклонённые позиции снова ждут
+      // проверки. Принятые сохраняют вердикт (§3.8: «вердикты нетронутых позиций
+      // сохраняются»): позиция, где студент сменил документ или правил его содержимое, уже
+      // снова PENDING. Раньше сбрасывались все, и принятое приходилось проверять заново.
       await tx.documentSubmissionItem.updateMany({
-        where: { submissionId: sub.id },
+        where: { submissionId: sub.id, status: { not: 'ACCEPTED' } },
         data: { status: 'PENDING', rejectionReason: null },
       })
     })
