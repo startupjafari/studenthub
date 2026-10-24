@@ -7,12 +7,19 @@ import { AppException } from '../exceptions/app.exception'
  * поток) → FILE_DIRECT_UPLOAD_REQUIRED (нужна прямая presigned-загрузка).
  */
 export async function readSingleUpload(req: FastifyRequest): Promise<Buffer> {
+  return (await readNamedUpload(req)).buffer
+}
+
+/** То же, что `readSingleUpload`, плюс исходное имя файла — для списков, где его показывают. */
+export async function readNamedUpload(
+  req: FastifyRequest,
+): Promise<{ buffer: Buffer; filename: string }> {
   const part = await req.file()
   if (!part) {
     throw new AppException('BAD_REQUEST', 'Файл не передан (ожидается multipart-поле "file")')
   }
   try {
-    return await part.toBuffer()
+    return { buffer: await part.toBuffer(), filename: part.filename }
   } catch {
     throw new AppException(
       'FILE_DIRECT_UPLOAD_REQUIRED',

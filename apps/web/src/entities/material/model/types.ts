@@ -1,5 +1,7 @@
 export interface MaterialFile {
   id: string
+  // Исходное имя файла; у загруженных до его сохранения — null.
+  name: string | null
   mime: string
   size: number
   createdAt: string

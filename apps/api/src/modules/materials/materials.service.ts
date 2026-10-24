@@ -33,6 +33,8 @@ const MATERIAL_SELECT = {
   media: {
     select: {
       id: true,
+      // Исходное имя файла — без него в окне материала был виден только MIME-тип.
+      name: true,
       mime: true,
       size: true,
       createdAt: true,
@@ -166,10 +168,22 @@ export class MaterialsService {
       metadata: { fileId: file.id, direct: true },
       ...ctx,
     })
-    return { id: file.id, mime: file.mime, size: file.size, createdAt: file.createdAt }
+    return {
+      id: file.id,
+      name: file.name,
+      mime: file.mime,
+      size: file.size,
+      createdAt: file.createdAt,
+    }
   }
 
-  async addFile(actor: JwtPayload, id: string, buffer: Buffer, ctx: RequestContext) {
+  async addFile(
+    actor: JwtPayload,
+    id: string,
+    buffer: Buffer,
+    name: string | undefined,
+    ctx: RequestContext,
+  ) {
     const material = await this.findManageable(actor, id)
     const bucket = this.config.get('MINIO_BUCKET_MATERIALS', { infer: true })
     const file = await this.files.upload({
@@ -177,6 +191,7 @@ export class MaterialsService {
       bucket,
       ownerId: actor.sub,
       materialId: material.id,
+      name,
     })
     await this.audit.record({
       userId: actor.sub,
@@ -186,7 +201,13 @@ export class MaterialsService {
       metadata: { fileId: file.id },
       ...ctx,
     })
-    return { id: file.id, mime: file.mime, size: file.size, createdAt: file.createdAt }
+    return {
+      id: file.id,
+      name: file.name,
+      mime: file.mime,
+      size: file.size,
+      createdAt: file.createdAt,
+    }
   }
 
   /** Ссылка на файл материала и, для фото и видео, описание вариантов — по scope группы. */

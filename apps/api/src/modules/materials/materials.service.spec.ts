@@ -237,6 +237,21 @@ describe('MaterialsService — управление своими', () => {
     expect(prisma.material.delete).toHaveBeenCalledWith({ where: { id: 'm1' } })
   })
 
+  it('addFile передаёт исходное имя файла', async () => {
+    const { service, prisma, files } = setup()
+    prisma.material.findUnique.mockResolvedValue({ id: 'm1', teacherId: 'u1', groupId: 'g1' })
+    files.upload.mockResolvedValue({ id: 'f1', name: 'lecture.pdf', mime: 'application/pdf' })
+    const res = await service.addFile(
+      user(Role.TEACHER, { sub: 'u1' }),
+      'm1',
+      Buffer.from('x'),
+      'lecture.pdf',
+      ctx,
+    )
+    expect(files.upload).toHaveBeenCalledWith(expect.objectContaining({ name: 'lecture.pdf' }))
+    expect(res).toMatchObject({ id: 'f1', name: 'lecture.pdf' })
+  })
+
   it('getFileUrl: файл не из этого материала → NOT_FOUND', async () => {
     const { service, prisma, files } = setup()
     prisma.material.findUnique.mockResolvedValue({
