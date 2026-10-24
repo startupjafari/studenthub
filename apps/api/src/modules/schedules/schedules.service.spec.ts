@@ -200,6 +200,47 @@ describe('SchedulesService — модератору платформы расп�
   })
 })
 
+// BUG-018 / BUG-342: выборки страницами, а не молча обрезанные на 500.
+describe('SchedulesService — страницы расписания и изменений', () => {
+  const dean = viewer(Role.DEAN, { facultyId: 'fac-1', universityId: 'uni-1' })
+  const rows = (n: number) => Array.from({ length: n }, (_, i) => createdPair({ id: `p-${i}` }))
+
+  it('GET /schedule: больше 500 пар → первая страница и nextCursor', async () => {
+    const { service, prisma } = setup()
+    prisma.pair.findMany.mockResolvedValue(rows(501))
+    const res = await service.getSchedule(dean, {})
+    expect(res.pairs).toHaveLength(500)
+    expect(res.nextCursor).toBe('p-499')
+    const args = prisma.pair.findMany.mock.calls[0][0]
+    expect(args.take).toBe(501)
+    expect(args.cursor).toBeUndefined()
+  })
+
+  it('GET /schedule?cursor= — продолжение после курсора; последняя страница без nextCursor', async () => {
+    const { service, prisma } = setup()
+    prisma.pair.findMany.mockResolvedValue(rows(3))
+    const res = await service.getSchedule(dean, { cursor: 'p-499' })
+    expect(res.nextCursor).toBeNull()
+    expect(prisma.pair.findMany.mock.calls[0][0]).toMatchObject({
+      cursor: { id: 'p-499' },
+      skip: 1,
+    })
+  })
+
+  it('GET /schedule/changes с limit — страница с meta.cursor/hasNext', async () => {
+    const { service, prisma } = setup()
+    prisma.scheduleChange.findMany.mockResolvedValue([{ id: 'c1' }, { id: 'c2' }, { id: 'c3' }])
+    const page = await service.listChangesPage(dean, {
+      from: '2026-10-01',
+      to: '2026-10-31',
+      limit: 2,
+    })
+    expect(page.items.map((c) => c.id)).toEqual(['c1', 'c2'])
+    expect(page.meta).toEqual({ hasNext: true, cursor: 'c2' })
+    expect(prisma.scheduleChange.findMany.mock.calls[0][0].take).toBe(3)
+  })
+})
+
 describe('SchedulesService — версии расписания преподавателю: только свои группы (§2.2)', () => {
   const teacher = viewer(Role.TEACHER, { sub: 't-1', universityId: 'uni-1' })
   const taught = [

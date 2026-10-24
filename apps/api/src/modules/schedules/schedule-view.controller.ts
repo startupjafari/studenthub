@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common'
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger'
 import { Role } from '@studenthub/shared-types'
+import { isPageRequested } from '@studenthub/shared-schemas'
 import type { FastifyRequest } from 'fastify'
 import { Roles } from '../../common/decorators/roles.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
@@ -33,16 +34,25 @@ export class ScheduleViewController {
   @ApiOperation({
     summary: 'Расписание по scope роли (студент → группа, преподаватель → свои пары…)',
   })
-  @ApiResponse({ status: 200, description: 'Пары активного расписания + таймзона вуза' })
+  @ApiResponse({
+    status: 200,
+    description: 'Пары активного расписания (по 500, nextCursor — продолжение) + таймзона вуза',
+  })
   getSchedule(@CurrentUser() user: CurrentUserData, @Query() query: ScheduleQueryDto) {
     return this.schedules.getSchedule(user, query)
   }
 
   @Get('changes')
   @ApiOperation({ summary: 'Разовые изменения расписания за период [from, to]' })
-  @ApiResponse({ status: 200, description: 'Список изменений в scope роли' })
+  @ApiResponse({
+    status: 200,
+    description:
+      'Список изменений в scope роли; с limit/cursor — страница с meta.cursor/hasNext, без них — до 500 массивом',
+  })
   listChanges(@CurrentUser() user: CurrentUserData, @Query() query: ScheduleChangeQueryDto) {
-    return this.schedules.listChanges(user, query)
+    return isPageRequested(query)
+      ? this.schedules.listChangesPage(user, query)
+      : this.schedules.listChanges(user, query)
   }
 
   @Post('changes')

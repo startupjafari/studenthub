@@ -16,6 +16,7 @@ import { advisoryXactLock } from '../../common/prisma/advisory-lock'
 import { AuditService } from '../../common/audit/audit.service'
 import { localDateString } from '../../common/time/local-label'
 import { AppException } from '../../common/exceptions/app.exception'
+import { Paginated } from '../../common/http/paginated'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
 import { RealtimeGateway } from '../../common/realtime'
@@ -27,6 +28,9 @@ import { RoomService } from '../rooms/rooms.service'
 // Потолки на выборки (BACKEND_RULES §7.2). Пар в дне у группы/преподавателя/помещения
 // единицы, студентов в группе — десятки; лимит фиксируем в запросе.
 const PAIR_CONFLICT_LIMIT = 500
+// Страница выборки расписания и изменений: у факультета из 30 групп пар за неделю больше,
+// и раньше ответ молча обрезался на 500 — у старших групп пропадали пятница и суббота.
+const SCHEDULE_PAGE_LIMIT = 500
 const GROUP_MEMBERS_LIMIT = 500
 // Активация версии сверяет все её пары разом: кандидатов — пары активных сеток других групп
 // у тех же преподавателей и аудиторий, это сотни, а не тысячи.
@@ -321,17 +325,22 @@ export class SchedulesService {
   async getSchedule(
     viewer: JwtPayload,
     query: ScheduleQueryInput,
-  ): Promise<{ timezone: string | null; pairs: PairDto[] }> {
+  ): Promise<{ timezone: string | null; pairs: PairDto[]; nextCursor?: string | null }> {
     assertCanReadSchedule(viewer)
     const where = this.buildReadWhere(viewer, query)
-    const pairs = await this.prisma.pair.findMany({
+    // Страница + признак продолжения (`nextCursor`): ответ остаётся объектом, и клиенты,
+    // которые о курсоре не знают, получают первую страницу, как раньше.
+    const rows = await this.prisma.pair.findMany({
       where,
       select: PAIR_SELECT,
-      orderBy: [{ dayOfWeek: 'asc' }, { startTime: 'asc' }],
-      take: 500,
+      orderBy: [{ dayOfWeek: 'asc' }, { startTime: 'asc' }, { id: 'asc' }],
+      take: SCHEDULE_PAGE_LIMIT + 1,
+      ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
     })
+    const pairs = rows.slice(0, SCHEDULE_PAGE_LIMIT)
+    const nextCursor = rows.length > SCHEDULE_PAGE_LIMIT ? (pairs.at(-1)?.id ?? null) : null
     const timezone = await this.resolveViewerTimezone(viewer, query.groupId)
-    return { timezone, pairs: pairs.map(mapPair) }
+    return { timezone, pairs: pairs.map(mapPair), nextCursor }
   }
 
   /**
@@ -1402,14 +1411,42 @@ export class SchedulesService {
 
   async listChanges(viewer: JwtPayload, query: ScheduleChangeQueryInput) {
     assertCanReadSchedule(viewer)
-    const range = { gte: dateOnly(query.from), lte: dateOnly(query.to) }
-    const pairWhere = this.changePairScope(viewer, query, range)
     return this.prisma.scheduleChange.findMany({
-      where: { date: range, pair: { is: pairWhere } },
+      where: this.changesWhere(viewer, query),
       select: CHANGE_SELECT,
       orderBy: [{ date: 'asc' }, { createdAt: 'asc' }],
-      take: 500,
+      take: SCHEDULE_PAGE_LIMIT,
     })
+  }
+
+  /**
+   * Страница изменений (`limit`/`cursor`, BUG-342): без них `listChanges` отдаёт первые 500
+   * массивом и молча обрезает остальное — веб забирает период страницами до конца.
+   */
+  async listChangesPage(
+    viewer: JwtPayload,
+    query: ScheduleChangeQueryInput,
+  ): Promise<Paginated<Prisma.ScheduleChangeGetPayload<{ select: typeof CHANGE_SELECT }>>> {
+    assertCanReadSchedule(viewer)
+    const limit = query.limit ?? SCHEDULE_PAGE_LIMIT
+    const rows = await this.prisma.scheduleChange.findMany({
+      where: this.changesWhere(viewer, query),
+      select: CHANGE_SELECT,
+      orderBy: [{ date: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+      take: limit + 1,
+      ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
+    })
+    const items = rows.slice(0, limit)
+    const hasNext = rows.length > limit
+    return new Paginated(items, { hasNext, ...(hasNext ? { cursor: items.at(-1)?.id } : {}) })
+  }
+
+  private changesWhere(
+    viewer: JwtPayload,
+    query: ScheduleChangeQueryInput,
+  ): Prisma.ScheduleChangeWhereInput {
+    const range = { gte: dateOnly(query.from), lte: dateOnly(query.to) }
+    return { date: range, pair: { is: this.changePairScope(viewer, query, range) } }
   }
 
   private async enqueueChangeNotification(
