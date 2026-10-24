@@ -215,6 +215,22 @@ function VacancyRow({
               </li>
             ))}
           </ul>
+          {/* Причина отказа или снятия: без неё компания видит только, что вакансия
+              исчезла, и не знает, что исправить. */}
+          {vacancy.reviews.some((review) => review.status === 'REJECTED' && review.reason) && (
+            <ul className="flex flex-col gap-1 text-sm text-muted-foreground">
+              {vacancy.reviews.map((review) =>
+                review.status === 'REJECTED' && review.reason ? (
+                  <li key={review.university.id}>
+                    {t('rejectReason', {
+                      university: review.university.name,
+                      reason: review.reason,
+                    })}
+                  </li>
+                ) : null,
+              )}
+            </ul>
+          )}
         </div>
       )}
     </li>

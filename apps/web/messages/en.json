@@ -522,7 +522,8 @@
     "descriptionTooShort": "At least 30 characters",
     "salaryRange": "Minimum salary is above the maximum",
     "formInvalid": "Check the form fields",
-    "reReviewWarning": "Changes to the text or terms send the vacancy back to moderation: students will not see it until the university approves it again."
+    "reReviewWarning": "Changes to the text or terms send the vacancy back to moderation: students will not see it until the university approves it again.",
+    "rejectReason": "{university}: reason — {reason}"
   },
   "CareerApplications": {
     "title": "My applications",
