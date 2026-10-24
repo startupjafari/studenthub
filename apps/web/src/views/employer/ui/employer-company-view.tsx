@@ -7,7 +7,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { UpdateCompanySchema, type UpdateCompanyInput } from '@studenthub/shared-schemas'
-import { companyKeys, fetchMyCompany, updateMyCompany } from '../../../entities/company'
+import {
+  companyKeys,
+  fetchMyCompany,
+  isCompanyOwner,
+  updateMyCompany,
+} from '../../../entities/company'
 import {
   Button,
   EmptyState,
@@ -84,6 +89,9 @@ export function EmployerCompanyView() {
   }
   if (company.isLoading) return <PageLoader label={tCommon('loading')} />
 
+  // Профиль компании меняет только владелец (assertOwner в API): рекрутёру — только чтение.
+  const canEdit = isCompanyOwner(company.data)
+
   return (
     <div className="flex w-full flex-1 flex-col gap-4">
       <PageHeader title={t('companyTitle')} subtitle={t('companyFormHint')} />
@@ -96,35 +104,40 @@ export function EmployerCompanyView() {
         className="flex max-w-2xl flex-col gap-4 rounded-xl border border-border bg-card p-4 sm:p-6"
       >
         <FormAlert error={apiError} />
+        {!canEdit && <p className="text-sm text-muted-foreground">{t('ownerOnlyCompany')}</p>}
 
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="name">{t('fieldName')}</Label>
-          <Input id="name" aria-invalid={!!errors.name} {...register('name')} />
-          <FieldError>{errors.name ? t('errCompanyName') : null}</FieldError>
-        </div>
-
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="description">{t('fieldDescription')}</Label>
-          <Textarea id="description" rows={5} {...register('description')} />
-          <FieldError>{errors.description ? t('errDescription') : null}</FieldError>
-        </div>
-
-        <div className="grid gap-4 sm:grid-cols-2">
+        <fieldset disabled={!canEdit} className="flex min-w-0 flex-col gap-4">
           <div className="flex flex-col gap-2">
-            <Label htmlFor="website">{t('fieldWebsite')}</Label>
-            <Input id="website" placeholder="https://" {...register('website')} />
-            <FieldError>{errors.website ? t('errWebsite') : null}</FieldError>
+            <Label htmlFor="name">{t('fieldName')}</Label>
+            <Input id="name" aria-invalid={!!errors.name} {...register('name')} />
+            <FieldError>{errors.name ? t('errCompanyName') : null}</FieldError>
           </div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="city">{t('fieldCity')}</Label>
-            <Input id="city" {...register('city')} />
-            <FieldError>{errors.city ? t('errCity') : null}</FieldError>
-          </div>
-        </div>
 
-        <Button type="submit" className="self-start" loading={save.isPending} disabled={!isDirty}>
-          {t('save')}
-        </Button>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="description">{t('fieldDescription')}</Label>
+            <Textarea id="description" rows={5} {...register('description')} />
+            <FieldError>{errors.description ? t('errDescription') : null}</FieldError>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="website">{t('fieldWebsite')}</Label>
+              <Input id="website" placeholder="https://" {...register('website')} />
+              <FieldError>{errors.website ? t('errWebsite') : null}</FieldError>
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="city">{t('fieldCity')}</Label>
+              <Input id="city" {...register('city')} />
+              <FieldError>{errors.city ? t('errCity') : null}</FieldError>
+            </div>
+          </div>
+        </fieldset>
+
+        {canEdit && (
+          <Button type="submit" className="self-start" loading={save.isPending} disabled={!isDirty}>
+            {t('save')}
+          </Button>
+        )}
       </form>
     </div>
   )

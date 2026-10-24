@@ -714,3 +714,20 @@ describe('CompaniesService — истечение допуска по сроку
     expect(access.invalidate).not.toHaveBeenCalled()
   })
 })
+
+// BUG-216: веб показывал рекрутёру кнопки владельца — роль в компании ему не отдавалась.
+describe('CompaniesService — роль смотрящего в карточке своей компании', () => {
+  it('отдаёт memberRole и не отдаёт сами строки участников', async () => {
+    const { service, prisma } = setup()
+    prisma.company.findFirst.mockResolvedValue({
+      id: 'co-1',
+      name: 'Acme',
+      members: [{ role: 'RECRUITER' }],
+    })
+    const card = await service.myCompany(employer)
+    expect(card).toEqual({ id: 'co-1', name: 'Acme', memberRole: 'RECRUITER' })
+    expect(prisma.company.findFirst.mock.calls[0][0].select.members).toMatchObject({
+      where: { userId: 'u-1' },
+    })
+  })
+})

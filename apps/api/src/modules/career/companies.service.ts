@@ -8,6 +8,7 @@ import {
   isAccessActive,
   type CompanyAccessStatus,
   type CompanyListQueryInput,
+  type CompanyMemberRole,
   type DecideCompanyAccessInput,
   type EmployerSignupInput,
   type RequestCompanyAccessInput,
@@ -284,7 +285,7 @@ export class CompaniesService {
 
   async myCompany(viewer: JwtPayload) {
     const companyId = this.access.requireCompany(viewer)
-    return this.companyCard(companyId)
+    return this.companyCard(companyId, viewer.sub)
   }
 
   async updateMyCompany(viewer: JwtPayload, input: UpdateCompanyInput, ctx: RequestContext) {
@@ -299,7 +300,7 @@ export class CompaniesService {
       entityId: companyId,
       ...ctx,
     })
-    return this.companyCard(companyId)
+    return this.companyCard(companyId, viewer.sub)
   }
 
   // ── Заявка на допуск к вузу ────────────────────────────────────────────────
@@ -804,7 +805,12 @@ export class CompaniesService {
     })
   }
 
-  private async companyCard(companyId: string) {
+  /**
+   * Карточка своей компании. `memberRole` — роль смотрящего в ней: заявки в вузы и профиль
+   * компании меняет только OWNER, и без этого поля веб показывал рекрутёру кнопки, на
+   * которые сервер отвечал 403.
+   */
+  private async companyCard(companyId: string, viewerId: string) {
     const company = await this.prisma.company.findFirst({
       where: { id: companyId, deletedAt: null },
       select: {
@@ -818,12 +824,14 @@ export class CompaniesService {
         status: true,
         blockedReason: true,
         createdAt: true,
+        members: { where: { userId: viewerId }, select: { role: true }, take: 1 },
       },
     })
     if (!company) {
       throw new AppException('NOT_FOUND', 'Компания не найдена')
     }
-    return company
+    const { members, ...card } = company
+    return { ...card, memberRole: (members[0]?.role ?? null) as CompanyMemberRole | null }
   }
 
   private async assertOwner(viewer: JwtPayload, companyId: string): Promise<void> {

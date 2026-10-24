@@ -17,7 +17,12 @@ import {
 } from 'lucide-react'
 import { isAccessActive } from '@studenthub/shared-schemas'
 import { careerEventKeys, fetchCompanyCareerAnalytics } from '../../../entities/career-event'
-import { companyKeys, fetchMyCompany, fetchMyCompanyAccess } from '../../../entities/company'
+import {
+  companyKeys,
+  fetchMyCompany,
+  fetchMyCompanyAccess,
+  isCompanyOwner,
+} from '../../../entities/company'
 import { fetchMe, userKeys } from '../../../entities/user'
 import { ResendVerificationButton } from '../../../features/resend-company-verification'
 import { Button, MetricTile, PageHeader, PageLoader, SeasonGreeting } from '../../../shared/ui'
@@ -47,6 +52,7 @@ export function EmployerHomeView() {
   })
 
   if (company.isLoading) return <PageLoader label={tCommon('loading')} />
+  const owner = isCompanyOwner(company.data)
 
   const rows = access.data ?? []
   const approved = rows.filter((a) => isAccessActive(a))
@@ -140,10 +146,13 @@ export function EmployerHomeView() {
           icon={<GraduationCap className="size-5" aria-hidden />}
           title={t('noAccessTitle')}
           text={t('noAccessText')}
+          // Заявку в вуз подаёт владелец; рекрутёру кнопка вела бы в 403.
           action={
-            <Button asChild size="sm">
-              <Link href="/employer/access">{t('requestAccess')}</Link>
-            </Button>
+            owner ? (
+              <Button asChild size="sm">
+                <Link href="/employer/access">{t('requestAccess')}</Link>
+              </Button>
+            ) : undefined
           }
         />
       )}
@@ -154,9 +163,11 @@ export function EmployerHomeView() {
         title={t('companyTitle')}
         text={t('companyText')}
         action={
-          <Button asChild variant="outline" size="sm">
-            <Link href="/employer/company">{t('editCompany')}</Link>
-          </Button>
+          owner ? (
+            <Button asChild variant="outline" size="sm">
+              <Link href="/employer/company">{t('editCompany')}</Link>
+            </Button>
+          ) : undefined
         }
       />
     </div>

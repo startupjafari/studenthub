@@ -9,6 +9,8 @@ import { isAccessActive, type CompanyAccessStatus } from '@studenthub/shared-sch
 import {
   companyKeys,
   fetchCompanyUniversityOptions,
+  fetchMyCompany,
+  isCompanyOwner,
   requestCompanyAccess,
   type CompanyUniversityOption,
 } from '../../../entities/company'
@@ -35,6 +37,10 @@ export function EmployerAccessView() {
   const [openFor, setOpenFor] = useState<string | null>(null)
   const [message, setMessage] = useState('')
 
+  // Заявку в вуз подаёт только владелец компании: рекрутёр видит статусы, но не кнопки.
+  const company = useQuery({ queryKey: companyKeys.mine(), queryFn: fetchMyCompany })
+  const canRequest = isCompanyOwner(company.data)
+
   const options = useQuery({
     queryKey: companyKeys.universityOptions(search),
     queryFn: () => fetchCompanyUniversityOptions(search || undefined),
@@ -55,6 +61,9 @@ export function EmployerAccessView() {
   return (
     <div className="flex w-full flex-1 flex-col gap-4">
       <PageHeader title={t('accessTitle')} subtitle={t('accessSubtitle')} />
+      {company.data && !canRequest && (
+        <p className="text-sm text-muted-foreground">{t('ownerOnlyAccess')}</p>
+      )}
 
       <div className="relative max-w-md">
         <Search
@@ -107,6 +116,7 @@ export function EmployerAccessView() {
                 </div>
                 <AccessAction
                   option={u}
+                  canRequest={canRequest}
                   pending={request.isPending && openFor === u.id}
                   onRequest={() => setOpenFor(u.id)}
                 />
@@ -146,10 +156,12 @@ export function EmployerAccessView() {
 /** Правая часть строки: либо статус, либо кнопка подачи заявки. */
 function AccessAction({
   option,
+  canRequest,
   pending,
   onRequest,
 }: {
   option: CompanyUniversityOption
+  canRequest: boolean
   pending: boolean
   onRequest: () => void
 }) {
@@ -196,9 +208,11 @@ function AccessAction({
           {label[status]}
         </Badge>
       )}
-      <Button size="sm" variant="outline" onClick={onRequest} disabled={pending}>
-        {status ? t('requestAgain') : t('requestAccess')}
-      </Button>
+      {canRequest && (
+        <Button size="sm" variant="outline" onClick={onRequest} disabled={pending}>
+          {status ? t('requestAgain') : t('requestAccess')}
+        </Button>
+      )}
     </div>
   )
 }

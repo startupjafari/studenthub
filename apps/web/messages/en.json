@@ -185,7 +185,9 @@
     "errPassword": "Password must be 8 to 72 characters",
     "errWebsite": "Link must start with http:// or https://",
     "errDescription": "No more than 2000 characters",
-    "errCity": "No more than 24 characters"
+    "errCity": "No more than 24 characters",
+    "ownerOnlyAccess": "Only the company owner can apply to universities.",
+    "ownerOnlyCompany": "Only the company owner can edit the company profile."
   },
   "Demo": {
     "title": "Request a trial",
