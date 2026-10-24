@@ -9,7 +9,7 @@ import { useTranslations } from 'next-intl'
 import { Plus } from 'lucide-react'
 import { CreatePairSchema, type CreatePairInput } from '@studenthub/shared-schemas'
 import type { ApiErrorBody } from '@studenthub/shared-types'
-import { Role } from '@studenthub/shared-types'
+import { PAIR_TEACHER_ROLES } from '../lib/pair-teacher-roles'
 import { UserPicker, type PickedUser } from '../../../entities/user'
 import { createPairRequest, scheduleKeys } from '../../../entities/schedule'
 import { RoomSelect } from '../../../entities/room'
@@ -187,7 +187,7 @@ export function AddPairModal({
             <Label>{tPeople('teacherOptional')}</Label>
             <UserPicker
               value={teacher}
-              roleFilter={Role.TEACHER}
+              roleFilter={PAIR_TEACHER_ROLES}
               placeholder={tPeople('pickUser')}
               onSelect={(u) => {
                 setTeacher(u)

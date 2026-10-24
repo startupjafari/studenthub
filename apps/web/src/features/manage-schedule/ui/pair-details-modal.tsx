@@ -14,7 +14,7 @@ import {
   type UpdatePairInput,
 } from '@studenthub/shared-schemas'
 import type { ApiErrorBody } from '@studenthub/shared-types'
-import { Role } from '@studenthub/shared-types'
+import { PAIR_TEACHER_ROLES } from '../lib/pair-teacher-roles'
 import { UserPicker, type PickedUser } from '../../../entities/user'
 import {
   createScheduleChangeRequest,
@@ -357,7 +357,7 @@ export function PairDetailsModal({
                 <Label>{tPeople('teacherOptional')}</Label>
                 <UserPicker
                   value={teacher}
-                  roleFilter={Role.TEACHER}
+                  roleFilter={PAIR_TEACHER_ROLES}
                   placeholder={tPeople('pickUser')}
                   onSelect={(u) => {
                     setTeacher(u)
@@ -567,7 +567,7 @@ export function PairDetailsModal({
                   <Label>{tPeople('teacher')}</Label>
                   <UserPicker
                     value={changeTeacher}
-                    roleFilter={Role.TEACHER}
+                    roleFilter={PAIR_TEACHER_ROLES}
                     placeholder={tPeople('pickUser')}
                     onSelect={(u) => {
                       setChangeTeacher(u)
