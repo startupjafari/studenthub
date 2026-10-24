@@ -52,7 +52,13 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Срок: \\(days) раб. дн."
+            "value": "Срок: %lld раб. дн."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мерзімі: %lld жұмыс күні"
           }
         }
       }
@@ -3646,7 +3652,13 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Обновлено \\(syncedAt.formatted(date: .abbreviated, time: .shortened))"
+            "value": "Обновлено %@"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Жаңартылды: %@"
           }
         }
       }
@@ -3916,7 +3928,13 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Оценка \\(score)\\(maxPart)"
+            "value": "Оценка %lld%@"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Баға %lld%@"
           }
         }
       }

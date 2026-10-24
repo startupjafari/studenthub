@@ -35,10 +35,30 @@ final class LocalizationTests: XCTestCase {
 
         let diverged = keysInCode.filter { key, value in
             guard let inCatalog = catalog[key]?["ru"]?["stringUnit"]?["value"] else { return false }
-            return inCatalog != value
+            return Self.placeholdersErased(inCatalog) != Self.placeholdersErased(value)
         }.keys.sorted()
 
         XCTAssertTrue(diverged.isEmpty, "каталог разошёлся с кодом: \(diverged.joined(separator: ", "))")
+    }
+
+    /// Подстановка в каталоге — спецификатор формата (`%lld`, `%@`), а не исходник
+    /// Swift: строка «Оценка \(score)\(maxPart)» в каталоге показывалась человеку
+    /// дословно, со скобками и именами переменных.
+    func testCatalogHasNoRawSwiftInterpolation() throws {
+        let (_, catalog) = try load()
+
+        let raw = catalog.filter { _, localizations in
+            localizations.values.contains { $0["stringUnit"]?["value"]?.contains("\\(") == true }
+        }.keys.sorted()
+        XCTAssertTrue(raw.isEmpty, "сырой Swift в каталоге: \(raw.joined(separator: ", "))")
+    }
+
+    /// `\(…)` в коде и `%lld`/`%@` в каталоге — одна и та же подстановка: сравниваем
+    /// текст вокруг них.
+    private static func placeholdersErased(_ text: String) -> String {
+        text
+            .replacingOccurrences(of: #"\\\((?:[^()]|\([^()]*\))*\)"#, with: "%", options: .regularExpression)
+            .replacingOccurrences(of: #"%(?:\d+\$)?(?:lld|ld|d|lf|f|@)"#, with: "%", options: .regularExpression)
     }
 
     /// Каталог не должен копить мусор: ключ, которого в коде нет, никто не увидит,
