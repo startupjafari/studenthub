@@ -1,4 +1,4 @@
-// Полный сброс БД: все таблицы пустые, остаётся один PLATFORM_ADMIN.
+// Полный сброс БД: все таблицы пустые, остаётся один PLATFORM_ADMIN и каталог услуг.
 //
 // Зачем отдельно от seed: seed наливает демо-данные, а здесь нужно обратное — чистый
 // стенд перед реальным наполнением (вузы, инвайты, живые пользователи). Схема и журнал
@@ -21,6 +21,7 @@ import bcrypt from 'bcrypt'
 import { isLocalDatabase } from './seed/config.mjs'
 import { loadEnv } from './seed/lib/env.mjs'
 import { assertCanPrintPassword } from './seed/lib/seed-password.mjs'
+import { seedServiceCatalog } from './seed/steps/05-service-catalog.mjs'
 
 // DATABASE_URL живёт в apps/api/.env, а простой `node` его не читает: .env подхватывает
 // только Prisma CLI через prisma.config.ts (та же причина, что в prisma/seed-test.mjs).
@@ -126,7 +127,13 @@ async function main() {
       },
     })
 
-    console.log('\nГотово. В базе один пользователь:')
+    // Каталог услуг — справочник платформы, а не данные вуза: категории создаются только
+    // сидом (через интерфейс админ каталога заводит услуги, но не категории), и после
+    // голого TRUNCATE завести ни одну услугу было бы нельзя. Шаг идемпотентный (upsert
+    // по фиксированным id), демо-данных не несёт — тот же, что у основного сида.
+    await seedServiceCatalog(prisma)
+
+    console.log('\nГотово. Каталог услуг восстановлен, в базе один пользователь:')
     console.log(`  e-mail: ${email}`)
     if (generated) {
       // Рамка — чтобы пароль не потерялся среди строк прогона: в базе лежит только

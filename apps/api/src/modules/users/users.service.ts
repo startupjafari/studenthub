@@ -312,7 +312,7 @@ function userListOrderBy(query: UserListQueryInput): Prisma.UserOrderByWithRelat
  *
  * `in`, а не `equals`: `equals` с `mode: 'insensitive'` Prisma строит через ILIKE, где `_` и `%`
  * — шаблоны, и `ivan_ov@uni.kz` находил бы `ivanXov@uni.kz`. `in` даёт точное
- * `LOWER(email) IN (LOWER($1))` — и индекс по `lower(email)`, когда он появится.
+ * `LOWER(email) IN (LOWER($1))` — под него есть индекс `users_email_lower_idx`.
  */
 function emailIgnoringCase(email: string) {
   return { in: [email], mode: 'insensitive' as const }

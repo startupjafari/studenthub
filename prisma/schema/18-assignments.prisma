@@ -59,5 +59,6 @@ model Submission {
   @@unique([assignmentId, studentId])
   @@index([assignmentId])
   @@index([studentId])
+  @@index([gradedById])
   @@map("submissions")
 }

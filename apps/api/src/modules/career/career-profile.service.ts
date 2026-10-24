@@ -8,6 +8,7 @@ import {
 import { AppException } from '../../common/exceptions/app.exception'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AuditService } from '../../common/audit/audit.service'
+import { advisoryXactLock } from '../../common/prisma/advisory-lock'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
 import {
@@ -122,26 +123,30 @@ export class CareerProfileService {
   /**
    * Выдать или отозвать согласие на чувствительное поле.
    * Отзыв не удаляет запись, а проставляет revokedAt: журнал согласий должен остаться.
+   *
+   * Уникальности «одно активное согласие» в схеме нет намеренно (история выдач и отзывов),
+   * поэтому выдача и отзыв идут под транзакционным локом по (студент, поле, компания): две
+   * выдачи из двух вкладок иначе обе видели «активного нет» и заводили две строки. Отзыв
+   * гасит ВСЕ активные строки, а не первую найденную, — даже если дубль уже есть в данных,
+   * GPA, телефон и почта перестают уходить работодателю сразу.
    */
   async setConsent(viewer: JwtPayload, input: SetCareerConsentInput, ctx: RequestContext) {
-    const where = {
-      userId: viewer.sub,
-      field: input.field,
-      companyId: input.companyId ?? null,
-      revokedAt: null,
-    }
-    const existing = await this.prisma.careerConsent.findFirst({ where, select: { id: true } })
+    const companyId = input.companyId ?? null
+    const where = { userId: viewer.sub, field: input.field, companyId, revokedAt: null }
 
-    if (input.granted && !existing) {
-      await this.prisma.careerConsent.create({
-        data: { userId: viewer.sub, field: input.field, companyId: input.companyId ?? null },
-      })
-    } else if (!input.granted && existing) {
-      await this.prisma.careerConsent.update({
-        where: { id: existing.id },
-        data: { revokedAt: new Date() },
-      })
-    }
+    await this.prisma.$transaction(async (tx) => {
+      await advisoryXactLock(tx, `career-consent:${viewer.sub}:${input.field}:${companyId ?? ''}`)
+      if (!input.granted) {
+        await tx.careerConsent.updateMany({ where, data: { revokedAt: new Date() } })
+        return
+      }
+      const existing = await tx.careerConsent.findFirst({ where, select: { id: true } })
+      if (!existing) {
+        await tx.careerConsent.create({
+          data: { userId: viewer.sub, field: input.field, companyId },
+        })
+      }
+    })
 
     await this.audit.record({
       userId: viewer.sub,

@@ -8,6 +8,7 @@ import type {
   SupportTag,
 } from '@studenthub/shared-schemas'
 import { AuditService } from '../../common/audit/audit.service'
+import { advisoryXactLock } from '../../common/prisma/advisory-lock'
 import { AppException } from '../../common/exceptions/app.exception'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { TelegramNotifyService } from '../../common/telegram/telegram-notify.service'
@@ -181,21 +182,7 @@ export class SupportService implements OnModuleInit {
     input: OpenSupportTicketInput,
     ctx: RequestContext = {},
   ): Promise<{ id: string; created: boolean }> {
-    const existing = await this.prisma.chat.findFirst({
-      where: {
-        type: ChatType.SUPPORT_PLATFORM,
-        supportClosedAt: null,
-        // Склеенная ветка — не обращение (F-F27): в очереди её нет, и дописка в неё уходила
-        // туда, где её никто не увидит. Склеенную, открытую до правки правил, тоже обходим.
-        supportMergedIntoId: null,
-        members: { some: { userId: user.sub } },
-      },
-      // Самое свежее открытое: если открытых по старым данным несколько, пишем в последнее.
-      orderBy: { createdAt: 'desc' },
-      select: { id: true },
-    })
-
-    const chatId = existing ? existing.id : await this.createTicket(user.sub)
+    const { id: chatId, created } = await this.openTicketOf(user.sub)
     const { message: opened } = await this.chats.createMessage(user.sub, {
       chatId,
       content: input.text,
@@ -206,7 +193,7 @@ export class SupportService implements OnModuleInit {
 
     await this.audit.record({
       userId: user.sub,
-      action: existing ? 'support.ticket.append' : 'support.ticket.open',
+      action: created ? 'support.ticket.open' : 'support.ticket.append',
       entity: 'Chat',
       entityId: chatId,
       ...ctx,
@@ -214,7 +201,7 @@ export class SupportService implements OnModuleInit {
     // Только о новом обращении: дописка в открытое уже кого-то ждёт, и второе
     // уведомление о той же ветке ничего не добавляет. Дописку в ответ на слово команды
     // отмечает `onTicketMessage` — для неё мяч снова на стороне поддержки.
-    if (!existing) {
+    if (created) {
       // Размер очереди прямо в уведомлении: одно обращение в спокойный день и одно
       // поверх десяти неразобранных требуют разной срочности, а по голому «пришло
       // новое» отличить их можно было только открыв приложение.
@@ -230,7 +217,7 @@ export class SupportService implements OnModuleInit {
         { kind: 'ticket', id: chatId },
       )
     }
-    return { id: chatId, created: existing === null }
+    return { id: chatId, created }
   }
 
   /** Очередь обращений. Только команда платформы. */
@@ -776,10 +763,46 @@ export class SupportService implements OnModuleInit {
    * в своих чатах, пока не откроет очередь. Догон в `joinOpenTickets` остаётся — для тех,
    * кто пришёл в команду уже после создания обращения.
    */
-  private async createTicket(authorId: string): Promise<string> {
+  /**
+   * Открытое обращение автора — найденное или новое.
+   *
+   * Поиск и создание — под транзакционным локом по автору (как ensure официальных чатов,
+   * chats.service findOrCreateChat): уникальным индексом «одно открытое обращение на
+   * человека» не закрыть, и две параллельные отправки (двойной клик, две вкладки) обе
+   * видели «открытого нет» и заводили два обращения. Обычно обращение уже есть, поэтому
+   * сначала ищем без лока.
+   */
+  private async openTicketOf(authorId: string): Promise<{ id: string; created: boolean }> {
+    const existing = await this.findOpenTicket(this.prisma, authorId)
+    if (existing) return { id: existing.id, created: false }
+    return this.prisma.$transaction(async (tx) => {
+      await advisoryXactLock(tx, `support-ticket:${authorId}`)
+      const raced = await this.findOpenTicket(tx, authorId)
+      if (raced) return { id: raced.id, created: false }
+      return { id: await this.createTicket(tx, authorId), created: true }
+    })
+  }
+
+  private findOpenTicket(db: Prisma.TransactionClient, authorId: string) {
+    return db.chat.findFirst({
+      where: {
+        type: ChatType.SUPPORT_PLATFORM,
+        supportClosedAt: null,
+        // Склеенная ветка — не обращение (F-F27): в очереди её нет, и дописка в неё уходила
+        // туда, где её никто не увидит. Склеенную, открытую до правки правил, тоже обходим.
+        supportMergedIntoId: null,
+        members: { some: { userId: authorId } },
+      },
+      // Самое свежее открытое: если открытых по старым данным несколько, пишем в последнее.
+      orderBy: { createdAt: 'desc' },
+      select: { id: true },
+    })
+  }
+
+  private async createTicket(db: Prisma.TransactionClient, authorId: string): Promise<string> {
     const staff = await this.activeStaffIds()
     const userIds = [...new Set([authorId, ...staff])]
-    const chat = await this.prisma.chat.create({
+    const chat = await db.chat.create({
       data: {
         type: ChatType.SUPPORT_PLATFORM,
         members: { create: userIds.map((userId) => ({ userId })) },

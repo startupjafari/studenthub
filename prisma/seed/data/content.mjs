@@ -29,6 +29,16 @@ export const POSTS_GROUP = [
   'Староста: расписание консультаций перед сессией в закреплённом сообщении.',
   'Фотографируемся на выпускной альбом в четверг, форма одежды деловая.',
 ]
+// Приоритет поста в ленте — как ставит его сервис (posts.service, AUDIENCE_PRIORITY и
+// priorityFor; PROJECT.md §3.3): база по аудитории, +2 сотрудникам от преподавателя и
+// выше. Лента сортирует по priority раньше даты, и с нулём сидовые посты навсегда
+// оказывались ниже любого нового.
+const AUDIENCE_PRIORITY = { ALL: 50, UNIVERSITY: 40, FACULTY: 35, TEACHERS: 32, GROUP: 30, SUBJECT: 25, PERSONAL: 20 } // prettier-ignore
+
+export function postPriority(audience, staff) {
+  return AUDIENCE_PRIORITY[audience] + (staff ? 2 : 0)
+}
+
 export const POST_TITLES = [
   null,
   null,

@@ -105,8 +105,15 @@ function setup(user: Record<string, unknown> | null = sourceUser(), consents: st
       findFirst: jest.fn().mockResolvedValue(null),
       create: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
+    // Выдача и отзыв согласия — под локом в транзакции; колбэк идёт на том же моке.
+    $executeRaw: jest.fn().mockResolvedValue(1),
+    $transaction: jest.fn(),
   }
+  prisma.$transaction.mockImplementation((fn: (tx: typeof prisma) => Promise<unknown>) =>
+    fn(prisma),
+  )
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const access = {
     requireCompany: jest.fn().mockReturnValue('co-1'),
@@ -324,15 +331,19 @@ describe('CareerProfileService — свой профиль', () => {
     )
   })
 
-  it('отзыв согласия не удаляет запись, а гасит её', async () => {
+  // Отзыв гасит ВСЕ активные строки поля: дубль от параллельной выдачи иначе продолжал
+  // отдавать GPA, телефон и почту работодателю после отзыва.
+  it('отзыв согласия не удаляет записи, а гасит все активные под локом', async () => {
     const { service, prisma } = setup()
-    prisma.careerConsent.findFirst.mockResolvedValue({ id: 'c-1' })
 
     await service.setConsent(student, { field: 'GPA', granted: false }, ctx)
 
-    expect(prisma.careerConsent.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ revokedAt: expect.any(Date) }) }),
-    )
+    expect(prisma.$executeRaw).toHaveBeenCalledTimes(1)
+    expect(prisma.careerConsent.updateMany).toHaveBeenCalledWith({
+      where: { userId: student.sub, field: 'GPA', companyId: null, revokedAt: null },
+      data: { revokedAt: expect.any(Date) },
+    })
+    expect(prisma.careerConsent.update).not.toHaveBeenCalled()
   })
 
   it('повторная выдача уже активного согласия не плодит записи', async () => {
