@@ -140,8 +140,11 @@ export function DocumentTypesAdminView() {
             <TableBody>
               {q.isLoading && <TableSkeletonRows columns={SKELETON_COLS} />}
               {sorted.map((row) => (
+                // Срок хранения в ключе: поле — черновик ввода, и после сброса типа или
+                // сохранения на сервере строка пересоздаётся с новым значением. Иначе поле
+                // показывало прежний срок и при уходе фокуса записывало его снова.
                 <TypeRow
-                  key={row.typeId}
+                  key={`${row.typeId}:${row.retentionDays ?? ''}`}
                   row={row}
                   name={typeName(row)}
                   onChanged={invalidate}
