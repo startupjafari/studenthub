@@ -52,7 +52,7 @@ export function CoursesView() {
     if (!schedule.data) return []
     const now = nowInTz(schedule.data.timezone ?? null)
     const base = buildCourses(schedule.data.pairs, materialCounts.data ?? [], now)
-    return mergeApiCourses(base, apiCourses.data ?? [])
+    return mergeApiCourses(base, apiCourses.data ?? [], materialCounts.data ?? [])
   }, [schedule.data, materialCounts.data, apiCourses.data])
 
   // Материалы, которые не попали ни в одну дисциплину: без предмета или с предметом, которого

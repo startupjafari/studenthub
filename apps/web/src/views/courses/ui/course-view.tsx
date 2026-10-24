@@ -142,7 +142,8 @@ export function CourseView({ subject }: CourseViewProps) {
     const now = nowInTz(schedule.data.timezone ?? null)
     const counts = [{ subject, count: materials.data?.length ?? 0 }]
     const base = buildCourses(schedule.data.pairs, counts, now)
-    return pickCourse(mergeApiCourses(base, apiCourses.data ?? []), subject, courseParam)
+    const merged = mergeApiCourses(base, apiCourses.data ?? [], counts)
+    return pickCourse(merged, subject, courseParam)
   }, [schedule.data, materials.data, apiCourses.data, subject, courseParam])
 
   const subjectMaterials = useMemo(() => materials.data ?? [], [materials.data])

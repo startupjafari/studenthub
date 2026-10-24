@@ -136,7 +136,8 @@ describe('buildCourses — дисциплины из расписания', () =
 })
 
 describe('mergeApiCourses — курсы поверх расписания (C-F25)', () => {
-  const base = () => buildCourses([pair()], [{ subject: 'Математика', count: 4 }], MONDAY)
+  const counts = [{ subject: 'Математика', count: 4 }]
+  const base = () => buildCourses([pair()], counts, MONDAY)
 
   it('без курсов — расписание как есть', () => {
     const b = base()
@@ -150,7 +151,7 @@ describe('mergeApiCourses — курсы поверх расписания (C-F2
       [past, current],
       [current, past],
     ]) {
-      const merged = mergeApiCourses(base(), api)
+      const merged = mergeApiCourses(base(), api, counts)
       expect(merged.map((c) => [c.courseId, c.lessonsPerWeek])).toEqual([
         ['c-now', 1],
         ['c-past', 0],
@@ -165,7 +166,8 @@ describe('mergeApiCourses — курсы поверх расписания (C-F2
         subject: 'Математика',
         credits: 4,
         termName: 'Осень 2025',
-        materialsCount: 0,
+        // Материалы — по названию дисциплины, как на странице курса.
+        materialsCount: 4,
         next: null,
         teachers: [petrova],
       })
@@ -205,8 +207,9 @@ describe('mergeApiCourses — курсы поверх расписания (C-F2
       id: 'c-alg',
       subject: { id: 's-alg', name: 'Алгебра', code: 'ALG' },
     })
-    const merged = mergeApiCourses(base(), [history, algebra])
+    const merged = mergeApiCourses(base(), [history, algebra], [{ subject: 'История', count: 3 }])
     expect(merged.map((c) => c.subject)).toEqual(['Алгебра', 'История', 'Математика'])
+    expect(merged.map((c) => c.materialsCount)).toEqual([0, 3, 4])
     expect(merged[0]).toMatchObject({ courseId: 'c-alg', lessonsPerWeek: 0, teachers: [petrova] })
     expect(merged[1]?.teachers).toEqual([])
     // Карточка из расписания без курса остаётся без courseId.

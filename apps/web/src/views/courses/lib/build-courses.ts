@@ -57,6 +57,14 @@ function nextLessonFor(subjectPairs: Pair[], now: NowInTz): CourseNextLesson | n
   return null
 }
 
+function countsBySubject(materialCounts: MaterialSubjectCount[]): Map<string, number> {
+  const out = new Map<string, number>()
+  for (const c of materialCounts) {
+    if (c.subject) out.set(c.subject, c.count)
+  }
+  return out
+}
+
 // `materialCounts` — счётчики с сервера (`GET /materials/subjects`): посчитанные по странице
 // списка материалов, они занижались, как только материалов становилось больше страницы.
 export function buildCourses(
@@ -71,10 +79,7 @@ export function buildCourses(
     bySubject.set(p.subject, list)
   }
 
-  const materialCount = new Map<string, number>()
-  for (const c of materialCounts) {
-    if (c.subject) materialCount.set(c.subject, c.count)
-  }
+  const materialCount = countsBySubject(materialCounts)
 
   const courses: CourseSummary[] = []
   for (const [subject, subjectPairs] of bySubject) {
@@ -132,12 +137,14 @@ function courseTeachers(course: CourseItem): PairTeacher[] {
     : []
 }
 
-function summaryOf(course: CourseItem): CourseSummary {
+// Материалы привязаны к названию дисциплины, а не к курсу: страница курса прошлого семестра
+// или курса без пар показывает материалы по названию — карточка считает их так же.
+function summaryOf(course: CourseItem, materialCount: Map<string, number>): CourseSummary {
   return {
     subject: course.subject.name,
     teachers: courseTeachers(course),
     lessonsPerWeek: 0,
-    materialsCount: 0,
+    materialsCount: materialCount.get(course.subject.name) ?? 0,
     next: null,
     courseId: course.id,
     credits: course.credits,
@@ -150,9 +157,15 @@ function summaryOf(course: CourseItem): CourseSummary {
 // официальным преподавателем. Остальные курсы с тем же названием (прошлые семестры) и курсы
 // без пар в расписании — отдельными карточками: раньше карта по названию склеивала
 // «Математику» 1-го и 2-го семестров в одну, и побеждал случайный курс (C-F25).
-// Пустой `apiCourses` → возвращаем базу как есть.
-export function mergeApiCourses(base: CourseSummary[], apiCourses: CourseItem[]): CourseSummary[] {
+// Пустой `apiCourses` → возвращаем базу как есть. `materialCounts` — те же счётчики, что у
+// `buildCourses`: по ним считаются карточки курсов без пар.
+export function mergeApiCourses(
+  base: CourseSummary[],
+  apiCourses: CourseItem[],
+  materialCounts: MaterialSubjectCount[] = [],
+): CourseSummary[] {
   if (apiCourses.length === 0) return base
+  const materialCount = countsBySubject(materialCounts)
   const byName = new Map<string, CourseItem[]>()
   for (const course of apiCourses) {
     const list = byName.get(course.subject.name) ?? []
@@ -175,10 +188,12 @@ export function mergeApiCourses(base: CourseSummary[], apiCourses: CourseItem[])
       termName: primary.term?.name ?? null,
       teachers: card.teachers.length > 0 ? card.teachers : courseTeachers(primary),
     })
-    for (const course of rest) result.push(summaryOf(course))
+    for (const course of rest) result.push(summaryOf(course, materialCount))
   }
   for (const list of byName.values()) {
-    for (const course of list.sort(compareCourses)) result.push(summaryOf(course))
+    for (const course of list.sort(compareCourses)) {
+      result.push(summaryOf(course, materialCount))
+    }
   }
 
   // Сортировка устойчивая: внутри одной дисциплины основной курс остаётся первым.
