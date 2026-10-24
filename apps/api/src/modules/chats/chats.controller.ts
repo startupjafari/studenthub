@@ -45,6 +45,7 @@ import { ChatMessagesQueryDto } from './dto/chat-messages-query.dto'
 import { ChatUpdatesQueryDto } from './dto/chat-updates-query.dto'
 import { ChatMediaQueryDto } from './dto/chat-media-query.dto'
 import { ChatMediaCalendarQueryDto } from './dto/chat-media-calendar-query.dto'
+import { ChatExportFileQueryDto } from './dto/chat-export-file-query.dto'
 import { ClearChatDto } from './dto/clear-chat.dto'
 import { ChatLinksQueryDto } from './dto/chat-links-query.dto'
 import { CreateChatPollDto } from './dto/create-chat-poll.dto'
@@ -380,13 +381,12 @@ export class ChatsController {
   async exportChatFile(
     @CurrentUser() user: CurrentUserData,
     @Param('id') id: string,
-    @Query('format') format: string | undefined,
-    @Query('locale') locale: string | undefined,
+    @Query() query: ChatExportFileQueryDto,
     @Req() req: FastifyRequest,
     @Res() reply: FastifyReply,
   ) {
-    const ext = format === 'json' ? 'json' : 'txt'
-    const context = await this.exportContext(user.sub, this.branding.resolveLocale(locale))
+    const ext = query.format
+    const context = await this.exportContext(user.sub, this.branding.resolveLocale(query.locale))
     const body = await this.chats.exportFile(user.sub, id, {
       context,
       info: this.branding.infoRows(context),

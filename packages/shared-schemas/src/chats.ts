@@ -126,6 +126,19 @@ export const ChatMediaCalendarQuerySchema = z
 export type ChatMediaCalendarQueryInput = z.infer<typeof ChatMediaCalendarQuerySchema>
 
 /**
+ * Выгрузка истории чата файлом (`GET /chats/:id/export/file`): формат и язык шапки. Через
+ * схему, а не голым `@Query('locale')`: повторённый параметр приходил массивом и ронял
+ * разбор языка в 500.
+ */
+export const ChatExportFileQuerySchema = z
+  .object({
+    format: z.enum(['txt', 'json']).default('txt'),
+    locale: z.enum(['ru', 'kk', 'en']).optional(),
+  })
+  .strict()
+export type ChatExportFileQueryInput = z.infer<typeof ChatExportFileQuerySchema>
+
+/**
  * Сколько очищенных периодов помнит участник чата. Диапазоны хранятся слитыми, так что
  * пятьдесят — это пятьдесят разрозненных кусков истории; дальше человек не «чистит период»,
  * а хочет очистить чат целиком, и предлагать это честнее, чем молча склеивать его периоды

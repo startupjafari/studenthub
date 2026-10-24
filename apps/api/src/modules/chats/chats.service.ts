@@ -500,6 +500,13 @@ const EXPORT_TRUNCATED_NOTE: Record<ExportContext['locale'], string> = {
   en: `Only the latest ${EXPORT_CAP} messages are exported — earlier ones are not included`,
 }
 
+// Подпись сообщения без текста (только вложения) в текстовой выгрузке — на языке выгрузки.
+const EXPORT_ATTACHMENT_LABEL: Record<ExportContext['locale'], string> = {
+  ru: '[вложение]',
+  kk: '[тіркеме]',
+  en: '[attachment]',
+}
+
 // Отложенные сообщения: размер батча доставки за один тик cron. Ставить их API больше не
 // даёт (F-F19), cron дотягивает уже поставленные.
 const SCHEDULED_BATCH = 500
@@ -3343,7 +3350,9 @@ export class ChatsService implements OnModuleInit {
     if (truncated) header.push(EXPORT_TRUNCATED_NOTE[options.context.locale])
     const lines = rows.map((message) => {
       const author = `${message.sender.lastName} ${message.sender.firstName}`.trim()
-      const body = message.content || (message.media.length > 0 ? '[вложение]' : '')
+      const body =
+        message.content ||
+        (message.media.length > 0 ? EXPORT_ATTACHMENT_LABEL[options.context.locale] : '')
       return `[${time.format(message.createdAt)}] ${author}: ${body}`
     })
     return [...header, '', ...lines].join('\n')
