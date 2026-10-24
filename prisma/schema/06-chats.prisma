@@ -345,5 +345,6 @@ model ScheduledMessage {
   @@index([scheduledAt])
   // Список своих отложенных в конкретном чате.
   @@index([chatId, senderId])
+  @@index([senderId])
   @@map("scheduled_messages")
 }
