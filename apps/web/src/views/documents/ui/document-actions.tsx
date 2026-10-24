@@ -448,7 +448,11 @@ function AccessModal({ docId, onClose }: { docId: string; onClose: () => void })
                   {t('grantRevoke')}
                 </Button>
               ) : (
-                <Badge variant="secondary">{t('grantRevoked')}</Badge>
+                // Неактивный грант — либо отозван владельцем, либо истёк сам: раньше истёкший
+                // тоже показывался «Отозван».
+                <Badge variant="secondary">
+                  {g.revokedAt ? t('grantRevoked') : t('grantExpired')}
+                </Badge>
               )}
             </li>
           ))}

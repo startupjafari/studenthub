@@ -68,27 +68,37 @@ const SUBMISSION_REOPENABLE = ['DRAFT', 'REJECTED', 'PARTIAL']
 // Позиций комплектов с одним документом — единицы (документ в нескольких запросах).
 const SUBMISSION_ITEMS_LIMIT = 200
 
-const DOCUMENT_SELECT = {
-  id: true,
-  category: true,
-  type: true,
-  title: true,
-  numberLast4: true,
-  issuedBy: true,
-  issuedAt: true,
-  expiresAt: true,
-  comment: true,
-  status: true,
-  rejectionReason: true,
-  issuedByUniversity: true,
-  archivedAt: true,
-  createdAt: true,
-  updatedAt: true,
-  files: { select: { id: true, mime: true, size: true, order: true }, orderBy: { order: 'asc' } },
-  _count: { select: { access: true } },
-} satisfies Prisma.DocumentSelect
+/**
+ * Действующий грант: не отозван и срок не прошёл. Счётчик «Доступ» в строке документа и
+ * раздел «Управление доступом» считают только такие: раньше отозванный или истёкший грант
+ * держал документ «открытым» для кого-то, хотя открыть его уже никто не мог.
+ */
+function activeAccessWhere(now: Date): Prisma.DocumentAccessWhereInput {
+  return { revokedAt: null, OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] }
+}
 
-type DocumentRow = Prisma.DocumentGetPayload<{ select: typeof DOCUMENT_SELECT }>
+const documentSelect = (now: Date = new Date()) =>
+  ({
+    id: true,
+    category: true,
+    type: true,
+    title: true,
+    numberLast4: true,
+    issuedBy: true,
+    issuedAt: true,
+    expiresAt: true,
+    comment: true,
+    status: true,
+    rejectionReason: true,
+    issuedByUniversity: true,
+    archivedAt: true,
+    createdAt: true,
+    updatedAt: true,
+    files: { select: { id: true, mime: true, size: true, order: true }, orderBy: { order: 'asc' } },
+    _count: { select: { access: { where: activeAccessWhere(now) } } },
+  }) satisfies Prisma.DocumentSelect
+
+type DocumentRow = Prisma.DocumentGetPayload<{ select: ReturnType<typeof documentSelect> }>
 
 /**
  * Меняет ли правка содержимое документа — то, что выдаёт вуз и что он проверял (D-F22, D-F30):
@@ -250,6 +260,8 @@ function documentOrderBy(spec: DocumentSortSpec): Prisma.DocumentOrderByWithRela
     case 'expiresAt':
       return [{ expiresAt: { sort: dir, nulls: 'last' } }, tie]
     case 'access':
+      // Агрегат по связи с условием Prisma в сортировке не строит — здесь считаются все
+      // гранты документа, а не только действующие, как в колонке.
       return [{ access: { _count: dir } }, tie]
     case 'createdAt':
     case undefined:
@@ -636,7 +648,7 @@ export class DocumentsService {
   private async getOwnedDto(actor: JwtPayload, id: string): Promise<DocumentDto> {
     const doc = await this.prisma.document.findFirst({
       where: { id, ownerId: actor.sub, deletedAt: null },
-      select: DOCUMENT_SELECT,
+      select: documentSelect(),
     })
     if (!doc) throw new AppException('NOT_FOUND', 'Документ не найден')
     return this.toDto(doc)
@@ -1326,9 +1338,9 @@ export class DocumentsService {
             ],
           }
         : {}),
-      // Пресеты раздела. `shared` — документы, к которым выдан хотя бы один доступ;
-      // `issued` — выданные вузом. Раньше это отбиралось на клиенте уже после выборки.
-      ...(query.preset === 'shared' ? { access: { some: {} } } : {}),
+      // Пресеты раздела. `shared` — документы, к которым выдан хотя бы один действующий
+      // доступ; `issued` — выданные вузом. Раньше это отбиралось на клиенте уже после выборки.
+      ...(query.preset === 'shared' ? { access: { some: activeAccessWhere(new Date()) } } : {}),
       ...(query.preset === 'issued' ? { issuedByUniversity: true } : {}),
     }
     const spec = documentSortSpec(query.sort, query.order)
@@ -1336,7 +1348,7 @@ export class DocumentsService {
     if (!isPageRequested(query)) {
       const rows = await this.prisma.document.findMany({
         where,
-        select: DOCUMENT_SELECT,
+        select: documentSelect(),
         orderBy,
         take: DOCUMENTS_LEGACY_LIMIT,
       })
@@ -1356,7 +1368,7 @@ export class DocumentsService {
     if (query.cursor && !position) return new Paginated([], { hasNext: false, total })
     const rows = await this.prisma.document.findMany({
       where: position ? { AND: [where, documentsAfter(column, spec.dir, position)] } : where,
-      select: DOCUMENT_SELECT,
+      select: documentSelect(),
       orderBy,
       take: limit + 1,
     })
@@ -1534,7 +1546,7 @@ export class DocumentsService {
   async platformGet(actor: JwtPayload, id: string, reason: string): Promise<DocumentDto> {
     const doc = await this.prisma.document.findFirst({
       where: { id, deletedAt: null },
-      select: DOCUMENT_SELECT,
+      select: documentSelect(),
     })
     if (!doc) throw new AppException('NOT_FOUND', 'Документ не найден')
     await this.logEvent(actor.sub, id, 'VIEW', { platformMode: true, meta: true, reason })

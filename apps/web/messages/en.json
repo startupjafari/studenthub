@@ -3024,6 +3024,7 @@
     "grantForever": "no expiry",
     "grantRevoke": "Revoke",
     "grantRevoked": "Revoked",
+    "grantExpired": "Expired",
     "emptyShared": "No documents with granted access",
     "emptyIssued": "The university has not issued any documents yet",
     "emptySharedDesc": "Documents you shared with the university, a faculty or a staff member appear here.",
