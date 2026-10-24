@@ -81,8 +81,14 @@ data class MessageEntity(
     val content: String,
     val replyToId: String? = null,
     val replyQuote: String? = null,
-    /** Системное сообщение («N вошёл в группу») — у него нет автора-человека. */
+    /** Системное сообщение («N вошёл в группу»): текст строит клиент по типу (§20). */
     val systemType: String? = null,
+    /** Имя автора на момент сообщения — подпись в группах и «кто» в системных. */
+    val senderName: String? = null,
+    /** Кого касается системное событие (добавили, удалили, назначили) — из `systemMeta`. */
+    val systemTarget: String? = null,
+    /** Новое название группы — для системного «изменил(а) название». */
+    val systemTitle: String? = null,
     val editedAt: Instant? = null,
     /** Мягкое удаление, как на сервере: строка остаётся, текст в ленте заменяется. */
     val deletedAt: Instant? = null,

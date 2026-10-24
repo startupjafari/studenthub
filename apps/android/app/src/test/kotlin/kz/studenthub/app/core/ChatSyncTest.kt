@@ -181,6 +181,27 @@ class MessageSyncTest {
         assertEquals(2, store.lastSeq("c1"))
     }
 
+    /** Автор и детали системного события ложатся в строку: лента подписывает и строит текст сама. */
+    @Test
+    fun senderAndSystemDetailsAreStored() = runTest {
+        chats.saveChats(listOf(chatDto("c1")))
+        val system = ChatMessageDto(
+            id = "m1",
+            chatId = "c1",
+            seq = 1,
+            senderId = "u1",
+            content = "",
+            systemType = "member_added",
+            createdAt = T0,
+            sender = ChatMessageDto.Sender("u1", firstName = "Айдана", lastName = "Сейткали"),
+            systemMeta = ChatMessageDto.SystemMeta(targetName = "Нуртаев Ерлан"),
+        )
+        store.saveMessages(listOf(system), "c1")
+        val row = db.messages().get("m1")!!
+        assertEquals("Сейткали Айдана", row.senderName)
+        assertEquals("Нуртаев Ерлан", row.systemTarget)
+    }
+
     /** Удаление ставит метку, а не стирает строку: соседи в ленте не прыгают. */
     @Test
     fun updatesMarkDeletionInsteadOfErasing() = runTest {

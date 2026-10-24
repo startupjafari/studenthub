@@ -21,6 +21,7 @@ import kz.studenthub.app.core.chats.OutgoingAttachment
 import kz.studenthub.app.core.network.displayMessage
 import kz.studenthub.app.core.realtime.RealtimeCoordinator
 import kz.studenthub.app.core.storage.AppDatabase
+import kz.studenthub.app.core.storage.ChatKind
 import kz.studenthub.app.core.storage.MessageEntity
 import kz.studenthub.app.core.ui.UiText
 import java.time.Instant
@@ -48,6 +49,13 @@ class ChatThreadModel(
     var days by mutableStateOf<List<MessageTimeline.Day>>(emptyList())
         private set
     var title by mutableStateOf<String?>(null)
+        private set
+
+    /**
+     * Подписывать ли автора над сообщениями: в личной переписке и «Избранном» автор и так
+     * понятен, в группах и официальных чатах без имени не видно, кто пишет.
+     */
+    var showsSenders by mutableStateOf(false)
         private set
     var isLoadingOlder by mutableStateOf(false)
         private set
@@ -90,6 +98,7 @@ class ChatThreadModel(
         }.launchIn(viewModelScope)
         db.chats().observe(chatId).onEach { chat ->
             title = chat?.title
+            showsSenders = chat != null && chat.kind != ChatKind.PRIVATE && chat.kind != ChatKind.SAVED
             // Счётчик для якоря — только первый, до нашей же отметки прочтения.
             if (!chatLoaded) unreadCount = chat?.unreadCount ?: 0
             chatLoaded = true

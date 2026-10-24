@@ -178,4 +178,19 @@
     <string name="auth_error_challengeExpired">Сессия входа истекла — войдите заново</string>
     <string name="auth_error_accountBlocked">Учётная запись заблокирована</string>
     <string name="auth_qrApproveTaken">Вход по этому QR-коду уже подтверждён</string>
+
+    <!-- Системные события группы: текст строит клиент по systemType (как Chats.sys* в вебе) -->
+    <string name="chats_someone">Кто-то</string>
+    <string name="chats_sysEvent">Событие группы</string>
+    <string name="chats_sysMemberAdded">%1$s добавил(а) %2$s</string>
+    <string name="chats_sysMemberRemoved">%1$s удалил(а) %2$s</string>
+    <string name="chats_sysMemberLeft">%1$s покинул(а) группу</string>
+    <string name="chats_sysMemberJoined">%1$s вступил(а) в группу по ссылке</string>
+    <string name="chats_sysMemberBanned">%1$s заблокировал(а) %2$s в группе</string>
+    <string name="chats_sysAdminGranted">%1$s назначил(а) администратором %2$s</string>
+    <string name="chats_sysAdminRevoked">%1$s снял(а) администратора %2$s</string>
+    <string name="chats_sysTitleChanged">%1$s изменил(а) название на «%2$s»</string>
+    <string name="chats_sysAvatarChanged">%1$s изменил(а) фото группы</string>
+    <string name="chats_sysMessagePinned">%1$s закрепил(а) сообщение</string>
+    <string name="chats_sysOwnerChanged">%1$s передал(а) владение %2$s</string>
 </resources>

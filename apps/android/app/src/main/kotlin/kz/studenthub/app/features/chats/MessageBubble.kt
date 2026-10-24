@@ -65,6 +65,7 @@ import coil3.request.ImageRequest
 import kotlinx.coroutines.launch
 import kz.studenthub.app.R
 import kz.studenthub.app.core.storage.AttachmentEntity
+import kz.studenthub.app.core.storage.MessageEntity
 import kz.studenthub.app.core.storage.SendState
 import kz.studenthub.app.designsystem.AppTheme
 import kz.studenthub.app.designsystem.AppType
@@ -84,15 +85,16 @@ import java.time.Instant
 @Composable
 fun MessageBubble(
     item: MessageTimeline.Item,
+    showsSender: Boolean,
     othersReadAt: Instant?,
     onRetry: () -> Unit,
     onReply: () -> Unit,
 ) {
     val message = item.message
     if (message.systemType != null) {
-        // Системное: без автора и без пузыря.
+        // Системное: без пузыря. Сервер присылает пустой текст — строим его по типу (§20).
         Text(
-            message.content,
+            systemText(message),
             style = AppType.meta,
             color = AppTheme.colors.mutedForeground,
             textAlign = TextAlign.Center,
@@ -140,6 +142,11 @@ fun MessageBubble(
                     )
                     .padding(horizontal = Spacing.lg, vertical = Spacing.md),
             ) {
+                // Кто пишет — над первым сообщением серии, в группах и официальных чатах.
+                val author = message.senderName
+                if (showsSender && !item.isOwn && item.isFirstInGroup && author != null) {
+                    Text(author, style = AppType.meta, color = colors.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
                 val quote = message.replyQuote
                 if (quote != null && !deleted) ReplyQuote(quote, item.isOwn)
                 if (!deleted) item.attachments.forEach { AttachmentView(it, item.isOwn) }
@@ -171,6 +178,30 @@ fun MessageBubble(
                 }
             }
         }
+    }
+}
+
+/**
+ * Текст системного события группы — как в вебе (`SYSTEM_KEY` в `message-item.tsx`): кто
+ * сделал, с кем и что. Незнакомый тип — общая подпись, а не пустая строка.
+ */
+@Composable
+private fun systemText(message: MessageEntity): String {
+    val actor = message.senderName ?: stringResource(R.string.chats_someone)
+    val target = message.systemTarget.orEmpty()
+    return when (message.systemType) {
+        "member_added" -> stringResource(R.string.chats_sysMemberAdded, actor, target)
+        "member_removed" -> stringResource(R.string.chats_sysMemberRemoved, actor, target)
+        "member_left" -> stringResource(R.string.chats_sysMemberLeft, actor)
+        "member_joined" -> stringResource(R.string.chats_sysMemberJoined, actor)
+        "member_banned" -> stringResource(R.string.chats_sysMemberBanned, actor, target)
+        "admin_granted" -> stringResource(R.string.chats_sysAdminGranted, actor, target)
+        "admin_revoked" -> stringResource(R.string.chats_sysAdminRevoked, actor, target)
+        "title_changed" -> stringResource(R.string.chats_sysTitleChanged, actor, message.systemTitle.orEmpty())
+        "avatar_changed" -> stringResource(R.string.chats_sysAvatarChanged, actor)
+        "message_pinned" -> stringResource(R.string.chats_sysMessagePinned, actor)
+        "owner_changed" -> stringResource(R.string.chats_sysOwnerChanged, actor, target)
+        else -> message.content.ifEmpty { stringResource(R.string.chats_sysEvent) }
     }
 }
 

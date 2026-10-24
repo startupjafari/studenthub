@@ -173,6 +173,9 @@ class MessageStore(private val db: AppDatabase, private val now: () -> Instant =
                         deletedAt = message.deletedAt,
                         pinnedAt = message.pinnedAt,
                         sendState = SendState.SENT,
+                        senderName = message.sender?.name ?: local.senderName,
+                        systemTarget = message.systemMeta?.targetName ?: local.systemTarget,
+                        systemTitle = message.systemMeta?.title ?: local.systemTitle,
                     ),
                 )
                 saveAttachments(db, message, local.id)
@@ -189,6 +192,9 @@ class MessageStore(private val db: AppDatabase, private val now: () -> Instant =
                     replyToId = message.replyToId,
                     replyQuote = message.replyQuote,
                     systemType = message.systemType,
+                    senderName = message.sender?.name,
+                    systemTarget = message.systemMeta?.targetName,
+                    systemTitle = message.systemMeta?.title,
                     editedAt = message.editedAt,
                     deletedAt = message.deletedAt,
                     pinnedAt = message.pinnedAt,
