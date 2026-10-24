@@ -18,6 +18,7 @@ import type { RequestContext } from '../auth/auth.service'
 import { NOTIFICATION_JOBS, QUEUES, QueueService } from '../../common/queue'
 import { UserService } from '../users/users.service'
 import { StoriesService } from '../stories/stories.service'
+import { RealtimeGateway } from '../../common/realtime'
 
 const USER_MINI = { select: { id: true, firstName: true, lastName: true } }
 
@@ -103,6 +104,7 @@ export class ComplaintsService {
     private readonly users: UserService,
     private readonly telegram: TelegramNotifyService,
     private readonly stories: StoriesService,
+    private readonly realtime: RealtimeGateway,
   ) {}
 
   // ── Создание (11.2) ──────────────────────────────────────────────────────
@@ -860,7 +862,19 @@ export class ComplaintsService {
     } else if (type === ComplaintTargetType.COMMENT) {
       await this.prisma.comment.updateMany({ where: { id: targetId }, data: { deletedAt: now } })
     } else if (type === ComplaintTargetType.MESSAGE) {
+      const message = await this.prisma.message.findUnique({
+        where: { id: targetId },
+        select: { chatId: true },
+      })
       await this.prisma.message.updateMany({ where: { id: targetId }, data: { deletedAt: now } })
+      // Участники чата видят снятие сразу — тем же событием, что и удаление автором
+      // (ChatGateway.onMessageDelete), иначе обжалованное сообщение висело до перезахода.
+      if (message) {
+        this.realtime.emitToRoom(`chat:${message.chatId}`, 'message:deleted', {
+          messageId: targetId,
+          chatId: message.chatId,
+        })
+      }
     } else if (type === ComplaintTargetType.STORY) {
       // У сторис мягкого удаления нет: она живёт сутки и удаляется физически вместе с
       // медиа. Делает это владелец домена — он же знает про объект в MinIO (§2.1).

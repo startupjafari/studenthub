@@ -8,6 +8,7 @@ import type { AuditService } from '../../common/audit/audit.service'
 import type { QueueService } from '../../common/queue'
 import type { UserService } from '../users/users.service'
 import type { StoriesService } from '../stories/stories.service'
+import type { RealtimeGateway } from '../../common/realtime'
 import type { TelegramNotifyService } from '../../common/telegram/telegram-notify.service'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import { AppException } from '../../common/exceptions/app.exception'
@@ -59,6 +60,7 @@ function setup() {
   const telegram = { notifyStaff: jest.fn().mockResolvedValue(undefined) }
   // Сторис сносит владелец домена: мягкого удаления у неё нет (Ф14.1).
   const stories = { removeByModeration: jest.fn().mockResolvedValue(undefined) }
+  const realtime = { emitToRoom: jest.fn() }
   const service = new ComplaintsService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
@@ -66,8 +68,9 @@ function setup() {
     users as unknown as UserService,
     telegram as unknown as TelegramNotifyService,
     stories as unknown as StoriesService,
+    realtime as unknown as RealtimeGateway,
   )
-  return { service, prisma, audit, queue, users, telegram, stories }
+  return { service, prisma, audit, queue, users, telegram, stories, realtime }
 }
 
 const user = (role: Role, scope: Partial<JwtPayload> = {}): JwtPayload => ({
@@ -340,6 +343,23 @@ describe('ComplaintsService.resolve (11.4)', () => {
       }),
     )
     expect(prisma.complaint.updateMany.mock.calls[0][0].data.status).toBe('RESOLVED')
+  })
+
+  // Участники чата видят снятие сразу — тем же событием, что и удаление автором.
+  it('DELETE_CONTENT (сообщение) → message:deleted в комнату чата', async () => {
+    const { service, prisma, realtime } = setup()
+    prisma.complaint.findUnique.mockResolvedValue(
+      complaint({ targetType: 'MESSAGE', targetId: 'm1' }),
+    )
+    prisma.message.findUnique.mockResolvedValue({ chatId: 'chat1' })
+    await service.resolve(admin, 'c1', { action: 'DELETE_CONTENT' }, ctx)
+    expect(prisma.message.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'm1' } }),
+    )
+    expect(realtime.emitToRoom).toHaveBeenCalledWith('chat:chat1', 'message:deleted', {
+      messageId: 'm1',
+      chatId: 'chat1',
+    })
   })
 
   it('DELETE_CONTENT на USER → BAD_REQUEST', async () => {
