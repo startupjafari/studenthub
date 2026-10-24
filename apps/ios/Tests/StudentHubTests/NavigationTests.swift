@@ -27,6 +27,13 @@ final class DeepLinkTests: XCTestCase {
         }
     }
 
+    /// Уведомления о постах и подписках ведут в ленту и в чужой профиль.
+    func testFeedAndProfileLinks() {
+        XCTAssertEqual(link("https://studenthub.kz/feed"), .tab(.home))
+        XCTAssertEqual(link("studenthub://profile/u-7"), .profile(id: "u-7"))
+        XCTAssertEqual(link("https://studenthub.kz/profile"), .section(.profile))
+    }
+
     /// Ролевой префикс веба на телефоне ничего не значит: вкладки у всех одни.
     func testRolePrefixIsIgnored() {
         XCTAssertEqual(link("https://studenthub.kz/teacher/schedule"), .tab(.schedule))

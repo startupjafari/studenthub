@@ -105,6 +105,10 @@ final class RealtimeCoordinator {
         await transport.join(chatID: chatID)
     }
 
+    /// Чат, открытый на экране: баннер о сообщении в нём не нужен — человек его читает.
+    @MainActor
+    var openChat: String? { openChatID }
+
     @MainActor
     func close(chatID: String) async {
         if openChatID == chatID { openChatID = nil }

@@ -138,6 +138,12 @@ private final class StubFeed: FeedFetching, @unchecked Sendable {
     func posts(cursor: String?) async throws -> Page<PostDTO> {
         Page(items: lock.withLock { posts }, meta: nil)
     }
+    func post(id: String) async throws -> PostDTO {
+        guard let post = lock.withLock({ posts.first { $0.id == id } }) else {
+            throw APIError.malformedResponse(statusCode: 404)
+        }
+        return post
+    }
     func comments(postID: String) async throws -> [PostCommentDTO] { [] }
     func comment(postID: String, text: String) async throws -> PostCommentDTO {
         if let failure = lock.withLock({ failure }) { throw failure }

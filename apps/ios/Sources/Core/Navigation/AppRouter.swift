@@ -13,6 +13,7 @@ enum AppRoute: Hashable {
     /// на него, а не на сегодня. Без даты (ссылка из пуша, «ближайшая пара») — сегодня.
     case lesson(id: String, date: Date? = nil)
     case assignment(id: String)
+    case profile(id: String)
     case service(id: String)
     case myBooks
     /// Справка «задолженностей в библиотеке нет» — из «Моих книг».
@@ -87,6 +88,8 @@ final class AppRouter {
             push(.chats, [.chat(id: id)])
         case .post(let id):
             push(.home, [.post(id: id)])
+        case .profile(let id):
+            push(.home, [.profile(id: id)])
         case .lesson(let id):
             push(.schedule, [.lesson(id: id)])
         case .application(let id):

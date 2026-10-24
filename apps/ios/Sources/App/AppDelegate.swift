@@ -56,6 +56,13 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
         Observability.pushDelivered(silent: false)
+        // Сообщение в чате, который открыт прямо сейчас, человек уже видит в ленте —
+        // баннер поверх него только мешает (как веб не показывает тост открытого чата).
+        let payload = notification.request.content.userInfo
+        if case .chat(let id)? = PushRouting.link(from: payload) {
+            let open = await MainActor.run { AppServices.realtime.openChat }
+            if open == id { return [] }
+        }
         return [.banner, .list]
     }
 

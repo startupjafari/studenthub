@@ -107,6 +107,8 @@ final class FeedModel {
 /// Комментарии одного поста.
 @Observable
 final class PostCommentsModel {
+    /// Сам пост: карточка из пуша или колокольчика показывала одни комментарии.
+    private(set) var post: PostDTO?
     private(set) var comments: [PostCommentDTO] = []
     private(set) var isLoading = false
     private(set) var failure: String?
@@ -125,7 +127,10 @@ final class PostCommentsModel {
         isLoading = true
         defer { isLoading = false }
         do {
-            comments = try await api.comments(postID: postID)
+            async let post = api.post(id: postID)
+            async let comments = api.comments(postID: postID)
+            self.post = try await post
+            self.comments = try await comments
             failure = nil
         } catch {
             failure = (error as? APIError)?.displayMessage

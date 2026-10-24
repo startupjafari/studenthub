@@ -16,6 +16,31 @@ struct PostDetailView: View {
                         .listRowSeparator(.hidden)
                 }
 
+                if let post = model?.post {
+                    VStack(alignment: .leading, spacing: Spacing.md) {
+                        Text(post.author?.name ?? String(localized: "home.someone", defaultValue: "Кто-то"))
+                            .font(Typography.cardTitle)
+                        if let content = post.content, !content.isEmpty {
+                            Text(content)
+                                .font(Typography.body)
+                                .foregroundStyle(Palette.foreground)
+                        }
+                        if let media = post.media?.first, let raw = media.url, let url = URL(string: raw) {
+                            AsyncImage(url: url) { image in
+                                image.resizable().scaledToFit()
+                            } placeholder: {
+                                Rectangle().fill(Palette.muted).frame(height: 180)
+                            }
+                            .clipShape(RoundedRectangle(cornerRadius: Radius.lg))
+                        }
+                        Text(verbatim: post.createdAt.formatted(date: .abbreviated, time: .shortened))
+                            .font(Typography.meta)
+                            .foregroundStyle(Palette.mutedForeground)
+                    }
+                    .padding(.vertical, Spacing.sm)
+                    .listRowBackground(Palette.card)
+                }
+
                 ForEach(model?.comments ?? []) { comment in
                     VStack(alignment: .leading, spacing: Spacing.xs) {
                         Text(comment.author?.name ?? String(localized: "home.someone", defaultValue: "Кто-то"))
@@ -136,6 +161,9 @@ struct EventsView: View {
 
 /// Центр уведомлений: лента и тумблеры каналов.
 struct NotificationsView: View {
+    /// Роль — чтобы уведомление не открыло раздел, которого у человека нет.
+    let role: Role
+
     @State private var model = NotificationsModel()
 
     var body: some View {
@@ -185,6 +213,10 @@ struct NotificationsView: View {
                     .listRowBackground(Palette.card)
                     .onTapGesture {
                         Task { await model.markRead(item.id) }
+                        // Строка ведёт туда же, куда пуш: в чат, к посту, к заявке.
+                        if let link = item.link {
+                            AppServices.router.open(link, for: role)
+                        }
                     }
                 }
 

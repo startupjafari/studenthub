@@ -90,7 +90,7 @@ struct AppShellView: View {
         case .section(.materials):
             MaterialsView()
         case .section(.notifications):
-            NotificationsView()
+            NotificationsView(role: role)
         case .section(.events):
             EventsView()
         case .section(.profile):
@@ -109,6 +109,8 @@ struct AppShellView: View {
             ChatThreadView(chatID: id, viewerID: viewer.subject)
         case .post(let id):
             PostDetailView(postID: id)
+        case .profile(let id):
+            ProfileView(userID: id)
         case .application(let id):
             ApplicationDetailView(applicationID: id)
         case .service(let id):

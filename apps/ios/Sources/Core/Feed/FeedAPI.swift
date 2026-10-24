@@ -85,8 +85,67 @@ struct NotificationDTO: Decodable, Equatable, Identifiable {
     let body: String
     let isRead: Bool
     let createdAt: Date
-    /// Идентификаторы перехода: chatId, postId, applicationId, url.
+    /// Идентификаторы перехода: chatId, postId, applicationId, url. `data` на сервере —
+    /// произвольный JSON, поэтому берутся только строковые поля: число в одном из них
+    /// не должно ронять всю ленту колокольчика.
     let data: [String: String]?
+
+    enum CodingKeys: String, CodingKey {
+        case id, type, title, body, isRead, createdAt, data
+    }
+
+    init(
+        id: String, type: String, title: String, body: String, isRead: Bool, createdAt: Date,
+        data: [String: String]?
+    ) {
+        self.id = id
+        self.type = type
+        self.title = title
+        self.body = body
+        self.isRead = isRead
+        self.createdAt = createdAt
+        self.data = data
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        type = try container.decode(String.self, forKey: .type)
+        title = try container.decode(String.self, forKey: .title)
+        body = try container.decode(String.self, forKey: .body)
+        isRead = try container.decode(Bool.self, forKey: .isRead)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        data = (try? container.decodeIfPresent(StringFields.self, forKey: .data))?.values
+    }
+
+    /// Куда ведёт уведомление — тот же адрес, что кладётся в пуш (`data.url`).
+    var link: DeepLink? {
+        guard let url = data?["url"] else { return nil }
+        return PushRouting.link(from: ["url": url])
+    }
+
+    /// Строковые поля JSON-объекта; остальные пропускаются.
+    private struct StringFields: Decodable {
+        let values: [String: String]
+
+        private struct Key: CodingKey {
+            let stringValue: String
+            var intValue: Int? { nil }
+            init(stringValue: String) { self.stringValue = stringValue }
+            init?(intValue: Int) { nil }
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: Key.self)
+            var values: [String: String] = [:]
+            for key in container.allKeys {
+                if let value = try? container.decode(String.self, forKey: key) {
+                    values[key.stringValue] = value
+                }
+            }
+            self.values = values
+        }
+    }
 }
 
 /// Каналы доставки. Имена полей — как в контракте API (`UpdateNotificationSettingsSchema`):
@@ -116,6 +175,7 @@ struct UserProfileDTO: Decodable, Equatable {
 
 protocol FeedFetching: Sendable {
     func posts(cursor: String?) async throws -> Page<PostDTO>
+    func post(id: String) async throws -> PostDTO
     func comments(postID: String) async throws -> [PostCommentDTO]
     func comment(postID: String, text: String) async throws -> PostCommentDTO
     func react(postID: String, emoji: String, on: Bool) async throws
@@ -145,6 +205,11 @@ struct FeedAPI: FeedFetching {
         var query = [URLQueryItem(name: "limit", value: "20"), URLQueryItem(name: "reactions", value: "summary")]
         if let cursor { query.append(URLQueryItem(name: "cursor", value: cursor)) }
         return try await client.page(.get("posts", query: query), of: PostDTO.self)
+    }
+
+    /// Сам пост — для карточки, открытой из уведомления: в ленте его может не быть.
+    func post(id: String) async throws -> PostDTO {
+        try await client.send(.get("posts/\(id)"), as: PostDTO.self)
     }
 
     func comments(postID: String) async throws -> [PostCommentDTO] {

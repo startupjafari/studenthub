@@ -101,6 +101,6 @@ enum LocalData {
         UserDefaults.standard.removeObject(forKey: ScheduleModel.syncedKey)
         UserDefaults.standard.removeObject(forKey: ScheduleModel.timeZoneKey)
         UserDefaults.standard.removeObject(forKey: ownerKey)
-        await BadgeCounter().refresh()
+        await BadgeCounter().reset()
     }
 }
