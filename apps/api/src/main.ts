@@ -14,9 +14,10 @@ import helmet from '@fastify/helmet'
 import cookie from '@fastify/cookie'
 import multipart from '@fastify/multipart'
 import { SwaggerModule } from '@nestjs/swagger'
-import { Logger as PinoLogger } from 'nestjs-pino'
+import { Logger as PinoLogger, PinoLogger as RequestPinoLogger } from 'nestjs-pino'
 import { FILE_UPLOAD } from '@studenthub/shared-config'
 import { AppModule } from './app.module'
+import { registerAccessLog } from './common/logging/access-log'
 import { createOpenApiDocument } from './common/swagger/openapi-document'
 import type { EnvVars } from './config/env.schema'
 import { parseCorsOrigins } from './config/web-base'
@@ -87,13 +88,16 @@ async function bootstrap(): Promise<void> {
   app.useLogger(app.get(PinoLogger))
 
   // Возвращаем requestId клиенту для сквозной корреляции.
-  app
-    .getHttpAdapter()
-    .getInstance()
-    .addHook('onRequest', (req, reply, done) => {
-      void reply.header('x-request-id', req.id)
-      done()
-    })
+  const fastify = app.getHttpAdapter().getInstance()
+  fastify.addHook('onRequest', (req, reply, done) => {
+    void reply.header('x-request-id', req.id)
+    done()
+  })
+
+  // Строка на каждый запрос с настоящим статусом ответа (§13), в том числе на отказы guard'ов.
+  const accessLogger = await app.resolve(RequestPinoLogger)
+  accessLogger.setContext('AccessLog')
+  registerAccessLog(fastify, accessLogger)
 
   const config: ConfigService<EnvVars, true> = app.get(ConfigService)
 
