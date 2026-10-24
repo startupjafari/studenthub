@@ -2,6 +2,22 @@ import type { FastifyRequest } from 'fastify'
 import { AppException } from '../exceptions/app.exception'
 
 /**
+ * Файл длиннее `limits.fileSize`: @fastify/multipart обрывает поток с этим кодом. Только он
+ * означает «файл больше порога» — прочие ошибки чтения (обрыв соединения, лимит числа
+ * частей, не multipart) пробрасываются как есть, и фильтр отдаёт их собственный 4xx.
+ */
+export function isFileTooLarge(error: unknown): boolean {
+  return (error as { code?: unknown } | null)?.code === 'FST_REQ_FILE_TOO_LARGE'
+}
+
+function directUploadRequired(): AppException {
+  return new AppException(
+    'FILE_DIRECT_UPLOAD_REQUIRED',
+    'Файл больше порога буферной загрузки — используйте presigned-загрузку напрямую в MinIO',
+  )
+}
+
+/**
  * Читает единственный файл из multipart-запроса в буфер (docs/BACKEND_RULES.md §8).
  * Отсутствие файла → BAD_REQUEST; превышение limits.fileSize (@fastify/multipart прерывает
  * поток) → FILE_DIRECT_UPLOAD_REQUIRED (нужна прямая presigned-загрузка).
@@ -13,11 +29,9 @@ export async function readSingleUpload(req: FastifyRequest): Promise<Buffer> {
   }
   try {
     return await part.toBuffer()
-  } catch {
-    throw new AppException(
-      'FILE_DIRECT_UPLOAD_REQUIRED',
-      'Файл больше порога буферной загрузки — используйте presigned-загрузку напрямую в MinIO',
-    )
+  } catch (error) {
+    if (isFileTooLarge(error)) throw directUploadRequired()
+    throw error
   }
 }
 
@@ -40,11 +54,9 @@ export async function readUploadWithFields(req: FastifyRequest): Promise<{
         fields[part.fieldname] = part.value
       }
     }
-  } catch {
-    throw new AppException(
-      'FILE_DIRECT_UPLOAD_REQUIRED',
-      'Файл больше порога буферной загрузки — используйте presigned-загрузку напрямую в MinIO',
-    )
+  } catch (error) {
+    if (isFileTooLarge(error)) throw directUploadRequired()
+    throw error
   }
   return { fields, files }
 }
