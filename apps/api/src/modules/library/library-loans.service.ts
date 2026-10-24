@@ -370,7 +370,8 @@ export class LibraryLoansService {
         bodyKey: 'library.book.body',
         params: { title: open.bookTitle },
         url: '/my-books',
-        dedupeKey: `library-loan-returned:${open.id}`,
+        // Возврат той же выдачи могут отменить и принять снова — ключ на конкретный возврат.
+        dedupeKey: `library-loan-returned:${open.id}:${now.getTime()}`,
       })
     }
     await this.notifyHeld(heldFor, copy.book.title, timezone)

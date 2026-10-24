@@ -144,7 +144,12 @@ describe('Возврат', () => {
     })
     expect(result.heldFor).toBeNull()
     expect(notifier.send).toHaveBeenCalledWith(
-      expect.objectContaining({ recipientIds: ['stu-1'], titleKey: 'library.loanReturned.title' }),
+      expect.objectContaining({
+        recipientIds: ['stu-1'],
+        titleKey: 'library.loanReturned.title',
+        // Ключ на конкретный возврат: повторный приём после «Отменить возврат» — новое уведомление.
+        dedupeKey: expect.stringMatching(/^library-loan-returned:loan-1:\d+$/),
+      }),
     )
   })
 
