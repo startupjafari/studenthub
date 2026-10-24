@@ -24,10 +24,14 @@ function setup(
     id: 'agent-1',
     universityId: 'uni-1',
     publicKey: options.publicKey === undefined ? null : options.publicKey,
+    tokenHash: 'hash-1',
   }
   const cameras = [{ id: 'cam-1', streamUrl: 'rtsp://h/1', credentialsSealed: null }]
   const prisma = {
-    cameraAgent: { update: jest.fn().mockResolvedValue({}) },
+    cameraAgent: {
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      findFirst: jest.fn().mockResolvedValue({ id: 'agent-1' }),
+    },
     camera: {
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       findMany: jest.fn().mockResolvedValue(cameras),
@@ -76,7 +80,11 @@ describe('CameraAgentSyncService', () => {
   it('первый ключ агента принимается и запоминается', async () => {
     const { service, agent, prisma } = setup()
     await service.sync(agent, input(), 0)
-    expect(prisma.cameraAgent.update.mock.calls[0][0].data).toMatchObject({
+    expect(prisma.cameraAgent.updateMany.mock.calls[0][0].where).toEqual({
+      id: 'agent-1',
+      tokenHash: 'hash-1',
+    })
+    expect(prisma.cameraAgent.updateMany.mock.calls[0][0].data).toMatchObject({
       publicKey: KEY_A,
       version: '1.0.0',
       lastSeenAt: expect.any(Date),
@@ -88,7 +96,30 @@ describe('CameraAgentSyncService', () => {
     await expect(service.sync(agent, input({ publicKey: KEY_B }), 0)).rejects.toMatchObject({
       code: 'CONFLICT',
     })
-    expect(prisma.cameraAgent.update).not.toHaveBeenCalled()
+    expect(prisma.cameraAgent.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('токен перевыпустили после guard’а — 401, запись агента не трогается', async () => {
+    const { service, agent, prisma } = setup({ publicKey: KEY_A })
+    prisma.cameraAgent.updateMany.mockResolvedValue({ count: 0 })
+    await expect(service.sync(agent, input(), 0)).rejects.toMatchObject({ code: 'UNAUTHORIZED' })
+    expect(prisma.camera.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('токен перевыпустили, пока держался опрос, — 401 вместо свежих токенов публикации', async () => {
+    const { service, agent, prisma, bump } = setup({
+      publicKey: KEY_A,
+      relay: true,
+      watched: ['cam-1'],
+    })
+    const { revision } = await service.config(agent)
+    setTimeout(() => {
+      prisma.cameraAgent.findFirst.mockResolvedValue(null)
+      bump()
+    }, 300)
+    await expect(service.sync(agent, input({ revision }), 10_000)).rejects.toMatchObject({
+      code: 'UNAUTHORIZED',
+    })
   })
 
   it('статусы пишутся только камерам этого агента', async () => {

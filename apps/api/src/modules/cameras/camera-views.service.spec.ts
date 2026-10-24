@@ -51,6 +51,7 @@ function setup(
   const demand = {
     mark: jest.fn().mockResolvedValue(undefined),
     clear: jest.fn().mockResolvedValue(undefined),
+    active: jest.fn().mockResolvedValue(new Set(['cam-1'])),
   }
   const signal = { bump: jest.fn().mockResolvedValue(undefined) }
   const service = new CameraViewsService(
@@ -136,6 +137,22 @@ describe('CameraViewsService', () => {
     expect(demand.mark).toHaveBeenCalledWith('cam-1')
   })
 
+  it('спроса при продлении не было — отмечаем и будим агента сразу', async () => {
+    const { service, prisma, demand, signal } = setup()
+    prisma.cameraViewSession.findUnique.mockResolvedValue({
+      id: 'view-1',
+      cameraId: 'cam-1',
+      userId: 'u-1',
+      endedAt: null,
+    })
+    await service.heartbeat(guard, 'view-1')
+    expect(signal.bump).not.toHaveBeenCalled()
+    demand.active.mockResolvedValue(new Set())
+    await service.heartbeat(guard, 'view-1')
+    expect(demand.mark).toHaveBeenCalledWith('cam-1')
+    expect(signal.bump).toHaveBeenCalledWith('agent-1')
+  })
+
   it('модуль выключили — продление закрывает сессию и токена не даёт', async () => {
     const { service, prisma, tokens } = setup({ enabled: false })
     prisma.cameraViewSession.findUnique.mockResolvedValue({
@@ -161,6 +178,21 @@ describe('CameraViewsService', () => {
     })
     await service.end(guard, 'view-1')
     expect(demand.clear).toHaveBeenCalledWith('cam-1')
+    expect(signal.bump).toHaveBeenCalledWith('agent-1')
+  })
+
+  it('«закрыл и сразу открыл»: новый зритель пришёл во время снятия спроса — спрос возвращается', async () => {
+    const { service, prisma, demand, signal } = setup()
+    prisma.cameraViewSession.findUnique.mockResolvedValue({
+      id: 'view-1',
+      cameraId: 'cam-1',
+      userId: 'u-1',
+      endedAt: null,
+    })
+    prisma.cameraViewSession.count.mockResolvedValueOnce(0).mockResolvedValueOnce(1)
+    await service.end(guard, 'view-1')
+    expect(demand.clear).toHaveBeenCalledWith('cam-1')
+    expect(demand.mark).toHaveBeenCalledWith('cam-1')
     expect(signal.bump).toHaveBeenCalledWith('agent-1')
   })
 

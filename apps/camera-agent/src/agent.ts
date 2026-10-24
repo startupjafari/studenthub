@@ -36,6 +36,10 @@ interface KnownCamera {
 const BACKOFF_MS = [1_000, 2_000, 5_000, 10_000, 30_000, 60_000]
 // Токен отозван или ключ не совпадает — без вмешательства админа это не пройдёт.
 const STUCK_RETRY_MS = 5 * 60_000
+// Срок токена публикации, который платформа выдаёт в ответе опроса (PUBLISH_TOKEN_TTL_S в
+// camera-agent-sync.service.ts). Без связи дольше него перезапуск потока с этим токеном
+// ретранслятор не примет, а спрос зрителей платформа подтвердить не может.
+const PUBLISH_STALE_MS = 10 * 60_000
 const PROBE_CONCURRENCY = 4
 
 export class Agent {
@@ -46,6 +50,7 @@ export class Agent {
   private stopped = false
   private probeTimer: NodeJS.Timeout | null = null
   private relayCaPem: string | null = null
+  private lastSyncAt = Date.now()
 
   constructor(
     private readonly config: AgentConfig,
@@ -67,8 +72,10 @@ export class Agent {
           cameras: [...this.statuses].map(([id, status]) => ({ id, status })),
         })
         failures = 0
+        this.lastSyncAt = Date.now()
         this.apply(response)
       } catch (error) {
+        this.stopPublishingIfOrphaned(error)
         await this.sleep(this.retryDelay(error, failures++))
       }
     }
@@ -185,6 +192,20 @@ export class Agent {
         this.scheduleProbes(this.config.probeIntervalMs),
       )
     }, delayMs)
+  }
+
+  /**
+   * Поток наружу — только пока смотрят (§3.10), а «смотрят» знает лишь платформа. Токен
+   * отозван или ключ не тот — платформа агента больше не признаёт; связи нет дольше срока
+   * токена публикации — подтвердить спрос некому. В обоих случаях потоки гасим, а не
+   * перезапускаем без конца с протухшим токеном.
+   */
+  private stopPublishingIfOrphaned(error: unknown): void {
+    if (this.publisher.active().length === 0) return
+    const rejected = error instanceof PlatformError && (error.unauthorized || error.keyMismatch)
+    if (!rejected && Date.now() - this.lastSyncAt < PUBLISH_STALE_MS) return
+    log.warn('Нет подтверждения от платформы — потоки на ретранслятор остановлены')
+    this.publisher.stopAll()
   }
 
   private retryDelay(error: unknown, failures: number): number {

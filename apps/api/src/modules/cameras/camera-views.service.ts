@@ -118,7 +118,11 @@ export class CameraViewsService {
       where: { id: session.id },
       data: { lastSeenAt: new Date() },
     })
+    // Спроса не было (истёк или его снял ушедший соседний зритель) — отмечаем и будим агента,
+    // иначе он узнает о зрителе лишь по таймауту длинного опроса.
+    const had = (await this.demand.active([camera.id])).has(camera.id)
     await this.demand.mark(camera.id)
+    if (!had) await this.signal.bump(camera.agentId)
     return this.ticket(session.id, camera.id, actor.sub, relay)
   }
 
@@ -130,20 +134,27 @@ export class CameraViewsService {
     const session = await this.ownSession(actor, sessionId)
     await this.close(session.id)
     if (!session.cameraId) return
-    const others = await this.prisma.cameraViewSession.count({
-      where: {
-        cameraId: session.cameraId,
-        endedAt: null,
-        lastSeenAt: { gte: new Date(Date.now() - VIEW_ACTIVE_WINDOW_MS) },
-      },
-    })
-    if (others > 0) return
+    if (await this.watchedByOthers(session.cameraId)) return
     await this.demand.clear(session.cameraId)
+    // «Закрыл и сразу открыл»: новый просмотр мог отметить спрос между подсчётом и снятием.
+    // Его сессия создаётся раньше отметки спроса, поэтому повторный подсчёт её видит.
+    if (await this.watchedByOthers(session.cameraId)) await this.demand.mark(session.cameraId)
     const camera = await this.prisma.camera.findUnique({
       where: { id: session.cameraId },
       select: { agentId: true },
     })
     if (camera) await this.signal.bump(camera.agentId)
+  }
+
+  private async watchedByOthers(cameraId: string): Promise<boolean> {
+    const others = await this.prisma.cameraViewSession.count({
+      where: {
+        cameraId,
+        endedAt: null,
+        lastSeenAt: { gte: new Date(Date.now() - VIEW_ACTIVE_WINDOW_MS) },
+      },
+    })
+    return others > 0
   }
 
   private ticket(

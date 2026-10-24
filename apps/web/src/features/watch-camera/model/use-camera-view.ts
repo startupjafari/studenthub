@@ -27,20 +27,35 @@ function blockReason(error: unknown): CameraViewBlock | null {
 /**
  * Сессия просмотра камеры (docs/PROJECT.md §3.10): начать при монтировании, продлевать по
  * таймеру, закончить при размонтировании. Продление не прошло (выключили камеры) — плеер
- * гаснет сразу, не дожидаясь, пока истечёт токен.
+ * гаснет сразу, не дожидаясь, пока истечёт токен. Видео не пошло насовсем — плеер зовёт
+ * `release`: сессия закрывается, продления прекращаются, агент гасит поток, а слот из
+ * четырёх одновременных просмотров освобождается.
  */
 export function useCameraView(cameraId: string): {
   status: CameraViewStatus
   getToken: () => string
+  release: () => void
 } {
   const [status, setStatus] = useState<CameraViewStatus>({ kind: 'starting' })
   const tokenRef = useRef('')
+  const releaseRef = useRef<() => void>(() => undefined)
   const getToken = useCallback(() => tokenRef.current, [])
+  const release = useCallback(() => releaseRef.current(), [])
 
   useEffect(() => {
     let cancelled = false
     let sessionId: string | null = null
     let timer: ReturnType<typeof setInterval> | null = null
+
+    const finish = (): void => {
+      if (timer) clearInterval(timer)
+      timer = null
+      // Закрыть сессию сразу: последний зритель ушёл — агент гасит поток за секунду. Не
+      // дошло (закрыли вкладку) — сессия истечёт сама.
+      if (sessionId) void endCameraViewRequest(sessionId).catch(() => undefined)
+      sessionId = null
+    }
+    releaseRef.current = finish
 
     const fail = (error: unknown): void => {
       if (cancelled) return
@@ -74,12 +89,10 @@ export function useCameraView(cameraId: string): {
 
     return () => {
       cancelled = true
-      if (timer) clearInterval(timer)
-      // Закрыть сессию сразу: последний зритель ушёл — агент гасит поток за секунду. Не
-      // дошло (закрыли вкладку) — сессия истечёт сама.
-      if (sessionId) void endCameraViewRequest(sessionId).catch(() => undefined)
+      releaseRef.current = () => undefined
+      finish()
     }
   }, [cameraId])
 
-  return { status, getToken }
+  return { status, getToken, release }
 }

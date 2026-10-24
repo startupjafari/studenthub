@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { log } from './log.js'
-import { redactUrl } from './rtsp.js'
+import { redactText, redactUrl } from './rtsp.js'
 
 // Отдача потока камеры на ретранслятор (docs/PROJECT.md §3.10) — только пока камеру смотрят.
 //
@@ -11,6 +11,9 @@ import { redactUrl } from './rtsp.js'
 //
 // Видео копируется как есть, без перекодирования (агент не грузит процессор), звук
 // вырезается: платформа звук не передаёт вовсе.
+
+// Сколько ffmpeg ждёт данных от камеры, прежде чем счесть её пропавшей.
+const INPUT_TIMEOUT_US = 10_000_000
 
 export interface PublishTarget {
   url: string
@@ -29,6 +32,10 @@ export function publishArgs(
     'error',
     '-rtsp_transport',
     'tcp',
+    // Таймаут сокета камеры в микросекундах (как у ffprobe в probe.ts): камера пропала без
+    // разрыва соединения — ffmpeg выходит с ошибкой и перезапускается, а не ждёт вечно.
+    '-timeout',
+    String(INPUT_TIMEOUT_US),
     '-i',
     cameraUrl,
     '-map',
@@ -109,7 +116,10 @@ export class Publisher {
       if (stderr.length < 2048) stderr += chunk.toString()
     })
     const startedAt = Date.now()
-    child.on('close', (code) => {
+    // Конец процесса — и `close`, и `error`: ffmpeg не запустился (нет бинарника, кончились
+    // процессы) — Node шлёт `error`, и без обработчика он ронял бы весь агент. Что пришло
+    // первым, то и планирует повтор; второе событие того же процесса ничего не делает.
+    const ended = (code: number | null, reason: string): void => {
       const current = this.running.get(id)
       if (!current || current.process !== child) return
       current.process = null
@@ -120,10 +130,12 @@ export class Publisher {
         id,
         code,
         in: delay,
-        error: stderr.replace(/pass=[^&\s]+/g, 'pass=***').slice(0, 300),
+        error: redactText(reason).slice(0, 300),
       })
       current.timer = setTimeout(() => this.start(id, caFile), delay)
-    })
+    }
+    child.on('error', (error) => ended(null, error.message))
+    child.on('close', (code) => ended(code, stderr))
   }
 
   private stop(id: string): void {

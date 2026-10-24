@@ -25,6 +25,9 @@ const PUBLISH_TOKEN_TTL_S = 600
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
 
+// Тот же ответ, что у AgentAuthGuard на неизвестный токен: агент различает только 401.
+const revoked = (): AppException => new AppException('UNAUTHORIZED', 'Токен агента недействителен')
+
 /**
  * Синхронизация агента камер (docs/PROJECT.md §3.10): агент рассказывает о себе и о
  * камерах, получает конфигурацию. Ревизия — хэш содержимого конфигурации: совпала с той,
@@ -57,14 +60,17 @@ export class CameraAgentSyncService {
       )
     }
     const now = new Date()
-    await this.prisma.cameraAgent.update({
-      where: { id: agent.id },
+    // Условие по хэшу токена: токен перевыпустили или агента удалили между guard'ом и этой
+    // строкой — запись не трогаем (новому агенту не подсунуть ключ старого) и отвечаем 401.
+    const { count } = await this.prisma.cameraAgent.updateMany({
+      where: { id: agent.id, tokenHash: agent.tokenHash },
       data: {
         lastSeenAt: now,
         version: input.version,
         ...(agent.publicKey ? {} : { publicKey: input.publicKey }),
       },
     })
+    if (count === 0) throw revoked()
     await this.saveStatuses(agent.id, input.cameras, now)
 
     // Счётчик берём ДО сборки конфигурации: изменение, случившееся между ними, поднимет
@@ -79,12 +85,25 @@ export class CameraAgentSyncService {
       const current = await this.signal.current(agent.id)
       if (current === seen) continue
       seen = current
+      // Сигнал мог прийти от перевыпуска токена или удаления агента: опрос держится со
+      // старым агентом, и свежие токены публикации ему отдавать нельзя.
+      await this.assertTokenCurrent(agent)
       config = await this.config(agent)
       if (config.revision !== input.revision) return config
     }
     // Спрос на поток истекает сам, без сигнала: по таймауту пересчитываем, чтобы агент
     // перестал отдавать видео, которое никто уже не смотрит.
+    await this.assertTokenCurrent(agent)
     return this.config(agent)
+  }
+
+  /** Токен, с которым пришёл опрос, всё ещё у агента (не перевыпущен, агент не удалён). */
+  private async assertTokenCurrent(agent: AgentPrincipal): Promise<void> {
+    const row = await this.prisma.cameraAgent.findFirst({
+      where: { id: agent.id, tokenHash: agent.tokenHash },
+      select: { id: true },
+    })
+    if (!row) throw revoked()
   }
 
   /**

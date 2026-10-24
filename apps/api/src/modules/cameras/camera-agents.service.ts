@@ -164,7 +164,8 @@ export class CameraAgentsService {
       metadata: { universityId: agent.universityId },
       ...ctx,
     })
-    // Агент со старым токеном получит 401 на следующем опросе; держащий опрос — отпустим.
+    // Держащий опрос со старым токеном отпускаем: он сверит токен и ответит 401, а не
+    // отдаст отозванному агенту свежие токены публикации.
     await this.signal.bump(agent.id)
     return { agent: toView(row), token }
   }
@@ -180,6 +181,8 @@ export class CameraAgentsService {
       metadata: { universityId: agent.universityId },
       ...ctx,
     })
+    // Опрос, который держит удалённый агент, — отпустить сразу: он ответит 401.
+    await this.signal.bump(agent.id)
   }
 
   /** Агент своего вуза; чужой и несуществующий — одинаковый NOT_FOUND (не оракул для id). */
