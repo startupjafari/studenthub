@@ -1,3 +1,4 @@
+import { Role } from '@studenthub/shared-types'
 import {
   changesByPairDate,
   pairDateKey,
@@ -33,6 +34,37 @@ export interface CalItem {
 
 export type CalFilter = 'all' | 'pair' | 'event' | 'assignment' | 'exam'
 
+// Куда ведёт элемент календаря: календарь общий, а экраны у ролей свои — преподаватель со
+// студенческих «Заданий» попадал на «Сдать» и «Сохранить черновик».
+export type CalendarLinks = Record<CalItemType, string>
+
+const STUDENT_LINKS: CalendarLinks = {
+  pair: '/schedule',
+  event: '/events',
+  assignment: '/assignments',
+  exam: '/exams',
+}
+
+const ROLE_LINKS: Partial<Record<Role, CalendarLinks>> = {
+  [Role.TEACHER]: {
+    pair: '/teacher/schedule',
+    event: '/teacher/events',
+    assignment: '/teacher/assignments',
+    exam: '/teacher/exams',
+  },
+  // Своих «Заданий» у декана нет — задания живут в дисциплинах факультета.
+  [Role.DEAN]: {
+    pair: '/dean/schedule',
+    event: '/dean/events',
+    assignment: '/dean/courses',
+    exam: '/dean/exams',
+  },
+}
+
+export function calendarLinks(role: Role | null): CalendarLinks {
+  return (role && ROLE_LINKS[role]) || STUDENT_LINKS
+}
+
 function dowOf(d: Date): number {
   return ((d.getDay() + 6) % 7) + 1
 }
@@ -45,6 +77,7 @@ export function expandPairs(
   changes: ScheduleChange[],
   dates: Date[],
   substituteId: string | null = null,
+  href = STUDENT_LINKS.pair,
 ): CalItem[] {
   // Несколько изменений пары на дату сводятся в одно — как на сервере.
   const changeByKey = changesByPairDate(changes)
@@ -77,7 +110,7 @@ export function expandPairs(
         title: p.subject,
         subtitle: subtitle || null,
         type: 'pair',
-        href: '/schedule',
+        href,
         cancelled,
         changed: !!change && !cancelled,
       })
@@ -87,7 +120,7 @@ export function expandPairs(
 }
 
 // События в конкретные даты (по локальному дню начала).
-export function mapEvents(events: EventItem[]): CalItem[] {
+export function mapEvents(events: EventItem[], href = STUDENT_LINKS.event): CalItem[] {
   return events.map((ev) => {
     const d = new Date(ev.startsAt)
     return {
@@ -98,7 +131,7 @@ export function mapEvents(events: EventItem[]): CalItem[] {
       title: ev.title,
       subtitle: ev.location ?? (ev.isOnline ? 'online' : null),
       type: 'event' as const,
-      href: '/events',
+      href,
       cancelled: false,
       changed: false,
     }
@@ -106,7 +139,10 @@ export function mapEvents(events: EventItem[]): CalItem[] {
 }
 
 // Дедлайны заданий (по dueAt) как события календаря.
-export function mapAssignments(assignments: AssignmentItem[]): CalItem[] {
+export function mapAssignments(
+  assignments: AssignmentItem[],
+  href = STUDENT_LINKS.assignment,
+): CalItem[] {
   return assignments
     .filter((a) => a.dueAt != null)
     .map((a) => {
@@ -119,7 +155,7 @@ export function mapAssignments(assignments: AssignmentItem[]): CalItem[] {
         title: a.title,
         subtitle: a.course.subject.name,
         type: 'assignment' as const,
-        href: '/assignments',
+        href,
         cancelled: false,
         changed: false,
       }
@@ -128,7 +164,7 @@ export function mapAssignments(assignments: AssignmentItem[]): CalItem[] {
 
 // Экзамены (C-F22): особое событие расписания, раньше в календарь не попадали вовсе —
 // о сессии студент узнавал, только открыв «Экзамены».
-export function mapExams(exams: ExamItem[]): CalItem[] {
+export function mapExams(exams: ExamItem[], href = STUDENT_LINKS.exam): CalItem[] {
   return exams.map((ex) => {
     const d = new Date(ex.date)
     const examiner = ex.examiner ? `${ex.examiner.firstName} ${ex.examiner.lastName}` : null
@@ -141,7 +177,7 @@ export function mapExams(exams: ExamItem[]): CalItem[] {
       title: ex.course.subject.name,
       subtitle: subtitle || null,
       type: 'exam' as const,
-      href: '/exams',
+      href,
       cancelled: false,
       changed: false,
     }
@@ -157,14 +193,17 @@ export function buildCalendar(
   filter: CalFilter,
   exams: ExamItem[] = [],
   substituteId: string | null = null,
+  links: CalendarLinks = STUDENT_LINKS,
 ): CalItem[] {
   const items: CalItem[] = []
   if (filter === 'all' || filter === 'pair') {
-    items.push(...expandPairs(pairs, changes, dates, substituteId))
+    items.push(...expandPairs(pairs, changes, dates, substituteId, links.pair))
   }
-  if (filter === 'all' || filter === 'event') items.push(...mapEvents(events))
-  if (filter === 'all' || filter === 'assignment') items.push(...mapAssignments(assignments))
-  if (filter === 'all' || filter === 'exam') items.push(...mapExams(exams))
+  if (filter === 'all' || filter === 'event') items.push(...mapEvents(events, links.event))
+  if (filter === 'all' || filter === 'assignment') {
+    items.push(...mapAssignments(assignments, links.assignment))
+  }
+  if (filter === 'all' || filter === 'exam') items.push(...mapExams(exams, links.exam))
   return items
 }
 

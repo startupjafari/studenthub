@@ -43,6 +43,7 @@ import { examKeys, fetchExams } from '../../../entities/exam'
 import type { Holiday } from '../../../shared/config'
 import {
   buildCalendar,
+  calendarLinks,
   groupByDate,
   holidaysByDate,
   type CalFilter,
@@ -117,6 +118,7 @@ export function CalendarView() {
       filter,
       exams.data ?? [],
       substituteId,
+      calendarLinks(role),
     )
     return groupByDate(items)
   }, [
@@ -128,6 +130,7 @@ export function CalendarView() {
     cells,
     filter,
     substituteId,
+    role,
   ])
 
   // Праздники месяца — из справочника, без запроса: он уже в бандле (shared/config/holidays.ts).
