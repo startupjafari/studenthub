@@ -188,13 +188,14 @@
   делает удаление аккаунта», BACKEND_RULES §14.7).
 
 #### BUG-009 · 🟠 🔒 Группа из двух человек обходит запрос на переписку (§50)
-- **Роль:** STUDENT, STAROSTA и любая роль вуза · **Статус:** новый
+- **Роль:** STUDENT, STAROSTA и любая роль вуза · **Статус:** отложен
 - **Где:** `apps/api/src/modules/chats/chats.service.ts:828` (`createChat`, ветка GROUP), `:3341` (`assertCanSend`)
 - **Сценарий:** `POST /chats { type: GROUP, memberIds: [B] }` для не-друга своего вуза: B сразу во
   «Все», с уведомлениями, без потолка в 5 сообщений (`assertCanSend` для не-PRIVATE выходит
   сразу). Комментарий у `assertCanAddToGroup` утверждает обратное.
 - **Ожидается:** без дружбы переписка начинается только запросом (PROJECT §3.6, §50) — для групп
   приглашение с согласием или запрет добавлять не-друзей.
+- **Отложено:** PROJECT.md §8.3 прямо разрешает добавлять в группу не-друзей своего вуза (правила личного чата без запроса); закрыть обход §50 можно только продуктовым решением: (а) добавлять в группы только друзей, (б) приглашение в группу с согласием (новая сущность/экран), (в) потолок «запроса» для групп из 2 человек — выбрать вариант
 
 ### 🟡 Средние
 
@@ -263,7 +264,7 @@
 - **Ожидается:** пункты меню по той же таблице `TRANSITIONS`, что на сервере.
 
 #### BUG-018 · 🟡 Расписание факультета молча обрезается на 500 парах
-- **Роль:** DEAN, UNIVERSITY_ADMIN · **Статус:** новый
+- **Роль:** DEAN, UNIVERSITY_ADMIN · **Статус:** исправлен · `fix/bugs-schedule-courses` (54c78b38)
 - **Где:** `apps/api/src/modules/schedules/schedules.service.ts:276-281`; потребители `apps/web/src/widgets/today/ui/dean-today.tsx:32`, `/calendar`
 - **Сценарий:** `GET /schedule` без фильтра — `take: 500` по `dayOfWeek, startTime` без признака
   обрезки: у 30 групп пятница и суббота пропадают, «Пар сегодня» и календарь врут.
@@ -345,7 +346,7 @@
 - **Ожидается:** условная запись `where: { id, status: <прежний> }` под `lockBookQueue` (§3.11).
 
 #### BUG-028 · 🟡 🔒 Охрана, библиотекарь и работодатель попадают в чаты через WebSocket, минуя запрет по умолчанию
-- **Роль:** любая → SECURITY_GUARD, LIBRARIAN, EMPLOYER · **Статус:** подтверждён
+- **Роль:** любая → SECURITY_GUARD, LIBRARIAN, EMPLOYER · **Статус:** исправлен · `fix/bugs-chats` (faf5009a)
 - **Где:** `apps/api/src/modules/chats/chats.service.ts:925` (`assertCanStartPrivate`), `apps/api/src/modules/users/users.service.ts:722` (`directoryScope`), `apps/api/src/modules/chats/chats.gateway.ts:146,170`
 - **Сценарий:** студент находит охранника в справочнике и создаёт с ним личный чат; охранник по
   сокету делает `chat:join` и `message:send` — `RestrictedRoleGuard` стоит только на HTTP. Так же
@@ -356,12 +357,13 @@
   в `ChatGateway` отказывать ограниченным ролям.
 
 #### BUG-029 · 🟡 🔒 Отклонённый запрос на переписку можно сразу отправить заново
-- **Роль:** любой инициатор → адресат · **Статус:** новый
+- **Роль:** любой инициатор → адресат · **Статус:** отложен
 - **Где:** `apps/api/src/modules/chats/chats.service.ts:1033-1037` (`declineChatRequest`), `createChat`
 - **Сценарий:** отказ удаляет чат целиком; новый `POST /chats {PRIVATE,[B]}` создаёт новый запрос
   — снова 5 сообщений и уведомление, цикл бесконечный.
 - **Ожидается:** пауза на повторный запрос, как `DECLINE_PAUSE_SECONDS` у дружбы (§3.6, §50 —
   непринятый запрос не должен стать каналом без согласия).
+- **Отложено:** пауза на повторный запрос раскрывает инициатору отказ, а §50 требует «инициатору отказ не сообщается»; нужно решение: (а) CONFLICT с паузой как у дружбы (7 дней, раскрывает отказ) или (б) тихая пауза — чат создаётся, но адресату не показывается/не уведомляет до конца паузы
 
 #### BUG-030 · 🟡 🔒 Инвайты разжалованного старосты, заблокированного или удалённого выдавшего остаются в силе
 - **Роль:** STAROSTA, DEAN, UNIVERSITY_ADMIN (выдавший) → новый пользователь · **Статус:** исправлен · `fix/bugs-users-invites` (b4bc5e8e)
@@ -545,7 +547,7 @@
 - **Ожидается:** круг тот же, что у списка сдач (§2.2).
 
 #### BUG-056 · 🟢 🔒 Присутствие видно бывшим друзьям из других вузов и заблокированным
-- **Роль:** STUDENT ↔ STUDENT · **Статус:** новый
+- **Роль:** STUDENT ↔ STUDENT · **Статус:** исправлен · `fix/bugs-chats` (b03e8a8c)
 - **Где:** `apps/api/src/modules/chats/chats.service.ts:3210` (`presenceRooms`), `getPresence`, `listMembers`
 - **Сценарий:** REST отвечает `online:false`, но через `presence:changed`, `GET /chats/:id/presence`
   и `/members` второй участник старого личного чата продолжает видеть статус.
@@ -805,7 +807,7 @@
   §11.3).
 
 #### BUG-089 · 🟡 В вебе к посту нельзя прикрепить видео больше 10 МБ
-- **Роль:** все, кто публикует посты · **Статус:** новый
+- **Роль:** все, кто публикует посты · **Статус:** исправлен · `fix/bugs-web-shared` (4f3e8459)
 - **Где:** `apps/web/src/features/create-post/ui/create-post-form.tsx:154-167`, `apps/api/src/main.ts:111`, `apps/api/src/common/http/read-upload.ts:9-20`
 - **Сценарий:** форма грузит видео буферно — после заливки всего файла `FILE_DIRECT_UPLOAD_REQUIRED`.
   Прямая загрузка в `POSTS` на сервере есть и в вебе используется для сторис.
@@ -828,7 +830,7 @@
   (BACKEND_RULES §9.2–9.3).
 
 #### BUG-092 · 🟡 Ведомая вкладка перестаёт получать сообщения открытого чата после закрытия вкладки-мастера
-- **Роль:** все с чатами (несколько вкладок) · **Статус:** новый
+- **Роль:** все с чатами (несколько вкладок) · **Статус:** исправлен · `fix/bugs-web-shared` (4d884d34)
 - **Где:** `apps/web/src/shared/realtime/realtime-context.tsx:209-216`, `apps/web/src/shared/realtime/realtime-client.ts:85-86,124-131,154-158`, `apps/web/src/widgets/chat-window/ui/chat-window.tsx:1564-1578`
 - **Сценарий:** мастер A закрыт, лидером стала B с пустой картой комнат; ведомая C не получала
   `conn:false`, поэтому `conn:true` от B для неё ничего не меняет — нет `chat:join` и догона,
@@ -912,12 +914,13 @@
 - **Отложено:** у GET /events нет диапазона дат (EventListQuerySchema — только upcoming/past + пагинация): нужен from/to в shared-schemas и events.service (чужой модуль events). Решить: добавить фильтр периода в события — тогда календарь берёт события за видимые недели, как dueRange
 
 #### BUG-103 · 🟡 Время событий, сроков и экзаменов — в поясе браузера, а пары — в поясе вуза
-- **Роль:** TEACHER, DEAN, STUDENT (пояс устройства ≠ поясу вуза) · **Статус:** новый
+- **Роль:** TEACHER, DEAN, STUDENT (пояс устройства ≠ поясу вуза) · **Статус:** отложен
 - **Где:** ввод `apps/web/src/features/create-event/ui/event-details-fields.tsx:25-35`, `views/assignments/ui/create-assignment-modal.tsx:135`, `views/assignments/lib/assignment-patch.ts:64`; показ `views/calendar/lib/calendar-events.ts:73-125`, `widgets/schedule-grid/ui/schedule-grid.tsx:162-164`; чётность `widgets/today/ui/teacher-today.tsx:53`, `dean-today.tsx:34`
 - **Сценарий:** преподаватель в Москве ставит срок «31.10 23:59» — у студентов 01.11 01:59,
   дедлайн в календаре на 1 ноября; линия «сейчас» в сетке смещена; с 00:00 до 05:00 пн в браузере
   с UTC чётность прошлой недели.
 - **Ожидается:** FRONTEND_RULES §9 — расписание и события в поясе вуза.
+- **Отложено:** корень шире событий: ввод и показ времени заданий, календаря, сетки расписания и чётности в «Сегодня» (модули assignments/calendar/schedule/today других владельцев); нужен общий источник пояса вуза в вебе и конвертер datetime-local ↔ пояс вуза — решить одним изменением, а не по кусочку в событиях
 
 #### BUG-104 · 🟡 🔒 Работодатель регистрируется с паролем «aaaaaaaa» — общая политика паролей не действует
 - **Роль:** EMPLOYER · **Статус:** исправлен · `fix/bugs-platform-auth` (7080c30a)
@@ -976,7 +979,7 @@
 - **Ожидается:** при правке сбросить превью или поставить новый job.
 
 #### BUG-113 · 🟢 Догон чата после обрыва берёт границу по часам клиента
-- **Роль:** все участники чатов · **Статус:** новый
+- **Роль:** все участники чатов · **Статус:** исправлен · `fix/bugs-chats` (a04bf92d)
 - **Где:** `apps/web/src/widgets/chat-window/ui/chat-window.tsx:361,1549,1557,1575`, `apps/api/src/modules/chats/chats.service.ts:1268,1284-1298`
 - **Ожидается:** граница по серверному времени (PROJECT §9.2c).
 
@@ -992,7 +995,7 @@
 - **Ожидается:** BACKEND_RULES §8 — замена и удаление статьи удаляют обложку, брошенные чистятся, квота учитывает бакет.
 
 #### BUG-116 · 🟢 Медиа профиля: `expiresAt: null` при HLS-токене на 15 минут — видео перестаёт играть
-- **Роль:** все, кто смотрит видео в профиле · **Статус:** новый
+- **Роль:** все, кто смотрит видео в профиле · **Статус:** исправлен · `fix/bugs-api-infra` (c69d1110)
 - **Где:** `apps/api/src/modules/media/media.service.ts:242-253`, `apps/web/src/shared/lib/use-hls.ts:60`
 - **Ожидается:** `expiresAt` несёт срок токена, если есть `hls` (контракт `MediaInfo`).
 
@@ -1059,7 +1062,7 @@
 - **Ожидается:** пустое поле записывается `null`.
 
 #### BUG-129 · 🟢 24 схемы тел запросов без `.strict()` — лишние поля молча отбрасываются
-- **Роль:** EMPLOYER, карьерный центр, PLATFORM_*, все (поддержка, мини-апп) · **Статус:** новый
+- **Роль:** EMPLOYER, карьерный центр, PLATFORM_*, все (поддержка, мини-апп) · **Статус:** исправлен · `fix/bugs-api-infra` (9ede205c)
 - **Где:** `packages/shared-schemas/src/career.ts:105,115,125,132,144,154,247,262,396,412,435,601,611,630`, `platform.ts:47,70,80,89,113,170`, `support.ts:11,16`, `mini.ts:16,20`
 - **Ожидается:** BACKEND_RULES §3 — `.strict()` на создании и обновлении.
 
@@ -1346,13 +1349,13 @@
 - **Где:** `apps/api/src/modules/analytics/analytics.service.ts:184-199,385-389,424-425` (`take: 20000` без порядка) · **Статус:** исправлен · `fix/bugs-analytics` (a6cc2018)
 
 #### BUG-194 · 🟢 Выгрузка своих данных неполна (чёрный список, выданные доступы, журнал своих документов, свои выгрузки), а сверка D-F26 этого не видит
-- **Где:** `apps/api/src/modules/data-export/data-export.service.ts:1116`, `data-export.service.spec.ts:222-227` (сверяются только `@relation`) · **Статус:** новый
+- **Где:** `apps/api/src/modules/data-export/data-export.service.ts:1116`, `data-export.service.spec.ts:222-227` (сверяются только `@relation`) · **Статус:** исправлен · `fix/bugs-analytics` (9539ed1a)
 
 #### BUG-195 · 🟢 🔒 В журнал `DocumentExport` уходит строка поиска выгрузки пользователей (email, ФИО) без срока хранения
-- **Где:** `apps/api/src/common/export/export-registry.service.ts:121,231-244`, `apps/api/src/modules/users/users.service.ts:574-580` · **Статус:** новый
+- **Где:** `apps/api/src/common/export/export-registry.service.ts:121,231-244`, `apps/api/src/modules/users/users.service.ts:574-580` · **Статус:** исправлен · `fix/bugs-analytics` (b3d8b076)
 
 #### BUG-196 · 🟢 Номера строк в ошибках импорта сдвигаются из-за пустых строк; потолок колонок не действует для CSV
-- **Где:** `apps/api/src/modules/invites/bulk-parse.ts:61,69-70`, `apps/api/src/modules/library/library-import.service.ts:76,91-92`, `apps/api/src/common/import/table-file.ts:24-62` · **Статус:** новый
+- **Где:** `apps/api/src/modules/invites/bulk-parse.ts:61,69-70`, `apps/api/src/modules/library/library-import.service.ts:76,91-92`, `apps/api/src/common/import/table-file.ts:24-62` · **Статус:** исправлен · `fix/bugs-analytics` (03e7ad97)
 
 #### BUG-197 · 🟢 Границы недель и учебного года в аналитике — по UTC (корень «время не в поясе вуза»)
 - **Где:** `apps/api/src/modules/analytics/university-analytics.service.ts:350-385,481-490`, `analytics-report.service.ts:597-604` · **Статус:** новый
@@ -1521,7 +1524,7 @@
 ### Библиотека, помещения, камеры
 
 #### BUG-247 · 🟠 Охрана и админ не видят камеры дальше сотой: список без пагинации
-- **Роль:** SECURITY_GUARD, UNIVERSITY_ADMIN · **Статус:** новый
+- **Роль:** SECURITY_GUARD, UNIVERSITY_ADMIN · **Статус:** исправлен · `fix/bugs-library-security` (02e9e1b5)
 - **Где:** `apps/web/src/entities/camera/api/camera-api.ts:48` (`limit: 100`, одна страница), `apps/web/src/widgets/camera-wall/ui/camera-wall.tsx:43-48`, `apps/web/src/views/cameras/ui/cameras-admin-view.tsx:83-86`
 - **Сценарий:** контракт допускает 50 агентов по 200 камер; 101-я по алфавиту не открывается охраной и не правится админом.
 - **Ожидается:** §3.10 «охрана видит все камеры своего вуза» — догрузка или пагинация с поиском.
@@ -1563,13 +1566,14 @@
 - **Где:** `apps/api/src/modules/library/library-loans.service.ts:191,224-230`, `library-reservations.service.ts:84-106,110-116` · **Статус:** исправлен · `fix/bugs-library-security` (98ca0e73)
 
 #### BUG-259 · 🟢 Агенты камер одного вуза за NAT делят лимит 60/мин на `sync` — видео не стартует
-- **Где:** `apps/api/src/modules/cameras/camera-agent-sync.controller.ts:187`, `apps/api/src/common/guards/user-throttler.guard.ts:112-115` (счётчик по IP, а не по агенту) · **Статус:** новый
+- **Где:** `apps/api/src/modules/cameras/camera-agent-sync.controller.ts:187`, `apps/api/src/common/guards/user-throttler.guard.ts:112-115` (счётчик по IP, а не по агенту) · **Статус:** отложен
+- **Отложено:** нужен свой счётчик throttler по токену агента в UserThrottlerGuard (новый AuthThrottleKey 'agent' + потолок с IP) — это правка guard'а, стоп-точка AGENTS.md; согласуйте
 
 #### BUG-260 · 🟢 Состояние камеры «В сети» не гаснет, когда агент пропал или модуль выключен
-- **Где:** `apps/api/src/modules/cameras/camera-agent-sync.service.ts:147-165`, `cameras.service.ts:59-68`, `apps/web/src/widgets/camera-wall/ui/camera-wall.tsx:121-123` · **Статус:** новый
+- **Где:** `apps/api/src/modules/cameras/camera-agent-sync.service.ts:147-165`, `cameras.service.ts:59-68`, `apps/web/src/widgets/camera-wall/ui/camera-wall.tsx:121-123` · **Статус:** исправлен · `fix/bugs-library-security` (e1466fc0)
 
 #### BUG-261 · 🟢 Один сбой продления навсегда гасит окно камеры; ошибка адреса потока — по-русски на всех языках
-- **Где:** `apps/web/src/features/watch-camera/model/use-camera-view.ts:45-54,65-71`, `apps/web/src/views/cameras/ui/camera-form-modal.tsx:174`, `packages/shared-schemas/src/cameras.ts:35-47` · **Статус:** новый
+- **Где:** `apps/web/src/features/watch-camera/model/use-camera-view.ts:45-54,65-71`, `apps/web/src/views/cameras/ui/camera-form-modal.tsx:174`, `packages/shared-schemas/src/cameras.ts:35-47` · **Статус:** исправлен · `fix/bugs-library-security` (d6e32c50)
 
 #### BUG-262 · 🟢 Помещения: печать QR пачкой на корпус или этаж убрана из веба
 - **Где:** `apps/web/src/views/rooms/ui/rooms-admin-view.tsx:139-147,299,366-369` (§3.9 обещает пачку — поправить код или PROJECT) · **Статус:** новый
@@ -1597,7 +1601,7 @@
 - **Ожидается:** FRONTEND_RULES §5.5 — одно состояние на пост в кэше с откатом.
 
 #### BUG-268 · 🟡 Окно «Друзья» показывает только первые 20 друзей и заявок
-- **Где:** `apps/web/src/widgets/friends-panel/ui/friends-modal.tsx:42-50`, `entities/friendship/api/friendship-api.ts:58-72` · **Статус:** новый
+- **Где:** `apps/web/src/widgets/friends-panel/ui/friends-modal.tsx:42-50`, `entities/friendship/api/friendship-api.ts:58-72` · **Статус:** исправлен · `fix/bugs-feed-social` (2429345b)
 
 #### BUG-269 · 🟡 Принятая дружба не снимает запрос на переписку: чат в «Запросах», инициатор упирается в 5 сообщений
 - **Где:** `apps/api/src/modules/friends/friends.service.ts:186-209,401-438`, `apps/api/src/modules/chats/chats.service.ts:1079,3351-3360` · **Статус:** исправлен · `fix/bugs-feed-social` (21ae70b2)
@@ -1607,14 +1611,14 @@
 - **Где:** `apps/api/src/modules/search/search.service.ts:150-171` (модули сужают до факультета: `courses.service.ts:529`, `assignments.service.ts:783`, `materials.service.ts:245`) · **Статус:** исправлен · `fix/bugs-feed-social` (3ed57d68)
 
 #### BUG-271 · 🟡 Правка опроса сдвигает время закрытия на смещение пояса (−5 ч за каждую правку)
-- **Где:** `apps/web/src/widgets/user-profile/ui/poll-create-modal.tsx:58-60,91` · **Статус:** новый
+- **Где:** `apps/web/src/widgets/user-profile/ui/poll-create-modal.tsx:58-60,91` · **Статус:** исправлен · `fix/bugs-feed-social` (825dc429)
 
 #### BUG-272 · 🟡 Посты преподавателя «по предмету» стоят в ленте ниже студенческих
 - **Где:** `apps/api/src/modules/posts/posts.service.ts:76-84,1334-1338` (SUBJECT 27 < GROUP студента 30) · **Статус:** исправлен · `fix/bugs-feed-social` (b5201ec2)
 - **Ожидается:** §3.3 — посты преподавателей выше постов студентов.
 
 #### BUG-273 · 🟢 Комментарий уходит дважды при быстром повторном Enter
-- **Где:** `apps/web/src/widgets/feed-list/ui/post-lightbox.tsx:996`, `widgets/user-profile/ui/content-comments.tsx:282` · **Статус:** новый
+- **Где:** `apps/web/src/widgets/feed-list/ui/post-lightbox.tsx:996`, `widgets/user-profile/ui/content-comments.tsx:282` · **Статус:** исправлен · `fix/bugs-feed-social` (155e2bc2)
 
 #### BUG-274 · 🟢 Реакции сторис — любая строка вместо белого списка; пятая своя реакция приходит `mine:false`
 - **Где:** `packages/shared-schemas/src/stories.ts:84`, `apps/api/src/modules/stories/stories.service.ts:275-281` (`take: ids.length * 4`) · **Статус:** исправлен · `fix/bugs-feed-social` (e6919fc2)
@@ -1629,7 +1633,7 @@
 - **Где:** `apps/api/src/modules/friends/friends.service.ts:169-181,212-232` · **Статус:** исправлен · `fix/bugs-feed-social` (52c4a427)
 
 #### BUG-278 · 🟢 «Друзья» в чужом профиле удаляет дружбу одним нажатием
-- **Где:** `apps/web/src/widgets/user-profile/ui/public-user-profile.tsx:323-334`, `widgets/friends-panel/ui/friends-modal.tsx:83-93` · **Статус:** новый
+- **Где:** `apps/web/src/widgets/user-profile/ui/public-user-profile.tsx:323-334`, `widgets/friends-panel/ui/friends-modal.tsx:83-93` · **Статус:** исправлен · `fix/bugs-feed-social` (e540885f)
 
 #### BUG-279 · 🟢 «Запланировать» на прошедшее время публикует сразу, а тост говорит «запланировано»
 - **Где:** `apps/web/src/features/create-post/ui/create-post-form.tsx:131-137,410-415`, `apps/api/src/modules/posts/posts.service.ts:860-863` · **Статус:** исправлен · `fix/bugs-feed-social` (da506c40)
@@ -1644,7 +1648,7 @@
 - **Где:** `packages/shared-schemas/src/posts.ts:47-53`, `apps/web/src/features/edit-post/ui/edit-post-modal.tsx:39,92` · **Статус:** новый
 
 #### BUG-283 · 🟢 Список зрителей сторис: «Далее» вместо «Показать ещё»
-- **Где:** `apps/web/src/widgets/stories-rail/ui/story-viewers-sheet.tsx:58-67` · **Статус:** новый
+- **Где:** `apps/web/src/widgets/stories-rail/ui/story-viewers-sheet.tsx:58-67` · **Статус:** исправлен · `fix/bugs-feed-social` (f9a74eb2)
 
 ### Пользователи, инвайты, структура вуза, онбординг
 
@@ -1795,7 +1799,7 @@
 - **Ожидается:** только поля своего типа; сервер отклоняет лишние (`422`) или отбрасывает, форма их сбрасывает.
 
 #### BUG-325 · 🟡 «Убрать изменение» не проверяет конфликты — восстановленная пара встаёт в занятую аудиторию
-- **Где:** `apps/api/src/modules/schedules/schedules.service.ts:988-1036` (`removeChange`: `deleteMany` без `assertNoConflictOnDate` и без лока даты) · **Статус:** исправлен · `fix/bugs-schedule-courses` (a80484ce)
+- **Где:** `apps/api/src/modules/schedules/schedules.service.ts:988-1036` (`removeChange`: `deleteMany` без `assertNoConflictOnDate` и без лока даты) · **Статус:** исправлен · `fix/bugs-schedule-courses` (257a8c0e)
 - **Сценарий:** пару A (101, 10:00) перенесли на D 14:00, в 101 на 10:00 поставили пару B другой группы, потом перенос A удалили — в 101 две группы. Так же с удалением отмены.
 - **Ожидается:** проверка восстановленного слота под локом `schedule-change:<вуз>:<дата>`, `409` с `details[]`.
 
@@ -1857,7 +1861,7 @@
 - **Где:** `apps/api/src/modules/schedules/schedules.service.ts:392-404` (без лока, уникальности в БД нет) · **Статус:** исправлен · `fix/bugs-schedule-courses` (4e5a88d7)
 
 #### BUG-342 · 🟢 `GET /schedule/changes` молча обрезается на 500 (новое место BUG-018)
-- **Где:** `apps/api/src/modules/schedules/schedules.service.ts:1154-1164`; потребитель `views/calendar/ui/calendar-view.tsx:69-73` · **Статус:** новый
+- **Где:** `apps/api/src/modules/schedules/schedules.service.ts:1154-1164`; потребитель `views/calendar/ui/calendar-view.tsx:69-73` · **Статус:** исправлен · `fix/bugs-schedule-courses` (54c78b38)
 
 #### BUG-343 · 🟢 В плитке «Статус» академической сводки — сырой код `ACTIVE`/`EXPELLED` (новое место BUG-002)
 - **Где:** `apps/web/src/views/academic/ui/academic-view.tsx:169` · **Статус:** исправлен · `fix/bugs-schedule-courses` (601e8dae)
@@ -1950,26 +1954,27 @@
 - **Отложено:** нужно решение, кто может снять или передать чужую взятую жалобу/обращение (взявший в отпуске): любой модератор того же scope, только старший по роли, или по таймауту; отпустить своё обращение уже можно (assign take:false), для жалоб нужна ручка вида PATCH /complaints/:id/release — после решения по правам
 
 #### BUG-365 · 🟡 Охрана и библиотекарь не могут написать в поддержку: вкладка есть, отправка — 403
-- **Где:** `apps/api/src/modules/chats/support.controller.ts:36-91` (нет `@RestrictedAllowed`), `apps/web/src/widgets/account-settings/ui/account-settings-panels.tsx:146,222`; ответ обещан «в Чатах», которых у этих ролей нет · **Статус:** подтверждён
+- **Где:** `apps/api/src/modules/chats/support.controller.ts:36-91` (нет `@RestrictedAllowed`), `apps/web/src/widgets/account-settings/ui/account-settings-panels.tsx:146,222`; ответ обещан «в Чатах», которых у этих ролей нет · **Статус:** отложен
 - **Ожидается:** §8.3 «`POST /support` (любая роль)».
+- **Отложено:** PROJECT.md противоречит сам себе: §8.3 «POST /support (любая роль)», а §2.1 перечисляет открытое охране и библиотекарю (поддержки там нет, чатов нет). Нужно решение: открыть им поддержку (@RestrictedAllowed на POST /support, GET/POST /support/:id и свой экран чтения ответа — «Чатов» у них нет) или убрать вкладку «Поддержка» для RESTRICTED_ROLES
 
 #### BUG-366 · 🟡 Тумблер «Push в браузере» выключает пуши и на телефонах, а с телефона обратно не включить
 - **Где:** `account-settings-panels.tsx:819-835,875-889`, `apps/api/src/modules/push/push.service.ts:133-139`, `apps/api/src/modules/notifications/notifications.processor.ts:200,457-460` (один `pushEnabled` на все каналы) · **Статус:** новый
 
 #### BUG-367 · 🟡 Декан не может создать событие для группы: в форме нет выбора группы (новое место BUG-265)
-- **Где:** `apps/web/src/features/create-event/ui/create-event-modal.tsx:42,59` (`GROUP_PICKER_ROLES` без DEAN), `apps/api/src/modules/events/events.service.ts:776-779` (`400 «Не указана группа»`) · **Статус:** новый
+- **Где:** `apps/web/src/features/create-event/ui/create-event-modal.tsx:42,59` (`GROUP_PICKER_ROLES` без DEAN), `apps/api/src/modules/events/events.service.ts:776-779` (`400 «Не указана группа»`) · **Статус:** исправлен · `fix/bugs-events-moderation` (35081b61)
 
 #### BUG-368 · 🟢 Форма события молча не отправляется после переключения «Онлайн» туда и обратно
-- **Где:** `apps/web/src/features/create-event/ui/event-details-fields.tsx:149-151` (`setValueAs` только в `edit`), `packages/shared-schemas/src/events.ts:67` · **Статус:** новый
+- **Где:** `apps/web/src/features/create-event/ui/event-details-fields.tsx:149-151` (`setValueAs` только в `edit`), `packages/shared-schemas/src/events.ts:67` · **Статус:** исправлен · `fix/bugs-events-moderation` (5ad6f0a6)
 
 #### BUG-369 · 🟢 «Мероприятия» показывают только первые 50 событий (новое место BUG-102)
-- **Где:** `apps/web/src/entities/event/api/event-api.ts:8,26-31`, `views/events/ui/events-view.tsx:51-55` · **Статус:** новый
+- **Где:** `apps/web/src/entities/event/api/event-api.ts:8,26-31`, `views/events/ui/events-view.tsx:51-55` · **Статус:** исправлен · `fix/bugs-events-moderation` (f7b6d009)
 
 #### BUG-370 · 🟢 Список участников события молча обрезан на 1000
-- **Где:** `apps/web/src/entities/event/api/event-api.ts:69-72` (без `limit`/`cursor`), `apps/api/src/modules/events/events.service.ts:117,435-441`, `event-detail-view.tsx:195,248` · **Статус:** новый
+- **Где:** `apps/web/src/entities/event/api/event-api.ts:69-72` (без `limit`/`cursor`), `apps/api/src/modules/events/events.service.ts:117,435-441`, `event-detail-view.tsx:195,248` · **Статус:** исправлен · `fix/bugs-events-moderation` (dab61c59)
 
 #### BUG-371 · 🟢 Организатор без регистрации не видит «Присоединиться» к встрече своего события
-- **Где:** `apps/web/src/views/events/ui/events-view.tsx:303`, `event-detail-view.tsx:219`; сервер пускает — `events.service.ts:252` · **Статус:** новый
+- **Где:** `apps/web/src/views/events/ui/events-view.tsx:303`, `event-detail-view.tsx:219`; сервер пускает — `events.service.ts:252` · **Статус:** исправлен · `fix/bugs-events-moderation` (d3b769dc)
 
 #### BUG-372 · 🟢 Перенос события на прежнее время: уведомление и напоминание проглатываются (корень BUG-090/BUG-094)
 - **Где:** `apps/api/src/modules/events/events.service.ts:365,636` · **Статус:** исправлен · `fix/bugs-events-moderation` (62688272)
@@ -2006,7 +2011,7 @@
 - **Ожидается:** §2.2 «Личные чаты: Адм. вуза ⚠️ официальные» — поправить код или матрицу.
 
 #### BUG-382 · 🟢 Нет раздела «События» у админа платформы; сотрудник платформы через «Поддержку» заводит обращение без автора
-- **Где:** `apps/web/src/widgets/app-shell/model/nav.ts` (`PLATFORM_ADMIN_NAV` без events, класс BUG-005/064); `apps/api/src/modules/chats/support.service.ts:699-709,796-798`, `account-settings-panels.tsx:146` · **Статус:** новый
+- **Где:** `apps/web/src/widgets/app-shell/model/nav.ts` (`PLATFORM_ADMIN_NAV` без events, класс BUG-005/064); `apps/api/src/modules/chats/support.service.ts:699-709,796-798`, `account-settings-panels.tsx:146` · **Статус:** исправлен · `fix/bugs-events-moderation` (bbc99ac1)
 
 ### Общая инфраструктура API: логи, Sentry, WS, CORS, файлы и медиа
 
@@ -2044,7 +2049,7 @@
 - **Ожидается:** `exposedHeaders: ['Content-Disposition','Retry-After']`.
 
 #### BUG-390 · 🟡 🔒 Импорт XLSX: zip-бомба до 10 МБ распаковывается в памяти целиком и роняет API
-- **Роль:** админ вуза, декан (инвайты), LIBRARIAN (фонд) → вся платформа · **Статус:** новый
+- **Роль:** админ вуза, декан (инвайты), LIBRARIAN (фонд) → вся платформа · **Статус:** исправлен · `fix/bugs-api-infra` (6b044c6f)
 - **Где:** `apps/api/src/common/import/table-file.ts:72-76` (`sheetRows` ограничивает только ячейки, `XLSX.read` синхронно распаковывает все записи архива)
 - **Ожидается:** BACKEND_RULES §14 — проверка суммарного распакованного размера до разбора или разбор в воркере с лимитом памяти.
 
@@ -2053,7 +2058,7 @@
 - **Сценарий:** `POST /files/upload` не multipart → 500; `readUploadWithFields` любую ошибку выдаёт за «файл больше порога».
 
 #### BUG-392 · 🟢 Копия неготового видео при пересылке перекодируется в очереди изображений
-- **Где:** `apps/api/src/modules/media/media.service.ts:114-127` (`scheduleCopy` всегда в `'image'`), `media-processing.service.ts:169-189`, `media-video.processor.ts:260-263`, `common/queue/queue.constants.ts:16-18` · **Статус:** новый
+- **Где:** `apps/api/src/modules/media/media.service.ts:114-127` (`scheduleCopy` всегда в `'image'`), `media-processing.service.ts:169-189`, `media-video.processor.ts:260-263`, `common/queue/queue.constants.ts:16-18` · **Статус:** исправлен · `fix/bugs-api-infra` (a55cc374)
 - **Сценарий:** ffmpeg на 15 мин в очереди фото с `lockDuration` 30 с — фото ждут, ролик кодируется дважды.
 
 #### BUG-393 · 🟢 Подвисший Redis добавляет до 3–6 с к каждому запросу: у троттлера нет короткого таймаута
@@ -2093,7 +2098,7 @@
 - **Где:** `apps/web/src/shared/lib/file-download.ts:38` (`CACHE_LIMIT` 400 МБ < лимита 500 МБ), `:79-88` (`trimCache` вытесняет и только что скачанный; порядок по вставке ключа, а не по давности) · **Статус:** исправлен · `fix/bugs-web-shared` (3cde19d2)
 
 #### BUG-402 · 🟡 Многочастная загрузка падает через 15 минут: подписи всех частей берутся разом и протухают
-- **Где:** `apps/web/src/shared/api/multipart-upload.ts:175-183,187-212`, `packages/shared-config/src/constants.ts:17` (TTL 15 мин), `apps/api/src/modules/files/file.service.ts:311-326` · **Статус:** новый
+- **Где:** `apps/web/src/shared/api/multipart-upload.ts:175-183,187-212`, `packages/shared-config/src/constants.ts:17` (TTL 15 мин), `apps/api/src/modules/files/file.service.ts:311-326` · **Статус:** исправлен · `fix/bugs-web-shared` (535686c3)
 - **Сценарий:** 500 МБ при 3 Мбит/с — части после 15-й минуты получают 403, три повтора той же ссылкой, загрузка падает, каждый раз заново.
 - **Ожидается:** §19 «переживает обрыв» — подписывать порциями или перевыпускать на 403.
 
@@ -2109,7 +2114,7 @@
 - **Где:** `apps/web/src/views/home/ui/home-sidebar.tsx:43,76` · **Статус:** исправлен · `fix/bugs-web-shared` (69153ea3)
 
 #### BUG-406 · 🟢 Ошибки шага загрузки в хранилище показываются сырым ключом «Errors.ERR_NETWORK»
-- **Где:** `apps/web/src/shared/api/direct-upload.ts:41-64`, `multipart-upload.ts:93`, `shared/ui/file-upload.tsx:121-122`, `views/assignments/ui/submission-files.tsx:83`, `shared/lib/api-error.ts:166-173` · **Статус:** новый
+- **Где:** `apps/web/src/shared/api/direct-upload.ts:41-64`, `multipart-upload.ts:93`, `shared/ui/file-upload.tsx:121-122`, `views/assignments/ui/submission-files.tsx:83`, `shared/lib/api-error.ts:166-173` · **Статус:** исправлен · `fix/bugs-web-shared` (535686c3)
 
 #### BUG-407 · 🟢 Проверка студенческого: на ошибки — «Неверный email или пароль», «Некорректный запрос» (класс BUG-314)
 - **Где:** `apps/web/src/views/student-id/ui/verify-id-view.tsx:108-119`, `apps/api/src/modules/student-id/student-id.service.ts:332,335,338`; `verifyFailedHint` не показывается никогда · **Статус:** исправлен · `fix/bugs-web-shared` (711e2d6e)
@@ -2159,7 +2164,7 @@
 - **Ожидается:** запрос разрешения на API ≤ 28 или MediaStore/каталог приложения и перехват `SecurityException`.
 
 #### BUG-419 · 🟠 В открытом чате пропадают сообщения, пришедшие с прошлого визита
-- **Где:** `core/chats/ChatStore.kt:82` (`lastSeq` поднимается превью из списка и `PushSync`), `features/chats/ChatThreadModel.kt:128` (`catchUp(known)`); сервер `chats.service.ts:1273` · **Статус:** подтверждён
+- **Где:** `core/chats/ChatStore.kt:82` (`lastSeq` поднимается превью из списка и `PushSync`), `features/chats/ChatThreadModel.kt:128` (`catchUp(known)`); сервер `chats.service.ts:1273` · **Статус:** исправлен · `fix/bugs-android` (c0509bd2)
 - **Сценарий:** локально M1–M50, пришли M51–M70 → список поднял `lastSeq` до 70 → `updates?since=70` пуст → в ленте M50, сразу M70; якорь непрочитанного не там.
 - **Ожидается:** §9.2c — позиция догона = «всё до N у клиента есть», превью её не двигает.
 
@@ -2181,11 +2186,11 @@
 - **Где:** `core/chats/MessageOutbox.kt:56-62` (`flush` без блокировки, стоп на первой неудаче), `core/chats/OutboxWorker.kt` (`Result.retry()`), `features/chats/ChatThreadModel.kt:130,270` · **Статус:** новый
 
 #### BUG-425 · 🟡 🔒 Чаты, из которых человека убрали, остаются на телефоне с историей навсегда
-- **Где:** `core/chats/ChatStore.kt:23-25` (`saveChats` только добавляет), `ChatDao.delete` не вызывается; сервер такие чаты не отдаёт — `chats.service.ts:548-549` · **Статус:** новый
+- **Где:** `core/chats/ChatStore.kt:23-25` (`saveChats` только добавляет), `ChatDao.delete` не вызывается; сервер такие чаты не отдаёт — `chats.service.ts:548-549` · **Статус:** исправлен · `fix/bugs-android` (483b610e)
 - **Ожидается:** §11.3 — локальная база повторяет доступ на сервере.
 
 #### BUG-426 · 🟡 Список чатов не обновляется в реальном времени: `chat:activity` не слушается
-- **Где:** `core/realtime/RealtimeEvent.kt:67`; сервер `chats.service.ts:2440-2449` · **Статус:** новый
+- **Где:** `core/realtime/RealtimeEvent.kt:67`; сервер `chats.service.ts:2440-2449` · **Статус:** исправлен · `fix/bugs-android` (a936b235)
 
 #### BUG-427 · 🟡 В групповых и официальных чатах не видно автора сообщения
 - **Где:** `core/chats/ChatDto.kt:76-90` (`sender` не читается), `core/storage/Entities.kt:150-173`, `features/chats/MessageBubble.kt:115-163`, `MessageTimeline.kt:21-22` · **Статус:** новый
@@ -2210,7 +2215,7 @@
 - **Где:** `features/chats/ChatThreadModel.kt:201-214`, `core/realtime/RealtimeTransport.kt:106` (`if (!connected) return`) · **Статус:** новый
 
 #### BUG-434 · 🟡 Падение приложения на `message:new` для чата, которого нет в локальной базе
-- **Где:** `core/realtime/RealtimeCoordinator.kt:145-150` (FK-ошибка вставки), `:69` (`collect` в `MainScope` без обработчика) · **Статус:** новый
+- **Где:** `core/realtime/RealtimeCoordinator.kt:145-150` (FK-ошибка вставки), `:69` (`collect` в `MainScope` без обработчика) · **Статус:** исправлен · `fix/bugs-android` (2517ce10)
 
 #### BUG-435 · 🟡 Уменьшенные перед отправкой снимки теряют EXIF-поворот и приходят набок
 - **Где:** `features/chats/OutgoingFiles.kt:41-58` · **Статус:** исправлен · `fix/bugs-android` (f4073269)
@@ -2222,7 +2227,7 @@
 - **Где:** `features/chats/MessageBubble.kt:92-101`; сервер `chats.service.ts:2335` (`content: ''`, §8.3 «текст рендерит клиент по типу») · **Статус:** новый
 
 #### BUG-438 · 🟢 `chat:updated` не разбирается: ждёт полный `ChatListItemDto`, а сервер шлёт `{ chatId, title|avatarUrl }`
-- **Где:** `core/realtime/RealtimeEvent.kt:94-96`; сервер `chats.service.ts:3473,3489,3587` · **Статус:** новый
+- **Где:** `core/realtime/RealtimeEvent.kt:94-96`; сервер `chats.service.ts:3473,3489,3587` · **Статус:** исправлен · `fix/bugs-android` (a936b235)
 
 #### BUG-439 · 🟢 Ссылки из пушей на профиль, ленту и записи в деканат ничего не открывают
 - **Где:** `core/navigation/DeepLink.kt:89` (`/profile/<id>` → null), нет `/appointments`; ссылки — `friends.service.ts:179,436`, `polls.service.ts:628`, `profile-content.service.ts:919`, `appointments.service.ts:334` · **Статус:** исправлен · `fix/bugs-android` (8deee9ce)
@@ -2326,10 +2331,10 @@
 - **Сценарий:** B после входа оказывается в открытом чате A; сбои B уходят в трекер под id A; пуш, нажатый на экране входа, кладёт маршрут для следующего.
 
 #### BUG-463 · 🟡 iOS: у преподавателя «Журнал», «Посещаемость» и «Сдать работу» отвечают 403 (как BUG-421)
-- **Где:** `Features/Study/StudyView.swift:15-34`, `AssignmentsView.swift:114-133`; `assignments.controller.ts:140-151` · **Статус:** новый
+- **Где:** `Features/Study/StudyView.swift:15-34`, `AssignmentsView.swift:114-133`; `assignments.controller.ts:140-151` · **Статус:** исправлен · `fix/bugs-ios-miniapp` (3e0ac540)
 
 #### BUG-464 · 🟡 iOS: «Оценки» падают целиком при `maxScore: null`; дробь обрезается, `kind` — кодом (как BUG-417/442)
-- **Где:** `Core/Study/StudyAPI.swift:15-21,37`, `Features/Study/StudyView.swift:73,78` · **Статус:** новый
+- **Где:** `Core/Study/StudyAPI.swift:15-21,37`, `Features/Study/StudyView.swift:73,78` · **Статус:** исправлен · `fix/bugs-ios-miniapp` (b211fc55)
 
 #### BUG-465 · 🟡 🔒 iOS: подтверждение входа по QR не показывает, кто просит вход (как BUG-416)
 - **Где:** `Features/Auth/QRApproveModel.swift:34-62`, `Core/Session/QRLoginAPI.swift`; эталон — `apps/web/src/shared/api/auth-api.ts:211` · **Статус:** новый
@@ -2339,7 +2344,7 @@
 - **Ожидается:** PERSONAL_DATA, §7.2 — без действующего согласия клиент не работает с ПДн.
 
 #### BUG-467 · 🟡 iOS: три строки показывают сырой Swift-код «Оценка \(score)\(maxPart)»
-- **Где:** `apps/ios/Resources/Localizable.xcstrings` (`study.graded`, `applications.days`, `schedule.syncedAt` без `%lld`/`%@`), `Features/Study/StudyModels.swift:144`, `Features/Applications/ApplicationsView.swift:100`, `Features/Study/ScheduleView.swift:41`; поломку закрепляет `apps/ios/Tests/StudentHubTests/LocalizationTests.swift:33-41` · **Статус:** новый
+- **Где:** `apps/ios/Resources/Localizable.xcstrings` (`study.graded`, `applications.days`, `schedule.syncedAt` без `%lld`/`%@`), `Features/Study/StudyModels.swift:144`, `Features/Applications/ApplicationsView.swift:100`, `Features/Study/ScheduleView.swift:41`; поломку закрепляет `apps/ios/Tests/StudentHubTests/LocalizationTests.swift:33-41` · **Статус:** исправлен · `fix/bugs-ios-miniapp` (125ee62c)
 
 #### BUG-468 · 🟡 Мини-апп: любой 401 считается истёкшим токеном — неверный код 2FA выбивает из сессии
 - **Роль:** PLATFORM_* · **Статус:** исправлен · `fix/bugs-ios-miniapp` (392bfab8)
@@ -2375,7 +2380,7 @@
 - **Где:** `Features/Study/StudyModels.swift:148`, `Features/Study/ScheduleModel.swift:66-69,127-132` · **Статус:** новый
 
 #### BUG-478 · 🟢 iOS: задание из ссылки ищется в первых 50; «Ответ», «Ссылка», «О себе» нельзя очистить (корень BUG-047/BUG-128, как BUG-441)
-- **Где:** `Features/Study/AssignmentsView.swift:88-90,146,163-167`, `Features/Feed/ProfileView.swift:134-138` · **Статус:** новый
+- **Где:** `Features/Study/AssignmentsView.swift:88-90,146,163-167`, `Features/Feed/ProfileView.swift:134-138` · **Статус:** исправлен · `fix/bugs-ios-miniapp` (f1f2c262)
 
 #### BUG-479 · 🟢 iOS: после сгоревшего challenge 2FA экран остаётся на шаге кода (как BUG-345)
 - **Где:** `Features/Auth/LoginModel.swift:66-86,121-149` · **Статус:** новый
