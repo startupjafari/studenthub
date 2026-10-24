@@ -298,6 +298,13 @@ describe('CameraAgentsService', () => {
     })
   })
 
+  it('удаление агента будит его длинный опрос — тот ответит 401 сразу', async () => {
+    const { agents, prisma, signal } = setup()
+    await agents.remove(admin, 'agent-1', ctx)
+    expect(prisma.cameraAgent.delete).toHaveBeenCalledWith({ where: { id: 'agent-1' } })
+    expect(signal.bump).toHaveBeenCalledWith('agent-1')
+  })
+
   it('агенты видит и заводит только админ вуза', async () => {
     const { agents } = setup()
     await expect(agents.list(guard)).rejects.toMatchObject({ code: 'FORBIDDEN' })
