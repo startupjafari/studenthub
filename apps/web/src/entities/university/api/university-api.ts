@@ -2,6 +2,7 @@ import type {
   CreateUniversityInput,
   UniversityListQueryInput,
   UniversityStatusValue,
+  UpdateUniversityInput,
 } from '@studenthub/shared-schemas'
 import { api, getPaged } from '../../../shared/api'
 import type { Paged } from '../../../shared/api'
@@ -54,6 +55,19 @@ export async function fetchUniversity(id: string): Promise<University> {
 export async function createUniversityRequest(input: CreateUniversityInput): Promise<University> {
   const { data } = await api.post<University>('/universities', input)
   return data
+}
+
+export async function updateUniversityRequest(
+  id: string,
+  input: UpdateUniversityInput,
+): Promise<University> {
+  const { data } = await api.patch<University>(`/universities/${id}`, input)
+  return data
+}
+
+// Удаляется только пустой вуз: с факультетами, аудиториями или людьми сервер отвечает CONFLICT.
+export async function deleteUniversityRequest(id: string): Promise<void> {
+  await api.delete(`/universities/${id}`)
 }
 
 export async function setUniversityStatusRequest(

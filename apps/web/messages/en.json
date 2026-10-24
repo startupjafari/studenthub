@@ -2668,7 +2668,16 @@
     "nothingFound": "Nothing found",
     "blockConfirmTitle": "Block the university?",
     "blockConfirmDesc": "All users of “{name}” will be disconnected at once and won't be able to sign in until the university is unblocked.",
-    "block": "Block"
+    "block": "Block",
+    "edit": "University",
+    "updated": "Changes saved",
+    "timezone": "Time zone",
+    "timezoneHint": "Used for the university's gradebook day, schedule and daily digests",
+    "delete": "Delete university",
+    "deleteConfirmTitle": "Delete the university?",
+    "deleteConfirmDesc": "“{name}” will be deleted along with its unused invites. This can't be undone.",
+    "deleted": "University deleted",
+    "deleteConflict": "Only an empty university can be deleted — with no faculties, rooms or users"
   },
   "Materials": {
     "title": "Materials",

@@ -42,7 +42,7 @@ import {
   useSortState,
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
-import { CreateUniversityModal } from './create-university-modal'
+import { UniversityFormModal } from './university-form-modal'
 
 const STATUSES: UniversityStatusValue[] = ['PENDING', 'ACTIVE', 'BLOCKED']
 const STATUS_STYLE: Record<UniversityStatusValue, string> = {
@@ -78,6 +78,8 @@ export function UniversitiesAdminView() {
   const confirm = useConfirm()
 
   const [createOpen, setCreateOpen] = useState(false)
+  // Правка реквизитов, пояса и удаление — по клику на строку, как у заявок на демо.
+  const [editing, setEditing] = useState<University | null>(null)
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState<number>(PAGE_SIZES[0])
@@ -171,7 +173,8 @@ export function UniversitiesAdminView() {
         }
       />
 
-      {createOpen && <CreateUniversityModal onClose={() => setCreateOpen(false)} />}
+      {createOpen && <UniversityFormModal onClose={() => setCreateOpen(false)} />}
+      {editing && <UniversityFormModal university={editing} onClose={() => setEditing(null)} />}
 
       {universities.isError ? (
         <EmptyState title={tErr('INTERNAL_ERROR')} />
@@ -217,7 +220,11 @@ export function UniversitiesAdminView() {
             <TableBody>
               {universities.isLoading && <TableSkeletonRows columns={SKELETON_COLS} />}
               {rows.map((u) => (
-                <TableRow key={u.id} className="hover:bg-muted/40">
+                <TableRow
+                  key={u.id}
+                  onClick={() => setEditing(u)}
+                  className="cursor-pointer hover:bg-muted/40"
+                >
                   <TableCell className="font-medium">
                     <TableText value={u.name} />
                     {/* На узком экране колонки аббревиатуры и города скрыты — город
@@ -243,7 +250,10 @@ export function UniversitiesAdminView() {
                   </TableCell>
                   {/* Статус — сразу селект: смена статуса это основное действие экрана,
                       отдельная колонка «только прочитать» дублировала бы значение. */}
-                  <TableCell>
+                  {/* Клик по селекту — смена статуса, а не правка вуза: всплытие до строки
+                      (и из портала меню — React ведёт события по дереву компонентов)
+                      гасим здесь. */}
+                  <TableCell onClick={(e) => e.stopPropagation()}>
                     <Select
                       value={u.status}
                       onValueChange={(v) => void changeStatus(u, v as UniversityStatusValue)}

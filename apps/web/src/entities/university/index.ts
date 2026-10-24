@@ -4,6 +4,8 @@ export {
   fetchUniversity,
   fetchUniversityStats,
   createUniversityRequest,
+  updateUniversityRequest,
+  deleteUniversityRequest,
   setUniversityStatusRequest,
   type University,
   type UniversityStats,
