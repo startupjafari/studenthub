@@ -240,7 +240,17 @@ export function PairDetailsModal({
       void qc.invalidateQueries({ queryKey: scheduleKeys.all })
       toast.success(t('changeRemoved'))
     },
-    onError: (e) => showApiError(e),
+    onError: (e) => {
+      // Без изменения пара возвращается в свой слот, а его могли занять (BUG-325): сервер
+      // отвечает конфликтом — показываем, с чем столкнулись.
+      const err = apiErr(e)
+      if (err.code === 'CONFLICT') {
+        toast.error(t('conflictTitle'), {
+          id: 'pair-details',
+          description: conflictDescription(err.details, locale, (k) => t(k)),
+        })
+      } else showApiError(e)
+    },
   })
 
   function changeDetail(c: ScheduleChange): string | null {
