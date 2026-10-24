@@ -124,6 +124,19 @@ describe('UniversityAnalyticsService.roomLoad (B-F22)', () => {
     expect(res.peak).toBe(2.5)
     expect(res.rooms).toBe(12)
   })
+
+  it('пары и помещения — по одному множеству учебных помещений (BUG-192)', async () => {
+    const { service, prisma } = setup()
+
+    await service.roomLoad(ADMIN)
+
+    const sql = sqlOf(prisma.$queryRaw.mock.calls[0] as unknown[])
+    expect(sql).toContain('r.kind::text IN')
+    expect(JSON.stringify(prisma.$queryRaw.mock.calls[0])).toContain('SPORT_HALL')
+    expect(prisma.room.count).toHaveBeenCalledWith({
+      where: { universityId: 'uni-1', kind: { in: ['AUDITORIUM', 'LAB', 'SPORT_HALL'] } },
+    })
+  })
 })
 
 describe('UniversityAnalyticsService.attendanceTrend', () => {

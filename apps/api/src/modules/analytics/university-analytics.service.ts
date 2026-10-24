@@ -1,5 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common'
+import { Prisma } from '@prisma/client'
 import type Redis from 'ioredis'
+import { ACADEMIC_ROOM_KINDS } from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import { REDIS_CLIENT } from '../../common/redis/redis.module'
@@ -273,11 +275,15 @@ export class UniversityAnalyticsService {
    * удаляются, а деактивируются (schedules.service), и без этого условия сетка росла бы
    * на число старых расписаний с каждым семестром. Пара «по чётным» или «по нечётным»
    * идёт раз в две недели — в средней неделе она весит половину пары.
+   *
+   * Пары и помещения считаются по одному множеству — учебные (ACADEMIC_ROOM_KINDS: аудитории,
+   * лаборатории, спортзалы). Раньше пик брал пары во всех помещениях, а знаменатель — только
+   * `AUDITORIUM`: «пик 40 пар при 30 аудиториях» выглядел нехваткой, которой нет.
    */
   roomLoad(viewer: JwtPayload) {
     const universityId = this.scope(viewer)
-    // Версия в ключе: прежние записи кэша считали и старые расписания.
-    return this.cached('room-load.v2', { universityId }, async () => {
+    // Версия в ключе: прежние записи кэша считали старые расписания и все помещения.
+    return this.cached('room-load.v3', { universityId }, async () => {
       const [rows, rooms] = await Promise.all([
         this.prisma.$queryRaw<{ day: number; hour: number; count: number }[]>`
           SELECT p.day_of_week AS day,
@@ -288,9 +294,12 @@ export class UniversityAnalyticsService {
             JOIN schedules s ON s.id = p.schedule_id AND s.is_active
             JOIN rooms r ON r.id = p.room_id
            WHERE r.university_id = ${universityId}
+             AND r.kind::text IN (${Prisma.join([...ACADEMIC_ROOM_KINDS])})
            GROUP BY 1, 2
         `,
-        this.prisma.room.count({ where: { universityId, kind: 'AUDITORIUM' } }),
+        this.prisma.room.count({
+          where: { universityId, kind: { in: [...ACADEMIC_ROOM_KINDS] } },
+        }),
       ])
       // Плотная матрица 7×24: фронту не нужно достраивать пустые ячейки.
       const grid = Array.from({ length: DAYS }, () => Array.from({ length: HOURS }, () => 0))
