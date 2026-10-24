@@ -385,7 +385,12 @@
     "colStatus": "Статус",
     "colActions": "Действия",
     "colVacancy": "Вакансия",
-    "colDescription": "Описание"
+    "colDescription": "Описание",
+    "unpublish": "Снять с витрины",
+    "reviewExperience": "Опыт",
+    "reviewDeadline": "Отклик до",
+    "reviewLanguages": "Языки",
+    "reviewNotSet": "Не указано"
   },
   "CareerProfile": {
     "title": "Карьерный профиль",

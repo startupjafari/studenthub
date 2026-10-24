@@ -385,7 +385,12 @@
     "colStatus": "Status",
     "colActions": "Actions",
     "colVacancy": "Vacancy",
-    "colDescription": "Description"
+    "colDescription": "Description",
+    "unpublish": "Remove from listing",
+    "reviewExperience": "Experience",
+    "reviewDeadline": "Apply by",
+    "reviewLanguages": "Languages",
+    "reviewNotSet": "Not specified"
   },
   "CareerProfile": {
     "title": "Career profile",

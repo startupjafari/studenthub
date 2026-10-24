@@ -385,7 +385,12 @@
     "colStatus": "Мәртебе",
     "colActions": "Әрекеттер",
     "colVacancy": "Вакансия",
-    "colDescription": "Сипаттама"
+    "colDescription": "Сипаттама",
+    "unpublish": "Витринадан алу",
+    "reviewExperience": "Тәжірибе",
+    "reviewDeadline": "Өтінім мерзімі",
+    "reviewLanguages": "Тілдер",
+    "reviewNotSet": "Көрсетілмеген"
   },
   "CareerProfile": {
     "title": "Карьералық профиль",
