@@ -71,6 +71,27 @@ describe('ChatGateway.onJoin — членство (9.8)', () => {
   })
 })
 
+// BUG-028: RestrictedRoleGuard стоит только на HTTP — охрана и библиотекарь, оказавшись
+// участниками чата, читали и писали бы в него через сокет.
+describe('ChatGateway — запрет по умолчанию для охраны и библиотекаря', () => {
+  it('chat:join и message:send → FORBIDDEN, без проверки членства и записи', async () => {
+    const isMember = jest.fn().mockResolvedValue(true)
+    const createMessage = jest.fn()
+    const { gateway } = setup({ isMember, createMessage })
+    const { client } = makeClient('guard1')
+    Object.assign(client.data, { role: 'SECURITY_GUARD' })
+
+    await gateway.onJoin(client as unknown as Socket, { chatId: 'c1' })
+    await gateway.onMessageSend(client as unknown as Socket, { chatId: 'c1', content: 'hi' })
+
+    expect(isMember).not.toHaveBeenCalled()
+    expect(client.join).not.toHaveBeenCalled()
+    expect(createMessage).not.toHaveBeenCalled()
+    expect(client.emit).toHaveBeenCalledWith('error', { event: 'chat:join', code: 'FORBIDDEN' })
+    expect(client.emit).toHaveBeenCalledWith('error', { event: 'message:send', code: 'FORBIDDEN' })
+  })
+})
+
 describe('ChatGateway.onMessageSend — рассылка по комнате (9.4)', () => {
   it('сохраняет и шлёт message:new в комнату чата', async () => {
     const message = { id: 'm1', chatId: 'c1', senderId: 'u1', content: 'hi' }

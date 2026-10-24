@@ -197,6 +197,33 @@ describe('SupportService.reply', () => {
     })
   })
 
+  // BUG-034: склеенная ветка закрыта, догон членства её обходит — сотрудник, пришедший после
+  // склейки, в ней не состоял, и чтение по членству роняло весь экран.
+  it('сотрудник догоняет членство и в склеенных ветках', async () => {
+    const { service, prisma, chats } = setup()
+    Object.assign(prisma.chat, {
+      findUniqueOrThrow: jest.fn().mockResolvedValue({
+        id: 'ticket-1',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        supportClosedAt: null,
+        supportAssigneeId: null,
+        supportFirstReplyAt: null,
+        supportTags: [],
+        members: [],
+      }),
+    })
+    prisma.chat.findMany.mockResolvedValueOnce([{ id: 'merged-1' }])
+
+    await service.thread(who(Role.PLATFORM_ADMIN, 'staff-9'), 'ticket-1')
+
+    expect(prisma.chatMember.createMany).toHaveBeenCalledWith({
+      data: [{ chatId: 'merged-1', userId: 'staff-9' }],
+      skipDuplicates: true,
+    })
+    expect(chats.getMessages).toHaveBeenCalledWith(expect.anything(), 'merged-1', { limit: 50 })
+  })
+
   it('не принимает за обращение обычный чат', async () => {
     const { service } = setup({ chatType: ChatType.PRIVATE })
 
@@ -470,6 +497,22 @@ describe('SupportService.closeStale', () => {
     })
   })
 
+  // BUG-111: двести «вечных» обращений, где последним писал автор, занимали всю выборку —
+  // остальные не закрывались никогда. Теперь выборка идёт по курсору до конца.
+  it('проходит обращения порциями до конца, а не одну выборку', async () => {
+    const { service, prisma } = staleSetup(Role.PLATFORM_ADMIN)
+    const full = Array.from({ length: 200 }, (_, i) => ({ id: `a${String(i).padStart(3, '0')}` }))
+    prisma.chat.findMany.mockResolvedValueOnce(full).mockResolvedValueOnce([{ id: 't1' }])
+
+    await service.closeStale(new Date())
+
+    expect(prisma.chat.findMany).toHaveBeenCalledTimes(2)
+    expect(prisma.chat.findMany.mock.calls[1]?.[0]).toMatchObject({
+      cursor: { id: 'a199' },
+      skip: 1,
+    })
+  })
+
   it('не закрывает обращение, где последним писал автор', async () => {
     const { service, prisma } = staleSetup(Role.STUDENT)
 
@@ -581,6 +624,33 @@ describe('SupportService — теги', () => {
     })
   })
 
+  // BUG-182: вся команда платформы состоит в каждом обращении — строка очереди не тянет её
+  // целиком, а разбирающего читает одним запросом на страницу.
+  it('из участников берёт только автора, разбирающего — отдельным запросом', async () => {
+    const { service, prisma } = setup()
+    prisma.chat.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([
+      {
+        id: 't1',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        supportClosedAt: null,
+        supportAssigneeId: 'staff-1',
+        supportFirstReplyAt: null,
+        supportTags: [],
+        members: [],
+      },
+    ])
+    const assignee = { id: 'staff-1', firstName: 'В', lastName: 'Г', role: Role.PLATFORM_ADMIN }
+    prisma.user.findMany.mockResolvedValueOnce([assignee])
+
+    const page = await service.queue(staff, { status: 'open', assignee: 'any', page: 1, limit: 30 })
+
+    expect(prisma.chat.findMany.mock.calls.at(-1)?.[0].select.members).toMatchObject({
+      where: { user: { role: { notIn: [Role.PLATFORM_ADMIN, Role.PLATFORM_MODERATOR] } } },
+    })
+    expect(page.items[0]).toMatchObject({ assignee })
+  })
+
   it('счётчики отдаёт числами, а не bigint из базы', async () => {
     const { service, prisma } = setup()
     prisma.$queryRaw.mockResolvedValue([{ tag: 'ACCESS', count: 60n }])
@@ -633,6 +703,18 @@ describe('SupportService.merge', () => {
       .mockResolvedValueOnce(ticket('author-1', 'c'))
     const err = await service.merge(staff, 'a', 'b').catch((e) => e)
     expect(err.code).toBe('CONFLICT')
+  })
+
+  // BUG-059: ветки, склеенные в источник раньше, указывали бы на склеенное — и их переписку
+  // не было бы видно нигде. Они переезжают в цель вместе с источником.
+  it('ветки, склеенные в источник, переезжают в цель', async () => {
+    const { service, prisma } = setup()
+    prisma.chat.findFirst.mockResolvedValue(ticket('author-1'))
+    await service.merge(staff, 'a', 'b')
+    expect(prisma.chat.updateMany).toHaveBeenCalledWith({
+      where: { supportMergedIntoId: 'a' },
+      data: { supportMergedIntoId: 'b' },
+    })
   })
 
   it('само с собой → BAD_REQUEST', async () => {

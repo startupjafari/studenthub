@@ -54,8 +54,10 @@ export class LinkPreviewProcessor extends WorkerHost {
     const preview = { ...fetched, image: null }
 
     // Сообщение могли удалить, пока тянули превью — обновляем только существующее и не удалённое.
+    // И только пока ссылка ещё в тексте: правка, заменившая её, ставит свой job, а этот,
+    // закончив позже, повесил бы под новым текстом карточку старой ссылки.
     const updated = await this.prisma.message.updateMany({
-      where: { id: messageId, deletedAt: null },
+      where: { id: messageId, deletedAt: null, content: { contains: url } },
       data: { linkPreview: preview as unknown as Prisma.InputJsonValue },
     })
     if (updated.count === 0) return

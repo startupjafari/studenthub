@@ -1502,6 +1502,7 @@
     "FILE_DIRECT_UPLOAD_REQUIRED": "File is too large to upload via the server",
     "VALIDATION_ERROR": "Check the form fields",
     "RATE_LIMIT": "Too many attempts, wait a moment",
+    "MAINTENANCE": "Maintenance in progress — please try again a bit later",
     "INTERNAL_ERROR": "Server error",
     "INVALID_2FA_CODE": "Invalid code",
     "TWO_FACTOR_SETUP_REQUIRED": "Two-factor authentication setup is required",
@@ -2019,6 +2020,7 @@
     "select": "Select",
     "selectedCount": "Selected: {count}",
     "deleteSelectedConfirm": "Delete selected messages ({count})?",
+    "deleteOthersSkipped": "Other people's messages can't be deleted — they stay in the chat",
     "actions": {
       "TYPING": "{count, plural, one {is typing…} other {are typing…}}",
       "RECORDING_VOICE": "{count, plural, one {is recording a voice message…} other {are recording voice messages…}}",
@@ -2131,6 +2133,7 @@
     "pollRandomOrder": "Shuffle options",
     "pollClosed": "Closed",
     "pollVotes": "{count, plural, =0 {No votes} one {# vote} other {# votes}}",
+    "pollSubmitVote": "Vote",
     "attachPhoto": "Photo or video",
     "attachCamera": "Camera",
     "attachFile": "File",
@@ -2220,6 +2223,7 @@
     "save": "Save",
     "historyCleared": "History cleared",
     "chatDeleted": "Chat deleted",
+    "chatUnavailable": "This chat is no longer available to you",
     "clearHistory": "Clear history",
     "groupDescriptionLabel": "Group description",
     "groupDescriptionPlaceholder": "What this chat is for, rules, useful links",
@@ -2357,7 +2361,8 @@
     "cancelUpload": "Cancel upload",
     "joinUnavailable": "Employer accounts have no chats, so you can't join this group",
     "inviteLinkResetAction": "Reset invite link",
-    "inviteLinkReset": "New link copied — the old one no longer works"
+    "inviteLinkReset": "New link copied — the old one no longer works",
+    "replyDeleted": "Message deleted"
   },
   "Events": {
     "title": "Events",

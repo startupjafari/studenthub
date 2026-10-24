@@ -36,7 +36,9 @@ export interface MessageAttachment {
 // Краткая ссылка на сообщение, на которое отвечают (без вложенной цепочки).
 export interface MessageReplyPreview {
   id: string
+  // У удалённого оригинала сервер текст не отдаёт — пустая строка и `deletedAt`.
   content: string
+  deletedAt?: string | null
   senderId: string
   sender: { id: string; firstName: string; lastName: string; avatarUrl: string | null }
 }
@@ -61,7 +63,8 @@ export interface SharedPostPreview {
   content: string
   authorId: string
   deletedAt: string | null
-  author: { id: string; firstName: string; lastName: string; avatarUrl: string | null }
+  // У снятого поста сервер ни автора, ни текста, ни обложки не отдаёт.
+  author: { id: string; firstName: string; lastName: string; avatarUrl: string | null } | null
   media: { id: string; mime: string }[]
   _count: { comments: number; reactions: number }
 }

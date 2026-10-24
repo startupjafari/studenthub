@@ -26,6 +26,15 @@ import { lastMessagesOf } from './last-message'
 
 const STAFF_ROLES: readonly Role[] = [Role.PLATFORM_ADMIN, Role.PLATFORM_MODERATOR]
 
+const TICKET_USER_SELECT = {
+  id: true,
+  firstName: true,
+  lastName: true,
+  role: true,
+} satisfies Prisma.UserSelect
+
+type TicketUser = Prisma.UserGetPayload<{ select: typeof TICKET_USER_SELECT }>
+
 const TICKET_SELECT = {
   id: true,
   createdAt: true,
@@ -34,8 +43,13 @@ const TICKET_SELECT = {
   supportAssigneeId: true,
   supportFirstReplyAt: true,
   supportTags: true,
+  // Только автор — единственный участник не из команды. Вся команда платформы состоит в
+  // каждом обращении, и без фильтра строка очереди тянула её целиком. Разбирающего читает
+  // `ticketAssignees` одним запросом на страницу.
   members: {
-    select: { user: { select: { id: true, firstName: true, lastName: true, role: true } } },
+    where: { user: { role: { notIn: [...STAFF_ROLES] } } },
+    select: { user: { select: TICKET_USER_SELECT } },
+    take: 1,
   },
 } satisfies Prisma.ChatSelect
 
@@ -52,6 +66,9 @@ const TICKET_STAFF_SCAN = 500
 
 /** Порция чтения команды платформы при создании обращения. */
 const STAFF_BATCH = 200
+
+/** Порция обращений, которые автозакрытие просматривает за один запрос. */
+const STALE_BATCH = 200
 
 @Injectable()
 export class SupportService implements OnModuleInit {
@@ -261,12 +278,35 @@ export class SupportService implements OnModuleInit {
       }),
       this.prisma.chat.count({ where }),
     ])
-    const last = await this.lastTicketMessages(rows.map((row) => row.id))
+    const [last, assignees] = await Promise.all([
+      this.lastTicketMessages(rows.map((row) => row.id)),
+      this.ticketAssignees(rows),
+    ])
 
     return new Paginated(
-      rows.map((row) => toTicket(row, last.get(row.id) ?? null)),
+      rows.map((row) =>
+        toTicket(row, last.get(row.id) ?? null, assignees.get(row.supportAssigneeId ?? '') ?? null),
+      ),
       { total },
     )
+  }
+
+  /** Разбирающие обращений страницы — одним запросом по их id. */
+  private async ticketAssignees(
+    rows: { supportAssigneeId: string | null }[],
+  ): Promise<Map<string, TicketUser>> {
+    const ids = [
+      ...new Set(
+        rows.map((row) => row.supportAssigneeId).filter((id): id is string => id !== null),
+      ),
+    ]
+    if (ids.length === 0) return new Map()
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: ids }, deletedAt: null },
+      select: TICKET_USER_SELECT,
+      take: ids.length,
+    })
+    return new Map(users.map((user) => [user.id, user]))
   }
 
   /**
@@ -307,6 +347,15 @@ export class SupportService implements OnModuleInit {
     // Переписка склеенных веток читается вместе с целевой: склейка нужна, чтобы видеть
     // разговор целиком, а не чтобы прятать половину. Сообщения не переносились, поэтому
     // порядок восстанавливаем по времени — `seq` сравним только внутри одного чата.
+    // Склеенная ветка закрыта, и догон членства (`joinOpenTickets`) её обходит: сотрудник,
+    // пришедший после склейки, в ней не состоит, и чтение по членству роняло весь экран.
+    // Догоняем членство тем же приёмом, что и `assertAccess` для самой ветки.
+    if (STAFF_ROLES.includes(viewer.role) && merged.length > 0) {
+      await this.prisma.chatMember.createMany({
+        data: merged.map((ticket) => ({ chatId: ticket.id, userId: viewer.sub })),
+        skipDuplicates: true,
+      })
+    }
     const extra = await Promise.all(
       merged.map((ticket) => this.chats.getMessages(viewer, ticket.id, { limit: 50 })),
     )
@@ -332,8 +381,13 @@ export class SupportService implements OnModuleInit {
         })
       : []
 
+    const assignees = await this.ticketAssignees([row])
     return {
-      ticket: toTicket(row, last.get(chatId) ?? null),
+      ticket: toTicket(
+        row,
+        last.get(chatId) ?? null,
+        assignees.get(row.supportAssigneeId ?? '') ?? null,
+      ),
       messages: all,
       mergedCount: merged.length,
       siblings: siblings.map((item) => ({
@@ -378,10 +432,19 @@ export class SupportService implements OnModuleInit {
       throw new AppException('BAD_REQUEST', 'Склеивать можно только обращения одного человека')
     }
 
-    await this.prisma.chat.update({
-      where: { id: chatId },
-      data: { supportMergedIntoId: intoId, supportClosedAt: new Date() },
-    })
+    // Ветки, склеенные в источник раньше, переезжают в цель вместе с ним: иначе они
+    // указывали бы на склеенное, а читатель идёт ровно на один шаг — их переписку не было
+    // бы видно нигде. Автор у них тот же, что и у источника, так что чужого не смешиваем.
+    await this.prisma.$transaction([
+      this.prisma.chat.updateMany({
+        where: { supportMergedIntoId: chatId },
+        data: { supportMergedIntoId: intoId },
+      }),
+      this.prisma.chat.update({
+        where: { id: chatId },
+        data: { supportMergedIntoId: intoId, supportClosedAt: new Date() },
+      }),
+    ])
     await this.audit.record({
       userId: viewer.sub,
       action: 'support.ticket.merge',
@@ -617,20 +680,36 @@ export class SupportService implements OnModuleInit {
    * Ответ такое обращение откроет снова, поэтому закрытие ничего не отнимает.
    */
   async closeStale(olderThan: Date): Promise<number> {
-    const stale = await this.prisma.chat.findMany({
-      where: {
-        type: ChatType.SUPPORT_PLATFORM,
-        supportClosedAt: null,
-        updatedAt: { lt: olderThan },
-      },
-      select: { id: true },
-      take: 200,
-    })
+    // Порциями по курсору до конца, а не одна выборка: отбор «последней писала команда»
+    // идёт после чтения, и двести обращений, где последним писал автор, навсегда занимали
+    // всю выборку — остальные не закрывались никогда.
+    let closed = 0
+    let cursor: string | undefined
+    for (;;) {
+      const stale = await this.prisma.chat.findMany({
+        where: {
+          type: ChatType.SUPPORT_PLATFORM,
+          supportClosedAt: null,
+          updatedAt: { lt: olderThan },
+        },
+        select: { id: true },
+        orderBy: { id: 'asc' },
+        take: STALE_BATCH,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      })
+      closed += await this.closeAnsweredByStaff(stale.map((chat) => chat.id))
+      if (stale.length < STALE_BATCH) return closed
+      cursor = stale.at(-1)?.id
+    }
+  }
+
+  /** Из переданных обращений закрывает те, где последнее слово было за командой. */
+  private async closeAnsweredByStaff(chatIds: string[]): Promise<number> {
     // Последнее слово — по одной строке на обращение, а не всей перепиской (F-F02).
     // Удалённые сообщения тоже считаются: правило «кто ответил последним» не менялось.
     const last = await lastMessagesOf(
       this.prisma,
-      stale.map((chat) => chat.id),
+      chatIds,
       (ids) =>
         this.prisma.message.findMany({
           where: { id: { in: ids } },
@@ -640,12 +719,10 @@ export class SupportService implements OnModuleInit {
       { includeDeleted: true },
     )
 
-    const ids = stale
-      .filter((chat) => {
-        const lastRole = last.get(chat.id)?.sender.role as Role | undefined
-        return lastRole !== undefined && STAFF_ROLES.includes(lastRole)
-      })
-      .map((chat) => chat.id)
+    const ids = chatIds.filter((id) => {
+      const lastRole = last.get(id)?.sender.role as Role | undefined
+      return lastRole !== undefined && STAFF_ROLES.includes(lastRole)
+    })
     if (ids.length === 0) return 0
 
     const { count } = await this.prisma.chat.updateMany({
@@ -789,9 +866,10 @@ function toTicket(
     supportAssigneeId: string | null
     supportFirstReplyAt: Date | null
     supportTags: string[]
-    members: { user: { id: string; firstName: string; lastName: string; role: string } }[]
+    members: { user: TicketUser }[]
   },
   last: TicketLastMessage | null,
+  assignee: TicketUser | null,
 ) {
   // Автор — единственный участник не из команды платформы: обращение заводится от него,
   // а сотрудники добавляются пачкой.
@@ -810,8 +888,7 @@ function toTicket(
     },
     closedAt: row.supportClosedAt,
     assigneeId: row.supportAssigneeId,
-    // Имя разбирающего берём из участников: команда платформы в них уже есть.
-    assignee: row.members.find((m) => m.user.id === row.supportAssigneeId)?.user ?? null,
+    assignee,
     firstReplyAt: row.supportFirstReplyAt,
     tags: row.supportTags,
     createdAt: row.createdAt,

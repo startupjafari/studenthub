@@ -1502,6 +1502,7 @@
     "FILE_DIRECT_UPLOAD_REQUIRED": "Файл слишком большой для загрузки через сервер",
     "VALIDATION_ERROR": "Проверьте правильность полей",
     "RATE_LIMIT": "Слишком много попыток, подождите",
+    "MAINTENANCE": "Идут технические работы — попробуйте чуть позже",
     "INTERNAL_ERROR": "Ошибка сервера",
     "INVALID_2FA_CODE": "Неверный код",
     "TWO_FACTOR_SETUP_REQUIRED": "Требуется настроить двухфакторную аутентификацию",
@@ -2019,6 +2020,7 @@
     "select": "Выбрать",
     "selectedCount": "Выбрано: {count}",
     "deleteSelectedConfirm": "Удалить выбранные сообщения ({count})?",
+    "deleteOthersSkipped": "Чужие сообщения удалить нельзя — они остались в чате",
     "actions": {
       "TYPING": "{count, plural, one {печатает…} other {печатают…}}",
       "RECORDING_VOICE": "{count, plural, one {записывает голосовое…} other {записывают голосовое…}}",
@@ -2131,6 +2133,7 @@
     "pollRandomOrder": "Случайный порядок",
     "pollClosed": "Завершён",
     "pollVotes": "{count, plural, =0 {Нет голосов} one {# голос} few {# голоса} many {# голосов} other {# голоса}}",
+    "pollSubmitVote": "Проголосовать",
     "attachPhoto": "Фото или видео",
     "attachCamera": "Камера",
     "attachFile": "Файл",
@@ -2220,6 +2223,7 @@
     "save": "Сохранить",
     "historyCleared": "История очищена",
     "chatDeleted": "Чат удалён",
+    "chatUnavailable": "Этот чат вам больше недоступен",
     "clearHistory": "Очистить историю",
     "groupDescriptionLabel": "Описание группы",
     "groupDescriptionPlaceholder": "Зачем этот чат, правила, полезные ссылки",
@@ -2357,7 +2361,8 @@
     "cancelUpload": "Отменить загрузку",
     "joinUnavailable": "В кабинете работодателя чатов нет — присоединиться к группе нельзя",
     "inviteLinkResetAction": "Сменить ссылку-приглашение",
-    "inviteLinkReset": "Новая ссылка скопирована — прежняя больше не работает"
+    "inviteLinkReset": "Новая ссылка скопирована — прежняя больше не работает",
+    "replyDeleted": "Сообщение удалено"
   },
   "Events": {
     "title": "События",

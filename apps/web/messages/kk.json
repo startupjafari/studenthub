@@ -1502,6 +1502,7 @@
     "FILE_DIRECT_UPLOAD_REQUIRED": "Файл сервер арқылы жүктеуге тым үлкен",
     "VALIDATION_ERROR": "Өрістерді тексеріңіз",
     "RATE_LIMIT": "Тым көп әрекет, күте тұрыңыз",
+    "MAINTENANCE": "Техникалық жұмыстар жүріп жатыр — сәл кейінірек көріңіз",
     "INTERNAL_ERROR": "Сервер қатесі",
     "INVALID_2FA_CODE": "Қате код",
     "TWO_FACTOR_SETUP_REQUIRED": "Екі факторлы аутентификацияны баптау қажет",
@@ -2019,6 +2020,7 @@
     "select": "Таңдау",
     "selectedCount": "Таңдалды: {count}",
     "deleteSelectedConfirm": "Таңдалған хабарламаларды жою ({count})?",
+    "deleteOthersSkipped": "Басқалардың хабарламаларын жою мүмкін емес — олар чатта қалды",
     "actions": {
       "TYPING": "{count, plural, one {теріп жатыр…} other {теріп жатыр…}}",
       "RECORDING_VOICE": "{count, plural, one {дауыстық жазып жатыр…} other {дауыстық жазып жатыр…}}",
@@ -2131,6 +2133,7 @@
     "pollRandomOrder": "Кездейсоқ реті",
     "pollClosed": "Аяқталды",
     "pollVotes": "{count, plural, =0 {Дауыс жоқ} one {# дауыс} other {# дауыс}}",
+    "pollSubmitVote": "Дауыс беру",
     "attachPhoto": "Фото немесе бейне",
     "attachCamera": "Камера",
     "attachFile": "Файл",
@@ -2220,6 +2223,7 @@
     "save": "Сақтау",
     "historyCleared": "Тарих тазаланды",
     "chatDeleted": "Чат жойылды",
+    "chatUnavailable": "Бұл чат сізге енді қолжетімсіз",
     "clearHistory": "Тарихты тазалау",
     "groupDescriptionLabel": "Топ сипаттамасы",
     "groupDescriptionPlaceholder": "Бұл чат не үшін, ережелер, пайдалы сілтемелер",
@@ -2357,7 +2361,8 @@
     "cancelUpload": "Жүктеуді тоқтату",
     "joinUnavailable": "Жұмыс берушінің кабинетінде чаттар жоқ — топқа қосылу мүмкін емес",
     "inviteLinkResetAction": "Шақыру сілтемесін ауыстыру",
-    "inviteLinkReset": "Жаңа сілтеме көшірілді — бұрынғысы енді жұмыс істемейді"
+    "inviteLinkReset": "Жаңа сілтеме көшірілді — бұрынғысы енді жұмыс істемейді",
+    "replyDeleted": "Хабарлама жойылды"
   },
   "Events": {
     "title": "Іс-шаралар",

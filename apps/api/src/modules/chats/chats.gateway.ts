@@ -17,7 +17,7 @@ import {
   TypingSchema,
   type ChatAction,
 } from '@studenthub/shared-schemas'
-import { Role } from '@studenthub/shared-types'
+import { Role, isRestrictedRole } from '@studenthub/shared-types'
 import type { ZodSchema } from 'zod'
 import { captureUnexpected, isExpectedBusinessError } from '../../common/monitoring'
 import { RealtimeGateway } from '../../common/realtime/realtime.gateway'
@@ -115,6 +115,17 @@ export class ChatGateway {
     return true
   }
 
+  /**
+   * Запрет по умолчанию для охраны и библиотекаря (§2.1) — и на сокете. RestrictedRoleGuard
+   * стоит только на HTTP: оказавшись участником чата, такая роль читала и писала бы в него
+   * через `chat:join` и `message:send`.
+   */
+  private restricted(client: Socket, event: string): boolean {
+    if (!isRestrictedRole(client.data?.role as Role | undefined)) return false
+    client.emit('error', { event, code: 'FORBIDDEN' })
+    return true
+  }
+
   private socketStore(client: Socket): Record<string, unknown> {
     if (!client.data) client.data = {}
     return client.data as Record<string, unknown>
@@ -145,6 +156,7 @@ export class ChatGateway {
   @SubscribeMessage('chat:join')
   async onJoin(@ConnectedSocket() client: Socket, @MessageBody() raw: unknown): Promise<void> {
     if (!this.admit(client, 'chat:join')) return
+    if (this.restricted(client, 'chat:join')) return
     const uid = this.userId(client)
     const data = this.parse(client, 'chat:join', ChatJoinSchema, raw)
     if (!uid || !data) return
@@ -172,6 +184,7 @@ export class ChatGateway {
     @MessageBody() raw: unknown,
   ): Promise<void> {
     if (!this.admit(client, 'message:send')) return
+    if (this.restricted(client, 'message:send')) return
     const uid = this.userId(client)
     const data = this.parse(client, 'message:send', MessageSendSchema, raw)
     if (!uid || !data) return
@@ -195,6 +208,7 @@ export class ChatGateway {
     @MessageBody() raw: unknown,
   ): Promise<void> {
     if (!this.admit(client, 'message:edit')) return
+    if (this.restricted(client, 'message:edit')) return
     const uid = this.userId(client)
     const data = this.parse(client, 'message:edit', MessageEditSchema, raw)
     if (!uid || !data) return
@@ -216,6 +230,7 @@ export class ChatGateway {
     @MessageBody() raw: unknown,
   ): Promise<void> {
     if (!this.admit(client, 'message:delete')) return
+    if (this.restricted(client, 'message:delete')) return
     const uid = this.userId(client)
     const data = this.parse(client, 'message:delete', MessageDeleteSchema, raw)
     if (!uid || !data) return
@@ -237,6 +252,7 @@ export class ChatGateway {
     @MessageBody() raw: unknown,
   ): Promise<void> {
     if (!this.admit(client, 'message:read')) return
+    if (this.restricted(client, 'message:read')) return
     const uid = this.userId(client)
     const data = this.parse(client, 'message:read', MessageReadSchema, raw)
     if (!uid || !data) return
@@ -311,6 +327,7 @@ export class ChatGateway {
     const uid = this.userId(client)
     if (!uid) return
     if (!takeToken(this.socketStore(client), 'wsActions', ACTION_LIMIT)) return
+    if (this.restricted(client, event)) return
     if (!(await this.realtime.admitSocket(client, event))) return
     try {
       const payload = { chatId, userId: uid, action }

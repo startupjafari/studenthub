@@ -30,7 +30,15 @@ function message(id: string, seq: number, content = id): ChatMessage {
 }
 
 function delta(patch: Partial<ChatUpdates> = {}): ChatUpdates {
-  return { created: [], mutated: [], deletedIds: [], latestSeq: 0, overflow: false, ...patch }
+  return {
+    created: [],
+    mutated: [],
+    deletedIds: [],
+    latestSeq: 0,
+    overflow: false,
+    syncedAt: '2026-10-24T00:00:00.000Z',
+    ...patch,
+  }
 }
 
 describe('latestSeqOf', () => {
