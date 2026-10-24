@@ -246,6 +246,9 @@ export const PLATFORM_ADMIN_NAV: NavItem[] = [
   { key: 'demoRequests', href: '/platform-admin/demo-requests', icon: Inbox },
   { key: 'users', href: '/platform-admin/users', icon: Users },
   { key: 'invites', href: '/platform-admin/invites', icon: Send },
+  // События платформы (§12): админ платформы создаёт события «для всех» (§2.2), а раздела
+  // у него не было — созданное нельзя было ни найти, ни поправить.
+  { key: 'events', href: '/platform-admin/events', icon: CalendarClock },
   { key: 'complaints', href: '/platform-admin/complaints', icon: ShieldAlert },
   // Обращения в поддержку платформы: раньше их разбирали только в мини-аппе Telegram.
   { key: 'support', href: '/platform-admin/support', icon: LifeBuoy },

@@ -7,10 +7,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { Role } from '@studenthub/shared-types'
+import { canFileComplaint } from '@studenthub/shared-schemas'
 import {
   ArrowLeft,
   Check,
   Clock,
+  Flag,
   Loader2,
   Lock,
   MessageSquarePlus,
@@ -38,6 +40,7 @@ import {
 } from '../../../entities/friendship'
 import { useRealtimeEvent } from '../../../shared/realtime'
 import { useAppSelector } from '../../../shared/store'
+import { ReportModal } from '../../../features/report-content'
 import { contentModeration } from '../lib/content-moderation'
 
 // Путь к чатам по роли текущего пользователя (кнопка «Написать»). Источник истины —
@@ -92,6 +95,7 @@ export function PublicUserProfile({ userId }: { userId: string }) {
   })
   const [online, setOnline] = useState(false)
   const [tab, setTab] = useState<ProfileTabId>('profile')
+  const [reporting, setReporting] = useState(false)
   useEffect(() => {
     if (presenceQ.data) setOnline(presenceQ.data.online)
   }, [presenceQ.data])
@@ -191,6 +195,20 @@ export function PublicUserProfile({ userId }: { userId: string }) {
               Ограничений по ролям нет ни здесь, ни на бэке: заявку шлёт и принимает любая роль. */}
           {me.data && me.data.id !== u.id && <FriendButton userId={u.id} />}
           <ShareProfileButton userId={u.id} name={fullNameOf(u)} className="shadow-md" />
+          {/* Жалоба на человека — тем, чью жалобу сервер примет (COMPLAINT_REPORTER_ROLES). */}
+          {auth.user?.id !== u.id && canFileComplaint(auth.role) && (
+            <Button
+              variant="secondary"
+              size="sm"
+              icon
+              onClick={() => setReporting(true)}
+              aria-label={t('report')}
+              title={t('report')}
+              className="shadow-md"
+            >
+              <Flag className="size-4" aria-hidden />
+            </Button>
+          )}
         </div>
         <div className="relative h-36 w-full overflow-hidden sm:h-44">
           {u.coverUrl ? (
@@ -257,6 +275,15 @@ export function PublicUserProfile({ userId }: { userId: string }) {
       <Suspense fallback={null}>
         <PostFromUrl onOpen={() => setTab('posts')} />
       </Suspense>
+
+      {reporting && (
+        <ReportModal
+          targetType="USER"
+          targetId={u.id}
+          preview={fullNameOf(u)}
+          onClose={() => setReporting(false)}
+        />
+      )}
     </div>
   )
 }

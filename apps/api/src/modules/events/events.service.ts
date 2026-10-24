@@ -14,7 +14,7 @@ import {
   type EventParticipantsQueryInput,
   type UpdateEventInput,
 } from '@studenthub/shared-schemas'
-import { eventVisibilityWhere } from './event-visibility'
+import { eventAccessWhere } from './event-visibility'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AuditService } from '../../common/audit/audit.service'
 import { AppException } from '../../common/exceptions/app.exception'
@@ -176,7 +176,7 @@ export class EventsService {
     const timeWhere = endedWhere(new Date(), query.filter === 'past')
     const where: Prisma.EventWhereInput = {
       AND: [
-        eventVisibilityWhere(viewer),
+        eventAccessWhere(viewer),
         timeWhere,
         ...(query.mine ? [{ participants: { some: { userId: viewer.sub } } }] : []),
       ],
@@ -204,7 +204,7 @@ export class EventsService {
 
   async getById(viewer: JwtPayload, id: string) {
     const event = await this.prisma.event.findFirst({
-      where: { id, ...eventVisibilityWhere(viewer) },
+      where: { id, ...eventAccessWhere(viewer) },
       select: {
         ...EVENT_SELECT,
         participants: { where: { userId: viewer.sub }, select: { id: true } },
@@ -232,7 +232,7 @@ export class EventsService {
    */
   async meeting(viewer: JwtPayload, id: string): Promise<EventMeeting> {
     const event = await this.prisma.event.findFirst({
-      where: { id, ...eventVisibilityWhere(viewer) },
+      where: { id, ...eventAccessWhere(viewer) },
       select: {
         organizerId: true,
         startsAt: true,
@@ -323,6 +323,9 @@ export class EventsService {
         : null
     const hasMeetingUrl = meeting ? meeting.meetingUrl !== null : !!event.meetingUrl
     const rescheduled = startsAt.getTime() !== event.startsAt.getTime()
+    // Момент правки — в ключе уведомления о переносе: «туда и обратно» на прежнее время
+    // иначе давало ключ, который у участника уже есть, и уведомление молча отбрасывалось.
+    const changedAt = Date.now()
     const updated = await this.prisma.event.update({
       where: { id },
       data: {
@@ -358,11 +361,11 @@ export class EventsService {
       await this.notifyParticipants(pages, NOTIFICATION_JOBS.EVENT_RESCHEDULED, {
         titleKey: 'events.rescheduled.title',
         bodyKey: 'events.rescheduled.body',
-        params: { title: updated.title, date: localDateTimeLabel(startsAt, timezone) },
+        params: { title: updated.title, date: eventTimeLabel(startsAt, timezone) },
         data: { eventId: id, url: `/events/${id}` },
-        // Ключ — на новое время: каждый следующий перенос — новое уведомление, а повторная
-        // доставка того же переноса отсекается.
-        dedupeKey: `event-rescheduled:${id}:${startsAt.getTime()}`,
+        // Ключ — на новое время и момент правки: каждый следующий перенос (и на прежнее
+        // время тоже) — новое уведомление, а повторная доставка того же переноса отсекается.
+        dedupeKey: `event-rescheduled:${id}:${startsAt.getTime()}:${changedAt}`,
       })
     }
     return updated
@@ -388,7 +391,7 @@ export class EventsService {
     await this.notifyParticipants(pages, NOTIFICATION_JOBS.EVENT_CANCELLED, {
       titleKey: 'events.cancelled.title',
       bodyKey: 'events.cancelled.body',
-      params: { title: event.title, date: localDateTimeLabel(event.startsAt, timezone) },
+      params: { title: event.title, date: eventTimeLabel(event.startsAt, timezone) },
       // Карточки больше нет — уведомление ведёт в общий список.
       data: { url: '/events' },
       dedupeKey: `event-cancelled:${id}`,
@@ -486,7 +489,7 @@ export class EventsService {
     query: CommentsQueryInput = {},
   ): Promise<unknown[] | Paginated<unknown>> {
     const event = await this.prisma.event.findFirst({
-      where: { id, ...eventVisibilityWhere(viewer) },
+      where: { id, ...eventAccessWhere(viewer) },
       select: { organizerId: true, universityId: true, facultyId: true },
     })
     if (!event) throw new AppException('NOT_FOUND', 'Событие не найдено')
@@ -588,6 +591,14 @@ export class EventsService {
   async remindDue(): Promise<number> {
     const now = new Date()
     const until = new Date(now.getTime() + REMINDER_AHEAD_MIN * 60_000)
+    // Пояс вуза — один запрос на вуз за прогон, а не на событие.
+    const zoneCache = new Map<string | null, string | null>()
+    const zones = async (universityId: string | null): Promise<string | null> => {
+      if (!zoneCache.has(universityId)) {
+        zoneCache.set(universityId, await this.timezoneOf(universityId))
+      }
+      return zoneCache.get(universityId) ?? null
+    }
     let total = 0
     let lastId: string | undefined
     for (;;) {
@@ -601,13 +612,22 @@ export class EventsService {
           // (начало перенесли посреди прогона) не читается по кругу.
           ...(lastId ? { id: { gt: lastId } } : {}),
         },
-        select: { id: true, title: true, startsAt: true },
+        select: { id: true, title: true, startsAt: true, updatedAt: true, universityId: true },
         orderBy: { id: 'asc' },
         take: BATCH,
       })
       if (events.length === 0) break
       lastId = events.at(-1)?.id
+      // Отметку получают только события, о которых напоминание поставлено целиком (все
+      // страницы участников): при недоступном Redis отметка без job'а теряла напоминание
+      // навсегда — следующий тик событие уже не выбирал (BACKEND_RULES §9.2).
+      const queued: { id: string; startsAt: Date }[] = []
+      let failed = false
       for (const event of events) {
+        // Время начала по часам вуза: окно ловит и события через десять минут, и «примерно
+        // через час» про них — неправда.
+        const time = eventTimeLabel(event.startsAt, await zones(event.universityId)).slice(11)
+        const reminderKey = `event-reminder:${event.id}:${event.startsAt.getTime()}:${event.updatedAt.getTime()}`
         let cursor: string | undefined
         let page = 0
         for (;;) {
@@ -619,41 +639,56 @@ export class EventsService {
             ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
           })
           if (participants.length === 0) break
-          await this.queue.enqueue(
+          const ok = await this.queue.enqueue(
             QUEUES.NOTIFICATIONS,
             NOTIFICATION_JOBS.EVENT_REMINDER,
             {
               recipientIds: participants.map((p) => p.userId),
               type: 'EVENT',
               titleKey: 'events.reminder.title',
-              bodyKey: 'events.reminder.body',
-              params: { title: event.title },
+              bodyKey: 'events.reminder.bodyAt',
+              params: { title: event.title, time },
               // Карточка события, а не общий список: в напоминании речь об одном событии.
               data: { eventId: event.id, url: `/events/${event.id}` },
-              // dedupeKey один на событие и его время начала: повторная доставка отсекается по
-              // (пользователь, ключ), а перенесённое событие напоминает о себе заново. jobId
-              // разный — иначе BullMQ отбросил бы все страницы кроме первой.
-              dedupeKey: `event-reminder:${event.id}:${event.startsAt.getTime()}`,
+              // dedupeKey один на версию события (время начала и момент последней правки):
+              // повторная доставка отсекается по (пользователь, ключ), а перенесённое событие
+              // напоминает о себе заново — и при переносе обратно на уже напомненное время.
+              // jobId разный — иначе BullMQ отбросил бы все страницы кроме первой.
+              dedupeKey: reminderKey,
             },
-            { jobId: `event-reminder:${event.id}:${event.startsAt.getTime()}:${page}` },
+            { jobId: `${reminderKey}:${page}` },
           )
+          if (!ok) {
+            failed = true
+            break
+          }
           if (participants.length < PARTICIPANTS_BATCH) break
           cursor = participants.at(-1)?.id
           page += 1
         }
+        // Очередь недоступна — дальше не идём: остальные события (и это, с начала)
+        // подхватит следующий тик, повтор страниц отсечёт dedupeKey.
+        if (failed) break
+        queued.push({ id: event.id, startsAt: event.startsAt })
         total += 1
       }
       // Помечаем отправленными сразу (дедуп на уровне записи + dedupeKey job'а) — но только ту
       // версию события, о которой напомнили. Если начало успели перенести посреди прогона,
       // update уже сбросил reminderSentAt: отметка не ляжет, и следующий тик напомнит о новом
       // времени под новым dedupeKey, а не проглотит его чужой отметкой.
-      await this.prisma.event.updateMany({
-        where: {
-          reminderSentAt: null,
-          OR: events.map((e) => ({ id: e.id, startsAt: e.startsAt })),
-        },
-        data: { reminderSentAt: new Date() },
-      })
+      if (queued.length > 0) {
+        await this.prisma.event.updateMany({
+          where: {
+            reminderSentAt: null,
+            OR: queued.map((e) => ({ id: e.id, startsAt: e.startsAt })),
+          },
+          data: { reminderSentAt: new Date() },
+        })
+      }
+      if (failed) {
+        this.logger.warn('scheduleEventReminders: очередь недоступна — остаток на следующий тик')
+        break
+      }
       if (events.length < BATCH) break
     }
     if (total > 0) this.logger.log(`scheduleEventReminders: обработано событий ${total}`)
@@ -665,7 +700,7 @@ export class EventsService {
   /** Событие видно зрителю — иначе NOT_FOUND (не раскрываем существование чужих событий). */
   private async assertVisible(viewer: JwtPayload, id: string): Promise<void> {
     const event = await this.prisma.event.findFirst({
-      where: { id, ...eventVisibilityWhere(viewer) },
+      where: { id, ...eventAccessWhere(viewer) },
       select: { id: true },
     })
     if (!event) throw new AppException('NOT_FOUND', 'Событие не найдено')
@@ -743,7 +778,10 @@ export class EventsService {
     }
   }
 
-  /** Часовой пояс вуза события — время в тексте уведомления. Событие платформы — UTC. */
+  /**
+   * Часовой пояс вуза события — время в тексте уведомления. У события платформы вуза нет, а
+   * участники из разных вузов: время уходит в UTC с пометкой (eventTimeLabel).
+   */
   private async timezoneOf(universityId: string | null): Promise<string | null> {
     if (!universityId) return null
     const university = await this.prisma.university.findUnique({
@@ -874,6 +912,15 @@ function toCommentView(viewer: JwtPayload, event: EventScope, row: CommentListRo
     author.id === viewer.sub ||
     canModerateEventComment(viewer, event, { role: role as Role, universityId, facultyId })
   return { ...row, author, canDelete }
+}
+
+/**
+ * Время события для текста уведомления — по часам вуза. Без пояса (событие платформы, вуз не
+ * указал пояс) — UTC с пометкой: голые «10:00» читались по своим часам и врали на пять часов.
+ */
+function eventTimeLabel(date: Date, timezone: string | null): string {
+  const label = localDateTimeLabel(date, timezone)
+  return timezone ? label : `${label} UTC`
 }
 
 /** Конец события: указанный или начало + длительность по умолчанию. */

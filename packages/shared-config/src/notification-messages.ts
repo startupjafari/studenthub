@@ -99,6 +99,10 @@ const RU = {
 
   'events.reminder.title': 'Скоро событие',
   'events.reminder.body': '«{title}» начнётся примерно через час',
+  // Время начала, а не «через час»: окно напоминаний (now, now+70м] ловит и события через
+  // десять минут — созданные или перенесённые поздно, пропущенный тик крона. Прежний
+  // `events.reminder.body` остаётся для уже сохранённых уведомлений.
+  'events.reminder.bodyAt': '«{title}» начнётся в {time}',
   // Участникам: организатор перенёс или отменил событие.
   'events.rescheduled.title': 'Событие перенесено',
   'events.rescheduled.body': '«{title}»: новое время — {date}',
@@ -246,6 +250,7 @@ const KK: Record<NotificationMessageKey, string> = {
 
   'events.reminder.title': 'Жақында іс-шара',
   'events.reminder.body': '«{title}» шамамен бір сағаттан кейін басталады',
+  'events.reminder.bodyAt': '«{title}» {time} басталады',
   'events.rescheduled.title': 'Іс-шара ауыстырылды',
   'events.rescheduled.body': '«{title}»: жаңа уақыты — {date}',
   'events.cancelled.title': 'Іс-шара тоқтатылды',
@@ -380,6 +385,7 @@ const EN: Record<NotificationMessageKey, string> = {
 
   'events.reminder.title': 'Event starting soon',
   'events.reminder.body': '“{title}” starts in about an hour',
+  'events.reminder.bodyAt': '“{title}” starts at {time}',
   'events.rescheduled.title': 'Event rescheduled',
   'events.rescheduled.body': '“{title}”: new time — {date}',
   'events.cancelled.title': 'Event cancelled',

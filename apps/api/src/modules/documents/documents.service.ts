@@ -1664,13 +1664,14 @@ export class DocumentsService {
         take: 500,
       })
       if (batch.length === 0) break
-      await this.prisma.document.updateMany({
-        where: { id: { in: batch.map((b) => b.id) } },
-        data: { status: nextStatus },
-      })
+      // Сначала уведомление, потом статус — и только тем, о ком уведомление поставлено.
+      // Статус «скоро истекает / истёк» и есть отметка «предупредили»: следующий прогон такие
+      // документы уже не выбирает, и при недоступном Redis владелец не узнал бы о сроке
+      // никогда. Не поставилось — останавливаемся, остаток подхватит следующий прогон.
+      const queued: typeof batch = []
+      let failed = false
       for (const doc of batch) {
-        await this.logEvent(doc.ownerId, doc.id, nextStatus === 'EXPIRED' ? 'EXPIRE' : 'EXPIRING')
-        await this.queue.enqueue(
+        const ok = await this.queue.enqueue(
           QUEUES.NOTIFICATIONS,
           jobName,
           {
@@ -1684,8 +1685,28 @@ export class DocumentsService {
           },
           { jobId: `${dedupePrefix}:${doc.id}` },
         )
+        if (!ok) {
+          failed = true
+          break
+        }
+        queued.push(doc)
       }
-      total += batch.length
+      if (queued.length > 0) {
+        await this.prisma.document.updateMany({
+          where: { id: { in: queued.map((b) => b.id) } },
+          data: { status: nextStatus },
+        })
+        for (const doc of queued) {
+          await this.logEvent(doc.ownerId, doc.id, nextStatus === 'EXPIRED' ? 'EXPIRE' : 'EXPIRING')
+        }
+      }
+      total += queued.length
+      if (failed) {
+        this.logger.warn(
+          `sweepExpiry: очередь недоступна — ${nextStatus} отложен до следующего прогона`,
+        )
+        break
+      }
       if (batch.length < 500) break
     }
     return total

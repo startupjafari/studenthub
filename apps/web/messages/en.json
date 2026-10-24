@@ -1185,6 +1185,7 @@
     "completionTitle": "Profile completeness",
     "share": "Share",
     "writeMessage": "Message",
+    "report": "Report",
     "shareTitle": "Profile on StudentHub",
     "linkCopied": "Profile link copied",
     "shareFailed": "Could not copy the link",
@@ -2003,6 +2004,7 @@
     "removeOption": "Remove option",
     "pollIncomplete": "Fill in the question and at least two different options",
     "delete": "Delete story",
+    "report": "Report",
     "confirmDelete": "Delete this story?",
     "viewers": "Views",
     "noViewers": "No one has watched yet",
@@ -2018,6 +2020,7 @@
     "yesterday": "Yesterday",
     "scrollToBottom": "Scroll to bottom",
     "select": "Select",
+    "report": "Report",
     "selectedCount": "Selected: {count}",
     "deleteSelectedConfirm": "Delete selected messages ({count})?",
     "deleteOthersSkipped": "Other people's messages can't be deleted — they stay in the chat",
@@ -2437,7 +2440,8 @@
     "saveChanges": "Save",
     "updated": "Event updated",
     "meetingKeepHint": "Leave the field empty to keep the current link",
-    "rescheduleNotice": "If you change the start time, participants will be notified"
+    "rescheduleNotice": "If you change the start time, participants will be notified",
+    "showMore": "Show more"
   },
   "Moderation": {
     "complaintsTitle": "Complaints",
@@ -2459,6 +2463,7 @@
     "reporter": "Reporter",
     "resolution": "Resolution",
     "showChat": "Show chat",
+    "chatModeratorsOnly": "Moderators read the conversation for a report: university admins only have access to official chats.",
     "hideChat": "Hide chat",
     "loadingChat": "Loading…",
     "commentPlaceholder": "Resolution comment (optional)",
@@ -2483,6 +2488,10 @@
     "detailTitle": "Complaint",
     "resolvedBy": "Handled by",
     "chatTitle": "Conversation",
+    "targetContentTitle": "What was reported",
+    "targetContentDeleted": "The author already deleted this — the text is kept for review.",
+    "targetContentMedia": "Attachments: {count}",
+    "targetContentGone": "The content is unavailable — it was already taken down.",
     "commentLabel": "Resolution comment",
     "chatUnavailable": "Conversation unavailable: the message was deleted or not found",
     "chatEmpty": "No messages in the conversation",
@@ -2521,6 +2530,7 @@
     "notTaken": "Nobody",
     "warnUser": "Warn",
     "confirmWarn": "Warn the author? They'll get a notification and it stays in the moderation history.",
+    "confirmDeleteContent": "Delete the content? It disappears for everyone and can't be restored from moderation.",
     "blockTerm": "Block duration",
     "blockForever": "Permanent",
     "blockWeek": "Week",
@@ -5178,6 +5188,7 @@
     "mergeWith": "Merge with request from…",
     "merge": "Merge",
     "merged": "Requests merged",
+    "mergeConflict": "One of the requests is already merged into another — refresh the window",
     "escalate": "Escalate to admin",
     "confirmEscalate": "Escalate to admins? They'll be notified immediately, bypassing duty and quiet hours.",
     "escalated": "Admins notified",
@@ -5190,7 +5201,8 @@
     "complaintSubmit": "Send to moderation",
     "confirmComplaint": "Send a complaint about {name} to moderation? The requester becomes its author, and their first message becomes its text.",
     "complaintCreated": "Complaint sent to moderation",
-    "complaintDuplicate": "The requester already has a pending complaint about this person"
+    "complaintDuplicate": "The requester already has a pending complaint about this person",
+    "showEarlier": "Show earlier messages"
   },
   "LibraryReader": {
     "title": "Library",

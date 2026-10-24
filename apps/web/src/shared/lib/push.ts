@@ -67,6 +67,17 @@ export async function subscribeToPush(): Promise<boolean> {
   return true
 }
 
+/**
+ * Подписан ли ЭТОТ браузер на push. Тумблер «Push в браузере» — про браузер, а не про
+ * аккаунт: общий флаг `pushEnabled` выключал пуши и на телефонах.
+ */
+export async function hasPushSubscription(): Promise<boolean> {
+  if (!pushSupported()) return false
+  // getRegistration, а не `ready`: без зарегистрированного SW `ready` не разрешается никогда.
+  const reg = await navigator.serviceWorker.getRegistration()
+  return !!(await reg?.pushManager.getSubscription())
+}
+
 /** Отписать браузер: снимаем подписку у push-сервиса и удаляем её на бэкенде. */
 export async function unsubscribeFromPush(): Promise<void> {
   if (!pushSupported()) return

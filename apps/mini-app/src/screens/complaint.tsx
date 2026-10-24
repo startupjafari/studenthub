@@ -306,6 +306,36 @@ export function ComplaintScreen({
         <PersonSummary userId={complaint.targetOwnerId} title={t('complaintOffender')} />
       )}
 
+      {/* Что именно обжаловано: без текста цели контент снимали вслепую. У жалобы на
+          сообщение вместо этого — переписка ниже, у жалобы на человека — его карточка. */}
+      {complaint.targetType !== 'MESSAGE' && complaint.targetType !== 'USER' && (
+        <section className="card">
+          <h2>{t('complaintTargetTitle')}</h2>
+          {complaint.targetPreview ? (
+            <>
+              {complaint.targetPreview.deleted && (
+                <p className="hint">{t('complaintTargetDeleted')}</p>
+              )}
+              {complaint.targetPreview.title && (
+                <p>
+                  <b>{complaint.targetPreview.title}</b>
+                </p>
+              )}
+              {complaint.targetPreview.text && (
+                <p className="quote">{complaint.targetPreview.text}</p>
+              )}
+              {complaint.targetPreview.mediaCount > 0 && (
+                <p className="hint">
+                  {t('complaintTargetMedia', { count: complaint.targetPreview.mediaCount })}
+                </p>
+              )}
+            </>
+          ) : (
+            <p className="hint">{t('complaintTargetGone')}</p>
+          )}
+        </section>
+      )}
+
       {complaint.targetType === 'MESSAGE' && (
         <section className="card">
           <h2>{t('complaintContextTitle')}</h2>

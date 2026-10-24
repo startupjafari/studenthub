@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
-import { ChevronLeft, ChevronRight, Eye, ExternalLink, Trash2, X } from 'lucide-react'
+import { ChevronLeft, ChevronRight, Eye, ExternalLink, Flag, Trash2, X } from 'lucide-react'
+import { canFileComplaint } from '@studenthub/shared-schemas'
 import { pickSource, srcSetOf, useBackClose, useBodyScrollLock, useHls } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 import {
@@ -26,6 +27,8 @@ import {
   type StoryCard,
   type StoryRing,
 } from '../../../entities/story'
+import { useAppSelector } from '../../../shared/store'
+import { ReportModal } from '../../../features/report-content'
 import { StoryViewersSheet } from './story-viewers-sheet'
 
 // Сколько держится кадр без своего таймера (текст и фото). У видео длительность своя.
@@ -79,6 +82,10 @@ export function StoryViewer({
   const [progress, setProgress] = useState(0)
   const [paused, setPaused] = useState(false)
   const [viewersOpen, setViewersOpen] = useState(false)
+  // Жалоба на сторис (§3.4) — тем, чью жалобу сервер примет; кадр на это время стоит.
+  const [reporting, setReporting] = useState<StoryCard | null>(null)
+  const myId = useAppSelector((s) => s.auth.user?.id)
+  const canReport = canFileComplaint(useAppSelector((s) => s.auth.role))
   // Локальные правки поверх серверной выдачи: голос и реакция должны быть видны сразу,
   // а перезапрашивать всю ленту колец ради одного кадра незачем.
   const [patched, setPatched] = useState<Record<string, StoryCard>>({})
@@ -151,7 +158,7 @@ export function StoryViewer({
   const isVideo = story?.media?.mime.startsWith('video/') ?? false
   const waitingImage = !!story?.media && !isVideo && !imageReady
   useEffect(() => {
-    if (!story || paused || viewersOpen || isVideo || waitingImage) return
+    if (!story || paused || viewersOpen || reporting || isVideo || waitingImage) return
     const step = 50
     const timer = setInterval(() => {
       setProgress((value) => {
@@ -165,10 +172,13 @@ export function StoryViewer({
       })
     }, step)
     return () => clearInterval(timer)
-  }, [goNext, isVideo, paused, story, viewersOpen, waitingImage])
+  }, [goNext, isVideo, paused, reporting, story, viewersOpen, waitingImage])
 
   // Клавиатура: листание стрелками, пробел — пауза, Esc закрывает (useBackClose).
+  // Пока открыта жалоба, клавиатура её: пробел и стрелки нужны полю пояснения.
+  const reportOpen = reporting !== null
   useEffect(() => {
+    if (reportOpen) return
     function onKey(e: KeyboardEvent): void {
       if (e.key === 'ArrowRight') goNext()
       if (e.key === 'ArrowLeft') goPrev()
@@ -179,7 +189,7 @@ export function StoryViewer({
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [goNext, goPrev])
+  }, [goNext, goPrev, reportOpen])
 
   const vote = useMutation({
     mutationFn: ({ id, optionId }: { id: string; optionId: string }) =>
@@ -246,6 +256,19 @@ export function StoryViewer({
           <span className="min-w-0 flex-1 truncate text-sm font-medium">
             {story.author.firstName} {story.author.lastName}
           </span>
+          {canReport && story.author.id !== myId && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              icon
+              aria-label={t('report')}
+              className="text-white hover:bg-white/15 hover:text-white"
+              onClick={() => setReporting(story)}
+            >
+              <Flag className="size-4" aria-hidden />
+            </Button>
+          )}
           {story.canDelete && (
             <Button
               type="button"
@@ -459,6 +482,14 @@ export function StoryViewer({
 
       {viewersOpen && (
         <StoryViewersSheet storyId={story.id} onClose={() => setViewersOpen(false)} />
+      )}
+      {reporting && (
+        <ReportModal
+          targetType="STORY"
+          targetId={reporting.id}
+          preview={reporting.text ?? undefined}
+          onClose={() => setReporting(null)}
+        />
       )}
     </div>,
     document.body,

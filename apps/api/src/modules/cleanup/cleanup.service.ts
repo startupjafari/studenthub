@@ -360,12 +360,23 @@ export class CleanupService {
         take: BATCH_SIZE,
       })
       if (batch.length === 0) break
-      const ids = batch.map((row) => row.id)
+      let ids = batch.map((row) => row.id)
+      // Условие срока — и в самой записи: блокировку, продлённую между выборкой и записью
+      // (новая жалоба, бессрочная поверх срочной), крон снимать не должен.
       const { count } = await this.prisma.user.updateMany({
-        where: { id: { in: ids } },
+        where: { id: { in: ids }, isBlocked: true, blockedUntil: { lte: now } },
         data: { isBlocked: false, blockedUntil: null },
       })
       total += count
+      if (count < ids.length) {
+        const kept = await this.prisma.user.findMany({
+          where: { id: { in: ids }, isBlocked: true },
+          select: { id: true },
+          take: ids.length,
+        })
+        const keptIds = new Set(kept.map((row) => row.id))
+        ids = ids.filter((id) => !keptIds.has(id))
+      }
       // Снятие блокировки — событие того же веса, что и сама блокировка: без записи в
       // журнале человек «разблокировался сам», и через месяц никто не объяснит, почему.
       for (const id of ids) {

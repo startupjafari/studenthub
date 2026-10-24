@@ -389,6 +389,9 @@ export class SupportService implements OnModuleInit {
         assignees.get(row.supportAssigneeId ?? '') ?? null,
       ),
       messages: all,
+      // Переписка — последние 50 сообщений; длинную ветку клиент дочитывает обычной историей
+      // чата (`GET /chats/:id/messages?cursor=`) от этого курсора. null — раньше ничего нет.
+      earlierCursor: messages.meta.hasNext ? (messages.meta.cursor ?? null) : null,
       mergedCount: merged.length,
       siblings: siblings.map((item) => ({
         id: item.id,

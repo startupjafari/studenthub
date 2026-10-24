@@ -8,6 +8,8 @@ import type { AuditService } from '../../common/audit/audit.service'
 import type { QueueService } from '../../common/queue'
 import type { UserService } from '../users/users.service'
 import type { StoriesService } from '../stories/stories.service'
+import type { RealtimeGateway } from '../../common/realtime'
+import type { PostsService } from '../posts/posts.service'
 import type { TelegramNotifyService } from '../../common/telegram/telegram-notify.service'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import { AppException } from '../../common/exceptions/app.exception'
@@ -28,9 +30,10 @@ function setup() {
       // Разные авторы жалоб на цель (getById).
       groupBy: jest.fn().mockResolvedValue([]),
     },
-    post: { findFirst: jest.fn(), updateMany: jest.fn() },
-    story: { findFirst: jest.fn() },
-    comment: { findFirst: jest.fn(), updateMany: jest.fn() },
+    // findUnique — текст цели для карточки разбора (getById → targetPreview).
+    post: { findFirst: jest.fn(), findUnique: jest.fn(), updateMany: jest.fn() },
+    story: { findFirst: jest.fn(), findUnique: jest.fn() },
+    comment: { findFirst: jest.fn(), findUnique: jest.fn(), updateMany: jest.fn() },
     chatMember: { findFirst: jest.fn().mockResolvedValue({ id: 'member' }) },
     message: {
       findFirst: jest.fn(),
@@ -58,7 +61,13 @@ function setup() {
   }
   const telegram = { notifyStaff: jest.fn().mockResolvedValue(undefined) }
   // Сторис сносит владелец домена: мягкого удаления у неё нет (Ф14.1).
-  const stories = { removeByModeration: jest.fn().mockResolvedValue(undefined) }
+  const stories = {
+    removeByModeration: jest.fn().mockResolvedValue(undefined),
+    assertVisibleToViewer: jest.fn().mockResolvedValue(undefined),
+  }
+  const realtime = { emitToRoom: jest.fn() }
+  // Видимость цели автору жалобы — правило владельца домена постов.
+  const posts = { assertVisibleToViewer: jest.fn().mockResolvedValue(undefined) }
   const service = new ComplaintsService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
@@ -66,8 +75,10 @@ function setup() {
     users as unknown as UserService,
     telegram as unknown as TelegramNotifyService,
     stories as unknown as StoriesService,
+    realtime as unknown as RealtimeGateway,
+    posts as unknown as PostsService,
   )
-  return { service, prisma, audit, queue, users, telegram, stories }
+  return { service, prisma, audit, queue, users, telegram, stories, realtime, posts }
 }
 
 const user = (role: Role, scope: Partial<JwtPayload> = {}): JwtPayload => ({
@@ -132,6 +143,55 @@ describe('ComplaintsService.create (11.2)', () => {
         data: expect.objectContaining({ universityId: 'uni1', targetType: 'POST' }),
       }),
     )
+  })
+})
+
+// Невидимое автору жалобы — то же, что несуществующее: жалоба не подтверждает чужой id.
+describe('ComplaintsService.create — видимость цели', () => {
+  it('пост вне видимости → NOT_FOUND, жалоба не создаётся', async () => {
+    const { service, prisma, posts } = setup()
+    prisma.post.findFirst.mockResolvedValue({
+      authorId: 'a1',
+      universityId: 'uni1',
+      author: { universityId: 'uni1' },
+    })
+    posts.assertVisibleToViewer.mockRejectedValue(new AppException('NOT_FOUND', 'Пост не найден'))
+    const err = await service
+      .create(user(Role.STUDENT), { targetType: 'POST', targetId: 'p1', reason: 'x' }, ctx)
+      .catch((e) => e)
+    expect(err.code).toBe('NOT_FOUND')
+    expect(err.message).toBe('Пост не найден')
+    expect(prisma.complaint.create).not.toHaveBeenCalled()
+  })
+
+  it('комментарий к невидимому посту → NOT_FOUND про комментарий', async () => {
+    const { service, prisma, posts } = setup()
+    prisma.comment.findFirst
+      .mockResolvedValueOnce({ authorId: 'a1', author: { universityId: 'uni1' } })
+      .mockResolvedValueOnce({ postId: 'p9' })
+    posts.assertVisibleToViewer.mockRejectedValue(new AppException('NOT_FOUND', 'Пост не найден'))
+    const err = await service
+      .create(user(Role.STUDENT), { targetType: 'COMMENT', targetId: 'cm1', reason: 'x' }, ctx)
+      .catch((e) => e)
+    expect(posts.assertVisibleToViewer).toHaveBeenCalledWith(expect.anything(), 'p9')
+    expect(err.message).toBe('Комментарий не найден')
+  })
+
+  it('сторис вне видимости → NOT_FOUND', async () => {
+    const { service, prisma, stories } = setup()
+    prisma.story.findFirst.mockResolvedValue({
+      authorId: 'a1',
+      universityId: 'uni1',
+      author: { universityId: 'uni1' },
+    })
+    stories.assertVisibleToViewer.mockRejectedValue(
+      new AppException('NOT_FOUND', 'Сторис не найдена'),
+    )
+    const err = await service
+      .create(user(Role.STUDENT), { targetType: 'STORY', targetId: 's1', reason: 'x' }, ctx)
+      .catch((e) => e)
+    expect(err.code).toBe('NOT_FOUND')
+    expect(prisma.complaint.create).not.toHaveBeenCalled()
   })
 })
 
@@ -263,6 +323,32 @@ describe('ComplaintsService — scope очереди (11.3)', () => {
     expect(card.targetOwnerId).toBeNull()
   })
 
+  // Разбор по содержимому: без текста цели модератор снимал контент вслепую.
+  it('отдаёт текст обжалованного поста, и удалённого автором тоже', async () => {
+    const { service, prisma } = setup()
+    prisma.complaint.findUnique.mockResolvedValue(complaint())
+    prisma.post.findUnique.mockResolvedValue({
+      title: 'Заголовок',
+      content: 'текст поста',
+      deletedAt: new Date(),
+      _count: { media: 2 },
+    })
+    const card = await service.getById(user(Role.PLATFORM_ADMIN), 'c1')
+    expect(card.targetPreview).toEqual({
+      title: 'Заголовок',
+      text: 'текст поста',
+      mediaCount: 2,
+      deleted: true,
+    })
+  })
+
+  it('у жалобы на человека превью нет', async () => {
+    const { service, prisma } = setup()
+    prisma.complaint.findUnique.mockResolvedValue(complaint({ targetType: 'USER' }))
+    const card = await service.getById(user(Role.PLATFORM_ADMIN), 'c1')
+    expect(card.targetPreview).toBeNull()
+  })
+
   it('жалоба чужого вуза → WRONG_SCOPE', async () => {
     const { service, prisma } = setup()
     prisma.complaint.findUnique.mockResolvedValue(complaint({ universityId: 'uniX' }))
@@ -295,7 +381,7 @@ describe('ComplaintsService.resolve (11.4)', () => {
     })
 
     await service.resolve(admin, 'c1', { action: 'WARN_USER' }, ctx)
-    expect(users.warn).toHaveBeenCalledWith(admin, 'author1', 'c1')
+    expect(users.warn).toHaveBeenCalledWith(admin, 'author1', 'c1', ctx)
     expect(users.setBlocked).not.toHaveBeenCalled()
     expect(prisma.complaint.updateMany.mock.calls[0][0].data.status).toBe('RESOLVED')
   })
@@ -342,6 +428,23 @@ describe('ComplaintsService.resolve (11.4)', () => {
     expect(prisma.complaint.updateMany.mock.calls[0][0].data.status).toBe('RESOLVED')
   })
 
+  // Участники чата видят снятие сразу — тем же событием, что и удаление автором.
+  it('DELETE_CONTENT (сообщение) → message:deleted в комнату чата', async () => {
+    const { service, prisma, realtime } = setup()
+    prisma.complaint.findUnique.mockResolvedValue(
+      complaint({ targetType: 'MESSAGE', targetId: 'm1' }),
+    )
+    prisma.message.findUnique.mockResolvedValue({ chatId: 'chat1' })
+    await service.resolve(admin, 'c1', { action: 'DELETE_CONTENT' }, ctx)
+    expect(prisma.message.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'm1' } }),
+    )
+    expect(realtime.emitToRoom).toHaveBeenCalledWith('chat:chat1', 'message:deleted', {
+      messageId: 'm1',
+      chatId: 'chat1',
+    })
+  })
+
   it('DELETE_CONTENT на USER → BAD_REQUEST', async () => {
     const { service, prisma } = setup()
     prisma.complaint.findUnique.mockResolvedValue(complaint({ targetType: 'USER', targetId: 'u9' }))
@@ -360,8 +463,12 @@ describe('ComplaintsService.resolve (11.4)', () => {
       author: { universityId: 'uni1' },
     })
     await service.resolve(admin, 'c1', { action: 'BLOCK_USER' }, ctx)
-    // Четвёртый аргумент — срок: без него блокировка бессрочная, как была до сроков.
-    expect(users.setBlocked).toHaveBeenCalledWith(admin, 'a1', true, null)
+    // Четвёртый аргумент — срок: без него блокировка бессрочная, как была до сроков. Пятый —
+    // откуда мера: IP, user-agent и жалоба уходят в журнал блокировки (§11.4).
+    expect(users.setBlocked).toHaveBeenCalledWith(admin, 'a1', true, null, {
+      ...ctx,
+      complaintId: 'c1',
+    })
   })
 
   it('уже обработанную нельзя разрешить повторно → CONFLICT', async () => {
@@ -469,6 +576,13 @@ describe('COMPLAINT_REPORTER_ROLES', () => {
   it('guard POST /complaints построен из того же списка', () => {
     const roles = Reflect.getMetadata(ROLES_KEY, ComplaintsController.prototype.create) as Role[]
     expect([...roles].sort()).toEqual([...COMPLAINT_REPORTER_ROLES].sort())
+  })
+
+  // Матрица §2.2: «Личные чаты» админу вуза — только официальные, по жалобе — модераторам.
+  it('переписку по жалобе админ вуза не читает', () => {
+    const roles = Reflect.getMetadata(ROLES_KEY, ComplaintsController.prototype.messages) as Role[]
+    expect(roles).not.toContain(Role.UNIVERSITY_ADMIN)
+    expect(roles).toContain(Role.UNIVERSITY_MODERATOR)
   })
 })
 
@@ -790,15 +904,19 @@ describe('ComplaintsService.take', () => {
   const admin = user(Role.PLATFORM_ADMIN)
 
   it('ставит REVIEWING и запоминает, кто взял', async () => {
-    const { service, prisma } = setup()
+    const { service, prisma, audit } = setup()
     prisma.complaint.findUnique.mockResolvedValue(complaint())
-    await expect(service.take(admin, 'c1')).resolves.toEqual({ takenBy: 'u1' })
+    await expect(service.take(admin, 'c1', ctx)).resolves.toEqual({ takenBy: 'u1' })
     // Статус — в условии записи: решение, успевшее между чтением и записью, не
     // возвращается в REVIEWING.
     expect(prisma.complaint.updateMany).toHaveBeenCalledWith({
       where: { id: 'c1', reviewingById: null, status: { in: ['PENDING', 'REVIEWING'] } },
       data: { reviewingById: 'u1', status: 'REVIEWING' },
     })
+    // «Взял» — действие модератора, в журнале с IP и user-agent, как решение (§11.4).
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'complaint_taken', ip: ctx.ip, userAgent: ctx.userAgent }),
+    )
   })
 
   // Условие `reviewingById: null` стоит в самом запросе: два одновременных «беру» не
@@ -810,6 +928,15 @@ describe('ComplaintsService.take', () => {
     const err = await service.take(admin, 'c1').catch((e) => e)
     expect(err).toBeInstanceOf(AppException)
     expect(err.code).toBe('CONFLICT')
+  })
+
+  it('повторное «беру» своей жалобы — не ошибка и без второй записи', async () => {
+    const { service, prisma } = setup()
+    prisma.complaint.findUnique.mockResolvedValue(
+      complaint({ status: 'REVIEWING', reviewingBy: { id: 'u1', firstName: 'A', lastName: 'B' } }),
+    )
+    await expect(service.take(admin, 'c1')).resolves.toEqual({ takenBy: 'u1' })
+    expect(prisma.complaint.updateMany).not.toHaveBeenCalled()
   })
 
   it('разобранную жалобу брать нечего', async () => {

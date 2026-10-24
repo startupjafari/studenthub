@@ -51,6 +51,13 @@ export interface EventParticipant {
   user: EventOrganizer
 }
 
+/** Страница участников по порядку регистрации; `cursor` — по нему просят следующую. */
+export interface EventParticipantsPage {
+  items: EventParticipant[]
+  cursor?: string
+  hasNext: boolean
+}
+
 export interface EventComment {
   id: string
   content: string

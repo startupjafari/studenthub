@@ -114,6 +114,7 @@ import {
   useSeasonMotionEnabled,
 } from '../../../shared/lib'
 import {
+  hasPushSubscription,
   subscribeToPush,
   unsubscribeFromPush,
   pushAvailability,
@@ -135,6 +136,10 @@ const SESSION_REVOKE_ROLES: Role[] = [
   Role.UNIVERSITY_ADMIN,
   Role.UNIVERSITY_MODERATOR,
 ]
+
+// Команда платформы и есть поддержка: обращение от неё заводилось без автора — в очереди
+// строка без человека, ответить некому.
+const SUPPORT_STAFF_ROLES: Role[] = [Role.PLATFORM_ADMIN, Role.PLATFORM_MODERATOR]
 
 const NAV: { id: string; labelKey: string; icon: LucideIcon }[] = [
   { id: 'personal', labelKey: 'navPersonal', icon: UserRound },
@@ -161,6 +166,10 @@ export function AccountSettingsPanels() {
   const tErr = useTranslations('Errors')
   const me = useQuery({ queryKey: userKeys.me(), queryFn: fetchMe })
   const [tab, setTab] = useState('personal')
+  const myRole = me.data?.role
+  const nav = NAV.filter(
+    (item) => item.id !== 'support' || !myRole || !SUPPORT_STAFF_ROLES.includes(myRole),
+  )
   // На телефоне навигация по блокам — ряд с прокруткой (с `lg` это колонка слева):
   // ряд тянется, у краёв затухает.
   const row = useScrollRow<HTMLElement>()
@@ -179,7 +188,7 @@ export function AccountSettingsPanels() {
         )}
         style={{ maskImage: row.fadeMask, WebkitMaskImage: row.fadeMask }}
       >
-        {NAV.map((item) => {
+        {nav.map((item) => {
           const Icon = item.icon
           const active = tab === item.id
           const danger = item.id === 'danger'
@@ -219,7 +228,9 @@ export function AccountSettingsPanels() {
             {tab === 'appearance' && <AppearanceSection />}
             {tab === 'app' && <AppSection />}
             {tab === 'privacy' && <PrivacySection me={me.data} />}
-            {tab === 'support' && <ContactSupportForm />}
+            {tab === 'support' && nav.some((item) => item.id === 'support') && (
+              <ContactSupportForm />
+            )}
             {tab === 'danger' && <DangerSection me={me.data} />}
           </>
         )}
@@ -814,8 +825,18 @@ function NotificationsSection() {
   // известно только в браузере: считаем после монтирования, иначе разойдётся гидрация.
   const [pushState, setPushState] = useState<PushAvailability>('ok')
   useEffect(() => setPushState(pushAvailability()), [])
+  // Подписан ли этот браузер. Тумблер — про браузер, а не про аккаунт: общий `pushEnabled`
+  // при выключении глушил и телефоны, а включить его обратно с телефона было нечем.
+  const [browserSubscribed, setBrowserSubscribed] = useState(false)
+  useEffect(() => {
+    void hasPushSubscription()
+      .then(setBrowserSubscribed)
+      .catch(() => setBrowserSubscribed(false))
+  }, [])
 
-  // Push (#Ф13.3): включение требует разрешения браузера + подписки SW; выключение — отписки.
+  // Push (#Ф13.3): включение требует разрешения браузера + подписки SW; выключение — отписки
+  // этого браузера. Флаг аккаунта включение поднимает (без него не уйдёт ни один push), а
+  // выключение не трогает: подписки других браузеров и телефоны продолжают получать пуши.
   const setPush = (value: boolean): void => {
     if (value) {
       if (pushState === 'ios-needs-install') {
@@ -827,10 +848,17 @@ function NotificationsSection() {
         return
       }
       void subscribeToPush()
-        .then((ok) => (ok ? set('pushEnabled', true) : toast.error(tS('pushDenied'))))
+        .then((ok) => {
+          if (!ok) {
+            toast.error(tS('pushDenied'))
+            return
+          }
+          setBrowserSubscribed(true)
+          if (!s?.pushEnabled) set('pushEnabled', true)
+        })
         .catch(() => toast.error(tS('pushDenied')))
     } else {
-      void unsubscribeFromPush().finally(() => set('pushEnabled', false))
+      void unsubscribeFromPush().finally(() => setBrowserSubscribed(false))
     }
   }
 
@@ -881,7 +909,7 @@ function NotificationsSection() {
               }
             >
               <ToggleSwitch
-                checked={s.pushEnabled}
+                checked={s.pushEnabled && browserSubscribed}
                 onChange={setPush}
                 disabled={pushState !== 'ok'}
                 label={tS('channelPush')}

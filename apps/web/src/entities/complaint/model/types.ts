@@ -33,6 +33,25 @@ export interface Complaint {
   reviewingBy?: ComplaintUser | null
 }
 
+/** Текст обжалованного поста, комментария или сторис (`GET /complaints/:id`). */
+export interface ComplaintTargetPreview {
+  title: string | null
+  text: string | null
+  mediaCount: number
+  /** Автор удалил цель сам — текст остаётся предметом жалобы. */
+  deleted: boolean
+}
+
+/** Карточка разбора: строка очереди плюс то, что сервер считает только для одной жалобы. */
+export interface ComplaintCard extends Complaint {
+  /** Сколько разных людей жаловались на ту же цель. */
+  targetReports: number
+  /** Кто отвечает за цель; у снесённой — null. */
+  targetOwnerId: string | null
+  /** null — у жалобы на человека или сообщение и у цели, которой больше нет. */
+  targetPreview: ComplaintTargetPreview | null
+}
+
 export interface ComplaintChatMessage {
   id: string
   senderId: string

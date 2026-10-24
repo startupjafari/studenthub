@@ -27,11 +27,12 @@ import {
   eventKeys,
   fetchEvent,
   fetchEventComments,
-  fetchEventParticipants,
+  fetchEventParticipantsPage,
   registerEventRequest,
   MEETING_PROVIDER_NAME,
   type EventCommentsPage,
   type EventItem,
+  type EventParticipantsPage,
 } from '../../../entities/event'
 import { ProfileLink } from '../../../entities/user'
 import { EditEventModal } from '../../../features/create-event'
@@ -119,7 +120,7 @@ export function EventDetailView({ eventId }: { eventId: string }) {
               canModerate={canManage || (role !== null && MODERATOR_ROLES.includes(role))}
             />
           </div>
-          {canManage && <Participants eventId={eventId} />}
+          {canManage && <Participants eventId={eventId} total={event.data._count.participants} />}
         </div>
       )}
 
@@ -135,6 +136,7 @@ function EventInfo({ event }: { event: EventItem }) {
   const tErr = useTranslations('Errors')
   const fmt = useFormatter()
   const qc = useQueryClient()
+  const myId = useAppSelector((s) => s.auth.user?.id)
   const start = new Date(event.startsAt)
   // Завершилось — по концу, а не по началу: к идущему событию ещё подключаются, и сервер
   // принимает регистрацию до его конца.
@@ -215,8 +217,9 @@ function EventInfo({ event }: { event: EventItem }) {
           >
             {event.isRegistered ? t('cancelRegistration') : t('register')}
           </Button>
-          {/* Ссылку сервер отдаёт только участникам — кнопку остальным не показываем. */}
-          {event.isRegistered && event.meetingProvider && (
+          {/* Ссылку сервер отдаёт участникам и организатору — остальным кнопку не показываем.
+              Организатору регистрация не нужна: встречу ведёт он. */}
+          {(event.isRegistered || event.organizerId === myId) && event.meetingProvider && (
             <JoinMeetingButton eventId={event.id} provider={event.meetingProvider} />
           )}
         </div>
@@ -226,32 +229,56 @@ function EventInfo({ event }: { event: EventItem }) {
 }
 
 // Участники — только организатору и админам scope: это список людей, а не публичная часть.
-function Participants({ eventId }: { eventId: string }) {
+// Страницами по порядку регистрации: прежний ответ одним массивом обрезался на тысяче.
+function Participants({ eventId, total }: { eventId: string; total: number }) {
   const t = useTranslations('Events')
-  const participants = useQuery({
+  const participants = useInfiniteQuery({
     queryKey: eventKeys.participants(eventId),
-    queryFn: () => fetchEventParticipants(eventId),
+    queryFn: ({ pageParam }: { pageParam: string | undefined }) =>
+      fetchEventParticipantsPage(eventId, pageParam),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last: EventParticipantsPage) => (last.hasNext ? last.cursor : undefined),
     retry: false,
   })
   // 403 у админа чужого scope — не ошибка экрана: блок просто не нужен.
   if (participants.isError) return null
+  const items = participants.data?.pages.flatMap((page) => page.items) ?? []
 
   return (
     <Card className="flex h-fit flex-col gap-3 p-4">
-      <h2 className="text-sm font-semibold">{t('participants')}</h2>
+      <h2 className="flex items-baseline gap-2 text-sm font-semibold">
+        {t('participants')}
+        {total > 0 && (
+          <span className="text-xs font-normal text-muted-foreground tabular-nums">{total}</span>
+        )}
+      </h2>
       {participants.isLoading ? (
         <Skeleton className="h-24 w-full rounded-lg" />
-      ) : (participants.data ?? []).length === 0 ? (
+      ) : items.length === 0 ? (
         <p className="text-sm text-muted-foreground">{t('noParticipants')}</p>
       ) : (
         <ul className="flex max-h-96 flex-col gap-1.5 overflow-y-auto">
-          {(participants.data ?? []).map((p) => (
+          {items.map((p) => (
             <li key={p.userId} className="text-sm">
               <ProfileLink userId={p.userId} className="hover:underline">
                 {p.user.lastName} {p.user.firstName}
               </ProfileLink>
             </li>
           ))}
+          {participants.hasNextPage && (
+            <li>
+              <Button
+                type="button"
+                variant="link"
+                size="sm"
+                className="h-auto px-0"
+                loading={participants.isFetchingNextPage}
+                onClick={() => void participants.fetchNextPage()}
+              >
+                {t('showMore')}
+              </Button>
+            </li>
+          )}
         </ul>
       )}
     </Card>

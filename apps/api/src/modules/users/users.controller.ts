@@ -383,11 +383,15 @@ export class UsersController {
     // Без `| undefined`: объединение уходило в метаданные как Object, и срок (1–365 дней)
     // не проверялся вовсе. Запрос без тела (веб) схема превращает в {} — `.default({})`.
     @Body() dto: BlockUserDto,
+    @Req() req: FastifyRequest,
   ): Promise<null> {
     // Со сроком блокировка снимется сама, без него — бессрочная, как была. Считаем срок
     // от момента блокировки: «на три дня», выданное вечером, кончается вечером через три дня.
     const until = dto.blockDays ? new Date(Date.now() + dto.blockDays * 24 * 60 * 60 * 1000) : null
-    await this.users.setBlocked(user, id, true, until)
+    await this.users.setBlocked(user, id, true, until, {
+      ip: req.ip,
+      userAgent: req.headers['user-agent'],
+    })
     return null
   }
 
@@ -456,8 +460,15 @@ export class UsersController {
   )
   @MiniAllowed()
   @ApiOperation({ summary: 'Разблокировать пользователя (в своём scope)' })
-  async unblock(@CurrentUser() user: CurrentUserData, @Param('id') id: string): Promise<null> {
-    await this.users.setBlocked(user, id, false)
+  async unblock(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Req() req: FastifyRequest,
+  ): Promise<null> {
+    await this.users.setBlocked(user, id, false, null, {
+      ip: req.ip,
+      userAgent: req.headers['user-agent'],
+    })
     return null
   }
 }

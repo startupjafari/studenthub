@@ -1295,6 +1295,67 @@ describe('UserService — временная блокировка', () => {
     })
   })
 
+  // Новая мера действующую только продлевает: недельная блокировка по свежей жалобе не
+  // должна выпускать через семь дней человека, заблокированного навсегда.
+  it('бессрочная блокировка не становится срочной', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findFirst.mockResolvedValue({
+      id: 't',
+      universityId: 'uni-B',
+      role: Role.STUDENT,
+      isBlocked: true,
+      blockedUntil: null,
+    })
+    prisma.user.update.mockResolvedValue({})
+
+    await service.setBlocked(viewer(Role.PLATFORM_ADMIN), 't', true, new Date('2026-10-01'))
+    expect(prisma.user.update).toHaveBeenCalledWith({
+      where: { id: 't' },
+      data: { isBlocked: true, blockedUntil: null },
+    })
+  })
+
+  it('из двух сроков остаётся дальний', async () => {
+    const { service, prisma } = setup()
+    const later = new Date('2026-12-01T00:00:00.000Z')
+    prisma.user.findFirst.mockResolvedValue({
+      id: 't',
+      universityId: 'uni-B',
+      role: Role.STUDENT,
+      isBlocked: true,
+      blockedUntil: later,
+    })
+    prisma.user.update.mockResolvedValue({})
+
+    await service.setBlocked(viewer(Role.PLATFORM_ADMIN), 't', true, new Date('2026-10-01'))
+    expect(prisma.user.update.mock.calls[0][0].data.blockedUntil).toEqual(later)
+
+    prisma.user.update.mockClear()
+    const further = new Date('2027-01-01T00:00:00.000Z')
+    await service.setBlocked(viewer(Role.PLATFORM_ADMIN), 't', true, further)
+    expect(prisma.user.update.mock.calls[0][0].data.blockedUntil).toEqual(further)
+  })
+
+  it('пишет в журнал IP, user-agent и жалобу', async () => {
+    const { service, prisma, audit } = setup()
+    prisma.user.findFirst.mockResolvedValue({ id: 't', universityId: 'uni-B', role: Role.STUDENT })
+    prisma.user.update.mockResolvedValue({})
+
+    await service.setBlocked(viewer(Role.PLATFORM_ADMIN), 't', true, null, {
+      ip: '10.0.0.1',
+      userAgent: 'ua',
+      complaintId: 'c1',
+    })
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'user_blocked',
+        metadata: { complaintId: 'c1' },
+        ip: '10.0.0.1',
+        userAgent: 'ua',
+      }),
+    )
+  })
+
   // Снятая руками блокировка не должна «сниматься» второй раз кроном — и не должна
   // оставлять в карточке срок, которого больше нет.
   it('разблокировка стирает срок', async () => {

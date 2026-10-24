@@ -215,6 +215,14 @@ export class StoriesService {
     return story as Prisma.StoryGetPayload<{ select: S }>
   }
 
+  /**
+   * Бросает NOT_FOUND, если сторис не видна зрителю. Нужна жалобам: пожаловаться можно только
+   * на то, что видишь, иначе жалоба подтверждает существование чужой сторис по id.
+   */
+  async assertVisibleToViewer(viewer: JwtPayload, id: string): Promise<void> {
+    await this.findVisibleOrThrow(viewer, id, { id: true })
+  }
+
   // ── Лента колец ─────────────────────────────────────────────────────────────
 
   async feed(viewer: JwtPayload, query: StoriesFeedQueryInput): Promise<StoryRing[]> {
