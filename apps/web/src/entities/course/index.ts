@@ -26,3 +26,16 @@ export type {
   CourseTermRef,
 } from './model/types'
 export { CourseSelect } from './ui/course-select'
+export {
+  buildPlan,
+  planCredits,
+  planStatus,
+  gradePercent,
+  termPhase,
+  PASS_THRESHOLD,
+  type PlanEntry,
+  type PlanStatus,
+  type PlanTerm,
+  type PlanGradeColumn,
+  type PlanExamResult,
+} from './lib/plan-status'

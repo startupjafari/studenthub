@@ -29,10 +29,12 @@ export interface Pair {
   room: PairRoom | null
 }
 
-// Ответ GET /schedule (ролевая выборка + таймзона вуза).
+// Ответ GET /schedule (ролевая выборка + таймзона вуза). `nextCursor` — есть ещё пары,
+// следующая страница по `?cursor=`; `fetchSchedule` собирает страницы сам.
 export interface ScheduleResponse {
   timezone: string | null
   pairs: Pair[]
+  nextCursor?: string | null
 }
 
 // Контейнер расписания группы.

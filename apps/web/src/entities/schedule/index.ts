@@ -15,6 +15,9 @@ export {
 export { layoutColumns, type TimeSpan, type Placed } from './lib/layout-columns'
 export {
   buildDayPairs,
+  mergeChanges,
+  changesByPairDate,
+  pairDateKey,
   nextPair,
   substitutionOn,
   isSubstitutedAway,

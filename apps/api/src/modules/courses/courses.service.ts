@@ -50,7 +50,11 @@ const COURSE_SELECT = {
   subject: { select: { id: true, name: true, code: true } },
   group: { select: { id: true, name: true } },
   teacher: { select: { id: true, firstName: true, lastName: true } },
-  term: { select: { id: true, name: true, number: true, isActive: true } },
+  // Даты — для фазы семестра на клиенте («Учебный план»): `isActive` не отличает прошлый
+  // семестр от будущего.
+  term: {
+    select: { id: true, name: true, number: true, isActive: true, startsOn: true, endsOn: true },
+  },
 } satisfies Prisma.CourseSelect
 
 type CourseRow = Prisma.CourseGetPayload<{ select: typeof COURSE_SELECT }>
@@ -329,15 +333,21 @@ export class CoursesService {
   // ── Courses ──────────────────────────────────────────────────────────────
 
   async listCourses(viewer: JwtPayload, query: CourseListQueryInput) {
+    // Фильтры сужают scope, а не подменяют его: раньше spread `groupId` из запроса затирал
+    // `groupId` студента, и `?groupId=` отдавал дисциплины чужой группы (BACKEND_RULES §6).
     const where: Prisma.CourseWhereInput = {
-      ...this.courseScopeWhere(viewer),
-      ...(query.groupId ? { groupId: query.groupId } : {}),
-      ...(query.termId ? { termId: query.termId } : {}),
-      ...(query.mine
-        ? { teacherId: viewer.sub }
-        : query.teacherId
-          ? { teacherId: query.teacherId }
-          : {}),
+      AND: [
+        this.courseScopeWhere(viewer),
+        {
+          ...(query.groupId ? { groupId: query.groupId } : {}),
+          ...(query.termId ? { termId: query.termId } : {}),
+          ...(query.mine
+            ? { teacherId: viewer.sub }
+            : query.teacherId
+              ? { teacherId: query.teacherId }
+              : {}),
+        },
+      ],
     }
     const page = query.page ?? 1
     const limit = query.limit ?? 20

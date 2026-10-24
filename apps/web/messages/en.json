@@ -1703,6 +1703,10 @@
     "teacherDeferred": "Teacher assignment will appear once the users list ships (Phase 12).",
     "conflictTitle": "Schedule conflict",
     "conflictGeneric": "Slot already taken",
+    "conflictRoom": "The room is taken",
+    "conflictTeacher": "The teacher is busy",
+    "conflictGroup": "The group already has a class",
+    "conflictCancelled": "The class on this date is cancelled",
     "createChange": "Create change",
     "pair": "Class",
     "selectPair": "Select a class",
@@ -1735,7 +1739,9 @@
     "removeChangeConfirm": "Remove this change?",
     "removeChangeConfirmHint": "The regular schedule will apply on this date again. If the date is still ahead, the group and teachers will be notified.",
     "changeRemoved": "Change removed",
-    "changeWrongDay": "This class is on {day}. Pick a date that falls on that day"
+    "changeWrongDay": "This class is on {day}. Pick a date that falls on that day",
+    "changeWrongWeek": "This class only runs on “{parity}”. Pick a date in such a week",
+    "changeDraftHint": "One-off changes for a date are only available in the active schedule version — the group can't see this one yet."
   },
   "Applications": {
     "title": "Applications",
@@ -3909,7 +3915,8 @@
       "completed": "Completed",
       "studying": "In progress",
       "upcoming": "Upcoming",
-      "notPassed": "Not passed"
+      "notPassed": "Not passed",
+      "noResult": "No result"
     }
   },
   "Analytics": {
@@ -4837,6 +4844,10 @@
     "credits": "Credits",
     "status": "Status",
     "statusActive": "Enrolled",
+    "statusAcademicLeave": "Academic leave",
+    "statusExpelled": "Expelled",
+    "statusGraduated": "Graduated",
+    "statusTransferred": "Transferred",
     "since": "since",
     "sections": "Sections",
     "linkGrades": "Grades",

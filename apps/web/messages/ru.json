@@ -1703,6 +1703,10 @@
     "teacherDeferred": "Назначение преподавателя появится после списка пользователей (Ф12).",
     "conflictTitle": "Конфликт в расписании",
     "conflictGeneric": "Слот уже занят",
+    "conflictRoom": "Аудитория занята",
+    "conflictTeacher": "Преподаватель занят",
+    "conflictGroup": "Группа уже на другом занятии",
+    "conflictCancelled": "Занятие на эту дату отменено",
     "createChange": "Создать замену",
     "pair": "Пара",
     "selectPair": "Выберите пару",
@@ -1735,7 +1739,9 @@
     "removeChangeConfirm": "Убрать это изменение?",
     "removeChangeConfirmHint": "На эту дату снова будет обычное расписание. Если дата ещё впереди, группа и преподаватели получат уведомление.",
     "changeRemoved": "Изменение убрано",
-    "changeWrongDay": "Эта пара — в день «{day}». Выберите такую дату"
+    "changeWrongDay": "Эта пара — в день «{day}». Выберите такую дату",
+    "changeWrongWeek": "Эта пара идёт только в неделю «{parity}». Выберите дату такой недели",
+    "changeDraftHint": "Разовые изменения на дату доступны только у действующей версии расписания — эту группа пока не видит."
   },
   "Applications": {
     "title": "Заявки",
@@ -3909,7 +3915,8 @@
       "completed": "Завершено",
       "studying": "Изучается",
       "upcoming": "Предстоит",
-      "notPassed": "Не зачтено"
+      "notPassed": "Не зачтено",
+      "noResult": "Нет итога"
     }
   },
   "Analytics": {
@@ -4837,6 +4844,10 @@
     "credits": "Кредиты",
     "status": "Статус",
     "statusActive": "Обучается",
+    "statusAcademicLeave": "Академический отпуск",
+    "statusExpelled": "Отчислен",
+    "statusGraduated": "Выпускник",
+    "statusTransferred": "Переведён",
     "since": "с",
     "sections": "Разделы",
     "linkGrades": "Оценки",

@@ -14,7 +14,7 @@ import {
   type UpdatePairInput,
 } from '@studenthub/shared-schemas'
 import type { ApiErrorBody } from '@studenthub/shared-types'
-import { Role } from '@studenthub/shared-types'
+import { PAIR_TEACHER_ROLES } from '../lib/pair-teacher-roles'
 import { UserPicker, type PickedUser } from '../../../entities/user'
 import {
   createScheduleChangeRequest,
@@ -42,7 +42,8 @@ import {
   useConfirm,
   FieldError,
 } from '../../../shared/ui'
-import { useErrorToast } from '../../../shared/lib'
+import { isoWeekParity, useErrorToast } from '../../../shared/lib'
+import { conflictDescription } from '../lib/conflict-description'
 
 const DAYS = [1, 2, 3, 4, 5, 6, 7]
 const WEEK_TYPES = ['BOTH', 'ODD', 'EVEN'] as const
@@ -87,6 +88,7 @@ export function PairDetailsModal({
   canEdit,
   isTeacher,
   containerId,
+  containerActive,
   onClose,
 }: {
   pair: Pair
@@ -95,6 +97,8 @@ export function PairDetailsModal({
   canEdit: boolean
   isTeacher: boolean
   containerId: string
+  // Версия действует: разовые изменения есть только у её пар (черновик группе не виден).
+  containerActive: boolean
   onClose: () => void
 }) {
   const t = useTranslations('Schedule')
@@ -141,7 +145,7 @@ export function PairDetailsModal({
       const err = apiErr(e)
       if (err.code === 'CONFLICT') {
         toast.error(t('conflictTitle'), {
-          description: err.details?.map((d) => d.message).join('; ') ?? t('conflictGeneric'),
+          description: conflictDescription(err.details, locale, (k) => t(k)),
         })
       } else showApiError(e)
     },
@@ -173,6 +177,9 @@ export function PairDetailsModal({
     defaultValues: { type: 'CANCELLED', pairId: pair.id },
   })
   const changeType = changeForm.watch('type')
+  // Ошибки полей разового изменения — под полями: раньше показывалась только дата, и
+  // кнопка без аудитории, заменяющего или времени молча ничего не делала.
+  const changeErrors = changeForm.formState.errors
 
   const createChange = useMutation({
     mutationFn: (input: CreateScheduleChangeInput) => createScheduleChangeRequest(input),
@@ -189,7 +196,7 @@ export function PairDetailsModal({
       if (err.code === 'CONFLICT') {
         toast.error(t('conflictTitle'), {
           id: 'pair-details',
-          description: err.details?.map((d) => d.message).join('; ') ?? t('conflictGeneric'),
+          description: conflictDescription(err.details, locale, (k) => t(k)),
         })
       } else showApiError(e)
     },
@@ -199,6 +206,13 @@ export function PairDetailsModal({
     // Изменение на день, когда пары нет, никто не увидит — сервер его тоже отклонит.
     if (isoDayOfWeek(values.date) !== pair.dayOfWeek) {
       changeForm.setError('date', { type: 'wrongDay' })
+      return
+    }
+    // То же с чётностью: пара нечётных недель на чётной не проводится (ISO-неделя, как на
+    // сервере и в сетке).
+    const parity = isoWeekParity(new Date(`${values.date}T00:00:00`))
+    if (pair.weekType !== 'BOTH' && pair.weekType !== parity) {
+      changeForm.setError('date', { type: 'wrongWeek' })
       return
     }
     createChange.mutate(values)
@@ -216,7 +230,7 @@ export function PairDetailsModal({
   const changes = useQuery({
     queryKey: scheduleKeys.changes(changesRange),
     queryFn: () => fetchScheduleChanges(changesRange),
-    enabled: !isTeacher,
+    enabled: !isTeacher && containerActive,
   })
   const pairChanges = (changes.data ?? []).filter((c) => c.pairId === pair.id)
 
@@ -226,7 +240,17 @@ export function PairDetailsModal({
       void qc.invalidateQueries({ queryKey: scheduleKeys.all })
       toast.success(t('changeRemoved'))
     },
-    onError: (e) => showApiError(e),
+    onError: (e) => {
+      // Без изменения пара возвращается в свой слот, а его могли занять (BUG-325): сервер
+      // отвечает конфликтом — показываем, с чем столкнулись.
+      const err = apiErr(e)
+      if (err.code === 'CONFLICT') {
+        toast.error(t('conflictTitle'), {
+          id: 'pair-details',
+          description: conflictDescription(err.details, locale, (k) => t(k)),
+        })
+      } else showApiError(e)
+    },
   })
 
   function changeDetail(c: ScheduleChange): string | null {
@@ -255,6 +279,7 @@ export function PairDetailsModal({
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="e-subject">{t('subject')}</Label>
               <Input id="e-subject" {...editForm.register('subject')} />
+              <FieldError>{editForm.formState.errors.subject && t('required')}</FieldError>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">
@@ -309,6 +334,7 @@ export function PairDetailsModal({
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="e-start">{t('startTime')}</Label>
                 <Input id="e-start" type="time" {...editForm.register('startTime')} />
+                <FieldError>{editForm.formState.errors.startTime && t('timeInvalid')}</FieldError>
               </div>
               <div className="flex flex-col gap-1.5">
                 <Label htmlFor="e-end">{t('endTime')}</Label>
@@ -342,7 +368,7 @@ export function PairDetailsModal({
                 <Label>{tPeople('teacherOptional')}</Label>
                 <UserPicker
                   value={teacher}
-                  roleFilter={Role.TEACHER}
+                  roleFilter={PAIR_TEACHER_ROLES}
                   placeholder={tPeople('pickUser')}
                   onSelect={(u) => {
                     setTeacher(u)
@@ -379,8 +405,15 @@ export function PairDetailsModal({
           </form>
         )}
 
-        {/* Разовое изменение на дату — только админ/декан (бэк: @Roles без TEACHER). */}
-        {!isTeacher && (
+        {/* Разовое изменение на дату — только админ/декан (бэк: @Roles без TEACHER) и только
+            у пары действующей версии: черновик группе не виден, а пуш ушёл бы всем. */}
+        {!isTeacher && !containerActive && (
+          <>
+            <div className="border-t border-border" />
+            <p className="text-xs text-muted-foreground">{t('changeDraftHint')}</p>
+          </>
+        )}
+        {!isTeacher && containerActive && (
           <>
             <div className="border-t border-border" />
             <div>
@@ -449,7 +482,19 @@ export function PairDetailsModal({
                     control={changeForm.control}
                     name="type"
                     render={({ field }) => (
-                      <Select value={field.value} onValueChange={field.onChange}>
+                      <Select
+                        value={field.value}
+                        onValueChange={(next) => {
+                          field.onChange(next)
+                          // Значения прежнего типа не уходят с новым: «смена аудитории»
+                          // иначе несла заменяющего, выбранного для «замены».
+                          changeForm.setValue('newRoomId', undefined)
+                          changeForm.setValue('newTeacherId', undefined)
+                          changeForm.setValue('newStartTime', undefined)
+                          changeForm.setValue('newEndTime', undefined)
+                          setChangeTeacher(null)
+                        }}
+                      >
                         <SelectTrigger aria-label={t('changeType')}>
                           <SelectValue />
                         </SelectTrigger>
@@ -482,7 +527,9 @@ export function PairDetailsModal({
                       <>
                         {changeForm.formState.errors.date.type === 'wrongDay'
                           ? t('changeWrongDay', { day: t(`day${pair.dayOfWeek}`) })
-                          : t('required')}
+                          : changeForm.formState.errors.date.type === 'wrongWeek'
+                            ? t('changeWrongWeek', { parity: t(`parity${pair.weekType}`) })
+                            : t('required')}
                       </>
                     )}
                   </FieldError>
@@ -504,6 +551,7 @@ export function PairDetailsModal({
                       />
                     )}
                   />
+                  <FieldError>{changeErrors.newRoomId && t('required')}</FieldError>
                 </div>
               )}
 
@@ -512,10 +560,15 @@ export function PairDetailsModal({
                   <div className="flex flex-col gap-1.5">
                     <Label htmlFor="nstart">{t('newStartTime')}</Label>
                     <Input id="nstart" type="time" {...changeForm.register('newStartTime')} />
+                    <FieldError>{changeErrors.newStartTime && t('required')}</FieldError>
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <Label htmlFor="nend">{t('newEndTime')}</Label>
                     <Input id="nend" type="time" {...changeForm.register('newEndTime')} />
+                    <FieldError>
+                      {changeErrors.newEndTime &&
+                        (changeForm.getValues('newEndTime') ? t('timeInvalid') : t('required'))}
+                    </FieldError>
                   </div>
                 </div>
               )}
@@ -525,13 +578,14 @@ export function PairDetailsModal({
                   <Label>{tPeople('teacher')}</Label>
                   <UserPicker
                     value={changeTeacher}
-                    roleFilter={Role.TEACHER}
+                    roleFilter={PAIR_TEACHER_ROLES}
                     placeholder={tPeople('pickUser')}
                     onSelect={(u) => {
                       setChangeTeacher(u)
                       changeForm.setValue('newTeacherId', u?.id ?? null)
                     }}
                   />
+                  <FieldError>{changeErrors.newTeacherId && t('required')}</FieldError>
                 </div>
               )}
 

@@ -22,6 +22,10 @@ export interface CourseTermRef {
   name: string
   number: number | null
   isActive: boolean
+  // Даты семестра (ISO) — в курсе из GET /courses; по ним «Учебный план» отличает прошлый
+  // семестр от будущего. В выпадающих списках семестров могут отсутствовать.
+  startsOn?: string
+  endsOn?: string
 }
 
 export interface CourseItem {

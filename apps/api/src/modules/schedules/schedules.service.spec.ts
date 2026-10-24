@@ -35,7 +35,7 @@ function setup() {
       deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     attendance: { findFirst: jest.fn().mockResolvedValue(null) },
-    group: { findUnique: jest.fn() },
+    group: { findUnique: jest.fn(), findFirst: jest.fn().mockResolvedValue(null) },
     course: { findFirst: jest.fn().mockResolvedValue({ id: 'c-1' }) },
     user: { findFirst: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
     university: { findUnique: jest.fn().mockResolvedValue({ timezone: 'Asia/Almaty' }) },
@@ -197,6 +197,86 @@ describe('SchedulesService — модератору платформы расп�
     await expect(service.getScheduleById(admin, 'sch-1')).resolves.toBeDefined()
     await service.listChanges(admin, { from: '2026-10-19', to: '2026-10-25' } as never)
     expect(prisma.scheduleChange.findMany.mock.calls[0][0].where.pair).toEqual({ is: {} })
+  })
+})
+
+// BUG-018 / BUG-342: выборки страницами, а не молча обрезанные на 500.
+describe('SchedulesService — страницы расписания и изменений', () => {
+  const dean = viewer(Role.DEAN, { facultyId: 'fac-1', universityId: 'uni-1' })
+  const rows = (n: number) => Array.from({ length: n }, (_, i) => createdPair({ id: `p-${i}` }))
+
+  it('GET /schedule: больше 500 пар → первая страница и nextCursor', async () => {
+    const { service, prisma } = setup()
+    prisma.pair.findMany.mockResolvedValue(rows(501))
+    const res = await service.getSchedule(dean, {})
+    expect(res.pairs).toHaveLength(500)
+    expect(res.nextCursor).toBe('p-499')
+    const args = prisma.pair.findMany.mock.calls[0][0]
+    expect(args.take).toBe(501)
+    expect(args.cursor).toBeUndefined()
+  })
+
+  it('GET /schedule?cursor= — продолжение после курсора; последняя страница без nextCursor', async () => {
+    const { service, prisma } = setup()
+    prisma.pair.findMany.mockResolvedValue(rows(3))
+    const res = await service.getSchedule(dean, { cursor: 'p-499' })
+    expect(res.nextCursor).toBeNull()
+    expect(prisma.pair.findMany.mock.calls[0][0]).toMatchObject({
+      cursor: { id: 'p-499' },
+      skip: 1,
+    })
+  })
+
+  it('GET /schedule/changes с limit — страница с meta.cursor/hasNext', async () => {
+    const { service, prisma } = setup()
+    prisma.scheduleChange.findMany.mockResolvedValue([{ id: 'c1' }, { id: 'c2' }, { id: 'c3' }])
+    const page = await service.listChangesPage(dean, {
+      from: '2026-10-01',
+      to: '2026-10-31',
+      limit: 2,
+    })
+    expect(page.items.map((c) => c.id)).toEqual(['c1', 'c2'])
+    expect(page.meta).toEqual({ hasNext: true, cursor: 'c2' })
+    expect(prisma.scheduleChange.findMany.mock.calls[0][0].take).toBe(3)
+  })
+})
+
+describe('SchedulesService — версии расписания преподавателю: только свои группы (§2.2)', () => {
+  const teacher = viewer(Role.TEACHER, { sub: 't-1', universityId: 'uni-1' })
+  const taught = [
+    { courses: { some: { teacherId: 't-1' } } },
+    { pairs: { some: { teacherId: 't-1', schedule: { is: { isActive: true } } } } },
+  ]
+
+  it('GET /schedules — группы, где он ведёт занятия, а не весь вуз', async () => {
+    const { service, prisma } = setup()
+    prisma.schedule.findMany.mockResolvedValue([])
+    await service.listSchedules(teacher, 'grp-1')
+    expect(prisma.schedule.findMany.mock.calls[0][0].where).toEqual({
+      group: { is: { faculty: { is: { universityId: 'uni-1' } }, OR: taught } },
+      groupId: 'grp-1',
+    })
+  })
+
+  it('GET /schedules/:id чужой группы → WRONG_SCOPE, пары не читаются', async () => {
+    const { service, prisma } = setup()
+    prisma.schedule.findUnique.mockResolvedValue({ id: 'sch-1', groupId: 'grp-1' })
+    prisma.group.findUnique.mockResolvedValue(GROUP_CTX)
+    const err = await service.getScheduleById(teacher, 'sch-1').catch((e) => e)
+    expect(err.code).toBe('WRONG_SCOPE')
+    expect(prisma.group.findFirst).toHaveBeenCalledWith({
+      where: { id: 'grp-1', OR: taught },
+      select: { id: true },
+    })
+    expect(prisma.pair.findMany).not.toHaveBeenCalled()
+  })
+
+  it('GET /schedules/:id своей группы → версия с парами', async () => {
+    const { service, prisma } = setup()
+    prisma.schedule.findUnique.mockResolvedValue({ id: 'sch-1', groupId: 'grp-1' })
+    prisma.group.findUnique.mockResolvedValue(GROUP_CTX)
+    prisma.group.findFirst.mockResolvedValue({ id: 'grp-1' })
+    await expect(service.getScheduleById(teacher, 'sch-1')).resolves.toBeDefined()
   })
 })
 
@@ -384,6 +464,7 @@ const changedPair = {
   startTime: '09:00',
   endTime: '10:30',
   weekType: 'BOTH',
+  schedule: { isActive: true },
 }
 
 // ── 6.5 Замена → WS + уведомление ───────────────────────────────────────────
@@ -401,9 +482,10 @@ describe('SchedulesService.createChange — WS + очередь (6.5)', () => {
     })
     prisma.user.findMany.mockResolvedValue([{ id: 's-1' }, { id: 's-2' }])
 
+    // Вторник в будущем: о прошедшей дате уведомление не уходит.
     const res = await service.createChange(
       admin,
-      { pairId: 'pair-1', type: 'CANCELLED', date: '2026-09-15' },
+      { pairId: 'pair-1', type: 'CANCELLED', date: '2030-09-17' },
       ctx,
     )
     expect(res.id).toBe('chg-1')
@@ -418,6 +500,35 @@ describe('SchedulesService.createChange — WS + очередь (6.5)', () => {
     expect(new Set(jobArg.recipientIds)).toEqual(new Set(['s-1', 's-2', 't-1']))
     expect(jobArg.type).toBe('SCHEDULE_CHANGE')
     expect(jobArg.dedupeKey).toBe('schedule-changed:chg-1')
+    expect(jobArg.bodyKey).toBe('schedule.cancelled.body')
+  })
+
+  it('прошедшая дата: изменение пишется и транслируется, но уведомления нет', async () => {
+    const { service, prisma, realtime, queue } = setup()
+    prisma.pair.findUnique.mockResolvedValue(changedPair)
+    prisma.group.findUnique.mockResolvedValue(GROUP_CTX)
+    prisma.scheduleChange.create.mockResolvedValue({ id: 'chg-1', pairId: 'pair-1' })
+    await service.createChange(
+      admin,
+      { pairId: 'pair-1', type: 'CANCELLED', date: '2020-01-07' },
+      ctx,
+    )
+    expect(prisma.scheduleChange.create).toHaveBeenCalled()
+    expect(realtime.emitToRoom).toHaveBeenCalled()
+    expect(queue.enqueue).not.toHaveBeenCalled()
+  })
+
+  it('пара черновой версии → VALIDATION_ERROR(pairId), ни записи, ни уведомления', async () => {
+    const { service, prisma, queue } = setup()
+    prisma.pair.findUnique.mockResolvedValue({ ...changedPair, schedule: { isActive: false } })
+    prisma.group.findUnique.mockResolvedValue(GROUP_CTX)
+    const err = await service
+      .createChange(admin, { pairId: 'pair-1', type: 'CANCELLED', date: '2030-09-17' }, ctx)
+      .catch((e) => e)
+    expect(err.code).toBe('VALIDATION_ERROR')
+    expect(err.details).toEqual([expect.objectContaining({ field: 'pairId' })])
+    expect(prisma.scheduleChange.create).not.toHaveBeenCalled()
+    expect(queue.enqueue).not.toHaveBeenCalled()
   })
 })
 
@@ -811,6 +922,37 @@ describe('SchedulesService — разовые изменения (C-F16)', () =>
     expect(queue.enqueue).not.toHaveBeenCalled()
   })
 
+  it('дата на неделе другой чётности → VALIDATION_ERROR(date), уведомления нет', async () => {
+    const { service, prisma, queue } = prime()
+    prisma.pair.findUnique.mockResolvedValue({ ...changedPair, weekType: 'ODD' })
+    // 15.09.2026 — 38-я ISO-неделя, чётная.
+    const err = await service
+      .createChange(admin, { pairId: 'pair-1', type: 'CANCELLED', date: '2026-09-15' }, ctx)
+      .catch((e) => e)
+    expect(err.code).toBe('VALIDATION_ERROR')
+    expect(err.details).toEqual([expect.objectContaining({ field: 'date' })])
+    expect(prisma.scheduleChange.create).not.toHaveBeenCalled()
+    expect(queue.enqueue).not.toHaveBeenCalled()
+  })
+
+  it('пара другой чётности в эту дату не проводится и не мешает переносу', async () => {
+    const { service, prisma } = prime()
+    // Чётная неделя: пара ODD той же группы в это время в эту дату не идёт.
+    prisma.pair.findMany.mockResolvedValue([otherPair({ groupId: 'grp-1', weekType: 'ODD' })])
+    await service.createChange(
+      admin,
+      {
+        pairId: 'pair-1',
+        type: 'MOVED',
+        date: '2026-09-15',
+        newStartTime: '10:00',
+        newEndTime: '11:30',
+      },
+      ctx,
+    )
+    expect(prisma.scheduleChange.create).toHaveBeenCalled()
+  })
+
   it('вторая отмена на ту же дату → CONFLICT, без второго уведомления', async () => {
     const { service, prisma, queue } = prime()
     prisma.scheduleChange.findMany.mockResolvedValue([{ type: 'CANCELLED' }])
@@ -899,6 +1041,58 @@ describe('SchedulesService — разовые изменения (C-F16)', () =>
     expect(err.details).toEqual([expect.objectContaining({ field: 'newRoomId' })])
   })
 
+  it('поля чужого типа отбрасываются: смена аудитории не уносит заменяющего', async () => {
+    const { service, prisma, queue } = prime()
+    prisma.user.findMany.mockResolvedValue([{ id: 's-1' }])
+    await service.createChange(
+      admin,
+      {
+        pairId: 'pair-1',
+        type: 'ROOM_CHANGED',
+        date: '2026-09-15',
+        newRoomId: 'r-7',
+        newTeacherId: 't-x',
+        newStartTime: '12:00',
+        newEndTime: '13:30',
+      },
+      ctx,
+    )
+    expect(prisma.user.findFirst).not.toHaveBeenCalled()
+    expect(prisma.scheduleChange.create.mock.calls[0][0].data).toEqual(
+      expect.objectContaining({
+        newRoomId: 'r-7',
+        newTeacherId: null,
+        newStartTime: null,
+        newEndTime: null,
+      }),
+    )
+    for (const [, , job] of queue.enqueue.mock.calls) {
+      expect(job.recipientIds).not.toContain('t-x')
+    }
+  })
+
+  it('перенос с новой аудиторией проверяет занятость новой аудитории', async () => {
+    const { service, prisma } = prime()
+    prisma.pair.findMany.mockResolvedValue([otherPair({ roomId: 'r-7' })])
+    const err = await service
+      .createChange(
+        admin,
+        {
+          pairId: 'pair-1',
+          type: 'MOVED',
+          date: '2026-09-15',
+          newStartTime: '10:00',
+          newEndTime: '11:30',
+          newRoomId: 'r-7',
+        },
+        ctx,
+      )
+      .catch((e) => e)
+    expect(err.code).toBe('CONFLICT')
+    expect(err.details).toEqual([expect.objectContaining({ field: 'roomId' })])
+    expect(prisma.scheduleChange.create).not.toHaveBeenCalled()
+  })
+
   it('пара, отменённая на эту дату, место не занимает — перенос проходит', async () => {
     const { service, prisma } = prime()
     prisma.pair.findMany.mockResolvedValue([
@@ -970,7 +1164,12 @@ describe('SchedulesService — разовые изменения (C-F16)', () =>
           scheduleId: 'sch-1',
           groupId: 'grp-1',
           subject: 'Матанализ',
+          dayOfWeek: 6,
+          startTime: '10:00',
+          endTime: '11:30',
+          weekType: 'BOTH',
           teacher: { id: 't-1', firstName: 'А', lastName: 'Б' },
+          room: { id: 'r-1', name: '101' },
         },
       }
     }
@@ -990,7 +1189,9 @@ describe('SchedulesService — разовые изменения (C-F16)', () =>
       expect(realtime.emitToUser).toHaveBeenCalledWith('t-1', 'schedule:changed', payload)
       const job = queue.enqueue.mock.calls[0][2]
       expect(job.dedupeKey).toBe('schedule-change-removed:chg-1')
-      expect(job.params.change).toBe('занятие состоится')
+      // Ключ статьи на тип изменения, а не готовая русская строка в параметре (kk/en).
+      expect(job.bodyKey).toBe('schedule.cancelledRevoked.body')
+      expect(job.params).toEqual({ subject: 'Матанализ', date: '2999-01-05' })
       expect(new Set(job.recipientIds)).toEqual(new Set(['s-1', 't-1']))
     })
 
@@ -1001,6 +1202,33 @@ describe('SchedulesService — разовые изменения (C-F16)', () =>
       await service.removeChange(admin, 'chg-1', ctx)
       expect(prisma.scheduleChange.deleteMany).toHaveBeenCalled()
       expect(realtime.emitToRoom).toHaveBeenCalled()
+      expect(queue.enqueue).not.toHaveBeenCalled()
+      // Прошедшую дату не перепроверяем: история не переигрывается.
+      expect(prisma.pair.findMany).not.toHaveBeenCalled()
+    })
+
+    it('будущая дата: слот, куда возвращается пара, уже занят → CONFLICT, изменение остаётся', async () => {
+      const { service, prisma, queue } = setup()
+      prisma.scheduleChange.findUnique.mockResolvedValue(stored('2999-01-05'))
+      prisma.group.findUnique.mockResolvedValue(GROUP_CTX)
+      // В освободившуюся 101 на 10:00 уже поставили пару другой группы.
+      prisma.pair.findMany.mockResolvedValue([
+        {
+          subject: 'Физика',
+          startTime: '10:00',
+          endTime: '11:00',
+          weekType: 'BOTH',
+          groupId: 'grp-2',
+          teacherId: 't-9',
+          roomId: 'r-1',
+          changes: [],
+        },
+      ])
+      const err = await service.removeChange(admin, 'chg-1', ctx).catch((e) => e)
+      expect(err.code).toBe('CONFLICT')
+      expect(err.details).toEqual([expect.objectContaining({ field: 'roomId' })])
+      expect(prisma.$executeRaw.mock.calls[0].slice(1)).toEqual(['schedule-slot:uni-1:6'])
+      expect(prisma.scheduleChange.deleteMany).not.toHaveBeenCalled()
       expect(queue.enqueue).not.toHaveBeenCalled()
     })
 
@@ -1161,6 +1389,56 @@ describe('SchedulesService — назначение преподавателя �
     expect(callOrder(prisma.pair.findMany)).toBeLessThan(callOrder(prisma.pair.create))
   })
 
+  it('чужая пара, перенесённая на будущую дату в ту же аудиторию и время → CONFLICT', async () => {
+    const { service, prisma } = setup()
+    primeCreate(prisma)
+    // Среда 09.01.2999: пару другой группы из 101 перенесли с 14:00 на 09:00.
+    const date = new Date('2999-01-09T00:00:00.000Z')
+    prisma.scheduleChange.findMany.mockResolvedValue([{ pairId: 'p-9', date }])
+    prisma.pair.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([
+      {
+        id: 'p-9',
+        subject: 'Физика',
+        dayOfWeek: 3,
+        startTime: '14:00',
+        endTime: '15:30',
+        weekType: 'BOTH',
+        groupId: 'grp-2',
+        teacherId: 't-9',
+        roomId: 'r-1',
+        changes: [
+          {
+            type: 'MOVED',
+            newStartTime: '09:00',
+            newEndTime: '10:30',
+            newTeacherId: null,
+            newRoomId: null,
+            date,
+          },
+        ],
+      },
+    ])
+    const err = await service.createPair(dean, input, ctx).catch((e) => e)
+    expect(err.code).toBe('CONFLICT')
+    expect(err.details).toEqual([
+      { field: 'roomId', message: expect.stringContaining('09.01 09:00–10:30') },
+    ])
+    expect(prisma.pair.create).not.toHaveBeenCalled()
+  })
+
+  it('разовое изменение — под тем же локом дня вуза, что и правка шаблона', async () => {
+    const { service, prisma } = setup()
+    prisma.pair.findUnique.mockResolvedValue(changedPair)
+    prisma.group.findUnique.mockResolvedValue(GROUP_CTX)
+    prisma.scheduleChange.create.mockResolvedValue({ id: 'chg-1', pairId: 'pair-1' })
+    await service.createChange(
+      dean,
+      { pairId: 'pair-1', type: 'CANCELLED', date: '2030-09-17' },
+      ctx,
+    )
+    expect(prisma.$executeRaw.mock.calls[0].slice(1)).toEqual(['schedule-slot:uni-1:2'])
+  })
+
   it('черновик не конфликтует с действующей версией своей группы, но видит чужие сетки', async () => {
     const { service, prisma } = setup()
     primeCreate(prisma)
@@ -1233,7 +1511,19 @@ describe('SchedulesService — назначение преподавателя �
     prisma.pair.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([])
     await service.updateSchedule(dean, 'sch-2', { isActive: true }, ctx)
     const keys = prisma.$executeRaw.mock.calls.map((c: unknown[]) => c[1])
-    expect(keys).toEqual([1, 2, 3, 4, 5, 6, 7].map((d) => `schedule-slot:uni-1:${d}`))
-    expect(callOrder(prisma.$executeRaw, 6)).toBeLessThan(callOrder(prisma.schedule.updateMany))
+    expect(keys).toEqual([
+      'schedule-active:grp-1',
+      ...[1, 2, 3, 4, 5, 6, 7].map((d) => `schedule-slot:uni-1:${d}`),
+    ])
+    expect(callOrder(prisma.$executeRaw, 7)).toBeLessThan(callOrder(prisma.schedule.updateMany))
+  })
+
+  it('создание активной версии — под локом активной версии группы, до гашения прежней', async () => {
+    const { service, prisma } = setup()
+    prisma.group.findUnique.mockResolvedValue(GROUP_CTX)
+    prisma.schedule.create.mockResolvedValue({ id: 'sch-3', isActive: true })
+    await service.createSchedule(dean, { groupId: 'grp-1', name: 'Весна' }, ctx)
+    expect(prisma.$executeRaw.mock.calls[0].slice(1)).toEqual(['schedule-active:grp-1'])
+    expect(callOrder(prisma.$executeRaw)).toBeLessThan(callOrder(prisma.schedule.updateMany))
   })
 })

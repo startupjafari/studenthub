@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
+import { Role } from '@studenthub/shared-types'
 import {
   CalendarClock,
   CalendarDays,
@@ -32,6 +33,7 @@ import {
   seasonIcon,
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
+import { useAppSelector } from '../../../shared/store'
 import { useMediaQuery } from '../../../shared/lib'
 import { formatYmd, monthCells, sameDay } from '../../../shared/ui/calendar-grid'
 import { scheduleKeys, fetchSchedule, fetchScheduleChanges } from '../../../entities/schedule'
@@ -41,6 +43,7 @@ import { examKeys, fetchExams } from '../../../entities/exam'
 import type { Holiday } from '../../../shared/config'
 import {
   buildCalendar,
+  calendarLinks,
   groupByDate,
   holidaysByDate,
   type CalFilter,
@@ -100,6 +103,11 @@ export function CalendarView() {
     retry: false,
   })
 
+  // Преподавателю — ещё и чужие пары, которые он ведёт по замене (их нет в его выборке).
+  const role = useAppSelector((s) => s.auth.role)
+  const myId = useAppSelector((s) => s.auth.user?.id)
+  const substituteId = role === Role.TEACHER ? (myId ?? null) : null
+
   const byDate = useMemo(() => {
     const items = buildCalendar(
       schedule.data?.pairs ?? [],
@@ -109,9 +117,21 @@ export function CalendarView() {
       cells,
       filter,
       exams.data ?? [],
+      substituteId,
+      calendarLinks(role),
     )
     return groupByDate(items)
-  }, [schedule.data, changes.data, events.data, assignments.data, exams.data, cells, filter])
+  }, [
+    schedule.data,
+    changes.data,
+    events.data,
+    assignments.data,
+    exams.data,
+    cells,
+    filter,
+    substituteId,
+    role,
+  ])
 
   // Праздники месяца — из справочника, без запроса: он уже в бандле (shared/config/holidays.ts).
   const holidays = useMemo(() => holidaysByDate(cells), [cells])

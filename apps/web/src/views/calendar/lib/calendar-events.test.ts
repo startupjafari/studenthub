@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { buildCalendar, holidaysByDate, mapExams } from './calendar-events'
+import { buildCalendar, calendarLinks, holidaysByDate, mapExams } from './calendar-events'
+import { Role } from '@studenthub/shared-types'
 import type { ExamItem } from '../../../entities/exam'
 
 // Сетка месяца приходит 42 ячейками с хвостами соседних месяцев — карта праздников
@@ -70,5 +71,22 @@ describe('экзамены в календаре', () => {
     const items = buildCalendar([], [], [], [], [], 'exam', [exam])
     expect(items.map((i) => i.type)).toEqual(['exam'])
     expect(buildCalendar([], [], [], [], [], 'pair', [exam])).toEqual([])
+  })
+
+  it('преподавателя и декана календарь ведёт на их экраны, а не на студенческие', () => {
+    const teacher = buildCalendar(
+      [],
+      [],
+      [],
+      [],
+      [],
+      'exam',
+      [exam],
+      null,
+      calendarLinks(Role.TEACHER),
+    )
+    expect(teacher[0]?.href).toBe('/teacher/exams')
+    expect(calendarLinks(Role.DEAN).exam).toBe('/dean/exams')
+    expect(calendarLinks(Role.STAROSTA).assignment).toBe('/assignments')
   })
 })

@@ -17,8 +17,8 @@ function setup() {
       create: jest.fn().mockResolvedValue({ id: 'm-new' }),
       delete: jest.fn(),
     },
-    group: { findUnique: jest.fn() },
-    file: { findFirst: jest.fn().mockResolvedValue(null) },
+    group: { findUnique: jest.fn(), findFirst: jest.fn().mockResolvedValue(null) },
+    file: { findFirst: jest.fn().mockResolvedValue(null), count: jest.fn().mockResolvedValue(0) },
     // По умолчанию преподаватель ведёт дисциплину в группе.
     course: { findFirst: jest.fn().mockResolvedValue({ id: 'c1' }) },
     pair: { findFirst: jest.fn().mockResolvedValue(null) },
@@ -61,9 +61,24 @@ describe('MaterialsService.list — scope', () => {
     const and = await scopeOf(user(Role.DEAN, { facultyId: 'f1' }))
     expect(and[0]).toEqual({ group: { is: { facultyId: 'f1' } } })
   })
-  it('преподаватель — свой вуз', async () => {
-    const and = await scopeOf(user(Role.TEACHER, { universityId: 'uni1' }))
-    expect(and[0]).toEqual({ group: { is: { faculty: { is: { universityId: 'uni1' } } } } })
+  it('преподаватель — свои материалы и группы, где ведёт занятия, а не весь вуз', async () => {
+    const and = await scopeOf(user(Role.TEACHER, { sub: 't1', universityId: 'uni1' }))
+    expect(and[0]).toEqual({
+      OR: [
+        { teacherId: 't1' },
+        {
+          group: {
+            is: {
+              faculty: { is: { universityId: 'uni1' } },
+              OR: [
+                { courses: { some: { teacherId: 't1' } } },
+                { pairs: { some: { teacherId: 't1', schedule: { is: { isActive: true } } } } },
+              ],
+            },
+          },
+        },
+      ],
+    })
   })
   // Регрессия: ?groupId=чужая-группа НЕ перезаписывает scope студента — в AND остаются оба
   // условия (своя группа И запрошенная), пересечение = пусто, чужие материалы не видны.
@@ -222,6 +237,33 @@ describe('MaterialsService — управление своими', () => {
     expect(prisma.material.delete).toHaveBeenCalledWith({ where: { id: 'm1' } })
   })
 
+  it('у материала уже предельное число файлов → CONFLICT(files), файл не загружается', async () => {
+    const { service, prisma, files } = setup()
+    prisma.material.findUnique.mockResolvedValue({ id: 'm1', teacherId: 'u1', groupId: 'g1' })
+    prisma.file.count.mockResolvedValue(30)
+    const err = await service
+      .addFile(user(Role.TEACHER, { sub: 'u1' }), 'm1', Buffer.from('x'), 'lecture.pdf', ctx)
+      .catch((e) => e)
+    expect(err.code).toBe('CONFLICT')
+    expect(err.details).toEqual([expect.objectContaining({ field: 'files' })])
+    expect(files.upload).not.toHaveBeenCalled()
+  })
+
+  it('addFile передаёт исходное имя файла', async () => {
+    const { service, prisma, files } = setup()
+    prisma.material.findUnique.mockResolvedValue({ id: 'm1', teacherId: 'u1', groupId: 'g1' })
+    files.upload.mockResolvedValue({ id: 'f1', name: 'lecture.pdf', mime: 'application/pdf' })
+    const res = await service.addFile(
+      user(Role.TEACHER, { sub: 'u1' }),
+      'm1',
+      Buffer.from('x'),
+      'lecture.pdf',
+      ctx,
+    )
+    expect(files.upload).toHaveBeenCalledWith(expect.objectContaining({ name: 'lecture.pdf' }))
+    expect(res).toMatchObject({ id: 'f1', name: 'lecture.pdf' })
+  })
+
   it('getFileUrl: файл не из этого материала → NOT_FOUND', async () => {
     const { service, prisma, files } = setup()
     prisma.material.findUnique.mockResolvedValue({
@@ -239,6 +281,21 @@ describe('MaterialsService — управление своими', () => {
     expect(prisma.file.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: 'f1', materialId: 'm1' } }),
     )
+    expect(files.getPresignedUrl).not.toHaveBeenCalled()
+  })
+
+  it('getFileUrl: преподаватель группы, где не ведёт занятий, → WRONG_SCOPE без ссылки', async () => {
+    const { service, prisma, files } = setup()
+    prisma.material.findUnique.mockResolvedValue({
+      id: 'm1',
+      groupId: 'g9',
+      teacher: { id: 'other' },
+      media: [],
+    })
+    const err = await service
+      .getFileUrl(user(Role.TEACHER, { sub: 't1', universityId: 'uni1' }), 'm1', 'f1')
+      .catch((e) => e)
+    expect(err.code).toBe('WRONG_SCOPE')
     expect(files.getPresignedUrl).not.toHaveBeenCalled()
   })
 
