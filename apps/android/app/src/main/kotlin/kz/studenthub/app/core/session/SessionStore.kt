@@ -4,6 +4,9 @@ import kz.studenthub.app.core.network.ApiError
 import kz.studenthub.app.core.network.AuthorizationProvider
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -33,6 +36,15 @@ class SessionStore(
 
     /** Разобранный токен — для тех, кому нужна роль и scope, а не строка. */
     val currentToken: AccessToken? get() = token
+
+    private val _expired = MutableSharedFlow<Unit>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+
+    /**
+     * Сервер отказал в продлении: сессию отозвали (выход на другом устройстве, смена
+     * пароля, блокировка) или она истекла. Хранилище уже пусто — интерфейсу пора на
+     * экран входа с той же уборкой, что при ручном выходе (§7.2).
+     */
+    val expired: SharedFlow<Unit> = _expired
 
     /** Холодный старт: поднять сессию и вернуть разобранный токен. `null` — показывать вход. */
     suspend fun restoredToken(): AccessToken? {
@@ -97,7 +109,11 @@ class SessionStore(
         } catch (error: ApiError) {
             // Сессия невосстановима — забываем её, иначе каждый следующий запрос будет
             // заново ломиться в обновление. Нет сети — не повод выходить из аккаунта.
-            if (error.code?.meansSessionExpired == true) forgetSession()
+            if (error.code?.meansSessionExpired == true) {
+                val hadSession = token != null || hasStoredSession
+                forgetSession()
+                if (hadSession) _expired.tryEmit(Unit)
+            }
             null
         }
     }

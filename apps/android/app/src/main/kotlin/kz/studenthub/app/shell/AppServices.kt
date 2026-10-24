@@ -20,6 +20,7 @@ import kz.studenthub.app.core.observability.SentryObservability
 import kz.studenthub.app.core.session.AccessToken
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kz.studenthub.app.core.chats.AttachmentUploader
 import kz.studenthub.app.core.chats.AttachmentUrls
@@ -159,5 +160,8 @@ class AppServices(context: Context) {
 
     init {
         NotificationChannels.register(appContext)
+        // Отказ в продлении сессии ведёт на вход, откуда бы ни пришёл запрос: с экрана,
+        // из сокета или из фоновой досылки сообщений.
+        appScope.launch { session.expired.collect { sessionModel.sessionExpired() } }
     }
 }
