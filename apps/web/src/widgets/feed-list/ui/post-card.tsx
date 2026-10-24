@@ -141,10 +141,13 @@ function PostCardView({
     })
   }
 
-  const created = new Date(post.createdAt)
+  // Дата поста — момент публикации (§3.3): отложенный пост и черновик создают раньше, чем
+  // они выходят. Своему черновику и отложенному даты публикации ещё нет — у них дата создания.
+  const shownAt = post.publishedAt ?? post.createdAt
+  const created = new Date(shownAt)
   // «4 д назад» вместо «27.08, 11:15»: в ленте важен возраст поста, а не точная дата.
   // Точная — в подсказке, для тех случаев, когда она всё-таки нужна.
-  const ago = relativeTime(post.createdAt, locale)
+  const ago = relativeTime(shownAt, locale)
   const exactTime = created.toLocaleString(locale, {
     day: '2-digit',
     month: '2-digit',
@@ -271,7 +274,7 @@ function PostCardView({
           </span>
           {/* Возраст поста не переносим: «45 мин. назад» в узкой колонке ломалось
               на три строки и раздвигало всю панель. */}
-          <time dateTime={post.createdAt} title={exactTime} className="whitespace-nowrap">
+          <time dateTime={shownAt} title={exactTime} className="whitespace-nowrap">
             {ago}
           </time>
         </span>

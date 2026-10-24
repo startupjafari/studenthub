@@ -549,8 +549,10 @@ function PostView({
     })
   }
 
+  // Дата поста — момент публикации, как в карточке ленты (у черновика — дата создания).
+  const shownAt = post.publishedAt ?? post.createdAt
   // Точная дата — в подсказке к относительному времени в панели действий.
-  const exactDate = new Date(post.createdAt).toLocaleDateString(locale, {
+  const exactDate = new Date(shownAt).toLocaleDateString(locale, {
     day: '2-digit',
     month: 'long',
     year: 'numeric',
@@ -759,11 +761,11 @@ function PostView({
                       сам, с пометкой «Репост от …» сверху. */}
                   {originalUnavailable && <RepostUnavailable className="mt-1" />}
                   <time
-                    dateTime={post.createdAt}
+                    dateTime={shownAt}
                     title={exactDate}
                     className="text-xs text-muted-foreground"
                   >
-                    {relativeTime(post.createdAt, locale)}
+                    {relativeTime(shownAt, locale)}
                   </time>
                 </div>
               </div>
@@ -895,7 +897,7 @@ function PostView({
               {t('likesCount', { count: reactionTotal(reactions) })}
             </p>
             <p className="flex items-center gap-1.5 px-2 text-xs text-muted-foreground">
-              <time dateTime={post.createdAt}>{exactDate}</time>
+              <time dateTime={shownAt}>{exactDate}</time>
               <span aria-hidden>·</span>
               <span className="flex items-center gap-1" title={t('viewsCount', { count: views })}>
                 <Eye className="size-3.5" aria-hidden />

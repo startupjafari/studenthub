@@ -560,14 +560,20 @@ export class PostsService {
       // Модерации нужен поток свежего, а не порядок чтения: там просто новые сверху. Профиль
       // с sort=new — закреплённые и дальше по времени, без приоритета аудитории: иначе свежий
       // пост «для группы» автора-админа оказывался бы ниже его старых постов «для вуза».
+      //
+      // Время — момент публикации, а не создания (§3.3): отложенный пост и опубликованный
+      // черновик иначе вставали в ленту на дату, когда их начали писать, — под постами,
+      // вышедшими раньше них. У опубликованного поста publishedAt есть всегда; пустой он
+      // только у черновика и отложенного — они видны лишь автору на своей вкладке и стоят
+      // там сверху (DESC в Postgres — NULLS FIRST).
       orderBy: moderation
         ? [{ createdAt: 'desc' }, { id: 'desc' }]
         : sort === 'new'
-          ? [{ pinnedAt: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }, { id: 'desc' }]
+          ? [{ pinnedAt: { sort: 'desc', nulls: 'last' } }, { publishedAt: 'desc' }, { id: 'desc' }]
           : [
               { pinnedAt: { sort: 'desc', nulls: 'last' } },
               { priority: 'desc' },
-              { createdAt: 'desc' },
+              { publishedAt: 'desc' },
               { id: 'desc' },
             ],
       take: query.limit + 1,
@@ -610,7 +616,7 @@ export class PostsService {
         { pinnedAt: { sort: 'desc', nulls: 'last' } },
         { reactions: { _count: 'desc' } },
         { comments: { _count: 'desc' } },
-        { createdAt: 'desc' },
+        { publishedAt: 'desc' },
         { id: 'desc' },
       ],
       skip: offset,
@@ -918,6 +924,8 @@ export class PostsService {
         content: input.content ?? '',
         priority: this.priorityFor(actor, input.audience as PostAudience),
         originalPostId,
+        // Репост публикуется сразу — момент публикации нужен ленте для порядка.
+        publishedAt: new Date(),
         ...target,
       },
       select: { id: true },

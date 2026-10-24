@@ -998,13 +998,13 @@ describe('PostsService — черновики и отложенная публи
 describe('PostsService.feed — сортировка и статус вкладки профиля', () => {
   const me = () => viewer(Role.STUDENT, { sub: 's1', groupId: 'grp-1' })
 
-  it('без sort — прежний порядок ленты (закреплённые → приоритет → время)', async () => {
+  it('без sort — прежний порядок ленты (закреплённые → приоритет → время публикации)', async () => {
     const { service, prisma } = setup()
     await service.feed(me(), { limit: 20, authorId: 's1' })
     expect(prisma.post.findMany.mock.calls[0][0].orderBy).toEqual([
       { pinnedAt: { sort: 'desc', nulls: 'last' } },
       { priority: 'desc' },
-      { createdAt: 'desc' },
+      { publishedAt: 'desc' },
       { id: 'desc' },
     ])
   })
@@ -1015,7 +1015,7 @@ describe('PostsService.feed — сортировка и статус вклад�
     const arg = prisma.post.findMany.mock.calls[0][0]
     expect(arg.orderBy).toEqual([
       { pinnedAt: { sort: 'desc', nulls: 'last' } },
-      { createdAt: 'desc' },
+      { publishedAt: 'desc' },
       { id: 'desc' },
     ])
     // Курсор по id, как у ленты.
@@ -1045,7 +1045,7 @@ describe('PostsService.feed — сортировка и статус вклад�
       { pinnedAt: { sort: 'desc', nulls: 'last' } },
       { reactions: { _count: 'desc' } },
       { comments: { _count: 'desc' } },
-      { createdAt: 'desc' },
+      { publishedAt: 'desc' },
       { id: 'desc' },
     ])
     expect(arg.skip).toBe(4)
