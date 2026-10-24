@@ -147,11 +147,14 @@ services:
   nginx:
     image: nginx:1.31-alpine
     # Раз в 6 часов reload: обновлённый certbot'ом сертификат попадает в процесс только так.
+    # Запуск — через точку входа образа: шаблоны из templates/ она рендерит, только когда
+    # первым аргументом идёт `nginx`. Команда `sh -c …` мимо неё оставляла в conf.d стоковый
+    # default.conf — без 443, маршрутов и ACME.
     command:
       [
         'sh',
         '-c',
-        "while :; do sleep 6h & wait $${!}; nginx -s reload; done & exec nginx -g 'daemon off;'",
+        "while :; do sleep 6h & wait $${!}; nginx -s reload; done & exec /docker-entrypoint.sh nginx -g 'daemon off;'",
       ]
     restart: always
     logging: *logging
