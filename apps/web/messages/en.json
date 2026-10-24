@@ -2120,6 +2120,7 @@
     "pollRandomOrder": "Shuffle options",
     "pollClosed": "Closed",
     "pollVotes": "{count, plural, =0 {No votes} one {# vote} other {# votes}}",
+    "pollSubmitVote": "Vote",
     "attachPhoto": "Photo or video",
     "attachCamera": "Camera",
     "attachFile": "File",
