@@ -205,7 +205,6 @@ interface UploadPayload {
   silent?: boolean
 }
 
-/** Фото и видео уходят превью-плитками, всё остальное — строками файла. */
 /** Чат-события, об отказе в которых человеку нужно сказать. Прочтение, «печатает» и вход в
  * комнату не в счёт: их отказ ему нечем показать, тост был бы шумом. */
 const WS_ERROR_EVENTS = new Set(['message:send', 'message:edit', 'message:delete'])
@@ -233,6 +232,7 @@ function serverNowIso(skewMs: number): string {
   return new Date(Date.now() + skewMs - SYNC_SKEW_MARGIN_MS).toISOString()
 }
 
+/** Фото и видео уходят превью-плитками, всё остальное — строками файла. */
 function isMediaFile(f: File): boolean {
   return f.type.startsWith('image/') || f.type.startsWith('video/')
 }
@@ -1157,6 +1157,10 @@ export function ChatWindow() {
         chatId: string
         content?: string
         replyToId?: string
+        // Цитата и «без звука» — тоже часть сообщения: повтор без них уходил обычным ответом
+        // и будил получателей.
+        replyQuote?: string
+        silent?: boolean
         files: File[]
         spoilerIndexes?: number[]
         asFiles?: boolean
@@ -1346,6 +1350,10 @@ export function ChatWindow() {
       if (oversize) {
         throw new OversizeAttachmentError(oversize)
       }
+      // Сигнатура пузыря — по байтам, которые уйдут на сервер: эхо придёт с размерами уже
+      // сжатых файлов, и по исходным сверка промахивалась — пузыри доставались чужим эхо.
+      const waiting = pendingMedia.current.find((p) => p.tempId === tempId)
+      if (waiting) waiting.sig = mediaSig(payloadFiles)
       // Крупные вложения через API не проходят: тело multipart-запроса целиком ложится в
       // память процесса. Хоть один такой файл — и всё сообщение уходит прямым путём, потому
       // что сообщение создаётся одним запросом, и делить его между двумя путями некуда.
@@ -1492,6 +1500,8 @@ export function ChatWindow() {
       chatId,
       content: payload.content,
       replyToId: payload.replyToId,
+      replyQuote: payload.replyQuote,
+      silent: payload.silent,
       files: payload.files,
       spoilerIndexes: payload.spoilerIndexes,
       asFiles: payload.asFiles,
@@ -2449,6 +2459,8 @@ export function ChatWindow() {
       void uploadFiles(m.id, media.chatId, {
         content: media.content,
         replyToId: media.replyToId,
+        replyQuote: media.replyQuote,
+        silent: media.silent,
         files: media.files,
         spoilerIndexes: media.spoilerIndexes,
         asFiles: media.asFiles,
