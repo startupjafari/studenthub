@@ -7,11 +7,12 @@ import { toast } from 'sonner'
 import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react'
 import type { ScheduleQueryInput } from '@studenthub/shared-schemas'
 import {
+  changesByPairDate,
   fetchSchedule,
   fetchScheduleChanges,
   layoutColumns,
+  pairDateKey,
   scheduleKeys,
-  type ScheduleChange,
   type WeekType,
 } from '../../../entities/schedule'
 import { useRealtimeEvent } from '../../../shared/realtime'
@@ -109,12 +110,8 @@ export function ScheduleGrid({ filters = {} }: ScheduleGridProps) {
     toast.info(t('changedToast'))
   })
 
-  // pairId+дата → изменение (для наложения на конкретный день недели).
-  const changeMap = useMemo(() => {
-    const map = new Map<string, ScheduleChange>()
-    for (const c of changes.data ?? []) map.set(`${c.pairId}|${c.date.slice(0, 10)}`, c)
-    return map
-  }, [changes.data])
+  // pairId+дата → изменения этого дня, сведённые в одно (для наложения на день недели).
+  const changeMap = useMemo(() => changesByPairDate(changes.data ?? []), [changes.data])
 
   // Видимые на этой неделе пары (по чётности), сгруппированные по дню (1..7).
   const pairs = useMemo(
@@ -296,7 +293,7 @@ export function ScheduleGrid({ filters = {} }: ScheduleGridProps) {
                 const placements = new Map<string, { col: number; cols: number }>()
                 for (const { item, col, cols } of layoutColumns(
                   dayPairs.map((p) => {
-                    const ch = changeMap.get(`${p.id}|${dateStr}`)
+                    const ch = changeMap.get(pairDateKey(p.id, dateStr))
                     return {
                       id: p.id,
                       startMin: toMin(ch?.newStartTime ?? p.startTime),
@@ -338,7 +335,7 @@ export function ScheduleGrid({ filters = {} }: ScheduleGridProps) {
                         <PairDetailModal
                           key={p.id}
                           pair={p}
-                          change={changeMap.get(`${p.id}|${dateStr}`)}
+                          change={changeMap.get(pairDateKey(p.id, dateStr))}
                           gridStart={gridStart}
                           gridSpan={gridSpan}
                           date={dateStr}

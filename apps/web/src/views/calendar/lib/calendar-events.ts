@@ -1,4 +1,9 @@
-import type { Pair, ScheduleChange } from '../../../entities/schedule'
+import {
+  changesByPairDate,
+  pairDateKey,
+  type Pair,
+  type ScheduleChange,
+} from '../../../entities/schedule'
 import type { EventItem } from '../../../entities/event'
 import type { AssignmentItem } from '../../../entities/assignment'
 import type { ExamItem } from '../../../entities/exam'
@@ -33,8 +38,8 @@ function dowOf(d: Date): number {
 
 // Разворачивает недельные пары на конкретные даты диапазона, накладывая изменения.
 export function expandPairs(pairs: Pair[], changes: ScheduleChange[], dates: Date[]): CalItem[] {
-  const changeByKey = new Map<string, ScheduleChange>()
-  for (const c of changes) changeByKey.set(`${c.pairId}|${c.date.slice(0, 10)}`, c)
+  // Несколько изменений пары на дату сводятся в одно — как на сервере.
+  const changeByKey = changesByPairDate(changes)
 
   const items: CalItem[] = []
   for (const d of dates) {
@@ -44,7 +49,7 @@ export function expandPairs(pairs: Pair[], changes: ScheduleChange[], dates: Dat
     for (const p of pairs) {
       if (p.dayOfWeek !== dow) continue
       if (p.weekType !== 'BOTH' && p.weekType !== parity) continue
-      const change = changeByKey.get(`${p.id}|${ds}`) ?? null
+      const change = changeByKey.get(pairDateKey(p.id, ds)) ?? null
       const cancelled = change?.type === 'CANCELLED'
       const start = change?.newStartTime ?? p.startTime
       const end = change?.newEndTime ?? p.endTime
