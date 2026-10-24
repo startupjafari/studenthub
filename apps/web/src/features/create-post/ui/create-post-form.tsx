@@ -120,7 +120,7 @@ export function CreatePostForm({
     mutationFn: (input: CreatePostInput) =>
       createPostRequest({ ...input, mediaIds: media.map((m) => m.id), targetUserId: target?.id }),
     onMutate: () => resetApiError(),
-    onSuccess: (_data, variables) => {
+    onSuccess: (created, variables) => {
       void qc.invalidateQueries({ queryKey: postKeys.all })
       form.reset({ audience: audiences[0], content: '', title: '' })
       media.forEach((m) => URL.revokeObjectURL(m.url))
@@ -128,10 +128,12 @@ export function CreatePostForm({
       setTarget(null)
       setScheduleAt('')
       setScheduleOpen(false)
+      // Тост — по тому, что сделал сервер, а не по тому, что просили: время, успевшее
+      // пройти, пока форма была открыта, сервер публикует сразу.
       toast.success(
         variables.status === 'DRAFT'
           ? t('draftSaved')
-          : variables.scheduledAt
+          : created.status === 'SCHEDULED'
             ? t('scheduledOk')
             : t('published'),
       )
@@ -147,6 +149,12 @@ export function CreatePostForm({
       // Пока фото грузится, его id ещё нет в media: пост ушёл бы без него, а догрузившийся
       // файл упал бы в уже очищенную форму. Кнопки на это время выключены; Enter — сюда же.
       if (uploading) return
+      // Отложить можно только в будущее: прошедшее время сервер понял бы как «опубликовать
+      // сейчас», а человек нажимал «Запланировать».
+      if (status === 'PUBLISHED' && scheduleAt && new Date(scheduleAt).getTime() <= Date.now()) {
+        toast.error(t('schedulePast'))
+        return
+      }
       mutation.mutate({
         ...v,
         status,

@@ -1922,6 +1922,7 @@
     "statusScheduled": "Scheduled",
     "draftSaved": "Draft saved",
     "scheduledOk": "Publication scheduled",
+    "schedulePast": "That time has already passed — pick a time in the future",
     "saveDraft": "Save draft",
     "schedule": "Schedule",
     "scheduleLabel": "Publish at",

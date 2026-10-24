@@ -1922,6 +1922,7 @@
     "statusScheduled": "Жоспарланған",
     "draftSaved": "Жоба сақталды",
     "scheduledOk": "Жариялау жоспарланды",
+    "schedulePast": "Бұл уақыт өтіп кетті — болашақ уақытты таңдаңыз",
     "saveDraft": "Жобаны сақтау",
     "schedule": "Жоспарлау",
     "scheduleLabel": "Кейінге қалдыру",
