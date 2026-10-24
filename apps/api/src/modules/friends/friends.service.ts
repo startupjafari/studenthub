@@ -50,6 +50,16 @@ const ACTIVE_USER = { deletedAt: null, isBlocked: false } satisfies Prisma.UserW
 // отклонивший может написать заявку в ответ когда угодно.
 const DECLINE_PAUSE_SECONDS = 7 * 24 * 60 * 60
 
+// Окно уведомления о заявке: одна пара будит адресата не чаще раза в сутки. Отмена своей
+// заявки паузы не ставит (передумать — нормально), но «отменил — отправил снова» по кругу
+// иначе давал новое уведомление на каждом шаге. Заявка при этом создаётся как обычно и
+// видна во входящих — молчит только колокольчик.
+const REQUEST_NOTICE_WINDOW_SECONDS = 24 * 60 * 60
+
+function requestNoticeKey(requesterId: string, addresseeId: string): string {
+  return `friend-request-notice:${requesterId}:${addresseeId}`
+}
+
 /** Ключ паузы: `requesterId` отклонён `addresseeId` и пока не может повторить заявку. */
 function declinePauseKey(requesterId: string, addresseeId: string): string {
   return `friend-declined:${requesterId}:${addresseeId}`
@@ -169,6 +179,7 @@ export class FriendsService {
       return { status: 'accepted' }
     }
     const friendshipId = outcome.friendshipId
+    if (!(await this.claimRequestNotice(viewer.sub, targetId))) return { status: 'pending' }
     // Имя отправителя — для тела уведомления с кнопками принять/отклонить.
     const requester = await this.prisma.user.findUnique({
       where: { id: viewer.sub },
@@ -502,6 +513,26 @@ export class FriendsService {
     } catch (error) {
       this.logger.warn(`Пауза повторной заявки не проверена: ${(error as Error).message}`)
       return false
+    }
+  }
+
+  /**
+   * Занять окно уведомления о заявке пары: false — адресата в эти сутки уже будили.
+   * Redis недоступен — уведомляем: пропущенная заявка хуже лишнего уведомления.
+   */
+  private async claimRequestNotice(requesterId: string, addresseeId: string): Promise<boolean> {
+    try {
+      const claimed = await this.redis.set(
+        requestNoticeKey(requesterId, addresseeId),
+        '1',
+        'EX',
+        REQUEST_NOTICE_WINDOW_SECONDS,
+        'NX',
+      )
+      return claimed === 'OK'
+    } catch (error) {
+      this.logger.warn(`Окно уведомления о заявке не проверено: ${(error as Error).message}`)
+      return true
     }
   }
 

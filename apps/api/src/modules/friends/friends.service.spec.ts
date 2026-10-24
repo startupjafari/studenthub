@@ -92,6 +92,26 @@ describe('FriendsService.sendRequest', () => {
     )
   })
 
+  it('повтор заявки той же паре в течение суток не будит адресата второй раз', async () => {
+    const { service, prisma, queue, redis } = setup()
+    prisma.user.findFirst.mockResolvedValue({ id: 'target' })
+    prisma.friendship.findFirst.mockResolvedValue(null)
+    prisma.friendship.create.mockResolvedValue({ id: 'f2' })
+    // Окно уведомления пары уже занято первой (отменённой) заявкой.
+    redis.set.mockResolvedValue(null)
+    const res = await service.sendRequest(me, 'target')
+    expect(res).toEqual({ status: 'pending' })
+    expect(prisma.friendship.create).toHaveBeenCalled()
+    expect(redis.set).toHaveBeenCalledWith(
+      'friend-request-notice:me:target',
+      '1',
+      'EX',
+      24 * 60 * 60,
+      'NX',
+    )
+    expect(queue.enqueue).not.toHaveBeenCalled()
+  })
+
   it('встречная заявка (адресат — я) → авто-принятие', async () => {
     const { service, prisma, queue } = setup()
     prisma.user.findFirst.mockResolvedValue({ id: 'target' })
