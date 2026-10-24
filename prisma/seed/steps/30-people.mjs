@@ -11,6 +11,8 @@
 // TEACHER (по нагрузке), STAROSTA (по одному на группу), STUDENT (остальные).
 // PLATFORM_ADMIN/PLATFORM_MODERATOR — платформенные, их создаёт основной сид.
 
+import { createHash, randomUUID } from 'node:crypto'
+
 import { ACADEMIC_TITLES, POSITIONS_TEACHER, person, translit } from '../data/people.mjs'
 import { staffProfile, studentProfile } from '../data/profiles.mjs'
 import { child, emailFor, id, uniPrefix, usernameFor } from '../lib/ids.mjs'
@@ -223,8 +225,16 @@ export async function seedPeople(prisma, writer, ctx) {
     const faculty = people.faculties[i % people.faculties.length]
     await writer.add('invite', {
       id: id(index, 'inv', i),
-      // Токен уникален глобально; он же ключ ссылки-приглашения.
-      token: `${id(index, 'invite', i)}-${status.toLowerCase()}`,
+      // Токен уникален глобально; он же ключ ссылки-приглашения. У живого (PENDING)
+      // инвайта он не должен быть выводим из репозитория: сид гоняют и по боевой базе, и
+      // `u001-invite-3-pending` был бы готовой регистрацией старостой. Поэтому в колонку
+      // кладём хэш случайного токена (так хранит и сервис, invite-token.ts) — сам токен
+      // нигде не сохраняется, и ссылкой по такому инвайту не воспользоваться никому.
+      // Использованным и истёкшим предсказуемый токен ничего не даёт.
+      token:
+        status === 'PENDING'
+          ? createHash('sha256').update(randomUUID()).digest('hex')
+          : `${id(index, 'invite', i)}-${status.toLowerCase()}`,
       role,
       email: `invite.${i}@${uniId}.example.kz`,
       universityId: uniId,
