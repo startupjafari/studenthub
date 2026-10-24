@@ -69,6 +69,8 @@ class AppRouter {
             is DeepLink.Chat -> replace(AppTab.CHATS, listOf(AppRoute.Chat(link.id)))
             is DeepLink.Post -> replace(AppTab.HOME, listOf(AppRoute.Post(link.id)))
             is DeepLink.Lesson -> replace(AppTab.SCHEDULE, listOf(AppRoute.Lesson(link.id)))
+            is DeepLink.Profile -> replace(AppTab.HOME, listOf(AppRoute.Profile(link.userId)))
+            DeepLink.Notifications -> replace(AppTab.HOME, listOf(AppRoute.Section(MoreSection.NOTIFICATIONS)))
             // Под карточкой оставляем список: «назад» из заявки, открытой пушем, ведёт к
             // заявкам, а не выбрасывает на главную.
             is DeepLink.Application -> replace(
