@@ -373,7 +373,8 @@ export class ApplicationProcessService {
     const { revoked, eventId } = await this.prisma.$transaction(async (tx) => {
       const count = await this.exports.revokeByDocumentNumber(number, 'certificate', tx)
       if (count === 0) return { revoked: 0, eventId: null }
-      await tx.document.updateMany({
+      const rejectionReason = reason?.trim() || REVOKED_REASON
+      const docs = await tx.document.updateManyAndReturn({
         where: {
           ownerId: app.studentId,
           type: STUDY_CERTIFICATE_TYPE,
@@ -382,8 +383,22 @@ export class ApplicationProcessService {
           status: { not: 'REJECTED' },
           applicationResults: { some: { applicationId: app.id } },
         },
-        data: { status: 'REJECTED', rejectionReason: reason?.trim() || REVOKED_REASON },
+        data: { status: 'REJECTED', rejectionReason },
+        select: { id: true },
       })
+      // Отзыв — и в журнал самого документа: иначе в истории справки у студента и в
+      // журнале документов вуза её статус менялся без следа. Пометка `viaApplication`
+      // относит событие к заявке (журнал показывает «Заявка»).
+      if (docs.length > 0) {
+        await tx.documentEvent.createMany({
+          data: docs.map((d) => ({
+            actorId: viewer.sub,
+            documentId: d.id,
+            action: 'REJECT',
+            metadata: { reason: rejectionReason, revoked: true, viaApplication: app.id },
+          })),
+        })
+      }
       const event = await tx.applicationEvent.create({
         data: {
           applicationId: id,
