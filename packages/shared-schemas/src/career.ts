@@ -462,7 +462,8 @@ export const VacancySearchSchema = OffsetPaginationSchema.extend({
   workFormat: WorkFormatSchema.optional(),
   experienceLevel: ExperienceLevelSchema.optional(),
   city: optionalText(24),
-  salaryFrom: z.coerce.number().int().nonnegative().optional(),
+  // Тот же потолок, что у зарплаты вакансии: больше значения колонка (Int) не примет.
+  salaryFrom: z.coerce.number().int().nonnegative().max(100_000_000).optional(),
   skills: z.array(z.string().trim().min(1).max(60)).max(10).optional(),
   sort: VacancySortSchema.default('publishedAt'),
   order: SortOrderSchema.default('desc'),

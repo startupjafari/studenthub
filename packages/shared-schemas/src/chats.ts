@@ -173,7 +173,8 @@ export type ChatMessagesQueryInput = z.infer<typeof ChatMessagesQuerySchema>
 // - sinceTs — время последней успешной синхронизации; без него правки/удаления не запрашиваются.
 export const ChatUpdatesQuerySchema = z
   .object({
-    since: z.coerce.number().int().min(0),
+    // Message.seq — Int (int32): больше значения в колонке быть не может.
+    since: z.coerce.number().int().min(0).max(2_147_483_647),
     sinceTs: z.string().datetime().optional(),
   })
   .strict()
@@ -190,11 +191,13 @@ export const MessageSearchQuerySchema = CursorPaginationSchema.extend({
 export type MessageSearchQueryInput = z.infer<typeof MessageSearchQuerySchema>
 
 // Отключение уведомлений на время (§17): minutes — на сколько заглушить (нет/0 — «навсегда»).
+// Потолок — год: дольше это уже «навсегда», а без предела срок вылетал за пределы даты.
 // importantOnly — режим «только важные»: чат заглушён, но ответы на мои сообщения и упоминания
 // меня по имени уведомление всё равно создают.
+export const MUTE_MAX_MINUTES = 365 * 24 * 60
 export const MuteSchema = z
   .object({
-    minutes: z.coerce.number().int().positive().optional(),
+    minutes: z.coerce.number().int().positive().max(MUTE_MAX_MINUTES).optional(),
     importantOnly: z.boolean().optional(),
   })
   .strict()

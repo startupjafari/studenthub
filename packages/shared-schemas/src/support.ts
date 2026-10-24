@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { PageSchema } from './pagination.js'
 
 // Обращение в поддержку платформы: приватная переписка человека с командой платформы.
 //
@@ -65,7 +66,7 @@ export const SupportQueueQuerySchema = z.object({
   search: z.string().trim().min(2).max(100).optional(),
   /** Только обращения с этим тегом. Фильтрует сервер: клиент видит одну страницу. */
   tag: SupportTagSchema.optional(),
-  page: z.coerce.number().int().min(1).default(1),
+  page: PageSchema,
   limit: z.coerce.number().int().min(1).max(50).default(30),
 })
 export type SupportQueueQueryInput = z.infer<typeof SupportQueueQuerySchema>
