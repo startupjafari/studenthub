@@ -46,6 +46,20 @@ interface TargetInfo {
   ownerId: string | null
 }
 
+/**
+ * Что именно обжаловано — текст поста, комментария или сторис. Без него модератор видел
+ * только тип цели и причину и снимал контент вслепую. У сообщения контекст — отдельной
+ * ручкой с аудитом (`/messages`), у человека — его карточка.
+ */
+interface TargetPreview {
+  title: string | null
+  text: string | null
+  /** Сколько медиа у цели: само медиа не отдаём, но «в посте три фото» меняет разбор. */
+  mediaCount: number
+  /** Автор успел удалить цель — её текст остаётся предметом жалобы. */
+  deleted: boolean
+}
+
 function isPlatform(role: Role): boolean {
   return role === Role.PLATFORM_ADMIN || role === Role.PLATFORM_MODERATOR
 }
@@ -396,7 +410,13 @@ export class ComplaintsService {
   async getById(
     viewer: JwtPayload,
     id: string,
-  ): Promise<ComplaintRow & { targetReports: number; targetOwnerId: string | null }> {
+  ): Promise<
+    ComplaintRow & {
+      targetReports: number
+      targetOwnerId: string | null
+      targetPreview: TargetPreview | null
+    }
+  > {
     const complaint = await this.findScoped(viewer, id)
     // Разные авторы, а не строки: повторные жалобы одного человека (до запрета повтора их
     // заводили сколько угодно) травлю не означают.
@@ -411,7 +431,8 @@ export class ComplaintsService {
     // принимается про человека: заблокировать — значит заблокировать именно его.
     // Снесённая цель отвечает null — карточку нарушителя тогда просто не показываем.
     const targetOwnerId = await this.ownerOf(complaint)
-    return { ...complaint, targetReports, targetOwnerId }
+    const targetPreview = await this.previewOf(complaint)
+    return { ...complaint, targetReports, targetOwnerId, targetPreview }
   }
 
   // ── Разрешение (11.4) ────────────────────────────────────────────────────
@@ -826,6 +847,65 @@ export class ComplaintsService {
       throw new AppException('WRONG_SCOPE', 'Жалоба другого университета')
     }
     return complaint
+  }
+
+  /** Текст цели для карточки разбора; удалённую автором показываем тоже — это предмет жалобы. */
+  private async previewOf(complaint: {
+    targetType: ComplaintTargetType
+    targetId: string
+  }): Promise<TargetPreview | null> {
+    const id = complaint.targetId
+    switch (complaint.targetType) {
+      case ComplaintTargetType.POST: {
+        const post = await this.prisma.post.findUnique({
+          where: { id },
+          select: {
+            title: true,
+            content: true,
+            deletedAt: true,
+            _count: { select: { media: true } },
+          },
+        })
+        return post
+          ? {
+              title: post.title,
+              text: post.content,
+              mediaCount: post._count.media,
+              deleted: post.deletedAt !== null,
+            }
+          : null
+      }
+      case ComplaintTargetType.COMMENT: {
+        const comment = await this.prisma.comment.findUnique({
+          where: { id },
+          select: { content: true, deletedAt: true },
+        })
+        return comment
+          ? {
+              title: null,
+              text: comment.content,
+              mediaCount: 0,
+              deleted: comment.deletedAt !== null,
+            }
+          : null
+      }
+      case ComplaintTargetType.STORY: {
+        const story = await this.prisma.story.findUnique({
+          where: { id },
+          select: { text: true, linkUrl: true, fileId: true },
+        })
+        return story
+          ? {
+              title: null,
+              text: [story.text, story.linkUrl].filter(Boolean).join('\n') || null,
+              mediaCount: story.fileId ? 1 : 0,
+              deleted: false,
+            }
+          : null
+      }
+      default:
+        return null
+    }
   }
 
   /** Проверка существования цели и вычисление её вуза/владельца. */

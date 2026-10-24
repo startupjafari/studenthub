@@ -30,9 +30,10 @@ function setup() {
       // Разные авторы жалоб на цель (getById).
       groupBy: jest.fn().mockResolvedValue([]),
     },
-    post: { findFirst: jest.fn(), updateMany: jest.fn() },
-    story: { findFirst: jest.fn() },
-    comment: { findFirst: jest.fn(), updateMany: jest.fn() },
+    // findUnique — текст цели для карточки разбора (getById → targetPreview).
+    post: { findFirst: jest.fn(), findUnique: jest.fn(), updateMany: jest.fn() },
+    story: { findFirst: jest.fn(), findUnique: jest.fn() },
+    comment: { findFirst: jest.fn(), findUnique: jest.fn(), updateMany: jest.fn() },
     chatMember: { findFirst: jest.fn().mockResolvedValue({ id: 'member' }) },
     message: {
       findFirst: jest.fn(),
@@ -320,6 +321,32 @@ describe('ComplaintsService — scope очереди (11.3)', () => {
     prisma.post.findFirst.mockResolvedValue(null)
     const card = await service.getById(user(Role.PLATFORM_ADMIN), 'c1')
     expect(card.targetOwnerId).toBeNull()
+  })
+
+  // Разбор по содержимому: без текста цели модератор снимал контент вслепую.
+  it('отдаёт текст обжалованного поста, и удалённого автором тоже', async () => {
+    const { service, prisma } = setup()
+    prisma.complaint.findUnique.mockResolvedValue(complaint())
+    prisma.post.findUnique.mockResolvedValue({
+      title: 'Заголовок',
+      content: 'текст поста',
+      deletedAt: new Date(),
+      _count: { media: 2 },
+    })
+    const card = await service.getById(user(Role.PLATFORM_ADMIN), 'c1')
+    expect(card.targetPreview).toEqual({
+      title: 'Заголовок',
+      text: 'текст поста',
+      mediaCount: 2,
+      deleted: true,
+    })
+  })
+
+  it('у жалобы на человека превью нет', async () => {
+    const { service, prisma } = setup()
+    prisma.complaint.findUnique.mockResolvedValue(complaint({ targetType: 'USER' }))
+    const card = await service.getById(user(Role.PLATFORM_ADMIN), 'c1')
+    expect(card.targetPreview).toBeNull()
   })
 
   it('жалоба чужого вуза → WRONG_SCOPE', async () => {

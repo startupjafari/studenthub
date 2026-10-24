@@ -6,11 +6,12 @@ import type {
 } from '@studenthub/shared-schemas'
 import { api, getPaged } from '../../../shared/api'
 import type { Paged } from '../../../shared/api'
-import type { Complaint, ComplaintChatMessage } from '../model/types'
+import type { Complaint, ComplaintCard, ComplaintChatMessage } from '../model/types'
 
 export const complaintKeys = {
   all: ['complaints'] as const,
   list: (params: Partial<ComplaintListQueryInput> = {}) => ['complaints', 'list', params] as const,
+  detail: (id: string) => ['complaints', id, 'detail'] as const,
   messages: (id: string) => ['complaints', id, 'messages'] as const,
 }
 
@@ -34,6 +35,12 @@ export async function fetchComplaints(
   params: Partial<ComplaintListQueryInput> = {},
 ): Promise<Paged<Complaint>> {
   return getPaged<Complaint>('/complaints', { page: 1, limit: 20, ...params })
+}
+
+// Одна жалоба для окна разбора: текст цели, число жалоб на неё и кто за неё отвечает.
+export async function fetchComplaint(id: string): Promise<ComplaintCard> {
+  const { data } = await api.get<ComplaintCard>(`/complaints/${id}`)
+  return data
 }
 
 export async function resolveComplaintRequest(

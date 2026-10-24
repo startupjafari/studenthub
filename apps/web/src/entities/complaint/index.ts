@@ -3,6 +3,7 @@ export {
   createComplaintRequest,
   createComplaintFromSupportRequest,
   fetchComplaints,
+  fetchComplaint,
   resolveComplaintRequest,
   takeComplaintRequest,
   reopenComplaintRequest,
@@ -15,6 +16,8 @@ export {
   type ComplaintStatusValue,
   type ComplaintTargetTypeValue,
   type Complaint,
+  type ComplaintCard,
+  type ComplaintTargetPreview,
   type ComplaintUser,
   type ComplaintChatMessage,
 } from './model/types'

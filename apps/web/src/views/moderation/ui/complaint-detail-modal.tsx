@@ -7,6 +7,7 @@ import { useLocale, useTranslations } from 'next-intl'
 import type { ReactNode } from 'react'
 import {
   complaintKeys,
+  fetchComplaint,
   fetchComplaintMessages,
   reopenComplaintRequest,
   resolveComplaintRequest,
@@ -82,6 +83,14 @@ export function ComplaintDetailModal({
 
   const isOpen = complaint.status === 'PENDING' || complaint.status === 'REVIEWING'
   const priorityValue = complaintPriority(complaint)
+
+  // Карточка целиком — с текстом обжалованного: строка очереди его не несёт.
+  const detail = useQuery({
+    queryKey: complaintKeys.detail(complaint.id),
+    queryFn: () => fetchComplaint(complaint.id),
+  })
+  const preview = detail.data?.targetPreview ?? null
+  const hasPreview = complaint.targetType !== 'MESSAGE' && complaint.targetType !== 'USER'
 
   const messages = useQuery({
     queryKey: complaintKeys.messages(complaint.id),
@@ -218,6 +227,37 @@ export function ComplaintDetailModal({
             </>
           )}
         </dl>
+
+        {/* Что именно обжаловано: без текста цели контент снимали вслепую. */}
+        {hasPreview && (
+          <section className="flex flex-col gap-2 rounded-xl border border-border p-3">
+            <h4 className="text-sm font-medium">{t('targetContentTitle')}</h4>
+            {detail.isLoading ? (
+              <p className="text-xs text-muted-foreground">{tCommon('loading')}</p>
+            ) : detail.isError ? (
+              <p className="text-xs text-muted-foreground">{tErr(toApiError(detail.error).code)}</p>
+            ) : preview === null ? (
+              <p className="text-xs text-muted-foreground">{t('targetContentGone')}</p>
+            ) : (
+              <>
+                {preview.deleted && (
+                  <p className="text-xs text-muted-foreground">{t('targetContentDeleted')}</p>
+                )}
+                {preview.title && <p className="text-sm font-medium">{preview.title}</p>}
+                {preview.text && (
+                  <p className="max-h-60 overflow-y-auto whitespace-pre-wrap break-words text-sm">
+                    {preview.text}
+                  </p>
+                )}
+                {preview.mediaCount > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    {t('targetContentMedia', { count: preview.mediaCount })}
+                  </p>
+                )}
+              </>
+            )}
+          </section>
+        )}
 
         {/* Доступ к переписке по жалобе на сообщение (открытие пишется в аудит на бэке). */}
         {complaint.targetType === 'MESSAGE' && (
