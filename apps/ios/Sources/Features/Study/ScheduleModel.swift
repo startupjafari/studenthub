@@ -39,9 +39,17 @@ final class ScheduleModel {
         self.store = store ?? ScheduleStore(database: database)
         self.calendar = calendar
         selectedDay = Self.isoDay(of: now, calendar: calendar)
-        parity = WeekParity.current(now)
+        parity = WeekParity.current(now, in: Self.universityTimeZone ?? calendar.timeZone)
         syncedAt = UserDefaults.standard.object(forKey: Self.syncedKey) as? Date
     }
+
+    /// Пояс вуза из последнего ответа `GET /schedule`. По нему считается чётность —
+    /// как в вебе и Android; до первой загрузки — пояс устройства.
+    static var universityTimeZone: TimeZone? {
+        UserDefaults.standard.string(forKey: timeZoneKey).flatMap(TimeZone.init(identifier:))
+    }
+
+    static let timeZoneKey = "schedule.timezone"
 
     deinit {
         pairsTask?.cancel()
@@ -80,6 +88,9 @@ final class ScheduleModel {
             // Период изменений — дни вуза: «сегодня» студента в другом поясе не должно
             // сдвигать окно на сутки.
             let zone = schedule.timezone.flatMap(TimeZone.init(identifier:)) ?? calendar.timeZone
+            if let timezone = schedule.timezone {
+                UserDefaults.standard.set(timezone, forKey: Self.timeZoneKey)
+            }
             let now = Date()
             let until = calendar.date(byAdding: .day, value: 14, to: now) ?? now
             try await store.save(

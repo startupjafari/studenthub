@@ -4,6 +4,8 @@ import XCTest
 @testable import StudentHub
 
 final class WeekParityTests: XCTestCase {
+    private let utc = TimeZone(identifier: "UTC")!
+
     /// Чётность обязана совпадать с вебом день в день: разойдись она — и у человека
     /// в приложении и в браузере разные пары. Значения — по ISO 8601, те же, что в
     /// тесте веба (`tz-date.test.ts`).
@@ -23,8 +25,8 @@ final class WeekParityTests: XCTestCase {
 
         for (components, parity, week) in cases {
             let date = calendar.date(from: components)!
-            XCTAssertEqual(WeekParity.weekNumber(of: date), week, "неделя для \(components)")
-            XCTAssertEqual(WeekParity.current(date), parity, "чётность для \(components)")
+            XCTAssertEqual(WeekParity.weekNumber(of: date, in: utc), week, "неделя для \(components)")
+            XCTAssertEqual(WeekParity.current(date, in: utc), parity, "чётность для \(components)")
         }
     }
 
@@ -32,7 +34,21 @@ final class WeekParityTests: XCTestCase {
     func testNonIsoCalendarStillGivesIsoWeek() {
         let date = Calendar.iso8601UTC.date(from: DateComponents(year: 2026, month: 10, day: 25))!
 
-        XCTAssertEqual(WeekParity.weekNumber(of: date, calendar: Calendar(identifier: .gregorian)), 43)
+        XCTAssertEqual(WeekParity.weekNumber(of: date, in: utc, calendar: Calendar(identifier: .gregorian)), 43)
+    }
+
+    /// Неделя — по дате в поясе вуза: понедельник 02:00 в Алматы (в UTC ещё
+    /// воскресенье) — уже новая неделя, как в вебе и Android.
+    func testWeekFollowsUniversityTimeZone() {
+        let almaty = TimeZone(identifier: "Asia/Almaty")!
+        // 2026-10-25 21:00Z = 2026-10-26 02:00 в Алматы (UTC+5).
+        let date = Calendar.iso8601UTC.date(
+            from: DateComponents(year: 2026, month: 10, day: 25, hour: 21)
+        )!
+
+        XCTAssertEqual(WeekParity.weekNumber(of: date, in: almaty), 44)
+        XCTAssertEqual(WeekParity.current(date, in: almaty), .even)
+        XCTAssertEqual(WeekParity.weekNumber(of: date, in: utc), 43)
     }
 
     /// `BOTH` идёт каждую неделю — это самый частый случай в расписании.

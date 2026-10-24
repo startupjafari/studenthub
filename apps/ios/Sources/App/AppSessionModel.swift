@@ -99,6 +99,7 @@ enum LocalData {
         try? await AppServices.database.eraseAll()
         await AppServices.attachmentURLs.clear()
         UserDefaults.standard.removeObject(forKey: ScheduleModel.syncedKey)
+        UserDefaults.standard.removeObject(forKey: ScheduleModel.timeZoneKey)
         UserDefaults.standard.removeObject(forKey: ownerKey)
         await BadgeCounter().refresh()
     }
