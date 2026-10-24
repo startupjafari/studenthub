@@ -1377,7 +1377,11 @@ export class ChatsService implements OnModuleInit {
             where: {
               ...knownWhere,
               deletedAt: null,
-              OR: [{ editedAt: { gt: sinceTs } }, { pinnedAt: { gt: sinceTs } }],
+              OR: [
+                { editedAt: { gt: sinceTs } },
+                { pinnedAt: { gt: sinceTs } },
+                { unpinnedAt: { gt: sinceTs } },
+              ],
             },
             select: MESSAGE_SELECT,
             orderBy: { seq: 'asc' },
@@ -2770,7 +2774,7 @@ export class ChatsService implements OnModuleInit {
         where: { id: messageId },
         data: pinned
           ? { pinnedAt: new Date(), pinnedById: userId }
-          : { pinnedAt: null, pinnedById: null },
+          : { pinnedAt: null, pinnedById: null, unpinnedAt: new Date() },
         select: MESSAGE_SELECT,
       }),
     )

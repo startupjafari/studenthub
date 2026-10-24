@@ -1554,6 +1554,9 @@ export function ChatWindow() {
             mergeUpdates(old, delta),
           )
         }
+        // Плашку закреплённых дельта не обновляет: снятый или удалённый за время обрыва
+        // закреп висел бы в ней до следующего события закрепления.
+        void qc.invalidateQueries({ queryKey: chatKeys.pinned(chatId) })
         lastSyncAt.current = new Date().toISOString()
       } catch {
         void qc.invalidateQueries({ queryKey: chatKeys.messages(chatId) })
@@ -1845,6 +1848,8 @@ export function ChatWindow() {
             ),
         )
       }
+      // Удалённое могло быть закреплённым — иначе оно висело бы в плашке у остальных.
+      void qc.invalidateQueries({ queryKey: chatKeys.pinned(chatId) })
       // Удаление последнего сообщения меняет превью списка, непрочитанного — счётчик.
       refreshChatList(chatId)
     },

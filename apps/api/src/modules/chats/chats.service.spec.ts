@@ -2385,6 +2385,20 @@ describe('ChatsService.getUpdates — дельта догона', () => {
     )
   })
 
+  // BUG-174: снятие закрепа обнуляло pinnedAt без следа — догон о нём не узнавал.
+  it('правки ищет и по времени снятия закрепа', async () => {
+    const { service, prisma } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue(member)
+    prisma.chat.findUnique.mockResolvedValueOnce({ lastSeq: 5 })
+    const sinceTs = '2026-08-19T10:00:00.000Z'
+
+    await service.getUpdates(user('u1'), 'c1', { since: 5, sinceTs })
+
+    expect(prisma.message.findMany.mock.calls[1][0].where.OR).toContainEqual({
+      unpinnedAt: { gt: new Date(sinceTs) },
+    })
+  })
+
   it('разрыв больше лимита → overflow и пустой created (клиент перезапросит историю)', async () => {
     const { service, prisma } = setup()
     prisma.chatMember.findUnique.mockResolvedValue(member)
