@@ -37,6 +37,7 @@ import {
 } from '../../../entities/document'
 import { useDocumentTypeCatalog } from '../../../entities/document-type'
 import { UserPicker, type PickedUser } from '../../../entities/user'
+import { nowInTz } from '../../../shared/lib'
 import { useAppSelector } from '../../../shared/store'
 import {
   Badge,
@@ -583,7 +584,13 @@ function AccessModal({ docId, onClose }: { docId: string; onClose: () => void })
         </label>
         <label className="flex flex-col gap-1 text-sm">
           {t('grantExpiry')}
-          <DatePicker value={expiresAt} onChange={setExpiresAt} aria-label={t('grantExpiry')} />
+          {/* Срок в прошлом сервер не примет: доступ «до вчера» никому ничего не открыл бы. */}
+          <DatePicker
+            value={expiresAt}
+            onChange={setExpiresAt}
+            min={nowInTz(null).date}
+            aria-label={t('grantExpiry')}
+          />
         </label>
         {/* Подтверждающее действие — справа, как во всех окнах (DESIGN_SYSTEM §10.5). */}
         <div className="flex justify-end">

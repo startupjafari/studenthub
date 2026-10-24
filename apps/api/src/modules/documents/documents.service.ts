@@ -1103,6 +1103,12 @@ export class DocumentsService {
     if (input.granteeType !== 'UNIVERSITY' && !input.granteeId) {
       throw new AppException('BAD_REQUEST', 'Не указан получатель доступа')
     }
+    // Срок «до даты» — включая этот день (inclusiveUntil). Уже прошедший срок — ошибка ввода:
+    // такой грант никому ничего не открыл бы, а получатель всё равно получил бы уведомление.
+    const expiresAt = (await this.inclusiveUntil(input.expiresAt, actor.universityId)) ?? null
+    if (expiresAt && expiresAt.getTime() <= Date.now()) {
+      throw new AppException('BAD_REQUEST', 'Срок доступа уже прошёл')
+    }
     const access = await this.prisma.documentAccess.create({
       data: {
         documentId: id,
@@ -1110,7 +1116,7 @@ export class DocumentsService {
         granteeId: input.granteeType === 'UNIVERSITY' ? null : (input.granteeId ?? null),
         reason: input.reason,
         grantedById: actor.sub,
-        expiresAt: (await this.inclusiveUntil(input.expiresAt, actor.universityId)) ?? null,
+        expiresAt,
       },
       select: { id: true },
     })

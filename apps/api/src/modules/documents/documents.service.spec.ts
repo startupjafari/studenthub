@@ -375,6 +375,22 @@ describe('DocumentsService — доступ (15.11)', () => {
     expect(prisma.documentAccess.create).not.toHaveBeenCalled()
   })
 
+  it('grantAccess: срок в прошлом → BAD_REQUEST, гранта и уведомления нет', async () => {
+    const { service, prisma, queue } = setup()
+    prisma.document.findFirst.mockResolvedValue({ id: 'd1' })
+    const err = await service
+      .grantAccess(actor(), 'd1', {
+        granteeType: 'USER',
+        granteeId: 'u2',
+        reason: 'дело',
+        expiresAt: new Date('2020-01-01T00:00:00Z'),
+      })
+      .catch((e) => e)
+    expect(err.code).toBe('BAD_REQUEST')
+    expect(prisma.documentAccess.create).not.toHaveBeenCalled()
+    expect(queue.enqueue).not.toHaveBeenCalled()
+  })
+
   it('grantAccess: UNIVERSITY → granteeId=null, событие GRANT', async () => {
     const { service, prisma } = setup()
     prisma.document.findFirst.mockResolvedValue({ id: 'd1' })
