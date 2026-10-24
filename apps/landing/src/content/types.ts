@@ -50,7 +50,6 @@ export interface Dictionary {
   meta: {
     title: string
     description: string
-    languageName: string
   }
 
   nav: {

@@ -41,7 +41,7 @@ export function SiteFooter({ dict, locale }: { dict: Dictionary; locale: Locale 
             <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
               {dict.footer.language}
             </span>
-            <LanguageMenu current={locale} />
+            <LanguageMenu current={locale} label={dict.footer.language} />
           </div>
         </div>
 

@@ -168,7 +168,7 @@ export function SiteHeader({ dict, locale }: { dict: Dictionary; locale: Locale 
                 <span className="text-xs tracking-[0.14em] text-muted-foreground uppercase">
                   {dict.footer.language}
                 </span>
-                <LanguageMenu current={locale} side="top" />
+                <LanguageMenu current={locale} label={dict.footer.language} side="top" />
               </div>
               <LinkButton href={platform.demoRequest} external className="w-full">
                 {dict.nav.demo}
@@ -221,7 +221,7 @@ export function SiteHeader({ dict, locale }: { dict: Dictionary; locale: Locale 
 
           <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
             <div className="hidden sm:block">
-              <LanguageMenu current={locale} />
+              <LanguageMenu current={locale} label={dict.footer.language} />
             </div>
 
             {/* Разделитель: без него язык и «Войти» читаются как одна группа кнопок. */}

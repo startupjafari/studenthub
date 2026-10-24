@@ -47,6 +47,24 @@ export type Locale = (typeof LOCALES)[number]
 export const DEFAULT_LOCALE: Locale = 'ru'
 
 /**
+ * Названия языков — каждое на своём языке, поэтому одинаковые на всех версиях сайта.
+ * Живут здесь, а не в словаре: их показывает клиентский переключатель языка, и импорт
+ * словарей ради трёх слов увозил в клиентский бандл тексты всех трёх языков целиком.
+ */
+export const LOCALE_NAMES: Record<Locale, string> = {
+  ru: 'Русский',
+  kk: 'Қазақша',
+  en: 'English',
+}
+
+/** Локаль Open Graph — в формате `язык_СТРАНА`, а не голый код языка. */
+export const OG_LOCALES: Record<Locale, string> = {
+  ru: 'ru_RU',
+  kk: 'kk_KZ',
+  en: 'en_US',
+}
+
+/**
  * Три двери на платформу. Пути сверены с `PUBLIC_PATHS` в apps/web/src/middleware.ts —
  * это единственные адреса продукта, которые можно открыть без аккаунта.
  *

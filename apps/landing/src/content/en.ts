@@ -6,7 +6,6 @@ export const en: Dictionary = {
     title: 'StudentHub — the whole university in one app',
     description:
       'A closed university platform: schedules, dean’s office requests, documents, coursework and communication. Access by university invitation only.',
-    languageName: 'English',
   },
 
   nav: {
