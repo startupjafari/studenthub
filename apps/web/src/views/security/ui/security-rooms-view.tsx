@@ -52,10 +52,12 @@ export function SecurityRoomsView() {
   const [limit, setLimit] = useState<number>(PAGE_SIZES[0])
   const { sort, toggle } = useSortState()
 
+  // Обрезаем при запросе, а не при вводе: иначе пробел не ввести — «Корпус А» → «КорпусА».
+  const term = search.trim()
   const query = {
     page,
     limit,
-    ...(search ? { search } : {}),
+    ...(term ? { search: term } : {}),
     ...(sort ? { sort: sort.key as RoomSortValue, order: sort.dir } : {}),
   }
   const rooms = useQuery({
@@ -81,7 +83,7 @@ export function SecurityRoomsView() {
         actions={
           <Input
             value={search}
-            onChange={(e) => refilter(() => setSearch(e.target.value.trim()))}
+            onChange={(e) => refilter(() => setSearch(e.target.value))}
             placeholder={tSecurity('roomsSearch')}
             aria-label={tSecurity('roomsSearch')}
             size="md"

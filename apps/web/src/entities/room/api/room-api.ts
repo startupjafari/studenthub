@@ -10,6 +10,8 @@ export const roomKeys = {
   all: ['rooms'] as const,
   // Параметры целиком в ключе: выборка зависит и от scope, и от порядка сортировки.
   list: (params: Partial<RoomListQueryInput> = {}) => ['rooms', 'list', params] as const,
+  /** Все помещения вуза разом — для печати наклеек пачкой на корпус или этаж. */
+  everything: () => ['rooms', 'list', 'all'] as const,
   status: (code: string) => ['rooms', 'status', code] as const,
 }
 
@@ -22,6 +24,25 @@ export async function fetchRoomsSorted(
   params: Partial<RoomListQueryInput> = {},
 ): Promise<Paged<Room>> {
   return getPaged<Room>('/rooms', { page: 1, limit: 100, ...params })
+}
+
+/**
+ * Все помещения вуза — для печати наклеек пачкой на корпус или этаж (§3.9). Сервер отдаёт по
+ * 100, поэтому за первой страницей догружаются остальные: обрезанный список молча оставил
+ * бы часть корпуса без наклеек.
+ */
+export async function fetchAllRooms(): Promise<Room[]> {
+  const params = { sort: 'name' as const, order: 'asc' as const, limit: 100 }
+  const first = await getPaged<Room>('/rooms', { ...params, page: 1 })
+  const pages = Math.ceil(first.total / params.limit)
+  const rest = await Promise.all(
+    Array.from({ length: Math.max(0, pages - 1) }, (_, i) =>
+      getPaged<Room>('/rooms', { ...params, page: i + 2 }),
+    ),
+  )
+  const byId = new Map<string, Room>()
+  for (const page of [first, ...rest]) for (const room of page.items) byId.set(room.id, room)
+  return [...byId.values()]
 }
 
 export async function createRoomRequest(input: CreateRoomInput): Promise<Room> {

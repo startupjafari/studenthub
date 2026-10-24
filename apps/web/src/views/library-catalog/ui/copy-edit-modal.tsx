@@ -104,6 +104,8 @@ export function CopyEditModal({ copy, onClose }: { copy: BookCopyItem; onClose: 
             value={inventoryNumber}
             onChange={(e) => setInventoryNumber(e.target.value)}
             aria-invalid={error ? true : undefined}
+            // Номер выданного экземпляра меняют после возврата: по нему принимают книгу.
+            disabled={copy.status === 'ON_LOAN'}
           />
         </div>
         <div className="flex flex-col gap-1.5">

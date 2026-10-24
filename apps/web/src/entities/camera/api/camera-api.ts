@@ -41,11 +41,28 @@ export async function deleteCameraAgentRequest(id: string): Promise<void> {
   await api.delete(`/camera-agents/${id}`)
 }
 
-/** Камеры вуза: админу приходит CameraAdmin, охране — Camera. */
+/** Сколько камер API отдаёт за страницу — больше схема запроса не пускает. */
+const CAMERA_PAGE = 100
+
+/**
+ * Все камеры вуза: админу приходит CameraAdmin, охране — Camera. Стена охраны и таблица
+ * админа показывают камеры целиком (§3.10: «охрана видит все камеры своего вуза»), а у вуза
+ * их может быть до 50 агентов по 200 — поэтому за первой страницей догружаются остальные.
+ */
 export async function fetchCameras<T extends Camera = Camera>(
-  params: Partial<CameraListQueryInput> = {},
+  params: Omit<Partial<CameraListQueryInput>, 'page' | 'limit'> = {},
 ): Promise<Paged<T>> {
-  return getPaged<T>('/cameras', { page: 1, limit: 100, ...params })
+  const first = await getPaged<T>('/cameras', { ...params, page: 1, limit: CAMERA_PAGE })
+  const pages = Math.ceil(first.total / CAMERA_PAGE)
+  const rest = await Promise.all(
+    Array.from({ length: Math.max(0, pages - 1) }, (_, i) =>
+      getPaged<T>('/cameras', { ...params, page: i + 2, limit: CAMERA_PAGE }),
+    ),
+  )
+  // Список могли поменять между страницами — одна камера не должна попасть дважды.
+  const byId = new Map<string, T>()
+  for (const page of [first, ...rest]) for (const camera of page.items) byId.set(camera.id, camera)
+  return { items: [...byId.values()], total: first.total }
 }
 
 export async function createCameraRequest(input: CreateCameraInput): Promise<CameraAdmin> {

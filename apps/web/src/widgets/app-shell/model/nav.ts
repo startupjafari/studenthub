@@ -39,6 +39,7 @@ import {
   Send,
   Table2,
   ShieldAlert,
+  ShieldCheck,
   FileUser,
   TrendingUp,
   UserCog,
@@ -160,6 +161,8 @@ export const UNIVERSITY_ADMIN_NAV: NavItem[] = [
   { key: 'audit', href: '/university-admin/audit', icon: ScrollText, group: 'control' },
   // Журнал действий с документами вуза: кто, над чьим документом, когда — без содержимого.
   { key: 'documentJournal', href: '/university-admin/document-journal', icon: FileClock, group: 'control' }, // prettier-ignore
+  // Журналы поста охраны (§3.12): ведёт охрана, админ вуза читает.
+  { key: 'securityJournals', href: '/university-admin/security', icon: ShieldCheck, group: 'control' }, // prettier-ignore
 ]
 
 // Ролевые дашборды (docs/PROJECT.md §12). У каждого пункта ниже есть свой экран;

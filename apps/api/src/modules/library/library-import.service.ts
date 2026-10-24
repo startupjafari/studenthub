@@ -176,8 +176,13 @@ export class LibraryImportService {
         }
         base.count = count
       }
-      // Ни номеров, ни количества — один экземпляр с номером по порядку.
+      // Ни номеров, ни количества — один экземпляр с номером по порядку. Явный ноль без
+      // номеров запись всё равно превратила бы в один экземпляр — предпросмотр должен
+      // показывать ровно то, что будет записано.
       if (inventoryNumbers.length === 0 && !r.count) base.count = 1
+      if (inventoryNumbers.length === 0 && base.count === 0) {
+        return fail('Количество — от 1, если нет инвентарных номеров')
+      }
       if (inventoryNumbers.length + base.count > LIBRARY_COPIES_MAX) {
         return fail(`Больше ${LIBRARY_COPIES_MAX} экземпляров в одной строке`)
       }
@@ -205,6 +210,11 @@ export class LibraryImportService {
    * Запись готовых строк. Книги ищутся в каталоге по ISBN, затем по названию с авторами;
    * найденная получает новые экземпляры, остальные заводятся. Номера проверяются заново —
    * между предпросмотром и записью фонд могли пополнить.
+   *
+   * Кандидаты выбираются под строки файла, а не первые N карточек вуза: иначе в большом
+   * фонде книга за пределом выборки заводилась второй раз. Из одинаковых берётся действующая,
+   * затем самая ранняя. Книга из архива тоже не дублируется: она возвращается в каталог и
+   * получает экземпляры — фонд её снова завёл.
    */
   async commit(
     actor: JwtPayload,
@@ -214,23 +224,48 @@ export class LibraryImportService {
     const universityId = staffLibrary(actor)
     let books = 0
     let matched = 0
+    let restored = 0
     const copies = await this.catalog.createCopies(universityId, async (tx) => {
       books = 0
       matched = 0
+      restored = 0
+      const isbns = [...new Set(input.rows.flatMap((r) => (r.isbn ? [r.isbn] : [])))]
+      const titles = [...new Set(input.rows.map((r) => r.title))]
       const existing = await tx.book.findMany({
-        where: { universityId, archivedAt: null },
-        select: { id: true, title: true, authors: true, isbn: true },
-        take: 20000,
+        where: {
+          universityId,
+          OR: [{ isbn: { in: isbns } }, { title: { in: titles, mode: 'insensitive' } }],
+        },
+        orderBy: [
+          { archivedAt: { sort: 'desc', nulls: 'first' } },
+          { createdAt: 'asc' },
+          { id: 'asc' },
+        ],
+        select: { id: true, title: true, authors: true, isbn: true, archivedAt: true },
+        take: LIBRARY_IMPORT_MAX_ROWS * 10,
       })
-      const byIsbn = new Map(existing.filter((b) => b.isbn).map((b) => [b.isbn as string, b.id]))
-      const byKey = new Map(existing.map((b) => [bookKey(b.title, b.authors), b.id]))
+      type Match = { id: string; archivedAt: Date | null }
+      const byIsbn = new Map<string, Match>()
+      const byKey = new Map<string, Match>()
+      for (const b of existing) {
+        if (b.isbn && !byIsbn.has(b.isbn)) byIsbn.set(b.isbn, b)
+        const key = bookKey(b.title, b.authors)
+        if (!byKey.has(key)) byKey.set(key, b)
+      }
       const batches: CopyBatch[] = []
       for (const row of input.rows) {
-        let bookId =
+        const match =
           (row.isbn ? byIsbn.get(row.isbn) : undefined) ??
           byKey.get(bookKey(row.title, row.authors))
-        if (bookId) {
+        let bookId: string
+        if (match) {
+          bookId = match.id
           matched += 1
+          if (match.archivedAt) {
+            await tx.book.update({ where: { id: match.id }, data: { archivedAt: null } })
+            match.archivedAt = null
+            restored += 1
+          }
         } else {
           const book = await tx.book.create({
             data: {
@@ -247,8 +282,9 @@ export class LibraryImportService {
           })
           bookId = book.id
           books += 1
-          if (row.isbn) byIsbn.set(row.isbn, bookId)
-          byKey.set(bookKey(row.title, row.authors), bookId)
+          const created: Match = { id: book.id, archivedAt: null }
+          if (row.isbn) byIsbn.set(row.isbn, created)
+          byKey.set(bookKey(row.title, row.authors), created)
         }
         // Ни номеров, ни количества — один экземпляр с номером по порядку.
         const count = row.inventoryNumbers.length === 0 && row.count === 0 ? 1 : row.count
@@ -261,7 +297,7 @@ export class LibraryImportService {
       action: 'library_import',
       entity: 'University',
       entityId: universityId,
-      metadata: { rows: input.rows.length, books, matched, copies: copies.length },
+      metadata: { rows: input.rows.length, books, matched, restored, copies: copies.length },
       ...ctx,
     })
     return { books, matched, copies: copies.length, skipped: 0 }

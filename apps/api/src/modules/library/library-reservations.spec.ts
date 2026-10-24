@@ -53,7 +53,10 @@ function setup({
     reservation: {
       count: jest.fn().mockResolvedValue(0),
       create: jest.fn().mockResolvedValue({ id: 'res-1' }),
-      findFirst: jest.fn().mockResolvedValueOnce(queueHead).mockResolvedValue(null),
+      findMany: jest
+        .fn()
+        .mockResolvedValueOnce(queueHead ? [queueHead] : [])
+        .mockResolvedValue([]),
       update: jest.fn().mockResolvedValue({}),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       findUniqueOrThrow: jest.fn().mockResolvedValue({ copyId: 'copy-9' }),
@@ -62,6 +65,7 @@ function setup({
       findFirst: jest.fn().mockResolvedValue(availableCopy),
       update: jest.fn().mockResolvedValue({}),
     },
+    book: { findUnique: jest.fn().mockResolvedValue({ archivedAt: null }) },
   }
   let reservationCount = 0
   const order = [counts.active, counts.sameBook]
@@ -142,6 +146,17 @@ describe('Бронь', () => {
     })
   })
 
+  it('предел броней перепроверяется под локом читателя: параллельная бронь его не превысит', async () => {
+    const { service, tx } = setup()
+    tx.reservation.count.mockResolvedValueOnce(0).mockResolvedValueOnce(rules.maxActiveReservations)
+    await expect(service.reserve(student, 'book-1', ctx)).rejects.toMatchObject({
+      details: [expect.objectContaining({ field: 'reservationLimit' })],
+    })
+    // Лок читателя и лок книги.
+    expect(tx.$executeRaw).toHaveBeenCalledTimes(2)
+    expect(tx.reservation.create).not.toHaveBeenCalled()
+  })
+
   it('книга без экземпляров в обороте — 409 noCopies', async () => {
     const { service } = setup({
       counts: { active: 0, sameBook: 0, borrowed: 0, inCirculation: 0 },
@@ -190,6 +205,38 @@ describe('Бронь', () => {
     await service.reserve(student, 'book-1', ctx)
     expect(tx.reservation.create).toHaveBeenCalled()
     expect(tx.reservation.update).not.toHaveBeenCalled()
+  })
+})
+
+describe('Архив книги', () => {
+  it('книгу убрали в архив — брони очереди сняты, читателям «бронь снята»', async () => {
+    const { service, tx, notifier } = setup()
+    tx.reservation.findMany.mockReset()
+    tx.reservation.findMany.mockResolvedValueOnce([
+      { id: 'res-1', readerId: 'stu-1' },
+      { id: 'res-2', readerId: 'stu-2' },
+    ])
+    await service.closeQueueOfArchived('book-1', 'Русская литература')
+    expect(tx.reservation.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ['res-1', 'res-2'] }, status: 'QUEUED' },
+      data: { status: 'CANCELLED', closedAt: expect.any(Date) },
+    })
+    expect(notifier.send).toHaveBeenCalledTimes(2)
+    expect(notifier.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recipientIds: ['stu-2'],
+        titleKey: 'library.reservationCancelled.title',
+      }),
+    )
+  })
+
+  it('книгу убрали в архив во время брони — 404, бронь не создаётся', async () => {
+    const { service, tx } = setup()
+    tx.book.findUnique.mockResolvedValue({ archivedAt: new Date() })
+    await expect(service.reserve(student, 'book-1', ctx)).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    })
+    expect(tx.reservation.create).not.toHaveBeenCalled()
   })
 })
 

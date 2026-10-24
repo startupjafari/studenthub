@@ -57,6 +57,8 @@ function setup({ enabled = true }: { enabled?: boolean } = {}) {
     $queryRaw: jest.fn().mockResolvedValue([{ max: BigInt(120) }]),
     bookCopy: {
       findMany: jest.fn().mockResolvedValue([]),
+      findUniqueOrThrow: jest.fn(),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       create: jest
         .fn()
         .mockImplementation(({ data }) => Promise.resolve({ id: `copy-${data.inventoryNumber}` })),
@@ -64,6 +66,7 @@ function setup({ enabled = true }: { enabled?: boolean } = {}) {
     book: {
       findMany: jest.fn().mockResolvedValue([]),
       create: jest.fn().mockResolvedValue({ id: 'book-new' }),
+      update: jest.fn().mockResolvedValue({}),
     },
   }
   const prisma = {
@@ -107,6 +110,7 @@ function setup({ enabled = true }: { enabled?: boolean } = {}) {
   const reservations = {
     serveCopies: jest.fn().mockResolvedValue(undefined),
     serveBook: jest.fn().mockResolvedValue(undefined),
+    closeQueueOfArchived: jest.fn().mockResolvedValue(undefined),
   }
   const service = new LibraryCatalogService(
     prisma as unknown as PrismaService,
@@ -191,6 +195,12 @@ describe('LibraryCatalogService — фонд', () => {
     })
   })
 
+  it('книга ушла в архив — её очередь броней снимается', async () => {
+    const { service, reservations } = setup()
+    await service.update(librarian, 'book-1', { archived: true }, ctx)
+    expect(reservations.closeQueueOfArchived).toHaveBeenCalledWith('book-1', expect.any(String))
+  })
+
   it('читатель фонд не правит', async () => {
     const { service } = setup()
     await expect(service.update(student, 'book-1', { title: 'X' }, ctx)).rejects.toMatchObject({
@@ -199,18 +209,65 @@ describe('LibraryCatalogService — фонд', () => {
   })
 
   it('выданный экземпляр вручную не списать', async () => {
-    const { service, prisma } = setup()
-    prisma.bookCopy.findUnique.mockResolvedValue({
-      id: 'copy-1',
-      universityId: 'uni-1',
+    const { service, prisma, tx } = setup()
+    const owned = { id: 'copy-1', universityId: 'uni-1', bookId: 'book-1', code: 'X' }
+    prisma.bookCopy.findUnique.mockResolvedValue({ ...owned, status: 'ON_LOAN' })
+    tx.bookCopy.findUniqueOrThrow.mockResolvedValue({
       status: 'ON_LOAN',
-      code: 'X',
+      inventoryNumber: '101',
+      universityId: 'uni-1',
     })
     await expect(
       service.updateCopy(librarian, 'copy-1', { status: 'WRITTEN_OFF' }, ctx),
     ).rejects.toMatchObject({
       code: 'CONFLICT',
       details: [expect.objectContaining({ field: 'status' })],
+    })
+    expect(tx.bookCopy.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('номер выданного экземпляра не меняется: по нему принимают возврат', async () => {
+    const { service, prisma, tx } = setup()
+    prisma.bookCopy.findUnique.mockResolvedValue({
+      id: 'copy-1',
+      universityId: 'uni-1',
+      bookId: 'book-1',
+      status: 'ON_LOAN',
+      code: 'X',
+    })
+    tx.bookCopy.findUniqueOrThrow.mockResolvedValue({
+      status: 'ON_LOAN',
+      inventoryNumber: '101',
+      universityId: 'uni-1',
+    })
+    await expect(
+      service.updateCopy(librarian, 'copy-1', { inventoryNumber: '202' }, ctx),
+    ).rejects.toMatchObject({ details: [expect.objectContaining({ field: 'status' })] })
+    expect(tx.bookCopy.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('списание — под локом книги и условием на прежний статус: гонку с выдачей ловит запись', async () => {
+    const { service, prisma, tx } = setup()
+    prisma.bookCopy.findUnique.mockResolvedValue({
+      id: 'copy-1',
+      universityId: 'uni-1',
+      bookId: 'book-1',
+      status: 'AVAILABLE',
+      code: 'X',
+    })
+    tx.bookCopy.findUniqueOrThrow.mockResolvedValue({
+      status: 'AVAILABLE',
+      inventoryNumber: '101',
+      universityId: 'uni-1',
+    })
+    tx.bookCopy.updateMany.mockResolvedValue({ count: 0 })
+    await expect(
+      service.updateCopy(librarian, 'copy-1', { status: 'WRITTEN_OFF' }, ctx),
+    ).rejects.toMatchObject({ details: [expect.objectContaining({ field: 'status' })] })
+    expect(tx.$executeRaw).toHaveBeenCalled()
+    expect(tx.bookCopy.updateMany).toHaveBeenCalledWith({
+      where: { id: 'copy-1', status: 'AVAILABLE' },
+      data: { status: 'WRITTEN_OFF' },
     })
   })
 
@@ -221,6 +278,16 @@ describe('LibraryCatalogService — фонд', () => {
     ])
     expect(ids).toEqual(['copy-121', 'copy-122', 'copy-123'])
     expect(tx.$executeRaw).toHaveBeenCalled()
+  })
+
+  it('номера по порядку обходят явные номера той же пачки', async () => {
+    const { service } = setup()
+    // Наибольший номер в фонде — 120: явные 121 и 123 в соседней строке не повторяются.
+    const ids = await service.createCopies('uni-1', [
+      { bookId: 'book-1', inventoryNumbers: [], count: 3 },
+      { bookId: 'book-2', inventoryNumbers: ['121', '123'], count: 0 },
+    ])
+    expect(ids).toEqual(['copy-122', 'copy-124', 'copy-125', 'copy-121', 'copy-123'])
   })
 
   it('повтор номера в пачке и занятый номер — 409 с перечнем', async () => {
@@ -251,6 +318,13 @@ describe('Импорт фонда', () => {
         year: '2020',
       }),
     ])
+  })
+
+  it('CSV из Excel в cp1251 читается: заголовки и значения не превращаются в «????»', () => {
+    // «Название;Автор\nМир;Толстой\n» в cp1251 — так сохраняет CSV Excel под Windows.
+    const cp1251 = Buffer.from('cde0e7e2e0ede8e53bc0e2f2eef00acce8f03bd2eeebf1f2eee90a', 'hex')
+    const rows = parseLibraryImportFile(cp1251, 'fond.csv')
+    expect(rows[0]).toMatchObject({ title: 'Мир', authors: 'Толстой' })
   })
 
   it('без колонки «Название» — понятная ошибка', () => {
@@ -285,6 +359,8 @@ describe('Импорт фонда', () => {
       raw({ line: 4, inventory: '500' }),
       raw({ line: 5, isbn: '12-3' }),
       raw({ line: 6, inventory: '600, 601', count: '2' }),
+      // Явный ноль без номеров запись превратила бы в один экземпляр — это ошибка строки.
+      raw({ line: 7, count: '0' }),
     ])
     expect(preview.rows.map((r) => r.status)).toEqual([
       'READY',
@@ -292,8 +368,44 @@ describe('Импорт фонда', () => {
       'DUPLICATE',
       'ERROR',
       'READY',
+      'ERROR',
     ])
     expect(preview.rows[0]?.count).toBe(1)
-    expect(preview.summary).toMatchObject({ ready: 2, duplicate: 1, error: 2, copies: 5 })
+    expect(preview.summary).toMatchObject({ ready: 2, duplicate: 1, error: 3, copies: 5 })
+  })
+
+  it('запись: книга ищется под строки файла, архивная возвращается в каталог, а не дублируется', async () => {
+    const { service, tx } = setup()
+    const importer = new LibraryImportService(
+      {} as never,
+      { record: jest.fn().mockResolvedValue(undefined) } as never,
+      service,
+    )
+    tx.book.findMany.mockResolvedValue([
+      { id: 'book-old', title: 'Книга', authors: 'Иванов', isbn: null, archivedAt: new Date() },
+    ])
+    const row = {
+      line: 2,
+      title: 'КНИГА',
+      authors: 'иванов',
+      isbn: null,
+      publisher: null,
+      year: null,
+      section: null,
+      inventoryNumbers: [],
+      count: 1,
+    }
+    const result = await importer.commit(librarian, { rows: [row] }, ctx)
+    expect(result).toMatchObject({ books: 0, matched: 1 })
+    expect(tx.book.create).not.toHaveBeenCalled()
+    expect(tx.book.update).toHaveBeenCalledWith({
+      where: { id: 'book-old' },
+      data: { archivedAt: null },
+    })
+    // Кандидаты — по названиям и ISBN файла, без среза «первых N» карточек вуза.
+    expect(tx.book.findMany.mock.calls[0][0].where).toEqual({
+      universityId: 'uni-1',
+      OR: [{ isbn: { in: [] } }, { title: { in: ['КНИГА'], mode: 'insensitive' } }],
+    })
   })
 })

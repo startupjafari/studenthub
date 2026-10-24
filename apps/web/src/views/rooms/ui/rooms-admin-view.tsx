@@ -37,7 +37,8 @@ import {
   type Room,
   type RoomQr,
 } from '../../../entities/room'
-import { RoomQrSheet } from './room-qr-sheet'
+import { RoomQrSheet, type QrSheetLayout } from './room-qr-sheet'
+import { PrintBatchModal } from './print-batch-modal'
 import { formatRoomCode } from '../lib/format-code'
 
 // Ф16: экран администратора вуза — помещения и печатные QR над дверью.
@@ -92,6 +93,9 @@ export function RoomsAdminView() {
 
   // Что уходит в печать. Пусто — печатать нечего, лист не рендерим.
   const [sheet, setSheet] = useState<RoomQr[]>([])
+  // Одно помещение — наклейка на лист; пачка на корпус — как выбрали в окне пачки.
+  const [sheetLayout, setSheetLayout] = useState<QrSheetLayout>('full')
+  const [batchOpen, setBatchOpen] = useState(false)
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState<number>(PAGE_SIZES[0])
 
@@ -140,6 +144,7 @@ export function RoomsAdminView() {
     mutationFn: issueRoomQrRequest,
     onSuccess: (items) => {
       void qc.invalidateQueries({ queryKey: roomKeys.all })
+      setSheetLayout('full')
       setSheet(items)
       // Даём React отрисовать лист до вызова печати — иначе печатается пустая страница.
       requestAnimationFrame(() => window.print())
@@ -151,6 +156,7 @@ export function RoomsAdminView() {
     mutationFn: rotateRoomQrRequest,
     onSuccess: (item) => {
       void qc.invalidateQueries({ queryKey: roomKeys.all })
+      setSheetLayout('full')
       setSheet([item])
       toast.success(t('rotated'))
     },
@@ -182,10 +188,23 @@ export function RoomsAdminView() {
           title={t('adminTitle')}
           subtitle={t('adminDescription')}
           actions={
-            <Button type="button" size="md" onClick={() => setCreateOpen(true)}>
-              <Plus className="size-4" aria-hidden />
-              {t('addRoom')}
-            </Button>
+            <>
+              {total > 0 && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="md"
+                  onClick={() => setBatchOpen(true)}
+                >
+                  <Printer className="size-4" aria-hidden />
+                  {t('printBatch')}
+                </Button>
+              )}
+              <Button type="button" size="md" onClick={() => setCreateOpen(true)}>
+                <Plus className="size-4" aria-hidden />
+                {t('addRoom')}
+              </Button>
+            </>
           }
         />
 
@@ -363,10 +382,21 @@ export function RoomsAdminView() {
       {createOpen && <CreateRoomModal onClose={() => setCreateOpen(false)} />}
       {editing && <CreateRoomModal room={editing} onClose={() => setEditing(null)} />}
 
-      {/* Лист для печати: на экране скрыт, при печати — единственное, что попадает на бумагу. */}
-      {/* Раскладка всегда «по одной на лист»: печать теперь только для одного помещения,
-          режим «4 на лист» имел смысл только при массовом выборе. */}
-      {sheet.length > 0 && <RoomQrSheet items={sheet} layout="full" />}
+      {batchOpen && (
+        <PrintBatchModal
+          onClose={() => setBatchOpen(false)}
+          onReady={(items, layout) => {
+            setBatchOpen(false)
+            setSheetLayout(layout)
+            setSheet(items)
+            requestAnimationFrame(() => window.print())
+          }}
+        />
+      )}
+
+      {/* Лист для печати: на экране скрыт, при печати — единственное, что попадает на бумагу.
+          Одно помещение — по наклейке на лист; пачка на корпус — в выбранной раскладке. */}
+      {sheet.length > 0 && <RoomQrSheet items={sheet} layout={sheetLayout} />}
     </div>
   )
 }

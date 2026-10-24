@@ -24,10 +24,20 @@ export function canonicalAcademicStatus(raw: string): string | null {
 
 /**
  * Статусы, с которыми студент больше не учится в вузе. Записи, внесённые до закрытого
- * справочника, могут отличаться регистром, поэтому сравниваем без регистра и с обоими
- * написаниями «переведён» — тот же набор, что закрывает выдачу книг в библиотеке.
+ * справочника, могут отличаться регистром, а сид и импорт пишут коды (`EXPELLED`,
+ * `GRADUATED`, `TRANSFERRED`), поэтому распознаём оба представления, без регистра и с обоими
+ * написаниями «переведён». Тот же набор закрывает вход на посту охраны и выдачу книг в
+ * библиотеке.
  */
-const TERMINAL_ACADEMIC_STATUSES = ['отчислен', 'выпускник', 'переведён', 'переведен']
+const TERMINAL_ACADEMIC_STATUSES = [
+  'отчислен',
+  'выпускник',
+  'переведён',
+  'переведен',
+  'expelled',
+  'graduated',
+  'transferred',
+]
 
 export function isTerminalAcademicStatus(status: string | null | undefined): boolean {
   if (!status) return false

@@ -13,7 +13,7 @@ import { LibrarySettingsService } from './library-settings.service'
 import { LibraryLoansService } from './library-loans.service'
 import { LibraryNotifier } from './library-notifier'
 import { todayIn } from './library-dates'
-import { lockBookQueue, releaseCopy, serveQueue, type HeldFor } from './library-holds'
+import { lockBookQueue, lockReader, releaseCopy, serveQueue, type HeldFor } from './library-holds'
 import { libraryConflict, librarianLibrary, readerLibrary, staffLibrary } from './library-scope'
 
 // Брони библиотеки (Фаза 20.8, docs/PROJECT.md §3.11). Читатель встаёт в очередь на книгу;
@@ -108,12 +108,28 @@ export class LibraryReservationsService {
 
     const timezone = await this.loans.timezoneOf(universityId)
     const { id, held } = await this.prisma.$transaction(async (tx) => {
+      // Лок читателя, затем книги — тот же порядок, что у выдачи. Под ними: две одновременные
+      // брони одного читателя не пройдут обе ни на одну книгу, ни сверх предела броней.
+      await lockReader(tx, reader.id)
       await lockBookQueue(tx, bookId)
-      // Под локом: две одновременные брони одного читателя на книгу не пройдут обе.
-      const dup = await tx.reservation.count({
-        where: { readerId: reader.id, bookId, status: { in: ['QUEUED', 'READY'] } },
+      // Книгу могли убрать в архив после проверки выше: бронь на неё повисла бы навсегда.
+      const fresh = await tx.book.findUnique({
+        where: { id: bookId },
+        select: { archivedAt: true },
       })
+      if (!fresh || fresh.archivedAt) throw new AppException('NOT_FOUND', 'Книга не найдена')
+      const [dup, current] = await Promise.all([
+        tx.reservation.count({
+          where: { readerId: reader.id, bookId, status: { in: ['QUEUED', 'READY'] } },
+        }),
+        tx.reservation.count({
+          where: { readerId: reader.id, status: { in: ['QUEUED', 'READY'] } },
+        }),
+      ])
       if (dup > 0) throw libraryConflict('alreadyReserved', 'Книга уже забронирована вами')
+      if (current >= settings.maxActiveReservations) {
+        throw libraryConflict('reservationLimit', 'Достигнут предел броней')
+      }
       const created = await tx.reservation.create({
         data: { universityId, bookId, readerId: reader.id },
         select: { id: true },
@@ -294,6 +310,49 @@ export class LibraryReservationsService {
       select: { title: true },
     })
     await this.notifyAll(held, book?.title ?? '', timezone)
+  }
+
+  /**
+   * Книгу убрали в архив: очередь на неё больше не обслуживается, и брони снимаются — иначе
+   * висели бы вечно и занимали предел броней читателя. Готовых броней тут нет: книгу с
+   * отложенным экземпляром в архив не убрать. Читателям — «бронь снята».
+   */
+  async closeQueueOfArchived(bookId: string, title: string): Promise<void> {
+    const now = new Date()
+    const closed = await this.prisma.$transaction(async (tx) => {
+      await lockBookQueue(tx, bookId)
+      const rows: { id: string; readerId: string }[] = []
+      for (;;) {
+        const page = await tx.reservation.findMany({
+          where: { bookId, status: 'QUEUED' },
+          orderBy: { id: 'asc' },
+          take: BATCH_SIZE,
+          select: { id: true, readerId: true },
+        })
+        if (page.length === 0) break
+        await tx.reservation.updateMany({
+          where: { id: { in: page.map((r) => r.id) }, status: 'QUEUED' },
+          data: { status: 'CANCELLED', closedAt: now },
+        })
+        rows.push(...page)
+        if (page.length < BATCH_SIZE) break
+      }
+      return rows
+    })
+    for (const row of closed) {
+      await this.notifier.send({
+        recipientIds: [row.readerId],
+        job: NOTIFICATION_JOBS.LIBRARY_RESERVATION,
+        titleKey: 'library.reservationCancelled.title',
+        bodyKey: 'library.book.body',
+        params: { title },
+        url: '/my-books',
+        dedupeKey: `library-reservation-cancelled:${row.id}`,
+      })
+    }
+    if (closed.length > 0) {
+      this.logger.log(`Книга ${bookId} в архиве: снято броней из очереди ${closed.length}`)
+    }
   }
 
   /** Заведённые экземпляры — очередям их книг (экземпляры, импорт). */

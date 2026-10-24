@@ -12,6 +12,7 @@ type ReaderField =
   | 'alreadyBorrowed'
   | 'noCopies'
   | 'closed'
+  | 'notOnLoan'
   | 'module'
 
 export function useReaderErrors(): (error: unknown) => string {
@@ -26,6 +27,7 @@ export function useReaderErrors(): (error: unknown) => string {
     alreadyBorrowed: t('error.alreadyBorrowed'),
     noCopies: t('error.noCopies'),
     closed: t('error.closed'),
+    notOnLoan: t('error.notOnLoan'),
     module: t('error.module'),
   }
   return (error) => {

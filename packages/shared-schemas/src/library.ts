@@ -296,10 +296,18 @@ export interface LibraryImportResult {
 
 // ── Выдачи (20.4–20.6) ───────────────────────────────────────────────────────────────
 
+/** Такой день есть в календаре: `2026-02-31` иначе молча становится 3 марта. */
+function isCalendarDay(value: string): boolean {
+  const [y, m, d] = value.split('-').map(Number) as [number, number, number]
+  const date = new Date(Date.UTC(y, m - 1, d))
+  return date.getUTCFullYear() === y && date.getUTCMonth() === m - 1 && date.getUTCDate() === d
+}
+
 /** Дата «YYYY-MM-DD»: срок выдачи — до конца этого дня по часам вуза. */
 export const LibraryDateSchema = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, 'Дата в формате ГГГГ-ММ-ДД')
+  .refine(isCalendarDay, 'Такой даты нет')
 
 /** Сканер студенческого отдал токен из QR — сервер сверяет читателя и выдаёт пропуск. */
 export const ResolveReaderSchema = z.object({ token: z.string().min(1).max(2048) }).strict()

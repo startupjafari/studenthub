@@ -108,14 +108,14 @@ describe('PdRetentionService.purgeClosedLoans', () => {
 
     const where = prisma.loan.count.mock.calls[0][0].where
     expect(where.OR).toEqual([
-      {
-        status: { in: [LoanStatus.RETURNED, LoanStatus.LOST] },
-        returnedAt: { lt: expect.any(Date) },
-      },
+      { status: LoanStatus.RETURNED, returnedAt: { lt: expect.any(Date) } },
+      // Утеря — только погашенная и считая от погашения: непогашенный долг не исчезает.
+      { status: LoanStatus.LOST, lostSettledAt: { lt: expect.any(Date) } },
       { status: LoanStatus.CANCELLED, cancelledAt: { lt: expect.any(Date) } },
     ])
     expectYearAgo(where.OR[0].returnedAt.lt, before)
-    expectYearAgo(where.OR[1].cancelledAt.lt, before)
+    expectYearAgo(where.OR[1].lostSettledAt.lt, before)
+    expectYearAgo(where.OR[2].cancelledAt.lt, before)
     // Открытая выдача (долг) в условие не попадает никогда — статуса OPEN там нет.
     expect(JSON.stringify(where)).not.toContain(LoanStatus.OPEN)
     expect(prisma.loan.findMany).not.toHaveBeenCalled()
@@ -132,7 +132,7 @@ describe('PdRetentionService.purgeClosedLoans', () => {
 
     const del = prisma.loan.deleteMany.mock.calls[0][0].where
     expect(del.id).toEqual({ in: ['l1', 'l2'] })
-    expect(del.OR).toHaveLength(2)
+    expect(del.OR).toHaveLength(3)
     expect(prisma.loan.count).not.toHaveBeenCalled()
     expect(audit.record).toHaveBeenCalledWith({
       action: 'pd_retention_purged',
