@@ -26,6 +26,15 @@ import { lastMessagesOf } from './last-message'
 
 const STAFF_ROLES: readonly Role[] = [Role.PLATFORM_ADMIN, Role.PLATFORM_MODERATOR]
 
+const TICKET_USER_SELECT = {
+  id: true,
+  firstName: true,
+  lastName: true,
+  role: true,
+} satisfies Prisma.UserSelect
+
+type TicketUser = Prisma.UserGetPayload<{ select: typeof TICKET_USER_SELECT }>
+
 const TICKET_SELECT = {
   id: true,
   createdAt: true,
@@ -34,8 +43,13 @@ const TICKET_SELECT = {
   supportAssigneeId: true,
   supportFirstReplyAt: true,
   supportTags: true,
+  // Только автор — единственный участник не из команды. Вся команда платформы состоит в
+  // каждом обращении, и без фильтра строка очереди тянула её целиком. Разбирающего читает
+  // `ticketAssignees` одним запросом на страницу.
   members: {
-    select: { user: { select: { id: true, firstName: true, lastName: true, role: true } } },
+    where: { user: { role: { notIn: [...STAFF_ROLES] } } },
+    select: { user: { select: TICKET_USER_SELECT } },
+    take: 1,
   },
 } satisfies Prisma.ChatSelect
 
@@ -264,12 +278,35 @@ export class SupportService implements OnModuleInit {
       }),
       this.prisma.chat.count({ where }),
     ])
-    const last = await this.lastTicketMessages(rows.map((row) => row.id))
+    const [last, assignees] = await Promise.all([
+      this.lastTicketMessages(rows.map((row) => row.id)),
+      this.ticketAssignees(rows),
+    ])
 
     return new Paginated(
-      rows.map((row) => toTicket(row, last.get(row.id) ?? null)),
+      rows.map((row) =>
+        toTicket(row, last.get(row.id) ?? null, assignees.get(row.supportAssigneeId ?? '') ?? null),
+      ),
       { total },
     )
+  }
+
+  /** Разбирающие обращений страницы — одним запросом по их id. */
+  private async ticketAssignees(
+    rows: { supportAssigneeId: string | null }[],
+  ): Promise<Map<string, TicketUser>> {
+    const ids = [
+      ...new Set(
+        rows.map((row) => row.supportAssigneeId).filter((id): id is string => id !== null),
+      ),
+    ]
+    if (ids.length === 0) return new Map()
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: ids }, deletedAt: null },
+      select: TICKET_USER_SELECT,
+      take: ids.length,
+    })
+    return new Map(users.map((user) => [user.id, user]))
   }
 
   /**
@@ -344,8 +381,13 @@ export class SupportService implements OnModuleInit {
         })
       : []
 
+    const assignees = await this.ticketAssignees([row])
     return {
-      ticket: toTicket(row, last.get(chatId) ?? null),
+      ticket: toTicket(
+        row,
+        last.get(chatId) ?? null,
+        assignees.get(row.supportAssigneeId ?? '') ?? null,
+      ),
       messages: all,
       mergedCount: merged.length,
       siblings: siblings.map((item) => ({
@@ -824,9 +866,10 @@ function toTicket(
     supportAssigneeId: string | null
     supportFirstReplyAt: Date | null
     supportTags: string[]
-    members: { user: { id: string; firstName: string; lastName: string; role: string } }[]
+    members: { user: TicketUser }[]
   },
   last: TicketLastMessage | null,
+  assignee: TicketUser | null,
 ) {
   // Автор — единственный участник не из команды платформы: обращение заводится от него,
   // а сотрудники добавляются пачкой.
@@ -845,8 +888,7 @@ function toTicket(
     },
     closedAt: row.supportClosedAt,
     assigneeId: row.supportAssigneeId,
-    // Имя разбирающего берём из участников: команда платформы в них уже есть.
-    assignee: row.members.find((m) => m.user.id === row.supportAssigneeId)?.user ?? null,
+    assignee,
     firstReplyAt: row.supportFirstReplyAt,
     tags: row.supportTags,
     createdAt: row.createdAt,

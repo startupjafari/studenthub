@@ -624,6 +624,33 @@ describe('SupportService — теги', () => {
     })
   })
 
+  // BUG-182: вся команда платформы состоит в каждом обращении — строка очереди не тянет её
+  // целиком, а разбирающего читает одним запросом на страницу.
+  it('из участников берёт только автора, разбирающего — отдельным запросом', async () => {
+    const { service, prisma } = setup()
+    prisma.chat.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([
+      {
+        id: 't1',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        supportClosedAt: null,
+        supportAssigneeId: 'staff-1',
+        supportFirstReplyAt: null,
+        supportTags: [],
+        members: [],
+      },
+    ])
+    const assignee = { id: 'staff-1', firstName: 'В', lastName: 'Г', role: Role.PLATFORM_ADMIN }
+    prisma.user.findMany.mockResolvedValueOnce([assignee])
+
+    const page = await service.queue(staff, { status: 'open', assignee: 'any', page: 1, limit: 30 })
+
+    expect(prisma.chat.findMany.mock.calls.at(-1)?.[0].select.members).toMatchObject({
+      where: { user: { role: { notIn: [Role.PLATFORM_ADMIN, Role.PLATFORM_MODERATOR] } } },
+    })
+    expect(page.items[0]).toMatchObject({ assignee })
+  })
+
   it('счётчики отдаёт числами, а не bigint из базы', async () => {
     const { service, prisma } = setup()
     prisma.$queryRaw.mockResolvedValue([{ tag: 'ACCESS', count: 60n }])
