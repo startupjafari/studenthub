@@ -1253,7 +1253,7 @@
 - **Ожидается:** сервер отбрасывает недоступные id, а не отказывает во всей правке.
 
 #### BUG-167 · 🟡 Новое сообщение в «прыгнутом» окне ломает порядок ленты и отмечает непросмотренное прочитанным
-- **Роль:** все участники чатов · **Статус:** новый
+- **Роль:** все участники чатов · **Статус:** исправлен · `fix/bugs-chats` (70ae72c2)
 - **Где:** `apps/web/src/widgets/chat-window/ui/chat-window.tsx:1621-1634,2242-2249,2796-2800`
 - **Ожидается:** §9.4 — пока окно «прыгнуло», живые сообщения не в хвост; прочтение только по непрерывной ленте.
 
@@ -1359,7 +1359,7 @@
 - **Где:** `apps/api/src/modules/invites/bulk-parse.ts:61,69-70`, `apps/api/src/modules/library/library-import.service.ts:76,91-92`, `apps/api/src/common/import/table-file.ts:24-62` · **Статус:** исправлен · `fix/bugs-analytics` (03e7ad97)
 
 #### BUG-197 · 🟢 Границы недель и учебного года в аналитике — по UTC (корень «время не в поясе вуза»)
-- **Где:** `apps/api/src/modules/analytics/university-analytics.service.ts:350-385,481-490`, `analytics-report.service.ts:597-604` · **Статус:** новый
+- **Где:** `apps/api/src/modules/analytics/university-analytics.service.ts:350-385,481-490`, `analytics-report.service.ts:597-604` · **Статус:** исправлен · `fix/bugs-analytics` (d8625af1)
 
 #### BUG-198 · 🟢 Плитка «Просрочено» у модератора вуза упирается в 200
 - **Где:** `apps/web/src/views/moderator-dashboard/ui/university-moderator-dashboard.tsx:105-110,149-164` · **Статус:** исправлен · `fix/bugs-analytics` (d1c3baa2)
@@ -2005,7 +2005,7 @@
 - **Где:** `apps/api/src/modules/chats/support.service.ts:299,311`, `apps/web/src/views/support-desk/ui/support-thread-modal.tsx:149,215-246` · **Статус:** исправлен · `fix/bugs-events-moderation` (1c058b2b)
 
 #### BUG-380 · 🟢 Любой CONFLICT в окне обращения — «Обращение уже разбирает другой» (класс BUG-042)
-- **Где:** `apps/web/src/views/support-desk/ui/support-thread-modal.tsx:81-84` · **Статус:** новый
+- **Где:** `apps/web/src/views/support-desk/ui/support-thread-modal.tsx:81-84` · **Статус:** исправлен · `fix/bugs-events-moderation` (ba591030)
 
 #### BUG-381 · 🟢 🔒 Админ вуза читает личную переписку по жалобе, хотя матрица открывает ему только официальные чаты
 - **Где:** `apps/api/src/modules/complaints/complaints.controller.ts:20-25,95-107` (`MODERATOR_ROLES` с UNIVERSITY_ADMIN) · **Статус:** исправлен · `fix/bugs-events-moderation` (32de546f)
@@ -2339,7 +2339,7 @@
 - **Где:** `Core/Study/StudyAPI.swift:15-21,37`, `Features/Study/StudyView.swift:73,78` · **Статус:** исправлен · `fix/bugs-ios-miniapp` (b211fc55)
 
 #### BUG-465 · 🟡 🔒 iOS: подтверждение входа по QR не показывает, кто просит вход (как BUG-416)
-- **Где:** `Features/Auth/QRApproveModel.swift:34-62`, `Core/Session/QRLoginAPI.swift`; эталон — `apps/web/src/shared/api/auth-api.ts:211` · **Статус:** новый
+- **Где:** `Features/Auth/QRApproveModel.swift:34-62`, `Core/Session/QRLoginAPI.swift`; эталон — `apps/web/src/shared/api/auth-api.ts:211` · **Статус:** исправлен · `fix/bugs-ios-miniapp` (5ce25a8f)
 
 #### BUG-466 · 🟡 🔒 iOS: повторное согласие на обработку ПДн не запрашивается
 - **Где:** в `apps/ios/Sources` нет обращений к `consentRequired`; сервер `auth.service.ts:584-589`; веб — `features/accept-consent/ui/consent-dialog.tsx` · **Статус:** новый
