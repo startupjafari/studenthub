@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto'
 import { ConfigService } from '@nestjs/config'
 import type Redis from 'ioredis'
 import { ChatType, Prisma } from '@prisma/client'
-import { Role } from '@studenthub/shared-types'
+import { Role, isRestrictedRole } from '@studenthub/shared-types'
 import type {
   CreateChatInput,
   ChatListQueryInput,
@@ -1059,9 +1059,15 @@ export class ChatsService implements OnModuleInit {
     // целиком, и несуществующий id доходил до вставки — FK-ошибка и 500 (F-F24).
     const other = await this.prisma.user.findFirst({
       where: { id: otherId, deletedAt: null, isBlocked: false },
-      select: { universityId: true },
+      select: { universityId: true, role: true },
     })
     if (!other) throw new AppException('NOT_FOUND', 'Пользователь не найден')
+    // Охране и библиотекарю чаты не положены (§2.1), работодателю — только через карьерный
+    // модуль после допуска вуза (BACKEND_RULES §19 п.9). Раньше работодатель проходил как
+    // цель из-за пустого universityId, а охранник — как обычный сотрудник своего вуза.
+    if (other.role === Role.EMPLOYER || isRestrictedRole(other.role as Role)) {
+      throw new AppException('FORBIDDEN', 'Этому пользователю нельзя написать')
+    }
     // Без ограничения по вузу — только платформенные роли. Работодатель сюда не доходит
     // (createChat его отсекает): раньше его пустой universityId снимал ограничение целиком.
     if (friends || isPlatform(actor.role)) return
@@ -1089,6 +1095,11 @@ export class ChatsService implements OnModuleInit {
     }
     if (users.some((u) => u.role === Role.EMPLOYER)) {
       throw new AppException('FORBIDDEN', 'Работодателя нельзя добавить в группу')
+    }
+    // У охраны и библиотекаря чатов нет вовсе (§2.1): в группе они получили бы переписку
+    // через сокет, куда запрет по умолчанию на HTTP не дотягивается.
+    if (users.some((u) => isRestrictedRole(u.role as Role))) {
+      throw new AppException('FORBIDDEN', 'Этого пользователя нельзя добавить в группу')
     }
     const blocked = await this.prisma.userBlock.findFirst({
       where: {

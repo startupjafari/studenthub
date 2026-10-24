@@ -2705,6 +2705,23 @@ describe('ChatsService.createChat — один личный чат на пару
     )
   })
 
+  // BUG-028: охрана, библиотекарь и работодатель целью личного чата не бывают (§2.1, §19 п.9).
+  it.each(['SECURITY_GUARD', 'LIBRARIAN', 'EMPLOYER'])(
+    'собеседник %s → FORBIDDEN',
+    async (role) => {
+      const { service, prisma } = setup()
+      prisma.chat.findFirst.mockResolvedValueOnce(null)
+      prisma.user.findFirst.mockResolvedValueOnce({ universityId: 'uni1', role })
+
+      const err = await service
+        .createChat({ ...user('u1'), universityId: 'uni1' }, { type: 'PRIVATE', memberIds: ['u2'] })
+        .catch((e) => e)
+
+      expect(err.code).toBe('FORBIDDEN')
+      expect(prisma.chat.create).not.toHaveBeenCalled()
+    },
+  )
+
   // F-F24: memberIds: [свой id] проходил схему и создавал PRIVATE с одним участником.
   it('личный чат «с собой» → VALIDATION_ERROR, чат не создаётся', async () => {
     const { service, prisma } = setup()
