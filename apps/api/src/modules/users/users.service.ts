@@ -837,7 +837,20 @@ export class UserService {
     // Дата рождения решает основание согласия на обработку ПДн (сам человек или законный
     // представитель). Правка не отклоняется, но пересматривает его: согласие хранится с
     // основанием, и расхождение с новой датой делает `consentRequired` истинным, пока
-    // согласие не примут заново (consentState, A-F29).
+    // согласие не примут заново (consentState, A-F29). Стереть дату нельзя: без неё
+    // сверка основания молча выключается (`minor === null`), и представленное за
+    // несовершеннолетнего согласие больше никогда не пересматривается.
+    if (writable.birthDate === null) {
+      const current = await this.prisma.user.findFirst({
+        where: { id: userId, deletedAt: null },
+        select: { birthDate: true },
+      })
+      if (current?.birthDate) {
+        throw new AppException('VALIDATION_ERROR', 'Дату рождения можно исправить, но не стереть', [
+          { field: 'birthDate', message: 'Дату рождения можно исправить, но не стереть' },
+        ])
+      }
+    }
     return this.prisma.user.update({
       where: { id: userId },
       data: writable,

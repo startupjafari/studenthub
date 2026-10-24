@@ -1672,6 +1672,21 @@ describe('UserService.updateProfile — набор полей по роли (PRO
     })
   })
 
+  it('дату рождения можно исправить, но не стереть — иначе молчит сверка основания согласия', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findFirst.mockResolvedValue({ birthDate: new Date('2008-05-01') })
+    await expect(
+      service.updateProfile('s1', Role.STUDENT, { birthDate: null }),
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR', details: [{ field: 'birthDate' }] })
+    expect(prisma.user.update).not.toHaveBeenCalled()
+
+    // Даты не было (учётка до сентября 2026) — пустое значение ничего не стирает.
+    prisma.user.findFirst.mockResolvedValue({ birthDate: null })
+    prisma.user.update.mockResolvedValue({ id: 's1' })
+    await service.updateProfile('s1', Role.STUDENT, { birthDate: null })
+    expect(prisma.user.update).toHaveBeenCalled()
+  })
+
   it('преподавателю отказывает в студенческих полях', async () => {
     await expectRejected(Role.TEACHER, { gpa: 5, dormitory: 'Общежитие 3' }, ['gpa', 'dormitory'])
   })
