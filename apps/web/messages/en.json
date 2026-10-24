@@ -257,6 +257,7 @@
     "progress": "{done} of {total}",
     "counted": "added: {n}",
     "skipped": "skipped",
+    "skip": "Skip this step",
     "add": "Add",
     "faculty": "Faculty",
     "needFaculties": "Create at least one faculty first — a group attaches to it.",
