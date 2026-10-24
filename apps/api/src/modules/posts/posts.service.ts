@@ -1488,7 +1488,28 @@ export class PostsService {
     } else if (universityId !== actor.universityId) {
       throw new AppException('WRONG_SCOPE', 'Группа другого университета')
     }
+    if (actor.role === Role.TEACHER) await this.assertTeachesGroup(actor.sub, groupId)
     return { facultyId: group.facultyId, universityId }
+  }
+
+  /**
+   * Преподаватель адресует группе только там, где ведёт занятия (§2 «работает со своими
+   * группами»): раньше хватало совпадения вуза, и посты уходили в ленту любой группы.
+   * Основание — как у материалов (materials.service): дисциплина группы или пара
+   * действующего расписания.
+   */
+  private async assertTeachesGroup(teacherId: string, groupId: string): Promise<void> {
+    const course = await this.prisma.course.findFirst({
+      where: { teacherId, groupId },
+      select: { id: true },
+    })
+    if (course) return
+    const pair = await this.prisma.pair.findFirst({
+      where: { teacherId, groupId, schedule: { is: { isActive: true } } },
+      select: { id: true },
+    })
+    if (pair) return
+    throw new AppException('WRONG_SCOPE', 'Вы не ведёте занятий в этой группе')
   }
 
   private async assertTargetUser(actor: JwtPayload, targetUserId: string): Promise<void> {

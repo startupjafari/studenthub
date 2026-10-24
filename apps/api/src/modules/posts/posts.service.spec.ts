@@ -50,6 +50,9 @@ function setup() {
     },
     faculty: { findUnique: jest.fn() },
     group: { findUnique: jest.fn() },
+    // «Ведёт ли преподаватель занятия в группе» — дисциплина или пара расписания.
+    course: { findFirst: jest.fn().mockResolvedValue(null) },
+    pair: { findFirst: jest.fn().mockResolvedValue(null) },
     user: { findFirst: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
     userBlock: { findMany: jest.fn().mockResolvedValue([]) },
     file: { findMany: jest.fn(), updateMany: jest.fn(), findFirst: jest.fn() },
@@ -304,6 +307,43 @@ describe('PostsService.create — аудитория по роли (8.2)', () =>
       )
       .catch((e) => e)
     expect(err.code).toBe('WRONG_SCOPE')
+  })
+
+  it('преподаватель → GROUP группы, где не ведёт занятий: WRONG_SCOPE', async () => {
+    const { service, prisma } = setup()
+    prisma.group.findUnique.mockResolvedValue({
+      facultyId: 'fac-1',
+      faculty: { universityId: 'uni-1' },
+    })
+    const err = await service
+      .create(
+        viewer(Role.TEACHER, { sub: 't1', universityId: 'uni-1' }),
+        { audience: 'GROUP', content: 'x', groupId: 'grp-OTHER' },
+        ctx,
+      )
+      .catch((e) => e)
+    expect(err.code).toBe('WRONG_SCOPE')
+    expect(prisma.post.create).not.toHaveBeenCalled()
+  })
+
+  it('преподаватель → GROUP группы, где ведёт пару: ок', async () => {
+    const { service, prisma } = setup()
+    prisma.group.findUnique.mockResolvedValue({
+      facultyId: 'fac-1',
+      faculty: { universityId: 'uni-1' },
+    })
+    prisma.pair.findFirst.mockResolvedValue({ id: 'pair-1' })
+    prisma.post.findFirst.mockResolvedValue(postRow())
+    const res = await service.create(
+      viewer(Role.TEACHER, { sub: 't1', universityId: 'uni-1' }),
+      { audience: 'GROUP', content: 'x', groupId: 'grp-1' },
+      ctx,
+    )
+    expect(res.id).toBe('p-new')
+    expect(prisma.pair.findFirst).toHaveBeenCalledWith({
+      where: { teacherId: 't1', groupId: 'grp-1', schedule: { is: { isActive: true } } },
+      select: { id: true },
+    })
   })
 
   it('декан → FACULTY своего факультета: ок', async () => {
