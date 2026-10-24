@@ -286,7 +286,9 @@ duties — только STAROSTA. Платформенные роли вне в�
 
 `PATCH /users/me` с полем, недоступным роли, отвечает `400 BAD_REQUEST`; `details[]`
 перечисляет отклонённые поля (`field` + сообщение). Запрос отклоняется целиком, разрешённая
-часть тоже не сохраняется. Роль читается из JWT, не из тела.
+часть тоже не сохраняется. Роль читается из JWT, не из тела. Указанную `birthDate` можно исправить, но
+не стереть: `birthDate: null` при заполненной дате → `422 VALIDATION_ERROR` (`field=birthDate`) —
+по ней сверяется основание согласия на обработку ПДн.
 
 **Учебные данные ведёт вуз.** Поля `course`, `enrollmentYear`, `graduationYear`,
 `educationLevel`, `studyForm`, `fundingType`, `specialty`, `studentCardNumber`, `academicStatus`,
