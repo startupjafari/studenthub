@@ -17,6 +17,7 @@ import {
   Trash2,
   Users,
 } from 'lucide-react'
+import type { DocumentField } from '@studenthub/shared-config'
 import {
   archiveDocument,
   deleteDocument,
@@ -33,6 +34,7 @@ import {
   updateDocument,
   type DocumentDto,
 } from '../../../entities/document'
+import { useDocumentTypeCatalog } from '../../../entities/document-type'
 import { UserPicker, type PickedUser } from '../../../entities/user'
 import { useAppSelector } from '../../../shared/store'
 import {
@@ -58,6 +60,13 @@ import { DocumentPagesModal } from './document-pages-modal'
 
 function errCode(e: unknown): string {
   return (e as { code?: string }).code ?? 'INTERNAL_ERROR'
+}
+
+// Дата документа для поля формы (YYYY-MM-DD). Сервер хранит «дату без времени» полуночью
+// UTC, а срок действия — концом этого дня по часам вуза: у вузов Казахстана это тот же
+// календарный день и в UTC, поэтому достаточно отрезать время.
+function dateInput(iso: string | null): string {
+  return iso ? iso.slice(0, 10) : ''
 }
 
 // Действия над документом: меню «…» в строке таблицы плюс его модалки (данные, доступ,
@@ -238,8 +247,22 @@ function EditModal({ doc, onClose }: { doc: DocumentDto; onClose: () => void }) 
   const [title, setTitle] = useState(doc.title)
   const [issuedBy, setIssuedBy] = useState(doc.issuedBy ?? '')
   const [comment, setComment] = useState(doc.comment ?? '')
+  // Номер наружу не отдаётся (только маска), поэтому поле — для нового номера: пустое
+  // значение номер не меняет.
+  const [number, setNumber] = useState('')
+  const [issuedAt, setIssuedAt] = useState(dateInput(doc.issuedAt))
+  const [expiresAt, setExpiresAt] = useState(dateInput(doc.expiresAt))
   const [submitted, setSubmitted] = useState(false)
+  // Поля — как в мастере загрузки, по набору полей типа; заполненное поле показываем, даже
+  // если тип его больше не предусматривает. Раньше номер и даты после загрузки было не
+  // поменять вовсе, и продлённый документ оставался «Просрочен».
+  const fields = (useDocumentTypeCatalog().typeOf(doc.type)?.fields ?? []) as DocumentField[]
+  const showNumber = fields.includes('number') || !!doc.numberMasked
+  const showIssuedAt = fields.includes('issuedAt') || !!doc.issuedAt
+  const showExpiresAt = fields.includes('expiresAt') || !!doc.expiresAt
   const titleError = !title.trim() ? tCommon('fieldRequired') : null
+  const expiresError =
+    issuedAt && expiresAt && expiresAt < issuedAt ? tCommon('endNotBeforeStart') : null
   // Данные выданного вузом документа меняет только вуз; владельцу остаётся своя заметка.
   const locked = doc.issuedByUniversity
 
@@ -249,7 +272,14 @@ function EditModal({ doc, onClose }: { doc: DocumentDto; onClose: () => void }) 
         doc.id,
         locked
           ? { comment: comment || null }
-          : { title, issuedBy: issuedBy || null, comment: comment || null },
+          : {
+              title,
+              issuedBy: issuedBy || null,
+              comment: comment || null,
+              ...(showNumber && number.trim() ? { number: number.trim() } : {}),
+              ...(showIssuedAt ? { issuedAt: issuedAt ? new Date(issuedAt) : null } : {}),
+              ...(showExpiresAt ? { expiresAt: expiresAt ? new Date(expiresAt) : null } : {}),
+            },
       ),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: documentKeys.all })
@@ -273,7 +303,7 @@ function EditModal({ doc, onClose }: { doc: DocumentDto; onClose: () => void }) 
             loading={mut.isPending}
             onClick={() => {
               setSubmitted(true)
-              if (!titleError) mut.mutate()
+              if (!titleError && !expiresError) mut.mutate()
             }}
           >
             {t('save')}
@@ -291,6 +321,46 @@ function EditModal({ doc, onClose }: { doc: DocumentDto; onClose: () => void }) 
         />
         <FieldError>{submitted ? titleError : null}</FieldError>
       </label>
+      {showNumber && (
+        <label className="flex flex-col gap-1 text-sm">
+          {t('fieldNumber')}
+          <Input
+            value={number}
+            onChange={(e) => setNumber(e.target.value)}
+            placeholder={doc.numberMasked ?? undefined}
+            disabled={locked}
+          />
+          {!locked && (
+            <span className="text-xs text-muted-foreground">{t('numberReplaceHint')}</span>
+          )}
+        </label>
+      )}
+      {showIssuedAt && (
+        <label className="flex flex-col gap-1 text-sm">
+          {t('fieldIssuedAt')}
+          <DatePicker
+            value={issuedAt}
+            onChange={setIssuedAt}
+            max={expiresAt || undefined}
+            disabled={locked}
+            aria-label={t('fieldIssuedAt')}
+          />
+        </label>
+      )}
+      {showExpiresAt && (
+        <label className="flex flex-col gap-1 text-sm">
+          {t('fieldExpiresAt')}
+          <DatePicker
+            value={expiresAt}
+            onChange={setExpiresAt}
+            min={issuedAt || undefined}
+            disabled={locked}
+            aria-label={t('fieldExpiresAt')}
+            aria-invalid={submitted && !!expiresError}
+          />
+          <FieldError>{submitted ? expiresError : null}</FieldError>
+        </label>
+      )}
       <label className="flex flex-col gap-1 text-sm">
         {t('fieldIssuedBy')}
         <Input value={issuedBy} onChange={(e) => setIssuedBy(e.target.value)} disabled={locked} />

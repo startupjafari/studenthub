@@ -2948,6 +2948,7 @@
     "remove": "Remove",
     "numberMaskHint": "After saving, the number is shown partially: ******4821",
     "numberEditHint": "The number is shown partially for security.",
+    "numberReplaceHint": "New number — leave empty to keep the current one",
     "issuedLockedHint": "Issued by the university: only the university can change its title and details. You can add your own note here.",
     "accessOnlyMe": "Only me",
     "accessDefaultHint": "By default the document is visible only to you.",

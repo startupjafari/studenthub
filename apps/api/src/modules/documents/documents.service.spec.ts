@@ -188,7 +188,9 @@ describe('DocumentsService', () => {
   it('sweepExpiry: просроченный → EXPIRED + уведомление владельцу + событие EXPIRE', async () => {
     const { service, prisma, queue } = setup()
     prisma.document.findMany
-      .mockResolvedValueOnce([{ id: 'd1', ownerId: 'u1', title: 'Паспорт' }]) // стадия EXPIRED
+      .mockResolvedValueOnce([
+        { id: 'd1', ownerId: 'u1', title: 'Паспорт', expiresAt: new Date(1_700_000_000_000) },
+      ]) // стадия EXPIRED
       .mockResolvedValue([]) // затем пусто (и стадия EXPIRING)
     const res = await service.sweepExpiry()
     expect(res.expired).toBe(1)
@@ -201,7 +203,8 @@ describe('DocumentsService', () => {
     const [, jobName, payload] = queue.enqueue.mock.calls[0]
     expect(jobName).toBe('document-expiring')
     expect(payload.recipientIds).toEqual(['u1'])
-    expect(payload.dedupeKey).toBe('doc-expired:d1')
+    // Ключ — на срок: продлённый и снова истёкший документ получит новое уведомление.
+    expect(payload.dedupeKey).toBe('doc-expired:d1:1700000000000')
     expect(payload.type).toBe('SYSTEM')
   })
 
@@ -786,6 +789,26 @@ describe('DocumentsService — подтверждение вуза снимае�
       where: { id: 'd1', status: 'VERIFIED' },
       data: { status: 'UPLOADED', rejectionReason: null },
     })
+  })
+})
+
+describe('DocumentsService — продление срока', () => {
+  it('новый срок снимает «Просрочен»/«Скоро истекает»; правка без срока статус не трогает', async () => {
+    const { service, prisma } = setup()
+    const nextYear = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000)
+    prisma.document.findFirst.mockResolvedValue(
+      row({
+        status: 'EXPIRED',
+        expiresAt: new Date('2026-01-01T00:00:00Z'),
+        universityId: 'uni-1',
+      }),
+    )
+    await service.update(actor(), 'd1', { expiresAt: nextYear })
+    expect(prisma.document.update.mock.calls[0][0].data.status).toBe('UPLOADED')
+
+    prisma.document.findFirst.mockResolvedValue(row({ status: 'EXPIRING', universityId: 'uni-1' }))
+    await service.update(actor(), 'd1', { title: 'Новое название' })
+    expect(prisma.document.update.mock.calls[1][0].data.status).toBeUndefined()
   })
 })
 

@@ -125,6 +125,17 @@ function changedContent(
   )
 }
 
+/**
+ * Статус документа по сроку действия: прошёл — EXPIRED, в ближайшие 30 дней — EXPIRING,
+ * иначе (или срока нет) — UPLOADED. Те же границы, что у ночного крона sweepExpiry.
+ */
+function statusByExpiry(expiresAt: Date | null, now: number = Date.now()): string {
+  const expires = expiresAt?.getTime()
+  if (expires !== undefined && expires < now) return 'EXPIRED'
+  if (expires !== undefined && expires <= now + EXPIRING_WINDOW_MS) return 'EXPIRING'
+  return 'UPLOADED'
+}
+
 /** Колонка сортировки списка и направление — после подстановки умолчаний. */
 interface DocumentSortSpec {
   sort: DocumentSortValue | undefined
@@ -1279,6 +1290,7 @@ export class DocumentsService {
         id: true,
         universityId: true,
         issuedByUniversity: true,
+        status: true,
         title: true,
         number: true,
         issuedBy: true,
@@ -1315,7 +1327,16 @@ export class DocumentsService {
     }
     if (input.issuedBy !== undefined) data.issuedBy = input.issuedBy || null
     if (input.issuedAt !== undefined) data.issuedAt = input.issuedAt
-    if (input.expiresAt !== undefined) data.expiresAt = input.expiresAt
+    if (input.expiresAt !== undefined) {
+      data.expiresAt = input.expiresAt
+      // Продлённый (или исправленный) срок у документа, который крон уже пометил «Скоро
+      // истекает» или «Просрочен», сразу пересчитывает этот статус: сам крон их не снимает,
+      // и продлённый паспорт оставался «Просрочен» навсегда. Дальше статус ведёт проверка
+      // (afterContentChange) и снова крон — по новому сроку.
+      if (doc.status === 'EXPIRING' || doc.status === 'EXPIRED') {
+        data.status = statusByExpiry(input.expiresAt)
+      }
+    }
     if (input.comment !== undefined) data.comment = input.comment || null
     await this.prisma.document.update({ where: { id }, data })
     if (contentChanged) await this.afterContentChange(id)
@@ -1483,11 +1504,7 @@ export class DocumentsService {
     const meta = (event?.metadata ?? null) as { previousStatus?: unknown } | null
     const previous = typeof meta?.previousStatus === 'string' ? meta.previousStatus : null
     if (previous && !EXPIRY_STATUSES.has(previous) && previous !== 'ARCHIVED') return previous
-    const now = Date.now()
-    const expires = doc.expiresAt?.getTime()
-    if (expires !== undefined && expires < now) return 'EXPIRED'
-    if (expires !== undefined && expires <= now + EXPIRING_WINDOW_MS) return 'EXPIRING'
-    return 'UPLOADED'
+    return statusByExpiry(doc.expiresAt)
   }
 
   /**
@@ -1746,7 +1763,7 @@ export class DocumentsService {
     for (;;) {
       const batch = await this.prisma.document.findMany({
         where,
-        select: { id: true, ownerId: true, title: true },
+        select: { id: true, ownerId: true, title: true, expiresAt: true },
         take: 500,
       })
       if (batch.length === 0) break
@@ -1756,6 +1773,9 @@ export class DocumentsService {
       })
       for (const doc of batch) {
         await this.logEvent(doc.ownerId, doc.id, nextStatus === 'EXPIRED' ? 'EXPIRE' : 'EXPIRING')
+        // Ключ — на документ и его срок: продлённый документ, у которого снова подходит
+        // (новый) срок, получает новое напоминание, а прежний ключ его молча глушил.
+        const key = `${dedupePrefix}:${doc.id}:${doc.expiresAt?.getTime() ?? 0}`
         await this.queue.enqueue(
           QUEUES.NOTIFICATIONS,
           jobName,
@@ -1766,9 +1786,9 @@ export class DocumentsService {
             bodyKey: 'documents.named.body',
             params: { title: doc.title },
             data: { documentId: doc.id, url: '/documents' },
-            dedupeKey: `${dedupePrefix}:${doc.id}`,
+            dedupeKey: key,
           },
-          { jobId: `${dedupePrefix}:${doc.id}` },
+          { jobId: key },
         )
       }
       total += batch.length
