@@ -1157,6 +1157,8 @@ async function seedDemoUniverse({ passwordHash, admin, progress, seedPassword })
       for (let w = 0; w < ATT_WEEKS; w += 1) {
         const d = new Date(attMonday)
         d.setUTCDate(d.getUTCDate() + (p.day - 1) - 7 * (ATT_WEEKS - 1 - w))
+        // Окно доходит до конца текущей недели: на ещё не наступившие пары отметок нет.
+        if (d > daysFromNow(0)) continue
         for (const sid of g.studentIds) {
           const roll = rng()
           const status =

@@ -127,18 +127,24 @@ export async function seedAcademics(prisma, writer, ctx) {
   // По одному изменению каждого типа на вуз плюс россыпь: без них экран «Изменения»
   // и уведомления SCHEDULE_CHANGE проверить нечем.
   const changeTypes = ['CANCELLED', 'MOVED', 'ROOM_CHANGED', 'SUBSTITUTED']
+  // Отменённые пары: посещаемость на них не ставится (ключ — пара и дата).
+  const cancelled = new Set()
   for (const [ci, group] of allGroups.entries()) {
     if (!group.pairs?.length) continue
     if (ci % 3 !== 0) continue
     const pair = random.pick(group.pairs)
     const type = changeTypes[ci % changeTypes.length]
     const [newStart, newEnd] = random.pick(TIMES)
+    // Разовое изменение — в день, когда эта пара стоит в расписании (её день недели), на
+    // следующей или через неделю: изменение должно быть «актуальным», а сдвиг на
+    // произвольное число дней ставил его на день, когда пары нет вовсе.
+    const date = new Date(monday.getTime() + (pair.day - 1 + 7 * random.randInt(1, 2)) * 86_400_000) // prettier-ignore
+    if (type === 'CANCELLED') cancelled.add(`${pair.id}|${date.toISOString().slice(0, 10)}`)
     await writer.add('scheduleChange', {
       id: child(pair.id, 'chg', type.toLowerCase()),
       pairId: pair.id,
       type,
-      // Дата в пределах ближайших двух недель: изменение должно быть «актуальным».
-      date: new Date(monday.getTime() + (pair.day - 1 + random.randInt(0, 13)) * 86_400_000),
+      date,
       newRoomId: type === 'ROOM_CHANGED' || type === 'MOVED' ? random.pick(rooms) : null,
       newTeacherId: type === 'SUBSTITUTED' ? random.pick(group.teacherIds) : null,
       newStartTime: type === 'MOVED' ? newStart : null,
@@ -230,11 +236,20 @@ export async function seedAcademics(prisma, writer, ctx) {
   if (attPairIds.length > 0) {
     await prisma.attendance.deleteMany({ where: { pairId: { in: attPairIds } } })
   }
+  // Отмечают только прошедшие пары текущего семестра: не сегодня и не в будущем (окно
+  // доходит до конца текущей недели), не до начала семестра (в августе осенний ещё не
+  // начался) и не на отменённых парах.
+  const today = new Date(monday)
+  today.setUTCDate(today.getUTCDate() + ((new Date().getUTCDay() + 6) % 7))
+  const termFrom = new Date(structure.calendar.cur.from)
+  const termTo = new Date(structure.calendar.cur.to)
   for (const group of allGroups) {
     for (const pair of (group.pairs ?? []).slice(0, 3)) {
       for (let w = 0; w < attWeeks; w += 1) {
         const date = new Date(monday)
         date.setUTCDate(date.getUTCDate() + (pair.day - 1) - 7 * (attWeeks - 1 - w))
+        if (date >= today || date < termFrom || date > termTo) continue
+        if (cancelled.has(`${pair.id}|${date.toISOString().slice(0, 10)}`)) continue
         for (const studentId of group.studentIds) {
           const status = random.pickWeighted([
             ['PRESENT', 80],
@@ -273,13 +288,9 @@ export async function seedAcademics(prisma, writer, ctx) {
       note: random.chance(0.3) ? 'Разрешён один лист с формулами' : null,
     })
     for (const studentId of course.group.studentIds) {
+      // Экзамен текущего семестра ещё не прошёл: результатов по нему быть не может.
       const status = course.current
-        ? random.pickWeighted([
-            ['SCHEDULED', 70],
-            ['PASSED', 20],
-            ['FAILED', 5],
-            ['RETAKE', 5],
-          ])
+        ? 'SCHEDULED'
         : random.pickWeighted([
             ['PASSED', 85],
             ['FAILED', 8],
