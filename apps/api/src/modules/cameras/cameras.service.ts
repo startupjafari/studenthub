@@ -18,7 +18,7 @@ import { seal } from '../../common/crypto/sealed-box'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
 import { RoomService } from '../rooms/rooms.service'
-import { CameraAgentsService } from './camera-agents.service'
+import { AGENT_ONLINE_WINDOW_MS, CameraAgentsService } from './camera-agents.service'
 import { CameraAgentSignal } from './camera-agent-signal'
 import { managedUniversity, viewedUniversity } from './camera-scope'
 
@@ -38,18 +38,15 @@ const CAMERA_SELECT = {
 
 type CameraRow = Prisma.CameraGetPayload<{ select: typeof CAMERA_SELECT }>
 
-// Агент на связи, пока синхронизируется: длинный опрос держится 25 с, пауза после ошибки —
-// до минуты. Дольше двух минут тишины — агент пропал, и его последний отчёт устарел.
-export const AGENT_STALE_MS = 2 * 60_000
-
 /**
  * Состояние камеры, которое можно показать. Статус пишет агент, и сам он не гаснет: агент
  * пропал, модуль выключили или камеру отключили — отчётов больше нет, а в базе навсегда
- * осталось бы последнее «В сети». Без живого агента и работающей камеры — «неизвестно».
+ * осталось бы последнее «В сети». Без агента на связи (то же окно, что у его «на связи» в
+ * списке агентов) и работающей камеры — «неизвестно».
  */
 function liveStatus(row: CameraRow, moduleEnabled: boolean, now = Date.now()): CameraStatusValue {
   const agentSeen = row.agent.lastSeenAt?.getTime() ?? 0
-  if (!moduleEnabled || !row.enabled || now - agentSeen > AGENT_STALE_MS) return 'UNKNOWN'
+  if (!moduleEnabled || !row.enabled || now - agentSeen > AGENT_ONLINE_WINDOW_MS) return 'UNKNOWN'
   return row.status
 }
 
