@@ -2978,6 +2978,7 @@
     "evt_ACCEPT": "Принят",
     "evt_REJECT": "Отклонён",
     "evt_ARCHIVE": "Архивирование",
+    "evt_UNARCHIVE": "Возврат из архива",
     "evt_DELETE": "Удаление",
     "evt_PAGE_ADD": "Добавление страниц",
     "evt_PAGE_REMOVE": "Удаление страницы",

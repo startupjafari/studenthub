@@ -136,6 +136,16 @@ function statusByExpiry(expiresAt: Date | null, now: number = Date.now()): strin
   return 'UPLOADED'
 }
 
+/**
+ * Действие события для показа (история документа, журнал вуза). Возврат из архива раньше
+ * писался тем же ARCHIVE с `archived: false` и выглядел как архивирование; новые события —
+ * UNARCHIVE, старые распознаются по пометке.
+ */
+export function documentEventAction(action: string, metadata: unknown): string {
+  const archived = (metadata as { archived?: unknown } | null)?.archived
+  return action === 'ARCHIVE' && archived === false ? 'UNARCHIVE' : action
+}
+
 /** Колонка сортировки списка и направление — после подстановки умолчаний. */
 interface DocumentSortSpec {
   sort: DocumentSortValue | undefined
@@ -1480,7 +1490,7 @@ export class DocumentsService {
         data: { archivedAt: null, status },
       })
       if (count > 0) {
-        await this.logEvent(actor.sub, id, 'ARCHIVE', { archived, status })
+        await this.logEvent(actor.sub, id, 'UNARCHIVE', { status })
         // Пока документ лежал в архиве, проверка его статус не вела (ARCHIVED не
         // пересчитывается): восстановленный «на проверке» мог давно стать «принят».
         await this.syncReviewStatus([id])
@@ -1522,11 +1532,12 @@ export class DocumentsService {
   /** История действий по документу (ТЗ §10). */
   async listEvents(actor: JwtPayload, id: string) {
     await this.findOwnedOrThrow(actor, id)
-    return this.prisma.documentEvent.findMany({
+    const events = await this.prisma.documentEvent.findMany({
       where: { documentId: id },
       orderBy: { createdAt: 'desc' },
       take: 200,
     })
+    return events.map((e) => ({ ...e, action: documentEventAction(e.action, e.metadata) }))
   }
 
   /**

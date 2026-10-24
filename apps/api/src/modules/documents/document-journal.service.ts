@@ -10,6 +10,7 @@ import { PrismaService } from '../../common/prisma/prisma.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import { Paginated } from '../../common/http/paginated'
+import { documentEventAction } from './documents.service'
 
 // Сколько людей вуза подбирается по поиску ФИО. Поиск — сужение журнала до конкретного
 // человека, а не выгрузка списка: больше совпадений означает «уточните запрос».
@@ -65,7 +66,10 @@ export class DocumentJournalService {
     }
     const universityId = actor.universityId
     const and: Prisma.DocumentEventWhereInput[] = [{ document: { universityId } }]
-    if (query.action) and.push({ action: query.action })
+    // «Архивирование» в фильтре — и возврат из архива: отдельного пункта для него в фильтре
+    // нет, а прежние события возврата и так записаны как ARCHIVE.
+    if (query.action === 'ARCHIVE') and.push({ action: { in: ['ARCHIVE', 'UNARCHIVE'] } })
+    else if (query.action) and.push({ action: query.action })
     if (query.from || query.to) {
       and.push({
         createdAt: {
@@ -145,7 +149,7 @@ export class DocumentJournalService {
       items.push({
         id: r.id,
         createdAt: r.createdAt.toISOString(),
-        action: r.action,
+        action: documentEventAction(r.action, meta),
         actor: {
           id: r.actorId,
           name: who ? fullName(who) : '',

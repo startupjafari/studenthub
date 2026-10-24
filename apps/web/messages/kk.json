@@ -2978,6 +2978,7 @@
     "evt_ACCEPT": "Қабылданды",
     "evt_REJECT": "Қабылданбады",
     "evt_ARCHIVE": "Мұрағаттау",
+    "evt_UNARCHIVE": "Мұрағаттан қайтару",
     "evt_DELETE": "Жою",
     "evt_PAGE_ADD": "Бет қосу",
     "evt_PAGE_REMOVE": "Бетті жою",

@@ -2978,6 +2978,7 @@
     "evt_ACCEPT": "Accepted",
     "evt_REJECT": "Rejected",
     "evt_ARCHIVE": "Archived",
+    "evt_UNARCHIVE": "Restored from archive",
     "evt_DELETE": "Deleted",
     "evt_PAGE_ADD": "Pages added",
     "evt_PAGE_REMOVE": "Page deleted",

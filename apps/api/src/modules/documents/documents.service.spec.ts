@@ -766,6 +766,25 @@ describe('DocumentsService — выданные вузом и архив (D-F22)
     )
   })
 
+  it('возврат из архива пишется UNARCHIVE; старый возврат (ARCHIVE, archived: false) в истории — тоже', async () => {
+    const { service, prisma } = setup()
+    prisma.document.findFirst.mockResolvedValueOnce(
+      row({ status: 'ARCHIVED', archivedAt: new Date() }),
+    )
+    prisma.document.updateMany.mockResolvedValue({ count: 1 })
+    await service.setArchived(actor(), 'd1', false)
+    expect(prisma.documentEvent.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ action: 'UNARCHIVE' }) }),
+    )
+
+    prisma.documentEvent.findMany.mockResolvedValue([
+      { id: 'e1', action: 'ARCHIVE', actorId: 'me', metadata: { archived: false } },
+      { id: 'e2', action: 'ARCHIVE', actorId: 'me', metadata: { archived: true } },
+    ])
+    const events = await service.listEvents(actor(), 'd1')
+    expect(events.map((e) => e.action)).toEqual(['UNARCHIVE', 'ARCHIVE'])
+  })
+
   it('повторный архив ничего не меняет — прежний статус не затирается ARCHIVED', async () => {
     const { service, prisma } = setup()
     prisma.document.findFirst.mockResolvedValue(row({ status: 'ARCHIVED', archivedAt: new Date() }))
