@@ -1,7 +1,7 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import type { Complaint } from '../api/complaints'
+import type { Complaint, ComplaintStatus } from '../api/complaints'
 
 vi.mock('../api/complaints', async (orig) => {
   const actual = await orig<typeof import('../api/complaints')>()
@@ -48,8 +48,22 @@ function complaint(over: Partial<Complaint> = {}): Complaint {
   }
 }
 
+/** Ответ по статусам: вкладка спрашивает каждый статус отдельным запросом. */
+function byStatus(pages: Partial<Record<ComplaintStatus, Complaint[]>>) {
+  vi.mocked(fetchComplaints).mockImplementation(async ({ status }) => {
+    const items = pages[status] ?? []
+    return { items, total: items.length }
+  })
+}
+
 function page(items: Complaint[], total = items.length) {
-  vi.mocked(fetchComplaints).mockResolvedValue({ items, total })
+  vi.mocked(fetchComplaints).mockImplementation(async ({ status }) =>
+    status === 'PENDING' || status === 'RESOLVED' ? { items, total } : { items: [], total: 0 },
+  )
+}
+
+function statusesAsked(): string[] {
+  return vi.mocked(fetchComplaints).mock.calls.map(([query]) => query.status)
 }
 
 describe('ComplaintsScreen', () => {
@@ -82,22 +96,59 @@ describe('ComplaintsScreen', () => {
     render(<ComplaintsScreen />)
     await screen.findByText('Реклама в ленте')
 
+    vi.mocked(fetchComplaints).mockClear()
     await userEvent.click(screen.getByRole('button', { name: 'Срочно' }))
 
-    expect(vi.mocked(fetchComplaints).mock.calls.at(-1)?.[0]).toMatchObject({
-      status: 'PENDING',
-      priority: 'HIGH',
-    })
+    await waitFor(() =>
+      expect(vi.mocked(fetchComplaints).mock.calls.map(([query]) => query)).toEqual([
+        expect.objectContaining({ status: 'PENDING', priority: 'HIGH' }),
+        expect.objectContaining({ status: 'REVIEWING', priority: 'HIGH' }),
+      ]),
+    )
   })
 
-  it('вкладка «Разобранные» запрашивает другой статус', async () => {
+  it('вкладка «Разобранные» запрашивает и решённые, и отклонённые', async () => {
     page([complaint()])
     render(<ComplaintsScreen />)
     await screen.findByText('Реклама в ленте')
 
+    vi.mocked(fetchComplaints).mockClear()
     await userEvent.click(screen.getByRole('tab', { name: 'Разобранные' }))
 
-    expect(vi.mocked(fetchComplaints).mock.calls.at(-1)?.[0]).toMatchObject({ status: 'RESOLVED' })
+    await waitFor(() => expect(statusesAsked()).toEqual(['RESOLVED', 'DISMISSED']))
+  })
+
+  // Взятая свайпом жалоба остаётся в очереди: решать её всё ещё нужно (как OPEN_STATUSES).
+  it('в очереди есть и взятые в разбор', async () => {
+    byStatus({
+      PENDING: [complaint()],
+      REVIEWING: [
+        complaint({
+          id: 'c2',
+          status: 'REVIEWING',
+          reason: 'Оскорбления в чате',
+          reviewingBy: { id: 'm1', firstName: 'Ерлан', lastName: 'Ахметов' },
+        }),
+      ],
+    })
+    render(<ComplaintsScreen />)
+
+    expect(await screen.findByText('Реклама в ленте')).toBeInTheDocument()
+    expect(screen.getByText('Оскорбления в чате')).toBeInTheDocument()
+  })
+
+  // Очередь больше страницы не обрезается молча: видно, сколько показано, и можно дозагрузить.
+  it('говорит, что показана не вся очередь, и дозагружает', async () => {
+    page([complaint()], 45)
+    render(<ComplaintsScreen />)
+
+    expect(await screen.findByText('Показаны 1 из 45')).toBeInTheDocument()
+    vi.mocked(fetchComplaints).mockClear()
+    await userEvent.click(screen.getByRole('button', { name: 'Показать ещё' }))
+
+    await waitFor(() =>
+      expect(vi.mocked(fetchComplaints).mock.calls[0]?.[0]).toMatchObject({ limit: 60 }),
+    )
   })
 
   it('группирует список по дням', async () => {

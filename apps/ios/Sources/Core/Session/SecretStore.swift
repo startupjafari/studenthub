@@ -22,10 +22,16 @@ enum SecretKey: String {
 
 /// Связка ключей iOS.
 ///
-/// Доступность — `AfterFirstUnlock`: после первой разблокировки с момента включения.
+/// Доступность — `AfterFirstUnlockThisDeviceOnly`: после первой разблокировки с момента включения.
 /// `WhenUnlocked` сломал бы фоновое обновление по тихому пушу, а `Always` хранит
 /// секрет доступным на выключенном устройстве.
+///
+/// `ThisDeviceOnly` — обязательно: без него refresh-токен уезжает в резервную копию
+/// iCloud/Finder и восстанавливается на другом телефоне, то есть копия устройства
+/// получает живую сессию владельца.
 struct Keychain: SecretStore {
+    private static let accessibility = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+
     private let service: String
 
     init(service: String = Bundle.main.bundleIdentifier ?? "kz.studenthub.app") {
@@ -48,7 +54,12 @@ struct Keychain: SecretStore {
     func set(_ value: String, for key: SecretKey) {
         guard let data = value.data(using: .utf8) else { return }
         let query = baseQuery(for: key)
-        let attributes: [String: Any] = [kSecValueData as String: data]
+        // Доступность переписывается и при обновлении: записи, заведённые прежними
+        // сборками без `ThisDeviceOnly`, переезжают на неё при первой же записи.
+        let attributes: [String: Any] = [
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: Self.accessibility,
+        ]
 
         // Сначала пробуем обновить: SecItemAdd на существующий ключ вернёт
         // errSecDuplicateItem, и секрет молча не обновится.
@@ -57,7 +68,7 @@ struct Keychain: SecretStore {
         }
         var insert = query
         insert[kSecValueData as String] = data
-        insert[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
+        insert[kSecAttrAccessible as String] = Self.accessibility
         SecItemAdd(insert as CFDictionary, nil)
     }
 

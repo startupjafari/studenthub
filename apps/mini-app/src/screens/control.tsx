@@ -22,9 +22,8 @@ import {
   type PlatformState,
   type TeamLink,
 } from '../api/platform'
-import { ApiError } from '../api/client'
 import { confirmAction, haptic } from '../telegram/webapp'
-import { t } from '../i18n'
+import { errorText, t } from '../i18n'
 import { locale, type MessageKey } from '../i18n'
 import { formatDateTime } from '../lib/format'
 import { Fold } from '../ui/fold'
@@ -105,7 +104,7 @@ export function ControlScreen({ userId }: { userId: string }) {
       } catch (err) {
         // Текст берём из ответа: сервер уже объяснил отказ по-человечески («Неверный код
         // подтверждения»), и подменять его своей формулировкой значило бы врать о причине.
-        setError(err instanceof ApiError ? err.message : t('controlApplyError'))
+        setError(errorText(err, 'controlApplyError'))
       } finally {
         setBusy(false)
       }
@@ -218,7 +217,7 @@ function DutyCard({ busy, setError }: { busy: boolean; setError: (text: string |
     try {
       setDutyState(await setDuty(next))
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : t('dutyError'))
+      setError(errorText(err, 'dutyError'))
     } finally {
       setSaving(false)
     }

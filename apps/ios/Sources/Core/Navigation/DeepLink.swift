@@ -18,6 +18,8 @@ enum DeepLink: Equatable {
     case application(id: String)
     case event(id: String)
     case lesson(id: String)
+    /// Чужой профиль: подписка, упоминание, заявка в друзья.
+    case profile(id: String)
     /// Библиотека: «Мои книги», карточка книги и QR-наклейка экземпляра.
     case myBooks
     case book(id: String)
@@ -83,6 +85,9 @@ enum DeepLink: Equatable {
             ("courses", nil), ("materials", nil), ("gradebook", nil), ("exams", nil):
             self = .tab(.study)
 
+        // Лента в вебе — отдельный адрес, на телефоне она живёт на «Главной».
+        case ("feed", nil), ("posts", nil):
+            self = .tab(.home)
         case ("posts", .some(let id)):
             self = .post(id: id)
 
@@ -98,6 +103,8 @@ enum DeepLink: Equatable {
 
         case ("profile", nil):
             self = .section(.profile)
+        case ("profile", .some(let id)):
+            self = .profile(id: id)
         case ("documents", nil):
             self = .section(.documents)
         case ("settings", nil):

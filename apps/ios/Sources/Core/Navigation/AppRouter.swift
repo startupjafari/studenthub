@@ -9,8 +9,11 @@ enum AppRoute: Hashable {
     case post(id: String)
     case application(id: String)
     case event(id: String)
-    case lesson(id: String)
+    /// Занятие. `date` — день, выбранный в расписании: отметка посещаемости ставится
+    /// на него, а не на сегодня. Без даты (ссылка из пуша, «ближайшая пара») — сегодня.
+    case lesson(id: String, date: Date? = nil)
     case assignment(id: String)
+    case profile(id: String)
     case service(id: String)
     case myBooks
     /// Справка «задолженностей в библиотеке нет» — из «Моих книг».
@@ -28,6 +31,35 @@ enum AppRoute: Hashable {
 final class AppRouter {
     var selectedTab: AppTab = .home
     var stacks: [AppTab: [AppRoute]] = [:]
+
+    /// Ссылка из уведомления, нажатого на холодном старте: роль ещё неизвестна (сессия
+    /// поднимается), и открыть её сейчас значило бы отказать в разделах, которые у
+    /// человека есть, — документах, библиотеке, событиях. Открывается, когда оболочка
+    /// узнает роль (`openPending`).
+    @ObservationIgnored private var pending: DeepLink?
+
+    /// Отложить ссылку до подъёма сессии.
+    @MainActor
+    func postpone(_ link: DeepLink) {
+        pending = link
+    }
+
+    /// Открыть отложенную ссылку — зовёт оболочка, когда роль уже известна.
+    @MainActor
+    func openPending(for role: Role) {
+        guard let link = pending else { return }
+        pending = nil
+        open(link, for: role)
+    }
+
+    /// Выход из аккаунта: следующий человек начинает с главной, а не в открытом чате
+    /// прежнего, и не получает его отложенную ссылку.
+    @MainActor
+    func reset() {
+        selectedTab = .home
+        stacks = [:]
+        pending = nil
+    }
 
     /// Открыть ссылку. `false` означает «не наше»: ссылка либо незнакомая, либо
     /// ведёт в раздел, которого у этой роли нет, — и тогда её открывает браузер.
@@ -56,6 +88,8 @@ final class AppRouter {
             push(.chats, [.chat(id: id)])
         case .post(let id):
             push(.home, [.post(id: id)])
+        case .profile(let id):
+            push(.home, [.profile(id: id)])
         case .lesson(let id):
             push(.schedule, [.lesson(id: id)])
         case .application(let id):

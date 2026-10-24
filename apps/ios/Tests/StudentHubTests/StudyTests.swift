@@ -22,6 +22,31 @@ final class CourseGradesTests: XCTestCase {
         XCTAssertNil(course(columns: [column(id: "1", max: 0, score: 0)]).ratio)
     }
 
+    /// Точка без максимума в долю не входит, а `maxScore: null` не роняет разбор.
+    func testColumnWithoutMaximum() throws {
+        let ratio = course(columns: [column(id: "1", max: 10, score: 5), column(id: "2", max: nil, score: 7)]).ratio
+        XCTAssertEqual(ratio ?? 0, 0.5, accuracy: 0.001)
+
+        let json = Data(
+            """
+            [{"courseId":"c","subject":{"id":"s","name":"Алгоритмы"},"credits":null,
+            "columns":[{"id":"1","title":"РК","kind":"CONTROL","maxScore":null,"score":8.5}]}]
+            """.utf8
+        )
+        let courses = try JSONCoding.decoder.decode([CourseGradesDTO].self, from: json)
+        XCTAssertNil(courses.first?.columns.first?.maxScore)
+    }
+
+    /// Дробный балл не обрезается, тип точки — словом, а не кодом.
+    func testGradeFormat() {
+        let locale = Locale(identifier: "en_US")
+        XCTAssertEqual(GradeFormat.score(8.5, max: 10, locale: locale), "8.5 / 10")
+        XCTAssertEqual(GradeFormat.score(8, max: 10, locale: locale), "8 / 10")
+        XCTAssertEqual(GradeFormat.score(8.5, max: nil, locale: locale), "8.5")
+        XCTAssertNotNil(GradeFormat.kindTitle("CONTROL"))
+        XCTAssertNil(GradeFormat.kindTitle("SOMETHING_NEW"))
+    }
+
     private func course(columns: [CourseGradesDTO.Column]) -> CourseGradesDTO {
         CourseGradesDTO(
             courseId: "c-1",
@@ -31,7 +56,7 @@ final class CourseGradesTests: XCTestCase {
         )
     }
 
-    private func column(id: String, max: Int, score: Double?) -> CourseGradesDTO.Column {
+    private func column(id: String, max: Int?, score: Double?) -> CourseGradesDTO.Column {
         CourseGradesDTO.Column(id: id, title: "РК\(id)", kind: "CONTROL", maxScore: max, score: score)
     }
 }
@@ -79,6 +104,24 @@ final class SubmissionStateTests: XCTestCase {
     }
 }
 
+final class RosterDecodingTests: XCTestCase {
+    /// Ответ `GET /attendance/roster` — студент с `studentId`, а не `id`.
+    func testRosterDecodesServerShape() throws {
+        let json = Data(
+            """
+            {"pairId":"p-1","date":"2026-10-24","subject":"Алгоритмы","students":[
+            {"studentId":"u-1","firstName":"Аян","lastName":"Серик","avatarUrl":null,
+            "status":"LATE","note":null}]}
+            """.utf8
+        )
+
+        let roster = try JSONCoding.decoder.decode(RosterDTO.self, from: json)
+
+        XCTAssertEqual(roster.students.first?.id, "u-1")
+        XCTAssertEqual(roster.students.first?.status, "LATE")
+    }
+}
+
 @MainActor
 final class AttendanceMarkingTests: XCTestCase {
     /// Уже проставленные отметки подставляются: преподаватель чаще исправляет
@@ -86,8 +129,8 @@ final class AttendanceMarkingTests: XCTestCase {
     func testExistingMarksArePrefilled() async {
         let api = StubStudy()
         api.roster = RosterDTO(students: [
-            RosterDTO.Student(id: "u-1", firstName: "Аян", lastName: "Серик", status: "ABSENT", note: nil),
-            RosterDTO.Student(id: "u-2", firstName: "Дана", lastName: "Ким", status: nil, note: nil),
+            RosterDTO.Student(studentId: "u-1", firstName: "Аян", lastName: "Серик", status: "ABSENT", note: nil),
+            RosterDTO.Student(studentId: "u-2", firstName: "Дана", lastName: "Ким", status: nil, note: nil),
         ])
         let model = AttendanceMarkingModel(pairID: "p-1", api: api)
 
@@ -101,8 +144,8 @@ final class AttendanceMarkingTests: XCTestCase {
     func testMarkAllPresentFillsEveryone() async {
         let api = StubStudy()
         api.roster = RosterDTO(students: [
-            RosterDTO.Student(id: "u-1", firstName: nil, lastName: nil, status: "ABSENT", note: nil),
-            RosterDTO.Student(id: "u-2", firstName: nil, lastName: nil, status: nil, note: nil),
+            RosterDTO.Student(studentId: "u-1", firstName: nil, lastName: nil, status: "ABSENT", note: nil),
+            RosterDTO.Student(studentId: "u-2", firstName: nil, lastName: nil, status: nil, note: nil),
         ])
         let model = AttendanceMarkingModel(pairID: "p-1", api: api)
         await model.load()
@@ -115,7 +158,7 @@ final class AttendanceMarkingTests: XCTestCase {
     func testSaveSendsEveryMark() async {
         let api = StubStudy()
         api.roster = RosterDTO(students: [
-            RosterDTO.Student(id: "u-1", firstName: nil, lastName: nil, status: nil, note: nil)
+            RosterDTO.Student(studentId: "u-1", firstName: nil, lastName: nil, status: nil, note: nil)
         ])
         let model = AttendanceMarkingModel(pairID: "p-1", api: api)
         await model.load()
@@ -141,6 +184,7 @@ private final class StubStudy: StudyFetching, @unchecked Sendable {
         )
     }
     func assignments() async throws -> Page<AssignmentDTO> { Page(items: [], meta: nil) }
+    func assignment(id: String) async throws -> AssignmentDTO { throw APIError.malformedResponse(statusCode: 404) }
     func submit(assignmentID: String) async throws {}
     func saveSubmissionDraft(assignmentID: String, text: String?, linkURL: String?) async throws {}
     func materials() async throws -> Page<MaterialDTO> { Page(items: [], meta: nil) }

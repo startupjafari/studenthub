@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import { fetchInvites, revokeInvite, searchPeople, type Invite, type Person } from '../api/people'
-import { ApiError } from '../api/client'
+import type { MiniUser } from '../api/client'
 import { confirmAction, haptic } from '../telegram/webapp'
 import { navigate } from '../lib/navigate'
-import { t } from '../i18n'
+import { errorText, t } from '../i18n'
 import { IconChevron } from '../ui/icons'
 import { SearchField } from '../ui/search-field'
 import { Tabs } from '../ui/tabs'
@@ -27,7 +27,8 @@ const SEARCH_DELAY_MS = 350
 type State =
   { status: 'loading' } | { status: 'ready'; items: Person[]; total: number } | { status: 'error' }
 
-export function PeopleScreen() {
+/** `viewerRole` — роль того, кто смотрит: от неё зависят приглашения и меры на странице человека. */
+export function PeopleScreen({ viewerRole }: { viewerRole: MiniUser['role'] }) {
   const [query, setQuery] = useState('')
   const [onlyBlocked, setOnlyBlocked] = useState(false)
   const [state, setState] = useState<State>({ status: 'loading' })
@@ -62,6 +63,7 @@ export function PeopleScreen() {
     return (
       <PersonScreen
         person={open}
+        viewerRole={viewerRole}
         onBack={() => navigate(() => setOpen(null), 'back')}
         onChanged={(next) => {
           setOpen(next)
@@ -138,7 +140,9 @@ export function PeopleScreen() {
         </section>
       )}
 
-      {seen && <InvitesCard />}
+      {/* Приглашения выдаёт и отзывает только администратор: модератору `GET /invites`
+          отвечает отказом, и карточка показывала бы ему «приглашений нет» — неправду. */}
+      {seen && viewerRole === 'PLATFORM_ADMIN' && <InvitesCard />}
     </div>
   )
 }
@@ -202,7 +206,7 @@ function InvitesCard() {
                   haptic.success()
                   setInvites((prev) => (prev ?? []).filter((item) => item.id !== invite.id))
                 } catch (err) {
-                  setError(err instanceof ApiError ? err.message : t('invitesRevokeError'))
+                  setError(errorText(err, 'invitesRevokeError'))
                 }
               }}
             >

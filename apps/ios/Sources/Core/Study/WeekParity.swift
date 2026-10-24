@@ -14,14 +14,21 @@ enum WeekParity: String, Equatable {
     case odd = "ODD"
     case even = "EVEN"
 
-    static func current(_ date: Date = Date(), calendar: Calendar = .iso8601UTC) -> WeekParity {
-        weekNumber(of: date, calendar: calendar) % 2 == 1 ? .odd : .even
+    /// Чётность недели, в которую попадает `date` по календарю пояса `timeZone` — пояса
+    /// вуза (`ScheduleDTO.timezone`), как в вебе и Android. По UTC с 00:00 до 05:00
+    /// понедельника в Казахстане показывалась бы чётность прошлой недели.
+    static func current(_ date: Date = Date(), in timeZone: TimeZone = .current) -> WeekParity {
+        weekNumber(of: date, in: timeZone) % 2 == 1 ? .odd : .even
     }
 
-    /// Номер ISO-недели.
-    static func weekNumber(of date: Date, calendar: Calendar = .iso8601UTC) -> Int {
+    /// Номер ISO-недели календарной даты `date` в поясе `timeZone`.
+    static func weekNumber(
+        of date: Date,
+        in timeZone: TimeZone = .current,
+        calendar: Calendar = Calendar(identifier: .iso8601)
+    ) -> Int {
         var calendar = calendar
-        calendar.timeZone = TimeZone(identifier: "UTC") ?? calendar.timeZone
+        calendar.timeZone = timeZone
         // Правила ISO задаём явно: переданный календарь мог быть и не `.iso8601`.
         calendar.firstWeekday = 2
         calendar.minimumDaysInFirstWeek = 4

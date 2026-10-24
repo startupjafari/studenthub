@@ -98,6 +98,30 @@ final class LoginFlowTests: XCTestCase {
         XCTAssertEqual(model.step, .twoFactor)
     }
 
+    /// Сгоревший challenge (три промаха или пять минут) — UNAUTHORIZED: код, даже
+    /// верный, уже не поможет, и форма возвращается к паролю с объяснением.
+    func testDeadChallengeReturnsToPassword() async {
+        let issuer = StubIssuer()
+        issuer.signInResult = .success(.twoFactorRequired(challengeToken: "challenge-1"))
+        issuer.verifyResult = .failure(
+            .server(code: .unauthorized, message: "Неверный email или пароль", details: [], statusCode: 401)
+        )
+        let session = makeSession()
+        let model = LoginModel(auth: issuer)
+        model.identifier = "teacher@univer.kz"
+        model.password = "Secret123!"
+        await model.signIn(into: session)
+
+        model.code = "123456"
+        await model.verifyTwoFactor(into: session)
+
+        XCTAssertEqual(model.step, .credentials)
+        XCTAssertEqual(model.password, "")
+        XCTAssertEqual(model.identifier, "teacher@univer.kz")
+        XCTAssertNotNil(model.formError)
+        XCTAssertNotEqual(model.formError, "Неверный email или пароль")
+    }
+
     /// Блокировка по счётчику неудач — не про поле, а про учётную запись: такому
     /// сообщению место над формой.
     func testLockedAccountIsShownAboveTheForm() async {
