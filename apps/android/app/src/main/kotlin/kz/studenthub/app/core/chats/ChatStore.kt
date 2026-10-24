@@ -77,9 +77,10 @@ class ChatStore(private val db: AppDatabase, private val now: () -> Instant = In
                 requestOutgoing = item.requestOutgoing ?: false,
                 othersReadAt = item.othersReadAt,
                 lastMessageId = item.lastMessage?.id ?: known?.lastMessageId,
-                // Номер только растёт: страница списка может приехать с отставанием от
-                // сокета, и откат позиции догона означал бы перекачку переписки.
-                lastSeq = maxOf(known?.lastSeq ?: 0, item.lastMessage?.seq ?: 0),
+                // Позиция догона — «всё до N у клиента есть» (§9.2c), и превью её не двигает:
+                // список знает последнее сообщение, а не те, что между ним и прошлым визитом.
+                // Подняв её до превью, догон запросил бы разницу с конца и пропустил середину.
+                lastSeq = known?.lastSeq ?: 0,
                 updatedAt = item.updatedAt,
             ),
         )

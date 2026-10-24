@@ -56,15 +56,19 @@ class ChatSyncTest {
         store.saveChats(listOf(chatDto("c1", last = messageDto("m1", "c1", 5))))
         assertEquals("m1", db.chats().get("c1")?.lastMessageId)
         assertNotNull(db.messages().get("m1"))
-        assertEquals(5, db.chats().get("c1")?.lastSeq)
     }
 
-    /** Позиция догона только растёт: страница списка может опоздать за сокетом. */
+    /**
+     * Превью не двигает позицию догона (§9.2c): локально M1–M50, список принёс M70 —
+     * догон обязан запросить разницу с 50, а не с 70, иначе M51–M69 пропадут.
+     */
     @Test
-    fun lastSeqNeverGoesBackwards() = runTest {
-        store.saveChats(listOf(chatDto("c1", last = messageDto("m9", "c1", 9))))
-        store.saveChats(listOf(chatDto("c1", last = messageDto("m3", "c1", 3))))
-        assertEquals(9, db.chats().get("c1")?.lastSeq)
+    fun previewDoesNotMoveCatchUpPosition() = runTest {
+        store.saveChats(listOf(chatDto("c1")))
+        MessageStore(db).saveMessages(listOf(messageDto("m50", "c1", 50)), "c1")
+        store.saveChats(listOf(chatDto("c1", last = messageDto("m70", "c1", 70))))
+        assertEquals(50, db.chats().get("c1")?.lastSeq)
+        assertEquals("m70", db.chats().get("c1")?.lastMessageId)
     }
 
     /** Местный неотправленный черновик всегда свежее серверного. */

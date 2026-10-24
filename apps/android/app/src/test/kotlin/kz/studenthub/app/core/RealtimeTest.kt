@@ -6,6 +6,7 @@ import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runTest
 import kz.studenthub.app.core.chats.ChatStore
+import kz.studenthub.app.core.chats.MessageStore
 import kz.studenthub.app.core.realtime.RealtimeCoordinator
 import kz.studenthub.app.core.realtime.RealtimeEvent
 import kz.studenthub.app.core.realtime.RealtimeTransport
@@ -42,11 +43,23 @@ class RealtimeCoordinatorTest {
     @Test
     fun incomingMessageUpdatesChatAndCounter() = runTest {
         ChatStore(db).saveChats(listOf(chatDto("c1")))
+        MessageStore(db).saveMessages(listOf(messageDto("m0", "c1", 3)), "c1")
         coordinator().handle(RealtimeEvent.MessageNew(messageDto("m1", "c1", 4, createdAt = T0.plusSeconds(60))))
         val chat = db.chats().get("c1")!!
         assertEquals(1, chat.unreadCount)
         assertEquals("m1", chat.lastMessageId)
         assertEquals(4, chat.lastSeq)
+    }
+
+    /** Сообщение через разрыв двигает превью, но не позицию догона: середину догонит `updates`. */
+    @Test
+    fun messageAcrossGapKeepsCatchUpPosition() = runTest {
+        ChatStore(db).saveChats(listOf(chatDto("c1")))
+        MessageStore(db).saveMessages(listOf(messageDto("m50", "c1", 50)), "c1")
+        coordinator().handle(RealtimeEvent.MessageNew(messageDto("m70", "c1", 70, createdAt = T0.plusSeconds(60))))
+        val chat = db.chats().get("c1")!!
+        assertEquals("m70", chat.lastMessageId)
+        assertEquals(50, chat.lastSeq)
     }
 
     /** Открытый чат читают прямо сейчас — непрочитанным его сообщение не бывает. */

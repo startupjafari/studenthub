@@ -149,9 +149,15 @@ class RealtimeCoordinator(
             MessageStore.upsert(db, message)
             var chat = db.chats().get(message.chatId) ?: return@transaction
             val seq = message.seq
-            if (seq != null && seq > chat.lastSeq) {
-                chat = chat.copy(lastSeq = seq, lastMessageId = message.id, updatedAt = message.createdAt)
+            // Превью и порядок списка — по самому свежему известному сообщению.
+            val preview = chat.lastMessageId?.let { db.messages().byRemoteId(it) ?: db.messages().get(it) }
+            if (seq != null && seq > (preview?.seq ?: 0)) {
+                chat = chat.copy(lastMessageId = message.id, updatedAt = message.createdAt)
             }
+            // Позиция догона — «всё до N есть» (§9.2c): двигается только вплотную. Сообщение
+            // через разрыв (пришло после переподключения раньше догона) её не трогает, иначе
+            // догон начал бы с него и пропустил середину.
+            if (seq != null && seq == chat.lastSeq + 1) chat = chat.copy(lastSeq = seq)
             // Счётчик растёт только от чужого и только в закрытом чате.
             if (countsAsUnread && !isOpen && message.senderId != viewerId) {
                 chat = chat.copy(unreadCount = chat.unreadCount + 1)
