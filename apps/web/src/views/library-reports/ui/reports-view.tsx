@@ -54,6 +54,13 @@ export function ReportsView({ headerTabs, loansHref, catalogHref }: ReportsViewP
     queryKey: libraryKeys.loans(overdueParams),
     queryFn: () => fetchLoans(overdueParams),
   })
+  // Утерянная книга с непогашенным долгом — такой же долг, как просрочка (§3.11).
+  const lostParams = { filter: 'lost' as const, page: 1, limit: OVERDUE_PREVIEW }
+  const lost = useQuery({
+    queryKey: libraryKeys.loans(lostParams),
+    queryFn: () => fetchLoans(lostParams),
+  })
+  const debts = [...(lost.data?.items ?? []), ...(overdue.data?.items ?? [])]
   const s = summary.data
   const loading = summary.isPending
 
@@ -152,13 +159,13 @@ export function ReportsView({ headerTabs, loansHref, catalogHref }: ReportsViewP
             ) : undefined
           }
         >
-          {overdue.isPending ? (
+          {overdue.isPending || lost.isPending ? (
             <Skeleton fill className="min-h-32 rounded-xl" />
-          ) : (overdue.data?.items.length ?? 0) === 0 ? (
+          ) : debts.length === 0 ? (
             <p className="text-sm text-muted-foreground">{t('noDebtors')}</p>
           ) : (
             <ul className="flex flex-col divide-y divide-border">
-              {overdue.data?.items.map((loan) => (
+              {debts.map((loan) => (
                 <li key={loan.id} className="flex items-center gap-3 py-2">
                   <div className="flex min-w-0 flex-1 flex-col">
                     <span className="truncate text-sm font-medium">{loan.reader.name}</span>
