@@ -21,6 +21,7 @@ import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
 import type { EnvVars } from '../../config/env.schema'
 import { webBaseUrl } from '../../config/web-base'
+import { deadlineLabel } from '../../common/time/local-label'
 import { InviteService } from '../invites/invites.service'
 
 /** Срок жизни ссылки подтверждения адреса. Сутки — как у подтверждения компании. */
@@ -36,7 +37,8 @@ const VERIFY_TTL_MS = 24 * 60 * 60 * 1000
  */
 const RESEND_COOLDOWN_MS = 5 * 60 * 1000
 
-const DATE_FORMAT = new Intl.DateTimeFormat('ru-RU', { dateStyle: 'long', timeStyle: 'short' })
+// Письма заявителю — по-русски; пояс — вуза, если он уже заведён, иначе платформы.
+const DATE_LOCALE = 'ru-RU'
 
 /** Код КАТО — 9 цифр (KatoCodeSchema). Всё остальное в `city` — свободный текст. */
 const KATO_CODE = /^\d{9}$/
@@ -189,7 +191,7 @@ export class DemoRequestsService {
         to: input.email,
         universityName: request.universityName,
         verifyUrl: `${this.webBase()}/demo/verify?token=${rawToken}`,
-        expiresAt: DATE_FORMAT.format(expiresAt),
+        expiresAt: deadlineLabel(expiresAt, DATE_LOCALE, null),
       },
       `demo-verify:${request.id}`,
     )
@@ -285,7 +287,7 @@ export class DemoRequestsService {
         to: email,
         universityName: existing.universityName,
         verifyUrl: `${this.webBase()}/demo/verify?token=${rawToken}`,
-        expiresAt: DATE_FORMAT.format(expiresAt),
+        expiresAt: deadlineLabel(expiresAt, DATE_LOCALE, null),
       },
       // jobId со временем: BullMQ отбрасывает дубль по id, и без метки повторное письмо
       // молча не ушло бы — а оно и есть смысл этой ветки.
@@ -489,7 +491,7 @@ export class DemoRequestsService {
           ...(input.timezone ? { timezone: input.timezone } : {}),
           status: 'PENDING',
         },
-        select: { id: true, name: true },
+        select: { id: true, name: true, timezone: true },
       })
       // Мастер заводится вместе с вузом: админ вуза входит уже в начатый процесс,
       // а не в пустую платформу, где непонятно, с чего начинать.
@@ -521,7 +523,7 @@ export class DemoRequestsService {
         universityName: university.name,
         contactName: request.contactName,
         inviteUrl: `${this.webBase()}/register?token=${invite.token}`,
-        expiresAt: DATE_FORMAT.format(invite.expiresAt),
+        expiresAt: deadlineLabel(invite.expiresAt, DATE_LOCALE, university.timezone),
       },
       `demo-approved:${id}`,
     )

@@ -26,6 +26,7 @@ import { QueueService, QUEUES, EMAIL_JOBS } from '../../common/queue'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { EnvVars } from '../../config/env.schema'
 import { webBaseUrl } from '../../config/web-base'
+import { deadlineLabel } from '../../common/time/local-label'
 import type { RequestContext } from '../auth/auth.service'
 import { resolveInviteTarget, type InviteScope } from './invite-hierarchy'
 import type { RawBulkRow } from './bulk-parse'
@@ -112,7 +113,7 @@ export class InviteService {
         invite.token,
         invite.role,
         invite.expiresAt,
-        await this.issuerLocale(issuer.sub),
+        await this.issuerMail(issuer.sub),
       )
     }
 
@@ -198,12 +199,17 @@ export class InviteService {
    * Отдельным запросом, а не из токена: язык меняется в настройках, а JWT живёт до
    * истечения — из токена приходил бы язык на момент входа.
    */
-  private async issuerLocale(issuerId: string): Promise<string> {
+  private async issuerMail(issuerId: string): Promise<{ locale: string; timezone: string | null }> {
     const issuer = await this.prisma.user.findUnique({
       where: { id: issuerId },
-      select: { locale: true },
+      select: { locale: true, university: { select: { timezone: true } } },
     })
-    return issuer?.locale ?? DEFAULT_LOCALE
+    // Срок — в поясе вуза приглашающего: приглашают в свой вуз. У платформы вуза нет —
+    // тогда пояс платформы (deadlineLabel).
+    return {
+      locale: issuer?.locale ?? DEFAULT_LOCALE,
+      timezone: issuer?.university?.timezone ?? null,
+    }
   }
 
   /**
@@ -217,7 +223,7 @@ export class InviteService {
     token: string,
     role: Role,
     expiresAt: Date,
-    locale: string,
+    { locale, timezone }: { locale: string; timezone: string | null },
   ): Promise<void> {
     // Адрес веба — первый origin CORS_ORIGIN, как у остальных ссылок наружу: вся строка
     // с двумя origin через запятую давала ссылку `https://a,https://b/register?...`.
@@ -233,10 +239,7 @@ export class InviteService {
           locale,
           inviteUrl,
           roleLabel: t.roles[role],
-          expiresAt: new Intl.DateTimeFormat(t.dateLocale, {
-            dateStyle: 'long',
-            timeStyle: 'short',
-          }).format(expiresAt),
+          expiresAt: deadlineLabel(expiresAt, t.dateLocale, timezone),
         },
         // jobId — по хэшу: идемпотентность та же (хэш детерминирован), а сырой токен не
         // оседает в Redis именем задачи, которое переживает саму отправку.
@@ -506,12 +509,12 @@ export class InviteService {
     if (created.length > 0) {
       // Один запрос на всю пачку, и только когда есть кому писать: у загрузки без адресов
       // (приглашения выдают ссылками) ходить за языком незачем.
-      const locale = await this.issuerLocale(issuer.sub)
+      const mail = await this.issuerMail(issuer.sub)
       for (let i = 0; i < created.length; i += BULK_EMAIL_CONCURRENCY) {
         await Promise.all(
           created
             .slice(i, i + BULK_EMAIL_CONCURRENCY)
-            .map((e) => this.enqueueInviteEmail(e.email, e.token, e.role, expiresAt, locale)),
+            .map((e) => this.enqueueInviteEmail(e.email, e.token, e.role, expiresAt, mail)),
         )
       }
     }

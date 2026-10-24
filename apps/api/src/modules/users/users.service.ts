@@ -1683,6 +1683,8 @@ export class UserService {
     firstName: string
     locale: string
     isBlocked: boolean
+    // Пояс вуза — для срока ссылки в письме.
+    university: { timezone: string } | null
   } | null> {
     const normalized = email.trim().toLowerCase()
     const select = {
@@ -1692,6 +1694,7 @@ export class UserService {
       firstName: true,
       locale: true,
       isBlocked: true,
+      university: { select: { timezone: true } },
     } satisfies Prisma.UserSelect
     const exact = await this.prisma.user.findFirst({
       where: { email: normalized, deletedAt: null },

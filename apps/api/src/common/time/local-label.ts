@@ -1,3 +1,5 @@
+import { PLATFORM_TIME_ZONE } from '../../modules/platform/platform.constants'
+
 /**
  * Метка «2026-10-02 14:30» в часовом поясе вуза — для текста уведомлений о записи.
  *
@@ -58,4 +60,33 @@ function offsetMs(date: Date, timezone: string | null | undefined): number {
   const [h, mi] = time.split(':').map(Number) as [number, number]
   const asUtc = Date.UTC(y, m - 1, d, h, mi)
   return asUtc - Math.floor(date.getTime() / 60_000) * 60_000
+}
+
+/**
+ * Срок в письме («26 октября 2026 г. в 14:30 GMT+5») — в поясе вуза и с подписью пояса.
+ * `Intl` без `timeZone` печатал время процесса API, а он живёт в UTC: ссылка «до 14:30»
+ * на деле истекала в 19:30 по Алматы. Без пояса вуза (заявка, платформенные роли) —
+ * пояс платформы; подпись GMT+N всё равно стоит, и время не прочитать по-другому.
+ */
+export function deadlineLabel(
+  date: Date,
+  locale: string,
+  timezone: string | null | undefined,
+): string {
+  const format = (timeZone: string) =>
+    new Intl.DateTimeFormat(locale, {
+      timeZone,
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      timeZoneName: 'short',
+    }).format(date)
+  try {
+    return format(timezone || PLATFORM_TIME_ZONE)
+  } catch {
+    // Неизвестное имя пояса в настройках вуза не должно ронять письмо.
+    return format(PLATFORM_TIME_ZONE)
+  }
 }
