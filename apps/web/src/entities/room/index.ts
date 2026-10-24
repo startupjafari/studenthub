@@ -1,6 +1,7 @@
 export {
   roomKeys,
   fetchRoomsSorted,
+  fetchAllRooms,
   createRoomRequest,
   updateRoomRequest,
   deleteRoomRequest,
