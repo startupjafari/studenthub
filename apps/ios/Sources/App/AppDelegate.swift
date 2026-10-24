@@ -69,7 +69,14 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         guard let link = PushRouting.link(from: payload) else { return }
         // Роль нужна, чтобы не открыть раздел, которого у этого человека нет:
         // пуш мог прийти на устройство, где уже вошёл кто-то другой.
-        let role = await AppServices.session.currentToken?.role ?? .unknown
-        await AppServices.router.open(link, for: role)
+        let session = AppServices.session
+        if let role = await session.currentToken?.role {
+            await AppServices.router.open(link, for: role)
+        } else if await session.hasStoredSession {
+            // Холодный старт: сессия ещё поднимается, роли пока нет. Откроем, когда
+            // оболочка её узнает, — иначе разделы «Ещё» отказали бы как чужие.
+            await AppServices.router.postpone(link)
+        }
+        // Иначе на экране входа: никто не вошёл, и маршрут достался бы следующему.
     }
 }

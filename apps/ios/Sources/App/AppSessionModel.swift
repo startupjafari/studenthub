@@ -35,7 +35,12 @@ final class AppSessionModel {
     @MainActor
     func restore() async {
         let restored = await store.restoredToken()
-        if let restored { await LocalData.claim(for: restored.subject) }
+        if let restored {
+            await LocalData.claim(for: restored.subject)
+        } else {
+            // Сессия не поднялась — отложенная ссылка из пуша никому не адресована.
+            AppServices.router.reset()
+        }
         state = restored.map(State.signedIn) ?? .signedOut
     }
 

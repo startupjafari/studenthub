@@ -29,6 +29,35 @@ final class AppRouter {
     var selectedTab: AppTab = .home
     var stacks: [AppTab: [AppRoute]] = [:]
 
+    /// Ссылка из уведомления, нажатого на холодном старте: роль ещё неизвестна (сессия
+    /// поднимается), и открыть её сейчас значило бы отказать в разделах, которые у
+    /// человека есть, — документах, библиотеке, событиях. Открывается, когда оболочка
+    /// узнает роль (`openPending`).
+    @ObservationIgnored private var pending: DeepLink?
+
+    /// Отложить ссылку до подъёма сессии.
+    @MainActor
+    func postpone(_ link: DeepLink) {
+        pending = link
+    }
+
+    /// Открыть отложенную ссылку — зовёт оболочка, когда роль уже известна.
+    @MainActor
+    func openPending(for role: Role) {
+        guard let link = pending else { return }
+        pending = nil
+        open(link, for: role)
+    }
+
+    /// Выход из аккаунта: следующий человек начинает с главной, а не в открытом чате
+    /// прежнего, и не получает его отложенную ссылку.
+    @MainActor
+    func reset() {
+        selectedTab = .home
+        stacks = [:]
+        pending = nil
+    }
+
     /// Открыть ссылку. `false` означает «не наше»: ссылка либо незнакомая, либо
     /// ведёт в раздел, которого у этой роли нет, — и тогда её открывает браузер.
     @MainActor
