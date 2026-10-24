@@ -78,12 +78,24 @@ data class CourseGradesDto(
 
 @Serializable
 data class AttendanceSummaryDto(
-    val counts: Map<String, Int> = emptyMap(),
     val total: Int = 0,
-    /** Доля не-пропусков: присутствовал, опоздал, уважительная. */
-    val rate: Double? = null,
+    val present: Int = 0,
+    val late: Int = 0,
+    val absent: Int = 0,
+    val excused: Int = 0,
+    /** Доля не-пропусков в целых процентах (0…100): присутствовал, опоздал, уважительная. */
+    val rate: Int = 0,
     val records: List<Record> = emptyList(),
 ) {
+    /** Счётчик по статусу: API отдаёт их отдельными полями, а не словарём. */
+    fun count(status: String): Int = when (status) {
+        "PRESENT" -> present
+        "LATE" -> late
+        "ABSENT" -> absent
+        "EXCUSED" -> excused
+        else -> 0
+    }
+
     @Serializable
     data class Record(
         val id: String,

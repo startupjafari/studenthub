@@ -56,11 +56,25 @@ struct AttendanceSummaryDTO: Decodable, Equatable {
         let pair: Pair?
     }
 
-    let counts: [String: Int]
     let total: Int
-    /// Доля не-пропусков: присутствовал, опоздал, уважительная.
-    let rate: Double?
+    let present: Int
+    let late: Int
+    let absent: Int
+    let excused: Int
+    /// Доля не-пропусков в целых процентах (0…100): присутствовал, опоздал, уважительная.
+    let rate: Int
     let records: [Record]
+
+    /// Счётчик по статусу: API отдаёт их отдельными полями, а не словарём.
+    func count(_ status: String) -> Int {
+        switch status {
+        case "PRESENT": return present
+        case "LATE": return late
+        case "ABSENT": return absent
+        case "EXCUSED": return excused
+        default: return 0
+        }
+    }
 }
 
 struct RosterDTO: Decodable, Equatable {
