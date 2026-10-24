@@ -408,6 +408,17 @@ describe('DocumentRequestsService — проверка (15.16)', () => {
     )
   })
 
+  it('finalize: комплект без приложенных позиций → ACCEPTED, а не вечное «Частично»', async () => {
+    const { service, prisma } = setup()
+    prisma.documentSubmission.findFirst
+      .mockResolvedValueOnce(toFinalize('SUBMITTED', []))
+      .mockResolvedValue({ ...STAFF_VIEW, status: 'ACCEPTED' })
+    await service.finalizeSubmission(staff(), 's1')
+    expect(prisma.documentSubmission.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: 'ACCEPTED' }) }),
+    )
+  })
+
   it('finalize: черновик студента нельзя «принять» → CONFLICT, без уведомления', async () => {
     const { service, prisma, queue } = setup()
     prisma.documentSubmission.findFirst.mockResolvedValue(

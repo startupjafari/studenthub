@@ -872,7 +872,10 @@ export class DocumentRequestsService {
     this.assertReviewable(sub.status)
     const statuses = sub.items.map((i) => i.status)
     const hasRejected = statuses.includes('REJECTED')
-    const allAccepted = statuses.length > 0 && statuses.every((s) => s === 'ACCEPTED')
+    // Комплект без единой позиции (все необязательны, ничего не приложено) проверять нечего —
+    // он принят. Раньше он навсегда оставался «Частично»: принять было нечего, а итог не
+    // становился ни принятым, ни отклонённым.
+    const allAccepted = statuses.every((s) => s === 'ACCEPTED')
     const status = hasRejected ? 'REJECTED' : allAccepted ? 'ACCEPTED' : 'PARTIAL'
     // Условный UPDATE: если студент успел вернуть комплект в черновик (заменить документ),
     // итог по прочитанным вердиктам уже неверен — отвечаем 409, а не «принимаем» новый файл.
