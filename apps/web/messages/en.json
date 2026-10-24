@@ -5180,6 +5180,7 @@
       "alreadyBorrowed": "You already have this book",
       "noCopies": "The library has no copies of this book",
       "closed": "The hold is already closed",
+      "notOnLoan": "This loan is already closed",
       "module": "The library is turned off",
       "notFound": "Book not found",
       "lost": "You owe for a lost book — replace it or pay for it at the library"

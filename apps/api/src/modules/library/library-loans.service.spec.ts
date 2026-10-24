@@ -356,6 +356,15 @@ describe('LibraryLoansService — «это не я»', () => {
     )
   })
 
+  it('закрытую выдачу не оспорить — 409 notOnLoan, а не «отчислен» (status)', async () => {
+    const { service, prisma } = setup()
+    prisma.loan.findUnique.mockResolvedValue(loanRow({ status: 'RETURNED' }))
+    await expect(service.dispute(student, 'loan-1', ctx)).rejects.toMatchObject({
+      code: 'CONFLICT',
+      details: [expect.objectContaining({ field: 'notOnLoan' })],
+    })
+  })
+
   it('чужую выдачу не оспорить — 404', async () => {
     const { service, prisma } = setup()
     prisma.loan.findUnique.mockResolvedValue(loanRow({ readerId: 'stu-9' }))

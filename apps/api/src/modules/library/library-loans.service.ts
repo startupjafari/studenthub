@@ -764,7 +764,9 @@ export class LibraryLoansService {
     if (!loan || loan.readerId !== actor.sub || loan.universityId !== universityId) {
       throw new AppException('NOT_FOUND', 'Выдача не найдена')
     }
-    if (loan.status !== 'OPEN') throw libraryConflict('status', 'Выдача уже закрыта')
+    // Тот же отказ, что у прочих действий над закрытой выдачей. Поле `status` значит
+    // «отчислен, выпущен или переведён» — читатель видел бы именно это.
+    if (loan.status !== 'OPEN') throw libraryConflict('notOnLoan', 'Выдача уже закрыта')
     const timezone = await this.timezoneOf(universityId)
     if (loan.disputedAt) {
       const [item] = await this.toItems([loan], timezone)
