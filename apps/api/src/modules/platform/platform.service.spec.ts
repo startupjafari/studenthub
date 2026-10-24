@@ -659,6 +659,20 @@ describe('PlatformService.undoLast', () => {
     expect(updates.at(-1)).toMatchObject({ disabledSections: [] })
   })
 
+  // Запись об откате несёт состояние до отмены: второе «верни как было» отменяет отмену.
+  it('кладёт в запись об откате значения до отмены', async () => {
+    const { service, prisma, audit } = setup(row({ disabledSections: ['chats'] }))
+    prisma.auditLog.findFirst.mockResolvedValue(entry({ disabledSections: [] }))
+
+    await service.undoLast('admin')
+    expect(audit.record).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        action: 'platform.state.undo',
+        metadata: expect.objectContaining({ before: { disabledSections: ['chats'] } }),
+      }),
+    )
+  })
+
   // Снимок в журнале — JSON: даты лежат строками, и вернуть их строками в БД нельзя.
   it('поднимает даты из строк обратно', async () => {
     const past = new Date(Date.now() - 60_000).toISOString()

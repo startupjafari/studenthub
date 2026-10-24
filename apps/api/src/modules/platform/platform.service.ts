@@ -571,13 +571,14 @@ export class PlatformService {
       )
     }
 
-    const { state } = await this.write(userId, patch)
+    // Снимок отката — состояние до отмены, а не снимок отменённой записи: с ним второе
+    // нажатие вернуло бы те же значения, что уже стоят, и отмену было бы не отменить.
+    const { state, before: undone } = await this.write(userId, patch)
     await this.audit.record({
       userId,
       action: ACTION.stateUndo,
       entity: 'PlatformState',
-      // Снимок отката — тоже снимок: второе нажатие вернёт то, что было до отмены.
-      metadata: { of: entry.action, at: entry.createdAt.toISOString(), before },
+      metadata: { of: entry.action, at: entry.createdAt.toISOString(), before: undone },
       ...ctx,
     })
     return state
