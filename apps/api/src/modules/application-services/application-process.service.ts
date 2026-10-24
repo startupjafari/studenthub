@@ -22,6 +22,7 @@ import { RealtimeGateway } from '../../common/realtime'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import { DocumentsService } from '../documents/documents.service'
 import { ApplicationPolicy } from './application.policy'
+import { OVERDUE_STATUSES } from './application-notifier'
 import { rethrowStaleStatus } from '../../common/prisma/stale-status'
 
 // Обработка заявки сотрудником (§15–§17, §27): business-actions вместо generic PATCH /status.
@@ -539,9 +540,7 @@ export class ApplicationProcessService {
         where: {
           ...base,
           dueAt: { lt: now },
-          status: {
-            in: ['SUBMITTED', 'RESUBMITTED', 'IN_REVIEW', 'IN_PREPARATION', 'NEEDS_CORRECTION'],
-          },
+          status: { in: OVERDUE_STATUSES },
         },
       }),
     ])

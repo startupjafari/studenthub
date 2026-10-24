@@ -627,3 +627,19 @@ describe('ApplicationProcessService — гонка переходов (усло�
     })
   })
 })
+
+describe('ApplicationProcessService.queueStats — просрочка', () => {
+  // Заявка, брошенная студентом в исправлении, висела «просроченной» навсегда: закрыть её
+  // обработчик не может, а сводка каждое утро называла её снова.
+  it('ожидание исправления от студента просрочкой не считается', async () => {
+    const { service, prisma } = setup({ ...base, status: 'IN_REVIEW' })
+    await service.queueStats(dean)
+    const overdueWhere = prisma.application.count.mock.calls
+      .map((call) => call[0].where)
+      .find((where) => where.dueAt)
+    expect(overdueWhere.status.in).toEqual(
+      expect.arrayContaining(['SUBMITTED', 'RESUBMITTED', 'IN_REVIEW', 'IN_PREPARATION']),
+    )
+    expect(overdueWhere.status.in).not.toContain('NEEDS_CORRECTION')
+  })
+})

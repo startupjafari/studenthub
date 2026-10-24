@@ -21,16 +21,19 @@ const STAFF_QUEUE_URL: Partial<Record<Role, string>> = {
 }
 
 /**
- * Статусы, в которых просрочка что-то значит, — тот же набор, что у счётчика «Просрочено»
- * очереди (ApplicationProcessService.queueStats): сводка не должна называть другое число,
- * чем человек увидит, открыв очередь.
+ * Статусы, в которых просрочка что-то значит. Один набор на сводку, счётчик «Просрочено»
+ * очереди (ApplicationProcessService.queueStats) и фильтр `overdue` списка: сводка не должна
+ * называть другое число, чем человек увидит, открыв очередь.
+ *
+ * NEEDS_CORRECTION сюда не входит: заявка ждёт студента, обработчику делать нечего, а закрыть
+ * её он не может (граф не ведёт из исправления в отказ). Брошенная студентом заявка иначе
+ * оставалась «просроченной» в ежедневной сводке навсегда.
  */
-const OVERDUE_STATUSES: ApplicationServiceStatus[] = [
+export const OVERDUE_STATUSES: ApplicationServiceStatus[] = [
   'SUBMITTED',
   'RESUBMITTED',
   'IN_REVIEW',
   'IN_PREPARATION',
-  'NEEDS_CORRECTION',
 ]
 
 // Потолки выборок (BACKEND_RULES §7.2). Сводка группирует просроченные по вузу, факультету и

@@ -13,7 +13,7 @@ import { Paginated } from '../../common/http/paginated'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import { visibleServicesWhere } from './service-visibility'
 import { ApplicationPolicy } from './application.policy'
-import { ApplicationNotifier } from './application-notifier'
+import { ApplicationNotifier, OVERDUE_STATUSES } from './application-notifier'
 import { formDataError, pickFormFields, type FormFieldRule } from './form-validation'
 import { rethrowStaleStatus } from '../../common/prisma/stale-status'
 import { advisoryXactLock } from '../../common/prisma/advisory-lock'
@@ -502,9 +502,10 @@ export class ApplicationsService {
     if (query.facultyId) and.push({ facultyId: query.facultyId })
     if (query.assignedToId) and.push({ assignedToId: query.assignedToId })
     if (query.search) and.push({ number: { contains: query.search, mode: 'insensitive' } })
-    // overdue: срок прошёл и заявка ещё в работе (не терминальная, не готова к выдаче).
+    // overdue: срок прошёл и заявка ещё в работе у вуза — тот же набор статусов, что у
+    // счётчика очереди и ежедневной сводки (ожидание исправления от студента не просрочка).
     if (query.overdue) {
-      and.push({ dueAt: { lt: now }, status: { notIn: DONE_OR_READY } })
+      and.push({ dueAt: { lt: now }, status: { in: OVERDUE_STATUSES } })
     }
     // «Сегодня» — по часам вуза, а не сервера.
     if (query.dueToday) {
@@ -660,13 +661,3 @@ function rethrowNumberTaken(error: unknown): never {
 
 // Статусы, в которых владелец правит способ получения и ответы анкеты.
 const ANSWERS_EDITABLE: ApplicationServiceStatus[] = ['DRAFT', 'NEEDS_CORRECTION']
-
-// Статусы, при которых заявка «не просрочена по смыслу» (готова/выдана/завершена).
-const DONE_OR_READY: ApplicationServiceStatus[] = [
-  'READY',
-  'READY_FOR_PICKUP',
-  'ISSUED',
-  'DELIVERED',
-  'REJECTED',
-  'CANCELLED',
-]
