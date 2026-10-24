@@ -86,6 +86,8 @@ const STAFF_ROLES: Role[] = [
 ]
 
 const COMPANIES_HREF = '/career/companies'
+// Истекающие допуски — среди действующих, а не среди новых заявок (вкладка по умолчанию).
+const COMPANIES_APPROVED_HREF = '/career/companies?status=APPROVED'
 const REVIEW_HREF = '/career/vacancy-review'
 
 export function CareerView() {
@@ -256,7 +258,7 @@ function StaffOverview() {
                   hint={tA('queueRequestsHint')}
                 />
                 <QueueItem
-                  href={COMPANIES_HREF}
+                  href={COMPANIES_APPROVED_HREF}
                   icon={TimerReset}
                   label={tA('queueExpiring')}
                   value={d.queue.accessExpiringSoon}

@@ -398,7 +398,11 @@
     "reviewExperience": "Тәжірибе",
     "reviewDeadline": "Өтінім мерзімі",
     "reviewLanguages": "Тілдер",
-    "reviewNotSet": "Көрсетілмеген"
+    "reviewNotSet": "Көрсетілмеген",
+    "accessUntil": "{date} дейін",
+    "accessUntilField": "Рұқсат мерзімі",
+    "accessUntilNone": "Мерзімсіз",
+    "accessUntilHint": "Міндетті емес. Рұқсат таңдалған күннің соңына дейін жарамды, содан кейін өздігінен жабылады."
   },
   "CareerProfile": {
     "title": "Карьералық профиль",

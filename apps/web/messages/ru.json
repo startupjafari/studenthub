@@ -398,7 +398,11 @@
     "reviewExperience": "Опыт",
     "reviewDeadline": "Отклик до",
     "reviewLanguages": "Языки",
-    "reviewNotSet": "Не указано"
+    "reviewNotSet": "Не указано",
+    "accessUntil": "до {date}",
+    "accessUntilField": "Срок допуска",
+    "accessUntilNone": "Бессрочно",
+    "accessUntilHint": "Необязательно. Допуск действует до конца выбранного дня, после — закрывается сам."
   },
   "CareerProfile": {
     "title": "Карьерный профиль",

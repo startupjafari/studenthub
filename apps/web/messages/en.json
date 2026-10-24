@@ -398,7 +398,11 @@
     "reviewExperience": "Experience",
     "reviewDeadline": "Apply by",
     "reviewLanguages": "Languages",
-    "reviewNotSet": "Not specified"
+    "reviewNotSet": "Not specified",
+    "accessUntil": "until {date}",
+    "accessUntilField": "Access period",
+    "accessUntilNone": "No end date",
+    "accessUntilHint": "Optional. Access lasts until the end of the chosen day, then closes automatically."
   },
   "CareerProfile": {
     "title": "Career profile",
