@@ -97,7 +97,7 @@ export { MediaViewer, type MediaViewerItem, type MediaViewerMedia } from './medi
 export { VideoPlayer } from './video-player'
 export { MediaImage, type MediaImageData } from './media-image'
 export { DateTimeField } from './date-time-field'
-export { DateTimePicker } from './date-time-picker'
+export { DateTimePicker, toDateTimeLocal } from './date-time-picker'
 export { DatePicker, type DatePickerProps } from './date-picker'
 export { DateJumpPicker, type DateJumpPickerProps } from './date-jump-picker'
 export { formatYmd, parseYmd } from './calendar-grid'

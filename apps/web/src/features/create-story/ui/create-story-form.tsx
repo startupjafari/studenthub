@@ -14,7 +14,7 @@ import {
   type CreateStoryInput,
 } from '@studenthub/shared-schemas'
 import { useAppSelector } from '../../../shared/store'
-import { useFormAlert } from '../../../shared/lib'
+import { OPTIONAL_TEXT, useFormAlert } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 import {
   STORY_AUDIENCES_BY_ROLE,
@@ -68,6 +68,10 @@ export function CreateStoryForm({ onCreated }: { onCreated?: () => void } = {}) 
   const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
   const [media, setMedia] = useState<PickedMedia | null>(null)
   const [uploading, setUploading] = useState(false)
+  // Блок ссылки открыт — отдельное состояние, а не «linkUrl !== undefined»: пустое поле
+  // уходит в форму как undefined (OPTIONAL_TEXT), и блок закрывался бы на стёртом адресе,
+  // а кнопка, ставившая '' вместо undefined, не могла его закрыть.
+  const [linkOpen, setLinkOpen] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const audiences = role ? (STORY_AUDIENCES_BY_ROLE[role] ?? []) : []
@@ -79,7 +83,6 @@ export function CreateStoryForm({ onCreated }: { onCreated?: () => void } = {}) 
   const audience = form.watch('audience')
   const background = form.watch('background')
   const poll = form.watch('poll')
-  const linkUrl = form.watch('linkUrl')
   const text = form.watch('text') ?? ''
 
   const showGroupPicker =
@@ -100,6 +103,7 @@ export function CreateStoryForm({ onCreated }: { onCreated?: () => void } = {}) 
       void qc.invalidateQueries({ queryKey: storyKeys.all })
       if (media) URL.revokeObjectURL(media.url)
       setMedia(null)
+      setLinkOpen(false)
       form.reset({ audience: audiences[0], text: '' })
       toast.success(t('published'))
       onCreated?.()
@@ -134,6 +138,14 @@ export function CreateStoryForm({ onCreated }: { onCreated?: () => void } = {}) 
     if (media) URL.revokeObjectURL(media.url)
     setMedia(null)
     form.setValue('fileId', undefined)
+  }
+
+  function toggleLink(): void {
+    if (linkOpen) {
+      form.setValue('linkUrl', undefined)
+      form.setValue('linkLabel', undefined)
+    }
+    setLinkOpen(!linkOpen)
   }
 
   function togglePoll(): void {
@@ -206,8 +218,10 @@ export function CreateStoryForm({ onCreated }: { onCreated?: () => void } = {}) 
 
         <div className="flex min-w-0 flex-1 flex-col gap-3">
           <div>
+            {/* Подпись необязательна, если есть медиа (§3.4 «медиа ИЛИ текст»): пустое поле —
+                undefined, а не '' — иначе схема (min 1) не пускала фото без подписи. */}
             <Textarea
-              {...form.register('text')}
+              {...form.register('text', OPTIONAL_TEXT)}
               rows={3}
               maxLength={STORY_TEXT_MAX}
               placeholder={t('textPlaceholder')}
@@ -240,9 +254,10 @@ export function CreateStoryForm({ onCreated }: { onCreated?: () => void } = {}) 
             </Button>
             <Button
               type="button"
-              variant={linkUrl ? 'secondary' : 'outline'}
+              variant={linkOpen ? 'secondary' : 'outline'}
               size="md"
-              onClick={() => form.setValue('linkUrl', linkUrl ? undefined : '')}
+              aria-pressed={linkOpen}
+              onClick={toggleLink}
             >
               <Link2 className="size-4" aria-hidden />
               {t('addLink')}
@@ -279,11 +294,11 @@ export function CreateStoryForm({ onCreated }: { onCreated?: () => void } = {}) 
             </div>
           )}
 
-          {linkUrl !== undefined && (
+          {linkOpen && (
             <div className="flex flex-col gap-2 sm:flex-row">
               <div className="flex-1">
                 <Input
-                  {...form.register('linkUrl')}
+                  {...form.register('linkUrl', OPTIONAL_TEXT)}
                   type="url"
                   inputMode="url"
                   placeholder="https://"
@@ -292,7 +307,7 @@ export function CreateStoryForm({ onCreated }: { onCreated?: () => void } = {}) 
                 <FieldError>{form.formState.errors.linkUrl && t('badLink')}</FieldError>
               </div>
               <Input
-                {...form.register('linkLabel')}
+                {...form.register('linkLabel', OPTIONAL_TEXT)}
                 placeholder={t('linkLabel')}
                 aria-label={t('linkLabel')}
                 className="sm:w-44"

@@ -111,6 +111,18 @@ export function ContentComments({
     onSuccess: invalidate,
     onError: err,
   })
+  // Отправка — не чаще одной за раз. isPending мутации приходит в рендер не сразу, и второй
+  // быстрый Enter (или автоповтор клавиши) успевал отправить тот же комментарий ещё раз.
+  const sendingRef = useRef(false)
+  function send(): void {
+    if (sendingRef.current || text.trim().length === 0) return
+    sendingRef.current = true
+    addMut.mutate(undefined, {
+      onSettled: () => {
+        sendingRef.current = false
+      },
+    })
+  }
 
   // Авто-высота поля ввода (перенос строки по Shift+Enter).
   useEffect(() => {
@@ -279,7 +291,7 @@ export function ContentComments({
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault()
-              if (text.trim().length > 0) addMut.mutate()
+              send()
             }
           }}
           placeholder={t('commentPlaceholder')}
@@ -288,7 +300,7 @@ export function ContentComments({
 
         <button
           type="button"
-          onClick={() => addMut.mutate()}
+          onClick={send}
           disabled={text.trim().length === 0 || addMut.isPending}
           className="flex h-8 shrink-0 items-center self-end text-sm font-semibold text-primary transition-opacity hover:opacity-80 disabled:opacity-40"
         >

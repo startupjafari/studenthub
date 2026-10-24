@@ -35,6 +35,8 @@ function setup(
       count: jest.fn().mockResolvedValue(opts.items?.length ?? 0),
       create: jest.fn().mockResolvedValue({ id: 'new' }),
       update: jest.fn().mockResolvedValue({}),
+      // Конец ручного порядка для новой записи; по умолчанию порядка нет (все 0).
+      aggregate: jest.fn().mockResolvedValue({ _max: { order: 0 } }),
     },
     $transaction: jest.fn(),
     $executeRaw: jest.fn().mockResolvedValue(0),
@@ -150,6 +152,23 @@ describe('PortfolioService — потолок записей', () => {
     prisma.portfolioItem.count.mockResolvedValue(PORTFOLIO_MAX_ITEMS - 1)
     await service.create(viewer(), { kind: 'PROJECT', title: 'X' }, {})
     expect(prisma.portfolioItem.create).toHaveBeenCalledTimes(1)
+  })
+
+  it('после ручной перестановки новая запись встаёт в конец, а не делит место с первой', async () => {
+    const { service, prisma } = setup()
+    prisma.portfolioItem.aggregate.mockResolvedValue({ _max: { order: 4 } })
+    await service.create(viewer(), { kind: 'PROJECT', title: 'X' }, {})
+    expect(prisma.portfolioItem.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ order: 5 }) }),
+    )
+  })
+
+  it('без ручного порядка новая запись остаётся с order 0 — сортировка по дате', async () => {
+    const { service, prisma } = setup()
+    await service.create(viewer(), { kind: 'PROJECT', title: 'X' }, {})
+    expect(prisma.portfolioItem.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ order: 0 }) }),
+    )
   })
 })
 

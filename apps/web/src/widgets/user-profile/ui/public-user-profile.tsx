@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { Role } from '@studenthub/shared-types'
+import { Role, isRestrictedRole } from '@studenthub/shared-types'
 import { canFileComplaint } from '@studenthub/shared-schemas'
 import {
   ArrowLeft,
@@ -27,6 +27,7 @@ import {
   Card,
   CardContent,
   Skeleton,
+  useConfirm,
 } from '../../../shared/ui'
 import { BRAND_GRADIENT } from '../../../shared/config'
 import { fetchMe, fetchUserById, fetchUserPresence, userKeys } from '../../../entities/user'
@@ -192,8 +193,11 @@ export function PublicUserProfile({ userId }: { userId: string }) {
               до full (users.service: resolveAccessWithFriendship). Скрывать кнопку именно там,
               где она нужна, значило запереть связь в замкнутом круге — профиль закрыт, потому
               что вы не друзья, а подружиться нельзя, потому что профиль закрыт.
-              Ограничений по ролям нет ни здесь, ни на бэке: заявку шлёт и принимает любая роль. */}
-          {me.data && me.data.id !== u.id && <FriendButton userId={u.id} />}
+              Исключение одно — охрана и библиотекарь: друзей у этих ролей нет (§2.1), заявку
+              им не принять, и бэкенд её не примет. */}
+          {me.data && me.data.id !== u.id && !isRestrictedRole(u.role) && (
+            <FriendButton userId={u.id} />
+          )}
           <ShareProfileButton userId={u.id} name={fullNameOf(u)} className="shadow-md" />
           {/* Жалоба на человека — тем, чью жалобу сервер примет (COMPLAINT_REPORTER_ROLES). */}
           {auth.user?.id !== u.id && canFileComplaint(auth.role) && (
@@ -293,6 +297,7 @@ function FriendButton({ userId }: { userId: string }) {
   const t = useTranslations('Friends')
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
+  const confirm = useConfirm()
   const statusQ = useQuery({
     queryKey: friendKeys.status(userId),
     queryFn: () => fetchFriendshipStatus(userId),
@@ -348,13 +353,28 @@ function FriendButton({ userId }: { userId: string }) {
   }
   const label = status === 'PENDING_OUTGOING' ? t('cancelRequest') : t('friendsLabel')
   const Icon = status === 'PENDING_OUTGOING' ? Clock : Check
+  // «В друзьях» — это состояние, а не команда: нажатие по нему удаляет дружбу, поэтому
+  // сначала спрашиваем. Свою исходящую заявку отменить можно и сразу — её легко повторить.
+  async function onRemove(id: string): Promise<void> {
+    if (
+      status === 'ACCEPTED' &&
+      !(await confirm({
+        title: t('removeConfirm'),
+        description: t('removeConfirmHint'),
+        confirmLabel: t('remove'),
+        destructive: true,
+      }))
+    )
+      return
+    removeMut.mutate(id)
+  }
   return (
     <Button
       size="sm"
       variant="secondary"
       className="shadow-md"
       loading={pending}
-      onClick={() => friendshipId && removeMut.mutate(friendshipId)}
+      onClick={() => friendshipId && void onRemove(friendshipId)}
     >
       <Icon className="size-4" aria-hidden />
       {label}

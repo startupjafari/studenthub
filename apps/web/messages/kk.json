@@ -2017,6 +2017,7 @@
     "statusScheduled": "Жоспарланған",
     "draftSaved": "Жоба сақталды",
     "scheduledOk": "Жариялау жоспарланды",
+    "schedulePast": "Бұл уақыт өтіп кетті — болашақ уақытты таңдаңыз",
     "saveDraft": "Жобаны сақтау",
     "schedule": "Жоспарлау",
     "scheduleLabel": "Кейінге қалдыру",
@@ -2090,6 +2091,7 @@
     "confirmDelete": "Стористі жою керек пе?",
     "viewers": "Қарағандар",
     "noViewers": "Әзірге ешкім қараған жоқ",
+    "showMore": "Тағы көрсету",
     "openLink": "Ашу"
   },
   "Chats": {
@@ -3292,6 +3294,8 @@
     "remove": "Жою",
     "cancel": "Болдырмау",
     "removed": "Достардан жойылды",
+    "removeConfirm": "Достардан жою керек пе?",
+    "removeConfirmHint": "Достықты тек жаңа өтініммен қайтаруға болады.",
     "accepted": "Өтінім қабылданды",
     "emptyFriends": "Әзірге достар жоқ",
     "emptyIncoming": "Кіріс өтінімдер жоқ",
@@ -3301,6 +3305,7 @@
     "acceptRequest": "Өтінімді қабылдау",
     "requestsTitle": "Достыққа өтінімдер",
     "showAll": "Барлығын көрсету",
+    "showMore": "Тағы көрсету",
     "friendsLabel": "Достарда"
   },
   "Today": {

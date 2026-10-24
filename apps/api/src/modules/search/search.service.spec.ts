@@ -13,6 +13,7 @@ function setup() {
     material: many(),
     event: many(),
     chat: many(),
+    userBlock: many(),
   }
   const service = new SearchService(prisma as unknown as PrismaService)
   return { service, prisma }
@@ -87,6 +88,17 @@ describe('SearchService — люди', () => {
     ])
     expect(where.universityId).toBe('uni-1')
   })
+
+  it('личная блокировка в любую сторону прячет человека из выдачи', async () => {
+    const { service, prisma } = setup()
+    prisma.userBlock.findMany.mockResolvedValue([
+      { blockerId: 'stu-1', blockedId: 'u-blocked' },
+      { blockerId: 'u-blocker', blockedId: 'stu-1' },
+    ])
+    await service.search(student, 'iva')
+    const where = prisma.user.findMany.mock.calls[0][0].where
+    expect(where.id).toEqual({ notIn: ['u-blocked', 'u-blocker'] })
+  })
 })
 
 // E-F27: scope курсов, заданий и материалов — по роли смотрящего.
@@ -136,14 +148,23 @@ describe('SearchService — scope учебных источников', () => {
     expect(prisma.material.findMany.mock.calls[0][0].where).toMatchObject(inUni)
   })
 
-  it('декану — курсы, задания и материалы своего вуза', async () => {
+  it('декану — курсы, задания и материалы своего факультета, а не всего вуза', async () => {
     const { service, prisma } = setup()
     await service.search(dean, 'мат')
-    expect(prisma.course.findMany.mock.calls[0][0].where).toMatchObject(inUni)
+    const inFaculty = { group: { is: { facultyId: 'fac-1' } } }
+    expect(prisma.course.findMany.mock.calls[0][0].where).toMatchObject(inFaculty)
     expect(prisma.assignment.findMany.mock.calls[0][0].where).toMatchObject({
-      course: { is: inUni },
+      course: { is: inFaculty },
     })
-    expect(prisma.material.findMany.mock.calls[0][0].where).toMatchObject(inUni)
+    expect(prisma.material.findMany.mock.calls[0][0].where).toMatchObject(inFaculty)
+  })
+
+  it('декану без факультета — ничего, а не весь вуз', async () => {
+    const { service, prisma } = setup()
+    await service.search({ ...dean, facultyId: null }, 'мат')
+    expect(prisma.course.findMany.mock.calls[0][0].where).toMatchObject({
+      group: { is: { facultyId: '__none__' } },
+    })
   })
 
   it('платформе — без scope, только по тексту', async () => {

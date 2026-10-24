@@ -2017,6 +2017,7 @@
     "statusScheduled": "Запланировано",
     "draftSaved": "Черновик сохранён",
     "scheduledOk": "Публикация запланирована",
+    "schedulePast": "Это время уже прошло — выберите время в будущем",
     "saveDraft": "Сохранить черновик",
     "schedule": "Запланировать",
     "scheduleLabel": "Отложить до",
@@ -2090,6 +2091,7 @@
     "confirmDelete": "Удалить сторис?",
     "viewers": "Просмотры",
     "noViewers": "Пока никто не смотрел",
+    "showMore": "Показать ещё",
     "openLink": "Открыть"
   },
   "Chats": {
@@ -3292,6 +3294,8 @@
     "remove": "Удалить",
     "cancel": "Отменить",
     "removed": "Удалено из друзей",
+    "removeConfirm": "Удалить из друзей?",
+    "removeConfirmHint": "Вернуть дружбу можно будет только новой заявкой.",
     "accepted": "Заявка принята",
     "emptyFriends": "Пока нет друзей",
     "emptyIncoming": "Нет входящих заявок",
@@ -3301,6 +3305,7 @@
     "acceptRequest": "Принять заявку",
     "requestsTitle": "Заявки в друзья",
     "showAll": "Показать всех",
+    "showMore": "Показать ещё",
     "friendsLabel": "В друзьях"
   },
   "Today": {

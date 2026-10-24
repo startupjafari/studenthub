@@ -34,6 +34,7 @@ import { MediaService } from '../media/media.service'
 import { MEDIA_FILE_SELECT, MEDIA_PREVIEW_SELECT, type MediaInfo } from '../media/media.types'
 import { signingWindow } from '../../common/minio/stable-sign'
 import { PostsService } from '../posts/posts.service'
+import { NotificationsService } from '../notifications/notifications.service'
 import { chatMessagesCollapseKey } from '../notifications/notification-job.type'
 import type { EnvVars } from '../../config/env.schema'
 import { ExportRegistryService } from '../../common/export/export-registry.service'
@@ -543,6 +544,7 @@ export class ChatsService implements OnModuleInit {
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
     private readonly exports: ExportRegistryService,
     private readonly media: MediaService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   /**
@@ -1173,7 +1175,7 @@ export class ChatsService implements OnModuleInit {
    */
   async acceptChatRequest(userId: string, chatId: string): Promise<{ id: string }> {
     const chat = await this.requirePendingRequest(userId, chatId)
-    await this.clearChatRequest(chat.id)
+    await this.clearChatRequest(chat.id, userId)
     // Обеим сторонам: у адресата чат уезжает из «Запросов», у инициатора снимается пометка.
     await this.pingChatList(chat.id)
     return { id: chat.id }
@@ -1187,6 +1189,7 @@ export class ChatsService implements OnModuleInit {
     const chat = await this.requirePendingRequest(userId, chatId)
     const members = await this.allMembers(chat.id)
     await this.prisma.notification.deleteMany({ where: { dedupeKey: `chat-request:${chat.id}` } })
+    await this.notifications.invalidateUnread(userId)
     await this.prisma.chat.delete({ where: { id: chat.id } })
     for (const m of members) this.realtime.emitToUser(m.userId, 'chat:activity', { chatId })
   }
@@ -1230,20 +1233,38 @@ export class ChatsService implements OnModuleInit {
   ): Promise<string | null> {
     if (pendingFor == null) return null
     if (pendingFor === senderId || (await this.areFriends(senderId, pendingFor))) {
-      await this.clearChatRequest(chatId)
+      await this.clearChatRequest(chatId, pendingFor)
       return null
     }
     await this.notifyChatRequest(senderId, pendingFor, chatId)
     return pendingFor
   }
 
-  /** Снять пометку запроса и погасить уведомление о нём (оно одноразовое). */
-  private async clearChatRequest(chatId: string): Promise<void> {
+  /**
+   * Снять пометку запроса и погасить уведомление о нём (оно одноразовое). Уведомление лежит
+   * у адресата (`pendingForId`) — его счётчик непрочитанных сбрасывается, иначе бейдж
+   * колокольчика держал удалённую строку до истечения кэша.
+   */
+  private async clearChatRequest(chatId: string, pendingForId: string): Promise<void> {
     await this.prisma.chat.update({
       where: { id: chatId },
       data: { requestPendingForId: null },
     })
     await this.prisma.notification.deleteMany({ where: { dedupeKey: `chat-request:${chatId}` } })
+    await this.notifications.invalidateUnread(pendingForId)
+  }
+
+  /**
+   * Дружба состоялась — висящий запрос на переписку этой пары снимается (§3.6: третий способ
+   * наравне с принятием и ответом). Зовёт FriendsService после принятия заявки: без этого
+   * чат оставался у адресата в «Запросах» до чьей-нибудь реплики, а инициатор упирался в
+   * потолок сообщений непринятого запроса.
+   */
+  async clearRequestBetween(a: string, b: string): Promise<void> {
+    const chat = await this.findPrivateChat(a, b)
+    if (!chat?.requestPendingForId) return
+    await this.clearChatRequest(chat.id, chat.requestPendingForId)
+    await this.pingChatList(chat.id)
   }
 
   /**
@@ -3676,7 +3697,7 @@ export class ChatsService implements OnModuleInit {
       select: { id: true },
     })
     if (!exists) throw new AppException('NOT_FOUND', 'Пользователь не найден')
-    await this.prisma.$transaction(async (tx) => {
+    const unlinked = await this.prisma.$transaction(async (tx) => {
       await tx.userBlock.upsert({
         where: { blockerId_blockedId: { blockerId: actorId, blockedId: targetUserId } },
         create: { blockerId: actorId, blockedId: targetUserId },
@@ -3693,13 +3714,19 @@ export class ChatsService implements OnModuleInit {
         // По паре — не больше двух строк (по одной в каждую сторону, @@unique).
         take: 2,
       })
-      if (links.length === 0) return
+      if (links.length === 0) return false
       const ids = links.map((l) => l.id)
       await tx.friendship.deleteMany({ where: { id: { in: ids } } })
       await tx.notification.deleteMany({
         where: { dedupeKey: { in: ids.map((id) => `friend-request:${id}`) } },
       })
+      return true
     })
+    // Заявка могла лежать в колокольчике у любого из двоих — сбрасываем счётчик обоим.
+    if (unlinked) {
+      await this.notifications.invalidateUnread(actorId)
+      await this.notifications.invalidateUnread(targetUserId)
+    }
     this.emitBlockChanged(actorId, targetUserId)
     return { userId: targetUserId, blocked: true }
   }

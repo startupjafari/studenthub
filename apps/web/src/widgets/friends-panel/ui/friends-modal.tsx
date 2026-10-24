@@ -1,16 +1,16 @@
 'use client'
 
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useInfiniteQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { UserRoundX } from 'lucide-react'
 import {
   FriendCard,
-  fetchFriendRequests,
-  fetchFriends,
+  fetchFriendRequestsPage,
+  fetchFriendsPage,
   friendKeys,
 } from '../../../entities/friendship'
-import { Button, EmptyState, Modal, SegmentedTabs, Skeleton } from '../../../shared/ui'
+import { Button, EmptyState, Modal, SegmentedTabs, Skeleton, useConfirm } from '../../../shared/ui'
 import { useFriendshipMutations } from '../model/use-friendship-mutations'
 
 type Tab = 'friends' | 'incoming' | 'outgoing'
@@ -38,23 +38,48 @@ export function FriendsModal({ initialTab, onClose }: { initialTab: Tab; onClose
   const t = useTranslations('Friends')
   const [tab, setTab] = useState<Tab>(initialTab)
   const { accept, remove } = useFriendshipMutations()
+  const confirm = useConfirm()
 
-  const friendsQ = useQuery({
-    queryKey: friendKeys.list(),
-    queryFn: () => fetchFriends(),
+  // Удаление из друзей необратимо (вернуть — только новой заявкой) — с подтверждением;
+  // отмена своей заявки и отклонение чужой — сразу.
+  async function removeFriend(friendshipId: string): Promise<void> {
+    const ok = await confirm({
+      title: t('removeConfirm'),
+      description: t('removeConfirmHint'),
+      confirmLabel: t('remove'),
+      destructive: true,
+    })
+    if (ok) remove.mutate({ friendshipId, message: t('removed') })
+  }
+
+  // Полные списки — страницами с курсором: одним запросом приходила только первая
+  // страница сервера (20), и друзья и заявки сверх неё в окне не показывались вовсе.
+  const direction = tab === 'outgoing' ? 'outgoing' : 'incoming'
+  const friendsQ = useInfiniteQuery({
+    queryKey: friendKeys.listPages(),
+    queryFn: ({ pageParam }) => fetchFriendsPage(pageParam),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => (last.hasNext ? last.cursor : undefined),
     enabled: tab === 'friends',
   })
-  const requestsQ = useQuery({
-    queryKey: friendKeys.requests(tab === 'outgoing' ? 'outgoing' : 'incoming'),
-    queryFn: () => fetchFriendRequests(tab === 'outgoing' ? 'outgoing' : 'incoming'),
+  const requestsQ = useInfiniteQuery({
+    queryKey: friendKeys.requestPages(direction),
+    queryFn: ({ pageParam }) => fetchFriendRequestsPage(direction, pageParam),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => (last.hasNext ? last.cursor : undefined),
     enabled: tab !== 'friends',
   })
 
-  const loading = tab === 'friends' ? friendsQ.isPending : requestsQ.isPending
+  const active = tab === 'friends' ? friendsQ : requestsQ
+  const loading = active.isPending
   const rows =
     tab === 'friends'
-      ? (friendsQ.data ?? []).map((f) => ({ id: f.friendshipId, user: f.user }))
-      : (requestsQ.data ?? []).map((r) => ({ id: r.friendshipId, user: r.user }))
+      ? (friendsQ.data?.pages ?? []).flatMap((page) =>
+          page.items.map((f) => ({ id: f.friendshipId, user: f.user })),
+        )
+      : (requestsQ.data?.pages ?? []).flatMap((page) =>
+          page.items.map((r) => ({ id: r.friendshipId, user: r.user })),
+        )
 
   // Действия у карточки зависят от вкладки: у входящей заявки — принять/отклонить,
   // у исходящей — только отменить, у друга — удалить.
@@ -86,7 +111,7 @@ export function FriendsModal({ initialTab, onClose }: { initialTab: Tab; onClose
         size="sm"
         variant="ghost"
         onClick={() =>
-          remove.mutate({ friendshipId, message: tab === 'friends' ? t('removed') : undefined })
+          tab === 'friends' ? void removeFriend(friendshipId) : remove.mutate({ friendshipId })
         }
         loading={remove.isPending && remove.variables?.friendshipId === friendshipId}
       >
@@ -137,13 +162,27 @@ export function FriendsModal({ initialTab, onClose }: { initialTab: Tab; onClose
             title={t(EMPTY_LABEL[tab])}
           />
         ) : (
-          <ul className="flex flex-col gap-2">
-            {rows.map((row) => (
-              <li key={row.id}>
-                <FriendCard user={row.user} action={actionsFor(row.id)} />
-              </li>
-            ))}
-          </ul>
+          <>
+            <ul className="flex flex-col gap-2">
+              {rows.map((row) => (
+                <li key={row.id}>
+                  <FriendCard user={row.user} action={actionsFor(row.id)} />
+                </li>
+              ))}
+            </ul>
+            {active.hasNextPage && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="md"
+                className="mt-3 w-full"
+                loading={active.isFetchingNextPage}
+                onClick={() => void active.fetchNextPage()}
+              >
+                {t('showMore')}
+              </Button>
+            )}
+          </>
         )}
       </div>
     </Modal>

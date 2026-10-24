@@ -50,6 +50,9 @@ function setup() {
     },
     faculty: { findUnique: jest.fn() },
     group: { findUnique: jest.fn() },
+    // «Ведёт ли преподаватель занятия в группе» — дисциплина или пара расписания.
+    course: { findFirst: jest.fn().mockResolvedValue(null) },
+    pair: { findFirst: jest.fn().mockResolvedValue(null) },
     user: { findFirst: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
     userBlock: { findMany: jest.fn().mockResolvedValue([]) },
     file: { findMany: jest.fn(), updateMany: jest.fn(), findFirst: jest.fn() },
@@ -306,6 +309,43 @@ describe('PostsService.create — аудитория по роли (8.2)', () =>
     expect(err.code).toBe('WRONG_SCOPE')
   })
 
+  it('преподаватель → GROUP группы, где не ведёт занятий: WRONG_SCOPE', async () => {
+    const { service, prisma } = setup()
+    prisma.group.findUnique.mockResolvedValue({
+      facultyId: 'fac-1',
+      faculty: { universityId: 'uni-1' },
+    })
+    const err = await service
+      .create(
+        viewer(Role.TEACHER, { sub: 't1', universityId: 'uni-1' }),
+        { audience: 'GROUP', content: 'x', groupId: 'grp-OTHER' },
+        ctx,
+      )
+      .catch((e) => e)
+    expect(err.code).toBe('WRONG_SCOPE')
+    expect(prisma.post.create).not.toHaveBeenCalled()
+  })
+
+  it('преподаватель → GROUP группы, где ведёт пару: ок', async () => {
+    const { service, prisma } = setup()
+    prisma.group.findUnique.mockResolvedValue({
+      facultyId: 'fac-1',
+      faculty: { universityId: 'uni-1' },
+    })
+    prisma.pair.findFirst.mockResolvedValue({ id: 'pair-1' })
+    prisma.post.findFirst.mockResolvedValue(postRow())
+    const res = await service.create(
+      viewer(Role.TEACHER, { sub: 't1', universityId: 'uni-1' }),
+      { audience: 'GROUP', content: 'x', groupId: 'grp-1' },
+      ctx,
+    )
+    expect(res.id).toBe('p-new')
+    expect(prisma.pair.findFirst).toHaveBeenCalledWith({
+      where: { teacherId: 't1', groupId: 'grp-1', schedule: { is: { isActive: true } } },
+      select: { id: true },
+    })
+  })
+
   it('декан → FACULTY своего факультета: ок', async () => {
     const { service, prisma } = setup()
     prisma.faculty.findUnique.mockResolvedValue({ universityId: 'uni-1' })
@@ -340,6 +380,34 @@ describe('PostsService.create — аудитория по роли (8.2)', () =>
       )
       .catch((e) => e)
     expect(err.code).toBe('BAD_REQUEST')
+  })
+
+  it('PERSONAL тому, кто заблокировал автора: FORBIDDEN, пост не создаётся', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findFirst.mockResolvedValue({ universityId: 'uni-1' })
+    prisma.userBlock.findMany.mockResolvedValue([{ blockerId: 'target', blockedId: 's1' }])
+    const err = await service
+      .create(
+        viewer(Role.STUDENT, { sub: 's1', universityId: 'uni-1', groupId: 'grp-1' }),
+        { audience: 'PERSONAL', content: 'x', targetUserId: 'target' },
+        ctx,
+      )
+      .catch((e) => e)
+    expect(err.code).toBe('FORBIDDEN')
+    expect(prisma.post.create).not.toHaveBeenCalled()
+  })
+
+  it('пост преподавателя по предмету выше поста студента в группу (§3.3)', async () => {
+    const { service, prisma } = setup()
+    prisma.post.findFirst.mockResolvedValue(postRow({ audience: 'SUBJECT' }))
+    await service.create(
+      viewer(Role.TEACHER, { sub: 't1', universityId: 'uni-1' }),
+      { audience: 'SUBJECT', content: 'x', subject: 'Матанализ' },
+      ctx,
+    )
+    const teacherPriority = prisma.post.create.mock.calls[0][0].data.priority
+    // Студенческий пост в группу — 30 (база GROUP без надбавки сотрудника).
+    expect(teacherPriority).toBeGreaterThan(30)
   })
 
   it('платформенный админ → ALL: ок', async () => {
@@ -943,13 +1011,13 @@ describe('PostsService — черновики и отложенная публи
 describe('PostsService.feed — сортировка и статус вкладки профиля', () => {
   const me = () => viewer(Role.STUDENT, { sub: 's1', groupId: 'grp-1' })
 
-  it('без sort — прежний порядок ленты (закреплённые → приоритет → время)', async () => {
+  it('без sort — прежний порядок ленты (закреплённые → приоритет → время публикации)', async () => {
     const { service, prisma } = setup()
     await service.feed(me(), { limit: 20, authorId: 's1' })
     expect(prisma.post.findMany.mock.calls[0][0].orderBy).toEqual([
       { pinnedAt: { sort: 'desc', nulls: 'last' } },
       { priority: 'desc' },
-      { createdAt: 'desc' },
+      { publishedAt: 'desc' },
       { id: 'desc' },
     ])
   })
@@ -960,7 +1028,7 @@ describe('PostsService.feed — сортировка и статус вклад�
     const arg = prisma.post.findMany.mock.calls[0][0]
     expect(arg.orderBy).toEqual([
       { pinnedAt: { sort: 'desc', nulls: 'last' } },
-      { createdAt: 'desc' },
+      { publishedAt: 'desc' },
       { id: 'desc' },
     ])
     // Курсор по id, как у ленты.
@@ -990,7 +1058,7 @@ describe('PostsService.feed — сортировка и статус вклад�
       { pinnedAt: { sort: 'desc', nulls: 'last' } },
       { reactions: { _count: 'desc' } },
       { comments: { _count: 'desc' } },
-      { createdAt: 'desc' },
+      { publishedAt: 'desc' },
       { id: 'desc' },
     ])
     expect(arg.skip).toBe(4)
@@ -1065,6 +1133,27 @@ describe('PostsService.update — правка только своей публ�
       .update(viewer(Role.STUDENT), 'p1', { content: 'текст' }, ctx)
       .catch((e: AppException) => e)
     expect((err as AppException).code).toBe('NOT_FOUND')
+  })
+
+  it('заметку репоста можно стереть: пустой текст сохраняется', async () => {
+    const { service, prisma } = setup()
+    prisma.post.findFirst.mockResolvedValue(
+      postRow({ id: 'p1', authorId: 'u-1', originalPostId: 'orig-1' }),
+    )
+    await service.update(viewer(Role.STUDENT), 'p1', { content: '' }, ctx)
+    expect(prisma.post.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { content: '' } }),
+    )
+  })
+
+  it('у обычного поста пустой текст → BAD_REQUEST', async () => {
+    const { service, prisma } = setup()
+    prisma.post.findFirst.mockResolvedValue(postRow({ id: 'p1', authorId: 'u-1' }))
+    const err = await service
+      .update(viewer(Role.STUDENT), 'p1', { content: '  ' }, ctx)
+      .catch((e: AppException) => e)
+    expect((err as AppException).code).toBe('BAD_REQUEST')
+    expect(prisma.post.update).not.toHaveBeenCalled()
   })
 })
 
@@ -1669,7 +1758,10 @@ describe('PostsService — комментарии: страницы, права,
 
     expect(prisma.user.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({ username: { in: ['mate', 'stranger'] } }),
+        where: expect.objectContaining({
+          username: { in: ['mate', 'stranger'] },
+          role: { notIn: [Role.SECURITY_GUARD, Role.LIBRARIAN] },
+        }),
       }),
     )
     expect(queue.enqueue).toHaveBeenCalledWith(

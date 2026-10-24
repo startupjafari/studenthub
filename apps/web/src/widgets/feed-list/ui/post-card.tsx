@@ -1,6 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { Bookmark, Eye, Heart, MessageSquare, Pin, Play, Repeat2 } from 'lucide-react'
@@ -11,18 +12,20 @@ import {
   addReactionRequest,
   canRepost,
   hasMyReaction,
+  patchCachedPost,
   reactionSummaryOf,
   reactionTotal,
   removeReactionRequest,
   withMyReaction,
   type FeedPost,
   type PostMedia,
+  type PostReactionSummary,
 } from '../../../entities/post'
 import { ProfileLink } from '../../../entities/user'
 import { RepostDialog, useRepost } from '../../../features/repost-post'
 import { Avatar, AvatarFallback, Markdown, Skeleton } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
-import { relativeTime } from '../../../shared/lib'
+import { relativeTime, toApiError } from '../../../shared/lib'
 import { PostMediaView } from './post-media'
 import { SharePostMenu } from '../../../features/share-post'
 import { useBookmark } from '../../../features/bookmark-post'
@@ -107,6 +110,7 @@ function PostCardView({
   const t = useTranslations('Feed')
   const tErr = useTranslations('Errors')
   const locale = useLocale()
+  const qc = useQueryClient()
   const myId = useAppSelector((s) => s.auth.user?.id)
   const myRole = useAppSelector((s) => s.auth.role)
 
@@ -129,22 +133,34 @@ function PostCardView({
   const liked = hasMyReaction(reactions, LIKE_EMOJI)
   const { bookmarked, toggle: toggleBookmark } = useBookmark(post.id, post.bookmarked)
 
-  // Оптимистичный лайк с откатом (docs/FRONTEND_RULES.md §5.5).
+  // Сводка реакций — из кэша постов: лайк из полного просмотра того же поста приходит сюда
+  // правкой кэша (patchCachedPost), и карточка не расходится с ним.
+  useEffect(() => setReactions(reactionSummaryOf(post, myId)), [post, myId])
+
+  // Оптимистичный лайк с откатом (docs/FRONTEND_RULES.md §5.5) — и в кэше постов, чтобы
+  // полный просмотр того же поста видел тот же лайк.
   function toggleLike(): void {
     if (!myId) return
     const prev = reactions
-    setReactions(withMyReaction(prev, LIKE_EMOJI, !liked))
+    const apply = (summary: PostReactionSummary[]): void => {
+      setReactions(summary)
+      patchCachedPost(qc, post.id, (p) => ({ ...p, reactionSummary: summary }))
+    }
+    apply(withMyReaction(prev, LIKE_EMOJI, !liked))
     const request = liked ? removeReactionRequest : addReactionRequest
-    request(post.id, LIKE_EMOJI).catch(() => {
-      setReactions(prev)
-      toast.error(tErr('INTERNAL_ERROR'))
+    request(post.id, LIKE_EMOJI).catch((e: unknown) => {
+      apply(prev)
+      toast.error(tErr(toApiError(e).code))
     })
   }
 
-  const created = new Date(post.createdAt)
+  // Дата поста — момент публикации (§3.3): отложенный пост и черновик создают раньше, чем
+  // они выходят. Своему черновику и отложенному даты публикации ещё нет — у них дата создания.
+  const shownAt = post.publishedAt ?? post.createdAt
+  const created = new Date(shownAt)
   // «4 д назад» вместо «27.08, 11:15»: в ленте важен возраст поста, а не точная дата.
   // Точная — в подсказке, для тех случаев, когда она всё-таки нужна.
-  const ago = relativeTime(post.createdAt, locale)
+  const ago = relativeTime(shownAt, locale)
   const exactTime = created.toLocaleString(locale, {
     day: '2-digit',
     month: '2-digit',
@@ -271,7 +287,7 @@ function PostCardView({
           </span>
           {/* Возраст поста не переносим: «45 мин. назад» в узкой колонке ломалось
               на три строки и раздвигало всю панель. */}
-          <time dateTime={post.createdAt} title={exactTime} className="whitespace-nowrap">
+          <time dateTime={shownAt} title={exactTime} className="whitespace-nowrap">
             {ago}
           </time>
         </span>

@@ -136,6 +136,8 @@ function setup() {
   const exportRegistry = {
     register: jest.fn().mockResolvedValue({ id: 'e-1', shortId: 'ABCD2345' }),
   }
+  // Кэш счётчика непрочитанных (NotificationsService) — сбрасывается при снятии уведомлений.
+  const notifications = { invalidateUnread: jest.fn().mockResolvedValue(undefined) }
   const service = new ChatsService(
     prisma as unknown as PrismaService,
     queue as unknown as QueueService,
@@ -146,8 +148,21 @@ function setup() {
     redis as never,
     exportRegistry as never,
     media as never,
+    notifications as never,
   )
-  return { service, prisma, queue, realtime, files, posts, config, redis, exportRegistry, media }
+  return {
+    service,
+    prisma,
+    queue,
+    realtime,
+    files,
+    posts,
+    config,
+    redis,
+    exportRegistry,
+    media,
+    notifications,
+  }
 }
 
 const user = (sub: string): JwtPayload => ({
@@ -3238,7 +3253,7 @@ describe('ChatsService — запрос на переписку (§50)', () => {
   })
 
   it('accept снимает пометку и гасит уведомление о запросе', async () => {
-    const { service, prisma } = setup()
+    const { service, prisma, notifications } = setup()
     prisma.chat.findFirst.mockResolvedValue({ id: 'c1', requestPendingForId: 'u2' })
     prisma.chat.update.mockResolvedValue({})
 
@@ -3251,6 +3266,43 @@ describe('ChatsService — запрос на переписку (§50)', () => {
     expect(prisma.notification.deleteMany).toHaveBeenCalledWith({
       where: { dedupeKey: 'chat-request:c1' },
     })
+    // Бейдж колокольчика не держит удалённое уведомление до истечения кэша.
+    expect(notifications.invalidateUnread).toHaveBeenCalledWith('u2')
+  })
+
+  it('принятая дружба снимает висящий запрос пары (clearRequestBetween)', async () => {
+    const { service, prisma, notifications, realtime } = setup()
+    prisma.chat.findFirst.mockResolvedValue({
+      id: 'c1',
+      type: 'PRIVATE',
+      title: null,
+      requestPendingForId: 'u2',
+    })
+    prisma.chat.update.mockResolvedValue({})
+    prisma.chatMember.findMany.mockResolvedValue([{ userId: 'u1' }, { userId: 'u2' }])
+
+    await service.clearRequestBetween('u1', 'u2')
+
+    expect(prisma.chat.update).toHaveBeenCalledWith({
+      where: { id: 'c1' },
+      data: { requestPendingForId: null },
+    })
+    expect(notifications.invalidateUnread).toHaveBeenCalledWith('u2')
+    expect(realtime.emitToUser).toHaveBeenCalledWith('u2', 'chat:activity', { chatId: 'c1' })
+  })
+
+  it('clearRequestBetween без висящего запроса ничего не пишет', async () => {
+    const { service, prisma } = setup()
+    prisma.chat.findFirst.mockResolvedValue({
+      id: 'c1',
+      type: 'PRIVATE',
+      title: null,
+      requestPendingForId: null,
+    })
+
+    await service.clearRequestBetween('u1', 'u2')
+
+    expect(prisma.chat.update).not.toHaveBeenCalled()
   })
 
   it('принять запрос может только адресат, не инициатор', async () => {
@@ -3517,7 +3569,7 @@ describe('ChatsService — общие условия отправки (assertCan
 // видеть фото и альбомы того, кто от него закрылся, а висящую заявку можно было принять.
 describe('ChatsService.blockUser — рвёт дружбу', () => {
   it('удаляет дружбу и заявки в обе стороны и гасит уведомление-заявку — в одной транзакции', async () => {
-    const { service, prisma } = setup()
+    const { service, prisma, notifications } = setup()
     prisma.user.findFirst.mockResolvedValue({ id: 'u2' })
     prisma.friendship.findMany.mockResolvedValue([{ id: 'f1' }])
 
@@ -3541,6 +3593,8 @@ describe('ChatsService.blockUser — рвёт дружбу', () => {
     expect(prisma.notification.deleteMany).toHaveBeenCalledWith({
       where: { dedupeKey: { in: ['friend-request:f1'] } },
     })
+    expect(notifications.invalidateUnread).toHaveBeenCalledWith('u1')
+    expect(notifications.invalidateUnread).toHaveBeenCalledWith('u2')
   })
 
   it('без дружбы — только блокировка', async () => {
