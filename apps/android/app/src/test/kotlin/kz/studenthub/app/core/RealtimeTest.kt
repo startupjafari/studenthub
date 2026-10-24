@@ -163,7 +163,9 @@ class RealtimeCoordinatorTest {
     fun chatActivityRefreshesList() = runTest {
         var refreshes = 0
         val session = SessionStore(NoRefresh(), InMemorySecretStore(), MemoryCookies())
-        val realtime = RealtimeCoordinator(FakeTransport(), session, db, backgroundScope, refreshChats = { refreshes++ })
+        // Скоуп самого теста, а не backgroundScope: advanceUntilIdle фоновые корутины не ждёт,
+        // и запрос списка так и не стартовал бы. Соединения здесь нет — вечных циклов тоже.
+        val realtime = RealtimeCoordinator(FakeTransport(), session, db, this, refreshChats = { refreshes++ })
         realtime.handle(RealtimeEvent.ChatActivity("c1"))
         advanceUntilIdle()
         assertEquals(1, refreshes)
