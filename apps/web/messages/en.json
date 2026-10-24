@@ -3849,6 +3849,8 @@
     "noSlotsHint": "Check back later.",
     "book": "Book",
     "cancelBooking": "Cancel",
+    "confirmCancelBooking": "Cancel your consultation booking?",
+    "confirmCancelSlot": "Cancel the consultation? The student will be notified.",
     "cancelled": "Cancelled",
     "online": "Online",
     "manageTitle": "Consultations",

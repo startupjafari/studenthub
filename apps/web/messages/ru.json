@@ -3849,6 +3849,8 @@
     "noSlotsHint": "Загляните позже.",
     "book": "Записаться",
     "cancelBooking": "Отменить",
+    "confirmCancelBooking": "Отменить запись на консультацию?",
+    "confirmCancelSlot": "Отменить консультацию? Студент получит уведомление.",
     "cancelled": "Отменено",
     "online": "Онлайн",
     "manageTitle": "Консультации",

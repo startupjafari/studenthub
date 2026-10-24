@@ -113,6 +113,17 @@ export function TeacherConsultationsView() {
     if (ok) remove.mutate(s.id)
   }
 
+  // Отмена занятого слота уведомляет студента и необратима — с подтверждением.
+  async function onCancel(s: ConsultationSlot) {
+    const ok = await confirm({
+      title: t('confirmCancelSlot'),
+      description: slotTime(locale, s),
+      confirmLabel: t('cancelSlot'),
+      destructive: true,
+    })
+    if (ok) cancel.mutate(s.id)
+  }
+
   const rows = q.data?.items ?? []
   const total = q.data?.total ?? 0
 
@@ -203,12 +214,14 @@ export function TeacherConsultationsView() {
                     )}
                   </TableCell>
                   <TableCell className="text-right">
-                    {s.status === 'BOOKED' ? (
+                    {/* Прошедшую запись отменять нечего (сервер ответит 409) — её можно
+                        только убрать из списка, как свободный слот. */}
+                    {s.status === 'BOOKED' && new Date(s.startsAt) > new Date() ? (
                       <Button
                         variant="outline"
                         size="sm"
                         loading={cancel.isPending && cancel.variables === s.id}
-                        onClick={() => cancel.mutate(s.id)}
+                        onClick={() => onCancel(s)}
                       >
                         {t('cancelSlot')}
                       </Button>

@@ -149,6 +149,17 @@ describe('ConsultationsService.cancel — отмена слота препода
     expect(queue.enqueue.mock.calls[0][2].recipientIds).toEqual(['stu-1'])
   })
 
+  it('прошедшую консультацию не отменить ни преподавателю, ни студенту', async () => {
+    const past = new Date(Date.now() - 3_600_000)
+    const { service, prisma, queue } = setup({ ...read, startsAt: past, studentId: 'stu-1' })
+    for (const actor of [teacher, student]) {
+      const err = await service.cancel(actor, 'slot-1', ctx).catch((e) => e)
+      expect(err.code).toBe('CONFLICT')
+    }
+    expect(prisma.consultationSlot.updateMany).not.toHaveBeenCalled()
+    expect(queue.enqueue).not.toHaveBeenCalled()
+  })
+
   it('слот уже отменён → CONFLICT, уведомления нет', async () => {
     const { service, prisma, queue } = setup(read)
     prisma.consultationSlot.updateMany.mockResolvedValue({ count: 0 })

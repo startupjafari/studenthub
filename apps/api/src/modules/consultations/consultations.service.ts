@@ -290,6 +290,11 @@ export class ConsultationsService {
       },
     })
     if (!slot) throw new AppException('NOT_FOUND', 'Слот не найден')
+    // Начавшуюся или прошедшую консультацию отменять нечего: «отмена» прошлой записи
+    // открывала слот в прошлом и слала преподавателю уведомление об отмене задним числом.
+    if (slot.startsAt <= new Date()) {
+      throw new AppException('CONFLICT', 'Консультация уже началась или прошла')
+    }
 
     if (slot.studentId === actor.sub) {
       // Студент отменяет свою запись → слот снова открыт. Только из BOOKED: слот, отменённый
