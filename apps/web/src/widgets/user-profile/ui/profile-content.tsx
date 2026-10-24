@@ -91,7 +91,7 @@ export interface ProfileData {
 // Hover-анимация карточек профиля отключена по требованию — карточки статичны.
 export const CARD_LIFT = ''
 export const ENTER =
-  'animate-in fade-in-0 slide-in-from-bottom-2 duration-500 motion-reduce:animate-none'
+  'animate-in fade-in-0 slide-in-from-bottom-2 duration-(--motion-large) motion-reduce:animate-none'
 
 export function fullNameOf(u: ProfileData): string {
   return [u.lastName, u.firstName, u.middleName].filter(Boolean).join(' ')
@@ -468,7 +468,7 @@ function ChipsCard({
           // а не наложенный градиент: фон карточки под ней знать не нужно).
           <div
             className={cn(
-              'overflow-hidden transition-[max-height] duration-300 ease-out motion-reduce:transition-none',
+              'overflow-hidden transition-[max-height] duration-(--motion-large) motion-reduce:transition-none',
               collapsed && '[mask-image:linear-gradient(to_bottom,black_45%,transparent)]',
             )}
             style={

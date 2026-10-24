@@ -161,7 +161,7 @@ function MessageItemInner({
           id={`msg-${m.id}`}
           className={cn(
             // -mx-4/px-4 — фон подсветки на всю ширину чата; select-none + touch-action:pan-y — для тач-жестов.
-            'group relative -mx-4 flex touch-pan-y items-center gap-1.5 px-4 py-0.5 transition-colors duration-700 ease-in-out select-none',
+            'group relative -mx-4 flex touch-pan-y items-center gap-1.5 px-4 py-0.5 transition-colors duration-(--motion-control) select-none',
             !isFirstInList && (firstOfRun ? 'mt-2' : 'mt-0.5'),
             mine && 'flex-row-reverse',
             (highlighted || (selecting && selected)) && 'bg-primary/10',

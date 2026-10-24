@@ -312,7 +312,7 @@ export function RegisterByInviteForm({ token }: { token: string }) {
             type="button"
             onClick={() => fileRef.current?.click()}
             aria-label={avatarUrl ? t('avatarChange') : t('avatarAdd')}
-            className="absolute inset-0 flex items-center justify-center rounded-full bg-foreground/55 text-background opacity-0 outline-none transition-opacity duration-300 ease-out group-hover:opacity-100 focus-visible:opacity-100 motion-reduce:transition-none"
+            className="absolute inset-0 flex items-center justify-center rounded-full bg-foreground/55 text-background opacity-0 outline-none transition-opacity duration-(--motion-micro) group-hover:opacity-100 focus-visible:opacity-100 motion-reduce:transition-none"
           >
             <Camera className="size-5" aria-hidden />
           </button>

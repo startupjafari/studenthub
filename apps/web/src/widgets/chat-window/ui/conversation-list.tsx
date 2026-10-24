@@ -423,7 +423,7 @@ export function ConversationList({
         // Возврат из чата: список въезжает слева — обратный ход тому, как чат выезжал справа.
         // Только на узких экранах: на десктопе список и так на месте, ему ехать неоткуда.
         returning &&
-          'max-md:duration-300 max-md:animate-in max-md:fade-in max-md:slide-in-from-left-4',
+          'max-md:duration-(--motion-page) max-md:animate-in max-md:fade-in max-md:slide-in-from-left-4',
       )}
     >
       {/* Шапка — одна строка: заголовок, справа поиск и меню «три точки». Поиск раскрывается
@@ -580,7 +580,7 @@ export function ConversationList({
         key={embedded ? 'list' : activeId ? 'list-hidden' : 'list-visible'}
         className={cn(
           'flex min-h-0 flex-1 flex-col overflow-y-auto',
-          'duration-300 animate-in fade-in slide-in-from-left-4',
+          'duration-(--motion-page) animate-in fade-in slide-in-from-left-4',
           !embedded && 'pb-[calc(6rem+env(safe-area-inset-bottom))]',
         )}
       >

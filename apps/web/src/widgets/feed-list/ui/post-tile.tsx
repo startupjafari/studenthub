@@ -101,7 +101,7 @@ function PostTileView({
                 ? '(max-width: 640px) 33vw, 360px'
                 : '(max-width: 640px) 66vw, 720px'
             }
-            className="size-full transition-transform duration-500 ease-out group-hover/tile:scale-[1.03] motion-reduce:transition-none"
+            className="size-full transition-transform duration-(--motion-large) group-hover/tile:scale-[1.03] motion-reduce:transition-none"
           />
         ) : (
           // Текстовый пост — сам текст на фирменной подложке, как текстовые публикации в

@@ -435,7 +435,7 @@ export function ProfileMediaGrid({
                         alt=""
                         sizes={tileSizes(i)}
                         className="size-full"
-                        imgClassName="transition-[opacity,transform] duration-500 ease-out group-hover/tile:scale-[1.03] motion-reduce:transition-none"
+                        imgClassName="transition-[opacity,transform] duration-(--motion-large) group-hover/tile:scale-[1.03] motion-reduce:transition-none"
                       />
                     </button>
                     {isOwner && (
@@ -614,7 +614,7 @@ function VideoTile({
             alt=""
             sizes={tileSizes(index)}
             className="size-full bg-neutral-900"
-            imgClassName="transition-[opacity,transform] duration-500 ease-out group-hover/tile:scale-[1.03] motion-reduce:transition-none"
+            imgClassName="transition-[opacity,transform] duration-(--motion-large) group-hover/tile:scale-[1.03] motion-reduce:transition-none"
           />
         ) : (
           <video
