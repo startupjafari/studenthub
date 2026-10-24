@@ -49,6 +49,8 @@ ARG NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE
 ARG API_PROXY_TARGET
 # Идентификатор сборки: из него next.config делает buildId и версию в настройках,
 # по которой PWA понимает, что пора обновиться. Без него — метка `dev-<время>`.
+# turbo в строгом режиме срезает незаявленные переменные: она заявлена в `env` задачи
+# build в turbo.json — иначе до next.config не доезжала бы, как ни задавай.
 ARG RAILWAY_GIT_COMMIT_SHA
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 ENV NEXT_PUBLIC_WS_URL=${NEXT_PUBLIC_WS_URL}
@@ -77,9 +79,23 @@ FROM node:24-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
+
+# Непривилегированный пользователь, как у лендинга. Владелец файлов — он же: Next пишет
+# кэш оптимизации изображений в .next/cache рядом с server.js.
+RUN addgroup -g 1001 -S nodejs && adduser -S nextjs -u 1001 -G nodejs
+
 # standalone кладёт минимальный node_modules и server.js; static/public — рядом.
-COPY --from=build /repo/apps/web/.next/standalone ./
-COPY --from=build /repo/apps/web/.next/static ./apps/web/.next/static
-COPY --from=build /repo/apps/web/public ./apps/web/public
+COPY --from=build --chown=nextjs:nodejs /repo/apps/web/.next/standalone ./
+COPY --from=build --chown=nextjs:nodejs /repo/apps/web/.next/static ./apps/web/.next/static
+COPY --from=build --chown=nextjs:nodejs /repo/apps/web/public ./apps/web/public
+
+USER nextjs
 EXPOSE 3000
-CMD ["node", "apps/web/server.js"]
+
+# Адрес бинда — `::` (dual-stack), присваиванием прямо в команде, как у лендинга (там же
+# подробный разбор). Next standalone слушает `process.env.HOSTNAME`, а docker и хостинги
+# кладут туда имя контейнера: сервер вставал на внешний интерфейс, и TCP-проба на
+# 127.0.0.1 в compose-проде не проходила никогда — nginx, ждущий здоровый web, не стартовал.
+# Через ENV не выйдет: его перекрывает переменная окружения сервиса, а присваивание перед
+# командой — нет. Поэтому и `startCommand` в railway.json нет: платформа запускает этот CMD.
+CMD ["sh", "-c", "HOSTNAME=:: node apps/web/server.js"]

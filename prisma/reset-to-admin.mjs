@@ -13,12 +13,14 @@
 //   RESET_CONFIRM         обязательно строка RESET — защита от случайного запуска
 //   RESET_ALLOW_REMOTE=1  разрешить работу с нелокальной БД (иначе отказ)
 //   RESET_ADMIN_EMAIL     e-mail админа (по умолчанию admin@studenthub.app)
-//   RESET_ADMIN_PASSWORD  пароль; если не задан (или пустой) — генерируется и печатается
+//   RESET_ADMIN_PASSWORD  пароль; если не задан (или пустой) — генерируется и печатается.
+//                         В GitHub Actions обязателен: печатать пароль в лог нельзя
 import { randomInt } from 'node:crypto'
 import { PrismaClient } from '@prisma/client'
 import bcrypt from 'bcrypt'
 import { isLocalDatabase } from './seed/config.mjs'
 import { loadEnv } from './seed/lib/env.mjs'
+import { assertCanPrintPassword } from './seed/lib/seed-password.mjs'
 
 // DATABASE_URL живёт в apps/api/.env, а простой `node` его не читает: .env подхватывает
 // только Prisma CLI через prisma.config.ts (та же причина, что в prisma/seed-test.mjs).
@@ -88,6 +90,8 @@ async function main() {
   // вместе с ним.
   const fromEnv = process.env.RESET_ADMIN_PASSWORD?.trim()
   const generated = !fromEnv
+  // До TRUNCATE: отказ после очистки оставил бы базу вовсе без администратора.
+  if (generated) assertCanPrintPassword('RESET_ADMIN_PASSWORD')
   const password = fromEnv || generatePassword()
 
   console.log(`Сброс БД ${describeDatabase(databaseUrl)}${remote ? ' (удалённая)' : ''}`)

@@ -77,6 +77,11 @@ COPY --from=build /repo/prisma ./prisma
 # это артефакт генерации, а не зависимость, поэтому `pnpm deploy` его не переносит.
 # Копируем вручную, иначе @prisma/client падает с MODULE_NOT_FOUND '.prisma/client'.
 COPY --from=build /repo/node_modules/.prisma ./node_modules/.prisma
+# Не root: тот же образ гоняет ffmpeg по загруженным пользователями файлам, и дыра в
+# декодере не должна давать root в контейнере. Писать процессу нужно только во временный
+# каталог перекодирования (MEDIA_TMP_DIR, по умолчанию системный /tmp) — код в /app ему
+# достаточно читать. Пользователь `node` (uid 1000) уже есть в базовом образе.
+USER node
 EXPOSE 3001
 # Миграции применяются отдельным шагом (migrate deploy) до старта, не в CMD.
 CMD ["node", "dist/main.js"]

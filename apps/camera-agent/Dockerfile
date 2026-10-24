@@ -22,7 +22,9 @@ COPY apps/camera-agent apps/camera-agent
 RUN pnpm --filter camera-agent build
 
 FROM node:24-alpine
-# ffprobe — проверка камер; ffmpeg понадобится для отдачи потока.
+# ffprobe — проверка камер; ffmpeg понадобится для отдачи потока. Версия не закреплена
+# намеренно (DL3018) — по той же причине, что в apps/api/Dockerfile.
+# hadolint ignore=DL3018
 RUN apk add --no-cache ffmpeg
 WORKDIR /app
 COPY apps/camera-agent/package.json ./

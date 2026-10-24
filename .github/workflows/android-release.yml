@@ -23,7 +23,7 @@ defaults:
 jobs:
   bundle:
     name: Подписанный AAB
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Забрать код
         uses: actions/checkout@v7
