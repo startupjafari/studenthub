@@ -248,6 +248,30 @@ export async function fetchApplications(filters: ApplicationFilters): Promise<Ap
   return { items: res.data, total: res.meta?.total ?? res.data.length }
 }
 
+// Потолок страницы списка на сервере (OffsetPaginationSchema) и страниц на один обход:
+// своих заявок у студента единицы-десятки, 20 страниц — с большим запасом.
+const LIST_PAGE_MAX = 100
+const LIST_PAGES_MAX = 20
+
+/**
+ * Все заявки по фильтру — страницами по 100 до `total`. Нужен списку студента: он
+ * раскладывает свои заявки по вкладкам и считает их на клиенте, и одна страница обрезала
+ * бы и вкладки, и счётчики.
+ */
+export async function fetchAllApplications(
+  filters: Omit<ApplicationFilters, 'page' | 'limit'>,
+): Promise<ApplicationListPage> {
+  const items: ApplicationListItem[] = []
+  let total = 0
+  for (let page = 1; page <= LIST_PAGES_MAX; page++) {
+    const res = await fetchApplications({ ...filters, page, limit: LIST_PAGE_MAX })
+    items.push(...res.items)
+    total = res.total
+    if (res.items.length < LIST_PAGE_MAX || items.length >= total) break
+  }
+  return { items, total }
+}
+
 export async function fetchApplication(id: string): Promise<ApplicationDetail> {
   const { data } = await api.get<ApplicationDetail>(`/applications/${id}`)
   return data
