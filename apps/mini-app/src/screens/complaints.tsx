@@ -5,6 +5,7 @@ import {
   takeComplaint,
   type Complaint,
   type ComplaintPriority,
+  type ComplaintStatus,
   type ComplaintTarget,
 } from '../api/complaints'
 import { ComplaintScreen } from './complaint'
@@ -75,6 +76,14 @@ const UNDO_MS = 4000
 
 type Tab = 'open' | 'done'
 
+// Что лежит во вкладке. В очереди — и взятые в разбор (REVIEWING): как OPEN_STATUSES на
+// сервере. Без них жалоба, взятая свайпом, пропадала с экрана, а решить её было негде.
+// В разобранных — и отклонённые (DISMISSED), а не только решённые с мерой.
+const TAB_STATUSES: Record<Tab, ComplaintStatus[]> = {
+  open: ['PENDING', 'REVIEWING'],
+  done: ['RESOLVED', 'DISMISSED'],
+}
+
 type State = { status: 'loading' } | { status: 'ready'; items: Complaint[] } | { status: 'error' }
 
 /** `initialId` — жалоба из ссылки в уведомлении: открываем её сразу, минуя очередь. */
@@ -105,11 +114,17 @@ export function ComplaintsScreen({ initialId }: { initialId?: string }) {
   const load = useCallback(async () => {
     setState({ status: 'loading' })
     try {
-      const page = await fetchComplaints({
-        status: tab === 'open' ? 'PENDING' : 'RESOLVED',
-        ...(priority ? { priority } : {}),
-      })
-      setState({ status: 'ready', items: page.items })
+      // Список принимает один статус, а вкладка — два: каждый своим запросом.
+      const pages = await Promise.all(
+        TAB_STATUSES[tab].map((status) =>
+          fetchComplaints({ status, ...(priority ? { priority } : {}) }),
+        ),
+      )
+      const items = pages.flatMap((page) => page.items)
+      // Очередь — в порядке сервера: сначала ничьи, потом взятые. Разобранные — по
+      // свежести, иначе отклонённые шли бы отдельным хвостом после всех решённых.
+      if (tab === 'done') items.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      setState({ status: 'ready', items })
       setSeen(true)
       // Скрытой остаётся только та, чьё решение ещё ждёт отправки: остальные либо уже
       // ушли из очереди на сервере, либо вернулись по отмене.
@@ -359,8 +374,10 @@ function ComplaintList({
 
   return (
     <>
-      {groups.map((group) => (
-        <section className="list" key={group.label}>
+      {groups.map((group, index) => (
+        // Индекс в ключе: порядок задаёт сервер (статус, приоритет), и один и тот же день
+        // может встретиться группой дважды.
+        <section className="list" key={`${index}-${group.label}`}>
           <p className="list-day">{group.label}</p>
           {group.items.map((complaint) => (
             <SwipeRow

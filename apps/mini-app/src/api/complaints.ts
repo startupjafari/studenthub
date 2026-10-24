@@ -37,7 +37,10 @@ export interface ComplaintPage {
  * две очереди с разным порядком разъехались бы, и модераторы разбирали бы разное.
  */
 export interface ComplaintQuery {
-  /** `PENDING` — очередь, `RESOLVED` — разобранное. */
+  /**
+   * Один статус: список больше не принимает. Очередь — `PENDING` и `REVIEWING`,
+   * разобранное — `RESOLVED` и `DISMISSED`; экран спрашивает их по отдельности.
+   */
   status: ComplaintStatus
   priority?: ComplaintPriority
   limit?: number
