@@ -961,13 +961,17 @@ export class PostsService {
   ): Promise<ViewerPost> {
     const post = await this.prisma.post.findFirst({
       where: { id, deletedAt: null },
-      select: { id: true, authorId: true },
+      select: { id: true, authorId: true, originalPostId: true },
     })
     if (!post) {
       throw new AppException('NOT_FOUND', 'Пост не найден')
     }
     if (post.authorId !== actor.sub) {
       throw new AppException('FORBIDDEN', 'Редактировать можно только свою публикацию')
+    }
+    // Пустой текст допустим только у репоста — его заметка необязательна, как при создании.
+    if (input.content !== undefined && !input.content.trim() && !post.originalPostId) {
+      throw new AppException('BAD_REQUEST', 'Текст публикации не может быть пустым')
     }
     const data: Prisma.PostUpdateInput = {}
     if (input.title !== undefined) data.title = input.title?.trim() || null

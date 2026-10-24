@@ -1134,6 +1134,27 @@ describe('PostsService.update — правка только своей публ�
       .catch((e: AppException) => e)
     expect((err as AppException).code).toBe('NOT_FOUND')
   })
+
+  it('заметку репоста можно стереть: пустой текст сохраняется', async () => {
+    const { service, prisma } = setup()
+    prisma.post.findFirst.mockResolvedValue(
+      postRow({ id: 'p1', authorId: 'u-1', originalPostId: 'orig-1' }),
+    )
+    await service.update(viewer(Role.STUDENT), 'p1', { content: '' }, ctx)
+    expect(prisma.post.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { content: '' } }),
+    )
+  })
+
+  it('у обычного поста пустой текст → BAD_REQUEST', async () => {
+    const { service, prisma } = setup()
+    prisma.post.findFirst.mockResolvedValue(postRow({ id: 'p1', authorId: 'u-1' }))
+    const err = await service
+      .update(viewer(Role.STUDENT), 'p1', { content: '  ' }, ctx)
+      .catch((e: AppException) => e)
+    expect((err as AppException).code).toBe('BAD_REQUEST')
+    expect(prisma.post.update).not.toHaveBeenCalled()
+  })
 })
 
 // ── Избранное: личная полка ─────────────────────────────────────────────────
