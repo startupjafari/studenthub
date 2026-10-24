@@ -80,8 +80,16 @@ export const CreateStorySchema = z
   })
 export type CreateStoryInput = z.infer<typeof CreateStorySchema>
 
-/** Реакция на сторис (как у поста и сообщения — эмодзи строкой). */
-export const StoryReactionSchema = z.object({ emoji: z.string().min(1).max(16) }).strict()
+/**
+ * Реакции на сторис — только из белого списка, как у постов (POST_REACTION_EMOJIS).
+ * Произвольная строка позволяла одному человеку поставить на сторис сколько угодно
+ * «реакций» и раздуть сводку у всех зрителей. Набор — быстрые реакции просмотрщика: другого
+ * способа реагировать на сторис у клиентов нет (мобильные сторис не показывают).
+ */
+export const STORY_REACTION_EMOJIS = ['❤️', '🔥', '👏', '😮', '😢'] as const
+export type StoryReactionEmoji = (typeof STORY_REACTION_EMOJIS)[number]
+
+export const StoryReactionSchema = z.object({ emoji: z.enum(STORY_REACTION_EMOJIS) }).strict()
 export type StoryReactionInput = z.infer<typeof StoryReactionSchema>
 
 /** Голос в опросе сторис. Выбор одиночный: повторный голос меняет прежний. */

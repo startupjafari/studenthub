@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config'
 import { Prisma, StoryAudience } from '@prisma/client'
 import { Role, isHigherRole } from '@studenthub/shared-types'
 import {
+  STORY_REACTION_EMOJIS,
   STORY_TTL_HOURS,
   type CreateStoryInput,
   type StoriesFeedQueryInput,
@@ -50,6 +51,10 @@ const FEED_TAKE = 200
 
 // Размер батча удаления в кроне (как BATCH_SIZE в CleanupService).
 const CLEANUP_BATCH = 500
+
+// Реакции из белого списка (StoryReactionSchema). Строки с произвольным текстом, поставленные
+// до списка, в сводке не считаются — как у постов; через сутки они уходят вместе со сторис.
+const REACTION_EMOJI_WHERE = { emoji: { in: [...STORY_REACTION_EMOJIS] } }
 
 const AUTHOR_SELECT = {
   select: { id: true, firstName: true, lastName: true, role: true, avatarUrl: true },
@@ -269,15 +274,15 @@ export class StoriesService {
           : Promise.resolve([]),
         this.prisma.storyReaction.groupBy({
           by: ['storyId', 'emoji'],
-          where: { storyId: { in: ids } },
+          where: { storyId: { in: ids }, ...REACTION_EMOJI_WHERE },
           _count: { _all: true },
         }),
         this.prisma.storyReaction.findMany({
-          where: { userId: viewer.sub, storyId: { in: ids } },
+          where: { userId: viewer.sub, storyId: { in: ids }, ...REACTION_EMOJI_WHERE },
           select: { storyId: true, emoji: true },
-          // Свои реакции на показанных сторис: разных эмодзи от одного человека на одну
-          // сторис бывает единицы, потолок здесь — предохранитель (§5.3), а не обрезка.
-          take: ids.length * 4,
+          // Уникальность [storyId, userId, emoji] и белый список дают точный потолок: раньше
+          // стояло «4 на сторис», и пятая своя реакция приходила с mine: false.
+          take: ids.length * STORY_REACTION_EMOJIS.length,
         }),
         pollIds.length > 0
           ? this.prisma.storyPollVote.groupBy({

@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { ChevronLeft, ChevronRight, Eye, ExternalLink, Trash2, X } from 'lucide-react'
+import { STORY_REACTION_EMOJIS } from '@studenthub/shared-schemas'
 import { pickSource, srcSetOf, useBackClose, useBodyScrollLock, useHls } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 import {
@@ -50,8 +51,9 @@ function warmStory(card: StoryCard | undefined): void {
   img.src = media.url
 }
 // Быстрые реакции: один тап, без клавиатуры и выбора эмодзи. Набор закрыт намеренно —
-// полноценный пикер в формате, который смотрят секундами, никто не открывает.
-const QUICK_REACTIONS = ['❤️', '🔥', '👏', '😮', '😢'] as const
+// полноценный пикер в формате, который смотрят секундами, никто не открывает. Это и есть
+// белый список сервера (STORY_REACTION_EMOJIS): другую реакцию он отклонит.
+const QUICK_REACTIONS = STORY_REACTION_EMOJIS
 
 /**
  * Полноэкранный просмотр сторис: кадры одного автора идут подряд, по концу кольца

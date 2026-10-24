@@ -1,5 +1,6 @@
 import { StoryAudience } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
+import { STORY_REACTION_EMOJIS, StoryReactionSchema } from '@studenthub/shared-schemas'
 import { StoriesService } from './stories.service'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { AuditService } from '../../common/audit/audit.service'
@@ -198,6 +199,34 @@ describe('StoriesService.feed — кольца авторов', () => {
     expect(cards.find((c) => c.id === 'alien')?.viewsCount).toBeNull()
     // Чужие сторисы в агрегат просмотров не попадают вовсе.
     expect(prisma.storyView.groupBy.mock.calls[0][0].where.storyId.in).toEqual(['mine'])
+  })
+})
+
+// ── Реакции: белый список ────────────────────────────────────────────────────
+describe('StoriesService — реакции из белого списка', () => {
+  it('схема принимает только эмодзи из STORY_REACTION_EMOJIS', () => {
+    expect(StoryReactionSchema.safeParse({ emoji: '🔥' }).success).toBe(true)
+    expect(StoryReactionSchema.safeParse({ emoji: 'a1' }).success).toBe(false)
+  })
+
+  it('свои реакции читаются с точным потолком: все варианты на каждую сторис', async () => {
+    const { service, prisma } = setup()
+    prisma.story.findMany.mockResolvedValue([storyRow({ id: 's1' }), storyRow({ id: 's2' })])
+    // Пять своих реакций на одну сторис — все пять приходят как mine.
+    prisma.storyReaction.groupBy.mockResolvedValue(
+      STORY_REACTION_EMOJIS.map((emoji) => ({ storyId: 's1', emoji, _count: { _all: 1 } })),
+    )
+    prisma.storyReaction.findMany.mockResolvedValue(
+      STORY_REACTION_EMOJIS.map((emoji) => ({ storyId: 's1', emoji })),
+    )
+
+    const rings = await service.feed(viewer(Role.STUDENT, { sub: 'me' }), {})
+    const card = rings.flatMap((ring) => ring.stories).find((c) => c.id === 's1')
+
+    const args = prisma.storyReaction.findMany.mock.calls[0][0]
+    expect(args.take).toBe(2 * STORY_REACTION_EMOJIS.length)
+    expect(args.where.emoji).toEqual({ in: [...STORY_REACTION_EMOJIS] })
+    expect(card?.reactions.every((r) => r.mine)).toBe(true)
   })
 })
 
