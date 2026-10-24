@@ -43,6 +43,7 @@ import {
   FieldError,
 } from '../../../shared/ui'
 import { isoWeekParity, useErrorToast } from '../../../shared/lib'
+import { conflictDescription } from '../lib/conflict-description'
 
 const DAYS = [1, 2, 3, 4, 5, 6, 7]
 const WEEK_TYPES = ['BOTH', 'ODD', 'EVEN'] as const
@@ -144,7 +145,7 @@ export function PairDetailsModal({
       const err = apiErr(e)
       if (err.code === 'CONFLICT') {
         toast.error(t('conflictTitle'), {
-          description: err.details?.map((d) => d.message).join('; ') ?? t('conflictGeneric'),
+          description: conflictDescription(err.details, locale, (k) => t(k)),
         })
       } else showApiError(e)
     },
@@ -195,7 +196,7 @@ export function PairDetailsModal({
       if (err.code === 'CONFLICT') {
         toast.error(t('conflictTitle'), {
           id: 'pair-details',
-          description: err.details?.map((d) => d.message).join('; ') ?? t('conflictGeneric'),
+          description: conflictDescription(err.details, locale, (k) => t(k)),
         })
       } else showApiError(e)
     },

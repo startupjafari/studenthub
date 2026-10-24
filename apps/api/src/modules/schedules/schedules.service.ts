@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common'
 import { Prisma, ScheduleChangeType, WeekType } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
+import type { NotificationMessageKey } from '@studenthub/shared-config'
 import type {
   CreatePairInput,
   CreateScheduleChangeInput,
@@ -211,19 +212,21 @@ function mapPair(p: PairRow): PairDto {
   }
 }
 
-const CHANGE_TYPE_LABEL: Record<ScheduleChangeType, string> = {
-  MOVED: 'перенос занятия',
-  ROOM_CHANGED: 'смена аудитории',
-  CANCELLED: 'отмена занятия',
-  SUBSTITUTED: 'замена преподавателя',
+// Текст уведомления — своя словарная статья на тип изменения (shared-config): раньше в
+// параметр `{change}` уходила готовая русская строка, и kk/en получали её по-русски.
+const CHANGE_BODY_KEY: Record<ScheduleChangeType, NotificationMessageKey> = {
+  MOVED: 'schedule.moved.body',
+  ROOM_CHANGED: 'schedule.roomChanged.body',
+  CANCELLED: 'schedule.cancelled.body',
+  SUBSTITUTED: 'schedule.substituted.body',
 }
 
-// Текст уведомления, когда деканат убрал ошибочное изменение (C-F16).
-const CHANGE_REVOKED_LABEL: Record<ScheduleChangeType, string> = {
-  MOVED: 'перенос отменён, занятие в обычное время',
-  ROOM_CHANGED: 'смена аудитории отменена',
-  CANCELLED: 'занятие состоится',
-  SUBSTITUTED: 'замена преподавателя отменена',
+// Деканат убрал ошибочное изменение (C-F16).
+const CHANGE_REVOKED_BODY_KEY: Record<ScheduleChangeType, NotificationMessageKey> = {
+  MOVED: 'schedule.movedRevoked.body',
+  ROOM_CHANGED: 'schedule.roomChangedRevoked.body',
+  CANCELLED: 'schedule.cancelledRevoked.body',
+  SUBSTITUTED: 'schedule.substitutedRevoked.body',
 }
 
 /** День недели календарной даты YYYY-MM-DD по ISO (1 — понедельник). Дата уже местная. */
@@ -1179,7 +1182,7 @@ export class SchedulesService {
     if (input.date >= localDateString(new Date(), gctx.timezone)) {
       await this.enqueueChangeNotification(pair, change.id, {
         date: input.date,
-        label: CHANGE_TYPE_LABEL[type],
+        bodyKey: CHANGE_BODY_KEY[type],
         newTeacherId,
         dedupeKey: `schedule-changed:${change.id}`,
       })
@@ -1268,7 +1271,7 @@ export class SchedulesService {
         id,
         {
           date,
-          label: CHANGE_REVOKED_LABEL[change.type],
+          bodyKey: CHANGE_REVOKED_BODY_KEY[change.type],
           newTeacherId,
           dedupeKey: `schedule-change-removed:${id}`,
         },
@@ -1412,7 +1415,12 @@ export class SchedulesService {
   private async enqueueChangeNotification(
     pair: { id: string; groupId: string; subject: string; teacherId: string | null },
     changeId: string,
-    notice: { date: string; label: string; newTeacherId: string | null; dedupeKey: string },
+    notice: {
+      date: string
+      bodyKey: NotificationMessageKey
+      newTeacherId: string | null
+      dedupeKey: string
+    },
   ): Promise<void> {
     const members = await this.prisma.user.findMany({
       where: { groupId: pair.groupId, deletedAt: null },
@@ -1431,8 +1439,8 @@ export class SchedulesService {
         recipientIds: [...recipientIds],
         type: 'SCHEDULE_CHANGE',
         titleKey: 'schedule.changed.title',
-        bodyKey: 'schedule.changed.body',
-        params: { subject: pair.subject, change: notice.label, date: notice.date },
+        bodyKey: notice.bodyKey,
+        params: { subject: pair.subject, date: notice.date },
         data: { pairId: pair.id, changeId, groupId: pair.groupId, date: notice.date },
         // Идемпотентность: одно уведомление на изменение (docs/BACKEND_RULES.md §9.2).
         dedupeKey: notice.dedupeKey,

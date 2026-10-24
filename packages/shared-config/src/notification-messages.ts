@@ -40,6 +40,17 @@ const RU = {
 
   'schedule.changed.title': 'Изменение в расписании',
   'schedule.changed.body': '{subject}: {change} на {date}',
+  // Своя статья на тип изменения: прежняя `{change}` приходила готовой русской строкой и
+  // в kk/en (старые уведомления по-прежнему собираются по `schedule.changed.body`).
+  'schedule.moved.body': '{subject}: перенос занятия на {date}',
+  'schedule.roomChanged.body': '{subject}: смена аудитории на {date}',
+  'schedule.cancelled.body': '{subject}: отмена занятия на {date}',
+  'schedule.substituted.body': '{subject}: замена преподавателя на {date}',
+  // Деканат убрал ошибочное изменение (C-F16).
+  'schedule.movedRevoked.body': '{subject}: перенос на {date} отменён, занятие в обычное время',
+  'schedule.roomChangedRevoked.body': '{subject}: смена аудитории на {date} отменена',
+  'schedule.cancelledRevoked.body': '{subject}: занятие {date} состоится',
+  'schedule.substitutedRevoked.body': '{subject}: замена преподавателя на {date} отменена',
 
   'moderation.warning.title': 'Предупреждение модератора',
   'moderation.warning.body':
@@ -194,6 +205,15 @@ const KK: Record<NotificationMessageKey, string> = {
 
   'schedule.changed.title': 'Сабақ кестесіндегі өзгеріс',
   'schedule.changed.body': '{subject}: {date} күніне {change}',
+  'schedule.moved.body': '{subject}: {date} күнгі сабақ ауыстырылды',
+  'schedule.roomChanged.body': '{subject}: {date} күні аудитория ауыстырылды',
+  'schedule.cancelled.body': '{subject}: {date} күнгі сабақ болмайды',
+  'schedule.substituted.body': '{subject}: {date} күні оқытушы ауыстырылды',
+  'schedule.movedRevoked.body':
+    '{subject}: {date} күнгі ауыстыру болдырылмады, сабақ әдеттегі уақытта',
+  'schedule.roomChangedRevoked.body': '{subject}: {date} күнгі аудитория ауыстыру болдырылмады',
+  'schedule.cancelledRevoked.body': '{subject}: {date} күнгі сабақ өтеді',
+  'schedule.substitutedRevoked.body': '{subject}: {date} күнгі оқытушы ауыстыру болдырылмады',
 
   'moderation.warning.title': 'Модератор ескертуі',
   'moderation.warning.body':
@@ -327,6 +347,14 @@ const EN: Record<NotificationMessageKey, string> = {
 
   'schedule.changed.title': 'Schedule change',
   'schedule.changed.body': '{subject}: {change} on {date}',
+  'schedule.moved.body': '{subject}: class moved on {date}',
+  'schedule.roomChanged.body': '{subject}: room changed on {date}',
+  'schedule.cancelled.body': '{subject}: class cancelled on {date}',
+  'schedule.substituted.body': '{subject}: substitute teacher on {date}',
+  'schedule.movedRevoked.body': '{subject}: the move on {date} is undone, class at the usual time',
+  'schedule.roomChangedRevoked.body': '{subject}: the room change on {date} is undone',
+  'schedule.cancelledRevoked.body': '{subject}: the class on {date} will take place',
+  'schedule.substitutedRevoked.body': '{subject}: the teacher substitution on {date} is undone',
 
   'moderation.warning.title': 'Moderator warning',
   'moderation.warning.body':

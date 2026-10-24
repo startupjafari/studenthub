@@ -459,6 +459,7 @@ describe('SchedulesService.createChange — WS + очередь (6.5)', () => {
     expect(new Set(jobArg.recipientIds)).toEqual(new Set(['s-1', 's-2', 't-1']))
     expect(jobArg.type).toBe('SCHEDULE_CHANGE')
     expect(jobArg.dedupeKey).toBe('schedule-changed:chg-1')
+    expect(jobArg.bodyKey).toBe('schedule.cancelled.body')
   })
 
   it('прошедшая дата: изменение пишется и транслируется, но уведомления нет', async () => {
@@ -1147,7 +1148,9 @@ describe('SchedulesService — разовые изменения (C-F16)', () =>
       expect(realtime.emitToUser).toHaveBeenCalledWith('t-1', 'schedule:changed', payload)
       const job = queue.enqueue.mock.calls[0][2]
       expect(job.dedupeKey).toBe('schedule-change-removed:chg-1')
-      expect(job.params.change).toBe('занятие состоится')
+      // Ключ статьи на тип изменения, а не готовая русская строка в параметре (kk/en).
+      expect(job.bodyKey).toBe('schedule.cancelledRevoked.body')
+      expect(job.params).toEqual({ subject: 'Матанализ', date: '2999-01-05' })
       expect(new Set(job.recipientIds)).toEqual(new Set(['s-1', 't-1']))
     })
 

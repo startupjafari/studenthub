@@ -5,7 +5,7 @@ import { Controller, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { useTranslations } from 'next-intl'
+import { useLocale, useTranslations } from 'next-intl'
 import { Plus } from 'lucide-react'
 import { CreatePairSchema, type CreatePairInput } from '@studenthub/shared-schemas'
 import type { ApiErrorBody } from '@studenthub/shared-types'
@@ -26,6 +26,7 @@ import {
   SelectValue,
 } from '../../../shared/ui'
 import { useErrorToast } from '../../../shared/lib'
+import { conflictDescription } from '../lib/conflict-description'
 
 const DAYS = [1, 2, 3, 4, 5, 6, 7]
 const WEEK_TYPES = ['BOTH', 'ODD', 'EVEN'] as const
@@ -57,6 +58,7 @@ export function AddPairModal({
   onClose: () => void
 }) {
   const t = useTranslations('Schedule')
+  const locale = useLocale()
   const tPeople = useTranslations('People')
   const tCommon = useTranslations('Common')
   const qc = useQueryClient()
@@ -82,7 +84,7 @@ export function AddPairModal({
       const err = apiErr(e)
       if (err.code === 'CONFLICT') {
         toast.error(t('conflictTitle'), {
-          description: err.details?.map((d) => d.message).join('; ') ?? t('conflictGeneric'),
+          description: conflictDescription(err.details, locale, (k) => t(k)),
         })
       } else show(e)
     },

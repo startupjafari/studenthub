@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { useTranslations } from 'next-intl'
+import { useLocale, useTranslations } from 'next-intl'
 import { CalendarPlus, Check, Layers, MousePointerClick, Plus } from 'lucide-react'
 import type { UpdatePairInput } from '@studenthub/shared-schemas'
 import type { ApiErrorBody } from '@studenthub/shared-types'
@@ -36,6 +36,7 @@ import { AddPairModal } from './add-pair-modal'
 import { CreateVersionModal } from './create-version-modal'
 import { ScheduleDayList } from './schedule-day-list'
 import { PairDetailsModal } from './pair-details-modal'
+import { conflictDescription } from '../lib/conflict-description'
 
 function apiErr(e: unknown): ApiErrorBody {
   return e as ApiErrorBody
@@ -54,6 +55,7 @@ function addMinutes(hhmm: string, delta: number): string {
 export function ManageSchedule({ mode = 'admin' }: { mode?: 'admin' | 'teacher' }) {
   const isTeacher = mode === 'teacher'
   const t = useTranslations('Schedule')
+  const locale = useLocale()
   const qc = useQueryClient()
   const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
 
@@ -117,7 +119,7 @@ export function ManageSchedule({ mode = 'admin' }: { mode?: 'admin' | 'teacher' 
       const err = apiErr(e)
       if (err.code === 'CONFLICT') {
         toast.error(t('conflictTitle'), {
-          description: err.details?.map((d) => d.message).join('; ') ?? t('conflictGeneric'),
+          description: conflictDescription(err.details, locale, (k) => t(k)),
         })
       } else showApiError(e)
     },
@@ -134,7 +136,7 @@ export function ManageSchedule({ mode = 'admin' }: { mode?: 'admin' | 'teacher' 
       const err = apiErr(e)
       if (err.code === 'CONFLICT') {
         toast.error(t('conflictTitle'), {
-          description: err.details?.map((d) => d.message).join('; ') ?? t('conflictGeneric'),
+          description: conflictDescription(err.details, locale, (k) => t(k)),
         })
       } else showApiError(e)
     },
