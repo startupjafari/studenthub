@@ -72,14 +72,18 @@ const ALLOWED_AUDIENCES: Record<Role, PostAudience[]> = {
   [Role.LIBRARIAN]: [],
 }
 
-// Базовый приоритет в ленте по аудитории (docs/PROJECT.md §3.3).
+// Базовый приоритет в ленте по аудитории (docs/PROJECT.md §3.3). Сотрудник получает +2
+// (priorityFor), поэтому итоговый порядок: объявление группы (32) → пост преподавателя по
+// предмету (31) → пост студента в группу (30). SUBJECT публикует только преподаватель, и
+// база 25 ставила его пост (27) ниже студенческих — вопреки «посты преподавателей выше
+// постов студентов».
 const AUDIENCE_PRIORITY: Record<PostAudience, number> = {
   [PostAudience.ALL]: 50,
   [PostAudience.UNIVERSITY]: 40,
   [PostAudience.FACULTY]: 35,
   [PostAudience.TEACHERS]: 32,
   [PostAudience.GROUP]: 30,
-  [PostAudience.SUBJECT]: 25,
+  [PostAudience.SUBJECT]: 29,
   [PostAudience.PERSONAL]: 20,
 }
 

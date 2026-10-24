@@ -397,6 +397,19 @@ describe('PostsService.create — аудитория по роли (8.2)', () =>
     expect(prisma.post.create).not.toHaveBeenCalled()
   })
 
+  it('пост преподавателя по предмету выше поста студента в группу (§3.3)', async () => {
+    const { service, prisma } = setup()
+    prisma.post.findFirst.mockResolvedValue(postRow({ audience: 'SUBJECT' }))
+    await service.create(
+      viewer(Role.TEACHER, { sub: 't1', universityId: 'uni-1' }),
+      { audience: 'SUBJECT', content: 'x', subject: 'Матанализ' },
+      ctx,
+    )
+    const teacherPriority = prisma.post.create.mock.calls[0][0].data.priority
+    // Студенческий пост в группу — 30 (база GROUP без надбавки сотрудника).
+    expect(teacherPriority).toBeGreaterThan(30)
+  })
+
   it('платформенный админ → ALL: ок', async () => {
     const { service, prisma } = setup()
     prisma.post.findFirst.mockResolvedValue(postRow({ audience: 'ALL' }))
