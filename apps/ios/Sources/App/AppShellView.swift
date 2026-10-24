@@ -14,6 +14,10 @@ struct AppShellView: View {
     /// Общий маршрутизатор: по нему же ходит переход из уведомления.
     @Bindable private var router = AppServices.router
 
+    /// Действует ли согласие на обработку ПДн: без него приложение закрыто экраном
+    /// согласия, как окном `ConsentGate` в вебе.
+    @State private var consent = ConsentGateModel()
+
     private var role: Role { viewer.role }
 
     var body: some View {
@@ -32,6 +36,12 @@ struct AppShellView: View {
             }
         }
         .tint(Palette.primary)
+        .fullScreenCover(isPresented: Binding(get: { consent.isRequired }, set: { _ in })) {
+            ConsentGateView(model: consent, session: session)
+        }
+        .task {
+            await consent.load()
+        }
         .task {
             // Соединение живёт, пока человек внутри приложения: вход в него делает
             // сессия, выход — её конец.

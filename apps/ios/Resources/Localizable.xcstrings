@@ -1554,6 +1554,193 @@
         }
       }
     },
+    "consent.accept": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Принять"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қабылдау"
+          }
+        }
+      }
+    },
+    "consent.adultText": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "По дате рождения в профиле вам уже исполнилось 18, а согласие на обработку персональных данных давал законный представитель. Подтвердите его от своего имени."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Профильдегі туған күніңіз бойынша сізге 18 жас толған, ал дербес деректерді өңдеуге келісімді заңды өкіліңіз берген. Келісімді өз атыңыздан растаңыз."
+          }
+        }
+      }
+    },
+    "consent.ageTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Подтвердите согласие"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Келісімді растаңыз"
+          }
+        }
+      }
+    },
+    "consent.agree": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Я принимаю политику конфиденциальности и пользовательское соглашение"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мен құпиялылық саясаты мен пайдаланушы келісімін қабылдаймын"
+          }
+        }
+      }
+    },
+    "consent.birthDate": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дата рождения"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Туған күні"
+          }
+        }
+      }
+    },
+    "consent.guardian": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мне нет 18 лет, и мой законный представитель дал согласие на обработку моих персональных данных"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Маған 18 жас толмаған, және заңды өкілім дербес деректерімді өңдеуге келісім берді"
+          }
+        }
+      }
+    },
+    "consent.guardianRequired": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нужно согласие законного представителя"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Заңды өкілдің келісімі қажет"
+          }
+        }
+      }
+    },
+    "consent.minorText": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "По дате рождения в профиле вам нет 18 лет. За несовершеннолетнего согласие на обработку персональных данных даёт законный представитель — подтвердите его."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Профильдегі туған күніңіз бойынша сізге 18 жас толмаған. Кәмелетке толмаған адамның дербес деректерін өңдеуге келісімді заңды өкілі береді — оны растаңыз."
+          }
+        }
+      }
+    },
+    "consent.required": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Без согласия продолжить нельзя"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Келісімсіз жалғастыру мүмкін емес"
+          }
+        }
+      }
+    },
+    "consent.versionText": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мы обновили политику конфиденциальности и пользовательское соглашение. Чтобы продолжить работу на платформе, ознакомьтесь с новой редакцией и примите её."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Біз құпиялылық саясаты мен пайдаланушы келісімін жаңарттық. Платформада жұмысты жалғастыру үшін жаңа редакциямен танысып, оны қабылдаңыз."
+          }
+        }
+      }
+    },
+    "consent.versionTitle": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Обновились правовые документы"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Құқықтық құжаттар жаңартылды"
+          }
+        }
+      }
+    },
     "documents.empty": {
       "extractionState": "manual",
       "localizations": {
