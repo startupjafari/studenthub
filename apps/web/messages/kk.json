@@ -4008,6 +4008,7 @@
     "cardNumber": "Билет №",
     "validUntil": "Жарамды дейін",
     "refreshIn": "{s} с кейін жаңарады",
+    "qrExpiredRefresh": "Код ескірді — жаңарту",
     "qrEnlarge": "QR-ды үлкейту",
     "qrTitle": "Студенттік QR",
     "verifiedBadge": "✓ StudentHub растады",

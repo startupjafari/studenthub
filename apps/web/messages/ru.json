@@ -4008,6 +4008,7 @@
     "cardNumber": "№ студенческого",
     "validUntil": "Действителен до",
     "refreshIn": "Обновится через {s} с",
+    "qrExpiredRefresh": "Код устарел — обновить",
     "qrEnlarge": "Открыть QR крупнее",
     "qrTitle": "QR студенческого",
     "verifiedBadge": "✓ Подтверждено StudentHub",
