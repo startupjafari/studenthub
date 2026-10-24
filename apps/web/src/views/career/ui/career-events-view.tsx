@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { useFormatter, useTranslations } from 'next-intl'
 import { CalendarDays, MapPin, Users, Video } from 'lucide-react'
@@ -156,7 +157,14 @@ export function CareerEventsView() {
                   <TableRow key={event.id} className="hover:bg-muted/40">
                     <TableCell className="font-medium">
                       <span className="flex items-center gap-2">
-                        <TableText value={event.title} />
+                        {/* Название ведёт в карточку события: записаться можно только там. */}
+                        <Link
+                          href={`/events/${event.id}`}
+                          title={event.title}
+                          className="min-w-0 truncate hover:text-primary hover:underline focus-visible:underline focus-visible:outline-none"
+                        >
+                          {event.title}
+                        </Link>
                         {event.registered && (
                           <Badge variant="secondary" className="shrink-0">
                             {t('registered')}

@@ -716,39 +716,45 @@ function CareerEventRow({ event: e }: { event: CareerEvent }) {
   const t = useTranslations('CareerEvents')
   const format = useFormatter()
   return (
-    <li className="flex items-center gap-3 rounded-lg border border-border p-2.5">
-      <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-        <CalendarClock className="size-4" aria-hidden />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-medium">{e.title}</span>
-        <span className="flex items-center gap-2 truncate text-xs text-muted-foreground">
-          {format.dateTime(new Date(e.startsAt), {
-            day: 'numeric',
-            month: 'short',
-            hour: '2-digit',
-            minute: '2-digit',
-          })}
-          {e.isOnline ? (
-            <span className="inline-flex items-center gap-1 text-info">
-              <Video className="size-3" aria-hidden />
-              {t('online')}
-            </span>
-          ) : (
-            e.location && (
-              <span className="inline-flex min-w-0 items-center gap-1">
-                <MapPin className="size-3 shrink-0" aria-hidden />
-                <span className="truncate">{e.location}</span>
-              </span>
-            )
-          )}
+    <li>
+      {/* Строка ведёт в карточку события: там описание, запись и обсуждение. */}
+      <Link
+        href={`/events/${e.id}`}
+        className="flex items-center gap-3 rounded-lg border border-border p-2.5 transition-colors hover:bg-muted/50"
+      >
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+          <CalendarClock className="size-4" aria-hidden />
         </span>
-      </span>
-      {e.registered && (
-        <Badge variant="success" className="shrink-0">
-          {t('registered')}
-        </Badge>
-      )}
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-medium">{e.title}</span>
+          <span className="flex items-center gap-2 truncate text-xs text-muted-foreground">
+            {format.dateTime(new Date(e.startsAt), {
+              day: 'numeric',
+              month: 'short',
+              hour: '2-digit',
+              minute: '2-digit',
+            })}
+            {e.isOnline ? (
+              <span className="inline-flex items-center gap-1 text-info">
+                <Video className="size-3" aria-hidden />
+                {t('online')}
+              </span>
+            ) : (
+              e.location && (
+                <span className="inline-flex min-w-0 items-center gap-1">
+                  <MapPin className="size-3 shrink-0" aria-hidden />
+                  <span className="truncate">{e.location}</span>
+                </span>
+              )
+            )}
+          </span>
+        </span>
+        {e.registered && (
+          <Badge variant="success" className="shrink-0">
+            {t('registered')}
+          </Badge>
+        )}
+      </Link>
     </li>
   )
 }
