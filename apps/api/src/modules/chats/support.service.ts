@@ -53,6 +53,9 @@ const TICKET_STAFF_SCAN = 500
 /** Порция чтения команды платформы при создании обращения. */
 const STAFF_BATCH = 200
 
+/** Порция обращений, которые автозакрытие просматривает за один запрос. */
+const STALE_BATCH = 200
+
 @Injectable()
 export class SupportService implements OnModuleInit {
   private readonly logger = new Logger(SupportService.name)
@@ -635,20 +638,36 @@ export class SupportService implements OnModuleInit {
    * Ответ такое обращение откроет снова, поэтому закрытие ничего не отнимает.
    */
   async closeStale(olderThan: Date): Promise<number> {
-    const stale = await this.prisma.chat.findMany({
-      where: {
-        type: ChatType.SUPPORT_PLATFORM,
-        supportClosedAt: null,
-        updatedAt: { lt: olderThan },
-      },
-      select: { id: true },
-      take: 200,
-    })
+    // Порциями по курсору до конца, а не одна выборка: отбор «последней писала команда»
+    // идёт после чтения, и двести обращений, где последним писал автор, навсегда занимали
+    // всю выборку — остальные не закрывались никогда.
+    let closed = 0
+    let cursor: string | undefined
+    for (;;) {
+      const stale = await this.prisma.chat.findMany({
+        where: {
+          type: ChatType.SUPPORT_PLATFORM,
+          supportClosedAt: null,
+          updatedAt: { lt: olderThan },
+        },
+        select: { id: true },
+        orderBy: { id: 'asc' },
+        take: STALE_BATCH,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      })
+      closed += await this.closeAnsweredByStaff(stale.map((chat) => chat.id))
+      if (stale.length < STALE_BATCH) return closed
+      cursor = stale.at(-1)?.id
+    }
+  }
+
+  /** Из переданных обращений закрывает те, где последнее слово было за командой. */
+  private async closeAnsweredByStaff(chatIds: string[]): Promise<number> {
     // Последнее слово — по одной строке на обращение, а не всей перепиской (F-F02).
     // Удалённые сообщения тоже считаются: правило «кто ответил последним» не менялось.
     const last = await lastMessagesOf(
       this.prisma,
-      stale.map((chat) => chat.id),
+      chatIds,
       (ids) =>
         this.prisma.message.findMany({
           where: { id: { in: ids } },
@@ -658,12 +677,10 @@ export class SupportService implements OnModuleInit {
       { includeDeleted: true },
     )
 
-    const ids = stale
-      .filter((chat) => {
-        const lastRole = last.get(chat.id)?.sender.role as Role | undefined
-        return lastRole !== undefined && STAFF_ROLES.includes(lastRole)
-      })
-      .map((chat) => chat.id)
+    const ids = chatIds.filter((id) => {
+      const lastRole = last.get(id)?.sender.role as Role | undefined
+      return lastRole !== undefined && STAFF_ROLES.includes(lastRole)
+    })
     if (ids.length === 0) return 0
 
     const { count } = await this.prisma.chat.updateMany({

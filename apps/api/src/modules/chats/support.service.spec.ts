@@ -497,6 +497,22 @@ describe('SupportService.closeStale', () => {
     })
   })
 
+  // BUG-111: двести «вечных» обращений, где последним писал автор, занимали всю выборку —
+  // остальные не закрывались никогда. Теперь выборка идёт по курсору до конца.
+  it('проходит обращения порциями до конца, а не одну выборку', async () => {
+    const { service, prisma } = staleSetup(Role.PLATFORM_ADMIN)
+    const full = Array.from({ length: 200 }, (_, i) => ({ id: `a${String(i).padStart(3, '0')}` }))
+    prisma.chat.findMany.mockResolvedValueOnce(full).mockResolvedValueOnce([{ id: 't1' }])
+
+    await service.closeStale(new Date())
+
+    expect(prisma.chat.findMany).toHaveBeenCalledTimes(2)
+    expect(prisma.chat.findMany.mock.calls[1]?.[0]).toMatchObject({
+      cursor: { id: 'a199' },
+      skip: 1,
+    })
+  })
+
   it('не закрывает обращение, где последним писал автор', async () => {
     const { service, prisma } = staleSetup(Role.STUDENT)
 
