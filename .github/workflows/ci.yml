@@ -142,14 +142,14 @@ jobs:
           ```
 
           Job'ы идут параллельно и друг друга не ждут — кроме образов: они собираются только
-          для приложений, которых коснулось изменение (на push в `main` — все четыре).
+          для приложений, которых коснулось изменение (на push в `main` — все).
           Красный любой из них означает «не мёржим».
 
           | Проверка | Что делает | Если красная |
           |---|---|---|
           | **Код** | eslint, `tsc --noEmit`, юнит-тесты api и веба с покрытием (таблица ниже), тесты сида, сверка OpenAPI-схемы с кодом, интеграционные тесты api с базой, сборка всех приложений | сломан код или тест — смотреть упавший шаг |
           | **Веб** | Playwright поднимает свои api и web на отдельных портах и базе и проходит вход, ленту, публикацию, заявку, расписание | сломан путь пользователя; к прогону приложен отчёт `playwright-report` со скриншотами и трассой |
-          | **Образ · app** | `docker build` четырёх приложений без публикации, trivy по собранному образу, затем запуск контейнера и проверка, что он отвечает | Railway не соберёт или не запустит этот образ на выкатке; находки trivy пока не блокируют и лежат таблицей ниже |
+          | **Образ · app** | `docker build` всех образов без публикации, trivy по собранному образу, затем запуск контейнера и проверка, что он отвечает (кроме агента камер и ретранслятора) | Railway не соберёт или не запустит этот образ на выкатке; находки trivy пока не блокируют и лежат таблицей ниже |
           | **Безопасность** | `pnpm audit --prod` (блокирует) и поиск секретов во всей истории; аудит всех зависимостей — отдельной таблицей ниже на этой же странице, он не блокирует | уязвимость в рантайм-зависимости или секрет в коммите |
           | **Прогоны** | actionlint и zizmor по файлам `.github/workflows`: синтаксис, выражения, shell внутри `run`, права токена, подстановка ввода в команды | сломан или небезопасен сам прогон |
           | **Нота «Что нового»** | для следующей версии написан текст релиза | релиз уедет без описания для пользователей |
@@ -670,14 +670,14 @@ jobs:
           # Шаг выполняется с `bash -e`, поэтому проверки оформлены через `if`, а не
           # цепочками `[ … ] && …`: ложное условие в конце строки прервало бы весь шаг,
           # и прогон упал бы там, где всего лишь «нет, это не push в main».
-          ALL='["api","web","landing","mini-app"]'
+          ALL='["api","web","landing","mini-app","camera-agent","media-relay"]'
 
           decide_all() {
             echo "apps=$ALL" >> "$GITHUB_OUTPUT"
             {
               echo "## Образы к пересборке"
               echo ""
-              echo "Собираем все четыре: $1."
+              echo "Собираем все: $1."
             } >> "$GITHUB_STEP_SUMMARY"
             exit 0
           }
@@ -713,23 +713,28 @@ jobs:
             exit 0
           fi
 
-          # Общий код и корневые файлы задевают все четыре образа: packages/* попадают в
-          # каждую сборку, лок-файл и turbo.json определяют, что вообще установится, а
-          # правка самого ci.yml меняет то, как эти образы собираются.
-          if echo "$files" | grep -qE '^(packages/|pnpm-lock\.yaml|pnpm-workspace\.yaml|package\.json|turbo\.json|tsconfig\.base\.json|\.github/workflows/ci\.yml)'; then
+          # Общий код и корневые файлы задевают все образы: packages/* попадают в каждую
+          # сборку, лок-файл, .npmrc и turbo.json определяют, что вообще установится,
+          # .dockerignore — что попадёт в контекст сборки, а правка самого ci.yml меняет
+          # то, как эти образы собираются.
+          if echo "$files" | grep -qE '^(packages/|pnpm-lock\.yaml|pnpm-workspace\.yaml|package\.json|turbo\.json|tsconfig\.base\.json|\.npmrc|\.dockerignore|\.github/workflows/ci\.yml)'; then
             decide_all "изменён общий код или корневые файлы"
           fi
 
           selected=''
           add() { case " $selected " in *" $1 "*) ;; *) selected="$selected $1" ;; esac; }
 
-          for app in api web landing mini-app; do
+          for app in api web landing mini-app camera-agent; do
             if echo "$files" | grep -q "^apps/$app/"; then
               add "$app"
             fi
           done
-          # Схема и миграции едут внутрь образа api.
-          if echo "$files" | grep -q '^prisma/'; then
+          # Ретранслятор камер живёт не в apps/, а рядом с остальной инфраструктурой.
+          if echo "$files" | grep -q '^docker/media-relay/'; then
+            add media-relay
+          fi
+          # Схема, миграции и конфиг Prisma едут внутрь образа api.
+          if echo "$files" | grep -qE '^(prisma/|prisma\.config\.ts)'; then
             add api
           fi
 
@@ -745,7 +750,7 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
-  # Сборка образов всех четырёх приложений — без публикации.
+  # Сборка образов всех приложений — без публикации.
   #
   # Railway собирает их сам по push в main, то есть сломанный Dockerfile или пропавший
   # базовый образ обнаруживались уже на выкатке, когда код в main. Здесь та же сборка идёт
@@ -774,6 +779,22 @@ jobs:
         with:
           persist-credentials: false
 
+      # Почти все Dockerfile лежат в apps/<app> и собираются из корня репозитория. Исключение
+      # — ретранслятор камер: он в docker/media-relay, и контекст у него свой каталог
+      # (так его собирают Railway и docker/media-relay/compose.yml).
+      - name: Где лежит Dockerfile
+        id: src
+        env:
+          APP: ${{ matrix.app }}
+        run: |
+          if [ "$APP" = media-relay ]; then
+            echo "context=docker/media-relay" >> "$GITHUB_OUTPUT"
+            echo "file=docker/media-relay/Dockerfile" >> "$GITHUB_OUTPUT"
+          else
+            echo "context=." >> "$GITHUB_OUTPUT"
+            echo "file=apps/$APP/Dockerfile" >> "$GITHUB_OUTPUT"
+          fi
+
       # Линт Dockerfile до сборки: ошибку в инструкции дешевле увидеть сразу, чем через
       # несколько минут сборки.
       #
@@ -783,15 +804,15 @@ jobs:
       # правки в одной строке. Ошибки и предупреждения при этом блокируют.
       - name: Линт Dockerfile (hadolint)
         env:
-          APP: ${{ matrix.app }}
+          DOCKERFILE: ${{ steps.src.outputs.file }}
         run: |
           docker run --rm -i hadolint/hadolint:v2.15.1-alpine \
-            hadolint --no-color --failure-threshold warning - < "apps/$APP/Dockerfile"
+            hadolint --no-color --failure-threshold warning - < "$DOCKERFILE"
 
       - name: Поставить docker buildx
         uses: docker/setup-buildx-action@v4
 
-      # Контекст — корень репозитория: все четыре Dockerfile копируют pnpm-lock.yaml и
+      # Контекст — корень репозитория: Dockerfile приложений копируют pnpm-lock.yaml и
       # манифесты воркспейса, из каталога приложения их не видно.
       #
       # build-args задаются одним списком на все приложения: аргумент, о котором Dockerfile
@@ -800,8 +821,8 @@ jobs:
       - name: Собрать образ ${{ matrix.app }} — без публикации
         uses: docker/build-push-action@v7
         with:
-          context: .
-          file: apps/${{ matrix.app }}/Dockerfile
+          context: ${{ steps.src.outputs.context }}
+          file: ${{ steps.src.outputs.file }}
           push: false
           # load: true — образ кладётся в локальный демон раннера под именем из tags,
           # иначе сканировать нечего: buildx по умолчанию оставляет результат в своём
@@ -943,7 +964,12 @@ jobs:
       # живого API законно отдают и 3xx, и 5xx на конкретной странице, и делать из этого
       # красный прогон значило бы проверять не то. Отсутствие ответа — это и есть
       # «образ не работает».
+      #
+      # Агент камер HTTP не слушает и без токена платформы не стартует, ретранслятору
+      # нужны сертификат RTMPS и адрес JWKS — для них проверка ограничена сборкой, линтом
+      # и trivy.
       - name: Запустить образ ${{ matrix.app }} и дождаться ответа
+        if: matrix.app != 'camera-agent' && matrix.app != 'media-relay'
         env:
           APP: ${{ matrix.app }}
         run: |
