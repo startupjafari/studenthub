@@ -431,6 +431,14 @@ type AutoChat =
  * тип и его scope, у личного — пара собеседников по возрастанию id, чтобы «A пишет B» и
  * «B пишет A» вставали в одну очередь.
  */
+/** Ключ файла аватара группы по его публичному URL (бакет avatars общий с аватарами людей). */
+function chatAvatarKey(avatarUrl: string | null, bucket: string): string | null {
+  if (!avatarUrl) return null
+  const marker = `/${bucket}/`
+  const idx = avatarUrl.indexOf(marker)
+  return idx === -1 ? null : avatarUrl.slice(idx + marker.length)
+}
+
 /**
  * Курсор списка чатов — `<updatedAt в мс>_<id>`: граница, а не ссылка на строку. Для клиента
  * он по-прежнему непрозрачная строка.
@@ -3747,10 +3755,13 @@ export class ChatsService implements OnModuleInit {
   ): Promise<{ id: string; avatarUrl: string }> {
     const chat = await this.assertGroupCreator(actor, chatId)
     const bucket = this.config.get('MINIO_BUCKET_AVATARS', { infer: true })
+    // Файл заводится на создателя группы, а не на загрузившего: файл уходит каскадом вместе
+    // с владельцем, и при удалении надгробия бывшего админа группа теряла аватар у всех
+    // (PERSONAL_DATA §5). При передаче владения он переезжает к новому создателю.
     const file = await this.files.upload({
       buffer,
       bucket,
-      ownerId: actor.sub,
+      ownerId: chat.createdById ?? actor.sub,
       expectedCategory: 'IMAGE',
     })
     const avatarUrl = this.buildPublicUrl(bucket, file.key)
@@ -3796,11 +3807,8 @@ export class ChatsService implements OnModuleInit {
   // Удаляет прежний файл аватара группы по ключу из публичного URL (бакет avatars общий с
   // пользовательскими аватарами, поэтому чистим точечно, а не по владельцу).
   private async deleteChatAvatarFile(avatarUrl: string | null, bucket: string): Promise<void> {
-    if (!avatarUrl) return
-    const marker = `/${bucket}/`
-    const idx = avatarUrl.indexOf(marker)
-    if (idx === -1) return
-    const key = avatarUrl.slice(idx + marker.length)
+    const key = chatAvatarKey(avatarUrl, bucket)
+    if (!key) return
     const file = await this.prisma.file.findFirst({ where: { key, bucket }, select: { id: true } })
     if (file) await this.files.delete(file.id)
   }
@@ -3953,9 +3961,24 @@ export class ChatsService implements OnModuleInit {
       select: { id: true, bannedAt: true },
     })
     if (!target || target.bannedAt) throw new AppException('NOT_FOUND', 'Участник не найден')
+    const bucket = this.config.get('MINIO_BUCKET_AVATARS', { infer: true })
+    const avatarKey = chatAvatarKey(
+      (await this.prisma.chat.findUnique({ where: { id: chatId }, select: { avatarUrl: true } }))
+        ?.avatarUrl ?? null,
+      bucket,
+    )
     await this.prisma.$transaction([
       this.prisma.chat.update({ where: { id: chatId }, data: { createdById: userId } }),
       this.prisma.chatMember.updateMany({ where: { chatId, userId }, data: { isAdmin: true } }),
+      // Аватар группы живёт на создателе (см. setChatAvatar) — переезжает вместе с группой.
+      ...(avatarKey
+        ? [
+            this.prisma.file.updateMany({
+              where: { key: avatarKey, bucket },
+              data: { ownerId: userId },
+            }),
+          ]
+        : []),
     ])
     const owner = await this.prisma.user.findUnique({
       where: { id: userId },

@@ -3621,6 +3621,49 @@ describe('ChatsService — доставка отложенных', () => {
 
 // F-F21: прежний аватар группы удалялся ДО проверки нового — отказ по типу оставлял
 // `avatarUrl` на уже удалённый объект, и у группы висела битая картинка.
+// BUG-109: файл аватара жил на загрузившем и уходил каскадом с его надгробием — группа
+// теряла аватар у всех. Теперь он на создателе и переезжает при передаче владения.
+describe('ChatsService — аватар группы живёт на создателе', () => {
+  it('загрузка заводит файл на создателя группы', async () => {
+    const { service, prisma, files } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue({ isAdmin: true, bannedAt: null })
+    prisma.chat.findUnique.mockResolvedValue({
+      id: 'g1',
+      type: 'GROUP',
+      title: 'Группа',
+      avatarUrl: null,
+      createdById: 'u1',
+    })
+    prisma.message.create.mockResolvedValue({ id: 'sys1', createdAt: new Date() })
+    files.upload.mockResolvedValue({ id: 'new-file', key: 'new.png' })
+    prisma.chat.update.mockResolvedValue({ id: 'g1', avatarUrl: 'http://minio/avatars/new.png' })
+
+    await service.setChatAvatar(user('u1'), 'g1', Buffer.from('png'))
+
+    expect(files.upload).toHaveBeenCalledWith(expect.objectContaining({ ownerId: 'u1' }))
+  })
+
+  it('передача владения переводит файл аватара на нового создателя', async () => {
+    const { service, prisma, config } = setup()
+    config.get.mockImplementation((key: string) =>
+      key === 'MINIO_BUCKET_AVATARS' ? 'avatars' : 'chat-media',
+    )
+    prisma.chat.findUnique
+      .mockResolvedValueOnce({ id: 'g1', type: 'GROUP', createdById: 'u1' })
+      .mockResolvedValueOnce({ avatarUrl: 'http://minio/avatars/group.png' })
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'mem2', bannedAt: null })
+    prisma.$transaction.mockImplementationOnce(async (ops: unknown) => ops)
+    prisma.message.create.mockResolvedValue({ id: 'sys1', createdAt: new Date() })
+
+    await service.transferOwnership(user('u1'), 'g1', 'u2')
+
+    expect(prisma.file.updateMany).toHaveBeenCalledWith({
+      where: { key: 'group.png', bucket: 'avatars' },
+      data: { ownerId: 'u2' },
+    })
+  })
+})
+
 describe('ChatsService.setChatAvatar — замена аватара', () => {
   function avatarSetup() {
     const harness = setup()
