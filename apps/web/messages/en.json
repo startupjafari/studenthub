@@ -2443,6 +2443,7 @@
     "reporter": "Reporter",
     "resolution": "Resolution",
     "showChat": "Show chat",
+    "chatModeratorsOnly": "Moderators read the conversation for a report: university admins only have access to official chats.",
     "hideChat": "Hide chat",
     "loadingChat": "Loading…",
     "commentPlaceholder": "Resolution comment (optional)",

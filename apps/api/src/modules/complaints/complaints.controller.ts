@@ -24,6 +24,13 @@ const MODERATOR_ROLES = [
   Role.UNIVERSITY_MODERATOR,
 ] as const
 
+// «Личные чаты: ⚠️ по жалобе» в матрице §2.2. Админ вуза там «⚠️ официальные».
+const CHAT_BY_COMPLAINT_ROLES = [
+  Role.PLATFORM_ADMIN,
+  Role.PLATFORM_MODERATOR,
+  Role.UNIVERSITY_MODERATOR,
+] as const
+
 @ApiTags('Жалобы')
 @ApiBearerAuth()
 @Controller('complaints')
@@ -93,11 +100,14 @@ export class ComplaintsController {
   }
 
   @Get(':id/messages')
-  @Roles(...MODERATOR_ROLES)
+  // Без админа вуза: по матрице (§2.2) ему открыты только официальные чаты, а личную
+  // переписку по жалобе читают модераторы — вуза и платформы — и админ платформы.
+  @Roles(...CHAT_BY_COMPLAINT_ROLES)
   @MiniAllowed()
   @ApiOperation({ summary: 'Сообщения чата по жалобе (доступ только по жалобе, пишется в аудит)' })
   @ApiResponse({ status: 200, description: 'Сообщения чата' })
   @ApiResponse({ status: 400, description: 'BAD_REQUEST — жалоба не на сообщение' })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN — админ вуза (только официальные чаты)' })
   messages(
     @CurrentUser() user: CurrentUserData,
     @Param('id') id: string,

@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useLocale, useTranslations } from 'next-intl'
 import type { ReactNode } from 'react'
+import { Role } from '@studenthub/shared-types'
 import {
   complaintKeys,
   fetchComplaint,
@@ -74,6 +75,9 @@ export function ComplaintDetailModal({
   const qc = useQueryClient()
   const confirm = useConfirm()
   const myId = useAppSelector((st) => st.auth.user?.id)
+  // Личную переписку по жалобе читают модераторы; админу вуза матрица (§2.2) открывает
+  // только официальные чаты — сервер ему эту ручку не отдаёт.
+  const canReadChat = useAppSelector((st) => st.auth.role) !== Role.UNIVERSITY_ADMIN
   const [comment, setComment] = useState('')
   const [showChat, setShowChat] = useState(false)
   const [applyToDuplicates, setApplyToDuplicates] = useState(false)
@@ -268,16 +272,22 @@ export function ComplaintDetailModal({
           <section className="flex flex-col gap-2 rounded-xl border border-border p-3">
             <div className="flex items-center justify-between gap-3">
               <h4 className="text-sm font-medium">{t('chatTitle')}</h4>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => setShowChat((v) => !v)}
-              >
-                {showChat ? t('hideChat') : t('showChat')}
-              </Button>
+              {canReadChat && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowChat((v) => !v)}
+                >
+                  {showChat ? t('hideChat') : t('showChat')}
+                </Button>
+              )}
             </div>
-            {showChat &&
+            {!canReadChat && (
+              <p className="text-xs text-muted-foreground">{t('chatModeratorsOnly')}</p>
+            )}
+            {canReadChat &&
+              showChat &&
               (messages.isLoading ? (
                 <p className="text-xs text-muted-foreground">{t('loadingChat')}</p>
               ) : messages.isError ? (

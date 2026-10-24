@@ -577,6 +577,13 @@ describe('COMPLAINT_REPORTER_ROLES', () => {
     const roles = Reflect.getMetadata(ROLES_KEY, ComplaintsController.prototype.create) as Role[]
     expect([...roles].sort()).toEqual([...COMPLAINT_REPORTER_ROLES].sort())
   })
+
+  // Матрица §2.2: «Личные чаты» админу вуза — только официальные, по жалобе — модераторам.
+  it('переписку по жалобе админ вуза не читает', () => {
+    const roles = Reflect.getMetadata(ROLES_KEY, ComplaintsController.prototype.messages) as Role[]
+    expect(roles).not.toContain(Role.UNIVERSITY_ADMIN)
+    expect(roles).toContain(Role.UNIVERSITY_MODERATOR)
+  })
 })
 
 describe('ComplaintsService — повторы и дубли (D-F27)', () => {
