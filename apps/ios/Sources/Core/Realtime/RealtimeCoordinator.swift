@@ -27,7 +27,13 @@ final class RealtimeCoordinator {
     private let database: AppDatabase
     private let store: ChatStore
 
+    /// Единственный читатель потока событий. Живёт столько же, сколько транспорт, и
+    /// при выходе из аккаунта не отменяется: отмена читающей задачи завершает
+    /// `AsyncStream` навсегда, и после входа следующего человека событий не было бы.
     private var pump: Task<Void, Never>?
+    /// Есть ли сессия, которой события адресованы. Между выходом и входом приходящее
+    /// (запоздалое событие старого сокета) в базу не пишется.
+    private var active = false
     private var expiry: [String: Task<Void, Never>] = [:]
     /// Чат, открытый на экране: его сообщения не увеличивают счётчик непрочитанного.
     private var openChatID: String?
@@ -50,23 +56,31 @@ final class RealtimeCoordinator {
 
     @MainActor
     func start() {
-        guard pump == nil else { return }
-        pump = Task { @MainActor [weak self] in
-            guard let self else { return }
-            for await event in self.transport.events {
-                await self.handle(event)
+        if pump == nil {
+            pump = Task { @MainActor [weak self] in
+                guard let self else { return }
+                for await event in self.transport.events {
+                    await self.handle(event)
+                }
             }
         }
+        guard !active else { return }
+        active = true
         Task { await connect() }
     }
 
+    /// Выход из аккаунта: рвём соединение и забываем всё, что знали о прежнем
+    /// человеке. Читатель потока остаётся — его понадобится следующему входу.
     @MainActor
     func stop() async {
-        pump?.cancel()
-        pump = nil
+        active = false
         isConnected = false
         actions = [:]
         onlineUsers = []
+        openChatID = nil
+        applicationStatus = nil
+        for task in expiry.values { task.cancel() }
+        expiry = [:]
         await transport.disconnect()
     }
 
@@ -98,6 +112,7 @@ final class RealtimeCoordinator {
 
     @MainActor
     private func handle(_ event: RealtimeEvent) async {
+        guard active else { return }
         switch event {
         case .connected:
             isConnected = true
