@@ -18,7 +18,7 @@ function setup() {
       delete: jest.fn(),
     },
     group: { findUnique: jest.fn(), findFirst: jest.fn().mockResolvedValue(null) },
-    file: { findFirst: jest.fn().mockResolvedValue(null) },
+    file: { findFirst: jest.fn().mockResolvedValue(null), count: jest.fn().mockResolvedValue(0) },
     // По умолчанию преподаватель ведёт дисциплину в группе.
     course: { findFirst: jest.fn().mockResolvedValue({ id: 'c1' }) },
     pair: { findFirst: jest.fn().mockResolvedValue(null) },
@@ -235,6 +235,18 @@ describe('MaterialsService — управление своими', () => {
     prisma.material.delete.mockResolvedValue({})
     await service.remove(user(Role.TEACHER, { sub: 'u1' }), 'm1', ctx)
     expect(prisma.material.delete).toHaveBeenCalledWith({ where: { id: 'm1' } })
+  })
+
+  it('у материала уже предельное число файлов → CONFLICT(files), файл не загружается', async () => {
+    const { service, prisma, files } = setup()
+    prisma.material.findUnique.mockResolvedValue({ id: 'm1', teacherId: 'u1', groupId: 'g1' })
+    prisma.file.count.mockResolvedValue(30)
+    const err = await service
+      .addFile(user(Role.TEACHER, { sub: 'u1' }), 'm1', Buffer.from('x'), 'lecture.pdf', ctx)
+      .catch((e) => e)
+    expect(err.code).toBe('CONFLICT')
+    expect(err.details).toEqual([expect.objectContaining({ field: 'files' })])
+    expect(files.upload).not.toHaveBeenCalled()
   })
 
   it('addFile передаёт исходное имя файла', async () => {

@@ -42,6 +42,8 @@ const MATERIAL_SELECT = {
       height: true,
       ...MEDIA_PREVIEW_SELECT,
     },
+    orderBy: { createdAt: 'asc' },
+    take: MATERIAL_FILES_LIMIT,
   },
 } satisfies Prisma.MaterialSelect
 
@@ -49,6 +51,9 @@ type MaterialRow = Prisma.MaterialGetPayload<{ select: typeof MATERIAL_SELECT }>
 
 // Потолок счётчиков по дисциплинам: у группы их десятки, у вуза — сотни.
 const MATERIAL_SUBJECTS_LIMIT = 500
+// Файлов у одного материала — лекция, презентация, раздатка: единицы. Потолок держит и
+// загрузку (409 сверх него), и вложенную выборку списка (BACKEND_RULES §18 п. 8).
+const MATERIAL_FILES_LIMIT = 30
 
 /**
  * Группы, где преподаватель ведёт занятия: дисциплина группы или пара действующего
@@ -139,6 +144,7 @@ export class MaterialsService {
   async presignFile(actor: JwtPayload, id: string, mime: string) {
     // Права на материал проверяем ДО выдачи ключа: подписанная ссылка — это уже доступ на запись.
     await this.findManageable(actor, id)
+    await this.assertFilesRoom(id)
     const bucket = this.config.get('MINIO_BUCKET_MATERIALS', { infer: true })
     return this.files.presignPut(bucket, mime, actor.sub)
   }
@@ -152,6 +158,7 @@ export class MaterialsService {
     ctx: RequestContext,
   ) {
     const material = await this.findManageable(actor, id)
+    await this.assertFilesRoom(material.id)
     const bucket = this.config.get('MINIO_BUCKET_MATERIALS', { infer: true })
     const file = await this.files.confirmDirectUpload({
       bucket,
@@ -185,6 +192,7 @@ export class MaterialsService {
     ctx: RequestContext,
   ) {
     const material = await this.findManageable(actor, id)
+    await this.assertFilesRoom(material.id)
     const bucket = this.config.get('MINIO_BUCKET_MATERIALS', { infer: true })
     const file = await this.files.upload({
       buffer,
@@ -247,6 +255,14 @@ export class MaterialsService {
       entityId: id,
       ...ctx,
     })
+  }
+
+  /** У материала есть место ещё для одного файла — иначе 409 с полем `files`. */
+  private async assertFilesRoom(materialId: string): Promise<void> {
+    const count = await this.prisma.file.count({ where: { materialId } })
+    if (count < MATERIAL_FILES_LIMIT) return
+    const message = `У материала может быть не больше ${MATERIAL_FILES_LIMIT} файлов`
+    throw new AppException('CONFLICT', message, [{ field: 'files', message }])
   }
 
   // ── scope ────────────────────────────────────────────────────────────────
