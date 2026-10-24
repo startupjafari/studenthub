@@ -135,6 +135,7 @@ function EventInfo({ event }: { event: EventItem }) {
   const tErr = useTranslations('Errors')
   const fmt = useFormatter()
   const qc = useQueryClient()
+  const myId = useAppSelector((s) => s.auth.user?.id)
   const start = new Date(event.startsAt)
   // Завершилось — по концу, а не по началу: к идущему событию ещё подключаются, и сервер
   // принимает регистрацию до его конца.
@@ -215,8 +216,9 @@ function EventInfo({ event }: { event: EventItem }) {
           >
             {event.isRegistered ? t('cancelRegistration') : t('register')}
           </Button>
-          {/* Ссылку сервер отдаёт только участникам — кнопку остальным не показываем. */}
-          {event.isRegistered && event.meetingProvider && (
+          {/* Ссылку сервер отдаёт участникам и организатору — остальным кнопку не показываем.
+              Организатору регистрация не нужна: встречу ведёт он. */}
+          {(event.isRegistered || event.organizerId === myId) && event.meetingProvider && (
             <JoinMeetingButton eventId={event.id} provider={event.meetingProvider} />
           )}
         </div>

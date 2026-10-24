@@ -316,9 +316,9 @@ function EventCard({
             >
               {event.isRegistered ? t('cancelRegistration') : t('register')}
             </Button>
-            {/* Кнопка встречи — только зарегистрированным: сервер чужому ссылку не отдаст,
-                и показывать кнопку, которая ответит 403, незачем. */}
-            {event.isRegistered && event.meetingProvider && (
+            {/* Кнопка встречи — зарегистрированным и организатору: остальным сервер ссылку
+                не отдаст, и показывать кнопку, которая ответит 403, незачем. */}
+            {(event.isRegistered || isOrganizer) && event.meetingProvider && (
               <JoinMeetingButton
                 eventId={event.id}
                 provider={event.meetingProvider}
