@@ -431,6 +431,20 @@ type AutoChat =
  * тип и его scope, у личного — пара собеседников по возрастанию id, чтобы «A пишет B» и
  * «B пишет A» вставали в одну очередь.
  */
+/**
+ * Курсор списка чатов — `<updatedAt в мс>_<id>`: граница, а не ссылка на строку. Для клиента
+ * он по-прежнему непрозрачная строка.
+ */
+function chatListCursor(chat: { updatedAt: Date; id: string }): string {
+  return `${chat.updatedAt.getTime()}_${chat.id}`
+}
+
+function parseChatListCursor(cursor?: string): { updatedAt: Date; id: string } | null {
+  const match = cursor ? /^(\d+)_(.+)$/.exec(cursor) : null
+  if (!match?.[1] || !match[2]) return null
+  return { updatedAt: new Date(Number(match[1])), id: match[2] }
+}
+
 function chatCreateLockKey(type: ChatType, ...scope: (string | null | undefined)[]): string {
   return ['chat-create', type, ...scope.map((part) => part ?? '')].join(':')
 }
@@ -624,9 +638,23 @@ export class ChatsService implements OnModuleInit {
     // Провижининг официальных чатов — только на первой странице: на второй он бы
     // повторял ту же проверку ради тех же уже созданных чатов.
     if (!query.cursor) await this.ensureOfficialChatsThrottled(viewer)
+    const after = parseChatListCursor(query.cursor)
     const chats = await this.prisma.chat.findMany({
       // Забаненные (bannedAt != null) и скрытые «у себя» (hiddenAt != null) чаты в списке не показываем.
-      where: { members: { some: { userId: viewer.sub, bannedAt: null, hiddenAt: null } } },
+      where: {
+        members: { some: { userId: viewer.sub, bannedAt: null, hiddenAt: null } },
+        // Граница страницы — пара (updatedAt, id), запомненная в курсоре. Курсор Prisma по id
+        // брал updatedAt чата-курсора на момент СЛЕДУЮЩЕГО запроса: стоило в нём появиться
+        // сообщению, он уезжал наверх, и вторая страница начиналась с начала списка — дубли.
+        ...(after
+          ? {
+              OR: [
+                { updatedAt: { lt: after.updatedAt } },
+                { updatedAt: after.updatedAt, id: { lt: after.id } },
+              ],
+            }
+          : {}),
+      },
       select: {
         id: true,
         type: true,
@@ -662,7 +690,8 @@ export class ChatsService implements OnModuleInit {
       // клиент по pinnedAt: внутри страницы это сделать нельзя, порядок нужен сквозной.
       orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
       take: query.limit + 1,
-      ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
+      // Курсор прежнего вида (голый id) — от клиента, начавшего листать до этой правки.
+      ...(query.cursor && !after ? { cursor: { id: query.cursor }, skip: 1 } : {}),
     })
     const hasNext = chats.length > query.limit
     if (hasNext) chats.length = query.limit
@@ -836,9 +865,10 @@ export class ChatsService implements OnModuleInit {
     // человек увидел бы карточку, за которой ничего нет. Инициатор свой чат видит всегда:
     // он в нём и пишет.
     const visible = rows.filter((r) => !(r.item.requestIncoming && r.item.lastMessage === null))
-    // Курсор — id последнего чата СТРАНИЦЫ (до фильтрации пустых оболочек запроса):
-    // иначе отфильтрованный хвост уронил бы точку продолжения и страница повторилась бы.
-    const cursor = hasNext ? chats[chats.length - 1]?.id : undefined
+    // Курсор — последний чат СТРАНИЦЫ (до фильтрации пустых оболочек запроса): иначе
+    // отфильтрованный хвост уронил бы точку продолжения и страница повторилась бы.
+    const lastChat = hasNext ? chats[chats.length - 1] : undefined
+    const cursor = lastChat ? chatListCursor(lastChat) : undefined
     return new Paginated(
       visible.map((r) => r.item),
       { cursor, hasNext },

@@ -1542,6 +1542,33 @@ describe('ChatsService.listChats — последнее сообщение', () 
   })
 })
 
+// BUG-175: курсор Prisma по id брал updatedAt чата-курсора на момент следующего запроса —
+// сообщение в нём уводило чат наверх, и вторая страница начиналась с начала списка.
+describe('ChatsService.listChats — курсор', () => {
+  it('курсор — граница (updatedAt, id), а не ссылка на строку', async () => {
+    const { service, prisma } = setup()
+    const updatedAt = new Date('2026-10-01T12:00:00.000Z')
+    const row = { id: 'c9', updatedAt, members: [], _count: { members: 2 } }
+    prisma.chat.findMany.mockResolvedValueOnce([row, { ...row, id: 'c8' }])
+    prisma.$queryRaw.mockResolvedValue([])
+    Object.assign(prisma.chatMember, { groupBy: jest.fn().mockResolvedValue([]) })
+    Object.assign(prisma.message, { groupBy: jest.fn().mockResolvedValue([]) })
+
+    const page = await service.listChats(user('u1'), {
+      limit: 1,
+      cursor: `${updatedAt.getTime()}_c10`,
+    })
+
+    const args = prisma.chat.findMany.mock.calls[0]?.[0]
+    expect(args.cursor).toBeUndefined()
+    expect(args.where.OR).toEqual([
+      { updatedAt: { lt: updatedAt } },
+      { updatedAt, id: { lt: 'c10' } },
+    ])
+    expect(page.meta).toMatchObject({ cursor: `${updatedAt.getTime()}_c9`, hasNext: true })
+  })
+})
+
 describe('ChatsService.deleteOrLeaveChat', () => {
   const actor = (sub: string) => ({ sub }) as Parameters<ChatsService['deleteOrLeaveChat']>[0]
 
