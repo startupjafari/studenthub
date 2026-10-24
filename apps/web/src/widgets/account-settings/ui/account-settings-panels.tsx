@@ -355,6 +355,7 @@ export function PersonalSection({ me }: { me: MeResponse }) {
               name="headline"
               render={({ field }) => (
                 <DictSingleSelect
+                  id="headline"
                   value={field.value ?? ''}
                   onChange={field.onChange}
                   options={MARITAL_STATUS_DICT}

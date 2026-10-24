@@ -139,9 +139,12 @@ export function SegmentedTabs<T extends string>({
                   поповер, а не модальный лист. */}
               {/* data-overlay — маркер для глобального Esc (shared/lib/use-escape-back):
                   пока список открыт, Esc закрывает его, а не уводит назад. */}
+              {/* pointer-events-auto у обоих слоёв: внутри модалки (Radix Dialog) у body
+                  стоит pointer-events: none, портал его наследовал, и нажатие по разделу
+                  проходило на подложку диалога — окно закрывалось. */}
               <div
                 data-overlay
-                className="fixed inset-0 z-[199]"
+                className="pointer-events-auto fixed inset-0 z-[199]"
                 onClick={() => setMenuOpen(false)}
               />
               {/* Остров над нижней навигацией — то же место и тот же материал, что у меню
@@ -149,7 +152,7 @@ export function SegmentedTabs<T extends string>({
                   страницы, и из модалки. */}
               <div
                 className={cn(
-                  'material-island fixed inset-x-3 bottom-[calc(var(--bottom-nav-offset)+var(--kb-inset,0px))] z-[200]',
+                  'material-island pointer-events-auto fixed inset-x-3 bottom-[calc(var(--bottom-nav-offset)+var(--kb-inset,0px))] z-[200]',
                   'flex max-h-[min(60dvh,24rem)] flex-col overflow-y-auto overscroll-contain',
                   'rounded-3xl border border-border/60 p-1.5 shadow-lg',
                   'origin-bottom duration-200 animate-in fade-in zoom-in-95 slide-in-from-bottom-1 motion-reduce:animate-none',

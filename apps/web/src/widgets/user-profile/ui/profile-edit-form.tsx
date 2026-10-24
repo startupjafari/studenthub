@@ -216,7 +216,12 @@ export function ProfileEditForm({ me, sections, onSave }: ProfileEditFormProps) 
       )
     if (f.type === 'year')
       return (
-        <DictSingleSelect value={val} onChange={(v) => set(f.key, v)} options={yearOptions()} />
+        <DictSingleSelect
+          id={f.key}
+          value={val}
+          onChange={(v) => set(f.key, v)}
+          options={yearOptions()}
+        />
       )
     if (f.type === 'textarea')
       return (
@@ -253,6 +258,7 @@ export function ProfileEditForm({ me, sections, onSave }: ProfileEditFormProps) 
       }
       return (
         <DictSingleSelect
+          id={f.key}
           value={val}
           onChange={(v) => set(f.key, v)}
           options={f.dict === 'specialty' ? specialtyOptions : (DICT_OPTIONS[f.dict] ?? [])}
@@ -302,6 +308,7 @@ export function ProfileEditForm({ me, sections, onSave }: ProfileEditFormProps) 
             <div className="flex flex-col gap-2">
               <Label htmlFor="headline">{t('headline')}</Label>
               <DictSingleSelect
+                id="headline"
                 value={form.headline ?? ''}
                 onChange={(v) => set('headline', v)}
                 options={MARITAL_STATUS_DICT}
