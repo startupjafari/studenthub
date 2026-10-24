@@ -629,7 +629,8 @@
     "colKind": "Type",
     "colWhen": "When",
     "colPlace": "Where",
-    "colParticipants": "Participants"
+    "colParticipants": "Participants",
+    "create": "New event"
   },
   "CareerAnalytics": {
     "title": "Career metrics",
@@ -2430,7 +2431,9 @@
     "saveChanges": "Save",
     "updated": "Event updated",
     "meetingKeepHint": "Leave the field empty to keep the current link",
-    "rescheduleNotice": "If you change the start time, participants will be notified"
+    "rescheduleNotice": "If you change the start time, participants will be notified",
+    "careerKind": "Career event",
+    "careerKindNone": "No — regular event"
   },
   "Moderation": {
     "complaintsTitle": "Complaints",

@@ -90,6 +90,7 @@ const EVENT_SELECT = {
   // отдельным запросом (`GET /events/:id/meeting`). Иначе ссылка на встречу
   // разлеталась бы вместе с карточкой события по всей его аудитории.
   meetingProvider: true,
+  careerKind: true,
   startsAt: true,
   endsAt: true,
   organizerId: true,
@@ -284,6 +285,7 @@ export class EventsService {
         ...meetingFields(input.meetingUrl, input.meetingPasscode),
         startsAt: new Date(input.startsAt),
         endsAt: input.endsAt ? new Date(input.endsAt) : null,
+        careerKind: input.careerKind ?? null,
         ...target,
       },
       select: EVENT_SELECT,
@@ -334,6 +336,7 @@ export class EventsService {
         ...(meeting ?? {}),
         startsAt: input.startsAt ? startsAt : undefined,
         endsAt: input.endsAt !== undefined ? endsAt : undefined,
+        careerKind: input.careerKind,
         // Перенесли начало — напоминание о новом времени должно уйти заново.
         ...(rescheduled ? { reminderSentAt: null } : {}),
       },

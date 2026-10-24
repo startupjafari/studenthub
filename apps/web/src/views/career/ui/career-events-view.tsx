@@ -2,18 +2,21 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { keepPreviousData, useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useFormatter, useTranslations } from 'next-intl'
-import { CalendarDays, MapPin, Users, Video } from 'lucide-react'
+import { CalendarDays, MapPin, Plus, Users, Video } from 'lucide-react'
 import { CAREER_EVENT_KINDS, type CareerEventKind } from '@studenthub/shared-schemas'
 import { careerEventKeys, fetchCareerEvents } from '../../../entities/career-event'
 import {
   CareerUniversityRequired,
   useCareerUniversity,
 } from '../../../features/career-university-scope'
+import { CAREER_EVENT_AUTHOR_ROLES, CreateEventModal } from '../../../features/create-event'
+import { useAppSelector } from '../../../shared/store'
 import { toApiError } from '../../../shared/lib'
 import {
   Badge,
+  Button,
   Card,
   EmptyState,
   PageHeader,
@@ -52,6 +55,11 @@ export function CareerEventsView() {
   const [past, setPast] = useState(false)
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState<number>(PAGE_SIZES[0])
+  const [createOpen, setCreateOpen] = useState(false)
+  const queryClient = useQueryClient()
+  // Создать мероприятие может организатор событий вуза — у платформенной роли своего вуза нет.
+  const role = useAppSelector((s) => s.auth.role)
+  const canCreate = role !== null && CAREER_EVENT_AUTHOR_ROLES.includes(role)
 
   // Платформенная роль смотрит карьерный центр конкретного вуза — до выбора запрос
   // ушёл бы в заведомый WRONG_SCOPE, поэтому он просто не стартует.
@@ -105,24 +113,32 @@ export function CareerEventsView() {
           />
         }
         actions={
-          <Select
-            value={kind ?? 'all'}
-            onValueChange={(v) =>
-              refilter(() => setKind(v === 'all' ? null : (v as CareerEventKind)))
-            }
-          >
-            <SelectTrigger size="md" className="w-52" aria-label={t('colKind')}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">{t('kindAll')}</SelectItem>
-              {CAREER_EVENT_KINDS.map((value) => (
-                <SelectItem key={value} value={value}>
-                  {kindLabel[value]}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <>
+            <Select
+              value={kind ?? 'all'}
+              onValueChange={(v) =>
+                refilter(() => setKind(v === 'all' ? null : (v as CareerEventKind)))
+              }
+            >
+              <SelectTrigger size="md" className="w-52" aria-label={t('colKind')}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">{t('kindAll')}</SelectItem>
+                {CAREER_EVENT_KINDS.map((value) => (
+                  <SelectItem key={value} value={value}>
+                    {kindLabel[value]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {canCreate && (
+              <Button type="button" size="md" onClick={() => setCreateOpen(true)}>
+                <Plus className="size-4" aria-hidden />
+                {t('create')}
+              </Button>
+            )}
+          </>
         }
       />
 
@@ -224,6 +240,18 @@ export function CareerEventsView() {
             />
           </Card>
         </>
+      )}
+
+      {/* Событие создаётся общей формой событий с заранее выбранным карьерным типом:
+          без него оно не попало бы в этот раздел. */}
+      {createOpen && (
+        <CreateEventModal
+          careerKind={kind ?? 'CAREER_FAIR'}
+          onClose={() => {
+            setCreateOpen(false)
+            void queryClient.invalidateQueries({ queryKey: careerEventKeys.all })
+          }}
+        />
       )}
     </div>
   )

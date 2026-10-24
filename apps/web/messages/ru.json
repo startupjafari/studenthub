@@ -629,7 +629,8 @@
     "colKind": "Тип",
     "colWhen": "Когда",
     "colPlace": "Где",
-    "colParticipants": "Участников"
+    "colParticipants": "Участников",
+    "create": "Новое мероприятие"
   },
   "CareerAnalytics": {
     "title": "Метрики карьеры",
@@ -2430,7 +2431,9 @@
     "saveChanges": "Сохранить",
     "updated": "Событие обновлено",
     "meetingKeepHint": "Оставьте поле пустым, чтобы сохранить текущую ссылку",
-    "rescheduleNotice": "Если перенести начало, участники получат уведомление"
+    "rescheduleNotice": "Если перенести начало, участники получат уведомление",
+    "careerKind": "Карьерное мероприятие",
+    "careerKindNone": "Нет — обычное событие"
   },
   "Moderation": {
     "complaintsTitle": "Жалобы",

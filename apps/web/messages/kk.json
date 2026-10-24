@@ -629,7 +629,8 @@
     "colKind": "Түрі",
     "colWhen": "Қашан",
     "colPlace": "Қайда",
-    "colParticipants": "Қатысушылар"
+    "colParticipants": "Қатысушылар",
+    "create": "Жаңа іс-шара"
   },
   "CareerAnalytics": {
     "title": "Карьера метрикалары",
@@ -2430,7 +2431,9 @@
     "saveChanges": "Сақтау",
     "updated": "Іс-шара жаңартылды",
     "meetingKeepHint": "Ағымдағы сілтемені сақтау үшін өрісті бос қалдырыңыз",
-    "rescheduleNotice": "Басталу уақытын ауыстырсаңыз, қатысушыларға хабарлама барады"
+    "rescheduleNotice": "Басталу уақытын ауыстырсаңыз, қатысушыларға хабарлама барады",
+    "careerKind": "Мансаптық іс-шара",
+    "careerKindNone": "Жоқ — қарапайым іс-шара"
   },
   "Moderation": {
     "complaintsTitle": "Шағымдар",

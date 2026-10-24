@@ -1,6 +1,7 @@
 import { z } from 'zod'
 import { OffsetPaginationSchema, OptionalCursorPaginationSchema } from './pagination.js'
 import { PostAudienceSchema } from './posts.js'
+import { CareerEventKindSchema } from './career.js'
 
 // События (docs/PROJECT.md §3.5, Ф10). Аудитория — тот же enum, что у постов (видимость по аналогии).
 
@@ -66,6 +67,8 @@ const eventBase = {
   endsAt: z.string().datetime().optional(),
   facultyId: z.string().min(1).optional(),
   groupId: z.string().min(1).optional(),
+  // Тип карьерного мероприятия: с ним событие попадает в раздел «Карьерные мероприятия».
+  careerKind: CareerEventKindSchema.optional(),
 }
 
 const endAfterStart = (v: { startsAt: string; endsAt?: string }, ctx: z.RefinementCtx): void => {
@@ -92,6 +95,8 @@ export const UpdateEventSchema = z
     meetingPasscode: z.string().trim().max(64).nullable().optional(),
     startsAt: z.string().datetime().optional(),
     endsAt: z.string().datetime().nullable().optional(),
+    // null — событие больше не карьерное.
+    careerKind: CareerEventKindSchema.nullable().optional(),
   })
   .strict()
 export type UpdateEventInput = z.infer<typeof UpdateEventSchema>

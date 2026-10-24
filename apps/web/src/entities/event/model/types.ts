@@ -1,4 +1,5 @@
 import type {
+  CareerEventKind,
   EventMeeting,
   MeetingProviderValue,
   PostAudienceValue,
@@ -31,6 +32,8 @@ export interface EventItem {
   isOnline: boolean
   /** Провайдер встречи; сама ссылка в карточке не приходит — только по /meeting. */
   meetingProvider: MeetingProviderValue | null
+  /** Тип карьерного мероприятия; null — обычное событие. Необязательное: старый ответ без поля. */
+  careerKind?: CareerEventKind | null
   startsAt: string
   endsAt: string | null
   organizerId: string
