@@ -20,6 +20,7 @@ export {
 } from './use-media-gestures'
 export { useScrollRow, type ScrollRowController } from './use-scroll-row'
 export { useCountUp } from './use-count-up'
+export { MOTION, staggerDelay } from './motion'
 export {
   createSpring,
   projectMomentum,
