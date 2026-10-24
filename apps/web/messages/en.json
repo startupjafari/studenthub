@@ -2702,7 +2702,8 @@
   "SetupTwoFactor": {
     "title": "Set up two-factor authentication",
     "subtitle": "2FA is required for your role. Scan the QR code in an authenticator app (Google Authenticator, Authy, etc.) and enter the code to continue.",
-    "continueToApp": "Continue"
+    "continueToApp": "Continue",
+    "alreadyEnabled": "Two-factor authentication is already on. If you didn't save the backup codes, regenerate them in settings"
   },
   "Settings": {
     "title": "Settings",
