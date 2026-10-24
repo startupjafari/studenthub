@@ -157,4 +157,25 @@
     <string name="auth_qrChecking">Проверяем код…</string>
     <string name="auth_qrApproveRequester">Вход запрашивает</string>
     <string name="auth_qrApproveUnknownBrowser">Неизвестный браузер</string>
+
+    <!-- Ошибки API по коду (PROJECT.md §8.2): серверный текст — по-русски, свой — на языке приложения -->
+    <string name="error_badRequest">Некорректный запрос</string>
+    <string name="error_unauthorized">Сессия истекла — войдите снова</string>
+    <string name="error_forbidden">Недостаточно прав для этого действия</string>
+    <string name="error_wrongScope">Нет доступа к этим данным</string>
+    <string name="error_notFound">Не найдено или уже удалено</string>
+    <string name="error_conflict">Данные уже изменились. Обновите экран и попробуйте снова</string>
+    <string name="error_fileType">Такой тип файла не поддерживается</string>
+    <string name="error_fileTooLarge">Файл слишком большой</string>
+    <string name="error_validation">Проверьте введённые данные</string>
+    <string name="error_rateLimit">Слишком много запросов. Подождите немного и попробуйте снова</string>
+    <string name="error_loginLocked">Слишком много неудачных попыток — вход временно закрыт. Попробуйте позже</string>
+    <string name="error_invalid2fa">Неверный код</string>
+    <string name="error_maintenance">Идут технические работы. Попробуйте позже</string>
+    <string name="error_universityBlocked">Доступ вашего вуза к платформе приостановлен</string>
+    <string name="error_internal">Ошибка на сервере. Попробуйте позже</string>
+    <string name="auth_error_invalidCredentials">Неверный email или пароль</string>
+    <string name="auth_error_challengeExpired">Сессия входа истекла — войдите заново</string>
+    <string name="auth_error_accountBlocked">Учётная запись заблокирована</string>
+    <string name="auth_qrApproveTaken">Вход по этому QR-коду уже подтверждён</string>
 </resources>

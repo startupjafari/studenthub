@@ -170,15 +170,15 @@ class QrLoginTest {
         assertEquals(QrApproveModel.State.Approved, model.state)
     }
 
-    /** Истёкший код — самый частый отказ: человек видит серверный текст, а не общую фразу. */
+    /** Истёкший код — самый частый отказ: человек видит точные слова на своём языке, а не общую фразу. */
     @Test
-    fun expiredSessionShowsServerMessage() = runTest {
+    fun expiredSessionShowsInvalidCodeMessage() = runTest {
         val api = StubApprover(ApiError.Server(ApiErrorCode.NOT_FOUND, "QR-сессия не найдена или истекла", emptyList(), 404))
         val model = QrApproveModel(api)
         model.scanned("https://studenthub.kz/qr?t=$token")
         model.inspect()
         model.approve()
-        assertEquals(QrApproveModel.State.Failed(UiText.Raw("QR-сессия не найдена или истекла")), model.state)
+        assertEquals(QrApproveModel.State.Failed(UiText.Res(kz.studenthub.app.R.string.auth_qrApproveInvalid)), model.state)
     }
 
     @Test

@@ -131,8 +131,13 @@ class QrApproveModel(private val api: QrLoginApproving) : ViewModel() {
             State.Approved
         } catch (error: Exception) {
             if (error is kotlinx.coroutines.CancellationException) throw error
-            // Сессия QR живёт две минуты: серверный текст про истёкший код точнее общей фразы.
-            State.Failed(error.displayMessage())
+            // Сессия QR живёт две минуты, и подтверждает её только один человек: про эти
+            // два отказа — точные слова, а не общая фраза.
+            when ((error as? ApiError)?.code) {
+                ApiErrorCode.NOT_FOUND -> State.Failed(UiText.Res(R.string.auth_qrApproveInvalid))
+                ApiErrorCode.CONFLICT -> State.Failed(UiText.Res(R.string.auth_qrApproveTaken))
+                else -> State.Failed(error.displayMessage())
+            }
         }
     }
 

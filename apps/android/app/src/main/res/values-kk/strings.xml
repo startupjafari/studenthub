@@ -141,4 +141,24 @@
     <string name="auth_qrChecking">Кодты тексеріп жатырмыз…</string>
     <string name="auth_qrApproveRequester">Кіруді сұрап тұрған</string>
     <string name="auth_qrApproveUnknownBrowser">Белгісіз браузер</string>
+
+    <string name="error_badRequest">Сұрау қате</string>
+    <string name="error_unauthorized">Сессия аяқталды — қайта кіріңіз</string>
+    <string name="error_forbidden">Бұл әрекетке құқығыңыз жеткіліксіз</string>
+    <string name="error_wrongScope">Бұл деректерге қолжетімділік жоқ</string>
+    <string name="error_notFound">Табылмады немесе жойылған</string>
+    <string name="error_conflict">Деректер өзгеріп қойған. Экранды жаңартып, қайталап көріңіз</string>
+    <string name="error_fileType">Бұл файл түріне қолдау көрсетілмейді</string>
+    <string name="error_fileTooLarge">Файл тым үлкен</string>
+    <string name="error_validation">Енгізілген деректерді тексеріңіз</string>
+    <string name="error_rateLimit">Сұраулар тым көп. Біраз күтіп, қайталап көріңіз</string>
+    <string name="error_loginLocked">Сәтсіз әрекеттер тым көп — кіру уақытша жабық. Кейінірек көріңіз</string>
+    <string name="error_invalid2fa">Код қате</string>
+    <string name="error_maintenance">Техникалық жұмыстар жүріп жатыр. Кейінірек көріңіз</string>
+    <string name="error_universityBlocked">Университетіңіздің платформаға қолжетімділігі тоқтатылған</string>
+    <string name="error_internal">Серверде қате шықты. Кейінірек көріңіз</string>
+    <string name="auth_error_invalidCredentials">Email немесе құпиясөз қате</string>
+    <string name="auth_error_challengeExpired">Кіру сессиясы аяқталды — қайта кіріңіз</string>
+    <string name="auth_error_accountBlocked">Есептік жазба бұғатталған</string>
+    <string name="auth_qrApproveTaken">Бұл QR-код бойынша кіру расталып қойған</string>
 </resources>
