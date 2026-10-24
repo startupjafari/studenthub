@@ -64,9 +64,15 @@ struct ScheduleStore: Sendable {
         PairRecord.order(PairRecord.Columns.dayOfWeek.asc, PairRecord.Columns.startTime.asc)
     }
 
+    /// Изменения на календарный день `day`. Дата изменения — день вуза без времени, и
+    /// сервер отдаёт её полуночью UTC: сравниваем с этой полуночью, а не с началом
+    /// суток устройства, иначе к западу от UTC изменение уезжало бы на соседний день.
     func changes(on day: Date, calendar: Calendar = .current) -> QueryInterfaceRequest<PairChangeRecord> {
-        let start = calendar.startOfDay(for: day)
-        let end = calendar.date(byAdding: .day, value: 1, to: start) ?? start
+        var utc = Calendar(identifier: .gregorian)
+        utc.timeZone = TimeZone(identifier: "UTC") ?? utc.timeZone
+        let parts = calendar.dateComponents([.year, .month, .day], from: day)
+        let start = utc.date(from: parts) ?? calendar.startOfDay(for: day)
+        let end = utc.date(byAdding: .day, value: 1, to: start) ?? start
         return PairChangeRecord
             .filter(PairChangeRecord.Columns.date >= start && PairChangeRecord.Columns.date < end)
     }

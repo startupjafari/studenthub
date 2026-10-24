@@ -75,10 +75,17 @@ final class ScheduleModel {
         defer { isRefreshing = false }
 
         do {
-            try await store.save(try await api.schedule())
-            let from = calendar.startOfDay(for: Date())
-            let to = calendar.date(byAdding: .day, value: 14, to: from) ?? from
-            try await store.save(changes: try await api.changes(from: from, to: to), from: from)
+            let schedule = try await api.schedule()
+            try await store.save(schedule)
+            // Период изменений — дни вуза: «сегодня» студента в другом поясе не должно
+            // сдвигать окно на сутки.
+            let zone = schedule.timezone.flatMap(TimeZone.init(identifier:)) ?? calendar.timeZone
+            let now = Date()
+            let until = calendar.date(byAdding: .day, value: 14, to: now) ?? now
+            try await store.save(
+                changes: try await api.changes(from: now, to: until, timeZone: zone),
+                from: calendar.startOfDay(for: now)
+            )
             syncedAt = Date()
             UserDefaults.standard.set(syncedAt, forKey: Self.syncedKey)
             failure = nil
