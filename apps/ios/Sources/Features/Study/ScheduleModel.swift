@@ -70,11 +70,23 @@ final class ScheduleModel {
 
     /// Переключить чётность вручную: человек смотрит «следующую неделю» чаще, чем
     /// кажется, и ради этого не должен ждать понедельника.
+    ///
+    /// Переключается именно неделя, а не только признак чётности: иначе на пары
+    /// следующей недели накладывались разовые изменения текущей (отмена в этот
+    /// вторник показывалась и на вторнике через неделю).
     @MainActor
     func toggleParity() {
+        weekOffset = weekOffset == 0 ? 1 : 0
         parity = parity == .odd ? .even : .odd
         observe()
     }
+
+    /// Неделя на экране: 0 — текущая, 1 — следующая.
+    private(set) var weekOffset = 0
+
+    /// Дата выбранного дня на показанной неделе — по ней ищутся изменения и на неё
+    /// ставится посещаемость.
+    var selectedDate: Date { dateOfSelectedDay() }
 
     @MainActor
     func refresh() async {
@@ -141,11 +153,11 @@ final class ScheduleModel {
         }
     }
 
-    /// Дата выбранного дня внутри текущей недели — по ней ищутся разовые изменения.
+    /// Дата выбранного дня внутри показанной недели — по ней ищутся разовые изменения.
     private func dateOfSelectedDay() -> Date {
         let today = Date()
         let todayIndex = Self.isoDay(of: today, calendar: calendar)
-        let shift = selectedDay - todayIndex
+        let shift = selectedDay - todayIndex + 7 * weekOffset
         return calendar.date(byAdding: .day, value: shift, to: calendar.startOfDay(for: today)) ?? today
     }
 

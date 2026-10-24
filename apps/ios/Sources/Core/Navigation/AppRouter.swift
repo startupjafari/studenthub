@@ -9,7 +9,9 @@ enum AppRoute: Hashable {
     case post(id: String)
     case application(id: String)
     case event(id: String)
-    case lesson(id: String)
+    /// Занятие. `date` — день, выбранный в расписании: отметка посещаемости ставится
+    /// на него, а не на сегодня. Без даты (ссылка из пуша, «ближайшая пара») — сегодня.
+    case lesson(id: String, date: Date? = nil)
     case assignment(id: String)
     case service(id: String)
     case myBooks

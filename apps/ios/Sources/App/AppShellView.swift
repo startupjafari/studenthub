@@ -105,11 +105,11 @@ struct AppShellView: View {
             ApplicationFormView(serviceID: id)
         case .event:
             EventsView()
-        case .lesson(let id):
+        case .lesson(let id, let date):
             // Преподаватель с занятия идёт отмечать посещаемость — это главное,
             // зачем он вообще открывает пару на телефоне.
             if role == .teacher {
-                AttendanceMarkingView(pairID: id)
+                AttendanceMarkingView(pairID: id, date: date ?? Date())
             } else {
                 PlaceholderScreen(title: String(localized: "shell.lesson", defaultValue: "Пара"), reference: id)
             }
