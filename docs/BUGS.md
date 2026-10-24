@@ -938,7 +938,7 @@
 - **Ожидается:** DTO совпадают с ответом API (§8.3).
 
 #### BUG-107 · 🟡 🔒 Отозванная или истёкшая сессия на телефоне не ведёт на экран входа
-- **Роль:** все — iOS и Android · **Статус:** новый
+- **Роль:** все — iOS и Android · **Статус:** исправлен · `fix/bugs-android` (5565a07f)
 - **Где:** `apps/android/.../core/session/SessionStore.kt:101-111`, `apps/android/.../shell/AppSessionModel.kt:53-58`, `apps/ios/Sources/Core/Session/SessionStore.swift:91-103`, `apps/ios/Sources/App/RootView.swift:22-30`
 - **Сценарий:** refresh 401 → хранилище очищено, но UI остаётся `signedIn`: на каждом экране
   «Требуется авторизация», пуш-токен не отвязан, локальная база не чищена.
@@ -1048,7 +1048,7 @@
 - **Ожидается:** BACKEND_RULES §3, §4.4 — предел значений в схеме, сырая ошибка Prisma наружу не уходит.
 
 #### BUG-127 · 🟢 `z.coerce.boolean()` остался ещё в шести схемах (корень BUG-019, BUG-061)
-- **Роль:** все (проявится у первого клиента, шлющего явный `false`) · **Статус:** новый
+- **Роль:** все (проявится у первого клиента, шлющего явный `false`) · **Статус:** исправлен · `fix/bugs-api-infra` (8fd2fc0c)
 - **Где:** `packages/shared-schemas/src/notifications.ts:6` (`unreadOnly`), `application-services.ts:238,239` (`overdue`, `dueToday`), `events.ts:102` (`mine`), `chats.ts:188` (`hasFile`), `chats.ts:269,280,282` (multipart `spoiler`, `asFiles`, `silent`)
 - **Ожидается:** `queryBoolean` из `pagination.ts:22`. Правка `shared-schemas` — стоп-точка.
 
@@ -1253,7 +1253,7 @@
 - **Ожидается:** §9.4 — пока окно «прыгнуло», живые сообщения не в хвост; прочтение только по непрерывной ленте.
 
 #### BUG-168 · 🟡 Опрос «несколько ответов» без переголосования: второй вариант не выбрать, ошибки молчат
-- **Роль:** участники опросов в чатах · **Статус:** новый
+- **Роль:** участники опросов в чатах · **Статус:** исправлен · `fix/bugs-chats` (a0a6a4de)
 - **Где:** `apps/api/src/modules/chats/chats.service.ts:1612-1615`, веб `apps/web/src/entities/chat/ui/chat-poll.tsx:40-43,59-70`, `widgets/chat-window/ui/poll-creator.tsx:118-120`
 
 #### BUG-169 · 🟢 «Удалённый у себя» чат и очищенная история находятся глобальным поиском и видны в закреплённых
@@ -1339,7 +1339,7 @@
 - **Где:** `apps/api/src/modules/analytics/analytics.service.ts:14-16,283,287,298` (`rateOf` → 0 вместо `null`) · **Статус:** исправлен · `fix/bugs-analytics` (610f6dcf)
 
 #### BUG-192 · 🟢 «Пик пар при N учебных аудиториях» считает пары во всех помещениях, а аудитории — только `AUDITORIUM`
-- **Где:** `apps/api/src/modules/analytics/university-analytics.service.ts:270-281` · **Статус:** новый
+- **Где:** `apps/api/src/modules/analytics/university-analytics.service.ts:270-281` · **Статус:** исправлен · `fix/bugs-analytics` (6ef9daf1)
 
 #### BUG-193 · 🟢 Early Warning: просрочки считаются по случайной части заданий и вычитают сдачи старой группы
 - **Где:** `apps/api/src/modules/analytics/analytics.service.ts:184-199,385-389,424-425` (`take: 20000` без порядка) · **Статус:** исправлен · `fix/bugs-analytics` (610f6dcf)
@@ -1398,7 +1398,7 @@
 - **Где:** `apps/web/src/views/career/ui/career-profile-view.tsx:56,64,70-82` · **Статус:** исправлен · `fix/bugs-career` (f24cf084)
 
 #### BUG-209 · 🟢 Закрыть вакансию, отозвать отклик, «Принят»/«Оффер» — в один клик без подтверждения
-- **Где:** `apps/web/src/views/employer/ui/employer-vacancies-view.tsx:183-187`, `views/career/ui/career-applications-view.tsx:151-155`, `views/employer/ui/employer-candidates-view.tsx:192-198` · **Статус:** новый
+- **Где:** `apps/web/src/views/employer/ui/employer-vacancies-view.tsx:183-187`, `views/career/ui/career-applications-view.tsx:151-155`, `views/employer/ui/employer-candidates-view.tsx:192-198` · **Статус:** исправлен · `fix/bugs-career` (ca5b4c9e)
 
 #### BUG-210 · 🟢 Тосты и экраны карьеры показывают сырой русский `message` сервера
 - **Где:** `toApiError(error).message` в 10 файлах `apps/web/src/views/career/**` и `views/employer/**` (`career-profile-view.tsx:59,65`, `career-companies-view.tsx:102`, `career-resume-view.tsx:38,60`, …) · **Статус:** исправлен · `fix/bugs-career` (42881ce1)
@@ -1479,7 +1479,7 @@
 - **Где:** `apps/api/src/modules/documents/documents.service.ts:654-689,770-777,815-823,957-961` · **Статус:** исправлен · `fix/bugs-documents` (0035f9a9)
 
 #### BUG-234 · 🟢 Продление срока не снимает «Скоро истекает»/«Просрочен», а веб не даёт менять даты и номер
-- **Где:** `apps/api/src/modules/documents/documents.service.ts:198-217,1207-1244`, `apps/web/src/views/documents/ui/document-actions.tsx:253-264`; повторное напоминание глушит `dedupeKey` (корень BUG-090) · **Статус:** исправлен · `fix/bugs-documents` (83e9ca87)
+- **Где:** `apps/api/src/modules/documents/documents.service.ts:198-217,1207-1244`, `apps/web/src/views/documents/ui/document-actions.tsx:253-264`; повторное напоминание глушит `dedupeKey` (корень BUG-090) · **Статус:** исправлен · `fix/bugs-documents` (fe5aaa31)
 
 #### BUG-235 · 🟢 Плитки «Обзора» документов считают одно, а открывают список с другим фильтром
 - **Где:** `apps/api/src/modules/documents/documents.service.ts:1455-1463`, `apps/web/src/views/documents/ui/overview-panel.tsx:83,91` · **Статус:** исправлен · `fix/bugs-documents` (d8b1d150)
@@ -1616,7 +1616,7 @@
 - **Где:** `apps/web/src/widgets/feed-list/ui/post-lightbox.tsx:996`, `widgets/user-profile/ui/content-comments.tsx:282` · **Статус:** новый
 
 #### BUG-274 · 🟢 Реакции сторис — любая строка вместо белого списка; пятая своя реакция приходит `mine:false`
-- **Где:** `packages/shared-schemas/src/stories.ts:84`, `apps/api/src/modules/stories/stories.service.ts:275-281` (`take: ids.length * 4`) · **Статус:** новый
+- **Где:** `packages/shared-schemas/src/stories.ts:84`, `apps/api/src/modules/stories/stories.service.ts:275-281` (`take: ids.length * 4`) · **Статус:** исправлен · `fix/bugs-feed-social` (e6919fc2)
 
 #### BUG-275 · 🟢 Охране и библиотекарю приходят заявки в друзья, личные посты и упоминания, которые им не открыть
 - **Где:** `apps/api/src/modules/friends/friends.service.ts:89-92`, `posts.service.ts:1282-1315,1492-1501`, веб `widgets/user-profile/ui/public-user-profile.tsx:192` · **Статус:** исправлен · `fix/bugs-feed-social` (79a22c12)
@@ -1935,7 +1935,7 @@
 - **Ожидается:** срок только растёт (`null` = бессрочно), крон снимает условно (корень BUG-025/027).
 
 #### BUG-362 · 🟡 Админ вуза, декан и модераторы не видят событий, которыми по правилам управляют и которые модерируют
-- **Где:** `apps/api/src/modules/events/event-visibility.ts:10-25`, `events.service.ts:205-213,488-492` против `canManageEvent :835-843`, `canModerateEventComment :852-868` · **Статус:** новый
+- **Где:** `apps/api/src/modules/events/event-visibility.ts:10-25`, `events.service.ts:205-213,488-492` против `canManageEvent :835-843`, `canModerateEventComment :852-868` · **Статус:** исправлен · `fix/bugs-events-moderation` (6ac58b60)
 - **Сценарий:** события факультетов, групп и «для преподавателей» админу вуза отвечают `404`, хотя `PATCH`/`DELETE` ему разрешены; модератор не может открыть обсуждение и снять комментарий.
 - **Ожидается:** scope модерации добавляется к видимости, как `moderationWhere` у постов; §3.5.
 
@@ -2099,7 +2099,7 @@
 - **Где:** `apps/web/src/shared/ui/media-viewer.tsx:144-170` (нет `role="dialog"`, `aria-modal`, своего Esc-слоя); место — `views/documents/ui/staff-requests.tsx:787` · **Статус:** исправлен · `fix/bugs-web-shared` (c027e076)
 
 #### BUG-404 · 🟡 Проверка документа по коду: 429, 5xx и обрыв сети показываются как «Документ не найден»
-- **Роль:** внешний проверяющий, `/verify/<код>` · **Статус:** новый
+- **Роль:** внешний проверяющий, `/verify/<код>` · **Статус:** исправлен · `fix/bugs-web-shared` (e7f450a9)
 - **Где:** `apps/web/src/views/verify-document/ui/verify-document-view.tsx:25-52` (`isError` → «не найден», `retry: false`, «Повторить» нет); лимит 20/мин с IP — `apps/api/src/common/export/export-verify.controller.ts:29`
 - **Сценарий:** банк проверяет пачку справок с одного IP → подлинный документ выглядит поддельным.
 
@@ -2317,10 +2317,10 @@
 - **Где:** `Core/Storage/AppDatabase+Migrations.swift:116-118`, `Core/Chats/MessageStore.swift:17-25`, `Features/Chats/Thread/ChatThreadModel.swift:294-304` · **Статус:** новый
 
 #### BUG-461 · 🟡 iOS: пуш при холодном старте не открывает документы, библиотеку и события
-- **Где:** `App/AppDelegate.swift:100-111`, `Core/Navigation/AppRouter.swift:77-101` (роль `.unknown` до подъёма сессии) · **Статус:** новый
+- **Где:** `App/AppDelegate.swift:100-111`, `Core/Navigation/AppRouter.swift:77-101` (роль `.unknown` до подъёма сессии) · **Статус:** исправлен · `fix/bugs-ios-miniapp` (be5229d0)
 
 #### BUG-462 · 🟡 🔒 iOS: выход оставляет навигацию, бейдж и id в Sentry прежнего человека (рядом с BUG-075, корень в памяти)
-- **Где:** `App/AppSessionModel.swift:51-60`, `AppServices.swift:131` (синглтон `router`), `Core/Push/PushSync.swift:128-143`, `App/RootView.swift:425-432` · **Статус:** новый
+- **Где:** `App/AppSessionModel.swift:51-60`, `AppServices.swift:131` (синглтон `router`), `Core/Push/PushSync.swift:128-143`, `App/RootView.swift:425-432` · **Статус:** исправлен · `fix/bugs-ios-miniapp` (8b24255c)
 - **Сценарий:** B после входа оказывается в открытом чате A; сбои B уходят в трекер под id A; пуш, нажатый на экране входа, кладёт маршрут для следующего.
 
 #### BUG-463 · 🟡 iOS: у преподавателя «Журнал», «Посещаемость» и «Сдать работу» отвечают 403 (как BUG-421)
@@ -2583,7 +2583,7 @@
 - **Что:** `:289-318` — комплект `DRAFT` с `reviewedById` и всеми позициями `ACCEPTED` (ср. BUG-232); `:432` — `ApplicationResult.type: 'DOCUMENT'` вне `ApplicationResultTypeSchema`; `:356-357` — `formData` без обязательных `reason`/`family-status`, `ELECTRONIC` у услуги только `PAPER`; `:458` — жалобы `COMMENT`/`MESSAGE` указывают на id поста; `50-social.mjs:330-357` + `60-chats.mjs:101-108` — блокировка при одновременной дружбе и личном чате.
 
 #### BUG-534 · 🟢 История откликов в сиде карьеры: переходы «из ниоткуда» и время вразнобой
-- **Где:** `prisma/seed/steps/80-career.mjs:154,174,179` · **Статус:** новый
+- **Где:** `prisma/seed/steps/80-career.mjs:154,174,179` · **Статус:** исправлен · `fix/bugs-prisma-seed` (e3e65689)
 - **Ожидается:** `fromStatus` = `toStatus` предыдущего события, время монотонно — журнал служит основанием в споре (`26-career.prisma`, `CareerApplicationEvent`).
 
 #### BUG-535 · 🟢 Сид инвайтов: DEAN без `facultyId`, инвайты STUDENT и DEAN «использованы» преподавателем
