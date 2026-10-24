@@ -347,6 +347,17 @@ describe('UserService — приватность профиля', () => {
     })
   })
 
+  // BUG-199: id студента работодатель берёт из воронки — общий профиль открывал контакты
+  // в обход скрытого карьерного профиля, согласий и допуска к вузу.
+  it('работодатель чужой профиль не получает → NOT_FOUND, в базу не ходит', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findFirst.mockResolvedValue(target)
+    await expect(
+      service.getProfileForViewer('target-1', viewer(Role.EMPLOYER)),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    expect(prisma.user.findFirst).not.toHaveBeenCalled()
+  })
+
   // A-F15: язык интерфейса уходил в полной чужой карточке — белый список держался на
   // ручном разборе полей, и locale из него выпал.
   it('чужой полный профиль не содержит locale, username и флага 2FA', async () => {

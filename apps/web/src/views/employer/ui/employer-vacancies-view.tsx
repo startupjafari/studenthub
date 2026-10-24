@@ -21,6 +21,7 @@ import {
   PageHeader,
   Skeleton,
   TablePagination,
+  useConfirm,
 } from '../../../shared/ui'
 import { toApiError } from '../../../shared/lib'
 import { VacancyFormModal } from './vacancy-form-modal'
@@ -36,6 +37,7 @@ export function EmployerVacanciesView() {
   const t = useTranslations('EmployerVacancies')
   const tErr = useTranslations('Errors')
   const queryClient = useQueryClient()
+  const confirm = useConfirm()
   const [page, setPage] = useState(1)
   const limit = 20
   // Открытая форма: `null` — новая вакансия, строка — правка этой вакансии.
@@ -56,7 +58,7 @@ export function EmployerVacanciesView() {
       toast.success(t('saved'))
       await queryClient.invalidateQueries({ queryKey: vacancyKeys.all })
     },
-    onError: (error) => toast.error(toApiError(error).message),
+    onError: (error) => toast.error(tErr(toApiError(error).code)),
   })
 
   const rows = query.data?.items ?? []
@@ -103,7 +105,22 @@ export function EmployerVacanciesView() {
                 key={vacancy.id}
                 vacancy={vacancy}
                 busy={act.isPending}
-                onAct={(action) => act.mutate({ id: vacancy.id, action })}
+                onAct={(action) => {
+                  if (action !== 'close') {
+                    act.mutate({ id: vacancy.id, action })
+                    return
+                  }
+                  // Закрытие необратимо: вакансия уходит с витрин, её нельзя ни править,
+                  // ни опубликовать снова — поэтому только после подтверждения.
+                  void confirm({
+                    title: t('closeConfirm'),
+                    description: t('closeConfirmText'),
+                    confirmLabel: t('close'),
+                    destructive: true,
+                  }).then((ok) => {
+                    if (ok) act.mutate({ id: vacancy.id, action })
+                  })
+                }}
                 onEdit={() => setForm({ vacancy })}
               />
             ))}
@@ -175,6 +192,20 @@ function VacancyRow({
               {t('publish')}
             </Button>
           )}
+          {/* Повторная публикация опубликованной: вуз, допустивший компанию позже или
+              вернувший допуск, получает вакансию на модерацию; одобрения других вузов
+              сервер не трогает. */}
+          {vacancy.status === 'PUBLISHED' && (
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={busy}
+              onClick={() => onAct('publish')}
+              title={t('republishHint')}
+            >
+              {t('republish')}
+            </Button>
+          )}
           {vacancy.status === 'PUBLISHED' && (
             <Button size="sm" variant="outline" disabled={busy} onClick={() => onAct('pause')}>
               {t('pause')}
@@ -201,6 +232,22 @@ function VacancyRow({
               </li>
             ))}
           </ul>
+          {/* Причина отказа или снятия: без неё компания видит только, что вакансия
+              исчезла, и не знает, что исправить. */}
+          {vacancy.reviews.some((review) => review.status === 'REJECTED' && review.reason) && (
+            <ul className="flex flex-col gap-1 text-sm text-muted-foreground">
+              {vacancy.reviews.map((review) =>
+                review.status === 'REJECTED' && review.reason ? (
+                  <li key={review.university.id}>
+                    {t('rejectReason', {
+                      university: review.university.name,
+                      reason: review.reason,
+                    })}
+                  </li>
+                ) : null,
+              )}
+            </ul>
+          )}
         </div>
       )}
     </li>

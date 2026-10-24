@@ -1,11 +1,11 @@
 'use client'
 
 import { useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useTranslations } from 'next-intl'
+import { useFormatter, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { Building2, ExternalLink } from 'lucide-react'
-import { ADMIN_PAGE_SIZES } from '@studenthub/shared-schemas'
 import type {
   CompanyAccessStatus,
   CompanySort,
@@ -42,13 +42,20 @@ import {
 } from '../../../features/career-university-scope'
 import { toApiError } from '../../../shared/lib'
 import { useAppSelector } from '../../../shared/store'
+import { ApproveAccessModal } from './approve-access-modal'
 
 /** Фильтр очереди. 'ALL' — не статус, а «показать все», поэтому отдельным типом. */
 type StatusFilter = CompanyAccessStatus | 'ALL'
 
+// Вкладки очереди. Вкладку можно задать в адресе (`?status=APPROVED`): плитка «Истекает»
+// на обзоре ведёт к действующим допускам, а не к новым заявкам.
+const TABS = ['REQUESTED', 'APPROVED', 'ALL'] as const
+const initialTab = (value: string | null): StatusFilter =>
+  TABS.find((tab) => tab === value) ?? 'REQUESTED'
+
 // Ширины колонок: имя компании и решение важнее контактов, поэтому им отдано больше места.
-// Размеры страницы — общий для админских экранов набор из контракта.
-const PAGE_SIZES = ADMIN_PAGE_SIZES
+// Размеры страницы: список на OffsetPaginationSchema (limit ≤ 100), 150 и 200 дали бы 422.
+const PAGE_SIZES = [20, 50, 100] as const
 
 const COLS = ['26%', '22%', '28%', '10%', '14%'] as const
 // Без колонки решений — для тех, кто очередь только смотрит (декан, модераторы).
@@ -63,10 +70,12 @@ const COLS_READONLY = ['30%', '26%', '32%', '12%'] as const
 export function CareerCompaniesView() {
   const t = useTranslations('CareerAdmin')
   const tErr = useTranslations('Errors')
+  const format = useFormatter()
   const queryClient = useQueryClient()
   const role = useAppSelector((s) => s.auth.role)
   const canDecide = role !== null && COMPANY_ACCESS_DECIDERS.includes(role)
-  const [status, setStatus] = useState<StatusFilter>('REQUESTED')
+  const searchParams = useSearchParams()
+  const [status, setStatus] = useState<StatusFilter>(() => initialTab(searchParams.get('status')))
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState<number>(PAGE_SIZES[0])
 
@@ -99,7 +108,7 @@ export function CareerCompaniesView() {
       toast.success(t('decisionSaved'))
       await queryClient.invalidateQueries({ queryKey: companyKeys.all })
     },
-    onError: (error) => toast.error(toApiError(error).message),
+    onError: (error) => toast.error(tErr(toApiError(error).code)),
   })
 
   const rows = query.data?.items ?? []
@@ -116,6 +125,8 @@ export function CareerCompaniesView() {
 
   // Заявка, по которой спрашиваем причину отказа или отзыва.
   const [asking, setAsking] = useState<null | { id: string; status: 'REJECTED' | 'REVOKED' }>(null)
+  // Заявка, которую одобряют: спрашиваем необязательный срок допуска.
+  const [approving, setApproving] = useState<null | { id: string; companyName: string }>(null)
 
   const statusLabel: Record<CompanyAccessStatus, string> = {
     REQUESTED: t('statusRequested'),
@@ -209,6 +220,18 @@ export function CareerCompaniesView() {
                     </TableCell>
                     <TableCell>
                       <Badge variant={STATUS_TONE[row.status]}>{statusLabel[row.status]}</Badge>
+                      {/* Срок допуска — рядом со статусом: по нему видно, что истекает. */}
+                      {row.status === 'APPROVED' && row.expiresAt && (
+                        <span className="mt-0.5 block text-xs text-muted-foreground">
+                          {t('accessUntil', {
+                            date: format.dateTime(new Date(row.expiresAt), {
+                              day: 'numeric',
+                              month: 'short',
+                              year: 'numeric',
+                            }),
+                          })}
+                        </span>
+                      )}
                     </TableCell>
                     {canDecide && (
                       <TableCell className="text-right">
@@ -219,7 +242,7 @@ export function CareerCompaniesView() {
                                 size="sm"
                                 disabled={decide.isPending}
                                 onClick={() =>
-                                  decide.mutate({ id: row.id, input: { status: 'APPROVED' } })
+                                  setApproving({ id: row.id, companyName: row.company.name })
                                 }
                               >
                                 {t('approve')}
@@ -279,6 +302,23 @@ export function CareerCompaniesView() {
         }}
         onClose={() => setAsking(null)}
       />
+
+      {approving && (
+        <ApproveAccessModal
+          companyName={approving.companyName}
+          busy={decide.isPending}
+          onSubmit={(expiresAt) =>
+            decide.mutate(
+              {
+                id: approving.id,
+                input: { status: 'APPROVED', ...(expiresAt ? { expiresAt } : {}) },
+              },
+              { onSuccess: () => setApproving(null) },
+            )
+          }
+          onClose={() => setApproving(null)}
+        />
+      )}
     </div>
   )
 }

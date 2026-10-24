@@ -116,6 +116,35 @@ export class CareerNotifier {
     })
   }
 
+  /**
+   * Компании: допуск закрылся по сроку (cron `expireCompanyAccess`). Своим заголовком, а не
+   * «отозван»: решения вуза здесь не было, и компания должна понять, что это срок, который
+   * можно продлить повторной заявкой, а не претензия к ней.
+   */
+  async accessExpired(access: {
+    accessId: string
+    companyId: string
+    universityId: string
+    expiredAt: Date
+  }): Promise<void> {
+    await this.safely(`истечение допуска ${access.accessId}`, async () => {
+      const [recipientIds, university] = await Promise.all([
+        this.companyMemberIds(access.companyId),
+        this.universityName(access.universityId),
+      ])
+      if (recipientIds.length === 0) return
+      await this.send({
+        recipientIds,
+        type: 'APP_UPDATE',
+        titleKey: 'career.accessExpired.title',
+        bodyKey: 'career.university.body',
+        params: { university },
+        data: { url: LINKS.employerAccess },
+        dedupeKey: `company-access:${access.accessId}:EXPIRED:${access.expiredAt.getTime()}`,
+      })
+    })
+  }
+
   /** Компании: вуз одобрил или отклонил вакансию. */
   async vacancyDecided(decision: {
     reviewId: string

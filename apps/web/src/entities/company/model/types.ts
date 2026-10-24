@@ -1,5 +1,9 @@
 // Типы домена «Карьера — компании» — зеркало ответов API (GET /career/companies/*).
-import type { CompanyAccessStatus, CompanyStatus } from '@studenthub/shared-schemas'
+import type {
+  CompanyAccessStatus,
+  CompanyMemberRole,
+  CompanyStatus,
+} from '@studenthub/shared-schemas'
 
 export interface Company {
   id: string
@@ -12,6 +16,8 @@ export interface Company {
   status: CompanyStatus
   blockedReason: string | null
   createdAt: string
+  /** Роль смотрящего в своей компании; есть только в ответах GET|PATCH /career/companies/me. */
+  memberRole?: CompanyMemberRole | null
 }
 
 /** Заявка компании в вуз — как её видит работодатель. */

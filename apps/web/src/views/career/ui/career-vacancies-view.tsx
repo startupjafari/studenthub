@@ -1,7 +1,5 @@
 'use client'
 
-import { ADMIN_PAGE_SIZES } from '@studenthub/shared-schemas'
-
 import { useState } from 'react'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
@@ -52,8 +50,8 @@ import { VacancyDetailModal } from './vacancy-detail-modal'
  * значило бы принять решение за человека на основании неполных данных.
  */
 // Ширины колонок: должность и компания — главное, формат и город сжимаются первыми.
-// Размеры страницы — общий для админских экранов набор из контракта.
-const PAGE_SIZES = ADMIN_PAGE_SIZES
+// Размеры страницы: список на OffsetPaginationSchema (limit ≤ 100), 150 и 200 дали бы 422.
+const PAGE_SIZES = [20, 50, 100] as const
 
 const COLS = ['30%', '20%', '20%', '12%', '10%', '8%'] as const
 

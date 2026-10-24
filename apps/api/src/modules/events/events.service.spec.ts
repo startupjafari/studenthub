@@ -74,6 +74,27 @@ describe('EventsService.create — аудитория по роли (10.2)', () 
     expect(res.id).toBe('e-new')
   })
 
+  // BUG-200: careerKind не принимал ни один эндпоинт — раздел «Карьерные мероприятия»
+  // наполнялся только сидом.
+  it('тип карьерного мероприятия сохраняется; без него событие не карьерное', async () => {
+    const { service, prisma } = setup()
+    prisma.group.findUnique.mockResolvedValue({
+      facultyId: 'f1',
+      faculty: { universityId: 'uni1' },
+    })
+    const student = user(Role.STUDENT, { groupId: 'g1', facultyId: 'f1', universityId: 'uni1' })
+    const base = {
+      audience: 'GROUP' as const,
+      title: 'T',
+      description: 'D',
+      startsAt: '2026-09-01T10:00:00.000Z',
+    }
+    await service.create(student, { ...base, careerKind: 'CAREER_FAIR' }, ctx)
+    await service.create(student, base, ctx)
+    expect(prisma.event.create.mock.calls[0][0].data.careerKind).toBe('CAREER_FAIR')
+    expect(prisma.event.create.mock.calls[1][0].data.careerKind).toBeNull()
+  })
+
   it('студент → UNIVERSITY: FORBIDDEN', async () => {
     const { service } = setup()
     const err = await service

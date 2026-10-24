@@ -113,6 +113,7 @@
     }
   },
   "Employer": {
+    "statusExpired": "Access expired",
     "title": "Company",
     "subtitle": "Student access and company profile",
     "save": "Save",
@@ -176,7 +177,17 @@
     "resendSent": "We sent a new link — the previous one no longer works",
     "resendMaybeSent": "If a company with this address is awaiting confirmation, we've sent it a new link. It's valid for 24 hours.",
     "resendEmailLabel": "Email you signed up with",
-    "resendEmailInvalid": "Enter a valid email"
+    "resendEmailInvalid": "Enter a valid email",
+    "errCompanyName": "Name must be 2 to 120 characters",
+    "errFirstName": "Enter your first name",
+    "errLastName": "Enter your last name",
+    "errEmail": "Enter a valid email",
+    "errPassword": "Password must be 8 to 72 characters",
+    "errWebsite": "Link must start with http:// or https://",
+    "errDescription": "No more than 2000 characters",
+    "errCity": "No more than 24 characters",
+    "ownerOnlyAccess": "Only the company owner can apply to universities.",
+    "ownerOnlyCompany": "Only the company owner can edit the company profile."
   },
   "Demo": {
     "title": "Request a trial",
@@ -402,7 +413,16 @@
     "colStatus": "Status",
     "colActions": "Actions",
     "colVacancy": "Vacancy",
-    "colDescription": "Description"
+    "colDescription": "Description",
+    "unpublish": "Remove from listing",
+    "reviewExperience": "Experience",
+    "reviewDeadline": "Apply by",
+    "reviewLanguages": "Languages",
+    "reviewNotSet": "Not specified",
+    "accessUntil": "until {date}",
+    "accessUntilField": "Access period",
+    "accessUntilNone": "No end date",
+    "accessUntilHint": "Optional. Access lasts until the end of the chosen day, then closes automatically."
   },
   "CareerProfile": {
     "title": "Career profile",
@@ -453,7 +473,12 @@
     "specialty": "Specialty",
     "course": "Year",
     "skillsCount": "Skills",
-    "portfolioCount": "Portfolio entries"
+    "portfolioCount": "Portfolio entries",
+    "desiredPositions": "Desired positions",
+    "desiredPositionsPlaceholder": "Frontend developer, data analyst",
+    "desiredPositionsHint": "Comma-separated, up to 10 positions",
+    "relocationReady": "Ready to relocate",
+    "salaryCurrency": "Currency"
   },
   "Vacancies": {
     "title": "Jobs",
@@ -489,6 +514,8 @@
     "goToApplications": "My applications"
   },
   "EmployerVacancies": {
+    "republish": "Publish again",
+    "republishHint": "Send for review to universities where the vacancy is missing or was declined. Approvals from other universities are kept",
     "title": "Jobs",
     "subtitle": "Publishing is not showing: each university decides separately",
     "empty": "No jobs",
@@ -532,7 +559,10 @@
     "descriptionTooShort": "At least 30 characters",
     "salaryRange": "Minimum salary is above the maximum",
     "formInvalid": "Check the form fields",
-    "reReviewWarning": "Changes to the text or terms send the vacancy back to moderation: students will not see it until the university approves it again."
+    "reReviewWarning": "Changes to the text or terms send the vacancy back to moderation: students will not see it until the university approves it again.",
+    "rejectReason": "{university}: reason — {reason}",
+    "closeConfirm": "Close the vacancy?",
+    "closeConfirmText": "The vacancy will disappear from university listings. A closed vacancy cannot be edited or published again."
   },
   "CareerApplications": {
     "title": "My applications",
@@ -573,7 +603,11 @@
     "statusWithdrawn": "Withdrawn",
     "history": "History",
     "historyHide": "Hide history",
-    "historyEmpty": "No changes yet"
+    "historyEmpty": "No changes yet",
+    "withdrawConfirm": "Withdraw the application?",
+    "withdrawConfirmText": "The company will see that the application was withdrawn. This cannot be undone.",
+    "statusConfirm": "Move to “{status}”?",
+    "statusConfirmText": "{name} will see the new status right away. It cannot be reverted."
   },
   "CareerHome": {
     "statsActive": "Active applications",
@@ -638,7 +672,8 @@
     "colKind": "Type",
     "colWhen": "When",
     "colPlace": "Where",
-    "colParticipants": "Participants"
+    "colParticipants": "Participants",
+    "create": "New event"
   },
   "CareerAnalytics": {
     "title": "Career metrics",
@@ -2488,7 +2523,9 @@
     "updated": "Event updated",
     "meetingKeepHint": "Leave the field empty to keep the current link",
     "rescheduleNotice": "If you change the start time, participants will be notified",
-    "showMore": "Show more"
+    "showMore": "Show more",
+    "careerKind": "Career event",
+    "careerKindNone": "No — regular event"
   },
   "Moderation": {
     "complaintsTitle": "Complaints",

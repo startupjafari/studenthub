@@ -1146,6 +1146,13 @@ export class UserService {
    * (номера/адрес). Надзорные роли своего scope видят полный профиль даже при PRIVATE — с аудитом.
    */
   async getProfileForViewer(targetId: string, viewer: JwtPayload): Promise<PublicProfile> {
+    // Работодатель видит студента только карточкой кандидата (career-profile.service): там
+    // скрытый профиль, согласия на контакты и допуск к вузу. Через общий профиль id из воронки
+    // открывал бы телефон, почту и группу в обход всего этого — поэтому чужие профили ему
+    // не отдаются вовсе, тем же ответом, что и несуществующий id.
+    if (viewer.role === Role.EMPLOYER && viewer.sub !== targetId) {
+      throw new AppException('NOT_FOUND', 'Пользователь не найден')
+    }
     const target = await this.prisma.user.findFirst({
       where: { id: targetId, deletedAt: null },
       select: PROFILE_SELECT,

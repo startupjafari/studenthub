@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { OffsetPaginationSchema, SortOrderSchema } from './pagination.js'
+import { OffsetPaginationSchema, SortOrderSchema, queryBoolean } from './pagination.js'
 
 // Карьера (Фаза 18): компании-работодатели и их допуск к студентам вузов.
 // Единый источник истины для валидации на бэке и типов на фронте — дублировать
@@ -74,6 +74,21 @@ const optionalText = (max: number) =>
     .optional()
     .transform((v) => (v && v.length > 0 ? v : undefined))
 
+/**
+ * Текстовое поле формы правки, которое можно очистить. `optionalText` превращал пустой
+ * input в undefined — «поле не трогать», и стереть город или описание было нельзя: сервер
+ * отвечал «Сохранено», форма возвращала старое. Здесь undefined — «не трогать», а `''`
+ * и null — «очистить» (в базу пишется null).
+ */
+const clearableText = (max: number) =>
+  z
+    .string()
+    .trim()
+    .max(max)
+    .nullable()
+    .optional()
+    .transform((v) => (v === '' ? null : v))
+
 /** Slug компании: только строчная латиница, цифры и дефис — попадает в публичный URL. */
 export const CompanySlugSchema = z
   .string()
@@ -85,14 +100,22 @@ export const CompanySlugSchema = z
 export const CompanyNameSchema = z.string().trim().min(2).max(120)
 
 /** Сайт компании: только http(s) — ссылку показываем студенту, javascript: недопустим. */
-export const CompanyWebsiteSchema = z
+const companyWebsiteUrl = z
   .string()
   .trim()
   .max(200)
   .url()
   .refine((v) => v.startsWith('http://') || v.startsWith('https://'), 'Ссылка должна быть http(s)')
+
+export const CompanyWebsiteSchema = companyWebsiteUrl
   .optional()
   .or(z.literal('').transform(() => undefined))
+
+/** Сайт в форме правки: пустое поле — «убрать сайт» (null), как у `clearableText`. */
+const ClearableCompanyWebsiteSchema = companyWebsiteUrl
+  .nullable()
+  .optional()
+  .or(z.literal('').transform(() => null))
 
 // ── Регистрация работодателя ─────────────────────────────────────────────────
 
@@ -138,9 +161,9 @@ export type ResendCompanyVerificationInput = z.infer<typeof ResendCompanyVerific
 export const UpdateCompanySchema = z
   .object({
     name: CompanyNameSchema.optional(),
-    description: optionalText(2000),
-    website: CompanyWebsiteSchema,
-    city: optionalText(24),
+    description: clearableText(2000),
+    website: ClearableCompanyWebsiteSchema,
+    city: clearableText(24),
     logoUrl: optionalText(500),
   })
   .strict()
@@ -156,6 +179,14 @@ export const RequestCompanyAccessSchema = z
   })
   .strict()
 export type RequestCompanyAccessInput = z.infer<typeof RequestCompanyAccessSchema>
+
+/** Справочник вузов для заявки компании: поиск по названию. */
+export const CompanyUniversityDirectoryQuerySchema = z.object({
+  search: z.string().trim().max(120).optional(),
+})
+export type CompanyUniversityDirectoryQueryInput = z.infer<
+  typeof CompanyUniversityDirectoryQuerySchema
+>
 
 /**
  * Решение вуза по заявке. reason обязателен при отказе и отзыве: компания должна понимать,
@@ -266,7 +297,7 @@ export const UpdateCareerProfileSchema = z
     desiredSalaryMin: z.number().int().nonnegative().max(100_000_000).nullable().optional(),
     desiredSalaryMax: z.number().int().nonnegative().max(100_000_000).nullable().optional(),
     salaryCurrency: z.enum(['KZT', 'USD', 'EUR', 'RUB']).nullable().optional(),
-    about: optionalText(2000),
+    about: clearableText(2000),
   })
   .strict()
 export type UpdateCareerProfileInput = z.infer<typeof UpdateCareerProfileSchema>
@@ -415,7 +446,7 @@ export const VacancyInputSchema = z
     employmentType: EmploymentTypeSchema,
     workFormat: WorkFormatSchema,
     experienceLevel: ExperienceLevelSchema,
-    city: optionalText(24),
+    city: clearableText(24),
     salaryMin: salaryField,
     salaryMax: salaryField,
     salaryCurrency: z.enum(['KZT', 'USD', 'EUR', 'RUB']).nullable().optional(),
@@ -659,6 +690,26 @@ export const UpdateResumeSchema = z
   .strict()
 export type UpdateResumeInput = z.infer<typeof UpdateResumeSchema>
 
+const resumePdfLabel = z.string().trim().min(1).max(80).optional()
+
+/**
+ * Запрос PDF резюме: подписи разделов на языке интерфейса (их знает клиент) и язык
+ * брендирования. Всё необязательно — без подписи API берёт английскую, без языка — русский.
+ */
+export const ResumePdfQuerySchema = z.object({
+  about: resumePdfLabel,
+  education: resumePdfLabel,
+  skills: resumePdfLabel,
+  languages: resumePdfLabel,
+  experience: resumePdfLabel,
+  projects: resumePdfLabel,
+  certificates: resumePdfLabel,
+  verified: resumePdfLabel,
+  generated: resumePdfLabel,
+  locale: z.string().trim().max(16).optional(),
+})
+export type ResumePdfQueryInput = z.infer<typeof ResumePdfQuerySchema>
+
 // ── Карьерные мероприятия (18.F) ─────────────────────────────────────────────
 
 /**
@@ -678,7 +729,10 @@ export type CareerEventKind = z.infer<typeof CareerEventKindSchema>
 
 export const CareerEventListQuerySchema = OffsetPaginationSchema.extend({
   kind: CareerEventKindSchema.optional(),
-  /** Прошедшие мероприятия по умолчанию не показываем. */
-  past: z.coerce.boolean().default(false),
+  /**
+   * Прошедшие мероприятия по умолчанию не показываем. `queryBoolean`, а не `z.coerce.boolean()`:
+   * экран шлёт `past=false`, и coerce превращал эту строку в true.
+   */
+  past: queryBoolean.default(false),
 }).extend(UniversityScopeSchema.shape)
 export type CareerEventListQueryInput = z.infer<typeof CareerEventListQuerySchema>

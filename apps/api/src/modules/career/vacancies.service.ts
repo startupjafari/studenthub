@@ -15,18 +15,20 @@ import {
   VACANCY_REVIEWED_FIELDS,
 } from '@studenthub/shared-schemas'
 import { AppException } from '../../common/exceptions/app.exception'
-import { resolveUniversityScope } from './career-scope'
+import { CAREER_STUDENT_ROLES, resolveUniversityScope } from './career-scope'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AuditService } from '../../common/audit/audit.service'
 import { Paginated } from '../../common/http/paginated'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
 import {
+  ACTIVE_COMPANY_WHERE,
   activeAccessWhere,
   CareerAccessService,
   vacancyVisibleWhere,
 } from './career-access.service'
 import { CareerNotifier } from './career-notifier'
+import { rethrowStaleStatus } from '../../common/prisma/stale-status'
 
 /**
  * Поля, которые читает студент и одобрял вуз (общий список с формой компании — shared-schemas).
@@ -43,6 +45,9 @@ const REVIEWED_SELECT = Object.fromEntries(REVIEWED_FIELDS.map((f) => [f, true])
   (typeof REVIEWED_FIELDS)[number],
   true
 >
+
+/** Сколько решений вузов показываем у вакансии в кабинете компании. */
+const REVIEWS_LIMIT = 100
 
 /** Значение поля изменилось. Массивы — поэлементно: форма присылает их целиком. */
 function changed(next: unknown, prev: unknown): boolean {
@@ -95,12 +100,16 @@ export class VacanciesService {
           status: true,
           views: true,
           createdAt: true,
+          // Решения по вузам: строк столько, сколько вузов допустили компанию, — единицы,
+          // но вложенная выборка без предела запрещена (BACKEND_RULES §18 п. 8).
           reviews: {
             select: {
               status: true,
               reason: true,
               university: { select: { id: true, name: true } },
             },
+            orderBy: { createdAt: 'asc' },
+            take: REVIEWS_LIMIT,
           },
         },
         orderBy: { createdAt: 'desc' },
@@ -114,6 +123,7 @@ export class VacanciesService {
 
   async create(viewer: JwtPayload, input: VacancyInput, ctx: RequestContext) {
     const companyId = this.access.requireCompany(viewer)
+    await this.access.assertCompanyActive(companyId)
     this.assertSalaryRange(input)
 
     const vacancy = await this.prisma.vacancy.create({
@@ -143,28 +153,39 @@ export class VacanciesService {
    * встаёт в очередь модерации. Как в `publish`, но гасим только APPROVED: отклонённую
    * вакансию правка в очередь не возвращает (для этого есть повторная публикация), а
    * ожидающая и так покажет модератору новый текст.
+   *
+   * Закрытая вакансия — конечное состояние (VACANCY_TRANSITIONS): её не правят, иначе
+   * правка возвращала бы в очередь модерации то, что компания уже закрыла.
    */
   async update(viewer: JwtPayload, id: string, input: UpdateVacancyInput, ctx: RequestContext) {
     const companyId = this.access.requireCompany(viewer)
+    await this.access.assertCompanyActive(companyId)
     const existing = await this.prisma.vacancy.findFirst({
       where: { id, companyId, deletedAt: null },
-      select: REVIEWED_SELECT,
+      select: { ...REVIEWED_SELECT, status: true },
     })
     if (!existing) throw new AppException('NOT_FOUND', 'Вакансия не найдена')
+    if (existing.status === 'CLOSED') {
+      throw new AppException('CONFLICT', 'Закрытую вакансию изменить нельзя')
+    }
     this.assertSalaryRange({ ...existing, ...input })
 
     const reReview = REVIEWED_FIELDS.some((field) => changed(input[field], existing[field]))
 
     const reset = await this.prisma.$transaction(async (tx) => {
-      await tx.vacancy.update({
-        where: { id },
-        data: {
-          ...input,
-          ...(input.deadline !== undefined
-            ? { deadline: input.deadline ? new Date(input.deadline) : null }
-            : {}),
-        },
-      })
+      // Условие на «не закрыта» — и в самой записи: параллельное закрытие между чтением и
+      // правкой не должно вернуть закрытую вакансию на модерацию.
+      await tx.vacancy
+        .update({
+          where: { id, status: { not: 'CLOSED' } },
+          data: {
+            ...input,
+            ...(input.deadline !== undefined
+              ? { deadline: input.deadline ? new Date(input.deadline) : null }
+              : {}),
+          },
+        })
+        .catch(rethrowStaleStatus)
       if (!reReview) return 0
       const { count } = await tx.vacancyUniversityReview.updateMany({
         where: { vacancyId: id, status: 'APPROVED' },
@@ -191,11 +212,16 @@ export class VacanciesService {
    * одобрение одним из них не должно открывать вакансию студентам другого. Вузов у
    * компании единицы, поэтому строк немного.
    *
-   * Повторная публикация после правок сбрасывает решения обратно в PENDING: вуз одобрял
-   * конкретный текст, а не саму вакансию навсегда.
+   * Повторная публикация (в том числе уже опубликованной) — это «покажите её вузам, где
+   * её ещё нет»: вуз, допустивший компанию после первой публикации, получает свою строку
+   * ревью, а отклонённое решение (в том числе погашенное отзывом допуска) возвращается на
+   * модерацию. Одобрения других вузов не трогаем: вуз одобрял конкретный текст, и правка
+   * текста сама возвращает их в PENDING (см. `update`), а повторное нажатие «Опубликовать»
+   * без правок не должно снимать вакансию с витрин, где её уже пропустили.
    */
   async publish(viewer: JwtPayload, id: string, ctx: RequestContext) {
     const companyId = this.access.requireCompany(viewer)
+    await this.access.assertCompanyActive(companyId)
     const vacancy = await this.ownVacancy(companyId, id)
     const from = this.assertTransition(vacancy.status, 'PUBLISHED')
 
@@ -215,13 +241,18 @@ export class VacanciesService {
         data: { status: 'PUBLISHED', publishedAt: new Date() },
       })
       if (count === 0) throw this.changedConflict()
-      for (const universityId of universities) {
-        await tx.vacancyUniversityReview.upsert({
-          where: { vacancyId_universityId: { vacancyId: id, universityId } },
-          create: { vacancyId: id, universityId, status: 'PENDING' },
-          update: { status: 'PENDING', reason: null, decidedById: null, decidedAt: null },
-        })
-      }
+      await tx.vacancyUniversityReview.createMany({
+        data: universities.map((universityId) => ({
+          vacancyId: id,
+          universityId,
+          status: 'PENDING',
+        })),
+        skipDuplicates: true,
+      })
+      await tx.vacancyUniversityReview.updateMany({
+        where: { vacancyId: id, universityId: { in: universities }, status: 'REJECTED' },
+        data: { status: 'PENDING', reason: null, decidedById: null, decidedAt: null },
+      })
     })
 
     await this.audit.record({
@@ -277,13 +308,24 @@ export class VacanciesService {
       ...(query.workFormat ? { workFormat: query.workFormat } : {}),
       ...(query.experienceLevel ? { experienceLevel: query.experienceLevel } : {}),
       ...(query.city ? { city: query.city } : {}),
-      ...(query.salaryFrom ? { salaryMax: { gte: query.salaryFrom } } : {}),
       ...(query.skills?.length ? { skills: { hasSome: query.skills } } : {}),
       // Два независимых условия-ИЛИ собираем через AND: если оба положить ключом `OR`
       // в один объект, второй молча затрёт первый и фильтр по тексту пропадёт.
       AND: [
         // Просроченные не показываем: отклик на них всё равно не примут.
         { OR: [{ deadline: null }, { deadline: { gte: new Date() } }] },
+        // «Зарплата от N»: вилка достаёт до N. У вакансии «от M» без верхней границы
+        // потолка нет — по ней судим о нижней границе, иначе такие вакансии выпадали всегда.
+        ...(query.salaryFrom
+          ? [
+              {
+                OR: [
+                  { salaryMax: { gte: query.salaryFrom } },
+                  { salaryMax: null, salaryMin: { gte: query.salaryFrom } },
+                ],
+              },
+            ]
+          : []),
         ...(query.search
           ? [
               {
@@ -339,7 +381,11 @@ export class VacanciesService {
     if (!vacancy) throw new AppException('NOT_FOUND', 'Вакансия не найдена')
 
     // Счётчик просмотров — не в транзакции и без ожидания консистентности: это метрика.
-    await this.prisma.vacancy.update({ where: { id }, data: { views: { increment: 1 } } })
+    // Считаем только студентов: просмотры — знаменатель «отклик на просмотр» в метриках
+    // компании, а модератор, декан или платформа откликнуться не могут и лишь занижали бы его.
+    if (CAREER_STUDENT_ROLES.includes(viewer.role)) {
+      await this.prisma.vacancy.update({ where: { id }, data: { views: { increment: 1 } } })
+    }
     return vacancy
   }
 
@@ -422,7 +468,10 @@ export class VacanciesService {
               vacancy: {
                 deletedAt: null,
                 status: 'PUBLISHED',
-                company: { universityAccess: { some: activeAccessWhere(universityId) } },
+                company: {
+                  ...ACTIVE_COMPANY_WHERE,
+                  universityAccess: { some: activeAccessWhere(universityId) },
+                },
               },
             }
           : {}),
@@ -469,14 +518,17 @@ export class VacanciesService {
   private async matchProfile(userId: string) {
     const user = await this.prisma.user.findFirst({
       where: { id: userId },
-      select: { skills: true, country: true, careerProfile: true },
+      select: { skills: true, careerProfile: true },
     })
     if (!user?.careerProfile) return null
     return {
       skills: user.skills,
       employmentTypes: user.careerProfile.employmentTypes as EmploymentType[],
       workFormats: user.careerProfile.workFormats as WorkFormat[],
-      city: user.country,
+      // Города студента в модели нет. Раньше сюда шла страна (`User.country`), и «Алматы»
+      // вакансии не совпадало с «Казахстан» никогда — каждая очная вакансия теряла 15 баллов.
+      // Неизвестный город — не ограничение (matchVacancy), а не повод занижать процент.
+      city: null,
       relocationReady: user.careerProfile.relocationReady,
     }
   }

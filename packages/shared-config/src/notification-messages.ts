@@ -149,6 +149,7 @@ const RU = {
   'career.accessApproved.title': 'Допуск к студентам открыт',
   'career.accessRejected.title': 'Заявка на допуск отклонена',
   'career.accessRevoked.title': 'Допуск к студентам отозван',
+  'career.accessExpired.title': 'Срок допуска к студентам истёк',
   'career.university.body': '{university}',
   'career.universityReason.body': '{university}: {reason}',
   // Компании: решение вуза по вакансии.
@@ -290,6 +291,7 @@ const KK: Record<NotificationMessageKey, string> = {
   'career.accessApproved.title': 'Студенттерге қолжетімділік ашылды',
   'career.accessRejected.title': 'Қолжетімділік сұрауы қабылданбады',
   'career.accessRevoked.title': 'Студенттерге қолжетімділік тоқтатылды',
+  'career.accessExpired.title': 'Студенттерге қолжетімділік мерзімі аяқталды',
   'career.university.body': '{university}',
   'career.universityReason.body': '{university}: {reason}',
   'career.vacancyApproved.title': 'Вакансия мақұлданды',
@@ -425,6 +427,7 @@ const EN: Record<NotificationMessageKey, string> = {
   'career.accessApproved.title': 'Access to students granted',
   'career.accessRejected.title': 'Access request declined',
   'career.accessRevoked.title': 'Access to students revoked',
+  'career.accessExpired.title': 'Access to students expired',
   'career.university.body': '{university}',
   'career.universityReason.body': '{university}: {reason}',
   'career.vacancyApproved.title': 'Vacancy approved',

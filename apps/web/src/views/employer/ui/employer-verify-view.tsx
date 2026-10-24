@@ -14,6 +14,7 @@ import { ResendVerificationForm } from '../../../features/resend-company-verific
 export function EmployerVerifyView() {
   const t = useTranslations('Employer')
   const tCommon = useTranslations('Common')
+  const tErr = useTranslations('Errors')
   const params = useSearchParams()
   const token = params.get('token')
   const [state, setState] = useState<'loading' | 'ok' | 'error'>('loading')
@@ -34,9 +35,9 @@ export function EmployerVerifyView() {
       .then(() => setState('ok'))
       .catch((err: unknown) => {
         setState('error')
-        setMessage(toApiError(err).message)
+        setMessage(tErr(toApiError(err).code))
       })
-  }, [token, t])
+  }, [token, t, tErr])
 
   if (state === 'loading') return <PageLoader label={tCommon('loading')} />
 

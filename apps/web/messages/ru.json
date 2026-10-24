@@ -113,6 +113,7 @@
     }
   },
   "Employer": {
+    "statusExpired": "Срок доступа истёк",
     "title": "Компания",
     "subtitle": "Доступ к студентам и профиль компании",
     "save": "Сохранить",
@@ -176,7 +177,17 @@
     "resendSent": "Отправили новую ссылку — прежняя больше не действует",
     "resendMaybeSent": "Если компания с этим адресом ждёт подтверждения, мы отправили на него новую ссылку. Она действует сутки.",
     "resendEmailLabel": "Email, указанный при регистрации",
-    "resendEmailInvalid": "Введите корректный email"
+    "resendEmailInvalid": "Введите корректный email",
+    "errCompanyName": "Название — от 2 до 120 символов",
+    "errFirstName": "Укажите имя",
+    "errLastName": "Укажите фамилию",
+    "errEmail": "Введите корректный email",
+    "errPassword": "Пароль — от 8 до 72 символов",
+    "errWebsite": "Ссылка должна начинаться с http:// или https://",
+    "errDescription": "Не больше 2000 символов",
+    "errCity": "Не больше 24 символов",
+    "ownerOnlyAccess": "Заявки в университеты подаёт владелец компании.",
+    "ownerOnlyCompany": "Профиль компании меняет её владелец."
   },
   "Demo": {
     "title": "Заявка на тестирование",
@@ -402,7 +413,16 @@
     "colStatus": "Статус",
     "colActions": "Действия",
     "colVacancy": "Вакансия",
-    "colDescription": "Описание"
+    "colDescription": "Описание",
+    "unpublish": "Снять с витрины",
+    "reviewExperience": "Опыт",
+    "reviewDeadline": "Отклик до",
+    "reviewLanguages": "Языки",
+    "reviewNotSet": "Не указано",
+    "accessUntil": "до {date}",
+    "accessUntilField": "Срок допуска",
+    "accessUntilNone": "Бессрочно",
+    "accessUntilHint": "Необязательно. Допуск действует до конца выбранного дня, после — закрывается сам."
   },
   "CareerProfile": {
     "title": "Карьерный профиль",
@@ -453,7 +473,12 @@
     "specialty": "Специальность",
     "course": "Курс",
     "skillsCount": "Навыки",
-    "portfolioCount": "Записей в портфолио"
+    "portfolioCount": "Записей в портфолио",
+    "desiredPositions": "Желаемые позиции",
+    "desiredPositionsPlaceholder": "Frontend-разработчик, аналитик данных",
+    "desiredPositionsHint": "Через запятую, до 10 позиций",
+    "relocationReady": "Готов(а) к переезду",
+    "salaryCurrency": "Валюта"
   },
   "Vacancies": {
     "title": "Вакансии",
@@ -489,6 +514,8 @@
     "goToApplications": "Мои отклики"
   },
   "EmployerVacancies": {
+    "republish": "Опубликовать повторно",
+    "republishHint": "Отправить на модерацию в университеты, где вакансии ещё нет или её отклонили. Одобрения других университетов сохранятся",
     "title": "Вакансии",
     "subtitle": "Публикация не равна показу: каждый вуз решает отдельно",
     "empty": "Вакансий нет",
@@ -532,7 +559,10 @@
     "descriptionTooShort": "Не короче 30 символов",
     "salaryRange": "Минимальная зарплата больше максимальной",
     "formInvalid": "Проверьте поля формы",
-    "reReviewWarning": "Изменения в тексте или условиях вернут вакансию на модерацию: пока университет не одобрит её снова, студенты её не увидят."
+    "reReviewWarning": "Изменения в тексте или условиях вернут вакансию на модерацию: пока университет не одобрит её снова, студенты её не увидят.",
+    "rejectReason": "{university}: причина — {reason}",
+    "closeConfirm": "Закрыть вакансию?",
+    "closeConfirmText": "Вакансия пропадёт с витрин университетов. Закрытую вакансию нельзя изменить или опубликовать снова."
   },
   "CareerApplications": {
     "title": "Мои отклики",
@@ -573,7 +603,11 @@
     "statusWithdrawn": "Отозван",
     "history": "История",
     "historyHide": "Скрыть историю",
-    "historyEmpty": "Изменений пока не было"
+    "historyEmpty": "Изменений пока не было",
+    "withdrawConfirm": "Отозвать отклик?",
+    "withdrawConfirmText": "Компания увидит, что отклик отозван. Вернуть его нельзя.",
+    "statusConfirm": "Перевести в «{status}»?",
+    "statusConfirmText": "{name} сразу увидит новый статус. Вернуть прежний нельзя."
   },
   "CareerHome": {
     "statsActive": "Активные отклики",
@@ -638,7 +672,8 @@
     "colKind": "Тип",
     "colWhen": "Когда",
     "colPlace": "Где",
-    "colParticipants": "Участников"
+    "colParticipants": "Участников",
+    "create": "Новое мероприятие"
   },
   "CareerAnalytics": {
     "title": "Метрики карьеры",
@@ -2488,7 +2523,9 @@
     "updated": "Событие обновлено",
     "meetingKeepHint": "Оставьте поле пустым, чтобы сохранить текущую ссылку",
     "rescheduleNotice": "Если перенести начало, участники получат уведомление",
-    "showMore": "Показать ещё"
+    "showMore": "Показать ещё",
+    "careerKind": "Карьерное мероприятие",
+    "careerKindNone": "Нет — обычное событие"
   },
   "Moderation": {
     "complaintsTitle": "Жалобы",

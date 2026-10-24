@@ -110,7 +110,7 @@ function setup(user: Record<string, unknown> | null = sourceUser(), consents: st
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const access = {
     requireCompany: jest.fn().mockReturnValue('co-1'),
-    assertCanAccessUniversity: jest.fn().mockResolvedValue(undefined),
+    canAccessUniversity: jest.fn().mockResolvedValue(true),
   }
   const service = new CareerProfileService(
     prisma as unknown as PrismaService,
@@ -157,14 +157,25 @@ describe('CareerProfileService — карточка для работодате�
     )
   })
 
-  it('допуск компании к вузу проверяется до выдачи данных', async () => {
-    const { service, access } = setup()
-    access.assertCanAccessUniversity.mockRejectedValue(
-      new AppException('WRONG_SCOPE', 'нет допуска'),
-    )
-    await expect(service.cardForEmployer(employer, 'stu-1', ctx)).rejects.toBeInstanceOf(
-      AppException,
-    )
+  // BUG-222: «чужой вуз» отвечал WRONG_SCOPE, а «нет такого» — NOT_FOUND, и перебор id
+  // подтверждал существование студента.
+  it('без допуска к вузу — тот же NOT_FOUND, что и для несуществующего id', async () => {
+    const { service, access, audit } = setup()
+    access.canAccessUniversity.mockResolvedValue(false)
+    await expect(service.cardForEmployer(employer, 'stu-1', ctx)).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    })
+    expect(access.canAccessUniversity).toHaveBeenCalledWith('co-1', expect.any(String))
+    expect(audit.record).not.toHaveBeenCalled()
+  })
+
+  // BUG-221: карточка заблокированного студента отдавалась работодателю.
+  it('заблокированный студент работодателю не отдаётся', async () => {
+    const { service, prisma } = setup()
+    await service.cardForEmployer(employer, 'stu-1', ctx)
+    expect(prisma.user.findFirst.mock.calls[0][0]).toMatchObject({
+      where: { id: 'stu-1', deletedAt: null, isBlocked: false },
+    })
   })
 
   it('каждое открытие карточки попадает в аудит', async () => {

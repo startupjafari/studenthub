@@ -369,3 +369,10 @@ export const ManagedServicesQuerySchema = OffsetPaginationSchema.extend({
   categoryId: z.string().min(1).optional(),
 }).strict()
 export type ManagedServicesQueryInput = z.infer<typeof ManagedServicesQuerySchema>
+
+// Причина отзыва справки необязательна, но если её указали — она попадает в событие заявки и
+// остаётся в истории: «почему отозвали» спрашивают чаще, чем «когда».
+export const RevokeCertificateSchema = z.object({
+  reason: z.string().trim().min(1).max(500).optional(),
+})
+export type RevokeCertificateInput = z.infer<typeof RevokeCertificateSchema>

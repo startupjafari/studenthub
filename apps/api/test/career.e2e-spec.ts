@@ -755,12 +755,13 @@ describe('Career (e2e) — сквозной поток работодателя 
         .expect(200)
     }
 
+    // 404, а не 403: «чужой вуз» отвечает так же, как несуществующий id (BUG-222).
     it('без допуска к вузу карточка не отдаётся', async () => {
       await openProfile()
       await request(server)
         .get(`/api/v1/career/profile/candidates/${studentId}`)
         .set(auth(employerToken))
-        .expect(403)
+        .expect(404)
     })
 
     it('скрытый профиль отвечает как несуществующий', async () => {
@@ -833,7 +834,7 @@ describe('Career (e2e) — сквозной поток работодателя 
       await request(server)
         .get(`/api/v1/career/profile/candidates/${studentId}`)
         .set(auth(employerToken))
-        .expect(403)
+        .expect(404)
     })
   })
 

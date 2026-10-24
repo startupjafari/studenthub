@@ -6,7 +6,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useTranslations } from 'next-intl'
 import {
+  CAREER_EVENT_KINDS,
   CreateEventSchema,
+  type CareerEventKind,
   type CreateEventInput,
   type PostAudienceValue,
 } from '@studenthub/shared-schemas'
@@ -42,6 +44,23 @@ const UI_AUDIENCES: Partial<Record<Role, PostAudienceValue[]>> = {
 // отвечал «Не указана группа» — у декана в токене группы нет.
 const GROUP_PICKER_ROLES: Role[] = [Role.UNIVERSITY_ADMIN, Role.DEAN, Role.TEACHER]
 const FACULTY_PICKER_ROLES: Role[] = [Role.UNIVERSITY_ADMIN]
+/**
+ * Кто может отметить событие как карьерное. Карьерные мероприятия показываются в разделе
+ * карьеры своего вуза, поэтому — организаторы событий вуза, а не платформы и не студенты.
+ */
+export const CAREER_EVENT_AUTHOR_ROLES: readonly Role[] = [
+  Role.UNIVERSITY_ADMIN,
+  Role.DEAN,
+  Role.TEACHER,
+]
+// «Не карьерное» — отдельное значение селекта: пустую строку Radix Select не принимает.
+const NO_CAREER_KIND = 'none'
+
+interface CreateEventModalProps {
+  onClose: () => void
+  /** Тип карьерного мероприятия заранее — когда событие создают из раздела карьеры. */
+  careerKind?: CareerEventKind
+}
 
 /**
  * Создание события.
@@ -50,8 +69,9 @@ const FACULTY_PICKER_ROLES: Role[] = [Role.UNIVERSITY_ADMIN]
  * при том что читают события куда чаще, чем создают. Теперь это модалка за кнопкой
  * в шапке, собранная как остальные создания в системе.
  */
-export function CreateEventModal({ onClose }: { onClose: () => void }) {
+export function CreateEventModal({ onClose, careerKind }: CreateEventModalProps) {
   const t = useTranslations('Events')
+  const tCareer = useTranslations('CareerEvents')
   const tCommon = useTranslations('Common')
   const qc = useQueryClient()
   const { show: showApiError } = useErrorToast('create-event')
@@ -61,11 +81,20 @@ export function CreateEventModal({ onClose }: { onClose: () => void }) {
 
   const form = useForm<CreateEventInput>({
     resolver: zodResolver(CreateEventSchema),
-    defaultValues: { audience: audiences[0], isOnline: false },
+    defaultValues: { audience: audiences[0], isOnline: false, careerKind },
   })
   const audience = form.watch('audience')
   const showGroup = audience === 'GROUP' && role !== null && GROUP_PICKER_ROLES.includes(role)
   const showFaculty = audience === 'FACULTY' && role !== null && FACULTY_PICKER_ROLES.includes(role)
+  const showCareerKind = role !== null && CAREER_EVENT_AUTHOR_ROLES.includes(role)
+
+  const kindLabel: Record<CareerEventKind, string> = {
+    CAREER_FAIR: tCareer('kindFair'),
+    WORKSHOP: tCareer('kindWorkshop'),
+    INTERVIEW_DAY: tCareer('kindInterviewDay'),
+    COMPANY_PRESENTATION: tCareer('kindPresentation'),
+    HACKATHON: tCareer('kindHackathon'),
+  }
 
   const faculties = useQuery({
     queryKey: facultyKeys.list(),
@@ -146,6 +175,36 @@ export function CreateEventModal({ onClose }: { onClose: () => void }) {
                         {(faculties.data ?? []).map((f) => (
                           <SelectItem key={f.id} value={f.id}>
                             {f.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+              </div>
+            )}
+
+            {showCareerKind && (
+              <div className="flex flex-col gap-1.5">
+                <Label>{t('careerKind')}</Label>
+                <Controller
+                  control={form.control}
+                  name="careerKind"
+                  render={({ field }) => (
+                    <Select
+                      value={field.value ?? NO_CAREER_KIND}
+                      onValueChange={(v) =>
+                        field.onChange(v === NO_CAREER_KIND ? undefined : (v as CareerEventKind))
+                      }
+                    >
+                      <SelectTrigger aria-label={t('careerKind')}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={NO_CAREER_KIND}>{t('careerKindNone')}</SelectItem>
+                        {CAREER_EVENT_KINDS.map((kind) => (
+                          <SelectItem key={kind} value={kind}>
+                            {kindLabel[kind]}
                           </SelectItem>
                         ))}
                       </SelectContent>

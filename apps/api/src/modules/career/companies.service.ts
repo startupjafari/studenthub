@@ -5,7 +5,10 @@ import { Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
 import {
   canTransitionAccess,
+  isAccessActive,
   type CompanyAccessStatus,
+  type CompanyListQueryInput,
+  type CompanyMemberRole,
   type DecideCompanyAccessInput,
   type EmployerSignupInput,
   type RequestCompanyAccessInput,
@@ -263,7 +266,8 @@ export class CompaniesService {
    * До подтверждения адреса аккаунт, созданный публичной регистрацией, пользовался общими
    * ручками платформы (загрузкой файлов и т.п.) под непроверенной почтой. Теперь вход ждёт
    * перехода по ссылке. Заблокированную платформой компанию вход пускает: владелец должен
-   * увидеть причину блокировки в кабинете, а действия компании закрывает assertCompanyActive.
+   * увидеть причину блокировки в кабинете. Действия компании закрывает
+   * CareerAccessService.assertCompanyActive, доступ к студентам — условие ACTIVE_COMPANY_WHERE.
    */
   async loginDenial(companyId: string): Promise<AppException | null> {
     const company = await this.prisma.company.findFirst({
@@ -281,7 +285,7 @@ export class CompaniesService {
 
   async myCompany(viewer: JwtPayload) {
     const companyId = this.access.requireCompany(viewer)
-    return this.companyCard(companyId)
+    return this.companyCard(companyId, viewer.sub)
   }
 
   async updateMyCompany(viewer: JwtPayload, input: UpdateCompanyInput, ctx: RequestContext) {
@@ -296,7 +300,7 @@ export class CompaniesService {
       entityId: companyId,
       ...ctx,
     })
-    return this.companyCard(companyId)
+    return this.companyCard(companyId, viewer.sub)
   }
 
   // ── Заявка на допуск к вузу ────────────────────────────────────────────────
@@ -309,7 +313,7 @@ export class CompaniesService {
   async requestAccess(viewer: JwtPayload, input: RequestCompanyAccessInput, ctx: RequestContext) {
     const companyId = this.access.requireCompany(viewer)
     await this.assertOwner(viewer, companyId)
-    await this.assertCompanyActive(companyId)
+    await this.access.assertCompanyActive(companyId)
 
     const university = await this.prisma.university.findFirst({
       where: { id: input.universityId, status: 'ACTIVE' },
@@ -321,17 +325,28 @@ export class CompaniesService {
 
     const existing = await this.prisma.companyUniversityAccess.findUnique({
       where: { companyId_universityId: { companyId, universityId: input.universityId } },
-      select: { id: true, status: true },
+      select: { id: true, status: true, expiresAt: true },
     })
     const requestedAt = new Date()
 
     if (existing) {
-      const from = existing.status as CompanyAccessStatus
+      let from = existing.status as CompanyAccessStatus
       if (from === 'REQUESTED') {
         throw new AppException('CONFLICT', 'Заявка уже на рассмотрении')
       }
       if (from === 'APPROVED') {
-        throw new AppException('CONFLICT', 'Доступ уже открыт')
+        if (isAccessActive({ status: from, expiresAt: existing.expiresAt }, requestedAt)) {
+          throw new AppException('CONFLICT', 'Доступ уже открыт')
+        }
+        // Срок истёк, а cron ещё не перевёл допуск в REVOKED. Доступа у компании уже нет, и
+        // ждать час до повторной заявки незачем: закрываем допуск тем же шагом, что и cron
+        // (решения по вакансиям гаснут — вуз рассмотрит их заново), и подаём заявку как
+        // после отзыва.
+        await this.expireOne(
+          { id: existing.id, companyId, universityId: input.universityId },
+          requestedAt,
+        )
+        from = 'REVOKED'
       }
       if (!canTransitionAccess(from, 'REQUESTED')) {
         throw new AppException('CONFLICT', 'Повторная заявка сейчас невозможна')
@@ -445,16 +460,17 @@ export class CompaniesService {
    * админ одного вуза читал бы очередь другого. Параметр действует только для
    * платформенных ролей, у которых своего вуза нет (см. resolveUniversityScope).
    */
-  async universityAccessList(
-    viewer: JwtPayload,
-    query: { status?: CompanyAccessStatus; page: number; limit: number; universityId?: string },
-  ) {
+  async universityAccessList(viewer: JwtPayload, query: CompanyListQueryInput) {
     const universityId = resolveUniversityScope(viewer, query.universityId)
     const where: Prisma.CompanyUniversityAccessWhereInput = {
       universityId,
       ...(query.status ? { status: query.status } : {}),
       // Компанию с неподтверждённым адресом вуз не видит вовсе.
-      company: { status: { not: 'PENDING_EMAIL' }, deletedAt: null },
+      company: {
+        status: { not: 'PENDING_EMAIL' },
+        deletedAt: null,
+        ...(query.search ? { name: { contains: query.search, mode: 'insensitive' as const } } : {}),
+      },
     }
 
     const [items, total] = await Promise.all([
@@ -481,13 +497,31 @@ export class CompaniesService {
             },
           },
         },
-        orderBy: [{ status: 'asc' }, { requestedAt: 'desc' }],
+        orderBy: this.accessOrderBy(query),
         skip: (query.page - 1) * query.limit,
         take: query.limit,
       }),
       this.prisma.companyUniversityAccess.count({ where }),
     ])
     return { items, total }
+  }
+
+  /**
+   * Порядок очереди по колонке таблицы. «Дата» у заявки — момент последней подачи
+   * (`requestedAt`): повторная заявка после отказа встаёт в очередь заново, а не туда, где
+   * была первая. Вторым ключом — свежие сверху, чтобы порядок внутри равных был стабильным.
+   */
+  private accessOrderBy(
+    query: CompanyListQueryInput,
+  ): Prisma.CompanyUniversityAccessOrderByWithRelationInput[] {
+    switch (query.sort) {
+      case 'name':
+        return [{ company: { name: query.order } }, { requestedAt: 'desc' }]
+      case 'status':
+        return [{ status: query.order }, { requestedAt: 'desc' }]
+      default:
+        return [{ requestedAt: query.order }]
+    }
   }
 
   /** Решение вуза по заявке: одобрить, отказать или отозвать выданный допуск. */
@@ -600,40 +634,59 @@ export class CompaniesService {
       if (batch.length === 0) break
 
       for (const record of batch) {
-        const expired = await this.prisma.$transaction(async (tx) => {
-          // Условие повторяем в записи: между выборкой и ней вуз мог отозвать допуск сам.
-          const { count } = await tx.companyUniversityAccess.updateMany({
-            where: { id: record.id, status: 'APPROVED', expiresAt: { lte: now } },
-            data: {
-              status: 'REVOKED',
-              reason: EXPIRED_ACCESS_REASON,
-              decidedById: null,
-              decidedAt: now,
-            },
-          })
-          if (count === 0) return false
-          await this.closeVacancyReviews(tx, record.companyId, record.universityId, {
-            reason: EXPIRED_REVIEW_REASON,
-            decidedById: null,
-            decidedAt: now,
-          })
-          return true
-        })
-        if (!expired) continue
-
+        if (!(await this.expireOne(record, now))) continue
         total += 1
-        await this.access.invalidate(record.companyId)
-        await this.audit.record({
-          action: 'company_access_expired',
-          entity: 'CompanyUniversityAccess',
-          entityId: record.id,
-          metadata: { companyId: record.companyId, universityId: record.universityId },
+        // Компания узнаёт, что допуск кончился, а не обнаруживает пустую витрину.
+        await this.notifier.accessExpired({
+          accessId: record.id,
+          companyId: record.companyId,
+          universityId: record.universityId,
+          expiredAt: now,
         })
       }
       if (batch.length < EXPIRE_BATCH) break
     }
     if (total > 0) this.logger.log(`expireAccess: закрыто допусков по сроку ${total}`)
     return total
+  }
+
+  /**
+   * Один истёкший допуск → REVOKED с каскадом на вакансии, сбросом кэша и аудитом. false —
+   * допуск уже не одобрен или срок не наступил (вуз успел решить сам, обработал другой проход).
+   */
+  private async expireOne(
+    record: { id: string; companyId: string; universityId: string },
+    now: Date,
+  ): Promise<boolean> {
+    const expired = await this.prisma.$transaction(async (tx) => {
+      // Условие повторяем в записи: между выборкой и ней вуз мог отозвать допуск сам.
+      const { count } = await tx.companyUniversityAccess.updateMany({
+        where: { id: record.id, status: 'APPROVED', expiresAt: { lte: now } },
+        data: {
+          status: 'REVOKED',
+          reason: EXPIRED_ACCESS_REASON,
+          decidedById: null,
+          decidedAt: now,
+        },
+      })
+      if (count === 0) return false
+      await this.closeVacancyReviews(tx, record.companyId, record.universityId, {
+        reason: EXPIRED_REVIEW_REASON,
+        decidedById: null,
+        decidedAt: now,
+      })
+      return true
+    })
+    if (!expired) return false
+
+    await this.access.invalidate(record.companyId)
+    await this.audit.record({
+      action: 'company_access_expired',
+      entity: 'CompanyUniversityAccess',
+      entityId: record.id,
+      metadata: { companyId: record.companyId, universityId: record.universityId },
+    })
+    return true
   }
 
   /**
@@ -752,7 +805,12 @@ export class CompaniesService {
     })
   }
 
-  private async companyCard(companyId: string) {
+  /**
+   * Карточка своей компании. `memberRole` — роль смотрящего в ней: заявки в вузы и профиль
+   * компании меняет только OWNER, и без этого поля веб показывал рекрутёру кнопки, на
+   * которые сервер отвечал 403.
+   */
+  private async companyCard(companyId: string, viewerId: string) {
     const company = await this.prisma.company.findFirst({
       where: { id: companyId, deletedAt: null },
       select: {
@@ -766,12 +824,14 @@ export class CompaniesService {
         status: true,
         blockedReason: true,
         createdAt: true,
+        members: { where: { userId: viewerId }, select: { role: true }, take: 1 },
       },
     })
     if (!company) {
       throw new AppException('NOT_FOUND', 'Компания не найдена')
     }
-    return company
+    const { members, ...card } = company
+    return { ...card, memberRole: (members[0]?.role ?? null) as CompanyMemberRole | null }
   }
 
   private async assertOwner(viewer: JwtPayload, companyId: string): Promise<void> {
@@ -784,20 +844,6 @@ export class CompaniesService {
     }
     if (member.role !== 'OWNER') {
       throw new AppException('FORBIDDEN', 'Действие доступно владельцу компании')
-    }
-  }
-
-  private async assertCompanyActive(companyId: string): Promise<void> {
-    const company = await this.prisma.company.findFirst({
-      where: { id: companyId, deletedAt: null },
-      select: { status: true, blockedReason: true },
-    })
-    if (!company) throw new AppException('NOT_FOUND', 'Компания не найдена')
-    if (company.status === 'PENDING_EMAIL') {
-      throw new AppException('FORBIDDEN', 'Сначала подтвердите email компании')
-    }
-    if (company.status === 'BLOCKED') {
-      throw new AppException('FORBIDDEN', company.blockedReason ?? 'Компания заблокирована')
     }
   }
 

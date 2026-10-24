@@ -55,6 +55,7 @@ function setup() {
   const queue = { enqueue: jest.fn().mockResolvedValue(undefined) }
   const access = {
     requireCompany: jest.fn().mockReturnValue('co-1'),
+    assertCompanyActive: jest.fn().mockResolvedValue(undefined),
     invalidate: jest.fn().mockResolvedValue(undefined),
   }
   const config = { get: jest.fn().mockReturnValue('https://app.studenthub.kz') }
@@ -62,6 +63,7 @@ function setup() {
   const notifier = {
     accessRequested: jest.fn().mockResolvedValue(undefined),
     accessDecided: jest.fn().mockResolvedValue(undefined),
+    accessExpired: jest.fn().mockResolvedValue(undefined),
   }
 
   const service = new CompaniesService(
@@ -255,20 +257,15 @@ describe('CompaniesService — заявка на допуск', () => {
     return s
   }
 
-  it('компания с неподтверждённым email заявку подать не может', async () => {
+  // Сами правила статуса (неподтверждённая почта, блокировка) — в career-access.service.spec.ts.
+  it('неактивная компания заявку подать не может', async () => {
     const s = ownerSetup()
-    s.prisma.company.findFirst.mockResolvedValue({ status: 'PENDING_EMAIL', blockedReason: null })
+    s.access.assertCompanyActive.mockRejectedValue(new AppException('FORBIDDEN', 'спам'))
     await expect(
       s.service.requestAccess(employer, { universityId: 'uni-1' }, ctx),
     ).rejects.toBeInstanceOf(AppException)
-  })
-
-  it('заблокированная платформой компания заявку подать не может', async () => {
-    const s = ownerSetup()
-    s.prisma.company.findFirst.mockResolvedValue({ status: 'BLOCKED', blockedReason: 'спам' })
-    await expect(
-      s.service.requestAccess(employer, { universityId: 'uni-1' }, ctx),
-    ).rejects.toBeInstanceOf(AppException)
+    expect(s.access.assertCompanyActive).toHaveBeenCalledWith('co-1')
+    expect(s.prisma.companyUniversityAccess.create).not.toHaveBeenCalled()
   })
 
   it('не владелец компании заявку подать не может', async () => {
@@ -281,10 +278,39 @@ describe('CompaniesService — заявка на допуск', () => {
 
   it('повторная заявка при открытом доступе — CONFLICT', async () => {
     const s = ownerSetup()
-    s.prisma.companyUniversityAccess.findUnique.mockResolvedValue({ id: 'a-1', status: 'APPROVED' })
+    s.prisma.companyUniversityAccess.findUnique.mockResolvedValue({
+      id: 'a-1',
+      status: 'APPROVED',
+      expiresAt: null,
+    })
     await expect(
       s.service.requestAccess(employer, { universityId: 'uni-1' }, ctx),
     ).rejects.toBeInstanceOf(AppException)
+  })
+
+  it('истёкший, но не погашенный cron допуск: закрывается каскадом, и заявка подаётся', async () => {
+    const s = ownerSetup()
+    s.prisma.companyUniversityAccess.findUnique.mockResolvedValue({
+      id: 'a-1',
+      status: 'APPROVED',
+      expiresAt: new Date(Date.now() - 60_000),
+    })
+
+    await s.service.requestAccess(employer, { universityId: 'uni-1' }, ctx)
+
+    // Сначала тот же шаг, что у cron: допуск → REVOKED, решения по вакансиям гаснут.
+    expect(s.tx.companyUniversityAccess.updateMany.mock.calls[0][0].where).toMatchObject({
+      id: 'a-1',
+      status: 'APPROVED',
+    })
+    expect(s.tx.vacancyUniversityReview.updateMany).toHaveBeenCalled()
+    // Затем — повторная заявка из REVOKED.
+    expect(s.prisma.companyUniversityAccess.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'a-1', status: 'REVOKED' },
+        data: expect.objectContaining({ status: 'REQUESTED' }),
+      }),
+    )
   })
 
   it('после отказа заявка переоткрывается, а не дублируется', async () => {
@@ -578,6 +604,41 @@ describe('CompaniesService — уборка неподтверждённых к�
   })
 })
 
+describe('CompaniesService — очередь заявок вуза', () => {
+  const uniAdmin: JwtPayload = {
+    sub: 'adm-1',
+    role: Role.UNIVERSITY_ADMIN,
+    universityId: 'uni-1',
+    facultyId: null,
+    groupId: null,
+  }
+  const base = { page: 1, limit: 20, sort: 'createdAt' as const, order: 'desc' as const }
+
+  it('поиск по названию компании и сортировка по колонке доходят до выборки', async () => {
+    const { service, prisma } = setup()
+    await service.universityAccessList(uniAdmin, {
+      ...base,
+      search: 'Acme',
+      sort: 'name',
+      order: 'asc',
+    })
+    const args = prisma.companyUniversityAccess.findMany.mock.calls[0][0]
+    expect(args.where.company).toMatchObject({
+      name: { contains: 'Acme', mode: 'insensitive' },
+    })
+    expect(args.orderBy).toEqual([{ company: { name: 'asc' } }, { requestedAt: 'desc' }])
+    expect(prisma.companyUniversityAccess.count.mock.calls[0][0].where).toEqual(args.where)
+  })
+
+  it('по умолчанию — по дате заявки, порядок из запроса', async () => {
+    const { service, prisma } = setup()
+    await service.universityAccessList(uniAdmin, { ...base, order: 'asc' })
+    expect(prisma.companyUniversityAccess.findMany.mock.calls[0][0].orderBy).toEqual([
+      { requestedAt: 'asc' },
+    ])
+  })
+})
+
 describe('CompaniesService — истечение допуска по сроку', () => {
   const now = new Date('2026-10-17T12:40:00Z')
   const expired = { id: 'a-1', companyId: 'co-1', universityId: 'uni-1' }
@@ -618,8 +679,22 @@ describe('CompaniesService — истечение допуска по сроку
     )
   })
 
+  it('компания узнаёт, что допуск истёк', async () => {
+    const { service, prisma, notifier } = setup()
+    prisma.companyUniversityAccess.findMany.mockResolvedValueOnce([expired])
+
+    await service.expireAccess(now)
+
+    expect(notifier.accessExpired).toHaveBeenCalledWith({
+      accessId: 'a-1',
+      companyId: 'co-1',
+      universityId: 'uni-1',
+      expiredAt: now,
+    })
+  })
+
   it('допуск, который вуз уже отозвал сам, второй раз не закрывается', async () => {
-    const { service, prisma, tx, access } = setup()
+    const { service, prisma, tx, access, notifier } = setup()
     prisma.companyUniversityAccess.findMany.mockResolvedValueOnce([expired])
     tx.companyUniversityAccess.updateMany.mockResolvedValueOnce({ count: 0 })
 
@@ -627,6 +702,7 @@ describe('CompaniesService — истечение допуска по сроку
 
     expect(tx.vacancyUniversityReview.updateMany).not.toHaveBeenCalled()
     expect(access.invalidate).not.toHaveBeenCalled()
+    expect(notifier.accessExpired).not.toHaveBeenCalled()
   })
 
   it('нечего закрывать — ни транзакций, ни сброса кэша', async () => {
@@ -636,5 +712,22 @@ describe('CompaniesService — истечение допуска по сроку
 
     expect(prisma.$transaction).not.toHaveBeenCalled()
     expect(access.invalidate).not.toHaveBeenCalled()
+  })
+})
+
+// BUG-216: веб показывал рекрутёру кнопки владельца — роль в компании ему не отдавалась.
+describe('CompaniesService — роль смотрящего в карточке своей компании', () => {
+  it('отдаёт memberRole и не отдаёт сами строки участников', async () => {
+    const { service, prisma } = setup()
+    prisma.company.findFirst.mockResolvedValue({
+      id: 'co-1',
+      name: 'Acme',
+      members: [{ role: 'RECRUITER' }],
+    })
+    const card = await service.myCompany(employer)
+    expect(card).toEqual({ id: 'co-1', name: 'Acme', memberRole: 'RECRUITER' })
+    expect(prisma.company.findFirst.mock.calls[0][0].select.members).toMatchObject({
+      where: { userId: 'u-1' },
+    })
   })
 })

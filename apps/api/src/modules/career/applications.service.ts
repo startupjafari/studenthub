@@ -139,6 +139,9 @@ export class ApplicationsService {
     const where: Prisma.CareerApplicationWhereInput = {
       studentId: viewer.sub,
       ...(query.status ? { status: query.status } : {}),
+      // Окно вакансии спрашивает «откликался ли я именно на неё» — без фильтра оно получало
+      // последний отклик на любую вакансию и прятало форму отклика.
+      ...(query.vacancyId ? { vacancyId: query.vacancyId } : {}),
     }
     const [items, total] = await Promise.all([
       this.prisma.careerApplication.findMany({
