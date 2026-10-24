@@ -2464,8 +2464,10 @@ export class ChatsService implements OnModuleInit {
       select: { lastReadAt: true },
     })
     const readAt = member?.lastReadAt ?? at
-    this.realtime.emitToUser(userId, 'chat:read', { chatId, readAt })
+    // Сначала гасим строку колокольчика, потом сигнал: по `chat:read` клиент перечитывает и
+    // счётчик колокольчика, и прочитай он его раньше — бейдж остался бы прежним.
     await this.readChatNotification(chatId, userId)
+    this.realtime.emitToUser(userId, 'chat:read', { chatId, readAt })
     return readAt
   }
 
