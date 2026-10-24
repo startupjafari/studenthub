@@ -226,6 +226,26 @@ describe('EventsService.remindDue — окно и дедуп (10.4)', () => {
     )
   })
 
+  // Окно ловит и события через десять минут: «примерно через час» про них — неправда.
+  it('в тексте — время начала по часам вуза, а не «примерно через час»', async () => {
+    const { service, prisma, queue } = setup()
+    prisma.event.findMany.mockResolvedValueOnce([
+      {
+        id: 'e1',
+        title: 'Событие',
+        startsAt: new Date('2030-03-02T09:10:00.000Z'),
+        updatedAt: new Date(0),
+        universityId: 'uni1',
+      },
+    ])
+    prisma.university.findUnique.mockResolvedValue({ timezone: 'Asia/Almaty' })
+    prisma.eventParticipant.findMany.mockResolvedValue([{ id: 'p1', userId: 'u2' }])
+    await service.remindDue()
+    const job = queue.enqueue.mock.calls[0][2]
+    expect(job.bodyKey).toBe('events.reminder.bodyAt')
+    expect(job.params).toEqual({ title: 'Событие', time: '14:10' })
+  })
+
   // Отметка без job'а теряла напоминание навсегда: следующий тик событие уже не выбирал.
   it('очередь недоступна — reminderSentAt не ставится, прогон останавливается', async () => {
     const { service, prisma, queue } = setup()

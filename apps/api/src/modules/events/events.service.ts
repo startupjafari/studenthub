@@ -591,6 +591,14 @@ export class EventsService {
   async remindDue(): Promise<number> {
     const now = new Date()
     const until = new Date(now.getTime() + REMINDER_AHEAD_MIN * 60_000)
+    // Пояс вуза — один запрос на вуз за прогон, а не на событие.
+    const zoneCache = new Map<string | null, string | null>()
+    const zones = async (universityId: string | null): Promise<string | null> => {
+      if (!zoneCache.has(universityId)) {
+        zoneCache.set(universityId, await this.timezoneOf(universityId))
+      }
+      return zoneCache.get(universityId) ?? null
+    }
     let total = 0
     let lastId: string | undefined
     for (;;) {
@@ -604,7 +612,7 @@ export class EventsService {
           // (начало перенесли посреди прогона) не читается по кругу.
           ...(lastId ? { id: { gt: lastId } } : {}),
         },
-        select: { id: true, title: true, startsAt: true, updatedAt: true },
+        select: { id: true, title: true, startsAt: true, updatedAt: true, universityId: true },
         orderBy: { id: 'asc' },
         take: BATCH,
       })
@@ -616,6 +624,9 @@ export class EventsService {
       const queued: { id: string; startsAt: Date }[] = []
       let failed = false
       for (const event of events) {
+        // Время начала по часам вуза: окно ловит и события через десять минут, и «примерно
+        // через час» про них — неправда.
+        const time = eventTimeLabel(event.startsAt, await zones(event.universityId)).slice(11)
         const reminderKey = `event-reminder:${event.id}:${event.startsAt.getTime()}:${event.updatedAt.getTime()}`
         let cursor: string | undefined
         let page = 0
@@ -635,8 +646,8 @@ export class EventsService {
               recipientIds: participants.map((p) => p.userId),
               type: 'EVENT',
               titleKey: 'events.reminder.title',
-              bodyKey: 'events.reminder.body',
-              params: { title: event.title },
+              bodyKey: 'events.reminder.bodyAt',
+              params: { title: event.title, time },
               // Карточка события, а не общий список: в напоминании речь об одном событии.
               data: { eventId: event.id, url: `/events/${event.id}` },
               // dedupeKey один на версию события (время начала и момент последней правки):
