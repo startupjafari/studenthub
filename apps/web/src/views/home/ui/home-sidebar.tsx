@@ -6,12 +6,21 @@ import { CalendarClock, CalendarDays, MapPin, Video } from 'lucide-react'
 import { scheduleKeys, fetchSchedule } from '../../../entities/schedule'
 import { eventKeys, fetchEvents } from '../../../entities/event'
 import { FriendsPanel } from '../../../widgets/friends-panel'
-import { Card, CardContent, CardHeader, CardTitle, EmptyState, Skeleton } from '../../../shared/ui'
+import {
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+  EmptyState,
+  Skeleton,
+} from '../../../shared/ui'
 import { isoWeekParity } from '../../../shared/lib'
 
 // Виджеты правой колонки главной студента: пары на сегодня, ближайшие события и друзья.
 export function HomeSidebar() {
   const t = useTranslations('Dashboard')
+  const tCommon = useTranslations('Common')
   const locale = useLocale()
 
   const schedQ = useQuery({ queryKey: scheduleKeys.view({}), queryFn: () => fetchSchedule({}) })
@@ -28,6 +37,21 @@ export function HomeSidebar() {
     .sort((a, b) => a.startTime.localeCompare(b.startTime))
   const events = (eventsQ.data ?? []).slice(0, 4)
 
+  // Сбой загрузки — своё состояние с «Повторить» (FRONTEND_RULES §9). Раньше пустой массив
+  // по умолчанию превращал любую ошибку в «Сегодня пар нет» / «Нет событий», и студент
+  // уходил, уверенный, что пар нет.
+  const loadFailed = (refetch: () => unknown) => (
+    <EmptyState
+      title={tCommon('error')}
+      action={
+        <Button size="sm" variant="outline" onClick={() => void refetch()}>
+          {tCommon('retry')}
+        </Button>
+      }
+      className="border-0 p-6"
+    />
+  )
+
   return (
     <>
       <Card>
@@ -40,6 +64,8 @@ export function HomeSidebar() {
         <CardContent>
           {schedQ.isLoading ? (
             <Skeleton fill className="min-h-16 rounded-lg" />
+          ) : schedQ.isError && !schedQ.data ? (
+            loadFailed(schedQ.refetch)
           ) : todayPairs.length === 0 ? (
             <EmptyState title={t('noPairsToday')} className="border-0 p-6" />
           ) : (
@@ -73,6 +99,8 @@ export function HomeSidebar() {
         <CardContent>
           {eventsQ.isLoading ? (
             <Skeleton fill className="min-h-16 rounded-lg" />
+          ) : eventsQ.isError && !eventsQ.data ? (
+            loadFailed(eventsQ.refetch)
           ) : events.length === 0 ? (
             <EmptyState title={t('noUpcomingEvents')} className="border-0 p-6" />
           ) : (
