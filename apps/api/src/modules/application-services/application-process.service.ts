@@ -14,6 +14,7 @@ import { ExportBrandingService } from '../../common/export/export-branding.servi
 import { ExportRegistryService } from '../../common/export/export-registry.service'
 import type { ExportContext, ExportLocale } from '../../common/export/export-branding.types'
 import { UserService } from '../users/users.service'
+import { isTerminalAcademicStatus } from '../users/academic-status'
 import { renderQrPngDataUrl } from '../../common/qr/qr-raster'
 import { renderStudyCertificatePdf } from './study-certificate-pdf'
 import { STUDY_CERTIFICATE_LABELS } from './study-certificate-labels'
@@ -290,6 +291,15 @@ export class ApplicationProcessService {
     const subject = await this.users.academicSubject(app.studentId)
     if (!subject) {
       throw new AppException('NOT_FOUND', 'Данные студента не найдены')
+    }
+    // Справка подтверждает, что человек учится: отчисленному, выпускнику или переведённому
+    // её не выдаём — официальный документ с QR проверялся бы как действующий. Хелпер общий с
+    // постом охраны и библиотекой: он знает оба представления статуса (коды и строки веба).
+    if (isTerminalAcademicStatus(subject.academicStatus)) {
+      throw new AppException(
+        'BAD_REQUEST',
+        'Студент не обучается — справку об обучении выдать нельзя',
+      )
     }
 
     const context: ExportContext = {

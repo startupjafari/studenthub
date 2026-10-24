@@ -270,6 +270,18 @@ describe('ApplicationProcessService — справка об обучении', (
     await expect(service.issueStudyCertificate(dean, 'app-1', 'ru')).rejects.toThrow(AppException)
   })
 
+  it.each(['Отчислен', 'выпускник'])(
+    'студенту со статусом «%s» справка не выдаётся и не регистрируется',
+    async (academicStatus) => {
+      const { service, users, exportRegistry } = setup(inPreparation)
+      users.academicSubject.mockResolvedValue({ ...academicSubject, academicStatus })
+      await expect(service.issueStudyCertificate(dean, 'app-1', 'ru')).rejects.toMatchObject({
+        code: 'BAD_REQUEST',
+      })
+      expect(exportRegistry.registerExclusive).not.toHaveBeenCalled()
+    },
+  )
+
   it('регистрирует документ в журнале ДО рендера и выдаёт студенту', async () => {
     const { service, documents, exportRegistry, branding } = setup(inPreparation)
 
