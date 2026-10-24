@@ -127,6 +127,19 @@ final class ScheduleModel {
             .sorted { $0.startTime < $1.startTime }
     }
 
+    /// Ближайшая пара выбранного дня (на главной это сегодня): первая неотменённая,
+    /// которая ещё не закончилась. Идущая сейчас — тоже ближайшая, прошедшая — нет.
+    func nextPair(at now: Date = Date()) -> SchedulePair? {
+        let clock = Self.clock(of: now, calendar: calendar)
+        return visiblePairs.first { !$0.isCancelled && $0.endTime > clock }
+    }
+
+    /// «HH:mm» — в той же форме, что время пар: сравнивается строкой.
+    static func clock(of date: Date, calendar: Calendar) -> String {
+        let parts = calendar.dateComponents([.hour, .minute], from: date)
+        return String(format: "%02d:%02d", parts.hour ?? 0, parts.minute ?? 0)
+    }
+
     static let syncedKey = "schedule.synced-at"
 
     @MainActor

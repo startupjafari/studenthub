@@ -21,7 +21,7 @@ struct HomeView: View {
                     .listRowSeparator(.hidden)
             }
 
-            if let next = schedule.visiblePairs.first(where: { !$0.isCancelled }) {
+            if let next = schedule.nextPair() {
                 Section {
                     NavigationLink(value: AppRoute.lesson(id: next.id)) {
                         VStack(alignment: .leading, spacing: Spacing.xs) {

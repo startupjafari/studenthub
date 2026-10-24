@@ -143,4 +143,14 @@ final class SchedulePairTests: XCTestCase {
         XCTAssertEqual(item.endTime, "15:30")
         XCTAssertFalse(item.isCancelled)
     }
+
+    /// «Ближайшая пара» сравнивает конец пары с часами в той же форме «HH:mm»:
+    /// 09:05 должно быть раньше 10:00, а не позже из-за отсутствующего нуля.
+    func testClockIsZeroPadded() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC")!
+        let date = calendar.date(from: DateComponents(year: 2026, month: 10, day: 24, hour: 9, minute: 5))!
+
+        XCTAssertEqual(ScheduleModel.clock(of: date, calendar: calendar), "09:05")
+    }
 }
