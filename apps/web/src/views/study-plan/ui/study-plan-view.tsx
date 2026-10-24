@@ -23,16 +23,21 @@ import {
   useTableSort,
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
+import { formatYmd } from '../../../shared/ui/calendar-grid'
 import { courseKeys, fetchCourses, type CourseItem } from '../../../entities/course'
 import { gradebookKeys, fetchMyGrades } from '../../../entities/gradebook'
 import { examKeys, fetchExams } from '../../../entities/exam'
 import { gradePercent, planStatus, type PlanExamResult, type PlanStatus } from '../lib/plan-status'
 
-const STATUS_BADGE: Record<PlanStatus, 'success' | 'info' | 'secondary' | 'destructive'> = {
+const STATUS_BADGE: Record<
+  PlanStatus,
+  'success' | 'info' | 'secondary' | 'destructive' | 'outline'
+> = {
   completed: 'success',
   studying: 'info',
   upcoming: 'secondary',
   notPassed: 'destructive',
+  noResult: 'outline',
 }
 
 interface PlanCourse {
@@ -72,6 +77,8 @@ export function StudyPlanView() {
   })
 
   const model = useMemo(() => {
+    // Фаза семестра — по сегодняшней дате (дни, точность до суток достаточна).
+    const today = formatYmd(new Date())
     const list = courses.data ?? []
     const gradeByCourse = new Map((grades.data ?? []).map((g) => [g.courseId, g]))
     const examsByCourse = new Map<string, PlanExamResult[]>()
@@ -90,8 +97,8 @@ export function StudyPlanView() {
         // Процент — справочно по всем опубликованным оценкам; статус считается отдельно.
         pct: gradePercent(columns),
         status: planStatus({
-          termActive: course.term?.isActive ?? false,
-          hasTerm: course.term != null,
+          term: course.term,
+          today,
           columns,
           exams: examsByCourse.get(course.id) ?? [],
         }),

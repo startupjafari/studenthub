@@ -3738,7 +3738,8 @@
       "completed": "Завершено",
       "studying": "Изучается",
       "upcoming": "Предстоит",
-      "notPassed": "Не зачтено"
+      "notPassed": "Не зачтено",
+      "noResult": "Нет итога"
     }
   },
   "Analytics": {

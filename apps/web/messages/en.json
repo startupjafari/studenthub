@@ -3738,7 +3738,8 @@
       "completed": "Completed",
       "studying": "In progress",
       "upcoming": "Upcoming",
-      "notPassed": "Not passed"
+      "notPassed": "Not passed",
+      "noResult": "No result"
     }
   },
   "Analytics": {

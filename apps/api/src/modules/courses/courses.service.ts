@@ -50,7 +50,11 @@ const COURSE_SELECT = {
   subject: { select: { id: true, name: true, code: true } },
   group: { select: { id: true, name: true } },
   teacher: { select: { id: true, firstName: true, lastName: true } },
-  term: { select: { id: true, name: true, number: true, isActive: true } },
+  // Даты — для фазы семестра на клиенте («Учебный план»): `isActive` не отличает прошлый
+  // семестр от будущего.
+  term: {
+    select: { id: true, name: true, number: true, isActive: true, startsOn: true, endsOn: true },
+  },
 } satisfies Prisma.CourseSelect
 
 type CourseRow = Prisma.CourseGetPayload<{ select: typeof COURSE_SELECT }>

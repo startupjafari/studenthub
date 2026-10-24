@@ -3738,7 +3738,8 @@
       "completed": "Аяқталды",
       "studying": "Оқылуда",
       "upcoming": "Алдағы",
-      "notPassed": "Есептелмеді"
+      "notPassed": "Есептелмеді",
+      "noResult": "Қорытынды жоқ"
     }
   },
   "Analytics": {
