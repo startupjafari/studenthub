@@ -351,6 +351,8 @@ describe('Импорт фонда', () => {
       raw({ line: 4, inventory: '500' }),
       raw({ line: 5, isbn: '12-3' }),
       raw({ line: 6, inventory: '600, 601', count: '2' }),
+      // Явный ноль без номеров запись превратила бы в один экземпляр — это ошибка строки.
+      raw({ line: 7, count: '0' }),
     ])
     expect(preview.rows.map((r) => r.status)).toEqual([
       'READY',
@@ -358,8 +360,9 @@ describe('Импорт фонда', () => {
       'DUPLICATE',
       'ERROR',
       'READY',
+      'ERROR',
     ])
     expect(preview.rows[0]?.count).toBe(1)
-    expect(preview.summary).toMatchObject({ ready: 2, duplicate: 1, error: 2, copies: 5 })
+    expect(preview.summary).toMatchObject({ ready: 2, duplicate: 1, error: 3, copies: 5 })
   })
 })

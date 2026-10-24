@@ -175,8 +175,13 @@ export class LibraryImportService {
         }
         base.count = count
       }
-      // Ни номеров, ни количества — один экземпляр с номером по порядку.
+      // Ни номеров, ни количества — один экземпляр с номером по порядку. Явный ноль без
+      // номеров запись всё равно превратила бы в один экземпляр — предпросмотр должен
+      // показывать ровно то, что будет записано.
       if (inventoryNumbers.length === 0 && !r.count) base.count = 1
+      if (inventoryNumbers.length === 0 && base.count === 0) {
+        return fail('Количество — от 1, если нет инвентарных номеров')
+      }
       if (inventoryNumbers.length + base.count > LIBRARY_COPIES_MAX) {
         return fail(`Больше ${LIBRARY_COPIES_MAX} экземпляров в одной строке`)
       }
