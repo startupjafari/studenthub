@@ -116,7 +116,10 @@ export class Publisher {
       if (stderr.length < 2048) stderr += chunk.toString()
     })
     const startedAt = Date.now()
-    child.on('close', (code) => {
+    // Конец процесса — и `close`, и `error`: ffmpeg не запустился (нет бинарника, кончились
+    // процессы) — Node шлёт `error`, и без обработчика он ронял бы весь агент. Что пришло
+    // первым, то и планирует повтор; второе событие того же процесса ничего не делает.
+    const ended = (code: number | null, reason: string): void => {
       const current = this.running.get(id)
       if (!current || current.process !== child) return
       current.process = null
@@ -127,10 +130,12 @@ export class Publisher {
         id,
         code,
         in: delay,
-        error: redactText(stderr).slice(0, 300),
+        error: redactText(reason).slice(0, 300),
       })
       current.timer = setTimeout(() => this.start(id, caFile), delay)
-    })
+    }
+    child.on('error', (error) => ended(null, error.message))
+    child.on('close', (code) => ended(code, stderr))
   }
 
   private stop(id: string): void {
