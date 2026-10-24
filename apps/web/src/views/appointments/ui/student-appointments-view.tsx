@@ -191,9 +191,11 @@ function AppointmentCard({
           на одной линии. */}
       {hasFooter && (
         <div className="mt-auto flex flex-col gap-2 p-4 pt-3">
+          {/* Прямо на заявку (диплинк открывает её окном поверх списка), а не на общий
+              список, где её ещё нужно искать. */}
           {a.applicationId && (
             <Button asChild variant="link" size="sm" className="h-auto gap-1 px-0">
-              <Link href="/applications">
+              <Link href={`/applications/${a.applicationId}`}>
                 <FileText className="size-3.5" aria-hidden />
                 {t('linkedApplication')}
               </Link>
