@@ -12,6 +12,9 @@ import { redactText, redactUrl } from './rtsp.js'
 // Видео копируется как есть, без перекодирования (агент не грузит процессор), звук
 // вырезается: платформа звук не передаёт вовсе.
 
+// Сколько ffmpeg ждёт данных от камеры, прежде чем счесть её пропавшей.
+const INPUT_TIMEOUT_US = 10_000_000
+
 export interface PublishTarget {
   url: string
   token: string
@@ -29,6 +32,10 @@ export function publishArgs(
     'error',
     '-rtsp_transport',
     'tcp',
+    // Таймаут сокета камеры в микросекундах (как у ffprobe в probe.ts): камера пропала без
+    // разрыва соединения — ffmpeg выходит с ошибкой и перезапускается, а не ждёт вечно.
+    '-timeout',
+    String(INPUT_TIMEOUT_US),
     '-i',
     cameraUrl,
     '-map',
