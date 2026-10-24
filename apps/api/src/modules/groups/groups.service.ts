@@ -78,6 +78,14 @@ function isPlatform(role: Role): boolean {
   return role === Role.PLATFORM_ADMIN || role === Role.PLATFORM_MODERATOR
 }
 
+/** Группы, где преподаватель ведёт занятия: дисциплина группы или пара действующего расписания. */
+function taughtBy(teacherId: string): Prisma.GroupWhereInput[] {
+  return [
+    { courses: { some: { teacherId } } },
+    { pairs: { some: { teacherId, schedule: { is: { isActive: true } } } } },
+  ]
+}
+
 function mapGroup(row: GroupRow): GroupDto {
   return {
     id: row.id,
@@ -169,6 +177,7 @@ export class GroupService {
   async members(viewer: JwtPayload, id: string) {
     const group = await this.findOrThrow(id)
     this.assertReadScope(viewer, group)
+    if (viewer.role === Role.TEACHER) await this.assertTeachesGroup(viewer.sub, id)
     return this.prisma.user.findMany({
       where: { groupId: id, deletedAt: null },
       orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
@@ -402,11 +411,28 @@ export class GroupService {
     if (viewer.role === Role.STAROSTA || viewer.role === Role.STUDENT) {
       return { id: viewer.groupId ?? '__none__' }
     }
-    // UNIVERSITY_ADMIN / UNIVERSITY_MODERATOR / TEACHER — весь свой вуз.
+    // UNIVERSITY_ADMIN / UNIVERSITY_MODERATOR — весь свой вуз; TEACHER — только группы, где
+    // ведёт занятия (§2.2 «👁 свои группы»), по тому же основанию, что assertTeachesGroup.
     const base: Prisma.GroupWhereInput = {
       faculty: { universityId: viewer.universityId ?? '__none__' },
+      ...(viewer.role === Role.TEACHER ? { OR: taughtBy(viewer.sub) } : {}),
     }
     return facultyId ? { ...base, facultyId } : base
+  }
+
+  /**
+   * Состав группы преподавателю — только там, где он ведёт занятия: дисциплина группы или
+   * пара действующего расписания, как у материалов (materials.service). Иначе любой
+   * преподаватель вуза листал составы всех групп.
+   */
+  private async assertTeachesGroup(teacherId: string, groupId: string): Promise<void> {
+    const taught = await this.prisma.group.findFirst({
+      where: { id: groupId, OR: taughtBy(teacherId) },
+      select: { id: true },
+    })
+    if (!taught) {
+      throw new AppException('WRONG_SCOPE', 'Вы не ведёте занятий в этой группе')
+    }
   }
 
   // Чтение: платформа — любая; вуз-роли — свой вуз; декан — свой факультет; студент/староста — своя группа.
