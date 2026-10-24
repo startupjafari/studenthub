@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { CursorPaginationSchema } from './pagination.js'
+import { CursorPaginationSchema, queryBoolean } from './pagination.js'
 
 // Чаты (docs/PROJECT.md §3.6, §9; Ф9). ChatType дублирует Prisma-enum.
 
@@ -186,7 +186,7 @@ export const MessageSearchQuerySchema = CursorPaginationSchema.extend({
   q: z.string().trim().min(2).max(100),
   chatId: z.string().min(1).optional(),
   senderId: z.string().min(1).optional(),
-  hasFile: z.coerce.boolean().optional(),
+  hasFile: queryBoolean.optional(),
 })
 export type MessageSearchQueryInput = z.infer<typeof MessageSearchQuerySchema>
 
@@ -269,7 +269,7 @@ export const MessageSendRestSchema = z
     // бессмыслен: цитировать нечего.
     replyQuote: z.string().min(1).max(500).optional(),
     // §34: пометить все вложения сообщения спойлером (размытие до клика).
-    spoiler: z.coerce.boolean().optional(),
+    spoiler: queryBoolean.optional(),
     // §34: спойлер не на всё сообщение, а поимённо — номера вложений в порядке их отправки
     // («0,3,4»). В альбоме из десяти снимков скрыть могут один, и общий флаг этого не выражает.
     // `spoiler: true` остаётся коротким «скрыть всё» и старые клиенты не ломает.
@@ -280,9 +280,10 @@ export const MessageSendRestSchema = z
     // §9: отправить вложения «без сжатия» — получатель видит строки файлов, а не превью,
     // даже если это картинки. Флаг всего сообщения: в одном сообщении вложения уходят
     // одним способом, как и выбирают его в диалоге отправки — один раз на всю отправку.
-    asFiles: z.coerce.boolean().optional(),
-    // multipart отдаёт поля строками, поэтому coerce (в отличие от WS-схемы ниже).
-    silent: z.coerce.boolean().optional(),
+    asFiles: queryBoolean.optional(),
+    // multipart отдаёт поля строками, поэтому queryBoolean (в отличие от WS-схемы ниже):
+    // `z.coerce.boolean()` читал строку "false" как true.
+    silent: queryBoolean.optional(),
   })
   .strict()
   // Цитата без ответа не имеет смысла — из чего цитата, непонятно ни серверу, ни клиенту.
