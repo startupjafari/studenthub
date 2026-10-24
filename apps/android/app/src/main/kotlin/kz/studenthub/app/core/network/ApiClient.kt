@@ -164,11 +164,16 @@ class ApiClient(
     }
 }
 
-/** Асинхронный вызов OkHttp как приостановка; отмена корутины отменяет и запрос. */
+/**
+ * Асинхронный вызов OkHttp как приостановка; отмена корутины отменяет и запрос. Ответ,
+ * пришедший уже после отмены, никто не прочтёт — его закрываем, иначе соединение
+ * остаётся занятым и пул OkHttp течёт.
+ */
 suspend fun Call.await(): Response = suspendCancellableCoroutine { continuation ->
     continuation.invokeOnCancellation { cancel() }
     enqueue(object : Callback {
-        override fun onResponse(call: Call, response: Response) = continuation.resume(response)
+        override fun onResponse(call: Call, response: Response) =
+            continuation.resume(response) { _, unread, _ -> unread.close() }
 
         override fun onFailure(call: Call, e: IOException) {
             if (!continuation.isCancelled) continuation.resumeWithException(e)
