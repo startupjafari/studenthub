@@ -119,6 +119,45 @@ describe('ConsultationsService — запись на слот', () => {
   })
 })
 
+describe('ConsultationsService.cancel — отмена слота преподавателем', () => {
+  const teacher: JwtPayload = { ...student, sub: 't-1', role: Role.TEACHER }
+  const read = {
+    ...openSlot,
+    studentId: null,
+    teacher: { university: { timezone: 'Asia/Almaty' } },
+  }
+
+  it('отмена условная: только действующий слот этого преподавателя', async () => {
+    const { service, prisma } = setup(read)
+    prisma.consultationSlot.findUniqueOrThrow.mockResolvedValue({ id: 'slot-1', student: null })
+    await service.cancel(teacher, 'slot-1', ctx)
+    expect(prisma.consultationSlot.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'slot-1', teacherId: 't-1', status: { in: ['OPEN', 'BOOKED'] } },
+      }),
+    )
+  })
+
+  it('студент записался между чтением и отменой → уведомление ему', async () => {
+    const { service, prisma, queue } = setup(read)
+    prisma.consultationSlot.findUniqueOrThrow.mockResolvedValue({
+      id: 'slot-1',
+      student: { id: 'stu-1', firstName: 'А', lastName: 'Б' },
+    })
+    await service.cancel(teacher, 'slot-1', ctx)
+    expect(queue.enqueue).toHaveBeenCalledTimes(1)
+    expect(queue.enqueue.mock.calls[0][2].recipientIds).toEqual(['stu-1'])
+  })
+
+  it('слот уже отменён → CONFLICT, уведомления нет', async () => {
+    const { service, prisma, queue } = setup(read)
+    prisma.consultationSlot.updateMany.mockResolvedValue({ count: 0 })
+    const err = await service.cancel(teacher, 'slot-1', ctx).catch((e) => e)
+    expect(err.code).toBe('CONFLICT')
+    expect(queue.enqueue).not.toHaveBeenCalled()
+  })
+})
+
 // ── C-F23: слот в будущем, без нахлёста; список преподавателей считает БД ────────
 const teacherActor: JwtPayload = {
   sub: 't-1',
@@ -249,16 +288,32 @@ describe('ConsultationsService.deleteSlot — одно уведомление о
     const { service, prisma, queue } = setupSlots()
     prisma.consultationSlot.findUnique.mockResolvedValue(slotRow('BOOKED', future))
     const order: string[] = []
-    prisma.consultationSlot.delete.mockImplementation(async () => order.push('delete'))
+    prisma.consultationSlot.delete.mockImplementation(async () => {
+      order.push('delete')
+      return slotRow('BOOKED', future)
+    })
     queue.enqueue.mockImplementation(async () => order.push('notify'))
     await service.deleteSlot(teacherActor, 'slot-1', ctx)
     expect(order).toEqual(['delete', 'notify'])
     expect(queue.enqueue.mock.calls[0][2].dedupeKey).toBe('consultation-cancelled:slot-1:teacher')
   })
 
+  it('студент записался между чтением и удалением → уведомление ему всё равно уходит', async () => {
+    const { service, prisma, queue } = setupSlots()
+    prisma.consultationSlot.findUnique.mockResolvedValue({
+      ...slotRow('OPEN', future),
+      studentId: null,
+    })
+    prisma.consultationSlot.delete.mockResolvedValue(slotRow('BOOKED', future))
+    await service.deleteSlot(teacherActor, 'slot-1', ctx)
+    expect(queue.enqueue).toHaveBeenCalledTimes(1)
+    expect(queue.enqueue.mock.calls[0][2].recipientIds).toEqual(['stu-1'])
+  })
+
   it('слот, уже отменённый преподавателем, удаляется без второго уведомления', async () => {
     const { service, prisma, queue } = setupSlots()
     prisma.consultationSlot.findUnique.mockResolvedValue(slotRow('CANCELLED', future))
+    prisma.consultationSlot.delete.mockResolvedValue(slotRow('CANCELLED', future))
     await service.deleteSlot(teacherActor, 'slot-1', ctx)
     expect(prisma.consultationSlot.delete).toHaveBeenCalled()
     expect(queue.enqueue).not.toHaveBeenCalled()
@@ -269,6 +324,7 @@ describe('ConsultationsService.deleteSlot — одно уведомление о
     prisma.consultationSlot.findUnique.mockResolvedValue(
       slotRow('BOOKED', new Date(Date.now() - HOUR)),
     )
+    prisma.consultationSlot.delete.mockResolvedValue(slotRow('BOOKED', new Date(Date.now() - HOUR)))
     await service.deleteSlot(teacherActor, 'slot-1', ctx)
     expect(queue.enqueue).not.toHaveBeenCalled()
   })

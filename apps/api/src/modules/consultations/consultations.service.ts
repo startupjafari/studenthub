@@ -100,18 +100,27 @@ export class ConsultationsService {
     })
     if (!slot) throw new AppException('NOT_FOUND', 'Слот не найден')
     if (slot.teacherId !== actor.sub) throw new AppException('FORBIDDEN', 'Не ваш слот')
-    await this.prisma.consultationSlot.delete({ where: { id } })
+    // Кого уведомлять, решает строка, которую удалила БД, а не прочитанная выше: студент
+    // мог записаться между чтением и удалением, и его запись пропадала молча.
+    const deleted = await this.prisma.consultationSlot
+      .delete({ where: { id }, select: { studentId: true, status: true, startsAt: true } })
+      .catch((e: unknown) => {
+        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025') {
+          throw new AppException('NOT_FOUND', 'Слот не найден')
+        }
+        throw e
+      })
     await this.record(actor, 'consultation_slot_deleted', id, ctx)
     // Уведомление — после удаления: раньше оно уходило до него, и упавшее удаление оставляло
     // студента с «отменой» живой записи. Только действующей будущей записи: об отмене
     // преподавателем студент уже знает (ключ тот же, что у `cancel`, — второе не придёт),
     // а прошедшую консультацию отменять нечего.
-    if (slot.studentId && slot.status === 'BOOKED' && slot.startsAt > new Date()) {
+    if (deleted.studentId && deleted.status === 'BOOKED' && deleted.startsAt > new Date()) {
       await this.notify(
-        slot.studentId,
+        deleted.studentId,
         NOTIFICATION_JOBS.CONSULTATION_CANCELLED,
         'consultations.cancelled.title',
-        localDateTimeLabel(slot.startsAt, slot.teacher.university?.timezone),
+        localDateTimeLabel(deleted.startsAt, slot.teacher.university?.timezone),
         '/consultations',
         teacherCancelKey(id),
       )
@@ -306,15 +315,23 @@ export class ConsultationsService {
       return updated
     }
     if (slot.teacherId === actor.sub) {
-      const updated = await this.prisma.consultationSlot.update({
-        where: { id },
+      // Условная запись, как у `book`: отменяется только действующий слот. Кого уведомлять,
+      // читаем ПОСЛЕ отмены — студент мог записаться между чтением выше и отменой, и
+      // уведомление по прочитанному раньше до него не доходило. После CANCELLED слот
+      // никто уже не займёт и не освободит, так что прочитанный студент — тот самый.
+      const cancelled = await this.prisma.consultationSlot.updateMany({
+        where: { id, teacherId: actor.sub, status: { in: ['OPEN', 'BOOKED'] } },
         data: { status: 'CANCELLED' },
+      })
+      if (cancelled.count === 0) throw new AppException('CONFLICT', 'Слот уже отменён')
+      const updated = await this.prisma.consultationSlot.findUniqueOrThrow({
+        where: { id },
         select: SLOT_SELECT,
       })
       await this.record(actor, 'consultation_cancelled_by_teacher', id, ctx)
-      if (slot.studentId) {
+      if (updated.student) {
         await this.notify(
-          slot.studentId,
+          updated.student.id,
           NOTIFICATION_JOBS.CONSULTATION_CANCELLED,
           'consultations.cancelled.title',
           localDateTimeLabel(slot.startsAt, slot.teacher.university?.timezone),
