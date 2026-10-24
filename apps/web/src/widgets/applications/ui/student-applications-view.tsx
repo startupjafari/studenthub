@@ -9,7 +9,7 @@ import { REALTIME_EVENTS, type ApplicationServiceStatus } from '@studenthub/shar
 import {
   ApplicationStatusBadge,
   applicationKeys,
-  fetchApplications,
+  fetchAllApplications,
   fetchApplication,
   pickLocale,
   type ApplicationListItem,
@@ -92,9 +92,11 @@ export function StudentApplicationsView({ initialId }: StudentApplicationsViewPr
   const [tab, setTab] = useState<TabId>('active')
 
   const qc = useQueryClient()
+  // Все свои заявки, а не первая страница: вкладки и их счётчики считаются здесь же, и
+  // прежний limit 50 молча терял старые заявки.
   const q = useQuery({
-    queryKey: applicationKeys.list({ limit: 50, sortBy: 'createdAt', sortOrder: 'desc' }),
-    queryFn: () => fetchApplications({ limit: 50, sortBy: 'createdAt', sortOrder: 'desc' }),
+    queryKey: [...applicationKeys.list({ sortBy: 'createdAt', sortOrder: 'desc' }), 'all'],
+    queryFn: () => fetchAllApplications({ sortBy: 'createdAt', sortOrder: 'desc' }),
   })
 
   // Realtime: сотрудник сменил статус заявки → WS-событие владельцу; обновляем список и
@@ -130,8 +132,8 @@ export function StudentApplicationsView({ initialId }: StudentApplicationsViewPr
 
   const current = grouped[tab]
 
-  // Сортировка клиентская: список заявок студента приходит одним запросом (limit 50) и
-  // раскладывается по вкладкам здесь же — серверу пересортировывать нечего.
+  // Сортировка клиентская: список заявок студента приходит целиком и раскладывается по
+  // вкладкам здесь же — серверу пересортировывать нечего.
   const sortValue = useCallback(
     (app: ApplicationListItem, key: string) => {
       switch (key) {

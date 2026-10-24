@@ -35,12 +35,17 @@ import { cn } from '../../../shared/lib/utils'
 import { StaffWorkspaceModal } from './staff-workspace'
 
 type Filter = 'all' | 'overdue' | ApplicationServiceStatus
+// Вкладки — по всем статусам открытой заявки, в порядке её пути: «Новые» на «Сегодня»
+// считают и отправленные, и исправленные (RESUBMITTED), а «Готовы» — и электронные (READY),
+// и оригиналы к выдаче. Без своих вкладок эти заявки находились только в общем списке.
 const FILTERS: Filter[] = [
   'all',
   'SUBMITTED',
+  'RESUBMITTED',
   'IN_REVIEW',
-  'IN_PREPARATION',
   'NEEDS_CORRECTION',
+  'IN_PREPARATION',
+  'READY',
   'READY_FOR_PICKUP',
   'overdue',
 ]
@@ -56,8 +61,17 @@ const HIDE = {
 // Порядок классов = порядок колонок: скелетон прячет те же, что и шапка.
 const SKELETON_COLS = [undefined, undefined, HIDE.student, undefined, HIDE.submitted, HIDE.due]
 
-// Статусы, после которых срок уже не «горит»: заявка закрыта или лежит на выдаче.
-const SETTLED = ['ISSUED', 'DELIVERED', 'REJECTED', 'CANCELLED', 'READY', 'READY_FOR_PICKUP']
+// Статусы, в которых срок уже не «горит»: заявка закрыта, лежит на выдаче или ждёт
+// исправления от студента — как у фильтра «Просрочено» и счётчика на сервере.
+const SETTLED = [
+  'ISSUED',
+  'DELIVERED',
+  'REJECTED',
+  'CANCELLED',
+  'READY',
+  'READY_FOR_PICKUP',
+  'NEEDS_CORRECTION',
+]
 
 function isOverdue(app: ApplicationListItem): boolean {
   return !!app.dueAt && new Date(app.dueAt).getTime() < Date.now() && !SETTLED.includes(app.status)

@@ -10,6 +10,7 @@ import { UpdateDraftDto } from './dto/update-draft.dto'
 import { CancelApplicationDto } from './dto/cancel-application.dto'
 import { ExportBrandingService } from '../../common/export/export-branding.service'
 import { ApplicationQueryDto } from './dto/application-query.dto'
+import { ApplicationDocumentUrlQueryDto } from './dto/application-document-url-query.dto'
 import { RevokeCertificateDto } from './dto/revoke-certificate.dto'
 import { AttachDocumentDto } from './dto/attach-document.dto'
 import { RequestReplacementDto } from './dto/request-replacement.dto'
@@ -137,19 +138,14 @@ export class ApplicationsController {
 
   @Get(':id/documents/:docId/url')
   @ApiOperation({ summary: 'Presigned-ссылка на файл документа заявки (владелец/обработчик)' })
-  @ApiQuery({
-    name: 'fileId',
-    required: false,
-    description:
-      'Страница документа из `documents[].files` карточки заявки. Без него — первая страница',
-  })
+  @ApiResponse({ status: 422, description: 'VALIDATION_ERROR — некорректный fileId' })
   documentUrl(
     @CurrentUser() user: CurrentUserData,
     @Param('id') id: string,
     @Param('docId') docId: string,
-    @Query('fileId') fileId?: string,
+    @Query() query: ApplicationDocumentUrlQueryDto,
   ) {
-    return this.documents.presignedUrl(user, id, docId, fileId || undefined)
+    return this.documents.presignedUrl(user, id, docId, query.fileId)
   }
 
   // ── Обработка сотрудником (§15–§17, §39) ────────────────────────────────────

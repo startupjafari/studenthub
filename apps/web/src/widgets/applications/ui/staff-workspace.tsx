@@ -24,6 +24,7 @@ import {
   assignApplicationRequest,
   revokeCertificateRequest,
   pickLocale,
+  CERTIFICATE_RESULT_TYPE,
   type ApplicationDetail,
   type ApplicationDocumentItem,
 } from '../../../entities/application-service'
@@ -44,10 +45,14 @@ import {
 import { toApiError } from '../../../shared/lib'
 import { TERMINAL_STATUSES } from '@studenthub/shared-schemas'
 import { ResultModal } from './result-modal'
+import { FormAnswers } from './form-answers'
+import { useActionError } from '../lib/use-action-error'
+import { eventComment } from '../lib/requirement-titles'
 
 // Состояние текстового промпта для действий сотрудника.
 interface Prompt {
   title: string
+  placeholder?: string
   multiline?: boolean
   required?: boolean
   run: (value: string) => void
@@ -122,8 +127,11 @@ export function StaffWorkspaceModal({ id, onClose }: { id: string; onClose: () =
               <Row label={t('expectedReady')} value={new Date(app.dueAt).toLocaleString(locale)} />
             )}
             <AssigneeRow app={app} onChanged={() => void q.refetch()} />
-            {app.pickupCode && <Row label={t('pickupCodeLabel')} value={app.pickupCode} />}
           </Card>
+
+          {/* Ответы анкеты — на всех этапах: по ним решают «подготовить или отклонить», а
+              при подготовке берут, например, организацию для справки. */}
+          <FormAnswers fields={app.service.formFields ?? []} formData={app.formData} />
 
           {/* Шаг «Проверка» — документы заявки */}
           {viewStep === 0 && app.documents.length > 0 && (
@@ -132,14 +140,17 @@ export function StaffWorkspaceModal({ id, onClose }: { id: string; onClose: () =
               <StaffDocumentReview
                 appId={app.id}
                 documents={app.documents}
-                canReview={app.status === 'IN_REVIEW'}
+                // В исправлении проверка продолжается: можно пометить к замене ещё документ,
+                // а не отправлять каждый отдельным кругом.
+                canReview={app.status === 'IN_REVIEW' || app.status === 'NEEDS_CORRECTION'}
                 onChanged={() => void q.refetch()}
               />
             </Card>
           )}
 
-          {/* Шаги «Подготовка»/«Выдача» — результат заявки */}
-          {viewStep >= 1 && app.results.length > 0 && (
+          {/* Шаги «Подготовка»/«Выдача» — результат заявки. У отклонённой — тоже: справку,
+              выданную до отказа, должно быть видно и можно отозвать. */}
+          {(viewStep >= 1 || app.status === 'REJECTED') && app.results.length > 0 && (
             <Card className="flex flex-col gap-2 p-4">
               <h3 className="text-sm font-semibold">{t('resultTitle')}</h3>
               {app.results.map((r) => (
@@ -162,6 +173,7 @@ export function StaffWorkspaceModal({ id, onClose }: { id: string; onClose: () =
                   : e.toStatus
                     ? t(`status2_${e.toStatus}`)
                     : e.action
+                const comment = eventComment(e, app, locale)
                 return (
                   <li key={e.id} className="flex gap-3 text-sm">
                     <span className="mt-1 size-2 shrink-0 rounded-full bg-primary" aria-hidden />
@@ -170,10 +182,7 @@ export function StaffWorkspaceModal({ id, onClose }: { id: string; onClose: () =
                       <span className="text-xs text-muted-foreground">
                         {new Date(e.createdAt).toLocaleString(locale)}
                       </span>
-                      {/* У назначения в comment лежит id сотрудника, а не текст — его не показываем. */}
-                      {e.comment && e.action !== 'ASSIGNED' && (
-                        <span className="text-xs text-muted-foreground">{e.comment}</span>
-                      )}
+                      {comment && <span className="text-xs text-muted-foreground">{comment}</span>}
                     </div>
                   </li>
                 )
@@ -194,7 +203,7 @@ function StaffActions({ app, onDone }: { app: ApplicationDetail; onDone: () => v
     void qc.invalidateQueries({ queryKey: applicationKeys.all })
     onDone()
   }
-  const err = () => toast.error(t('loadError'))
+  const err = useActionError()
 
   const takeMut = useMutation({
     mutationFn: () => takeApplication(app.id),
@@ -222,7 +231,7 @@ function StaffActions({ app, onDone }: { app: ApplicationDetail; onDone: () => v
     onError: err,
   })
   const issueMut = useMutation({
-    mutationFn: () => issueApplicationRequest(app.id),
+    mutationFn: (pickupCode: string) => issueApplicationRequest(app.id, pickupCode),
     onSuccess: done,
     onError: err,
   })
@@ -239,6 +248,8 @@ function StaffActions({ app, onDone }: { app: ApplicationDetail; onDone: () => v
 
   const buttons: React.ReactNode[] = []
   const s = app.status
+  // Отозванная справка результатом не считается (сервер проверяет то же самое).
+  const hasActiveResult = app.results.some((r) => !r.revoked)
   if (s === 'SUBMITTED' || s === 'RESUBMITTED') {
     buttons.push(
       <Button
@@ -293,7 +304,7 @@ function StaffActions({ app, onDone }: { app: ApplicationDetail; onDone: () => v
         onClick={() => {
           // Электронную выдачу без результата сервер не примет: студенту пришло бы «готово»,
           // а скачать нечего. Подсказываем до запроса, а не общей ошибкой после.
-          if (app.deliveryType !== 'PAPER' && app.results.length === 0) {
+          if (app.deliveryType !== 'PAPER' && !hasActiveResult) {
             toast.error(t('readyNeedsResult'))
             return
           }
@@ -305,13 +316,30 @@ function StaffActions({ app, onDone }: { app: ApplicationDetail; onDone: () => v
       </Button>,
     )
   }
+  // Справку отозвали уже после «готово» — до передачи студенту её можно выпустить заново.
+  if ((s === 'READY' || s === 'READY_FOR_PICKUP') && !hasActiveResult && app.results.length > 0) {
+    buttons.push(
+      <Button key="result" variant="outline" className="w-full" onClick={() => setResultOpen(true)}>
+        {t('addResult')}
+      </Button>,
+    )
+  }
   if (s === 'READY_FOR_PICKUP') {
     buttons.push(
       <Button
         key="issue"
         className="w-full"
         loading={issueMut.isPending}
-        onClick={() => issueMut.mutate()}
+        onClick={() =>
+          // Код получения называет студент, сервер сверяет: сотрудник его не видит, и
+          // оригинал не выдаётся без того, кто подавал заявку.
+          setPrompt({
+            title: t('issuePickupCodeTitle'),
+            placeholder: t('pickupCodeLabel'),
+            required: true,
+            run: (code) => issueMut.mutate(code.trim()),
+          })
+        }
       >
         {t('issue')}
       </Button>,
@@ -358,6 +386,7 @@ function StaffActions({ app, onDone }: { app: ApplicationDetail; onDone: () => v
       <PromptDialog
         open={!!prompt}
         title={prompt?.title ?? ''}
+        placeholder={prompt?.placeholder}
         multiline={prompt?.multiline}
         required={prompt?.required}
         submitLabel={t('promptSubmit')}
@@ -384,12 +413,13 @@ function StaffDocumentReview({
   onChanged: () => void
 }) {
   const t = useTranslations('Applications')
+  const locale = useLocale()
   const qc = useQueryClient()
   const done = () => {
     void qc.invalidateQueries({ queryKey: applicationKeys.detail(appId) })
     onChanged()
   }
-  const err = () => toast.error(t('loadError'))
+  const err = useActionError()
   const [replaceFor, setReplaceFor] = useState<string | null>(null)
   const acceptMut = useMutation({
     mutationFn: (docId: string) => acceptDocumentRequest(appId, docId),
@@ -419,10 +449,15 @@ function StaffDocumentReview({
         <div key={d.id} className="flex flex-col gap-2 rounded-lg border border-border p-3">
           <div className="flex items-center gap-2">
             <span className="min-w-0 flex-1 truncate text-sm font-medium">
-              {d.snapshotTitle ?? d.requirement.titleRu}
+              {pickLocale(d.requirement as unknown as Record<string, unknown>, 'title', locale)}
             </span>
             <span className="text-xs text-muted-foreground">{t(`docStatus_${d.status}`)}</span>
           </div>
+          {/* Название самого документа из хранилища студента — под требованием, на которое он
+              приложен: требование подписано на языке интерфейса, документ — как его назвали. */}
+          {d.snapshotTitle && (
+            <span className="truncate text-xs text-muted-foreground">{d.snapshotTitle}</span>
+          )}
           <div className="flex flex-wrap gap-2">
             {d.documentId && (d.files?.length ?? 0) > 1
               ? d.files!.map((f, i) => (
@@ -497,14 +532,16 @@ function ResultRow({
     documentId: string | null
     documentNumber: string | null
     note: string | null
+    revoked?: boolean
   }
 }) {
   const t = useTranslations('Applications')
+  const err = useActionError()
   const downloadMut = useMutation({
     mutationFn: () => fetchApplicationResultUrl(appId, result.id, true),
     // Ссылка presigned и одноразовая по сути — открываем её сразу, файл уходит вложением.
     onSuccess: (url) => window.open(url, '_blank', 'noopener'),
-    onError: () => toast.error(t('loadError')),
+    onError: err,
   })
   return (
     <div className="flex items-center gap-2 text-sm">
@@ -515,6 +552,9 @@ function ResultRow({
           </span>
         )}
         {result.note && <p className="text-muted-foreground">{result.note}</p>}
+        {result.revoked && (
+          <span className="text-xs font-medium text-destructive">{t('resultRevoked')}</span>
+        )}
       </div>
       {result.documentId && (
         <Button
@@ -602,8 +642,9 @@ function AssigneeRow({ app, onChanged }: { app: ApplicationDetail; onChanged: ()
 
 /**
  * Отзыв выданной справки. Файл у студента остаётся (изъять его нельзя), но проверка по коду
- * с этого момента отвечает «документ отозван». Кнопка видна, пока после последней выдачи
- * отзыва ещё не было; «уже отозвано» сервер отдаёт как 404 — его и показываем.
+ * с этого момента отвечает «документ отозван». Кнопка видна, пока есть неотозванная справка,
+ * сформированная платформой: у загруженного файла или бумажного результата кода проверки нет,
+ * и отзывать там нечего (сервер ответил бы 404). «Уже отозвано» — тоже 404, его и показываем.
  */
 function RevokeCertificate({ app, onDone }: { app: ApplicationDetail; onDone: () => void }) {
   const t = useTranslations('Applications')
@@ -621,12 +662,7 @@ function RevokeCertificate({ app, onDone }: { app: ApplicationDetail; onDone: ()
     },
   })
 
-  const hasNumbered = app.results.some((r) => r.documentNumber)
-  const lastAdded = lastEventTime(app, 'RESULT_ADDED')
-  const lastRevoked = lastEventTime(app, 'RESULT_REVOKED')
-  if (!hasNumbered || (lastRevoked !== null && lastAdded !== null && lastRevoked >= lastAdded)) {
-    return null
-  }
+  if (!app.results.some((r) => r.type === CERTIFICATE_RESULT_TYPE && !r.revoked)) return null
 
   return (
     <>
@@ -654,11 +690,6 @@ function RevokeCertificate({ app, onDone }: { app: ApplicationDetail; onDone: ()
       />
     </>
   )
-}
-
-function lastEventTime(app: ApplicationDetail, action: string): number | null {
-  const times = app.events.filter((e) => e.action === action).map((e) => Date.parse(e.createdAt))
-  return times.length ? Math.max(...times) : null
 }
 
 function Row({ label, value }: { label: string; value: string }) {

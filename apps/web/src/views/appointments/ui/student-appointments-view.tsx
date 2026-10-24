@@ -6,7 +6,15 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { CalendarClock, FileText, Inbox, Plus } from 'lucide-react'
-import { Badge, Button, Card, EmptyState, PageHeader, Skeleton } from '../../../shared/ui'
+import {
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  PageHeader,
+  Skeleton,
+  useConfirm,
+} from '../../../shared/ui'
 import { toApiError } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 import {
@@ -17,6 +25,7 @@ import {
 } from '../../../entities/appointment'
 import { APPT_STATUS_BADGE, APPT_STATUS_KEY, apptTypeKey } from '../lib/visuals'
 import { CreateAppointmentModal } from './create-appointment-modal'
+import { useUniversityTimezone } from '../lib/university-time'
 
 // «Запись в деканат» студента (задача 16): создание записи + мои записи.
 export function StudentAppointmentsView() {
@@ -25,6 +34,8 @@ export function StudentAppointmentsView() {
   const locale = useLocale()
   const qc = useQueryClient()
   const [creating, setCreating] = useState(false)
+  const confirm = useConfirm()
+  const timezone = useUniversityTimezone()
 
   const q = useQuery({ queryKey: appointmentKeys.mine(), queryFn: () => fetchMyAppointments() })
 
@@ -73,7 +84,18 @@ export function StudentAppointmentsView() {
               key={a.id}
               appointment={a}
               locale={locale}
-              onCancel={() => cancel.mutate(a.id)}
+              timezone={timezone}
+              onCancel={async () => {
+                // Отмена необратима (CANCELLED — конечный статус): без подтверждения запись
+                // пропадала от случайного нажатия.
+                const ok = await confirm({
+                  title: t('cancelConfirmTitle'),
+                  description: t('cancelConfirmHint'),
+                  confirmLabel: t('cancel'),
+                  destructive: true,
+                })
+                if (ok) cancel.mutate(a.id)
+              }}
               t={t}
             />
           ))}
@@ -88,15 +110,19 @@ export function StudentAppointmentsView() {
 function AppointmentCard({
   appointment: a,
   locale,
+  timezone,
   onCancel,
   t,
 }: {
   appointment: Appointment
   locale: string
+  // Пояс вуза: день и время приёма показываются по его часам, а не по часам телефона.
+  timezone: string | null
   onCancel: () => void
   t: ReturnType<typeof useTranslations>
 }) {
   const when = new Date(a.scheduledAt ?? a.requestedAt)
+  const tz = timezone ? { timeZone: timezone } : {}
   const active = a.status !== 'COMPLETED' && a.status !== 'CANCELLED'
   // У отменённой и завершённой записи действий нет, подвала тоже — тогда нижний отступ
   // карточке нужен свой, иначе тема упирается прямо в её край.
@@ -131,13 +157,13 @@ function AppointmentCard({
         {/* Отрывной календарь: дата приёма — первое, что ищут глазами в списке записей. */}
         <div className="flex w-14 shrink-0 flex-col items-center rounded-xl bg-primary/10 py-2 text-primary">
           <span className="text-[0.65rem] font-medium uppercase">
-            {when.toLocaleDateString(locale, { weekday: 'short' })}
+            {when.toLocaleDateString(locale, { weekday: 'short', ...tz })}
           </span>
           <span className="text-xl leading-tight font-bold tabular-nums">
-            {when.toLocaleDateString(locale, { day: 'numeric' })}
+            {when.toLocaleDateString(locale, { day: 'numeric', ...tz })}
           </span>
           <span className="text-[0.65rem] font-medium">
-            {when.toLocaleDateString(locale, { month: 'short' })}
+            {when.toLocaleDateString(locale, { month: 'short', ...tz })}
           </span>
         </div>
 
@@ -156,6 +182,7 @@ function AppointmentCard({
             {when.toLocaleString(locale, {
               hour: '2-digit',
               minute: '2-digit',
+              ...tz,
             })}
           </span>
         </div>
@@ -172,9 +199,11 @@ function AppointmentCard({
           на одной линии. */}
       {hasFooter && (
         <div className="mt-auto flex flex-col gap-2 p-4 pt-3">
+          {/* Прямо на заявку (диплинк открывает её окном поверх списка), а не на общий
+              список, где её ещё нужно искать. */}
           {a.applicationId && (
             <Button asChild variant="link" size="sm" className="h-auto gap-1 px-0">
-              <Link href="/applications">
+              <Link href={`/applications/${a.applicationId}`}>
                 <FileText className="size-3.5" aria-hidden />
                 {t('linkedApplication')}
               </Link>

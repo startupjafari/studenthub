@@ -5,7 +5,9 @@ import {
   ACTIVE_APPOINTMENT_STATUSES,
   APPOINTMENT_QUEUE_LIMIT,
   CLOSED_APPOINTMENT_STATUSES,
+  canAppointmentTransition,
   type AppointmentListQueryInput,
+  type AppointmentStatus,
   type ConfirmAppointmentInput,
   type CreateAppointmentInput,
 } from '@studenthub/shared-schemas'
@@ -18,20 +20,14 @@ import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { NotificationMessageKey } from '@studenthub/shared-config'
 import type { RequestContext } from '../auth/auth.service'
 import { rethrowStaleStatus } from '../../common/prisma/stale-status'
+import { advisoryXactLock } from '../../common/prisma/advisory-lock'
 import { localDateTimeLabel } from '../../common/time/local-label'
 
-// Допустимые переходы записи в деканат. Завершённая и отменённая — конечные: раньше сотрудник
-// подтверждал запись, которую студент уже отменил, а студент «отменял» отменённую.
-const TRANSITIONS: Record<string, readonly string[]> = {
-  REQUESTED: ['CONFIRMED', 'RESCHEDULED', 'CANCELLED'],
-  CONFIRMED: ['RESCHEDULED', 'COMPLETED', 'CANCELLED'],
-  RESCHEDULED: ['CONFIRMED', 'RESCHEDULED', 'COMPLETED', 'CANCELLED'],
-  COMPLETED: [],
-  CANCELLED: [],
-}
-
-function assertTransition(from: string, to: string): void {
-  if (!(TRANSITIONS[from] ?? []).includes(to)) {
+// Допустимые переходы записи в деканат — APPOINTMENT_TRANSITIONS (SSOT, по нему же веб строит
+// меню). Завершённая и отменённая — конечные: раньше сотрудник подтверждал запись, которую
+// студент уже отменил, а студент «отменял» отменённую.
+function assertTransition(from: string, to: AppointmentStatus): void {
+  if (!canAppointmentTransition(from, to)) {
     throw new AppException('CONFLICT', 'Запись уже в другом статусе')
   }
 }
@@ -102,28 +98,34 @@ export class AppointmentsService {
         ])
       }
     }
-    const active = await this.prisma.deaneryAppointment.count({
-      where: { studentId: actor.sub, status: { in: [...ACTIVE_APPOINTMENT_STATUSES] } },
-    })
-    if (active >= MAX_ACTIVE_APPOINTMENTS_PER_STUDENT) {
-      throw new AppException(
-        'CONFLICT',
-        `Открытых записей уже ${active} — дождитесь ответа деканата или отмените лишние`,
-      )
-    }
-    const appointment = await this.prisma.deaneryAppointment.create({
-      data: {
-        studentId: actor.sub,
-        facultyId: actor.facultyId,
-        type: input.type,
-        topic: input.topic,
-        requestedAt,
-        applicationId: input.applicationId,
-      },
-      select: SELECT,
+    const facultyId = actor.facultyId
+    // Подсчёт и создание — под локом студента: параллельные запросы иначе видели одно и то же
+    // «открытых меньше потолка» и создавали записи сверх него.
+    const appointment = await this.prisma.$transaction(async (tx) => {
+      await advisoryXactLock(tx, `deanery-appointments:${actor.sub}`)
+      const active = await tx.deaneryAppointment.count({
+        where: { studentId: actor.sub, status: { in: [...ACTIVE_APPOINTMENT_STATUSES] } },
+      })
+      if (active >= MAX_ACTIVE_APPOINTMENTS_PER_STUDENT) {
+        throw new AppException(
+          'CONFLICT',
+          `Открытых записей уже ${active} — дождитесь ответа деканата или отмените лишние`,
+        )
+      }
+      return tx.deaneryAppointment.create({
+        data: {
+          studentId: actor.sub,
+          facultyId,
+          type: input.type,
+          topic: input.topic,
+          requestedAt,
+          applicationId: input.applicationId,
+        },
+        select: SELECT,
+      })
     })
     await this.record(actor, 'appointment_created', appointment.id, ctx)
-    await this.notifyDeanery(actor.facultyId, appointment.id, requestedAt)
+    await this.notifyDeanery(facultyId, appointment.id, requestedAt)
     return appointment
   }
 

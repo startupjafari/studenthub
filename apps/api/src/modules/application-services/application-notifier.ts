@@ -4,6 +4,7 @@ import type { ApplicationServiceStatus } from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { QueueService, QUEUES, NOTIFICATION_JOBS } from '../../common/queue'
 import type { NotificationJobData } from '../notifications/notification-job.type'
+import { ApplicationPolicy } from './application.policy'
 
 // Сигналы стороне вуза (D-F16). Студент получает уведомление на каждом шаге заявки, а
 // обработчики о новой или исправленной заявке узнавали, только открыв очередь сами, и
@@ -20,16 +21,19 @@ const STAFF_QUEUE_URL: Partial<Record<Role, string>> = {
 }
 
 /**
- * Статусы, в которых просрочка что-то значит, — тот же набор, что у счётчика «Просрочено»
- * очереди (ApplicationProcessService.queueStats): сводка не должна называть другое число,
- * чем человек увидит, открыв очередь.
+ * Статусы, в которых просрочка что-то значит. Один набор на сводку, счётчик «Просрочено»
+ * очереди (ApplicationProcessService.queueStats) и фильтр `overdue` списка: сводка не должна
+ * называть другое число, чем человек увидит, открыв очередь.
+ *
+ * NEEDS_CORRECTION сюда не входит: заявка ждёт студента, обработчику делать нечего, а закрыть
+ * её он не может (граф не ведёт из исправления в отказ). Брошенная студентом заявка иначе
+ * оставалась «просроченной» в ежедневной сводке навсегда.
  */
-const OVERDUE_STATUSES: ApplicationServiceStatus[] = [
+export const OVERDUE_STATUSES: ApplicationServiceStatus[] = [
   'SUBMITTED',
   'RESUBMITTED',
   'IN_REVIEW',
   'IN_PREPARATION',
-  'NEEDS_CORRECTION',
 ]
 
 // Потолки выборок (BACKEND_RULES §7.2). Сводка группирует просроченные по вузу, факультету и
@@ -42,6 +46,12 @@ const HANDLERS_LIMIT = 100
 interface Recipient {
   id: string
   role: Role
+}
+
+/** Сотрудник со scope — столько, сколько нужно ApplicationPolicy.canProcess. */
+interface StaffScope extends Recipient {
+  universityId: string | null
+  facultyId: string | null
 }
 
 export interface HandledApplication {
@@ -59,6 +69,7 @@ export class ApplicationNotifier {
   constructor(
     private readonly prisma: PrismaService,
     private readonly queue: QueueService,
+    private readonly policy: ApplicationPolicy,
   ) {}
 
   /**
@@ -135,9 +146,10 @@ export class ApplicationNotifier {
     }
     for (const g of groups) {
       const assignee = g.assignedToId ? staff.byId.get(g.assignedToId) : undefined
-      // Ответственный уволен или заблокирован — заявка снова «ничья» для сводки.
+      // Ответственный уволен, заблокирован или потерял право обработки (стал преподавателем,
+      // перешёл на другой факультет) — заявка снова «ничья» для сводки.
       add(
-        assignee && assignee.universityId === g.universityId
+        assignee && this.canProcess(assignee, g)
           ? [assignee]
           : staff.handlers(g.universityId, g.facultyId),
         g._count._all,
@@ -169,6 +181,28 @@ export class ApplicationNotifier {
 
   // ── helpers ────────────────────────────────────────────────────────────────
 
+  /**
+   * Вправе ли сотрудник обрабатывать заявки этого вуза и факультета сейчас — то же правило,
+   * что у действий и назначения (ApplicationPolicy). Ответственный, которого перевели в
+   * преподаватели или на другой факультет, иначе оставался единственным адресатом: его
+   * роли нет очереди заявок, и уведомление не уходило никому.
+   */
+  private canProcess(
+    staff: StaffScope,
+    app: { universityId: string; facultyId: string | null },
+  ): boolean {
+    return this.policy.canProcess(
+      {
+        sub: staff.id,
+        role: staff.role,
+        universityId: staff.universityId,
+        facultyId: staff.facultyId,
+        groupId: null,
+      },
+      { studentId: '', universityId: app.universityId, facultyId: app.facultyId },
+    )
+  }
+
   /** Обработчики одной заявки (см. notifyHandlers). */
   private async handlersOf(app: HandledApplication): Promise<Recipient[]> {
     if (app.assignedToId) {
@@ -179,9 +213,11 @@ export class ApplicationNotifier {
           deletedAt: null,
           isBlocked: false,
         },
-        select: { id: true, role: true },
+        select: { id: true, role: true, universityId: true, facultyId: true },
       })
-      if (assignee) return [assignee]
+      if (assignee && this.canProcess(assignee, app)) {
+        return [{ id: assignee.id, role: assignee.role }]
+      }
     }
     const staff = await this.prisma.user.findMany({
       where: {

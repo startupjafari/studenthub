@@ -22,15 +22,10 @@ import {
   SelectValue,
   Textarea,
 } from '../../../shared/ui'
-import { nowInTz, toApiError } from '../../../shared/lib'
+import { toApiError } from '../../../shared/lib'
 import { appointmentKeys, createAppointmentRequest } from '../../../entities/appointment'
 import { APPT_TYPE_KEY } from '../lib/visuals'
-
-/** Текущий момент в формате поля даты-времени ("YYYY-MM-DDTHH:mm", время браузера). */
-function nowLocalInput(): string {
-  const now = nowInTz(null)
-  return `${now.date}T${now.time}`
-}
+import { nowWallInput, useUniversityTimezone, wallInputToIso } from '../lib/university-time'
 
 // Модалка записи в деканат (студент): тип приёма, желаемое время, тема.
 export function CreateAppointmentModal({ onClose }: { onClose: () => void }) {
@@ -38,6 +33,8 @@ export function CreateAppointmentModal({ onClose }: { onClose: () => void }) {
   const tCommon = useTranslations('Common')
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
+  // Желаемое время вводится и сравнивается с «сейчас» по часам вуза, а не браузера.
+  const timezone = useUniversityTimezone()
   const [type, setType] = useState<CreateAppointmentInput['type']>('CONSULTATION')
   const [whenLocal, setWhenLocal] = useState('')
   const [topic, setTopic] = useState('')
@@ -46,10 +43,10 @@ export function CreateAppointmentModal({ onClose }: { onClose: () => void }) {
   const [submitted, setSubmitted] = useState(false)
   // Сервер не принимает время в прошлом — ловим это здесь же, у поля, а не тостом после
   // отправки. Строки "YYYY-MM-DDTHH:mm" сравниваются лексикографически как даты.
-  const [minLocal] = useState(nowLocalInput)
+  const minLocal = nowWallInput(timezone)
   const whenError = !whenLocal
     ? tCommon('dateRequired')
-    : whenLocal < nowLocalInput()
+    : whenLocal < nowWallInput(timezone)
       ? t('timeInPast')
       : null
 
@@ -58,7 +55,7 @@ export function CreateAppointmentModal({ onClose }: { onClose: () => void }) {
     if (whenError) return
     const payload = {
       type,
-      requestedAt: whenLocal ? new Date(whenLocal).toISOString() : '',
+      requestedAt: whenLocal ? wallInputToIso(whenLocal, timezone) : '',
       ...(topic.trim() ? { topic: topic.trim() } : {}),
     }
     const parsed = CreateAppointmentSchema.safeParse(payload)

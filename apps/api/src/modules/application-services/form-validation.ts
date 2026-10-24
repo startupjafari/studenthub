@@ -71,6 +71,11 @@ export function formDataError(
     if (!valueMatchesType(f, value) || !valueMatchesRules(f, value)) {
       return `Недопустимое значение поля: ${f.labelRu}`
     }
+    // Обязательный флажок (CHECKBOX — «согласен», «подтверждаю») засчитывается только
+    // отмеченным: снятый флажок — не ответ. Вопрос «да/нет» (BOOLEAN) принимает оба.
+    if (f.required && f.type === 'CHECKBOX' && value !== true && value !== 'true') {
+      return `Заполните поле: ${f.labelRu}`
+    }
   }
   return null
 }
