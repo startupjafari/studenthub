@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
@@ -58,14 +58,19 @@ export function AttendanceRoster({ pairId, date, onBack }: Props) {
     queryFn: () => fetchRoster(pairId, date),
   })
 
-  const [marks, setMarks] = useState<Record<string, AttendanceStatus | null>>({})
+  // Черновик — только отметки, поставленные руками, поверх серверных. Ростер
+  // перечитывается и сам: пока открыт QR, модалка раз в минуту подтягивает самоотметки.
+  // Раньше каждый ответ сервера целиком перезаписывал состояние и стирал несохранённое.
+  const [draft, setDraft] = useState<Record<string, AttendanceStatus>>({})
   const [qrOpen, setQrOpen] = useState(false)
 
-  useEffect(() => {
-    if (q.data) {
-      setMarks(Object.fromEntries(q.data.students.map((s) => [s.studentId, s.status])))
-    }
-  }, [q.data])
+  const marks = useMemo<Record<string, AttendanceStatus | null>>(
+    () => ({
+      ...Object.fromEntries((q.data?.students ?? []).map((s) => [s.studentId, s.status])),
+      ...draft,
+    }),
+    [q.data, draft],
+  )
 
   const save = useMutation({
     mutationFn: () => {
@@ -74,17 +79,25 @@ export function AttendanceRoster({ pairId, date, onBack }: Props) {
         .map(([studentId, status]) => ({ studentId, status: status as AttendanceStatus }))
       return markAttendanceRequest({ pairId, date, entries })
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: attendanceKeys.roster(pairId, date) })
+    onSuccess: (roster) => {
+      qc.setQueryData(attendanceKeys.roster(pairId, date), roster)
+      // Сохранённое уходит из черновика; отметку, поставленную, пока запрос летел,
+      // оставляем — она с ответом не совпадает.
+      const saved = new Map(roster.students.map((s) => [s.studentId, s.status]))
+      setDraft((prev) =>
+        Object.fromEntries(Object.entries(prev).filter(([id, st]) => saved.get(id) !== st)),
+      )
       toast.success(t('saved'))
     },
     onError: (e) => toast.error(tErr(toApiError(e).code)),
   })
 
+  // Заполняет только пустые строки: уважительная причина, опоздание или пропуск,
+  // проставленные раньше, — это решение преподавателя, а не «по умолчанию».
   function markAllPresent() {
-    setMarks((prev) => {
+    setDraft((prev) => {
       const next = { ...prev }
-      for (const id of Object.keys(next)) next[id] = 'PRESENT'
+      for (const [id, st] of Object.entries(marks)) if (st === null) next[id] = 'PRESENT'
       return next
     })
   }
@@ -186,7 +199,7 @@ export function AttendanceRoster({ pairId, date, onBack }: Props) {
                           aria-label={`${t(ATT_KEY[st])}: ${name}`}
                           aria-pressed={marks[s.studentId] === st}
                           title={t(ATT_KEY[st])}
-                          onClick={() => setMarks((prev) => ({ ...prev, [s.studentId]: st }))}
+                          onClick={() => setDraft((prev) => ({ ...prev, [s.studentId]: st }))}
                           className={cn(
                             'flex size-9 items-center justify-center rounded-lg text-xs font-semibold text-muted-foreground transition-colors hover:bg-muted',
                             marks[s.studentId] === st && ATT_ACTIVE[st],
