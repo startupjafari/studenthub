@@ -107,6 +107,8 @@ export function RegisterByInviteForm({ token }: { token: string }) {
     [emailRequired, t],
   )
 
+  // Тексты ошибок полей — из словаря, а не сообщения Zod: схема общая с сервером и пишет
+  // по-русски или по-английски («String must contain at least 1 character(s)») в любой локали.
   const {
     register,
     handleSubmit,
@@ -184,7 +186,11 @@ export function RegisterByInviteForm({ token }: { token: string }) {
       // «конфликт данных», по которому не понять, что исправлять (FRONTEND_RULES §7).
       const apiErr = toApiError(err)
       if (apiErr.code === 'USERNAME_TAKEN') {
-        setError('username', { message: tErr('USERNAME_TAKEN') }, { shouldFocus: true })
+        setError(
+          'username',
+          { type: 'server', message: tErr('USERNAME_TAKEN') },
+          { shouldFocus: true },
+        )
         return
       }
       if (
@@ -192,7 +198,7 @@ export function RegisterByInviteForm({ token }: { token: string }) {
         emailRequired &&
         apiErr.details?.some((d) => d.field === 'email')
       ) {
-        setError('email', { message: t('emailTaken') }, { shouldFocus: true })
+        setError('email', { type: 'server', message: t('emailTaken') }, { shouldFocus: true })
         return
       }
       // Серверный отказ — тостом, а не полосой в форме: форма длинная, кнопка внизу, и
@@ -359,12 +365,12 @@ export function RegisterByInviteForm({ token }: { token: string }) {
           <div className="flex flex-col gap-2">
             <Label htmlFor="firstName">{t('firstName')}</Label>
             <Input id="firstName" autoComplete="given-name" {...register('firstName')} />
-            <FieldError>{errors.firstName && errors.firstName.message}</FieldError>
+            <FieldError>{errors.firstName && t('nameInvalid')}</FieldError>
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="lastName">{t('lastName')}</Label>
             <Input id="lastName" autoComplete="family-name" {...register('lastName')} />
-            <FieldError>{errors.lastName && errors.lastName.message}</FieldError>
+            <FieldError>{errors.lastName && t('nameInvalid')}</FieldError>
           </div>
         </div>
 
@@ -378,7 +384,10 @@ export function RegisterByInviteForm({ token }: { token: string }) {
             {...register('username')}
           />
           <p className="text-xs text-muted-foreground">{t('usernameHint')}</p>
-          <FieldError>{errors.username && errors.username.message}</FieldError>
+          <FieldError>
+            {errors.username &&
+              (errors.username.type === 'server' ? errors.username.message : t('usernameInvalid'))}
+          </FieldError>
         </div>
 
         {emailRequired && (
@@ -394,7 +403,14 @@ export function RegisterByInviteForm({ token }: { token: string }) {
               {...register('email')}
             />
             <p className="text-xs text-muted-foreground">{t('emailInviteHint')}</p>
-            <FieldError>{errors.email && errors.email.message}</FieldError>
+            {/* Свои тексты — у отказа сервера и «поле пустое» (refine выше, из словаря); формат
+                адреса — сообщение Zod, его заменяем. */}
+            <FieldError>
+              {errors.email &&
+                (errors.email.type === 'server' || errors.email.type === 'custom'
+                  ? errors.email.message
+                  : t('emailInvalid'))}
+            </FieldError>
           </div>
         )}
 
@@ -408,7 +424,7 @@ export function RegisterByInviteForm({ token }: { token: string }) {
             {...register('birthDate')}
           />
           <p className="text-xs text-muted-foreground">{t('birthDateHint')}</p>
-          <FieldError>{errors.birthDate && errors.birthDate.message}</FieldError>
+          <FieldError>{errors.birthDate && t('birthDateInvalid')}</FieldError>
         </div>
 
         <div className="flex flex-col gap-2">
@@ -446,7 +462,7 @@ export function RegisterByInviteForm({ token }: { token: string }) {
               </p>
             </div>
           )}
-          <FieldError>{errors.password && errors.password.message}</FieldError>
+          <FieldError>{errors.password && t('passwordPolicy')}</FieldError>
         </div>
 
         {/* Согласие — явным действием, а не мелким шрифтом под кнопкой: нужно доказуемое
@@ -474,7 +490,7 @@ export function RegisterByInviteForm({ token }: { token: string }) {
                 />
                 <span className="text-muted-foreground">{t('guardianConsent')}</span>
               </label>
-              <FieldError>{errors.guardianConsent && errors.guardianConsent.message}</FieldError>
+              <FieldError>{errors.guardianConsent && t('guardianRequired')}</FieldError>
             </>
           )}
         </div>
