@@ -6,7 +6,7 @@ import type { AnalyticsReportFormat, AnalyticsReportPeriod } from '@studenthub/s
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { REDIS_CLIENT } from '../../common/redis/redis.module'
 import { AppException } from '../../common/exceptions/app.exception'
-import { AuditService } from '../../common/audit/audit.service'
+import { AUDIT_RETENTION_DAYS, AuditService } from '../../common/audit/audit.service'
 import { ExportBrandingService } from '../../common/export/export-branding.service'
 import { ExportRegistryService } from '../../common/export/export-registry.service'
 import type { ExportContext, ExportLocale } from '../../common/export/export-branding.types'
@@ -77,7 +77,10 @@ export interface ReportMetrics {
   /** null — у уровня показателя нет: заявки преподавателю не подают. */
   applications: { submitted: number; closed: number; overdue: number } | null
   submissions: number
-  /** null — у преподавателя показателя нет (см. reportColumns). */
+  /**
+   * null — показателя нет: у преподавателя (см. reportColumns) или когда период длиннее
+   * срока хранения журнала аудита (activityCovered).
+   */
   activeStudents: number | null
 }
 
@@ -306,6 +309,7 @@ export class AnalyticsReportService {
     const counted: ReportScope = { ...scope, excludedGroups: excluded }
 
     const teacher = scope.level === 'teacher'
+    const activity = !teacher && activityCovered(range)
     const [students, attendance, grades, exams, submissions, applications, active] =
       await Promise.all([
         this.students(counted),
@@ -314,7 +318,7 @@ export class AnalyticsReportService {
         this.exams(counted, range),
         this.submissions(counted, range),
         teacher ? Promise.resolve([]) : this.applications(counted, range),
-        teacher ? Promise.resolve([]) : this.activeStudents(counted, range),
+        activity ? this.activeStudents(counted, range) : Promise.resolve([]),
       ])
 
     const counts = new Map<string, Counts>(units.map((u) => [u.id, { ...ZERO }]))
@@ -362,13 +366,13 @@ export class AnalyticsReportService {
           name: u.name,
           suppressed,
           partial: !suppressed && partialUnits.has(u.id),
-          metrics: suppressed ? null : toMetrics(u.counts, scope.level),
+          metrics: suppressed ? null : toMetrics(u.counts, scope.level, activity),
         }
       }),
       total:
         totalCounts.students < REPORT_MIN_CELL
           ? null
-          : { metrics: toMetrics(totalCounts, scope.level), partial },
+          : { metrics: toMetrics(totalCounts, scope.level, activity), partial },
     }
   }
 
@@ -742,7 +746,17 @@ function percent(part: number, whole: number): number | null {
   return whole === 0 ? null : Math.round((part / whole) * 100)
 }
 
-export function toMetrics(c: Counts, level: ReportLevel): ReportMetrics {
+/**
+ * Покрывает ли журнал аудита период целиком. Журнал чистится через AUDIT_RETENTION_DAYS, и
+ * «активных за учебный год» по нему считались бы только последние три месяца — цифра
+ * выглядела бы годовой, а была квартальной. Такой период показатель не получает вовсе.
+ * Сутки запаса: квартал — ровно 90 дней, и «сейчас» у отчёта и у проверки расходится на мс.
+ */
+export function activityCovered(range: ReportRange): boolean {
+  return range.to.getTime() - range.from.getTime() <= (AUDIT_RETENTION_DAYS + 1) * DAY_MS
+}
+
+export function toMetrics(c: Counts, level: ReportLevel, activity = true): ReportMetrics {
   const teacher = level === 'teacher'
   return {
     students: c.students,
@@ -761,6 +775,6 @@ export function toMetrics(c: Counts, level: ReportLevel): ReportMetrics {
     exams: { passed: c.passed, failed: c.failed, absent: c.examAbsent, retake: c.retake },
     applications: teacher ? null : { submitted: c.submitted, closed: c.closed, overdue: c.overdue },
     submissions: c.submissions,
-    activeStudents: teacher ? null : c.active,
+    activeStudents: teacher || !activity ? null : c.active,
   }
 }

@@ -4,6 +4,7 @@ import {
   AnalyticsReportService,
   REPORT_MAX_UNITS,
   REPORT_MIN_CELL,
+  activityCovered,
   reportRange,
   suppressedGroups,
   type AnalyticsReport,
@@ -510,6 +511,33 @@ describe('Раскладка файла', () => {
     expect(rows).toHaveLength(1)
     expect(rows[0]?.name).toBe('Итого')
     expect(rows[0]?.metrics).toBeNull()
+  })
+})
+
+describe('Активные студенты и срок хранения журнала (BUG-188)', () => {
+  afterEach(() => jest.useRealTimers())
+
+  it('квартал журнал покрывает, учебный год в мае — нет', () => {
+    const now = new Date('2027-05-10T00:00:00Z')
+    expect(activityCovered(reportRange('month', now))).toBe(true)
+    expect(activityCovered(reportRange('quarter', now))).toBe(true)
+    expect(activityCovered(reportRange('year', now))).toBe(false)
+    // В сентябре учебный год короче квартала — показатель честный.
+    expect(activityCovered(reportRange('year', new Date('2026-09-20T00:00:00Z')))).toBe(true)
+  })
+
+  it('год длиннее срока хранения — активных нет вовсе, а не за последние 90 дней', async () => {
+    jest.useFakeTimers({ now: new Date('2027-05-10T00:00:00Z') })
+    const { service, calls } = setup()
+    const report = await service.build(
+      { level: 'faculty', id: 'fac-1', universityId: 'uni-1' },
+      'year',
+    )
+    expect(calls.some((c) => c.sql.includes('FROM audit_logs al'))).toBe(false)
+    expect(report.units[0]?.metrics?.activeStudents).toBeNull()
+    expect(report.total?.metrics.activeStudents).toBeNull()
+    // Остальные показатели периода на месте.
+    expect(report.units[0]?.metrics?.applications).not.toBeNull()
   })
 })
 

@@ -6,6 +6,12 @@ import { PrismaService } from '../prisma/prisma.service'
 import { Paginated } from '../http/paginated'
 import type { JwtPayload } from '../auth/jwt-payload.type'
 
+/**
+ * Срок хранения журнала (CleanupService.cleanAuditLogs). Общая константа: отчёты, которые
+ * считают показатели по журналу, должны знать, за какой период он ещё полон.
+ */
+export const AUDIT_RETENTION_DAYS = 90
+
 export interface AuditEntry {
   userId?: string | null
   action: string
