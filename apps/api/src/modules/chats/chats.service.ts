@@ -932,10 +932,14 @@ export class ChatsService implements OnModuleInit {
       //
       // Скрытый «у себя» чат (hiddenAt) тоже переиспользуем: членство при удалении
       // сохраняется, и заводить рядом второй значило бы потерять историю у собеседника.
-      // Из списка он вернётся сам — hiddenAt снимается при первом же сообщении.
+      // «Написать» явно возвращает его в список: иначе окно открывалось по id чата, которого
+      // в списке нет, — без шапки и без плашки блокировки. Очищенная история остаётся скрытой.
       if (other) {
         const existing = await this.findPrivateChat(actor.sub, other)
-        if (existing) return existing
+        if (existing) {
+          await this.unhideChat(existing.id, actor.sub)
+          return existing
+        }
         // Новый личный чат — только внутри своего вуза (§50). Дружба важнее скоупа: связь
         // Friendship вуза не знает, и уже сложившимся друзьям переписку рвать нельзя.
         const friends = await this.areFriends(actor.sub, other)
@@ -963,10 +967,22 @@ export class ChatsService implements OnModuleInit {
     if (!other) return create(this.prisma)
     // Поиск выше гонку не закрывает: двойной клик или две вкладки — и оба запроса видят
     // «чата нет». Под локом пары второй запрос ждёт первого, а затем находит его чат.
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       await advisoryXactLock(tx, privatePairLockKey(actor.sub, other))
-      return (await this.findPrivateChat(actor.sub, other, tx)) ?? create(tx)
+      const found = await this.findPrivateChat(actor.sub, other, tx)
+      return found ? { chat: found, found: true } : { chat: await create(tx), found: false }
     })
+    if (result.found) await this.unhideChat(result.chat.id, actor.sub)
+    return result.chat
+  }
+
+  /** Вернуть скрытый «у себя» чат в список участника и сказать об этом его устройствам. */
+  private async unhideChat(chatId: string, userId: string): Promise<void> {
+    const { count } = await this.prisma.chatMember.updateMany({
+      where: { chatId, userId, hiddenAt: { not: null } },
+      data: { hiddenAt: null },
+    })
+    if (count > 0) this.realtime.emitToUser(userId, 'chat:activity', { chatId })
   }
 
   /** Есть ли принятая дружба между двумя пользователями. */

@@ -2421,11 +2421,27 @@ describe('ChatsService.createChat — один личный чат на пару
   it('существующий личный чат переиспользуется, второй не создаётся', async () => {
     const { service, prisma } = setup()
     prisma.chat.findFirst.mockResolvedValueOnce({ id: 'c-old', type: 'PRIVATE', title: null })
+    prisma.chatMember.updateMany.mockResolvedValueOnce({ count: 0 })
 
     const res = await service.createChat(user('u1'), { type: 'PRIVATE', memberIds: ['u2'] })
 
     expect(res).toEqual({ id: 'c-old', type: 'PRIVATE', title: null })
     expect(prisma.chat.create).not.toHaveBeenCalled()
+  })
+
+  // BUG-172: окно открывалось по id чата, которого нет в списке, — без шапки и плашки.
+  it('скрытый у себя личный чат «Написать» возвращает в список', async () => {
+    const { service, prisma, realtime } = setup()
+    prisma.chat.findFirst.mockResolvedValueOnce({ id: 'c-old', type: 'PRIVATE', title: null })
+    prisma.chatMember.updateMany.mockResolvedValueOnce({ count: 1 })
+
+    await service.createChat(user('u1'), { type: 'PRIVATE', memberIds: ['u2'] })
+
+    expect(prisma.chatMember.updateMany).toHaveBeenCalledWith({
+      where: { chatId: 'c-old', userId: 'u1', hiddenAt: { not: null } },
+      data: { hiddenAt: null },
+    })
+    expect(realtime.emitToUser).toHaveBeenCalledWith('u1', 'chat:activity', { chatId: 'c-old' })
   })
 
   it('поиск требует ровно двух участников пары: третий в чате его не подходит', async () => {
