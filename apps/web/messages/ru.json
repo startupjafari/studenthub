@@ -1842,6 +1842,7 @@
     "promptCancel": "Отмена",
     "event_DOCUMENT_ADDED": "Документ приложен",
     "event_DOCUMENT_ACCEPTED": "Документ принят",
+    "event_DOCUMENT_REJECTED": "Запрошена замена документа",
     "event_ASSIGNED": "Назначен ответственный",
     "event_RESULT_ADDED": "Добавлен результат",
     "accept": "Принять",

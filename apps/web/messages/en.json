@@ -1842,6 +1842,7 @@
     "promptCancel": "Cancel",
     "event_DOCUMENT_ADDED": "Document attached",
     "event_DOCUMENT_ACCEPTED": "Document accepted",
+    "event_DOCUMENT_REJECTED": "Document replacement requested",
     "event_ASSIGNED": "Assignee set",
     "event_RESULT_ADDED": "Result added",
     "accept": "Accept",

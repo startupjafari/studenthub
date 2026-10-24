@@ -29,6 +29,8 @@ export function applicationRequirements(app: ApplicationDetail): ApplicationRequ
   return out
 }
 
+const REQUIREMENT_TITLED = new Set(['DOCUMENT_ADDED', 'DOCUMENT_ACCEPTED'])
+
 /**
  * Пояснение к событию истории. У событий документа comment — русское название требования
  * (так его пишет сервер для прежних клиентов); если требование известно, подписываем его на
@@ -40,7 +42,8 @@ export function eventComment(
   locale: string,
 ): string | null {
   if (e.action === 'ASSIGNED') return null
-  if (e.requirementId) {
+  // Только у событий, где comment — название требования (у запроса замены там причина).
+  if (e.requirementId && REQUIREMENT_TITLED.has(e.action)) {
     const req = applicationRequirements(app).find((r) => r.id === e.requirementId)
     if (req) return pickLocale(req as unknown as Record<string, unknown>, 'title', locale)
   }

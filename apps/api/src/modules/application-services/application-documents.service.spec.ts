@@ -279,6 +279,52 @@ describe('ApplicationDocumentsService.review — условие на стату�
   })
 })
 
+// Раньше вторая пометка «к замене» за ту же проверку упиралась в «Недопустимый переход»:
+// каждый документ уходил студенту отдельным кругом исправления.
+describe('ApplicationDocumentsService.review — несколько замен за одну проверку', () => {
+  const correcting = { ...inReview, status: 'NEEDS_CORRECTION' }
+
+  it('в исправлении помечает ещё один документ без смены статуса и уведомляет студента', async () => {
+    const { service, application, applicationDocument, applicationEvent, queue } = setup()
+    application.findFirst.mockResolvedValue(correcting)
+    applicationDocument.findFirst.mockResolvedValue({ id: 'ad2', requirement: { titleRu: 'ID' } })
+    await service.review(dean, 'a1', 'ad2', 'request-replacement', 'не читается')
+    expect(application.update).toHaveBeenCalledWith({
+      where: { id: 'a1', status: 'NEEDS_CORRECTION' },
+      data: { status: 'NEEDS_CORRECTION' },
+    })
+    expect(applicationDocument.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ status: 'REPLACEMENT_REQUIRED' }),
+      }),
+    )
+    expect(applicationEvent.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          action: 'DOCUMENT_REJECTED',
+          fromStatus: null,
+          toStatus: null,
+        }),
+      }),
+    )
+    expect(queue.enqueue).toHaveBeenCalled()
+  })
+
+  it('студент успел отправить повторно → CONFLICT, документ не помечается', async () => {
+    const { service, application, applicationDocument, queue } = setup()
+    application.findFirst.mockResolvedValue(correcting)
+    applicationDocument.findFirst.mockResolvedValue({ id: 'ad2', requirement: { titleRu: 'ID' } })
+    application.update.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError('not found', { code: 'P2025', clientVersion: '6' }),
+    )
+    await expect(
+      service.review(dean, 'a1', 'ad2', 'request-replacement', 'причина'),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(applicationDocument.update).not.toHaveBeenCalled()
+    expect(queue.enqueue).not.toHaveBeenCalled()
+  })
+})
+
 describe('ApplicationDocumentsService.remove (D-F03)', () => {
   const owned = (status: string) => ({ id: 'a1', studentId: 'stud', status, serviceId: 's' })
 

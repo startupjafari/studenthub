@@ -139,7 +139,9 @@ export function StaffWorkspaceModal({ id, onClose }: { id: string; onClose: () =
               <StaffDocumentReview
                 appId={app.id}
                 documents={app.documents}
-                canReview={app.status === 'IN_REVIEW'}
+                // В исправлении проверка продолжается: можно пометить к замене ещё документ,
+                // а не отправлять каждый отдельным кругом.
+                canReview={app.status === 'IN_REVIEW' || app.status === 'NEEDS_CORRECTION'}
                 onChanged={() => void q.refetch()}
               />
             </Card>

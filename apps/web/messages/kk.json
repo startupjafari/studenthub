@@ -1842,6 +1842,7 @@
     "promptCancel": "Бас тарту",
     "event_DOCUMENT_ADDED": "Құжат тіркелді",
     "event_DOCUMENT_ACCEPTED": "Құжат қабылданды",
+    "event_DOCUMENT_REJECTED": "Құжатты ауыстыру сұралды",
     "event_ASSIGNED": "Жауапты тағайындалды",
     "event_RESULT_ADDED": "Нәтиже қосылды",
     "accept": "Қабылдау",
