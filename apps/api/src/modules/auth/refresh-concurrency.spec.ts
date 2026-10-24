@@ -125,6 +125,8 @@ function setup(opts: { redisDown?: boolean } = {}) {
     ),
   }
   const crypto = new CryptoService({ get: () => 'k'.repeat(32) } as never)
+  const realtime = { disconnectUser: jest.fn() }
+  const revocation = { revokeIssuedBefore: jest.fn().mockResolvedValue(undefined) }
   const service = new AuthService(
     prisma as never,
     { sign: jest.fn(() => 'access') } as never,
@@ -135,14 +137,14 @@ function setup(opts: { redisDown?: boolean } = {}) {
     {} as never,
     {} as never,
     {} as never,
-    {} as never,
+    realtime as never,
     redis as never,
-    {} as never,
+    revocation as never,
     { assertAllowed: jest.fn() } as never,
     {} as never,
     crypto,
   )
-  return { service, rows, live, redis, audit, users, refreshToken }
+  return { service, rows, live, redis, audit, users, refreshToken, realtime, revocation }
 }
 
 describe('AuthService.refresh: параллельные обмены одной cookie (A-F30)', () => {
@@ -187,7 +189,7 @@ describe('AuthService.refresh: параллельные обмены одной 
   })
 
   it('повтор после окна грации по-прежнему рвёт цепочку', async () => {
-    const { service, rows, live, audit } = setup()
+    const { service, rows, live, audit, realtime, revocation } = setup()
     const first = await service.refresh('rt-0.good', {})
     // Старый токен погашен давно — это уже не соседняя вкладка, а повтор украденного.
     rows.get('rt-0')!.revokedAt = new Date(Date.now() - GRACE_MS - 1_000)
@@ -197,6 +199,9 @@ describe('AuthService.refresh: параллельные обмены одной 
     expect(audit.record).toHaveBeenCalledWith(
       expect.objectContaining({ action: 'refresh_reuse_detected' }),
     )
+    // Кража гасит и уже выданные access-токены, и открытые сокеты пользователя (BUG-386).
+    expect(revocation.revokeIssuedBefore).toHaveBeenCalledWith(STUDENT.id)
+    expect(realtime.disconnectUser).toHaveBeenCalledWith(STUDENT.id)
     await expect(service.refresh(first.refreshToken, {})).rejects.toMatchObject({
       code: 'UNAUTHORIZED',
     })
