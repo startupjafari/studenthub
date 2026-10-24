@@ -22,6 +22,18 @@ describe('ResilientThrottlerStorage', () => {
     await expect(storage.increment('k', 60, 100, 0, 'default')).resolves.toEqual(blocked)
   })
 
+  // Подвисший Redis — не упавший: ответа нет, и общий клиент ждал бы до 3 с на счётчик.
+  it('не дождался Redis за короткий срок — считает в памяти, а не ждёт', async () => {
+    const inner = { increment: jest.fn(() => new Promise(() => undefined)) }
+    const storage = new ResilientThrottlerStorage(inner as unknown as ThrottlerStorage, 20)
+
+    const started = Date.now()
+    const result = await storage.increment('k', 60_000, 100, 0, 'default')
+
+    expect(Date.now() - started).toBeLessThan(1000)
+    expect(result).toMatchObject({ totalHits: 1, isBlocked: false })
+  })
+
   it('при недоступном Redis не роняет запрос', async () => {
     const inner = { increment: jest.fn().mockRejectedValue(new Error('ECONNREFUSED')) }
     const storage = new ResilientThrottlerStorage(inner as unknown as ThrottlerStorage)
