@@ -631,6 +631,40 @@
         }
       }
     },
+    "auth.qrPreviewing": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Проверяем код…"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кодты тексеріп жатырмыз…"
+          }
+        }
+      }
+    },
+    "auth.qrRequester": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кто просит вход"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Кіруді кім сұрап отыр"
+          }
+        }
+      }
+    },
     "auth.qrScanAgain": {
       "extractionState": "manual",
       "localizations": {
@@ -660,6 +694,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Видоискатель камеры"
+          }
+        }
+      }
+    },
+    "auth.qrUnknownDevice": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Неизвестное устройство"
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Белгісіз құрылғы"
           }
         }
       }
