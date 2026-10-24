@@ -231,7 +231,7 @@
   помечена, у перенесённой — новое время.
 
 #### BUG-014 · 🟡 Экзамен удаляется без подтверждения, группа об отмене не узнаёт
-- **Роль:** TEACHER, DEAN → STUDENT · **Статус:** исправлен · `fix/bugs-academic` (75700384)
+- **Роль:** TEACHER, DEAN → STUDENT · **Статус:** исправлен · `fix/bugs-academic` (9ea5e363)
 - **Где:** `apps/web/src/views/exams/ui/exam-management-view.tsx:288`, `apps/api/src/modules/exams/exams.service.ts:284`
 - **Сценарий:** «Удалить» в меню строки сразу вызывает удаление; уведомления об отмене нет (в
   `QUEUES` нет `EXAM_CANCELLED`).
@@ -1194,10 +1194,10 @@
 - **Где:** `apps/web/src/views/appointments/ui/student-appointments-view.tsx:76`, `dean-appointments-view.tsx:254-265` · **Статус:** исправлен · `fix/bugs-applications` (3b4e4c2f)
 
 #### BUG-156 · 🟢 Ссылка «Связанная заявка» в записи ведёт на общий список
-- **Где:** `apps/web/src/views/appointments/ui/student-appointments-view.tsx:177` (нужно `/applications/${id}`) · **Статус:** новый
+- **Где:** `apps/web/src/views/appointments/ui/student-appointments-view.tsx:177` (нужно `/applications/${id}`) · **Статус:** исправлен · `fix/bugs-applications` (864627c3)
 
 #### BUG-157 · 🟢 Потолок «5 открытых записей в деканат» обходится параллельными запросами
-- **Где:** `apps/api/src/modules/appointments/appointments.service.ts:105-124` (`count` + `create` без лока) · **Статус:** новый
+- **Где:** `apps/api/src/modules/appointments/appointments.service.ts:105-124` (`count` + `create` без лока) · **Статус:** исправлен · `fix/bugs-applications` (a77bb46b)
 
 #### BUG-158 · 🟢 Время записи в деканат — в поясе браузера (новое место BUG-103)
 - **Где:** `apps/web/src/views/appointments/ui/create-appointment-modal.tsx:29-33,61`, `confirm-appointment-modal.tsx:38`, `dean-appointments-view.tsx:145`, `student-appointments-view.tsx:156` · **Статус:** новый
@@ -1308,7 +1308,7 @@
 - **Ожидается:** значения с ведущими `= + - @ \t \r` экранировать в `buildCsv` (OWASP CSV Injection).
 
 #### BUG-185 · 🟡 🔒 Порог малых групп обходится вычитанием между уровнями отчёта
-- **Роль:** UNIVERSITY_ADMIN/MODERATOR, PLATFORM_* · **Статус:** новый
+- **Роль:** UNIVERSITY_ADMIN/MODERATOR, PLATFORM_* · **Статус:** исправлен · `fix/bugs-analytics` (85566dee)
 - **Где:** `apps/api/src/modules/analytics/analytics-report.service.ts:178-193,320-352`
 - **Сценарий:** строка «Факультет F» из отчёта вуза минус видимые группы отчёта факультета F = точные показатели скрытой малой группы.
 - **Ожидается:** §8.3 «иначе разность раскрыла бы группу» — вторичное подавление.
@@ -1399,7 +1399,7 @@
 - **Где:** `apps/web/src/views/employer/ui/employer-vacancies-view.tsx:183-187`, `views/career/ui/career-applications-view.tsx:151-155`, `views/employer/ui/employer-candidates-view.tsx:192-198` · **Статус:** новый
 
 #### BUG-210 · 🟢 Тосты и экраны карьеры показывают сырой русский `message` сервера
-- **Где:** `toApiError(error).message` в 10 файлах `apps/web/src/views/career/**` и `views/employer/**` (`career-profile-view.tsx:59,65`, `career-companies-view.tsx:102`, `career-resume-view.tsx:38,60`, …) · **Статус:** новый
+- **Где:** `toApiError(error).message` в 10 файлах `apps/web/src/views/career/**` и `views/employer/**` (`career-profile-view.tsx:59,65`, `career-companies-view.tsx:102`, `career-resume-view.tsx:38,60`, …) · **Статус:** исправлен · `fix/bugs-career` (42881ce1)
 
 #### BUG-211 · 🟢 Формы работодателя (и логин, инвайт, сброс пароля) показывают английские сообщения Zod
 - **Где:** `apps/web/src/views/employer/ui/employer-signup-view.tsx:80-125`, `employer-company-view.tsx:84-102`; тот же корень в `features/login`, `auth-invite`, `password-reset` · **Статус:** новый
@@ -1554,7 +1554,7 @@
 - **Где:** `apps/api/src/modules/library/library-loans.service.ts:407-416`, `apps/web/src/views/library-desk/ui/loan-actions.tsx:76,177-183` · **Статус:** исправлен · `fix/bugs-library-security` (98ca0e73)
 
 #### BUG-257 · 🟢 Дата «ГГГГ-ММ-ДД» принимает несуществующие дни (`2026-02-31` → 03.03)
-- **Где:** `packages/shared-schemas/src/library.ts:299-301`, `apps/api/src/modules/library/library-loans.service.ts:197-203,295` · **Статус:** новый
+- **Где:** `packages/shared-schemas/src/library.ts:299-301`, `apps/api/src/modules/library/library-loans.service.ts:197-203,295` · **Статус:** исправлен · `fix/bugs-library-security` (9dc1a8bd)
 
 #### BUG-258 · 🟢 Предел книг и броней проверяется вне транзакции (корень BUG-025/BUG-050)
 - **Где:** `apps/api/src/modules/library/library-loans.service.ts:191,224-230`, `library-reservations.service.ts:84-106,110-116` · **Статус:** исправлен · `fix/bugs-library-security` (98ca0e73)
@@ -1607,7 +1607,7 @@
 - **Где:** `apps/web/src/widgets/user-profile/ui/poll-create-modal.tsx:58-60,91` · **Статус:** новый
 
 #### BUG-272 · 🟡 Посты преподавателя «по предмету» стоят в ленте ниже студенческих
-- **Где:** `apps/api/src/modules/posts/posts.service.ts:76-84,1334-1338` (SUBJECT 27 < GROUP студента 30) · **Статус:** новый
+- **Где:** `apps/api/src/modules/posts/posts.service.ts:76-84,1334-1338` (SUBJECT 27 < GROUP студента 30) · **Статус:** исправлен · `fix/bugs-feed-social` (b5201ec2)
 - **Ожидается:** §3.3 — посты преподавателей выше постов студентов.
 
 #### BUG-273 · 🟢 Комментарий уходит дважды при быстром повторном Enter
@@ -1690,7 +1690,7 @@
 - **Ожидается:** §7.3 п. 3 — текст по конкретному коду (`Errors.INVITE_*`).
 
 #### BUG-295 · 🟢 Мастер, подтверждение заявки, массовый импорт и формы регистрации показывают сырые тексты сервера и Zod
-- **Где:** `apps/web/src/views/onboarding/ui/step-body.tsx:134,155,186`, `views/demo/ui/demo-verify-view.tsx:42`, `features/create-invite/ui/bulk-invite.tsx:238,246`, `features/auth-invite/ui/register-form.tsx`, `views/demo/ui/demo-request-view.tsx` (тот же корень, что BUG-210/211) · **Статус:** новый
+- **Где:** `apps/web/src/views/onboarding/ui/step-body.tsx:134,155,186`, `views/demo/ui/demo-verify-view.tsx:42`, `features/create-invite/ui/bulk-invite.tsx:238,246`, `features/auth-invite/ui/register-form.tsx`, `views/demo/ui/demo-request-view.tsx` (тот же корень, что BUG-210/211) · **Статус:** исправлен · `fix/bugs-users-invites` (9a988af4)
 
 #### BUG-296 · 🟢 Срок действия в письмах-приглашениях, по заявке вуза и сбросе пароля — в UTC без пояса
 - **Где:** `apps/api/src/modules/invites/invites.service.ts:235-238`, `apps/api/src/modules/onboarding/demo-requests.service.ts:39,192,288,524`, `apps/api/src/modules/auth/password-reset.service.ts:78` · **Статус:** новый
@@ -1805,7 +1805,7 @@
 - **Ожидается:** перенос изменений на соответствующие пары или предупреждение и уведомление об их снятии.
 
 #### BUG-328 · 🟡 «Академическая сводка» засчитывает кредиты по первой же оценке и расходится с «Учебным планом»
-- **Роль:** STUDENT, STAROSTA · **Статус:** подтверждён
+- **Роль:** STUDENT, STAROSTA · **Статус:** исправлен · `fix/bugs-schedule-courses` (3127f5c9)
 - **Где:** `apps/web/src/views/academic/ui/academic-view.tsx:84-91` против `views/study-plan/lib/plan-status.ts:45-60`, `study-plan-view.tsx:108-114`
 - **Сценарий:** одна лабораторная 3/10 — в /academic кредиты «набраны» (и проваленные тоже), в /study-plan дисциплина «изучается».
 - **Ожидается:** один расчёт по правилу C-F26 (`planStatus`).
@@ -1892,7 +1892,7 @@
 - **Ожидается:** §8.3 «Вебхук бота» — ответ всегда 200.
 
 #### BUG-351 · 🟢 `/duty` называет «следующим» не того, кому крон передаст дежурство
-- **Где:** `apps/api/src/modules/telegram-hook/telegram-hook.service.ts:143-152,383-384` против `apps/api/src/modules/platform/platform.service.ts:483-501` (пропуск недоступных, очередь < 2) · **Статус:** новый
+- **Где:** `apps/api/src/modules/telegram-hook/telegram-hook.service.ts:143-152,383-384` против `apps/api/src/modules/platform/platform.service.ts:483-501` (пропуск недоступных, очередь < 2) · **Статус:** исправлен · `fix/bugs-platform-auth` (bcb588e5)
 
 #### BUG-352 · 🟢 Сводка, назначенная на тихий час, не приходит никогда, а бот обещает её время
 - **Где:** `apps/api/src/common/telegram/telegram-notify.service.ts:103-107`, `apps/api/src/modules/cleanup/cleanup.service.ts:978-1002`, `telegram-hook.service.ts:395-397`; нет проверки в `SetNotificationsSchema` · **Статус:** новый
@@ -1996,7 +1996,7 @@
 - **Где:** `apps/web/src/views/support-desk/ui/support-thread-modal.tsx:81-84` · **Статус:** новый
 
 #### BUG-381 · 🟢 🔒 Админ вуза читает личную переписку по жалобе, хотя матрица открывает ему только официальные чаты
-- **Где:** `apps/api/src/modules/complaints/complaints.controller.ts:20-25,95-107` (`MODERATOR_ROLES` с UNIVERSITY_ADMIN) · **Статус:** новый
+- **Где:** `apps/api/src/modules/complaints/complaints.controller.ts:20-25,95-107` (`MODERATOR_ROLES` с UNIVERSITY_ADMIN) · **Статус:** исправлен · `fix/bugs-events-moderation` (32de546f)
 - **Ожидается:** §2.2 «Личные чаты: Адм. вуза ⚠️ официальные» — поправить код или матрицу.
 
 #### BUG-382 · 🟢 Нет раздела «События» у админа платформы; сотрудник платформы через «Поддержку» заводит обращение без автора
@@ -2121,7 +2121,7 @@
 - **Где:** `apps/web/src/shared/ui/async-select.tsx:115-128`, `dict-single-select.tsx:124-136` (`<span role="button" tabIndex={-1}>` внутри `<button>`) · **Статус:** исправлен · `fix/bugs-web-shared` (b6d598ff)
 
 #### BUG-412 · 🟢 Контекстное меню строки, открытое с клавиатуры, не получает фокус; `role="menu"` вложен в `role="menu"`
-- **Где:** `apps/web/src/shared/ui/row-context-menu.tsx:94-107,203-266`, `views/notifications/ui/notifications-view.tsx:211-226` · **Статус:** новый
+- **Где:** `apps/web/src/shared/ui/row-context-menu.tsx:94-107,203-266`, `views/notifications/ui/notifications-view.tsx:211-226` · **Статус:** исправлен · `fix/bugs-web-shared` (069681cb)
 
 #### BUG-413 · 🟢 Поле системного «prompt» без доступного имени
 - **Где:** `apps/web/src/shared/ui/prompt-dialog.tsx:380-395`, `views/university-admin/ui/rename-button.tsx:51` · **Статус:** исправлен · `fix/bugs-web-shared` (8f2541d4)
@@ -2247,7 +2247,7 @@
 - **Ожидается:** id только `[A-Za-z0-9_-]`, https — только домен веба.
 
 #### BUG-448 · 🟢 Часы телефона, ушедшие вперёд, вызывают refresh перед каждым запросом
-- **Где:** `core/session/AccessToken.kt:30`, `core/session/SessionStore.kt:448-452` · **Статус:** новый
+- **Где:** `core/session/AccessToken.kt:30`, `core/session/SessionStore.kt:448-452` · **Статус:** исправлен · `fix/bugs-android` (1fe07b0e)
 
 #### BUG-449 · 🟢 Мелкие расхождения с контрактом в списках и экранах Android
 - **Статус:** новый
@@ -2376,7 +2376,7 @@
 - **Где:** `Core/Navigation/DeepLink.swift:244-299` (нет `/feed`, `/profile/:id`), `Features/Feed/FeedScreens.swift:5-60,186-188` (строка уведомления никуда не ведёт, пост без самого поста), `Core/Push/PushSync.swift:128-143` (бейдж = сумма чатов), `App/AppDelegate.swift:91-97` (баннер для открытого чата) · **Статус:** новый
 
 #### BUG-481 · 🟢 🔒 iOS: refresh-токен в связке ключей без `ThisDeviceOnly` — попадает в бэкапы и клонирует сессию
-- **Где:** `Core/Session/SecretStore.swift:517-523` (`kSecAttrAccessibleAfterFirstUnlock`) · **Статус:** новый
+- **Где:** `Core/Session/SecretStore.swift:517-523` (`kSecAttrAccessibleAfterFirstUnlock`) · **Статус:** исправлен · `fix/bugs-ios-miniapp` (9ef62395)
 
 #### BUG-482 · 🟢 iOS: без казахского 66 строк (было 50), системные запросы камеры и микрофона только по-русски (продолжение BUG-125)
 - **Где:** `apps/ios/Resources/Localizable.xcstrings`, `apps/ios/project.yml:84-87` (нет kk `InfoPlist.strings`) · **Статус:** новый
@@ -2415,7 +2415,7 @@
 - **Где:** `apps/landing/src/ui/roles.tsx:43,114-124` (`useReducedMotion()` — `null` на сервере, `true` в первом клиентском рендере) · **Статус:** исправлен · `fix/bugs-landing-promo` (ba6b896c)
 
 #### BUG-492 · 🟢 Открытое мобильное меню при расширении окна оставляет прокрутку заблокированной; нет Esc и фокус-ловушки
-- **Где:** `apps/landing/src/ui/site-header.tsx:129-134,157,276-285`, `apps/landing/src/app/globals.css:866-868`; три `<nav>` с одной меткой `dict.nav.product` · **Статус:** новый
+- **Где:** `apps/landing/src/ui/site-header.tsx:129-134,157,276-285`, `apps/landing/src/app/globals.css:866-868`; три `<nav>` с одной меткой `dict.nav.product` · **Статус:** исправлен · `fix/bugs-landing-promo` (03cb7359)
 
 #### BUG-493 · 🟢 Счётчики «Масштаб» без JS и для роботов показывают нули
 - **Где:** `apps/landing/src/ui/scale.tsx:205`, `apps/landing/src/app/root-shell.tsx:35-37` · **Статус:** исправлен · `fix/bugs-landing-promo` (7848df77)
