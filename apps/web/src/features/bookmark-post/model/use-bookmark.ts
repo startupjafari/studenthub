@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
+import { toApiError } from '../../../shared/lib'
 import { patchCachedPost, toggleBookmarkRequest } from '../../../entities/post'
 
 /**
@@ -40,9 +41,10 @@ export function useBookmark(postId: string, initial: boolean) {
     setPending(true)
     toggleBookmarkRequest(postId)
       .then(apply)
-      .catch(() => {
+      .catch((e: unknown) => {
         apply(prev)
-        toast.error(tErr('INTERNAL_ERROR'))
+        // По коду: пост мог исчезнуть (NOT_FOUND) — это не «внутренняя ошибка».
+        toast.error(tErr(toApiError(e).code))
       })
       .finally(() => setPending(false))
   }, [bookmarked, postId, qc, tErr])

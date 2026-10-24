@@ -4,9 +4,17 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
+import { toast } from 'sonner'
 import { ChevronLeft, ChevronRight, Eye, ExternalLink, Trash2, X } from 'lucide-react'
 import { STORY_REACTION_EMOJIS } from '@studenthub/shared-schemas'
-import { pickSource, srcSetOf, useBackClose, useBodyScrollLock, useHls } from '../../../shared/lib'
+import {
+  pickSource,
+  srcSetOf,
+  toApiError,
+  useBackClose,
+  useBodyScrollLock,
+  useHls,
+} from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 import {
   Avatar,
@@ -74,6 +82,12 @@ export function StoryViewer({
 }) {
   const t = useTranslations('Stories')
   const tCommon = useTranslations('Common')
+  const tErr = useTranslations('Errors')
+  // Отказ сервера — тостом по коду (сторис истекла, удалена модератором, нет прав), а не
+  // молча: раньше голос и удаление просто ничего не делали.
+  const showError = (e: unknown): void => {
+    toast.error(tErr(toApiError(e).code))
+  }
   const qc = useQueryClient()
   const confirm = useConfirm()
   const [ringIndex, setRingIndex] = useState(startIndex)
@@ -187,6 +201,7 @@ export function StoryViewer({
     mutationFn: ({ id, optionId }: { id: string; optionId: string }) =>
       voteStoryRequest(id, optionId),
     onSuccess: (updated) => setPatched((prev) => ({ ...prev, [updated.id]: updated })),
+    onError: showError,
   })
 
   const remove = useMutation({
@@ -195,6 +210,7 @@ export function StoryViewer({
       void qc.invalidateQueries({ queryKey: storyKeys.all })
       onClose()
     },
+    onError: showError,
   })
 
   async function toggleReaction(card: StoryCard, emoji: string): Promise<void> {
@@ -204,8 +220,9 @@ export function StoryViewer({
     try {
       if (mine) await removeStoryReactionRequest(card.id, emoji)
       else await addStoryReactionRequest(card.id, emoji)
-    } catch {
+    } catch (e) {
       setPatched((prev) => ({ ...prev, [card.id]: card }))
+      showError(e)
     }
   }
 

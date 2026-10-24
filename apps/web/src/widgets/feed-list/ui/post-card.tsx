@@ -25,7 +25,7 @@ import { ProfileLink } from '../../../entities/user'
 import { RepostDialog, useRepost } from '../../../features/repost-post'
 import { Avatar, AvatarFallback, Markdown, Skeleton } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
-import { relativeTime } from '../../../shared/lib'
+import { relativeTime, toApiError } from '../../../shared/lib'
 import { PostMediaView } from './post-media'
 import { SharePostMenu } from '../../../features/share-post'
 import { useBookmark } from '../../../features/bookmark-post'
@@ -148,9 +148,9 @@ function PostCardView({
     }
     apply(withMyReaction(prev, LIKE_EMOJI, !liked))
     const request = liked ? removeReactionRequest : addReactionRequest
-    request(post.id, LIKE_EMOJI).catch(() => {
+    request(post.id, LIKE_EMOJI).catch((e: unknown) => {
       apply(prev)
-      toast.error(tErr('INTERNAL_ERROR'))
+      toast.error(tErr(toApiError(e).code))
     })
   }
 

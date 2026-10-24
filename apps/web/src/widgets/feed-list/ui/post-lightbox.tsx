@@ -60,7 +60,7 @@ import {
   useConfirm,
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
-import { relativeTime, useBackClose, useBodyScrollLock } from '../../../shared/lib'
+import { relativeTime, toApiError, useBackClose, useBodyScrollLock } from '../../../shared/lib'
 import { SharePostMenu } from '../../../features/share-post'
 import { useBookmark } from '../../../features/bookmark-post'
 import { PostTileMenu } from './post-tile-menu'
@@ -536,9 +536,9 @@ function PostView({
     }
     apply(withMyReaction(prev, LIKE_EMOJI, !liked))
     const request = liked ? removeReactionRequest : addReactionRequest
-    request(post.id, LIKE_EMOJI).catch(() => {
+    request(post.id, LIKE_EMOJI).catch((e: unknown) => {
       apply(prev)
-      toast.error(tErr('INTERNAL_ERROR'))
+      toast.error(tErr(toApiError(e).code))
     })
   }
 
