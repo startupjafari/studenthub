@@ -79,6 +79,14 @@ export interface SessionResult {
   payload: JwtPayload
 }
 
+/**
+ * Ключ счётчика неудачных кодов второго шага в LoginAttemptsService. Префикс отделяет его
+ * от счётчика пароля по логину: промахи кодом не закрывают ввод пароля и наоборот.
+ */
+function twoFactorAttemptKey(userId: string): string {
+  return `2fa:${userId}`
+}
+
 // Первый шаг входа при включённой 2FA: вместо сессии — короткоживущий challenge.
 export interface TwoFactorChallenge {
   twoFactorRequired: true
@@ -302,6 +310,13 @@ export class AuthService {
     // Первый шаг вуз уже проверил, но между шагами до пяти минут — блокировка могла успеть.
     await this.universityAccess.assertAllowed(rec)
     await this.assertEmployerVerified(rec)
+    // Счётчик на challenge ограничивает один ввод пароля, но не учётку: тот, кто знает
+    // пароль, получает новый challenge на каждом входе, а лимиты входа считаются по IP и
+    // обходятся сменой адреса. Отсюда второй счётчик — по пользователю, с той же
+    // нарастающей блокировкой, что у пароля. Попытка занимается до проверки кода
+    // (атомарно), верный код серию обнуляет.
+    const attemptKey = twoFactorAttemptKey(userId)
+    await this.loginAttempts.beginAttempt(attemptKey)
     const consume = await this.twoFactor.checkCode(rec, code)
     if (!consume) {
       // Опечатка в шестизначном коде дело обычное, и сжигать за неё весь вход незачем —
@@ -319,6 +334,7 @@ export class AuthService {
     if (!(await consume())) {
       throw new AppException('INVALID_2FA_CODE', 'Неверный код')
     }
+    await this.loginAttempts.reset(attemptKey)
     const session = await this.issueSession(this.toPayload(rec), randomUUID())
     await this.audit.record({ userId, action: 'login', ...ctx })
     return session
@@ -405,10 +421,10 @@ export class AuthService {
   /**
    * Учесть неверный код 2FA по конкретному challenge и сжечь его, когда попытки кончились.
    *
-   * Счётчик именно на challenge, а не на пользователя: привязка к аккаунту дала бы тому,
-   * кто знает пароль, способ запереть чужой вход навсегда — достаточно раз за разом
-   * вводить неверный код. Здесь же цена промахов — повторный ввод пароля, то есть новый
-   * challenge, а первый шаг уже ограничен throttle'ом.
+   * Этот счётчик — на challenge: цена трёх промахов — повторный ввод пароля. Перебор по
+   * многим challenge подряд останавливает второй, по пользователю (`twoFactorAttemptKey`):
+   * блокировка там нарастающая и не дольше часа, так что знающий пароль не запрёт чужой
+   * вход навсегда.
    *
    * Сгоревший challenge гасится тем же ключом, что и использованный (`2fa:challenge:<jti>`),
    * поэтому следующая попытка с ним получит «этот код входа уже использован».
