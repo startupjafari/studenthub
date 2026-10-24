@@ -2009,6 +2009,7 @@
     "select": "Select",
     "selectedCount": "Selected: {count}",
     "deleteSelectedConfirm": "Delete selected messages ({count})?",
+    "deleteOthersSkipped": "Other people's messages can't be deleted — they stay in the chat",
     "actions": {
       "TYPING": "{count, plural, one {is typing…} other {are typing…}}",
       "RECORDING_VOICE": "{count, plural, one {is recording a voice message…} other {are recording voice messages…}}",

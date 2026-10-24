@@ -2242,9 +2242,20 @@ export function ChatWindow() {
     setSelectMode(false)
     setSelectedIds(new Set())
   }
+  /** Выбранные сообщения в порядке ленты, а не в порядке кликов. */
+  function selectedInOrder(): ChatMessage[] {
+    return (messages.data ?? []).filter((m) => selectedIds.has(m.id))
+  }
+  // Удалить можно только свои: чужие сервер отклоняет, и раньше они молча оставались.
+  const ownSelectedCount = useMemo(
+    () => (messages.data ?? []).filter((m) => selectedIds.has(m.id) && m.senderId === myId).length,
+    [messages.data, selectedIds, myId],
+  )
   function bulkDelete(): void {
     if (!socket) return
-    selectedIds.forEach((id) => socket.emit('message:delete', { messageId: id }))
+    const own = selectedInOrder().filter((m) => m.senderId === myId)
+    own.forEach((m) => socket.emit('message:delete', { messageId: m.id }))
+    if (own.length < selectedIds.size) toast.info(t('deleteOthersSkipped'))
     exitSelect()
   }
   function bulkCopy(): void {
@@ -3484,7 +3495,7 @@ export function ChatWindow() {
                   type="button"
                   aria-label={t('forward')}
                   disabled={selectedIds.size === 0}
-                  onClick={() => setForwardIds([...selectedIds])}
+                  onClick={() => setForwardIds(selectedInOrder().map((m) => m.id))}
                   className={cn(HEADER_ICON_BTN, 'disabled:opacity-40')}
                 >
                   <Forward className="size-5" aria-hidden />
@@ -3492,10 +3503,10 @@ export function ChatWindow() {
                 <button
                   type="button"
                   aria-label={t('delete')}
-                  disabled={selectedIds.size === 0}
+                  disabled={ownSelectedCount === 0}
                   onClick={() => {
                     void confirm({
-                      title: t('deleteSelectedConfirm', { count: selectedIds.size }),
+                      title: t('deleteSelectedConfirm', { count: ownSelectedCount }),
                       destructive: true,
                     }).then((ok) => {
                       if (ok) bulkDelete()

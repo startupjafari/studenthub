@@ -2009,6 +2009,7 @@
     "select": "Выбрать",
     "selectedCount": "Выбрано: {count}",
     "deleteSelectedConfirm": "Удалить выбранные сообщения ({count})?",
+    "deleteOthersSkipped": "Чужие сообщения удалить нельзя — они остались в чате",
     "actions": {
       "TYPING": "{count, plural, one {печатает…} other {печатают…}}",
       "RECORDING_VOICE": "{count, plural, one {записывает голосовое…} other {записывают голосовое…}}",

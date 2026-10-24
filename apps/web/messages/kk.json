@@ -2009,6 +2009,7 @@
     "select": "Таңдау",
     "selectedCount": "Таңдалды: {count}",
     "deleteSelectedConfirm": "Таңдалған хабарламаларды жою ({count})?",
+    "deleteOthersSkipped": "Басқалардың хабарламаларын жою мүмкін емес — олар чатта қалды",
     "actions": {
       "TYPING": "{count, plural, one {теріп жатыр…} other {теріп жатыр…}}",
       "RECORDING_VOICE": "{count, plural, one {дауыстық жазып жатыр…} other {дауыстық жазып жатыр…}}",
