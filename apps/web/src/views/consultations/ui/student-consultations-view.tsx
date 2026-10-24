@@ -132,7 +132,12 @@ export function StudentConsultationsView() {
                         )}
                       </span>
                     </span>
-                    {s.status === 'BOOKED' && s.student ? (
+                    {/* В список попадают и мои записи, в том числе отменённые
+                        преподавателем: записаться на такой слот нельзя (409), он только
+                        сообщает, что консультации не будет. */}
+                    {s.status === 'CANCELLED' ? (
+                      <Badge variant="outline">{t('status.CANCELLED')}</Badge>
+                    ) : s.status === 'BOOKED' && s.student ? (
                       <Button variant="outline" size="sm" onClick={() => onCancel(s)}>
                         {t('cancelBooking')}
                       </Button>
