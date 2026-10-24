@@ -214,7 +214,11 @@ export class ComplaintsService {
    * брать нечего. Статус тоже в условии записи: решение, успевшее между чтением и записью,
    * иначе возвращалось бы в REVIEWING без решающего, а мера по нему уже применена.
    */
-  async take(actor: JwtPayload, id: string): Promise<{ takenBy: string }> {
+  async take(
+    actor: JwtPayload,
+    id: string,
+    ctx: RequestContext = {},
+  ): Promise<{ takenBy: string }> {
     const complaint = await this.findScoped(actor, id)
     if (!OPEN_STATUSES.includes(complaint.status)) {
       throw new AppException('CONFLICT', 'Жалоба уже разобрана')
@@ -231,6 +235,7 @@ export class ComplaintsService {
       action: 'complaint_taken',
       entity: 'Complaint',
       entityId: id,
+      ...ctx,
     })
     return { takenBy: actor.sub }
   }
@@ -392,7 +397,7 @@ export class ComplaintsService {
     if (count === 0) throw new AppException('CONFLICT', 'Жалоба уже обработана')
 
     try {
-      await this.applyAction(actor, complaint, input, ownerId)
+      await this.applyAction(actor, complaint, input, ownerId, ctx)
     } catch (error) {
       // Мера не прошла (scope нарушителя, сбой записи) — жалоба возвращается в очередь в
       // прежнем виде, иначе числилась бы решённой без применённой меры. Условие — наш
@@ -502,6 +507,7 @@ export class ComplaintsService {
     complaint: ComplaintRow,
     input: ResolveComplaintInput,
     ownerId: string | null,
+    ctx: RequestContext,
   ): Promise<void> {
     if (input.action === 'DELETE_CONTENT') {
       await this.softDeleteTarget(complaint.targetType, complaint.targetId)
@@ -510,13 +516,17 @@ export class ComplaintsService {
       const until = input.blockDays
         ? new Date(Date.now() + input.blockDays * 24 * 60 * 60 * 1000)
         : null
-      // UserService.setBlocked проверяет scope и рвёт сессии.
-      await this.users.setBlocked(actor, ownerId, true, until)
+      // UserService.setBlocked проверяет scope и рвёт сессии. Жалоба — в журнал блокировки:
+      // иначе по аудиту не восстановить, за что человека заблокировали.
+      await this.users.setBlocked(actor, ownerId, true, until, {
+        ...ctx,
+        complaintId: complaint.id,
+      })
     } else if (input.action === 'WARN_USER' && ownerId) {
       // Предупреждение не трогает ни контент, ни доступ: человеку уходит уведомление,
       // а модерации остаётся запись — вторая жалоба на того же человека будет разбираться
       // уже зная, что разговор был.
-      await this.users.warn(actor, ownerId, complaint.id)
+      await this.users.warn(actor, ownerId, complaint.id, ctx)
     }
   }
 

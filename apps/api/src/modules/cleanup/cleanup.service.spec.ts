@@ -892,9 +892,22 @@ describe('CleanupService.liftExpiredBlocks', () => {
 
     await expect(c.service.liftExpiredBlocks()).resolves.toBe(2)
     expect(c.prisma.user.updateMany).toHaveBeenCalledWith({
-      where: { id: { in: ['u1', 'u2'] } },
+      where: { id: { in: ['u1', 'u2'] }, isBlocked: true, blockedUntil: { lte: expect.any(Date) } },
       data: { isBlocked: false, blockedUntil: null },
     })
+  })
+
+  // Блокировку продлили между выборкой и записью — крон её не снимает и снятия не пишет.
+  it('продлённую после выборки блокировку не снимает', async () => {
+    const c = makeService()
+    c.prisma.user.findMany
+      .mockResolvedValueOnce([{ id: 'u1' }, { id: 'u2' }])
+      .mockResolvedValueOnce([{ id: 'u2' }])
+    c.prisma.user.updateMany.mockResolvedValueOnce({ count: 1 })
+
+    await expect(c.service.liftExpiredBlocks()).resolves.toBe(1)
+    expect(c.audit.record).toHaveBeenCalledTimes(1)
+    expect(c.audit.record).toHaveBeenCalledWith(expect.objectContaining({ entityId: 'u1' }))
   })
 
   // Снятие блокировки — событие того же веса, что и сама блокировка: без записи человек

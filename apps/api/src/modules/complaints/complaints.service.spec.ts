@@ -295,7 +295,7 @@ describe('ComplaintsService.resolve (11.4)', () => {
     })
 
     await service.resolve(admin, 'c1', { action: 'WARN_USER' }, ctx)
-    expect(users.warn).toHaveBeenCalledWith(admin, 'author1', 'c1')
+    expect(users.warn).toHaveBeenCalledWith(admin, 'author1', 'c1', ctx)
     expect(users.setBlocked).not.toHaveBeenCalled()
     expect(prisma.complaint.updateMany.mock.calls[0][0].data.status).toBe('RESOLVED')
   })
@@ -360,8 +360,12 @@ describe('ComplaintsService.resolve (11.4)', () => {
       author: { universityId: 'uni1' },
     })
     await service.resolve(admin, 'c1', { action: 'BLOCK_USER' }, ctx)
-    // Четвёртый аргумент — срок: без него блокировка бессрочная, как была до сроков.
-    expect(users.setBlocked).toHaveBeenCalledWith(admin, 'a1', true, null)
+    // Четвёртый аргумент — срок: без него блокировка бессрочная, как была до сроков. Пятый —
+    // откуда мера: IP, user-agent и жалоба уходят в журнал блокировки (§11.4).
+    expect(users.setBlocked).toHaveBeenCalledWith(admin, 'a1', true, null, {
+      ...ctx,
+      complaintId: 'c1',
+    })
   })
 
   it('уже обработанную нельзя разрешить повторно → CONFLICT', async () => {
@@ -790,15 +794,19 @@ describe('ComplaintsService.take', () => {
   const admin = user(Role.PLATFORM_ADMIN)
 
   it('ставит REVIEWING и запоминает, кто взял', async () => {
-    const { service, prisma } = setup()
+    const { service, prisma, audit } = setup()
     prisma.complaint.findUnique.mockResolvedValue(complaint())
-    await expect(service.take(admin, 'c1')).resolves.toEqual({ takenBy: 'u1' })
+    await expect(service.take(admin, 'c1', ctx)).resolves.toEqual({ takenBy: 'u1' })
     // Статус — в условии записи: решение, успевшее между чтением и записью, не
     // возвращается в REVIEWING.
     expect(prisma.complaint.updateMany).toHaveBeenCalledWith({
       where: { id: 'c1', reviewingById: null, status: { in: ['PENDING', 'REVIEWING'] } },
       data: { reviewingById: 'u1', status: 'REVIEWING' },
     })
+    // «Взял» — действие модератора, в журнале с IP и user-agent, как решение (§11.4).
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'complaint_taken', ip: ctx.ip, userAgent: ctx.userAgent }),
+    )
   })
 
   // Условие `reviewingById: null` стоит в самом запросе: два одновременных «беру» не

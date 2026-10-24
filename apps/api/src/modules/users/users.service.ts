@@ -48,6 +48,14 @@ import { birthDateIso, CONSENT_SELECT, consentStateOf, type ConsentState } from 
 
 type PrismaTx = Prisma.TransactionClient
 
+/** Откуда пришла мера модерации — для журнала действий (§11.4). */
+export interface ModerationContext {
+  ip?: string
+  userAgent?: string
+  /** Жалоба, по которой принята мера (блокировка из очереди жалоб). */
+  complaintId?: string
+}
+
 export interface AuthUserRecord {
   id: string
   passwordHash: string
@@ -2268,32 +2276,53 @@ export class UserService {
    * `until` делает блокировку временной: по истечении срока её снимет крон
    * (`CleanupService.liftExpiredBlocks`). Без срока блокировка бессрочная — как была.
    * Разблокировка срок стирает: иначе снятая руками блокировка «снялась» бы второй раз.
+   *
+   * Новая блокировка действующую только продлевает: бессрочная остаётся бессрочной, из
+   * двух сроков берётся дальний. Иначе недельная блокировка по свежей жалобе молча
+   * превращала бессрочную в недельную — заблокированный навсегда выходил через семь дней.
+   *
+   * `ctx` — для журнала (§11.4): IP и user-agent решающего и жалоба, по которой мера принята.
    */
   async setBlocked(
     viewer: JwtPayload,
     userId: string,
     blocked: boolean,
     until: Date | null = null,
+    ctx: ModerationContext = {},
   ): Promise<void> {
     if (userId === viewer.sub) {
       throw new AppException('BAD_REQUEST', 'Нельзя заблокировать самого себя')
     }
-    await this.assertModeratable(viewer, userId)
+    const target = await this.assertModeratable(viewer, userId)
+    let blockedUntil = blocked ? until : null
+    if (
+      blocked &&
+      target.isBlocked &&
+      (target.blockedUntil === null || (until !== null && target.blockedUntil > until))
+    ) {
+      blockedUntil = target.blockedUntil
+    }
     await this.prisma.user.update({
       where: { id: userId },
-      data: { isBlocked: blocked, blockedUntil: blocked ? until : null },
+      data: { isBlocked: blocked, blockedUntil },
     })
     if (blocked) {
       await this.authService.revokeAllUserSessions(userId)
     }
     // BACKEND_RULES §13 требует аудита блокировки — записи не было, а это одно из немногих
     // действий, необратимо отключающих человека от платформы. Только id, без ФИО и email.
+    const metadata = {
+      ...(blockedUntil ? { until: blockedUntil.toISOString() } : {}),
+      ...(ctx.complaintId ? { complaintId: ctx.complaintId } : {}),
+    }
     await this.audit.record({
       userId: viewer.sub,
       action: blocked ? 'user_blocked' : 'user_unblocked',
       entity: 'User',
       entityId: userId,
-      ...(blocked && until ? { metadata: { until: until.toISOString() } } : {}),
+      ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
+      ip: ctx.ip,
+      userAgent: ctx.userAgent,
     })
   }
 
@@ -2309,6 +2338,7 @@ export class UserService {
     viewer: JwtPayload,
     userId: string,
     complaintId: string | null = null,
+    ctx: ModerationContext = {},
   ): Promise<{ total: number }> {
     if (userId === viewer.sub) {
       throw new AppException('BAD_REQUEST', 'Нельзя предупредить самого себя')
@@ -2341,6 +2371,8 @@ export class UserService {
       entity: 'User',
       entityId: userId,
       metadata: { warningId: warning.id, ...(complaintId ? { complaintId } : {}) },
+      ip: ctx.ip,
+      userAgent: ctx.userAgent,
     })
 
     return { total }
@@ -2439,10 +2471,13 @@ export class UserService {
    * модератор вуза блокировал админа своего вуза, а модератор платформы — её админа, и
    * блокировка тут же гасила все их сессии.
    */
-  private async assertModeratable(viewer: JwtPayload, userId: string): Promise<void> {
+  private async assertModeratable(
+    viewer: JwtPayload,
+    userId: string,
+  ): Promise<{ isBlocked: boolean; blockedUntil: Date | null }> {
     const target = await this.prisma.user.findFirst({
       where: { id: userId, deletedAt: null },
-      select: { id: true, universityId: true, role: true },
+      select: { id: true, universityId: true, role: true, isBlocked: true, blockedUntil: true },
     })
     if (!target) {
       throw new AppException('NOT_FOUND', 'Пользователь не найден')
@@ -2455,6 +2490,7 @@ export class UserService {
     if (!isHigherRole(viewer.role, target.role)) {
       throw new AppException('FORBIDDEN', 'Мера доступна только к роли ниже вашей')
     }
+    return target
   }
 
   /** Создание пользователя при регистрации по инвайту (в транзакции AuthService). */
