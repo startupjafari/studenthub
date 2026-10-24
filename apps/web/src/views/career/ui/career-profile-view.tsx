@@ -25,6 +25,7 @@ import {
   Badge,
   Button,
   Checkbox,
+  EmptyState,
   Input,
   Label,
   PageHeader,
@@ -107,6 +108,23 @@ export function CareerProfileView() {
     })
   }, [profile.data, draftReady])
 
+  // Сбой загрузки — ошибкой с повтором: без этой ветки экран навсегда оставался загрузкой.
+  if (profile.isError) {
+    return (
+      <div className="flex w-full flex-1 flex-col gap-4">
+        <PageHeader title={t('title')} />
+        <EmptyState
+          title={tErr(toApiError(profile.error).code)}
+          description={tErr('retryHint')}
+          action={
+            <Button variant="outline" onClick={() => void profile.refetch()}>
+              {tCommon('retry')}
+            </Button>
+          }
+        />
+      </div>
+    )
+  }
   if (profile.isLoading || !profile.data) return <PageLoader label={tCommon('loading')} />
 
   const data = profile.data

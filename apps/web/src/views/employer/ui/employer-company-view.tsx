@@ -10,6 +10,7 @@ import { UpdateCompanySchema, type UpdateCompanyInput } from '@studenthub/shared
 import { companyKeys, fetchMyCompany, updateMyCompany } from '../../../entities/company'
 import {
   Button,
+  EmptyState,
   FormAlert,
   Input,
   Label,
@@ -18,12 +19,13 @@ import {
   Textarea,
   FieldError,
 } from '../../../shared/ui'
-import { useFormAlert } from '../../../shared/lib'
+import { toApiError, useFormAlert } from '../../../shared/lib'
 
 // Профиль компании: то, что увидит студент в карточке вакансии.
 export function EmployerCompanyView() {
   const t = useTranslations('Employer')
   const tCommon = useTranslations('Common')
+  const tErr = useTranslations('Errors')
   const queryClient = useQueryClient()
   const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
 
@@ -63,6 +65,23 @@ export function EmployerCompanyView() {
     onError: showApiError,
   })
 
+  // Сбой загрузки — ошибкой с повтором: без этой ветки экран навсегда оставался загрузкой.
+  if (company.isError) {
+    return (
+      <div className="flex w-full flex-1 flex-col gap-4">
+        <PageHeader title={t('companyTitle')} />
+        <EmptyState
+          title={tErr(toApiError(company.error).code)}
+          description={tErr('retryHint')}
+          action={
+            <Button variant="outline" onClick={() => void company.refetch()}>
+              {tCommon('retry')}
+            </Button>
+          }
+        />
+      </div>
+    )
+  }
   if (company.isLoading) return <PageLoader label={tCommon('loading')} />
 
   return (

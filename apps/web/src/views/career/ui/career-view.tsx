@@ -45,6 +45,7 @@ import {
 import { careerHomeFor } from '../../../widgets/app-shell'
 import { useAppSelector } from '../../../shared/store'
 import { cn } from '../../../shared/lib/utils'
+import { toApiError } from '../../../shared/lib'
 import {
   Badge,
   Button,
@@ -169,6 +170,9 @@ function StaffOverview() {
             <CareerUniversityPicker />
           </div>
         </div>
+      ) : analytics.isError ? (
+        // Без этой ветки сбой сводки выглядел вечной загрузкой: плитки и панели ждут `d`.
+        <QueryError error={analytics.error} onRetry={() => void analytics.refetch()} />
       ) : (
         <>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -570,21 +574,21 @@ function SeekerOverview() {
           index={0}
           icon={Send}
           label={tHome('statsActive')}
-          value={appsQ.isLoading ? null : stats.active}
+          value={appsQ.isLoading || appsQ.isError ? null : stats.active}
         />
         <MetricTile
           index={1}
           icon={ClipboardCheck}
           tone="text-info"
           label={tHome('statsInterview')}
-          value={appsQ.isLoading ? null : stats.interview}
+          value={appsQ.isLoading || appsQ.isError ? null : stats.interview}
         />
         <MetricTile
           index={2}
           icon={Handshake}
           tone="text-success"
           label={tHome('statsHired')}
-          value={appsQ.isLoading ? null : stats.hired}
+          value={appsQ.isLoading || appsQ.isError ? null : stats.hired}
         />
       </div>
 
@@ -603,6 +607,12 @@ function SeekerOverview() {
         >
           {vacQ.isLoading ? (
             <Skeleton fill className="min-h-32 rounded-lg" />
+          ) : vacQ.isError ? (
+            <QueryError
+              error={vacQ.error}
+              onRetry={() => void vacQ.refetch()}
+              className="border-0 p-6"
+            />
           ) : (vacQ.data?.items.length ?? 0) === 0 ? (
             <EmptyState title={tHome('noVacancies')} className="border-0 p-6" />
           ) : (
@@ -628,6 +638,12 @@ function SeekerOverview() {
         >
           {eventsQ.isLoading ? (
             <Skeleton fill className="min-h-32 rounded-lg" />
+          ) : eventsQ.isError ? (
+            <QueryError
+              error={eventsQ.error}
+              onRetry={() => void eventsQ.refetch()}
+              className="border-0 p-6"
+            />
           ) : (eventsQ.data?.items.length ?? 0) === 0 ? (
             <EmptyState title={tHome('noEvents')} className="border-0 p-6" />
           ) : (
@@ -666,6 +682,8 @@ function SeekerOverview() {
 
       {/* Последние отклики не дублируем списком: их статусы уже сведены в плитках выше,
           а сам список — отдельный раздел со своей таблицей. */}
+      {/* Сбой откликов не выдаём за «откликов нет»: плитки выше тогда показывают прочерк. */}
+      {appsQ.isError && <QueryError error={appsQ.error} onRetry={() => void appsQ.refetch()} />}
       {appsQ.data && appsQ.data.items.length === 0 && (
         <EmptyState
           icon={<Briefcase className="size-6" aria-hidden />}
@@ -709,6 +727,35 @@ function VacancyRow({ vacancy: v }: { vacancy: Vacancy }) {
         )}
       </Link>
     </li>
+  )
+}
+
+/**
+ * Сбой загрузки — ошибкой с повтором, а не пустым списком или вечным скелетоном: «пусто»
+ * говорит «данных нет» и прячет настоящую причину.
+ */
+function QueryError({
+  error,
+  onRetry,
+  className,
+}: {
+  error: unknown
+  onRetry: () => void
+  className?: string
+}) {
+  const tErr = useTranslations('Errors')
+  const tCommon = useTranslations('Common')
+  return (
+    <EmptyState
+      title={tErr(toApiError(error).code)}
+      description={tErr('retryHint')}
+      action={
+        <Button variant="outline" onClick={onRetry}>
+          {tCommon('retry')}
+        </Button>
+      }
+      className={className}
+    />
   )
 }
 
