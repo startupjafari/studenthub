@@ -296,19 +296,22 @@ describe('StudentIdService — журнал проходов охраны', () =
     })
   })
 
-  it('отчисленный — карта показана, но проход запрещён по статусу', async () => {
-    const { service, prisma, passes } = setup()
-    const card = await service.myCard(viewer('stu-1', 'uni-A'))
-    prisma.user.findFirst.mockResolvedValue({ ...student, academicStatus: 'Отчислен' })
+  it.each(['Отчислен', 'EXPELLED', 'GRADUATED'])(
+    'статус %s — карта показана, но проход запрещён по статусу',
+    async (academicStatus) => {
+      const { service, prisma, passes } = setup()
+      const card = await service.myCard(viewer('stu-1', 'uni-A'))
+      prisma.user.findFirst.mockResolvedValue({ ...student, academicStatus })
 
-    await expect(service.verify(guard(), card.token)).resolves.toMatchObject({
-      valid: true,
-      entry: { allowed: false, denyReason: 'STATUS' },
-    })
-    expect(passes.record).toHaveBeenCalledWith(
-      expect.objectContaining({ allowed: false, denyReason: 'STATUS' }),
-    )
-  })
+      await expect(service.verify(guard(), card.token)).resolves.toMatchObject({
+        valid: true,
+        entry: { allowed: false, denyReason: 'STATUS' },
+      })
+      expect(passes.record).toHaveBeenCalledWith(
+        expect.objectContaining({ allowed: false, denyReason: 'STATUS' }),
+      )
+    },
+  )
 
   it('повторное открытие того же результата — второй строки нет', async () => {
     const { service, prisma, passes } = setup()

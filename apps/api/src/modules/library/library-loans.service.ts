@@ -26,6 +26,7 @@ import type { EnvVars } from '../../config/env.schema'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
 import { FileService } from '../files/file.service'
+import { isTerminalAcademicStatus } from '../users/academic-status'
 import { StudentIdService } from '../student-id/student-id.service'
 import { LibrarySettingsService } from './library-settings.service'
 import { LibraryNotifier } from './library-notifier'
@@ -44,13 +45,6 @@ import {
 // выдачи один ответственный. Читатель подтверждает себя QR цифрового студенческого: скан
 // разовый, библиотекарь получает пропуск на 15 минут и выдаёт по нему одну книгу или
 // несколько. Выдачи не правятся задним числом — только отменяются (20.5).
-
-/**
- * Статусы студента, при которых книги не выдаются. Статус — строка из справочника вуза
- * (apps/web shared/config/profile-enums.ts, ACADEMIC_STATUS_DICT), не enum: сравниваем без
- * учёта регистра. Академический отпуск книгам не мешает.
- */
-const BLOCKED_ACADEMIC_STATUSES = ['отчислен', 'выпускник', 'переведён', 'переведен']
 
 /** Сколько недавних выдач читателя показать библиотекарю рядом с карточкой. */
 const SESSION_LOANS = 20
@@ -128,10 +122,6 @@ export function toReader(row: Omit<ReaderRow, 'role' | 'universityId'>): Library
     academicStatus: row.academicStatus,
     course: row.course,
   }
-}
-
-function isBlockedStatus(status: string | null): boolean {
-  return status !== null && BLOCKED_ACADEMIC_STATUSES.includes(status.trim().toLowerCase())
 }
 
 @Injectable()
@@ -852,7 +842,8 @@ export class LibraryLoansService {
       }),
     ])
     const blockers: ReaderBlocker[] = []
-    if (isBlockedStatus(reader.academicStatus)) blockers.push('status')
+    // Отчисленный, выпускник и переведённый книг не берут; академический отпуск не мешает.
+    if (isTerminalAcademicStatus(reader.academicStatus)) blockers.push('status')
     if (overdueLoans > 0) blockers.push('overdue')
     if (lostLoans > 0) blockers.push('lost')
     if (activeLoans >= maxActiveLoans) blockers.push('limit')

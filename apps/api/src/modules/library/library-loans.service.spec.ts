@@ -225,13 +225,16 @@ describe('LibraryLoansService — выдача', () => {
     ).rejects.toMatchObject({ code: 'CONFLICT', details: [expect.objectContaining({ field })] })
   })
 
-  it('отчисленному не выдать', async () => {
-    const { service, prisma } = setup()
-    prisma.user.findFirst.mockResolvedValue(readerRow({ academicStatus: 'Отчислен' }))
-    await expect(
-      service.issue(librarian, { ticket: ticketFor(), copyCode: 'ABCD2345' }, ctx),
-    ).rejects.toMatchObject({ details: [expect.objectContaining({ field: 'status' })] })
-  })
+  it.each(['Отчислен', 'EXPELLED', 'GRADUATED'])(
+    'статус %s — не выдать',
+    async (academicStatus) => {
+      const { service, prisma } = setup()
+      prisma.user.findFirst.mockResolvedValue(readerRow({ academicStatus }))
+      await expect(
+        service.issue(librarian, { ticket: ticketFor(), copyCode: 'ABCD2345' }, ctx),
+      ).rejects.toMatchObject({ details: [expect.objectContaining({ field: 'status' })] })
+    },
+  )
 
   it('пропуск другого библиотекаря не действует', async () => {
     const { service } = setup()
