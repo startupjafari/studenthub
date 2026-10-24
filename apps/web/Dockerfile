@@ -82,4 +82,11 @@ COPY --from=build /repo/apps/web/.next/standalone ./
 COPY --from=build /repo/apps/web/.next/static ./apps/web/.next/static
 COPY --from=build /repo/apps/web/public ./apps/web/public
 EXPOSE 3000
-CMD ["node", "apps/web/server.js"]
+
+# Адрес бинда — `::` (dual-stack), присваиванием прямо в команде, как у лендинга (там же
+# подробный разбор). Next standalone слушает `process.env.HOSTNAME`, а docker и хостинги
+# кладут туда имя контейнера: сервер вставал на внешний интерфейс, и TCP-проба на
+# 127.0.0.1 в compose-проде не проходила никогда — nginx, ждущий здоровый web, не стартовал.
+# Через ENV не выйдет: его перекрывает переменная окружения сервиса, а присваивание перед
+# командой — нет. Поэтому и `startCommand` в railway.json нет: платформа запускает этот CMD.
+CMD ["sh", "-c", "HOSTNAME=:: node apps/web/server.js"]
