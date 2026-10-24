@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { Briefcase, Building2, GraduationCap } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
-import { PLATFORM_LINKS, SALES_EMAIL } from '../config/site'
+import { PLATFORM_LINKS } from '../config/site'
 import type { Dictionary } from '../content'
 import { Lift } from './press'
 import { LinkButton, Reveal, Section, SectionHeading, type SectionTone } from './primitives'
@@ -14,7 +14,9 @@ import { LinkButton, Reveal, Section, SectionHeading, type SectionTone } from '.
  * платформе», а найти свою страницу.
  *
  * Действия у дверей разные, и это главное отличие от прежней версии, где вся карточка
- * была одной ссылкой. Университету идти некуда — его дверь ведёт в почту; у студентов и
+ * была одной ссылкой. Университет ведёт на заявку (`/demo` платформы) — туда же, куда
+ * «Обсудить внедрение» первого экрана: одна подпись на странице означает одно действие,
+ * а не то форму, то письмо. Почта остаётся рядом с призывом и в подвале. У студентов и
  * сотрудников действий два (войти либо узнать, как получить доступ), и одной ссылкой на
  * карточке они не выражаются.
  *
@@ -23,14 +25,13 @@ import { LinkButton, Reveal, Section, SectionHeading, type SectionTone } from '.
  */
 export function Doors({ dict, tone }: { dict: Dictionary; tone?: SectionTone }) {
   const t = dict.doors
-  const mailto = `mailto:${SALES_EMAIL}?subject=${encodeURIComponent(dict.cta.mailSubject)}`
 
   const doors: { icon: LucideIcon; door: { title: string; text: string }; actions: ReactNode }[] = [
     {
       icon: Building2,
       door: t.university,
       actions: (
-        <LinkButton href={mailto} external variant="primary" size="sm">
+        <LinkButton href={PLATFORM_LINKS.demoRequest} external variant="primary" size="sm">
           {t.university.action}
         </LinkButton>
       ),

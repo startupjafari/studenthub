@@ -243,7 +243,7 @@ export const ru: Dictionary = {
 
   cta: {
     title: 'Обсудим пилот для вашего вуза',
-    button: 'Написать нам',
+    button: 'Оставить заявку',
     mailSubject: 'StudentHub — пилот для вуза',
   },
 

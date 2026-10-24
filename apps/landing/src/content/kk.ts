@@ -243,7 +243,7 @@ export const kk: Dictionary = {
 
   cta: {
     title: 'Университетіңізге арналған пилотты талқылайық',
-    button: 'Бізге жазыңыз',
+    button: 'Өтінім қалдыру',
     mailSubject: 'StudentHub — университетке арналған пилот',
   },
 

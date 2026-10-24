@@ -238,7 +238,7 @@ export const en: Dictionary = {
 
   cta: {
     title: 'Let’s discuss a pilot for your university',
-    button: 'Email us',
+    button: 'Request a pilot',
     mailSubject: 'StudentHub — university pilot',
   },
 
