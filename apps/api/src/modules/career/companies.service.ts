@@ -21,11 +21,30 @@ import { EMAIL_JOBS, QUEUES, QueueService } from '../../common/queue'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { EnvVars } from '../../config/env.schema'
 import { webBaseUrl } from '../../config/web-base'
+import { PLATFORM_TIME_ZONE } from '../platform/platform.constants'
 import { CareerAccessService } from './career-access.service'
 import { CareerNotifier } from './career-notifier'
 
 /** Срок жизни ссылки подтверждения email. Сутки: письмо могут открыть на следующий день. */
 const VERIFY_TTL_MS = 24 * 60 * 60 * 1000
+
+/**
+ * Срок ссылки в письме («25 октября 2026 г. в 14:30 GMT+5»). `toLocaleString` без пояса
+ * печатал время процесса API, а он живёт в UTC: «до 14:30» на деле значило 19:30 по
+ * Алматы. Вуза у компании нет — пояс платформы, и подпись пояса, чтобы время не прочитали
+ * по своим часам.
+ */
+function verifyDeadline(at: Date): string {
+  return at.toLocaleString('ru-RU', {
+    timeZone: PLATFORM_TIME_ZONE,
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  })
+}
 
 /**
  * Причина, которая проставляется решениям по вакансиям, погашенным отзывом допуска.
@@ -141,7 +160,7 @@ export class CompaniesService {
         to: input.email,
         companyName: company.name,
         verifyUrl: `${this.webBase()}/employer/verify?token=${rawToken}`,
-        expiresAt: expiresAt.toLocaleString('ru-RU'),
+        expiresAt: verifyDeadline(expiresAt),
       },
       { jobId: `company-verify:${company.id}` },
     )
@@ -202,7 +221,7 @@ export class CompaniesService {
         to: input.email,
         companyName: company.name,
         verifyUrl: `${this.webBase()}/employer/verify?token=${rawToken}`,
-        expiresAt: expiresAt.toLocaleString('ru-RU'),
+        expiresAt: verifyDeadline(expiresAt),
       },
       // В jobId — срок ссылки: письмо с прежним jobId BullMQ отбросил бы как дубль.
       { jobId: `company-verify:${company.id}:${expiresAt.getTime()}` },
