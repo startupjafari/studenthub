@@ -49,6 +49,8 @@ ARG NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE
 ARG API_PROXY_TARGET
 # Идентификатор сборки: из него next.config делает buildId и версию в настройках,
 # по которой PWA понимает, что пора обновиться. Без него — метка `dev-<время>`.
+# turbo в строгом режиме срезает незаявленные переменные: она заявлена в `env` задачи
+# build в turbo.json — иначе до next.config не доезжала бы, как ни задавай.
 ARG RAILWAY_GIT_COMMIT_SHA
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 ENV NEXT_PUBLIC_WS_URL=${NEXT_PUBLIC_WS_URL}
