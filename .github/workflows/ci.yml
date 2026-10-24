@@ -1262,13 +1262,18 @@ jobs:
   # Проверка только читает: `migrate status` сравнивает историю из prisma/migrations с
   # таблицей _prisma_migrations и ничего не меняет.
   #
-  # Секрета нет — не падаем, а пишем, чего не хватает. Репозиторий публичный, и PR из
-  # форка секретов не получает: такой PR краснел бы не по делу.
+  # Секрет DATABASE_PUBLIC_URL живёт в окружении production (docs/RELEASE.md), а не в
+  # репозитории: без `environment` job его не видел, и проверка всегда уходила в «пропущено».
+  #
+  # Секрета нет у PR из форка — тогда не падаем, а пишем, чего не хватает: репозиторий
+  # публичный, и такой PR краснел бы не по делу. У PR из самого репозитория пустой секрет —
+  # это поломка настройки, и проверка красная: иначе релиз уходил бы в main вслепую.
   migrations:
     name: Миграции прод-БД применены
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    environment: production
 
     steps:
       - name: Забрать код
@@ -1291,8 +1296,19 @@ jobs:
       - name: Сверить применённые миграции с prisma/migrations
         env:
           DATABASE_URL: ${{ secrets.DATABASE_PUBLIC_URL }}
+          FROM_FORK: ${{ github.event.pull_request.head.repo.full_name != github.repository }}
         run: |
           if [ -z "$DATABASE_URL" ]; then
+            if [ "$FROM_FORK" != true ]; then
+              {
+                echo "## Миграции прод-БД — нет секрета"
+                echo ""
+                echo "Секрет \`DATABASE_PUBLIC_URL\` в окружении \`production\` пуст или недоступен."
+                echo "Состояние миграций прода неизвестно — мёрж вслепую не пропускаем."
+              } >> "$GITHUB_STEP_SUMMARY"
+              echo "::error::Секрет DATABASE_PUBLIC_URL недоступен — состояние миграций прод-БД неизвестно." >&2
+              exit 1
+            fi
             {
               echo "## Миграции прод-БД"
               echo ""
