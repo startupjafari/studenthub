@@ -441,6 +441,11 @@ export class DocumentRequestsService {
         throw new AppException('BAD_REQUEST', 'Для адресата не указан получатель')
       }
     }
+    // Срок уже прошёл — запрос ушёл бы адресатам, но ответить на него было бы нельзя
+    // (acceptsSubmissions), а ночью крон закрыл бы его. Срок датой действует весь этот день.
+    if (input.dueAt && !acceptsSubmissions({ status: 'OPEN', dueAt: input.dueAt })) {
+      throw new AppException('BAD_REQUEST', 'Срок сдачи уже прошёл')
+    }
     await this.assertTargetsInScope(actor, input.targets)
     const created = await this.prisma.documentRequest.create({
       data: {

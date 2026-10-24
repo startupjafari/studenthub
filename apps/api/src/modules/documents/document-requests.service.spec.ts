@@ -252,6 +252,21 @@ describe('DocumentRequestsService — создание запроса (15.14)', 
     expect(prisma.documentRequest.create).toHaveBeenCalled()
   })
 
+  it('срок в прошлом → BAD_REQUEST, запрос не создаётся и не рассылается', async () => {
+    const { service, prisma, queue } = setup()
+    const err = await service
+      .createRequest(staff(Role.UNIVERSITY_MODERATOR), {
+        title: 'Комплект',
+        items: [OK_ITEM],
+        targets: [{ targetType: 'UNIVERSITY' }],
+        dueAt: new Date('2020-01-01T00:00:00Z'),
+      })
+      .catch((e) => e)
+    expect(err.code).toBe('BAD_REQUEST')
+    expect(prisma.documentRequest.create).not.toHaveBeenCalled()
+    expect(queue.enqueue).not.toHaveBeenCalled()
+  })
+
   it('успех: создаёт запрос, UNIVERSITY-адресат → targetId=null, событие REQUEST_CREATE', async () => {
     const { service, prisma } = setup()
     prisma.documentRequest.findFirst.mockResolvedValue({ id: 'r1' }) // findAuthoredOrThrow

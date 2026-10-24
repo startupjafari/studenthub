@@ -24,7 +24,7 @@ import {
 import { courseKeys, fetchCourses } from '../../../entities/course'
 import { useDocumentTypeCatalog } from '../../../entities/document-type'
 import { DocumentFileViewer, isViewableMedia } from '../../../entities/document'
-import { localId } from '../../../shared/lib'
+import { localId, nowInTz } from '../../../shared/lib'
 import { useAppSelector } from '../../../shared/store'
 import {
   Badge,
@@ -380,9 +380,11 @@ function CreateRequestModal({ onClose }: { onClose: () => void }) {
         </div>
         <div className="flex flex-col gap-1.5">
           <Label>{t('req_fieldDue')}</Label>
+          {/* Срок в прошлом сервер не примет: ответить на такой запрос было бы нельзя. */}
           <DatePicker
             value={dueAt}
             onChange={setDueAt}
+            min={nowInTz(null).date}
             className="w-48"
             aria-label={t('req_fieldDue')}
           />
