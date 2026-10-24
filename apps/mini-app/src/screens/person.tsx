@@ -1,9 +1,9 @@
 import { useCallback, useState } from 'react'
 import { revokeSessions, setBlocked, type Person } from '../api/people'
-import { ApiError, type MiniUser } from '../api/client'
+import type { MiniUser } from '../api/client'
 import { confirmAction, haptic } from '../telegram/webapp'
 import { useBackHandler } from '../lib/back'
-import { t } from '../i18n'
+import { errorText, t } from '../i18n'
 import { ScreenHeader } from '../ui/screen-header'
 import { PersonSummary } from './person-summary'
 
@@ -90,7 +90,7 @@ export function PersonScreen({
       // перезапрос убрал бы человека с глаз раньше, чем стало видно, что вышло.
       onChanged({ ...person, isBlocked: !person.isBlocked })
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : t('peopleActionError'))
+      setError(errorText(err, 'peopleActionError'))
     } finally {
       setBusy(false)
     }
@@ -112,7 +112,7 @@ export function PersonScreen({
       haptic.success()
       setNote(t('peopleLoggedOut'))
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : t('peopleActionError'))
+      setError(errorText(err, 'peopleActionError'))
     } finally {
       setBusy(false)
     }

@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
 import { fetchInvites, revokeInvite, searchPeople, type Invite, type Person } from '../api/people'
-import { ApiError, type MiniUser } from '../api/client'
+import type { MiniUser } from '../api/client'
 import { confirmAction, haptic } from '../telegram/webapp'
 import { navigate } from '../lib/navigate'
-import { t } from '../i18n'
+import { errorText, t } from '../i18n'
 import { IconChevron } from '../ui/icons'
 import { SearchField } from '../ui/search-field'
 import { Tabs } from '../ui/tabs'
@@ -206,7 +206,7 @@ function InvitesCard() {
                   haptic.success()
                   setInvites((prev) => (prev ?? []).filter((item) => item.id !== invite.id))
                 } catch (err) {
-                  setError(err instanceof ApiError ? err.message : t('invitesRevokeError'))
+                  setError(errorText(err, 'invitesRevokeError'))
                 }
               }}
             >

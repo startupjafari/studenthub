@@ -17,6 +17,12 @@ const ru = {
   tabSupport: 'Поддержка',
   tabControl: 'Управление',
   retry: 'Повторить',
+  errInvalidCode: 'Неверный код подтверждения',
+  errTwoFactorSetup: 'Сначала включите двухфакторную защиту в веб-версии',
+  errRateLimit: 'Слишком много запросов. Попробуйте чуть позже',
+  errForbidden: 'Недостаточно прав для этого действия',
+  errNotFound: 'Не найдено — возможно, уже удалено',
+  errConflict: 'Это уже изменилось. Обновите экран',
 
   // ── Привязка ───────────────────────────────────────────────────────────
   linkTitle: 'Привязка аккаунта',
@@ -485,6 +491,12 @@ const kk: Record<MessageKey, string> = {
   tabSupport: 'Қолдау',
   tabControl: 'Басқару',
   retry: 'Қайталау',
+  errInvalidCode: 'Растау коды қате',
+  errTwoFactorSetup: 'Алдымен веб-нұсқада екі факторлы қорғанысты қосыңыз',
+  errRateLimit: 'Сұраулар тым көп. Сәл кейінірек көріңіз',
+  errForbidden: 'Бұл әрекетке құқығыңыз жеткіліксіз',
+  errNotFound: 'Табылмады — бәлкім, жойылған',
+  errConflict: 'Бұл өзгеріп қойған. Экранды жаңартыңыз',
 
   linkTitle: 'Аккаунтты байланыстыру',
   linkSubtitle: 'Платформа әкімшілері мен модераторларына арналған мини-қосымша',
@@ -943,6 +955,12 @@ const en: Record<MessageKey, string> = {
   tabSupport: 'Support',
   tabControl: 'Control',
   retry: 'Try again',
+  errInvalidCode: 'Wrong confirmation code',
+  errTwoFactorSetup: 'Turn on two-factor protection on the web first',
+  errRateLimit: 'Too many requests. Try again a bit later',
+  errForbidden: 'You don’t have permission for this action',
+  errNotFound: 'Not found — it may have been deleted',
+  errConflict: 'This has already changed. Refresh the screen',
 
   linkTitle: 'Link your account',
   linkSubtitle: 'Mini app for platform admins and moderators',

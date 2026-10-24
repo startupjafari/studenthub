@@ -9,13 +9,12 @@ import {
   type ComplaintMessage,
   type ResolveAction,
 } from '../api/complaints'
-import { ApiError } from '../api/client'
 import { confirmAction, haptic } from '../telegram/webapp'
 import { useBackHandler } from '../lib/back'
 import { ScreenHeader } from '../ui/screen-header'
 import { StatePlate } from '../ui/state-plate'
 import { SkeletonCards } from '../ui/skeleton'
-import { t } from '../i18n'
+import { errorText, t } from '../i18n'
 import { formatDateTime } from '../lib/format'
 import { PersonSummary } from './person-summary'
 
@@ -160,7 +159,7 @@ export function ComplaintScreen({
       } catch (err) {
         // Текст от сервера: он знает, почему нельзя (например, «жалоба уже обработана»
         // другим модератором), а выдумывать свою формулировку значило бы врать.
-        setError(err instanceof ApiError ? err.message : t('complaintApplyError'))
+        setError(errorText(err, 'complaintApplyError'))
       } finally {
         setBusy(false)
       }
@@ -177,7 +176,7 @@ export function ComplaintScreen({
       haptic.success()
       onBack()
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : t('complaintReopenError'))
+      setError(errorText(err, 'complaintReopenError'))
     } finally {
       setBusy(false)
     }
@@ -372,9 +371,7 @@ export function ComplaintScreen({
                     haptic.success()
                     void load()
                   })
-                  .catch((err: unknown) =>
-                    setError(err instanceof ApiError ? err.message : t('complaintTakeError')),
-                  )
+                  .catch((err: unknown) => setError(errorText(err, 'complaintTakeError')))
               }}
             >
               {t('complaintTake')}
