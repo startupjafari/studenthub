@@ -57,17 +57,20 @@ describe('ChatFoldersService', () => {
     expect(prisma.chatFolder.create.mock.calls[0]?.[0]?.data?.position).toBe(3)
   })
 
-  it('create: чужой чат в составе → BAD_REQUEST', async () => {
+  // BUG-166: покинутый чат остаётся в составе, который клиент присылает целиком, — отказ на
+  // всю правку не давал ни переименовать папку, ни поправить её.
+  it('create: недоступный чат из состава отбрасывается, папка создаётся', async () => {
     const { service, prisma } = setup()
     // Участник только в одном из двух присланных чатов.
     prisma.chatMember.findMany.mockResolvedValue([{ chatId: 'c1' }])
+    prisma.chatFolder.create.mockResolvedValue({ id: 'f1', name: 'Папка', position: 0 })
 
-    const err = await service
-      .create('me', { name: 'Папка', chatIds: ['c1', 'c-чужой'] })
-      .catch((e) => e)
+    const res = await service.create('me', { name: 'Папка', chatIds: ['c1', 'c-чужой'] })
 
-    expect(err.code).toBe('BAD_REQUEST')
-    expect(prisma.chatFolder.create).not.toHaveBeenCalled()
+    expect(res.chatIds).toEqual(['c1'])
+    expect(prisma.chatFolder.create.mock.calls[0]?.[0]?.data?.items).toEqual({
+      create: [{ chatId: 'c1' }],
+    })
   })
 
   it('create: лимит папок → CONFLICT', async () => {
