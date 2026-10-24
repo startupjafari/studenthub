@@ -170,6 +170,14 @@ export const RequestCompanyAccessSchema = z.object({
 })
 export type RequestCompanyAccessInput = z.infer<typeof RequestCompanyAccessSchema>
 
+/** Справочник вузов для заявки компании: поиск по названию. */
+export const CompanyUniversityDirectoryQuerySchema = z.object({
+  search: z.string().trim().max(120).optional(),
+})
+export type CompanyUniversityDirectoryQueryInput = z.infer<
+  typeof CompanyUniversityDirectoryQuerySchema
+>
+
 /**
  * Решение вуза по заявке. reason обязателен при отказе и отзыве: компания должна понимать,
  * что произошло, иначе поддержка вуза будет разбирать это письмами.
@@ -657,6 +665,26 @@ export const UpdateResumeSchema = z.object({
   includeContacts: z.boolean().optional(),
 })
 export type UpdateResumeInput = z.infer<typeof UpdateResumeSchema>
+
+const resumePdfLabel = z.string().trim().min(1).max(80).optional()
+
+/**
+ * Запрос PDF резюме: подписи разделов на языке интерфейса (их знает клиент) и язык
+ * брендирования. Всё необязательно — без подписи API берёт английскую, без языка — русский.
+ */
+export const ResumePdfQuerySchema = z.object({
+  about: resumePdfLabel,
+  education: resumePdfLabel,
+  skills: resumePdfLabel,
+  languages: resumePdfLabel,
+  experience: resumePdfLabel,
+  projects: resumePdfLabel,
+  certificates: resumePdfLabel,
+  verified: resumePdfLabel,
+  generated: resumePdfLabel,
+  locale: z.string().trim().max(16).optional(),
+})
+export type ResumePdfQueryInput = z.infer<typeof ResumePdfQuerySchema>
 
 // ── Карьерные мероприятия (18.F) ─────────────────────────────────────────────
 
