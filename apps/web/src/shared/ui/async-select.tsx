@@ -3,10 +3,11 @@
 import { useRef, useState, type ReactNode } from 'react'
 import { Popover as PopoverPrimitive } from 'radix-ui'
 import { useTranslations } from 'next-intl'
-import { ChevronDown, Loader2, X } from 'lucide-react'
+import { ChevronDown, Loader2 } from 'lucide-react'
 import { cn } from '../lib/utils'
 import { useListboxKeys } from './use-listbox-keys'
 import { FIELD_SIZE, type ControlSize } from './control-size'
+import { SelectClearButton, SelectClearSlot } from './select-clear-button'
 
 export interface AsyncSelectItem {
   value: string
@@ -92,44 +93,34 @@ export function AsyncSelect({
 
   return (
     <PopoverPrimitive.Root open={open} onOpenChange={setOpen} modal>
-      <PopoverPrimitive.Trigger asChild>
-        <button
-          id={id}
-          type="button"
-          role="combobox"
-          aria-expanded={open}
-          className={cn(
-            'flex w-full cursor-pointer items-center justify-between gap-2 rounded-xl border border-input bg-background outline-none transition-[color,box-shadow,border-color] hover:border-ring/50 focus-visible:border-ring focus-visible:ring-4 focus-visible:ring-ring/15 dark:bg-input/30',
-            FIELD_SIZE[size],
-          )}
-        >
-          <span
+      <div className="relative">
+        <PopoverPrimitive.Trigger asChild>
+          <button
+            id={id}
+            type="button"
+            role="combobox"
+            aria-expanded={open}
             className={cn(
-              'flex items-center gap-1.5 truncate',
-              !value && 'text-muted-foreground/70',
+              'flex w-full cursor-pointer items-center justify-between gap-2 rounded-xl border border-input bg-background outline-none transition-[color,box-shadow,border-color] hover:border-ring/50 focus-visible:border-ring focus-visible:ring-4 focus-visible:ring-ring/15 dark:bg-input/30',
+              FIELD_SIZE[size],
             )}
           >
-            {value ? (selectedLabel ?? value) : (placeholder ?? t('dictPlaceholder'))}
-          </span>
-          <span className="flex shrink-0 items-center gap-1">
-            {value && (
-              <span
-                role="button"
-                tabIndex={-1}
-                aria-label={t('clear')}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onChange('')
-                }}
-                className="cursor-pointer text-muted-foreground hover:text-foreground"
-              >
-                <X className="size-4" aria-hidden />
-              </span>
-            )}
-            <ChevronDown className="size-4 opacity-60" aria-hidden />
-          </span>
-        </button>
-      </PopoverPrimitive.Trigger>
+            <span
+              className={cn(
+                'flex items-center gap-1.5 truncate',
+                !value && 'text-muted-foreground/70',
+              )}
+            >
+              {value ? (selectedLabel ?? value) : (placeholder ?? t('dictPlaceholder'))}
+            </span>
+            <span className="flex shrink-0 items-center gap-1">
+              {value && <SelectClearSlot />}
+              <ChevronDown className="size-4 opacity-60" aria-hidden />
+            </span>
+          </button>
+        </PopoverPrimitive.Trigger>
+        {value && <SelectClearButton size={size} label={t('clear')} onClear={() => onChange('')} />}
+      </div>
 
       <PopoverPrimitive.Portal>
         <PopoverPrimitive.Content

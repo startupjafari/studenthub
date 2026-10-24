@@ -150,7 +150,12 @@ function AcademicRecordForm({ user, onClose }: { user: PublicUser; onClose: () =
     const val = form[f.key] ?? ''
     if (f.kind === 'year')
       return (
-        <DictSingleSelect value={val} onChange={(v) => set(f.key, v)} options={yearOptions()} />
+        <DictSingleSelect
+          id={`academic-${f.key}`}
+          value={val}
+          onChange={(v) => set(f.key, v)}
+          options={yearOptions()}
+        />
       )
     if (f.kind === 'enum')
       return (
@@ -174,6 +179,7 @@ function AcademicRecordForm({ user, onClose }: { user: PublicUser; onClose: () =
     if (f.kind === 'dict')
       return (
         <DictSingleSelect
+          id={`academic-${f.key}`}
           value={val}
           onChange={(v) => set(f.key, v)}
           options={f.key === 'specialty' ? specialtyOptions : (f.options ?? [])}

@@ -214,7 +214,12 @@ export function ProfileEditForm({ me, sections, onSave }: ProfileEditFormProps) 
       )
     if (f.type === 'year')
       return (
-        <DictSingleSelect value={val} onChange={(v) => set(f.key, v)} options={yearOptions()} />
+        <DictSingleSelect
+          id={f.key}
+          value={val}
+          onChange={(v) => set(f.key, v)}
+          options={yearOptions()}
+        />
       )
     if (f.type === 'textarea')
       return (
@@ -251,6 +256,7 @@ export function ProfileEditForm({ me, sections, onSave }: ProfileEditFormProps) 
       }
       return (
         <DictSingleSelect
+          id={f.key}
           value={val}
           onChange={(v) => set(f.key, v)}
           options={f.dict === 'specialty' ? specialtyOptions : (DICT_OPTIONS[f.dict] ?? [])}

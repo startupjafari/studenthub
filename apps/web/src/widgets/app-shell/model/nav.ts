@@ -449,8 +449,15 @@ export function careerHomeFor(role: Role | undefined): string {
   return careerNavFor(role)[0]?.href ?? CAREER_ROOT
 }
 
-/** Есть ли у роли карьерный продукт — показывать ли переключатель под логотипом. */
+/**
+ * Есть ли у роли карьерный продукт — показывать ли переключатель под логотипом.
+ *
+ * Работодателю переключать нечего: «Учёбы» у него нет, а его карьерный продукт — это и
+ * есть вся зона /employer. Переключатель предлагал бы ему «StudentHub» с пометкой
+ * активного, хотя он в нём не бывает, — поэтому только логотип.
+ */
 export function hasCareerProduct(role: Role | undefined): boolean {
+  if (role === Role.EMPLOYER) return false
   return careerNavFor(role).length > 0
 }
 

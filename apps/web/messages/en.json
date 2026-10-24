@@ -1045,6 +1045,8 @@
     "byteUnitKb": "KB",
     "byteUnitMb": "MB",
     "byteUnitGb": "GB",
+    "breadcrumb": "Breadcrumb",
+    "mediaViewer": "File viewer",
     "phoneIncomplete": "Enter the full number: +7 (777) 777-77-77"
   },
   "Auth": {
@@ -1595,6 +1597,8 @@
     "USERNAME_TAKEN": "This username is already taken",
     "UNIVERSITY_BLOCKED": "The university is blocked on the platform. Please contact your university administration",
     "EMAIL_NOT_VERIFIED": "Confirm your company email: the link was sent to you after sign-up",
+    "MAINTENANCE": "Maintenance is in progress. Please try again a little later",
+    "LOGIN_LOCKED": "Too many failed sign-in attempts. Sign-in to this account is temporarily locked — wait a few minutes",
     "retryHint": "Could not load the data. Refresh the page or try again later."
   },
   "Notifications": {
@@ -4197,6 +4201,7 @@
     "cardNumber": "ID number",
     "validUntil": "Valid until",
     "refreshIn": "Refreshes in {s}s",
+    "qrExpiredRefresh": "Code expired — refresh",
     "qrEnlarge": "Enlarge QR",
     "qrTitle": "Student ID QR",
     "verifiedBadge": "✓ Verified by StudentHub",
@@ -5088,6 +5093,9 @@
     "loading": "Verifying the document…",
     "notFoundTitle": "Document not found",
     "notFoundHint": "No document with this code was issued. Check the code on the form — it contains no letters O, I, L and no digits 0 or 1.",
+    "failedTitle": "Could not verify the document",
+    "failedHint": "This does not mean the document is fake: the verification service is temporarily unavailable. Try again a little later.",
+    "rateLimitedHint": "This does not mean the document is fake: too many checks were made from this address in a row. Wait a minute and try again.",
     "validBadge": "Verified by StudentHub",
     "revokedBadge": "Document revoked",
     "notOfficialBadge": "This is an internal data export, not an official document",

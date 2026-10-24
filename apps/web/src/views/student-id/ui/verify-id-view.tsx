@@ -19,6 +19,7 @@ import { Role } from '@studenthub/shared-types'
 import { Button, Card, CardContent, Skeleton } from '../../../shared/ui'
 import { cn, toApiError } from '../../../shared/lib'
 import { useAppSelector } from '../../../shared/store'
+import { NO_RESYNC_META } from '../../../shared/realtime'
 import { studentIdKeys, verifyStudentId } from '../../../entities/student-id'
 import { parseQrTarget } from '../../../features/qr-scan'
 import { StudentIdCardFace } from './student-id-card'
@@ -56,6 +57,9 @@ export function VerifyIdView() {
   const token = params.get('t') ?? scanned ?? ''
   const isStaff = role != null && STAFF_ROLES.includes(role)
 
+  // Проверка гасит одноразовый QR-токен, то есть это действие, а не чтение: повтор того же
+  // токена сервер отклоняет как уже проверенный. Поэтому результат не перезапрашивается ни
+  // по времени, ни при возврате на вкладку или в сеть, ни ресинком после реконнекта сокета.
   const q = useQuery({
     queryKey: studentIdKeys.verify(token),
     queryFn: () => verifyStudentId(token),
@@ -64,6 +68,9 @@ export function VerifyIdView() {
     // Результат проверки — снимок на момент скана: при возврате на экран не перезапрашиваем,
     // иначе код успевает истечь, и охрана видит отказ вместо уже выданного «Пропустить».
     staleTime: Infinity,
+    refetchOnWindowFocus: false,
+    refetchOnReconnect: false,
+    meta: NO_RESYNC_META,
   })
 
   // Нет токена: сотруднику показываем встроенный сканер камеры; остальным — подсказку.
@@ -118,8 +125,15 @@ export function VerifyIdView() {
         )}
         <h1 className="text-lg font-semibold">{t('verifyFailed')}</h1>
         <p className="text-sm text-muted-foreground">
-          {/* QR — разовый пропуск: код, уже проверенный другим сотрудником, отвечает 409. */}
-          {code === 'CONFLICT' ? t('verifyAlreadyUsed') : code ? tErr(code) : t('verifyFailedHint')}
+          {/* QR — разовый пропуск: код, уже проверенный другим сотрудником, отвечает 409.
+              Битый, чужой или истёкший код сервер отдаёт как UNAUTHORIZED / BAD_REQUEST, и
+              общие переводы этих кодов («Неверный email или пароль», «Некорректный
+              запрос») здесь врут — это «код недействителен или истёк». */}
+          {code === 'CONFLICT'
+            ? t('verifyAlreadyUsed')
+            : code && code !== 'UNAUTHORIZED' && code !== 'BAD_REQUEST'
+              ? tErr(code)
+              : t('verifyFailedHint')}
         </p>
         {scanned && (
           <Button variant="outline" onClick={() => setScanned(null)}>

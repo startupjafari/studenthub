@@ -1,5 +1,6 @@
 import axios, { type AxiosProgressEvent } from 'axios'
-import { FILE_UPLOAD } from '@studenthub/shared-config'
+import { FILE_UPLOAD, TTL } from '@studenthub/shared-config'
+import { toStorageError } from './direct-upload'
 
 /**
  * Многочастная загрузка крупных файлов (Фаза 19): файл режется на части, каждая уходит по
@@ -35,6 +36,20 @@ const PART_ATTEMPTS = 3
 
 /** Пауза перед повтором, мс: удваивается с каждой попыткой. */
 const RETRY_BASE_MS = 500
+
+/**
+ * Подпись части старше этого перевыпускаем перед PUT.
+ *
+ * Подписи живут TTL.PRESIGNED_URL_MINUTES (15 минут), а брались разом на все части: 500 МБ
+ * при 3 Мбит/с льются дольше, и части после пятнадцатой минуты получали 403 — загрузка
+ * падала каждый раз заново. Запас в три минуты — на заливку самой части.
+ */
+const RESIGN_AFTER_MS = (TTL.PRESIGNED_URL_MINUTES - 3) * 60_000
+
+/** HTTP-статус ответа хранилища, если он был. */
+function storageStatus(error: unknown): number | undefined {
+  return (error as { response?: { status?: number } } | undefined)?.response?.status
+}
 
 export function needsMultipartUpload(size: number): boolean {
   return size > FILE_UPLOAD.MULTIPART_THRESHOLD_BYTES
@@ -81,16 +96,20 @@ async function sleep(ms: number): Promise<void> {
  * лишний и может не совпасть с подписью.
  */
 async function putPart(params: {
-  url: string
+  /** Подписанная ссылка части; `fresh` — перевыпустить, даже если по возрасту ещё жива. */
+  url: (fresh: boolean) => Promise<string>
   body: Blob
   part: number
   signal?: AbortSignal
   onBytes: (loaded: number) => void
 }): Promise<UploadedPart> {
   let lastError: unknown
+  let fresh = false
   for (let attempt = 1; attempt <= PART_ATTEMPTS; attempt += 1) {
+    // Вне try: отказ api в подписи — его ошибка с кодом, а не сбой хранилища.
+    const url = await params.url(fresh)
     try {
-      const res = await axios.put(params.url, params.body, {
+      const res = await axios.put(url, params.body, {
         headers: { 'Content-Type': 'application/octet-stream' },
         signal: params.signal,
         onUploadProgress: (e: AxiosProgressEvent) => params.onBytes(e.loaded),
@@ -100,13 +119,16 @@ async function putPart(params: {
       // Отмену не повторяем: пользователь нажал крестик, а не сеть моргнула.
       if (params.signal?.aborted) throw e
       lastError = e
+      // 403 хранилища на PUT части — почти всегда протухшая подпись: повтор той же ссылкой
+      // упал бы так же, поэтому следующая попытка идёт со свежей.
+      fresh = storageStatus(e) === 403
       // Счётчик отправленного по этой части сбрасываем — иначе повтор досчитал бы её дважды
       // и общий прогресс перевалил бы за сто процентов.
       params.onBytes(0)
       if (attempt < PART_ATTEMPTS) await sleep(RETRY_BASE_MS * 2 ** (attempt - 1))
     }
   }
-  throw lastError
+  throw toStorageError(lastError, params.signal)
 }
 
 /**
@@ -172,28 +194,60 @@ export async function uploadMultipart<T>(params: {
     // Подписи берём диапазонами: полсотни частей по запросу на каждую упрутся в троттлер
     // выдачи подписей. При докачке диапазонов несколько — недостающие части не подряд.
     const signed = new Map<number, string>()
-    for (const range of toRanges(pending)) {
-      const batch = await params.urls({
-        key: target.key,
-        uploadId: target.uploadId,
-        from: range.from,
-        to: range.to,
-      })
-      for (const item of batch) signed.set(item.part, item.url)
+    const signedAt = new Map<number, number>()
+    const sign = async (parts: number[]): Promise<void> => {
+      for (const range of toRanges(parts)) {
+        const batch = await params.urls({
+          key: target.key,
+          uploadId: target.uploadId,
+          from: range.from,
+          to: range.to,
+        })
+        const at = Date.now()
+        for (const item of batch) {
+          signed.set(item.part, item.url)
+          signedAt.set(item.part, at)
+        }
+      }
     }
+    await sign(pending)
 
     // Пул воркеров: очередь одна, каждый берёт следующую часть, как освободится.
     const queue = [...pending]
+
+    // Перевыпуск подписей — один на всех воркеров: наткнувшись на старые подписи разом, три
+    // воркера не шлют три одинаковых запроса. Вместе с частью перевыпускается вся очередь —
+    // её подписывали тем же запросом, и она так же стара.
+    let resigning: Promise<void> | null = null
+    const urlFor = async (part: number, fresh: boolean): Promise<string> => {
+      const asked = Date.now()
+      for (;;) {
+        const at = signedAt.get(part) ?? 0
+        const usable = fresh ? at >= asked : Date.now() - at <= RESIGN_AFTER_MS
+        if (usable) break
+        if (resigning) {
+          await resigning
+          continue
+        }
+        resigning = sign([part, ...queue]).finally(() => {
+          resigning = null
+        })
+        await resigning
+        break
+      }
+      const url = signed.get(part)
+      if (!url) throw new Error(`Нет подписанной ссылки для части ${part}`)
+      return url
+    }
+
     const worker = async (): Promise<void> => {
       for (;;) {
         const part = queue.shift()
         if (part === undefined) return
-        const url = signed.get(part)
-        if (!url) throw new Error(`Нет подписанной ссылки для части ${part}`)
         const offset = (part - 1) * target.partSize
         const body = params.file.slice(offset, offset + partLength(part))
         const result = await putPart({
-          url,
+          url: (fresh) => urlFor(part, fresh),
           body,
           part,
           signal: params.signal,

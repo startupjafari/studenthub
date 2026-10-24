@@ -6,6 +6,8 @@ const h = vi.hoisted(() => {
   const state = {
     created: 0,
     rejected: null as ((error: unknown) => Promise<unknown>) | null,
+    // Кто вошёл во вкладке — для сверки sub у токена после обмена.
+    userId: null as string | null,
   }
   const refreshPost = vi.fn()
   const apiCall = vi.fn()
@@ -31,7 +33,12 @@ const h = vi.hoisted(() => {
 
 vi.mock('axios', () => ({ default: { create: h.create }, AxiosError: class extends Error {} }))
 vi.mock('../store/store', () => ({
-  store: { dispatch: h.dispatch, getState: () => ({ auth: { accessToken: 'old' } }) },
+  store: {
+    dispatch: h.dispatch,
+    getState: () => ({
+      auth: { accessToken: 'old', user: h.state.userId ? { id: h.state.userId } : null },
+    }),
+  },
 }))
 vi.mock('../store/auth-slice', () => ({
   clearAuth: () => ({ type: 'auth/clearAuth' }),
@@ -202,5 +209,42 @@ describe('refresh под межвкладочной блокировкой (Web 
     h.refreshPost.mockRejectedValue(failure(401, 'UNAUTHORIZED'))
 
     await expect(refreshAccessToken()).rejects.toMatchObject({ response: { status: 401 } })
+  })
+})
+
+describe('обмен вернул токен другого пользователя', () => {
+  // Минимальный JWT: подпись клиент не проверяет, ему нужен только sub из полезной нагрузки.
+  const jwt = (sub: string) => `h.${btoa(JSON.stringify({ sub })).replace(/=+$/, '')}.s`
+  const acceptedToken = () =>
+    h.dispatch.mock.calls.some(
+      ([action]) => (action as { type: string }).type === 'auth/setAccessToken',
+    )
+
+  beforeEach(() => {
+    h.refreshPost.mockReset()
+    h.dispatch.mockReset()
+  })
+
+  afterEach(() => {
+    h.state.userId = null
+  })
+
+  it('в соседней вкладке вошёл другой — токен не принимается, сессия вкладки сбрасывается', async () => {
+    h.state.userId = 'u1'
+    h.refreshPost.mockResolvedValueOnce(ok(jwt('u2')))
+
+    await expect(refreshAccessToken()).rejects.toThrow()
+    expect(acceptedToken()).toBe(false)
+    expect(clearedAuth()).toBe(true)
+  })
+
+  it('токен того же человека принимается как обычно', async () => {
+    h.state.userId = 'u1'
+    const token = jwt('u1')
+    h.refreshPost.mockResolvedValueOnce(ok(token))
+
+    await expect(refreshAccessToken()).resolves.toBe(token)
+    expect(acceptedToken()).toBe(true)
+    expect(clearedAuth()).toBe(false)
   })
 })

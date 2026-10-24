@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
-import { createPortal } from 'react-dom'
+import { Dialog as DialogPrimitive } from 'radix-ui'
 import { useTranslations } from 'next-intl'
 import { ChevronLeft, ChevronRight, Download, Loader2, RotateCcw, Save, X } from 'lucide-react'
 import {
@@ -34,6 +34,9 @@ export interface MediaViewerMedia {
 
 // Единый полноэкранный просмотрщик фото/видео (стиль чата): тёмный оверлей, медиа по центру,
 // навигация ◀▶, поворот, скачивание, счётчик N/M. Закрытие по фону/Esc/крестику.
+// Слой — Radix Dialog: просмотрщик открывают и из модалок (заявки, документы), и только как
+// вложенный слой Radix он получает свой Esc (закрывается он, а не модалка под ним), свой
+// фокус-трап (кнопки достижимы Tab'ом, а не заперты ловушкой модалки) и role="dialog".
 // Жесты (shared/lib/use-media-gestures): щипок и двойной тап приближают снимок, увеличенный
 // возится пальцем, свайп поперёк листает. Видео играет наш VideoPlayer, а не системный
 // плеер телефона; зум ему выключен — касания нужны контролам.
@@ -143,201 +146,217 @@ export function MediaViewer({
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') {
-        e.preventDefault()
-        onClose()
-      } else if (e.key === 'ArrowLeft' && index > 0) onIndexChange(index - 1)
+      // Esc обрабатывает сам Radix Dialog (onOpenChange): так закрывается только верхний слой.
+      if (e.key === 'ArrowLeft' && index > 0) onIndexChange(index - 1)
       else if (e.key === 'ArrowRight' && index < items.length - 1) onIndexChange(index + 1)
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [index, items.length, onClose, onIndexChange])
+  }, [index, items.length, onIndexChange])
 
-  if (!cur || typeof document === 'undefined') return null
+  if (!cur) return null
   const transform = { transform: `rotate(${rotation}deg) scale(${fit})` }
   const dl = downloadUrl ?? src
 
-  return createPortal(
-    <div
-      // `pointer-events-auto` обязателен: просмотрщик рендерится порталом в body, а Radix
-      // Dialog на время своей работы ставит body `pointer-events: none`, оставляя «живым»
-      // только своё содержимое. Без этого поверх модалки картинка видна, но ни поворот,
-      // ни скачивание, ни крестик не нажимаются.
-      // Маркер для глобального Esc (shared/lib/use-escape-back): пока слой открыт,
-      // Esc закрывает его, а не уводит на предыдущую страницу.
-      data-overlay
-      className="pointer-events-auto fixed inset-0 z-[100] flex select-none flex-col bg-black/80 animate-in fade-in-0 duration-200"
-      onClick={(e) => {
-        e.stopPropagation()
-        onClose()
-      }}
-      onContextMenu={(e) => {
-        e.preventDefault()
-        e.stopPropagation()
-        onContextMenuCapture?.(e)
+  return (
+    <DialogPrimitive.Root
+      open
+      onOpenChange={(next) => {
+        if (!next) onClose()
       }}
     >
-      {/* Верхняя панель: скачать + закрыть */}
-      <div className="flex items-center justify-end gap-1 p-3" onClick={(e) => e.stopPropagation()}>
-        {dl && (
-          <ViewerDownload
-            key={downloadKey ?? downloadKeyOf(dl)}
-            downloadKey={downloadKey ?? downloadKeyOf(dl)}
-            url={dl}
-            name={downloadName ?? cur.name ?? t('download')}
-            mime={cur.mime}
-          />
-        )}
-        <button
-          type="button"
-          aria-label={t('close')}
-          onClick={onClose}
-          className="flex size-9 items-center justify-center rounded-full text-white/80 transition-colors hover:bg-white/10 hover:text-white"
+      <DialogPrimitive.Portal>
+        <DialogPrimitive.Content
+          aria-describedby={undefined}
+          // `pointer-events-auto` обязателен: Radix Dialog модалки под просмотрщиком ставит
+          // body `pointer-events: none`, и без него поворот, скачивание и крестик не
+          // нажимались бы.
+          // Маркер для глобального Esc (shared/lib/use-escape-back): пока слой открыт,
+          // Esc закрывает его, а не уводит на предыдущую страницу.
+          data-overlay
+          className="pointer-events-auto fixed inset-0 z-[100] flex select-none flex-col bg-black/80 outline-none animate-in fade-in-0 duration-200"
+          onClick={(e) => {
+            e.stopPropagation()
+            onClose()
+          }}
+          onContextMenu={(e) => {
+            e.preventDefault()
+            e.stopPropagation()
+            onContextMenuCapture?.(e)
+          }}
         >
-          <X className="size-5" aria-hidden />
-        </button>
-      </div>
-
-      {/* Медиа — заполняет доступную область (крупное отображение) */}
-      <div
-        className="relative flex flex-1 items-center justify-center overflow-hidden px-2 py-1 sm:px-4 sm:py-2"
-        onClick={onClose}
-      >
-        {/* Стрелки — полосы во всю высоту области медиа, шириной с прежнюю кнопку: целятся
-            не в кружок, а «в край экрана», и промах по 40-пиксельной кнопке закрывал
-            просмотр кликом по фону. Кружок прежнего размера — растёт только зона нажатия. */}
-        {items.length > 1 && index > 0 && (
-          <button
-            type="button"
-            aria-label={t('previous')}
-            onClick={(e) => {
-              e.stopPropagation()
-              onIndexChange(index - 1)
-            }}
-            className="group absolute inset-y-0 left-0 z-10 flex w-14 items-center justify-center"
-          >
-            <span className="flex size-10 items-center justify-center rounded-full bg-white/10 text-white transition-colors group-hover:bg-white/20">
-              <ChevronLeft className="size-6" aria-hidden />
-            </span>
-          </button>
-        )}
-
-        {/* Обёртка без отступов: по ней меряем свободное место под повёрнутый снимок —
-            у родителя они есть, и мерить по нему значило бы разрешить вылезти на них. */}
-        <div
-          ref={boxRef}
-          className="flex h-full min-h-0 w-full touch-none items-center justify-center"
-        >
+          {/* Имя слоя для скринридера: Radix Dialog без заголовка не объявляет, что открылось. */}
+          <DialogPrimitive.Title className="sr-only">
+            {cur.name || t('mediaViewer')}
+          </DialogPrimitive.Title>
+          {/* Верхняя панель: скачать + закрыть */}
           <div
-            ref={gestures.layerRef}
-            className="flex h-full w-full items-center justify-center will-change-transform"
+            className="flex items-center justify-end gap-1 p-3"
+            onClick={(e) => e.stopPropagation()}
           >
-            {!src ? (
-              media?.placeholder && !isVideo ? (
-                // Ссылка ещё едет, а силуэт снимка уже есть — показываем его, а не спиннер.
-                <img
-                  src={media.placeholder}
-                  alt=""
-                  aria-hidden
-                  width={media.width ?? undefined}
-                  height={media.height ?? undefined}
-                  className="h-full max-h-full w-auto max-w-full scale-105 object-contain blur-xl"
-                />
-              ) : (
-                <Loader2 className="size-8 animate-spin text-white/70" aria-hidden />
-              )
-            ) : isVideo ? (
-              <VideoPlayer
-                src={src}
-                hls={media?.hls}
-                poster={pickSource(media?.poster, 1280)?.url}
-                autoPlay
-                onVideoRef={setMedia}
-                onLoadedMetadata={measureFit}
-                videoStyle={transform}
-                // Повёрнутому кадру панель не нужна: она осталась бы горизонтальной поверх
-                // повёрнутой картинки. Воспроизведение поворот не прерывает.
-                controlsHidden={rotation % 360 !== 0}
-                videoClassName="rounded-lg transition-transform"
-              />
-            ) : (
-              <img
-                ref={setMedia}
-                src={src}
-                // Копия по размеру экрана: 2048 на большом мониторе, оригинал — только если он
-                // шире всех копий. Скачивание по-прежнему отдаёт оригинал (downloadUrl).
-                srcSet={srcSetOf(media?.sources, { url: src, width: media?.width })}
-                sizes="100vw"
-                alt={cur.name ?? ''}
-                draggable={false}
-                // width/height задают пропорцию до загрузки — заглушка фоном ложится ровно в
-                // будущий кадр, а не на всю область.
-                width={media?.width ?? undefined}
-                height={media?.height ?? undefined}
-                style={
-                  media?.placeholder
-                    ? {
-                        ...transform,
-                        backgroundImage: `url("${media.placeholder}")`,
-                        backgroundSize: '100% 100%',
-                      }
-                    : transform
-                }
-                onLoad={measureFit}
-                className="h-full max-h-full w-auto max-w-full object-contain transition-transform"
-                onClick={(e) => e.stopPropagation()}
+            {dl && (
+              <ViewerDownload
+                key={downloadKey ?? downloadKeyOf(dl)}
+                downloadKey={downloadKey ?? downloadKeyOf(dl)}
+                url={dl}
+                name={downloadName ?? cur.name ?? t('download')}
+                mime={cur.mime}
               />
             )}
+            <button
+              type="button"
+              aria-label={t('close')}
+              onClick={onClose}
+              className="flex size-9 items-center justify-center rounded-full text-white/80 transition-colors hover:bg-white/10 hover:text-white"
+            >
+              <X className="size-5" aria-hidden />
+            </button>
           </div>
-        </div>
 
-        {items.length > 1 && index < items.length - 1 && (
-          <button
-            type="button"
-            aria-label={t('next')}
-            onClick={(e) => {
-              e.stopPropagation()
-              onIndexChange(index + 1)
-            }}
-            className="group absolute inset-y-0 right-0 z-10 flex w-14 items-center justify-center"
+          {/* Медиа — заполняет доступную область (крупное отображение) */}
+          <div
+            className="relative flex flex-1 items-center justify-center overflow-hidden px-2 py-1 sm:px-4 sm:py-2"
+            onClick={onClose}
           >
-            <span className="flex size-10 items-center justify-center rounded-full bg-white/10 text-white transition-colors group-hover:bg-white/20">
-              <ChevronRight className="size-6" aria-hidden />
-            </span>
-          </button>
-        )}
-      </div>
+            {/* Стрелки — полосы во всю высоту области медиа, шириной с прежнюю кнопку: целятся
+            не в кружок, а «в край экрана», и промах по 40-пиксельной кнопке закрывал
+            просмотр кликом по фону. Кружок прежнего размера — растёт только зона нажатия. */}
+            {items.length > 1 && index > 0 && (
+              <button
+                type="button"
+                aria-label={t('previous')}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onIndexChange(index - 1)
+                }}
+                className="group absolute inset-y-0 left-0 z-10 flex w-14 items-center justify-center"
+              >
+                <span className="flex size-10 items-center justify-center rounded-full bg-white/10 text-white transition-colors group-hover:bg-white/20">
+                  <ChevronLeft className="size-6" aria-hidden />
+                </span>
+              </button>
+            )}
 
-      {/* Нижняя панель: слева — контекст; по центру — подпись; справа — счётчик + поворот + доп.действия */}
-      <div className="flex items-center gap-3 px-4 pb-4 pt-1" onClick={(e) => e.stopPropagation()}>
-        {topLeft ?? <span />}
+            {/* Обёртка без отступов: по ней меряем свободное место под повёрнутый снимок —
+            у родителя они есть, и мерить по нему значило бы разрешить вылезти на них. */}
+            <div
+              ref={boxRef}
+              className="flex h-full min-h-0 w-full touch-none items-center justify-center"
+            >
+              <div
+                ref={gestures.layerRef}
+                className="flex h-full w-full items-center justify-center will-change-transform"
+              >
+                {!src ? (
+                  media?.placeholder && !isVideo ? (
+                    // Ссылка ещё едет, а силуэт снимка уже есть — показываем его, а не спиннер.
+                    <img
+                      src={media.placeholder}
+                      alt=""
+                      aria-hidden
+                      width={media.width ?? undefined}
+                      height={media.height ?? undefined}
+                      className="h-full max-h-full w-auto max-w-full scale-105 object-contain blur-xl"
+                    />
+                  ) : (
+                    <Loader2 className="size-8 animate-spin text-white/70" aria-hidden />
+                  )
+                ) : isVideo ? (
+                  <VideoPlayer
+                    src={src}
+                    hls={media?.hls}
+                    poster={pickSource(media?.poster, 1280)?.url}
+                    autoPlay
+                    onVideoRef={setMedia}
+                    onLoadedMetadata={measureFit}
+                    videoStyle={transform}
+                    // Повёрнутому кадру панель не нужна: она осталась бы горизонтальной поверх
+                    // повёрнутой картинки. Воспроизведение поворот не прерывает.
+                    controlsHidden={rotation % 360 !== 0}
+                    videoClassName="rounded-lg transition-transform"
+                  />
+                ) : (
+                  <img
+                    ref={setMedia}
+                    src={src}
+                    // Копия по размеру экрана: 2048 на большом мониторе, оригинал — только если он
+                    // шире всех копий. Скачивание по-прежнему отдаёт оригинал (downloadUrl).
+                    srcSet={srcSetOf(media?.sources, { url: src, width: media?.width })}
+                    sizes="100vw"
+                    alt={cur.name ?? ''}
+                    draggable={false}
+                    // width/height задают пропорцию до загрузки — заглушка фоном ложится ровно в
+                    // будущий кадр, а не на всю область.
+                    width={media?.width ?? undefined}
+                    height={media?.height ?? undefined}
+                    style={
+                      media?.placeholder
+                        ? {
+                            ...transform,
+                            backgroundImage: `url("${media.placeholder}")`,
+                            backgroundSize: '100% 100%',
+                          }
+                        : transform
+                    }
+                    onLoad={measureFit}
+                    className="h-full max-h-full w-auto max-w-full object-contain transition-transform"
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                )}
+              </div>
+            </div>
 
-        <div className="flex min-w-0 flex-1 justify-center">{caption}</div>
+            {items.length > 1 && index < items.length - 1 && (
+              <button
+                type="button"
+                aria-label={t('next')}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onIndexChange(index + 1)
+                }}
+                className="group absolute inset-y-0 right-0 z-10 flex w-14 items-center justify-center"
+              >
+                <span className="flex size-10 items-center justify-center rounded-full bg-white/10 text-white transition-colors group-hover:bg-white/20">
+                  <ChevronRight className="size-6" aria-hidden />
+                </span>
+              </button>
+            )}
+          </div>
 
-        <div className="flex shrink-0 items-center gap-2">
-          {items.length > 1 && (
-            <span className="text-xs text-white/60 tabular-nums">
-              {index + 1} / {items.length}
-            </span>
-          )}
-
-          <button
-            type="button"
-            aria-label={t('rotate')}
-            // Против часовой — как кнопка в Telegram и как rotate90 в кадрировании
-            // (image-crop-modal). Здесь крутило в обратную сторону: два одинаковых с
-            // виду поворота в одном продукте вели себя по-разному.
-            onClick={() => setRotation((r) => r - 90)}
-            className="flex size-9 items-center justify-center rounded-full text-white/80 transition-colors hover:bg-white/10 hover:text-white"
+          {/* Нижняя панель: слева — контекст; по центру — подпись; справа — счётчик + поворот + доп.действия */}
+          <div
+            className="flex items-center gap-3 px-4 pb-4 pt-1"
+            onClick={(e) => e.stopPropagation()}
           >
-            <RotateCcw className="size-5" aria-hidden />
-          </button>
+            {topLeft ?? <span />}
 
-          {trailing}
-        </div>
-      </div>
-    </div>,
-    document.body,
+            <div className="flex min-w-0 flex-1 justify-center">{caption}</div>
+
+            <div className="flex shrink-0 items-center gap-2">
+              {items.length > 1 && (
+                <span className="text-xs text-white/60 tabular-nums">
+                  {index + 1} / {items.length}
+                </span>
+              )}
+
+              <button
+                type="button"
+                aria-label={t('rotate')}
+                // Против часовой — как кнопка в Telegram и как rotate90 в кадрировании
+                // (image-crop-modal). Здесь крутило в обратную сторону: два одинаковых с
+                // виду поворота в одном продукте вели себя по-разному.
+                onClick={() => setRotation((r) => r - 90)}
+                className="flex size-9 items-center justify-center rounded-full text-white/80 transition-colors hover:bg-white/10 hover:text-white"
+              >
+                <RotateCcw className="size-5" aria-hidden />
+              </button>
+
+              {trailing}
+            </div>
+          </div>
+        </DialogPrimitive.Content>
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
   )
 }
 

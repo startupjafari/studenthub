@@ -67,9 +67,12 @@ export function PromptDialog({
               if (!disabled) onSubmit(value.trim())
             }}
           >
+            {/* Подписи у поля нет — её роль играет заголовок окна; без aria-label скринридер
+                объявлял бы безымянное «поле ввода». */}
             {multiline ? (
               <Textarea
                 autoFocus
+                aria-label={title}
                 value={value}
                 placeholder={placeholder}
                 onChange={(e) => setValue(e.target.value)}
@@ -78,6 +81,7 @@ export function PromptDialog({
             ) : (
               <Input
                 autoFocus
+                aria-label={title}
                 value={value}
                 placeholder={placeholder}
                 onChange={(e) => setValue(e.target.value)}
