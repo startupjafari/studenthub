@@ -1502,6 +1502,7 @@
     "FILE_DIRECT_UPLOAD_REQUIRED": "File is too large to upload via the server",
     "VALIDATION_ERROR": "Check the form fields",
     "RATE_LIMIT": "Too many attempts, wait a moment",
+    "MAINTENANCE": "Maintenance in progress — please try again a bit later",
     "INTERNAL_ERROR": "Server error",
     "INVALID_2FA_CODE": "Invalid code",
     "TWO_FACTOR_SETUP_REQUIRED": "Two-factor authentication setup is required",

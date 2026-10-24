@@ -206,6 +206,22 @@ interface UploadPayload {
 }
 
 /** Фото и видео уходят превью-плитками, всё остальное — строками файла. */
+/** Чат-события, об отказе в которых человеку нужно сказать. Прочтение, «печатает» и вход в
+ * комнату не в счёт: их отказ ему нечем показать, тост был бы шумом. */
+const WS_ERROR_EVENTS = new Set(['message:send', 'message:edit', 'message:delete'])
+/** Коды, для которых есть текст в словаре `Errors`; прочие показываются общей ошибкой. */
+const WS_ERROR_CODES = new Set([
+  'BAD_REQUEST',
+  'FORBIDDEN',
+  'WRONG_SCOPE',
+  'NOT_FOUND',
+  'VALIDATION_ERROR',
+  'RATE_LIMIT',
+  'MAINTENANCE',
+  'UNIVERSITY_BLOCKED',
+  'INTERNAL_ERROR',
+])
+
 /**
  * Запас границы догона на неизмеренное расхождение часов. Лишняя правка в дельте ничего не
  * стоит — она просто применится ещё раз, — а потерянная висит у человека до перезагрузки.
@@ -453,6 +469,8 @@ export function ChatWindow() {
     anchor?: MessageMenuAnchor
   } | null>(null)
   const [editing, setEditing] = useState<ChatMessage | null>(null)
+  // Отправленная правка до подтверждения: при отказе сервера текст возвращается в поле ввода.
+  const pendingEditRef = useRef<{ message: ChatMessage; content: string } | null>(null)
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false)
   // Поиск внутри активного чата (Telegram-стиль §3): режим в шапке + навигация по совпадениям.
   const [chatSearchOpen, setChatSearchOpen] = useState(false)
@@ -1714,6 +1732,7 @@ export function ChatWindow() {
   useRealtimeEvent<{ message: ChatMessage; chatId: string }>(
     'message:updated',
     ({ message, chatId }) => {
+      if (pendingEditRef.current?.message.id === message.id) pendingEditRef.current = null
       upsert(message, chatId)
       // Правка последнего сообщения (и подтянувшееся превью ссылки) — в превью строки на месте.
       // Перезапрос не нужен: о правке последнего сервер и так шлёт `chat:activity`.
@@ -1849,6 +1868,31 @@ export function ChatWindow() {
     }
     listPendingRef.current.add(chatId)
     listRefresher.settle(LIST_REFRESH_READING_MS)
+  })
+  // Отказы чат-событий сокета (§9.1): сервер отвечает на них событием `error` с кодом, и
+  // без подписки правка после окна, удаление чужого, RATE_LIMIT и MAINTENANCE проходили для
+  // интерфейса как выполненные (FRONTEND_RULES §5.4).
+  useRealtimeEvent<{ event?: string; code?: string }>('error', (payload) => {
+    const event = payload?.event
+    if (!event || !WS_ERROR_EVENTS.has(event)) return
+    const code = payload.code && WS_ERROR_CODES.has(payload.code) ? payload.code : 'INTERNAL_ERROR'
+    if (event === 'message:send') {
+      // Какому пузырю отказали, событие не говорит: «отправляется» гасим у всех — их можно
+      // повторить, а молча висящий пузырь превратился бы в «ошибку» только через 12 секунд.
+      setSendState((s) => {
+        const next = { ...s }
+        for (const key of Object.keys(next)) if (next[key] === 'pending') next[key] = 'failed'
+        return next
+      })
+    }
+    if (event === 'message:edit' && pendingEditRef.current) {
+      // Текст правки не теряем: возвращаем его в поле ввода в режиме правки.
+      const { message, content } = pendingEditRef.current
+      pendingEditRef.current = null
+      setEditing(message)
+      setText(content)
+    }
+    toast.error(tErr(code))
   })
   useRealtimeEvent<{ messageId: string; chatId: string }>(
     'message:deleted',
@@ -2411,7 +2455,10 @@ export function ChatWindow() {
     if (!activeId) return
     // Режим правки: редактируем существующее сообщение (сервер эхом пришлёт message:updated).
     if (editing) {
-      if (content && socket) socket.emit('message:edit', { messageId: editing.id, content })
+      if (content && socket) {
+        pendingEditRef.current = { message: editing, content }
+        socket.emit('message:edit', { messageId: editing.id, content })
+      }
       setEditing(null)
       setText('')
       composerRef.current?.focus()
