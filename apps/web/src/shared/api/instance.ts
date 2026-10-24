@@ -111,6 +111,7 @@ api.interceptors.response.use(
     return response
   },
   async (error: AxiosError<ApiErrorResponse>): Promise<unknown> => {
+    await parseBlobError(error)
     const original = error.config as (InternalAxiosRequestConfig & { _retry?: boolean }) | undefined
     const code = error.response?.data?.error?.code
     // Восстановимый 401 → один refresh (с дедупликацией) и один повтор исходного запроса.
@@ -154,6 +155,33 @@ api.interceptors.response.use(
     return Promise.reject(error.response?.data?.error ?? NETWORK_ERROR)
   },
 )
+
+/**
+ * Тело ошибки скачивания — Blob, а не JSON: запрос ушёл с `responseType: 'blob'`
+ * (shared/lib/download-file.ts), и axios отдаёт ответ сервера как есть. Без разбора `code`
+ * всегда undefined — 429, 400 и 403 показывались «Ошибкой сервера», а 401 `TOKEN_EXPIRED`
+ * не лечился refresh. Разбираем Blob как JSON до проверки кода (§8.2).
+ */
+async function parseBlobError(error: AxiosError<ApiErrorResponse>): Promise<void> {
+  const response = error.response
+  const data: unknown = response?.data
+  if (!response || typeof Blob === 'undefined' || !(data instanceof Blob)) return
+  try {
+    response.data = JSON.parse(await readBlobText(data)) as ApiErrorResponse
+  } catch {
+    // Не JSON (страница прокси, обрыв) — остаётся общий вид ошибки.
+  }
+}
+
+// FileReader, а не `blob.text()`: его умеют все браузеры и jsdom тестов.
+function readBlobText(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '')
+    reader.onerror = () => reject(reader.error ?? new Error('blob read failed'))
+    reader.readAsText(blob)
+  })
+}
 
 function readHeader(headers: unknown, name: string): string | null {
   if (!headers || typeof headers !== 'object') return null
