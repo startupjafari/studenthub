@@ -68,6 +68,19 @@ function parseCsv(text: string, maxRows: number): string[][] {
   return rows
 }
 
+/**
+ * Текст CSV. Excel под Windows сохраняет «CSV (разделители — запятые)» в cp1251, а не в
+ * UTF-8: такой файл, прочитанный как UTF-8, превращал заголовки в «����», и импорт
+ * отказывал с неверной причиной «нет колонки „Название“». Не UTF-8 — читаем как cp1251.
+ */
+function decodeCsv(buffer: Buffer): string {
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(buffer)
+  } catch {
+    return new TextDecoder('windows-1251').decode(buffer)
+  }
+}
+
 // ── XLSX: первый лист → матрица строк ──
 function parseXlsx(buffer: Buffer, { maxRows, maxColumns }: TableLimits): string[][] {
   // sheetRows — строки дальше потолка парсер пропускает, не создавая ячеек; dense — лист
@@ -92,7 +105,7 @@ function parseXlsx(buffer: Buffer, { maxRows, maxColumns }: TableLimits): string
 export function readTableFile(buffer: Buffer, filename: string, limits: TableLimits): string[][] {
   const ext = filename.toLowerCase().split('.').pop() ?? ''
   if (ext === 'csv' || ext === 'txt') {
-    return parseCsv(buffer.toString('utf8'), limits.maxRows)
+    return parseCsv(decodeCsv(buffer), limits.maxRows)
   }
   if (ext === 'xlsx' || ext === 'xls') {
     return parseXlsx(buffer, limits)

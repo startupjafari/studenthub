@@ -320,6 +320,13 @@ describe('Импорт фонда', () => {
     ])
   })
 
+  it('CSV из Excel в cp1251 читается: заголовки и значения не превращаются в «????»', () => {
+    // «Название;Автор\nМир;Толстой\n» в cp1251 — так сохраняет CSV Excel под Windows.
+    const cp1251 = Buffer.from('cde0e7e2e0ede8e53bc0e2f2eef00acce8f03bd2eeebf1f2eee90a', 'hex')
+    const rows = parseLibraryImportFile(cp1251, 'fond.csv')
+    expect(rows[0]).toMatchObject({ title: 'Мир', authors: 'Толстой' })
+  })
+
   it('без колонки «Название» — понятная ошибка', () => {
     expect(() => parseLibraryImportFile(csv('Автор;Год\nИванов;2020\n'), 'fond.csv')).toThrow(
       /Название/,
