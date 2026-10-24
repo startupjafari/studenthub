@@ -93,6 +93,7 @@ export function CreateGroupModal({ onClose }: Props) {
                 setValueAs: (v: string) => (v === '' ? undefined : Number(v)),
               })}
             />
+            <FieldError>{form.formState.errors.year ? t('yearInvalid') : null}</FieldError>
           </div>
 
           <div className="flex flex-col gap-1.5">

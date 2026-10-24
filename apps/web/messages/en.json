@@ -842,6 +842,7 @@
     "addGroup": "Add group",
     "groupName": "Group name",
     "year": "Year",
+    "yearInvalid": "Year — a whole number from 1900 to 2200",
     "faculty": "Faculty",
     "selectFaculty": "Select a faculty",
     "needFacultyFirst": "Create a faculty first.",

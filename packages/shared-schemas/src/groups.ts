@@ -12,10 +12,11 @@ export const CreateGroupSchema = z
 export type CreateGroupInput = z.infer<typeof CreateGroupSchema>
 
 // Обновление: название и/или год (перенос между факультетами не поддерживается).
+// Год необязателен и при создании, поэтому его можно и стереть: `null` — «год не указан».
 export const UpdateGroupSchema = z
   .object({
     name: z.string().min(1).max(100).optional(),
-    year: z.number().int().min(1900).max(2200).optional(),
+    year: z.number().int().min(1900).max(2200).nullable().optional(),
   })
   .strict()
 export type UpdateGroupInput = z.infer<typeof UpdateGroupSchema>
