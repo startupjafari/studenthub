@@ -3,6 +3,7 @@
 // ReDoS, а исправления живут только в вендорской раздаче (0.19.3+/0.20.2+). Здесь как раз
 // разбирается ЗАГРУЖЕННЫЙ пользователем файл, то есть ровно тот путь, по которому эти
 // уязвимости и срабатывают. Следствие: сборке (CI, Docker) нужен доступ к cdn.sheetjs.com.
+import { inflateRawSync } from 'node:zlib'
 import * as XLSX from 'xlsx'
 import { AppException } from '../exceptions/app.exception'
 
@@ -68,8 +69,103 @@ function parseCsv(text: string, maxRows: number): string[][] {
   return rows
 }
 
+// ── XLSX: проверка архива до разбора ──
+//
+// XLSX — zip. `sheetRows` ограничивает только ячейки, а `XLSX.read` синхронно распаковывает
+// в память ВСЕ записи архива: zip-бомба до 10 МБ разворачивалась в гигабайты и роняла API
+// целиком (BACKEND_RULES §14). Поэтому до разбора каждая запись распаковывается здесь с
+// потолком на выход (`maxOutputLength`): верим не объявленным в архиве размерам, а тому,
+// что получилось на деле. Настоящая таблица импорта в пределах потолков строк весит единицы
+// мегабайт; 50 МБ — с большим запасом.
+const MAX_UNPACKED_BYTES = 50 * 1024 * 1024
+const MAX_ZIP_ENTRIES = 1000
+const ZIP_LOCAL_HEADER = 0x04034b50
+const ZIP_CENTRAL_HEADER = 0x02014b50
+const ZIP_END_OF_CENTRAL_DIR = 0x06054b50
+const ZIP_STORED = 0
+const ZIP_DEFLATED = 8
+
+function brokenWorkbook(): AppException {
+  return new AppException('BAD_REQUEST', 'Файл XLSX повреждён')
+}
+
+function oversizedWorkbook(): AppException {
+  return new AppException(
+    'BAD_REQUEST',
+    'Книга распаковывается в слишком большой объём — оставьте в файле только нужный лист',
+  )
+}
+
+/** Конец центрального каталога: последние 22 байта плюс комментарий архива до 64 КБ. */
+function findEndOfCentralDir(buffer: Buffer): number {
+  const last = buffer.length - 22
+  for (let i = last; i >= 0 && i >= last - 0xffff; i--) {
+    if (buffer.readUInt32LE(i) === ZIP_END_OF_CENTRAL_DIR) return i
+  }
+  return -1
+}
+
+/** Сумма распакованных размеров записей архива не больше MAX_UNPACKED_BYTES. */
+function assertZipWithinBudget(buffer: Buffer): void {
+  const eocd = findEndOfCentralDir(buffer)
+  if (eocd < 0) throw brokenWorkbook()
+  const entries = buffer.readUInt16LE(eocd + 10)
+  const centralDirOffset = buffer.readUInt32LE(eocd + 16)
+  // 0xFFFF / 0xFFFFFFFF — признаки ZIP64: таблице на 10 МБ он не нужен никогда.
+  if (entries === 0xffff || centralDirOffset === 0xffffffff) throw oversizedWorkbook()
+  if (entries > MAX_ZIP_ENTRIES) throw oversizedWorkbook()
+
+  let budget = MAX_UNPACKED_BYTES
+  let pos = centralDirOffset
+  for (let n = 0; n < entries; n++) {
+    if (pos + 46 > buffer.length || buffer.readUInt32LE(pos) !== ZIP_CENTRAL_HEADER) {
+      throw brokenWorkbook()
+    }
+    const method = buffer.readUInt16LE(pos + 10)
+    const compressedSize = buffer.readUInt32LE(pos + 20)
+    const localOffset = buffer.readUInt32LE(pos + 42)
+    pos +=
+      46 +
+      buffer.readUInt16LE(pos + 28) +
+      buffer.readUInt16LE(pos + 30) +
+      buffer.readUInt16LE(pos + 32)
+
+    if (localOffset + 30 > buffer.length || buffer.readUInt32LE(localOffset) !== ZIP_LOCAL_HEADER) {
+      throw brokenWorkbook()
+    }
+    const dataStart =
+      localOffset +
+      30 +
+      buffer.readUInt16LE(localOffset + 26) +
+      buffer.readUInt16LE(localOffset + 28)
+    if (dataStart + compressedSize > buffer.length) throw brokenWorkbook()
+
+    let unpacked: number
+    if (method === ZIP_STORED) {
+      unpacked = compressedSize
+    } else if (method === ZIP_DEFLATED) {
+      try {
+        unpacked = inflateRawSync(buffer.subarray(dataStart, dataStart + compressedSize), {
+          maxOutputLength: Math.max(budget, 1),
+        }).length
+      } catch (error) {
+        if ((error as { code?: string }).code === 'ERR_BUFFER_TOO_LARGE') throw oversizedWorkbook()
+        throw brokenWorkbook()
+      }
+    } else {
+      throw brokenWorkbook()
+    }
+    budget -= unpacked
+    if (budget < 0) throw oversizedWorkbook()
+  }
+}
+
 // ── XLSX: первый лист → матрица строк ──
 function parseXlsx(buffer: Buffer, { maxRows, maxColumns }: TableLimits): string[][] {
+  // XLS (старый двоичный формат) — не zip и не сжат: бомбе там взяться неоткуда.
+  if (buffer.length >= 4 && buffer.readUInt32LE(0) === ZIP_LOCAL_HEADER) {
+    assertZipWithinBudget(buffer)
+  }
   // sheetRows — строки дальше потолка парсер пропускает, не создавая ячеек; dense — лист
   // массивом строк, а не объектом с ключом на каждую ячейку.
   const wb = XLSX.read(buffer, { type: 'buffer', sheetRows: maxRows, dense: true })
