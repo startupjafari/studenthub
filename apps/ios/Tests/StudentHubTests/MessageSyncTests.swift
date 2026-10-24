@@ -178,6 +178,27 @@ final class MessageOutboxTests: XCTestCase {
         XCTAssertEqual(stored.first?.sendState, .sent)
     }
 
+    /// `message:new` из сокета приходит раньше HTTP-ответа на отправку: строка одна,
+    /// подтверждённая, а не две — своя «Не отправлено» и чужая копия.
+    func testSocketEchoBeforeResponseDoesNotDuplicate() async throws {
+        let database = try AppDatabase.inMemory()
+        try await seedChat(in: database)
+        let answer = ChatMessageDTO(
+            id: "server-1", chatId: "c-1", seq: 3, senderId: "u-me", content: "привет",
+            replyToId: nil, replyQuote: nil, systemType: nil, editedAt: nil, deletedAt: nil,
+            pinnedAt: nil, createdAt: Date(timeIntervalSince1970: 1_800_000_100), media: nil
+        )
+        let outbox = MessageOutbox(database: database, api: EchoFirstSender(database: database, answer: answer))
+
+        let delivered = await outbox.send(text: "привет", chatID: "c-1", senderID: "u-me", replyToID: nil)
+
+        XCTAssertTrue(delivered)
+        let stored = try await database.reader.read { db in try MessageRecord.fetchAll(db) }
+        XCTAssertEqual(stored.count, 1)
+        XCTAssertEqual(stored.first?.remoteId, "server-1")
+        XCTAssertEqual(stored.first?.sendState, .sent)
+    }
+
     /// Сеть отказала — текст остаётся в ленте со своим состоянием, а не исчезает.
     func testFailedSendStaysInTheThread() async throws {
         let database = try AppDatabase.inMemory()
@@ -229,6 +250,17 @@ final class MessageOutboxTests: XCTestCase {
                 updatedAt: Date(timeIntervalSince1970: 1_800_000_000)
             ).insert(db)
         }
+    }
+}
+
+/// Сервер, у которого эхо по сокету обгоняет ответ на запрос.
+private struct EchoFirstSender: ChatMessageSending {
+    let database: AppDatabase
+    let answer: ChatMessageDTO
+
+    func send(text: String, chatID: String, replyToID: String?) async throws -> ChatMessageDTO {
+        try await database.writer.write { db in try MessageStore.upsert(answer, in: db) }
+        return answer
     }
 }
 
