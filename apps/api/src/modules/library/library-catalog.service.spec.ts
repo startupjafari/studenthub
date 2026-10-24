@@ -279,6 +279,16 @@ describe('LibraryCatalogService — фонд', () => {
     expect(tx.$executeRaw).toHaveBeenCalled()
   })
 
+  it('номера по порядку обходят явные номера той же пачки', async () => {
+    const { service } = setup()
+    // Наибольший номер в фонде — 120: явные 121 и 123 в соседней строке не повторяются.
+    const ids = await service.createCopies('uni-1', [
+      { bookId: 'book-1', inventoryNumbers: [], count: 3 },
+      { bookId: 'book-2', inventoryNumbers: ['121', '123'], count: 0 },
+    ])
+    expect(ids).toEqual(['copy-122', 'copy-124', 'copy-125', 'copy-121', 'copy-123'])
+  })
+
   it('повтор номера в пачке и занятый номер — 409 с перечнем', async () => {
     const { service, tx } = setup()
     await expect(

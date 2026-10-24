@@ -86,7 +86,14 @@ export function LibraryImportModal({ onClose }: { onClose: () => void }) {
       )
       onClose()
     },
-    onError: (e) => toast.error(tErr(toApiError(e).code)),
+    onError: (e) => {
+      const err = toApiError(e)
+      // Номер заняли между предпросмотром и записью — говорим, что именно, а не «конфликт».
+      const field = err.details?.[0]?.field
+      if (err.code === 'CONFLICT' && field === 'inventoryNumbers') {
+        toast.error(t('inventoryTaken'))
+      } else toast.error(tErr(err.code))
+    },
   })
 
   const summary = preview?.summary

@@ -396,10 +396,17 @@ export class LibraryCatalogService {
               }
             }
             let next = await this.nextNumericInventory(tx, universityId)
+            // Номера по порядку обходят явные номера той же пачки: строка с номерами и строка
+            // без них в одном импорте иначе получали один номер, и падал весь файл.
+            const reserved = new Set(explicit)
+            const nextFree = (): string => {
+              while (reserved.has(String(next))) next += 1
+              return String(next++)
+            }
             const ids: string[] = []
             for (const batch of list) {
               const numbers = [...batch.inventoryNumbers]
-              for (let i = 0; i < batch.count; i += 1) numbers.push(String(next++))
+              for (let i = 0; i < batch.count; i += 1) numbers.push(nextFree())
               for (const inventoryNumber of numbers) {
                 const copy = await tx.bookCopy.create({
                   data: {
