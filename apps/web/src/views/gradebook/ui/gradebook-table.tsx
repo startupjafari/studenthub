@@ -4,7 +4,17 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { Eye, EyeOff, MoreHorizontal, Plus, Save, Trash2 } from 'lucide-react'
+import {
+  ArrowLeft,
+  ArrowRight,
+  Eye,
+  EyeOff,
+  MoreHorizontal,
+  Pencil,
+  Plus,
+  Save,
+  Trash2,
+} from 'lucide-react'
 import {
   Badge,
   Button,
@@ -39,6 +49,7 @@ import {
   publishColumnRequest,
   deleteColumnRequest,
   saveGradesRequest,
+  updateColumnRequest,
   type GradeColumnItem,
   type GradebookStudent,
 } from '../../../entities/gradebook'
@@ -83,6 +94,7 @@ export function GradebookTable({
   const confirm = useConfirm()
   const isDesktop = useMediaQuery('(min-width: 1024px)')
   const [adding, setAdding] = useState(false)
+  const [editing, setEditing] = useState<GradeColumnItem | null>(null)
   // Изменённые ЯЧЕЙКИ (cellKey → введённое), а не колонки: на сохранение уходят только
   // они. Колонка целиком затирала оценки, выставленные в соседней вкладке или деканом
   // после загрузки журнала, — пустая у нас ячейка уходила как «очистить».
@@ -199,6 +211,25 @@ export function GradebookTable({
     },
   })
 
+  // Порядок колонок — `position`. После удалений номера бывают с дырами и повторами
+  // (новая колонка получает номер по их числу), поэтому сдвиг перенумеровывает журнал
+  // по новому порядку целиком, а на сервер уходят только изменившиеся номера.
+  const move = useMutation({
+    mutationFn: async ({ id, by }: { id: string; by: -1 | 1 }) => {
+      const order = [...(q.data?.columns ?? [])]
+      const from = order.findIndex((c) => c.id === id)
+      const to = from + by
+      if (from < 0 || to < 0 || to >= order.length) return
+      const [col] = order.splice(from, 1)
+      if (col) order.splice(to, 0, col)
+      await Promise.all(
+        order.map((c, i) => (c.position === i ? null : updateColumnRequest(c.id, { position: i }))),
+      )
+    },
+    onSettled: () => invalidate(),
+    onError: (e) => toast.error(tErr(toApiError(e).code)),
+  })
+
   async function onDeleteColumn(col: GradeColumnItem) {
     const ok = await confirm({
       title: t('confirmDeleteColumn'),
@@ -246,7 +277,7 @@ export function GradebookTable({
   const columns = q.data?.columns ?? []
   const students = q.data?.students ?? []
 
-  const columnMenu = (col: GradeColumnItem) => (
+  const columnMenu = (col: GradeColumnItem, index: number) => (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" size="sm" icon aria-label={t('columnActions')}>
@@ -254,6 +285,25 @@ export function GradebookTable({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
+        <DropdownMenuItem onClick={() => setEditing(col)}>
+          <Pencil aria-hidden />
+          {t('editColumn')}
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          disabled={index === 0 || move.isPending}
+          onClick={() => move.mutate({ id: col.id, by: -1 })}
+        >
+          <ArrowLeft aria-hidden />
+          {t('moveLeft')}
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          disabled={index === columns.length - 1 || move.isPending}
+          onClick={() => move.mutate({ id: col.id, by: 1 })}
+        >
+          <ArrowRight aria-hidden />
+          {t('moveRight')}
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
         <DropdownMenuItem onClick={() => onPublish(col)}>
           {col.published ? <EyeOff aria-hidden /> : <Eye aria-hidden />}
           {col.published ? t('unpublish') : t('publish')}
@@ -317,11 +367,11 @@ export function GradebookTable({
                   >
                     {t('student')}
                   </TableHead>
-                  {columns.map((col) => (
+                  {columns.map((col, index) => (
                     <TableHead key={col.id} className="px-2 text-center">
                       <div className="flex items-center justify-center gap-1">
                         <span className="truncate">{col.title}</span>
-                        {columnMenu(col)}
+                        {columnMenu(col, index)}
                       </div>
                       <div className="flex items-center justify-center gap-1 text-[11px] font-normal">
                         {col.maxScore != null && <span>/{col.maxScore}</span>}
@@ -387,6 +437,9 @@ export function GradebookTable({
       )}
 
       {adding && <AddColumnModal courseId={courseId} onClose={() => setAdding(false)} />}
+      {editing && (
+        <AddColumnModal courseId={courseId} column={editing} onClose={() => setEditing(null)} />
+      )}
     </div>
   )
 }
