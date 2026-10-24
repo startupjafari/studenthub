@@ -2806,6 +2806,14 @@ describe('ChatsService.banMember', () => {
     expect(realtime.emitToRoom).not.toHaveBeenCalled()
   })
 
+  // BUG-170: бан — только создатель группы (§8.3), админ им не распоряжается.
+  it('админ, не создатель → FORBIDDEN, бана нет', async () => {
+    const { service, prisma } = banSetup()
+    const err = await service.banMember(user('admin2'), 'g1', 'u2').catch((e) => e)
+    expect(err.code).toBe('FORBIDDEN')
+    expect(prisma.chatMember.updateMany).not.toHaveBeenCalled()
+  })
+
   it('не участник → NOT_FOUND', async () => {
     const { service, prisma } = banSetup()
     prisma.chatMember.updateMany.mockResolvedValueOnce({ count: 0 })
@@ -2847,6 +2855,19 @@ describe('ChatsService.removeMember', () => {
     expect(err.code).toBe('NOT_FOUND')
     expect(prisma.message.create).not.toHaveBeenCalled()
     expect(prisma.chat.update).not.toHaveBeenCalled()
+  })
+
+  // BUG-170: админы не исключают друг друга — это решает создатель.
+  it('админ не исключает другого админа', async () => {
+    const { service, prisma } = kickSetup()
+    prisma.chatMember.findUnique
+      .mockResolvedValueOnce({ isAdmin: true, bannedAt: null })
+      .mockResolvedValueOnce({ isAdmin: true })
+
+    const err = await service.removeMember(user('admin2'), 'g1', 'admin3').catch((e) => e)
+
+    expect(err.code).toBe('FORBIDDEN')
+    expect(prisma.chatMember.deleteMany).not.toHaveBeenCalled()
   })
 
   it('участник исключается со служебной строкой', async () => {

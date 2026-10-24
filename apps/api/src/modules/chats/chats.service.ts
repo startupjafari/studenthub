@@ -1861,6 +1861,20 @@ export class ChatsService implements OnModuleInit {
     if (chat.createdById && userId === chat.createdById) {
       throw new AppException('FORBIDDEN', 'Нельзя исключить создателя группы')
     }
+    // Админов назначает и снимает только создатель (§8.3) — и исключает тоже он: иначе любой
+    // админ выкидывал бы остальных и оставался в группе единственным.
+    if (chat.createdById && chat.createdById !== actor.sub) {
+      const targetMember = await this.prisma.chatMember.findUnique({
+        where: { chatId_userId: { chatId, userId } },
+        select: { isAdmin: true },
+      })
+      if (targetMember?.isAdmin) {
+        throw new AppException(
+          'FORBIDDEN',
+          'Исключить администратора может только создатель группы',
+        )
+      }
+    }
     const target = await this.prisma.user.findUnique({
       where: { id: userId },
       select: { firstName: true, lastName: true },
@@ -3538,6 +3552,19 @@ export class ChatsService implements OnModuleInit {
     return chat
   }
 
+  /**
+   * Действия, которые контракт отдаёт только создателю группы (§8.3): бан и разбан, аватар.
+   * Раньше их делал любой админ — банил других админов и менял лицо группы. Группа без
+   * создателя (legacy) живёт по правилам assertGroupAdmin.
+   */
+  private async assertGroupCreator(actor: JwtPayload, chatId: string) {
+    const chat = await this.assertGroupAdmin(actor, chatId)
+    if (chat.createdById != null && chat.createdById !== actor.sub) {
+      throw new AppException('FORBIDDEN', 'Только создатель группы может выполнять это действие')
+    }
+    return chat
+  }
+
   /** Проверка, что actor — владелец (создатель) группы. Для передачи прав/назначения админов. */
   private async assertGroupOwner(actor: JwtPayload, chatId: string) {
     const chat = await this.prisma.chat.findUnique({
@@ -3565,7 +3592,7 @@ export class ChatsService implements OnModuleInit {
     chatId: string,
     buffer: Buffer,
   ): Promise<{ id: string; avatarUrl: string }> {
-    const chat = await this.assertGroupAdmin(actor, chatId)
+    const chat = await this.assertGroupCreator(actor, chatId)
     const bucket = this.config.get('MINIO_BUCKET_AVATARS', { infer: true })
     const file = await this.files.upload({
       buffer,
@@ -3603,7 +3630,7 @@ export class ChatsService implements OnModuleInit {
     actor: JwtPayload,
     chatId: string,
   ): Promise<{ id: string; avatarUrl: null }> {
-    const chat = await this.assertGroupAdmin(actor, chatId)
+    const chat = await this.assertGroupCreator(actor, chatId)
     const bucket = this.config.get('MINIO_BUCKET_AVATARS', { infer: true })
     await this.deleteChatAvatarFile(chat.avatarUrl, bucket)
     await this.prisma.chat.update({ where: { id: chatId }, data: { avatarUrl: null } })
@@ -3635,7 +3662,7 @@ export class ChatsService implements OnModuleInit {
     chatId: string,
     userId: string,
   ): Promise<{ chatId: string; userId: string; banned: boolean }> {
-    const chat = await this.assertGroupAdmin(actor, chatId)
+    const chat = await this.assertGroupCreator(actor, chatId)
     if (userId === actor.sub) throw new AppException('BAD_REQUEST', 'Нельзя забанить себя')
     if (chat.createdById && userId === chat.createdById) {
       throw new AppException('FORBIDDEN', 'Нельзя забанить создателя группы')
@@ -3677,7 +3704,7 @@ export class ChatsService implements OnModuleInit {
     chatId: string,
     userId: string,
   ): Promise<{ chatId: string; userId: string; banned: boolean }> {
-    await this.assertGroupAdmin(actor, chatId)
+    await this.assertGroupCreator(actor, chatId)
     await this.prisma.chatMember.updateMany({ where: { chatId, userId }, data: { bannedAt: null } })
     return { chatId, userId, banned: false }
   }

@@ -869,7 +869,8 @@ function ParticipantsTab({
         },
       })
     }
-    if (chat.isAdmin && m.id !== myId && (!m.isAdmin || m.banned)) {
+    // Бан — только создатель группы (§8.3), как и аватар.
+    if (chat.isOwner && m.id !== myId) {
       items.push({
         key: 'ban',
         label: m.banned ? t('unban') : t('ban'),
