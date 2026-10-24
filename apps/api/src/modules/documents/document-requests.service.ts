@@ -97,6 +97,10 @@ const STUDENT_EDITABLE = ['DRAFT', 'REJECTED', 'PARTIAL']
 // Сотрудник проверяет только отправленный комплект: черновик студент ещё не сдавал, а
 // принятый или отклонённый ждёт повторной отправки. PARTIAL — проверку можно продолжить.
 const STAFF_REVIEWABLE = ['SUBMITTED', 'PARTIAL']
+// Комплект, который сотрудник может открыть: любой, кроме черновика. Черновик студент ещё
+// собирает — его состав и файлы проверяющему не видны, пока не отправлены (как сдачи работ,
+// BACKEND_RULES §14.7). Возвращённый и снова правящийся комплект — тоже черновик.
+const STAFF_VISIBLE = { status: { not: 'DRAFT' } } satisfies Prisma.DocumentSubmissionWhereInput
 
 const DAY_MS = 24 * 60 * 60 * 1000
 // Позиция заполнена живым документом: удалённый владельцем (D-F21) обязательную позицию
@@ -636,7 +640,7 @@ export class DocumentRequestsService {
   async getSubmissionForStaff(actor: JwtPayload, submissionId: string) {
     this.assertStaff(actor)
     const sub = await this.prisma.documentSubmission.findFirst({
-      where: { id: submissionId, request: this.staffScopeWhere(actor) },
+      where: { id: submissionId, ...STAFF_VISIBLE, request: this.staffScopeWhere(actor) },
       select: {
         id: true,
         status: true,
@@ -719,7 +723,7 @@ export class DocumentRequestsService {
       where: {
         id: submissionItemId,
         documentId: { not: null },
-        submission: { request: this.staffScopeWhere(actor) },
+        submission: { ...STAFF_VISIBLE, request: this.staffScopeWhere(actor) },
       },
       select: {
         documentId: true,

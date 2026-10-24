@@ -439,6 +439,24 @@ describe('DocumentRequestsService — проверка (15.16)', () => {
     expect(prisma.documentEvent.create).not.toHaveBeenCalled()
   })
 
+  // Черновик студент ещё собирает: ни состав, ни файлы проверяющему до отправки не видны.
+  it('черновик комплекта проверяющему не открывается — ни карточка, ни файлы', async () => {
+    const { service, prisma, documents } = setup()
+    prisma.documentSubmission.findFirst.mockResolvedValue(null)
+    const err = await service.getSubmissionForStaff(staff(), 's1').catch((e) => e)
+    expect(err.code).toBe('NOT_FOUND')
+    expect(prisma.documentSubmission.findFirst.mock.calls[0][0].where).toMatchObject({
+      status: { not: 'DRAFT' },
+    })
+    prisma.documentSubmissionItem.findFirst.mockResolvedValue(null)
+    const fileErr = await service.getSubmissionFileUrl(staff(), 'si1', 'f1').catch((e) => e)
+    expect(fileErr.code).toBe('NOT_FOUND')
+    expect(prisma.documentSubmissionItem.findFirst.mock.calls[0][0].where.submission).toMatchObject(
+      { status: { not: 'DRAFT' } },
+    )
+    expect(documents.presign).not.toHaveBeenCalled()
+  })
+
   it('getSubmissionForStaff: удалённый владельцем документ показан неприложенным', async () => {
     const { service, prisma } = setup()
     const doc = (id: string, deletedAt: Date | null) => ({
@@ -875,6 +893,7 @@ describe('DocumentRequestsService — область сотрудника и с�
     await service.getSubmissionForStaff(staff(Role.UNIVERSITY_MODERATOR), 's1')
     expect(prisma.documentSubmission.findFirst.mock.calls[0][0].where).toEqual({
       id: 's1',
+      status: { not: 'DRAFT' },
       request: { universityId: 'uni-1' },
     })
   })
