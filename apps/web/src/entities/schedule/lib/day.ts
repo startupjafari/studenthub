@@ -34,7 +34,8 @@ const CHANGE_STATE: Record<ScheduleChange['type'], PairState> = {
 export function mergeChanges(changes: ScheduleChange[]): ScheduleChange | null {
   const cancel = changes.find((c) => c.type === 'CANCELLED')
   if (cancel) return cancel
-  let merged: ScheduleChange | null = null
+  // Через `as`: иначе TS сужает `merged` до null по начальному значению и в цикле.
+  let merged = null as ScheduleChange | null
   for (const c of changes) {
     const moved = c.type === 'MOVED' && !!c.newStartTime && !!c.newEndTime
     const roomChanged = (c.type === 'ROOM_CHANGED' || c.type === 'MOVED') && !!c.newRoom

@@ -19,13 +19,16 @@ export function patchCachedPost(
   // Обсуждение лежит под тем же ['posts', …] и тоже бесконечный список — его не трогаем:
   // там не посты, а комментарии.
   const notComments = (q: { queryKey: readonly unknown[] }) => q.queryKey[2] !== 'comments'
-  qc.setQueriesData<unknown>({ queryKey: postKeys.all, predicate: notComments }, (data) => {
-    if (!data || typeof data !== 'object' || Array.isArray(data)) return data
-    if ('pages' in data) {
-      const feed = data as InfiniteData<FeedPage>
-      return { ...feed, pages: feed.pages.map((pg) => ({ ...pg, items: pg.items.map(apply) })) }
-    }
-    if ('id' in data && '_count' in data) return apply(data as FeedPost)
-    return data
-  })
+  qc.setQueriesData<unknown>(
+    { queryKey: postKeys.all, predicate: notComments },
+    (data: unknown) => {
+      if (!data || typeof data !== 'object' || Array.isArray(data)) return data
+      if ('pages' in data) {
+        const feed = data as InfiniteData<FeedPage>
+        return { ...feed, pages: feed.pages.map((pg) => ({ ...pg, items: pg.items.map(apply) })) }
+      }
+      if ('id' in data && '_count' in data) return apply(data as FeedPost)
+      return data
+    },
+  )
 }

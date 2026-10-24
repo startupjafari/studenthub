@@ -3,7 +3,7 @@ import type { Vacancy } from '../../../entities/vacancy'
 // Вилка зарплаты строкой: «100 000 — 200 000 KZT», «от 100 000», «до 200 000».
 // Общая для строки витрины и карточки вакансии.
 export function salaryText(
-  vacancy: Vacancy,
+  vacancy: Pick<Vacancy, 'salaryMin' | 'salaryMax' | 'salaryCurrency'>,
   labels: { from: string; to: string },
   locale: string,
 ): string | null {
