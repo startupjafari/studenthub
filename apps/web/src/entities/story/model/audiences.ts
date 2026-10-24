@@ -13,9 +13,10 @@ export const STORY_AUDIENCES_BY_ROLE: Partial<Record<Role, StoryAudienceValue[]>
   [Role.STUDENT]: ['GROUP'],
 }
 
-// Кто выбирает конкретную группу/факультет. У студента, старосты и декана они свои —
-// сервер подставит их из профиля, и пикер только мешал бы.
-export const STORY_GROUP_PICKER_ROLES: Role[] = [Role.UNIVERSITY_ADMIN, Role.TEACHER]
+// Кто выбирает конкретную группу/факультет. У студента и старосты группа своя, у декана —
+// факультет: их сервер подставит из профиля. Группы в профиле декана нет — её он
+// выбирает среди групп своего факультета.
+export const STORY_GROUP_PICKER_ROLES: Role[] = [Role.UNIVERSITY_ADMIN, Role.DEAN, Role.TEACHER]
 export const STORY_FACULTY_PICKER_ROLES: Role[] = [Role.UNIVERSITY_ADMIN]
 
 /** Может ли роль публиковать сторисы (у модераторов и работодателя этого права нет). */
