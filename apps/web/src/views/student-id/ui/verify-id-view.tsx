@@ -20,9 +20,8 @@ import { Button, Card, CardContent, Skeleton } from '../../../shared/ui'
 import { cn, toApiError } from '../../../shared/lib'
 import { useAppSelector } from '../../../shared/store'
 import { NO_RESYNC_META } from '../../../shared/realtime'
-import { studentIdKeys, verifyStudentId } from '../../../entities/student-id'
+import { StudentIdCardFace, studentIdKeys, verifyStudentId } from '../../../entities/student-id'
 import { parseQrTarget } from '../../../features/qr-scan'
-import { StudentIdCardFace } from './student-id-card'
 
 // Сканер грузим лениво (камера — только на клиенте): библиотека qr-scanner не попадает в бандл,
 // пока сотрудник не откроет проверку без токена.
