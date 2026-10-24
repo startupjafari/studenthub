@@ -198,8 +198,10 @@ async function main() {
   const admin = await prisma.user.upsert({
     where: { email: 'admin@studenthub.app' },
     // Пароль/профиль при повторном запуске не трогаем, но 2FA сбрасываем: демо-аккаунт
-    // должен пускать по одному паролю (см. TWO_FACTOR_RESET).
-    update: TWO_FACTOR_RESET,
+    // должен пускать по одному паролю (см. TWO_FACTOR_RESET). На удалённой базе
+    // (SEED_ALLOW_REMOTE=1 — workflow «Seed», база общая с продом) это боевой админ:
+    // снять ему 2FA значит оставить вход по одному паролю, поэтому существующего не трогаем.
+    update: config.allowRemote ? {} : TWO_FACTOR_RESET,
     create: {
       email: 'admin@studenthub.app',
       passwordHash,
