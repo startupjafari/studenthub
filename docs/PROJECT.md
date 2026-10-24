@@ -329,7 +329,7 @@ closesAt, status). Фото/видео — `File` в публичном баке
   Квота на пользователя — `PROFILE_MEDIA_QUOTA` (300 файлов, 2 ГБ): превышение на `POST /profile/media`,
   `/media/presign` и `/media/confirm` → `409 CONFLICT`, `details[0].field = profileMediaQuota`,
   `message` = `files|bytes`. Новая обложка видео заменяет прежнюю только после записи.
-- `POST|GET(:userId)|PATCH|DELETE /profile/articles[...]`; `POST /profile/articles/cover` (обложка → URL).
+- `POST|GET(:userId)|PATCH|DELETE /profile/articles[...]`; `POST /profile/articles/cover` (обложка → URL; объект без записи `File`, живёт, пока на него ссылается статья).
   `GET /profile/:userId/articles?view=card` — карточки без `content`; `GET /profile/articles/:id` —
   статья целиком; `POST /profile/articles/:id/view` — один просмотр на зрителя в сутки.
 - `GET /profile/:userId/counts` → `{ photos, videos, articles, polls }`.
@@ -1480,7 +1480,7 @@ Excel: книга из двух листов — **«Данные» первым
 | `closeOverdueDocumentRequests` | `35 3 * * *` | Запросы документов с прошедшим сроком → `CLOSED` |
 | `cleanDetachedFiles` | `45 3 * * *` | Записи `File`, потерявшие владельца: вложения чатов и файлы материалов, отвязанные удалением (`SetNull`; свежие вложения не трогаются первый час); вложения сообщений, удалённых больше 30 дней назад; медиа постов, удалённых больше 30 дней назад (если на файл не ссылается ничто другое); загрузки в `posts-media`/`stories-media`/`applications`, не привязанные ни к чему за 24 ч (по всем FK); сканы документов, удалённых больше 30 дней назад, и сканы, не привязанные к документу 7 дней. Объекты затем снимает `cleanOrphanFiles` |
 | `purgeDeviceTokens` | `50 3 * * *` | `DeviceToken` без подтверждения 90 дней; `DeviceToken` и `PushSubscription` удалённых аккаунтов |
-| `cleanOrphanFiles` | `0 4 * * *` | Объекты MinIO без записи в `File`: листинг бакета читается потоком порциями по 500, сироты удаляются пачкой `removeObjects`. Живыми считаются и варианты медиа (`variants/<fileId>/…`, пока жива запись-владелец — сверяется по владельцу один раз на файл), и raw-объекты `profile-covers` (постер видео — `File.posterKey`, обложка пользователя — окончание `User.coverUrl`) |
+| `cleanOrphanFiles` | `0 4 * * *` | Объекты MinIO без записи в `File`: листинг бакета читается потоком порциями по 500, сироты удаляются пачкой `removeObjects`. Живыми считаются и варианты медиа (`variants/<fileId>/…`, пока жива запись-владелец — сверяется по владельцу один раз на файл), и raw-объекты `profile-covers` (постер видео — `File.posterKey`, обложка пользователя и обложка статьи — окончание `User.coverUrl` / `ProfileArticle.coverUrl`; брошенная, заменённая и обложка удалённой статьи уходят здесь) |
 | `purgeUnverifiedEmployers` | `20 4 * * *` | Только при `CLEANUP_PURGE_UNVERIFIED_EMPLOYERS=true`: компании в `PENDING_EMAIL` старше 30 дней → `Company.deletedAt` + удаление аккаунтов участников штатным путём (`softDeleteSelf`) |
 | `sweepIncompleteUploads` | `30 4 * * *` | Отмена многочастных загрузок, начатых больше суток назад (второй рубеж после правила бакета) |
 | `purgeUnconfirmedDemoRequests` | `30 4 * * *` | Неподтверждённые заявки вузов старше 7 дней |
