@@ -31,5 +31,6 @@ export function redactUrl(url: string): string {
  * целиком — с логином и паролем камеры, — а адрес выхода с токеном ретранслятора.
  */
 export function redactText(text: string): string {
-  return text.replace(/(rtsps?:\/\/)[^@/?#\s]*@/gi, '$1***@').replace(/pass=[^&\s]+/g, 'pass=***')
+  // Токен ретранслятора — JWT, двоеточия в нём нет: на нём ffmpeg начинает текст ошибки.
+  return text.replace(/(rtsps?:\/\/)[^@/?#\s]*@/gi, '$1***@').replace(/pass=[^&\s:]+/g, 'pass=***')
 }
