@@ -8,6 +8,9 @@ import { AnimatePresence, motion, SPRING, SWAP, useReducedMotion } from './motio
 import { Reveal, Section, SectionHeading, type SectionTone } from './primitives'
 import { AppMock } from './scenes/app-mock'
 
+/** Переезд плашки без движения — для `prefers-reduced-motion`. */
+const INSTANT = { duration: 0 } as const
+
 /**
  * Иконки ролей. Пять текстовых пунктов в ряд сливаются в сплошную полосу — значок даёт
  * каждой вкладке опору для глаза и помогает вернуться к нужной после прокрутки.
@@ -110,18 +113,20 @@ export function Roles({ dict, tone }: { dict: Dictionary; tone?: SectionTone }) 
                   {/*
                     Общий layoutId: плашка не гаснет под старой вкладкой и не зажигается
                     под новой, а переезжает — видно, куда именно переключился выбор.
+
+                    Разметка одна при любой настройке движения, меняется только переход.
+                    `useReducedMotion` на сервере даёт null, а в первом клиентском рендере —
+                    уже true: разные элементы по `calm` расходились при гидрации, и у
+                    пониженного движения оставалась серверная плашка.
                   */}
-                  {selected &&
-                    (calm ? (
-                      <span aria-hidden className="absolute inset-0 rounded-full bg-primary" />
-                    ) : (
-                      <motion.span
-                        layoutId="role-pill"
-                        aria-hidden
-                        transition={SPRING}
-                        className="sh-glow absolute inset-0 rounded-full bg-primary"
-                      />
-                    ))}
+                  {selected && (
+                    <motion.span
+                      layoutId="role-pill"
+                      aria-hidden
+                      transition={calm ? INSTANT : SPRING}
+                      className="sh-glow absolute inset-0 rounded-full bg-primary"
+                    />
+                  )}
                   <Icon className="relative size-4 shrink-0" aria-hidden />
                   <span className="relative">{tab.title}</span>
                 </button>
