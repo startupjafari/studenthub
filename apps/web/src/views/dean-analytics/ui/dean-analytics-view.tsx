@@ -1,10 +1,12 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import {
   BookOpen,
+  Building2,
   ChevronRight,
   FileClock,
   GraduationCap,
@@ -64,8 +66,8 @@ function rateTone(rate: number): string {
 type Tab = 'students' | 'groups'
 
 // Аналитика факультета (задача 14): показатели, «требует внимания», drill-down по группам.
-// У декана факультет один — берётся из токена. Админу и модератору вуза сервер факультет
-// не выводит (analytics.service: resolveFaculty), поэтому им нужен выбор в шапке.
+// У декана факультет один — берётся из токена. Админу вуза сервер факультет не выводит
+// (analytics.service: resolveFaculty), поэтому ему нужен выбор в шапке.
 export function DeanAnalyticsView() {
   const t = useTranslations('Analytics')
   const role = useAppSelector((s) => s.auth.role)
@@ -83,6 +85,8 @@ export function DeanAnalyticsView() {
   }, [picksFaculty, facultyId, faculties.data])
 
   const ready = !picksFaculty || !!facultyId
+  // Вуз без факультетов: считать нечего, и без явного состояния экран оставался пустым.
+  const noFaculties = picksFaculty && faculties.isSuccess && faculties.data.length === 0
   const scope = picksFaculty ? facultyId : undefined
   const q = useQuery({
     queryKey: analyticsKeys.faculty(scope),
@@ -136,7 +140,26 @@ export function DeanAnalyticsView() {
         }
       />
 
-      {q.isLoading ? (
+      {picksFaculty && faculties.isError ? (
+        <EmptyState
+          icon={<Inbox className="size-6" aria-hidden />}
+          title={t('loadError')}
+          action={<Button onClick={() => faculties.refetch()}>{t('retry')}</Button>}
+        />
+      ) : noFaculties ? (
+        <EmptyState
+          icon={<Building2 className="size-6" aria-hidden />}
+          title={t('noFaculties')}
+          description={t('noFacultiesHint')}
+          action={
+            role === Role.UNIVERSITY_ADMIN ? (
+              <Button asChild>
+                <Link href="/university-admin/faculties">{t('openFaculties')}</Link>
+              </Button>
+            ) : undefined
+          }
+        />
+      ) : !ready || q.isLoading ? (
         <div className="flex flex-col gap-3">
           <Skeleton className="h-24 w-full rounded-xl" />
           <Skeleton fill className="min-h-64 rounded-xl" />

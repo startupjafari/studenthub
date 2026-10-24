@@ -3773,7 +3773,10 @@
     "colTracked": "Marked",
     "riskEmpty": "Nobody needs attention",
     "riskEmptyHint": "No student in the faculty has low attendance, overdue work or low grades.",
-    "groupsCount": "{n} groups"
+    "groupsCount": "{n} groups",
+    "noFaculties": "Create a faculty first",
+    "noFacultiesHint": "Analytics is calculated per faculty, and the university has none yet.",
+    "openFaculties": "Go to faculties"
   },
   "AnalyticsReport": {
     "button": "Export report",
