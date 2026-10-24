@@ -112,11 +112,50 @@ class ScheduleTest {
     fun movedPairShowsNewTime() {
         val item = SchedulePair(
             PairEntity("p-1", "Алгоритмы", 2, "10:00", "11:30", "BOTH", null, null, null),
-            PairChangeEntity("c-1", "p-1", "MOVED", Instant.now(), "14:00", "15:30", null),
+            listOf(PairChangeEntity("c-1", "p-1", "MOVED", Instant.now(), "14:00", "15:30", null)),
         )
         assertEquals("14:00", item.startTime)
         assertEquals("15:30", item.endTime)
         assertFalse(item.isCancelled)
+    }
+
+    /**
+     * Изменения одной пары накладываются, как `effectiveSlot` на сервере: перенос, потом
+     * смена аудитории — новое время и новая аудитория; замена — другой преподаватель.
+     */
+    @Test
+    fun changesStackLikeServer() {
+        val at = Instant.parse("2026-10-13T00:00:00Z")
+        val item = SchedulePair(
+            PairEntity("p-1", "Алгоритмы", 2, "10:00", "11:30", "BOTH", "Ахметов Руслан", "101", null),
+            listOf(
+                PairChangeEntity("c-1", "p-1", "MOVED", at, "14:00", "15:30", null, createdAt = at),
+                PairChangeEntity("c-2", "p-1", "ROOM_CHANGED", at, null, null, null, newRoomName = "305", createdAt = at.plusSeconds(60)),
+                PairChangeEntity("c-3", "p-1", "SUBSTITUTED", at, null, null, null, newTeacherName = "Ким Данияр", createdAt = at.plusSeconds(120)),
+            ),
+        )
+        assertEquals("14:00", item.startTime)
+        assertEquals("305", item.roomName)
+        assertEquals("Ким Данияр", item.teacherName)
+    }
+
+    /** Аудитория и заменяющий из ответа сервера записываются именами. */
+    @Test
+    fun changeStoresNewRoomAndTeacher() = runTest {
+        val day = Instant.parse("2026-10-13T00:00:00Z")
+        store.saveChanges(
+            listOf(
+                ScheduleChangeDto(
+                    "c-1", "p-1", "SUBSTITUTED", day,
+                    newRoom = PairDto.Room("r-9", "305"),
+                    newTeacher = PairDto.Person("t-9", "Данияр", "Ким"),
+                ),
+            ),
+            day,
+        )
+        val stored = db.schedule().observeChanges(day, day.plusSeconds(86_400)).first().single()
+        assertEquals("305", stored.newRoomName)
+        assertEquals("Ким Данияр", stored.newTeacherName)
     }
 
     /**
@@ -139,8 +178,9 @@ class ScheduleTest {
                 ),
             ),
         )
-        val dayStart = LocalDate.of(2026, 10, 13).atStartOfDay(zone).toInstant()
-        store.saveChanges(listOf(ScheduleChangeDto("c-1", "even", "CANCELLED", dayStart.plusSeconds(3_600))), dayStart)
+        // Дата изменения — день вуза без времени: сервер отдаёт её полуночью UTC.
+        val day = Instant.parse("2026-10-13T00:00:00Z")
+        store.saveChanges(listOf(ScheduleChangeDto("c-1", "even", "CANCELLED", day)), day)
 
         val model = ScheduleModel(db, NoNetworkSchedule(), prefs = null, clock = clock)
         val visible = model.pairs.filterNotNull().first { it.isNotEmpty() }
@@ -149,6 +189,15 @@ class ScheduleTest {
 
         model.toggleParity()
         assertEquals(listOf("both", "odd"), model.pairs.filterNotNull().first { list -> list.any { it.id == "odd" } }.map { it.id })
+    }
+
+    /** Другая чётность — следующая неделя: изменения этой недели на неё не ложатся. */
+    @Test
+    fun otherParityLooksAtNextWeek() {
+        val clock = Clock.fixed(Instant.parse("2026-10-13T04:00:00Z"), ZoneId.of("Asia/Almaty"))
+        val model = ScheduleModel(db, NoNetworkSchedule(), prefs = null, clock = clock)
+        assertEquals(LocalDate.of(2026, 10, 14), model.dateOf(3, WeekParity.EVEN))
+        assertEquals(LocalDate.of(2026, 10, 21), model.dateOf(3, WeekParity.ODD))
     }
 
     /** Нет сети — экран остаётся рабочим, ошибка показывается строкой. */
@@ -164,7 +213,7 @@ class ScheduleTest {
     private class NoNetworkSchedule : ScheduleFetching {
         override suspend fun schedule(): ScheduleDto = throw kz.studenthub.app.core.network.ApiError.Transport(java.io.IOException("offline"))
 
-        override suspend fun changes(from: Instant, to: Instant): List<ScheduleChangeDto> = emptyList()
+        override suspend fun changes(from: LocalDate, to: LocalDate): List<ScheduleChangeDto> = emptyList()
     }
 }
 

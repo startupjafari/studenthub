@@ -35,20 +35,32 @@ import java.time.Clock
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import java.time.ZoneOffset
 import java.util.Locale
 
-/** Пара вместе с разовым изменением, если оно есть. */
-data class SchedulePair(val pair: PairEntity, val change: PairChangeEntity?) {
+/**
+ * Пара вместе с разовыми изменениями на её дату. Изменений бывает несколько (перенесли, потом
+ * сменили аудиторию) — накладываются по порядку внесения, как `effectiveSlot` на сервере:
+ * отмена отменяет, перенос даёт время, смена аудитории и замена — место и преподавателя.
+ */
+data class SchedulePair(val pair: PairEntity, val changes: List<PairChangeEntity> = emptyList()) {
     val id: String get() = pair.id
-    val isCancelled: Boolean get() = change?.type == "CANCELLED"
-    val startTime: String get() = change?.newStartTime ?: pair.startTime
-    val endTime: String get() = change?.newEndTime ?: pair.endTime
+    val isCancelled: Boolean get() = changes.any { it.type == "CANCELLED" }
+
+    private val moved: PairChangeEntity?
+        get() = changes.lastOrNull { it.type == "MOVED" && it.newStartTime != null && it.newEndTime != null }
+
+    val startTime: String get() = moved?.newStartTime ?: pair.startTime
+    val endTime: String get() = moved?.newEndTime ?: pair.endTime
+    val roomName: String? get() = changes.lastOrNull { it.newRoomName != null }?.newRoomName ?: pair.roomName
+    val teacherName: String?
+        get() = changes.lastOrNull { it.type == "SUBSTITUTED" && it.newTeacherName != null }?.newTeacherName ?: pair.teacherName
 
     /** Чем пара отличается от обычной: перенос, замена, другая аудитория. */
     val changeNote: UiText?
         get() {
-            val change = change ?: return null
-            change.note?.takeIf { it.isNotEmpty() }?.let { return UiText.Raw(it) }
+            val change = changes.firstOrNull { it.type == "CANCELLED" } ?: changes.lastOrNull() ?: return null
+            changes.lastOrNull { !it.note.isNullOrEmpty() }?.note?.let { return UiText.Raw(it) }
             return when (change.type) {
                 "CANCELLED" -> UiText.Res(R.string.schedule_cancelled)
                 "MOVED" -> UiText.Res(R.string.schedule_moved)
@@ -81,15 +93,19 @@ class ScheduleModel(
     private val _parity = MutableStateFlow(WeekParity.of(today))
     val parity: StateFlow<WeekParity> = _parity
 
-    /** Пары выбранного дня с учётом чётности и разовых изменений. */
-    val pairs: StateFlow<List<SchedulePair>?> = _day.flatMapLatest { day ->
-        val date = dateOf(day)
-        val from = date.atStartOfDay(zone).toInstant()
-        val to = date.plusDays(1).atStartOfDay(zone).toInstant()
-        combine(db.schedule().observeDay(day), db.schedule().observeChanges(from, to), _parity) { pairs, changes, parity ->
-            val byPair = changes.associateBy { it.pairId }
+    /**
+     * Пары выбранного дня с учётом чётности и разовых изменений. Чётность, отличная от
+     * текущей, — это следующая неделя: изменения ищутся на её даты, а не на даты этой.
+     */
+    val pairs: StateFlow<List<SchedulePair>?> = combine(_day, _parity) { day, parity -> day to parity }.flatMapLatest { (day, parity) ->
+        val date = dateOf(day, parity)
+        // Дата изменения — день вуза без времени, сервер отдаёт её полуночью UTC.
+        val from = date.atStartOfDay(ZoneOffset.UTC).toInstant()
+        val to = date.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant()
+        combine(db.schedule().observeDay(day), db.schedule().observeChanges(from, to)) { pairs, changes ->
+            val byPair = changes.groupBy { it.pairId }
             pairs.filter { parity.includes(it.weekType) }
-                .map { SchedulePair(it, byPair[it.id]) }
+                .map { SchedulePair(it, byPair[it.id].orEmpty()) }
                 .sortedBy { it.startTime }
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
@@ -120,10 +136,13 @@ class ScheduleModel(
         if (isRefreshing) return
         isRefreshing = true
         try {
-            store.save(api.schedule())
-            val from = today.atStartOfDay(zone).toInstant()
-            val to = today.plusDays(14).atStartOfDay(zone).toInstant()
-            store.saveChanges(api.changes(from, to), from)
+            val schedule = api.schedule()
+            store.save(schedule)
+            // Период изменений — дни вуза: «сегодня» человека в другом поясе не должно
+            // сдвигать окно на сутки.
+            val campus = schedule.timezone?.let { runCatching { ZoneId.of(it) }.getOrNull() } ?: zone
+            val from = LocalDate.now(clock.withZone(campus))
+            store.saveChanges(api.changes(from, from.plusDays(14)), from.atStartOfDay(ZoneOffset.UTC).toInstant())
             val now = clock.instant()
             syncedAt = now
             prefs?.edit { putLong(SYNCED_KEY, now.toEpochMilli()) }
@@ -137,8 +156,14 @@ class ScheduleModel(
         }
     }
 
-    /** Дата выбранного дня внутри текущей недели — по ней ищутся разовые изменения. */
-    private fun dateOf(day: Int): LocalDate = today.plusDays((day - today.dayOfWeek.value).toLong())
+    /**
+     * Дата выбранного дня — по ней ищутся разовые изменения. Неделя — текущая, а если
+     * выбрана другая чётность, то следующая: её и смотрят, переключая чётность.
+     */
+    fun dateOf(day: Int, parity: WeekParity = _parity.value): LocalDate {
+        val week = if (parity == WeekParity.of(today)) 0L else 7L
+        return today.plusDays((day - today.dayOfWeek.value).toLong() + week)
+    }
 
     companion object {
         private const val SYNCED_KEY = "schedule.synced-at"

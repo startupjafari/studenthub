@@ -37,7 +37,10 @@ data class PairDto(
 @Serializable
 data class ScheduleDto(val timezone: String? = null, val pairs: List<PairDto> = emptyList())
 
-/** Разовое изменение: перенос, смена аудитории, отмена, замена. */
+/**
+ * Разовое изменение: перенос, смена аудитории, отмена, замена. `date` — календарный день
+ * вуза без времени; сервер отдаёт его полуночью UTC.
+ */
 @Serializable
 data class ScheduleChangeDto(
     val id: String,
@@ -47,6 +50,11 @@ data class ScheduleChangeDto(
     val newStartTime: String? = null,
     val newEndTime: String? = null,
     val note: String? = null,
+    /** Новая аудитория — у смены аудитории и переноса. */
+    val newRoom: PairDto.Room? = null,
+    /** Заменяющий преподаватель. */
+    val newTeacher: PairDto.Person? = null,
+    @Serializable(InstantSerializer::class) val createdAt: Instant? = null,
 )
 
 @Serializable

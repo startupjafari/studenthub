@@ -229,7 +229,8 @@ interface ScheduleDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertChanges(changes: List<PairChangeEntity>)
 
-    @Query("SELECT * FROM pairChange WHERE date >= :from AND date < :to")
+    /** Изменения дня по порядку внесения: позднее перекрывает раннее, как на сервере. */
+    @Query("SELECT * FROM pairChange WHERE date >= :from AND date < :to ORDER BY createdAt, id")
     fun observeChanges(from: java.time.Instant, to: java.time.Instant): Flow<List<PairChangeEntity>>
 }
 

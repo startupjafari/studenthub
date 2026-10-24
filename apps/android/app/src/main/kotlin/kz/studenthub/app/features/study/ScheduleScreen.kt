@@ -168,8 +168,8 @@ private fun PairRow(item: SchedulePair, onOpen: () -> Unit) {
                 textDecoration = if (item.isCancelled) TextDecoration.LineThrough else null,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
-                item.pair.teacherName?.let { Meta(Icons.Outlined.Person, it) }
-                item.pair.roomName?.let { Meta(Icons.Outlined.Place, it) }
+                item.teacherName?.let { Meta(Icons.Outlined.Person, it) }
+                item.roomName?.let { Meta(Icons.Outlined.Place, it) }
             }
             item.changeNote?.let { Text(it.resolve(), style = AppType.meta, color = colors.warning) }
         }

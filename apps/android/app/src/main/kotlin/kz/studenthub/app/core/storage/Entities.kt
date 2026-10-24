@@ -232,5 +232,10 @@ data class PairChangeEntity(
     val newStartTime: String?,
     val newEndTime: String?,
     val note: String?,
+    /** Новая аудитория (смена аудитории, перенос) и заменяющий преподаватель — уже именами. */
+    val newRoomName: String? = null,
+    val newTeacherName: String? = null,
+    /** Когда изменение внесли: несколько изменений одной пары накладываются по порядку. */
+    val createdAt: Instant? = null,
 )
 

@@ -35,7 +35,8 @@ import java.time.Instant
     exportSchema = true,
     // Новые таблицы и столбцы без правки старых — автомиграция по сохранённым схемам.
     // Сложные изменения (переименования, перенос данных) пишутся миграцией руками.
-    // 3: автор и детали системных сообщений в `message`.
+    // 3: автор и детали системных сообщений в `message`; новая аудитория, заменяющий и
+    //    время внесения в `pairChange`.
     autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3)],
 )
 @TypeConverters(Converters::class)
