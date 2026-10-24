@@ -52,6 +52,8 @@ const ru = {
   complaintsTabDone: 'Разобранные',
   complaintsFilterAll: 'Все',
   complaintsDoneEmpty: 'Разобранных жалоб пока нет.',
+  complaintsShownOf: 'Показаны {shown} из {total}',
+  complaintsShowMore: 'Показать ещё',
 
   targetUser: 'На пользователя',
   targetMessage: 'На сообщение',
@@ -515,6 +517,8 @@ const kk: Record<MessageKey, string> = {
   complaintsTabDone: 'Қаралғандар',
   complaintsFilterAll: 'Барлығы',
   complaintsDoneEmpty: 'Қаралған шағымдар әзірге жоқ.',
+  complaintsShownOf: '{total} ішінен {shown} көрсетілген',
+  complaintsShowMore: 'Тағы көрсету',
 
   targetUser: 'Пайдаланушыға',
   targetMessage: 'Хабарламаға',
@@ -972,6 +976,8 @@ const en: Record<MessageKey, string> = {
   complaintsTabDone: 'Reviewed',
   complaintsFilterAll: 'All',
   complaintsDoneEmpty: 'Nothing reviewed yet.',
+  complaintsShownOf: 'Showing {shown} of {total}',
+  complaintsShowMore: 'Show more',
 
   targetUser: 'About a person',
   targetMessage: 'About a message',

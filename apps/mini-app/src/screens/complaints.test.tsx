@@ -137,6 +137,20 @@ describe('ComplaintsScreen', () => {
     expect(screen.getByText('Оскорбления в чате')).toBeInTheDocument()
   })
 
+  // Очередь больше страницы не обрезается молча: видно, сколько показано, и можно дозагрузить.
+  it('говорит, что показана не вся очередь, и дозагружает', async () => {
+    page([complaint()], 45)
+    render(<ComplaintsScreen />)
+
+    expect(await screen.findByText('Показаны 1 из 45')).toBeInTheDocument()
+    vi.mocked(fetchComplaints).mockClear()
+    await userEvent.click(screen.getByRole('button', { name: 'Показать ещё' }))
+
+    await waitFor(() =>
+      expect(vi.mocked(fetchComplaints).mock.calls[0]?.[0]).toMatchObject({ limit: 60 }),
+    )
+  })
+
   it('группирует список по дням', async () => {
     const old = new Date()
     old.setDate(old.getDate() - 3)
