@@ -371,8 +371,9 @@ export async function markReadyRequest(
 ): Promise<void> {
   await api.post(`/applications/${id}/mark-ready`, body)
 }
-export async function issueApplicationRequest(id: string): Promise<void> {
-  await api.post(`/applications/${id}/issue`)
+// Код получения называет студент; сервер сверяет его с выданным при «готово».
+export async function issueApplicationRequest(id: string, pickupCode: string): Promise<void> {
+  await api.post(`/applications/${id}/issue`, { pickupCode })
 }
 export async function deliverApplicationRequest(id: string): Promise<void> {
   await api.post(`/applications/${id}/deliver`)

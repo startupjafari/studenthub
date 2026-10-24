@@ -52,6 +52,7 @@ import { eventComment } from '../lib/requirement-titles'
 // Состояние текстового промпта для действий сотрудника.
 interface Prompt {
   title: string
+  placeholder?: string
   multiline?: boolean
   required?: boolean
   run: (value: string) => void
@@ -126,7 +127,6 @@ export function StaffWorkspaceModal({ id, onClose }: { id: string; onClose: () =
               <Row label={t('expectedReady')} value={new Date(app.dueAt).toLocaleString(locale)} />
             )}
             <AssigneeRow app={app} onChanged={() => void q.refetch()} />
-            {app.pickupCode && <Row label={t('pickupCodeLabel')} value={app.pickupCode} />}
           </Card>
 
           {/* Ответы анкеты — на всех этапах: по ним решают «подготовить или отклонить», а
@@ -231,7 +231,7 @@ function StaffActions({ app, onDone }: { app: ApplicationDetail; onDone: () => v
     onError: err,
   })
   const issueMut = useMutation({
-    mutationFn: () => issueApplicationRequest(app.id),
+    mutationFn: (pickupCode: string) => issueApplicationRequest(app.id, pickupCode),
     onSuccess: done,
     onError: err,
   })
@@ -330,7 +330,16 @@ function StaffActions({ app, onDone }: { app: ApplicationDetail; onDone: () => v
         key="issue"
         className="w-full"
         loading={issueMut.isPending}
-        onClick={() => issueMut.mutate()}
+        onClick={() =>
+          // Код получения называет студент, сервер сверяет: сотрудник его не видит, и
+          // оригинал не выдаётся без того, кто подавал заявку.
+          setPrompt({
+            title: t('issuePickupCodeTitle'),
+            placeholder: t('pickupCodeLabel'),
+            required: true,
+            run: (code) => issueMut.mutate(code.trim()),
+          })
+        }
       >
         {t('issue')}
       </Button>,
@@ -377,6 +386,7 @@ function StaffActions({ app, onDone }: { app: ApplicationDetail; onDone: () => v
       <PromptDialog
         open={!!prompt}
         title={prompt?.title ?? ''}
+        placeholder={prompt?.placeholder}
         multiline={prompt?.multiline}
         required={prompt?.required}
         submitLabel={t('promptSubmit')}

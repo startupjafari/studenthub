@@ -1837,6 +1837,7 @@
     "resultNote": "Түсініктеме",
     "pickupCodeLabel": "Алу коды",
     "pickupCodeHint": "Түпнұсқаны алғанда осы кодты қызметкерге айтыңыз",
+    "issuePickupCodeTitle": "Студент айтқан алу коды",
     "readyNeedsResult": "Алдымен нәтижені қосыңыз — онсыз студентке жүктеп алатын ештеңе жоқ",
     "promptSubmit": "Растау",
     "promptCancel": "Бас тарту",

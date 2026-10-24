@@ -1837,6 +1837,7 @@
     "resultNote": "Note",
     "pickupCodeLabel": "Pickup code",
     "pickupCodeHint": "Give this code to the staff member when collecting the original",
+    "issuePickupCodeTitle": "Pickup code given by the student",
     "readyNeedsResult": "Add a result first — otherwise the student has nothing to download",
     "promptSubmit": "Confirm",
     "promptCancel": "Cancel",

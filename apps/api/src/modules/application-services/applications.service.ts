@@ -331,8 +331,8 @@ export class ApplicationsService {
         rejectionReason: true,
         pickupLocation: true,
         pickupInstructions: true,
-        // Код получения оригинала: студент показывает его при выдаче, сотрудник сверяет
-        // (POST …/issue с pickupCode). Раньше генерировался и нигде не показывался.
+        // Код получения оригинала: студент называет его при выдаче, сотрудник сверяет
+        // (POST …/issue с pickupCode). Отдаётся только владельцу — см. ниже.
         pickupCode: true,
         service: {
           select: {
@@ -456,6 +456,9 @@ export class ApplicationsService {
     // ответ читают веб, iOS, Android). Ссылку на страницу выдаёт GET …/documents/:docId/url?fileId=.
     return {
       ...app,
+      // Код получения — только студенту: обработчик, видящий код сам, сверял бы его сам с
+      // собой, и выдать оригинал можно было, не видя студента.
+      pickupCode: scope.studentId === viewer.sub ? app.pickupCode : null,
       // Выбраны последние события — клиенту история нужна по порядку, от первого шага.
       // У назначений, записанных до переноса id в metadata, в comment лежит id сотрудника —
       // это не текст для истории, наружу его не отдаём.

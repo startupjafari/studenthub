@@ -790,3 +790,22 @@ describe('ApplicationsService.getById — отозванный результа�
     ])
   })
 })
+
+describe('ApplicationsService.getById — код получения', () => {
+  const scope = { studentId: 'stud', facultyId: 'fac', universityId: 'uni' }
+  const row = { id: 'a1', pickupCode: 'SH-P-1', documents: [], events: [], results: [] }
+
+  it('владельцу отдаётся', async () => {
+    const { service, application } = setup()
+    application.findFirst.mockResolvedValue(scope)
+    application.findUnique.mockResolvedValue(row)
+    expect((await service.getById(student, 'a1'))?.pickupCode).toBe('SH-P-1')
+  })
+
+  it('обработчику — нет: код сверяется со словами студента', async () => {
+    const { service, application } = setup()
+    application.findFirst.mockResolvedValue(scope)
+    application.findUnique.mockResolvedValue(row)
+    expect((await service.getById(dean, 'a1'))?.pickupCode).toBeNull()
+  })
+})
