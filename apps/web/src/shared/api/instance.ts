@@ -85,6 +85,18 @@ async function exchangeRefreshToken(): Promise<string> {
         '/auth/refresh',
       )
       const token = res.data.data.accessToken
+      // Cookie у вкладок общая: пока эта вкладка висела с прошлой сессией, в соседней мог
+      // войти другой человек, и обмен вернул ЕГО токен. Подложить его под открытый экран
+      // значило бы показывать чужие данные и действовать от чужого имени — сбрасываем
+      // сессию вкладки, а вход сам приведёт к тому, кто сейчас вошёл.
+      // Брошенная здесь ошибка не 429 — повторов не будет, она уходит вызывающему как есть.
+      const current = store.getState().auth.user?.id
+      const subject = tokenSubject(token)
+      if (current && subject && subject !== current) {
+        store.dispatch(clearAuth())
+        redirectToLogin()
+        throw new Error('Session belongs to another user')
+      }
       store.dispatch(setAccessToken(token))
       return token
     } catch (error) {
@@ -154,6 +166,19 @@ api.interceptors.response.use(
     return Promise.reject(error.response?.data?.error ?? NETWORK_ERROR)
   },
 )
+
+/** `sub` из полезной нагрузки JWT — без проверки подписи: это сверка, а не авторизация. */
+function tokenSubject(token: string): string | null {
+  try {
+    const payload = token.split('.')[1] ?? ''
+    const b64 = payload.replace(/-/g, '+').replace(/_/g, '/')
+    const padded = b64 + '='.repeat((4 - (b64.length % 4)) % 4)
+    const parsed = JSON.parse(atob(padded)) as { sub?: unknown }
+    return typeof parsed.sub === 'string' ? parsed.sub : null
+  } catch {
+    return null
+  }
+}
 
 function readHeader(headers: unknown, name: string): string | null {
   if (!headers || typeof headers !== 'object') return null

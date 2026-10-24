@@ -6,6 +6,7 @@ import type { AuthUser } from '../store/auth-slice'
 import { logoutRequest } from '../api/auth-api'
 import { syncLocaleCookieFromProfile } from '../i18n/locale-cookie'
 import { claimDeviceCache, forgetDeviceData } from './device-data'
+import { announceLogout } from './session-channel'
 
 // Поля профиля, которые держит стор сессии (остальное читается из кэша `me`).
 function toSessionUser(me: MeResponse): AuthUser {
@@ -50,7 +51,13 @@ export function syncSessionUser(me: MeResponse): void {
 // Обмен идёт через общий дедуплицированный refreshAccessToken, а не своим запросом: refresh-токен
 // одноразовый, и параллельный обмен из интерцептора (запросы первого рендера, ушедшие без Bearer)
 // выглядел бы для сервера как повторное использование — реюз-детектор погасил бы всю сессию.
+//
+// Без role-cookie не восстанавливаем: сервер ставит её вместе с refresh-cookie и гасит
+// вместе с ней, так что её нет только после выхода, который не дошёл до сервера (см.
+// endSession). Тихий обмен уцелевшей refresh-cookie вернул бы человека в сессию, из
+// которой он только что вышел.
 export async function restoreSession(): Promise<Role | null> {
+  if (!hasRoleCookie()) return null
   try {
     return await establishSession(await refreshAccessToken())
   } catch {
@@ -59,11 +66,33 @@ export async function restoreSession(): Promise<Role | null> {
 }
 
 // Выход: стираем данные пользователя с устройства, гасим серверную сессию и локальный стор.
+//
+// Не бросает: выход завершается локально при любом ответе сервера. Если `POST /auth/logout`
+// не дошёл (офлайн, 5xx), раньше исключение срывало переход на /login — данные оставались на
+// экране, а следующий запрос тихо обновлял сессию, и человек уходил от общего компьютера,
+// считая, что вышел. Теперь стираем role-cookie сами: middleware пустит на вход, а
+// restoreSession не поднимет сессию из уцелевшей refresh-cookie.
 export async function endSession(): Promise<void> {
   try {
     await forgetDeviceData()
     await logoutRequest()
+  } catch {
+    dropRoleCookie()
   } finally {
     store.dispatch(clearAuth())
+    announceLogout()
   }
+}
+
+// Нечувствительная role-cookie (решение §16.2): ставит и гасит её сервер вместе с refresh.
+const ROLE_COOKIE = 'sh_role'
+
+function hasRoleCookie(): boolean {
+  if (typeof document === 'undefined') return false
+  return document.cookie.split('; ').some((c) => c.startsWith(`${ROLE_COOKIE}=`))
+}
+
+function dropRoleCookie(): void {
+  if (typeof document === 'undefined') return
+  document.cookie = `${ROLE_COOKIE}=; Max-Age=0; path=/; SameSite=Lax`
 }

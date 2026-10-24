@@ -23,10 +23,16 @@ export async function forgetDeviceData(): Promise<void> {
   writeOwner(null)
 }
 
-/** При входе: если кэш принадлежит другому человеку — стереть его. */
+/**
+ * При входе: если кэш принадлежит другому человеку — стереть его.
+ *
+ * Владелец `null` (после выхода) — тоже не «свой»: соседняя вкладка, не узнавшая о выходе
+ * вовремя, могла успеть дописать в кэш ответы прошлого пользователя уже после того, как
+ * владелец был сброшен.
+ */
 export async function claimDeviceCache(userId: string): Promise<void> {
   const owner = readOwner()
-  if (owner !== null && owner !== userId) {
+  if (owner !== userId) {
     await withTimeout(clearApiCaches()).catch(() => undefined)
   }
   writeOwner(userId)

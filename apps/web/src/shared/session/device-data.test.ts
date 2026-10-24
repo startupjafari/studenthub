@@ -27,12 +27,18 @@ describe('данные прошлого пользователя на устро
   })
 
   it('вход другого человека стирает кэш прежнего, повторный вход того же — нет', async () => {
+    localStorage.setItem('sh_cache_owner', 'u1')
     const deleted = mockCaches(['me-today-api'])
-    await claimDeviceCache('u1')
-    expect(deleted).toEqual([])
     await claimDeviceCache('u1')
     expect(deleted).toEqual([])
     await claimDeviceCache('u2')
     expect(deleted).toEqual(['me-today-api'])
+  })
+
+  it('кэш без владельца (после выхода) при входе стирается', async () => {
+    // Соседняя вкладка могла дописать в кэш ответы вышедшего уже после сброса владельца.
+    const deleted = mockCaches(['chat-messages-api'])
+    await claimDeviceCache('u1')
+    expect(deleted).toEqual(['chat-messages-api'])
   })
 })
