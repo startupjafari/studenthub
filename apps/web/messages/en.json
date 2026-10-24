@@ -1508,6 +1508,8 @@
     "USERNAME_TAKEN": "This username is already taken",
     "UNIVERSITY_BLOCKED": "The university is blocked on the platform. Please contact your university administration",
     "EMAIL_NOT_VERIFIED": "Confirm your company email: the link was sent to you after sign-up",
+    "MAINTENANCE": "Maintenance is in progress. Please try again a little later",
+    "LOGIN_LOCKED": "Too many failed sign-in attempts. Sign-in to this account is temporarily locked — wait a few minutes",
     "retryHint": "Could not load the data. Refresh the page or try again later."
   },
   "Notifications": {
