@@ -202,16 +202,31 @@ export function RegisterByInviteForm({ token }: { token: string }) {
     }
   }
 
-  // Приглашение отсутствует/недействительно — заглушка с возвратом на главную.
+  // Приглашение отсутствует/недействительно — заглушка с возвратом на главную. Текст — по
+  // коду отказа (§7.3 п. 3): истёкшее просят выдать заново, использованным — входят, а
+  // лимит попыток проходит сам; общая фраза «истекло или использовано» не говорила, что делать.
   if (!token || preview.isError) {
+    const code = preview.isError ? toApiError(preview.error).code : null
+    const reason =
+      code === 'INVITE_EXPIRED'
+        ? t('inviteExpiredText')
+        : code === 'INVITE_USED'
+          ? t('inviteUsedText')
+          : code === 'INVITE_REVOKED'
+            ? t('inviteRevokedText')
+            : code === 'RATE_LIMIT'
+              ? t('inviteRateLimitText')
+              : t('inviteInvalidText')
     return (
       <div className="flex flex-col items-center gap-4 text-center">
         <span className="flex size-14 items-center justify-center rounded-full bg-destructive/10 text-destructive">
           <ShieldAlert className="size-7" aria-hidden />
         </span>
         <div className="flex flex-col gap-1">
-          <h2 className="text-2xl font-semibold">{t('inviteInvalidTitle')}</h2>
-          <p className="text-sm text-muted-foreground">{t('inviteInvalidText')}</p>
+          <h2 className="text-2xl font-semibold">
+            {code === 'RATE_LIMIT' ? t('inviteRateLimitTitle') : t('inviteInvalidTitle')}
+          </h2>
+          <p className="text-sm text-muted-foreground">{reason}</p>
         </div>
         <Button asChild variant="outline">
           <Link href="/login">{t('backToHome')}</Link>
