@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { Pair } from '../../../entities/schedule'
+import type { Pair, ScheduleChange } from '../../../entities/schedule'
 import type { CourseItem } from '../../../entities/course'
 import type { NowInTz } from '../../../shared/lib'
 import {
@@ -131,6 +131,46 @@ describe('buildCourses — дисциплины из расписания', () =
     it('пара по чётным — среда этой недели не подходит, следующая среда', () => {
       const [math] = buildCourses([pair({ dayOfWeek: 3, weekType: 'EVEN' })], [], MONDAY)
       expect(math?.next).toMatchObject({ inDays: 9, dayOfWeek: 3 })
+    })
+
+    // BUG-336: изменения своей даты — как в «Сегодня».
+    function change(over: Partial<ScheduleChange>): ScheduleChange {
+      return {
+        id: 'ch-1',
+        pairId: 'p-math',
+        type: 'CANCELLED',
+        date: '2026-10-19T00:00:00.000Z',
+        newStartTime: null,
+        newEndTime: null,
+        note: null,
+        createdAt: '2026-10-10T00:00:00.000Z',
+        newRoom: null,
+        newTeacher: null,
+        pair: {
+          groupId: 'g-1',
+          subject: 'Математика',
+          dayOfWeek: 1,
+          startTime: '11:00',
+          endTime: '12:30',
+        },
+        ...over,
+      }
+    }
+
+    it('отменённое сегодня занятие пропускается — следующее через неделю', () => {
+      const [math] = buildCourses([pair({ id: 'p-math' })], [], MONDAY, [change({})])
+      expect(math?.next).toMatchObject({ inDays: 7, startTime: '11:00' })
+    })
+
+    it('перенесённое занятие — новое время и аудитория', () => {
+      const moved = change({
+        type: 'MOVED',
+        newStartTime: '15:00',
+        newEndTime: '16:30',
+        newRoom: { id: 'r-5', name: '505' },
+      })
+      const [math] = buildCourses([pair({ id: 'p-math' })], [], MONDAY, [moved])
+      expect(math?.next).toEqual({ inDays: 0, dayOfWeek: 1, startTime: '15:00', room: '505' })
     })
   })
 })
