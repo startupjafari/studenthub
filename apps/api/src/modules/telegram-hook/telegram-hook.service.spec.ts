@@ -443,6 +443,19 @@ describe('TelegramHookService — команды', () => {
     cap.restore()
   })
 
+  // BUG-350: база не ответила на проверку привязки — исключение уходило из вебхука 500-й,
+  // и `/status` в аварию молчал, а Telegram повторял обновление.
+  it('сбой базы при проверке привязки — ответ без данных, а не исключение', async () => {
+    const { service, prisma } = setup({ TELEGRAM_BOT_TOKEN: 't' })
+    prisma.telegramAccount.findFirst.mockRejectedValue(new Error('база легла'))
+    const cap = captureSend()
+
+    await expect(service.handleMessage(privateMsg('/status'))).resolves.toBeUndefined()
+
+    expect(String(cap.sent[0]?.body.text)).toContain('Не получилось проверить привязку')
+    cap.restore()
+  })
+
   it('сбой запроса не оставляет человека без ответа', async () => {
     const { service, complaints } = setup({ TELEGRAM_BOT_TOKEN: 't' })
     complaints.queueStats.mockRejectedValue(new Error('база легла'))

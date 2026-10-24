@@ -124,6 +124,16 @@ const UNLINKED = [
   'Настройки → «Мини-апп в Telegram», там выдаётся код.',
 ].join('\n')
 
+/** Привязку не удалось проверить: база не ответила. */
+const UNVERIFIED = Symbol('unverified')
+
+/**
+ * Ответ, когда привязку проверить нечем. Без данных, как и UNLINKED: кто пишет — неизвестно.
+ * Сотруднику этого хватает, чтобы понять, что платформа сейчас отвечает с ошибкой.
+ */
+const LINK_CHECK_FAILED =
+  'Не получилось проверить привязку Telegram — платформа сейчас отвечает с ошибкой. Попробуйте позже.'
+
 /**
  * Имя команды из текста сообщения, либо null, если это не команда.
  *
@@ -263,7 +273,19 @@ export class TelegramHookService implements OnModuleInit {
     const command = parseCommand(message.text)
     if (command === null) return
 
-    const actor = await this.actorFor(message.from?.id)
+    // Привязку проверяет база. Не ответила — вебхук всё равно обязан вернуть 200 (иначе
+    // Telegram повторяет обновление часами), а человек — получить ответ: `/status` пишут
+    // как раз в аварию. Данных в ответе нет — кто спрашивает, здесь неизвестно.
+    const actor = await this.actorFor(message.from?.id).catch(
+      (error: unknown): typeof UNVERIFIED => {
+        this.logger.warn(`Бот: привязка Telegram не проверена: ${String(error)}`)
+        return UNVERIFIED
+      },
+    )
+    if (actor === UNVERIFIED) {
+      await this.reply(chatId, LINK_CHECK_FAILED)
+      return
+    }
     if (!actor) {
       await this.reply(chatId, UNLINKED)
       return
