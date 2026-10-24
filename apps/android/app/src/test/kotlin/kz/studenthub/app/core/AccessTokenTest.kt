@@ -9,6 +9,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.time.Instant
 
 /**
  * Подпись не проверяется намеренно: ключ у сервера. Клиент читает payload только чтобы
@@ -33,11 +34,24 @@ class AccessTokenTest {
     /** Обновляемся заранее: токен, которому осталась секунда, доедет уже просроченным. */
     @Test
     fun tokenIsNotUsableInsideRefreshMargin() {
-        val token = AccessToken.parse(studentToken)!!
+        val token = AccessToken.parse(studentToken, receivedAt = Instant.ofEpochSecond(1_790_000_000))!!
         val expiry = token.expiresAt
         assertTrue(token.isUsable(expiry.minusSeconds(120)))
         assertFalse(token.isUsable(expiry.minusSeconds(10)))
         assertFalse(token.isUsable(expiry.plusSeconds(1)))
+    }
+
+    /**
+     * Часы телефона ушли вперёд на час: срок считается по часам сервера (через `iat`),
+     * и свежий токен не выглядит просроченным перед каждым запросом.
+     */
+    @Test
+    fun phoneClockAheadDoesNotExpireFreshToken() {
+        val phoneNow = Instant.ofEpochSecond(1_790_000_000 + 3_600)
+        val token = AccessToken.parse(studentToken, receivedAt = phoneNow)!!
+        assertEquals(-3_600L, token.clockSkewSeconds)
+        assertTrue(token.isUsable(phoneNow.plusSeconds(60)))
+        assertFalse(token.isUsable(phoneNow.plusSeconds(900)))
     }
 
     /** Роль, которой приложение ещё не знает, не должна ронять разбор токена. */
