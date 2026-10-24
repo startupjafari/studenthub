@@ -115,15 +115,29 @@ export class MediaService {
     sourceId: string,
     target: { id: string; bucket: string; mime: string; mediaStatus?: MediaStatus },
   ): Promise<void> {
-    if (!this.kindOf(target.bucket, target.mime)) return
+    const kind = this.kindOf(target.bucket, target.mime)
+    if (!kind) return
     if (target.mediaStatus !== MediaStatus.PENDING && !(await this.markPending(target.id))) return
-    // Копирование — секунды при любом типе, поэтому в «быструю» очередь.
+    // Копирование готовых вариантов — секунды при любом типе, поэтому в «быструю» очередь.
+    // Но у неготового видео копия откатывается к перекодированию (copy → process): ffmpeg
+    // на минуты в очереди фото держал снимки, а с её lockDuration в 30 с BullMQ отдавал
+    // job второму воркеру — ролик кодировался дважды. Такая копия идёт в очередь видео:
+    // там она встаёт за кодированием источника и обычно застаёт его готовым.
+    const queueKind = kind === 'video' && !(await this.isReady(sourceId)) ? 'video' : 'image'
     await this.enqueue(
-      'image',
+      queueKind,
       MEDIA_JOBS.COPY,
       { sourceId, fileId: target.id },
       `media-copy_${target.id}`,
     )
+  }
+
+  private async isReady(fileId: string): Promise<boolean> {
+    const file = await this.prisma.file.findUnique({
+      where: { id: fileId },
+      select: { mediaStatus: true },
+    })
+    return file?.mediaStatus === MediaStatus.READY
   }
 
   private async markPending(fileId: string): Promise<boolean> {

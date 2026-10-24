@@ -113,6 +113,53 @@ describe('MediaService.schedule', () => {
   })
 })
 
+describe('MediaService.scheduleCopy', () => {
+  const SOURCE_ID = '22222222-2222-4222-8222-222222222222'
+  const target = { id: FILE_ID, bucket: 'chat-media', mediaStatus: MediaStatus.PENDING }
+
+  it('готовые варианты копируются в быстрой очереди — и у видео', async () => {
+    const { service, prisma, queue } = setup()
+    prisma.file.findUnique.mockResolvedValue({ mediaStatus: MediaStatus.READY })
+
+    await service.scheduleCopy(SOURCE_ID, { ...target, mime: 'video/mp4' })
+
+    expect(queue.enqueue).toHaveBeenCalledWith(
+      'media-image',
+      'copy-media-variants',
+      { sourceId: SOURCE_ID, fileId: FILE_ID },
+      expect.objectContaining({ jobId: `media-copy_${FILE_ID}` }),
+    )
+  })
+
+  it('копия неготового видео идёт в очередь видео: откат к ffmpeg не держит фото', async () => {
+    const { service, prisma, queue } = setup()
+    prisma.file.findUnique.mockResolvedValue({ mediaStatus: MediaStatus.PROCESSING })
+
+    await service.scheduleCopy(SOURCE_ID, { ...target, mime: 'video/mp4' })
+
+    expect(queue.enqueue).toHaveBeenCalledWith(
+      'media-video',
+      'copy-media-variants',
+      { sourceId: SOURCE_ID, fileId: FILE_ID },
+      expect.objectContaining({ jobId: `media-copy_${FILE_ID}`, attempts: 2 }),
+    )
+  })
+
+  it('копия изображения — всегда в очереди фото', async () => {
+    const { service, prisma, queue } = setup()
+
+    await service.scheduleCopy(SOURCE_ID, { ...target, mime: 'image/jpeg' })
+
+    expect(prisma.file.findUnique).not.toHaveBeenCalled()
+    expect(queue.enqueue).toHaveBeenCalledWith(
+      'media-image',
+      'copy-media-variants',
+      expect.anything(),
+      expect.anything(),
+    )
+  })
+})
+
 describe('MediaService.describeOne', () => {
   it('приватный бакет: srcset из подписанных ссылок, стабильных в пределах окна', async () => {
     const { service } = setup()
