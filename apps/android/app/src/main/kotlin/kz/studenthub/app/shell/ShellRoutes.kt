@@ -69,9 +69,12 @@ fun Destination(route: AppRoute, viewer: AccessToken) {
     when (route) {
         is AppRoute.Chat -> return ChatThreadScreen(chatId = route.id, viewerId = viewer.subject)
         is AppRoute.Section -> when (route.section) {
-            MoreSection.GRADES -> return GradesScreen()
-            MoreSection.ATTENDANCE -> return AttendanceScreen()
-            MoreSection.ASSIGNMENTS -> return AssignmentsScreen()
+            // Своих оценок и сводки посещаемости у преподавателя нет — эти маршруты для
+            // студента и старосты (`gradebook/me`, `attendance/me`), ему они отвечают 403.
+            // Журнала дисциплины в приложении пока нет — у преподавателя заглушка раздела.
+            MoreSection.GRADES -> if (viewer.role != Role.TEACHER) return GradesScreen()
+            MoreSection.ATTENDANCE -> if (viewer.role != Role.TEACHER) return AttendanceScreen()
+            MoreSection.ASSIGNMENTS -> return AssignmentsScreen(submits = viewer.role != Role.TEACHER)
             MoreSection.MATERIALS -> return MaterialsScreen()
             MoreSection.NOTIFICATIONS -> return NotificationsScreen(viewer)
             MoreSection.EVENTS -> return EventsScreen()
@@ -90,7 +93,7 @@ fun Destination(route: AppRoute, viewer: AccessToken) {
         is AppRoute.Service -> return ApplicationFormScreen(route.id)
         is AppRoute.Event -> return EventsScreen()
         is AppRoute.Profile -> return ProfileScreen(userId = route.userId.takeIf { it != viewer.subject })
-        is AppRoute.Assignment -> return AssignmentDetailScreen(route.id)
+        is AppRoute.Assignment -> return AssignmentDetailScreen(route.id, submits = viewer.role != Role.TEACHER)
         is AppRoute.Book -> return BookScreen(BookRef.Id(route.id))
         is AppRoute.BookCopy -> return BookScreen(BookRef.CopyCode(route.code))
         // Преподаватель с занятия идёт отмечать посещаемость — главное, зачем он вообще
@@ -99,7 +102,8 @@ fun Destination(route: AppRoute, viewer: AccessToken) {
         else -> Unit
     }
     val title = when (route) {
-        is AppRoute.Section -> stringResource(route.section.title)
+        is AppRoute.Section ->
+            if (route.section == MoreSection.GRADES && viewer.role == Role.TEACHER) stringResource(R.string.study_gradebook) else stringResource(route.section.title)
         is AppRoute.Lesson -> stringResource(R.string.shell_lesson)
         else -> stringResource(R.string.app_name)
     }

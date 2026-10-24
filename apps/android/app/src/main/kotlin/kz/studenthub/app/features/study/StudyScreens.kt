@@ -75,20 +75,23 @@ import java.time.format.FormatStyle
 
 /**
  * Вкладка «Учёба». Структура одна для всех ролей, состав — по роли: преподаватель
- * вместо своей успеваемости ведёт журнал (тот же раздел, другой заголовок).
+ * вместо своей успеваемости ведёт журнал (тот же раздел, другой заголовок), а
+ * посещаемость отмечает на занятии — из расписания: студенческие сводки ему отвечают 403.
  */
 @Composable
 fun StudyScreen(role: Role) {
     val router = LocalServices.current.router
+    val teaches = role == Role.TEACHER
     ScreenScaffold(title = stringResource(AppTab.STUDY.title)) {
         Column(Modifier.verticalScroll(rememberScrollState()).padding(Spacing.xl)) {
             ListGroup {
-                ListRow(stringResource(if (role == Role.TEACHER) R.string.study_gradebook else R.string.study_grades), Icons.Outlined.School) {
+                ListRow(stringResource(if (teaches) R.string.study_gradebook else R.string.study_grades), Icons.Outlined.School) {
                     router.push(AppRoute.Section(MoreSection.GRADES))
                 }
                 ListDivider()
                 ListRow(stringResource(R.string.study_attendance), Icons.Outlined.CheckCircle) {
-                    router.push(AppRoute.Section(MoreSection.ATTENDANCE))
+                    // Преподаватель отмечает посещаемость на занятии: пара в расписании.
+                    if (teaches) router.switchTo(AppTab.SCHEDULE) else router.push(AppRoute.Section(MoreSection.ATTENDANCE))
                 }
                 ListDivider()
                 ListRow(stringResource(R.string.study_assignments), Icons.AutoMirrored.Outlined.Assignment) {
@@ -234,21 +237,24 @@ private fun formatDate(instant: Instant): String =
 private fun formatDateTime(instant: Instant): String =
     instant.atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM, FormatStyle.SHORT).withLocale(currentLocale()))
 
-/** Задания студента: что сдано, что на проверке, что просрочено. */
+/**
+ * Задания: у студента — что сдано, что на проверке, что просрочено; у преподавателя —
+ * его задания, без студенческого статуса сдачи (сдавать ему нечего).
+ */
 @Composable
-fun AssignmentsScreen() {
+fun AssignmentsScreen(submits: Boolean = true) {
     val services = LocalServices.current
     val model = viewModel { SectionModel<List<AssignmentDto>> { services.studyApi.assignments() } }
     SectionScreen(stringResource(R.string.study_assignments), model) { assignments ->
         if (assignments.isEmpty()) item { EmptyRow(stringResource(R.string.study_noAssignments)) }
         items(assignments, key = { it.id }) { assignment ->
-            AssignmentRow(assignment) { services.router.push(AppRoute.Assignment(assignment.id)) }
+            AssignmentRow(assignment, submits) { services.router.push(AppRoute.Assignment(assignment.id)) }
         }
     }
 }
 
 @Composable
-private fun AssignmentRow(assignment: AssignmentDto, onOpen: () -> Unit) {
+private fun AssignmentRow(assignment: AssignmentDto, submits: Boolean, onOpen: () -> Unit) {
     val colors = AppTheme.colors
     Column(
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
@@ -268,13 +274,17 @@ private fun AssignmentRow(assignment: AssignmentDto, onOpen: () -> Unit) {
                 Text(formatDateTime(due), style = AppType.meta, color = if (overdue) colors.destructive else colors.mutedForeground)
             }
         }
-        Text(SubmissionState.of(assignment).title.resolve(), style = AppType.meta, color = colors.primary)
+        if (submits) Text(SubmissionState.of(assignment).title.resolve(), style = AppType.meta, color = colors.primary)
     }
 }
 
-/** Карточка задания со сдачей: текст и ссылка — то, что принимает сервер. */
+/**
+ * Карточка задания со сдачей: текст и ссылка — то, что принимает сервер. Сдаёт только
+ * студент (`PUT /assignments/:id/submission` — роли студента): преподавателю форма сдачи
+ * ответила бы 403, ему — только описание задания.
+ */
 @Composable
-fun AssignmentDetailScreen(assignmentId: String) {
+fun AssignmentDetailScreen(assignmentId: String, submits: Boolean = true) {
     val services = LocalServices.current
     val list = viewModel { SectionModel<List<AssignmentDto>> { services.studyApi.assignments() } }
     val submission = viewModel { SubmissionModel(assignmentId, services.studyApi) }
@@ -294,6 +304,7 @@ fun AssignmentDetailScreen(assignmentId: String) {
                 assignment.description?.takeIf { it.isNotEmpty() }?.let {
                     Text(it, style = AppType.body, color = AppTheme.colors.mutedForeground)
                 }
+                if (!submits) return@Column
                 Text(SubmissionState.of(assignment).title.resolve(), style = AppType.meta, color = AppTheme.colors.primary)
                 assignment.mySubmission?.feedback?.takeIf { it.isNotEmpty() }?.let {
                     Text(it, style = AppType.meta, color = AppTheme.colors.foreground)
