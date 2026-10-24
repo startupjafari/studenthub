@@ -32,12 +32,38 @@ const SECTION_NAV_KEYS: Record<string, readonly string[]> = {
   ],
 }
 
-/** Маршруты раздела: скрыть пункт мало — по прямой ссылке страница всё равно открылась бы. */
+/**
+ * Маршруты раздела: скрыть пункт мало — по прямой ссылке страница всё равно открылась бы.
+ * Вместе с общими — ролевые копии экранов (`/dean/chats`, `/teacher/events`…): их пункты
+ * навигации носят те же ключи и гаснут вместе с разделом, а адрес из палитры или закладки
+ * иначе открывал бы погашенный раздел.
+ */
 const SECTION_PATHS: Record<string, readonly string[]> = {
-  chats: ['/chats'],
-  events: ['/events'],
+  chats: [
+    '/chats',
+    '/starosta/chats',
+    '/teacher/chats',
+    '/dean/chats',
+    '/university-admin/chats',
+    '/moderator/university/chats',
+    '/platform-admin/chats',
+    '/moderator/platform/chats',
+  ],
+  events: [
+    '/events',
+    '/starosta/events',
+    '/teacher/events',
+    '/dean/events',
+    '/university-admin/events',
+  ],
   documents: ['/documents'],
-  applications: ['/applications'],
+  applications: [
+    '/applications',
+    '/starosta/applications',
+    '/dean/applications',
+    '/university-admin/applications',
+    '/moderator/university/applications',
+  ],
   portfolio: ['/portfolio'],
   career: ['/career', '/employer'],
 }
