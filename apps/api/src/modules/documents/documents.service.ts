@@ -143,6 +143,9 @@ function documentSortSpec(
  * Вердикты закрытых запросов — история: они не пересчитывают статус заново (тот, что они
  * поставили, остаётся до следующего события). `ignoreVerdicts` — содержимое документа
  * поменялось после вердиктов, они относятся к прежней версии и не считаются.
+ * `reviewedRequestId` — запрос, по которому вердикт выносится сейчас: отправленное до
+ * закрытия проверяют и после него, и такой вердикт — само событие, он ставит свой статус.
+ * Раньше он не считался: «на проверке» сменялось «Загружен», хотя документ отклонили.
  */
 export const REVIEW_STATUS_RANK = ['NEEDS_REPLACEMENT', 'IN_REVIEW', 'ACCEPTED'] as const
 export type ReviewStatus = (typeof REVIEW_STATUS_RANK)[number]
@@ -151,18 +154,21 @@ export interface ReviewItemState {
   status: string
   rejectionReason: string | null
   reviewedAt: Date | null
-  submission: { status: string; request: { status: string } }
+  submission: { status: string; requestId?: string; request: { status: string } }
 }
 
 export function reviewVerdict(
   items: ReviewItemState[],
   ignoreVerdicts = false,
+  reviewedRequestId?: string,
 ): { status: ReviewStatus | null; reason: string | null } {
   let best: ReviewStatus | null = null
   let reason: string | null = null
   let reasonAt = -1
   for (const it of items) {
-    const open = it.submission.request.status === 'OPEN'
+    const open =
+      it.submission.request.status === 'OPEN' ||
+      (!!reviewedRequestId && it.submission.requestId === reviewedRequestId)
     let st: ReviewStatus | null = null
     if (it.status === 'PENDING' && ['SUBMITTED', 'PARTIAL'].includes(it.submission.status)) {
       st = 'IN_REVIEW'
@@ -537,10 +543,11 @@ export class DocumentsService {
    * завершения проверки и правки черновика, а здесь — после правки содержимого и возврата
    * из архива. Выданные вузом документы не трогаются: их статус ведёт вуз (отзыв справки).
    * Запись условная (статус не изменился с чтения): параллельный пересчёт не затрёт чужой.
+   * `reviewedRequestId` — запрос, по которому только что вынесен вердикт (см. reviewVerdict).
    */
   async syncReviewStatus(
     documentIds: readonly string[],
-    opts: { contentChanged?: boolean } = {},
+    opts: { contentChanged?: boolean; reviewedRequestId?: string } = {},
   ): Promise<void> {
     const ids = [...new Set(documentIds)]
     if (ids.length === 0) return
@@ -555,7 +562,9 @@ export class DocumentsService {
             status: true,
             rejectionReason: true,
             reviewedAt: true,
-            submission: { select: { status: true, request: { select: { status: true } } } },
+            submission: {
+              select: { status: true, requestId: true, request: { select: { status: true } } },
+            },
           },
           take: SUBMISSION_ITEMS_LIMIT,
         },
@@ -563,7 +572,11 @@ export class DocumentsService {
       take: ids.length,
     })
     for (const doc of docs) {
-      const verdict = reviewVerdict(doc.submissionItems, opts.contentChanged)
+      const verdict = reviewVerdict(
+        doc.submissionItems,
+        opts.contentChanged,
+        opts.reviewedRequestId,
+      )
       const next = nextDocumentStatus(doc.status, verdict.status, opts.contentChanged)
       if (next === null) continue
       const reason = next === 'NEEDS_REPLACEMENT' ? verdict.reason : null

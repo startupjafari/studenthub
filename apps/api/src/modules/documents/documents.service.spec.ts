@@ -840,6 +840,19 @@ describe('статус документа по вердиктам проверк
     expect(reviewVerdict([item('PENDING', 'SUBMITTED', 'CLOSED')]).status).toBe('IN_REVIEW')
   })
 
+  it('вердикт, вынесенный после закрытия запроса, ставит свой статус', () => {
+    const closed = {
+      ...item('REJECTED', 'REJECTED', 'CLOSED', 'нечётко'),
+      submission: { status: 'REJECTED', requestId: 'r1', request: { status: 'CLOSED' } },
+    }
+    expect(reviewVerdict([closed], false, 'r1')).toEqual({
+      status: 'NEEDS_REPLACEMENT',
+      reason: 'нечётко',
+    })
+    // Вердикт другого закрытого запроса по-прежнему история.
+    expect(reviewVerdict([closed], false, 'r2').status).toBeNull()
+  })
+
   it('после правки содержимого прежние вердикты не считаются', () => {
     expect(reviewVerdict([item('REJECTED', 'REJECTED')], true).status).toBeNull()
     expect(reviewVerdict([item('PENDING')], true).status).toBe('IN_REVIEW')

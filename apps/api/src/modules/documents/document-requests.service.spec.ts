@@ -284,13 +284,13 @@ const STAFF_VIEW = {
 }
 
 // Комплект для finalize: статус + вердикты позиций.
-function toFinalize(status: string, items: { status: string }[]) {
+function toFinalize(status: string, items: { status: string }[], requestStatus = 'OPEN') {
   return {
     id: 's1',
     status,
     requestId: 'r1',
     studentId: 'stu-1',
-    request: { title: 'Комплект' },
+    request: { title: 'Комплект', status: requestStatus, dueAt: null },
     items,
   }
 }
@@ -1307,7 +1307,9 @@ describe('DocumentRequestsService — статусы документов по �
         },
       ],
     })
-    expect(documents.syncReviewStatus).toHaveBeenCalledWith(['doc-1'])
+    expect(documents.syncReviewStatus).toHaveBeenCalledWith(['doc-1'], {
+      reviewedRequestId: 'r1',
+    })
   })
 
   it('завершение с отклонением: REVIEW по документам и уведомление «требуется замена»', async () => {
@@ -1328,8 +1330,26 @@ describe('DocumentRequestsService — статусы документов по �
         }),
       ],
     })
-    expect(documents.syncReviewStatus).toHaveBeenCalledWith(['doc-1'])
+    expect(documents.syncReviewStatus).toHaveBeenCalledWith(['doc-1'], {
+      reviewedRequestId: 'r1',
+    })
     expect(queue.enqueue.mock.calls[0][2].titleKey).toBe('documents.replacement.title')
+    expect(queue.enqueue.mock.calls[0][2].data.url).toBe('/documents?section=requests')
+  })
+
+  // Проверка после закрытия запроса: пересдать по нему нельзя, а раздел запросов его уже
+  // не показывает — уведомление ведёт туда, где документ «требует замены».
+  it('завершение по закрытому запросу: вердикт ставит статус, ссылка — на «Обзор»', async () => {
+    const { service, prisma, queue, documents } = setup()
+    prisma.documentSubmission.findFirst
+      .mockResolvedValueOnce(toFinalize('SUBMITTED', [{ status: 'REJECTED' }], 'CLOSED'))
+      .mockResolvedValue({ ...STAFF_VIEW, status: 'REJECTED' })
+    prisma.documentSubmissionItem.findMany.mockResolvedValueOnce([{ documentId: 'doc-1' }])
+    await service.finalizeSubmission(staff(), 's1')
+    expect(documents.syncReviewStatus).toHaveBeenCalledWith(['doc-1'], {
+      reviewedRequestId: 'r1',
+    })
+    expect(queue.enqueue.mock.calls[0][2].data.url).toBe('/documents')
   })
 
   it('принятый комплект — обычное уведомление о результате', async () => {

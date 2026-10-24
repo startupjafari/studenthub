@@ -798,8 +798,13 @@ export class DocumentRequestsService {
       },
     )
     // Вердикт сразу в статус документа (15.3): владелец видит «принят» / «требует замены»
-    // с причиной. Сертификат после этого может стать VERIFIED (он главнее «принят»).
-    if (item.documentId) await this.documents.syncReviewStatus([item.documentId])
+    // с причиной — и когда запрос уже закрыт (сданное до закрытия проверяют и после).
+    // Сертификат после этого может стать VERIFIED (он главнее «принят»).
+    if (item.documentId) {
+      await this.documents.syncReviewStatus([item.documentId], {
+        reviewedRequestId: item.submission.requestId,
+      })
+    }
     if (input.status === 'ACCEPTED') await this.verifyCertificate(actor, item)
     return this.getSubmissionForStaff(actor, item.submission.id)
   }
@@ -850,7 +855,7 @@ export class DocumentRequestsService {
         status: true,
         requestId: true,
         studentId: true,
-        request: { select: { title: true } },
+        request: { select: { title: true, status: true, dueAt: true } },
         items: { select: { status: true } },
       },
     })
@@ -875,13 +880,17 @@ export class DocumentRequestsService {
       status,
       submissionId,
     })
-    await this.documents.syncReviewStatus(documentIds)
+    await this.documents.syncReviewStatus(documentIds, { reviewedRequestId: sub.requestId })
     // Уведомляем студента о результате проверки (§15.19). Ключ — на событие проверки
     // (момент завершения), а не на комплект и статус: отклонили → студент заменил → снова
     // отклонили — это новое уведомление, а прежний ключ `…:REJECTED` его молча глушил
     // (идемпотентность — против повтора job'а, BACKEND_RULES §9.2). Есть отклонённые
     // позиции — заголовок прямо говорит, что документ нужно заменить: это единственное
     // уведомление о «требует замены», отдельного на каждый документ нет.
+    // Запрос, который уже не принимает ответы (закрыт или прошёл срок), у студента в
+    // разделе запросов не открыть и не пересдать — ссылка ведёт на «Обзор», где документ
+    // «требует замены»: заменить его страницы можно и после закрытия.
+    const url = acceptsSubmissions(sub.request) ? '/documents?section=requests' : '/documents'
     await this.queue.enqueue(
       QUEUES.NOTIFICATIONS,
       NOTIFICATION_JOBS.DOCUMENT_RESULT,
@@ -891,7 +900,7 @@ export class DocumentRequestsService {
         titleKey: status === 'REJECTED' ? 'documents.replacement.title' : 'documents.result.title',
         bodyKey: 'documents.named.body',
         params: { title: sub.request.title },
-        data: { requestId: sub.requestId, status, url: '/documents?section=requests' },
+        data: { requestId: sub.requestId, status, url },
         dedupeKey: `doc-result:${submissionId}:${reviewedAt.getTime()}`,
       },
       { jobId: `doc-result:${submissionId}:${reviewedAt.getTime()}` },
