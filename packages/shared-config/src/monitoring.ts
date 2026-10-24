@@ -35,9 +35,12 @@ export const SENSITIVE_HEADERS: readonly string[] = [
 /**
  * Пути, где секрет лежит в самом сегменте URL, а не в query.
  * `GET /invites/:token/preview` — токен инвайта = одноразовый пароль на регистрацию.
+ * `/bot<id>:<secret>/<метод>` — Bot API Telegram: токен бота стоит в пути каждого вызова и
+ * попадал в хлебные крошки исходящих запросов API.
  */
 const SENSITIVE_PATH_PATTERNS: readonly { pattern: RegExp; replacement: string }[] = [
   { pattern: /\/invites\/[^/?#]+\/preview/gi, replacement: '/invites/[token]/preview' },
+  { pattern: /\/bot\d+:[^/?#]+/g, replacement: '/bot[token]' },
 ]
 
 const REDACTED = '[Filtered]'
@@ -173,6 +176,12 @@ export function scrubSentryEvent<T extends ScrubbableEvent>(event: T): T {
  */
 const URL_BREADCRUMB_KEYS = ['url', 'from', 'to'] as const
 
+/**
+ * Части адреса, которые SDK кладёт в крошку отдельно от `url`: строка запроса и якорь
+ * целиком. В них те же секреты (`?t=`, `?token=`), а для поиска ошибки они не нужны.
+ */
+const DROPPED_BREADCRUMB_KEYS = ['http.query', 'http.fragment'] as const
+
 /** Чистит все URL-поля данных хлебной крошки. Исходный объект не мутируется. */
 export function scrubBreadcrumbData(data: Record<string, unknown>): Record<string, unknown> {
   let result = data
@@ -181,6 +190,10 @@ export function scrubBreadcrumbData(data: Record<string, unknown>): Record<strin
     if (typeof value === 'string') {
       result = { ...result, [key]: scrubUrl(value) }
     }
+  }
+  if (DROPPED_BREADCRUMB_KEYS.some((key) => key in result)) {
+    result = { ...result }
+    for (const key of DROPPED_BREADCRUMB_KEYS) delete result[key]
   }
   return result
 }

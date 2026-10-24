@@ -6,6 +6,7 @@ import { request as httpsRequest } from 'node:https'
 import { isIP, type LookupFunction } from 'node:net'
 import { pipeline, type Readable } from 'node:stream'
 import { createBrotliDecompress, createGunzip, createInflate } from 'node:zlib'
+import { LINK_PREVIEW_USER_AGENT } from './link-preview-agent'
 
 export interface LinkPreview {
   url: string
@@ -22,7 +23,7 @@ const FETCH_TIMEOUT_MS = 8000
 const REQUEST_HEADERS = {
   accept: 'text/html',
   'accept-encoding': 'gzip, deflate, br',
-  'user-agent': 'StudentHubBot/1.0 (+link-preview)',
+  'user-agent': LINK_PREVIEW_USER_AGENT,
 }
 // Читаем до `</head>` — OG-теги живут там, остальное тело качать незачем. Потолок нужен на
 // случай страницы без закрывающего тега; 512 КБ не хватало: у YouTube один только <head>
