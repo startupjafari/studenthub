@@ -18,6 +18,7 @@ import {
   POSTS_UNIVERSITY,
   POST_TITLES,
   REACTIONS,
+  postPriority,
   postText,
 } from '../data/content.mjs'
 import { child, id } from '../lib/ids.mjs'
@@ -79,10 +80,9 @@ export async function seedSocial(prisma, writer, ctx) {
       status: 'PUBLISHED',
       publishedAt: random.randomDate(-25, -1),
       views: random.randInt(40, 900),
+      priority: postPriority('UNIVERSITY', true),
       // Один закреплённый пост на вуз: лента должна показывать закрепление.
-      ...(pi === 0
-        ? { pinnedAt: random.randomDate(-5, -1), pinnedById: people.adminId, priority: 1 }
-        : {}),
+      ...(pi === 0 ? { pinnedAt: random.randomDate(-5, -1), pinnedById: people.adminId } : {}),
     })
   }
 
@@ -98,6 +98,7 @@ export async function seedSocial(prisma, writer, ctx) {
         status: 'PUBLISHED',
         publishedAt: random.randomDate(-18, -1),
         views: random.randInt(20, 300),
+        priority: postPriority('FACULTY', true),
       })
     }
     for (const group of faculty.groups) {
@@ -113,6 +114,7 @@ export async function seedSocial(prisma, writer, ctx) {
           status: 'PUBLISHED',
           publishedAt: random.randomDate(-12, 0),
           views: random.randInt(5, 60),
+          priority: postPriority('GROUP', false),
         })
       }
     }
@@ -126,6 +128,7 @@ export async function seedSocial(prisma, writer, ctx) {
     content: 'Текст ещё готовится: уточняем дату и место проведения.',
     universityId: uniId,
     status: 'DRAFT',
+    priority: postPriority('UNIVERSITY', true),
   })
   await addPost(id(index, 'post', 'sched'), {
     authorId: people.adminId,
@@ -135,6 +138,7 @@ export async function seedSocial(prisma, writer, ctx) {
     universityId: uniId,
     status: 'SCHEDULED',
     scheduledAt: random.randomDate(1, 6),
+    priority: postPriority('UNIVERSITY', true),
   })
 
   // ── Личные посты: 20–100 на каждого пользователя вуза ───────────────────────
@@ -187,6 +191,7 @@ export async function seedSocial(prisma, writer, ctx) {
         publishedAt,
         createdAt: publishedAt,
         views: random.randInt(0, 240),
+        priority: postPriority(audience, author.staff),
       })
       if (pi < imagesPerUser) {
         withImage.push({ postId, ownerId: author.id, source: sources[(ai + pi) % sources.length] })

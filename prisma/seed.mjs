@@ -23,6 +23,7 @@ import { recordRun } from './seed/lib/marker.mjs'
 import { runCleanup } from './seed/cleanup.mjs'
 import { loadEnv } from './seed/lib/env.mjs'
 import { createWriter } from './seed/lib/writer.mjs'
+import { postPriority } from './seed/data/content.mjs'
 import { createStorage } from './seed/lib/storage.mjs'
 
 // DATABASE_URL живёт в apps/api/.env, а `node prisma/seed.mjs` его сам не читает: .env
@@ -1300,6 +1301,7 @@ async function seedDemoUniverse({ passwordHash, admin, progress, seedPassword })
       universityId: U,
       status: 'PUBLISHED',
       publishedAt: daysFromNow(-randInt(1, 20)),
+      priority: postPriority('UNIVERSITY', true),
     })
   }
   for (const fac of FACS) {
@@ -1318,6 +1320,7 @@ async function seedDemoUniverse({ passwordHash, admin, progress, seedPassword })
         facultyId: fac.id,
         status: 'PUBLISHED',
         publishedAt: daysFromNow(-randInt(1, 15)),
+        priority: postPriority('FACULTY', true),
       })
     }
   }
@@ -1336,6 +1339,7 @@ async function seedDemoUniverse({ passwordHash, admin, progress, seedPassword })
       groupId: g.id,
       status: 'PUBLISHED',
       publishedAt: daysFromNow(-randInt(1, 10)),
+      priority: postPriority('GROUP', false),
     })
   }
   counts.posts = await insertMany(prisma.post, postRows)
