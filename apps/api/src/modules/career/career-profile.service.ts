@@ -159,7 +159,8 @@ export class CareerProfileService {
   /**
    * Карточка студента глазами работодателя. Четыре барьера подряд, все обязательны:
    *
-   * 1. Компания допущена к вузу этого студента (иначе WRONG_SCOPE).
+   * 1. Компания допущена к вузу этого студента (иначе NOT_FOUND, а не WRONG_SCOPE: разный
+   *    ответ на «чужой вуз» и «нет такого» подтверждал бы перебором, что id существует).
    * 2. Карьерный профиль открыт для работодателей (иначе NOT_FOUND — существование
    *    скрытого профиля не подтверждаем).
    * 3. GPA, телефон и email отдаются только при активном согласии.
@@ -173,10 +174,12 @@ export class CareerProfileService {
     const companyId = this.access.requireCompany(viewer)
     const source = await this.loadSource(studentId, 'external')
 
-    if (!source.universityId) {
+    if (
+      !source.universityId ||
+      !(await this.access.canAccessUniversity(companyId, source.universityId))
+    ) {
       throw new AppException('NOT_FOUND', 'Профиль не найден')
     }
-    await this.access.assertCanAccessUniversity(viewer, source.universityId)
 
     if (source.careerProfile?.visibility !== 'EMPLOYERS') {
       // Скрытый профиль отвечает так же, как несуществующий: иначе перебор id
@@ -292,7 +295,13 @@ export class CareerProfileService {
   private loadSource(userId: string, audience: PortfolioAudience) {
     return this.prisma.user
       .findFirst({
-        where: { id: userId, deletedAt: null },
+        // Заблокированного студента внешней стороне не показываем — как и его публичное
+        // резюме (resume.service): блокировка снимает человека с витрины целиком.
+        where: {
+          id: userId,
+          deletedAt: null,
+          ...(audience === 'external' ? { isBlocked: false } : {}),
+        },
         select: {
           id: true,
           firstName: true,
