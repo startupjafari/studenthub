@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Building2, Check, GraduationCap, Landmark, UserCog, Users } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { Dictionary } from '../content'
@@ -45,6 +45,25 @@ export function Roles({ dict, tone }: { dict: Dictionary; tone?: SectionTone }) 
   const [activeIndex, setActiveIndex] = useState(0)
   const calm = useReducedMotion()
   const tabRefs = useRef<(HTMLButtonElement | null)[]>([])
+  const rowRef = useRef<HTMLDivElement>(null)
+  const [overflowing, setOverflowing] = useState(false)
+
+  /*
+    Затухание краёв — только пока ряд действительно не помещается. Постоянная маска на
+    широком экране, где все вкладки видны целиком, срезала край первой из них — а это
+    активная по умолчанию. Ширина ряда зависит от перевода и шрифта, поэтому меряем, а не
+    угадываем брейкпоинтом.
+  */
+  useEffect(() => {
+    const row = rowRef.current
+    if (!row || typeof ResizeObserver === 'undefined') return
+    const measure = () => setOverflowing(row.scrollWidth > row.clientWidth + 1)
+    const observer = new ResizeObserver(measure)
+    observer.observe(row)
+    if (row.firstElementChild) observer.observe(row.firstElementChild)
+    measure()
+    return () => observer.disconnect()
+  }, [])
 
   const active = t.tabs[activeIndex] ?? t.tabs[0]
   if (!active) return null
@@ -72,14 +91,18 @@ export function Roles({ dict, tone }: { dict: Dictionary; tone?: SectionTone }) 
       <Reveal className="flex flex-col gap-[clamp(1.75rem,3vw,2.5rem)]">
         {/*
           Пять ролей в строку помещаются не на всякой ширине, поэтому ряд прокручивается
-          сам, а затухание у краёв сообщает, что вкладки продолжаются.
+          сам, а затухание у краёв сообщает, что вкладки продолжаются (только когда ряд
+          и правда не помещается — см. `overflowing`).
           Горизонтальной прокрутки страницы при этом не появляется — едет только ряд.
 
           Дорожки с рамкой вокруг ряда больше нет: подложку носит сама активная вкладка и
           переезжает вместе с выбором (layoutId). Рамка вокруг всего ряда рядом с едущей
           плашкой превращалась во вторую рамку и спорила с ней.
         */}
-        <div className="sh-fade-x -mx-1 overflow-x-auto px-1 py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div
+          ref={rowRef}
+          className={`${overflowing ? 'sh-fade-x ' : ''}-mx-1 overflow-x-auto px-1 py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden`}
+        >
           <div
             role="tablist"
             aria-label={t.title}
