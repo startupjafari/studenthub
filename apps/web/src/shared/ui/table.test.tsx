@@ -113,9 +113,17 @@ describe('TablePagination', () => {
 
   it('страница за пределами выборки прижимается к последней', () => {
     // Так бывает после сужения фильтра: страница в состоянии осталась прежней.
-    renderPagination({ page: 9, total: 57, limit: 20 })
+    const { onPageChange } = renderPagination({ page: 9, total: 57, limit: 20 })
     expect(screen.getByText('57 строк · Страница 3 из 3')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Следующая страница' })).toBeDisabled()
+    // И сам экран переводится туда: иначе запрос уходит за несуществующей страницей, и
+    // таблица над подвалом пуста.
+    expect(onPageChange).toHaveBeenCalledWith(3)
+  })
+
+  it('пока итог неизвестен (total 0), страницу не трогает', () => {
+    const { onPageChange } = renderPagination({ page: 4, total: 0, limit: 20 })
+    expect(onPageChange).not.toHaveBeenCalled()
   })
 
   it('номер страницы открывает именно её, текущая помечена aria-current', async () => {

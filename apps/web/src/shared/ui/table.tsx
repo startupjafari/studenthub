@@ -606,6 +606,14 @@ export function TablePagination({
   const pages = Math.max(1, Math.ceil(total / limit))
   const current = Math.min(Math.max(page, 1), pages)
 
+  // Страница за пределами выборки (удалили последнюю строку последней страницы, сменили
+  // размер страницы) — переводим экран на последнюю существующую. Зажать номер только для
+  // показа мало: подвал говорил «последняя страница», а таблица над ним была пустой, потому
+  // что запрос уходил за несуществующей. `total > 0` — пока ответа нет, итог неизвестен.
+  useEffect(() => {
+    if (total > 0 && page > pages) onPageChange(pages)
+  }, [total, page, pages, onPageChange])
+
   return (
     <div
       className={cn(
