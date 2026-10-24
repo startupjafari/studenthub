@@ -21,8 +21,8 @@ run-name: ОЧИСТКА прод-БД · останется ${{ inputs.admin_em
 # Railway → Postgres → Backups.
 #
 # Требуется секрет репозитория DATABASE_PUBLIC_URL (как у workflow «SEED»).
-# Пароль администратора: секрет RESET_ADMIN_PASSWORD, если он задан; иначе скрипт
-# сгенерирует пароль и напечатает его в лог прогона.
+# Пароль администратора — только секретом RESET_ADMIN_PASSWORD: сгенерированный пароль
+# пришлось бы напечатать в лог прогона, а лог публичный. Без секрета прогон отказывается.
 
 on:
   workflow_dispatch:
@@ -68,9 +68,11 @@ jobs:
 
     steps:
       # Подтверждение проверяем ДО checkout: неверный ввод не должен ничего запускать.
-      - name: Проверить подтверждение RESET и секрет с адресом БД
+      - name: Проверить подтверждение RESET и секреты
         env:
           CONFIRM: ${{ inputs.confirm }}
+          # Сам секрет в шаг не попадает: нужен только факт «задан или нет».
+          ADMIN_PASSWORD_SET: ${{ secrets.RESET_ADMIN_PASSWORD != '' }}
         run: |
           if [ "$CONFIRM" != "RESET" ]; then
             echo "::error::Подтверждение не совпало: ожидалось RESET." >&2
@@ -78,6 +80,10 @@ jobs:
           fi
           if [ -z "${DATABASE_URL}" ]; then
             echo "::error::Секрет DATABASE_PUBLIC_URL не задан в настройках репозитория." >&2
+            exit 1
+          fi
+          if [ "$ADMIN_PASSWORD_SET" != "true" ]; then
+            echo "::error::Секрет RESET_ADMIN_PASSWORD не задан: сгенерированный пароль ушёл бы в публичный лог." >&2
             exit 1
           fi
 
@@ -142,22 +148,13 @@ jobs:
         run: pnpm db:seed:kato
 
       # admin_email — ввод запускающего, в shell идёт переменной окружения, а не подстановкой.
-      # Сам секрет с паролем сюда не попадает вовсе: нужен только факт «задан или нет»,
-      # и его вычисляет выражение, а в шаг приезжает true/false.
       - name: Итог — в сводку запуска
         env:
           ADMIN_EMAIL: ${{ inputs.admin_email }}
-          ADMIN_PASSWORD_SET: ${{ secrets.RESET_ADMIN_PASSWORD != '' }}
         run: |
           {
             echo "### Сброс БД выполнен"
             echo ""
             echo "В базе остался один пользователь — PLATFORM_ADMIN \`$ADMIN_EMAIL\`."
-            if [ "$ADMIN_PASSWORD_SET" = "true" ]; then
-              echo "Пароль — из секрета \`RESET_ADMIN_PASSWORD\`."
-            else
-              echo "Пароль сгенерирован и напечатан в логе шага «Очистить таблицы, оставив одного администратора» — сохраните его и смените после входа."
-              echo ""
-              echo "Он остаётся в логе этого прогона: после входа и смены пароля лог можно удалить (Actions → прогон → Delete run)."
-            fi
+            echo "Пароль — из секрета \`RESET_ADMIN_PASSWORD\`."
           } >> "$GITHUB_STEP_SUMMARY"

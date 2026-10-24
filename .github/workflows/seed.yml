@@ -30,8 +30,8 @@ run-name: Налить данные · ${{ inputs.mode }} · метка ${{ inpu
 # десять: это потолок workflow_dispatch, свободных мест нет.
 #
 # Секреты: DATABASE_PUBLIC_URL (обязательный, из сервиса Postgres в Railway),
-# SEED_PASSWORD (пароль сид-аккаунтов; без него сид сгенерирует случайный и напечатает
-# его в лог ОДИН раз). Для медиа дополнительно MINIO_* (см. шаг «Seed»).
+# SEED_PASSWORD (обязательный для режима seed: сгенерированный пароль пришлось бы
+# напечатать в лог прогона, а он публичный). Для медиа дополнительно MINIO_* (см. шаг «Seed»).
 
 on:
   workflow_dispatch:
@@ -114,6 +114,8 @@ jobs:
           MODE: ${{ inputs.mode }}
           TAG: ${{ inputs.tag }}
           CONFIRM: ${{ inputs.confirm }}
+          # Сам секрет в шаг не попадает: нужен только факт «задан или нет».
+          SEED_PASSWORD_SET: ${{ secrets.SEED_PASSWORD != '' }}
           UNIS: ${{ inputs.universities }}
           STUDENTS: ${{ inputs.students }}
           POSTS: ${{ inputs.posts }}
@@ -146,6 +148,13 @@ jobs:
             } >> "$GITHUB_ENV"
             echo "Режим: уборка прогона «$RUN_TAG»"
             exit 0
+          fi
+
+          # Без секрета сид сгенерировал бы пароль и напечатал его в лог, а лог прогона
+          # публичный — сид такой прогон всё равно отвергнет, но уже после установки.
+          if [ "$SEED_PASSWORD_SET" != "true" ]; then
+            echo "::error::Секрет SEED_PASSWORD не задан: сгенерированный пароль ушёл бы в публичный лог." >&2
+            exit 1
           fi
 
           [[ "$UNIS" =~ ^[0-9]+$ ]] || { echo "::error::universities: ожидалось число, получено «$UNIS»." >&2; exit 1; }
