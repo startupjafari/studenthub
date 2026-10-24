@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { log } from './log.js'
-import { redactUrl } from './rtsp.js'
+import { redactText, redactUrl } from './rtsp.js'
 
 // Отдача потока камеры на ретранслятор (docs/PROJECT.md §3.10) — только пока камеру смотрят.
 //
@@ -120,7 +120,7 @@ export class Publisher {
         id,
         code,
         in: delay,
-        error: stderr.replace(/pass=[^&\s]+/g, 'pass=***').slice(0, 300),
+        error: redactText(stderr).slice(0, 300),
       })
       current.timer = setTimeout(() => this.start(id, caFile), delay)
     })

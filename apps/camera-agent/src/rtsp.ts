@@ -19,3 +19,11 @@ export function withCredentials(streamUrl: string, credentials: CameraCredential
 export function redactUrl(url: string): string {
   return url.replace(/^(rtsps?:\/\/)[^@/?#]*@/i, '$1***@')
 }
+
+/**
+ * Произвольный текст для журнала (stderr ffmpeg): ffmpeg повторяет в ошибках адрес входа
+ * целиком — с логином и паролем камеры, — а адрес выхода с токеном ретранслятора.
+ */
+export function redactText(text: string): string {
+  return text.replace(/(rtsps?:\/\/)[^@/?#\s]*@/gi, '$1***@').replace(/pass=[^&\s]+/g, 'pass=***')
+}
