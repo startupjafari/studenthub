@@ -9,9 +9,9 @@ import { useTranslations } from 'next-intl'
 import { ChevronLeft, ChevronRight, Clock, ImagePlus, Loader2, Play, X } from 'lucide-react'
 import { CreatePostSchema, type CreatePostInput } from '@studenthub/shared-schemas'
 import { useAppSelector } from '../../../shared/store'
-import { OPTIONAL_TEXT, useFormAlert } from '../../../shared/lib'
+import { OPTIONAL_TEXT, maxUploadBytes, useFormAlert } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
-import { uploadFileRequest } from '../../../shared/api'
+import { uploadToBucket } from '../../../shared/api'
 import {
   AUDIENCES_BY_ROLE,
   FACULTY_PICKER_ROLES,
@@ -151,15 +151,21 @@ export function CreatePostForm({
       }),
     )
 
-  // Загрузка фото/видео: object-URL для превью + upload в бакет постов.
+  // Загрузка фото/видео: object-URL для превью + upload в бакет постов. Крупное видео идёт
+  // напрямую в хранилище (как у сторис): буферный путь принимает не больше 10 МБ.
   async function handleFiles(files: FileList | null): Promise<void> {
     if (!files || files.length === 0) return
     const list = Array.from(files).slice(0, MAX_MEDIA - media.length)
     setUploading(true)
     for (const file of list) {
       const isVideo = file.type.startsWith('video/')
+      // Сверх лимита категории — отказ сразу, а не после заливки всего файла (§7).
+      if (file.size > maxUploadBytes(file.type)) {
+        toast.error(tErr('FILE_TOO_LARGE'))
+        continue
+      }
       try {
-        const f = await uploadFileRequest('POSTS', file)
+        const f = await uploadToBucket('POSTS', file)
         setMedia((prev) => [...prev, { id: f.id, url: URL.createObjectURL(file), isVideo }])
       } catch (e) {
         toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR'))

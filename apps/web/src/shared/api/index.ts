@@ -41,6 +41,7 @@ export {
 } from './auth-api'
 export {
   uploadFileRequest,
+  uploadToBucket,
   multipartStartRequest,
   multipartUrlsRequest,
   multipartCompleteRequest,
