@@ -415,6 +415,16 @@ export class FileService {
    *
    * Любая неудачная проверка удаляет объект: в приватном бакете не должно оставаться
    * мусора, за который никто не отвечает.
+   *
+   * Проверенный объект ПЕРЕНОСИТСЯ на серверный ключ, которого выданная подпись не знает.
+   * Ссылка на PUT подписана только по ключу и живёт 15 минут: оставь мы файл на месте, тем
+   * же URL после подтверждения клали бы что угодно — HTML со скриптом в публичный бакет,
+   * гигабайты мимо квоты, подмену уже просмотренного вложения. Серверный ключ — без префикса
+   * владельца, как у буферной загрузки, поэтому и повторный `confirm` по нему не пройдёт.
+   *
+   * Ключ, на который уже ссылается File, не подтверждается вовсе: иначе общий
+   * `POST /files/confirm` перекладывал бы или удалял (архив без разрешения) объект уже
+   * прикреплённого файла мимо модуля-владельца.
    */
   async confirmDirectUpload(params: {
     bucket: string
@@ -432,11 +442,17 @@ export class FileService {
     allowArchives?: boolean
   }) {
     this.assertKeyOwner(params.key, params.ownerId)
+    const linked = await this.prisma.file.count({
+      where: { bucket: params.bucket, key: params.key },
+    })
+    if (linked > 0) throw new AppException('CONFLICT', 'Загрузка уже подтверждена')
 
     let size: number
+    let etag: string
     try {
       const stat = await this.minio.statObject(params.bucket, params.key)
       size = stat.size
+      etag = stat.etag
     } catch {
       throw new AppException('NOT_FOUND', 'Объект не найден — загрузка не завершена')
     }
@@ -475,29 +491,36 @@ export class FileService {
     // при PUT. Иначе файл, начинающийся как PDF или GIF, но залитый с Content-Type
     // text/html, открывался бы в браузере как страница на домене хранилища (XSS, фишинг) —
     // а у публичных бакетов ещё и по постоянной ссылке.
+    //
+    // Копия — на новый ключ (см. описание метода) и только того содержимого, которое видел
+    // `statObject`: подменённый за время проверки объект не совпадёт по ETag и не переедет.
+    const key = `${randomUUID()}.${detected.ext}`
     try {
       await this.minio.copyObject(
-        new CopySourceOptions({ Bucket: params.bucket, Object: params.key }),
+        new CopySourceOptions({ Bucket: params.bucket, Object: params.key, MatchETag: etag }),
         new CopyDestinationOptions({
           Bucket: params.bucket,
-          Object: params.key,
+          Object: key,
           MetadataDirective: 'REPLACE',
           Headers: { 'Content-Type': detected.mime },
         }),
       )
     } catch (error) {
+      await this.discard(params.bucket, params.key)
+      if ((error as { code?: string }).code === 'PreconditionFailed') {
+        throw new AppException('BAD_REQUEST', 'Файл изменился во время проверки — загрузите заново')
+      }
       this.logger.error(
         { err: error, bucket: params.bucket },
         'Не удалось закрепить тип загруженного объекта',
       )
-      await this.discard(params.bucket, params.key)
       throw new AppException('INTERNAL_ERROR', 'Не удалось сохранить файл')
     }
 
     const file = await this.prisma.file.create({
       data: {
         bucket: params.bucket,
-        key: params.key,
+        key,
         mime: detected.mime,
         size,
         ownerId: params.ownerId,
@@ -508,6 +531,9 @@ export class FileService {
       },
       select: FILE_SELECT,
     })
+    // Объект по выданной подписи больше не нужен; положенное туда позже станет ничьим и
+    // уйдёт с ночной cleanOrphanFiles.
+    await this.discard(params.bucket, params.key)
     this.logger.log(
       `Подтверждена прямая загрузка ${file.id} (${detected.mime}, ${size} байт) → ${params.bucket}`,
     )
@@ -538,9 +564,13 @@ export class FileService {
     return Buffer.concat(chunks)
   }
 
-  /** Удалить объект, не сорвав основную ошибку, если удаление тоже не удалось. */
+  /**
+   * Удалить объект, не сорвав основную ошибку, если удаление тоже не удалось. Объект, на
+   * который ссылается File, не трогаем: его снимает только модуль-владелец (§8).
+   */
   private async discard(bucket: string, key: string): Promise<void> {
     try {
+      if ((await this.prisma.file.count({ where: { bucket, key } })) > 0) return
       await this.minio.removeObject(bucket, key)
     } catch (error) {
       this.logger.warn(

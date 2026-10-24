@@ -187,6 +187,24 @@ describe('FileService (integration, реальный MinIO)', () => {
     await service.delete(file.id, ownerId)
   })
 
+  it('confirm: после подтверждения выданная подпись на PUT файл не подменяет', async () => {
+    const { key, url } = await service.presignPut(TEST_BUCKET, 'application/pdf', ownerId)
+    await fetch(url, { method: 'PUT', body: new Uint8Array(PDF) })
+
+    const file = await service.confirmDirectUpload({ bucket: TEST_BUCKET, key, ownerId })
+    expect(file.key).not.toBe(key)
+    await expect(minio.statObject(TEST_BUCKET, key)).rejects.toBeDefined()
+
+    // Тот же URL ещё действует, но кладёт уже в ничейный ключ — файл остаётся прежним.
+    await fetch(url, { method: 'PUT', body: new Uint8Array(PNG) })
+    const stat = await minio.statObject(TEST_BUCKET, file.key)
+    expect(stat.size).toBe(PDF.byteLength)
+    expect(stat.metaData['content-type']).toBe('application/pdf')
+
+    await service.delete(file.id, ownerId)
+    await minio.removeObject(TEST_BUCKET, key)
+  })
+
   it('confirm: подделанный тип (PNG под именем .pdf) отклоняется и объект удаляется', async () => {
     const { key, url } = await service.presignPut(TEST_BUCKET, 'application/pdf', ownerId)
     await fetch(url, { method: 'PUT', body: new Uint8Array(PNG) })
