@@ -171,6 +171,26 @@ describe('ApplicationDocumentsService.review', () => {
     )
   })
 
+  // Название требования в истории было только русским: requirementId даёт клиенту подписать
+  // событие на языке интерфейса.
+  it('события документа несут requirementId в metadata', async () => {
+    const { service, application, applicationDocument, applicationEvent } = setup()
+    application.findFirst.mockResolvedValue(inReview)
+    applicationDocument.findFirst.mockResolvedValue({
+      id: 'ad1',
+      requirementId: 'r1',
+      requirement: { titleRu: 'ID' },
+    })
+    await service.review(dean, 'a1', 'ad1', 'accept')
+    expect(applicationEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        action: 'DOCUMENT_ACCEPTED',
+        comment: 'ID',
+        metadata: { requirementId: 'r1' },
+      }),
+    })
+  })
+
   it('студент не может review → FORBIDDEN', async () => {
     const { service, application } = setup()
     application.findFirst.mockResolvedValue({

@@ -89,6 +89,12 @@ export interface ApplicationFormField extends ServiceFormField {
   active: boolean
 }
 
+/** Действующее требование услуги в карточке заявки: по ним строится чек-лист исправления. */
+export type ApplicationRequirementRef = Pick<
+  ServiceRequirement,
+  'id' | 'documentType' | 'titleRu' | 'titleKk' | 'titleEn' | 'required'
+>
+
 export interface ApplicationServiceRef {
   id: string
   code: string
@@ -101,6 +107,7 @@ export interface ApplicationServiceRef {
   descriptionEn?: string | null
   // Есть только в деталях заявки (GET /applications/:id).
   deliveryModes?: DeliveryMode[]
+  requirements?: ApplicationRequirementRef[]
   formFields?: ApplicationFormField[]
 }
 
@@ -132,6 +139,9 @@ export interface TimelineEvent {
   comment: string | null
   actorId: string | null
   createdAt: string
+  // Требование, к которому относится событие документа (DOCUMENT_ADDED / DOCUMENT_ACCEPTED):
+  // по нему событие подписывается названием на языке интерфейса, а не русским comment.
+  requirementId?: string | null
 }
 
 /** Страница приложенного документа (паспорт — разворот и прописка, диплом — с приложением). */

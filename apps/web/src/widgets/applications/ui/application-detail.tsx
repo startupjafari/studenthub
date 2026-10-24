@@ -13,7 +13,7 @@ import {
   resubmitApplicationRequest,
   fetchApplicationResultUrl,
   pickLocale,
-  type TimelineEvent,
+  type ApplicationDetail as ApplicationDetailData,
   type ApplicationDocumentItem,
   type ApplicationResultItem,
 } from '../../../entities/application-service'
@@ -31,6 +31,7 @@ import { DocumentChecklist } from './document-checklist'
 import { FormAnswers } from './form-answers'
 import { CorrectionFormModal } from './correction-form-modal'
 import { useActionError } from '../lib/use-action-error'
+import { applicationRequirements, eventComment } from '../lib/requirement-titles'
 
 export function ApplicationDetail({
   id,
@@ -94,6 +95,7 @@ export function ApplicationDetail({
 
   const app = q.data
   const docs: ApplicationDocumentItem[] = app?.documents ?? []
+  const requirements = app ? applicationRequirements(app) : []
   const editableDocs = app?.status === 'NEEDS_CORRECTION'
   const replacementPending = docs.some((d) => d.status === 'REPLACEMENT_REQUIRED')
   const serviceName = app
@@ -212,19 +214,12 @@ export function ApplicationDetail({
               </Card>
             )}
 
-          {docs.length > 0 && (
+          {requirements.length > 0 && (
             <Card className="flex flex-col gap-3 p-4">
               <h3 className="text-sm font-semibold">{t('documentsTitle')}</h3>
               <DocumentChecklist
                 appId={app.id}
-                requirements={docs.map((d) => ({
-                  id: d.requirement.id,
-                  documentType: null,
-                  titleRu: d.requirement.titleRu,
-                  titleKk: d.requirement.titleKk,
-                  titleEn: d.requirement.titleEn,
-                  required: d.requirement.required,
-                }))}
+                requirements={requirements}
                 documents={docs}
                 editable={editableDocs}
                 locale={locale}
@@ -235,7 +230,7 @@ export function ApplicationDetail({
 
           <Card className="flex flex-col gap-3 p-4">
             <h3 className="text-sm font-semibold">{t('timelineTitle')}</h3>
-            <Timeline events={app.events} />
+            <Timeline app={app} />
           </Card>
           {/* Действия — под историей, в подвале окна: «Отозвать» слева, основное
               действие справа, как в диалогах с подтверждением. На телефоне столбиком,
@@ -341,15 +336,16 @@ function ResultRow({ appId, result }: { appId: string; result: ApplicationResult
   )
 }
 
-function Timeline({ events }: { events: TimelineEvent[] }) {
+function Timeline({ app }: { app: ApplicationDetailData }) {
   const t = useTranslations('Applications')
   const locale = useLocale()
-  if (!events.length) return null
+  if (!app.events.length) return null
   return (
     <ol className="flex flex-col gap-4">
-      {events.map((e) => {
+      {app.events.map((e) => {
         const key = `event_${e.action}`
         const label = t.has(key) ? t(key) : e.toStatus ? t(`status2_${e.toStatus}`) : e.action
+        const comment = eventComment(e, app, locale)
         return (
           <li key={e.id} className="flex gap-3">
             <span className="mt-1 size-2 shrink-0 rounded-full bg-primary" aria-hidden />
@@ -358,10 +354,7 @@ function Timeline({ events }: { events: TimelineEvent[] }) {
               <span className="text-xs text-muted-foreground">
                 {new Date(e.createdAt).toLocaleString(locale)}
               </span>
-              {/* У назначения comment не текст (старые записи хранили там id сотрудника). */}
-              {e.comment && e.action !== 'ASSIGNED' && (
-                <span className="mt-0.5 text-sm text-muted-foreground">{e.comment}</span>
-              )}
+              {comment && <span className="mt-0.5 text-sm text-muted-foreground">{comment}</span>}
             </div>
           </li>
         )

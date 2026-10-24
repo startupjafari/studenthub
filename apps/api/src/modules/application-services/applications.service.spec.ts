@@ -676,7 +676,10 @@ describe('ApplicationsService.getById — потолки вложенных вы
       events: [{ id: 'e2' }, { id: 'e1' }],
     })
     const app = await service.getById(student, 'a1')
-    expect(app?.events).toEqual([{ id: 'e1' }, { id: 'e2' }])
+    expect(app?.events).toEqual([
+      { id: 'e1', requirementId: null },
+      { id: 'e2', requirementId: null },
+    ])
     const select = application.findUnique.mock.calls[0][0].select
     expect(select.events.take).toBeGreaterThan(0)
     expect(select.events.orderBy).toEqual([{ createdAt: 'desc' }, { id: 'desc' }])
@@ -704,8 +707,8 @@ describe('ApplicationsService.getById — id сотрудника не уход�
     })
     const app = await service.getById(student, 'a1')
     expect(app?.events).toEqual([
-      { id: 'e1', action: 'REJECTED', comment: 'нет справки' },
-      { id: 'e2', action: 'ASSIGNED', comment: null },
+      { id: 'e1', action: 'REJECTED', comment: 'нет справки', requirementId: null },
+      { id: 'e2', action: 'ASSIGNED', comment: null, requirementId: null },
     ])
   })
 })
@@ -725,5 +728,38 @@ describe('ApplicationsService.getById — поля анкеты для отве�
     expect(formFields.where).toBeUndefined()
     expect(formFields.take).toBeGreaterThan(0)
     expect(formFields.select).toMatchObject({ code: true, labelRu: true, active: true })
+  })
+})
+
+describe('ApplicationsService.getById — чек-лист и история по требованиям', () => {
+  it('отдаёт действующие требования услуги и requirementId событий документа без metadata', async () => {
+    const { service, application } = setup()
+    application.findFirst.mockResolvedValue({
+      studentId: 'stud',
+      facultyId: 'fac',
+      universityId: 'uni',
+    })
+    application.findUnique.mockResolvedValue({
+      id: 'a1',
+      documents: [],
+      results: [],
+      events: [
+        { id: 'e2', action: 'ASSIGNED', comment: null, metadata: { assigneeId: 'staff' } },
+        {
+          id: 'e1',
+          action: 'DOCUMENT_ADDED',
+          comment: 'Удостоверение',
+          metadata: { requirementId: 'r1' },
+        },
+      ],
+    })
+    const app = await service.getById(student, 'a1')
+    expect(app?.events).toEqual([
+      { id: 'e1', action: 'DOCUMENT_ADDED', comment: 'Удостоверение', requirementId: 'r1' },
+      { id: 'e2', action: 'ASSIGNED', comment: null, requirementId: null },
+    ])
+    const requirements = application.findUnique.mock.calls[0][0].select.service.select.requirements
+    expect(requirements.where).toEqual({ active: true })
+    expect(requirements.take).toBeGreaterThan(0)
   })
 })

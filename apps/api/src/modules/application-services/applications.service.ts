@@ -347,6 +347,22 @@ export class ApplicationsService {
             descriptionEn: true,
             // Способы получения — для правки ответов в исправлении (NEEDS_CORRECTION).
             deliveryModes: true,
+            // Действующие требования услуги: чек-лист исправления строится по ним, а не по
+            // приложенным строкам — иначе убранный документ пропадал из списка вместе со
+            // своим требованием, и приложить его заново было негде.
+            requirements: {
+              where: { active: true },
+              orderBy: [{ sortOrder: 'asc' }, { code: 'asc' }],
+              take: SERVICE_REQUIREMENTS_LIMIT,
+              select: {
+                id: true,
+                documentType: true,
+                titleRu: true,
+                titleKk: true,
+                titleEn: true,
+                required: true,
+              },
+            },
             // Поля анкеты — чтобы показать ответы formData с подписями (обработчику и
             // студенту): сами ответы хранятся кодами полей. Выключенные поля тоже нужны —
             // ответы на них в поданных заявках остались; `active` отличает действующие.
@@ -382,6 +398,7 @@ export class ApplicationsService {
             comment: true,
             actorId: true,
             createdAt: true,
+            metadata: true,
           },
         },
         documents: {
@@ -440,9 +457,14 @@ export class ApplicationsService {
       // Выбраны последние события — клиенту история нужна по порядку, от первого шага.
       // У назначений, записанных до переноса id в metadata, в comment лежит id сотрудника —
       // это не текст для истории, наружу его не отдаём.
-      events: [...app.events]
-        .reverse()
-        .map((e) => (e.action === 'ASSIGNED' ? { ...e, comment: null } : e)),
+      // metadata наружу не отдаётся целиком (у назначения там id сотрудника) — только
+      // требование, к которому относится событие документа: по нему клиент подписывает
+      // событие названием требования на языке интерфейса.
+      events: [...app.events].reverse().map(({ metadata, ...e }) => ({
+        ...e,
+        comment: e.action === 'ASSIGNED' ? null : e.comment,
+        requirementId: requirementIdOf(metadata),
+      })),
       documents: app.documents.map(({ document, ...doc }) => ({
         ...doc,
         files: document?.files ?? [],
@@ -616,6 +638,13 @@ export class ApplicationsService {
     const next = Number.isFinite(tail) ? tail + 1 : 1
     return `${prefix}${String(next).padStart(6, '0')}`
   }
+}
+
+/** Требование из metadata события документа (DOCUMENT_ADDED / DOCUMENT_ACCEPTED). */
+function requirementIdOf(metadata: Prisma.JsonValue | null): string | null {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return null
+  const id = (metadata as Record<string, unknown>).requirementId
+  return typeof id === 'string' ? id : null
 }
 
 /**

@@ -46,6 +46,7 @@ import { TERMINAL_STATUSES } from '@studenthub/shared-schemas'
 import { ResultModal } from './result-modal'
 import { FormAnswers } from './form-answers'
 import { useActionError } from '../lib/use-action-error'
+import { eventComment } from '../lib/requirement-titles'
 
 // Состояние текстового промпта для действий сотрудника.
 interface Prompt {
@@ -168,6 +169,7 @@ export function StaffWorkspaceModal({ id, onClose }: { id: string; onClose: () =
                   : e.toStatus
                     ? t(`status2_${e.toStatus}`)
                     : e.action
+                const comment = eventComment(e, app, locale)
                 return (
                   <li key={e.id} className="flex gap-3 text-sm">
                     <span className="mt-1 size-2 shrink-0 rounded-full bg-primary" aria-hidden />
@@ -176,10 +178,7 @@ export function StaffWorkspaceModal({ id, onClose }: { id: string; onClose: () =
                       <span className="text-xs text-muted-foreground">
                         {new Date(e.createdAt).toLocaleString(locale)}
                       </span>
-                      {/* У назначения comment не текст (старые записи хранили там id сотрудника). */}
-                      {e.comment && e.action !== 'ASSIGNED' && (
-                        <span className="text-xs text-muted-foreground">{e.comment}</span>
-                      )}
+                      {comment && <span className="text-xs text-muted-foreground">{comment}</span>}
                     </div>
                   </li>
                 )
@@ -390,6 +389,7 @@ function StaffDocumentReview({
   onChanged: () => void
 }) {
   const t = useTranslations('Applications')
+  const locale = useLocale()
   const qc = useQueryClient()
   const done = () => {
     void qc.invalidateQueries({ queryKey: applicationKeys.detail(appId) })
@@ -425,10 +425,15 @@ function StaffDocumentReview({
         <div key={d.id} className="flex flex-col gap-2 rounded-lg border border-border p-3">
           <div className="flex items-center gap-2">
             <span className="min-w-0 flex-1 truncate text-sm font-medium">
-              {d.snapshotTitle ?? d.requirement.titleRu}
+              {pickLocale(d.requirement as unknown as Record<string, unknown>, 'title', locale)}
             </span>
             <span className="text-xs text-muted-foreground">{t(`docStatus_${d.status}`)}</span>
           </div>
+          {/* Название самого документа из хранилища студента — под требованием, на которое он
+              приложен: требование подписано на языке интерфейса, документ — как его назвали. */}
+          {d.snapshotTitle && (
+            <span className="truncate text-xs text-muted-foreground">{d.snapshotTitle}</span>
+          )}
           <div className="flex flex-wrap gap-2">
             {d.documentId && (d.files?.length ?? 0) > 1
               ? d.files!.map((f, i) => (

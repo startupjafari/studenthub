@@ -73,12 +73,15 @@ export class ApplicationDocumentsService {
         },
         select: { id: true, requirementId: true, status: true, snapshotTitle: true },
       })
+      // comment — русское название для прежних клиентов; requirementId — чтобы история
+      // подписывала событие названием требования на языке интерфейса.
       await tx.applicationEvent.create({
         data: {
           applicationId: appId,
           actorId: viewer.sub,
           action: 'DOCUMENT_ADDED',
           comment: req.titleRu,
+          metadata: { requirementId },
         },
       })
       return saved
@@ -126,7 +129,7 @@ export class ApplicationDocumentsService {
     }
     const ad = await this.prisma.applicationDocument.findFirst({
       where: { id: docId, applicationId: appId },
-      select: { id: true, requirement: { select: { titleRu: true } } },
+      select: { id: true, requirementId: true, requirement: { select: { titleRu: true } } },
     })
     if (!ad) {
       throw new AppException('NOT_FOUND', 'Документ заявки не найден')
@@ -148,6 +151,7 @@ export class ApplicationDocumentsService {
             actorId: viewer.sub,
             action: 'DOCUMENT_ACCEPTED',
             comment: ad.requirement.titleRu,
+            metadata: { requirementId: ad.requirementId },
           },
         }),
       ])
