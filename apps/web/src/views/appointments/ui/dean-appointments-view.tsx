@@ -13,7 +13,11 @@ import {
   MoreHorizontal,
   XCircle,
 } from 'lucide-react'
-import type { AppointmentQueueView } from '@studenthub/shared-schemas'
+import {
+  APPOINTMENT_TRANSITIONS,
+  canAppointmentTransition,
+  type AppointmentQueueView,
+} from '@studenthub/shared-schemas'
 import {
   Badge,
   Button,
@@ -45,6 +49,7 @@ import {
   completeAppointmentRequest,
   staffCancelAppointmentRequest,
   type Appointment,
+  type AppointmentStatus,
 } from '../../../entities/appointment'
 import { APPT_STATUS_BADGE, APPT_STATUS_KEY, apptTypeKey } from '../lib/visuals'
 import { ConfirmAppointmentModal } from './confirm-appointment-modal'
@@ -205,7 +210,11 @@ export function DeanAppointmentsView() {
             <TableBody>
               {q.isLoading && <TableSkeletonRows columns={APPOINTMENT_SKELETON_COLS} />}
               {sorted.map((a) => {
-                const active = a.status !== 'COMPLETED' && a.status !== 'CANCELLED'
+                // Пункты меню — по той же таблице переходов, что проверяет сервер: иначе
+                // «Завершить» неподтверждённую запись или «Подтвердить» подтверждённую
+                // упирались в 409.
+                const can = (to: AppointmentStatus) => canAppointmentTransition(a.status, to)
+                const active = APPOINTMENT_TRANSITIONS[a.status].length > 0
                 return (
                   <TableRow key={a.id} className="hover:bg-muted/40">
                     <TableCell className="font-medium">
@@ -239,30 +248,40 @@ export function DeanAppointmentsView() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuItem
-                              onClick={() => setModal({ id: a.id, mode: 'confirm' })}
-                            >
-                              <CheckCircle2 aria-hidden />
-                              {t('confirm')}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() => setModal({ id: a.id, mode: 'reschedule' })}
-                            >
-                              <Clock aria-hidden />
-                              {t('reschedule')}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => complete.mutate(a.id)}>
-                              <CheckCircle2 aria-hidden />
-                              {t('complete')}
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                              variant="destructive"
-                              onClick={() => cancel.mutate(a.id)}
-                            >
-                              <XCircle aria-hidden />
-                              {t('cancelAppointment')}
-                            </DropdownMenuItem>
+                            {can('CONFIRMED') && (
+                              <DropdownMenuItem
+                                onClick={() => setModal({ id: a.id, mode: 'confirm' })}
+                              >
+                                <CheckCircle2 aria-hidden />
+                                {t('confirm')}
+                              </DropdownMenuItem>
+                            )}
+                            {can('RESCHEDULED') && (
+                              <DropdownMenuItem
+                                onClick={() => setModal({ id: a.id, mode: 'reschedule' })}
+                              >
+                                <Clock aria-hidden />
+                                {t('reschedule')}
+                              </DropdownMenuItem>
+                            )}
+                            {can('COMPLETED') && (
+                              <DropdownMenuItem onClick={() => complete.mutate(a.id)}>
+                                <CheckCircle2 aria-hidden />
+                                {t('complete')}
+                              </DropdownMenuItem>
+                            )}
+                            {can('CANCELLED') && (
+                              <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  variant="destructive"
+                                  onClick={() => cancel.mutate(a.id)}
+                                >
+                                  <XCircle aria-hidden />
+                                  {t('cancelAppointment')}
+                                </DropdownMenuItem>
+                              </>
+                            )}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       )}

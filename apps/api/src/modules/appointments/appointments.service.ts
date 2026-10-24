@@ -5,7 +5,9 @@ import {
   ACTIVE_APPOINTMENT_STATUSES,
   APPOINTMENT_QUEUE_LIMIT,
   CLOSED_APPOINTMENT_STATUSES,
+  canAppointmentTransition,
   type AppointmentListQueryInput,
+  type AppointmentStatus,
   type ConfirmAppointmentInput,
   type CreateAppointmentInput,
 } from '@studenthub/shared-schemas'
@@ -20,18 +22,11 @@ import type { RequestContext } from '../auth/auth.service'
 import { rethrowStaleStatus } from '../../common/prisma/stale-status'
 import { localDateTimeLabel } from '../../common/time/local-label'
 
-// Допустимые переходы записи в деканат. Завершённая и отменённая — конечные: раньше сотрудник
-// подтверждал запись, которую студент уже отменил, а студент «отменял» отменённую.
-const TRANSITIONS: Record<string, readonly string[]> = {
-  REQUESTED: ['CONFIRMED', 'RESCHEDULED', 'CANCELLED'],
-  CONFIRMED: ['RESCHEDULED', 'COMPLETED', 'CANCELLED'],
-  RESCHEDULED: ['CONFIRMED', 'RESCHEDULED', 'COMPLETED', 'CANCELLED'],
-  COMPLETED: [],
-  CANCELLED: [],
-}
-
-function assertTransition(from: string, to: string): void {
-  if (!(TRANSITIONS[from] ?? []).includes(to)) {
+// Допустимые переходы записи в деканат — APPOINTMENT_TRANSITIONS (SSOT, по нему же веб строит
+// меню). Завершённая и отменённая — конечные: раньше сотрудник подтверждал запись, которую
+// студент уже отменил, а студент «отменял» отменённую.
+function assertTransition(from: string, to: AppointmentStatus): void {
+  if (!canAppointmentTransition(from, to)) {
     throw new AppException('CONFLICT', 'Запись уже в другом статусе')
   }
 }
