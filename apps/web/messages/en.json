@@ -441,7 +441,12 @@
     "specialty": "Specialty",
     "course": "Year",
     "skillsCount": "Skills",
-    "portfolioCount": "Portfolio entries"
+    "portfolioCount": "Portfolio entries",
+    "desiredPositions": "Desired positions",
+    "desiredPositionsPlaceholder": "Frontend developer, data analyst",
+    "desiredPositionsHint": "Comma-separated, up to 10 positions",
+    "relocationReady": "Ready to relocate",
+    "salaryCurrency": "Currency"
   },
   "Vacancies": {
     "title": "Jobs",

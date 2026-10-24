@@ -441,7 +441,12 @@
     "specialty": "Мамандық",
     "course": "Курс",
     "skillsCount": "Дағдылар",
-    "portfolioCount": "Портфолиодағы жазбалар"
+    "portfolioCount": "Портфолиодағы жазбалар",
+    "desiredPositions": "Қалаған лауазымдар",
+    "desiredPositionsPlaceholder": "Frontend-әзірлеуші, деректер талдаушысы",
+    "desiredPositionsHint": "Үтір арқылы, 10 лауазымға дейін",
+    "relocationReady": "Басқа қалаға көшуге дайынмын",
+    "salaryCurrency": "Валюта"
   },
   "Vacancies": {
     "title": "Вакансиялар",

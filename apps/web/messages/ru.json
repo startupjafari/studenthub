@@ -441,7 +441,12 @@
     "specialty": "Специальность",
     "course": "Курс",
     "skillsCount": "Навыки",
-    "portfolioCount": "Записей в портфолио"
+    "portfolioCount": "Записей в портфолио",
+    "desiredPositions": "Желаемые позиции",
+    "desiredPositionsPlaceholder": "Frontend-разработчик, аналитик данных",
+    "desiredPositionsHint": "Через запятую, до 10 позиций",
+    "relocationReady": "Готов(а) к переезду",
+    "salaryCurrency": "Валюта"
   },
   "Vacancies": {
     "title": "Вакансии",
