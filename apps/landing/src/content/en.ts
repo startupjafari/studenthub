@@ -175,7 +175,7 @@ export const en: Dictionary = {
     title: 'What the platform is made of',
     text: 'These numbers describe the product itself, not its customers: how many roles and languages it has, and the volume it holds on the test rig.',
     stats: [
-      { value: 8, label: 'roles — from student to administration' },
+      { value: 11, label: 'roles — from student to administration' },
       { value: 3, label: 'interface languages: Kazakh, Russian, English' },
       { value: 0, label: 'open sign-ups' },
       { value: 100, label: 'universities on the load rig', note: 'verified on a test environment' },
