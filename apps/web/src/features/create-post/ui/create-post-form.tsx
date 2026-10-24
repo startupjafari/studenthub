@@ -143,13 +143,16 @@ export function CreatePostForm({
   // Отложенная публикация: значение datetime-local (пусто — опубликовать сразу).
   const [scheduleAt, setScheduleAt] = useState('')
   const submit = (status: 'DRAFT' | 'PUBLISHED') =>
-    form.handleSubmit((v) =>
+    form.handleSubmit((v) => {
+      // Пока фото грузится, его id ещё нет в media: пост ушёл бы без него, а догрузившийся
+      // файл упал бы в уже очищенную форму. Кнопки на это время выключены; Enter — сюда же.
+      if (uploading) return
       mutation.mutate({
         ...v,
         status,
         scheduledAt: status === 'PUBLISHED' && scheduleAt ? new Date(scheduleAt) : null,
-      }),
-    )
+      })
+    })
 
   // Загрузка фото/видео: object-URL для превью + upload в бакет постов.
   async function handleFiles(files: FileList | null): Promise<void> {
@@ -475,6 +478,7 @@ export function CreatePostForm({
             type="button"
             variant="outline"
             loading={mutation.isPending}
+            disabled={uploading}
             onClick={() => void submit('DRAFT')()}
             className="h-11 flex-1 sm:h-10 sm:flex-none"
           >
@@ -483,6 +487,7 @@ export function CreatePostForm({
           <Button
             type="submit"
             loading={mutation.isPending}
+            disabled={uploading}
             className="h-11 flex-1 sm:h-10 sm:flex-none"
           >
             {scheduleAt ? t('schedule') : t('publish')}
