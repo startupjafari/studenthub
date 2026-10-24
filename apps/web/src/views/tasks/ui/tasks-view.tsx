@@ -82,10 +82,8 @@ export function TasksView() {
     retry: false,
   })
 
-  const todayDate = useMemo(
-    () => nowInTz(schedule.data?.timezone ?? null).date,
-    [schedule.data?.timezone],
-  )
+  const timezone = schedule.data?.timezone ?? null
+  const todayDate = useMemo(() => nowInTz(timezone).date, [timezone])
 
   const groups = useMemo(() => {
     const items = buildTasks({
@@ -93,13 +91,16 @@ export function TasksView() {
       events: events.data ?? [],
       assignments: assignments.data ?? [],
       todayDate,
+      timezone,
       locale,
     })
     return groupTasks(items)
-  }, [applications.data, events.data, assignments.data, todayDate, locale])
+  }, [applications.data, events.data, assignments.data, todayDate, timezone, locale])
 
-  const isLoading = applications.isLoading || events.isLoading
-  const isError = applications.isError || events.isError
+  // Задания — такой же источник задач, как заявки и события: их сбой молча убирал
+  // сроки сдачи из списка, и студент видел «Задач нет».
+  const isLoading = applications.isLoading || events.isLoading || assignments.isLoading
+  const isError = applications.isError || events.isError || assignments.isError
   const total = TASK_BUCKET_ORDER.reduce((n, b) => n + groups[b].length, 0)
 
   return (
@@ -120,6 +121,7 @@ export function TasksView() {
               onClick={() => {
                 applications.refetch()
                 events.refetch()
+                assignments.refetch()
               }}
             >
               {t('retry')}

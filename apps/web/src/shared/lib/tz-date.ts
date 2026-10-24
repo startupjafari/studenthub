@@ -12,7 +12,12 @@ export interface NowInTz {
 }
 
 export function nowInTz(timezone: string | null): NowInTz {
-  const d = new Date()
+  return wallClockInTz(new Date(), timezone)
+}
+
+// Настенные дата и время произвольного момента в таймзоне вуза: срок задания или начало
+// события «в какой день» — по календарю вуза, а не по UTC-префиксу ISO-строки.
+export function wallClockInTz(d: Date, timezone: string | null): NowInTz {
   if (!timezone) return localNow(d)
   try {
     const parts = new Intl.DateTimeFormat('en-CA', {
