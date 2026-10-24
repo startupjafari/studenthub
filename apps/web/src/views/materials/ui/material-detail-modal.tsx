@@ -6,7 +6,7 @@ import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { Download, FileText, Link2, Trash2 } from 'lucide-react'
 import { Button, FileUpload, Modal, useConfirm } from '../../../shared/ui'
-import { useErrorToast } from '../../../shared/lib'
+import { formatBytes, useByteUnitLabel, useErrorToast } from '../../../shared/lib'
 import {
   deleteMaterialRequest,
   fetchMaterialFileUrl,
@@ -28,6 +28,7 @@ export function MaterialDetailModal({ material, canManage, onClose }: Props) {
   const t = useTranslations('Materials')
   const tCommon = useTranslations('Common')
   const tErr = useTranslations('Errors')
+  const unit = useByteUnitLabel()
   const locale = useLocale()
   const qc = useQueryClient()
   const confirm = useConfirm()
@@ -108,7 +109,7 @@ export function MaterialDetailModal({ material, canManage, onClose }: Props) {
                     <FileText className="size-4 shrink-0 text-muted-foreground" aria-hidden />
                     <span className="truncate">{f.mime}</span>
                     <span className="shrink-0 text-xs text-muted-foreground">
-                      {(f.size / 1024).toFixed(0)} КБ
+                      {formatBytes(f.size, unit)}
                     </span>
                   </span>
                   <button

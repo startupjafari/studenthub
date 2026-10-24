@@ -974,6 +974,7 @@
     "byteUnitKb": "КБ",
     "byteUnitMb": "МБ",
     "byteUnitGb": "ГБ",
+    "breadcrumb": "Навигационная цепочка",
     "phoneIncomplete": "Наберите номер полностью: +7 (777) 777-77-77"
   },
   "Auth": {
