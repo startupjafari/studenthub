@@ -231,7 +231,7 @@
   помечена, у перенесённой — новое время.
 
 #### BUG-014 · 🟡 Экзамен удаляется без подтверждения, группа об отмене не узнаёт
-- **Роль:** TEACHER, DEAN → STUDENT · **Статус:** исправлен · `fix/bugs-academic` (9ea5e363)
+- **Роль:** TEACHER, DEAN → STUDENT · **Статус:** исправлен · `fix/bugs-academic` (75700384)
 - **Где:** `apps/web/src/views/exams/ui/exam-management-view.tsx:288`, `apps/api/src/modules/exams/exams.service.ts:284`
 - **Сценарий:** «Удалить» в меню строки сразу вызывает удаление; уведомления об отмене нет (в
   `QUEUES` нет `EXAM_CANCELLED`).
@@ -388,7 +388,7 @@
 - **Ожидается:** PROJECT §8.3 «Инвайты»: переключатель «мои / весь вуз» с отзывом.
 
 #### BUG-033 · 🟡 У админа вуза нет экрана журналов поста охраны
-- **Роль:** UNIVERSITY_ADMIN · **Статус:** новый
+- **Роль:** UNIVERSITY_ADMIN · **Статус:** исправлен · `fix/bugs-library-security` (46568e0e)
 - **Где:** `apps/api/src/modules/security-journal/security-journal.controller.ts:25-52`, `apps/web/src/app/security/layout.tsx`, `apps/web/src/widgets/app-shell/model/nav.ts:104-161`
 - **Сценарий:** API отдаёт админу сводку, проходы и посетителей, но `/security` пускает только
   охрану, а в `/university-admin` раздела нет.
@@ -557,7 +557,7 @@
 - **Ожидается:** управлять только ролями строго ниже своей (§2.1).
 
 #### BUG-058 · 🟢 Гонка отмены или удаления слота консультации и записи студента
-- **Роль:** TEACHER ↔ STUDENT · **Статус:** исправлен · `fix/bugs-academic` (4e7c84ea)
+- **Роль:** TEACHER ↔ STUDENT · **Статус:** исправлен · `fix/bugs-academic` (2f7019ce)
 - **Где:** `apps/api/src/modules/consultations/consultations.service.ts:308` (`cancel`), `deleteSlot`
 - **Сценарий:** студент успел записаться между чтением и безусловной отменой — запись пропадает
   без уведомления.
@@ -650,7 +650,7 @@
   как у оригиналов репостов (`posts.service.ts:521-526`). `deliverDueScheduled` это уже учитывает.
 
 #### BUG-071 · 🟠 🔒 Подписанная ссылка на PUT работает и после `confirm`: проверенный файл подменяется, в публичном `profile-media` — на HTML со скриптом
-- **Роль:** все с прямой загрузкой; хуже всего медиа профиля · **Статус:** исправлен · `fix/bugs-api-infra` (34eb2491)
+- **Роль:** все с прямой загрузкой; хуже всего медиа профиля · **Статус:** исправлен · `fix/bugs-api-infra` (d9c5d43a)
 - **Где:** `apps/api/src/modules/files/file.service.ts:242-252` (`presignPut`), `:419-518` (`confirmDirectUpload`, `copyObject` в тот же ключ), `apps/api/src/modules/profile-content/profile-content.service.ts:344,353,383`
 - **Сценарий:** ссылка подписана на 15 минут только по ключу. После `confirm` (magic bytes, размер,
   закрепление `Content-Type`) тем же URL кладётся `text/html` со скриптом или файл на гигабайты —
@@ -697,7 +697,7 @@
 ### 🟡 Средние
 
 #### BUG-076 · 🟡 🔒 Второй фактор перебирается без счётчика на учётку — все лимиты по IP
-- **Роль:** все с 2FA (злоумышленник знает пароль) · **Статус:** исправлен · `fix/bugs-platform-auth` (4eab3376)
+- **Роль:** все с 2FA (злоумышленник знает пароль) · **Статус:** исправлен · `fix/bugs-platform-auth` (bd232c12)
 - **Где:** `apps/api/src/common/guards/user-throttler.guard.ts:132-137`, `apps/api/src/modules/auth/auth.service.ts:38,408-429`, `apps/api/src/modules/auth/auth.controller.ts:69-71,86`
 - **Сценарий:** каждый `/auth/login` даёт challenge на 3 кода, challenge ограничены «5/15 мин на
   IP + логин» (email и username — два логина), `/login/2fa` тоже по IP. Счётчика неверных кодов
@@ -788,7 +788,7 @@
 - **Ожидается:** `/offline` пропускается и для вошедших (задача 13.2).
 
 #### BUG-087 · 🟡 🔒 Общий `POST /files/confirm` удаляет объект уже отправленной сдачи-архива
-- **Роль:** STUDENT, STAROSTA → TEACHER, DEAN · **Статус:** исправлен · `fix/bugs-api-infra` (34eb2491)
+- **Роль:** STUDENT, STAROSTA → TEACHER, DEAN · **Статус:** исправлен · `fix/bugs-api-infra` (d9c5d43a)
 - **Где:** `apps/api/src/modules/files/files.controller.ts:34-39,102-110`, `apps/api/src/modules/files/file.service.ts:463-466,541-550`, `apps/api/src/modules/assignments/assignments.service.ts:597-617,969-970`
 - **Сценарий:** бакет сдач `applications` открыт общему `confirm`; студент вызывает его с ключом
   своего отправленного архива — `allowArchives` не передан, `discard()` делает `removeObject`, не
@@ -1023,7 +1023,7 @@
 - **Ожидается:** живые часы для состояний `now`/`past`, смена даты и чётности после полуночи.
 
 #### BUG-122 · 🟢 Напоминание «начнётся примерно через час» о событии через 10 минут
-- **Роль:** участники событий · **Статус:** новый
+- **Роль:** участники событий · **Статус:** исправлен · `fix/bugs-events-moderation` (e2aa5469)
 - **Где:** `apps/api/src/modules/events/events.service.ts:58-65,590-600`, `packages/shared-config/src/notification-messages.ts:101`
 - **Ожидается:** текст по остатку времени — например, «в 14:10» по часам вуза.
 
@@ -1033,7 +1033,7 @@
 - **Ожидается:** о прошедшей дате не уведомлять, как у `removeChange`.
 
 #### BUG-124 · 🟢 iOS считает чётность недели по UTC, а веб и Android — по местной дате
-- **Роль:** STUDENT, STAROSTA, TEACHER — iOS · **Статус:** новый
+- **Роль:** STUDENT, STAROSTA, TEACHER — iOS · **Статус:** исправлен · `fix/bugs-ios-miniapp` (aa2797da)
 - **Где:** `apps/ios/Sources/Core/Study/WeekParity.swift:17-28,38-43`, `apps/ios/Sources/Features/Study/ScheduleModel.swift:41-42`; эталон `apps/web/src/shared/lib/tz-date.ts:52-68`, `apps/android/.../core/study/WeekParity.kt:28-31`
 - **Сценарий:** с 00:00 до 05:00 понедельника в Казахстане iOS показывает чётность прошлой недели.
 - **Ожидается:** одни правила чётности (§3.9) — дата в поясе вуза (`ScheduleDTO.timezone`).
@@ -1044,7 +1044,7 @@
 - **Ожидается:** §8.2 — клиент реагирует на `code`, тексты через i18n; словари kk полные.
 
 #### BUG-126 · 🟢 Огромные числа во входных данных дают `500` вместо `422`
-- **Роль:** все · **Статус:** исправлен · `fix/bugs-api-infra` (5260e99a)
+- **Роль:** все · **Статус:** исправлен · `fix/bugs-api-infra` (561459b1)
 - **Где:** `packages/shared-schemas/src/chats.ts:197` (`MuteSchema.minutes`), `:176` (`since`), `packages/shared-schemas/src/career.ts:465` (`salaryFrom`), `packages/shared-schemas/src/pagination.ts:5` и копии `page` без `max`; фильтр `apps/api/src/common/filters/http-exception.filter.ts:67-77` не переводит `PrismaClientValidationError`
 - **Ожидается:** BACKEND_RULES §3, §4.4 — предел значений в схеме, сырая ошибка Prisma наружу не уходит.
 
@@ -1311,19 +1311,19 @@
 - **Ожидается:** значения с ведущими `= + - @ \t \r` экранировать в `buildCsv` (OWASP CSV Injection).
 
 #### BUG-185 · 🟡 🔒 Порог малых групп обходится вычитанием между уровнями отчёта
-- **Роль:** UNIVERSITY_ADMIN/MODERATOR, PLATFORM_* · **Статус:** исправлен · `fix/bugs-analytics` (85566dee)
+- **Роль:** UNIVERSITY_ADMIN/MODERATOR, PLATFORM_* · **Статус:** исправлен · `fix/bugs-analytics` (a5c7e1c7)
 - **Где:** `apps/api/src/modules/analytics/analytics-report.service.ts:178-193,320-352`
 - **Сценарий:** строка «Факультет F» из отчёта вуза минус видимые группы отчёта факультета F = точные показатели скрытой малой группы.
 - **Ожидается:** §8.3 «иначе разность раскрыла бы группу» — вторичное подавление.
 
 #### BUG-186 · 🟡 Дашборд платформы: при окне 90 дней «За сутки» — недельные уникальные, «За неделю» — 13 дней
-- **Где:** `apps/api/src/modules/analytics/platform-analytics.service.ts:248-266`, `apps/web/src/widgets/platform-dashboard/ui/platform-dashboard.tsx:74` · **Статус:** исправлен · `fix/bugs-analytics` (0f6ae798)
+- **Где:** `apps/api/src/modules/analytics/platform-analytics.service.ts:248-266`, `apps/web/src/widgets/platform-dashboard/ui/platform-dashboard.tsx:74` · **Статус:** исправлен · `fix/bugs-analytics` (e5a9c117)
 
 #### BUG-187 · 🟡 Тренд посещаемости вуза рисует точки факультетов не на своих неделях
-- **Где:** `apps/api/src/modules/analytics/university-analytics.service.ts:180-207` (ряд без досыпки нулей), `apps/web/src/widgets/stats-dashboard/ui/stats-dashboard.tsx:258-271,623`, `chart-data.ts:22` · **Статус:** исправлен · `fix/bugs-analytics` (b3abf8a6)
+- **Где:** `apps/api/src/modules/analytics/university-analytics.service.ts:180-207` (ряд без досыпки нулей), `apps/web/src/widgets/stats-dashboard/ui/stats-dashboard.tsx:258-271,623`, `chart-data.ts:22` · **Статус:** исправлен · `fix/bugs-analytics` (5a4e5d5e)
 
 #### BUG-188 · 🟡 «Активных студентов» за учебный год считается только за последние 90 дней
-- **Где:** `apps/api/src/modules/analytics/analytics-report.service.ts:546-557` (источник `audit_logs`), `apps/api/src/modules/cleanup/cleanup.service.ts:99` (`AUDIT_RETENTION_DAYS = 90`) · **Статус:** исправлен · `fix/bugs-analytics` (05371a5d)
+- **Где:** `apps/api/src/modules/analytics/analytics-report.service.ts:546-557` (источник `audit_logs`), `apps/api/src/modules/cleanup/cleanup.service.ts:99` (`AUDIT_RETENTION_DAYS = 90`) · **Статус:** исправлен · `fix/bugs-analytics` (e2042e2d)
 
 #### BUG-189 · 🟡 Любая ошибка скачивания файла — «Ошибка сервера»; протухший токен не продлевается
 - **Роль:** все, кто скачивает отчёты, `/me/export`, списки, резюме, выгрузку чата · **Статус:** исправлен · `fix/bugs-analytics` (dcf91adb)
@@ -1337,13 +1337,13 @@
 - **Ожидается:** FRONTEND_RULES §9 — состояние ошибки с повтором.
 
 #### BUG-191 · 🟢 Факультет без отметок — «Посещаемость 0 %» красным, группы без отметок первыми как худшие
-- **Где:** `apps/api/src/modules/analytics/analytics.service.ts:14-16,283,287,298` (`rateOf` → 0 вместо `null`) · **Статус:** исправлен · `fix/bugs-analytics` (610f6dcf)
+- **Где:** `apps/api/src/modules/analytics/analytics.service.ts:14-16,283,287,298` (`rateOf` → 0 вместо `null`) · **Статус:** исправлен · `fix/bugs-analytics` (78949294)
 
 #### BUG-192 · 🟢 «Пик пар при N учебных аудиториях» считает пары во всех помещениях, а аудитории — только `AUDITORIUM`
-- **Где:** `apps/api/src/modules/analytics/university-analytics.service.ts:270-281` · **Статус:** исправлен · `fix/bugs-analytics` (6ef9daf1)
+- **Где:** `apps/api/src/modules/analytics/university-analytics.service.ts:270-281` · **Статус:** исправлен · `fix/bugs-analytics` (17aa4bb9)
 
 #### BUG-193 · 🟢 Early Warning: просрочки считаются по случайной части заданий и вычитают сдачи старой группы
-- **Где:** `apps/api/src/modules/analytics/analytics.service.ts:184-199,385-389,424-425` (`take: 20000` без порядка) · **Статус:** исправлен · `fix/bugs-analytics` (610f6dcf)
+- **Где:** `apps/api/src/modules/analytics/analytics.service.ts:184-199,385-389,424-425` (`take: 20000` без порядка) · **Статус:** исправлен · `fix/bugs-analytics` (a6cc2018)
 
 #### BUG-194 · 🟢 Выгрузка своих данных неполна (чёрный список, выданные доступы, журнал своих документов, свои выгрузки), а сверка D-F26 этого не видит
 - **Где:** `apps/api/src/modules/data-export/data-export.service.ts:1116`, `data-export.service.spec.ts:222-227` (сверяются только `@relation`) · **Статус:** новый
@@ -1593,7 +1593,7 @@
 - **Где:** `apps/web/src/features/create-post/ui/create-post-form.tsx:145-152,155-169,483-487` · **Статус:** исправлен · `fix/bugs-feed-social` (381ec895)
 
 #### BUG-267 · 🟡 Закладка и лайк в карточке и полном просмотре расходятся — «Сохранить» убирает закладку
-- **Где:** `apps/web/src/features/bookmark-post/model/use-bookmark.ts:18-38`, `widgets/feed-list/ui/post-card.tsx:113,130`, `post-lightbox.tsx:330,454` · **Статус:** новый
+- **Где:** `apps/web/src/features/bookmark-post/model/use-bookmark.ts:18-38`, `widgets/feed-list/ui/post-card.tsx:113,130`, `post-lightbox.tsx:330,454` · **Статус:** исправлен · `fix/bugs-feed-social` (eacff330)
 - **Ожидается:** FRONTEND_RULES §5.5 — одно состояние на пост в кэше с откатом.
 
 #### BUG-268 · 🟡 Окно «Друзья» показывает только первые 20 друзей и заявок
@@ -1638,7 +1638,7 @@
 - **Где:** `apps/api/src/modules/portfolio/portfolio.service.ts:35-39,120-143` (`order` по умолчанию 0) · **Статус:** новый
 
 #### BUG-281 · 🟢 Голосование и удаление в сторис падают молча, прочие ошибки — «Внутренняя ошибка» (тот же приём, что BUG-042)
-- **Где:** `apps/web/src/widgets/stories-rail/ui/story-viewer.tsx:184-196`, `features/bookmark-post/model/use-bookmark.ts:35`, `widgets/friends-panel/model/use-friendship-mutations.ts:35,47`, `widgets/feed-list/ui/post-card.tsx:138-141` · **Статус:** новый
+- **Где:** `apps/web/src/widgets/stories-rail/ui/story-viewer.tsx:184-196`, `features/bookmark-post/model/use-bookmark.ts:35`, `widgets/friends-panel/model/use-friendship-mutations.ts:35,47`, `widgets/feed-list/ui/post-card.tsx:138-141` · **Статус:** исправлен · `fix/bugs-feed-social` (9d9c3a5a)
 
 #### BUG-282 · 🟢 Заметку репоста нельзя очистить правкой
 - **Где:** `packages/shared-schemas/src/posts.ts:47-53`, `apps/web/src/features/edit-post/ui/edit-post-modal.tsx:39,92` · **Статус:** новый
@@ -1757,13 +1757,13 @@
 - **Где:** `apps/web/src/views/attendance/ui/attendance-roster.tsx:71-75,211`, `packages/shared-schemas/src/attendance.ts` (`entries.min(1)`) · **Статус:** исправлен · `fix/bugs-academic` (d4d73878)
 
 #### BUG-314 · 🟢 Ошибки QR-самоотметки показываются чужими текстами («Неверный email или пароль»)
-- **Где:** `apps/web/src/views/attendance/ui/checkin-view.tsx:42`, `apps/api/src/modules/attendance/attendance.service.ts:281-283,357-370,435-440` · **Статус:** исправлен · `fix/bugs-academic` (e17c2b27)
+- **Где:** `apps/web/src/views/attendance/ui/checkin-view.tsx:42`, `apps/api/src/modules/attendance/attendance.service.ts:281-283,357-370,435-440` · **Статус:** исправлен · `fix/bugs-academic` (0d4ecc94)
 
 #### BUG-315 · 🟢 После срока сдачи форма зовёт «Отправить» и заканчивается «Конфликт данных»
 - **Где:** `apps/web/src/views/assignments/lib/assignment-status.ts:34-38`, `views/assignments/ui/student-assignment-detail.tsx:90-100`, `apps/api/src/modules/assignments/assignments.service.ts:539-546` · **Статус:** исправлен · `fix/bugs-academic` (d8753fdc)
 
 #### BUG-316 · 🟢 Консультации: прошедшую запись можно «отменить», живую — одним нажатием (корень BUG-155)
-- **Где:** `apps/api/src/modules/consultations/consultations.service.ts:285-326`, `apps/web/src/views/consultations/ui/student-consultations-view.tsx:41,184-189`, `teacher-consultations-view.tsx:216-225` · **Статус:** исправлен · `fix/bugs-academic` (4e7c84ea)
+- **Где:** `apps/api/src/modules/consultations/consultations.service.ts:285-326`, `apps/web/src/views/consultations/ui/student-consultations-view.tsx:41,184-189`, `teacher-consultations-view.tsx:216-225` · **Статус:** исправлен · `fix/bugs-academic` (ebd376f3)
 
 #### BUG-317 · 🟢 Слот, отменённый преподавателем, предлагает студенту «Записаться» и падает `409`
 - **Где:** `apps/api/src/modules/consultations/consultations.service.ts:207`, `apps/web/src/views/consultations/ui/student-consultations-view.tsx:126-134` · **Статус:** исправлен · `fix/bugs-academic` (bd396666)
@@ -1829,7 +1829,7 @@
 - **Где:** `apps/web/src/features/manage-schedule/ui/pair-details-modal.tsx:345,528`, `add-pair-modal.tsx:190` (`roleFilter={Role.TEACHER}`); сервер разрешает DEAN — `schedules.service.ts:1265` · **Статус:** исправлен · `fix/bugs-schedule-courses` (c8ba2cdc)
 
 #### BUG-333 · 🟢 Уведомление об изменении расписания и тексты конфликтов — по-русски в kk/en
-- **Где:** `apps/api/src/modules/schedules/schedules.service.ts:187-200,1189` (`{change}` — готовая русская строка), `packages/shared-config/src/notification-messages.ts:196,329`; тосты `pair-details-modal.tsx:143-145,190-193`, `manage-schedule.tsx:119-121,136-138`, `add-pair-modal.tsx:83-86` · **Статус:** новый
+- **Где:** `apps/api/src/modules/schedules/schedules.service.ts:187-200,1189` (`{change}` — готовая русская строка), `packages/shared-config/src/notification-messages.ts:196,329`; тосты `pair-details-modal.tsx:143-145,190-193`, `manage-schedule.tsx:119-121,136-138`, `add-pair-modal.tsx:83-86` · **Статус:** исправлен · `fix/bugs-schedule-courses` (dd9c3d28)
 
 #### BUG-334 · 🟢 Плитка декана «Пар сегодня» считает отменённые, «Проблемы расписания» — изменения неактивных версий
 - **Где:** `apps/web/src/widgets/today/ui/dean-today.tsx:58,70,78` · **Статус:** исправлен · `fix/bugs-schedule-courses` (2044c60e)
@@ -1882,14 +1882,14 @@
 - **Отложено:** требовать пароль на POST /auth/2fa/setup|enable — смена контракта (TwoFactorEnableSchema { code } → { code, password }, PROJECT §8.3 документирует { code }), правка shared-schemas и обоих экранов веба (настройки, форс-экран 2FA); нужно решение владельца: вводим ли повторный пароль и на форс-экране сразу после входа тоже
 
 #### BUG-347 · 🟢 🔒 Обязательную 2FA привилегированная роль отключает сама и до 15 минут работает с `tfa=true`
-- **Где:** `apps/api/src/modules/auth/two-factor.service.ts:165-182` (роль не проверяется), `apps/web/src/widgets/account-settings/ui/account-settings-panels.tsx:718-755`, `apps/api/src/common/guards/two-factor.guard.ts:53` · **Статус:** исправлен · `fix/bugs-platform-auth` (ec1895e1)
+- **Где:** `apps/api/src/modules/auth/two-factor.service.ts:165-182` (роль не проверяется), `apps/web/src/widgets/account-settings/ui/account-settings-panels.tsx:718-755`, `apps/api/src/common/guards/two-factor.guard.ts:53` · **Статус:** исправлен · `fix/bugs-platform-auth` (80eb828a)
 - **Ожидается:** §8.3 «Форс 2FA» — для `TWO_FACTOR_REQUIRED_ROLES` отключение запрещено или заменено перевыпуском.
 
 #### BUG-348 · 🟢 Резервный код в настройках и при удалении аккаунта не принимается из-за регистра и цифровой клавиатуры
 - **Где:** `apps/api/src/modules/auth/two-factor.service.ts:250-256` (без trim/upper), `account-settings-panels.tsx:697-703,731-738` (`inputMode="numeric"`), `:1363-1369`; на входе нормализуется — `shared/ui/code-input.tsx:88` · **Статус:** исправлен · `fix/bugs-platform-auth` (54d43b0b)
 
 #### BUG-349 · 🟢 🔒 «Забыли пароль»: лимит только по IP, каждая новая ссылка гасит прежние (корень BUG-076)
-- **Где:** `apps/api/src/modules/auth/auth.controller.ts:184-200`, `apps/api/src/modules/auth/password-reset.service.ts:58-67` · **Статус:** исправлен · `fix/bugs-platform-auth` (ec1895e1)
+- **Где:** `apps/api/src/modules/auth/auth.controller.ts:184-200`, `apps/api/src/modules/auth/password-reset.service.ts:58-67` · **Статус:** исправлен · `fix/bugs-platform-auth` (bcf94457)
 - **Сценарий:** ротация IP → поток писем на чужой ящик, жертва всегда открывает уже погашенную ссылку.
 
 #### BUG-350 · 🟢 Вебхук бота при сбое БД отвечает 500 — `/status` в аварию молчит, Telegram повторяет
@@ -1900,7 +1900,7 @@
 - **Где:** `apps/api/src/modules/telegram-hook/telegram-hook.service.ts:143-152,383-384` против `apps/api/src/modules/platform/platform.service.ts:483-501` (пропуск недоступных, очередь < 2) · **Статус:** исправлен · `fix/bugs-platform-auth` (bcb588e5)
 
 #### BUG-352 · 🟢 Сводка, назначенная на тихий час, не приходит никогда, а бот обещает её время
-- **Где:** `apps/api/src/common/telegram/telegram-notify.service.ts:103-107`, `apps/api/src/modules/cleanup/cleanup.service.ts:978-1002`, `telegram-hook.service.ts:395-397`; нет проверки в `SetNotificationsSchema` · **Статус:** исправлен · `fix/bugs-platform-auth` (bed1b201)
+- **Где:** `apps/api/src/common/telegram/telegram-notify.service.ts:103-107`, `apps/api/src/modules/cleanup/cleanup.service.ts:978-1002`, `telegram-hook.service.ts:395-397`; нет проверки в `SetNotificationsSchema` · **Статус:** исправлен · `fix/bugs-platform-auth` (d15668bf)
 
 #### BUG-353 · 🟢 `/setup-2fa` — тупик, если 2FA уже включена (перезагрузка на шаге кодов, другая вкладка)
 - **Где:** `apps/web/src/features/setup-2fa/ui/setup-2fa-gate.tsx:35-39,146-157` · **Статус:** исправлен · `fix/bugs-platform-auth` (f7d2736f)
@@ -1975,7 +1975,7 @@
 - **Где:** `apps/api/src/modules/events/events.service.ts:365,636` · **Статус:** исправлен · `fix/bugs-events-moderation` (62688272)
 
 #### BUG-373 · 🟢 Время в уведомлениях о событиях платформы — в UTC без пометки (корень BUG-103)
-- **Где:** `apps/api/src/modules/events/events.service.ts:357-361,379,391,747-754` · **Статус:** новый
+- **Где:** `apps/api/src/modules/events/events.service.ts:357-361,379,391,747-754` · **Статус:** исправлен · `fix/bugs-events-moderation` (c7c99e1d)
 
 #### BUG-374 · 🟢 Окно жалобы не обновляется после «Взять» — повторное нажатие даёт «разбирает другой»
 - **Где:** `apps/web/src/views/moderation/ui/complaints-queue-view.tsx:69,174,236`, `complaint-detail-modal.tsx:111-122,309` · **Статус:** исправлен · `fix/bugs-events-moderation` (b1e9aac0)
@@ -2026,15 +2026,16 @@
 - **Ожидается:** BACKEND_RULES §13.1 — маскировать `/bot<…>/`, убирать `http.query`, не писать крошки link-preview.
 
 #### BUG-386 · 🟡 🔒 Открытый WebSocket живёт без срока: истёкший или украденный access-токен даёт realtime навсегда
-- **Где:** `apps/api/src/common/realtime/realtime.gateway.ts:60-101` (проверка только в handshake), `:175-210` (невалидный `auth:refresh` связь не рвёт), `apps/api/src/modules/auth/auth.service.ts:463-464,493,563-576` (logout и детектор повтора не рвут WS) · **Статус:** новый
+- **Где:** `apps/api/src/common/realtime/realtime.gateway.ts:60-101` (проверка только в handshake), `:175-210` (невалидный `auth:refresh` связь не рвёт), `apps/api/src/modules/auth/auth.service.ts:463-464,493,563-576` (logout и детектор повтора не рвут WS) · **Статус:** отложен
 - **Ожидается:** BACKEND_RULES §10, PROJECT §7.2 — разрыв на `exp` без продления, при краже refresh гасить и WS.
+- **Отложено:** часть «кража refresh» сделана (e6a2fe91: отзыв access + разрыв WS); разрыв WS на exp без auth:refresh отложен — PROJECT.md §9 прямо описывает «срок access у открытого сокета не проверяется», а iOS/Android не переподключаются после серверного disconnect (веб умеет). Нужно решение: вводить разрыв на exp и доработать мобильные клиенты (переподключение со свежим токеном по io server disconnect)?
 
 #### BUG-387 · 🟡 Техработы шлют в Sentry каждый запрос и поднимают тревогу «Всплеск ошибок»
-- **Где:** `apps/api/src/common/filters/http-exception.filter.ts:77-108` (любой ≥500 → `captureException`, `recordServerError`), `common/guards/maintenance.guard.ts:368`, `modules/cleanup/cleanup.service.ts:217,1264-1271` · **Статус:** исправлен · `fix/bugs-api-infra` (5260e99a)
+- **Где:** `apps/api/src/common/filters/http-exception.filter.ts:77-108` (любой ≥500 → `captureException`, `recordServerError`), `common/guards/maintenance.guard.ts:368`, `modules/cleanup/cleanup.service.ts:217,1264-1271` · **Статус:** исправлен · `fix/bugs-api-infra` (561459b1)
 - **Ожидается:** BACKEND_RULES §13.1 — ожидаемые `503 MAINTENANCE` и 503 health в трекер и счётчик не идут.
 
 #### BUG-388 · 🟡 `GET /health` обёрнут в конверт: мини-апп всегда показывает базу, Redis и MinIO упавшими
-- **Роль:** PLATFORM_* (мини-апп, «Обзор») · **Статус:** исправлен · `fix/bugs-api-infra` (5260e99a)
+- **Роль:** PLATFORM_* (мини-апп, «Обзор») · **Статус:** исправлен · `fix/bugs-api-infra` (941437c3)
 - **Где:** `apps/api/src/modules/health/health.controller.ts:20-35` (обещан «формат terminus прежний»), `common/interceptors/response.interceptor.ts` (исключения для health нет), `common/filters/http-exception.filter.ts:61-64,110-118`, `apps/mini-app/src/api/overview.ts:104-118` (читает `payload.info` с верхнего уровня)
 - **Сценарий:** здоровый ответ `{success,data:{info}}` → все три «error»; при отказе одного сервиса тело заменяется на `INTERNAL_ERROR`, какой лёг — не узнать. Railway/uptime, читающие формат terminus, тоже затронуты.
 
@@ -2048,7 +2049,7 @@
 - **Ожидается:** BACKEND_RULES §14 — проверка суммарного распакованного размера до разбора или разбор в воркере с лимитом памяти.
 
 #### BUG-391 · 🟢 Ошибки Fastify в обработчике → `500 INTERNAL_ERROR` с событием в Sentry; 406/413/415 с кодом `INTERNAL_ERROR`
-- **Где:** `apps/api/src/common/filters/http-exception.filter.ts:61-75`, `common/http/read-upload.ts:10`, `modules/invites/invites.controller.ts:94`, `modules/library/library-catalog.controller.ts:198`, `packages/shared-types/src/error-codes.ts:85-104` · **Статус:** исправлен · `fix/bugs-api-infra` (5260e99a)
+- **Где:** `apps/api/src/common/filters/http-exception.filter.ts:61-75`, `common/http/read-upload.ts:10`, `modules/invites/invites.controller.ts:94`, `modules/library/library-catalog.controller.ts:198`, `packages/shared-types/src/error-codes.ts:85-104` · **Статус:** исправлен · `fix/bugs-api-infra` (561459b1)
 - **Сценарий:** `POST /files/upload` не multipart → 500; `readUploadWithFields` любую ошибку выдаёт за «файл больше порога».
 
 #### BUG-392 · 🟢 Копия неготового видео при пересылке перекодируется в очереди изображений
@@ -2196,7 +2197,7 @@
 - **Где:** `features/chats/ChatThreadScreen.kt:130` (`leave()` только при уходе экрана, нет `ProcessLifecycleOwner`), `core/realtime/RealtimeCoordinator.kt:67-77`; сервер `chats.service.ts:2450-2486` · **Статус:** новый
 
 #### BUG-430 · 🟡 🔒 После выхода телефон показывает чужие пуши, старые плашки и кэши файлов остаются (клиентская часть BUG-081)
-- **Где:** `core/push/MessagingService.kt:37-45` (без проверки сессии), `core/push/Push.kt:88-94` (отвязка офлайн молча проваливается), `shell/AppServices.kt:148-158` (нет `cancelAll()`, не чистятся `cacheDir/outgoing` и кэш Coil) · **Статус:** новый
+- **Где:** `core/push/MessagingService.kt:37-45` (без проверки сессии), `core/push/Push.kt:88-94` (отвязка офлайн молча проваливается), `shell/AppServices.kt:148-158` (нет `cancelAll()`, не чистятся `cacheDir/outgoing` и кэш Coil) · **Статус:** исправлен · `fix/bugs-android` (c7b58b40)
 
 #### BUG-431 · 🟡 Каждое открытие услуги заводит новый пустой черновик заявки, а ответы живут только в памяти
 - **Где:** `features/applications/ApplicationModels.kt:88` (`createDraft` в `load()`), `:119-127`; сервер `applications.service.ts:95-110` · **Статус:** новый
@@ -2287,7 +2288,7 @@
 - **Сценарий:** `nameRu/Kk/En`, `code`, `labelRu…`, `options` объектами против `name`/`key`/`label`/`[String]` → keyNotFound; `formData` с числом/булевым роняет список заявок; нет статусов `NEEDS_CORRECTION`, `RESUBMITTED`, `IN_PREPARATION`, `READY_FOR_PICKUP`, `DELIVERED`; таймлайн из `history` вместо `events`; каждый заход создаёт DRAFT (как BUG-431).
 
 #### BUG-453 · 🟠 iOS: преподаватель не может отметить посещаемость — ростер не разбирается (`id` против `studentId`)
-- **Роль:** TEACHER · **Статус:** подтверждён
+- **Роль:** TEACHER · **Статус:** исправлен · `fix/bugs-ios-miniapp` (9987861b)
 - **Где:** `Core/Study/StudyAPI.swift:66-80`; сервер `apps/api/src/modules/attendance/attendance.service.ts:108-120`
 
 #### BUG-454 · 🟠 iOS: своё сообщение раздваивается и помечается «Не отправлено», повтор шлёт дубль
@@ -2413,7 +2414,7 @@
 - **Ожидается:** пустое = не задано; прод-сборка без адресов падает.
 
 #### BUG-489 · 🟢 Язык теряется при переходе с лендинга на платформу
-- **Где:** `apps/landing/src/config/site.ts:41-53`, `apps/web/src/i18n/request.ts:7-12` (только cookie `NEXT_LOCALE`) · **Статус:** исправлен · `fix/bugs-landing-promo` (63df97d8)
+- **Где:** `apps/landing/src/config/site.ts:41-53`, `apps/web/src/i18n/request.ts:7-12` (только cookie `NEXT_LOCALE`) · **Статус:** исправлен · `fix/bugs-landing-promo` (8188f030)
 
 #### BUG-490 · 🟢 Подписи кнопок не совпадают с действием: «Написать нам» открывает форму, «Обсудить внедрение» — то форму, то `mailto:`
 - **Где:** `apps/landing/src/ui/cta.tsx:261-268`, `content/ru.ts:245`, `en.ts:241`, `kk.ts:246`, `ui/doors.tsx:112` · **Статус:** исправлен · `fix/bugs-landing-promo` (12dc7bb1)
