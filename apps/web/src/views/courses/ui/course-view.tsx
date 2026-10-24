@@ -54,6 +54,7 @@ const ASG_STATUS_KEY: Record<StudentAssignmentStatus, string> = {
   GRADED: 'graded',
   RETURNED: 'returned',
   OVERDUE: 'overdue',
+  CLOSED: 'closed',
 }
 const ASG_STATUS_VARIANT: Record<
   StudentAssignmentStatus,
@@ -65,6 +66,7 @@ const ASG_STATUS_VARIANT: Record<
   GRADED: 'default',
   RETURNED: 'destructive',
   OVERDUE: 'destructive',
+  CLOSED: 'secondary',
 }
 
 // Разделы дисциплины. Живут в шапке страницы (SegmentedTabs), как на остальных экранах

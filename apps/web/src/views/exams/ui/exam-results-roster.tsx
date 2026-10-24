@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
@@ -82,31 +82,62 @@ export function ExamResultsRoster({
     queryFn: () => fetchExamResults(examId),
   })
   const [rows, setRows] = useState<Record<string, Row>>({})
+  // Тронутые строки (studentId). На сохранение уходят только они: ведомость целиком
+  // молча затирала результаты, выставленные вторым проверяющим после её открытия, —
+  // нетронутая у нас пустая строка уходила как «запланирован, без балла». Ref — для
+  // слияния с перечитанной ведомостью, чтобы эффект не зависел от черновика.
+  const [dirty, setDirty] = useState<Set<string>>(new Set())
+  const dirtyRef = useRef(dirty)
+  dirtyRef.current = dirty
   const ceiling = maxScore ?? SCORE_CEILING
 
+  // Ответ сервера переписывает только нетронутые строки: правки, ещё не сохранённые,
+  // переживают перечитывание ведомости.
   useEffect(() => {
     if (!q.data) return
-    setRows(
+    const students = q.data.students
+    setRows((prev) =>
       Object.fromEntries(
-        q.data.students.map((s) => [
-          s.studentId,
-          { admitted: s.admitted, status: s.status, score: s.score != null ? String(s.score) : '' },
-        ]),
+        students.map((s) => {
+          const draft = prev[s.studentId]
+          if (draft && dirtyRef.current.has(s.studentId)) return [s.studentId, draft]
+          return [
+            s.studentId,
+            {
+              admitted: s.admitted,
+              status: s.status,
+              score: s.score != null ? String(s.score) : '',
+            },
+          ]
+        }),
       ),
     )
   }, [q.data])
 
   const save = useMutation({
-    mutationFn: () => {
-      const entries = Object.entries(rows).map(([studentId, r]) => ({
-        studentId,
-        admitted: r.admitted,
-        status: r.status,
-        score: r.score === '' ? null : Number(r.score),
-      }))
+    mutationFn: (ids: string[]) => {
+      const entries = ids.flatMap((studentId) => {
+        const r = rows[studentId]
+        return r
+          ? [
+              {
+                studentId,
+                admitted: r.admitted,
+                status: r.status,
+                score: r.score === '' ? null : Number(r.score),
+              },
+            ]
+          : []
+      })
       return setExamResultsRequest({ examId, entries })
     },
-    onSuccess: () => {
+    onSuccess: (_data, ids) => {
+      // Снимаем отметку только с отправленных строк: тронутое во время запроса — ещё черновик.
+      setDirty((prev) => {
+        const next = new Set(prev)
+        for (const id of ids) next.delete(id)
+        return next
+      })
       qc.invalidateQueries({ queryKey: examKeys.results(examId) })
       qc.invalidateQueries({ queryKey: examKeys.all })
       toast.success(t('resultsSaved'))
@@ -120,7 +151,11 @@ export function ExamResultsRoster({
   // Ведомость с ошибками не отправляем: сервер отклонил бы её целиком, а поля и так
   // подсвечены.
   function onSave() {
-    const invalid = Object.values(rows).some((r) => {
+    const ids = [...dirty]
+    if (ids.length === 0) return
+    const invalid = ids.some((id) => {
+      const r = rows[id]
+      if (!r) return false
       const err = rowErrors(r, ceiling)
       return err.score || err.status
     })
@@ -128,11 +163,13 @@ export function ExamResultsRoster({
       toast.error(t('rosterInvalid'))
       return
     }
-    save.mutate()
+    save.mutate(ids)
   }
 
-  const patch = (id: string, p: Partial<Row>) =>
+  const patch = (id: string, p: Partial<Row>) => {
     setRows((prev) => ({ ...prev, [id]: { ...prev[id]!, ...p } }))
+    setDirty((prev) => (prev.has(id) ? prev : new Set(prev).add(id)))
+  }
 
   /*
     Сортировка на фронте: ведомость приходит целиком, страниц нет — сортировать на
@@ -165,7 +202,13 @@ export function ExamResultsRoster({
         onBack={onBack}
         backLabel={t('back')}
         actions={
-          <Button size="sm" className="gap-1.5" onClick={onSave} loading={save.isPending}>
+          <Button
+            size="sm"
+            className="gap-1.5"
+            onClick={onSave}
+            loading={save.isPending}
+            disabled={dirty.size === 0}
+          >
             <Save className="size-4" aria-hidden />
             {t('save')}
           </Button>

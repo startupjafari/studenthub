@@ -14,13 +14,13 @@ const dean: JwtPayload = {
   groupId: null,
 }
 
-function setup(scored: number) {
+function setup(scored: number, date = new Date('2026-06-10T04:00:00.000Z')) {
   const prisma = {
     exam: {
       findUnique: jest.fn().mockResolvedValue({
         id: 'ex-1',
         groupId: 'grp-1',
-        date: new Date('2026-06-10T04:00:00.000Z'),
+        date,
         roomId: null,
         examinerId: 't-1',
         course: {
@@ -32,14 +32,21 @@ function setup(scored: number) {
       delete: jest.fn().mockResolvedValue({}),
     },
     examResult: { count: jest.fn().mockResolvedValue(scored) },
+    user: { findMany: jest.fn().mockResolvedValue([{ id: 'st-1' }]) },
+    group: {
+      findUnique: jest
+        .fn()
+        .mockResolvedValue({ faculty: { university: { timezone: 'Asia/Almaty' } } }),
+    },
   }
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
+  const queue = { enqueue: jest.fn().mockResolvedValue(undefined) }
   const service = new ExamsService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
-    { enqueue: jest.fn() } as unknown as QueueService,
+    queue as unknown as QueueService,
   )
-  return { service, prisma }
+  return { service, prisma, queue }
 }
 
 describe('ExamsService.remove — ведомость', () => {
@@ -54,5 +61,27 @@ describe('ExamsService.remove — ведомость', () => {
     const { service, prisma } = setup(0)
     await service.remove(dean, 'ex-1', ctx)
     expect(prisma.exam.delete).toHaveBeenCalledWith({ where: { id: 'ex-1' } })
+  })
+
+  it('отмена предстоящего экзамена → уведомление группе', async () => {
+    const future = new Date(Date.now() + 7 * 24 * 60 * 60_000)
+    const { service, queue } = setup(0, future)
+    await service.remove(dean, 'ex-1', ctx)
+    const [queueName, jobName, payload] = queue.enqueue.mock.calls[0]
+    expect(queueName).toBe('notifications')
+    expect(jobName).toBe('exam-cancelled')
+    expect(payload).toMatchObject({
+      recipientIds: ['st-1'],
+      type: 'SCHEDULE_CHANGE',
+      titleKey: 'exams.cancelled.title',
+      params: { subject: 'Матанализ' },
+      dedupeKey: 'exam-cancelled:ex-1',
+    })
+  })
+
+  it('удаление прошедшего экзамена студентов не тревожит', async () => {
+    const { service, queue } = setup(0)
+    await service.remove(dean, 'ex-1', ctx)
+    expect(queue.enqueue).not.toHaveBeenCalled()
   })
 })

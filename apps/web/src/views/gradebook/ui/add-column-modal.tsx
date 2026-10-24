@@ -4,7 +4,11 @@ import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { GRADE_COLUMN_KINDS, CreateGradeColumnSchema } from '@studenthub/shared-schemas'
+import {
+  GRADE_COLUMN_KINDS,
+  CreateGradeColumnSchema,
+  UpdateGradeColumnSchema,
+} from '@studenthub/shared-schemas'
 import {
   Button,
   FieldError,
@@ -18,22 +22,36 @@ import {
   SelectValue,
 } from '../../../shared/ui'
 import { toApiError } from '../../../shared/lib'
-import { gradebookKeys, createColumnRequest } from '../../../entities/gradebook'
+import {
+  gradebookKeys,
+  createColumnRequest,
+  updateColumnRequest,
+  type GradeColumnItem,
+} from '../../../entities/gradebook'
 
 interface Props {
   courseId: string
+  /** Правка существующей колонки; без неё — добавление новой. */
+  column?: GradeColumnItem
   onClose: () => void
 }
 
-// Модалка добавления контрольной точки (колонки журнала).
-export function AddColumnModal({ courseId, onClose }: Props) {
+type Kind = (typeof GRADE_COLUMN_KINDS)[number]
+
+// Модалка контрольной точки (колонки журнала): добавление и правка.
+export function AddColumnModal({ courseId, column, onClose }: Props) {
   const t = useTranslations('Gradebook')
   const tCommon = useTranslations('Common')
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
-  const [title, setTitle] = useState('')
-  const [kind, setKind] = useState<(typeof GRADE_COLUMN_KINDS)[number]>('LAB')
-  const [maxScore, setMaxScore] = useState('100')
+  const [title, setTitle] = useState(column?.title ?? '')
+  const [kind, setKind] = useState<Kind>(
+    GRADE_COLUMN_KINDS.find((k) => k === column?.kind) ?? (column ? 'OTHER' : 'LAB'),
+  )
+  // Колонка без максимума (созданная не из журнала) так и правится: пустое поле — «без максимума».
+  const [maxScore, setMaxScore] = useState(
+    column ? (column.maxScore == null ? '' : String(column.maxScore)) : '100',
+  )
   const [pending, setPending] = useState(false)
   const [submitted, setSubmitted] = useState(false)
 
@@ -41,7 +59,9 @@ export function AddColumnModal({ courseId, onClose }: Props) {
     title: !title.trim() ? tCommon('fieldRequired') : null,
     // Серверная схема: целое 1…1000.
     maxScore: !maxScore.trim()
-      ? tCommon('fieldRequired')
+      ? column && column.maxScore == null
+        ? null
+        : tCommon('fieldRequired')
       : !Number.isInteger(Number(maxScore)) || Number(maxScore) < 1 || Number(maxScore) > 1000
         ? tCommon('numberRange', { min: 1, max: 1000 })
         : null,
@@ -51,6 +71,7 @@ export function AddColumnModal({ courseId, onClose }: Props) {
   async function onSubmit() {
     setSubmitted(true)
     if (Object.values(errors).some(Boolean)) return
+    if (column) return onUpdate(column)
     const payload = {
       courseId,
       title: title.trim(),
@@ -75,8 +96,40 @@ export function AddColumnModal({ courseId, onClose }: Props) {
     }
   }
 
+  // Уходят только изменённые поля: PATCH без лишнего не трогает того, что не правили.
+  async function onUpdate(col: GradeColumnItem) {
+    const nextMax = maxScore.trim() ? Number(maxScore) : null
+    const payload = {
+      ...(title.trim() !== col.title ? { title: title.trim() } : {}),
+      ...(kind !== col.kind ? { kind } : {}),
+      ...(nextMax !== col.maxScore ? { maxScore: nextMax } : {}),
+    }
+    if (Object.keys(payload).length === 0) {
+      onClose()
+      return
+    }
+    const parsed = UpdateGradeColumnSchema.safeParse(payload)
+    if (!parsed.success) {
+      toast.error(t('formInvalid'))
+      return
+    }
+    setPending(true)
+    try {
+      await updateColumnRequest(col.id, parsed.data)
+      await qc.invalidateQueries({ queryKey: gradebookKeys.course(courseId) })
+      toast.success(t('columnUpdated'))
+      onClose()
+    } catch (e) {
+      const code = toApiError(e).code
+      // Сервер не даёт опустить максимум ниже уже выставленной оценки.
+      toast.error(code === 'CONFLICT' ? t('maxBelowGrades') : tErr(code))
+    } finally {
+      setPending(false)
+    }
+  }
+
   return (
-    <Modal onClose={onClose} title={t('newColumn')}>
+    <Modal onClose={onClose} title={column ? t('editColumnTitle') : t('newColumn')}>
       <div className="flex flex-col gap-4">
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="col-title">{t('columnTitle')}</Label>
@@ -123,7 +176,7 @@ export function AddColumnModal({ courseId, onClose }: Props) {
             {t('cancel')}
           </Button>
           <Button onClick={onSubmit} loading={pending}>
-            {t('add')}
+            {column ? t('save') : t('add')}
           </Button>
         </div>
       </div>

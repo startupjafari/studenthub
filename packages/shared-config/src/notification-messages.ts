@@ -128,6 +128,7 @@ const RU = {
 
   'exams.scheduled.title': 'Назначен экзамен',
   'exams.updated.title': 'Изменения по экзамену',
+  'exams.cancelled.title': 'Экзамен отменён',
   'exams.result.title': 'Результат экзамена',
   'exams.course.body': '{subject}: {date}',
 
@@ -269,6 +270,7 @@ const KK: Record<NotificationMessageKey, string> = {
 
   'exams.scheduled.title': 'Емтихан тағайындалды',
   'exams.updated.title': 'Емтихан бойынша өзгерістер',
+  'exams.cancelled.title': 'Емтихан болдырылмады',
   'exams.result.title': 'Емтихан нәтижесі',
   'exams.course.body': '{subject}: {date}',
 
@@ -402,6 +404,7 @@ const EN: Record<NotificationMessageKey, string> = {
 
   'exams.scheduled.title': 'Exam scheduled',
   'exams.updated.title': 'Exam details changed',
+  'exams.cancelled.title': 'Exam cancelled',
   'exams.result.title': 'Exam result',
   'exams.course.body': '{subject}: {date}',
 

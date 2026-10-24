@@ -4,7 +4,7 @@ import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { GraduationCap, Inbox, MoreHorizontal, Plus, Trash2, Users } from 'lucide-react'
+import { GraduationCap, Inbox, MoreHorizontal, Pencil, Plus, Trash2, Users } from 'lucide-react'
 import { EXAM_LIST_LIMIT, type ExamListQueryInput } from '@studenthub/shared-schemas'
 import {
   Badge,
@@ -29,6 +29,7 @@ import {
   TableSkeletonRows,
   TableText,
   parseYmd,
+  useConfirm,
   useTableSort,
   type DateRange,
 } from '../../../shared/ui'
@@ -92,12 +93,14 @@ export function ExamManagementView({ mine }: { mine: boolean }) {
   const tErr = useTranslations('Errors')
   const locale = useLocale()
   const qc = useQueryClient()
+  const confirm = useConfirm()
   const [creating, setCreating] = useState(false)
+  const [editing, setEditing] = useState<ExamItem | null>(null)
   const [rosterId, setRosterId] = useState<string | null>(null)
   const role = useAppSelector((s) => s.auth.role)
   const myId = useAppSelector((s) => s.auth.user?.id)
-  // Экзаменатор, не читающий дисциплину, ведёт только ведомость: удалить экзамен может
-  // преподаватель дисциплины или деканат (так же решает сервер).
+  // Экзаменатор, не читающий дисциплину, ведёт только ведомость: править и удалить экзамен
+  // может преподаватель дисциплины или деканат (так же решает сервер).
   const canDelete = (e: ExamItem): boolean => role !== Role.TEACHER || e.course.teacherId === myId
 
   const [tab, setTab] = useState<TabId>('upcoming')
@@ -282,10 +285,30 @@ export function ExamManagementView({ mine }: { mine: boolean }) {
                         </DropdownMenuItem>
                         {canDelete(e) && (
                           <>
+                            <DropdownMenuItem onClick={() => setEditing(e)}>
+                              <Pencil aria-hidden />
+                              {t('edit')}
+                            </DropdownMenuItem>
                             <DropdownMenuSeparator />
                             <DropdownMenuItem
                               variant="destructive"
-                              onClick={() => remove.mutate(e.id)}
+                              onClick={async () => {
+                                // Необратимо, и группа получит уведомление об отмене —
+                                // один промах по пункту меню не должен этого делать.
+                                const ok = await confirm({
+                                  title: t('confirmDeleteTitle'),
+                                  // Об отмене сервер сообщает только по предстоящему.
+                                  description: t(
+                                    new Date(e.date).getTime() > Date.now()
+                                      ? 'confirmDeleteDesc'
+                                      : 'confirmDeletePastDesc',
+                                    { subject: e.course.subject.name, group: e.group.name },
+                                  ),
+                                  confirmLabel: t('delete'),
+                                  destructive: true,
+                                })
+                                if (ok) remove.mutate(e.id)
+                              }}
                             >
                               <Trash2 aria-hidden />
                               {t('delete')}
@@ -310,6 +333,14 @@ export function ExamManagementView({ mine }: { mine: boolean }) {
       )}
 
       {creating && <CreateExamModal mine={mine} onClose={() => setCreating(false)} />}
+      {editing && (
+        <CreateExamModal
+          key={editing.id}
+          mine={mine}
+          exam={editing}
+          onClose={() => setEditing(null)}
+        />
+      )}
     </div>
   )
 }

@@ -360,8 +360,8 @@ export class AttendanceService {
       if (res.reason === 'expired') {
         throw new AppException('BAD_REQUEST', 'QR-код истёк — попросите преподавателя обновить')
       }
-      if (res.reason === 'invalid')
-        throw new AppException('UNAUTHORIZED', 'Недействительный QR-код')
+      // Не UNAUTHORIZED: 401 — про сессию, и клиент читал его как «Неверный email или пароль».
+      if (res.reason === 'invalid') throw new AppException('BAD_REQUEST', 'Недействительный QR-код')
       throw new AppException('BAD_REQUEST', 'Некорректный QR-код')
     }
     // Токен другого назначения (напр. студенческий билет), но с той же подписью — не наш.

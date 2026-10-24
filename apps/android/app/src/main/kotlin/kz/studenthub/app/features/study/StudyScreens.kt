@@ -171,13 +171,13 @@ fun AttendanceScreen() {
                     modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.xl, vertical = Spacing.md),
                 ) {
                     Text(stringResource(R.string.study_attendanceRate), style = AppType.body, color = AppTheme.colors.foreground, modifier = Modifier.weight(1f))
-                    Text(summary.rate?.let { "${(it * 100).toInt()}%" } ?: "—", style = AppType.tabular(AppType.metric), color = AppTheme.colors.primary)
+                    Text(if (summary.total == 0) "—" else "${summary.rate}%", style = AppType.tabular(AppType.metric), color = AppTheme.colors.primary)
                 }
                 listOf("PRESENT", "LATE", "ABSENT", "EXCUSED").forEach { status ->
                     ListDivider(inset = false)
                     Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.xl, vertical = Spacing.md)) {
                         Text(attendanceTitle(status), style = AppType.body, color = AppTheme.colors.foreground, modifier = Modifier.weight(1f))
-                        Text("${summary.counts[status] ?: 0}", style = AppType.tabular(AppType.body), color = AppTheme.colors.mutedForeground)
+                        Text("${summary.count(status)}", style = AppType.tabular(AppType.body), color = AppTheme.colors.mutedForeground)
                     }
                 }
             }

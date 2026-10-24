@@ -213,7 +213,9 @@ describe('ExamsService.list — ближайшие экзамены, а не с�
       to: '2026-02-01T00:00:00.000Z',
     })
     const where = (findMany.mock.calls[0]?.[0] as unknown as { where: { AND: unknown[] } }).where
-    expect(where.AND[0]).toEqual({ group: { is: { facultyId: 'fac-1' } } })
+    expect(where.AND[0]).toEqual({
+      OR: [{ group: { is: { facultyId: 'fac-1' } } }, { examinerId: 'dean-1' }],
+    })
     expect(where.AND).toContainEqual({ date: { gte: new Date('2026-01-01T00:00:00.000Z') } })
     expect(where.AND).toContainEqual({ date: { lt: new Date('2026-02-01T00:00:00.000Z') } })
   })
@@ -333,7 +335,7 @@ describe('ExamsService.create / update — пересечения и уведо�
     expect(queue.enqueue).not.toHaveBeenCalled()
   })
 
-  it('перенос даты → проверка пересечений и уведомление с новой датой в ключе', async () => {
+  it('перенос даты → проверка пересечений и уведомление с ключом на сохранение', async () => {
     const { service, prisma, queue } = setup()
     prisma.exam.update.mockResolvedValue({
       id: 'ex-1',
@@ -345,9 +347,25 @@ describe('ExamsService.create / update — пересечения и уведо�
     expect(prisma.exam.findMany).toHaveBeenCalled()
     expect(prisma.exam.findMany.mock.calls[0][0].where.id).toEqual({ not: 'ex-1' })
     expect(queue.enqueue.mock.calls[0][1]).toBe('exam-updated')
-    expect(queue.enqueue.mock.calls[0][2].dedupeKey).toBe(
-      `exam-updated:ex-1:${future.toISOString()}:-`,
-    )
+    expect(queue.enqueue.mock.calls[0][2].dedupeKey).toMatch(/^exam-updated:ex-1:\d+$/)
+  })
+
+  it('перенос обратно на прежнее время — снова уведомление, а не погашенный дубль', async () => {
+    const { service, prisma, queue } = setup()
+    prisma.exam.update.mockResolvedValue({
+      id: 'ex-1',
+      groupId: 'grp-1',
+      date: future,
+      course: { subject: { name: 'Матанализ' } },
+    })
+    const now = jest.spyOn(Date, 'now')
+    now.mockReturnValue(1_000)
+    await service.update(dean, 'ex-1', { date: future.toISOString() }, ctx)
+    now.mockReturnValue(2_000)
+    await service.update(dean, 'ex-1', { date: future.toISOString() }, ctx)
+    now.mockRestore()
+    const keys = queue.enqueue.mock.calls.map((c) => c[2].dedupeKey)
+    expect(new Set(keys).size).toBe(2)
   })
 
   it('правка заметки — без проверки пересечений и без уведомления', async () => {
@@ -384,6 +402,82 @@ describe('ExamsService.getById — преподаватель видит тол�
     })
     await expect(service.getById(teacher('lecturer'), 'ex-1')).resolves.toMatchObject({
       id: 'ex-1',
+    })
+  })
+})
+
+describe('ExamsService — декан другого факультета, назначенный экзаменатором', () => {
+  const otherDean: JwtPayload = {
+    sub: 'examiner',
+    role: Role.DEAN,
+    universityId: 'uni-1',
+    facultyId: 'fac-2',
+    groupId: null,
+  }
+
+  it('открывает экзамен и заполняет ведомость', async () => {
+    const { service, prisma } = setup()
+    await expect(service.results(otherDean, 'ex-1')).resolves.toMatchObject({ examId: 'ex-1' })
+    await service.setResults(
+      otherDean,
+      {
+        examId: 'ex-1',
+        entries: [{ studentId: 'st-1', admitted: true, status: 'PASSED', score: 85 }],
+      },
+      ctx,
+    )
+    expect(prisma.examResult.upsert).toHaveBeenCalled()
+    prisma.exam.findUnique.mockResolvedValue({
+      id: 'ex-1',
+      groupId: 'grp-1',
+      course: { teacherId: 'lecturer' },
+      examiner: { id: 'examiner' },
+    })
+    await expect(service.getById(otherDean, 'ex-1')).resolves.toMatchObject({ id: 'ex-1' })
+  })
+
+  it('править сам экзамен не может — это за деканатом факультета', async () => {
+    const { service } = setup()
+    await expect(service.remove(otherDean, 'ex-1', ctx)).rejects.toMatchObject({
+      code: 'WRONG_SCOPE',
+    })
+  })
+})
+
+describe('ExamsService — экзамены прежней группы после перевода', () => {
+  const movedStudent: JwtPayload = {
+    sub: 'st-1',
+    role: Role.STUDENT,
+    universityId: 'uni-1',
+    facultyId: 'fac-1',
+    groupId: 'grp-2',
+  }
+
+  it('список студента: текущая группа или экзамены с его результатом', async () => {
+    const { service, prisma } = setup()
+    await service.list(movedStudent, {})
+    const where = prisma.exam.findMany.mock.calls[0][0].where
+    expect(where.AND[0]).toEqual({
+      OR: [{ groupId: 'grp-2' }, { results: { some: { studentId: 'st-1' } } }],
+    })
+  })
+
+  it('экзамен прежней группы со своим результатом открывается, без результата — нет', async () => {
+    const { service, prisma } = setup()
+    const row = {
+      id: 'ex-1',
+      groupId: 'grp-1',
+      course: { teacherId: 'lecturer' },
+      examiner: { id: 'examiner' },
+    }
+    prisma.exam.findUnique.mockResolvedValue({ ...row, results: [{ id: 'r-1', status: 'PASSED' }] })
+    await expect(service.getById(movedStudent, 'ex-1')).resolves.toMatchObject({
+      id: 'ex-1',
+      myResult: { status: 'PASSED' },
+    })
+    prisma.exam.findUnique.mockResolvedValue({ ...row, results: [] })
+    await expect(service.getById(movedStudent, 'ex-1')).rejects.toMatchObject({
+      code: 'WRONG_SCOPE',
     })
   })
 })

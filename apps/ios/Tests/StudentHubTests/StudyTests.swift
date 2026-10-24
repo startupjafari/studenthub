@@ -136,7 +136,9 @@ private final class StubStudy: StudyFetching, @unchecked Sendable {
 
     func grades() async throws -> [CourseGradesDTO] { [] }
     func attendance() async throws -> AttendanceSummaryDTO {
-        AttendanceSummaryDTO(counts: [:], total: 0, rate: nil, records: [])
+        AttendanceSummaryDTO(
+            total: 0, present: 0, late: 0, absent: 0, excused: 0, rate: 0, records: []
+        )
     }
     func assignments() async throws -> Page<AssignmentDTO> { Page(items: [], meta: nil) }
     func submit(assignmentID: String) async throws {}

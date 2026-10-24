@@ -3435,7 +3435,8 @@
       "submitted": "In review",
       "graded": "Graded",
       "returned": "Needs fixes",
-      "overdue": "Overdue"
+      "overdue": "Overdue",
+      "closed": "Closed"
     },
     "astatus": {
       "DRAFT": "Draft",
@@ -3541,7 +3542,9 @@
     "regrade": "Change grade",
     "saveGrade": "Save grade",
     "regraded": "Grade updated",
-    "maxScoreBelowGraded": "Higher scores have already been given — the maximum can't be lower"
+    "maxScoreBelowGraded": "Higher scores have already been given — the maximum can't be lower",
+    "closedHint": "The assignment is closed — submissions are no longer accepted",
+    "deadlinePassedHint": "The deadline has passed — the work can no longer be submitted"
   },
   "Attendance": {
     "title": "Attendance",
@@ -3554,6 +3557,7 @@
     "colState": "Marks",
     "marked": "Marked",
     "notMarked": "Not marked",
+    "cancelled": "Cancelled",
     "open": "Open",
     "colStudent": "Student",
     "colMark": "Mark",
@@ -3596,6 +3600,14 @@
     "checkinNoTokenHint": "Scan the QR code shown by your teacher in class.",
     "checkinFailed": "Check-in failed",
     "checkinAlready": "You are already marked",
+    "checkinAlreadyOther": "Already marked: {status}",
+    "checkinAlreadyOtherHint": "Self check-in does not change it. If this is a mistake, tell your teacher.",
+    "checkinError": {
+      "invalid": "The code is invalid or expired. Ask your teacher to refresh the QR and scan again.",
+      "closed": "Check-in with this code is closed: the class was cancelled or the check-in window has passed.",
+      "wrongGroup": "This class belongs to another group — you cannot check in to it.",
+      "forbidden": "Self check-in is available to students only."
+    },
     "checkinSuccess": "You are marked present",
     "checkinToAttendance": "To attendance",
     "qrUnavailable": "QR check-in is open only during the class: from 30 minutes before it starts until 15 minutes after it ends. No code is issued for a cancelled class or another date."
@@ -3612,8 +3624,15 @@
     "total": "Total",
     "draft": "Draft",
     "columnActions": "Column actions",
+    "editColumn": "Edit",
+    "moveLeft": "Move left",
+    "moveRight": "Move right",
+    "editColumnTitle": "Assessment",
+    "columnUpdated": "Column updated",
+    "maxBelowGrades": "This column already has scores above this maximum",
     "publish": "Publish",
     "unpublish": "Unpublish",
+    "publishUnsaved": "This column has unsaved scores — save them first",
     "deleteColumn": "Delete column",
     "noColumns": "No assessments",
     "noColumnsHint": "Add a lab, test or exam.",
@@ -3715,7 +3734,17 @@
     "rosterInvalid": "The roster has errors — fix the highlighted fields",
     "scoreOutOfRange": "Score from 0 to {max}",
     "notAdmittedStatus": "A student who isn't admitted can't be marked Passed or Failed",
-    "scheduleConflict": "The group, room or examiner already has another exam at this time"
+    "scheduleConflict": "The group, room or examiner already has another exam at this time",
+    "confirmDeleteTitle": "Delete the exam?",
+    "confirmDeleteDesc": "“{subject}”, group {group}. Students of the group will be notified of the cancellation.",
+    "confirmDeletePastDesc": "“{subject}”, group {group}. This cannot be undone.",
+    "edit": "Edit",
+    "editExam": "Edit exam",
+    "updated": "Exam saved",
+    "room": "Room",
+    "examiner": "Examiner",
+    "examinerPlaceholder": "Course teacher",
+    "maxScoreBelowGraded": "Higher scores are already set — the maximum cannot be lower"
   },
   "StudyPlan": {
     "title": "Study plan",
@@ -3820,9 +3849,14 @@
     "noSlotsHint": "Check back later.",
     "book": "Book",
     "cancelBooking": "Cancel",
+    "confirmCancelBooking": "Cancel your consultation booking?",
+    "confirmCancelSlot": "Cancel the consultation? The student will be notified.",
     "cancelled": "Cancelled",
     "online": "Online",
     "manageTitle": "Consultations",
+    "scope": "Which slots to show",
+    "scopeUpcoming": "From today",
+    "scopeAll": "All",
     "newSlot": "Add slot",
     "manageEmpty": "No slots",
     "manageEmptyHint": "Create an office-hours interval.",

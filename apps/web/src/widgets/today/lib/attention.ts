@@ -55,7 +55,7 @@ export function buildAttention({
 
   for (const a of assignments) {
     const st = studentAssignmentStatus(a)
-    if (st === 'SUBMITTED' || st === 'GRADED') continue
+    if (st === 'SUBMITTED' || st === 'GRADED' || st === 'CLOSED') continue
     if (st === 'RETURNED') {
       items.push({
         id: `asg-${a.id}`,

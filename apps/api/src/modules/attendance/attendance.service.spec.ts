@@ -319,6 +319,16 @@ describe('AttendanceService — занятие в дату (C-F15)', () => {
     expect(prisma.attendance.create).not.toHaveBeenCalled()
   })
 
+  it('самоотметка с подделанной подписью → BAD_REQUEST, а не UNAUTHORIZED сессии', async () => {
+    jest.useFakeTimers({ now: DURING_PAIR })
+    const { service, prisma } = setup()
+    const { token } = await service.createQrToken(teacher(MAIN), { pairId: 'pair-1', date: DATE })
+    const forged = `${token.slice(0, token.lastIndexOf('.') + 1)}forged`
+    const err = await service.checkIn(student, { token: forged }, {}).catch((e) => e)
+    expect(err.code).toBe('BAD_REQUEST')
+    expect(prisma.attendance.create).not.toHaveBeenCalled()
+  })
+
   it('самоотметка во время занятия проходит', async () => {
     jest.useFakeTimers({ now: DURING_PAIR })
     const { service, prisma } = setup()

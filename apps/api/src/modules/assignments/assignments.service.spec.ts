@@ -181,6 +181,7 @@ describe('AssignmentsService — файлы в сдаче (C-F06)', () => {
     const { service, prisma, files } = setup()
     prisma.submission.findUnique.mockResolvedValue({
       studentId: 'stu-2',
+      status: 'SUBMITTED',
       assignment: { course },
     })
     prisma.file.findFirst.mockResolvedValue({ id: 'f-1' })
@@ -188,6 +189,90 @@ describe('AssignmentsService — файлы в сдаче (C-F06)', () => {
       url: 'https://minio/signed',
     })
     expect(files.getPresignedUrl).toHaveBeenCalledWith('f-1', undefined, true)
+  })
+
+  it('файл неотправленного черновика проверяющему не отдаётся', async () => {
+    const { service, prisma, files } = setup()
+    prisma.submission.findUnique.mockResolvedValue({
+      studentId: 'stu-2',
+      status: 'DRAFT',
+      assignment: { course },
+    })
+    prisma.file.findFirst.mockResolvedValue({ id: 'f-1' })
+    await expect(service.getSubmissionFileUrl(teacher, 'sub-2', 'f-1')).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    })
+    expect(files.getPresignedUrl).not.toHaveBeenCalled()
+  })
+
+  it('модератор платформы файл сдачи не скачает — круг тот же, что у списка сдач', async () => {
+    const { service, prisma, files } = setup()
+    prisma.submission.findUnique.mockResolvedValue({
+      studentId: 'stu-2',
+      status: 'SUBMITTED',
+      assignment: { course },
+    })
+    prisma.file.findFirst.mockResolvedValue({ id: 'f-1' })
+    const moderator: JwtPayload = {
+      sub: 'pm-1',
+      role: Role.PLATFORM_MODERATOR,
+      universityId: null,
+      facultyId: null,
+      groupId: null,
+    }
+    await expect(service.getSubmissionFileUrl(moderator, 'sub-2', 'f-1')).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    })
+    expect(files.getPresignedUrl).not.toHaveBeenCalled()
+  })
+
+  it('список сдач проверяющего — без неотправленных черновиков', async () => {
+    const { service, prisma } = setup()
+    const findMany = jest.fn().mockResolvedValue([])
+    Object.assign(prisma.submission, { findMany })
+    await service.submissions(teacher, 'as-1')
+    expect(findMany.mock.calls[0][0].where).toEqual({
+      assignmentId: 'as-1',
+      status: { not: 'DRAFT' },
+    })
+  })
+})
+
+describe('AssignmentsService — задания прежней группы после перевода', () => {
+  const moved: JwtPayload = { ...student, groupId: 'grp-2' }
+
+  it('scope студента: текущая группа или задания с его отправленной работой', async () => {
+    const { service, prisma } = setup()
+    const findMany = jest.fn().mockResolvedValue([])
+    const count = jest.fn().mockResolvedValue(0)
+    Object.assign(prisma.assignment, { findMany, count })
+    Object.assign(prisma, { $transaction: jest.fn((ops: unknown[]) => Promise.all(ops)) })
+    await service.list(moved, { page: 1, limit: 20, sort: 'dueAt' })
+    const scope = findMany.mock.calls[0][0].where.AND[0]
+    expect(scope).toEqual({
+      status: { in: ['PUBLISHED', 'CLOSED'] },
+      OR: [
+        { course: { is: { groupId: 'grp-2' } } },
+        { submissions: { some: { studentId: 'stu-1', status: { not: 'DRAFT' } } } },
+      ],
+    })
+  })
+
+  it('задание прежней группы открывается по своей сданной работе, по черновику — нет', async () => {
+    const { service, prisma } = setup()
+    const row = { id: 'as-1', status: 'PUBLISHED', course }
+    prisma.assignment.findUnique.mockResolvedValue({
+      ...row,
+      submissions: [{ id: 'sub-1', status: 'GRADED' }],
+    })
+    await expect(service.getById(moved, 'as-1')).resolves.toMatchObject({
+      mySubmission: { status: 'GRADED' },
+    })
+    prisma.assignment.findUnique.mockResolvedValue({
+      ...row,
+      submissions: [{ id: 'sub-1', status: 'DRAFT' }],
+    })
+    await expect(service.getById(moved, 'as-1')).rejects.toMatchObject({ code: 'WRONG_SCOPE' })
   })
 })
 
@@ -461,7 +546,7 @@ describe('AssignmentsService — оценка, переоценка и возв�
     new Prisma.PrismaClientKnownRequestError('not found', { code: 'P2025', clientVersion: '6' })
   const gradedAt = new Date('2026-10-10T10:00:00.000Z')
 
-  function withSubmission(status: string) {
+  function withSubmission(status: string, assignmentStatus = 'PUBLISHED') {
     const env = setup()
     env.prisma.submission.findUnique.mockResolvedValue({
       id: 'sub-1',
@@ -469,7 +554,7 @@ describe('AssignmentsService — оценка, переоценка и возв�
       score: status === 'GRADED' ? 6 : null,
       gradedAt: status === 'GRADED' ? gradedAt : null,
       gradedById: status === 'GRADED' ? 't-1' : null,
-      assignment: { title: 'ЛР1', maxScore: 10, course },
+      assignment: { title: 'ЛР1', status: assignmentStatus, maxScore: 10, course },
     })
     env.prisma.submission.update.mockResolvedValue({
       id: 'sub-1',
@@ -524,6 +609,31 @@ describe('AssignmentsService — оценка, переоценка и возв�
       service.returnForFix(teacher, 'sub-1', { feedback: 'Исправьте' }, ctx),
     ).rejects.toMatchObject({ code: 'CONFLICT' })
     expect(prisma.submission.update).not.toHaveBeenCalled()
+  })
+
+  it('первая оценка без отзыва стирает комментарий «на доработку» прошлой попытки', async () => {
+    const { service, prisma } = withSubmission('SUBMITTED')
+    await service.grade(teacher, 'sub-1', { score: 8 }, ctx)
+    expect(prisma.submission.update.mock.calls[0][0].data.feedback).toBeNull()
+  })
+
+  it('переоценка: пустой отзыв очищает поле, не переданный — оставляет прежний', async () => {
+    const cleared = withSubmission('GRADED')
+    await cleared.service.grade(teacher, 'sub-1', { score: 9, feedback: '  ' }, ctx)
+    expect(cleared.prisma.submission.update.mock.calls[0][0].data.feedback).toBeNull()
+
+    const kept = withSubmission('GRADED')
+    await kept.service.grade(teacher, 'sub-1', { score: 9 }, ctx)
+    expect(kept.prisma.submission.update.mock.calls[0][0].data.feedback).toBeUndefined()
+  })
+
+  it('в закрытом задании работу не вернуть — студенту некуда было бы её сдать', async () => {
+    const { service, prisma, queue } = withSubmission('SUBMITTED', 'CLOSED')
+    await expect(
+      service.returnForFix(teacher, 'sub-1', { feedback: 'Исправьте' }, ctx),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(prisma.submission.update).not.toHaveBeenCalled()
+    expect(queue.enqueue).not.toHaveBeenCalled()
   })
 
   it('черновик и возвращённую не оценить → CONFLICT', async () => {

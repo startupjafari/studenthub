@@ -127,7 +127,7 @@ struct AttendanceView: View {
                         Text(String(localized: "study.attendanceRate", defaultValue: "Посещаемость"))
                             .font(Typography.body)
                         Spacer()
-                        Text(verbatim: summary.rate.map { "\(Int($0 * 100))%" } ?? "—")
+                        Text(verbatim: summary.total == 0 ? "—" : "\(summary.rate)%")
                             .font(Typography.tabular(Typography.metric))
                             .foregroundStyle(Palette.primary)
                     }
@@ -136,7 +136,7 @@ struct AttendanceView: View {
                             Text(AttendanceStatus.title(status))
                                 .font(Typography.body)
                             Spacer()
-                            Text(verbatim: String(summary.counts[status] ?? 0))
+                            Text(verbatim: String(summary.count(status)))
                                 .font(Typography.tabular(Typography.body))
                                 .foregroundStyle(Palette.mutedForeground)
                         }

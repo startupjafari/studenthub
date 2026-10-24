@@ -28,7 +28,7 @@ export {
   prefersReducedMotion,
   type SpringHandle,
 } from './spring'
-export { nowInTz, isoWeekParity, type NowInTz } from './tz-date'
+export { nowInTz, wallClockInTz, isoWeekParity, type NowInTz } from './tz-date'
 export { safeNextPath } from './safe-next'
 export { isTrustedImageUrl } from './trusted-image'
 export { identityColor, identityInitials, IDENTITY_COLORS } from './identity-color'
