@@ -100,56 +100,44 @@ describe('AnalyticsService.atRiskStudents — причины риска', () => 
   function atRiskSetup(raw: jest.Mock) {
     return setup(raw, {
       user: { findMany: jest.fn().mockResolvedValue(students) },
-      assignment: {
-        findMany: jest.fn().mockResolvedValue([
-          { id: 'a1', course: { groupId: 'g1' } },
-          { id: 'a2', course: { groupId: 'g1' } },
-          { id: 'a3', course: { groupId: 'g1' } },
-        ]),
-      },
     })
   }
 
-  it('просрочка = задания группы минус сдачи студента', async () => {
+  it('просрочки — несданные задания своей группы, посчитанные базой (BUG-193)', async () => {
     const raw = rawMock({
       'GROUP BY a.student_id': [],
-      'count(DISTINCT s.assignment_id)': [{ studentId: 's1', done: 1n }],
+      'NOT EXISTS': [{ studentId: 's1', overdue: 2n }],
       'sum(g.score': [],
     })
-    const { service } = atRiskSetup(raw)
+    const { service, prisma } = atRiskSetup(raw)
 
     const res = await service.atRiskStudents(dean)
     const byId = Object.fromEntries(res.students.map((s) => [s.studentId, s.reasons]))
 
-    // Из трёх просроченных заданий s1 сдал одно, s2 — ни одного.
     expect(byId.s1).toEqual([{ kind: 'OVERDUE_ASSIGNMENTS', value: 2 }])
-    expect(byId.s2).toEqual([{ kind: 'OVERDUE_ASSIGNMENTS', value: 3 }])
+    // Нет строки — нет просрочек: s2 всё сдал и в список не попал.
+    expect(byId.s2).toBeUndefined()
+    // Задания в Node не читаются: прежний findMany с потолком брал случайную их часть.
+    expect(prisma.assignment.findMany).not.toHaveBeenCalled()
   })
 
-  it('сдавший всё в список не попадает', async () => {
-    const raw = rawMock({
-      'GROUP BY a.student_id': [],
-      'count(DISTINCT s.assignment_id)': [
-        { studentId: 's1', done: 3n },
-        { studentId: 's2', done: 5n },
-      ],
-      'sum(g.score': [],
-    })
+  it('просрочки сверяются с текущей группой студента, а не со всем факультетом', async () => {
+    const raw = rawMock({})
     const { service } = atRiskSetup(raw)
 
-    const res = await service.atRiskStudents(dean)
+    await service.atRiskStudents(dean)
 
-    // Сдач больше, чем заданий, быть не может, но если так — это ноль просрочек, а не минус.
-    expect(res.students).toHaveLength(0)
+    const sql = raw.mock.calls
+      .map((c) => (c[0] as TemplateStringsArray).join(' '))
+      .find((q) => q.includes('NOT EXISTS'))
+    expect(sql).toContain('c.group_id = u.group_id')
+    expect(sql).toContain('s.student_id = u.id')
   })
 
   it('низкая посещаемость и низкий средний балл дают свои причины', async () => {
     const raw = rawMock({
       'GROUP BY a.student_id': [{ studentId: 's1', total: 10n, absent: 6n }],
-      'count(DISTINCT s.assignment_id)': [
-        { studentId: 's1', done: 3n },
-        { studentId: 's2', done: 3n },
-      ],
+      'NOT EXISTS': [],
       'sum(g.score': [{ studentId: 's1', sumPct: 0.8, n: 2n }],
     })
     const { service } = atRiskSetup(raw)
