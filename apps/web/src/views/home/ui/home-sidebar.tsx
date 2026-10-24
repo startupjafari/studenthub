@@ -1,31 +1,55 @@
 'use client'
 
+import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { CalendarClock, CalendarDays, MapPin, Video } from 'lucide-react'
-import { scheduleKeys, fetchSchedule } from '../../../entities/schedule'
+import {
+  buildDayPairs,
+  fetchSchedule,
+  fetchScheduleChanges,
+  scheduleKeys,
+  type ScheduleChangeType,
+} from '../../../entities/schedule'
 import { eventKeys, fetchEvents } from '../../../entities/event'
 import { FriendsPanel } from '../../../widgets/friends-panel'
 import { Card, CardContent, CardHeader, CardTitle, EmptyState, Skeleton } from '../../../shared/ui'
-import { isoWeekParity } from '../../../shared/lib'
+import { isoWeekParityOf, useNowInTz } from '../../../shared/lib'
+import { cn } from '../../../shared/lib/utils'
+
+// Подпись изменения пары — ключи состояний «Сегодня» (Today.state.*).
+const CHANGE_STATE_KEY: Record<ScheduleChangeType, string> = {
+  CANCELLED: 'state.cancelled',
+  MOVED: 'state.moved',
+  ROOM_CHANGED: 'state.roomChanged',
+  SUBSTITUTED: 'state.substituted',
+}
 
 // Виджеты правой колонки главной студента: пары на сегодня, ближайшие события и друзья.
 export function HomeSidebar() {
   const t = useTranslations('Dashboard')
+  const tToday = useTranslations('Today')
   const locale = useLocale()
 
   const schedQ = useQuery({ queryKey: scheduleKeys.view({}), queryFn: () => fetchSchedule({}) })
+  // День, чётность и «сейчас» — по часам вуза, с изменениями на сегодня (как в «Сегодня»):
+  // раньше отменённая пара стояла в списке, а у перенесённой было старое время.
+  const now = useNowInTz(schedQ.data?.timezone ?? null)
+  const changesQ = useQuery({
+    queryKey: scheduleKeys.changes({ from: now.date, to: now.date }),
+    queryFn: () => fetchScheduleChanges({ from: now.date, to: now.date }),
+    enabled: !!schedQ.data,
+  })
   const eventsQ = useQuery({
     queryKey: eventKeys.list('upcoming', false, 4),
     queryFn: () => fetchEvents({ limit: 4 }),
   })
 
-  const now = new Date()
-  const dow = ((now.getDay() + 6) % 7) + 1 // 1=Пн … 7=Вс
-  const parity = isoWeekParity(now)
-  const todayPairs = (schedQ.data?.pairs ?? [])
-    .filter((p) => p.dayOfWeek === dow && (p.weekType === 'BOTH' || p.weekType === parity))
-    .sort((a, b) => a.startTime.localeCompare(b.startTime))
+  const todayPairs = useMemo(
+    () =>
+      buildDayPairs(schedQ.data?.pairs ?? [], changesQ.data ?? [], now, isoWeekParityOf(now.date)),
+    [schedQ.data?.pairs, changesQ.data, now],
+  )
   const events = (eventsQ.data ?? []).slice(0, 4)
 
   return (
@@ -44,20 +68,44 @@ export function HomeSidebar() {
             <EmptyState title={t('noPairsToday')} className="border-0 p-6" />
           ) : (
             <ul className="flex flex-col gap-2">
-              {todayPairs.map((p) => (
-                <li key={p.id} className="flex items-start gap-2 text-sm">
-                  <span className="shrink-0 tabular-nums text-muted-foreground">{p.startTime}</span>
-                  <div className="min-w-0">
-                    <span className="block truncate font-medium">{p.subject}</span>
-                    {p.room && (
-                      <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                        <MapPin className="size-3" aria-hidden />
-                        {p.room.name}
+              {todayPairs.map(({ pair, change, state }) => {
+                const cancelled = state === 'cancelled'
+                const room = change?.newRoom ?? pair.room
+                const changeKey = change ? CHANGE_STATE_KEY[change.type] : null
+                return (
+                  <li key={pair.id} className="flex items-start gap-2 text-sm">
+                    <span className="shrink-0 tabular-nums text-muted-foreground">
+                      {change?.newStartTime ?? pair.startTime}
+                    </span>
+                    <div className="min-w-0">
+                      <span
+                        className={cn(
+                          'block truncate font-medium',
+                          cancelled && 'text-muted-foreground line-through',
+                        )}
+                      >
+                        {pair.subject}
                       </span>
-                    )}
-                  </div>
-                </li>
-              ))}
+                      {changeKey && (
+                        <span
+                          className={cn(
+                            'block text-xs font-medium',
+                            cancelled ? 'text-destructive' : 'text-warning',
+                          )}
+                        >
+                          {tToday(changeKey)}
+                        </span>
+                      )}
+                      {room && !cancelled && (
+                        <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                          <MapPin className="size-3" aria-hidden />
+                          {room.name}
+                        </span>
+                      )}
+                    </div>
+                  </li>
+                )
+              })}
             </ul>
           )}
         </CardContent>
