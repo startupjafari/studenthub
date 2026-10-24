@@ -4596,6 +4596,7 @@
     "cameraDisabled": "Disabled",
     "streamUrl": "Stream address",
     "streamUrlHint": "RTSP address on the university network, without login and password. The camera’s second stream is better — it is lighter.",
+    "streamUrlInvalid": "Use an address like rtsp://10.0.0.5:554/… with the camera host and no login or password (they go in separate fields)",
     "credentials": "Camera password",
     "credentialsSet": "Set",
     "credentialsNone": "Not set",

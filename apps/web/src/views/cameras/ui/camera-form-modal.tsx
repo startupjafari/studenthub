@@ -171,7 +171,8 @@ export function CameraFormModal({ agents, camera, onClose }: Props) {
             aria-invalid={!!form.formState.errors.streamUrl}
             {...form.register('streamUrl')}
           />
-          <FieldError>{form.formState.errors.streamUrl?.message ?? null}</FieldError>
+          {/* Текст схемы — по-русски на всех языках: показываем свой, переведённый. */}
+          <FieldError>{form.formState.errors.streamUrl ? t('streamUrlInvalid') : null}</FieldError>
           <p className="text-xs text-muted-foreground">{t('streamUrlHint')}</p>
         </div>
 
