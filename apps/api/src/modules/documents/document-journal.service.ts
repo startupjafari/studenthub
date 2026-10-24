@@ -1,43 +1,21 @@
 import { Injectable } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
-import type {
-  DocumentJournalItem,
-  DocumentJournalQueryInput,
-  DocumentJournalVia,
-} from '@studenthub/shared-schemas'
+import type { DocumentJournalItem, DocumentJournalQueryInput } from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import { Paginated } from '../../common/http/paginated'
-import { documentEventAction } from './documents.service'
+import { documentEventAction, journalVia } from './documents.service'
+
+// Через что совершено действие — общее правило с историей документа у владельца.
+export { journalVia }
 
 // Сколько людей вуза подбирается по поиску ФИО. Поиск — сужение журнала до конкретного
 // человека, а не выгрузка списка: больше совпадений означает «уточните запрос».
 const NAME_MATCH_LIMIT = 200
 
 type Meta = Record<string, unknown> | null
-
-/**
- * Через что совершено действие — по тому, что о себе пишет событие (см. logEvent в
- * DocumentsService и сервисе запросов). Старые события без пометок: просмотр чужим — это
- * доступ по гранту (иного пути к файлу чужого документа нет), остальное по актору.
- */
-export function journalVia(
-  e: { action: string; actorId: string; requestId: string | null; metadata: Meta },
-  ownerId: string,
-): DocumentJournalVia {
-  const m = e.metadata ?? {}
-  if (m.platformMode) return 'PLATFORM'
-  if (m.viaApplication) return 'APPLICATION'
-  if (e.requestId || m.viaSubmission) return 'REQUEST'
-  if (e.action === 'EXPIRE' || e.action === 'EXPIRING' || m.retention !== undefined) {
-    return 'SYSTEM'
-  }
-  if (e.actorId === ownerId) return 'OWNER'
-  if (e.action === 'VIEW' || e.action === 'DOWNLOAD' || m.accessId) return 'GRANT'
-  return 'STAFF'
-}
 
 function fullName(u: { firstName: string; lastName: string }): string {
   return `${u.lastName} ${u.firstName}`.trim()

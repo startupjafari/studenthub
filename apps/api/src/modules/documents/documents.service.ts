@@ -6,6 +6,7 @@ import {
   isPageRequested,
   type CreateDocumentInput,
   type CursorPaginationInput,
+  type DocumentJournalVia,
   type DocumentListQueryInput,
   type DocumentSortValue,
   type SortOrderValue,
@@ -144,6 +145,28 @@ function statusByExpiry(expiresAt: Date | null, now: number = Date.now()): strin
 export function documentEventAction(action: string, metadata: unknown): string {
   const archived = (metadata as { archived?: unknown } | null)?.archived
   return action === 'ARCHIVE' && archived === false ? 'UNARCHIVE' : action
+}
+
+/**
+ * Через что совершено действие — по тому, что о себе пишет событие (см. logEvent здесь и в
+ * сервисе запросов). Старые события без пометок: просмотр чужим — это доступ по гранту
+ * (иного пути к файлу чужого документа нет), остальное по актору. Общее правило для журнала
+ * документов вуза и истории документа у владельца.
+ */
+export function journalVia(
+  e: { action: string; actorId: string; requestId: string | null; metadata: unknown },
+  ownerId: string,
+): DocumentJournalVia {
+  const m = (e.metadata ?? {}) as Record<string, unknown>
+  if (m.platformMode) return 'PLATFORM'
+  if (m.viaApplication) return 'APPLICATION'
+  if (e.requestId || m.viaSubmission) return 'REQUEST'
+  if (e.action === 'EXPIRE' || e.action === 'EXPIRING' || m.retention !== undefined) {
+    return 'SYSTEM'
+  }
+  if (e.actorId === ownerId) return 'OWNER'
+  if (e.action === 'VIEW' || e.action === 'DOWNLOAD' || m.accessId) return 'GRANT'
+  return 'STAFF'
 }
 
 /** Колонка сортировки списка и направление — после подстановки умолчаний. */
@@ -1529,7 +1552,13 @@ export class DocumentsService {
     await this.logEvent(actor.sub, id, 'DELETE')
   }
 
-  /** История действий по документу (ТЗ §10). */
+  /**
+   * История действий по документу (ТЗ §10). Владелец видит не только что, но и кто и через
+   * что: `actor` (имя и роль) и `via` — грант (с `granteeType`), запрос, заявка, спец-режим
+   * платформы, система — по тем же правилам, что журнал вуза. Раньше история показывала
+   * одно действие, и просмотр по гранту было не отличить от своего. Сотрудник платформы в
+   * спец-режиме показывается ролью, без имени.
+   */
   async listEvents(actor: JwtPayload, id: string) {
     await this.findOwnedOrThrow(actor, id)
     const events = await this.prisma.documentEvent.findMany({
@@ -1537,7 +1566,31 @@ export class DocumentsService {
       orderBy: { createdAt: 'desc' },
       take: 200,
     })
-    return events.map((e) => ({ ...e, action: documentEventAction(e.action, e.metadata) }))
+    const actorIds = [...new Set(events.map((e) => e.actorId))]
+    const people = actorIds.length
+      ? await this.prisma.user.findMany({
+          where: { id: { in: actorIds } },
+          select: { id: true, firstName: true, lastName: true, role: true },
+          take: actorIds.length,
+        })
+      : []
+    const byId = new Map(people.map((p) => [p.id, p]))
+    return events.map((e) => {
+      const meta = (e.metadata ?? null) as Record<string, unknown> | null
+      const via = journalVia(e, actor.sub)
+      const who = byId.get(e.actorId)
+      return {
+        ...e,
+        action: documentEventAction(e.action, e.metadata),
+        via,
+        granteeType: typeof meta?.granteeType === 'string' ? meta.granteeType : null,
+        actor: {
+          id: e.actorId,
+          name: who && via !== 'PLATFORM' ? `${who.lastName} ${who.firstName}`.trim() : '',
+          role: who?.role ?? null,
+        },
+      }
+    })
   }
 
   /**

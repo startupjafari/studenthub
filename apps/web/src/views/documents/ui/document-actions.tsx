@@ -33,6 +33,7 @@ import {
   unarchiveDocument,
   updateDocument,
   type DocumentDto,
+  type DocumentEvent,
 } from '../../../entities/document'
 import { useDocumentTypeCatalog } from '../../../entities/document-type'
 import { UserPicker, type PickedUser } from '../../../entities/user'
@@ -378,12 +379,30 @@ function EditModal({ doc, onClose }: { doc: DocumentDto; onClose: () => void }) 
 
 function HistoryModal({ docId, onClose }: { docId: string; onClose: () => void }) {
   const t = useTranslations('Documents')
+  const tJournal = useTranslations('DocumentJournal')
+  const tRoles = useTranslations('Roles')
   const locale = useLocale()
   const q = useQuery({
     queryKey: documentKeys.events(docId),
     queryFn: () => fetchDocumentEvents(docId),
   })
   const events = q.data ?? []
+
+  // Кто и через что — как в журнале документов вуза. Свои действия владельца не
+  // подписываем: в его собственной истории это и так понятно.
+  const byWhom = (e: DocumentEvent): string | null => {
+    if (e.via === 'OWNER') return null
+    const via =
+      e.granteeType === 'UNIVERSITY'
+        ? tJournal('viaGrantUniversity')
+        : e.granteeType === 'DEPARTMENT'
+          ? tJournal('viaGrantDepartment')
+          : e.granteeType === 'USER'
+            ? tJournal('viaGrantUser')
+            : tJournal(`via_${e.via}`)
+    const who = e.actor.name || (e.actor.role ? tRoles(e.actor.role) : null)
+    return who && e.via !== 'SYSTEM' ? `${who} · ${via}` : via
+  }
 
   return (
     <DocModal title={t('historyTitle')} onClose={onClose}>
@@ -396,6 +415,7 @@ function HistoryModal({ docId, onClose }: { docId: string; onClose: () => void }
           {events.map((e) => (
             <li key={e.id} className="flex flex-col border-l-2 border-border pl-3">
               <span className="text-sm font-medium">{t(`evt_${e.action}`)}</span>
+              {byWhom(e) && <span className="text-xs text-muted-foreground">{byWhom(e)}</span>}
               {/* Причина отклонения по запросу — ровно то, что нужно исправить. */}
               {e.action === 'REJECT' && typeof e.metadata?.reason === 'string' && (
                 <span className="text-xs text-destructive">{e.metadata.reason}</span>

@@ -785,6 +785,40 @@ describe('DocumentsService — выданные вузом и архив (D-F22)
     expect(events.map((e) => e.action)).toEqual(['UNARCHIVE', 'ARCHIVE'])
   })
 
+  it('история у владельца: кто открыл и через что; сотрудник платформы — без имени', async () => {
+    const { service, prisma } = setup()
+    prisma.documentEvent.findMany.mockResolvedValue([
+      {
+        id: 'e1',
+        action: 'VIEW',
+        actorId: 'dean-1',
+        requestId: null,
+        metadata: { fileId: 'f1', accessId: 'a1', granteeType: 'DEPARTMENT' },
+      },
+      {
+        id: 'e2',
+        action: 'VIEW',
+        actorId: 'pa-1',
+        requestId: null,
+        metadata: { platformMode: true, reason: 'жалоба' },
+      },
+    ])
+    prisma.user.findMany.mockResolvedValue([
+      { id: 'dean-1', firstName: 'Дана', lastName: 'Ахметова', role: Role.DEAN },
+      { id: 'pa-1', firstName: 'Ержан', lastName: 'Бек', role: Role.PLATFORM_ADMIN },
+    ])
+    const [grant, platform] = await service.listEvents(actor(), 'd1')
+    expect(grant).toMatchObject({
+      via: 'GRANT',
+      granteeType: 'DEPARTMENT',
+      actor: { id: 'dean-1', name: 'Ахметова Дана', role: Role.DEAN },
+    })
+    expect(platform).toMatchObject({
+      via: 'PLATFORM',
+      actor: { id: 'pa-1', name: '', role: Role.PLATFORM_ADMIN },
+    })
+  })
+
   it('повторный архив ничего не меняет — прежний статус не затирается ARCHIVED', async () => {
     const { service, prisma } = setup()
     prisma.document.findFirst.mockResolvedValue(row({ status: 'ARCHIVED', archivedAt: new Date() }))
