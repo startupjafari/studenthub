@@ -79,6 +79,24 @@ final class SubmissionStateTests: XCTestCase {
     }
 }
 
+final class RosterDecodingTests: XCTestCase {
+    /// Ответ `GET /attendance/roster` — студент с `studentId`, а не `id`.
+    func testRosterDecodesServerShape() throws {
+        let json = Data(
+            """
+            {"pairId":"p-1","date":"2026-10-24","subject":"Алгоритмы","students":[
+            {"studentId":"u-1","firstName":"Аян","lastName":"Серик","avatarUrl":null,
+            "status":"LATE","note":null}]}
+            """.utf8
+        )
+
+        let roster = try JSONCoding.decoder.decode(RosterDTO.self, from: json)
+
+        XCTAssertEqual(roster.students.first?.id, "u-1")
+        XCTAssertEqual(roster.students.first?.status, "LATE")
+    }
+}
+
 @MainActor
 final class AttendanceMarkingTests: XCTestCase {
     /// Уже проставленные отметки подставляются: преподаватель чаще исправляет
@@ -86,8 +104,8 @@ final class AttendanceMarkingTests: XCTestCase {
     func testExistingMarksArePrefilled() async {
         let api = StubStudy()
         api.roster = RosterDTO(students: [
-            RosterDTO.Student(id: "u-1", firstName: "Аян", lastName: "Серик", status: "ABSENT", note: nil),
-            RosterDTO.Student(id: "u-2", firstName: "Дана", lastName: "Ким", status: nil, note: nil),
+            RosterDTO.Student(studentId: "u-1", firstName: "Аян", lastName: "Серик", status: "ABSENT", note: nil),
+            RosterDTO.Student(studentId: "u-2", firstName: "Дана", lastName: "Ким", status: nil, note: nil),
         ])
         let model = AttendanceMarkingModel(pairID: "p-1", api: api)
 
@@ -101,8 +119,8 @@ final class AttendanceMarkingTests: XCTestCase {
     func testMarkAllPresentFillsEveryone() async {
         let api = StubStudy()
         api.roster = RosterDTO(students: [
-            RosterDTO.Student(id: "u-1", firstName: nil, lastName: nil, status: "ABSENT", note: nil),
-            RosterDTO.Student(id: "u-2", firstName: nil, lastName: nil, status: nil, note: nil),
+            RosterDTO.Student(studentId: "u-1", firstName: nil, lastName: nil, status: "ABSENT", note: nil),
+            RosterDTO.Student(studentId: "u-2", firstName: nil, lastName: nil, status: nil, note: nil),
         ])
         let model = AttendanceMarkingModel(pairID: "p-1", api: api)
         await model.load()
@@ -115,7 +133,7 @@ final class AttendanceMarkingTests: XCTestCase {
     func testSaveSendsEveryMark() async {
         let api = StubStudy()
         api.roster = RosterDTO(students: [
-            RosterDTO.Student(id: "u-1", firstName: nil, lastName: nil, status: nil, note: nil)
+            RosterDTO.Student(studentId: "u-1", firstName: nil, lastName: nil, status: nil, note: nil)
         ])
         let model = AttendanceMarkingModel(pairID: "p-1", api: api)
         await model.load()

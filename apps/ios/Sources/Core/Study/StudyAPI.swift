@@ -65,11 +65,15 @@ struct AttendanceSummaryDTO: Decodable, Equatable {
 
 struct RosterDTO: Decodable, Equatable {
     struct Student: Decodable, Equatable, Identifiable {
-        let id: String
+        /// Сервер отдаёт `studentId`, а не `id` (`attendance.service.ts`, roster): с
+        /// `id` ростер не разбирался, и отметить посещаемость было нельзя.
+        let studentId: String
         let firstName: String?
         let lastName: String?
         let status: String?
         let note: String?
+
+        var id: String { studentId }
 
         var name: String {
             [lastName, firstName].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " ")
