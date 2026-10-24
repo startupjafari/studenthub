@@ -11,7 +11,6 @@ import { fetchStoryViewers, storyKeys } from '../../../entities/story'
  */
 export function StoryViewersSheet({ storyId, onClose }: { storyId: string; onClose: () => void }) {
   const t = useTranslations('Stories')
-  const tCommon = useTranslations('Common')
 
   const { data, isLoading, fetchNextPage, hasNextPage, isFetchingNextPage } = useInfiniteQuery({
     queryKey: storyKeys.viewers(storyId),
@@ -63,7 +62,8 @@ export function StoryViewersSheet({ storyId, onClose }: { storyId: string; onClo
           loading={isFetchingNextPage}
           onClick={() => void fetchNextPage()}
         >
-          {tCommon('next')}
+          {/* Дозагрузка того же списка, а не переход «Далее» к следующему шагу. */}
+          {t('showMore')}
         </Button>
       )}
     </Modal>
