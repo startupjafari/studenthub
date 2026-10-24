@@ -1185,6 +1185,7 @@
     "completionTitle": "Заполненность профиля",
     "share": "Поделиться",
     "writeMessage": "Написать",
+    "report": "Пожаловаться",
     "shareTitle": "Профиль в StudentHub",
     "linkCopied": "Ссылка на профиль скопирована",
     "shareFailed": "Не удалось скопировать ссылку",
@@ -1991,6 +1992,7 @@
     "removeOption": "Убрать вариант",
     "pollIncomplete": "Заполните вопрос и хотя бы два разных варианта",
     "delete": "Удалить сторис",
+    "report": "Пожаловаться",
     "confirmDelete": "Удалить сторис?",
     "viewers": "Просмотры",
     "noViewers": "Пока никто не смотрел",
@@ -2006,6 +2008,7 @@
     "yesterday": "Вчера",
     "scrollToBottom": "Вниз",
     "select": "Выбрать",
+    "report": "Пожаловаться",
     "selectedCount": "Выбрано: {count}",
     "deleteSelectedConfirm": "Удалить выбранные сообщения ({count})?",
     "actions": {

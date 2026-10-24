@@ -1185,6 +1185,7 @@
     "completionTitle": "Profile completeness",
     "share": "Share",
     "writeMessage": "Message",
+    "report": "Report",
     "shareTitle": "Profile on StudentHub",
     "linkCopied": "Profile link copied",
     "shareFailed": "Could not copy the link",
@@ -1991,6 +1992,7 @@
     "removeOption": "Remove option",
     "pollIncomplete": "Fill in the question and at least two different options",
     "delete": "Delete story",
+    "report": "Report",
     "confirmDelete": "Delete this story?",
     "viewers": "Views",
     "noViewers": "No one has watched yet",
@@ -2006,6 +2008,7 @@
     "yesterday": "Yesterday",
     "scrollToBottom": "Scroll to bottom",
     "select": "Select",
+    "report": "Report",
     "selectedCount": "Selected: {count}",
     "deleteSelectedConfirm": "Delete selected messages ({count})?",
     "actions": {

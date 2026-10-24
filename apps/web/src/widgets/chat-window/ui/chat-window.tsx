@@ -34,11 +34,13 @@ import {
 } from 'lucide-react'
 import {
   CHAT_FOLDER_LIMITS,
+  canFileComplaint,
   type ChatAction,
   type CreateChatPollInput,
 } from '@studenthub/shared-schemas'
 import { directoryKeys, fetchUserDirectory } from '../../../entities/user'
 import { useAppSelector } from '../../../shared/store'
+import { ReportModal } from '../../../features/report-content'
 import { useRealtimeSocket, useRealtimeEvent, SELF_RESYNC_META } from '../../../shared/realtime'
 import {
   chatKeys,
@@ -297,6 +299,9 @@ export function ChatWindow() {
   chatActionsRef.current = chatActions
   const me = useAppSelector((s) => s.auth.user)
   const myId = me?.id
+  // «Пожаловаться» — тем, чью жалобу сервер примет (COMPLAINT_REPORTER_ROLES): травля в
+  // личке иначе не доходила до модерации ни из одного клиента.
+  const canReport = canFileComplaint(useAppSelector((s) => s.auth.role))
   const confirm = useConfirm()
   // #1: состояние оптимистичных сообщений по temp-id (`tmp:<nonce>`) + таймеры «не пришло эхо».
   const [sendState, setSendState] = useState<Record<string, 'pending' | 'failed'>>({})
@@ -423,6 +428,7 @@ export function ChatWindow() {
   // Время, до которого другие участники прочитали чат — для статусов ✓/✓✓ своих сообщений.
   const [readWatermark, setReadWatermark] = useState<string | null>(null)
   const [forwardMsg, setForwardMsg] = useState<ChatMessage | null>(null)
+  const [reportMsg, setReportMsg] = useState<ChatMessage | null>(null)
   // Присутствие участников открытого чата — вне состояния окна: событие о человеке не
   // перерисовывает ленту, а о постороннем для чата — вообще ничего (F-F12).
   const [presenceStore] = useState(createPresenceStore)
@@ -4282,7 +4288,20 @@ export function ChatWindow() {
             onForward: () => setForwardMsg(menu.message),
             onDelete: () => deleteMessage(menu.message),
             onSelect: () => enterSelect(menu.message),
+            onReport:
+              canReport && !menu.message.systemType && !menu.message.id.startsWith('tmp:')
+                ? () => setReportMsg(menu.message)
+                : undefined,
           }}
+        />
+      )}
+
+      {reportMsg && (
+        <ReportModal
+          targetType="MESSAGE"
+          targetId={reportMsg.id}
+          preview={reportMsg.content || undefined}
+          onClose={() => setReportMsg(null)}
         />
       )}
 

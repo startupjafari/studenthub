@@ -1185,6 +1185,7 @@
     "completionTitle": "Профильдің толтырылуы",
     "share": "Бөлісу",
     "writeMessage": "Жазу",
+    "report": "Шағымдану",
     "shareTitle": "StudentHub-тегі профиль",
     "linkCopied": "Профиль сілтемесі көшірілді",
     "shareFailed": "Сілтемені көшіру мүмкін болмады",
@@ -1991,6 +1992,7 @@
     "removeOption": "Нұсқаны алып тастау",
     "pollIncomplete": "Сұрақты және кемінде екі түрлі нұсқаны толтырыңыз",
     "delete": "Стористі жою",
+    "report": "Шағымдану",
     "confirmDelete": "Стористі жою керек пе?",
     "viewers": "Қарағандар",
     "noViewers": "Әзірге ешкім қараған жоқ",
@@ -2006,6 +2008,7 @@
     "yesterday": "Кеше",
     "scrollToBottom": "Төмен",
     "select": "Таңдау",
+    "report": "Шағымдану",
     "selectedCount": "Таңдалды: {count}",
     "deleteSelectedConfirm": "Таңдалған хабарламаларды жою ({count})?",
     "actions": {
