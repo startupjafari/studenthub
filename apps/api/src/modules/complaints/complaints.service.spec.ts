@@ -9,6 +9,7 @@ import type { QueueService } from '../../common/queue'
 import type { UserService } from '../users/users.service'
 import type { StoriesService } from '../stories/stories.service'
 import type { RealtimeGateway } from '../../common/realtime'
+import type { PostsService } from '../posts/posts.service'
 import type { TelegramNotifyService } from '../../common/telegram/telegram-notify.service'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import { AppException } from '../../common/exceptions/app.exception'
@@ -59,8 +60,13 @@ function setup() {
   }
   const telegram = { notifyStaff: jest.fn().mockResolvedValue(undefined) }
   // Сторис сносит владелец домена: мягкого удаления у неё нет (Ф14.1).
-  const stories = { removeByModeration: jest.fn().mockResolvedValue(undefined) }
+  const stories = {
+    removeByModeration: jest.fn().mockResolvedValue(undefined),
+    assertVisibleToViewer: jest.fn().mockResolvedValue(undefined),
+  }
   const realtime = { emitToRoom: jest.fn() }
+  // Видимость цели автору жалобы — правило владельца домена постов.
+  const posts = { assertVisibleToViewer: jest.fn().mockResolvedValue(undefined) }
   const service = new ComplaintsService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
@@ -69,8 +75,9 @@ function setup() {
     telegram as unknown as TelegramNotifyService,
     stories as unknown as StoriesService,
     realtime as unknown as RealtimeGateway,
+    posts as unknown as PostsService,
   )
-  return { service, prisma, audit, queue, users, telegram, stories, realtime }
+  return { service, prisma, audit, queue, users, telegram, stories, realtime, posts }
 }
 
 const user = (role: Role, scope: Partial<JwtPayload> = {}): JwtPayload => ({
@@ -135,6 +142,55 @@ describe('ComplaintsService.create (11.2)', () => {
         data: expect.objectContaining({ universityId: 'uni1', targetType: 'POST' }),
       }),
     )
+  })
+})
+
+// Невидимое автору жалобы — то же, что несуществующее: жалоба не подтверждает чужой id.
+describe('ComplaintsService.create — видимость цели', () => {
+  it('пост вне видимости → NOT_FOUND, жалоба не создаётся', async () => {
+    const { service, prisma, posts } = setup()
+    prisma.post.findFirst.mockResolvedValue({
+      authorId: 'a1',
+      universityId: 'uni1',
+      author: { universityId: 'uni1' },
+    })
+    posts.assertVisibleToViewer.mockRejectedValue(new AppException('NOT_FOUND', 'Пост не найден'))
+    const err = await service
+      .create(user(Role.STUDENT), { targetType: 'POST', targetId: 'p1', reason: 'x' }, ctx)
+      .catch((e) => e)
+    expect(err.code).toBe('NOT_FOUND')
+    expect(err.message).toBe('Пост не найден')
+    expect(prisma.complaint.create).not.toHaveBeenCalled()
+  })
+
+  it('комментарий к невидимому посту → NOT_FOUND про комментарий', async () => {
+    const { service, prisma, posts } = setup()
+    prisma.comment.findFirst
+      .mockResolvedValueOnce({ authorId: 'a1', author: { universityId: 'uni1' } })
+      .mockResolvedValueOnce({ postId: 'p9' })
+    posts.assertVisibleToViewer.mockRejectedValue(new AppException('NOT_FOUND', 'Пост не найден'))
+    const err = await service
+      .create(user(Role.STUDENT), { targetType: 'COMMENT', targetId: 'cm1', reason: 'x' }, ctx)
+      .catch((e) => e)
+    expect(posts.assertVisibleToViewer).toHaveBeenCalledWith(expect.anything(), 'p9')
+    expect(err.message).toBe('Комментарий не найден')
+  })
+
+  it('сторис вне видимости → NOT_FOUND', async () => {
+    const { service, prisma, stories } = setup()
+    prisma.story.findFirst.mockResolvedValue({
+      authorId: 'a1',
+      universityId: 'uni1',
+      author: { universityId: 'uni1' },
+    })
+    stories.assertVisibleToViewer.mockRejectedValue(
+      new AppException('NOT_FOUND', 'Сторис не найдена'),
+    )
+    const err = await service
+      .create(user(Role.STUDENT), { targetType: 'STORY', targetId: 's1', reason: 'x' }, ctx)
+      .catch((e) => e)
+    expect(err.code).toBe('NOT_FOUND')
+    expect(prisma.complaint.create).not.toHaveBeenCalled()
   })
 })
 

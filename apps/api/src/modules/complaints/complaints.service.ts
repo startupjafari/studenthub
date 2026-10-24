@@ -18,6 +18,7 @@ import type { RequestContext } from '../auth/auth.service'
 import { NOTIFICATION_JOBS, QUEUES, QueueService } from '../../common/queue'
 import { UserService } from '../users/users.service'
 import { StoriesService } from '../stories/stories.service'
+import { PostsService } from '../posts/posts.service'
 import { RealtimeGateway } from '../../common/realtime'
 
 const USER_MINI = { select: { id: true, firstName: true, lastName: true } }
@@ -81,6 +82,15 @@ const TARGET_WORD: Record<ComplaintTargetType, string> = {
   COMMENT: 'на комментарий',
 }
 
+// Ответ на невидимую цель — слово в слово как на несуществующую (getTarget).
+const NOT_FOUND_MESSAGE: Record<ComplaintTargetType, string> = {
+  USER: 'Пользователь не найден',
+  MESSAGE: 'Сообщение не найдено',
+  POST: 'Пост не найден',
+  STORY: 'Сторис не найдена',
+  COMMENT: 'Комментарий не найден',
+}
+
 // Сколько сообщений до и после обжалованного видит модератор (getMessageContext).
 const CONTEXT_WINDOW = 50
 
@@ -105,6 +115,7 @@ export class ComplaintsService {
     private readonly telegram: TelegramNotifyService,
     private readonly stories: StoriesService,
     private readonly realtime: RealtimeGateway,
+    private readonly posts: PostsService,
   ) {}
 
   // ── Создание (11.2) ──────────────────────────────────────────────────────
@@ -125,6 +136,11 @@ export class ComplaintsService {
       })
       if (!member) throw new AppException('NOT_FOUND', 'Сообщение не найдено')
     }
+    await this.assertVisibleToReporter(
+      reporter,
+      input.targetType as ComplaintTargetType,
+      input.targetId,
+    )
     const complaint = await this.createOnce({
       reporterId: reporter.sub,
       targetType: input.targetType as ComplaintTargetType,
@@ -145,6 +161,38 @@ export class ComplaintsService {
     })
     await this.announceIfUrgent(complaint)
     return complaint
+  }
+
+  /**
+   * Пост, комментарий и сторис — только видимые автору жалобы (BACKEND_RULES §14.10). Иначе
+   * жалоба по одному id чужого поста «для группы» подтверждала, что такой пост есть. Ответ тот
+   * же, что у несуществующей цели. Сообщение проверено выше (участник чата), человек виден
+   * любому хотя бы «визиткой» профиля.
+   */
+  private async assertVisibleToReporter(
+    reporter: JwtPayload,
+    type: ComplaintTargetType,
+    targetId: string,
+  ): Promise<void> {
+    try {
+      if (type === ComplaintTargetType.POST) {
+        await this.posts.assertVisibleToViewer(reporter, targetId)
+      } else if (type === ComplaintTargetType.STORY) {
+        await this.stories.assertVisibleToViewer(reporter, targetId)
+      } else if (type === ComplaintTargetType.COMMENT) {
+        const comment = await this.prisma.comment.findFirst({
+          where: { id: targetId, deletedAt: null },
+          select: { postId: true },
+        })
+        if (!comment) throw new AppException('NOT_FOUND', 'Комментарий не найден')
+        await this.posts.assertVisibleToViewer(reporter, comment.postId)
+      }
+    } catch (error) {
+      if (error instanceof AppException && error.code === 'NOT_FOUND') {
+        throw new AppException('NOT_FOUND', NOT_FOUND_MESSAGE[type])
+      }
+      throw error
+    }
   }
 
   /**
