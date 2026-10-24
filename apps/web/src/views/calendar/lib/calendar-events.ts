@@ -1,6 +1,7 @@
 import {
   changesByPairDate,
   pairDateKey,
+  substitutionPairs,
   type Pair,
   type ScheduleChange,
 } from '../../../entities/schedule'
@@ -37,7 +38,14 @@ function dowOf(d: Date): number {
 }
 
 // Разворачивает недельные пары на конкретные даты диапазона, накладывая изменения.
-export function expandPairs(pairs: Pair[], changes: ScheduleChange[], dates: Date[]): CalItem[] {
+// `substituteId` — преподаватель, которому добавляются чужие пары, где он заменяющий на
+// дату (PROJECT «Расписание»): в его недельной выборке их нет.
+export function expandPairs(
+  pairs: Pair[],
+  changes: ScheduleChange[],
+  dates: Date[],
+  substituteId: string | null = null,
+): CalItem[] {
   // Несколько изменений пары на дату сводятся в одно — как на сервере.
   const changeByKey = changesByPairDate(changes)
 
@@ -46,7 +54,10 @@ export function expandPairs(pairs: Pair[], changes: ScheduleChange[], dates: Dat
     const ds = formatYmd(d)
     const dow = dowOf(d)
     const parity = isoWeekParity(d)
-    for (const p of pairs) {
+    const dayPairs = substituteId
+      ? [...pairs, ...substitutionPairs(changes, ds, substituteId)]
+      : pairs
+    for (const p of dayPairs) {
       if (p.dayOfWeek !== dow) continue
       if (p.weekType !== 'BOTH' && p.weekType !== parity) continue
       const change = changeByKey.get(pairDateKey(p.id, ds)) ?? null
@@ -145,9 +156,12 @@ export function buildCalendar(
   dates: Date[],
   filter: CalFilter,
   exams: ExamItem[] = [],
+  substituteId: string | null = null,
 ): CalItem[] {
   const items: CalItem[] = []
-  if (filter === 'all' || filter === 'pair') items.push(...expandPairs(pairs, changes, dates))
+  if (filter === 'all' || filter === 'pair') {
+    items.push(...expandPairs(pairs, changes, dates, substituteId))
+  }
   if (filter === 'all' || filter === 'event') items.push(...mapEvents(events))
   if (filter === 'all' || filter === 'assignment') items.push(...mapAssignments(assignments))
   if (filter === 'all' || filter === 'exam') items.push(...mapExams(exams))

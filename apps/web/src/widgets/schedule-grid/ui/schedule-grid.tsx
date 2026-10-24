@@ -6,6 +6,7 @@ import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react'
 import type { ScheduleQueryInput } from '@studenthub/shared-schemas'
+import { Role } from '@studenthub/shared-types'
 import {
   changesByPairDate,
   fetchSchedule,
@@ -13,8 +14,11 @@ import {
   layoutColumns,
   pairDateKey,
   scheduleKeys,
+  substitutionPairs,
+  type Pair,
   type WeekType,
 } from '../../../entities/schedule'
+import { useAppSelector } from '../../../shared/store'
 import { useRealtimeEvent } from '../../../shared/realtime'
 import { EmptyState, Skeleton } from '../../../shared/ui'
 import { isoWeekParity, useScrollRow } from '../../../shared/lib'
@@ -122,11 +126,30 @@ export function ScheduleGrid({ filters = {} }: ScheduleGridProps) {
     [schedule.data, effectiveParity],
   )
 
+  // Чужие пары, которые преподаватель ведёт по замене (PROJECT «Расписание»): в его недельной
+  // выборке их нет, они строятся из изменений своей даты — как в «Сегодня» и «Посещаемости».
+  const role = useAppSelector((s) => s.auth.role)
+  const myId = useAppSelector((s) => s.auth.user?.id)
+  const substitutionsByDate = useMemo(() => {
+    const out = new Map<string, Pair[]>()
+    if (role !== Role.TEACHER || !myId) return out
+    for (const d of weekDates) {
+      const date = fmtDate(d)
+      const subs = substitutionPairs(changes.data ?? [], date, myId)
+      if (subs.length > 0) out.set(date, subs)
+    }
+    return out
+  }, [role, myId, weekDates, changes.data])
+  const visiblePairs = useMemo(
+    () => [...pairs, ...[...substitutionsByDate.values()].flat()],
+    [pairs, substitutionsByDate],
+  )
+
   // Границы сетки по времени — от самой ранней до самой поздней пары (с запасом), иначе 08–20.
   const [gridStart, gridEnd] = useMemo(() => {
     let min = DEFAULT_START_MIN
     let max = DEFAULT_END_MIN
-    for (const p of pairs) {
+    for (const p of visiblePairs) {
       min = Math.min(min, toMin(p.startTime))
       max = Math.max(max, toMin(p.endTime))
     }
@@ -135,7 +158,7 @@ export function ScheduleGrid({ filters = {} }: ScheduleGridProps) {
       if (c.newEndTime) max = Math.max(max, toMin(c.newEndTime))
     }
     return [Math.floor(min / 60) * 60, Math.ceil(max / 60) * 60]
-  }, [pairs, changes.data])
+  }, [visiblePairs, changes.data])
 
   const hours = useMemo(() => {
     const out: number[] = []
@@ -227,7 +250,7 @@ export function ScheduleGrid({ filters = {} }: ScheduleGridProps) {
         <Skeleton fill className="min-h-[28rem]" />
       ) : schedule.isError ? (
         <EmptyState title={tErr('INTERNAL_ERROR')} />
-      ) : pairs.length === 0 ? (
+      ) : visiblePairs.length === 0 ? (
         <EmptyState
           icon={<CalendarDays className="size-6" aria-hidden />}
           title={t('emptyTitle')}
@@ -287,7 +310,10 @@ export function ScheduleGrid({ filters = {} }: ScheduleGridProps) {
               {weekDates.map((date, dayIdx) => {
                 const dow = dayIdx + 1
                 const dateStr = fmtDate(date)
-                const dayPairs = pairs.filter((p) => p.dayOfWeek === dow)
+                const dayPairs = [
+                  ...pairs.filter((p) => p.dayOfWeek === dow),
+                  ...(substitutionsByDate.get(dateStr) ?? []),
+                ]
                 // Раскладываем пересекающиеся пары по колонкам (учитывая перенос времени из changes),
                 // чтобы они шли рядом, а не одна поверх другой.
                 const placements = new Map<string, { col: number; cols: number }>()
