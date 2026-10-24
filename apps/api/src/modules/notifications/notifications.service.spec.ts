@@ -47,10 +47,37 @@ describe('NotificationsService', () => {
     it('hasNext=true и cursor выставляются при переполнении лимита', async () => {
       const { service, prisma } = makeService()
       // limit 2 → запрашиваем 3; вернулось 3 → есть следующая
-      prisma.notification.findMany.mockResolvedValue([{ id: 'n1' }, { id: 'n2' }, { id: 'n3' }])
+      const at = new Date(5_000)
+      prisma.notification.findMany.mockResolvedValue([
+        { id: 'n1', createdAt: at },
+        { id: 'n2', createdAt: at },
+        { id: 'n3', createdAt: at },
+      ])
       const res = await service.list('u1', { limit: 2 })
       expect(res.items).toHaveLength(2)
-      expect(res.meta).toEqual({ cursor: 'n2', hasNext: true })
+      // Курсор — момент и id последней строки страницы (keyset), а не голый id.
+      expect(res.meta).toEqual({ cursor: '5000.n2', hasNext: true })
+    })
+
+    // Свёрнутая строка «подпрыгивает» наверх, курсорную могут удалить: условие по самим
+    // значениям сортировки не зависит от судьбы строки — ни дублей, ни пустой страницы.
+    it('следующая страница — строго раньше позиции курсора, без Prisma-курсора', async () => {
+      const { service, prisma } = makeService()
+      prisma.notification.findMany.mockResolvedValue([])
+      await service.list('u1', { limit: 2, cursor: '5000.n2' })
+      const args = prisma.notification.findMany.mock.calls[0][0]
+      expect(args.cursor).toBeUndefined()
+      expect(args.where).toEqual({
+        AND: [
+          { userId: 'u1' },
+          {
+            OR: [
+              { createdAt: { lt: new Date(5_000) } },
+              { createdAt: new Date(5_000), id: { lt: 'n2' } },
+            ],
+          },
+        ],
+      })
     })
 
     it('последняя страница: hasNext=false, cursor undefined', async () => {
