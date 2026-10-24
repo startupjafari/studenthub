@@ -397,6 +397,8 @@ export function ChatWindow() {
   // когда снизу есть неподгруженные сообщения (Этап 1, двунаправленная пагинация).
   const [newerCursor, setNewerCursor] = useState<string | undefined>(undefined)
   const [canLoadNewer, setCanLoadNewer] = useState(false)
+  // Живое сообщение пришло, пока окно было «прыгнутым», и в кэш не легло (см. message:new).
+  const skippedLiveRef = useRef(false)
   const loadingNewerRef = useRef(false)
   // Курсоры истории живут ПО ЧАТУ. Кэш сообщений у каждого чата свой и переживает
   // переключение, а курсоры были одни на окно: A → B → A — и A догружал старые по курсору B,
@@ -1679,6 +1681,13 @@ export function ChatWindow() {
               return copy
             }
           }
+          // «Прыгнутое» окно (§9.4): ниже загруженного ещё есть сообщения, и хвост кэша — не
+          // низ чата. Живое сообщение в хвосте встало бы после разрыва, а отметка прочтения
+          // по нему погасила бы всё непросмотренное между. Его подгрузит прокрутка вниз.
+          if (canLoadNewer) {
+            skippedLiveRef.current = true
+            return listOld
+          }
           return listOld.some((m) => m.id === message.id) ? listOld : [...listOld, message]
         })
       }
@@ -2903,6 +2912,23 @@ export function ChatWindow() {
       const updated = qc.getQueryData<ChatMessage[]>(chatKeys.messages(activeId))
       lastMsgIdRef.current = updated?.[updated.length - 1]?.id ?? lastMsgIdRef.current
       setPager(activeId, { newer: page.prevCursor, canNewer: page.hasPrev })
+      // Дошли до низа, а живые сообщения, пропущенные в «прыгнутом» окне, могли прийти уже
+      // после того, как сервер собрал эту страницу, — добираем их одним запросом от хвоста.
+      const tailId = updated?.[updated.length - 1]?.id
+      if (!page.hasPrev && skippedLiveRef.current && tailId) {
+        skippedLiveRef.current = false
+        const rest = await fetchMessages(activeId, {
+          limit: 30,
+          cursor: tailId,
+          direction: 'newer',
+        })
+        const fresh = [...rest.items].reverse()
+        qc.setQueryData<ChatMessage[]>(chatKeys.messages(activeId), (old) => {
+          const prev = old ?? []
+          const seen = new Set(prev.map((m) => m.id))
+          return [...prev, ...fresh.filter((m) => !seen.has(m.id))]
+        })
+      }
     } finally {
       loadingNewerRef.current = false
     }
