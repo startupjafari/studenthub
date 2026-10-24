@@ -81,25 +81,25 @@ export function EmployerCompanyView() {
         <div className="flex flex-col gap-2">
           <Label htmlFor="name">{t('fieldName')}</Label>
           <Input id="name" aria-invalid={!!errors.name} {...register('name')} />
-          <FieldError>{errors.name && errors.name.message}</FieldError>
+          <FieldError>{errors.name ? t('errCompanyName') : null}</FieldError>
         </div>
 
         <div className="flex flex-col gap-2">
           <Label htmlFor="description">{t('fieldDescription')}</Label>
           <Textarea id="description" rows={5} {...register('description')} />
-          <FieldError>{errors.description && errors.description.message}</FieldError>
+          <FieldError>{errors.description ? t('errDescription') : null}</FieldError>
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-2">
             <Label htmlFor="website">{t('fieldWebsite')}</Label>
             <Input id="website" placeholder="https://" {...register('website')} />
-            <FieldError>{errors.website && errors.website.message}</FieldError>
+            <FieldError>{errors.website ? t('errWebsite') : null}</FieldError>
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="city">{t('fieldCity')}</Label>
             <Input id="city" {...register('city')} />
-            <FieldError>{errors.city && errors.city.message}</FieldError>
+            <FieldError>{errors.city ? t('errCity') : null}</FieldError>
           </div>
         </div>
 

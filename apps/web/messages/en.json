@@ -177,7 +177,15 @@
     "resendSent": "We sent a new link — the previous one no longer works",
     "resendMaybeSent": "If a company with this address is awaiting confirmation, we've sent it a new link. It's valid for 24 hours.",
     "resendEmailLabel": "Email you signed up with",
-    "resendEmailInvalid": "Enter a valid email"
+    "resendEmailInvalid": "Enter a valid email",
+    "errCompanyName": "Name must be 2 to 120 characters",
+    "errFirstName": "Enter your first name",
+    "errLastName": "Enter your last name",
+    "errEmail": "Enter a valid email",
+    "errPassword": "Password must be 8 to 72 characters",
+    "errWebsite": "Link must start with http:// or https://",
+    "errDescription": "No more than 2000 characters",
+    "errCity": "No more than 24 characters"
   },
   "Demo": {
     "title": "Request a trial",
