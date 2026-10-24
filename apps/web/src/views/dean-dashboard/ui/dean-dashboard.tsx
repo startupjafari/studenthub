@@ -218,6 +218,8 @@ export function DeanDashboard() {
         <SectionPanel title={t('chartRisk')} subtitle={t('chartRiskHint')}>
           {risk.isLoading ? (
             <Skeleton fill className="min-h-48" />
+          ) : risk.isError ? (
+            <PanelError onRetry={() => risk.refetch()} />
           ) : students.length === 0 ? (
             <EmptyState title={t('chartNoRisk')} className="border-0 p-6" />
           ) : (
@@ -248,6 +250,8 @@ export function DeanDashboard() {
         >
           {queue.isLoading ? (
             <Skeleton fill className="min-h-48" />
+          ) : queue.isError ? (
+            <PanelError onRetry={() => queue.refetch()} />
           ) : queueValues.every((v) => v === 0) ? (
             <EmptyState title={t('chartNoQueue')} className="border-0 p-6" />
           ) : (
@@ -263,5 +267,25 @@ export function DeanDashboard() {
         </SectionPanel>
       </div>
     </div>
+  )
+}
+
+/**
+ * Сбой запроса панели. Без него упавший запрос рисовался пустым состоянием — «никто не
+ * требует внимания», «очередь пуста» — и выдавал сбой за хорошую новость.
+ */
+function PanelError({ onRetry }: { onRetry: () => void }) {
+  const t = useTranslations('Dashboard')
+  const tErr = useTranslations('Errors')
+  return (
+    <EmptyState
+      title={tErr('retryHint')}
+      action={
+        <Button size="sm" variant="outline" onClick={onRetry}>
+          {t('retry')}
+        </Button>
+      }
+      className="border-0 p-6"
+    />
   )
 }

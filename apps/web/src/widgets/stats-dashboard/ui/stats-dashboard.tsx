@@ -28,7 +28,15 @@ import {
   fetchUniversityOverview,
   universityAnalyticsKeys,
 } from '../../../entities/analytics'
-import { Badge, EmptyState, MetricTile, Progress, SectionPanel, Skeleton } from '../../../shared/ui'
+import {
+  Badge,
+  Button,
+  EmptyState,
+  MetricTile,
+  Progress,
+  SectionPanel,
+  Skeleton,
+} from '../../../shared/ui'
 import {
   ChartLegend,
   DAY_GROUPS,
@@ -81,6 +89,7 @@ const TREND_FACULTIES = 3
 export function StatsDashboard() {
   const t = useTranslations('Stats')
   const tErr = useTranslations('Errors')
+  const tCommon = useTranslations('Common')
   const { palette } = useChartTheme()
   const universityId = useAppSelector((s) => s.auth.universityId)
 
@@ -100,14 +109,23 @@ export function StatsDashboard() {
   const analyticsLoading = overview.isPending && !!universityId
 
   const attendanceRate = overview.data?.attendanceRate ?? null
-  const submissionsPending = overview.data?.submissionsPending ?? 0
-  const examsUpcoming = overview.data?.examsUpcoming ?? 0
+  // Без данных — прочерк, а не 0: при сбое запроса «0 работ на проверке» выдавал бы
+  // ошибку за спокойный день.
+  const submissionsPending = overview.data?.submissionsPending ?? null
+  const examsUpcoming = overview.data?.examsUpcoming ?? null
   const atRisk = overview.data?.atRisk ?? []
   // Сервер уже отдаёт группы по возрастанию посещаемости.
   const worst = (overview.data?.groups ?? []).slice(0, WORST_GROUPS)
 
   if (!universityId) return <EmptyState title={t('noUniversity')} />
-  if (stats.isError) return <EmptyState title={tErr('INTERNAL_ERROR')} />
+  if (stats.isError) {
+    return (
+      <EmptyState
+        title={tErr('INTERNAL_ERROR')}
+        action={<Button onClick={() => stats.refetch()}>{tCommon('retry')}</Button>}
+      />
+    )
+  }
 
   const structure: { key: string; value: number | null; icon: LucideIcon }[] = [
     { key: 'faculties', value: stats.data?.faculties ?? null, icon: Building2 },
@@ -173,6 +191,8 @@ export function StatsDashboard() {
         >
           {analyticsLoading ? (
             <Skeleton fill className="min-h-64" />
+          ) : overview.isError ? (
+            <Failed onRetry={() => overview.refetch()} />
           ) : worst.length === 0 ? (
             <Empty text={t('noAttendance')} />
           ) : (
@@ -203,6 +223,8 @@ export function StatsDashboard() {
         <SectionPanel title={t('atRiskTitle')} subtitle={t('atRiskHint')} bodyClassName={FILL_BODY}>
           {analyticsLoading ? (
             <Skeleton fill className="min-h-64" />
+          ) : overview.isError ? (
+            <Failed onRetry={() => overview.refetch()} />
           ) : atRisk.length === 0 ? (
             <Empty text={t('atRiskEmpty')} />
           ) : (
@@ -274,6 +296,8 @@ function AttendanceTrendPanel() {
     <SectionPanel title={t('trendTitle')} subtitle={t('trendHint')} bodyClassName={FILL_BODY}>
       {q.isPending ? (
         <Skeleton fill className="min-h-64" />
+      ) : q.isError ? (
+        <Failed onRetry={() => q.refetch()} />
       ) : series.length === 0 ? (
         <Empty text={t('noAttendance')} />
       ) : (
@@ -327,6 +351,8 @@ function AttendanceBreakdownPanel() {
     >
       {q.isPending ? (
         <Skeleton fill className="min-h-64" />
+      ) : q.isError ? (
+        <Failed onRetry={() => q.refetch()} />
       ) : items.length === 0 ? (
         <Empty text={t('noAttendance')} />
       ) : (
@@ -416,6 +442,8 @@ function RoomLoadPanel() {
     >
       {q.isPending ? (
         <Skeleton fill className="min-h-64" />
+      ) : q.isError ? (
+        <Failed onRetry={() => q.refetch()} />
       ) : !q.data || q.data.peak === 0 ? (
         <Empty text={t('noSchedule')} />
       ) : (
@@ -486,6 +514,8 @@ function ExamResultsPanel() {
     >
       {q.isPending ? (
         <Skeleton fill className="min-h-64" />
+      ) : q.isError ? (
+        <Failed onRetry={() => q.refetch()} />
       ) : items.length === 0 ? (
         <Empty text={t('noExamResults')} />
       ) : (
@@ -529,6 +559,8 @@ function ApplicationsFlowPanel() {
     <SectionPanel title={t('appsFlowTitle')} subtitle={t('appsFlowHint')} bodyClassName={FILL_BODY}>
       {q.isPending ? (
         <Skeleton fill className="min-h-64" />
+      ) : q.isError ? (
+        <Failed onRetry={() => q.refetch()} />
       ) : empty ? (
         <Empty text={t('noApplications')} />
       ) : (
@@ -568,6 +600,8 @@ function InvitesFunnelPanel() {
     <SectionPanel title={t('invitesTitle')} subtitle={t('invitesHint')} bodyClassName={FILL_BODY}>
       {q.isPending ? (
         <Skeleton fill className="min-h-40" />
+      ) : q.isError ? (
+        <Failed onRetry={() => q.refetch()} />
       ) : !d || d.total === 0 ? (
         <Empty text={t('noInvites')} />
       ) : (
@@ -610,6 +644,22 @@ function FunnelRow({ label, value }: { label: string; value: number }) {
 // растянуто, вертикальные автоотступы дают ноль — остаётся прежний вид.
 function Empty({ text }: { text: string }) {
   return <p className="m-auto py-8 text-center text-sm text-muted-foreground">{text}</p>
+}
+
+/**
+ * Сбой запроса панели. Раньше упавший запрос проваливался в ветку «данных нет» —
+ * «никто не в зоне риска», «посещаемость не отмечали» — и выдавал сбой за хорошую новость.
+ */
+function Failed({ onRetry }: { onRetry: () => void }) {
+  const t = useTranslations('Common')
+  return (
+    <div className="m-auto flex flex-col items-center gap-3 py-8 text-center">
+      <p className="text-sm text-muted-foreground">{t('error')}</p>
+      <Button size="sm" variant="outline" onClick={onRetry}>
+        {t('retry')}
+      </Button>
+    </div>
+  )
 }
 
 function lastValue(points: { value: number }[]): number {

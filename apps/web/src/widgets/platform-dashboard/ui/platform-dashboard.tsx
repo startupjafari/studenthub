@@ -230,7 +230,16 @@ function KpiRow() {
     )
   }
   const o = overview.data
-  if (!o) return null
+  if (!o) {
+    // Сбой сводки: без этого ряд плиток молча исчезал, и дашборд выглядел просто короче.
+    return overview.isError ? (
+      <Card>
+        <CardContent>
+          <PanelError onRetry={() => void overview.refetch()} />
+        </CardContent>
+      </Card>
+    ) : null
+  }
 
   return (
     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
@@ -347,6 +356,7 @@ function GrowthPanel({ range }: { range: PlatformRange }) {
       subtitle={t('growthSubtitle')}
       busy={q.isFetching}
       ready={inView && !!q.data}
+      onRetry={q.isError ? () => void q.refetch() : undefined}
     >
       {/* Легенда несёт значение (правило рельефа для слотов с низким контрастом)
           и переключает серии — иначе линии друг друга перекрывают. */}
@@ -398,6 +408,7 @@ function ActiveUsersPanel({ range }: { range: PlatformRange }) {
       subtitle={t('activeSubtitle')}
       busy={q.isFetching}
       ready={inView && !!q.data}
+      onRetry={q.isError ? () => void q.refetch() : undefined}
     >
       <ChartLegend
         className="mb-3"
@@ -467,6 +478,7 @@ function UniversitiesPanel() {
         }
         busy={q.isFetching}
         ready={inView && !!q.data}
+        onRetry={q.isError ? () => void q.refetch() : undefined}
       >
         <BarChart
           ariaLabel={t('sizeTitle')}
@@ -570,6 +582,7 @@ function ComplaintsFlowPanel({ range }: { range: PlatformRange }) {
       subtitle={t('flowSubtitle')}
       busy={q.isFetching}
       ready={inView && !!q.data}
+      onRetry={q.isError ? () => void q.refetch() : undefined}
     >
       <ChartLegend
         className="mb-3"
@@ -617,6 +630,7 @@ function LatencyPanel({ range }: { range: PlatformRange }) {
       subtitle={t('latencySubtitle')}
       busy={q.isFetching}
       ready={inView && !!q.data}
+      onRetry={q.isError ? () => void q.refetch() : undefined}
     >
       <BarChart
         ariaLabel={t('latencyTitle')}
@@ -659,6 +673,7 @@ function InvitesPanel({ range }: { range: PlatformRange }) {
       subtitle={t('invitesSubtitle')}
       busy={q.isFetching}
       ready={inView && !!q.data}
+      onRetry={q.isError ? () => void q.refetch() : undefined}
     >
       <Meter
         label={t('invitesConversion')}
@@ -762,6 +777,7 @@ function ActivityPanel({ range }: { range: PlatformRange }) {
       subtitle={t('activitySubtitle', { zone: zoneLabel(tz, locale) })}
       busy={q.isFetching}
       ready={inView && !!q.data}
+      onRetry={q.isError ? () => void q.refetch() : undefined}
       className="lg:col-span-2"
       skeletonHeight={280}
     >
@@ -835,6 +851,7 @@ function ActionsPanel({ range }: { range: PlatformRange }) {
       subtitle={t('actionsSubtitle')}
       busy={q.isFetching}
       ready={inView && !!q.data}
+      onRetry={q.isError ? () => void q.refetch() : undefined}
       className="lg:col-span-2"
     >
       <BarChart
@@ -864,6 +881,7 @@ function ChartPanel({
   actions,
   busy,
   ready,
+  onRetry,
   className,
   skeletonHeight = 260,
   children,
@@ -879,6 +897,11 @@ function ChartPanel({
   actions?: ReactNode
   busy?: boolean
   ready?: boolean
+  /**
+   * Задан — запрос упал, а данных нет: вместо вечного скелетона ошибка с повтором.
+   * Если данные остались от прошлого запроса, панель показывает их.
+   */
+  onRetry?: () => void
   className?: string
   skeletonHeight?: number
   children: ReactNode
@@ -892,9 +915,28 @@ function ChartPanel({
         {actions && <CardAction>{actions}</CardAction>}
       </CardHeader>
       <CardContent aria-busy={busy} className={cn('transition-opacity', busy && 'opacity-60')}>
-        {ready ? children : <Skeleton className="w-full" style={{ height: skeletonHeight }} />}
+        {ready ? (
+          children
+        ) : onRetry ? (
+          <PanelError onRetry={onRetry} />
+        ) : (
+          <Skeleton className="w-full" style={{ height: skeletonHeight }} />
+        )}
       </CardContent>
     </Card>
+  )
+}
+
+/** Сбой запроса: текст и повтор. Общий для плиток и панелей. */
+function PanelError({ onRetry }: { onRetry: () => void }) {
+  const t = useTranslations('Common')
+  return (
+    <div className="flex flex-col items-center gap-3 py-8 text-center">
+      <p className="text-sm text-muted-foreground">{t('error')}</p>
+      <Button size="sm" variant="outline" onClick={onRetry}>
+        {t('retry')}
+      </Button>
+    </div>
   )
 }
 

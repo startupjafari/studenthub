@@ -2,9 +2,12 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
+import { Inbox } from 'lucide-react'
 import {
   Badge,
+  Button,
   Card,
+  EmptyState,
   PageHeader,
   Progress,
   Skeleton,
@@ -76,6 +79,12 @@ export function GroupDrilldown({
 
       {q.isLoading ? (
         <Skeleton fill className="min-h-80 rounded-xl" />
+      ) : q.isError ? (
+        <EmptyState
+          icon={<Inbox className="size-6" aria-hidden />}
+          title={t('loadError')}
+          action={<Button onClick={() => q.refetch()}>{t('retry')}</Button>}
+        />
       ) : (
         <Card className="flex min-h-0 flex-1 flex-col gap-0 py-0">
           <Table fixed scrollBody fill cols={COLS}>

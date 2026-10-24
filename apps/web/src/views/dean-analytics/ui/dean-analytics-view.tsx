@@ -244,6 +244,8 @@ export function DeanAnalyticsView() {
                 students={risk.data?.students ?? []}
                 totalStudents={q.data.totals.students}
                 loading={risk.isLoading}
+                // Сбой Early Warning — не «никто не требует внимания».
+                onRetry={risk.isError ? () => risk.refetch() : undefined}
               />
             ) : (
               <GroupsTab
@@ -326,10 +328,13 @@ function RiskStudentsTab({
   students,
   totalStudents,
   loading,
+  onRetry,
 }: {
   students: AtRiskStudent[]
   totalStudents: number
   loading: boolean
+  /** Задан — запрос упал: вместо списка ошибка с повтором. */
+  onRetry?: () => void
 }) {
   const t = useTranslations('Analytics')
   const rows = useMemo(() => students.map(toRiskRow).sort(byRisk), [students])
@@ -356,6 +361,15 @@ function RiskStudentsTab({
   })
 
   if (loading) return <Skeleton fill className="min-h-64 rounded-xl" />
+  if (onRetry) {
+    return (
+      <EmptyState
+        icon={<Inbox className="size-6" aria-hidden />}
+        title={t('loadError')}
+        action={<Button onClick={onRetry}>{t('retry')}</Button>}
+      />
+    )
+  }
   if (rows.length === 0) {
     return (
       <EmptyState
