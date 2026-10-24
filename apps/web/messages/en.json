@@ -975,6 +975,7 @@
     "byteUnitMb": "MB",
     "byteUnitGb": "GB",
     "breadcrumb": "Breadcrumb",
+    "mediaViewer": "File viewer",
     "phoneIncomplete": "Enter the full number: +7 (777) 777-77-77"
   },
   "Auth": {
