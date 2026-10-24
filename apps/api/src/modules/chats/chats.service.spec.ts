@@ -764,9 +764,11 @@ describe('ChatsService.setPinned — закрепление', () => {
     prisma.chatMember.findUnique.mockResolvedValue({ id: 'mem1' })
     prisma.message.update.mockResolvedValue({ id: 'm1', chatId: 'c1', pinnedAt: null })
     await service.setPinned('u1', 'm1', false)
+    // unpinnedAt — отметка для догона: устройство, пропустившее событие, узнаёт о снятии.
     expect(prisma.message.update.mock.calls[0][0].data).toEqual({
       pinnedAt: null,
       pinnedById: null,
+      unpinnedAt: expect.any(Date),
     })
     expect(realtime.emitToRoom).toHaveBeenCalledWith(
       'chat:c1',
@@ -2839,6 +2841,8 @@ describe('ChatsService.createChat — один личный чат на пару
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce({ id: 'c-first', type: 'PRIVATE', title: null })
     prisma.user.findFirst.mockResolvedValueOnce({ universityId: 'uni1' })
+    // Найденный чат возвращается в список, если был скрыт «у себя»; здесь он не скрыт.
+    prisma.chatMember.updateMany.mockResolvedValueOnce({ count: 0 })
 
     const res = await service.createChat(
       { ...user('u1'), universityId: 'uni1' },

@@ -93,16 +93,20 @@ describe('ResilientThrottlerStorage', () => {
   })
 
   // Фолбэк не должен оставлять после себя таймеры: иначе процесс на выходе ждёт их,
-  // и деплой после сбоя Redis висит до конца окна (до 15 минут на логине).
-  it('фолбэк не заводит таймеров', async () => {
-    const inner = { increment: jest.fn().mockRejectedValue(new Error('down')) }
-    const storage = new ResilientThrottlerStorage(inner as unknown as ThrottlerStorage)
-    const setTimeoutSpy = jest.spyOn(global, 'setTimeout')
+  // и деплой после сбоя Redis висит до конца окна (до 15 минут на логине). Таймер ожидания
+  // Redis заводится на каждый запрос, но снимается в finally — висящих не остаётся.
+  it('фолбэк не оставляет висящих таймеров', async () => {
+    jest.useFakeTimers()
+    try {
+      const inner = { increment: jest.fn().mockRejectedValue(new Error('down')) }
+      const storage = new ResilientThrottlerStorage(inner as unknown as ThrottlerStorage)
 
-    for (let i = 0; i < 10; i++) await storage.increment('k', 60_000, 5, 0, 'default')
+      for (let i = 0; i < 10; i++) await storage.increment('k', 60_000, 5, 0, 'default')
 
-    expect(setTimeoutSpy).not.toHaveBeenCalled()
-    setTimeoutSpy.mockRestore()
+      expect(jest.getTimerCount()).toBe(0)
+    } finally {
+      jest.useRealTimers()
+    }
   })
 
   it('не заливает лог: предупреждение не чаще раза в минуту', async () => {

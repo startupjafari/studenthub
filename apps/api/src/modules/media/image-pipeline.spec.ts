@@ -48,9 +48,17 @@ describe('buildImageVariants', () => {
   })
 
   it('анимированный WebP — тоже только заглушка: копия была бы первым кадром', async () => {
-    // Два кадра 800×600 стопкой: при заданной высоте страницы sharp пишет их анимацией.
+    // Два кадра 800×600 стопкой: при заданной высоте страницы sharp пишет их анимацией. Кадры
+    // с шумом: одинаковые libwebp склеивает в один, и файл выходит не анимированным.
     const webp = await sharp({
-      create: { width: 800, height: 1200, channels: 3, background: '#0af', pageHeight: 600 },
+      create: {
+        width: 800,
+        height: 1200,
+        channels: 3,
+        background: '#0af',
+        noise: { type: 'gaussian', mean: 128, sigma: 30 },
+        pageHeight: 600,
+      },
     })
       .webp({ loop: 0, delay: [100, 100] })
       .toBuffer()

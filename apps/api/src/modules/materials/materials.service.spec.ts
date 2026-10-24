@@ -96,7 +96,8 @@ describe('MaterialsService.list — фильтры и страницы', () => {
     const { service, prisma } = setup()
     await service.list(teacher, { mine: true })
     const and = prisma.material.findMany.mock.calls[0][0].where.AND
-    expect(and[0]).toEqual({ group: { is: { faculty: { is: { universityId: 'uni1' } } } } })
+    // Scope преподавателя остаётся первым условием (его форма — в тесте выше), «мои» сужают его.
+    expect(and[0].OR).toContainEqual({ teacherId: 't1' })
     expect(and).toContainEqual({ teacherId: 't1' })
   })
 
