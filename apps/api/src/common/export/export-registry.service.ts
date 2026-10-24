@@ -231,9 +231,18 @@ export class ExportRegistryService {
 }
 
 /**
+ * Свободный текст в фильтрах выгрузки. Поиск по списку пользователей — это чужие email и
+ * ФИО, а журнал выгрузок хранится бессрочно (по нему проверяют справки годами): сам текст
+ * в журнал не идёт, только факт, что фильтр был. На листе «Инфо» внутри файла он остаётся —
+ * файл и так содержит найденных людей.
+ */
+const FREE_TEXT_PARAMS = new Set(['search', 'q'])
+export const FREE_TEXT_MARK = '[задан]'
+
+/**
  * Параметры выборки для журнала: пустые значения выбрасываем, чтобы в записи не оседали
  * `{"search": null, "role": null}` — по такому фильтру ничего не восстановить, а место и
- * внимание он занимает.
+ * внимание он занимает. Свободный текст заменяется пометкой (FREE_TEXT_PARAMS).
  */
 function cleanParams(
   params: Record<string, unknown> | undefined,
@@ -243,7 +252,9 @@ function cleanParams(
   // и строковое представление разбирается глазами без догадок о типе.
   const entries = Object.entries(params)
     .filter(([, value]) => value !== undefined && value !== null && value !== '')
-    .map(([key, value]) => [key, String(value)] as const)
+    .map(
+      ([key, value]) => [key, FREE_TEXT_PARAMS.has(key) ? FREE_TEXT_MARK : String(value)] as const,
+    )
   return entries.length > 0 ? Object.fromEntries(entries) : undefined
 }
 
