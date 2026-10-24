@@ -53,7 +53,14 @@ export function DeanTodayBlock() {
     () => buildDayPairs(schedule.data?.pairs ?? [], changes.data ?? [], now, parity),
     [schedule.data?.pairs, changes.data, now, parity],
   )
-  const todayChanges = changes.data ?? []
+  // Отменённое занятие не проводится — в «Пар сегодня» его нет (оно среди проблем ниже).
+  const classesToday = dayPairs.filter((dp) => dp.state !== 'cancelled').length
+  // Проблемы — только у пар действующих версий: изменения пар черновика или архива группа не
+  // видит, и в сетке дня их нет.
+  const todayChanges = useMemo(() => {
+    const activePairIds = new Set((schedule.data?.pairs ?? []).map((p) => p.id))
+    return (changes.data ?? []).filter((c) => activePairIds.has(c.pairId))
+  }, [schedule.data?.pairs, changes.data])
 
   if (schedule.isLoading) {
     return <Skeleton fill className="min-h-24 rounded-xl" />
@@ -69,7 +76,7 @@ export function DeanTodayBlock() {
           index={0}
           icon={CalendarDays}
           label={t('kpi.classesToday')}
-          value={dayPairs.length}
+          value={classesToday}
           href="/dean/schedule"
         />
         <MetricTile
