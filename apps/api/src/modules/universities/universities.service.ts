@@ -265,7 +265,10 @@ export class UniversityService {
       this.prisma.faculty.count({ where: { universityId: id } }),
       this.prisma.group.count({ where: { faculty: { universityId: id } } }),
       this.prisma.room.count({ where: { universityId: id } }),
-      this.prisma.user.count({ where: { universityId: id, role: Role.STUDENT, deletedAt: null } }),
+      // Староста — тоже студент: аналитика платформы считает их вместе, плитка вуза — так же.
+      this.prisma.user.count({
+        where: { universityId: id, role: { in: [Role.STUDENT, Role.STAROSTA] }, deletedAt: null },
+      }),
       this.prisma.user.count({ where: { universityId: id, role: Role.TEACHER, deletedAt: null } }),
     ])
     return { faculties, groups, rooms, students, teachers }
