@@ -38,6 +38,10 @@ import { RecordVisitorModal } from '../../../features/record-visitor'
 // «Пост охраны» — главная роли SECURITY_GUARD (docs/PROJECT.md §3.12): рабочий экран смены.
 // Главное действие — проверка студенческого, его кнопка первой и самой крупной. Ниже —
 // сводка за сегодня по часам вуза и два журнала: проходы и посетители в здании.
+//
+// Тот же экран читает администратор вуза (`readOnly`): журналы «читают охрана и
+// администратор вуза», а ведёт их только охрана — без проверки, записи посетителя и отметки
+// выхода, зато посетители — весь журнал с временем выхода, а не только кто в здании.
 
 const PAGE_SIZES = [20, 50, 100] as const
 
@@ -53,7 +57,7 @@ const VISITOR_COLS_NARROW = ['auto', '0', '4.5rem', '7rem'] as const
 const VISITOR_HIDE = { purpose: 'hidden md:table-cell' } as const
 const VISITOR_SKELETON = [undefined, VISITOR_HIDE.purpose, undefined, undefined]
 
-export function SecurityHomeView() {
+export function SecurityHomeView({ readOnly = false }: { readOnly?: boolean }) {
   const t = useTranslations('Security')
   const [recording, setRecording] = useState(false)
   const summary = useQuery({ queryKey: securityKeys.summary(), queryFn: fetchSecuritySummary })
@@ -63,28 +67,34 @@ export function SecurityHomeView() {
     // `min-h-0` у корня: журналы прокручиваются внутри своих таблиц, а не страницей.
     <div className="flex w-full flex-col gap-6 lg:min-h-0 lg:flex-1">
       <PageHeader
-        title={t('title')}
-        subtitle={t('subtitle')}
+        title={readOnly ? t('journalsTitle') : t('title')}
+        subtitle={readOnly ? t('journalsSubtitle') : t('subtitle')}
         actions={
-          <Button type="button" variant="outline" size="md" onClick={() => setRecording(true)}>
-            <UserPlus className="size-4" aria-hidden />
-            {t('recordVisitor')}
-          </Button>
+          readOnly ? undefined : (
+            <Button type="button" variant="outline" size="md" onClick={() => setRecording(true)}>
+              <UserPlus className="size-4" aria-hidden />
+              {t('recordVisitor')}
+            </Button>
+          )
         }
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div
+        className={cn('grid gap-3 sm:grid-cols-2', readOnly ? 'lg:grid-cols-3' : 'xl:grid-cols-4')}
+      >
         {/* Проверка — главное действие на входе: крупная кнопка, а не плитка среди прочих. */}
-        <Link
-          href="/verify-id"
-          className="group flex min-h-24 items-center gap-4 rounded-xl bg-primary px-5 text-primary-foreground shadow-sm transition-opacity outline-none hover:opacity-90 focus-visible:ring-4 focus-visible:ring-ring/30 sm:col-span-2 xl:col-span-1"
-        >
-          <ScanLine className="size-8 shrink-0" aria-hidden />
-          <span className="flex min-w-0 flex-col">
-            <span className="text-lg font-semibold">{t('verifyTitle')}</span>
-            <span className="text-sm opacity-80">{t('verifyHint')}</span>
-          </span>
-        </Link>
+        {!readOnly && (
+          <Link
+            href="/verify-id"
+            className="group flex min-h-24 items-center gap-4 rounded-xl bg-primary px-5 text-primary-foreground shadow-sm transition-opacity outline-none hover:opacity-90 focus-visible:ring-4 focus-visible:ring-ring/30 sm:col-span-2 xl:col-span-1"
+          >
+            <ScanLine className="size-8 shrink-0" aria-hidden />
+            <span className="flex min-w-0 flex-col">
+              <span className="text-lg font-semibold">{t('verifyTitle')}</span>
+              <span className="text-sm opacity-80">{t('verifyHint')}</span>
+            </span>
+          </Link>
+        )}
         <MetricTile
           icon={ShieldCheck}
           tone="text-success"
@@ -116,7 +126,7 @@ export function SecurityHomeView() {
 
       <div className="grid gap-6 lg:min-h-80 lg:flex-1 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)] lg:grid-rows-[minmax(0,1fr)]">
         <PassesPanel />
-        <VisitorsPanel onRecord={() => setRecording(true)} />
+        <VisitorsPanel readOnly={readOnly} onRecord={() => setRecording(true)} />
       </div>
 
       {recording && <RecordVisitorModal onClose={() => setRecording(false)} />}
@@ -261,14 +271,15 @@ function PassRow({
   )
 }
 
-function VisitorsPanel({ onRecord }: { onRecord: () => void }) {
+function VisitorsPanel({ readOnly, onRecord }: { readOnly: boolean; onRecord: () => void }) {
   const t = useTranslations('Security')
   const tErr = useTranslations('Errors')
   const time = useJournalTime()
   const qc = useQueryClient()
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState<number>(PAGE_SIZES[0])
-  const params = { status: 'inside' as const, page, limit }
+  // Охране — кто сейчас в здании; админу — весь журнал с отметками выхода.
+  const params = { status: readOnly ? ('all' as const) : ('inside' as const), page, limit }
   const visitors = useQuery({
     queryKey: securityKeys.visitors(params),
     queryFn: () => fetchVisitors(params),
@@ -292,8 +303,8 @@ function VisitorsPanel({ onRecord }: { onRecord: () => void }) {
 
   return (
     <SectionPanel
-      title={t('visitorsTitle')}
-      subtitle={t('visitorsHint')}
+      title={readOnly ? t('visitorsJournalTitle') : t('visitorsTitle')}
+      subtitle={readOnly ? t('visitorsJournalHint') : t('visitorsHint')}
       className="lg:min-h-0"
       bodyClassName="flex flex-col p-0 lg:min-h-0 lg:flex-1"
     >
@@ -311,13 +322,15 @@ function VisitorsPanel({ onRecord }: { onRecord: () => void }) {
       ) : !visitors.isPending && items.length === 0 ? (
         <EmptyState
           icon={<Users className="size-6" aria-hidden />}
-          title={t('visitorsEmpty')}
+          title={readOnly ? t('visitorsJournalEmpty') : t('visitorsEmpty')}
           className="m-4"
           action={
-            <Button type="button" variant="outline" onClick={onRecord}>
-              <UserPlus className="size-4" aria-hidden />
-              {t('recordVisitor')}
-            </Button>
+            readOnly ? undefined : (
+              <Button type="button" variant="outline" onClick={onRecord}>
+                <UserPlus className="size-4" aria-hidden />
+                {t('recordVisitor')}
+              </Button>
+            )
           }
         />
       ) : (
@@ -329,7 +342,7 @@ function VisitorsPanel({ onRecord }: { onRecord: () => void }) {
                 <TableHead className={VISITOR_HIDE.purpose}>{t('colPurpose')}</TableHead>
                 <TableHead>{t('colEntered')}</TableHead>
                 <TableHead>
-                  <span className="sr-only">{t('markExit')}</span>
+                  {readOnly ? t('colExited') : <span className="sr-only">{t('markExit')}</span>}
                 </TableHead>
               </TableRow>
             </TableHeader>
@@ -339,6 +352,7 @@ function VisitorsPanel({ onRecord }: { onRecord: () => void }) {
                 <VisitorRow
                   key={visitor.id}
                   visitor={visitor}
+                  readOnly={readOnly}
                   time={time}
                   busy={exit.isPending && exit.variables === visitor.id}
                   onExit={() => exit.mutate(visitor.id)}
@@ -365,11 +379,13 @@ function VisitorsPanel({ onRecord }: { onRecord: () => void }) {
 
 function VisitorRow({
   visitor,
+  readOnly,
   time,
   busy,
   onExit,
 }: {
   visitor: VisitorItem
+  readOnly: boolean
   time: (iso: string) => string
   busy: boolean
   onExit: () => void
@@ -386,12 +402,22 @@ function VisitorRow({
       <TableCell className="text-muted-foreground tabular-nums">
         <TableText value={time(visitor.enteredAt)} />
       </TableCell>
-      <TableCell className="text-right">
-        <Button type="button" variant="outline" size="sm" loading={busy} onClick={onExit}>
-          <DoorOpen className="size-4" aria-hidden />
-          {t('markExit')}
-        </Button>
-      </TableCell>
+      {readOnly ? (
+        <TableCell className="text-muted-foreground tabular-nums">
+          {visitor.exitedAt ? (
+            <TableText value={time(visitor.exitedAt)} />
+          ) : (
+            <Badge variant="info">{t('stillInside')}</Badge>
+          )}
+        </TableCell>
+      ) : (
+        <TableCell className="text-right">
+          <Button type="button" variant="outline" size="sm" loading={busy} onClick={onExit}>
+            <DoorOpen className="size-4" aria-hidden />
+            {t('markExit')}
+          </Button>
+        </TableCell>
+      )}
     </TableRow>
   )
 }
