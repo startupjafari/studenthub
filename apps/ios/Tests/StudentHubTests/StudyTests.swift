@@ -182,6 +182,7 @@ private final class StubStudy: StudyFetching, @unchecked Sendable {
         AttendanceSummaryDTO(counts: [:], total: 0, rate: nil, records: [])
     }
     func assignments() async throws -> Page<AssignmentDTO> { Page(items: [], meta: nil) }
+    func assignment(id: String) async throws -> AssignmentDTO { throw APIError.malformedResponse(statusCode: 404) }
     func submit(assignmentID: String) async throws {}
     func saveSubmissionDraft(assignmentID: String, text: String?, linkURL: String?) async throws {}
     func materials() async throws -> Page<MaterialDTO> { Page(items: [], meta: nil) }

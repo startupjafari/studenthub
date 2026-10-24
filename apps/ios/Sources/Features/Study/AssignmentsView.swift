@@ -85,7 +85,7 @@ struct AssignmentDetailView: View {
     /// Сдача — только студенту: преподавателю `PUT …/submission` отвечает 403.
     var isStudent = true
 
-    @State private var model: StudySectionModel<[AssignmentDTO]>?
+    @State private var model: StudySectionModel<AssignmentDTO>?
     @State private var text = ""
     @State private var link = ""
     @State private var isSending = false
@@ -93,9 +93,7 @@ struct AssignmentDetailView: View {
 
     private let api = StudyAPI()
 
-    private var assignment: AssignmentDTO? {
-        model?.value?.first { $0.id == assignmentID }
-    }
+    private var assignment: AssignmentDTO? { model?.value }
 
     var body: some View {
         Form {
@@ -155,7 +153,8 @@ struct AssignmentDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task {
             if model == nil {
-                model = StudySectionModel<[AssignmentDTO]> { try await StudyAPI().assignments().items }
+                let id = assignmentID
+                model = StudySectionModel<AssignmentDTO> { try await StudyAPI().assignment(id: id) }
             }
             await model?.refresh()
             if let submission = assignment?.mySubmission {

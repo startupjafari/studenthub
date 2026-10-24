@@ -132,6 +132,7 @@ protocol StudyFetching: Sendable {
     func grades() async throws -> [CourseGradesDTO]
     func attendance() async throws -> AttendanceSummaryDTO
     func assignments() async throws -> Page<AssignmentDTO>
+    func assignment(id: String) async throws -> AssignmentDTO
     func submit(assignmentID: String) async throws
     func saveSubmissionDraft(assignmentID: String, text: String?, linkURL: String?) async throws
     func materials() async throws -> Page<MaterialDTO>
@@ -165,14 +166,30 @@ struct StudyAPI: StudyFetching {
         try await client.page(.get("assignments", query: [URLQueryItem(name: "limit", value: "50")]), of: AssignmentDTO.self)
     }
 
+    /// Одно задание — для карточки. Искать его в первой странице списка нельзя: из
+    /// ссылки открывается и пятьдесят первое.
+    func assignment(id: String) async throws -> AssignmentDTO {
+        try await client.send(.get("assignments/\(id)"), as: AssignmentDTO.self)
+    }
+
     func submit(assignmentID: String) async throws {
         try await client.send(.post("assignments/\(assignmentID)/submit"))
     }
 
+    /// Пустое поле уходит явным `null`: пропущенный ключ сервер оставляет как было,
+    /// и стёртый ответ или ссылка возвращались после сохранения.
     func saveSubmissionDraft(assignmentID: String, text: String?, linkURL: String?) async throws {
         struct Body: Encodable {
+            enum CodingKeys: String, CodingKey { case text, linkUrl }
+
             let text: String?
             let linkUrl: String?
+
+            func encode(to encoder: Encoder) throws {
+                var container = encoder.container(keyedBy: CodingKeys.self)
+                try container.encode(text, forKey: .text)
+                try container.encode(linkUrl, forKey: .linkUrl)
+            }
         }
         try await client.send(
             Endpoint(
