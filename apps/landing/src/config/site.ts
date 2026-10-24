@@ -32,8 +32,14 @@ export const APP_URL = normalizeOrigin(process.env.NEXT_PUBLIC_APP_URL, 'http://
 /** Канонический адрес самого лендинга — нужен метаданным и sitemap. */
 export const SITE_URL = normalizeOrigin(process.env.NEXT_PUBLIC_SITE_URL, 'http://localhost:3002')
 
-/** Куда писать, если человек хочет сначала поговорить, а не заполнять форму. */
-export const SALES_EMAIL = process.env.NEXT_PUBLIC_SALES_EMAIL ?? 'hello@studenthub.app'
+/**
+ * Куда писать, если человек хочет сначала поговорить, а не заполнять форму.
+ *
+ * `||`, а не `??`: Docker-сборка объявляет переменную через ARG → ENV, и незаданный
+ * build-arg приезжает пустой строкой, а не `undefined`. С `??` пустая строка проходила
+ * насквозь, и ссылка становилась `mailto:` без адресата.
+ */
+export const SALES_EMAIL = process.env.NEXT_PUBLIC_SALES_EMAIL?.trim() || 'hello@studenthub.app'
 
 /**
  * Три двери на платформу. Пути сверены с `PUBLIC_PATHS` в apps/web/src/middleware.ts —
