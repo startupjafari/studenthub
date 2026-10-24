@@ -108,6 +108,16 @@ services:
         # /api/* проксирует nginx, а не web: API_PROXY_TARGET не передаётся, адрес API —
         # путь на домене платформы.
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://${SH_APP_DOMAIN}/api/v1}
+        # Хранилище для браузера: из него CSP строит img-src/media-src, без него картинки
+        # своего MinIO в markdown показываются ссылками.
+        NEXT_PUBLIC_MINIO_URL: ${NEXT_PUBLIC_MINIO_URL:-https://${SH_FILES_DOMAIN}}
+        # Тот же ключ, что VAPID_PUBLIC_KEY в .env.api: без него веб не подписывается на push.
+        NEXT_PUBLIC_VAPID_PUBLIC_KEY: ${NEXT_PUBLIC_VAPID_PUBLIC_KEY:-}
+        # Sentry в браузере: пустой DSN — трекер выключен.
+        NEXT_PUBLIC_SENTRY_DSN: ${NEXT_PUBLIC_SENTRY_DSN:-}
+        NEXT_PUBLIC_SENTRY_ENVIRONMENT: ${NEXT_PUBLIC_SENTRY_ENVIRONMENT:-production}
+        NEXT_PUBLIC_SENTRY_RELEASE: ${NEXT_PUBLIC_SENTRY_RELEASE:-}
+        NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE: ${NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE:-}
     restart: always
     logging: *logging
     depends_on:
