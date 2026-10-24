@@ -70,12 +70,14 @@ struct GradesView: View {
                                 Text(column.title)
                                     .font(Typography.body)
                                     .foregroundStyle(Palette.foreground)
-                                Text(verbatim: column.kind)
-                                    .font(Typography.meta)
-                                    .foregroundStyle(Palette.mutedForeground)
+                                if let kind = GradeFormat.kindTitle(column.kind) {
+                                    Text(kind)
+                                        .font(Typography.meta)
+                                        .foregroundStyle(Palette.mutedForeground)
+                                }
                             }
                             Spacer()
-                            Text(verbatim: column.score.map { "\(Int($0)) / \(column.maxScore)" }
+                            Text(verbatim: column.score.map { GradeFormat.score($0, max: column.maxScore) }
                                 ?? String(localized: "study.noScore", defaultValue: "—"))
                                 .font(Typography.tabular(Typography.body))
                                 .foregroundStyle(column.score == nil ? Palette.mutedForeground : Palette.foreground)
@@ -172,6 +174,28 @@ struct AttendanceView: View {
         .navigationTitle(Text(String(localized: "study.attendance", defaultValue: "Посещаемость")))
         .refreshable { await model.refresh() }
         .task { await model.refresh() }
+    }
+}
+
+/// Как показать точку журнала: балл бывает дробным, тип приходит кодом из
+/// `GRADE_COLUMN_KINDS`.
+enum GradeFormat {
+    /// «8,5 / 10» или «8,5», если у точки нет максимума. Дробь не обрезаем: 8,5 — не 8.
+    static func score(_ score: Double, max: Int?, locale: Locale = .current) -> String {
+        let shown = score.formatted(.number.precision(.fractionLength(0...2)).locale(locale))
+        guard let max else { return shown }
+        return "\(shown) / \(max)"
+    }
+
+    /// Название типа точки — как в вебе (`Gradebook.kind_*`). Незнакомый тип — без подписи.
+    static func kindTitle(_ kind: String) -> String? {
+        switch kind {
+        case "LAB": return String(localized: "study.kindLab", defaultValue: "Лабораторная")
+        case "CONTROL": return String(localized: "study.kindControl", defaultValue: "Контрольная")
+        case "EXAM": return String(localized: "study.kindExam", defaultValue: "Экзамен")
+        case "OTHER": return String(localized: "study.kindOther", defaultValue: "Другое")
+        default: return nil
+        }
     }
 }
 

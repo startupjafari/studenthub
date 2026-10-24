@@ -22,6 +22,31 @@ final class CourseGradesTests: XCTestCase {
         XCTAssertNil(course(columns: [column(id: "1", max: 0, score: 0)]).ratio)
     }
 
+    /// Точка без максимума в долю не входит, а `maxScore: null` не роняет разбор.
+    func testColumnWithoutMaximum() throws {
+        let ratio = course(columns: [column(id: "1", max: 10, score: 5), column(id: "2", max: nil, score: 7)]).ratio
+        XCTAssertEqual(ratio ?? 0, 0.5, accuracy: 0.001)
+
+        let json = Data(
+            """
+            [{"courseId":"c","subject":{"id":"s","name":"Алгоритмы"},"credits":null,
+            "columns":[{"id":"1","title":"РК","kind":"CONTROL","maxScore":null,"score":8.5}]}]
+            """.utf8
+        )
+        let courses = try JSONCoding.decoder.decode([CourseGradesDTO].self, from: json)
+        XCTAssertNil(courses.first?.columns.first?.maxScore)
+    }
+
+    /// Дробный балл не обрезается, тип точки — словом, а не кодом.
+    func testGradeFormat() {
+        let locale = Locale(identifier: "en_US")
+        XCTAssertEqual(GradeFormat.score(8.5, max: 10, locale: locale), "8.5 / 10")
+        XCTAssertEqual(GradeFormat.score(8, max: 10, locale: locale), "8 / 10")
+        XCTAssertEqual(GradeFormat.score(8.5, max: nil, locale: locale), "8.5")
+        XCTAssertNotNil(GradeFormat.kindTitle("CONTROL"))
+        XCTAssertNil(GradeFormat.kindTitle("SOMETHING_NEW"))
+    }
+
     private func course(columns: [CourseGradesDTO.Column]) -> CourseGradesDTO {
         CourseGradesDTO(
             courseId: "c-1",
@@ -31,7 +56,7 @@ final class CourseGradesTests: XCTestCase {
         )
     }
 
-    private func column(id: String, max: Int, score: Double?) -> CourseGradesDTO.Column {
+    private func column(id: String, max: Int?, score: Double?) -> CourseGradesDTO.Column {
         CourseGradesDTO.Column(id: id, title: "РК\(id)", kind: "CONTROL", maxScore: max, score: score)
     }
 }

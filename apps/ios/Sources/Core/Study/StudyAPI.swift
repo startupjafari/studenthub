@@ -16,7 +16,9 @@ struct CourseGradesDTO: Decodable, Equatable, Identifiable {
         let id: String
         let title: String
         let kind: String
-        let maxScore: Int
+        /// Максимум необязателен — так в журнале (`GradeColumn.maxScore` nullable):
+        /// обязательным он ронял разбор всего ответа из-за одной колонки.
+        let maxScore: Int?
         let score: Double?
     }
 
@@ -31,10 +33,11 @@ struct CourseGradesDTO: Decodable, Equatable, Identifiable {
     ///
     /// Считаем только там, где оценка уже стоит: иначе первая контрольная в
     /// семестре показывала бы «5 из 100» и выглядела бы провалом.
+    /// Точка без максимума в долю не входит: делить её не на что.
     var ratio: Double? {
-        let graded = columns.filter { $0.score != nil }
+        let graded = columns.filter { $0.score != nil && $0.maxScore != nil }
         guard !graded.isEmpty else { return nil }
-        let max = graded.reduce(0.0) { $0 + Double($1.maxScore) }
+        let max = graded.reduce(0.0) { $0 + Double($1.maxScore ?? 0) }
         guard max > 0 else { return nil }
         return graded.reduce(0.0) { $0 + ($1.score ?? 0) } / max
     }
