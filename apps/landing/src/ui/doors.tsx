@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { Briefcase, Building2, GraduationCap } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
-import { PLATFORM_LINKS } from '../config/site'
+import { platformLinks, type Locale } from '../config/site'
 import type { Dictionary } from '../content'
 import { Lift } from './press'
 import { LinkButton, Reveal, Section, SectionHeading, type SectionTone } from './primitives'
@@ -23,15 +23,24 @@ import { LinkButton, Reveal, Section, SectionHeading, type SectionTone } from '.
  * Адреса платформы сверены с `PUBLIC_PATHS` в apps/web/src/middleware.ts — это
  * единственные страницы продукта, которые открываются без аккаунта.
  */
-export function Doors({ dict, tone }: { dict: Dictionary; tone?: SectionTone }) {
+export function Doors({
+  dict,
+  locale,
+  tone,
+}: {
+  dict: Dictionary
+  locale: Locale
+  tone?: SectionTone
+}) {
   const t = dict.doors
+  const links = platformLinks(locale)
 
   const doors: { icon: LucideIcon; door: { title: string; text: string }; actions: ReactNode }[] = [
     {
       icon: Building2,
       door: t.university,
       actions: (
-        <LinkButton href={PLATFORM_LINKS.demoRequest} external variant="primary" size="sm">
+        <LinkButton href={links.demoRequest} external variant="primary" size="sm">
           {t.university.action}
         </LinkButton>
       ),
@@ -41,7 +50,7 @@ export function Doors({ dict, tone }: { dict: Dictionary; tone?: SectionTone }) 
       door: t.people,
       actions: (
         <>
-          <LinkButton href={PLATFORM_LINKS.login} external variant="primary" size="sm">
+          <LinkButton href={links.login} external variant="primary" size="sm">
             {t.people.action}
           </LinkButton>
           {/* Якорь ведёт не в начало вопросов, а на конкретный — тот, ради которого
@@ -56,7 +65,7 @@ export function Doors({ dict, tone }: { dict: Dictionary; tone?: SectionTone }) 
       icon: Briefcase,
       door: t.company,
       actions: (
-        <LinkButton href={PLATFORM_LINKS.employerSignup} external variant="secondary" size="sm">
+        <LinkButton href={links.employerSignup} external variant="secondary" size="sm">
           {t.company.action}
         </LinkButton>
       ),

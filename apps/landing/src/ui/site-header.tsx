@@ -3,7 +3,7 @@
 import { useEffect, useState, type CSSProperties } from 'react'
 import { ChevronRight, GraduationCap, Menu, X } from 'lucide-react'
 import type { Locale } from '../config/site'
-import { PLATFORM_LINKS, localePath } from '../config/site'
+import { localePath, platformLinks } from '../config/site'
 import type { Dictionary } from '../content'
 import { AnimatePresence, EASE, motion, useReducedMotion } from './motion'
 import { Container, LinkButton } from './primitives'
@@ -32,6 +32,7 @@ export function SiteHeader({ dict, locale }: { dict: Dictionary; locale: Locale 
   const [menuOpen, setMenuOpen] = useState(false)
   const calm = useReducedMotion()
   const [activeSection, setActiveSection] = useState<string | null>(null)
+  const platform = platformLinks(locale)
 
   const links = [
     { id: 'product', label: dict.nav.product },
@@ -137,7 +138,7 @@ export function SiteHeader({ dict, locale }: { dict: Dictionary; locale: Locale 
                 </span>
                 <LanguageMenu current={locale} side="top" />
               </div>
-              <LinkButton href={PLATFORM_LINKS.demoRequest} external className="w-full">
+              <LinkButton href={platform.demoRequest} external className="w-full">
                 {dict.nav.demo}
               </LinkButton>
             </Container>
@@ -204,7 +205,7 @@ export function SiteHeader({ dict, locale }: { dict: Dictionary; locale: Locale 
           */}
             <span className="hidden xl:block">
               <LinkButton
-                href={PLATFORM_LINKS.demoRequest}
+                href={platform.demoRequest}
                 external
                 variant="ghost"
                 size="sm"
@@ -214,7 +215,7 @@ export function SiteHeader({ dict, locale }: { dict: Dictionary; locale: Locale 
               </LinkButton>
             </span>
 
-            <LinkButton href={PLATFORM_LINKS.login} external size="sm">
+            <LinkButton href={platform.login} external size="sm">
               {dict.nav.login}
             </LinkButton>
 

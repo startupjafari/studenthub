@@ -11,7 +11,13 @@ import { DEFAULT_LOCALE, SUPPORTED_LOCALES, type Locale } from '@studenthub/shar
 export const LOCALE_COOKIE = 'NEXT_LOCALE'
 
 /** Год: язык выбирают редко, и переживать закрытие вкладки он обязан. */
-const MAX_AGE_SECONDS = 365 * 24 * 60 * 60
+export const LOCALE_COOKIE_MAX_AGE = 365 * 24 * 60 * 60
+
+/**
+ * Параметр, которым язык приезжает с лендинга: у сайта свой домен, и поставить cookie
+ * платформы он не может. Middleware переносит его в cookie и убирает из адреса.
+ */
+export const LOCALE_PARAM = 'lang'
 
 export function readLocaleCookie(): Locale | null {
   if (typeof document === 'undefined') return null
@@ -24,7 +30,7 @@ export function writeLocaleCookie(locale: string): void {
   if (typeof document === 'undefined') return
   // Без Secure: на localhost его нет, а в проде cookie и так уходит только по https.
   // HttpOnly тоже нет — её пишет и читает клиент, в этом вся её роль.
-  document.cookie = `${LOCALE_COOKIE}=${locale}; path=/; max-age=${MAX_AGE_SECONDS}; samesite=lax`
+  document.cookie = `${LOCALE_COOKIE}=${locale}; path=/; max-age=${LOCALE_COOKIE_MAX_AGE}; samesite=lax`
 }
 
 /**

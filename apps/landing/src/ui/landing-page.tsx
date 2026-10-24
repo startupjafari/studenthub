@@ -40,14 +40,14 @@ export function LandingPage({ locale }: { locale: Locale }) {
           бренд не появляется — иначе цветных пятен становится столько, что ни одно из них
           уже ничего не выделяет.
         */}
-        <Hero dict={dict} />
-        <Doors dict={dict} tone="plain" />
+        <Hero dict={dict} locale={locale} />
+        <Doors dict={dict} locale={locale} tone="plain" />
         <Roles dict={dict} tone="muted" />
         <Security dict={dict} tone="plain" />
         <Rollout dict={dict} tone="muted" />
         <Scale dict={dict} tone="plain" />
-        <Faq dict={dict} tone="muted" />
-        <Cta dict={dict} />
+        <Faq dict={dict} locale={locale} tone="muted" />
+        <Cta dict={dict} locale={locale} />
       </main>
       <SiteFooter dict={dict} locale={locale} />
     </>

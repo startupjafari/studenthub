@@ -1,6 +1,6 @@
 import { GraduationCap } from 'lucide-react'
 import type { Locale } from '../config/site'
-import { PLATFORM_LINKS, SALES_EMAIL } from '../config/site'
+import { SALES_EMAIL, platformLinks } from '../config/site'
 import type { Dictionary } from '../content'
 import { Container } from './primitives'
 import { LanguageMenu } from './language-menu'
@@ -14,6 +14,7 @@ import { LanguageMenu } from './language-menu'
  */
 export function SiteFooter({ dict, locale }: { dict: Dictionary; locale: Locale }) {
   const year = new Date().getFullYear()
+  const links = platformLinks(locale)
   const mailto = `mailto:${SALES_EMAIL}?subject=${encodeURIComponent(dict.cta.mailSubject)}`
 
   return (
@@ -29,8 +30,8 @@ export function SiteFooter({ dict, locale }: { dict: Dictionary; locale: Locale 
           </div>
 
           <nav className="flex flex-col gap-2 text-sm" aria-label={dict.nav.product}>
-            <FooterLink href={PLATFORM_LINKS.login}>{dict.nav.login}</FooterLink>
-            <FooterLink href={PLATFORM_LINKS.employerSignup}>{dict.footer.company}</FooterLink>
+            <FooterLink href={links.login}>{dict.nav.login}</FooterLink>
+            <FooterLink href={links.employerSignup}>{dict.footer.company}</FooterLink>
             {/* Почта показана целиком, а не спрятана под словом «Контакты»: её копируют
                 глазами чаще, чем нажимают. */}
             <FooterLink href={mailto}>{SALES_EMAIL}</FooterLink>

@@ -41,27 +41,34 @@ export const SITE_URL = normalizeOrigin(process.env.NEXT_PUBLIC_SITE_URL, 'http:
  */
 export const SALES_EMAIL = process.env.NEXT_PUBLIC_SALES_EMAIL?.trim() || 'hello@studenthub.app'
 
-/**
- * Три двери на платформу. Пути сверены с `PUBLIC_PATHS` в apps/web/src/middleware.ts —
- * это единственные адреса продукта, которые можно открыть без аккаунта.
- */
-export const PLATFORM_LINKS = {
-  login: `${APP_URL}/login`,
-  /**
-   * Заявка вуза на тестирование. Форма живёт на платформе, а не здесь, и это решение:
-   * лендинг — статическая страница без единой формы, у него другой домен и другой
-   * деплой. На платформе origin уже разрешён, а персональные данные лежат там, где для
-   * них есть правила.
-   */
-  demoRequest: `${APP_URL}/demo`,
-  employerSignup: `${APP_URL}/employer/signup`,
-  verifyDocument: `${APP_URL}/verify`,
-} as const
-
 export const LOCALES = ['ru', 'kk', 'en'] as const
 export type Locale = (typeof LOCALES)[number]
 
 export const DEFAULT_LOCALE: Locale = 'ru'
+
+/**
+ * Три двери на платформу. Пути сверены с `PUBLIC_PATHS` в apps/web/src/middleware.ts —
+ * это единственные адреса продукта, которые можно открыть без аккаунта.
+ *
+ * Каждая ссылка несёт язык страницы (`?lang=`): у платформы свой домен, язык она берёт из
+ * своей cookie, и без параметра человек с казахской версии сайта попадал на русский вход.
+ * Middleware платформы переносит параметр в cookie и убирает из адреса.
+ */
+export function platformLinks(locale: Locale) {
+  const link = (path: string) => `${APP_URL}${path}?lang=${locale}`
+  return {
+    login: link('/login'),
+    /**
+     * Заявка вуза на тестирование. Форма живёт на платформе, а не здесь, и это решение:
+     * лендинг — статическая страница без единой формы, у него другой домен и другой
+     * деплой. На платформе origin уже разрешён, а персональные данные лежат там, где для
+     * них есть правила.
+     */
+    demoRequest: link('/demo'),
+    employerSignup: link('/employer/signup'),
+    verifyDocument: link('/verify'),
+  } as const
+}
 
 /**
  * Путь языковой версии. Русская лежит в корне (основной рынок — вузы Казахстана и СНГ),
