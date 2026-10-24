@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { OffsetPaginationSchema, SortOrderSchema } from './pagination.js'
+import { OffsetPaginationSchema, SortOrderSchema, queryBoolean } from './pagination.js'
 
 // Карьера (Фаза 18): компании-работодатели и их допуск к студентам вузов.
 // Единый источник истины для валидации на бэке и типов на фронте — дублировать
@@ -654,7 +654,10 @@ export type CareerEventKind = z.infer<typeof CareerEventKindSchema>
 
 export const CareerEventListQuerySchema = OffsetPaginationSchema.extend({
   kind: CareerEventKindSchema.optional(),
-  /** Прошедшие мероприятия по умолчанию не показываем. */
-  past: z.coerce.boolean().default(false),
+  /**
+   * Прошедшие мероприятия по умолчанию не показываем. `queryBoolean`, а не `z.coerce.boolean()`:
+   * экран шлёт `past=false`, и coerce превращал эту строку в true.
+   */
+  past: queryBoolean.default(false),
 }).extend(UniversityScopeSchema.shape)
 export type CareerEventListQueryInput = z.infer<typeof CareerEventListQuerySchema>
