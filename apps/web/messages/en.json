@@ -3600,6 +3600,14 @@
     "checkinNoTokenHint": "Scan the QR code shown by your teacher in class.",
     "checkinFailed": "Check-in failed",
     "checkinAlready": "You are already marked",
+    "checkinAlreadyOther": "Already marked: {status}",
+    "checkinAlreadyOtherHint": "Self check-in does not change it. If this is a mistake, tell your teacher.",
+    "checkinError": {
+      "invalid": "The code is invalid or expired. Ask your teacher to refresh the QR and scan again.",
+      "closed": "Check-in with this code is closed: the class was cancelled or the check-in window has passed.",
+      "wrongGroup": "This class belongs to another group — you cannot check in to it.",
+      "forbidden": "Self check-in is available to students only."
+    },
     "checkinSuccess": "You are marked present",
     "checkinToAttendance": "To attendance",
     "qrUnavailable": "QR check-in is open only during the class: from 30 minutes before it starts until 15 minutes after it ends. No code is issued for a cancelled class or another date."
