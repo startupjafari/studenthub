@@ -50,6 +50,21 @@ export function localDayRange(
   return { start, end }
 }
 
+/**
+ * Полночь календарной даты по часам пояса как момент времени (без пояса — UTC). Нужна
+ * границам периодов «с понедельника», «с 1 сентября»: полночь UTC в Алматы — это 05:00, и
+ * первые часы периода уходили в предыдущий.
+ */
+export function localMidnight(
+  year: number,
+  monthIndex: number,
+  day: number,
+  timezone: string | null | undefined,
+): Date {
+  const utc = Date.UTC(year, monthIndex, day)
+  return new Date(utc - offsetMs(new Date(utc), timezone))
+}
+
 // Смещение пояса относительно UTC в этот момент, мс (Алматы: +5 ч).
 function offsetMs(date: Date, timezone: string | null | undefined): number {
   const label = localDateTimeLabel(date, timezone)

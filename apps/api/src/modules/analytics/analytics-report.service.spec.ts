@@ -293,8 +293,8 @@ describe('AnalyticsReportService — расчёт', () => {
     await service.build(facultyScope, 'year')
     const attendance = calls.find((c) => c.sql.includes('AS marks'))
     const from = attendance?.values.find((v) => v instanceof Date) as Date
-    expect(from.getUTCMonth()).toBe(8)
-    expect(from.getUTCDate()).toBe(1)
+    // Полночь 1 сентября по часам вуза (Алматы, UTC+5) — 31 августа 19:00 UTC.
+    expect(from.toISOString()).toMatch(/-08-31T19:00:00\.000Z$/)
   })
 
   it('факультет фильтруется своим id — значение плейсхолдером, а не строкой', async () => {
@@ -546,6 +546,16 @@ describe('Границы периода', () => {
     const now = new Date('2026-10-23T12:00:00Z')
     expect(reportRange('month', now).from.toISOString()).toBe('2026-09-23T12:00:00.000Z')
     expect(reportRange('quarter', now).from.toISOString()).toBe('2026-07-25T12:00:00.000Z')
+  })
+
+  it('учебный год начинается в полночь 1 сентября по часам вуза (BUG-197)', () => {
+    // 31.08 20:00 UTC — в Алматы уже 1 сентября: идёт новый учебный год.
+    const range = reportRange('year', new Date('2026-08-31T20:00:00Z'), 'Asia/Almaty')
+    expect(range.from.toISOString()).toBe('2026-08-31T19:00:00.000Z')
+    // Без пояса (платформа) — по UTC, как прежде.
+    expect(reportRange('year', new Date('2026-08-31T20:00:00Z')).from.toISOString()).toBe(
+      '2025-09-01T00:00:00.000Z',
+    )
   })
 
   it('учебный год до сентября — прошлогодний', () => {

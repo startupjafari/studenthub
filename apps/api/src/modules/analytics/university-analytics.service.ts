@@ -6,6 +6,7 @@ import { PrismaService } from '../../common/prisma/prisma.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import { REDIS_CLIENT } from '../../common/redis/redis.module'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
+import { localDateString } from '../../common/time/local-label'
 import { AT_RISK_THRESHOLD } from './analytics.service'
 
 // Аналитика вуза: read-only агрегаты для дашборда UNIVERSITY_ADMIN. Роль гейтится
@@ -185,7 +186,8 @@ export class UniversityAnalyticsService {
     const span = clampWeeks(weeks)
     // Версия в ключе: прежние записи кэша хранили ряды без пустых недель.
     return this.cached('attendance-trend.v2', { universityId, span }, async () => {
-      const from = startOfWeek(shiftDays(new Date(), -7 * (span - 1)))
+      // attendance.date — календарная дата вуза, поэтому и «сегодня» — по его часам.
+      const from = startOfWeek(shiftDays(await this.localToday(universityId), -7 * (span - 1)))
       const rows = await this.prisma.$queryRaw<
         { faculty_id: string; name: string; bucket: Date; rate: number }[]
       >`
@@ -367,41 +369,54 @@ export class UniversityAnalyticsService {
   applicationsFlow(viewer: JwtPayload, weeks = DEFAULT_WEEKS) {
     const universityId = this.scope(viewer)
     const span = clampWeeks(weeks)
-    return this.cached('applications-flow', { universityId, span }, async () => {
-      const from = startOfWeek(shiftDays(new Date(), -7 * (span - 1)))
+    // Версия в ключе: прежние записи кэша резали недели по UTC.
+    return this.cached('applications-flow.v2', { universityId, span }, async () => {
+      const timezone = await this.timezone(universityId)
+      // Понедельник окна — календарная дата вуза (полночь в записи — условная, UTC).
+      const from = startOfWeek(
+        shiftDays(dateOnly(localDateString(new Date(), timezone)), -7 * (span - 1)),
+      )
       // Ряд по всем неделям окна, а не только по тем, где были заявки: иначе линия
       // «схлопывает» пустые недели и врёт про темп. Поступление и закрытие считаем
       // отдельными агрегатами и приклеиваем к календарю — join календаря напрямую к
       // заявкам дал бы декартово произведение недель на заявки.
+      //
+      // Недели — по часам вуза. submitted_at/ready_at — TIMESTAMP без зоны с UTC внутри:
+      // зону сначала объявляют (AT TIME ZONE 'UTC'), потом переводят в зону вуза, и уже
+      // местное время режут по неделям (как activity-heatmap платформы). Иначе заявка,
+      // поданная в понедельник в 03:00 по Алматы, уходила в прошлую неделю.
       const rows = await this.prisma.$queryRaw<
         { bucket: Date; submitted: bigint; closed: bigint; overdue: bigint }[]
       >`
         WITH weeks AS (
           SELECT generate_series(
-                   date_trunc('week', ${from}::timestamptz),
-                   date_trunc('week', now()),
+                   date_trunc('week', ${from}::timestamp),
+                   date_trunc('week', now() AT TIME ZONE ${timezone}),
                    '1 week'::interval
                  ) AS bucket
         ),
         opened AS (
-          SELECT date_trunc('week', submitted_at) AS bucket, COUNT(*) AS submitted
+          SELECT date_trunc('week', (submitted_at AT TIME ZONE 'UTC') AT TIME ZONE ${timezone})
+                   AS bucket,
+                 COUNT(*) AS submitted
             FROM applications
            WHERE university_id = ${universityId}
              AND deleted_at IS NULL
-             AND submitted_at >= ${from}
+             AND (submitted_at AT TIME ZONE 'UTC') AT TIME ZONE ${timezone} >= ${from}::timestamp
            GROUP BY 1
         ),
         done AS (
           -- Закрытием считаем готовность, а не выдачу: SLA услуги отмеряется до ready_at,
           -- а забрать бумажный оригинал студент может и через неделю.
-          SELECT date_trunc('week', ready_at) AS bucket,
+          SELECT date_trunc('week', (ready_at AT TIME ZONE 'UTC') AT TIME ZONE ${timezone})
+                   AS bucket,
                  COUNT(*) AS closed,
                  COUNT(*) FILTER (WHERE due_at IS NOT NULL AND ready_at > due_at) AS overdue
             FROM applications
            WHERE university_id = ${universityId}
              AND deleted_at IS NULL
              AND ready_at IS NOT NULL
-             AND ready_at >= ${from}
+             AND (ready_at AT TIME ZONE 'UTC') AT TIME ZONE ${timezone} >= ${from}::timestamp
            GROUP BY 1
         )
         SELECT w.bucket,
@@ -452,6 +467,20 @@ export class UniversityAnalyticsService {
 
   // ── helpers ────────────────────────────────────────────────────────────────
 
+  /** Часовой пояс вуза: границы недель — по его часам, а не по UTC. */
+  private async timezone(universityId: string): Promise<string> {
+    const university = await this.prisma.university.findUnique({
+      where: { id: universityId },
+      select: { timezone: true },
+    })
+    return university?.timezone || 'UTC'
+  }
+
+  /** «Сегодня» вуза как календарная дата (полночь в записи — условная, UTC). */
+  private async localToday(universityId: string): Promise<Date> {
+    return dateOnly(localDateString(new Date(), await this.timezone(universityId)))
+  }
+
   /** Вуз берём из токена: параметром его принимать нельзя (§21 — scope не из тела запроса). */
   private scope(viewer: JwtPayload): string {
     if (!viewer.universityId) {
@@ -497,6 +526,12 @@ function shiftDays(date: Date, days: number): Date {
   const next = new Date(date)
   next.setUTCDate(next.getUTCDate() + days)
   return next
+}
+
+/** «YYYY-MM-DD» → дата с полуночью UTC: календарный день без пояса, как DATE в Postgres. */
+function dateOnly(day: string): Date {
+  const [y, m, d] = day.split('-').map(Number) as [number, number, number]
+  return new Date(Date.UTC(y, m - 1, d))
 }
 
 /** Понедельник недели в UTC — та же граница, что у date_trunc('week', …) в Postgres. */

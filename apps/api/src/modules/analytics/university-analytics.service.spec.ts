@@ -21,6 +21,7 @@ function setup() {
     submission: { count: jest.fn().mockResolvedValue(0) },
     exam: { count: jest.fn().mockResolvedValue(0) },
     room: { count: jest.fn().mockResolvedValue(0) },
+    university: { findUnique: jest.fn().mockResolvedValue({ timezone: 'UTC' }) },
   }
   const redis = { get: jest.fn().mockResolvedValue(null), set: jest.fn().mockResolvedValue('OK') }
   const service = new UniversityAnalyticsService(
@@ -265,6 +266,32 @@ describe('UniversityAnalyticsService.applicationsFlow', () => {
     expect(call).toContain('uni-1')
     // Удалённые заявки в поток не попадают.
     expect(sqlOf(call)).toContain('deleted_at IS NULL')
+  })
+})
+
+describe('Границы недель — по часам вуза (BUG-197)', () => {
+  afterEach(() => jest.useRealTimers())
+
+  it('окно тренда считается от «сегодня» вуза, а не от даты UTC', async () => {
+    // Воскресенье 20:00 UTC — в Алматы уже понедельник 01:00: идёт новая неделя.
+    jest.useFakeTimers({ now: new Date('2026-09-20T20:00:00Z') })
+    const { service, prisma } = setup()
+    prisma.university.findUnique.mockResolvedValue({ timezone: 'Asia/Almaty' })
+
+    const res = await service.attendanceTrend(ADMIN, 1)
+
+    expect(res.from).toBe('2026-09-21T00:00:00.000Z')
+  })
+
+  it('поток заявок режет недели в зоне вуза', async () => {
+    const { service, prisma } = setup()
+    prisma.university.findUnique.mockResolvedValue({ timezone: 'Asia/Almaty' })
+
+    await service.applicationsFlow(ADMIN, 4)
+
+    const call = prisma.$queryRaw.mock.calls[0] as unknown[]
+    expect(sqlOf(call)).toContain("AT TIME ZONE 'UTC') AT TIME ZONE")
+    expect(call).toContain('Asia/Almaty')
   })
 })
 

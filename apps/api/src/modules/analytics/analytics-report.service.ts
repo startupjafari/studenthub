@@ -11,6 +11,7 @@ import { ExportBrandingService } from '../../common/export/export-branding.servi
 import { ExportRegistryService } from '../../common/export/export-registry.service'
 import type { ExportContext, ExportLocale } from '../../common/export/export-branding.types'
 import { buildCsv, buildWorkbook } from '../../common/export/spreadsheet.builder'
+import { localDateString, localMidnight } from '../../common/time/local-label'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import { reportColumns, reportRows } from './analytics-report.export'
 
@@ -290,7 +291,7 @@ export class AnalyticsReportService {
     scope: ReportScope,
     period: AnalyticsReportPeriod,
   ): Promise<AnalyticsReport> {
-    const range = reportRange(period)
+    const range = reportRange(period, new Date(), await this.universityTimezone(scope.universityId))
     const units = await this.units(scope)
     if (units.length > REPORT_MAX_UNITS) {
       throw new AppException(
@@ -648,12 +649,19 @@ export interface ReportRange {
 
 /**
  * Границы периода — те же, что у отчёта карьеры: месяц и квартал — последние 30 и 90
- * дней, год — УЧЕБНЫЙ, с 1 сентября: отчётность вуза живёт по нему.
+ * дней, год — УЧЕБНЫЙ, с 1 сентября: отчётность вуза живёт по нему. Полночь 1 сентября —
+ * по часам вуза (у платформы — UTC): по UTC первые пять часов учебного года в Алматы
+ * относились к прошлому, а 1 сентября до 05:00 отчёт считал ещё прошлый год.
  */
-export function reportRange(period: AnalyticsReportPeriod, now: Date = new Date()): ReportRange {
+export function reportRange(
+  period: AnalyticsReportPeriod,
+  now: Date = new Date(),
+  timezone: string | null = null,
+): ReportRange {
   if (period === 'year') {
-    const year = now.getUTCMonth() >= 8 ? now.getUTCFullYear() : now.getUTCFullYear() - 1
-    return { from: new Date(Date.UTC(year, 8, 1)), to: now }
+    const [y, m] = localDateString(now, timezone).split('-').map(Number) as [number, number]
+    const year = m >= 9 ? y : y - 1
+    return { from: localMidnight(year, 8, 1, timezone), to: now }
   }
   const days = period === 'month' ? 30 : 90
   return { from: new Date(now.getTime() - days * DAY_MS), to: now }
