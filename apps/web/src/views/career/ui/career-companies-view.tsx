@@ -5,7 +5,6 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { Building2, ExternalLink } from 'lucide-react'
-import { ADMIN_PAGE_SIZES } from '@studenthub/shared-schemas'
 import type {
   CompanyAccessStatus,
   CompanySort,
@@ -47,8 +46,8 @@ import { useAppSelector } from '../../../shared/store'
 type StatusFilter = CompanyAccessStatus | 'ALL'
 
 // Ширины колонок: имя компании и решение важнее контактов, поэтому им отдано больше места.
-// Размеры страницы — общий для админских экранов набор из контракта.
-const PAGE_SIZES = ADMIN_PAGE_SIZES
+// Размеры страницы: список на OffsetPaginationSchema (limit ≤ 100), 150 и 200 дали бы 422.
+const PAGE_SIZES = [20, 50, 100] as const
 
 const COLS = ['26%', '22%', '28%', '10%', '14%'] as const
 // Без колонки решений — для тех, кто очередь только смотрит (декан, модераторы).

@@ -5,7 +5,6 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { Briefcase } from 'lucide-react'
-import { ADMIN_PAGE_SIZES } from '@studenthub/shared-schemas'
 import type { VacancyReviewStatus } from '@studenthub/shared-schemas'
 import {
   VACANCY_REVIEW_DECIDERS,
@@ -47,8 +46,8 @@ type Filter = VacancyReviewStatus | 'ALL'
  * каждым допустившим компанию университетом отдельно.
  */
 // Ширины колонок: решение и название важнее описания, поэтому описание сжимается первым.
-// Размеры страницы — общий для админских экранов набор из контракта.
-const PAGE_SIZES = ADMIN_PAGE_SIZES
+// Размеры страницы: список на OffsetPaginationSchema (limit ≤ 100), 150 и 200 дали бы 422.
+const PAGE_SIZES = [20, 50, 100] as const
 
 const COLS = ['26%', '20%', '30%', '10%', '14%'] as const
 // Без колонки решений — для декана: очередь он видит, а решает вуз.

@@ -4,11 +4,7 @@ import { useState } from 'react'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { useFormatter, useTranslations } from 'next-intl'
 import { CalendarDays, MapPin, Users, Video } from 'lucide-react'
-import {
-  ADMIN_PAGE_SIZES,
-  CAREER_EVENT_KINDS,
-  type CareerEventKind,
-} from '@studenthub/shared-schemas'
+import { CAREER_EVENT_KINDS, type CareerEventKind } from '@studenthub/shared-schemas'
 import { careerEventKeys, fetchCareerEvents } from '../../../entities/career-event'
 import {
   CareerUniversityRequired,
@@ -42,8 +38,8 @@ import {
  * календаря нет намеренно: регистрация и напоминания живут в домене «События».
  */
 // Ширины колонок: название с описанием — главное, место и тип сжимаются первыми.
-// Размеры страницы — общий для админских экранов набор из контракта.
-const PAGE_SIZES = ADMIN_PAGE_SIZES
+// Размеры страницы: список на OffsetPaginationSchema (limit ≤ 100), 150 и 200 дали бы 422.
+const PAGE_SIZES = [20, 50, 100] as const
 
 const COLS = ['34%', '14%', '18%', '22%', '12%'] as const
 
