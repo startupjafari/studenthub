@@ -18,6 +18,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  toDateTimeLocal,
 } from '../../../shared/ui'
 import { localId, useErrorToast } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
@@ -56,7 +57,8 @@ export function PollCreateModal({ userId, initial, onClose }: Props) {
   const [visibility, setVisibility] = useState(initial?.visibility ?? 'UNIVERSITY')
   const [closePreset, setClosePreset] = useState<ClosePreset>(initial?.closesAt ? 'custom' : 'none')
   const [customClose, setCustomClose] = useState(
-    initial?.closesAt ? initial.closesAt.slice(0, 16) : '',
+    // Поле показывает местное время, а сервер отдаёт UTC (см. toDateTimeLocal).
+    initial?.closesAt ? toDateTimeLocal(initial.closesAt) : '',
   )
   const [showSettings, setShowSettings] = useState(false)
 
