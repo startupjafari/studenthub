@@ -74,8 +74,8 @@ class LibraryRulesTest {
             UiText.Res(R.string.books_errorNotFound),
             LibraryErrors.message(ApiError.Server(ApiErrorCode.NOT_FOUND, "нет", emptyList(), 404)),
         )
-        // Незнакомое поле — как везде: серверный текст.
-        assertEquals(UiText.Raw("серверный текст"), LibraryErrors.message(conflict("somethingNew")))
+        // Незнакомое поле — как везде: текст по коду ответа, на языке приложения.
+        assertEquals(UiText.Res(R.string.error_conflict), LibraryErrors.message(conflict("somethingNew")))
     }
 
     @Test
@@ -352,7 +352,7 @@ class ClearanceModelTest {
         api.clearanceFailure = ApiError.Server(ApiErrorCode.INTERNAL_ERROR, "сбой", emptyList(), 500)
         model.refresh()
         assertNull(model.summary)
-        assertEquals(UiText.Raw("сбой"), model.failure)
+        assertEquals(UiText.Res(R.string.error_internal), model.failure)
     }
 }
 

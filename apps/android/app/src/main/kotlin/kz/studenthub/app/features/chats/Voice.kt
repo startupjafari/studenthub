@@ -112,7 +112,10 @@ class VoiceRecorder(private val context: Context, private val scope: CoroutineSc
     }
 }
 
-/** Проигрыватель одного голосового. */
+/**
+ * Проигрыватель одного голосового. Сбой загрузки возвращает его в исходное состояние:
+ * следующее нажатие создаёт плеер заново, а не упирается в сломанный.
+ */
 class VoicePlayer(private val scope: CoroutineScope) {
     var isPlaying by mutableStateOf(false)
         private set
@@ -122,12 +125,19 @@ class VoicePlayer(private val scope: CoroutineScope) {
         private set
 
     private var player: MediaPlayer? = null
+    private var prepared = false
     private var ticker: Job? = null
 
     fun play(source: String) {
         val existing = player
         if (existing != null) {
-            existing.start()
+            // Ещё готовится — стартует сам по готовности. `start()` у неподготовленного
+            // плеера — ошибка состояния, после которой он не играет вовсе.
+            if (!prepared) return
+            if (runCatching { existing.start() }.isFailure) {
+                reset()
+                return
+            }
             isPlaying = true
             tick()
             return
@@ -136,6 +146,7 @@ class VoicePlayer(private val scope: CoroutineScope) {
         runCatching {
             created.setDataSource(source)
             created.setOnPreparedListener {
+                prepared = true
                 it.start()
                 isPlaying = true
                 tick()
@@ -145,6 +156,12 @@ class VoicePlayer(private val scope: CoroutineScope) {
                 progress = 0f
                 positionMillis = 0
                 it.seekTo(0)
+            }
+            // Ссылка протухла, файл не скачался, формат не прочитан — плеер в состоянии
+            // ошибки бесполезен: отпускаем его, следующее нажатие попробует заново.
+            created.setOnErrorListener { _, _, _ ->
+                reset()
+                true
             }
             created.prepareAsync()
             player = created
@@ -157,11 +174,16 @@ class VoicePlayer(private val scope: CoroutineScope) {
         ticker?.cancel()
     }
 
-    fun release() {
+    fun release() = reset()
+
+    private fun reset() {
         ticker?.cancel()
         player?.release()
         player = null
+        prepared = false
         isPlaying = false
+        progress = 0f
+        positionMillis = 0
     }
 
     private fun tick() {

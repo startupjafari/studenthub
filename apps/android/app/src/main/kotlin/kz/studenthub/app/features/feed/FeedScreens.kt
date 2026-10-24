@@ -157,8 +157,8 @@ fun HomeScreen(viewer: AccessToken) {
                             ListRow(
                                 title = next.pair.subject,
                                 icon = Icons.Outlined.Schedule,
-                                subtitle = listOfNotNull("${next.startTime}–${next.endTime}", next.pair.roomName).joinToString(" · "),
-                            ) { services.router.push(AppRoute.Lesson(next.id)) }
+                                subtitle = listOfNotNull("${next.startTime}–${next.endTime}", next.roomName).joinToString(" · "),
+                            ) { services.router.push(AppRoute.Lesson(next.id, schedule.dateOf(day))) }
                         }
                     }
                 }

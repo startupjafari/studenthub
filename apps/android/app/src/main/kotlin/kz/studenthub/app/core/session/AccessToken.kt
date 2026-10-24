@@ -22,12 +22,20 @@ data class AccessToken(
     val groupId: String?,
     val twoFactorEnabled: Boolean,
     val expiresAt: Instant,
+    /**
+     * На сколько часы сервера впереди часов телефона (секунды, бывает отрицательным).
+     * Срок токена — по часам сервера: телефон, у которого время ушло вперёд на час,
+     * иначе считал бы просроченным каждый свежий токен и обновлял сессию перед каждым
+     * запросом.
+     */
+    val clockSkewSeconds: Long = 0,
 ) {
     /**
      * Токен живёт 15 минут. Обновляем заранее: запрос с токеном, которому осталась
-     * секунда, доедет до сервера уже просроченным.
+     * секунда, доедет до сервера уже просроченным. `at` — время по часам телефона.
      */
-    fun isUsable(at: Instant = Instant.now()): Boolean = expiresAt.epochSecond - at.epochSecond > REFRESH_MARGIN_SECONDS
+    fun isUsable(at: Instant = Instant.now()): Boolean =
+        expiresAt.epochSecond - (at.epochSecond + clockSkewSeconds) > REFRESH_MARGIN_SECONDS
 
     @Serializable
     private data class Claims(
@@ -37,14 +45,19 @@ data class AccessToken(
         val facultyId: String? = null,
         val groupId: String? = null,
         val tfa: Boolean? = null,
+        val iat: Double? = null,
         val exp: Double,
     )
 
     companion object {
         const val REFRESH_MARGIN_SECONDS = 30L
 
-        /** `null`, если строка не JWT или в ней нет нужных полей. */
-        fun parse(raw: String): AccessToken? {
+        /**
+         * `null`, если строка не JWT или в ней нет нужных полей. `receivedAt` — когда
+         * токен пришёл, по часам телефона: токен разбирается сразу после выдачи, и разница
+         * с его `iat` — это расхождение часов (сетевая задержка в ней — доли секунды).
+         */
+        fun parse(raw: String, receivedAt: Instant = Instant.now()): AccessToken? {
             val parts = raw.split('.')
             if (parts.size != 3) return null
             // base64url без выравнивания — декодер URL-алфавита принимает его как есть.
@@ -61,6 +74,7 @@ data class AccessToken(
                 groupId = claims.groupId,
                 twoFactorEnabled = claims.tfa ?: false,
                 expiresAt = Instant.ofEpochSecond(claims.exp.toLong()),
+                clockSkewSeconds = claims.iat?.let { it.toLong() - receivedAt.epochSecond } ?: 0,
             )
         }
     }

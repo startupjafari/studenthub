@@ -3,6 +3,8 @@ package kz.studenthub.app.core
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.runTest
 import kz.studenthub.app.core.network.ApiError
 import kz.studenthub.app.core.network.ApiErrorCode
@@ -66,6 +68,24 @@ class SessionStoreTest {
         assertFalse(store.hasStoredSession)
         assertNull(secrets.value(SecretKey.REFRESH_TOKEN))
         assertNull(cookies.value())
+    }
+
+    /**
+     * Отказ в продлении (сессию отозвали) объявляется: оболочка уходит на вход с той же
+     * уборкой, что при ручном выходе (§7.2). Без прошлой сессии объявлять нечего.
+     */
+    @Test
+    fun revokedSessionIsAnnounced() = runTest {
+        val auth = StubAuth(failure = ApiError.Server(ApiErrorCode.UNAUTHORIZED, "Сессия завершена", emptyList(), 401))
+        val store = SessionStore(auth, InMemorySecretStore(), MemoryCookies("rt-1"))
+        store.adopt(AuthSession(LONG_LIVED_TOKEN))
+        var announced = 0
+        backgroundScope.launch(UnconfinedTestDispatcher(testScheduler)) { store.expired.collect { announced++ } }
+
+        store.refreshedAccessToken()
+        store.refreshedAccessToken()
+
+        assertEquals(1, announced)
     }
 
     /** Нет сети — не повод выходить из аккаунта: сессия остаётся до следующей попытки. */

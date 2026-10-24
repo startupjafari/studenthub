@@ -287,7 +287,9 @@ class ProfileModel(private val userId: String?, private val api: FeedFetching) :
         if (isSaving) return
         isSaving = true
         attempt({ failure = it }) {
-            show(api.updateProfile(firstName.trim(), lastName.trim(), bio.trim().ifEmpty { null }))
+            // Пустая строка очищает «О себе» (`UpdateProfileSchema`); `null` сервер понял бы как
+            // «не трогать», и стереть текст было бы нельзя.
+            show(api.updateProfile(firstName.trim(), lastName.trim(), bio.trim()))
             saved = true
             failure = null
         }

@@ -39,8 +39,12 @@ object ApplicationStatus {
     /** Заявка ещё в работе — это видно по цвету. */
     fun isOpen(status: String): Boolean = status !in setOf("ISSUED", "DELIVERED", "REJECTED", "CANCELLED")
 
-    /** Отозвать можно, пока сотрудник не взял заявку в работу — тот же граф переходов, что на сервере. */
-    fun canCancel(status: String): Boolean = status in setOf("DRAFT", "SUBMITTED", "NEEDS_CORRECTION")
+    /**
+     * Отозвать можно из тех статусов, откуда граф переходов сервера ведёт в `CANCELLED`
+     * (`STUDENT_CANCELLABLE_STATUSES` в shared-schemas): в том числе с рассмотрения и
+     * после повторной подачи. Подготовку документа уже не отозвать.
+     */
+    fun canCancel(status: String): Boolean = status in setOf("DRAFT", "SUBMITTED", "IN_REVIEW", "NEEDS_CORRECTION", "RESUBMITTED")
 
     fun delivery(type: String): Int = when (type) {
         "PAPER" -> R.string.applications_deliveryPaper

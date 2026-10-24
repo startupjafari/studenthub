@@ -3,6 +3,8 @@ package kz.studenthub.app.features.chats
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
+import android.media.ExifInterface
 import android.net.Uri
 import android.provider.OpenableColumns
 import androidx.core.graphics.scale
@@ -37,7 +39,11 @@ object OutgoingFiles {
         OutgoingAttachment(target, mime, target.name, bounds?.first, bounds?.second)
     }
 
-    /** Ужать крупное фото до JPEG; маленькие уходят как есть. */
+    /**
+     * Ужать крупное фото до JPEG; маленькие уходят как есть. Пересжатый файл теряет EXIF,
+     * а с ним и поворот камеры — поэтому поворачиваем сами пиксели, иначе снимок,
+     * сделанный вертикально, приходит набок.
+     */
     private fun downscale(file: File): OutgoingAttachment? {
         val (width, height) = imageSize(file) ?: return null
         val longest = maxOf(width, height)
@@ -51,10 +57,39 @@ object OutgoingFiles {
         } else {
             decoded
         }
+        val upright = orientation(file)?.let { Bitmap.createBitmap(scaled, 0, 0, scaled.width, scaled.height, it, true) } ?: scaled
         val target = File(file.parentFile, file.nameWithoutExtension + ".jpg")
-        target.outputStream().use { scaled.compress(Bitmap.CompressFormat.JPEG, 85, it) }
+        target.outputStream().use { upright.compress(Bitmap.CompressFormat.JPEG, 85, it) }
         if (target != file) file.delete()
-        return OutgoingAttachment(target, "image/jpeg", target.name, scaled.width, scaled.height)
+        return OutgoingAttachment(target, "image/jpeg", target.name, upright.width, upright.height)
+    }
+
+    /** Поворот и отражение из EXIF как матрица; `null` — снимок и так стоит прямо. */
+    private fun orientation(file: File): Matrix? {
+        val value = runCatching {
+            ExifInterface(file.absolutePath).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
+        }.getOrDefault(ExifInterface.ORIENTATION_NORMAL)
+        val matrix = Matrix()
+        when (value) {
+            ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.setScale(-1f, 1f)
+            ExifInterface.ORIENTATION_ROTATE_180 -> matrix.setRotate(180f)
+            ExifInterface.ORIENTATION_FLIP_VERTICAL -> {
+                matrix.setRotate(180f)
+                matrix.postScale(-1f, 1f)
+            }
+            ExifInterface.ORIENTATION_TRANSPOSE -> {
+                matrix.setRotate(90f)
+                matrix.postScale(-1f, 1f)
+            }
+            ExifInterface.ORIENTATION_ROTATE_90 -> matrix.setRotate(90f)
+            ExifInterface.ORIENTATION_TRANSVERSE -> {
+                matrix.setRotate(-90f)
+                matrix.postScale(-1f, 1f)
+            }
+            ExifInterface.ORIENTATION_ROTATE_270 -> matrix.setRotate(-90f)
+            else -> return null
+        }
+        return matrix
     }
 
     private fun imageSize(file: File): Pair<Int, Int>? {

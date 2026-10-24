@@ -90,7 +90,21 @@ class PushRegistrar(private val context: Context, private val client: ApiClient,
         runCatching { client.send(Endpoint.post("push/devices/remove", RemoveBody.serializer(), RemoveBody(token))) }
         prefs.edit { remove(KEY) }
         // Новый токен у следующего человека — старый, привязанный к прежнему, умирает.
-        if (Firebase.start(context)) runCatching { FirebaseMessaging.getInstance().deleteToken() }
+        // Ждём ответа Firebase: без сети гашение не пройдёт, и тогда его доделает
+        // первый же пуш, пришедший без сессии (`forgetStaleToken`).
+        forgetStaleToken()
+    }
+
+    /** Погасить токен устройства у Firebase: пуши по нему больше не доставляются. */
+    suspend fun forgetStaleToken(): Boolean {
+        if (!Firebase.start(context)) return false
+        return suspendCancellableCoroutine { continuation ->
+            runCatching {
+                FirebaseMessaging.getInstance().deleteToken()
+                    .addOnSuccessListener { continuation.resume(true) }
+                    .addOnFailureListener { continuation.resume(false) }
+            }.onFailure { continuation.resume(false) }
+        }
     }
 
     private suspend fun currentToken(): String? = suspendCancellableCoroutine { continuation ->

@@ -139,8 +139,9 @@ class LoginModel(
             formError = error.displayMessage
             return
         }
+        // Текст поля сервер пишет по-русски — под полем своя строка на языке приложения.
         for (detail in error.details) {
-            val message = UiText.Raw(detail.message)
+            val message = UiText.Res(R.string.error_validation)
             when (detail.field) {
                 "identifier" -> identifierError = message
                 "password" -> passwordError = message
@@ -150,10 +151,15 @@ class LoginModel(
         }
         if (error.details.isNotEmpty()) return
 
-        if (error.code == ApiErrorCode.INVALID_2FA_CODE) {
-            codeError = UiText.Raw(error.serverMessage)
-        } else {
-            formError = UiText.Raw(error.serverMessage)
+        when (error.code) {
+            ApiErrorCode.INVALID_2FA_CODE -> codeError = error.displayMessage
+            // На входе 401 — это не «сессия истекла», а неверная пара логин-пароль либо,
+            // на шаге кода, протухший challenge.
+            ApiErrorCode.UNAUTHORIZED -> formError = UiText.Res(
+                if (step == Step.CREDENTIALS) R.string.auth_error_invalidCredentials else R.string.auth_error_challengeExpired,
+            )
+            ApiErrorCode.FORBIDDEN -> formError = UiText.Res(R.string.auth_error_accountBlocked)
+            else -> formError = error.displayMessage
         }
     }
 

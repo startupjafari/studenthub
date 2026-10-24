@@ -4,8 +4,10 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import kz.studenthub.app.core.chats.ChatStore
+import kz.studenthub.app.core.chats.MessageStore
 import kz.studenthub.app.core.realtime.RealtimeCoordinator
 import kz.studenthub.app.core.realtime.RealtimeEvent
 import kz.studenthub.app.core.realtime.RealtimeTransport
@@ -42,11 +44,30 @@ class RealtimeCoordinatorTest {
     @Test
     fun incomingMessageUpdatesChatAndCounter() = runTest {
         ChatStore(db).saveChats(listOf(chatDto("c1")))
+        MessageStore(db).saveMessages(listOf(messageDto("m0", "c1", 3)), "c1")
         coordinator().handle(RealtimeEvent.MessageNew(messageDto("m1", "c1", 4, createdAt = T0.plusSeconds(60))))
         val chat = db.chats().get("c1")!!
         assertEquals(1, chat.unreadCount)
         assertEquals("m1", chat.lastMessageId)
         assertEquals(4, chat.lastSeq)
+    }
+
+    /** Сообщение через разрыв двигает превью, но не позицию догона: середину догонит `updates`. */
+    @Test
+    fun messageAcrossGapKeepsCatchUpPosition() = runTest {
+        ChatStore(db).saveChats(listOf(chatDto("c1")))
+        MessageStore(db).saveMessages(listOf(messageDto("m50", "c1", 50)), "c1")
+        coordinator().handle(RealtimeEvent.MessageNew(messageDto("m70", "c1", 70, createdAt = T0.plusSeconds(60))))
+        val chat = db.chats().get("c1")!!
+        assertEquals("m70", chat.lastMessageId)
+        assertEquals(50, chat.lastSeq)
+    }
+
+    /** Сообщение в чат, которого нет в базе, не роняет приём: у сообщения внешний ключ на чат. */
+    @Test
+    fun messageForUnknownChatIsSkipped() = runTest {
+        coordinator().handle(RealtimeEvent.MessageNew(messageDto("m1", "ghost", 1)))
+        assertNull(db.messages().get("m1"))
     }
 
     /** Открытый чат читают прямо сейчас — непрочитанным его сообщение не бывает. */
@@ -84,6 +105,34 @@ class RealtimeCoordinatorTest {
         assertEquals(listOf("c1", "c1"), transport.joined)
     }
 
+    /**
+     * Свёрнутое приложение не сидит в комнате открытого чата: сервер иначе не шлёт по нему
+     * пуши ни на одно устройство. Вернулись — входим снова.
+     */
+    @Test
+    fun backgroundLeavesRoomOfOpenChat() = runTest {
+        val transport = FakeTransport()
+        val realtime = coordinator(transport)
+        realtime.open("c1")
+        realtime.setForeground(false)
+        assertEquals(listOf("c1"), transport.left)
+        realtime.handle(RealtimeEvent.Connected)
+        assertEquals(listOf("c1"), transport.joined)
+        realtime.setForeground(true)
+        assertEquals(listOf("c1", "c1"), transport.joined)
+    }
+
+    /** Прочитанное без связи не теряется: отметка уходит, как только сокет подключится. */
+    @Test
+    fun readWithoutConnectionIsSentOnConnect() = runTest {
+        val transport = FakeTransport()
+        val realtime = coordinator(transport)
+        realtime.markRead("c1", "m5")
+        assertTrue(transport.reads.isEmpty())
+        realtime.handle(RealtimeEvent.Connected)
+        assertEquals(listOf("c1" to "m5"), transport.reads)
+    }
+
     /** «Печатает…» держится в памяти и снимается явным «закончил» или через 4 секунды. */
     @Test
     fun actionAppearsClearsAndExpires() = runTest {
@@ -95,6 +144,29 @@ class RealtimeCoordinatorTest {
         realtime.handle(RealtimeEvent.Action("c1", "u2", "RECORDING_VOICE"))
         advanceTimeBy(4_100)
         assertNull(realtime.actions.value["c1"])
+    }
+
+    /** `chat:updated` несёт только сменившееся поле — остальное в строке чата не трогаем. */
+    @Test
+    fun chatUpdatedPatchesTitleAndAvatar() = runTest {
+        ChatStore(db).saveChats(listOf(chatDto("c1", title = "Было")))
+        val realtime = coordinator()
+        realtime.handle(RealtimeEvent.ChatUpdated("c1", title = "Стало"))
+        assertEquals("Стало", db.chats().get("c1")!!.title)
+        realtime.handle(RealtimeEvent.ChatUpdated("c1", avatarChanged = true, avatarUrl = "https://cdn/a.png"))
+        assertEquals("https://cdn/a.png", db.chats().get("c1")!!.avatarUrl)
+        assertEquals("Стало", db.chats().get("c1")!!.title)
+    }
+
+    /** `chat:activity` обновляет список; пачка сигналов — не пачка запросов. */
+    @Test
+    fun chatActivityRefreshesList() = runTest {
+        var refreshes = 0
+        val session = SessionStore(NoRefresh(), InMemorySecretStore(), MemoryCookies())
+        val realtime = RealtimeCoordinator(FakeTransport(), session, db, backgroundScope, refreshChats = { refreshes++ })
+        realtime.handle(RealtimeEvent.ChatActivity("c1"))
+        advanceUntilIdle()
+        assertEquals(1, refreshes)
     }
 
     @Test
@@ -126,9 +198,17 @@ class RealtimeCoordinatorTest {
             joined += chatId
         }
 
-        override fun leave(chatId: String) {}
+        val left = mutableListOf<String>()
 
-        override fun markRead(chatId: String, messageId: String) {}
+        override fun leave(chatId: String) {
+            left += chatId
+        }
+
+        val reads = mutableListOf<Pair<String, String>>()
+
+        override fun markRead(chatId: String, messageId: String) {
+            reads += chatId to messageId
+        }
 
         override fun send(action: String?, chatId: String) {}
     }
@@ -158,6 +238,16 @@ class RealtimeEventTest {
             RealtimeEvent.parse("event", """{"type":"application.status.changed","entityId":"a1","data":{"status":"APPROVED"}}"""),
         )
         assertNull(RealtimeEvent.parse("event", """{"type":"post.created","entityId":"p1","data":{}}"""))
+    }
+
+    @Test
+    fun chatUpdatedCarriesOnlyChangedField() {
+        assertEquals(RealtimeEvent.ChatUpdated("c1", title = "Группа"), RealtimeEvent.parse("chat:updated", """{"chatId":"c1","title":"Группа"}"""))
+        assertEquals(
+            RealtimeEvent.ChatUpdated("c1", avatarChanged = true, avatarUrl = null),
+            RealtimeEvent.parse("chat:updated", """{"chatId":"c1","avatarUrl":null}"""),
+        )
+        assertEquals(RealtimeEvent.ChatActivity("c1"), RealtimeEvent.parse("chat:activity", """{"chatId":"c1"}"""))
     }
 
     @Test

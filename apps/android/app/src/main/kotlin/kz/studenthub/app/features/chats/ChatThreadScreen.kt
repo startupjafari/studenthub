@@ -111,6 +111,7 @@ fun ChatThreadScreen(chatId: String, viewerId: String) {
             api = services.chatsApi,
             outbox = services.outbox,
             uploader = services.uploader,
+            drafts = services.drafts,
             realtime = services.realtime,
             sendScope = services.appScope,
         ).also { it.start() }
@@ -188,6 +189,7 @@ private fun MessageList(rows: List<ThreadRow>, model: ChatThreadModel, modifier:
                 is ThreadRow.Separator -> DaySeparator(row.day, today)
                 is ThreadRow.Message -> MessageBubble(
                     item = row.item,
+                    showsSender = model.showsSenders,
                     othersReadAt = model.othersReadAt,
                     onRetry = { model.retry(row.item.message) },
                     onReply = { model.reply(row.item.message) },

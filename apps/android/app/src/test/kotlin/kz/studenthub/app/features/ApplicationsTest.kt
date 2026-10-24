@@ -59,12 +59,14 @@ class ApplicationsTest {
         assertEquals("ru", localized("ru", "", null, Locale.forLanguageTag("kk")))
     }
 
-    /** Отозвать можно, пока заявку не взяли в работу — граф переходов сервера. */
+    /** Отозвать можно оттуда, откуда граф переходов сервера ведёт в `CANCELLED`. */
     @Test
     fun cancellationFollowsTransitions() {
         assertTrue(ApplicationStatus.canCancel("SUBMITTED"))
         assertTrue(ApplicationStatus.canCancel("NEEDS_CORRECTION"))
-        assertFalse(ApplicationStatus.canCancel("IN_REVIEW"))
+        assertTrue(ApplicationStatus.canCancel("IN_REVIEW"))
+        assertTrue(ApplicationStatus.canCancel("RESUBMITTED"))
+        assertFalse(ApplicationStatus.canCancel("IN_PREPARATION"))
         assertFalse(ApplicationStatus.isOpen("DELIVERED"))
     }
 

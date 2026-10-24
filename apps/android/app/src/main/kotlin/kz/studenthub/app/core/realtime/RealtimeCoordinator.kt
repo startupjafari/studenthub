@@ -1,6 +1,8 @@
 package kz.studenthub.app.core.realtime
 
 import kz.studenthub.app.core.storage.transaction
+import android.util.Log
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -9,7 +11,6 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kz.studenthub.app.core.chats.ChatMessageDto
-import kz.studenthub.app.core.chats.ChatStore
 import kz.studenthub.app.core.chats.MessageStore
 import kz.studenthub.app.core.session.SessionStore
 import kz.studenthub.app.core.storage.AppDatabase
@@ -34,6 +35,8 @@ class RealtimeCoordinator(
     private val actionTtlMillis: Long = 4_000,
     /** Как часто продлевать токен живого соединения: access живёт 15 минут. */
     private val tokenRefreshMillis: Long = 10 * 60_000,
+    /** Догнать первую страницу списка чатов — ответ на `chat:activity`. */
+    private val refreshChats: (suspend () -> Unit)? = null,
 ) {
     private val _isConnected = MutableStateFlow(false)
     val isConnected: StateFlow<Boolean> = _isConnected
@@ -55,18 +58,36 @@ class RealtimeCoordinator(
     private val _applicationStatus = MutableStateFlow<ApplicationStatusChange?>(null)
     val applicationStatus: StateFlow<ApplicationStatusChange?> = _applicationStatus
 
-    private val chats = ChatStore(db)
+    private var listRefresh: Job? = null
+    private var listRefreshAgain = false
     private var pump: Job? = null
     private var keepAlive: Job? = null
     private val expiry = mutableMapOf<String, Job>()
+    private val lastReads = mutableMapOf<String, String>()
 
     /** Чат на экране: его сообщения не увеличивают счётчик непрочитанного. */
     @Volatile
     private var openChatId: String? = null
 
+    /** Приложение на экране. Свёрнутое не сидит в комнате открытого чата. */
+    @Volatile
+    private var inForeground = true
+
     fun start() {
         if (pump != null) return
-        pump = scope.launch { transport.events.collect { handle(it) } }
+        pump = scope.launch {
+            transport.events.collect { event ->
+                // Событие, которое не легло в базу, — не повод ронять приложение: сбой в
+                // MainScope без обработчика уходит прямо в поток интерфейса. Пропущенное
+                // догонит открытие чата или обновление списка.
+                try {
+                    handle(event)
+                } catch (error: Exception) {
+                    if (error is CancellationException) throw error
+                    Log.w("StudentHub", "событие реального времени не применено", error)
+                }
+            }
+        }
         keepAlive = scope.launch {
             while (isActive) {
                 delay(tokenRefreshMillis)
@@ -79,10 +100,12 @@ class RealtimeCoordinator(
     fun stop() {
         pump?.cancel()
         keepAlive?.cancel()
+        listRefresh?.cancel()
         pump = null
         keepAlive = null
         expiry.values.forEach { it.cancel() }
         expiry.clear()
+        lastReads.clear()
         _isConnected.value = false
         _actions.value = emptyMap()
         _online.value = emptySet()
@@ -92,7 +115,25 @@ class RealtimeCoordinator(
     /** Открытый чат: вход в комнату и признак, что его сообщения читают прямо сейчас. */
     fun open(chatId: String) {
         openChatId = chatId
-        transport.join(chatId)
+        if (inForeground) transport.join(chatId)
+    }
+
+    /**
+     * Приложение свернули или вернули. Сервер не шлёт пуш тем, кто сидит в комнате чата
+     * (считает, что они читают его прямо сейчас), — и свёрнутое приложение с открытым
+     * чатом глушило бы уведомления по нему на всех устройствах человека. Поэтому на время
+     * в фоне комнату отпускаем, а по возвращении входим снова.
+     */
+    fun setForeground(visible: Boolean) {
+        if (inForeground == visible) return
+        inForeground = visible
+        val chatId = openChatId ?: return
+        if (visible) {
+            transport.join(chatId)
+        } else {
+            transport.send(null, chatId)
+            transport.leave(chatId)
+        }
     }
 
     fun close(chatId: String) {
@@ -100,7 +141,17 @@ class RealtimeCoordinator(
         transport.leave(chatId)
     }
 
-    fun markRead(chatId: String, messageId: String) = transport.markRead(chatId, messageId)
+    /**
+     * «Прочитано до этого сообщения». Отметка уходит только по сокету — HTTP-маршрута у
+     * неё нет, — поэтому последняя по каждому чату запоминается и повторяется после
+     * каждого подключения: прочитанное без связи иначе пропадало бы, и счётчик на
+     * других устройствах и в списке вернулся бы. Сервер двигает отметку только вперёд,
+     * так что повтор безвреден.
+     */
+    fun markRead(chatId: String, messageId: String) {
+        lastReads[chatId] = messageId
+        if (_isConnected.value) transport.markRead(chatId, messageId)
+    }
 
     fun send(action: String?, chatId: String) = transport.send(action, chatId)
 
@@ -111,7 +162,8 @@ class RealtimeCoordinator(
                 _isConnected.value = true
                 _connectionEpoch.value += 1
                 // Комнату после переподключения сервер не помнит — входим заново.
-                openChatId?.let(transport::join)
+                if (inForeground) openChatId?.let(transport::join)
+                lastReads.forEach { (chatId, messageId) -> transport.markRead(chatId, messageId) }
             }
             RealtimeEvent.Disconnected -> _isConnected.value = false
             // Сервер отверг рукопожатие — подкладываем свежий токен: следующая попытка
@@ -136,7 +188,13 @@ class RealtimeCoordinator(
             is RealtimeEvent.Action -> apply(event.action, event.chatId, event.userId)
             is RealtimeEvent.Presence ->
                 _online.value = if (event.online) _online.value + event.userId else _online.value - event.userId
-            is RealtimeEvent.ChatUpdated -> chats.saveChats(listOf(event.chat))
+            is RealtimeEvent.ChatUpdated -> {
+                var chat = db.chats().get(event.chatId) ?: return
+                event.title?.let { chat = chat.copy(title = it) }
+                if (event.avatarChanged) chat = chat.copy(avatarUrl = event.avatarUrl)
+                db.chats().update(chat)
+            }
+            is RealtimeEvent.ChatActivity -> refreshList()
             is RealtimeEvent.ApplicationStatusChanged ->
                 _applicationStatus.value = ApplicationStatusChange(event.applicationId, event.status, Instant.now())
         }
@@ -146,17 +204,49 @@ class RealtimeCoordinator(
         val viewerId = session.currentToken?.subject
         val isOpen = openChatId == message.chatId
         db.transaction {
-            MessageStore.upsert(db, message)
+            // Чата ещё нет в базе (только что создан, список не догрузился) — сообщение
+            // не пишем: у него внешний ключ на чат, вставка упала бы. Чат с этим сообщением
+            // принесёт обновление списка.
             var chat = db.chats().get(message.chatId) ?: return@transaction
+            MessageStore.upsert(db, message)
             val seq = message.seq
-            if (seq != null && seq > chat.lastSeq) {
-                chat = chat.copy(lastSeq = seq, lastMessageId = message.id, updatedAt = message.createdAt)
+            // Превью и порядок списка — по самому свежему известному сообщению.
+            val preview = chat.lastMessageId?.let { db.messages().byRemoteId(it) ?: db.messages().get(it) }
+            if (seq != null && seq > (preview?.seq ?: 0)) {
+                chat = chat.copy(lastMessageId = message.id, updatedAt = message.createdAt)
             }
+            // Позиция догона — «всё до N есть» (§9.2c): двигается только вплотную. Сообщение
+            // через разрыв (пришло после переподключения раньше догона) её не трогает, иначе
+            // догон начал бы с него и пропустил середину.
+            if (seq != null && seq == chat.lastSeq + 1) chat = chat.copy(lastSeq = seq)
             // Счётчик растёт только от чужого и только в закрытом чате.
             if (countsAsUnread && !isOpen && message.senderId != viewerId) {
                 chat = chat.copy(unreadCount = chat.unreadCount + 1)
             }
             db.chats().update(chat)
+        }
+    }
+
+    /**
+     * Обновить список по `chat:activity`. Сигналы приходят пачками (каждое сообщение
+     * каждого чата), поэтому запрос один в полёте: пришедшее за время запроса сводится в
+     * ещё один проход после него, а не в десяток параллельных.
+     */
+    private fun refreshList() {
+        val refresh = refreshChats ?: return
+        if (listRefresh?.isActive == true) {
+            listRefreshAgain = true
+            return
+        }
+        listRefresh = scope.launch {
+            do {
+                listRefreshAgain = false
+                try {
+                    refresh()
+                } catch (error: Exception) {
+                    if (error is CancellationException) throw error
+                }
+            } while (listRefreshAgain)
         }
     }
 
