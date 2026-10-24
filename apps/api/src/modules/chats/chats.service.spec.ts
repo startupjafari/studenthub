@@ -1485,15 +1485,48 @@ describe('ChatsService.setMuted / notifyNewMessage', () => {
 })
 
 describe('ChatsService.getPresence', () => {
+  const me = { ...user('u1'), universityId: 'uni1' }
+
   it('возвращает онлайн-статус участников по realtime.onlineAmong', async () => {
     const { service, prisma, realtime } = setup()
     prisma.chatMember.findUnique.mockResolvedValue({ id: 'mem1' })
     prisma.chatMember.findMany.mockResolvedValue([{ userId: 'u1' }, { userId: 'u2' }])
-    realtime.onlineAmong.mockReturnValue(['u2'])
-    const res = await service.getPresence('u1', 'c1')
+    prisma.user.findMany.mockResolvedValueOnce([{ id: 'u2', universityId: 'uni1' }])
+    realtime.onlineAmong.mockImplementation((ids: string[]) => ids.filter((id) => id === 'u2'))
+    const res = await service.getPresence(me, 'c1')
     expect(res).toEqual([
       { userId: 'u1', online: false },
       { userId: 'u2', online: true },
+    ])
+  })
+
+  // BUG-056: общий (старый личный) чат права на статус не даёт — §3.7: свой вуз, друзья,
+  // платформенные роли; блокировка скрывает статус в любую сторону.
+  it('чужой вуз без дружбы и заблокированный — «не в сети»', async () => {
+    const { service, prisma, realtime } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'mem1' })
+    prisma.chatMember.findMany.mockResolvedValue([
+      { userId: 'u1' },
+      { userId: 'other-uni' },
+      { userId: 'blocked' },
+      { userId: 'friend' },
+    ])
+    prisma.user.findMany.mockResolvedValueOnce([
+      { id: 'other-uni', universityId: 'uni2' },
+      { id: 'blocked', universityId: 'uni1' },
+      { id: 'friend', universityId: 'uni2' },
+    ])
+    prisma.userBlock.findMany.mockResolvedValueOnce([{ blockerId: 'blocked', blockedId: 'u1' }])
+    prisma.friendship.findMany.mockResolvedValueOnce([{ requesterId: 'friend', addresseeId: 'u1' }])
+    realtime.onlineAmong.mockImplementation((ids: string[]) => ids)
+
+    const res = await service.getPresence(me, 'c1')
+
+    expect(res).toEqual([
+      { userId: 'u1', online: true },
+      { userId: 'other-uni', online: false },
+      { userId: 'blocked', online: false },
+      { userId: 'friend', online: true },
     ])
   })
 })
@@ -1509,7 +1542,15 @@ describe('ChatsService.presenceRooms — кому сообщать о прису
         { chatId: 'p2', chat: { type: 'PRIVATE' } },
         { chatId: 'f1', chat: { type: 'FACULTY' } },
       ])
-      .mockResolvedValueOnce([{ userId: 'u2' }, { userId: 'u3' }])
+      .mockResolvedValueOnce([
+        { userId: 'u2', user: { role: Role.STUDENT, universityId: 'uni1' } },
+        { userId: 'u3', user: { role: Role.STUDENT, universityId: 'uni1' } },
+      ])
+    prisma.user.findUnique.mockResolvedValueOnce({ universityId: 'uni1' })
+    prisma.user.findMany.mockResolvedValueOnce([
+      { id: 'u2', universityId: 'uni1' },
+      { id: 'u3', universityId: 'uni1' },
+    ])
 
     await expect(service.presenceRooms('u1')).resolves.toEqual([
       'chat:g1',
@@ -1526,6 +1567,32 @@ describe('ChatsService.presenceRooms — кому сообщать о прису
       where: { chatId: { in: ['p1', 'p2'] }, userId: { not: 'u1' } },
       take: 2,
     })
+  })
+
+  // BUG-056: личный чат остаётся и после конца дружбы и после блокировки — собеседнику,
+  // которому статус не положен по §3.7, переходы не шлём.
+  it('собеседнику из чужого вуза без дружбы и заблокированному статус не уходит', async () => {
+    const { service, prisma } = setup()
+    prisma.chatMember.findMany
+      .mockResolvedValueOnce([
+        { chatId: 'p1', chat: { type: 'PRIVATE' } },
+        { chatId: 'p2', chat: { type: 'PRIVATE' } },
+        { chatId: 'p3', chat: { type: 'PRIVATE' } },
+      ])
+      .mockResolvedValueOnce([
+        { userId: 'ex-friend', user: { role: Role.STUDENT, universityId: 'uni2' } },
+        { userId: 'blocker', user: { role: Role.STUDENT, universityId: 'uni1' } },
+        { userId: 'staff', user: { role: Role.PLATFORM_ADMIN, universityId: null } },
+      ])
+    prisma.user.findUnique.mockResolvedValueOnce({ universityId: 'uni1' })
+    prisma.user.findMany.mockResolvedValueOnce([
+      { id: 'ex-friend', universityId: 'uni2' },
+      { id: 'blocker', universityId: 'uni1' },
+      { id: 'staff', universityId: null },
+    ])
+    prisma.userBlock.findMany.mockResolvedValueOnce([{ blockerId: 'blocker', blockedId: 'u1' }])
+
+    await expect(service.presenceRooms('u1')).resolves.toEqual(['user:staff'])
   })
 
   it('без личных чатов собеседников не ищет', async () => {

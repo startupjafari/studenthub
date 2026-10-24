@@ -1847,7 +1847,14 @@ export class ChatsService implements OnModuleInit {
       orderBy: { createdAt: 'asc' },
       take: 500,
     })
-    const online = new Set(this.realtime.onlineAmong(members.map((m) => m.userId)))
+    // Статус и «был в сети» — только тем, кому их видно (§3.7, см. presenceVisible).
+    const memberIds = members.map((m) => m.userId)
+    const visible = await this.presenceVisible(
+      viewer,
+      memberIds,
+      isPlatform(viewer.role) ? new Set(memberIds) : undefined,
+    )
+    const online = new Set(this.realtime.onlineAmong(memberIds.filter((id) => visible.has(id))))
     return members.map(({ user, ...m }) => ({
       id: user.id,
       firstName: user.firstName,
@@ -1856,7 +1863,10 @@ export class ChatsService implements OnModuleInit {
       role: user.role,
       online: online.has(m.userId),
       // §49: last-seen отдаём только оффлайн-участникам (онлайн — и так «в сети»).
-      lastSeenAt: online.has(m.userId) ? null : (user.lastSeenAt?.toISOString() ?? null),
+      lastSeenAt:
+        online.has(m.userId) || !visible.has(m.userId)
+          ? null
+          : (user.lastSeenAt?.toISOString() ?? null),
       banned: m.bannedAt != null,
       isAdmin: m.isAdmin,
     }))
@@ -3475,16 +3485,86 @@ export class ChatsService implements OnModuleInit {
 
   // ── Присутствие (Ф9+) ──────────────────────────────────────────────────────
 
-  /** Онлайн-статус участников чата (по активным WS-соединениям). */
+  /**
+   * Онлайн-статус участников чата (по активным WS-соединениям). Настоящий статус — только
+   * тем, кому его видно по §3.7 (`presenceVisible`), остальные — «не в сети», как у
+   * `GET /users/:id/presence`.
+   */
   async getPresence(
-    userId: string,
+    viewer: JwtPayload,
     chatId: string,
   ): Promise<{ userId: string; online: boolean }[]> {
-    await this.assertMembership(userId, chatId)
+    await this.assertMembership(viewer.sub, chatId)
     const members = await this.allMembers(chatId)
     const ids = members.map((m) => m.userId)
-    const online = new Set(this.realtime.onlineAmong(ids))
+    const visible = await this.presenceVisible(
+      viewer,
+      ids,
+      isPlatform(viewer.role) ? new Set(ids) : undefined,
+    )
+    const online = new Set(this.realtime.onlineAmong(ids.filter((id) => visible.has(id))))
     return ids.map((id) => ({ userId: id, online: online.has(id) }))
+  }
+
+  /**
+   * Чей настоящий статус «в сети» смотрящему можно показать (§3.7): свой вуз и друзья,
+   * платформенным ролям — любой (`alwaysFor`); личная блокировка в любую сторону скрывает
+   * статус всем.
+   * Общий чат сам по себе права не даёт: второй участник старого личного чата из другого
+   * вуза или заблокированный видел бы статус через чат, хотя профиль отвечает «не в сети».
+   */
+  private async presenceVisible(
+    viewer: Pick<JwtPayload, 'sub' | 'universityId'>,
+    userIds: string[],
+    // С кем статусом обмениваются без вуза и дружбы — когда по одну из сторон платформенная
+    // роль. Блокировка действует и здесь.
+    alwaysFor: ReadonlySet<string> = new Set(),
+  ): Promise<Set<string>> {
+    const others = [...new Set(userIds)].filter((id) => id !== viewer.sub)
+    const out = new Set<string>(userIds.includes(viewer.sub) ? [viewer.sub] : [])
+    if (others.length === 0) return out
+    const [users, blocks] = await Promise.all([
+      this.prisma.user.findMany({
+        where: { id: { in: others } },
+        select: { id: true, universityId: true },
+        take: others.length,
+      }),
+      this.prisma.userBlock.findMany({
+        where: {
+          OR: [
+            { blockerId: viewer.sub, blockedId: { in: others } },
+            { blockedId: viewer.sub, blockerId: { in: others } },
+          ],
+        },
+        select: { blockerId: true, blockedId: true },
+        take: others.length * 2,
+      }),
+    ])
+    const blocked = new Set(
+      blocks.map((b) => (b.blockerId === viewer.sub ? b.blockedId : b.blockerId)),
+    )
+    const needFriendship: string[] = []
+    for (const u of users) {
+      if (blocked.has(u.id)) continue
+      const sameUniversity = viewer.universityId != null && u.universityId === viewer.universityId
+      if (sameUniversity || alwaysFor.has(u.id)) out.add(u.id)
+      else needFriendship.push(u.id)
+    }
+    if (needFriendship.length > 0) {
+      const friends = await this.prisma.friendship.findMany({
+        where: {
+          status: 'ACCEPTED',
+          OR: [
+            { requesterId: viewer.sub, addresseeId: { in: needFriendship } },
+            { addresseeId: viewer.sub, requesterId: { in: needFriendship } },
+          ],
+        },
+        select: { requesterId: true, addresseeId: true },
+        take: needFriendship.length,
+      })
+      for (const f of friends) out.add(f.requesterId === viewer.sub ? f.addresseeId : f.requesterId)
+    }
+    return out
   }
 
   /**
@@ -3517,12 +3597,33 @@ export class ChatsService implements OnModuleInit {
     if (privateIds.length > 0) {
       const peers = await this.prisma.chatMember.findMany({
         where: { chatId: { in: privateIds }, userId: { not: userId } },
-        select: { userId: true },
+        select: { userId: true, user: { select: { role: true, universityId: true } } },
         take: privateIds.length,
       })
-      for (const peer of new Set(peers.map((p) => p.userId))) rooms.push(`user:${peer}`)
+      // Собеседнику — только если ему этот статус видно (§3.7): личный чат остаётся и после
+      // того, как дружба кончилась или один заблокировал другого. Вуз, дружба и блокировка
+      // симметричны; несимметрична только платформенная роль смотрящего — она у собеседника.
+      const platformPeers = new Set(
+        peers.filter((p) => isPlatform(p.user.role as Role)).map((p) => p.userId),
+      )
+      const visible = await this.presenceVisible(
+        { sub: userId, universityId: await this.universityOf(userId) },
+        peers.map((p) => p.userId),
+        platformPeers,
+      )
+      for (const peer of new Set(peers.map((p) => p.userId))) {
+        if (visible.has(peer)) rooms.push(`user:${peer}`)
+      }
     }
     return rooms
+  }
+
+  private async universityOf(userId: string): Promise<string | null> {
+    const row = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { universityId: true },
+    })
+    return row?.universityId ?? null
   }
 
   // ── Блокировка пользователей (Ф9+) ─────────────────────────────────────────

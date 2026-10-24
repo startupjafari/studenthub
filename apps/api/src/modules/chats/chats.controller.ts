@@ -485,7 +485,7 @@ export class ChatsController {
   @ApiOperation({ summary: 'Онлайн-статусы участников чата' })
   @ApiResponse({ status: 200, description: 'Список { userId, online }' })
   presence(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
-    return this.chats.getPresence(user.sub, id)
+    return this.chats.getPresence(user, id)
   }
 
   @Put(':id/draft')
