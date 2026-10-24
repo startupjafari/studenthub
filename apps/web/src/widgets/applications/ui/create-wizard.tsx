@@ -200,11 +200,36 @@ export function CreateWizard({
       />
     ) : null
 
-  // Режим правки черновика: пока подгружается — скелетон.
+  // Режим правки черновика: пока подгружается — скелетон, не загрузился — ошибка с повтором
+  // (раньше скелетон оставался навсегда).
   if (initialDraftId && !seeded) {
     return (
       <Page onClose={onCancel} modal={asModal}>
-        <SkeletonList />
+        {draftQ.isError ? <ErrorState onRetry={() => draftQ.refetch()} /> : <SkeletonList />}
+      </Page>
+    )
+  }
+
+  // Услугу черновика могли выключить или заменить копией вуза: каталог отвечает 404, и
+  // шаги после каталога рисовали пустой экран без объяснения. Говорим, что случилось.
+  if (step !== 'catalog' && serviceQ.isError) {
+    const gone = toApiError(serviceQ.error).code === 'NOT_FOUND'
+    return (
+      <Page onClose={onCancel} modal={asModal}>
+        {gone ? (
+          <EmptyState
+            icon={<FileText className="size-6" aria-hidden />}
+            title={t('serviceUnavailableTitle')}
+            description={t('serviceUnavailableHint')}
+            action={
+              <Button variant="outline" onClick={onCancel}>
+                {t('backBtn')}
+              </Button>
+            }
+          />
+        ) : (
+          <ErrorState onRetry={() => serviceQ.refetch()} />
+        )}
       </Page>
     )
   }
@@ -307,6 +332,15 @@ export function CreateWizard({
             proceedLabel={draftId ? t('nextBtn') : t('createApplication')}
           />
         )}
+      </Page>
+    )
+  }
+
+  // Шаги после «Услуги» ждут её данных — пока грузятся, скелетон, а не пустое окно.
+  if (!service) {
+    return (
+      <Page onClose={onCancel} modal={asModal}>
+        <SkeletonList />
       </Page>
     )
   }

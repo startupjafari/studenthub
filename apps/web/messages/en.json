@@ -1767,6 +1767,8 @@
     "loadError": "Failed to load",
     "retry": "Retry",
     "event_CREATED": "Draft created",
+    "serviceUnavailableTitle": "This service is no longer available",
+    "serviceUnavailableHint": "The university has turned this service off or replaced it, so the draft cannot be submitted. You can withdraw it from the application card and apply again from the catalog.",
     "event_SUBMITTED": "Application submitted",
     "event_IN_REVIEW": "Application accepted for review",
     "event_NEEDS_CORRECTION": "Document correction required",
