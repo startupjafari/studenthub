@@ -32,6 +32,7 @@ function setup(file: Record<string, unknown> | null) {
     copyObject: jest.fn().mockResolvedValue({}) as Mock,
     listObjectsV2: jest.fn(() => Readable.from([])) as Mock,
     removeObjects: jest.fn().mockResolvedValue(undefined) as Mock,
+    presignedGetObject: jest.fn().mockResolvedValue('http://minio/source') as Mock,
   }
   const config = {
     get: jest.fn((k: string) => ({ FFMPEG_PATH: 'ffmpeg', FFPROBE_PATH: 'ffprobe' })[k]),
@@ -149,6 +150,30 @@ describe('MediaProcessingService.process — видео без ffmpeg', () => {
     now.mockReturnValue(1_000_000 + 61_000)
     await service.process(FILE_ID)
     expect(available).toHaveBeenCalledTimes(4)
+  })
+})
+
+describe('MediaProcessingService.process — звук в видеоконтейнере', () => {
+  const voiceFile = { ...imageFile, key: 'u/voice.webm', mime: 'video/webm' }
+
+  afterEach(() => jest.restoreAllMocks())
+
+  it('голосовое (webm без видеодорожки) — NONE с длительностью, а не FAILED', async () => {
+    jest.spyOn(ffmpeg, 'isAvailable').mockResolvedValue(true)
+    jest
+      .spyOn(ffmpeg, 'probe')
+      .mockResolvedValue({ width: 0, height: 0, durationMs: 4200, hasAudio: true })
+    const { service, prisma } = setup(voiceFile)
+
+    await service.process(FILE_ID)
+
+    expect(prisma.file.updateMany).toHaveBeenLastCalledWith({
+      where: { id: FILE_ID },
+      data: { mediaStatus: MediaStatus.NONE, durationMs: 4200 },
+    })
+    expect(prisma.file.updateMany).not.toHaveBeenCalledWith(
+      expect.objectContaining({ data: { mediaStatus: MediaStatus.FAILED } }),
+    )
   })
 })
 

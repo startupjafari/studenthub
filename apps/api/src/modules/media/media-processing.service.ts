@@ -300,8 +300,18 @@ export class MediaProcessingService implements OnModuleInit {
     // воркера и не ложатся вторым экземпляром на диск — перекодирование потоковое.
     const input = await this.minio.presignedGetObject(file.bucket, file.key, SOURCE_URL_TTL_SECONDS)
     const meta = await probe(this.ffprobe, input)
+    if (meta.width === 0 && meta.hasAudio) {
+      // Только звук в контейнере webm/mp4 — голосовое чата: по сигнатуре такой контейнер не
+      // отличить от видео, и mime у него video/*. Это не сбой: готовить нечего, играет
+      // оригинал, как у любого не-медиа файла. Длительность пригодится плееру.
+      await this.prisma.file.updateMany({
+        where: { id: file.id },
+        data: { mediaStatus: MediaStatus.NONE, durationMs: meta.durationMs },
+      })
+      return
+    }
     if (meta.width === 0) {
-      this.logger.warn(`Файл ${file.id}: видеодорожка не найдена — без HLS`)
+      this.logger.warn(`Файл ${file.id}: ни видео-, ни звуковой дорожки — без HLS`)
       await this.setStatus(file.id, MediaStatus.FAILED)
       return
     }
