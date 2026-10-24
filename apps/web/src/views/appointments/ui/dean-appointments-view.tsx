@@ -54,6 +54,7 @@ import {
 } from '../../../entities/appointment'
 import { APPT_STATUS_BADGE, APPT_STATUS_KEY, apptTypeKey } from '../lib/visuals'
 import { ConfirmAppointmentModal } from './confirm-appointment-modal'
+import { useUniversityTimezone } from '../lib/university-time'
 
 // Ширины колонок: тема тянет остаток — это единственное свободное поле в строке.
 const COLS = ['22%', '15%', '15%', '28%', '14%', '3.5rem'] as const
@@ -148,12 +149,15 @@ export function DeanAppointmentsView() {
     return null
   })
 
+  // Время приёма — по часам вуза, как его назначали, а не по поясу браузера.
+  const timezone = useUniversityTimezone()
   const fmt = (iso: string) =>
     new Date(iso).toLocaleString(locale, {
       day: '2-digit',
       month: 'short',
       hour: '2-digit',
       minute: '2-digit',
+      ...(timezone ? { timeZone: timezone } : {}),
     })
 
   return (

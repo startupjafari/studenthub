@@ -25,6 +25,7 @@ import {
 } from '../../../entities/appointment'
 import { APPT_STATUS_BADGE, APPT_STATUS_KEY, apptTypeKey } from '../lib/visuals'
 import { CreateAppointmentModal } from './create-appointment-modal'
+import { useUniversityTimezone } from '../lib/university-time'
 
 // «Запись в деканат» студента (задача 16): создание записи + мои записи.
 export function StudentAppointmentsView() {
@@ -34,6 +35,7 @@ export function StudentAppointmentsView() {
   const qc = useQueryClient()
   const [creating, setCreating] = useState(false)
   const confirm = useConfirm()
+  const timezone = useUniversityTimezone()
 
   const q = useQuery({ queryKey: appointmentKeys.mine(), queryFn: () => fetchMyAppointments() })
 
@@ -82,6 +84,7 @@ export function StudentAppointmentsView() {
               key={a.id}
               appointment={a}
               locale={locale}
+              timezone={timezone}
               onCancel={async () => {
                 // Отмена необратима (CANCELLED — конечный статус): без подтверждения запись
                 // пропадала от случайного нажатия.
@@ -107,15 +110,19 @@ export function StudentAppointmentsView() {
 function AppointmentCard({
   appointment: a,
   locale,
+  timezone,
   onCancel,
   t,
 }: {
   appointment: Appointment
   locale: string
+  // Пояс вуза: день и время приёма показываются по его часам, а не по часам телефона.
+  timezone: string | null
   onCancel: () => void
   t: ReturnType<typeof useTranslations>
 }) {
   const when = new Date(a.scheduledAt ?? a.requestedAt)
+  const tz = timezone ? { timeZone: timezone } : {}
   const active = a.status !== 'COMPLETED' && a.status !== 'CANCELLED'
   // У отменённой и завершённой записи действий нет, подвала тоже — тогда нижний отступ
   // карточке нужен свой, иначе тема упирается прямо в её край.
@@ -150,13 +157,13 @@ function AppointmentCard({
         {/* Отрывной календарь: дата приёма — первое, что ищут глазами в списке записей. */}
         <div className="flex w-14 shrink-0 flex-col items-center rounded-xl bg-primary/10 py-2 text-primary">
           <span className="text-[0.65rem] font-medium uppercase">
-            {when.toLocaleDateString(locale, { weekday: 'short' })}
+            {when.toLocaleDateString(locale, { weekday: 'short', ...tz })}
           </span>
           <span className="text-xl leading-tight font-bold tabular-nums">
-            {when.toLocaleDateString(locale, { day: 'numeric' })}
+            {when.toLocaleDateString(locale, { day: 'numeric', ...tz })}
           </span>
           <span className="text-[0.65rem] font-medium">
-            {when.toLocaleDateString(locale, { month: 'short' })}
+            {when.toLocaleDateString(locale, { month: 'short', ...tz })}
           </span>
         </div>
 
@@ -175,6 +182,7 @@ function AppointmentCard({
             {when.toLocaleString(locale, {
               hour: '2-digit',
               minute: '2-digit',
+              ...tz,
             })}
           </span>
         </div>
