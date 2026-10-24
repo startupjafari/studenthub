@@ -104,14 +104,17 @@ export class PdRetentionService {
   /**
    * Закрытые выдачи книг (возврат, утеря, отмена) — год после закрытия. В выдаче снимок
    * читателя: ФИО, группа, номер билета. Год — запас на спор о долге и жалобу «это не я».
-   * Открытые выдачи не трогаются никогда: долг ушедшего студента всё ещё долг.
-   * Утеря закрывается с `returnedAt` (LibraryLoansService.markLost), отмена — `cancelledAt`.
+   * Открытые выдачи не трогаются никогда: долг ушедшего студента всё ещё долг. Утерянная
+   * книга — тоже долг, пока не отмечено «Долг погашен» (§3.11): её год считается от погашения
+   * (`lostSettledAt`), а непогашенная не удаляется вовсе (`lt` не совпадает с NULL).
+   * Отмена закрывается с `cancelledAt`.
    */
   async purgeClosedLoans(dryRun: boolean): Promise<RetentionCounts> {
     const cutoff = retentionCutoff()
     const where: Prisma.LoanWhereInput = {
       OR: [
-        { status: { in: [LoanStatus.RETURNED, LoanStatus.LOST] }, returnedAt: { lt: cutoff } },
+        { status: LoanStatus.RETURNED, returnedAt: { lt: cutoff } },
+        { status: LoanStatus.LOST, lostSettledAt: { lt: cutoff } },
         { status: LoanStatus.CANCELLED, cancelledAt: { lt: cutoff } },
       ],
     }
