@@ -4867,6 +4867,10 @@
     "cancel": "Cancel"
   },
   "Verify": {
+    "enterTitle": "Verify a document",
+    "enterHint": "The code is printed on the document form — eight letters and digits. The page tells you whether the document is genuine and still valid.",
+    "codeLabel": "Document code",
+    "submit": "Verify",
     "loading": "Verifying the document…",
     "notFoundTitle": "Document not found",
     "notFoundHint": "No document with this code was issued. Check the code on the form — it contains no letters O, I, L and no digits 0 or 1.",
