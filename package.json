@@ -71,13 +71,19 @@
   },
   "pnpm": {
     "auditConfig": {
-      "_comment": "Находки, для которых совместимого обновления нет. (1) stream-json (GHSA-hqr4-qq8f-hg3x, GHSA-mjw6-4jj6-33hc) и decode-uri-component — транзитивные зависимости клиента minio. Патч stream-json есть (3.6.0), но взять его нельзя: minio 8.0.7 (последняя на 10.10.2026) делает require(\"stream-json/jsonl/Parser.js\"), а в 3.x файл называется parser.js и лежит под src/ — карта exports \"./*\": \"./src/*\" ведёт на ./src/jsonl/Parser.js, которого не существует. На регистрозависимой ФС это падение на старте. Снять, когда minio уедет с этих пакетов. (2) braces GHSA-vfj7-8cjw-p6xm: исправленной версии не существует вовсе — уязвимы все <=3.0.3, а 3.0.3 последняя; пакет приходит транзитивно через micromatch из сборочного инструментария. Снять, когда выйдет патч.",
+      "_comment": "Находки, для которых совместимого обновления нет. (1) stream-json (GHSA-hqr4-qq8f-hg3x, GHSA-mjw6-4jj6-33hc) и decode-uri-component — транзитивные зависимости клиента minio. Патч stream-json есть (3.6.0), но взять его нельзя: minio 8.0.7 (последняя на 10.10.2026) делает require(\"stream-json/jsonl/Parser.js\"), а в 3.x файл называется parser.js и лежит под src/ — карта exports \"./*\": \"./src/*\" ведёт на ./src/jsonl/Parser.js, которого не существует. На регистрозависимой ФС это падение на старте. Снять, когда minio уедет с этих пакетов. (2) braces GHSA-vfj7-8cjw-p6xm: исправленной версии не существует вовсе — уязвимы все <=3.0.3, а 3.0.3 последняя; пакет приходит транзитивно через micromatch из сборочного инструментария. Снять, когда выйдет патч. (3) Временно, с 24.10.2026: nodemailer GHSA-m943-m63m-w62w, GHSA-85x2-q946-cp5h, GHSA-8c8m-p3m8-cjg8 (патч 10.1.4) и fast-uri GHSA-w74x-v6f9-j3xg, GHSA-wjr9-j795-jxcr (патч 3.1.9/4.2.3, транзитивно через fastify) вышли 18–19.10 — моложе выдержки minimumReleaseAge (7 суток). Снять после 26.10.2026, обновив nodemailer и fast-uri. (4) zod GHSA-mrhx-c7xc-m3w5: исправлен только в 4.6.6, в линейке 3.x патча нет — нужен переход на zod 4. Память исчерпывается лишь на огромных коллекциях, а тело запроса и так ограничено bodyLimit Fastify. Снять с переходом на zod 4.",
       "ignoreGhsas": [
         "GHSA-vcc3-ghjq-m6fr",
         "GHSA-528h-pc64-c93x",
         "GHSA-hqr4-qq8f-hg3x",
         "GHSA-mjw6-4jj6-33hc",
-        "GHSA-vfj7-8cjw-p6xm"
+        "GHSA-vfj7-8cjw-p6xm",
+        "GHSA-m943-m63m-w62w",
+        "GHSA-85x2-q946-cp5h",
+        "GHSA-8c8m-p3m8-cjg8",
+        "GHSA-w74x-v6f9-j3xg",
+        "GHSA-wjr9-j795-jxcr",
+        "GHSA-mrhx-c7xc-m3w5"
       ]
     },
     "onlyBuiltDependencies": [
