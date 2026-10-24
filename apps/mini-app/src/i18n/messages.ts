@@ -33,6 +33,12 @@ const ru = {
   linkErrRateLimit: 'Слишком много попыток. Попробуйте позже',
   linkErrNoTelegram: 'Привязка возможна только из Telegram',
   linkErrUnknown: 'Не удалось привязать. Попробуйте ещё раз',
+  linkErrStale:
+    'С открытия мини-аппа прошло больше пяти минут. Закройте его, откройте снова и введите код',
+  sessionExpiredTitle: 'Сессия истекла',
+  sessionExpiredText:
+    'Telegram подтверждает вход только при открытии мини-аппа. Закройте его и откройте снова.',
+  sessionExpiredClose: 'Закрыть',
 
   // ── Жалобы ─────────────────────────────────────────────────────────────
   complaintsTitle: 'Жалобы',
@@ -492,6 +498,11 @@ const kk: Record<MessageKey, string> = {
   linkErrRateLimit: 'Тым көп әрекет. Кейінірек көріңіз',
   linkErrNoTelegram: 'Байланыстыру тек Telegram арқылы мүмкін',
   linkErrUnknown: 'Байланыстыру сәтсіз. Тағы бір көріңіз',
+  linkErrStale: 'Мини-қосымша ашылғалы бес минуттан асты. Оны жауып, қайта ашып, кодты енгізіңіз',
+  sessionExpiredTitle: 'Сеанс мерзімі өтті',
+  sessionExpiredText:
+    'Telegram кіруді тек мини-қосымша ашылғанда растайды. Оны жауып, қайта ашыңыз.',
+  sessionExpiredClose: 'Жабу',
 
   complaintsTitle: 'Шағымдар',
   complaintsLoadError: 'Кезекті жүктеу мүмкін болмады',
@@ -943,6 +954,12 @@ const en: Record<MessageKey, string> = {
   linkErrRateLimit: 'Too many attempts. Try again later',
   linkErrNoTelegram: 'Linking works only from Telegram',
   linkErrUnknown: 'Linking failed. Try once more',
+  linkErrStale:
+    'More than five minutes have passed since the mini app opened. Close it, open it again and enter the code',
+  sessionExpiredTitle: 'Session expired',
+  sessionExpiredText:
+    'Telegram confirms sign-in only when the mini app opens. Close it and open it again.',
+  sessionExpiredClose: 'Close',
 
   complaintsTitle: 'Reports',
   complaintsLoadError: 'Could not load the queue',

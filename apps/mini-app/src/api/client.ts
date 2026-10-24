@@ -7,9 +7,10 @@ import { webApp } from '../telegram/webapp'
 // мини-аппы клиента, а токен даёт админский доступ к платформе. Закрыли приложение —
 // токена не стало.
 //
-// Refresh-токена нет: истёк — просим новый по свежему initData, он у клиента всегда под
-// рукой. Поэтому «протух токен» здесь не ошибка, а обычный шаг, и повторяется он ровно
-// один раз (иначе 401 от сервера закольцевал бы запросы).
+// Refresh-токена нет: истёк — просим новый по тому же initData. Повторяется это ровно
+// один раз (иначе 401 от сервера закольцевал бы запросы). Но initData Telegram выдаёт
+// один раз при открытии, а сервер принимает его пять минут: позже продлить нечем, и
+// оболочка просит переоткрыть мини-апп (`onSessionLost`).
 
 const BASE_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? '/api/v1'
 
@@ -44,6 +45,33 @@ function initData(): string | null {
   return raw && raw.length > 0 ? raw : null
 }
 
+/** Окно сервера на возраст `auth_date` (INIT_DATA_MAX_AGE_MS в apps/api/src/modules/mini). */
+const INIT_DATA_MAX_AGE_MS = 5 * 60_000
+
+/**
+ * Протухла ли подпись. Telegram выдаёт initData один раз при открытии и нового не даёт,
+ * а сервер принимает его пять минут (docs/PROJECT.md §Мини-апп). Значит, позже пяти минут
+ * ни продлить сессию, ни привязаться нельзя — помогает только переоткрыть мини-апп, и
+ * сказать это человеку лучше, чем «Telegram не привязан».
+ */
+export function initDataStale(now: number = Date.now()): boolean {
+  const raw = initData()
+  if (!raw) return false
+  const authDate = Number(new URLSearchParams(raw).get('auth_date'))
+  if (!Number.isFinite(authDate) || authDate <= 0) return false
+  return now - authDate * 1000 > INIT_DATA_MAX_AGE_MS
+}
+
+let sessionLost: (() => void) | null = null
+
+/**
+ * Подписка на потерю сессии: токен истёк, а продлить его нечем. Оболочка показывает экран
+ * «переоткройте» — экраны по отдельности знали бы только, что их запрос не удался.
+ */
+export function onSessionLost(listener: (() => void) | null): void {
+  sessionLost = listener
+}
+
 /**
  * Обменивает initData на токен. Вызывается при старте и повторно, когда токен истёк.
  *
@@ -64,6 +92,9 @@ export async function openSession(): Promise<MiniUser> {
 export async function linkAccount(code: string): Promise<MiniUser> {
   const data = initData()
   if (!data) throw new ApiError('NO_TELEGRAM', 'Приложение открыто вне Telegram', 0)
+  // За кодом ходят в веб, и это бывает дольше пяти минут: сервер ответил бы тем же
+  // «нет доступа», что и чужому аккаунту, и человек решил бы, что его не допустили.
+  if (initDataStale()) throw new ApiError('INIT_DATA_STALE', 'Подпись Telegram устарела', 0)
 
   const session = await post<SessionResponse>('/mini/link', { initData: data, code }, false)
   token = session.token
@@ -157,7 +188,17 @@ function isExpiredToken(error: ApiError): boolean {
 
 async function renewSession(): Promise<void> {
   token = null
-  await openSession()
+  if (initDataStale()) {
+    sessionLost?.()
+    throw new ApiError('SESSION_EXPIRED', 'Сессия истекла — переоткройте мини-апп', 401)
+  }
+  try {
+    await openSession()
+  } catch (cause) {
+    // Отказ сервера (а не сети) — продлить нечем: привязку сняли или роль сменилась.
+    if (cause instanceof ApiError && cause.status === 401) sessionLost?.()
+    throw cause
+  }
 }
 
 async function post<T>(path: string, body: unknown, retry = true): Promise<T> {
