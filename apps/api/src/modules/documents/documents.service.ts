@@ -1529,7 +1529,12 @@ export class DocumentsService {
     })
   }
 
-  /** Счётчики для экрана «Обзор» (ТЗ §3). */
+  /**
+   * Счётчики для экрана «Обзор» (ТЗ §3). Каждая плитка открывает «Мои документы» с фильтром
+   * по статусу, поэтому и считает ровно этот статус. Раньше «Скоро истекает» считала ещё и
+   * документы с близкой датой в других статусах, а «Требует замены» — отозванные справки
+   * (REJECTED): плитка обещала одно число, а список по клику показывал другое.
+   */
   async overview(actor: JwtPayload): Promise<{
     total: number
     toUpload: number
@@ -1542,22 +1547,13 @@ export class DocumentsService {
       deletedAt: null,
       archivedAt: null,
     }
-    const now = new Date()
-    const soon = new Date(now.getTime() + EXPIRING_WINDOW_MS)
     const [total, toUpload, inReview, expiringSoon, needsReplacement] =
       await this.prisma.$transaction([
         this.prisma.document.count({ where: base }),
         this.prisma.document.count({ where: { ...base, status: 'DRAFT' } }),
         this.prisma.document.count({ where: { ...base, status: 'IN_REVIEW' } }),
-        this.prisma.document.count({
-          where: {
-            ...base,
-            OR: [{ status: 'EXPIRING' }, { expiresAt: { gte: now, lte: soon } }],
-          },
-        }),
-        this.prisma.document.count({
-          where: { ...base, status: { in: ['NEEDS_REPLACEMENT', 'REJECTED'] } },
-        }),
+        this.prisma.document.count({ where: { ...base, status: 'EXPIRING' } }),
+        this.prisma.document.count({ where: { ...base, status: 'NEEDS_REPLACEMENT' } }),
       ])
     return { total, toUpload, inReview, expiringSoon, needsReplacement }
   }
@@ -1662,7 +1658,7 @@ export class DocumentsService {
         archivedAt: null,
         expiresAt: { gte: now, lte: soon },
         // «Требует замены» и «На проверке» главнее «Скоро истекает» (см. nextDocumentStatus):
-        // они ждут действия, а близость срока видна в обзоре по самой дате. «Подтверждён»
+        // они ждут действия, а близость срока видна по дате в списке документов. «Подтверждён»
         // уступает только «требует замены» и правке (§3.8): иначе за месяц до срока
         // сертификат пропадал из резюме и карточки кандидата.
         status: {
