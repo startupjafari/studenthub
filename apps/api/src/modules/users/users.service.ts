@@ -44,7 +44,7 @@ import { REDIS_CLIENT } from '../../common/redis/redis.constants'
 // смена пароля/удаление/блокировка обязаны погасить сессии, которыми владеет AuthService.
 import { AuthService } from '../auth/auth.service'
 import { canonicalSpecialtyName } from '../specialties/specialty-name'
-import { nextLeftUniversityAt } from './academic-status'
+import { canonicalAcademicStatus, nextLeftUniversityAt } from './academic-status'
 import { birthDateIso, CONSENT_SELECT, consentStateOf, type ConsentState } from './consent'
 
 type PrismaTx = Prisma.TransactionClient
@@ -236,6 +236,22 @@ const ACADEMIC_RECORD_SELECT = {
   dormitory: true,
 } satisfies Prisma.UserSelect
 export type AcademicRecord = Prisma.UserGetPayload<{ select: typeof ACADEMIC_RECORD_SELECT }>
+
+/**
+ * Учебный статус — только из закрытого справочника, в его написании: от статуса зависят
+ * дата ухода из вуза, проход по студенческому и выдача книг, и «Отчислена» свободным
+ * текстом не закрывала ни одно из них.
+ */
+function withCanonicalAcademicStatus(data: UpdateAcademicRecordInput): UpdateAcademicRecordInput {
+  if (data.academicStatus == null) return data
+  const academicStatus = canonicalAcademicStatus(data.academicStatus)
+  if (academicStatus === null) {
+    throw new AppException('VALIDATION_ERROR', 'Учебного статуса нет в справочнике', [
+      { field: 'academicStatus', message: 'Выберите статус из справочника' },
+    ])
+  }
+  return { ...data, academicStatus }
+}
 
 // Полный профиль (собственный) выводится из select. Публичный — прячет чувствительное.
 export type UserProfile = Prisma.UserGetPayload<{ select: typeof PROFILE_SELECT }>
@@ -1926,13 +1942,14 @@ export class UserService {
           : false
     if (!inScope) throw new AppException('WRONG_SCOPE', 'Студент вне вашей области')
 
+    const record = withCanonicalAcademicStatus(data)
     // Дата ухода из вуза — служебное поле, не часть контракта: из неё уборка считает сроки
     // хранения (PERSONAL_DATA §4), поэтому ставится здесь, на единственном пути смены статуса.
-    const leftUniversityAt = nextLeftUniversityAt(data.academicStatus, target.leftUniversityAt)
+    const leftUniversityAt = nextLeftUniversityAt(record.academicStatus, target.leftUniversityAt)
     const updated = await this.prisma.user.update({
       where: { id: userId },
       data: {
-        ...(await this.withDictionarySpecialty(target, data)),
+        ...(await this.withDictionarySpecialty(target, record)),
         ...(leftUniversityAt !== undefined ? { leftUniversityAt } : {}),
       },
       select: ACADEMIC_RECORD_SELECT,

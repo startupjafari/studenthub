@@ -25,10 +25,23 @@ import {
   STUDY_FORM_DICT,
   yearOptions,
 } from '../../../shared/config'
-import { Button, DictSingleSelect, Input, Label, Modal, Skeleton } from '../../../shared/ui'
+import {
+  Button,
+  DictSingleSelect,
+  Input,
+  Label,
+  Modal,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Skeleton,
+} from '../../../shared/ui'
 import { useErrorToast } from '../../../shared/lib'
 
-type Kind = 'number' | 'year' | 'text' | 'dict'
+// dict — справочник со своим вводом; enum — закрытый список без своего ввода.
+type Kind = 'number' | 'year' | 'text' | 'dict' | 'enum'
 
 // Поля в порядке формы. Справочники — те же, что в профиле студента.
 const FIELDS: { key: StaffManagedStudentField; kind: Kind; options?: string[] }[] = [
@@ -37,7 +50,9 @@ const FIELDS: { key: StaffManagedStudentField; kind: Kind; options?: string[] }[
   { key: 'educationLevel', kind: 'dict', options: EDUCATION_LEVEL_DICT },
   { key: 'studyForm', kind: 'dict', options: STUDY_FORM_DICT },
   { key: 'fundingType', kind: 'dict', options: FUNDING_TYPE_DICT },
-  { key: 'academicStatus', kind: 'dict', options: ACADEMIC_STATUS_DICT },
+  // Статус — закрытый список: от него зависят дата ухода из вуза, проход по студенческому
+  // и выдача книг, а «Отчислена» своим вводом не закрывала ни одно из них.
+  { key: 'academicStatus', kind: 'enum', options: ACADEMIC_STATUS_DICT },
   { key: 'enrollmentYear', kind: 'year' },
   { key: 'graduationYear', kind: 'year' },
   { key: 'gpa', kind: 'number' },
@@ -136,6 +151,25 @@ function AcademicRecordForm({ user, onClose }: { user: PublicUser; onClose: () =
     if (f.kind === 'year')
       return (
         <DictSingleSelect value={val} onChange={(v) => set(f.key, v)} options={yearOptions()} />
+      )
+    if (f.kind === 'enum')
+      return (
+        // Запись до справочника («Отчислена») видна подписью, пока не выбрали значение из списка.
+        <Select
+          value={(f.options ?? []).includes(val) ? val : ''}
+          onValueChange={(v) => set(f.key, v)}
+        >
+          <SelectTrigger id={`academic-${f.key}`} className="w-full">
+            <SelectValue placeholder={val} />
+          </SelectTrigger>
+          <SelectContent>
+            {(f.options ?? []).map((o) => (
+              <SelectItem key={o} value={o}>
+                {o}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       )
     if (f.kind === 'dict')
       return (

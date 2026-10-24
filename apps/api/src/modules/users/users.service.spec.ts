@@ -1999,6 +1999,21 @@ describe('UserService — учебные данные ведёт вуз', () => 
       expect(prisma.user.update.mock.calls[0][0].data.leftUniversityAt).toBeNull()
     })
 
+    it('статус — из закрытого справочника: «Отчислена» отклоняется, регистр приводится', async () => {
+      const { service, prisma } = setup()
+      prisma.user.findFirst.mockResolvedValue(student(null))
+      await expect(
+        service.updateAcademicRecord(admin, 's1', { academicStatus: 'Отчислена' }),
+      ).rejects.toMatchObject({ code: 'VALIDATION_ERROR', details: [{ field: 'academicStatus' }] })
+      expect(prisma.user.update).not.toHaveBeenCalled()
+
+      prisma.user.update.mockResolvedValue({ id: 's1' })
+      await service.updateAcademicRecord(admin, 's1', { academicStatus: ' переведен ' })
+      const data = prisma.user.update.mock.calls[0][0].data
+      expect(data.academicStatus).toBe('Переведён')
+      expect(data.leftUniversityAt).toBeInstanceOf(Date)
+    })
+
     it('правка без статуса дату не трогает', async () => {
       const { service, prisma } = setup()
       prisma.user.findFirst.mockResolvedValue(student(new Date('2025-01-01T00:00:00Z')))
