@@ -67,7 +67,7 @@ export function EmployerCandidatesView() {
       toast.success(t('statusChanged'))
       await queryClient.invalidateQueries({ queryKey: applicationKeys.all })
     },
-    onError: (error) => toast.error(toApiError(error).message),
+    onError: (error) => toast.error(tErr(toApiError(error).code)),
   })
 
   const rows = query.data?.items ?? []

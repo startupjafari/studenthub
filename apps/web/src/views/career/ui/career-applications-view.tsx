@@ -47,7 +47,7 @@ export function CareerApplicationsView() {
       toast.success(t('withdrawn'))
       await queryClient.invalidateQueries({ queryKey: applicationKeys.all })
     },
-    onError: (error) => toast.error(toApiError(error).message),
+    onError: (error) => toast.error(tErr(toApiError(error).code)),
   })
 
   const rows = query.data?.items ?? []

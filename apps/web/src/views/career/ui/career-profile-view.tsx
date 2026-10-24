@@ -62,6 +62,7 @@ const toList = (value: string): string[] =>
  */
 export function CareerProfileView() {
   const t = useTranslations('CareerProfile')
+  const tErr = useTranslations('Errors')
   const tCommon = useTranslations('Common')
   const queryClient = useQueryClient()
 
@@ -73,13 +74,13 @@ export function CareerProfileView() {
       queryClient.setQueryData(careerProfileKeys.mine(), updated)
       toast.success(t('saved'))
     },
-    onError: (error) => toast.error(toApiError(error).message),
+    onError: (error) => toast.error(tErr(toApiError(error).code)),
   })
 
   const consent = useMutation({
     mutationFn: (input: { field: ConsentField; granted: boolean }) => setCareerConsent(input),
     onSuccess: (updated) => queryClient.setQueryData(careerProfileKeys.mine(), updated),
-    onError: (error) => toast.error(toApiError(error).message),
+    onError: (error) => toast.error(tErr(toApiError(error).code)),
   })
 
   // Локальная копия редактируемых полей: сохранение по кнопке, а не на каждый символ.

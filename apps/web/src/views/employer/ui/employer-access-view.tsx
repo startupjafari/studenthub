@@ -49,7 +49,7 @@ export function EmployerAccessView() {
       toast.success(t('requestSent'))
       await queryClient.invalidateQueries({ queryKey: companyKeys.all })
     },
-    onError: (error) => toast.error(toApiError(error).message),
+    onError: (error) => toast.error(tErr(toApiError(error).code)),
   })
 
   return (

@@ -98,7 +98,7 @@ export function CareerVacancyReviewView() {
       toast.success(t('decisionSaved'))
       await queryClient.invalidateQueries({ queryKey: vacancyKeys.all })
     },
-    onError: (error) => toast.error(toApiError(error).message),
+    onError: (error) => toast.error(tErr(toApiError(error).code)),
   })
 
   const rows = query.data?.items ?? []

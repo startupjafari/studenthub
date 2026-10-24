@@ -98,7 +98,7 @@ export function CareerCompaniesView() {
       toast.success(t('decisionSaved'))
       await queryClient.invalidateQueries({ queryKey: companyKeys.all })
     },
-    onError: (error) => toast.error(toApiError(error).message),
+    onError: (error) => toast.error(tErr(toApiError(error).code)),
   })
 
   const rows = query.data?.items ?? []
