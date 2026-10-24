@@ -1,4 +1,9 @@
 import type { ExamResultStatus } from '@studenthub/shared-schemas'
+import type { CourseItem } from '../model/types'
+
+// Статус дисциплины в учебном плане — одно правило (C-F26) для «Учебного плана» и
+// «Академической сводки»: раньше сводка засчитывала кредиты по первой же оценке (и по
+// проваленным тоже) и расходилась с планом.
 
 export type PlanStatus = 'completed' | 'studying' | 'upcoming' | 'notPassed' | 'noResult'
 
@@ -82,4 +87,65 @@ export function planStatus(input: {
   if (phase === null) return pct === null ? 'upcoming' : 'studying'
   if (pct === null) return 'noResult'
   return pct >= PASS_THRESHOLD ? 'completed' : 'notPassed'
+}
+
+// Оценки студента по курсу (GET /gradebook/me) и его экзамены (GET /exams с `myResult`) —
+// в том виде, в каком их отдают эти эндпоинты.
+interface PlanGrades {
+  courseId: string
+  columns: PlanGradeColumn[]
+}
+interface PlanExam {
+  date: string
+  course: { id: string }
+  myResult?: { status: ExamResultStatus } | null
+}
+
+export interface PlanEntry {
+  course: CourseItem
+  /** Процент — справочно по всем опубликованным оценкам; статус считается отдельно. */
+  pct: number | null
+  status: PlanStatus
+}
+
+/** Курсы плана с процентом и статусом на дату `today` ("YYYY-MM-DD"). */
+export function buildPlan(
+  courses: CourseItem[],
+  grades: PlanGrades[],
+  exams: PlanExam[],
+  today: string,
+): PlanEntry[] {
+  const gradeByCourse = new Map(grades.map((g) => [g.courseId, g]))
+  const examsByCourse = new Map<string, PlanExamResult[]>()
+  for (const e of exams) {
+    if (!e.myResult) continue
+    const results = examsByCourse.get(e.course.id) ?? []
+    results.push({ date: e.date, status: e.myResult.status })
+    examsByCourse.set(e.course.id, results)
+  }
+  return courses.map((course) => {
+    const columns = gradeByCourse.get(course.id)?.columns ?? []
+    return {
+      course,
+      pct: gradePercent(columns),
+      status: planStatus({
+        term: course.term,
+        today,
+        columns,
+        exams: examsByCourse.get(course.id) ?? [],
+      }),
+    }
+  })
+}
+
+/** Кредиты плана: всего и набрано — только по завершённым дисциплинам. */
+export function planCredits(plan: PlanEntry[]): { total: number; done: number } {
+  let total = 0
+  let done = 0
+  for (const p of plan) {
+    const cr = p.course.credits ?? 0
+    total += cr
+    if (p.status === 'completed') done += cr
+  }
+  return { total, done }
 }

@@ -24,10 +24,16 @@ import {
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { formatYmd } from '../../../shared/ui/calendar-grid'
-import { courseKeys, fetchCourses, type CourseItem } from '../../../entities/course'
+import {
+  buildPlan,
+  courseKeys,
+  fetchCourses,
+  planCredits,
+  type CourseItem,
+  type PlanStatus,
+} from '../../../entities/course'
 import { gradebookKeys, fetchMyGrades } from '../../../entities/gradebook'
 import { examKeys, fetchExams } from '../../../entities/exam'
-import { gradePercent, planStatus, type PlanExamResult, type PlanStatus } from '../lib/plan-status'
 
 const STATUS_BADGE: Record<
   PlanStatus,
@@ -79,31 +85,14 @@ export function StudyPlanView() {
   const model = useMemo(() => {
     // Фаза семестра — по сегодняшней дате (дни, точность до суток достаточна).
     const today = formatYmd(new Date())
-    const list = courses.data ?? []
-    const gradeByCourse = new Map((grades.data ?? []).map((g) => [g.courseId, g]))
-    const examsByCourse = new Map<string, PlanExamResult[]>()
-    for (const e of exams.data ?? []) {
-      if (!e.myResult) continue
-      const results = examsByCourse.get(e.course.id) ?? []
-      results.push({ date: e.date, status: e.myResult.status })
-      examsByCourse.set(e.course.id, results)
-    }
-    const plan: PlanCourse[] = list.map((course) => {
-      const columns = gradeByCourse.get(course.id)?.columns ?? []
-      return {
-        course,
-        term: course.term?.name ?? t('noTerm'),
-        termOrder: course.term?.number ?? 9999,
-        // Процент — справочно по всем опубликованным оценкам; статус считается отдельно.
-        pct: gradePercent(columns),
-        status: planStatus({
-          term: course.term,
-          today,
-          columns,
-          exams: examsByCourse.get(course.id) ?? [],
-        }),
-      }
-    })
+    const entries = buildPlan(courses.data ?? [], grades.data ?? [], exams.data ?? [], today)
+    const plan: PlanCourse[] = entries.map(({ course, pct, status }) => ({
+      course,
+      term: course.term?.name ?? t('noTerm'),
+      termOrder: course.term?.number ?? 9999,
+      pct,
+      status,
+    }))
 
     // Порядок строк по умолчанию — по семестрам, как были секции: пока читатель не
     // нажал заголовок, план идёт в учебной последовательности, а не вперемешку.
@@ -112,13 +101,7 @@ export function StudyPlanView() {
         a.termOrder - b.termOrder || a.course.subject.name.localeCompare(b.course.subject.name),
     )
 
-    let totalCredits = 0
-    let doneCredits = 0
-    for (const p of plan) {
-      const cr = p.course.credits ?? 0
-      totalCredits += cr
-      if (p.status === 'completed') doneCredits += cr
-    }
+    const { total: totalCredits, done: doneCredits } = planCredits(entries)
     const progress = totalCredits === 0 ? 0 : Math.round((doneCredits / totalCredits) * 100)
 
     return { rows, totalCredits, doneCredits, progress }

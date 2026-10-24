@@ -24,3 +24,16 @@ export type {
   CourseTeacherRef,
   CourseTermRef,
 } from './model/types'
+export {
+  buildPlan,
+  planCredits,
+  planStatus,
+  gradePercent,
+  termPhase,
+  PASS_THRESHOLD,
+  type PlanEntry,
+  type PlanStatus,
+  type PlanTerm,
+  type PlanGradeColumn,
+  type PlanExamResult,
+} from './lib/plan-status'

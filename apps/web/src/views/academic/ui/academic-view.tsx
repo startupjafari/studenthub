@@ -23,6 +23,8 @@ import { fetchMe, userKeys } from '../../../entities/user'
 import { gradebookKeys, fetchMyGrades, type MyGradesCourse } from '../../../entities/gradebook'
 import { attendanceKeys, fetchMyAttendance } from '../../../entities/attendance'
 import { examKeys, fetchExams } from '../../../entities/exam'
+import { buildPlan, courseKeys, fetchCourses, planCredits } from '../../../entities/course'
+import { formatYmd } from '../../../shared/ui/calendar-grid'
 import {
   assignmentKeys,
   fetchAssignments,
@@ -61,6 +63,8 @@ export function AcademicView() {
   // Сессия и задания — те же эндпоинты, что и на своих экранах; здесь из них нужны
   // только счётчики, и сводку они не блокируют (в `loading` не участвуют).
   const examsQ = useQuery({ queryKey: examKeys.list(), queryFn: () => fetchExams(), retry: false })
+  // Курсы с семестрами — для кредитов, как в «Учебном плане» (кеш общий).
+  const coursesQ = useQuery({ queryKey: courseKeys.list(), queryFn: () => fetchCourses() })
   const asgQ = useQuery({
     queryKey: assignmentKeys.list(),
     queryFn: () => fetchAssignments(),
@@ -81,18 +85,19 @@ export function AcademicView() {
     return weightSum === 0 ? null : Math.round(acc / weightSum)
   }, [gradesQ.data])
 
-  const credits = useMemo(
+  // Кредиты — по тому же правилу, что «Учебный план» (C-F26, `buildPlan`): набраны только у
+  // завершённых дисциплин. Раньше их засчитывала первая же оценка, даже проваленная.
+  const { done: credits, total: totalCredits } = useMemo(
     () =>
-      (gradesQ.data ?? []).reduce(
-        (n, c) => n + (coursePercent(c) !== null ? (c.credits ?? 0) : 0),
-        0,
+      planCredits(
+        buildPlan(
+          coursesQ.data ?? [],
+          gradesQ.data ?? [],
+          examsQ.data ?? [],
+          formatYmd(new Date()),
+        ),
       ),
-    [gradesQ.data],
-  )
-
-  const totalCredits = useMemo(
-    () => (gradesQ.data ?? []).reduce((n, c) => n + (c.credits ?? 0), 0),
-    [gradesQ.data],
+    [coursesQ.data, gradesQ.data, examsQ.data],
   )
 
   // Проценты по дисциплинам для графика: худшие сверху — туда и надо смотреть.
@@ -117,7 +122,7 @@ export function AcademicView() {
 
   const att = attQ.data
   const rate = att?.rate ?? null
-  const loading = meQ.isLoading || gradesQ.isLoading || attQ.isLoading
+  const loading = meQ.isLoading || gradesQ.isLoading || attQ.isLoading || coursesQ.isLoading
 
   return (
     <div className="flex w-full flex-1 flex-col gap-4">
