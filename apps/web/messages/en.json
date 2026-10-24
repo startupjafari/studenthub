@@ -1224,6 +1224,7 @@
     "dictAddCustom": "Add \"{value}\"",
     "middleName": "Middle name",
     "headline": "Status",
+    "headlinePlaceholder": "A few words about you: \"IT student, into robotics\"",
     "showPhone": "Show phone",
     "phone": "Phone",
     "telegram": "Telegram",

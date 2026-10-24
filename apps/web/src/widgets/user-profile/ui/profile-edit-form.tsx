@@ -43,7 +43,6 @@ import {
   FUNDING_TYPE_DICT,
   INTERESTS_DICT,
   LANGUAGE_VALUES,
-  MARITAL_STATUS_DICT,
   SKILLS_DICT,
   STUDY_FORM_DICT,
   TIMEZONE_DICT,
@@ -62,7 +61,6 @@ const DICT_OPTIONS: Record<string, string[]> = {
   interests: INTERESTS_DICT,
   languages: LANGUAGE_VALUES,
   countries: COUNTRY_VALUES,
-  maritalStatus: MARITAL_STATUS_DICT,
   timezone: TIMEZONE_DICT,
   educationLevel: EDUCATION_LEVEL_DICT,
   studyForm: STUDY_FORM_DICT,
@@ -301,10 +299,14 @@ export function ProfileEditForm({ me, sections, onSave }: ProfileEditFormProps) 
             {nameField('middleName')}
             <div className="flex flex-col gap-2">
               <Label htmlFor="headline">{t('headline')}</Label>
-              <DictSingleSelect
+              {/* Строка под именем — видна и в «визитке» закрытого профиля, поэтому это
+                  свободная подпись, а не семейное положение из справочника (§3.7). */}
+              <Input
+                id="headline"
+                maxLength={120}
                 value={form.headline ?? ''}
-                onChange={(v) => set('headline', v)}
-                options={MARITAL_STATUS_DICT}
+                onChange={(e) => set('headline', e.target.value)}
+                placeholder={t('headlinePlaceholder')}
               />
             </div>
           </div>

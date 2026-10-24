@@ -1224,6 +1224,7 @@
     "dictAddCustom": "Добавить «{value}»",
     "middleName": "Отчество",
     "headline": "Статус",
+    "headlinePlaceholder": "Пара слов о себе: «студент ИТ, люблю робототехнику»",
     "showPhone": "Показывать телефон",
     "phone": "Телефон",
     "telegram": "Telegram",

@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { z } from 'zod'
 import { useRouter } from 'next/navigation'
 import { useTheme } from 'next-themes'
-import { Controller, useForm } from 'react-hook-form'
+import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
@@ -68,7 +68,6 @@ import {
   CardHeader,
   CardTitle,
   CodeInput,
-  DictSingleSelect,
   Flag,
   FormAlert,
   Input,
@@ -83,7 +82,6 @@ import {
   type FlagCode,
   FieldError,
 } from '../../../shared/ui'
-import { MARITAL_STATUS_DICT } from '../../../shared/config'
 import {
   changePasswordRequest,
   deleteAccountRequest,
@@ -350,16 +348,11 @@ export function PersonalSection({ me }: { me: MeResponse }) {
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="headline">{tP('headline')}</Label>
-            <Controller
-              control={form.control}
-              name="headline"
-              render={({ field }) => (
-                <DictSingleSelect
-                  value={field.value ?? ''}
-                  onChange={field.onChange}
-                  options={MARITAL_STATUS_DICT}
-                />
-              )}
+            <Input
+              id="headline"
+              maxLength={120}
+              placeholder={tP('headlinePlaceholder')}
+              {...form.register('headline')}
             />
           </div>
         </div>
