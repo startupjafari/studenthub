@@ -51,6 +51,7 @@
               "type": "integer",
               "minimum": 0,
               "exclusiveMinimum": true,
+              "maximum": 10000,
               "default": 1
             }
           },
@@ -299,6 +300,7 @@
               "type": "integer",
               "minimum": 0,
               "exclusiveMinimum": true,
+              "maximum": 10000,
               "default": 1
             }
           },
@@ -466,6 +468,7 @@
               "type": "integer",
               "minimum": 0,
               "exclusiveMinimum": true,
+              "maximum": 10000,
               "default": 1
             }
           },
@@ -964,6 +967,9 @@
         "responses": {
           "401": {
             "description": "INVALID_2FA_CODE"
+          },
+          "403": {
+            "description": "FORBIDDEN — роли 2FA обязательна, отключать нельзя"
           }
         },
         "security": [
@@ -1266,6 +1272,7 @@
               "type": "integer",
               "minimum": 0,
               "exclusiveMinimum": true,
+              "maximum": 10000,
               "default": 1
             }
           },
@@ -1393,6 +1400,7 @@
               "type": "integer",
               "minimum": 0,
               "exclusiveMinimum": true,
+              "maximum": 10000,
               "default": 1
             }
           },
@@ -1647,7 +1655,7 @@
         },
         "responses": {
           "200": {
-            "description": "Профиль студента"
+            "description": "Учебные данные студента (без номера студенческого)"
           },
           "403": {
             "description": "WRONG_SCOPE — студент вне области"
@@ -1997,10 +2005,11 @@
         "parameters": [
           {
             "name": "search",
-            "required": true,
             "in": "query",
+            "required": false,
             "schema": {
-              "type": "string"
+              "type": "string",
+              "maxLength": 120
             }
           }
         ],
@@ -2032,6 +2041,7 @@
               "type": "integer",
               "minimum": 0,
               "exclusiveMinimum": true,
+              "maximum": 10000,
               "default": 1
             }
           },
@@ -2296,6 +2306,7 @@
               "type": "integer",
               "minimum": 0,
               "exclusiveMinimum": true,
+              "maximum": 10000,
               "default": 1
             }
           },
@@ -2377,7 +2388,8 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "minimum": 0
+              "minimum": 0,
+              "maximum": 100000000
             }
           },
           {
@@ -2497,6 +2509,7 @@
               "type": "integer",
               "minimum": 0,
               "exclusiveMinimum": true,
+              "maximum": 10000,
               "default": 1
             }
           },
@@ -2754,6 +2767,7 @@
               "type": "integer",
               "minimum": 0,
               "exclusiveMinimum": true,
+              "maximum": 10000,
               "default": 1
             }
           },
@@ -2859,6 +2873,7 @@
               "type": "integer",
               "minimum": 0,
               "exclusiveMinimum": true,
+              "maximum": 10000,
               "default": 1
             }
           },
@@ -3022,6 +3037,7 @@
               "type": "integer",
               "minimum": 0,
               "exclusiveMinimum": true,
+              "maximum": 10000,
               "default": 1
             }
           },
@@ -3171,7 +3187,107 @@
     "/career/resume/pdf": {
       "get": {
         "operationId": "ResumeController_pdf",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "about",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80
+            }
+          },
+          {
+            "name": "education",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80
+            }
+          },
+          {
+            "name": "skills",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80
+            }
+          },
+          {
+            "name": "languages",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80
+            }
+          },
+          {
+            "name": "experience",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80
+            }
+          },
+          {
+            "name": "projects",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80
+            }
+          },
+          {
+            "name": "certificates",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80
+            }
+          },
+          {
+            "name": "verified",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80
+            }
+          },
+          {
+            "name": "generated",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80
+            }
+          },
+          {
+            "name": "locale",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 16
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "PDF-файл"
@@ -3362,6 +3478,7 @@
               "type": "integer",
               "minimum": 0,
               "exclusiveMinimum": true,
+              "maximum": 10000,
               "default": 1
             }
           },
@@ -3701,6 +3818,1761 @@
         ]
       }
     },
+    "/library/settings": {
+      "get": {
+        "operationId": "LibrarySettingsController_get",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Настройки; модуль по умолчанию выключен"
+          },
+          "403": {
+            "description": "Роли библиотека не положена"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Включена ли библиотека вуза и правила выдачи",
+        "tags": [
+          "Библиотека"
+        ]
+      },
+      "patch": {
+        "operationId": "LibrarySettingsController_update",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateLibrarySettingsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Новые настройки"
+          },
+          "422": {
+            "description": "Срок по умолчанию больше максимального"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Включить или выключить библиотеку, поменять правила выдачи",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/books": {
+      "get": {
+        "operationId": "LibraryCatalogController_list",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "maximum": 10000,
+              "default": 1
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "maximum": 100,
+              "default": 20
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 100
+            }
+          },
+          {
+            "name": "section",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 100
+            }
+          },
+          {
+            "name": "available",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          },
+          {
+            "name": "archived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "title",
+                "authors",
+                "year",
+                "createdAt"
+              ]
+            }
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "409": {
+            "description": "Библиотека вуза выключена (для читателей)"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Каталог: поиск по названию, авторам и ISBN, наличие экземпляров",
+        "tags": [
+          "Библиотека"
+        ]
+      },
+      "post": {
+        "operationId": "LibraryCatalogController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateBookDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "422": {
+            "description": "Неверные поля карточки"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Завести книгу в каталог",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/books/sections": {
+      "get": {
+        "operationId": "LibraryCatalogController_sections",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Разделы каталога вуза — для фильтра",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/books/{id}": {
+      "get": {
+        "operationId": "LibraryCatalogController_detail",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "404": {
+            "description": "Книги нет или она чужого вуза"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Книга: фонду — с экземплярами и выдачами, читателю — наличие",
+        "tags": [
+          "Библиотека"
+        ]
+      },
+      "patch": {
+        "operationId": "LibraryCatalogController_update",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateBookDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "409": {
+            "description": "В архив нельзя: экземпляры выданы или под бронью"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Правка карточки, архив и возврат из архива",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/books/{id}/cover": {
+      "post": {
+        "operationId": "LibraryCatalogController_cover",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Загрузить обложку книги (картинка до 10 МБ)",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/books/{id}/copies": {
+      "post": {
+        "operationId": "LibraryCatalogController_addCopies",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddBookCopiesDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "409": {
+            "description": "Инвентарный номер уже есть в фонде"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Завести экземпляры: номерами списком или количеством по порядку",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/copies/labels": {
+      "post": {
+        "operationId": "LibraryCatalogController_labels",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BookCopyLabelsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "QR-наклейки экземпляров для печати",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/copies/by-code/{code}": {
+      "get": {
+        "operationId": "LibraryCatalogController_byCode",
+        "parameters": [
+          {
+            "name": "code",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "404": {
+            "description": "Код неизвестен, устарел или чужого вуза"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Экземпляр по коду с наклейки",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/copies/{id}": {
+      "patch": {
+        "operationId": "LibraryCatalogController_updateCopy",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateBookCopyDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "409": {
+            "description": "Экземпляр выдан или под бронью; номер занят"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Правка экземпляра: номер, состояние, заметка, вывод из оборота",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/copies/{id}/code/rotate": {
+      "post": {
+        "operationId": "LibraryCatalogController_rotateCode",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Перевыпустить код наклейки: старая распечатка перестаёт работать",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/import/preview": {
+      "post": {
+        "operationId": "LibraryCatalogController_importPreview",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "file"
+                ],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "400": {
+            "description": "Формат файла или нет колонки «Название»"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Импорт фонда: проверить CSV/XLSX без записи",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/import": {
+      "post": {
+        "operationId": "LibraryCatalogController_importCommit",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LibraryImportCommitDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "409": {
+            "description": "Инвентарный номер успели занять"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Импорт фонда: записать проверенные строки",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/readers/resolve": {
+      "post": {
+        "operationId": "LibraryLoansController_resolve",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResolveReaderDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "409": {
+            "description": "QR уже проверил другой сотрудник; библиотека выключена"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Скан студенческого: читатель, может ли брать книги, пропуск на выдачу",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/loans": {
+      "post": {
+        "operationId": "LibraryLoansController_issue",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IssueLoanDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "409": {
+            "description": "details.field: status | overdue | lost | limit — читателю нельзя; onLoan | reserved | withdrawn | archived — экземпляр; ticket — пропуск истёк; module"
+          },
+          "422": {
+            "description": "Срок вне правил библиотеки (field = dueDate)"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Выдать экземпляр читателю по пропуску",
+        "tags": [
+          "Библиотека"
+        ]
+      },
+      "get": {
+        "operationId": "LibraryLoansController_list",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "maximum": 10000,
+              "default": 1
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "maximum": 100,
+              "default": 20
+            }
+          },
+          {
+            "name": "filter",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "open",
+                "overdue",
+                "lost",
+                "closed",
+                "all"
+              ],
+              "default": "open"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 100
+            }
+          },
+          {
+            "name": "readerId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          {
+            "name": "copyId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Выдачи вуза: на руках, просроченные, закрытые",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/returns": {
+      "post": {
+        "operationId": "LibraryLoansController_returnCopy",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReturnLoanDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "409": {
+            "description": "details.field = notOnLoan — экземпляр не выдан"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Принять книгу: скан экземпляра, состояние; очередь броней — отложить",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/loans/{id}/renew": {
+      "post": {
+        "operationId": "LibraryLoansController_renew",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenewLoanDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "409": {
+            "description": "details.field: renewals | queue | notOnLoan"
+          },
+          "422": {
+            "description": "Срок вне правил (field = dueDate)"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Продлить выдачу",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/loans/{id}/lost": {
+      "post": {
+        "operationId": "LibraryLoansController_lost",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Книга утеряна читателем: выдача закрыта, экземпляр — из оборота, долг за читателем",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/loans/{id}/lost/settle": {
+      "post": {
+        "operationId": "LibraryLoansController_settleLost",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "404": {
+            "description": "Выдача не найдена или чужого вуза"
+          },
+          "409": {
+            "description": "details.field: notLost — выдача не утеряна; settled — долг уже погашен"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Долг по утерянной книге погашен: книгу заменили или возместили",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/loans/{id}/cancel": {
+      "post": {
+        "operationId": "LibraryLoansController_cancel",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelLoanDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Отменить ошибочную выдачу с причиной",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/loans/{id}/return/cancel": {
+      "post": {
+        "operationId": "LibraryLoansController_cancelReturn",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CancelReturnDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "404": {
+            "description": "Выдача не найдена или чужого вуза"
+          },
+          "409": {
+            "description": "details.field: notReturned — выдача не закрыта возвратом; returnWindow — прошло больше суток; reissued — экземпляр выдан другому; heldForReservation — отложен под бронь; withdrawn — утерян или списан"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Отменить ошибочный возврат с причиной: выдача снова открыта с прежним сроком",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/me/loans": {
+      "get": {
+        "operationId": "LibraryLoansController_mine",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Мои книги: на руках и история",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/loans/{id}/dispute": {
+      "post": {
+        "operationId": "LibraryLoansController_dispute",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "404": {
+            "description": "Не своя выдача"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "«Это не я»: читатель отмечает выдачу как ошибочную",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/loans/{id}/reader": {
+      "get": {
+        "operationId": "LibraryIdAccessController_readerCard",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "403": {
+            "description": "Выдача закрыта — карточка недоступна"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Удостоверение читателя по открытой выдаче (просмотр — в журнал)",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/id-access": {
+      "get": {
+        "operationId": "LibraryIdAccessController_journal",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "maximum": 10000,
+              "default": 1
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "maximum": 100,
+              "default": 20
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 100
+            }
+          },
+          {
+            "name": "readerId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          {
+            "name": "loanId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Журнал просмотров удостоверений читателей",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/books/{id}/reservations": {
+      "post": {
+        "operationId": "LibraryReservationsController_reserve",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "409": {
+            "description": "details.field: status | overdue — читателю нельзя; reservationLimit | alreadyReserved | alreadyBorrowed | noCopies; module"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Забронировать книгу: свободный экземпляр — сразу, иначе в очередь",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/me/reservations": {
+      "get": {
+        "operationId": "LibraryReservationsController_mine",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Мои брони: готовые, в очереди, недавняя история",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/me/reservations/{id}/cancel": {
+      "post": {
+        "operationId": "LibraryReservationsController_cancelMine",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "409": {
+            "description": "details.field = closed — бронь уже закрыта"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Отменить свою бронь",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/reservations": {
+      "get": {
+        "operationId": "LibraryReservationsController_list",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "maximum": 10000,
+              "default": 1
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "maximum": 100,
+              "default": 20
+            }
+          },
+          {
+            "name": "filter",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "active",
+                "ready",
+                "queued",
+                "closed",
+                "all"
+              ],
+              "default": "active"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 100
+            }
+          },
+          {
+            "name": "bookId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Брони вуза: полка броней, очередь, закрытые",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/reservations/{id}/cancel": {
+      "post": {
+        "operationId": "LibraryReservationsController_cancel",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "409": {
+            "description": "details.field = closed — бронь уже закрыта"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Снять бронь читателя",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/readers/{id}/debts": {
+      "get": {
+        "operationId": "LibraryDebtsController_readerDebts",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "403": {
+            "description": "Студент вне области: чужой факультет или вуз"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Книги на руках у студента — при смене статуса и для библиотекаря",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/me/clearance": {
+      "get": {
+        "operationId": "LibraryDebtsController_clearance",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Справка: задолженностей в библиотеке нет (или что вернуть)",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/reports/summary": {
+      "get": {
+        "operationId": "LibraryReportsController_summary",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Сводка: фонд, выдачи, должники, брони",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/reports/popular": {
+      "get": {
+        "operationId": "LibraryReportsController_popular",
+        "parameters": [
+          {
+            "name": "days",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "default": 90
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Самые выдаваемые книги за 30, 90 или 365 дней",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/inventory/scan": {
+      "post": {
+        "operationId": "LibraryReportsController_scan",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InventoryScanDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Инвентаризация: экземпляр на месте",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/library/inventory": {
+      "get": {
+        "operationId": "LibraryReportsController_inventory",
+        "parameters": [
+          {
+            "name": "since",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "maximum": 10000,
+              "default": 1
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "maximum": 100,
+              "default": 20
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Ход инвентаризации с даты: отмечено и не найдено",
+        "tags": [
+          "Библиотека"
+        ]
+      }
+    },
+    "/student-id/me": {
+      "get": {
+        "operationId": "StudentIdController_me",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Мой цифровой студенческий (карта + QR)",
+        "tags": [
+          "Студенческий билет"
+        ]
+      }
+    },
+    "/student-id/verify": {
+      "get": {
+        "operationId": "StudentIdController_verify",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 2000
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Карта студента с отметкой проверки"
+          },
+          "409": {
+            "description": "CONFLICT — этот код уже проверил другой сотрудник: студенту обновить карту"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Проверить студенческий по QR (сотрудник)",
+        "tags": [
+          "Студенческий билет"
+        ]
+      }
+    },
+    "/security/summary": {
+      "get": {
+        "operationId": "SecurityJournalController_summary",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Счётчики за день по часам вуза"
+          },
+          "403": {
+            "description": "FORBIDDEN — не охрана и не админ вуза"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Сводка поста за сегодня: проходы и посетители",
+        "tags": [
+          "Пост охраны"
+        ]
+      }
+    },
+    "/security/passes": {
+      "get": {
+        "operationId": "SecurityJournalController_listPasses",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "maximum": 10000,
+              "default": 1
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "maximum": 100,
+              "default": 20
+            }
+          },
+          {
+            "name": "date",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          },
+          {
+            "name": "allowed",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Страница журнала"
+          },
+          "403": {
+            "description": "FORBIDDEN — не охрана и не админ вуза"
+          },
+          "422": {
+            "description": "VALIDATION_ERROR — неверный фильтр"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Журнал проходов студентов своего вуза, новые сверху",
+        "tags": [
+          "Пост охраны"
+        ]
+      }
+    },
+    "/security/visitors": {
+      "get": {
+        "operationId": "SecurityJournalController_listVisitors",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "maximum": 10000,
+              "default": 1
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "maximum": 100,
+              "default": 20
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "inside",
+                "all"
+              ],
+              "default": "all"
+            }
+          },
+          {
+            "name": "date",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "maxLength": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Страница журнала"
+          },
+          "403": {
+            "description": "FORBIDDEN — не охрана и не админ вуза"
+          },
+          "422": {
+            "description": "VALIDATION_ERROR — неверный фильтр"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Журнал посетителей своего вуза; `status=inside` — кто в здании",
+        "tags": [
+          "Пост охраны"
+        ]
+      },
+      "post": {
+        "operationId": "SecurityJournalController_createVisitor",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateVisitorDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Запись создана, вход — сейчас"
+          },
+          "403": {
+            "description": "FORBIDDEN — не охрана"
+          },
+          "422": {
+            "description": "VALIDATION_ERROR — поля записи"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Записать посетителя на входе",
+        "tags": [
+          "Пост охраны"
+        ]
+      }
+    },
+    "/security/visitors/{id}/exit": {
+      "post": {
+        "operationId": "SecurityJournalController_exitVisitor",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Выход отмечен"
+          },
+          "404": {
+            "description": "NOT_FOUND — нет записи в своём вузе"
+          },
+          "409": {
+            "description": "CONFLICT (`exited`) — выход уже отмечен"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Отметить выход посетителя",
+        "tags": [
+          "Пост охраны"
+        ]
+      }
+    },
     "/demo-requests": {
       "post": {
         "operationId": "DemoRequestsController_submit",
@@ -3742,6 +5614,7 @@
               "type": "integer",
               "minimum": 0,
               "exclusiveMinimum": true,
+              "maximum": 10000,
               "default": 1
             }
           },
@@ -3922,6 +5795,38 @@
           }
         ],
         "summary": "Одобрить: завести вуз и выслать приглашение админу вуза",
+        "tags": [
+          "Приход вуза — заявки на тестирование"
+        ]
+      }
+    },
+    "/demo-requests/{id}/reissue-invite": {
+      "post": {
+        "operationId": "DemoRequestsController_reissueInvite",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ request, inviteUrl } — ссылка показывается один раз"
+          },
+          "409": {
+            "description": "CONFLICT — заявка не одобрена, вуз удалён или по приглашению уже вошли"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Выписать приглашение админу вуза заново: прежнее отзывается, письмо уходит повторно",
         "tags": [
           "Приход вуза — заявки на тестирование"
         ]
@@ -4123,6 +6028,7 @@
               "type": "integer",
               "minimum": 0,
               "exclusiveMinimum": true,
+              "maximum": 10000,
               "default": 1
             }
           },
@@ -4366,6 +6272,7 @@
               "type": "integer",
               "minimum": 0,
               "exclusiveMinimum": true,
+              "maximum": 10000,
               "default": 1
             }
           },
@@ -5355,6 +7262,7 @@
               "type": "integer",
               "minimum": 0,
               "exclusiveMinimum": true,
+              "maximum": 10000,
               "default": 1
             }
           },
@@ -5822,6 +7730,7 @@
               "type": "integer",
               "minimum": 0,
               "exclusiveMinimum": true,
+              "maximum": 10000,
               "default": 1
             }
           },
@@ -6153,1754 +8062,6 @@
         "summary": "JWKS медиатокенов: открытый ключ ES256 для ретранслятора",
         "tags": [
           "Камеры — ретранслятор"
-        ]
-      }
-    },
-    "/library/settings": {
-      "get": {
-        "operationId": "LibrarySettingsController_get",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": "Настройки; модуль по умолчанию выключен"
-          },
-          "403": {
-            "description": "Роли библиотека не положена"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Включена ли библиотека вуза и правила выдачи",
-        "tags": [
-          "Библиотека"
-        ]
-      },
-      "patch": {
-        "operationId": "LibrarySettingsController_update",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateLibrarySettingsDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Новые настройки"
-          },
-          "422": {
-            "description": "Срок по умолчанию больше максимального"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Включить или выключить библиотеку, поменять правила выдачи",
-        "tags": [
-          "Библиотека"
-        ]
-      }
-    },
-    "/library/books": {
-      "get": {
-        "operationId": "LibraryCatalogController_list",
-        "parameters": [
-          {
-            "name": "page",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "minimum": 0,
-              "exclusiveMinimum": true,
-              "default": 1
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "minimum": 0,
-              "exclusiveMinimum": true,
-              "maximum": 100,
-              "default": 20
-            }
-          },
-          {
-            "name": "q",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "maxLength": 100
-            }
-          },
-          {
-            "name": "section",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "maxLength": 100
-            }
-          },
-          {
-            "name": "available",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "enum": [
-                "true",
-                "false"
-              ]
-            }
-          },
-          {
-            "name": "archived",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "enum": [
-                "true",
-                "false"
-              ]
-            }
-          },
-          {
-            "name": "sort",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "enum": [
-                "title",
-                "authors",
-                "year",
-                "createdAt"
-              ]
-            }
-          },
-          {
-            "name": "order",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "enum": [
-                "asc",
-                "desc"
-              ]
-            }
-          }
-        ],
-        "responses": {
-          "409": {
-            "description": "Библиотека вуза выключена (для читателей)"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Каталог: поиск по названию, авторам и ISBN, наличие экземпляров",
-        "tags": [
-          "Библиотека"
-        ]
-      },
-      "post": {
-        "operationId": "LibraryCatalogController_create",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateBookDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "422": {
-            "description": "Неверные поля карточки"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Завести книгу в каталог",
-        "tags": [
-          "Библиотека"
-        ]
-      }
-    },
-    "/library/books/sections": {
-      "get": {
-        "operationId": "LibraryCatalogController_sections",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Разделы каталога вуза — для фильтра",
-        "tags": [
-          "Библиотека"
-        ]
-      }
-    },
-    "/library/books/{id}": {
-      "get": {
-        "operationId": "LibraryCatalogController_detail",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "404": {
-            "description": "Книги нет или она чужого вуза"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Книга: фонду — с экземплярами и выдачами, читателю — наличие",
-        "tags": [
-          "Библиотека"
-        ]
-      },
-      "patch": {
-        "operationId": "LibraryCatalogController_update",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateBookDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "409": {
-            "description": "В архив нельзя: экземпляры выданы или под бронью"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Правка карточки, архив и возврат из архива",
-        "tags": [
-          "Библиотека"
-        ]
-      }
-    },
-    "/library/books/{id}/cover": {
-      "post": {
-        "operationId": "LibraryCatalogController_cover",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "multipart/form-data": {
-              "schema": {
-                "type": "object",
-                "required": [
-                  "file"
-                ],
-                "properties": {
-                  "file": {
-                    "type": "string",
-                    "format": "binary"
-                  }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Загрузить обложку книги (картинка до 10 МБ)",
-        "tags": [
-          "Библиотека"
-        ]
-      }
-    },
-    "/library/books/{id}/copies": {
-      "post": {
-        "operationId": "LibraryCatalogController_addCopies",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AddBookCopiesDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "409": {
-            "description": "Инвентарный номер уже есть в фонде"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Завести экземпляры: номерами списком или количеством по порядку",
-        "tags": [
-          "Библиотека"
-        ]
-      }
-    },
-    "/library/copies/labels": {
-      "post": {
-        "operationId": "LibraryCatalogController_labels",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/BookCopyLabelsDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "QR-наклейки экземпляров для печати",
-        "tags": [
-          "Библиотека"
-        ]
-      }
-    },
-    "/library/copies/by-code/{code}": {
-      "get": {
-        "operationId": "LibraryCatalogController_byCode",
-        "parameters": [
-          {
-            "name": "code",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "404": {
-            "description": "Код неизвестен, устарел или чужого вуза"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Экземпляр по коду с наклейки",
-        "tags": [
-          "Библиотека"
-        ]
-      }
-    },
-    "/library/copies/{id}": {
-      "patch": {
-        "operationId": "LibraryCatalogController_updateCopy",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateBookCopyDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "409": {
-            "description": "Экземпляр выдан или под бронью; номер занят"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Правка экземпляра: номер, состояние, заметка, вывод из оборота",
-        "tags": [
-          "Библиотека"
-        ]
-      }
-    },
-    "/library/copies/{id}/code/rotate": {
-      "post": {
-        "operationId": "LibraryCatalogController_rotateCode",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Перевыпустить код наклейки: старая распечатка перестаёт работать",
-        "tags": [
-          "Библиотека"
-        ]
-      }
-    },
-    "/library/import/preview": {
-      "post": {
-        "operationId": "LibraryCatalogController_importPreview",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "multipart/form-data": {
-              "schema": {
-                "type": "object",
-                "required": [
-                  "file"
-                ],
-                "properties": {
-                  "file": {
-                    "type": "string",
-                    "format": "binary"
-                  }
-                }
-              }
-            }
-          }
-        },
-        "responses": {
-          "400": {
-            "description": "Формат файла или нет колонки «Название»"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Импорт фонда: проверить CSV/XLSX без записи",
-        "tags": [
-          "Библиотека"
-        ]
-      }
-    },
-    "/library/import": {
-      "post": {
-        "operationId": "LibraryCatalogController_importCommit",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/LibraryImportCommitDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "409": {
-            "description": "Инвентарный номер успели занять"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Импорт фонда: записать проверенные строки",
-        "tags": [
-          "Библиотека"
-        ]
-      }
-    },
-    "/library/readers/resolve": {
-      "post": {
-        "operationId": "LibraryLoansController_resolve",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ResolveReaderDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "409": {
-            "description": "QR уже проверил другой сотрудник; библиотека выключена"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Скан студенческого: читатель, может ли брать книги, пропуск на выдачу",
-        "tags": [
-          "Библиотека"
-        ]
-      }
-    },
-    "/library/loans": {
-      "post": {
-        "operationId": "LibraryLoansController_issue",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/IssueLoanDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "409": {
-            "description": "details.field: status | overdue | lost | limit — читателю нельзя; onLoan | reserved | withdrawn | archived — экземпляр; ticket — пропуск истёк; module"
-          },
-          "422": {
-            "description": "Срок вне правил библиотеки (field = dueDate)"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Выдать экземпляр читателю по пропуску",
-        "tags": [
-          "Библиотека"
-        ]
-      },
-      "get": {
-        "operationId": "LibraryLoansController_list",
-        "parameters": [
-          {
-            "name": "page",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "minimum": 0,
-              "exclusiveMinimum": true,
-              "default": 1
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "minimum": 0,
-              "exclusiveMinimum": true,
-              "maximum": 100,
-              "default": 20
-            }
-          },
-          {
-            "name": "filter",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "enum": [
-                "open",
-                "overdue",
-                "lost",
-                "closed",
-                "all"
-              ],
-              "default": "open"
-            }
-          },
-          {
-            "name": "q",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "maxLength": 100
-            }
-          },
-          {
-            "name": "readerId",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            }
-          },
-          {
-            "name": "copyId",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Выдачи вуза: на руках, просроченные, закрытые",
-        "tags": [
-          "Библиотека"
-        ]
-      }
-    },
-    "/library/returns": {
-      "post": {
-        "operationId": "LibraryLoansController_returnCopy",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ReturnLoanDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "409": {
-            "description": "details.field = notOnLoan — экземпляр не выдан"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Принять книгу: скан экземпляра, состояние; очередь броней — отложить",
-        "tags": [
-          "Библиотека"
-        ]
-      }
-    },
-    "/library/loans/{id}/renew": {
-      "post": {
-        "operationId": "LibraryLoansController_renew",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RenewLoanDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "409": {
-            "description": "details.field: renewals | queue | notOnLoan"
-          },
-          "422": {
-            "description": "Срок вне правил (field = dueDate)"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Продлить выдачу",
-        "tags": [
-          "Библиотека"
-        ]
-      }
-    },
-    "/library/loans/{id}/lost": {
-      "post": {
-        "operationId": "LibraryLoansController_lost",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Книга утеряна читателем: выдача закрыта, экземпляр — из оборота, долг за читателем",
-        "tags": [
-          "Библиотека"
-        ]
-      }
-    },
-    "/library/loans/{id}/lost/settle": {
-      "post": {
-        "operationId": "LibraryLoansController_settleLost",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "404": {
-            "description": "Выдача не найдена или чужого вуза"
-          },
-          "409": {
-            "description": "details.field: notLost — выдача не утеряна; settled — долг уже погашен"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Долг по утерянной книге погашен: книгу заменили или возместили",
-        "tags": [
-          "Библиотека"
-        ]
-      }
-    },
-    "/library/loans/{id}/cancel": {
-      "post": {
-        "operationId": "LibraryLoansController_cancel",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CancelLoanDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Отменить ошибочную выдачу с причиной",
-        "tags": [
-          "Библиотека"
-        ]
-      }
-    },
-    "/library/loans/{id}/return/cancel": {
-      "post": {
-        "operationId": "LibraryLoansController_cancelReturn",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CancelReturnDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "404": {
-            "description": "Выдача не найдена или чужого вуза"
-          },
-          "409": {
-            "description": "details.field: notReturned — выдача не закрыта возвратом; returnWindow — прошло больше суток; reissued — экземпляр выдан другому; heldForReservation — отложен под бронь; withdrawn — утерян или списан"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Отменить ошибочный возврат с причиной: выдача снова открыта с прежним сроком",
-        "tags": [
-          "Библиотека"
-        ]
-      }
-    },
-    "/library/me/loans": {
-      "get": {
-        "operationId": "LibraryLoansController_mine",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Мои книги: на руках и история",
-        "tags": [
-          "Библиотека"
-        ]
-      }
-    },
-    "/library/loans/{id}/dispute": {
-      "post": {
-        "operationId": "LibraryLoansController_dispute",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "404": {
-            "description": "Не своя выдача"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "«Это не я»: читатель отмечает выдачу как ошибочную",
-        "tags": [
-          "Библиотека"
-        ]
-      }
-    },
-    "/library/loans/{id}/reader": {
-      "get": {
-        "operationId": "LibraryIdAccessController_readerCard",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "403": {
-            "description": "Выдача закрыта — карточка недоступна"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Удостоверение читателя по открытой выдаче (просмотр — в журнал)",
-        "tags": [
-          "Библиотека"
-        ]
-      }
-    },
-    "/library/id-access": {
-      "get": {
-        "operationId": "LibraryIdAccessController_journal",
-        "parameters": [
-          {
-            "name": "page",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "minimum": 0,
-              "exclusiveMinimum": true,
-              "default": 1
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "minimum": 0,
-              "exclusiveMinimum": true,
-              "maximum": 100,
-              "default": 20
-            }
-          },
-          {
-            "name": "q",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "maxLength": 100
-            }
-          },
-          {
-            "name": "readerId",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            }
-          },
-          {
-            "name": "loanId",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Журнал просмотров удостоверений читателей",
-        "tags": [
-          "Библиотека"
-        ]
-      }
-    },
-    "/library/books/{id}/reservations": {
-      "post": {
-        "operationId": "LibraryReservationsController_reserve",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "409": {
-            "description": "details.field: status | overdue — читателю нельзя; reservationLimit | alreadyReserved | alreadyBorrowed | noCopies; module"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Забронировать книгу: свободный экземпляр — сразу, иначе в очередь",
-        "tags": [
-          "Библиотека"
-        ]
-      }
-    },
-    "/library/me/reservations": {
-      "get": {
-        "operationId": "LibraryReservationsController_mine",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Мои брони: готовые, в очереди, недавняя история",
-        "tags": [
-          "Библиотека"
-        ]
-      }
-    },
-    "/library/me/reservations/{id}/cancel": {
-      "post": {
-        "operationId": "LibraryReservationsController_cancelMine",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "409": {
-            "description": "details.field = closed — бронь уже закрыта"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Отменить свою бронь",
-        "tags": [
-          "Библиотека"
-        ]
-      }
-    },
-    "/library/reservations": {
-      "get": {
-        "operationId": "LibraryReservationsController_list",
-        "parameters": [
-          {
-            "name": "page",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "minimum": 0,
-              "exclusiveMinimum": true,
-              "default": 1
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "minimum": 0,
-              "exclusiveMinimum": true,
-              "maximum": 100,
-              "default": 20
-            }
-          },
-          {
-            "name": "filter",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "enum": [
-                "active",
-                "ready",
-                "queued",
-                "closed",
-                "all"
-              ],
-              "default": "active"
-            }
-          },
-          {
-            "name": "q",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "maxLength": 100
-            }
-          },
-          {
-            "name": "bookId",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Брони вуза: полка броней, очередь, закрытые",
-        "tags": [
-          "Библиотека"
-        ]
-      }
-    },
-    "/library/reservations/{id}/cancel": {
-      "post": {
-        "operationId": "LibraryReservationsController_cancel",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "409": {
-            "description": "details.field = closed — бронь уже закрыта"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Снять бронь читателя",
-        "tags": [
-          "Библиотека"
-        ]
-      }
-    },
-    "/library/readers/{id}/debts": {
-      "get": {
-        "operationId": "LibraryDebtsController_readerDebts",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "403": {
-            "description": "Студент вне области: чужой факультет или вуз"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Книги на руках у студента — при смене статуса и для библиотекаря",
-        "tags": [
-          "Библиотека"
-        ]
-      }
-    },
-    "/library/me/clearance": {
-      "get": {
-        "operationId": "LibraryDebtsController_clearance",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Справка: задолженностей в библиотеке нет (или что вернуть)",
-        "tags": [
-          "Библиотека"
-        ]
-      }
-    },
-    "/library/reports/summary": {
-      "get": {
-        "operationId": "LibraryReportsController_summary",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Сводка: фонд, выдачи, должники, брони",
-        "tags": [
-          "Библиотека"
-        ]
-      }
-    },
-    "/library/reports/popular": {
-      "get": {
-        "operationId": "LibraryReportsController_popular",
-        "parameters": [
-          {
-            "name": "days",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "default": 90
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Самые выдаваемые книги за 30, 90 или 365 дней",
-        "tags": [
-          "Библиотека"
-        ]
-      }
-    },
-    "/library/inventory/scan": {
-      "post": {
-        "operationId": "LibraryReportsController_scan",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/InventoryScanDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Инвентаризация: экземпляр на месте",
-        "tags": [
-          "Библиотека"
-        ]
-      }
-    },
-    "/library/inventory": {
-      "get": {
-        "operationId": "LibraryReportsController_inventory",
-        "parameters": [
-          {
-            "name": "since",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
-            }
-          },
-          {
-            "name": "page",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "minimum": 0,
-              "exclusiveMinimum": true,
-              "default": 1
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "minimum": 0,
-              "exclusiveMinimum": true,
-              "maximum": 100,
-              "default": 20
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Ход инвентаризации с даты: отмечено и не найдено",
-        "tags": [
-          "Библиотека"
-        ]
-      }
-    },
-    "/student-id/me": {
-      "get": {
-        "operationId": "StudentIdController_me",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Мой цифровой студенческий (карта + QR)",
-        "tags": [
-          "Студенческий билет"
-        ]
-      }
-    },
-    "/student-id/verify": {
-      "get": {
-        "operationId": "StudentIdController_verify",
-        "parameters": [
-          {
-            "name": "token",
-            "in": "query",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "minLength": 1,
-              "maxLength": 2000
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Карта студента с отметкой проверки"
-          },
-          "409": {
-            "description": "CONFLICT — этот код уже проверил другой сотрудник: студенту обновить карту"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Проверить студенческий по QR (сотрудник)",
-        "tags": [
-          "Студенческий билет"
-        ]
-      }
-    },
-    "/security/summary": {
-      "get": {
-        "operationId": "SecurityJournalController_summary",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": "Счётчики за день по часам вуза"
-          },
-          "403": {
-            "description": "FORBIDDEN — не охрана и не админ вуза"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Сводка поста за сегодня: проходы и посетители",
-        "tags": [
-          "Пост охраны"
-        ]
-      }
-    },
-    "/security/passes": {
-      "get": {
-        "operationId": "SecurityJournalController_listPasses",
-        "parameters": [
-          {
-            "name": "page",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "minimum": 0,
-              "exclusiveMinimum": true,
-              "default": 1
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "minimum": 0,
-              "exclusiveMinimum": true,
-              "maximum": 100,
-              "default": 20
-            }
-          },
-          {
-            "name": "date",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
-            }
-          },
-          {
-            "name": "allowed",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "enum": [
-                "true",
-                "false"
-              ]
-            }
-          },
-          {
-            "name": "q",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "maxLength": 100
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Страница журнала"
-          },
-          "403": {
-            "description": "FORBIDDEN — не охрана и не админ вуза"
-          },
-          "422": {
-            "description": "VALIDATION_ERROR — неверный фильтр"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Журнал проходов студентов своего вуза, новые сверху",
-        "tags": [
-          "Пост охраны"
-        ]
-      }
-    },
-    "/security/visitors": {
-      "get": {
-        "operationId": "SecurityJournalController_listVisitors",
-        "parameters": [
-          {
-            "name": "page",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "minimum": 0,
-              "exclusiveMinimum": true,
-              "default": 1
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "minimum": 0,
-              "exclusiveMinimum": true,
-              "maximum": 100,
-              "default": 20
-            }
-          },
-          {
-            "name": "status",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "enum": [
-                "inside",
-                "all"
-              ],
-              "default": "all"
-            }
-          },
-          {
-            "name": "date",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
-            }
-          },
-          {
-            "name": "q",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "maxLength": 100
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Страница журнала"
-          },
-          "403": {
-            "description": "FORBIDDEN — не охрана и не админ вуза"
-          },
-          "422": {
-            "description": "VALIDATION_ERROR — неверный фильтр"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Журнал посетителей своего вуза; `status=inside` — кто в здании",
-        "tags": [
-          "Пост охраны"
-        ]
-      },
-      "post": {
-        "operationId": "SecurityJournalController_createVisitor",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateVisitorDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "Запись создана, вход — сейчас"
-          },
-          "403": {
-            "description": "FORBIDDEN — не охрана"
-          },
-          "422": {
-            "description": "VALIDATION_ERROR — поля записи"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Записать посетителя на входе",
-        "tags": [
-          "Пост охраны"
-        ]
-      }
-    },
-    "/security/visitors/{id}/exit": {
-      "post": {
-        "operationId": "SecurityJournalController_exitVisitor",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Выход отмечен"
-          },
-          "404": {
-            "description": "NOT_FOUND — нет записи в своём вузе"
-          },
-          "409": {
-            "description": "CONFLICT (`exited`) — выход уже отмечен"
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Отметить выход посетителя",
-        "tags": [
-          "Пост охраны"
         ]
       }
     },
@@ -8250,11 +8411,20 @@
               "minLength": 1,
               "maxLength": 200
             }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
           }
         ],
         "responses": {
           "200": {
-            "description": "Пары активного расписания + таймзона вуза"
+            "description": "Пары активного расписания (по 500, nextCursor — продолжение) + таймзона вуза"
           }
         },
         "security": [
@@ -8307,11 +8477,31 @@
               "type": "string",
               "minLength": 1
             }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "maximum": 500
+            }
           }
         ],
         "responses": {
           "200": {
-            "description": "Список изменений в scope роли"
+            "description": "Список изменений в scope роли; с limit/cursor — страница с meta.cursor/hasNext, без них — до 500 массивом"
           }
         },
         "security": [
@@ -8412,6 +8602,7 @@
               "type": "integer",
               "minimum": 0,
               "exclusiveMinimum": true,
+              "maximum": 10000,
               "default": 1
             }
           },
@@ -8640,6 +8831,7 @@
               "type": "integer",
               "minimum": 0,
               "exclusiveMinimum": true,
+              "maximum": 10000,
               "default": 1
             }
           },
@@ -8822,6 +9014,7 @@
               "type": "integer",
               "minimum": 0,
               "exclusiveMinimum": true,
+              "maximum": 10000,
               "default": 1
             }
           },
@@ -8996,6 +9189,7 @@
               "type": "integer",
               "minimum": 0,
               "exclusiveMinimum": true,
+              "maximum": 10000,
               "default": 1
             }
           },
@@ -10568,6 +10762,7 @@
               "type": "integer",
               "minimum": 0,
               "exclusiveMinimum": true,
+              "maximum": 10000,
               "default": 1
             }
           },
@@ -11324,6 +11519,7 @@
               "type": "integer",
               "minimum": 0,
               "exclusiveMinimum": true,
+              "maximum": 10000,
               "default": 1
             }
           },
@@ -11583,6 +11779,7 @@
               "type": "integer",
               "minimum": 0,
               "exclusiveMinimum": true,
+              "maximum": 10000,
               "default": 1
             }
           },
@@ -12100,17 +12297,18 @@
           },
           {
             "name": "fileId",
-            "required": false,
             "in": "query",
-            "description": "Страница документа из `documents[].files` карточки заявки. Без него — первая страница",
+            "required": false,
             "schema": {
-              "type": "string"
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
             }
           }
         ],
         "responses": {
-          "200": {
-            "description": ""
+          "422": {
+            "description": "VALIDATION_ERROR — некорректный fileId"
           }
         },
         "security": [
@@ -13455,34 +13653,6 @@
       }
     },
     "/documents/{id}/platform": {
-      "get": {
-        "deprecated": true,
-        "operationId": "DocumentsController_platformGet",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Спец-режим: метаданные чужого документа без причины (устарело — используйте POST с причиной)",
-        "tags": [
-          "Документы"
-        ]
-      },
       "post": {
         "operationId": "DocumentsController_platformGetWithReason",
         "parameters": [
@@ -14136,6 +14306,7 @@
               "type": "integer",
               "minimum": 0,
               "exclusiveMinimum": true,
+              "maximum": 10000,
               "default": 1
             }
           },
@@ -15720,7 +15891,8 @@
             "required": true,
             "schema": {
               "type": "integer",
-              "minimum": 0
+              "minimum": 0,
+              "maximum": 2147483647
             }
           },
           {
@@ -16443,6 +16615,32 @@
             "in": "path",
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "txt",
+                "json"
+              ],
+              "default": "txt"
+            }
+          },
+          {
+            "name": "locale",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "ru",
+                "kk",
+                "en"
+              ]
             }
           }
         ],
@@ -17539,7 +17737,9 @@
             "required": false,
             "schema": {
               "type": "integer",
-              "minimum": 1,
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "maximum": 10000,
               "default": 1
             }
           },
@@ -17872,6 +18072,202 @@
         ]
       }
     },
+    "/notifications": {
+      "get": {
+        "operationId": "NotificationsController_list",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "exclusiveMinimum": true,
+              "maximum": 50,
+              "default": 20
+            }
+          },
+          {
+            "name": "unreadOnly",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Лента уведомлений (cursor-пагинация)",
+        "tags": [
+          "Уведомления"
+        ]
+      }
+    },
+    "/notifications/unread-count": {
+      "get": {
+        "operationId": "NotificationsController_unreadCount",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Число непрочитанных (Redis-кэш)",
+        "tags": [
+          "Уведомления"
+        ]
+      }
+    },
+    "/notifications/settings": {
+      "get": {
+        "operationId": "NotificationsController_getSettings",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Настройки уведомлений",
+        "tags": [
+          "Уведомления"
+        ]
+      },
+      "patch": {
+        "operationId": "NotificationsController_updateSettings",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateNotificationSettingsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Обновить настройки уведомлений",
+        "tags": [
+          "Уведомления"
+        ]
+      }
+    },
+    "/notifications/read-all": {
+      "patch": {
+        "operationId": "NotificationsController_markAllRead",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Отметить все прочитанными",
+        "tags": [
+          "Уведомления"
+        ]
+      }
+    },
+    "/notifications/{id}/read": {
+      "patch": {
+        "operationId": "NotificationsController_markRead",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Отметить уведомление прочитанным",
+        "tags": [
+          "Уведомления"
+        ]
+      }
+    },
+    "/notifications/{id}": {
+      "delete": {
+        "operationId": "NotificationsController_remove",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Удалить уведомление",
+        "tags": [
+          "Уведомления"
+        ]
+      }
+    },
     "/events": {
       "get": {
         "operationId": "EventsController_list",
@@ -17884,6 +18280,7 @@
               "type": "integer",
               "minimum": 0,
               "exclusiveMinimum": true,
+              "maximum": 10000,
               "default": 1
             }
           },
@@ -18388,6 +18785,7 @@
               "type": "integer",
               "minimum": 0,
               "exclusiveMinimum": true,
+              "maximum": 10000,
               "default": 1
             }
           },
@@ -18574,6 +18972,9 @@
           },
           "400": {
             "description": "BAD_REQUEST — жалоба не на сообщение"
+          },
+          "403": {
+            "description": "FORBIDDEN — админ вуза (только официальные чаты)"
           }
         },
         "security": [
@@ -20525,202 +20926,6 @@
         ]
       }
     },
-    "/notifications": {
-      "get": {
-        "operationId": "NotificationsController_list",
-        "parameters": [
-          {
-            "name": "cursor",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            }
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "integer",
-              "minimum": 0,
-              "exclusiveMinimum": true,
-              "maximum": 50,
-              "default": 20
-            }
-          },
-          {
-            "name": "unreadOnly",
-            "in": "query",
-            "required": false,
-            "schema": {
-              "type": "boolean"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Лента уведомлений (cursor-пагинация)",
-        "tags": [
-          "Уведомления"
-        ]
-      }
-    },
-    "/notifications/unread-count": {
-      "get": {
-        "operationId": "NotificationsController_unreadCount",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Число непрочитанных (Redis-кэш)",
-        "tags": [
-          "Уведомления"
-        ]
-      }
-    },
-    "/notifications/settings": {
-      "get": {
-        "operationId": "NotificationsController_getSettings",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Настройки уведомлений",
-        "tags": [
-          "Уведомления"
-        ]
-      },
-      "patch": {
-        "operationId": "NotificationsController_updateSettings",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateNotificationSettingsDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Обновить настройки уведомлений",
-        "tags": [
-          "Уведомления"
-        ]
-      }
-    },
-    "/notifications/read-all": {
-      "patch": {
-        "operationId": "NotificationsController_markAllRead",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Отметить все прочитанными",
-        "tags": [
-          "Уведомления"
-        ]
-      }
-    },
-    "/notifications/{id}/read": {
-      "patch": {
-        "operationId": "NotificationsController_markRead",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Отметить уведомление прочитанным",
-        "tags": [
-          "Уведомления"
-        ]
-      }
-    },
-    "/notifications/{id}": {
-      "delete": {
-        "operationId": "NotificationsController_remove",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "204": {
-            "description": ""
-          }
-        },
-        "security": [
-          {
-            "bearer": []
-          }
-        ],
-        "summary": "Удалить уведомление",
-        "tags": [
-          "Уведомления"
-        ]
-      }
-    },
     "/push/public-key": {
       "get": {
         "operationId": "PushController_publicKey",
@@ -22481,7 +22686,7 @@
           "password": {
             "type": "string",
             "minLength": 8,
-            "maxLength": 72
+            "pattern": "[A-Za-zА-Яа-я]"
           },
           "firstName": {
             "type": "string",
@@ -22520,7 +22725,8 @@
           "firstName",
           "lastName",
           "companyName"
-        ]
+        ],
+        "additionalProperties": false
       },
       "VerifyCompanyEmailDto": {
         "type": "object",
@@ -22533,7 +22739,8 @@
         },
         "required": [
           "token"
-        ]
+        ],
+        "additionalProperties": false
       },
       "ResendCompanyVerificationDto": {
         "type": "object",
@@ -22546,7 +22753,8 @@
         },
         "required": [
           "email"
-        ]
+        ],
+        "additionalProperties": false
       },
       "UpdateCompanyDto": {
         "type": "object",
@@ -22558,14 +22766,16 @@
           },
           "description": {
             "type": "string",
-            "maxLength": 2000
+            "maxLength": 2000,
+            "nullable": true
           },
           "website": {
             "anyOf": [
               {
                 "type": "string",
                 "maxLength": 200,
-                "format": "uri"
+                "format": "uri",
+                "nullable": true
               },
               {
                 "type": "string",
@@ -22577,13 +22787,15 @@
           },
           "city": {
             "type": "string",
-            "maxLength": 24
+            "maxLength": 24,
+            "nullable": true
           },
           "logoUrl": {
             "type": "string",
             "maxLength": 500
           }
-        }
+        },
+        "additionalProperties": false
       },
       "RequestCompanyAccessDto": {
         "type": "object",
@@ -22599,7 +22811,8 @@
         },
         "required": [
           "universityId"
-        ]
+        ],
+        "additionalProperties": false
       },
       "DecideCompanyAccessDto": {
         "type": "object",
@@ -22627,7 +22840,8 @@
         },
         "required": [
           "status"
-        ]
+        ],
+        "additionalProperties": false
       },
       "UpdateCareerProfileDto": {
         "type": "object",
@@ -22709,9 +22923,11 @@
           },
           "about": {
             "type": "string",
-            "maxLength": 2000
+            "maxLength": 2000,
+            "nullable": true
           }
-        }
+        },
+        "additionalProperties": false
       },
       "SetCareerConsentDto": {
         "type": "object",
@@ -22735,7 +22951,8 @@
         "required": [
           "field",
           "granted"
-        ]
+        ],
+        "additionalProperties": false
       },
       "VacancyInputDto": {
         "type": "object",
@@ -22779,7 +22996,8 @@
           },
           "city": {
             "type": "string",
-            "maxLength": 24
+            "maxLength": 24,
+            "nullable": true
           },
           "salaryMin": {
             "type": "integer",
@@ -22835,7 +23053,8 @@
           "employmentType",
           "workFormat",
           "experienceLevel"
-        ]
+        ],
+        "additionalProperties": false
       },
       "UpdateVacancyDto": {
         "type": "object",
@@ -22879,7 +23098,8 @@
           },
           "city": {
             "type": "string",
-            "maxLength": 24
+            "maxLength": 24,
+            "nullable": true
           },
           "salaryMin": {
             "type": "integer",
@@ -22928,7 +23148,8 @@
             "format": "date-time",
             "nullable": true
           }
-        }
+        },
+        "additionalProperties": false
       },
       "DecideVacancyDto": {
         "type": "object",
@@ -22951,7 +23172,8 @@
         },
         "required": [
           "status"
-        ]
+        ],
+        "additionalProperties": false
       },
       "CreateApplicationDto": {
         "type": "object",
@@ -22967,7 +23189,8 @@
         },
         "required": [
           "vacancyId"
-        ]
+        ],
+        "additionalProperties": false
       },
       "ChangeApplicationStatusDto": {
         "type": "object",
@@ -22990,7 +23213,8 @@
         },
         "required": [
           "status"
-        ]
+        ],
+        "additionalProperties": false
       },
       "UpdateResumeDto": {
         "type": "object",
@@ -23006,7 +23230,8 @@
           "includeContacts": {
             "type": "boolean"
           }
-        }
+        },
+        "additionalProperties": false
       },
       "PresignUploadDto": {
         "type": "object",
@@ -23217,606 +23442,6 @@
           "bucket",
           "key",
           "uploadId"
-        ],
-        "additionalProperties": false
-      },
-      "SubmitDemoRequestDto": {
-        "type": "object",
-        "properties": {
-          "universityName": {
-            "type": "string",
-            "minLength": 3,
-            "maxLength": 200
-          },
-          "city": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 100
-          },
-          "country": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 100
-          },
-          "website": {
-            "type": "string",
-            "format": "uri",
-            "maxLength": 200
-          },
-          "studentsEstimate": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 1000000
-          },
-          "contactName": {
-            "type": "string",
-            "minLength": 2,
-            "maxLength": 120
-          },
-          "contactRole": {
-            "type": "string",
-            "minLength": 2,
-            "maxLength": 120
-          },
-          "email": {
-            "type": "string",
-            "format": "email",
-            "maxLength": 160
-          },
-          "phone": {
-            "type": "string",
-            "minLength": 5,
-            "maxLength": 32
-          },
-          "comment": {
-            "type": "string",
-            "maxLength": 2000
-          },
-          "consent": {
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "universityName",
-          "contactName",
-          "email",
-          "consent"
-        ],
-        "additionalProperties": false
-      },
-      "VerifyDemoRequestEmailDto": {
-        "type": "object",
-        "properties": {
-          "token": {
-            "type": "string",
-            "minLength": 16,
-            "maxLength": 200
-          }
-        },
-        "required": [
-          "token"
-        ],
-        "additionalProperties": false
-      },
-      "ApproveDemoRequestDto": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string",
-            "minLength": 3,
-            "maxLength": 200
-          },
-          "shortName": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 50
-          },
-          "country": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 100
-          },
-          "city": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 100
-          },
-          "timezone": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 64
-          },
-          "note": {
-            "type": "string",
-            "maxLength": 1000
-          }
-        },
-        "additionalProperties": false
-      },
-      "RejectDemoRequestDto": {
-        "type": "object",
-        "properties": {
-          "reason": {
-            "type": "string",
-            "enum": [
-              "NOT_ELIGIBLE",
-              "DUPLICATE",
-              "INSUFFICIENT_INFO",
-              "NO_CAPACITY",
-              "OTHER"
-            ]
-          },
-          "note": {
-            "type": "string",
-            "maxLength": 1000
-          }
-        },
-        "required": [
-          "reason"
-        ],
-        "additionalProperties": false
-      },
-      "SkipOnboardingStepDto": {
-        "type": "object",
-        "properties": {
-          "step": {
-            "type": "string",
-            "enum": [
-              "profile",
-              "faculties",
-              "specialties",
-              "groups",
-              "rooms",
-              "terms",
-              "subjects",
-              "deans",
-              "launch"
-            ]
-          }
-        },
-        "required": [
-          "step"
-        ],
-        "additionalProperties": false
-      },
-      "CreateFacultyDto": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 200
-          },
-          "universityId": {
-            "type": "string",
-            "minLength": 1
-          }
-        },
-        "required": [
-          "name",
-          "universityId"
-        ],
-        "additionalProperties": false
-      },
-      "UpdateFacultyDto": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 200
-          }
-        },
-        "required": [
-          "name"
-        ],
-        "additionalProperties": false
-      },
-      "CreateSpecialtyDto": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 200
-          }
-        },
-        "required": [
-          "name"
-        ],
-        "additionalProperties": false
-      },
-      "UpdateSpecialtyDto": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 200
-          }
-        },
-        "required": [
-          "name"
-        ],
-        "additionalProperties": false
-      },
-      "CreateGroupDto": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 100
-          },
-          "year": {
-            "type": "integer",
-            "minimum": 1900,
-            "maximum": 2200
-          },
-          "facultyId": {
-            "type": "string",
-            "minLength": 1
-          }
-        },
-        "required": [
-          "name",
-          "facultyId"
-        ],
-        "additionalProperties": false
-      },
-      "UpdateGroupDto": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 100
-          },
-          "year": {
-            "type": "integer",
-            "minimum": 1900,
-            "maximum": 2200
-          }
-        },
-        "additionalProperties": false
-      },
-      "AssignStarostaDto": {
-        "type": "object",
-        "properties": {
-          "starostaId": {
-            "type": "string",
-            "minLength": 1,
-            "nullable": true
-          }
-        },
-        "required": [
-          "starostaId"
-        ],
-        "additionalProperties": false
-      },
-      "CreateRoomDto": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 100
-          },
-          "capacity": {
-            "type": "integer",
-            "minimum": 0,
-            "exclusiveMinimum": true,
-            "maximum": 10000
-          },
-          "universityId": {
-            "type": "string",
-            "minLength": 1
-          },
-          "kind": {
-            "type": "string",
-            "enum": [
-              "AUDITORIUM",
-              "LAB",
-              "SPORT_HALL",
-              "LIBRARY",
-              "ASSEMBLY_HALL",
-              "ADMIN_OFFICE",
-              "DEAN_OFFICE",
-              "ACCOUNTING",
-              "CANTEEN",
-              "DORMITORY",
-              "OTHER"
-            ]
-          },
-          "building": {
-            "type": "string",
-            "maxLength": 100
-          },
-          "floor": {
-            "type": "integer",
-            "minimum": -5,
-            "maximum": 100
-          },
-          "openHours": {
-            "type": "string",
-            "maxLength": 200
-          },
-          "phone": {
-            "type": "string",
-            "maxLength": 30
-          },
-          "info": {
-            "type": "string",
-            "maxLength": 500
-          }
-        },
-        "required": [
-          "name"
-        ],
-        "additionalProperties": false
-      },
-      "RoomQrBatchDto": {
-        "type": "object",
-        "properties": {
-          "roomIds": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "minLength": 1
-            },
-            "minItems": 1,
-            "maxItems": 200
-          }
-        },
-        "required": [
-          "roomIds"
-        ],
-        "additionalProperties": false
-      },
-      "UpdateRoomDto": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 100
-          },
-          "capacity": {
-            "type": "integer",
-            "minimum": 0,
-            "exclusiveMinimum": true,
-            "maximum": 10000,
-            "nullable": true
-          },
-          "kind": {
-            "type": "string",
-            "enum": [
-              "AUDITORIUM",
-              "LAB",
-              "SPORT_HALL",
-              "LIBRARY",
-              "ASSEMBLY_HALL",
-              "ADMIN_OFFICE",
-              "DEAN_OFFICE",
-              "ACCOUNTING",
-              "CANTEEN",
-              "DORMITORY",
-              "OTHER"
-            ]
-          },
-          "building": {
-            "type": "string",
-            "maxLength": 100,
-            "nullable": true
-          },
-          "floor": {
-            "type": "integer",
-            "minimum": -5,
-            "maximum": 100,
-            "nullable": true
-          },
-          "openHours": {
-            "type": "string",
-            "maxLength": 200,
-            "nullable": true
-          },
-          "phone": {
-            "type": "string",
-            "maxLength": 30,
-            "nullable": true
-          },
-          "info": {
-            "type": "string",
-            "maxLength": 500,
-            "nullable": true
-          }
-        },
-        "additionalProperties": false
-      },
-      "CreateCameraAgentDto": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 100
-          }
-        },
-        "required": [
-          "name"
-        ],
-        "additionalProperties": false
-      },
-      "UpdateCameraAgentDto": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 100
-          }
-        },
-        "required": [
-          "name"
-        ],
-        "additionalProperties": false
-      },
-      "UpdateCameraSettingsDto": {
-        "type": "object",
-        "properties": {
-          "enabled": {
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "enabled"
-        ],
-        "additionalProperties": false
-      },
-      "CreateCameraDto": {
-        "type": "object",
-        "properties": {
-          "agentId": {
-            "type": "string",
-            "minLength": 1
-          },
-          "name": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 100
-          },
-          "streamUrl": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 500
-          },
-          "roomId": {
-            "type": "string",
-            "minLength": 1,
-            "nullable": true
-          },
-          "credentials": {
-            "type": "object",
-            "properties": {
-              "username": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 100
-              },
-              "password": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200
-              }
-            },
-            "required": [
-              "username",
-              "password"
-            ],
-            "additionalProperties": false
-          }
-        },
-        "required": [
-          "agentId",
-          "name",
-          "streamUrl"
-        ],
-        "additionalProperties": false
-      },
-      "UpdateCameraDto": {
-        "type": "object",
-        "properties": {
-          "name": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 100
-          },
-          "streamUrl": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 500
-          },
-          "roomId": {
-            "type": "string",
-            "minLength": 1,
-            "nullable": true
-          },
-          "enabled": {
-            "type": "boolean"
-          },
-          "credentials": {
-            "type": "object",
-            "properties": {
-              "username": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 100
-              },
-              "password": {
-                "type": "string",
-                "minLength": 1,
-                "maxLength": 200
-              }
-            },
-            "required": [
-              "username",
-              "password"
-            ],
-            "additionalProperties": false,
-            "nullable": true
-          }
-        },
-        "additionalProperties": false
-      },
-      "CameraAgentSyncDto": {
-        "type": "object",
-        "properties": {
-          "version": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 40
-          },
-          "publicKey": {
-            "type": "string",
-            "pattern": "^[A-Za-z0-9_-]{43}$"
-          },
-          "revision": {
-            "type": "string",
-            "maxLength": 100
-          },
-          "cameras": {
-            "type": "array",
-            "items": {
-              "type": "object",
-              "properties": {
-                "id": {
-                  "type": "string",
-                  "minLength": 1,
-                  "maxLength": 64
-                },
-                "status": {
-                  "type": "string",
-                  "enum": [
-                    "UNKNOWN",
-                    "ONLINE",
-                    "OFFLINE",
-                    "AUTH_FAILED"
-                  ]
-                }
-              },
-              "required": [
-                "id",
-                "status"
-              ],
-              "additionalProperties": false
-            },
-            "maxItems": 200,
-            "default": []
-          }
-        },
-        "required": [
-          "version",
-          "publicKey"
         ],
         "additionalProperties": false
       },
@@ -24260,6 +23885,607 @@
         "required": [
           "fullName",
           "purpose"
+        ],
+        "additionalProperties": false
+      },
+      "SubmitDemoRequestDto": {
+        "type": "object",
+        "properties": {
+          "universityName": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 200
+          },
+          "city": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "country": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "website": {
+            "type": "string",
+            "format": "uri",
+            "maxLength": 200
+          },
+          "studentsEstimate": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000000
+          },
+          "contactName": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 120
+          },
+          "contactRole": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 120
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 160
+          },
+          "phone": {
+            "type": "string",
+            "minLength": 5,
+            "maxLength": 32
+          },
+          "comment": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "consent": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "universityName",
+          "contactName",
+          "email",
+          "consent"
+        ],
+        "additionalProperties": false
+      },
+      "VerifyDemoRequestEmailDto": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 200
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "additionalProperties": false
+      },
+      "ApproveDemoRequestDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 200
+          },
+          "shortName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 50
+          },
+          "country": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "city": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "timezone": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 1000
+          }
+        },
+        "additionalProperties": false
+      },
+      "RejectDemoRequestDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "enum": [
+              "NOT_ELIGIBLE",
+              "DUPLICATE",
+              "INSUFFICIENT_INFO",
+              "NO_CAPACITY",
+              "OTHER"
+            ]
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 1000
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "additionalProperties": false
+      },
+      "SkipOnboardingStepDto": {
+        "type": "object",
+        "properties": {
+          "step": {
+            "type": "string",
+            "enum": [
+              "profile",
+              "faculties",
+              "specialties",
+              "groups",
+              "rooms",
+              "terms",
+              "subjects",
+              "deans",
+              "launch"
+            ]
+          }
+        },
+        "required": [
+          "step"
+        ],
+        "additionalProperties": false
+      },
+      "CreateFacultyDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "universityId": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "name",
+          "universityId"
+        ],
+        "additionalProperties": false
+      },
+      "UpdateFacultyDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "CreateSpecialtyDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "UpdateSpecialtyDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "CreateGroupDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "year": {
+            "type": "integer",
+            "minimum": 1900,
+            "maximum": 2200
+          },
+          "facultyId": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "name",
+          "facultyId"
+        ],
+        "additionalProperties": false
+      },
+      "UpdateGroupDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "year": {
+            "type": "integer",
+            "minimum": 1900,
+            "maximum": 2200,
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "AssignStarostaDto": {
+        "type": "object",
+        "properties": {
+          "starostaId": {
+            "type": "string",
+            "minLength": 1,
+            "nullable": true
+          }
+        },
+        "required": [
+          "starostaId"
+        ],
+        "additionalProperties": false
+      },
+      "CreateRoomDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "capacity": {
+            "type": "integer",
+            "minimum": 0,
+            "exclusiveMinimum": true,
+            "maximum": 10000
+          },
+          "universityId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "AUDITORIUM",
+              "LAB",
+              "SPORT_HALL",
+              "LIBRARY",
+              "ASSEMBLY_HALL",
+              "ADMIN_OFFICE",
+              "DEAN_OFFICE",
+              "ACCOUNTING",
+              "CANTEEN",
+              "DORMITORY",
+              "OTHER"
+            ]
+          },
+          "building": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "floor": {
+            "type": "integer",
+            "minimum": -5,
+            "maximum": 100
+          },
+          "openHours": {
+            "type": "string",
+            "maxLength": 200
+          },
+          "phone": {
+            "type": "string",
+            "maxLength": 30
+          },
+          "info": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "RoomQrBatchDto": {
+        "type": "object",
+        "properties": {
+          "roomIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 1,
+            "maxItems": 200
+          }
+        },
+        "required": [
+          "roomIds"
+        ],
+        "additionalProperties": false
+      },
+      "UpdateRoomDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "capacity": {
+            "type": "integer",
+            "minimum": 0,
+            "exclusiveMinimum": true,
+            "maximum": 10000,
+            "nullable": true
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "AUDITORIUM",
+              "LAB",
+              "SPORT_HALL",
+              "LIBRARY",
+              "ASSEMBLY_HALL",
+              "ADMIN_OFFICE",
+              "DEAN_OFFICE",
+              "ACCOUNTING",
+              "CANTEEN",
+              "DORMITORY",
+              "OTHER"
+            ]
+          },
+          "building": {
+            "type": "string",
+            "maxLength": 100,
+            "nullable": true
+          },
+          "floor": {
+            "type": "integer",
+            "minimum": -5,
+            "maximum": 100,
+            "nullable": true
+          },
+          "openHours": {
+            "type": "string",
+            "maxLength": 200,
+            "nullable": true
+          },
+          "phone": {
+            "type": "string",
+            "maxLength": 30,
+            "nullable": true
+          },
+          "info": {
+            "type": "string",
+            "maxLength": 500,
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "CreateCameraAgentDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "UpdateCameraAgentDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "additionalProperties": false
+      },
+      "UpdateCameraSettingsDto": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "additionalProperties": false
+      },
+      "CreateCameraDto": {
+        "type": "object",
+        "properties": {
+          "agentId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "streamUrl": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "roomId": {
+            "type": "string",
+            "minLength": 1,
+            "nullable": true
+          },
+          "credentials": {
+            "type": "object",
+            "properties": {
+              "username": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              },
+              "password": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "username",
+              "password"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "agentId",
+          "name",
+          "streamUrl"
+        ],
+        "additionalProperties": false
+      },
+      "UpdateCameraDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "streamUrl": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "roomId": {
+            "type": "string",
+            "minLength": 1,
+            "nullable": true
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "credentials": {
+            "type": "object",
+            "properties": {
+              "username": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              },
+              "password": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              }
+            },
+            "required": [
+              "username",
+              "password"
+            ],
+            "additionalProperties": false,
+            "nullable": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "CameraAgentSyncDto": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 40
+          },
+          "publicKey": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{43}$"
+          },
+          "revision": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "cameras": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "UNKNOWN",
+                    "ONLINE",
+                    "OFFLINE",
+                    "AUTH_FAILED"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "status"
+              ],
+              "additionalProperties": false
+            },
+            "maxItems": 200,
+            "default": []
+          }
+        },
+        "required": [
+          "version",
+          "publicKey"
         ],
         "additionalProperties": false
       },
@@ -26289,7 +26515,6 @@
           },
           "content": {
             "type": "string",
-            "minLength": 1,
             "maxLength": 5000
           }
         },
@@ -26469,8 +26694,13 @@
         "properties": {
           "emoji": {
             "type": "string",
-            "minLength": 1,
-            "maxLength": 16
+            "enum": [
+              "❤️",
+              "🔥",
+              "👏",
+              "😮",
+              "😢"
+            ]
           }
         },
         "required": [
@@ -26818,7 +27048,8 @@
           "minutes": {
             "type": "integer",
             "minimum": 0,
-            "exclusiveMinimum": true
+            "exclusiveMinimum": true,
+            "maximum": 525600
           },
           "importantOnly": {
             "type": "boolean"
@@ -26906,7 +27137,8 @@
         },
         "required": [
           "text"
-        ]
+        ],
+        "additionalProperties": false
       },
       "SupportReplyDto": {
         "type": "object",
@@ -26919,7 +27151,8 @@
         },
         "required": [
           "text"
-        ]
+        ],
+        "additionalProperties": false
       },
       "SetSupportTagsDto": {
         "type": "object",
@@ -26957,6 +27190,36 @@
         "required": [
           "intoId"
         ],
+        "additionalProperties": false
+      },
+      "UpdateNotificationSettingsDto": {
+        "type": "object",
+        "properties": {
+          "emailEnabled": {
+            "type": "boolean"
+          },
+          "pushEnabled": {
+            "type": "boolean"
+          },
+          "scheduleChangeEnabled": {
+            "type": "boolean"
+          },
+          "appUpdateEnabled": {
+            "type": "boolean"
+          },
+          "messageEnabled": {
+            "type": "boolean"
+          },
+          "postEnabled": {
+            "type": "boolean"
+          },
+          "eventEnabled": {
+            "type": "boolean"
+          },
+          "systemEnabled": {
+            "type": "boolean"
+          }
+        },
         "additionalProperties": false
       },
       "CreateEventDto": {
@@ -27015,6 +27278,16 @@
           "groupId": {
             "type": "string",
             "minLength": 1
+          },
+          "careerKind": {
+            "type": "string",
+            "enum": [
+              "CAREER_FAIR",
+              "WORKSHOP",
+              "INTERVIEW_DAY",
+              "COMPANY_PRESENTATION",
+              "HACKATHON"
+            ]
           }
         },
         "required": [
@@ -27064,6 +27337,17 @@
           "endsAt": {
             "type": "string",
             "format": "date-time",
+            "nullable": true
+          },
+          "careerKind": {
+            "type": "string",
+            "enum": [
+              "CAREER_FAIR",
+              "WORKSHOP",
+              "INTERVIEW_DAY",
+              "COMPANY_PRESENTATION",
+              "HACKATHON"
+            ],
             "nullable": true
           }
         },
@@ -27670,36 +27954,6 @@
         ],
         "additionalProperties": false
       },
-      "UpdateNotificationSettingsDto": {
-        "type": "object",
-        "properties": {
-          "emailEnabled": {
-            "type": "boolean"
-          },
-          "pushEnabled": {
-            "type": "boolean"
-          },
-          "scheduleChangeEnabled": {
-            "type": "boolean"
-          },
-          "appUpdateEnabled": {
-            "type": "boolean"
-          },
-          "messageEnabled": {
-            "type": "boolean"
-          },
-          "postEnabled": {
-            "type": "boolean"
-          },
-          "eventEnabled": {
-            "type": "boolean"
-          },
-          "systemEnabled": {
-            "type": "boolean"
-          }
-        },
-        "additionalProperties": false
-      },
       "RegisterDeviceDto": {
         "type": "object",
         "properties": {
@@ -27847,7 +28101,8 @@
         },
         "required": [
           "minutes"
-        ]
+        ],
+        "additionalProperties": false
       },
       "SetBannerDto": {
         "type": "object",
@@ -27912,7 +28167,8 @@
         },
         "required": [
           "minutes"
-        ]
+        ],
+        "additionalProperties": false
       },
       "SetSectionsDto": {
         "type": "object",
@@ -27935,7 +28191,8 @@
         },
         "required": [
           "disabled"
-        ]
+        ],
+        "additionalProperties": false
       },
       "SetSeasonDto": {
         "type": "object",
@@ -27971,7 +28228,8 @@
         "required": [
           "off",
           "override"
-        ]
+        ],
+        "additionalProperties": false
       },
       "SetNotificationsDto": {
         "type": "object",
@@ -28019,7 +28277,8 @@
           "muted",
           "dutyUserId",
           "digestHour"
-        ]
+        ],
+        "additionalProperties": false
       },
       "AnnounceReleaseDto": {
         "type": "object",
@@ -28032,7 +28291,8 @@
         },
         "required": [
           "version"
-        ]
+        ],
+        "additionalProperties": false
       },
       "SetDutyDto": {
         "type": "object",
@@ -28068,7 +28328,8 @@
         "required": [
           "initData",
           "code"
-        ]
+        ],
+        "additionalProperties": false
       },
       "MiniSessionDto": {
         "type": "object",
@@ -28081,7 +28342,8 @@
         },
         "required": [
           "initData"
-        ]
+        ],
+        "additionalProperties": false
       }
     }
   }
