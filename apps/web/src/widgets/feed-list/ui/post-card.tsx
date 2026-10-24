@@ -1,6 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { Bookmark, Eye, Heart, MessageSquare, Pin, Play, Repeat2 } from 'lucide-react'
@@ -11,12 +12,14 @@ import {
   addReactionRequest,
   canRepost,
   hasMyReaction,
+  patchCachedPost,
   reactionSummaryOf,
   reactionTotal,
   removeReactionRequest,
   withMyReaction,
   type FeedPost,
   type PostMedia,
+  type PostReactionSummary,
 } from '../../../entities/post'
 import { ProfileLink } from '../../../entities/user'
 import { RepostDialog, useRepost } from '../../../features/repost-post'
@@ -107,6 +110,7 @@ function PostCardView({
   const t = useTranslations('Feed')
   const tErr = useTranslations('Errors')
   const locale = useLocale()
+  const qc = useQueryClient()
   const myId = useAppSelector((s) => s.auth.user?.id)
   const myRole = useAppSelector((s) => s.auth.role)
 
@@ -129,14 +133,23 @@ function PostCardView({
   const liked = hasMyReaction(reactions, LIKE_EMOJI)
   const { bookmarked, toggle: toggleBookmark } = useBookmark(post.id, post.bookmarked)
 
-  // Оптимистичный лайк с откатом (docs/FRONTEND_RULES.md §5.5).
+  // Сводка реакций — из кэша постов: лайк из полного просмотра того же поста приходит сюда
+  // правкой кэша (patchCachedPost), и карточка не расходится с ним.
+  useEffect(() => setReactions(reactionSummaryOf(post, myId)), [post, myId])
+
+  // Оптимистичный лайк с откатом (docs/FRONTEND_RULES.md §5.5) — и в кэше постов, чтобы
+  // полный просмотр того же поста видел тот же лайк.
   function toggleLike(): void {
     if (!myId) return
     const prev = reactions
-    setReactions(withMyReaction(prev, LIKE_EMOJI, !liked))
+    const apply = (summary: PostReactionSummary[]): void => {
+      setReactions(summary)
+      patchCachedPost(qc, post.id, (p) => ({ ...p, reactionSummary: summary }))
+    }
+    apply(withMyReaction(prev, LIKE_EMOJI, !liked))
     const request = liked ? removeReactionRequest : addReactionRequest
     request(post.id, LIKE_EMOJI).catch(() => {
-      setReactions(prev)
+      apply(prev)
       toast.error(tErr('INTERNAL_ERROR'))
     })
   }

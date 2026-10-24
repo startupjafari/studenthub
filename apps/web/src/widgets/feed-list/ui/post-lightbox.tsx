@@ -36,15 +36,16 @@ import {
   fetchCommentsPage,
   hasMyReaction,
   incrementPostView,
+  patchCachedPost,
   postKeys,
   reactionSummaryOf,
   reactionTotal,
   removeReactionRequest,
   withMyReaction,
-  type FeedPage,
   type FeedPost,
   type PostComment,
   type PostCommentsPage,
+  type PostReactionSummary,
 } from '../../../entities/post'
 import { ProfileLink } from '../../../entities/user'
 import { RepostDialog, useRepost } from '../../../features/repost-post'
@@ -111,25 +112,10 @@ const MODERATOR_ROLES: Role[] = [
  * и перерисовывались, лента за окном перезагружалась целиком — всё дёргалось.
  */
 function patchCommentCount(qc: QueryClient, postId: string, delta: number): void {
-  const bump = (p: FeedPost): FeedPost =>
-    p.id === postId
-      ? { ...p, _count: { ...p._count, comments: Math.max(0, p._count.comments + delta) } }
-      : p
-  // Обсуждение лежит под тем же ['posts', …] и тоже бесконечный список — его не трогаем:
-  // там не посты, а комментарии, и правка дала бы лишнюю перерисовку окна.
-  const notComments = (q: { queryKey: readonly unknown[] }) => q.queryKey[2] !== 'comments'
-  qc.setQueriesData<unknown>(
-    { queryKey: postKeys.all, predicate: notComments },
-    (data: unknown) => {
-      if (!data || typeof data !== 'object' || Array.isArray(data)) return data
-      if ('pages' in data) {
-        const feed = data as InfiniteData<FeedPage>
-        return { ...feed, pages: feed.pages.map((pg) => ({ ...pg, items: pg.items.map(bump) })) }
-      }
-      if ('id' in data && '_count' in data) return bump(data as FeedPost)
-      return data
-    },
-  )
+  patchCachedPost(qc, postId, (p) => ({
+    ...p,
+    _count: { ...p._count, comments: Math.max(0, p._count.comments + delta) },
+  }))
 }
 
 function initials(a: { firstName: string; lastName: string }): string {
@@ -328,6 +314,8 @@ function PostView({
   const [zoomed, setZoomed] = useState(false)
   const [views, setViews] = useState(post.views)
   const [reactions, setReactions] = useState(() => reactionSummaryOf(post, myId))
+  // Сводка — из кэша постов: лайк в карточке ленты приходит сюда правкой кэша.
+  useEffect(() => setReactions(reactionSummaryOf(post, myId)), [post, myId])
 
   // Засчитываем просмотр один раз при открытии поста (PostView ремонтируется по key={post.id}).
   useEffect(() => {
@@ -537,14 +525,19 @@ function PostView({
     setScrollToId(null)
   }, [scrollToId, comments.data])
 
-  // Оптимистичный лайк ❤️ с откатом (docs/FRONTEND_RULES.md §5.5).
+  // Оптимистичный лайк ❤️ с откатом (docs/FRONTEND_RULES.md §5.5) — и в кэше постов, чтобы
+  // карточка того же поста в ленте за окном показывала тот же лайк.
   function toggleLike(): void {
     if (!myId) return
     const prev = reactions
-    setReactions(withMyReaction(prev, LIKE_EMOJI, !liked))
+    const apply = (summary: PostReactionSummary[]): void => {
+      setReactions(summary)
+      patchCachedPost(qc, post.id, (p) => ({ ...p, reactionSummary: summary }))
+    }
+    apply(withMyReaction(prev, LIKE_EMOJI, !liked))
     const request = liked ? removeReactionRequest : addReactionRequest
     request(post.id, LIKE_EMOJI).catch(() => {
-      setReactions(prev)
+      apply(prev)
       toast.error(tErr('INTERNAL_ERROR'))
     })
   }
