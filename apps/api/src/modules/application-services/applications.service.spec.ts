@@ -763,3 +763,30 @@ describe('ApplicationsService.getById — чек-лист и история по
     expect(requirements.take).toBeGreaterThan(0)
   })
 })
+
+describe('ApplicationsService.getById — отозванный результат', () => {
+  it('помечает результат с отозванной справкой, document наружу не отдаёт', async () => {
+    const { service, application } = setup()
+    application.findFirst.mockResolvedValue({
+      studentId: 'stud',
+      facultyId: 'fac',
+      universityId: 'uni',
+    })
+    application.findUnique.mockResolvedValue({
+      id: 'a1',
+      documents: [],
+      events: [],
+      results: [
+        { id: 'r2', document: { status: 'ISSUED', issuedByUniversity: true } },
+        { id: 'r1', document: { status: 'REJECTED', issuedByUniversity: true } },
+        { id: 'r0', document: null },
+      ],
+    })
+    const app = await service.getById(student, 'a1')
+    expect(app?.results).toEqual([
+      { id: 'r2', revoked: false },
+      { id: 'r1', revoked: true },
+      { id: 'r0', revoked: false },
+    ])
+  })
+})

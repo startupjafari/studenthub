@@ -1852,6 +1852,7 @@
     "revokeCertificateTitle": "Отозвать выданную справку?",
     "revokeCertificateReason": "Причина — необязательно. Файл у студента останется, но проверка по коду покажет «отозван».",
     "certificateRevoked": "Справка отозвана",
+    "resultRevoked": "Отозвана университетом — не действует",
     "certificateNothingToRevoke": "Действующей справки по этой заявке нет",
     "event_RESULT_REVOKED": "Справка отозвана",
     "certificateAlreadyIssued": "Справка по этой заявке уже выдана. Чтобы выпустить новую, сначала отзовите прежнюю"

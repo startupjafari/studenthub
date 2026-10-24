@@ -42,6 +42,27 @@ const REVOKED_REASON = 'Справка отозвана университето
 // закрытую (выдана, предоставлена, отклонена, отозвана) вести уже некому и незачем.
 const NOT_ASSIGNABLE: ApplicationServiceStatus[] = ['DRAFT', ...TERMINAL_STATUSES]
 
+// Этапы, на которых результат ещё не передан студенту: добавить его (или перевыпустить
+// справку после отзыва) можно и после «готово» — иначе отзыв ошибочной справки в READY
+// оставлял заявку «готовой» без действующего документа и без способа выдать новый.
+const RESULT_STAGES: ApplicationServiceStatus[] = ['IN_PREPARATION', 'READY', 'READY_FOR_PICKUP']
+
+/**
+ * Действующий результат: без документа (бумага, информация) или с документом, который вуз
+ * не отзывал. Отозванная справка (revokeStudyCertificate ставит документу REJECTED) студенту
+ * уже ничего не подтверждает и «готово» не обосновывает.
+ */
+const ACTIVE_RESULT_WHERE = {
+  OR: [
+    { documentId: null },
+    {
+      document: {
+        is: { OR: [{ issuedByUniversity: false }, { status: { not: 'REJECTED' } }] },
+      },
+    },
+  ],
+} satisfies Prisma.ApplicationResultWhereInput
+
 const PROC_SELECT = {
   id: true,
   number: true,
@@ -185,6 +206,11 @@ export class ApplicationProcessService {
   async reject(viewer: JwtPayload, id: string, reason: string) {
     if (!reason) throw new AppException('BAD_REQUEST', 'Укажите причину отказа')
     const app = await this.load(viewer, id)
+    // Отказ после выдачи справки оставлял её действующей: /verify отвечал VALID, у студента
+    // документ числился выданным университетом. Сначала отзыв (с причиной), потом отказ.
+    if (app.number && (await this.exports.hasActiveDocument(app.number))) {
+      throw new AppException('CONFLICT', 'По заявке выдана справка — сначала отзовите её')
+    }
     return this.transition(viewer, app, 'REJECTED', {
       action: 'REJECTED',
       comment: reason,
@@ -197,10 +223,13 @@ export class ApplicationProcessService {
     })
   }
 
-  /** Добавить результат (на этапе подготовки). Статус не меняется — готовность отдельно (markReady). */
+  /**
+   * Добавить результат (на этапе подготовки или до передачи студенту — перевыпуск после
+   * отзыва). Статус не меняется — готовность отдельно (markReady).
+   */
   async addResult(viewer: JwtPayload, id: string, dto: AddResultInput) {
     const app = await this.load(viewer, id)
-    if (app.status !== 'IN_PREPARATION') {
+    if (!RESULT_STAGES.includes(app.status as ApplicationServiceStatus)) {
       throw new AppException('BAD_REQUEST', 'Результат добавляется на этапе подготовки')
     }
     // Файл готовой справки превращаем в документ студента ДО транзакции результата:
@@ -245,7 +274,7 @@ export class ApplicationProcessService {
    */
   async issueStudyCertificate(viewer: JwtPayload, id: string, locale: ExportLocale) {
     const app = await this.load(viewer, id)
-    if (app.status !== 'IN_PREPARATION') {
+    if (!RESULT_STAGES.includes(app.status as ApplicationServiceStatus)) {
       throw new AppException('BAD_REQUEST', 'Справка формируется на этапе подготовки')
     }
     // Номер заявки — номер справки и ключ её отзыва. У поданной заявки он есть всегда.
@@ -451,12 +480,10 @@ export class ApplicationProcessService {
     const app = await this.load(viewer, id)
     const paper = app.deliveryType === 'PAPER' || app.deliveryType === 'BOTH'
     // Электронная выдача (ELECTRONIC/BOTH) без результата — пустое «готово»: студент получает
-    // уведомление, а скачать нечего. Нужен хотя бы один результат (addResult или справка).
+    // уведомление, а скачать нечего. Нужен хотя бы один действующий результат (addResult или
+    // справка): отозванная справка не в счёт.
     if (app.status === 'IN_PREPARATION' && app.deliveryType !== 'PAPER') {
-      const results = await this.prisma.applicationResult.count({ where: { applicationId: id } })
-      if (results === 0) {
-        throw new AppException('BAD_REQUEST', 'Сначала добавьте результат заявки')
-      }
+      await this.assertActiveResult(id)
     }
     const data: Prisma.ApplicationUpdateInput = { readyAt: new Date() }
     if (paper) {
@@ -508,6 +535,10 @@ export class ApplicationProcessService {
   /** Отметить электронный результат предоставленным: READY → DELIVERED. */
   async deliver(viewer: JwtPayload, id: string) {
     const app = await this.load(viewer, id)
+    // Справку могли отозвать уже после «готово»: предоставлять тогда нечего, сначала перевыпуск.
+    if (app.deliveryType !== 'PAPER') {
+      await this.assertActiveResult(id)
+    }
     return this.transition(viewer, app, 'DELIVERED', {
       action: 'DELIVERED',
       notify: {
@@ -548,6 +579,15 @@ export class ApplicationProcessService {
   }
 
   // ── helpers ────────────────────────────────────────────────────────────────
+
+  private async assertActiveResult(applicationId: string): Promise<void> {
+    const results = await this.prisma.applicationResult.count({
+      where: { applicationId, ...ACTIVE_RESULT_WHERE },
+    })
+    if (results === 0) {
+      throw new AppException('BAD_REQUEST', 'Сначала добавьте результат заявки')
+    }
+  }
 
   private async load(viewer: JwtPayload, id: string) {
     // Неподанная заявка сотруднику не видна (404): ни назначить, ни прочитать её через действия.

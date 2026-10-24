@@ -320,6 +320,9 @@ function ResultRow({ appId, result }: { appId: string; result: ApplicationResult
           </span>
         )}
         {result.note && <p className="text-muted-foreground">{result.note}</p>}
+        {result.revoked && (
+          <span className="text-xs font-medium text-destructive">{t('resultRevoked')}</span>
+        )}
       </div>
       {result.documentId && (
         <Button

@@ -445,6 +445,8 @@ export class ApplicationsService {
             documentNumber: true,
             note: true,
             createdAt: true,
+            // Отозвана ли выданная справка: документ студента в статусе REJECTED.
+            document: { select: { status: true, issuedByUniversity: true } },
           },
         },
       },
@@ -468,6 +470,12 @@ export class ApplicationsService {
       documents: app.documents.map(({ document, ...doc }) => ({
         ...doc,
         files: document?.files ?? [],
+      })),
+      // `revoked` — добавочное поле: отозванный результат ничего не подтверждает, и клиент
+      // помечает его, а не показывает как действующий (ApplicationProcessService.ACTIVE_RESULT_WHERE).
+      results: app.results.map(({ document, ...result }) => ({
+        ...result,
+        revoked: !!document?.issuedByUniversity && document.status === 'REJECTED',
       })),
     }
   }

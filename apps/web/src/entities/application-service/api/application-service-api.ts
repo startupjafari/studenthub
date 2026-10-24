@@ -177,7 +177,12 @@ export interface ApplicationResultItem {
   documentNumber: string | null
   note: string | null
   createdAt: string
+  // Выданная справка отозвана: файл у студента остался, но ничего не подтверждает.
+  revoked?: boolean
 }
+
+/** Справка, сформированная платформой (её и только её отзывают по коду проверки). */
+export const CERTIFICATE_RESULT_TYPE = 'DOCUMENT'
 
 export interface ApplicationDetail extends ApplicationListItem {
   rejectionReason: string | null

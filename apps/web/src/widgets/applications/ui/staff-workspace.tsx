@@ -24,6 +24,7 @@ import {
   assignApplicationRequest,
   revokeCertificateRequest,
   pickLocale,
+  CERTIFICATE_RESULT_TYPE,
   type ApplicationDetail,
   type ApplicationDocumentItem,
 } from '../../../entities/application-service'
@@ -147,8 +148,9 @@ export function StaffWorkspaceModal({ id, onClose }: { id: string; onClose: () =
             </Card>
           )}
 
-          {/* Шаги «Подготовка»/«Выдача» — результат заявки */}
-          {viewStep >= 1 && app.results.length > 0 && (
+          {/* Шаги «Подготовка»/«Выдача» — результат заявки. У отклонённой — тоже: справку,
+              выданную до отказа, должно быть видно и можно отозвать. */}
+          {(viewStep >= 1 || app.status === 'REJECTED') && app.results.length > 0 && (
             <Card className="flex flex-col gap-2 p-4">
               <h3 className="text-sm font-semibold">{t('resultTitle')}</h3>
               {app.results.map((r) => (
@@ -246,6 +248,8 @@ function StaffActions({ app, onDone }: { app: ApplicationDetail; onDone: () => v
 
   const buttons: React.ReactNode[] = []
   const s = app.status
+  // Отозванная справка результатом не считается (сервер проверяет то же самое).
+  const hasActiveResult = app.results.some((r) => !r.revoked)
   if (s === 'SUBMITTED' || s === 'RESUBMITTED') {
     buttons.push(
       <Button
@@ -300,7 +304,7 @@ function StaffActions({ app, onDone }: { app: ApplicationDetail; onDone: () => v
         onClick={() => {
           // Электронную выдачу без результата сервер не примет: студенту пришло бы «готово»,
           // а скачать нечего. Подсказываем до запроса, а не общей ошибкой после.
-          if (app.deliveryType !== 'PAPER' && app.results.length === 0) {
+          if (app.deliveryType !== 'PAPER' && !hasActiveResult) {
             toast.error(t('readyNeedsResult'))
             return
           }
@@ -309,6 +313,14 @@ function StaffActions({ app, onDone }: { app: ApplicationDetail; onDone: () => v
         }}
       >
         {t('markReady')}
+      </Button>,
+    )
+  }
+  // Справку отозвали уже после «готово» — до передачи студенту её можно выпустить заново.
+  if ((s === 'READY' || s === 'READY_FOR_PICKUP') && !hasActiveResult && app.results.length > 0) {
+    buttons.push(
+      <Button key="result" variant="outline" className="w-full" onClick={() => setResultOpen(true)}>
+        {t('addResult')}
       </Button>,
     )
   }
@@ -510,6 +522,7 @@ function ResultRow({
     documentId: string | null
     documentNumber: string | null
     note: string | null
+    revoked?: boolean
   }
 }) {
   const t = useTranslations('Applications')
@@ -529,6 +542,9 @@ function ResultRow({
           </span>
         )}
         {result.note && <p className="text-muted-foreground">{result.note}</p>}
+        {result.revoked && (
+          <span className="text-xs font-medium text-destructive">{t('resultRevoked')}</span>
+        )}
       </div>
       {result.documentId && (
         <Button
@@ -616,8 +632,9 @@ function AssigneeRow({ app, onChanged }: { app: ApplicationDetail; onChanged: ()
 
 /**
  * Отзыв выданной справки. Файл у студента остаётся (изъять его нельзя), но проверка по коду
- * с этого момента отвечает «документ отозван». Кнопка видна, пока после последней выдачи
- * отзыва ещё не было; «уже отозвано» сервер отдаёт как 404 — его и показываем.
+ * с этого момента отвечает «документ отозван». Кнопка видна, пока есть неотозванная справка,
+ * сформированная платформой: у загруженного файла или бумажного результата кода проверки нет,
+ * и отзывать там нечего (сервер ответил бы 404). «Уже отозвано» — тоже 404, его и показываем.
  */
 function RevokeCertificate({ app, onDone }: { app: ApplicationDetail; onDone: () => void }) {
   const t = useTranslations('Applications')
@@ -635,12 +652,7 @@ function RevokeCertificate({ app, onDone }: { app: ApplicationDetail; onDone: ()
     },
   })
 
-  const hasNumbered = app.results.some((r) => r.documentNumber)
-  const lastAdded = lastEventTime(app, 'RESULT_ADDED')
-  const lastRevoked = lastEventTime(app, 'RESULT_REVOKED')
-  if (!hasNumbered || (lastRevoked !== null && lastAdded !== null && lastRevoked >= lastAdded)) {
-    return null
-  }
+  if (!app.results.some((r) => r.type === CERTIFICATE_RESULT_TYPE && !r.revoked)) return null
 
   return (
     <>
@@ -668,11 +680,6 @@ function RevokeCertificate({ app, onDone }: { app: ApplicationDetail; onDone: ()
       />
     </>
   )
-}
-
-function lastEventTime(app: ApplicationDetail, action: string): number | null {
-  const times = app.events.filter((e) => e.action === action).map((e) => Date.parse(e.createdAt))
-  return times.length ? Math.max(...times) : null
 }
 
 function Row({ label, value }: { label: string; value: string }) {

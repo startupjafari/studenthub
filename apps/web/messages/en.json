@@ -1852,6 +1852,7 @@
     "revokeCertificateTitle": "Revoke the issued certificate?",
     "revokeCertificateReason": "Reason — optional. The student keeps the file, but the code check will show “revoked”.",
     "certificateRevoked": "Certificate revoked",
+    "resultRevoked": "Revoked by the university — no longer valid",
     "certificateNothingToRevoke": "There is no valid certificate for this request",
     "event_RESULT_REVOKED": "Certificate revoked",
     "certificateAlreadyIssued": "A certificate has already been issued for this request. Revoke it first to issue a new one"
