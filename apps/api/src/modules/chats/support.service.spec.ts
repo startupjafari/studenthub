@@ -197,6 +197,33 @@ describe('SupportService.reply', () => {
     })
   })
 
+  // BUG-034: склеенная ветка закрыта, догон членства её обходит — сотрудник, пришедший после
+  // склейки, в ней не состоял, и чтение по членству роняло весь экран.
+  it('сотрудник догоняет членство и в склеенных ветках', async () => {
+    const { service, prisma, chats } = setup()
+    Object.assign(prisma.chat, {
+      findUniqueOrThrow: jest.fn().mockResolvedValue({
+        id: 'ticket-1',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        supportClosedAt: null,
+        supportAssigneeId: null,
+        supportFirstReplyAt: null,
+        supportTags: [],
+        members: [],
+      }),
+    })
+    prisma.chat.findMany.mockResolvedValueOnce([{ id: 'merged-1' }])
+
+    await service.thread(who(Role.PLATFORM_ADMIN, 'staff-9'), 'ticket-1')
+
+    expect(prisma.chatMember.createMany).toHaveBeenCalledWith({
+      data: [{ chatId: 'merged-1', userId: 'staff-9' }],
+      skipDuplicates: true,
+    })
+    expect(chats.getMessages).toHaveBeenCalledWith(expect.anything(), 'merged-1', { limit: 50 })
+  })
+
   it('не принимает за обращение обычный чат', async () => {
     const { service } = setup({ chatType: ChatType.PRIVATE })
 
@@ -633,6 +660,18 @@ describe('SupportService.merge', () => {
       .mockResolvedValueOnce(ticket('author-1', 'c'))
     const err = await service.merge(staff, 'a', 'b').catch((e) => e)
     expect(err.code).toBe('CONFLICT')
+  })
+
+  // BUG-059: ветки, склеенные в источник раньше, указывали бы на склеенное — и их переписку
+  // не было бы видно нигде. Они переезжают в цель вместе с источником.
+  it('ветки, склеенные в источник, переезжают в цель', async () => {
+    const { service, prisma } = setup()
+    prisma.chat.findFirst.mockResolvedValue(ticket('author-1'))
+    await service.merge(staff, 'a', 'b')
+    expect(prisma.chat.updateMany).toHaveBeenCalledWith({
+      where: { supportMergedIntoId: 'a' },
+      data: { supportMergedIntoId: 'b' },
+    })
   })
 
   it('само с собой → BAD_REQUEST', async () => {

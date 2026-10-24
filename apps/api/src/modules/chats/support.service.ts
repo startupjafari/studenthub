@@ -307,6 +307,15 @@ export class SupportService implements OnModuleInit {
     // Переписка склеенных веток читается вместе с целевой: склейка нужна, чтобы видеть
     // разговор целиком, а не чтобы прятать половину. Сообщения не переносились, поэтому
     // порядок восстанавливаем по времени — `seq` сравним только внутри одного чата.
+    // Склеенная ветка закрыта, и догон членства (`joinOpenTickets`) её обходит: сотрудник,
+    // пришедший после склейки, в ней не состоит, и чтение по членству роняло весь экран.
+    // Догоняем членство тем же приёмом, что и `assertAccess` для самой ветки.
+    if (STAFF_ROLES.includes(viewer.role) && merged.length > 0) {
+      await this.prisma.chatMember.createMany({
+        data: merged.map((ticket) => ({ chatId: ticket.id, userId: viewer.sub })),
+        skipDuplicates: true,
+      })
+    }
     const extra = await Promise.all(
       merged.map((ticket) => this.chats.getMessages(viewer, ticket.id, { limit: 50 })),
     )
@@ -378,10 +387,19 @@ export class SupportService implements OnModuleInit {
       throw new AppException('BAD_REQUEST', 'Склеивать можно только обращения одного человека')
     }
 
-    await this.prisma.chat.update({
-      where: { id: chatId },
-      data: { supportMergedIntoId: intoId, supportClosedAt: new Date() },
-    })
+    // Ветки, склеенные в источник раньше, переезжают в цель вместе с ним: иначе они
+    // указывали бы на склеенное, а читатель идёт ровно на один шаг — их переписку не было
+    // бы видно нигде. Автор у них тот же, что и у источника, так что чужого не смешиваем.
+    await this.prisma.$transaction([
+      this.prisma.chat.updateMany({
+        where: { supportMergedIntoId: chatId },
+        data: { supportMergedIntoId: intoId },
+      }),
+      this.prisma.chat.update({
+        where: { id: chatId },
+        data: { supportMergedIntoId: intoId, supportClosedAt: new Date() },
+      }),
+    ])
     await this.audit.record({
       userId: viewer.sub,
       action: 'support.ticket.merge',
