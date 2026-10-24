@@ -262,6 +262,9 @@ model User {
   @@index([deletedAt])
   // Ночная уборка по срокам хранения ищет ушедших из вуза больше года назад.
   @@index([leftUniversityAt])
+  // Плюс индекс по выражению lower(email) — под поиск email без учёта регистра
+  // (users.service, emailIgnoringCase). Prisma выражения в индексах не моделирует, поэтому он
+  // только в миграции 20261024140100_add_index_users_email_lower; дрейфа схемы не даёт.
   @@map("users")
 }
 
@@ -332,5 +335,10 @@ model Invite {
   @@index([createdById])
   @@index([usedById])
   @@index([email])
+  // Инвайты вуза (список админа, воронка аналитики, онбординг) и массовый отзыв PENDING
+  // при удалении вуза, факультета или группы (revokePendingInScope).
+  @@index([universityId, status])
+  @@index([facultyId, status])
+  @@index([groupId, status])
   @@map("invites")
 }
