@@ -105,6 +105,23 @@ class RealtimeCoordinatorTest {
         assertEquals(listOf("c1", "c1"), transport.joined)
     }
 
+    /**
+     * Свёрнутое приложение не сидит в комнате открытого чата: сервер иначе не шлёт по нему
+     * пуши ни на одно устройство. Вернулись — входим снова.
+     */
+    @Test
+    fun backgroundLeavesRoomOfOpenChat() = runTest {
+        val transport = FakeTransport()
+        val realtime = coordinator(transport)
+        realtime.open("c1")
+        realtime.setForeground(false)
+        assertEquals(listOf("c1"), transport.left)
+        realtime.handle(RealtimeEvent.Connected)
+        assertEquals(listOf("c1"), transport.joined)
+        realtime.setForeground(true)
+        assertEquals(listOf("c1", "c1"), transport.joined)
+    }
+
     /** Прочитанное без связи не теряется: отметка уходит, как только сокет подключится. */
     @Test
     fun readWithoutConnectionIsSentOnConnect() = runTest {
@@ -181,7 +198,11 @@ class RealtimeCoordinatorTest {
             joined += chatId
         }
 
-        override fun leave(chatId: String) {}
+        val left = mutableListOf<String>()
+
+        override fun leave(chatId: String) {
+            left += chatId
+        }
 
         val reads = mutableListOf<Pair<String, String>>()
 

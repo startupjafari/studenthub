@@ -69,6 +69,10 @@ class RealtimeCoordinator(
     @Volatile
     private var openChatId: String? = null
 
+    /** Приложение на экране. Свёрнутое не сидит в комнате открытого чата. */
+    @Volatile
+    private var inForeground = true
+
     fun start() {
         if (pump != null) return
         pump = scope.launch {
@@ -111,7 +115,25 @@ class RealtimeCoordinator(
     /** Открытый чат: вход в комнату и признак, что его сообщения читают прямо сейчас. */
     fun open(chatId: String) {
         openChatId = chatId
-        transport.join(chatId)
+        if (inForeground) transport.join(chatId)
+    }
+
+    /**
+     * Приложение свернули или вернули. Сервер не шлёт пуш тем, кто сидит в комнате чата
+     * (считает, что они читают его прямо сейчас), — и свёрнутое приложение с открытым
+     * чатом глушило бы уведомления по нему на всех устройствах человека. Поэтому на время
+     * в фоне комнату отпускаем, а по возвращении входим снова.
+     */
+    fun setForeground(visible: Boolean) {
+        if (inForeground == visible) return
+        inForeground = visible
+        val chatId = openChatId ?: return
+        if (visible) {
+            transport.join(chatId)
+        } else {
+            transport.send(null, chatId)
+            transport.leave(chatId)
+        }
     }
 
     fun close(chatId: String) {
@@ -140,7 +162,7 @@ class RealtimeCoordinator(
                 _isConnected.value = true
                 _connectionEpoch.value += 1
                 // Комнату после переподключения сервер не помнит — входим заново.
-                openChatId?.let(transport::join)
+                if (inForeground) openChatId?.let(transport::join)
                 lastReads.forEach { (chatId, messageId) -> transport.markRead(chatId, messageId) }
             }
             RealtimeEvent.Disconnected -> _isConnected.value = false

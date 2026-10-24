@@ -42,6 +42,9 @@ import kz.studenthub.app.core.study.StudyApi
 import kz.studenthub.app.features.chats.outgoingDir
 import androidx.core.app.NotificationManagerCompat
 import coil3.SingletonImageLoader
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
@@ -188,5 +191,14 @@ class AppServices(context: Context) {
         // Отказ в продлении сессии ведёт на вход, откуда бы ни пришёл запрос: с экрана,
         // из сокета или из фоновой досылки сообщений.
         appScope.launch { session.expired.collect { sessionModel.sessionExpired() } }
+        // Свёрнутое приложение не держит комнату открытого чата: иначе сервер считает, что
+        // его читают, и не шлёт по нему пуши ни на одно устройство человека.
+        ProcessLifecycleOwner.get().lifecycle.addObserver(
+            object : DefaultLifecycleObserver {
+                override fun onStart(owner: LifecycleOwner) = realtime.setForeground(true)
+
+                override fun onStop(owner: LifecycleOwner) = realtime.setForeground(false)
+            },
+        )
     }
 }
