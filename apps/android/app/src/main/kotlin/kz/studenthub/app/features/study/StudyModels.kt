@@ -347,7 +347,8 @@ class SubmissionModel(private val assignmentId: String, private val api: StudyFe
         if (isSending) return false
         isSending = true
         return try {
-            api.saveSubmissionDraft(assignmentId, text.ifEmpty { null }, link.ifEmpty { null })
+            // Пустое поле — очистить его на сервере, а не оставить прежнее.
+            api.saveSubmissionDraft(assignmentId, text.trim().ifEmpty { null }, link.trim().ifEmpty { null })
             api.submit(assignmentId)
             failure = null
             true

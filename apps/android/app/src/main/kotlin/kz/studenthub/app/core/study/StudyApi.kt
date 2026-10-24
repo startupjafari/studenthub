@@ -2,6 +2,9 @@ package kz.studenthub.app.core.study
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kz.studenthub.app.core.network.ApiClient
 import kz.studenthub.app.core.network.Endpoint
 import kz.studenthub.app.core.network.HttpMethod
@@ -64,8 +67,19 @@ class StudyApi(private val client: ApiClient) : ScheduleFetching, StudyFetching 
         client.send(Endpoint.post("assignments/$assignmentId/submit"))
     }
 
+    /**
+     * `null` — очистить поле. Уходит явным `null`: пропущенное поле сервер оставляет как
+     * было, а общий разбор JSON (`explicitNulls = false`) пустые поля как раз пропускает —
+     * стереть ответ или ссылку было бы нельзя.
+     */
     override suspend fun saveSubmissionDraft(assignmentId: String, text: String?, linkUrl: String?) {
-        client.send(Endpoint.json(HttpMethod.PUT, "assignments/$assignmentId/submission", DraftBody.serializer(), DraftBody(text, linkUrl)))
+        val body = JsonObject(
+            mapOf(
+                "text" to (text?.let(::JsonPrimitive) ?: JsonNull),
+                "linkUrl" to (linkUrl?.let(::JsonPrimitive) ?: JsonNull),
+            ),
+        )
+        client.send(Endpoint.json(HttpMethod.PUT, "assignments/$assignmentId/submission", JsonObject.serializer(), body))
     }
 
     override suspend fun materials(): List<MaterialDto> =
@@ -84,9 +98,6 @@ class StudyApi(private val client: ApiClient) : ScheduleFetching, StudyFetching 
     override suspend fun mark(pairId: String, date: LocalDate, entries: List<AttendanceEntry>) {
         client.send(Endpoint.json(HttpMethod.PUT, "attendance", MarkBody.serializer(), MarkBody(pairId, date.toString(), entries)))
     }
-
-    @Serializable
-    private data class DraftBody(val text: String?, val linkUrl: String?)
 
     @Serializable
     private data class MarkBody(val pairId: String, val date: String, val entries: List<AttendanceEntry>)

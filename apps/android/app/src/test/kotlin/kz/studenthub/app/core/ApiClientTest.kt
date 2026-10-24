@@ -4,6 +4,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.Serializable
 import kz.studenthub.app.BuildConfig
 import kz.studenthub.app.core.chats.ChatsApi
+import kz.studenthub.app.core.study.StudyApi
 import kz.studenthub.app.core.network.ApiClient
 import kz.studenthub.app.core.network.ApiError
 import kz.studenthub.app.core.network.ApiErrorCode
@@ -172,6 +173,14 @@ class ApiClientTest {
         val request = server.takeRequest()
         assertEquals("/api/v1/chats/c-1/mute", request.target)
         assertEquals("{}", request.body?.utf8())
+    }
+
+    /** Очистка ответа и ссылки в сдаче — явный `null`: пропущенное поле сервер оставил бы как было. */
+    @Test
+    fun clearedSubmissionFieldsAreSentAsNull() = runTest {
+        respond(200, """{"success":true,"data":null}""")
+        StudyApi(client()).saveSubmissionDraft("a-1", null, null)
+        assertEquals("""{"text":null,"linkUrl":null}""", server.takeRequest().body?.utf8())
     }
 
     @Test
