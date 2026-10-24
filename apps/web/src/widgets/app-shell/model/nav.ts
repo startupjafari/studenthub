@@ -25,7 +25,6 @@ import {
   Home,
   Rocket,
   Inbox,
-  IdCard,
   LayoutDashboard,
   Library,
   LifeBuoy,
@@ -90,7 +89,6 @@ export const STUDENT_NAV: NavItem[] = [
   { key: 'consultations', href: '/consultations', icon: Handshake, group: 'services' },
   { key: 'appointments', href: '/appointments', icon: CalendarClock, group: 'services' },
   { key: 'portfolio', href: '/portfolio', icon: BriefcaseBusiness, group: 'services' },
-  { key: 'studentId', href: '/student-id', icon: IdCard, group: 'services' },
   // Библиотека вуза (Фаза 20): пункт прячется, пока админ вуза не включил модуль (AppShell).
   { key: 'books', href: '/books', icon: Library, group: 'services' },
   { key: 'applications', href: '/applications', icon: FileText, group: 'services' },

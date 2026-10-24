@@ -74,7 +74,6 @@
     "consultations": "Consultations",
     "appointments": "Dean office",
     "portfolio": "Portfolio",
-    "studentId": "Student ID",
     "books": "Library",
     "verifyId": "Verify ID",
     "academic": "Performance",
@@ -4160,6 +4159,7 @@
   "StudentId": {
     "title": "Digital student ID",
     "subtitle": "Show the QR to staff to confirm your identity",
+    "open": "Student ID",
     "studentCard": "Student ID card",
     "faculty": "Faculty",
     "group": "Group",
