@@ -202,3 +202,40 @@ describe('MediaProcessingService.copy', () => {
     })
   })
 })
+
+describe('MediaProcessingService.markFailed', () => {
+  it('ставит FAILED и убирает залитые неудачными попытками постер и сегменты', async () => {
+    const { service, prisma, minio } = setup({ bucket: 'chat-media' })
+    minio.listObjectsV2.mockReturnValue(
+      Readable.from(
+        [
+          { name: `variants/${FILE_ID}/poster-w640.webp` },
+          { name: `variants/${FILE_ID}/hls/720/seg-0000.ts` },
+        ],
+        { objectMode: true },
+      ),
+    )
+
+    await service.markFailed(FILE_ID)
+
+    expect(prisma.file.updateMany).toHaveBeenCalledWith({
+      where: { id: FILE_ID, mediaStatus: { not: MediaStatus.READY } },
+      data: { mediaStatus: MediaStatus.FAILED },
+    })
+    expect(minio.listObjectsV2).toHaveBeenCalledWith('chat-media', `variants/${FILE_ID}/`, true)
+    expect(minio.removeObjects).toHaveBeenCalledWith('chat-media', [
+      `variants/${FILE_ID}/poster-w640.webp`,
+      `variants/${FILE_ID}/hls/720/seg-0000.ts`,
+    ])
+  })
+
+  it('файл уже готов — ни статус, ни объекты не трогает', async () => {
+    const { service, prisma, minio } = setup({ bucket: 'chat-media' })
+    prisma.file.updateMany.mockResolvedValue({ count: 0 })
+
+    await service.markFailed(FILE_ID)
+
+    expect(minio.listObjectsV2).not.toHaveBeenCalled()
+    expect(minio.removeObjects).not.toHaveBeenCalled()
+  })
+})

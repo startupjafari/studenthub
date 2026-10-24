@@ -221,9 +221,23 @@ export class MediaProcessingService implements OnModuleInit {
     )
   }
 
-  /** Исчерпаны попытки: показываем оригинал, как до медиа-системы. */
+  /**
+   * Исчерпаны попытки: показываем оригинал, как до медиа-системы. Всё, что неудачные попытки
+   * успели залить под префикс вариантов (постер, часть сегментов HLS), убираем: строк у этих
+   * объектов нет, а живой владелец не даёт ночной чистке счесть их сиротами. Готовый файл
+   * (READY от параллельной копии) не трогаем.
+   */
   async markFailed(fileId: string): Promise<void> {
-    await this.setStatus(fileId, MediaStatus.FAILED)
+    const { count } = await this.prisma.file.updateMany({
+      where: { id: fileId, mediaStatus: { not: MediaStatus.READY } },
+      data: { mediaStatus: MediaStatus.FAILED },
+    })
+    if (count === 0) return
+    const file = await this.prisma.file.findUnique({
+      where: { id: fileId },
+      select: { bucket: true },
+    })
+    if (file) await this.removePrefix(file.bucket, variantPrefix(fileId))
   }
 
   // ── Изображения ──
