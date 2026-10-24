@@ -1408,7 +1408,11 @@ export class ChatsService implements OnModuleInit {
     deletedIds: string[]
     latestSeq: number
     overflow: boolean
+    syncedAt: Date
   }> {
+    // Момент ДО чтения — по часам сервера: клиент передаст его следующим `sinceTs`. Свои часы
+    // клиента расходятся с серверными, и граница по ним теряла правки за время расхождения.
+    const syncedAt = new Date()
     await this.assertMembership(viewer.sub, chatId)
     // Очистка истории «для меня» — те же границы, что и в getMessages.
     const mem = await this.prisma.chatMember.findUnique({
@@ -1464,6 +1468,7 @@ export class ChatsService implements OnModuleInit {
       deletedIds: deleted.map((m) => m.id),
       latestSeq: chat?.lastSeq ?? query.since,
       overflow,
+      syncedAt,
     }
   }
 

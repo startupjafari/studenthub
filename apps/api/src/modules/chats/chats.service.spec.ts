@@ -2502,6 +2502,8 @@ describe('ChatsService.getUpdates — дельта догона', () => {
       deletedIds: [],
       latestSeq: 6,
       overflow: false,
+      // Граница следующего догона — по часам сервера (BUG-113).
+      syncedAt: expect.any(Date),
     })
     // Выборка новых идёт строго по seq, а не по времени.
     expect(prisma.message.findMany).toHaveBeenCalledWith(

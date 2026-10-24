@@ -206,6 +206,17 @@ interface UploadPayload {
 }
 
 /** Фото и видео уходят превью-плитками, всё остальное — строками файла. */
+/**
+ * Запас границы догона на неизмеренное расхождение часов. Лишняя правка в дельте ничего не
+ * стоит — она просто применится ещё раз, — а потерянная висит у человека до перезагрузки.
+ */
+const SYNC_SKEW_MARGIN_MS = 2 * 60 * 1000
+
+/** «Сейчас» по часам сервера (своё время плюс измеренное расхождение) минус запас. */
+function serverNowIso(skewMs: number): string {
+  return new Date(Date.now() + skewMs - SYNC_SKEW_MARGIN_MS).toISOString()
+}
+
 function isMediaFile(f: File): boolean {
   return f.type.startsWith('image/') || f.type.startsWith('video/')
 }
@@ -356,9 +367,13 @@ export function ChatWindow() {
   const [actionsByChat, setActionsByChat] = useState<ActionsByChat>({})
   const [connected, setConnected] = useState(true)
   // Момент, до которого мы точно получали события, — граница для правок и удалений при догоне.
-  // Обновляется при обрыве связи; начальное значение покрывает случай connect без предшествующего
-  // disconnect (перехват лидерства мастер-вкладки).
-  const lastSyncAt = useRef(new Date().toISOString())
+  // Сервер сравнивает её со своими часами, поэтому она в серверном времени (§9.2c): после
+  // догона — `syncedAt` из ответа, при обрыве — свои часы с поправкой на расхождение,
+  // измеренное по тому же ответу, и с запасом на случай, когда его ещё не мерили.
+  // Начальное значение покрывает connect без предшествующего disconnect (перехват лидерства
+  // мастер-вкладки).
+  const clockSkewMs = useRef(0)
+  const lastSyncAt = useRef(serverNowIso(0))
   const [olderCursor, setOlderCursor] = useState<string | undefined>(undefined)
   const [canLoadOlder, setCanLoadOlder] = useState(false)
   const [loadingOlder, setLoadingOlder] = useState(false)
@@ -1546,7 +1561,10 @@ export function ChatWindow() {
         return
       }
       try {
+        const requestedAt = Date.now()
         const delta = await fetchChatUpdates(chatId, since, lastSyncAt.current)
+        // Расхождение часов: серверный момент выборки против середины запроса по своим.
+        clockSkewMs.current = new Date(delta.syncedAt).getTime() - (requestedAt + Date.now()) / 2
         if (delta.overflow) {
           void qc.invalidateQueries({ queryKey: chatKeys.messages(chatId) })
         } else {
@@ -1557,7 +1575,7 @@ export function ChatWindow() {
         // Плашку закреплённых дельта не обновляет: снятый или удалённый за время обрыва
         // закреп висел бы в ней до следующего события закрепления.
         void qc.invalidateQueries({ queryKey: chatKeys.pinned(chatId) })
-        lastSyncAt.current = new Date().toISOString()
+        lastSyncAt.current = delta.syncedAt
       } catch {
         void qc.invalidateQueries({ queryKey: chatKeys.messages(chatId) })
       }
@@ -1575,7 +1593,7 @@ export function ChatWindow() {
     const onDisconnect = (): void => {
       setConnected(false)
       // До этого момента события приходили — с него и запрашиваем правки при догоне.
-      lastSyncAt.current = new Date().toISOString()
+      lastSyncAt.current = serverNowIso(clockSkewMs.current)
     }
     socket.on('connect', onConnect)
     socket.on('disconnect', onDisconnect)
