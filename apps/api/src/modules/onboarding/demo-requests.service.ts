@@ -541,6 +541,97 @@ export class DemoRequestsService {
   }
 
   /**
+   * Приглашение админу вуза заново — по одобренной заявке, без второго вуза.
+   *
+   * Сырой токен в базе не хранится (только хэш), поэтому «показать ссылку ещё раз»
+   * нельзя: выписывается новое приглашение, прежнее ожидающее отзывается той же
+   * транзакцией, и письмо об одобрении уходит повторно с новой ссылкой. Ссылка
+   * возвращается и модератору — если письмо не дошло, её передают руками.
+   *
+   * Повтор параллельно с другим повтором решает условная смена `inviteId`: выигрывает
+   * один, второй получает CONFLICT и откатывает своё приглашение.
+   */
+  async reissueInvite(actor: JwtPayload, id: string, ctx: RequestContext) {
+    const request = await this.prisma.universityDemoRequest.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        status: true,
+        universityId: true,
+        inviteId: true,
+        email: true,
+        contactName: true,
+      },
+    })
+    if (!request || request.status === 'PENDING_EMAIL') {
+      throw new AppException('NOT_FOUND', 'Заявка не найдена')
+    }
+    if (request.status !== 'APPROVED' || !request.universityId) {
+      throw new AppException('CONFLICT', 'Приглашение выписывается только по одобренной заявке')
+    }
+    const university = await this.prisma.university.findUnique({
+      where: { id: request.universityId },
+      select: { id: true, name: true, timezone: true },
+    })
+    if (!university) {
+      throw new AppException('CONFLICT', 'Вуз по этой заявке удалён')
+    }
+
+    const { invite, updated } = await this.prisma.$transaction(async (tx) => {
+      if (request.inviteId) {
+        const previous = await this.invites.retireForReissue(tx, request.inviteId)
+        if (previous === 'USED') {
+          throw new AppException(
+            'CONFLICT',
+            'По приглашению уже зарегистрировались — выписывать заново незачем',
+          )
+        }
+      }
+      const created = await this.invites.createInTransaction(tx, actor, {
+        role: Role.UNIVERSITY_ADMIN,
+        email: request.email,
+        universityId: university.id,
+      })
+      const { count } = await tx.universityDemoRequest.updateMany({
+        where: { id, inviteId: request.inviteId },
+        data: { inviteId: created.id },
+      })
+      if (count === 0) {
+        throw new AppException('CONFLICT', 'Приглашение по заявке только что выписали заново')
+      }
+      const updated = await tx.universityDemoRequest.findUniqueOrThrow({
+        where: { id },
+        select: REQUEST_SELECT,
+      })
+      return { invite: created, updated }
+    })
+
+    await this.invites.recordCreated(actor, invite, ctx)
+    const inviteUrl = `${this.webBase()}/register?token=${invite.token}`
+    await this.enqueueQuietly(
+      EMAIL_JOBS.SEND_DEMO_APPROVED,
+      {
+        to: request.email,
+        universityName: university.name,
+        contactName: request.contactName,
+        inviteUrl,
+        expiresAt: deadlineLabel(invite.expiresAt, DATE_LOCALE, university.timezone),
+      },
+      `demo-approved:${id}:${invite.id}`,
+    )
+    await this.audit.record({
+      userId: actor.sub,
+      action: 'demo_request_invite_reissued',
+      entity: 'UniversityDemoRequest',
+      entityId: id,
+      metadata: { universityId: university.id, inviteId: invite.id },
+      ...ctx,
+    })
+
+    return { request: updated, inviteUrl }
+  }
+
+  /**
    * Отказ. Письмо уходит всегда: молчание заявитель читает как «письмо потерялось».
    *
    * Перевод в REJECTED — тем же условным `updateMany`, что и одобрение: при параллельных

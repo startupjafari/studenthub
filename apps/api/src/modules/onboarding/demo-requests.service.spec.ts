@@ -423,6 +423,89 @@ describe('DemoRequestsService.approve', () => {
   })
 })
 
+describe('DemoRequestsService.reissueInvite', () => {
+  function approved() {
+    const env = setup()
+    env.prisma.universityDemoRequest.findUnique.mockResolvedValue({
+      id: 'req-1',
+      status: 'APPROVED',
+      universityId: 'uni-1',
+      inviteId: 'inv-old',
+      email: form.email,
+      contactName: form.contactName,
+    })
+    const university = {
+      findUnique: jest
+        .fn()
+        .mockResolvedValue({ id: 'uni-1', name: 'Университет', timezone: 'Asia/Almaty' }),
+    }
+    Object.assign(env.prisma, { university })
+    Object.assign(env.tx.universityDemoRequest, {
+      findUniqueOrThrow: jest.fn().mockResolvedValue({ id: 'req-1', status: 'APPROVED' }),
+    })
+    const retireForReissue = jest.fn().mockResolvedValue('RETIRED')
+    Object.assign(env.invites, { retireForReissue })
+    return { ...env, university, retireForReissue }
+  }
+
+  it('отзывает прежнее приглашение, выписывает новое и шлёт письмо с новой ссылкой', async () => {
+    const { service, tx, invites, queue, retireForReissue } = approved()
+    const res = await service.reissueInvite(admin, 'req-1', ctx)
+
+    expect(retireForReissue).toHaveBeenCalledWith(tx, 'inv-old')
+    expect(invites.createInTransaction).toHaveBeenCalledWith(tx, admin, {
+      role: Role.UNIVERSITY_ADMIN,
+      email: form.email,
+      universityId: 'uni-1',
+    })
+    // Смена приглашения условная: параллельный повтор не выпишет второе.
+    expect(tx.universityDemoRequest.updateMany).toHaveBeenCalledWith({
+      where: { id: 'req-1', inviteId: 'inv-old' },
+      data: { inviteId: 'inv-1' },
+    })
+    expect(res.inviteUrl).toBe('https://app.studenthub.kz/register?token=raw-token')
+    expect(queue.enqueue).toHaveBeenCalledWith(
+      expect.any(String),
+      EMAIL_JOBS.SEND_DEMO_APPROVED,
+      expect.objectContaining({ inviteUrl: res.inviteUrl }),
+      expect.anything(),
+    )
+  })
+
+  it('по приглашению уже вошли — CONFLICT, нового не выписываем', async () => {
+    const { service, invites, retireForReissue } = approved()
+    retireForReissue.mockResolvedValue('USED')
+    await expect(service.reissueInvite(admin, 'req-1', ctx)).rejects.toMatchObject({
+      code: 'CONFLICT',
+    })
+    expect(invites.createInTransaction).not.toHaveBeenCalled()
+  })
+
+  it('заявка не одобрена — CONFLICT', async () => {
+    const { service, prisma } = approved()
+    prisma.universityDemoRequest.findUnique.mockResolvedValue({
+      id: 'req-1',
+      status: 'NEW',
+      universityId: null,
+      inviteId: null,
+      email: form.email,
+      contactName: form.contactName,
+    })
+    await expect(service.reissueInvite(admin, 'req-1', ctx)).rejects.toMatchObject({
+      code: 'CONFLICT',
+    })
+  })
+
+  it('параллельный повтор уже сменил приглашение — CONFLICT, транзакция откатывается', async () => {
+    const { service, tx, queue } = approved()
+    tx.universityDemoRequest.updateMany.mockResolvedValue({ count: 0 })
+    await expect(service.reissueInvite(admin, 'req-1', ctx)).rejects.toMatchObject({
+      code: 'CONFLICT',
+    })
+    expect(queue.enqueue).not.toHaveBeenCalled()
+  })
+})
+
 describe('DemoRequestsService.reject', () => {
   it('пишет причину и отправляет письмо с признаком «можно прийти снова»', async () => {
     const { service, prisma, queue } = setup()

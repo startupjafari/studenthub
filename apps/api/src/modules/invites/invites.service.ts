@@ -133,6 +133,28 @@ export class InviteService {
     return this.insert(tx, issuer, input)
   }
 
+  /**
+   * Прежнее приглашение перед выдачей нового взамен (повтор приглашения по одобренной
+   * заявке вуза): ожидающее отзывается в транзакции вызывающего — по старой ссылке больше
+   * не войти. Использованное не трогается: по нему уже зарегистрировались, и это ответ
+   * «выписывать заново незачем». Истёкшее и отозванное — уже не работают.
+   */
+  async retireForReissue(
+    tx: Prisma.TransactionClient,
+    inviteId: string,
+  ): Promise<'USED' | 'RETIRED'> {
+    const invite = await tx.invite.findUnique({
+      where: { id: inviteId },
+      select: { status: true },
+    })
+    if (invite?.status === InviteStatus.USED) return 'USED'
+    await tx.invite.updateMany({
+      where: { id: inviteId, status: InviteStatus.PENDING },
+      data: { status: InviteStatus.REVOKED },
+    })
+    return 'RETIRED'
+  }
+
   /** Запись о выдаче приглашения в аудит. Для инвайта из чужой транзакции — после её коммита. */
   async recordCreated(
     issuer: JwtPayload,
