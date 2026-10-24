@@ -1,6 +1,8 @@
 package kz.studenthub.app.core.realtime
 
 import kz.studenthub.app.core.storage.transaction
+import android.util.Log
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -66,7 +68,19 @@ class RealtimeCoordinator(
 
     fun start() {
         if (pump != null) return
-        pump = scope.launch { transport.events.collect { handle(it) } }
+        pump = scope.launch {
+            transport.events.collect { event ->
+                // Событие, которое не легло в базу, — не повод ронять приложение: сбой в
+                // MainScope без обработчика уходит прямо в поток интерфейса. Пропущенное
+                // догонит открытие чата или обновление списка.
+                try {
+                    handle(event)
+                } catch (error: Exception) {
+                    if (error is CancellationException) throw error
+                    Log.w("StudentHub", "событие реального времени не применено", error)
+                }
+            }
+        }
         keepAlive = scope.launch {
             while (isActive) {
                 delay(tokenRefreshMillis)
@@ -146,8 +160,11 @@ class RealtimeCoordinator(
         val viewerId = session.currentToken?.subject
         val isOpen = openChatId == message.chatId
         db.transaction {
-            MessageStore.upsert(db, message)
+            // Чата ещё нет в базе (только что создан, список не догрузился) — сообщение
+            // не пишем: у него внешний ключ на чат, вставка упала бы. Чат с этим сообщением
+            // принесёт обновление списка.
             var chat = db.chats().get(message.chatId) ?: return@transaction
+            MessageStore.upsert(db, message)
             val seq = message.seq
             // Превью и порядок списка — по самому свежему известному сообщению.
             val preview = chat.lastMessageId?.let { db.messages().byRemoteId(it) ?: db.messages().get(it) }

@@ -62,6 +62,13 @@ class RealtimeCoordinatorTest {
         assertEquals(50, chat.lastSeq)
     }
 
+    /** Сообщение в чат, которого нет в базе, не роняет приём: у сообщения внешний ключ на чат. */
+    @Test
+    fun messageForUnknownChatIsSkipped() = runTest {
+        coordinator().handle(RealtimeEvent.MessageNew(messageDto("m1", "ghost", 1)))
+        assertNull(db.messages().get("m1"))
+    }
+
     /** Открытый чат читают прямо сейчас — непрочитанным его сообщение не бывает. */
     @Test
     fun messageInOpenChatDoesNotRaiseCounter() = runTest {
