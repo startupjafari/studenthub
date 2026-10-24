@@ -342,6 +342,21 @@ describe('PostsService.create — аудитория по роли (8.2)', () =>
     expect(err.code).toBe('BAD_REQUEST')
   })
 
+  it('PERSONAL тому, кто заблокировал автора: FORBIDDEN, пост не создаётся', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findFirst.mockResolvedValue({ universityId: 'uni-1' })
+    prisma.userBlock.findMany.mockResolvedValue([{ blockerId: 'target', blockedId: 's1' }])
+    const err = await service
+      .create(
+        viewer(Role.STUDENT, { sub: 's1', universityId: 'uni-1', groupId: 'grp-1' }),
+        { audience: 'PERSONAL', content: 'x', targetUserId: 'target' },
+        ctx,
+      )
+      .catch((e) => e)
+    expect(err.code).toBe('FORBIDDEN')
+    expect(prisma.post.create).not.toHaveBeenCalled()
+  })
+
   it('платформенный админ → ALL: ок', async () => {
     const { service, prisma } = setup()
     prisma.post.findFirst.mockResolvedValue(postRow({ audience: 'ALL' }))

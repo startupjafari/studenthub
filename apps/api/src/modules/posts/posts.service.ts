@@ -1498,6 +1498,12 @@ export class PostsService {
     if (!isPlatform(actor.role) && user.universityId !== actor.universityId) {
       throw new AppException('WRONG_SCOPE', 'Получатель из другого университета')
     }
+    // Личный пост (и репост лично) — адресное обращение, как сообщение в чат: личная
+    // блокировка в любую сторону его закрывает (§3.6), иначе заблокировавший получал бы
+    // пост от заблокированного прямо в ленту.
+    if ((await this.blockedAmong(actor.sub, [targetUserId])).size > 0) {
+      throw new AppException('FORBIDDEN', 'Получатель недоступен: пользователь заблокирован')
+    }
   }
 
   /**
