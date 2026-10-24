@@ -95,13 +95,22 @@ class ChatListModel(
         isRefreshing = true
         try {
             var cursor: String? = null
+            val seen = mutableSetOf<String>()
+            var complete = false
             for (attempt in 0 until MAX_PAGES) {
                 val page = api.chats(cursor, ChatsApi.PAGE_LIMIT)
                 store.saveChats(page.items)
+                page.items.mapTo(seen) { it.id }
                 val next = page.meta?.cursor
-                if (page.meta?.hasNext != true || next == null) break
+                if (page.meta?.hasNext != true || next == null) {
+                    complete = true
+                    break
+                }
                 cursor = next
             }
+            // Чатов, которых сервер больше не отдаёт, нет и здесь. Только после полного
+            // прохода: по обрезанному списку убрали бы живые чаты из хвоста.
+            if (complete) store.retainChats(seen)
             store.saveFolders(api.folders())
             failure = null
         } catch (error: Exception) {

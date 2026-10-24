@@ -94,6 +94,21 @@ class ChatSyncTest {
         assertEquals(listOf("f2"), db.folders().all().map { it.id })
     }
 
+    /**
+     * Чат, которого сервер больше не отдаёт (человека убрали из группы), уходит из базы
+     * вместе с перепиской и черновиком: база повторяет доступ на сервере (§11.3).
+     */
+    @Test
+    fun chatsGoneFromServerAreForgotten() = runTest {
+        store.saveChats(listOf(chatDto("c1"), chatDto("c2", draft = "черновик")))
+        MessageStore(db).saveMessages(listOf(messageDto("m1", "c2", 1)), "c2")
+        store.retainChats(setOf("c1"))
+        assertNotNull(db.chats().get("c1"))
+        assertNull(db.chats().get("c2"))
+        assertNull(db.messages().get("m1"))
+        assertNull(db.drafts().get("c2"))
+    }
+
     /** Обновление строки чата не стирает его переписку: каскад не должен срабатывать. */
     @Test
     fun resavingChatKeepsItsMessages() = runTest {

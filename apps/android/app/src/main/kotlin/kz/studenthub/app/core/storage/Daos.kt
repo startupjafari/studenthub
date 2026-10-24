@@ -34,6 +34,9 @@ interface ChatDao {
     @Query("DELETE FROM chat WHERE id = :id")
     suspend fun delete(id: String)
 
+    @Query("SELECT id FROM chat")
+    suspend fun ids(): List<String>
+
     /*
      * Строки списка. Порядок повторяет сервер и веб: закреплённые сверху по времени
      * закрепления, дальше по свежести. `pinnedAt IS NULL` первой ступенью — это и есть
