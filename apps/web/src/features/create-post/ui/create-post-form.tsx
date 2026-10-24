@@ -9,9 +9,9 @@ import { useTranslations } from 'next-intl'
 import { ChevronLeft, ChevronRight, Clock, ImagePlus, Loader2, Play, X } from 'lucide-react'
 import { CreatePostSchema, type CreatePostInput } from '@studenthub/shared-schemas'
 import { useAppSelector } from '../../../shared/store'
-import { OPTIONAL_TEXT, useFormAlert } from '../../../shared/lib'
+import { OPTIONAL_TEXT, maxUploadBytes, useFormAlert } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
-import { uploadFileRequest } from '../../../shared/api'
+import { uploadToBucket } from '../../../shared/api'
 import {
   AUDIENCES_BY_ROLE,
   FACULTY_PICKER_ROLES,
@@ -19,7 +19,7 @@ import {
   createPostRequest,
   postKeys,
 } from '../../../entities/post'
-import { fetchGroups, groupKeys } from '../../../entities/group'
+import { GroupSelect } from '../../../entities/group'
 import { fetchFaculties, facultyKeys } from '../../../entities/faculty'
 import { UserPicker, type PickedUser } from '../../../entities/user'
 import {
@@ -36,6 +36,7 @@ import {
   SelectTrigger,
   SelectValue,
   RichTextField,
+  FieldError,
 } from '../../../shared/ui'
 
 interface UploadedMedia {
@@ -109,11 +110,6 @@ export function CreatePostForm({
   const showScope = showGroupPicker || showFacultyPicker || showSubject || showPersonal
   const [target, setTarget] = useState<PickedUser | null>(null)
 
-  const groups = useQuery({
-    queryKey: groupKeys.list(),
-    queryFn: () => fetchGroups(),
-    enabled: showGroupPicker,
-  })
   const faculties = useQuery({
     queryKey: facultyKeys.list(),
     queryFn: () => fetchFaculties(),
@@ -124,7 +120,7 @@ export function CreatePostForm({
     mutationFn: (input: CreatePostInput) =>
       createPostRequest({ ...input, mediaIds: media.map((m) => m.id), targetUserId: target?.id }),
     onMutate: () => resetApiError(),
-    onSuccess: (_data, variables) => {
+    onSuccess: (created, variables) => {
       void qc.invalidateQueries({ queryKey: postKeys.all })
       form.reset({ audience: audiences[0], content: '', title: '' })
       media.forEach((m) => URL.revokeObjectURL(m.url))
@@ -132,10 +128,12 @@ export function CreatePostForm({
       setTarget(null)
       setScheduleAt('')
       setScheduleOpen(false)
+      // Тост — по тому, что сделал сервер, а не по тому, что просили: время, успевшее
+      // пройти, пока форма была открыта, сервер публикует сразу.
       toast.success(
         variables.status === 'DRAFT'
           ? t('draftSaved')
-          : variables.scheduledAt
+          : created.status === 'SCHEDULED'
             ? t('scheduledOk')
             : t('published'),
       )
@@ -147,23 +145,38 @@ export function CreatePostForm({
   // Отложенная публикация: значение datetime-local (пусто — опубликовать сразу).
   const [scheduleAt, setScheduleAt] = useState('')
   const submit = (status: 'DRAFT' | 'PUBLISHED') =>
-    form.handleSubmit((v) =>
+    form.handleSubmit((v) => {
+      // Пока фото грузится, его id ещё нет в media: пост ушёл бы без него, а догрузившийся
+      // файл упал бы в уже очищенную форму. Кнопки на это время выключены; Enter — сюда же.
+      if (uploading) return
+      // Отложить можно только в будущее: прошедшее время сервер понял бы как «опубликовать
+      // сейчас», а человек нажимал «Запланировать».
+      if (status === 'PUBLISHED' && scheduleAt && new Date(scheduleAt).getTime() <= Date.now()) {
+        toast.error(t('schedulePast'))
+        return
+      }
       mutation.mutate({
         ...v,
         status,
         scheduledAt: status === 'PUBLISHED' && scheduleAt ? new Date(scheduleAt) : null,
-      }),
-    )
+      })
+    })
 
-  // Загрузка фото/видео: object-URL для превью + upload в бакет постов.
+  // Загрузка фото/видео: object-URL для превью + upload в бакет постов. Крупное видео идёт
+  // напрямую в хранилище (как у сторис): буферный путь принимает не больше 10 МБ.
   async function handleFiles(files: FileList | null): Promise<void> {
     if (!files || files.length === 0) return
     const list = Array.from(files).slice(0, MAX_MEDIA - media.length)
     setUploading(true)
     for (const file of list) {
       const isVideo = file.type.startsWith('video/')
+      // Сверх лимита категории — отказ сразу, а не после заливки всего файла (§7).
+      if (file.size > maxUploadBytes(file.type)) {
+        toast.error(tErr('FILE_TOO_LARGE'))
+        continue
+      }
       try {
-        const f = await uploadFileRequest('POSTS', file)
+        const f = await uploadToBucket('POSTS', file)
         setMedia((prev) => [...prev, { id: f.id, url: URL.createObjectURL(file), isVideo }])
       } catch (e) {
         toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR'))
@@ -262,9 +275,7 @@ export function CreatePostForm({
           </div>
         )}
       </div>
-      {form.formState.errors.content && (
-        <p className="text-xs text-destructive">{t('contentRequired')}</p>
-      )}
+      <FieldError>{form.formState.errors.content && t('contentRequired')}</FieldError>
 
       <input
         ref={fileRef}
@@ -351,23 +362,20 @@ export function CreatePostForm({
         <div className="grid gap-3 sm:grid-cols-2">
           {showGroupPicker && (
             <div className="flex flex-col gap-1.5">
-              <Label className="text-xs">{t('group')}</Label>
+              <Label htmlFor="post-group" className="text-xs">
+                {t('group')}
+              </Label>
+              {/* Поиск по группам на сервере, а не первые 100 по алфавиту. */}
               <Controller
                 control={form.control}
                 name="groupId"
                 render={({ field }) => (
-                  <Select value={field.value ?? ''} onValueChange={field.onChange}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue placeholder={t('selectGroup')} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(groups.data ?? []).map((g) => (
-                        <SelectItem key={g.id} value={g.id}>
-                          {g.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <GroupSelect
+                    id="post-group"
+                    value={field.value ?? null}
+                    onChange={(v) => field.onChange(v ?? undefined)}
+                    placeholder={t('selectGroup')}
+                  />
                 )}
               />
             </div>
@@ -484,6 +492,7 @@ export function CreatePostForm({
             type="button"
             variant="outline"
             loading={mutation.isPending}
+            disabled={uploading}
             onClick={() => void submit('DRAFT')()}
             className="h-11 flex-1 sm:h-10 sm:flex-none"
           >
@@ -492,6 +501,7 @@ export function CreatePostForm({
           <Button
             type="submit"
             loading={mutation.isPending}
+            disabled={uploading}
             className="h-11 flex-1 sm:h-10 sm:flex-none"
           >
             {scheduleAt ? t('schedule') : t('publish')}

@@ -1,6 +1,18 @@
-import { Body, Controller, Get, Post, Query, Req } from '@nestjs/common'
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Post,
+  Query,
+  Req,
+} from '@nestjs/common'
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger'
 import { Role } from '@studenthub/shared-types'
+import { isPageRequested } from '@studenthub/shared-schemas'
 import type { FastifyRequest } from 'fastify'
 import { Roles } from '../../common/decorators/roles.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
@@ -22,16 +34,25 @@ export class ScheduleViewController {
   @ApiOperation({
     summary: 'Расписание по scope роли (студент → группа, преподаватель → свои пары…)',
   })
-  @ApiResponse({ status: 200, description: 'Пары активного расписания + таймзона вуза' })
+  @ApiResponse({
+    status: 200,
+    description: 'Пары активного расписания (по 500, nextCursor — продолжение) + таймзона вуза',
+  })
   getSchedule(@CurrentUser() user: CurrentUserData, @Query() query: ScheduleQueryDto) {
     return this.schedules.getSchedule(user, query)
   }
 
   @Get('changes')
   @ApiOperation({ summary: 'Разовые изменения расписания за период [from, to]' })
-  @ApiResponse({ status: 200, description: 'Список изменений в scope роли' })
+  @ApiResponse({
+    status: 200,
+    description:
+      'Список изменений в scope роли; с limit/cursor — страница с meta.cursor/hasNext, без них — до 500 массивом',
+  })
   listChanges(@CurrentUser() user: CurrentUserData, @Query() query: ScheduleChangeQueryDto) {
-    return this.schedules.listChanges(user, query)
+    return isPageRequested(query)
+      ? this.schedules.listChangesPage(user, query)
+      : this.schedules.listChanges(user, query)
   }
 
   @Post('changes')
@@ -40,13 +61,34 @@ export class ScheduleViewController {
   @ApiResponse({ status: 201, description: 'Изменение создано' })
   @ApiResponse({ status: 403, description: 'FORBIDDEN / WRONG_SCOPE' })
   @ApiResponse({ status: 404, description: 'NOT_FOUND — пара не найдена' })
-  @ApiResponse({ status: 422, description: 'VALIDATION_ERROR' })
+  @ApiResponse({
+    status: 409,
+    description: 'CONFLICT — занятие на дату отменено; преподаватель, аудитория или группа заняты',
+  })
+  @ApiResponse({ status: 422, description: 'VALIDATION_ERROR — в т.ч. дата не в день пары' })
   createChange(
     @CurrentUser() user: CurrentUserData,
     @Body() dto: CreateScheduleChangeDto,
     @Req() req: FastifyRequest,
   ) {
     return this.schedules.createChange(user, dto, this.ctx(req))
+  }
+
+  @Delete('changes/:id')
+  @Roles(Role.PLATFORM_ADMIN, Role.UNIVERSITY_ADMIN, Role.DEAN)
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({
+    summary: 'Убрать ошибочное разовое изменение (WS schedule:changed + уведомление)',
+  })
+  @ApiResponse({ status: 204, description: 'Изменение удалено' })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN / WRONG_SCOPE' })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND — изменение не найдено' })
+  async removeChange(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Req() req: FastifyRequest,
+  ): Promise<void> {
+    await this.schedules.removeChange(user, id, this.ctx(req))
   }
 
   private ctx(req: FastifyRequest): RequestContext {

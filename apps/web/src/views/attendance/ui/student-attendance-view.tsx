@@ -74,7 +74,7 @@ export function StudentAttendanceView() {
       <PageHeader title={t('myTitle')} />
 
       {q.isLoading ? (
-        <Skeleton className="h-40 w-full rounded-xl" />
+        <Skeleton fill className="min-h-40 rounded-xl" />
       ) : q.isError ? (
         <EmptyState
           icon={<Inbox />}

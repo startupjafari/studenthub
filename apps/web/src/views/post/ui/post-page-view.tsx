@@ -41,7 +41,7 @@ export function PostPageView({ postId }: { postId: string }) {
 
       <div className="mx-auto w-full max-w-xl">
         {post.isPending ? (
-          <Skeleton className="h-96 w-full rounded-2xl" />
+          <Skeleton fill className="min-h-96 rounded-2xl" />
         ) : post.isError || !post.data ? (
           <EmptyState
             icon={<Newspaper className="size-6" aria-hidden />}

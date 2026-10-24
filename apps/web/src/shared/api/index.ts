@@ -1,5 +1,14 @@
 export { api, refreshAccessToken, type ResponseWithMeta } from './instance'
 export { getPaged, type Paged } from './paged'
+export {
+  resolveApiPath,
+  toMediaLink,
+  type MediaInfo,
+  type MediaLink,
+  type MediaPreview,
+  type MediaSource,
+  type MediaStatus,
+} from './media'
 export { makeQueryClient } from './query-client'
 export {
   loginRequest,
@@ -7,14 +16,19 @@ export {
   setup2faRequest,
   enable2faRequest,
   disable2faRequest,
+  regenerateBackupCodesRequest,
   qrCreateRequest,
   qrClaimRequest,
   qrApproveRequest,
+  qrPreviewRequest,
+  type QrPreview,
   type QrCreateResponse,
   registerByInviteRequest,
   previewInviteRequest,
   meRequest,
   logoutRequest,
+  forgotPasswordRequest,
+  resetPasswordRequest,
   type MeResponse,
   type InvitePreview,
   type LoginResult,
@@ -27,6 +41,7 @@ export {
 } from './auth-api'
 export {
   uploadFileRequest,
+  uploadToBucket,
   multipartStartRequest,
   multipartUrlsRequest,
   multipartCompleteRequest,

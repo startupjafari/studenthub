@@ -14,6 +14,11 @@ export interface ApnsMessage {
   url?: string
   /** Тихий пуш: без текста, только повод сходить за данными. */
   silent?: boolean
+  /**
+   * Ключ группы: уведомления одного источника (сообщения одного чата) складываются в одну
+   * стопку, а не идут десятком отдельных плашек. У APNs — `thread-id`.
+   */
+  tag?: string
 }
 
 /** Чем закончилась отправка на одно устройство. */
@@ -29,6 +34,7 @@ export function buildApnsPayload(message: ApnsMessage): string {
     aps.sound = 'default'
   }
   if (message.badge !== undefined) aps.badge = message.badge
+  if (message.tag && !message.silent) aps['thread-id'] = message.tag
   return JSON.stringify({ aps, ...(message.url ? { url: message.url } : {}) })
 }
 

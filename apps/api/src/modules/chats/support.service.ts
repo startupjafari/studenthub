@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common'
+import { Injectable, Logger, type OnModuleInit } from '@nestjs/common'
 import { ChatType, Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
 import type {
@@ -8,6 +8,7 @@ import type {
   SupportTag,
 } from '@studenthub/shared-schemas'
 import { AuditService } from '../../common/audit/audit.service'
+import { advisoryXactLock } from '../../common/prisma/advisory-lock'
 import { AppException } from '../../common/exceptions/app.exception'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { TelegramNotifyService } from '../../common/telegram/telegram-notify.service'
@@ -15,6 +16,7 @@ import { Paginated } from '../../common/http/paginated'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
 import { ChatsService } from './chats.service'
+import { lastMessagesOf } from './last-message'
 
 // Поддержка платформы (docs/PROJECT.md §Поддержка).
 //
@@ -25,6 +27,15 @@ import { ChatsService } from './chats.service'
 
 const STAFF_ROLES: readonly Role[] = [Role.PLATFORM_ADMIN, Role.PLATFORM_MODERATOR]
 
+const TICKET_USER_SELECT = {
+  id: true,
+  firstName: true,
+  lastName: true,
+  role: true,
+} satisfies Prisma.UserSelect
+
+type TicketUser = Prisma.UserGetPayload<{ select: typeof TICKET_USER_SELECT }>
+
 const TICKET_SELECT = {
   id: true,
   createdAt: true,
@@ -33,25 +44,131 @@ const TICKET_SELECT = {
   supportAssigneeId: true,
   supportFirstReplyAt: true,
   supportTags: true,
+  // Только автор — единственный участник не из команды. Вся команда платформы состоит в
+  // каждом обращении, и без фильтра строка очереди тянула её целиком. Разбирающего читает
+  // `ticketAssignees` одним запросом на страницу.
   members: {
-    select: { user: { select: { id: true, firstName: true, lastName: true, role: true } } },
-  },
-  messages: {
-    where: { deletedAt: null },
-    orderBy: { seq: Prisma.SortOrder.desc },
+    where: { user: { role: { notIn: [...STAFF_ROLES] } } },
+    select: { user: { select: TICKET_USER_SELECT } },
     take: 1,
-    select: { content: true, createdAt: true, senderId: true },
   },
 } satisfies Prisma.ChatSelect
 
+/** Последнее сообщение обращения для строки очереди — читается отдельно, см. lastTicketMessages. */
+interface TicketLastMessage {
+  chatId: string
+  content: string | null
+  createdAt: Date
+  senderId: string
+}
+
+/** Потолок сотрудников в одном обращении, которых читаем, чтобы решить, кого не уведомлять. */
+const TICKET_STAFF_SCAN = 500
+
+/** Порция чтения команды платформы при создании обращения. */
+const STAFF_BATCH = 200
+
+/** Порция обращений, которые автозакрытие просматривает за один запрос. */
+const STALE_BATCH = 200
+
 @Injectable()
-export class SupportService {
+export class SupportService implements OnModuleInit {
+  private readonly logger = new Logger(SupportService.name)
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly chats: ChatsService,
     private readonly audit: AuditService,
     private readonly telegram: TelegramNotifyService,
   ) {}
+
+  onModuleInit(): void {
+    this.chats.registerSupportHook((event) => this.onTicketMessage(event))
+  }
+
+  /**
+   * Правила обращения для КАЖДОГО нового сообщения в нём — каким бы путём оно ни пришло.
+   *
+   * Автору сказано: «ответ придёт в „Чаты“ — там же можно дослать скриншот». И дописывает он
+   * обычной отправкой из окна чата, а не ручкой поддержки. Пока правила жили только в
+   * `reply`, дописка в закрытое обращение оставляла его закрытым: в очереди открытых его не
+   * было, команде ничего не приходило, и вопрос лежал, пока кто-то случайно не откроет
+   * закрытую ветку. Поэтому их зовёт домен чатов — из той точки, где сходятся все пути
+   * отправки: окно чата, вложения, пересылка, `open`, `reply`, голосовой ответ.
+   *
+   * - Любое сообщение открывает закрытое обращение снова: закрытие — про очередь, и раз в
+   *   ветке снова разговор, ей место среди открытых. Склеенную ветку не открываем — в
+   *   очереди её нет, и открытой она стала бы невидимой; открываем ту, в которую склеили.
+   * - Сообщение автора будит команду, но только когда мяч переходит к ней: обращение было
+   *   закрыто или последнее слово было за командой. Дописка следом за собственным
+   *   сообщением уже кого-то ждёт — второе уведомление о той же ветке ничего не добавляет.
+   * - Ответ команды проставляет время первого ответа — один раз.
+   *
+   * Возвращает сотрудников, которым обычное уведомление о сообщении не нужно: все, кроме
+   * разбирающего. Команда узнаёт об обращениях из очереди и Telegram, а сотня уведомлений
+   * на каждую строчку автора — это шум, в котором тонет сам сигнал.
+   */
+  async onTicketMessage(event: {
+    chatId: string
+    senderId: string
+    seq: number
+  }): Promise<ReadonlySet<string>> {
+    const [ticket, staffRows] = await Promise.all([
+      this.prisma.chat.findUnique({
+        where: { id: event.chatId },
+        select: { supportMergedIntoId: true, supportAssigneeId: true },
+      }),
+      this.prisma.chatMember.findMany({
+        where: { chatId: event.chatId, user: { role: { in: [...STAFF_ROLES] } } },
+        select: { userId: true },
+        take: TICKET_STAFF_SCAN,
+      }),
+    ])
+    if (!ticket) return new Set()
+    const staff = new Set(staffRows.map((row) => row.userId))
+    const fromStaff = staff.has(event.senderId)
+    const targetId = ticket.supportMergedIntoId ?? event.chatId
+
+    const { count: reopened } = await this.prisma.chat.updateMany({
+      where: { id: targetId, supportClosedAt: { not: null } },
+      data: { supportClosedAt: null },
+    })
+
+    if (fromStaff) {
+      // `supportFirstReplyAt: null` в условии — чтобы отметка проставилась ровно один раз:
+      // повторное открытие не делает первый ответ быстрее, а переписывать её значило бы
+      // улучшать метрику задним числом.
+      await this.prisma.chat.updateMany({
+        where: { id: event.chatId, supportFirstReplyAt: null },
+        data: { supportFirstReplyAt: new Date() },
+      })
+    } else if (reopened > 0 || (await this.lastWordIsStaff(event, staff))) {
+      // Отправку сообщения Telegram не задерживает: уведомление — побочный сигнал, и
+      // человек, приславший скриншот, не должен ждать ответа чужого API.
+      void this.telegram
+        .notifyStaff('reply', 'Ответ в обращении поддержки', `support_${targetId}`)
+        .catch((error: unknown) => {
+          this.logger.warn(`Не удалось уведомить команду об ответе: ${String(error)}`)
+        })
+    }
+
+    staff.delete(event.senderId)
+    if (ticket.supportAssigneeId) staff.delete(ticket.supportAssigneeId)
+    return staff
+  }
+
+  /** Последнее сообщение перед этим — от команды: значит, автор отвечает на её ответ. */
+  private async lastWordIsStaff(
+    event: { chatId: string; seq: number },
+    staff: ReadonlySet<string>,
+  ): Promise<boolean> {
+    const previous = await this.prisma.message.findFirst({
+      where: { chatId: event.chatId, seq: { lt: event.seq }, deletedAt: null, systemType: null },
+      orderBy: { seq: Prisma.SortOrder.desc },
+      select: { senderId: true },
+    })
+    return previous !== null && staff.has(previous.senderId)
+  }
 
   /**
    * Открыть обращение или дописать в уже открытое.
@@ -65,28 +182,26 @@ export class SupportService {
     input: OpenSupportTicketInput,
     ctx: RequestContext = {},
   ): Promise<{ id: string; created: boolean }> {
-    const existing = await this.prisma.chat.findFirst({
-      where: {
-        type: ChatType.SUPPORT_PLATFORM,
-        supportClosedAt: null,
-        members: { some: { userId: user.sub } },
-      },
-      select: { id: true },
+    const { id: chatId, created } = await this.openTicketOf(user.sub)
+    const { message: opened } = await this.chats.createMessage(user.sub, {
+      chatId,
+      content: input.text,
     })
-
-    const chatId = existing ? existing.id : await this.createTicket(user.sub)
-    await this.chats.createMessage(user.sub, { chatId, content: input.text })
+    // createMessage в комнату чата не шлёт (это делает шлюз), а обращение пишется по REST:
+    // без рассылки у сотрудника с открытым обращением сообщение не появлялось вживую.
+    this.chats.publishNewMessage(chatId, opened)
 
     await this.audit.record({
       userId: user.sub,
-      action: existing ? 'support.ticket.append' : 'support.ticket.open',
+      action: created ? 'support.ticket.open' : 'support.ticket.append',
       entity: 'Chat',
       entityId: chatId,
       ...ctx,
     })
     // Только о новом обращении: дописка в открытое уже кого-то ждёт, и второе
-    // уведомление о той же ветке ничего не добавляет.
-    if (!existing) {
+    // уведомление о той же ветке ничего не добавляет. Дописку в ответ на слово команды
+    // отмечает `onTicketMessage` — для неё мяч снова на стороне поддержки.
+    if (created) {
       // Размер очереди прямо в уведомлении: одно обращение в спокойный день и одно
       // поверх десяти неразобранных требуют разной срочности, а по голому «пришло
       // новое» отличить их можно было только открыв приложение.
@@ -102,7 +217,7 @@ export class SupportService {
         { kind: 'ticket', id: chatId },
       )
     }
-    return { id: chatId, created: existing === null }
+    return { id: chatId, created }
   }
 
   /** Очередь обращений. Только команда платформы. */
@@ -150,8 +265,50 @@ export class SupportService {
       }),
       this.prisma.chat.count({ where }),
     ])
+    const [last, assignees] = await Promise.all([
+      this.lastTicketMessages(rows.map((row) => row.id)),
+      this.ticketAssignees(rows),
+    ])
 
-    return new Paginated(rows.map(toTicket), { total })
+    return new Paginated(
+      rows.map((row) =>
+        toTicket(row, last.get(row.id) ?? null, assignees.get(row.supportAssigneeId ?? '') ?? null),
+      ),
+      { total },
+    )
+  }
+
+  /** Разбирающие обращений страницы — одним запросом по их id. */
+  private async ticketAssignees(
+    rows: { supportAssigneeId: string | null }[],
+  ): Promise<Map<string, TicketUser>> {
+    const ids = [
+      ...new Set(
+        rows.map((row) => row.supportAssigneeId).filter((id): id is string => id !== null),
+      ),
+    ]
+    if (ids.length === 0) return new Map()
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: ids }, deletedAt: null },
+      select: TICKET_USER_SELECT,
+      take: ids.length,
+    })
+    return new Map(users.map((user) => [user.id, user]))
+  }
+
+  /**
+   * Последнее сообщение каждого обращения — по одной строке на обращение (F-F02). Вложенный
+   * `messages: { take: 1 }` в `findMany` Prisma обрезает в памяти: ради строки очереди
+   * читалась бы вся переписка обращений страницы.
+   */
+  private lastTicketMessages(chatIds: string[]): Promise<Map<string, TicketLastMessage>> {
+    return lastMessagesOf(this.prisma, chatIds, (ids) =>
+      this.prisma.message.findMany({
+        where: { id: { in: ids } },
+        select: { chatId: true, content: true, createdAt: true, senderId: true },
+        take: ids.length,
+      }),
+    )
   }
 
   /**
@@ -163,8 +320,9 @@ export class SupportService {
    */
   async thread(viewer: JwtPayload, chatId: string) {
     await this.assertAccess(viewer, chatId)
-    const [row, messages, merged] = await Promise.all([
+    const [row, last, messages, merged] = await Promise.all([
       this.prisma.chat.findUniqueOrThrow({ where: { id: chatId }, select: TICKET_SELECT }),
+      this.lastTicketMessages([chatId]),
       this.chats.getMessages(viewer, chatId, { limit: 50 }),
       this.prisma.chat.findMany({
         where: { supportMergedIntoId: chatId },
@@ -176,6 +334,15 @@ export class SupportService {
     // Переписка склеенных веток читается вместе с целевой: склейка нужна, чтобы видеть
     // разговор целиком, а не чтобы прятать половину. Сообщения не переносились, поэтому
     // порядок восстанавливаем по времени — `seq` сравним только внутри одного чата.
+    // Склеенная ветка закрыта, и догон членства (`joinOpenTickets`) её обходит: сотрудник,
+    // пришедший после склейки, в ней не состоит, и чтение по членству роняло весь экран.
+    // Догоняем членство тем же приёмом, что и `assertAccess` для самой ветки.
+    if (STAFF_ROLES.includes(viewer.role) && merged.length > 0) {
+      await this.prisma.chatMember.createMany({
+        data: merged.map((ticket) => ({ chatId: ticket.id, userId: viewer.sub })),
+        skipDuplicates: true,
+      })
+    }
     const extra = await Promise.all(
       merged.map((ticket) => this.chats.getMessages(viewer, ticket.id, { limit: 50 })),
     )
@@ -201,9 +368,17 @@ export class SupportService {
         })
       : []
 
+    const assignees = await this.ticketAssignees([row])
     return {
-      ticket: toTicket(row),
+      ticket: toTicket(
+        row,
+        last.get(chatId) ?? null,
+        assignees.get(row.supportAssigneeId ?? '') ?? null,
+      ),
       messages: all,
+      // Переписка — последние 50 сообщений; длинную ветку клиент дочитывает обычной историей
+      // чата (`GET /chats/:id/messages?cursor=`) от этого курсора. null — раньше ничего нет.
+      earlierCursor: messages.meta.hasNext ? (messages.meta.cursor ?? null) : null,
       mergedCount: merged.length,
       siblings: siblings.map((item) => ({
         id: item.id,
@@ -247,10 +422,19 @@ export class SupportService {
       throw new AppException('BAD_REQUEST', 'Склеивать можно только обращения одного человека')
     }
 
-    await this.prisma.chat.update({
-      where: { id: chatId },
-      data: { supportMergedIntoId: intoId, supportClosedAt: new Date() },
-    })
+    // Ветки, склеенные в источник раньше, переезжают в цель вместе с ним: иначе они
+    // указывали бы на склеенное, а читатель идёт ровно на один шаг — их переписку не было
+    // бы видно нигде. Автор у них тот же, что и у источника, так что чужого не смешиваем.
+    await this.prisma.$transaction([
+      this.prisma.chat.updateMany({
+        where: { supportMergedIntoId: chatId },
+        data: { supportMergedIntoId: intoId },
+      }),
+      this.prisma.chat.update({
+        where: { id: chatId },
+        data: { supportMergedIntoId: intoId, supportClosedAt: new Date() },
+      }),
+    ])
     await this.audit.record({
       userId: viewer.sub,
       action: 'support.ticket.merge',
@@ -281,6 +465,9 @@ export class SupportService {
   /**
    * Ответить. Ответ в закрытое обращение открывает его снова: человек с уточняющим
    * вопросом иначе остался бы без канала и завёл бы второе обращение о том же.
+   *
+   * Само переоткрытие, отметка первого ответа и уведомление команды — в `onTicketMessage`:
+   * они срабатывают на любом сообщении в обращении, в том числе отправленном из окна чата.
    */
   async reply(
     viewer: JwtPayload,
@@ -293,19 +480,9 @@ export class SupportService {
       chatId,
       content: input.text,
     })
-    await this.prisma.chat.updateMany({
-      where: { id: chatId, supportClosedAt: { not: null } },
-      data: { supportClosedAt: null },
-    })
-    // Первый ответ команды. `supportFirstReplyAt: null` в условии — чтобы отметка
-    // проставилась ровно один раз: повторное открытие обращения не делает первый
-    // ответ быстрее, и переписывать её значило бы улучшать метрику задним числом.
-    if (STAFF_ROLES.includes(viewer.role)) {
-      await this.prisma.chat.updateMany({
-        where: { id: chatId, supportFirstReplyAt: null },
-        data: { supportFirstReplyAt: new Date() },
-      })
-    }
+    // Ответ уходит в комнату чата: у человека с открытым обращением он появляется сразу
+    // (уведомление ему при этом не создаётся — он «смотрит чат»).
+    this.chats.publishNewMessage(chatId, message)
     await this.audit.record({
       userId: viewer.sub,
       action: 'support.ticket.reply',
@@ -313,12 +490,6 @@ export class SupportService {
       entityId: chatId,
       ...ctx,
     })
-    // Ответ АВТОРА будит команду, ответ команды — нет: иначе поддержка уведомляла бы
-    // сама себя. Без этого человек, дописавший в открытое обращение, ждал молча, а
-    // узнавали о нём, только зайдя в очередь.
-    if (!STAFF_ROLES.includes(viewer.role)) {
-      await this.telegram.notifyStaff('reply', 'Ответ в обращении поддержки', `support_${chatId}`)
-    }
     return message
   }
 
@@ -348,16 +519,8 @@ export class SupportService {
     ])
 
     // Всё остальное — как у текстового ответа: закрытое обращение открывается снова,
-    // отметка первого ответа ставится один раз. Дублировать правила нельзя: иначе
-    // «первый ответ голосом» не попадал бы в метрику, а обращение оставалось закрытым.
-    await this.prisma.chat.updateMany({
-      where: { id: chatId, supportClosedAt: { not: null } },
-      data: { supportClosedAt: null },
-    })
-    await this.prisma.chat.updateMany({
-      where: { id: chatId, supportFirstReplyAt: null },
-      data: { supportFirstReplyAt: new Date() },
-    })
+    // отметка первого ответа ставится один раз. Правила не дублируются здесь — их
+    // применяет `onTicketMessage` к любому сообщению в обращении, голосовому тоже.
     await this.audit.record({
       userId: viewer.sub,
       action: 'support.ticket.reply.voice',
@@ -507,29 +670,49 @@ export class SupportService {
    * Ответ такое обращение откроет снова, поэтому закрытие ничего не отнимает.
    */
   async closeStale(olderThan: Date): Promise<number> {
-    const stale = await this.prisma.chat.findMany({
-      where: {
-        type: ChatType.SUPPORT_PLATFORM,
-        supportClosedAt: null,
-        updatedAt: { lt: olderThan },
-      },
-      select: {
-        id: true,
-        messages: {
-          orderBy: { seq: Prisma.SortOrder.desc },
-          take: 1,
-          select: { sender: { select: { role: true } } },
+    // Порциями по курсору до конца, а не одна выборка: отбор «последней писала команда»
+    // идёт после чтения, и двести обращений, где последним писал автор, навсегда занимали
+    // всю выборку — остальные не закрывались никогда.
+    let closed = 0
+    let cursor: string | undefined
+    for (;;) {
+      const stale = await this.prisma.chat.findMany({
+        where: {
+          type: ChatType.SUPPORT_PLATFORM,
+          supportClosedAt: null,
+          updatedAt: { lt: olderThan },
         },
-      },
-      take: 200,
-    })
-
-    const ids = stale
-      .filter((chat) => {
-        const lastRole = chat.messages[0]?.sender.role as Role | undefined
-        return lastRole !== undefined && STAFF_ROLES.includes(lastRole)
+        select: { id: true },
+        orderBy: { id: 'asc' },
+        take: STALE_BATCH,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
       })
-      .map((chat) => chat.id)
+      closed += await this.closeAnsweredByStaff(stale.map((chat) => chat.id))
+      if (stale.length < STALE_BATCH) return closed
+      cursor = stale.at(-1)?.id
+    }
+  }
+
+  /** Из переданных обращений закрывает те, где последнее слово было за командой. */
+  private async closeAnsweredByStaff(chatIds: string[]): Promise<number> {
+    // Последнее слово — по одной строке на обращение, а не всей перепиской (F-F02).
+    // Удалённые сообщения тоже считаются: правило «кто ответил последним» не менялось.
+    const last = await lastMessagesOf(
+      this.prisma,
+      chatIds,
+      (ids) =>
+        this.prisma.message.findMany({
+          where: { id: { in: ids } },
+          select: { chatId: true, sender: { select: { role: true } } },
+          take: ids.length,
+        }),
+      { includeDeleted: true },
+    )
+
+    const ids = chatIds.filter((id) => {
+      const lastRole = last.get(id)?.sender.role as Role | undefined
+      return lastRole !== undefined && STAFF_ROLES.includes(lastRole)
+    })
     if (ids.length === 0) return 0
 
     const { count } = await this.prisma.chat.updateMany({
@@ -572,15 +755,54 @@ export class SupportService {
     return { created, closed }
   }
 
-  /** Создаёт обращение с автором и всей текущей командой платформы в участниках. */
-  private async createTicket(authorId: string): Promise<string> {
-    const staff = await this.prisma.user.findMany({
-      where: { role: { in: [...STAFF_ROLES] }, deletedAt: null, isBlocked: false },
-      select: { id: true },
-      take: 100,
+  /**
+   * Создаёт обращение с автором и всей текущей командой платформы в участниках.
+   *
+   * Команда читается вся, порциями по порядку id (F-F27). Раньше брались первые сто без
+   * сортировки — кто именно, решала база, и сто первый сотрудник не видел новых обращений
+   * в своих чатах, пока не откроет очередь. Догон в `joinOpenTickets` остаётся — для тех,
+   * кто пришёл в команду уже после создания обращения.
+   */
+  /**
+   * Открытое обращение автора — найденное или новое.
+   *
+   * Поиск и создание — под транзакционным локом по автору (как ensure официальных чатов,
+   * chats.service findOrCreateChat): уникальным индексом «одно открытое обращение на
+   * человека» не закрыть, и две параллельные отправки (двойной клик, две вкладки) обе
+   * видели «открытого нет» и заводили два обращения. Обычно обращение уже есть, поэтому
+   * сначала ищем без лока.
+   */
+  private async openTicketOf(authorId: string): Promise<{ id: string; created: boolean }> {
+    const existing = await this.findOpenTicket(this.prisma, authorId)
+    if (existing) return { id: existing.id, created: false }
+    return this.prisma.$transaction(async (tx) => {
+      await advisoryXactLock(tx, `support-ticket:${authorId}`)
+      const raced = await this.findOpenTicket(tx, authorId)
+      if (raced) return { id: raced.id, created: false }
+      return { id: await this.createTicket(tx, authorId), created: true }
     })
-    const userIds = [...new Set([authorId, ...staff.map((s) => s.id)])]
-    const chat = await this.prisma.chat.create({
+  }
+
+  private findOpenTicket(db: Prisma.TransactionClient, authorId: string) {
+    return db.chat.findFirst({
+      where: {
+        type: ChatType.SUPPORT_PLATFORM,
+        supportClosedAt: null,
+        // Склеенная ветка — не обращение (F-F27): в очереди её нет, и дописка в неё уходила
+        // туда, где её никто не увидит. Склеенную, открытую до правки правил, тоже обходим.
+        supportMergedIntoId: null,
+        members: { some: { userId: authorId } },
+      },
+      // Самое свежее открытое: если открытых по старым данным несколько, пишем в последнее.
+      orderBy: { createdAt: 'desc' },
+      select: { id: true },
+    })
+  }
+
+  private async createTicket(db: Prisma.TransactionClient, authorId: string): Promise<string> {
+    const staff = await this.activeStaffIds()
+    const userIds = [...new Set([authorId, ...staff])]
+    const chat = await db.chat.create({
       data: {
         type: ChatType.SUPPORT_PLATFORM,
         members: { create: userIds.map((userId) => ({ userId })) },
@@ -588,6 +810,24 @@ export class SupportService {
       select: { id: true },
     })
     return chat.id
+  }
+
+  /** id действующих сотрудников платформы — все, порциями по курсору (BACKEND_RULES §7.2). */
+  private async activeStaffIds(): Promise<string[]> {
+    const ids: string[] = []
+    let cursor: string | undefined
+    for (;;) {
+      const batch = await this.prisma.user.findMany({
+        where: { role: { in: [...STAFF_ROLES] }, deletedAt: null, isBlocked: false },
+        select: { id: true },
+        orderBy: { id: 'asc' },
+        take: STAFF_BATCH,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      })
+      ids.push(...batch.map((row) => row.id))
+      if (batch.length < STAFF_BATCH) return ids
+      cursor = batch.at(-1)?.id
+    }
   }
 
   /** Добавляет сотрудника в обращения, где его ещё нет (батчем, без запроса на чат). */
@@ -643,21 +883,23 @@ export class SupportService {
 }
 
 /** Строка очереди: кто написал, когда и чем закончилось — без лишнего для телефона. */
-function toTicket(row: {
-  id: string
-  createdAt: Date
-  updatedAt: Date
-  supportClosedAt: Date | null
-  supportAssigneeId: string | null
-  supportFirstReplyAt: Date | null
-  supportTags: string[]
-  members: { user: { id: string; firstName: string; lastName: string; role: string } }[]
-  messages: { content: string | null; createdAt: Date; senderId: string }[]
-}) {
+function toTicket(
+  row: {
+    id: string
+    createdAt: Date
+    updatedAt: Date
+    supportClosedAt: Date | null
+    supportAssigneeId: string | null
+    supportFirstReplyAt: Date | null
+    supportTags: string[]
+    members: { user: TicketUser }[]
+  },
+  last: TicketLastMessage | null,
+  assignee: TicketUser | null,
+) {
   // Автор — единственный участник не из команды платформы: обращение заводится от него,
   // а сотрудники добавляются пачкой.
   const author = row.members.find((m) => !STAFF_ROLES.includes(m.user.role as Role))?.user ?? null
-  const last = row.messages[0] ?? null
   return {
     id: row.id,
     author: author && {
@@ -672,8 +914,7 @@ function toTicket(row: {
     },
     closedAt: row.supportClosedAt,
     assigneeId: row.supportAssigneeId,
-    // Имя разбирающего берём из участников: команда платформы в них уже есть.
-    assignee: row.members.find((m) => m.user.id === row.supportAssigneeId)?.user ?? null,
+    assignee,
     firstReplyAt: row.supportFirstReplyAt,
     tags: row.supportTags,
     createdAt: row.createdAt,

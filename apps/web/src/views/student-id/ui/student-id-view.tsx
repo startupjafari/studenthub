@@ -23,6 +23,10 @@ export function StudentIdView() {
     // Тихо обновляем токен/QR (данные карты те же — без скелета, keepPreviousData по умолчанию
     // для того же ключа: React Query отдаёт прежние данные, пока грузится новые).
     refetchInterval: REFRESH_SECONDS * 1000,
+    // Интервал в фоне не тикает: после заблокированного экрана код на руках старше TTL, а
+    // охрана видит «Код истёк». Возврат на вкладку обновляет код, если он старше интервала.
+    staleTime: REFRESH_SECONDS * 1000,
+    refetchOnWindowFocus: true,
   })
 
   // Плашка ошибки — единственное содержимое страницы, и колонка должна отдать ей всю
@@ -45,27 +49,51 @@ export function StudentIdView() {
       ) : (
         <StudentIdCardFace
           card={q.data}
-          footer={<QrPanel qr={q.data.qr} updatedAt={q.dataUpdatedAt} />}
+          footer={
+            <QrPanel
+              qr={q.data.qr}
+              expiresAt={q.data.expiresAt}
+              updatedAt={q.dataUpdatedAt}
+              refreshing={q.isFetching}
+              onRefresh={() => void q.refetch()}
+            />
+          }
         />
       )}
     </div>
   )
 }
 
-// Секунды до следующего обновления QR: считаем от момента последнего успешного refetch.
-function useCountdown(fromTs: number, seconds: number): number {
+// Текущее время с шагом в секунду — для таймера и проверки срока кода.
+function useNow(): number {
   const [now, setNow] = useState(() => Date.now())
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(id)
   }, [])
-  return Math.max(0, seconds - Math.floor((now - fromTs) / 1000))
+  return now
 }
 
-function QrPanel({ qr, updatedAt }: { qr: string; updatedAt: number }) {
+function QrPanel({
+  qr,
+  expiresAt,
+  updatedAt,
+  refreshing,
+  onRefresh,
+}: {
+  qr: string
+  expiresAt: string
+  updatedAt: number
+  refreshing: boolean
+  onRefresh: () => void
+}) {
   const t = useTranslations('StudentId')
   const [open, setOpen] = useState(false)
-  const remaining = useCountdown(updatedAt, REFRESH_SECONDS)
+  const now = useNow()
+  // Секунды до следующего обновления QR: считаем от момента последнего успешного refetch.
+  const remaining = Math.max(0, REFRESH_SECONDS - Math.floor((now - updatedAt) / 1000))
+  // Просроченный код не показываем как действующий: охрана его всё равно отклонит.
+  const expired = now >= Date.parse(expiresAt)
 
   return (
     <div className="relative z-30 flex flex-col items-center justify-center gap-2 border-t border-border p-5 lg:h-full lg:border-t-0 lg:border-l">
@@ -82,18 +110,28 @@ function QrPanel({ qr, updatedAt }: { qr: string; updatedAt: number }) {
           alt={t('qrAlt')}
           width={288}
           height={288}
-          className="aspect-square w-72 max-w-full rounded-xl border border-border bg-white p-3 transition group-hover:opacity-90"
+          className={cn(
+            'aspect-square w-72 max-w-full rounded-xl border border-border bg-white p-3 transition group-hover:opacity-90',
+            expired && 'opacity-20 blur-sm',
+          )}
         />
         <span className="absolute right-1.5 bottom-1.5 rounded-md bg-foreground/70 p-1 text-background">
           <Maximize2 className="size-3.5" aria-hidden />
         </span>
       </button>
 
-      {/* Таймер до обновления QR. */}
-      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-        <RefreshCw className="size-3.5" aria-hidden />
-        {t('refreshIn', { s: remaining })}
-      </div>
+      {/* Таймер до обновления QR; код устарел (обновление не дошло) — ручное обновление. */}
+      {expired ? (
+        <Button size="sm" variant="outline" loading={refreshing} onClick={onRefresh}>
+          <RefreshCw className="size-3.5" aria-hidden />
+          {t('qrExpiredRefresh')}
+        </Button>
+      ) : (
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <RefreshCw className="size-3.5" aria-hidden />
+          {t('refreshIn', { s: remaining })}
+        </div>
+      )}
       <p className="text-center text-xs text-muted-foreground">{t('qrHint')}</p>
 
       {open && (

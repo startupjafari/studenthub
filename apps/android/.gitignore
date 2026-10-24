@@ -1,0 +1,18 @@
+# Gradle и Kotlin
+.gradle/
+.kotlin/
+build/
+
+# Android Studio
+.idea/
+*.iml
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Путь к SDK конкретной машины
+local.properties
+
+# Ключи подписи — только в секретах CI и у человека, никогда в git
+*.jks
+*.keystore

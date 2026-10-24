@@ -1,9 +1,11 @@
 'use client'
 
-import { useState, type ReactNode } from 'react'
-import { useMutation } from '@tanstack/react-query'
+import { useEffect, useState, type ReactNode } from 'react'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
-import { useForm } from 'react-hook-form'
+import { toast } from 'sonner'
+import { Copy, Link2 } from 'lucide-react'
+import { Controller, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import {
   ApproveDemoRequestSchema,
@@ -14,8 +16,17 @@ import {
 import {
   approveDemoRequest,
   rejectDemoRequest,
+  reissueDemoInvite,
   type DemoRequest,
 } from '../../../entities/onboarding'
+import {
+  KatoSelect,
+  isKatoCode,
+  katoKeys,
+  searchKato,
+  useKatoNames,
+  type KatoUnit,
+} from '../../../entities/kato'
 import {
   Badge,
   Button,
@@ -29,10 +40,25 @@ import {
   SelectTrigger,
   SelectValue,
   Textarea,
+  useConfirm,
 } from '../../../shared/ui'
-import { OPTIONAL_TEXT, useFormAlert } from '../../../shared/lib'
+import { OPTIONAL_TEXT, toApiError, useFormAlert } from '../../../shared/lib'
 
 const REASONS = DemoRejectionReasonSchema.options
+
+/**
+ * Код города из выдачи КАТО, если текст заявки совпал ровно с одним городом. Тёзки
+ * («Абай» — город и десятки сёл) и неточные совпадения не угадываем: выберет модератор.
+ */
+function exactCity(units: KatoUnit[], text: string): string | null {
+  const wanted = text.trim().toLocaleLowerCase('ru')
+  const hits = units.filter(
+    (u) =>
+      u.kind === 'CITY' &&
+      (u.nameRu.toLocaleLowerCase('ru') === wanted || u.nameKk.toLocaleLowerCase('kk') === wanted),
+  )
+  return hits.length === 1 ? hits[0]!.code : null
+}
 
 /** Цвет статусной плашки — тот же, что в строке очереди: один статус, один цвет. */
 const STATUS_STYLE: Record<DemoRequest['status'], string> = {
@@ -64,6 +90,9 @@ export function DemoRequestModal({ request, onClose, onDecided }: Props) {
   const tCommon = useTranslations('Common')
   const locale = useLocale()
   const [mode, setMode] = useState<'view' | 'approve' | 'reject'>('view')
+  // Город заявки обычно текст с публичной формы, но может оказаться и кодом КАТО —
+  // код показываем названием, текст как есть.
+  const { nameOf: cityName } = useKatoNames([request.city])
 
   const decided = request.status !== 'NEW'
 
@@ -92,7 +121,7 @@ export function DemoRequestModal({ request, onClose, onDecided }: Props) {
           <Field label={t('fieldRole')}>{request.contactRole || '—'}</Field>
           <Field label={t('colEmail')}>{request.email}</Field>
           <Field label={t('fieldPhone')}>{request.phone || '—'}</Field>
-          <Field label={t('fieldCity')}>{request.city || '—'}</Field>
+          <Field label={t('fieldCity')}>{cityName(request.city) || '—'}</Field>
           <Field label={t('fieldStudents')}>{request.studentsEstimate ?? '—'}</Field>
           <Field label={t('fieldWebsite')}>{request.website || '—'}</Field>
           <Field label={t('fieldConsent')}>
@@ -125,6 +154,8 @@ export function DemoRequestModal({ request, onClose, onDecided }: Props) {
           </section>
         )}
 
+        {request.status === 'APPROVED' && mode === 'view' && <ReissueInvite request={request} />}
+
         {mode === 'approve' && (
           <ApproveForm request={request} onBack={() => setMode('view')} onDecided={onDecided} />
         )}
@@ -154,6 +185,74 @@ export function DemoRequestModal({ request, onClose, onDecided }: Props) {
         )}
       </div>
     </Modal>
+  )
+}
+
+/**
+ * Приглашение админу вуза заново. Письмо могло не дойти, а ссылку на одобрении никто не
+ * видел: сервер хранит только хэш токена. Повтор выписывает новое приглашение, старая
+ * ссылка перестаёт работать, письмо уходит снова, а ссылка показывается здесь один раз —
+ * её можно передать руками.
+ */
+function ReissueInvite({ request }: { request: DemoRequest }) {
+  const t = useTranslations('DemoAdmin')
+  const tErr = useTranslations('Errors')
+  const confirm = useConfirm()
+  const [link, setLink] = useState<string | null>(null)
+
+  const mut = useMutation({
+    mutationFn: () => reissueDemoInvite(request.id),
+    // Окно не закрываем: ссылка показывается здесь один раз, её ещё нужно скопировать.
+    onSuccess: ({ inviteUrl }) => {
+      setLink(inviteUrl)
+      toast.success(t('reissued'))
+    },
+    onError: (e: unknown) => toast.error(tErr(toApiError(e).code)),
+  })
+
+  async function reissue(): Promise<void> {
+    const ok = await confirm({
+      title: t('reissueConfirmTitle'),
+      description: t('reissueConfirmDesc', { email: request.email }),
+      confirmLabel: t('reissueInvite'),
+    })
+    if (ok) mut.mutate()
+  }
+
+  return (
+    <section className="flex flex-col gap-2 rounded-xl border border-border p-3">
+      <p className="text-sm text-muted-foreground">{t('reissueExplain')}</p>
+      {link ? (
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <code className="flex h-10 min-w-0 flex-1 items-center truncate rounded-xl border border-border bg-background px-3.5 text-sm">
+            {link}
+          </code>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              void navigator.clipboard.writeText(link)
+              toast.success(t('linkCopied'))
+            }}
+          >
+            <Copy className="size-4" aria-hidden />
+            {t('copyLink')}
+          </Button>
+        </div>
+      ) : (
+        <div>
+          <Button
+            type="button"
+            variant="outline"
+            loading={mut.isPending}
+            onClick={() => void reissue()}
+          >
+            <Link2 className="size-4" aria-hidden />
+            {t('reissueInvite')}
+          </Button>
+        </div>
+      )}
+    </section>
   )
 }
 
@@ -194,6 +293,24 @@ function ApproveForm({
     },
   })
 
+  // Город вуза хранится кодом КАТО (B-F13), а в заявке он — свободный текст. Ищем текст в
+  // справочнике тем же запросом, что и комбобокс: однозначно совпавший город подставляем
+  // кодом, иначе оставляем текст — модератор выберет из списка сам, а зарубежный город
+  // так и уйдёт текстом. Сервер повторяет ту же сверку, если город не прислали.
+  const cityText = request.city?.trim() ?? ''
+  const cityMatch = useQuery({
+    queryKey: katoKeys.search(cityText, 'places'),
+    queryFn: () => searchKato(cityText, 'places'),
+    enabled: cityText !== '' && !isKatoCode(cityText),
+    staleTime: Infinity,
+  })
+  useEffect(() => {
+    if (!cityMatch.data) return
+    const code = exactCity(cityMatch.data, cityText)
+    // Только пока поле не трогали: выбор модератора важнее догадки.
+    if (code && !form.getFieldState('city').isDirty) form.setValue('city', code)
+  }, [cityMatch.data, cityText, form])
+
   const mut = useMutation({
     mutationFn: (input: ApproveDemoRequestInput) => approveDemoRequest(request.id, input),
     onSuccess: onDecided,
@@ -224,7 +341,18 @@ function ApproveForm({
         </div>
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="d-city">{t('fieldCity')}</Label>
-          <Input id="d-city" {...form.register('city', OPTIONAL_TEXT)} />
+          <Controller
+            control={form.control}
+            name="city"
+            render={({ field }) => (
+              <KatoSelect
+                id="d-city"
+                value={field.value ?? ''}
+                // Очистка даёт пустую строку, а схема принимает непустую или ничего.
+                onChange={(v) => field.onChange(v === '' ? undefined : v)}
+              />
+            )}
+          />
         </div>
       </div>
 

@@ -21,6 +21,7 @@ export function MediaFrame({
   className,
   imageClassName,
   controls = false,
+  sizes,
   children,
 }: {
   postId: string
@@ -29,11 +30,14 @@ export function MediaFrame({
   imageClassName?: string
   /** Элементы управления у видео (в полном просмотре — да, в ленте — нет). */
   controls?: boolean
+  /** Ширина кадра в раскладке (srcset); по умолчанию — колонка ленты. */
+  sizes?: string
   /** Накладки поверх кадра: стрелки карусели, счётчик, точки. */
   children?: ReactNode
 }) {
   // У видео размытой подложки нет: это был бы второй проигрыватель того же файла —
-  // лишняя загрузка и декодирование ради фона.
+  // лишняя загрузка и декодирование ради фона. У снимка подложка — его LQIP-заглушка
+  // (см. PostMediaView, decorative), а без неё — та же картинка из кэша браузера.
   const isVideo = media.mime.startsWith('video/')
 
   return (
@@ -55,6 +59,7 @@ export function MediaFrame({
         media={media}
         fit="contain"
         controls={controls}
+        sizes={sizes}
         className={cn('relative w-auto max-w-full', imageClassName)}
       />
       {children}

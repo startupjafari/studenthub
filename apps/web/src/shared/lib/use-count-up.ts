@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { MOTION } from './motion'
 
 // Плавный счёт от нуля до значения для плиток-показателей. Ощутимо оживляет
 // дашборд, но это чистая декорация, поэтому:
@@ -8,7 +9,8 @@ import { useEffect, useRef, useState } from 'react'
 //  · анимация идёт на requestAnimationFrame, а не таймером на каждый шаг —
 //    иначе пять плиток дают пять таймеров, дёргающих рендер вне кадра.
 
-const DURATION_MS = 900
+// Оживление данных — верхняя граница шкалы движения: дольше число висит неверным.
+const DURATION_MS = MOTION.large
 
 /** easeOutCubic: быстрый старт, мягкая остановка — число не «доезжает» рывком. */
 function ease(t: number): number {

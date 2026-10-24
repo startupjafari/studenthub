@@ -115,29 +115,59 @@ export class MiniService {
 
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, firstName: true, role: true, isBlocked: true, twoFactorEnabled: true },
+      select: {
+        id: true,
+        firstName: true,
+        role: true,
+        isBlocked: true,
+        deletedAt: true,
+        twoFactorEnabled: true,
+      },
     })
-    if (!user || user.isBlocked || !ALLOWED_ROLES.includes(user.role as Role)) {
+    // Код живёт пять минут — аккаунт за это время могли удалить или заблокировать.
+    if (!user || user.deletedAt || user.isBlocked || !ALLOWED_ROLES.includes(user.role as Role)) {
       throw this.denied(`link: роль ${user?.role ?? 'нет пользователя'}`)
     }
 
     const telegramId = verified.user.id
-    const existing = await this.prisma.telegramAccount.findUnique({ where: { telegramId } })
-    if (existing && existing.userId !== userId && !existing.revokedAt) {
+    const existing = await this.prisma.telegramAccount.findUnique({
+      where: { telegramId },
+      select: { id: true, userId: true, revokedAt: true, user: { select: { deletedAt: true } } },
+    })
+    // Чужая привязка этого Telegram, которая уже не даёт доступа: отозвана владельцем или
+    // осталась от удалённого аккаунта (сессию по ней мини-апп и так не выдаёт).
+    const foreign = existing && existing.userId !== userId ? existing : null
+    const staleForeign = foreign && (foreign.revokedAt || foreign.user.deletedAt) ? foreign : null
+    if (foreign && !staleForeign) {
       // Молчаливая перепривязка означала бы, что доступ администратора переехал на другой
       // телефон незаметно для него самого.
       throw new AppException('CONFLICT', 'Этот Telegram уже привязан к другому аккаунту')
     }
 
-    await this.prisma.telegramAccount.upsert({
-      where: { userId },
-      create: { userId, telegramId, username: verified.user.username ?? null },
-      update: {
-        telegramId,
-        username: verified.user.username ?? null,
-        revokedAt: null,
-        linkedAt: new Date(),
-      },
+    const link = {
+      telegramId,
+      username: verified.user.username ?? null,
+      revokedAt: null,
+      linkedAt: new Date(),
+    }
+    await this.prisma.$transaction(async (tx) => {
+      // telegramId уникален, и мёртвая чужая строка держала его навсегда: новый админ
+      // получал 409 «запись уже существует», хотя прежний доступ отозван. Строку снимаем
+      // условно (вдруг её только что вернули в работу) — история отзыва остаётся в журнале.
+      if (staleForeign) {
+        await tx.telegramAccount.deleteMany({
+          where: {
+            id: staleForeign.id,
+            userId: staleForeign.userId,
+            OR: [{ revokedAt: { not: null } }, { user: { deletedAt: { not: null } } }],
+          },
+        })
+      }
+      await tx.telegramAccount.upsert({
+        where: { userId },
+        create: { userId, ...link },
+        update: link,
+      })
     })
 
     await this.audit.record({
@@ -145,7 +175,11 @@ export class MiniService {
       action: 'telegram.linked',
       entity: 'TelegramAccount',
       entityId: userId,
-      metadata: { source: 'telegram' },
+      metadata: {
+        source: 'telegram',
+        // Чья отозванная привязка уступила место — для разбора «как мой Telegram ушёл».
+        ...(staleForeign ? { replacedUserId: staleForeign.userId } : {}),
+      },
     })
 
     // Подтверждение в сам привязанный Telegram: человек видит, что доступ появился
@@ -183,6 +217,7 @@ export class MiniService {
             firstName: true,
             role: true,
             isBlocked: true,
+            deletedAt: true,
             twoFactorEnabled: true,
           },
         },
@@ -191,6 +226,10 @@ export class MiniService {
 
     if (!account || account.revokedAt) throw this.denied('session: привязки нет или отозвана')
     const user = account.user
+    // Удаление аккаунта снимает привязку само (UserService.softDeleteSelf), но доступ
+    // проверяем и здесь: роль удалённому сохраняется, и забытая привязка — от сбоя или
+    // старых данных — иначе выдавала бы ему рабочий токен при выключенном форсе 2FA.
+    if (user.deletedAt) throw this.denied('session: аккаунт удалён')
     if (user.isBlocked) throw this.denied('session: пользователь заблокирован')
     if (!ALLOWED_ROLES.includes(user.role as Role)) {
       throw this.denied(`session: роль ${user.role} больше не допущена`)
@@ -228,7 +267,19 @@ export class MiniService {
     }[]
   > {
     const rows = await this.prisma.telegramAccount.findMany({
-      where: { revokedAt: null },
+      // Привязки удалённых аккаунтов, оставшиеся с прежних времён, — не команда и не пул
+      // дежурства: удаление снимает привязку, но старые строки могли пережить его.
+      // Заблокированных и сменивших роль — туда же: это пул очереди дежурств, и сервер
+      // (PlatformService.reachable) всё равно не поставит их в очередь — список не должен
+      // предлагать тех, на ком сохранение упадёт с 422.
+      where: {
+        revokedAt: null,
+        user: {
+          deletedAt: null,
+          isBlocked: false,
+          role: { in: [Role.PLATFORM_ADMIN, Role.PLATFORM_MODERATOR] },
+        },
+      },
       select: {
         userId: true,
         username: true,

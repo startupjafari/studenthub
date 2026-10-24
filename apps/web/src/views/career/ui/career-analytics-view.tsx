@@ -174,7 +174,7 @@ export function CareerAnalyticsView() {
           описывает активность, а не работу карьерного центра. */}
       <SectionPanel title={t('speedTitle')} subtitle={t('speedHint')}>
         {!d ? (
-          <Skeleton className="h-20 w-full" />
+          <Skeleton fill className="min-h-20" />
         ) : (
           <div className="grid gap-4 sm:grid-cols-3">
             <Figure
@@ -202,7 +202,7 @@ export function CareerAnalyticsView() {
         {/* Воронка отвечает «сколько дошло», потери — «где именно теряем». */}
         <SectionPanel title={t('dropoffTitle')} subtitle={t('dropoffHint')}>
           {!d ? (
-            <Skeleton className="h-56 w-full" />
+            <Skeleton fill className="min-h-56" />
           ) : d.funnel.stages.SUBMITTED === 0 ? (
             <EmptyState title={dash} className="border-0 p-6" />
           ) : (
@@ -219,7 +219,7 @@ export function CareerAnalyticsView() {
 
         <SectionPanel title={t('outcomesTitle')} subtitle={t('outcomesHint')}>
           {!d ? (
-            <Skeleton className="h-56 w-full" />
+            <Skeleton fill className="min-h-56" />
           ) : (
             <ShareRows
               rows={[
@@ -248,7 +248,7 @@ export function CareerAnalyticsView() {
           }
         >
           {!d ? (
-            <Skeleton className="h-56 w-full" />
+            <Skeleton fill className="min-h-56" />
           ) : d.faculties.items.length === 0 ? (
             <EmptyState title={dash} className="border-0 p-6" />
           ) : (
@@ -266,7 +266,7 @@ export function CareerAnalyticsView() {
 
         <SectionPanel title={t('graduatesTitle')} subtitle={t('graduatesHint')}>
           {!d ? (
-            <Skeleton className="h-40 w-full" />
+            <Skeleton fill className="min-h-40" />
           ) : (
             <div className="flex flex-col gap-3">
               <Figure
@@ -286,7 +286,7 @@ export function CareerAnalyticsView() {
       <div className="grid gap-4 lg:grid-cols-2">
         <SectionPanel title={t('companiesTitle')} subtitle={t('companiesHint')}>
           {!d ? (
-            <Skeleton className="h-56 w-full" />
+            <Skeleton fill className="min-h-56" />
           ) : d.companies.length === 0 ? (
             <EmptyState title={dash} className="border-0 p-6" />
           ) : (
@@ -304,7 +304,7 @@ export function CareerAnalyticsView() {
 
         <SectionPanel title={t('marketTitle')} subtitle={t('marketHint')}>
           {!d ? (
-            <Skeleton className="h-56 w-full" />
+            <Skeleton fill className="min-h-56" />
           ) : (
             <div className="flex flex-col gap-4">
               <CutRows
@@ -339,7 +339,7 @@ export function CareerAnalyticsView() {
       <div className="grid gap-4 lg:grid-cols-2">
         <SectionPanel title={t('salaryTitle')} subtitle={t('salaryHint')}>
           {!d ? (
-            <Skeleton className="h-24 w-full" />
+            <Skeleton fill className="min-h-24" />
           ) : (
             <div className="flex flex-col gap-3">
               <SalaryRow
@@ -368,7 +368,7 @@ export function CareerAnalyticsView() {
 
         <SectionPanel title={t('readinessTitle')} subtitle={t('readinessHint')}>
           {!d ? (
-            <Skeleton className="h-40 w-full" />
+            <Skeleton fill className="min-h-40" />
           ) : (
             <div className="flex flex-col gap-4">
               <ShareRows
@@ -397,7 +397,7 @@ export function CareerAnalyticsView() {
 
       <SectionPanel title={t('profilesTitle')} subtitle={t('profilesHint')}>
         {!d ? (
-          <Skeleton className="h-20 w-full" />
+          <Skeleton fill className="min-h-20" />
         ) : (
           <div className="grid gap-4 sm:grid-cols-3">
             <Figure

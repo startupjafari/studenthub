@@ -2,10 +2,11 @@
 
 import { Suspense, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
+import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { Check, Loader2, MonitorSmartphone, ShieldAlert, X } from 'lucide-react'
-import { Button } from '../../shared/ui'
-import { qrApproveRequest } from '../../shared/api'
+import { Button, Skeleton } from '../../shared/ui'
+import { qrApproveRequest, qrPreviewRequest } from '../../shared/api'
 
 type State = 'idle' | 'approving' | 'done' | 'rejected' | 'error'
 
@@ -14,8 +15,16 @@ function QrApprove() {
   const params = useSearchParams()
   const token = params.get('t')
   const [state, setState] = useState<State>('idle')
+  // Чьё устройство просит вход — до кнопки «Подтвердить». Без этого ссылку на чужой QR
+  // можно прислать «на проверку», и подтверждение отдаёт сессию постороннему.
+  const preview = useQuery({
+    queryKey: ['qr-preview', token],
+    queryFn: () => qrPreviewRequest(token!),
+    enabled: !!token && state === 'idle',
+    retry: false,
+  })
 
-  if (!token) {
+  if (!token || preview.isError) {
     return <Message icon={X} tone="destructive" text={t('qrApproveInvalid')} />
   }
   if (state === 'done') {
@@ -48,13 +57,36 @@ function QrApprove() {
         <p className="text-sm text-muted-foreground">{t('qrApprovePrompt')}</p>
       </div>
 
+      <div className="w-full rounded-lg border border-border p-3 text-left text-sm">
+        <p className="text-xs text-muted-foreground">{t('qrApproveRequester')}</p>
+        {preview.data ? (
+          <p className="font-medium">
+            {[
+              preview.data.requester.browser ?? t('qrApproveUnknownBrowser'),
+              preview.data.requester.os,
+              preview.data.requester.ip ? `IP ${preview.data.requester.ip}` : null,
+            ]
+              .filter(Boolean)
+              .join(' · ')}
+          </p>
+        ) : (
+          <Skeleton className="mt-1 h-5 w-48" />
+        )}
+      </div>
+
       <div className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 p-3 text-left text-xs text-foreground">
         <ShieldAlert className="mt-0.5 size-4 shrink-0 text-warning" aria-hidden />
         <span>{t('qrApproveWarning')}</span>
       </div>
 
       <div className="flex w-full gap-2">
-        <Button type="button" className="flex-1" loading={state === 'approving'} onClick={approve}>
+        <Button
+          type="button"
+          className="flex-1"
+          loading={state === 'approving'}
+          disabled={!preview.data}
+          onClick={approve}
+        >
           <Check className="size-4" aria-hidden />
           {t('qrApproveConfirm')}
         </Button>

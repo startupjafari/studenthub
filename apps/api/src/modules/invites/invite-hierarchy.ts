@@ -29,11 +29,14 @@ export const ALLOWED_ISSUERS: Record<Role, Role[]> = {
   // Работодателя нельзя пригласить по этой цепочке: компания регистрируется сама и
   // получает допуск от вуза (CompanyUniversityAccess), а не инвайт на роль.
   [Role.EMPLOYER]: [],
+  // Охрану и библиотекаря нанимает вуз: выдаёт только его админ, на свой вуз.
+  [Role.SECURITY_GUARD]: [Role.UNIVERSITY_ADMIN],
+  [Role.LIBRARIAN]: [Role.UNIVERSITY_ADMIN],
 }
 
 // Выводит фактический scope инвайта из иерархии и scope создателя.
-// Бросает FORBIDDEN/WRONG_SCOPE/BAD_REQUEST. Cross-level membership
-// (факультет ∈ вуз, группа ∈ факультет) проверяется в Ф5, когда появятся эти таблицы.
+// Бросает FORBIDDEN/WRONG_SCOPE/BAD_REQUEST. Связность (группа ∈ факультет ∈ вуз) здесь
+// не проверяется — для этого нужна БД: её проверяет InviteService.assertScopeExists.
 export function resolveInviteTarget(issuer: JwtPayload, input: InviteRequest): InviteScope {
   const allowed = ALLOWED_ISSUERS[input.role]
   if (!allowed.includes(issuer.role)) {
@@ -60,6 +63,8 @@ export function resolveInviteTarget(issuer: JwtPayload, input: InviteRequest): I
       }
 
     case Role.UNIVERSITY_MODERATOR:
+    case Role.SECURITY_GUARD:
+    case Role.LIBRARIAN:
       return { universityId: issuerUniversity(issuer), facultyId: null, groupId: null }
 
     case Role.DEAN:
@@ -72,7 +77,14 @@ export function resolveInviteTarget(issuer: JwtPayload, input: InviteRequest): I
     case Role.TEACHER:
       return {
         universityId: issuerUniversity(issuer),
-        facultyId: input.facultyId ?? issuer.facultyId ?? null,
+        // Декан приглашает преподавателя только на свой факультет: факультет из тела раньше
+        // брался в приоритет, и прямым POST /invites декан заводил преподавателя на чужой
+        // факультет своего вуза. Админ вуза выбирает факультет свободно (в своём вузе —
+        // это проверяет InviteService.assertScopeExists) или не указывает вовсе.
+        facultyId:
+          issuer.role === Role.DEAN
+            ? sameAsIssuer(input.facultyId, issuer.facultyId, 'facultyId')
+            : (input.facultyId ?? null),
         groupId: null,
       }
 

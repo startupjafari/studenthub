@@ -1,7 +1,5 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common'
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiResponse, ApiTags } from '@nestjs/swagger'
-import { Role } from '@studenthub/shared-types'
-import { Roles } from '../../common/decorators/roles.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
 import { ApplicationsService } from './applications.service'
@@ -12,6 +10,7 @@ import { UpdateDraftDto } from './dto/update-draft.dto'
 import { CancelApplicationDto } from './dto/cancel-application.dto'
 import { ExportBrandingService } from '../../common/export/export-branding.service'
 import { ApplicationQueryDto } from './dto/application-query.dto'
+import { ApplicationDocumentUrlQueryDto } from './dto/application-document-url-query.dto'
 import { RevokeCertificateDto } from './dto/revoke-certificate.dto'
 import { AttachDocumentDto } from './dto/attach-document.dto'
 import { RequestReplacementDto } from './dto/request-replacement.dto'
@@ -20,6 +19,7 @@ import { RejectApplicationDto } from './dto/reject-application.dto'
 import { RequestCorrectionDto } from './dto/request-correction.dto'
 import { AddResultDto } from './dto/add-result.dto'
 import { MarkReadyDto } from './dto/mark-ready.dto'
+import { IssueApplicationDto } from './dto/issue-application.dto'
 
 // Заявки на услуги университета. Права/scope — в ApplicationsService через ApplicationPolicy
 // (единый источник, §21/§25). Business-actions вместо generic PATCH /status (§39).
@@ -46,13 +46,6 @@ export class ApplicationsController {
   })
   queueStats(@CurrentUser() user: CurrentUserData) {
     return this.process.queueStats(user)
-  }
-
-  @Get('group-requests')
-  @Roles(Role.STAROSTA)
-  @ApiOperation({ summary: 'Обращения своей группы (староста, только чтение)' })
-  groupRequests(@CurrentUser() user: CurrentUserData, @Query() query: ApplicationQueryDto) {
-    return this.applications.listGroupRequests(user, query)
   }
 
   @Get()
@@ -145,12 +138,14 @@ export class ApplicationsController {
 
   @Get(':id/documents/:docId/url')
   @ApiOperation({ summary: 'Presigned-ссылка на файл документа заявки (владелец/обработчик)' })
+  @ApiResponse({ status: 422, description: 'VALIDATION_ERROR — некорректный fileId' })
   documentUrl(
     @CurrentUser() user: CurrentUserData,
     @Param('id') id: string,
     @Param('docId') docId: string,
+    @Query() query: ApplicationDocumentUrlQueryDto,
   ) {
-    return this.documents.presignedUrl(user, id, docId)
+    return this.documents.presignedUrl(user, id, docId, query.fileId)
   }
 
   // ── Обработка сотрудником (§15–§17, §39) ────────────────────────────────────
@@ -160,6 +155,12 @@ export class ApplicationsController {
   })
   take(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
     return this.process.take(user, id)
+  }
+
+  @Get(':id/assignees')
+  @ApiOperation({ summary: 'Кому можно поручить заявку: сотрудники, вправе её обработать' })
+  assignees(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
+    return this.process.assignees(user, id)
   }
 
   @Post(':id/assign')
@@ -270,9 +271,18 @@ export class ApplicationsController {
   }
 
   @Post(':id/issue')
-  @ApiOperation({ summary: 'Выдать оригинал (READY_FOR_PICKUP → ISSUED)' })
-  issue(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
-    return this.process.issue(user, id)
+  @ApiOperation({
+    summary: 'Выдать оригинал (READY_FOR_PICKUP → ISSUED); pickupCode, если передан, сверяется',
+  })
+  @ApiResponse({ status: 201, description: 'Оригинал выдан (ISSUED)' })
+  @ApiResponse({ status: 400, description: 'BAD_REQUEST — код получения не совпадает' })
+  issue(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    // Тела может не быть вовсе (прежние клиенты): схема отдаёт {} по умолчанию.
+    @Body() dto: IssueApplicationDto | undefined,
+  ) {
+    return this.process.issue(user, id, dto?.pickupCode)
   }
 
   @Post(':id/deliver')

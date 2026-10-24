@@ -5,10 +5,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { Check, Clock, Search, ShieldX, Undo2 } from 'lucide-react'
-import type { CompanyAccessStatus } from '@studenthub/shared-schemas'
+import { isAccessActive, type CompanyAccessStatus } from '@studenthub/shared-schemas'
 import {
   companyKeys,
   fetchCompanyUniversityOptions,
+  fetchMyCompany,
+  isCompanyOwner,
   requestCompanyAccess,
   type CompanyUniversityOption,
 } from '../../../entities/company'
@@ -35,6 +37,10 @@ export function EmployerAccessView() {
   const [openFor, setOpenFor] = useState<string | null>(null)
   const [message, setMessage] = useState('')
 
+  // Заявку в вуз подаёт только владелец компании: рекрутёр видит статусы, но не кнопки.
+  const company = useQuery({ queryKey: companyKeys.mine(), queryFn: fetchMyCompany })
+  const canRequest = isCompanyOwner(company.data)
+
   const options = useQuery({
     queryKey: companyKeys.universityOptions(search),
     queryFn: () => fetchCompanyUniversityOptions(search || undefined),
@@ -49,12 +55,15 @@ export function EmployerAccessView() {
       toast.success(t('requestSent'))
       await queryClient.invalidateQueries({ queryKey: companyKeys.all })
     },
-    onError: (error) => toast.error(toApiError(error).message),
+    onError: (error) => toast.error(tErr(toApiError(error).code)),
   })
 
   return (
     <div className="flex w-full flex-1 flex-col gap-4">
       <PageHeader title={t('accessTitle')} subtitle={t('accessSubtitle')} />
+      {company.data && !canRequest && (
+        <p className="text-sm text-muted-foreground">{t('ownerOnlyAccess')}</p>
+      )}
 
       <div className="relative max-w-md">
         <Search
@@ -73,7 +82,11 @@ export function EmployerAccessView() {
       {options.isLoading ? (
         <ul className="flex flex-col gap-2" aria-busy>
           {['62%', '48%', '55%'].map((w) => (
-            <li key={w} className="rounded-xl border border-border p-4">
+            <li
+              key={w}
+              data-skeleton-fill=""
+              className="flex flex-1 items-center rounded-xl border border-border p-4"
+            >
               <Skeleton className="h-4 rounded-md" style={{ width: w }} />
             </li>
           ))}
@@ -103,6 +116,7 @@ export function EmployerAccessView() {
                 </div>
                 <AccessAction
                   option={u}
+                  canRequest={canRequest}
                   pending={request.isPending && openFor === u.id}
                   onRequest={() => setOpenFor(u.id)}
                 />
@@ -142,17 +156,22 @@ export function EmployerAccessView() {
 /** Правая часть строки: либо статус, либо кнопка подачи заявки. */
 function AccessAction({
   option,
+  canRequest,
   pending,
   onRequest,
 }: {
   option: CompanyUniversityOption
+  canRequest: boolean
   pending: boolean
   onRequest: () => void
 }) {
   const t = useTranslations('Employer')
   const status = option.access?.status
+  // Срок допуска проверяется в каждом запросе, а в REVOKED его переводит ежечасный cron:
+  // одобренный, но истёкший допуск — уже не «Доступ открыт», и заявку можно подать снова.
+  const expired = status === 'APPROVED' && !isAccessActive(option.access)
 
-  if (status === 'APPROVED') {
+  if (status === 'APPROVED' && !expired) {
     return (
       <Badge variant="secondary" className="shrink-0 gap-1">
         <Check className="size-3.5" aria-hidden />
@@ -171,7 +190,8 @@ function AccessAction({
 
   // Отказ и отзыв различаем: после отзыва компания знала доступ и потеряла его, после
   // отказа — не получала. Кнопка повторной заявки есть в обоих случаях.
-  const label: Record<Exclude<CompanyAccessStatus, 'APPROVED' | 'REQUESTED'>, string> = {
+  const label: Record<Exclude<CompanyAccessStatus, 'REQUESTED'>, string> = {
+    APPROVED: t('statusExpired'),
     REJECTED: t('statusRejected'),
     REVOKED: t('statusRevoked'),
   }
@@ -180,17 +200,19 @@ function AccessAction({
     <div className="flex shrink-0 items-center gap-2">
       {status && (
         <Badge variant="outline" className="gap-1">
-          {status === 'REVOKED' ? (
-            <Undo2 className="size-3.5" aria-hidden />
-          ) : (
+          {status === 'REJECTED' ? (
             <ShieldX className="size-3.5" aria-hidden />
+          ) : (
+            <Undo2 className="size-3.5" aria-hidden />
           )}
           {label[status]}
         </Badge>
       )}
-      <Button size="sm" variant="outline" onClick={onRequest} disabled={pending}>
-        {status ? t('requestAgain') : t('requestAccess')}
-      </Button>
+      {canRequest && (
+        <Button size="sm" variant="outline" onClick={onRequest} disabled={pending}>
+          {status ? t('requestAgain') : t('requestAccess')}
+        </Button>
+      )}
     </div>
   )
 }

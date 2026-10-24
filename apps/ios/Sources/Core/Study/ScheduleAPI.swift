@@ -47,7 +47,9 @@ struct ScheduleChangeDTO: Decodable, Equatable {
 
 protocol ScheduleFetching: Sendable {
     func schedule() async throws -> ScheduleDTO
-    func changes(from: Date, to: Date) async throws -> [ScheduleChangeDTO]
+    /// Изменения с дня `from` по день `to` включительно — календарные дни в поясе
+    /// `timeZone` (пояс вуза, §3.1).
+    func changes(from: Date, to: Date, timeZone: TimeZone) async throws -> [ScheduleChangeDTO]
 }
 
 /// Маршруты расписания. Scope подставляет сервер по роли: студент видит свою
@@ -63,17 +65,29 @@ struct ScheduleAPI: ScheduleFetching {
         try await client.send(.get("schedule"), as: ScheduleDTO.self)
     }
 
-    func changes(from: Date, to: Date) async throws -> [ScheduleChangeDTO] {
-        let formatter = ISO8601DateFormatter.contract
-        return try await client.send(
+    /// Период — датами `YYYY-MM-DD`, как требует `ScheduleChangeQuerySchema`. Метка
+    /// времени (`…T00:00:00.000Z`) получала `422` на каждом обновлении, и разовые
+    /// изменения на телефоне не показывались вовсе.
+    func changes(from: Date, to: Date, timeZone: TimeZone) async throws -> [ScheduleChangeDTO] {
+        try await client.send(
             .get(
                 "schedule/changes",
                 query: [
-                    URLQueryItem(name: "from", value: formatter.string(from: from)),
-                    URLQueryItem(name: "to", value: formatter.string(from: to)),
+                    URLQueryItem(name: "from", value: Self.day(from, in: timeZone)),
+                    URLQueryItem(name: "to", value: Self.day(to, in: timeZone)),
                 ]
             ),
             as: [ScheduleChangeDTO].self
         )
+    }
+
+    /// Календарная дата момента в поясе вуза.
+    static func day(_ date: Date, in timeZone: TimeZone) -> String {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = timeZone
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter.string(from: date)
     }
 }

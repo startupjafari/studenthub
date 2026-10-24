@@ -35,9 +35,9 @@
 # 1. Зависимости
 pnpm install
 
-# 2. Инфраструктура (postgres:16, redis:7, minio)
-docker compose -f docker/docker-compose.yml up -d postgres redis minio
-#    Дождитесь healthy: docker compose -f docker/docker-compose.yml ps
+# 2. Инфраструктура (postgres:16, redis:7, minio, mailpit) — подробнее в docker/README.md
+cp docker/dev/.env.example docker/dev/.env    # заполните пароли
+pnpm infra:up                                 # ждёт, пока все сервисы станут healthy
 
 # 3. Переменные окружения
 cp apps/api/.env.example apps/api/.env        # проверьте DATABASE_URL / REDIS / MINIO
@@ -104,7 +104,7 @@ apps/
   web/   Next.js FSD: app/ · shared/ · entities/ · features/ · widgets/ · views/ · messages/ (i18n)
 packages/  shared-types · shared-schemas · shared-utils · shared-config
 prisma/    schema/ (multi-file) · migrations/ · seed.mjs
-docker/    docker-compose.yml · docker-compose.prod.yml · nginx/
+docker/    README.md · dev/ · prod/ · camera-sim/ · media-relay/
 docs/      PROJECT.md · BACKEND_RULES.md · FRONTEND_RULES.md · IMPLEMENTATION_PLAN.md · RUNBOOK.md
 ```
 

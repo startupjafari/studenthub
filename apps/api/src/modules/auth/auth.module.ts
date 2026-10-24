@@ -10,16 +10,20 @@ import { ActionConfirmGuard } from '../../common/guards/action-confirm.guard'
 import { ACTION_CONFIRMATION } from '../../common/auth/confirmation.constants'
 import { MaintenanceGuard } from '../../common/guards/maintenance.guard'
 import { MiniAppGuard } from '../../common/guards/mini-app.guard'
+import { RestrictedRoleGuard } from '../../common/guards/restricted-role.guard'
 import { ScopeGuard } from '../../common/guards/scope.guard'
 import { TwoFactorGuard } from '../../common/guards/two-factor.guard'
 import { UsersModule } from '../users/users.module'
 import { InvitesModule } from '../invites/invites.module'
+import { UniversitiesModule } from '../universities/universities.module'
+import { CareerModule } from '../career/career.module'
 import { AuthController } from './auth.controller'
 import { TwoFactorController } from './two-factor.controller'
 import { AuthService } from './auth.service'
 import { TwoFactorService } from './two-factor.service'
 import { LoginAttemptsService } from './login-attempts.service'
 import { QrLoginService } from './qr-login.service'
+import { PasswordResetService } from './password-reset.service'
 import { QrLoginGateway } from './qr-login.gateway'
 import { JwtStrategy } from './strategies/jwt.strategy'
 import { LocalStrategy } from './strategies/local.strategy'
@@ -31,6 +35,11 @@ import { LocalStrategy } from './strategies/local.strategy'
     PassportModule,
     forwardRef(() => UsersModule),
     InvitesModule,
+    // Допуск по статусу вуза: вход, refresh, регистрация по инвайту и JwtStrategy.
+    UniversitiesModule,
+    // Вход работодателя ждёт подтверждения почты компании (CompaniesService.loginDenial).
+    // Кольца нет: CareerModule сам ничего не импортирует.
+    CareerModule,
     JwtModule.registerAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService<EnvVars, true>) => ({
@@ -46,6 +55,7 @@ import { LocalStrategy } from './strategies/local.strategy'
     LoginAttemptsService,
     QrLoginService,
     QrLoginGateway,
+    PasswordResetService,
     JwtStrategy,
     LocalStrategy,
     { provide: APP_GUARD, useClass: JwtAuthGuard },
@@ -55,6 +65,10 @@ import { LocalStrategy } from './strategies/local.strategy'
     // Между JwtAuthGuard и RolesGuard: токен мини-аппа отсекается по клиенту раньше, чем
     // по роли — на маршруты вне белого списка ему нельзя независимо от роли.
     { provide: APP_GUARD, useClass: MiniAppGuard },
+    // Там же и по той же причине: охране и библиотекарю открыт только список
+    // @RestrictedAllowed(), какой бы ни была роль маршрута — у многих GET её нет вовсе
+    // (docs/PROJECT.md §2).
+    { provide: APP_GUARD, useClass: RestrictedRoleGuard },
     { provide: APP_GUARD, useClass: RolesGuard },
     // После ролей: подтверждение спрашивается только у того, кому маршрут в принципе
     // разрешён, — иначе чужой перебирал бы коды на ручке, куда ему и так нельзя.
@@ -64,6 +78,8 @@ import { LocalStrategy } from './strategies/local.strategy'
     { provide: APP_GUARD, useClass: ScopeGuard },
     { provide: APP_GUARD, useClass: TwoFactorGuard },
   ],
-  exports: [AuthService, TwoFactorService, JwtModule],
+  // ACTION_CONFIRMATION — для UsersController (сброс 2FA другому с кодом администратора):
+  // по токену, чтобы файлы users не импортировали TwoFactorService.
+  exports: [AuthService, TwoFactorService, JwtModule, ACTION_CONFIRMATION],
 })
 export class AuthModule {}

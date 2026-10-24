@@ -20,6 +20,7 @@ model University {
   rooms            Room[]
   users            User[]
   posts            Post[]
+  stories          Story[]
   chats            Chat[]
   events           Event[]
   complaints       Complaint[]
@@ -34,6 +35,18 @@ model University {
   vacancyReviews   VacancyUniversityReview[] @relation("UniversityVacancyReviews")
   demoRequests     UniversityDemoRequest[]   @relation("UniversityDemoRequest")
   onboarding       UniversityOnboarding?     @relation("UniversityOnboarding")
+  cameraAgents     CameraAgent[]
+  cameras          Camera[]
+  cameraSettings   CameraSettings?
+  cameraViews      CameraViewSession[]
+  librarySettings  LibrarySettings?
+  books            Book[]
+  bookCopies       BookCopy[]
+  loans            Loan[]
+  reservations     Reservation[]
+  libraryIdAccess  LibraryIdAccessLog[]
+  securityVisitors SecurityVisitor[]
+  securityPasses   SecurityPass[]
 
   @@index([status])
   @@map("universities")
@@ -65,6 +78,7 @@ model Faculty {
   users          User[]
   applicationsV2 Application[]        @relation("FacultyApplicationsV2")
   posts          Post[]
+  stories        Story[]
   chats          Chat[]
   events         Event[]
   appointments   DeaneryAppointment[]
@@ -90,6 +104,7 @@ model Group {
   schedules Schedule[]
   pairs     Pair[]
   posts     Post[]
+  stories   Story[]
   chats     Chat[]
   events    Event[]
   materials Material[]
@@ -129,6 +144,7 @@ model Room {
   pairs           Pair[]
   scheduleChanges ScheduleChange[] @relation("ScheduleChangeNewRoom")
   exams           Exam[]           @relation("ExamRoom")
+  cameras         Camera[]
 
   @@index([universityId])
   @@map("rooms")

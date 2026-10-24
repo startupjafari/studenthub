@@ -53,6 +53,27 @@ final class AppDatabase: Sendable {
         try fileManager.removeItem(at: folder)
     }
 
+    /// Стереть данные, оставив схему, — при смене человека на устройстве.
+    ///
+    /// Таблицы берутся из самой базы, а не списком: новая таблица в миграции иначе
+    /// однажды осталась бы непочищенной, и чужие данные дожили бы до следующего входа.
+    /// Внешние ключи проверяются в конце транзакции — порядок удаления не важен.
+    func eraseAll() async throws {
+        try await writer.write { db in
+            try db.execute(sql: "PRAGMA defer_foreign_keys = ON")
+            let tables = try String.fetchAll(
+                db,
+                sql: """
+                    SELECT name FROM sqlite_master
+                    WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE 'grdb_%'
+                    """
+            )
+            for table in tables {
+                try db.execute(sql: "DELETE FROM \(table.quotedDatabaseIdentifier)")
+            }
+        }
+    }
+
     private static let storeName = "chats.sqlite"
 
     private static func storeFolder(fileManager: FileManager) throws -> URL {

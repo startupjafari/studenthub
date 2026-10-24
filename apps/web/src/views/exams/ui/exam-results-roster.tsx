@@ -1,11 +1,12 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { Save } from 'lucide-react'
 import {
+  Badge,
   Button,
   Card,
   Checkbox,
@@ -42,13 +43,37 @@ interface Row {
   score: string
 }
 
+// Общий потолок схемы (SetExamResultsSchema): действует, когда у экзамена нет максимума.
+const SCORE_CEILING = 1000
+
+/**
+ * Ошибки строки ведомости — те же, что проверяет сервер: балл вне 0..максимум и «сдал»
+ * или «не сдал» у недопущенного. Подсветка сразу при вводе дешевле отказа всей ведомости.
+ */
+function rowErrors(r: Row, ceiling: number): { score: boolean; status: boolean } {
+  const n = Number(r.score)
+  return {
+    score: r.score !== '' && (Number.isNaN(n) || n < 0 || n > ceiling),
+    status: !r.admitted && (r.status === 'PASSED' || r.status === 'FAILED'),
+  }
+}
+
 // Имя забирает остаток ширины: остальные колонки — под конкретный контрол.
 // «Статус» — под самую длинную подпись («Запланирован»), «Балл» — под трёхзначное
 // число со стрелками числового поля: у́же placeholder обрезался до «Бал».
 const COLS = ['auto', '6rem', '13rem', '7rem'] as const
 
 // Ведомость экзамена: допуск + статус + балл по каждому студенту (декан/экзаменатор).
-export function ExamResultsRoster({ examId, onBack }: { examId: string; onBack: () => void }) {
+export function ExamResultsRoster({
+  examId,
+  maxScore,
+  onBack,
+}: {
+  examId: string
+  /** Максимум экзамена; null — действует только общий потолок схемы. */
+  maxScore: number | null
+  onBack: () => void
+}) {
   const t = useTranslations('Exams')
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
@@ -57,39 +82,94 @@ export function ExamResultsRoster({ examId, onBack }: { examId: string; onBack: 
     queryFn: () => fetchExamResults(examId),
   })
   const [rows, setRows] = useState<Record<string, Row>>({})
+  // Тронутые строки (studentId). На сохранение уходят только они: ведомость целиком
+  // молча затирала результаты, выставленные вторым проверяющим после её открытия, —
+  // нетронутая у нас пустая строка уходила как «запланирован, без балла». Ref — для
+  // слияния с перечитанной ведомостью, чтобы эффект не зависел от черновика.
+  const [dirty, setDirty] = useState<Set<string>>(new Set())
+  const dirtyRef = useRef(dirty)
+  dirtyRef.current = dirty
+  const ceiling = maxScore ?? SCORE_CEILING
 
+  // Ответ сервера переписывает только нетронутые строки: правки, ещё не сохранённые,
+  // переживают перечитывание ведомости.
   useEffect(() => {
     if (!q.data) return
-    setRows(
+    const students = q.data.students
+    setRows((prev) =>
       Object.fromEntries(
-        q.data.students.map((s) => [
-          s.studentId,
-          { admitted: s.admitted, status: s.status, score: s.score != null ? String(s.score) : '' },
-        ]),
+        students.map((s) => {
+          const draft = prev[s.studentId]
+          if (draft && dirtyRef.current.has(s.studentId)) return [s.studentId, draft]
+          return [
+            s.studentId,
+            {
+              admitted: s.admitted,
+              status: s.status,
+              score: s.score != null ? String(s.score) : '',
+            },
+          ]
+        }),
       ),
     )
   }, [q.data])
 
   const save = useMutation({
-    mutationFn: () => {
-      const entries = Object.entries(rows).map(([studentId, r]) => ({
-        studentId,
-        admitted: r.admitted,
-        status: r.status,
-        score: r.score === '' ? null : Number(r.score),
-      }))
+    mutationFn: (ids: string[]) => {
+      const entries = ids.flatMap((studentId) => {
+        const r = rows[studentId]
+        return r
+          ? [
+              {
+                studentId,
+                admitted: r.admitted,
+                status: r.status,
+                score: r.score === '' ? null : Number(r.score),
+              },
+            ]
+          : []
+      })
       return setExamResultsRequest({ examId, entries })
     },
-    onSuccess: () => {
+    onSuccess: (_data, ids) => {
+      // Снимаем отметку только с отправленных строк: тронутое во время запроса — ещё черновик.
+      setDirty((prev) => {
+        const next = new Set(prev)
+        for (const id of ids) next.delete(id)
+        return next
+      })
       qc.invalidateQueries({ queryKey: examKeys.results(examId) })
       qc.invalidateQueries({ queryKey: examKeys.all })
       toast.success(t('resultsSaved'))
     },
-    onError: (e) => toast.error(tErr(toApiError(e).code)),
+    onError: (e) => {
+      const code = toApiError(e).code
+      toast.error(code === 'VALIDATION_ERROR' ? t('rosterInvalid') : tErr(code))
+    },
   })
 
-  const patch = (id: string, p: Partial<Row>) =>
+  // Ведомость с ошибками не отправляем: сервер отклонил бы её целиком, а поля и так
+  // подсвечены.
+  function onSave() {
+    const ids = [...dirty]
+    if (ids.length === 0) return
+    const invalid = ids.some((id) => {
+      const r = rows[id]
+      if (!r) return false
+      const err = rowErrors(r, ceiling)
+      return err.score || err.status
+    })
+    if (invalid) {
+      toast.error(t('rosterInvalid'))
+      return
+    }
+    save.mutate(ids)
+  }
+
+  const patch = (id: string, p: Partial<Row>) => {
     setRows((prev) => ({ ...prev, [id]: { ...prev[id]!, ...p } }))
+    setDirty((prev) => (prev.has(id) ? prev : new Set(prev).add(id)))
+  }
 
   /*
     Сортировка на фронте: ведомость приходит целиком, страниц нет — сортировать на
@@ -125,8 +205,9 @@ export function ExamResultsRoster({ examId, onBack }: { examId: string; onBack: 
           <Button
             size="sm"
             className="gap-1.5"
-            onClick={() => save.mutate()}
+            onClick={onSave}
             loading={save.isPending}
+            disabled={dirty.size === 0}
           >
             <Save className="size-4" aria-hidden />
             {t('save')}
@@ -135,7 +216,7 @@ export function ExamResultsRoster({ examId, onBack }: { examId: string; onBack: 
       />
 
       {q.isLoading ? (
-        <Skeleton className="h-80 w-full rounded-xl" />
+        <Skeleton fill className="min-h-80 rounded-xl" />
       ) : (
         <Card className="flex min-h-0 flex-1 flex-col gap-0 py-0">
           {/*
@@ -165,10 +246,20 @@ export function ExamResultsRoster({ examId, onBack }: { examId: string; onBack: 
                 const r = rows[s.studentId]
                 if (!r) return null
                 const name = `${s.lastName} ${s.firstName}`
+                const err = rowErrors(r, ceiling)
                 return (
                   <TableRow key={s.studentId}>
                     <TableCell className="font-medium">
-                      <TableText value={name} />
+                      {/* Попытка растёт, когда «Пересдача» получает итог (C-F10): экзаменатор
+                          видит, что в строке уже результат пересдачи, а не первой попытки. */}
+                      <span className="flex min-w-0 items-center gap-2">
+                        <TableText value={name} className="min-w-0" />
+                        {s.attempt > 1 && (
+                          <Badge variant="info" className="shrink-0">
+                            {t('attemptN', { n: s.attempt })}
+                          </Badge>
+                        )}
+                      </span>
                     </TableCell>
                     <TableCell className="text-center">
                       {/* Подписи у флажка нет — её несёт заголовок колонки, но
@@ -184,7 +275,12 @@ export function ExamResultsRoster({ examId, onBack }: { examId: string; onBack: 
                         value={r.status}
                         onValueChange={(v) => patch(s.studentId, { status: v as ExamResultStatus })}
                       >
-                        <SelectTrigger size="md" aria-label={`${t('colStatus')}: ${name}`}>
+                        <SelectTrigger
+                          size="md"
+                          aria-label={`${t('colStatus')}: ${name}`}
+                          aria-invalid={err.status || undefined}
+                          title={err.status ? t('notAdmittedStatus') : undefined}
+                        >
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
@@ -203,7 +299,11 @@ export function ExamResultsRoster({ examId, onBack }: { examId: string; onBack: 
                         onChange={(e) => patch(s.studentId, { score: e.target.value })}
                         size="md"
                         className="text-center"
+                        min={0}
+                        max={ceiling}
                         aria-label={`${t('scoreShort')}: ${name}`}
+                        aria-invalid={err.score || undefined}
+                        title={err.score ? t('scoreOutOfRange', { max: ceiling }) : undefined}
                         placeholder={t('scoreShort')}
                       />
                     </TableCell>

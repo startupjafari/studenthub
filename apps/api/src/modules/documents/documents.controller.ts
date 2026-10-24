@@ -32,8 +32,10 @@ import { CreateDocumentDto } from './dto/create-document.dto'
 import { UpdateDocumentDto } from './dto/update-document.dto'
 import { DocumentListQueryDto } from './dto/document-list-query.dto'
 import { DocumentFilesDto } from './dto/document-files.dto'
+import { ReplaceDocumentFileDto } from './dto/replace-document-file.dto'
 import { GrantAccessDto } from './dto/grant-access.dto'
-import { PlatformAccessDto } from './dto/platform-access.dto'
+import { PlatformAccessDto, PlatformMetaDto } from './dto/platform-access.dto'
+import { SharedWithMeQueryDto } from './dto/shared-with-me-query.dto'
 
 // Модуль «Документы» (Ф15): личное защищённое хранилище. Полный номер наружу не отдаётся.
 @ApiTags('Документы')
@@ -87,6 +89,12 @@ export class DocumentsController {
 
   @Get()
   @ApiOperation({ summary: 'Мои документы (фильтры/поиск/сортировка; view=active|archived)' })
+  @ApiResponse({
+    status: 200,
+    description:
+      'Без limit/cursor — массив (до 200). С ними — страница (limit ≤ 50): meta.cursor/hasNext/total',
+  })
+  @ApiResponse({ status: 400, description: 'BAD_REQUEST — страница с sort=access' })
   list(@CurrentUser() user: CurrentUserData, @Query() query: DocumentListQueryDto) {
     return this.documents.list(user, query)
   }
@@ -97,6 +105,21 @@ export class DocumentsController {
   })
   overview(@CurrentUser() user: CurrentUserData) {
     return this.documents.overview(user)
+  }
+
+  // Статический маршрут — до `:id`, иначе его перехватит «документ по id».
+  @Get('shared-with-me')
+  @ApiOperation({
+    summary:
+      'Документы, открытые мне по активному гранту (на меня, мой факультет — декану, мой вуз — модератору вуза и декану; админу вуза — пусто)',
+  })
+  @ApiResponse({
+    status: 200,
+    description:
+      'Гранты с метаданными документа (номер — маской) и страницами; meta.cursor/hasNext',
+  })
+  sharedWithMe(@CurrentUser() user: CurrentUserData, @Query() query: SharedWithMeQueryDto) {
+    return this.documents.listSharedWithMe(user, query)
   }
 
   @Get(':id')
@@ -133,6 +156,49 @@ export class DocumentsController {
     @Body() dto: DocumentFilesDto,
   ) {
     return this.documents.reorderFiles(user, id, dto)
+  }
+
+  @Post(':id/files/:fileId/replace')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary:
+      'Заменить страницу: новый загруженный файл встаёт на её место (порядок сохраняется), старый удаляется из хранилища',
+  })
+  @ApiResponse({ status: 200, description: 'Документ с обновлённым списком страниц' })
+  @ApiResponse({ status: 400, description: 'BAD_REQUEST — файл недоступен для прикрепления' })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN — документ выдан университетом' })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND — документ или страница не найдены' })
+  @ApiResponse({
+    status: 409,
+    description: 'CONFLICT — документ на проверке или принят по открытому запросу',
+  })
+  replaceFile(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Param('fileId') fileId: string,
+    @Body() dto: ReplaceDocumentFileDto,
+  ) {
+    return this.documents.replaceFile(user, id, fileId, dto)
+  }
+
+  @Delete(':id/files/:fileId')
+  @ApiOperation({
+    summary: 'Удалить страницу (кроме единственной); остальные перенумеровываются подряд',
+  })
+  @ApiResponse({ status: 200, description: 'Документ с обновлённым списком страниц' })
+  @ApiResponse({ status: 400, description: 'BAD_REQUEST — единственную страницу не удалить' })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN — документ выдан университетом' })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND — документ или страница не найдены' })
+  @ApiResponse({
+    status: 409,
+    description: 'CONFLICT — документ на проверке или принят по открытому запросу',
+  })
+  removeFile(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Param('fileId') fileId: string,
+  ) {
+    return this.documents.removeFile(user, id, fileId)
   }
 
   @Get(':id/files/:fileId/url')
@@ -196,13 +262,21 @@ export class DocumentsController {
     return this.documents.setArchived(user, id, false)
   }
 
-  @Get(':id/platform')
+  // Прежнего `GET :id/platform` без причины больше нет: он открывал метаданные любого
+  // документа в обход обязательной причины (§3.8 «только спец-режим с причиной»).
+  @Post(':id/platform')
+  @HttpCode(HttpStatus.OK)
   @Roles(Role.PLATFORM_ADMIN)
   @ApiOperation({
-    summary: 'Спец-режим: метаданные чужого документа (платформенный админ, с аудитом)',
+    summary: 'Спец-режим: метаданные чужого документа с обязательной причиной (аудит + журнал)',
   })
-  platformGet(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
-    return this.documents.platformGet(user, id)
+  @ApiResponse({ status: 200, description: 'Документ (номер — маской)' })
+  platformGetWithReason(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: PlatformMetaDto,
+  ) {
+    return this.documents.platformGet(user, id, dto.reason)
   }
 
   @Post(':id/platform-access')

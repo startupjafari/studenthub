@@ -94,6 +94,34 @@ describe('PlatformGate', () => {
     expect(screen.getByText('Лента')).toBeInTheDocument()
   })
 
+  // BUG-344: без сессии роли ещё нет — заглушка закрывала и /login, и платформенный админ
+  // не мог войти в остановленную платформу, чтобы снять режим.
+  it('без сессии вход открыт и во время техработ — с предупреждением', async () => {
+    currentRole = null
+    pathname = '/login'
+    show({ ...EMPTY, maintenance: { until: UNTIL, message: null, startsAt: null, active: true } })
+
+    expect(await screen.findByText('maintenanceSignInNotice')).toBeInTheDocument()
+    expect(screen.getByText('Лента')).toBeInTheDocument()
+    expect(screen.queryByText('maintenanceTitle')).not.toBeInTheDocument()
+  })
+
+  it('без сессии прочие страницы во время техработ закрыты заглушкой', async () => {
+    currentRole = null
+    pathname = '/schedule'
+    show({ ...EMPTY, maintenance: { until: UNTIL, message: null, startsAt: null, active: true } })
+
+    expect(await screen.findByText('maintenanceTitle')).toBeInTheDocument()
+    expect(screen.queryByText('Лента')).not.toBeInTheDocument()
+  })
+
+  it('вошедшему не из команды платформы /login не открывает обход заглушки', async () => {
+    pathname = '/login'
+    show({ ...EMPTY, maintenance: { until: UNTIL, message: null, startsAt: null, active: true } })
+
+    expect(await screen.findByText('maintenanceTitle')).toBeInTheDocument()
+  })
+
   it('показывает баннер над содержимым, не закрывая его', async () => {
     show({
       ...EMPTY,

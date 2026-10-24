@@ -1,29 +1,18 @@
 'use client'
 
-import { useState } from 'react'
-import { toast } from 'sonner'
-import { useLocale, useTranslations } from 'next-intl'
-import { Bookmark, Eye, Heart, Images, MessageCircle, Pin, Play, Repeat2 } from 'lucide-react'
+import { useTranslations } from 'next-intl'
+import { Eye, Heart, Images, MessageCircle, Pin, Play, Repeat2 } from 'lucide-react'
 import { Role } from '@studenthub/shared-types'
 import { useAppSelector } from '../../../shared/store'
-import {
-  addReactionRequest,
-  canRepost,
-  removeReactionRequest,
-  type FeedPost,
-  type PostReaction,
-} from '../../../entities/post'
-import { RepostDialog } from '../../../features/repost-post'
+import { reactionSummaryOf, reactionTotal, type FeedPost } from '../../../entities/post'
 import { cn } from '../../../shared/lib/utils'
+import { plainPreview } from '../../../shared/lib'
 import { BRAND_GRADIENT } from '../../../shared/config'
+import { MosaicTile, Skeleton, mosaicShape } from '../../../shared/ui'
 import { PostMediaView } from './post-media'
-import { SharePostMenu } from '../../../features/share-post'
-import { useBookmark } from '../../../features/bookmark-post'
 import { PostTileMenu } from './post-tile-menu'
-import { Skeleton } from '../../../shared/ui'
 import { useRepostSource } from '../lib/use-repost-source'
 
-const LIKE = '❤️'
 const MODERATOR_ROLES: Role[] = [
   Role.PLATFORM_ADMIN,
   Role.PLATFORM_MODERATOR,
@@ -34,112 +23,131 @@ const MODERATOR_ROLES: Role[] = [
 
 interface PostTileProps {
   post: FeedPost
+  /** Позиция в мозаике — от неё зависит форма плитки. */
+  index: number
   onOpen: () => void
-  onOpenComment: () => void
 }
 
-// Карточка публикации в сетке (Instagram/VK-стиль): превью 4:3, контекст, и активные
-// действия — лайк, комментарий (открывает подробную модалку с фокусом в поле), поделиться.
+// Плитка публикации в мозаике профиля (как в Instagram): обложка во всю плитку, подпись и
+// счётчики — на затемнении снизу, чтобы читаться поверх любого снимка. Лайк, комментарий,
+// репост и закладка живут в лайтбоксе: на плитке они мельчили сетку и спорили с обложкой.
 //
-// Репост показывается как в Instagram — исходным постом: его обложка, лайки и комментарии,
-// а в углу — «↻ Имя». Пока исходник грузится — скелетон той же высоты, чтобы сетка не
-// прыгала; исходник недоступен зрителю — прежняя плитка репоста с его текстом.
+// Репост показывается исходным постом: его обложка и счётчики, а в углу — «↻ Имя». Пока
+// исходник грузится — скелетон плитки; исходник недоступен — плитка самого репоста, и без
+// своей заметки на ней «Публикация недоступна».
 export function PostTile(props: PostTileProps) {
   const source = useRepostSource(props.post)
   if (source.kind === 'loading') {
     return (
-      <article className="flex flex-col rounded-2xl border border-border bg-card" aria-hidden>
-        <Skeleton className="aspect-[4/3] w-full rounded-none rounded-t-2xl" />
-        <div className="flex flex-col gap-3 p-4">
-          <Skeleton className="h-4 w-2/3" />
-          <Skeleton className="h-5 w-full" />
-        </div>
-      </article>
+      <MosaicTile index={props.index} aria-hidden>
+        <Skeleton className="size-full rounded-none" />
+      </MosaicTile>
     )
   }
   if (source.kind === 'ready') {
     return <PostTileView {...props} key={source.source.id} post={source.source} via={props.post} />
   }
-  return <PostTileView {...props} />
+  return <PostTileView {...props} originalUnavailable={source.kind === 'unavailable'} />
 }
 
 function PostTileView({
   post,
+  index,
   via,
+  originalUnavailable = false,
   onOpen,
-  onOpenComment,
 }: PostTileProps & {
   /** Репост, через который показан `post` (исходник). Его меню — удалить свой репост. */
   via?: FeedPost
+  /** `post` — репост, чей исходник зрителю недоступен (удалён или чужой аудитории). */
+  originalUnavailable?: boolean
 }) {
   const t = useTranslations('Feed')
-  const tErr = useTranslations('Errors')
-  const locale = useLocale()
   const myId = useAppSelector((s) => s.auth.user?.id)
   const myRole = useAppSelector((s) => s.auth.role)
 
-  const [reactions, setReactions] = useState<PostReaction[]>(post.reactions)
-  const [reposting, setReposting] = useState(false)
-
+  const shape = mosaicShape(index)
   const first = post.media[0]
-  const comments = post._count.comments
-  const canModerate = myRole !== null && MODERATOR_ROLES.includes(myRole)
+  // Подпись плитки — без разметки: «**Совет дня.**» иначе показывался со звёздочками.
+  const text =
+    post.title ||
+    plainPreview(post.content) ||
+    (originalUnavailable ? t('postUnavailableTitle') : '')
+  const byRole = myRole !== null && MODERATOR_ROLES.includes(myRole)
   // Меню «•••» — про ту публикацию, что лежит в профиле: у репоста это сам репост
   // (удалить его), а не чужой исходник, который трогать нельзя.
   const menuPost = via ?? post
-  const canDelete = menuPost.authorId === myId || canModerate
-  const showRepost = canRepost(myRole, post)
-  const date = new Date(post.createdAt).toLocaleDateString(locale, {
-    day: '2-digit',
-    month: 'long',
-  })
-  const liked = reactions.some((r) => r.emoji === LIKE && r.userId === myId)
-  const { bookmarked, toggle: toggleBookmark } = useBookmark(post.id, post.bookmarked)
+  // Права считает сервер (ранг и scope); роль — только для ответа старого API.
+  const canModerate = menuPost.canPin ?? byRole
+  const canDelete = menuPost.canDelete ?? (menuPost.authorId === myId || byRole)
 
-  // Оптимистичный лайк ❤️ с откатом (docs/FRONTEND_RULES.md §5.5).
-  function toggleLike(): void {
-    if (!myId) return
-    const prev = reactions
-    if (liked) {
-      setReactions(prev.filter((r) => !(r.emoji === LIKE && r.userId === myId)))
-      removeReactionRequest(post.id, LIKE).catch(() => {
-        setReactions(prev)
-        toast.error(tErr('INTERNAL_ERROR'))
-      })
-    } else {
-      setReactions([...prev, { emoji: LIKE, userId: myId }])
-      addReactionRequest(post.id, LIKE).catch(() => {
-        setReactions(prev)
-        toast.error(tErr('INTERNAL_ERROR'))
-      })
-    }
-  }
-
-  // Без `overflow-hidden` на карточке: он обрезал поповер «•••», который раскрывается вниз
-  // у самого низа плитки. Скругление, ради которого он стоял, перенесено на медиа-кнопку —
-  // её собственного `overflow-hidden` достаточно, чтобы обрезать картинку по верхним углам.
   return (
-    <article className="group flex flex-col rounded-2xl border border-border bg-card transition-shadow hover:border-ring/50">
+    // Плитка без обрезки: меню «•••» раскрывается за её край. Скругление обложки держит
+    // внутренняя кнопка со своим `overflow-hidden`.
+    <MosaicTile index={index} className="overflow-visible">
       <button
         type="button"
         onClick={onOpen}
-        aria-label={t('openPost')}
-        className="relative block aspect-[4/3] w-full overflow-hidden rounded-t-2xl bg-muted"
+        aria-label={text || t('mediaPost')}
+        className="absolute inset-0 overflow-hidden rounded-xl text-left outline-none focus-visible:ring-4 focus-visible:ring-ring/30 focus-visible:ring-inset"
       >
         {first ? (
           <PostMediaView
             postId={post.id}
             media={first}
             fit="cover"
-            className="size-full transition-transform duration-300 group-hover:scale-105"
+            sizes={
+              shape === 'square'
+                ? '(max-width: 640px) 33vw, 360px'
+                : '(max-width: 640px) 66vw, 720px'
+            }
+            className="size-full transition-transform duration-(--motion-large) group-hover/tile:scale-[1.03] motion-reduce:transition-none"
           />
         ) : (
-          <div className={cn('flex size-full items-center justify-center p-4', BRAND_GRADIENT)}>
-            <span className="line-clamp-4 text-center text-sm font-medium text-white">
-              {post.title || post.content}
+          // Текстовый пост — сам текст на фирменной подложке, как текстовые публикации в
+          // Instagram. Высокой плитке хватает места на абзац, квадрату — на пару строк.
+          <span
+            className={cn('flex size-full items-center justify-center p-4 pb-12', BRAND_GRADIENT)}
+          >
+            <span
+              className={cn(
+                'text-center font-semibold text-white',
+                shape === 'tall' ? 'line-clamp-[10] text-base' : 'line-clamp-4 text-sm',
+                shape === 'square' && 'max-sm:line-clamp-3 max-sm:text-xs',
+              )}
+            >
+              {text}
             </span>
-          </div>
+          </span>
         )}
+
+        <span className="absolute inset-x-0 bottom-0 flex flex-col gap-1 bg-gradient-to-t from-black/75 via-black/40 to-transparent px-3 pt-8 pb-2.5 text-white">
+          {first && text && (
+            <span
+              className={cn(
+                'line-clamp-2 text-sm font-semibold leading-snug',
+                // На телефоне квадрат — треть ширины экрана: подпись там не читается.
+                shape === 'square' && 'max-sm:hidden',
+              )}
+            >
+              {text}
+            </span>
+          )}
+          <span className="flex items-center gap-3 text-xs font-medium text-white/90 tabular-nums">
+            <span className="inline-flex items-center gap-1">
+              <Heart className="size-3.5" aria-hidden />
+              {reactionTotal(reactionSummaryOf(post))}
+            </span>
+            <span className="inline-flex items-center gap-1">
+              <MessageCircle className="size-3.5" aria-hidden />
+              {post._count.comments}
+            </span>
+            <span className="inline-flex items-center gap-1 max-sm:hidden">
+              <Eye className="size-3.5" aria-hidden />
+              {post.views}
+            </span>
+          </span>
+        </span>
 
         <span className="absolute left-2 top-2 flex flex-wrap items-center gap-1">
           {via && (
@@ -165,98 +173,26 @@ function PostTileView({
             </span>
           )}
         </span>
-        {post.media.length > 1 ? (
-          <span className="absolute right-2.5 top-2.5 text-white drop-shadow-md">
-            <Images className="size-6" aria-hidden />
-          </span>
-        ) : first?.mime.startsWith('video/') ? (
-          <span className="absolute right-2.5 top-2.5 text-white drop-shadow-md">
-            <Play className="size-6 fill-current" aria-hidden />
-          </span>
-        ) : null}
       </button>
 
-      <div className="flex flex-1 flex-col gap-3 p-4">
-        {/* Слева — заголовок (текст поста), справа — дата и «•••» */}
-        <div className="flex items-start justify-between gap-2">
-          <button
-            type="button"
-            onClick={onOpen}
-            className="min-w-0 flex-1 truncate text-left text-[15px] font-semibold leading-snug text-foreground hover:text-primary"
-          >
-            {post.title || post.content || t('mediaPost')}
-          </button>
-          <div className="flex shrink-0 items-center gap-1.5 pt-0.5">
-            <span className="whitespace-nowrap text-xs text-muted-foreground">{date}</span>
-            {(canDelete || menuPost.authorId !== myId) && (
-              <PostTileMenu
-                post={menuPost}
-                canModerate={canModerate}
-                canDelete={canDelete}
-                isMine={menuPost.authorId === myId}
-              />
-            )}
-          </div>
-        </div>
-
-        {/* Действия: лайк · комментарий (открывает модалку + фокус) · поделиться */}
-        <div className="mt-auto flex items-center gap-4 border-t border-border pt-3 text-sm text-muted-foreground">
-          <button
-            type="button"
-            aria-label={t('like')}
-            aria-pressed={liked}
-            onClick={toggleLike}
-            className="flex items-center gap-1.5 transition-transform hover:scale-105 hover:text-foreground"
-          >
-            <Heart
-              className={cn('size-5', liked && 'fill-destructive text-destructive')}
-              aria-hidden
+      <span className="absolute right-2 top-2 z-10 flex items-center gap-1">
+        {post.media.length > 1 ? (
+          <Images className="size-5 text-white drop-shadow-md" aria-hidden />
+        ) : first?.mime.startsWith('video/') ? (
+          <Play className="size-5 fill-current text-white drop-shadow-md" aria-hidden />
+        ) : null}
+        {(canDelete || menuPost.authorId !== myId) && (
+          <span className="opacity-0 transition-opacity focus-within:opacity-100 group-hover/tile:opacity-100 has-[[aria-expanded=true]]:opacity-100 max-lg:opacity-100">
+            <PostTileMenu
+              post={menuPost}
+              canModerate={canModerate}
+              canDelete={canDelete}
+              isMine={menuPost.authorId === myId}
+              triggerClassName="bg-black/45 text-white hover:bg-black/65 hover:text-white"
             />
-            {reactions.length}
-          </button>
-          <button
-            type="button"
-            aria-label={t('comment')}
-            onClick={onOpenComment}
-            className="flex items-center gap-1.5 transition-transform hover:scale-105 hover:text-foreground"
-          >
-            <MessageCircle className="size-5" aria-hidden />
-            {comments}
-          </button>
-          {showRepost && (
-            <button
-              type="button"
-              aria-label={t('repost')}
-              onClick={() => setReposting(true)}
-              className="transition-transform hover:scale-105 hover:text-foreground"
-            >
-              <Repeat2 className="size-5" aria-hidden />
-            </button>
-          )}
-          <SharePostMenu
-            postId={post.id}
-            className="cursor-pointer transition-transform hover:scale-105 hover:text-foreground"
-          />
-          <button
-            type="button"
-            aria-label={t('bookmark')}
-            aria-pressed={bookmarked}
-            onClick={toggleBookmark}
-            className="transition-transform hover:scale-105 hover:text-foreground"
-          >
-            <Bookmark
-              className={cn('size-5', bookmarked && 'fill-primary text-primary')}
-              aria-hidden
-            />
-          </button>
-          <span className="ml-auto flex items-center gap-1.5">
-            <Eye className="size-5" aria-hidden />
-            {post.views}
           </span>
-        </div>
-      </div>
-
-      {reposting && <RepostDialog post={post} onClose={() => setReposting(false)} />}
-    </article>
+        )}
+      </span>
+    </MosaicTile>
   )
 }

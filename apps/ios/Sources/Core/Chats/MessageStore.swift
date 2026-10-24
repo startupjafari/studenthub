@@ -77,6 +77,28 @@ struct MessageStore: Sendable {
 
     // MARK: - Внутреннее
 
+    /// Подтвердить свою отправку ответом сервера.
+    ///
+    /// Если то же сообщение уже легло отдельной строкой (сокет успел раньше и сверка по
+    /// тексту не сработала), эта строка убирается: иначе `remoteId` упёрся бы в
+    /// уникальность, отправка считалась бы неудачной, а повтор слал бы дубль всем.
+    static func confirm(localID: String, with sent: ChatMessageDTO, in db: Database) throws {
+        guard var local = try MessageRecord.fetchOne(db, key: localID) else { return }
+        if let twin = try MessageRecord
+            .filter(MessageRecord.Columns.remoteId == sent.id)
+            .fetchOne(db), twin.id != local.id
+        {
+            try twin.delete(db)
+        }
+        // Ключ строки не меняем: на него уже ссылается лента. Серверный id кладём
+        // рядом — по нему сообщение узнаётся, когда придёт из сокета.
+        local.remoteId = sent.id
+        local.seq = sent.seq
+        local.createdAt = sent.createdAt
+        local.sendState = .sent
+        try local.update(db)
+    }
+
     static func upsert(_ message: ChatMessageDTO, in db: Database) throws {
         // Своё отправленное сообщение уже лежит в базе под локальным ключом —
         // подтверждение находим по `remoteId`, иначе в ленте появился бы дубль.
@@ -92,6 +114,30 @@ struct MessageStore: Sendable {
             local.sendState = .sent
             try local.update(db)
             try saveAttachments(of: message, messageID: local.id, in: db)
+            return
+        }
+
+        // Своё сообщение пришло из сокета раньше, чем HTTP-ответ на отправку: серверного
+        // id у локальной строки ещё нет. Без сверки здесь вставлялась вторая строка, а
+        // потом подтверждение отправки упиралось в UNIQUE(remoteId) — сообщение
+        // раздваивалось и помечалось «Не отправлено» (§9.1a: терпимость к порядку).
+        // nonce HTTP-отправка не несёт, поэтому узнаём строку по автору и тексту —
+        // самую раннюю из неподтверждённых.
+        if try MessageRecord.fetchOne(db, key: message.id) == nil,
+           var pending = try MessageRecord
+               .filter(MessageRecord.Columns.chatId == message.chatId)
+               .filter(MessageRecord.Columns.remoteId == nil)
+               .filter(MessageRecord.Columns.senderId == message.senderId)
+               .filter(MessageRecord.Columns.content == message.content)
+               .order(MessageRecord.Columns.createdAt.asc)
+               .fetchOne(db)
+        {
+            pending.remoteId = message.id
+            pending.seq = message.seq
+            pending.createdAt = message.createdAt
+            pending.sendState = .sent
+            try pending.update(db)
+            try saveAttachments(of: message, messageID: pending.id, in: db)
             return
         }
 

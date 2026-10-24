@@ -60,6 +60,16 @@ RUN pnpm --filter api --prod deploy /app --legacy --config.minimumReleaseAge=0
 FROM node:24-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
+# ffmpeg/ffprobe — для воркера медиа (постеры и HLS видео, src/modules/media). Ставится из
+# apk, а не npm-обёрткой: бинарник собран под musl этого же образа и обновляется вместе с
+# базовым слоем. Тот же образ запускается и как API, и как воркер (`node dist/worker.js`).
+#
+# Версия не закреплена намеренно (DL3018): базовый `node:24-alpine` — плавающий тег, а
+# репозиторий Alpine хранит только последнюю сборку пакета. Пин вида `ffmpeg=8.1.2-r0`
+# сломал бы сборку образа при первом же патче безопасности ffmpeg или смене минорной
+# версии Alpine под тегом — то есть ровно тогда, когда обновление и нужно.
+# hadolint ignore=DL3018
+RUN apk add --no-cache ffmpeg
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /repo/apps/api/dist ./dist
 COPY --from=build /repo/prisma ./prisma
@@ -67,6 +77,11 @@ COPY --from=build /repo/prisma ./prisma
 # это артефакт генерации, а не зависимость, поэтому `pnpm deploy` его не переносит.
 # Копируем вручную, иначе @prisma/client падает с MODULE_NOT_FOUND '.prisma/client'.
 COPY --from=build /repo/node_modules/.prisma ./node_modules/.prisma
+# Не root: тот же образ гоняет ffmpeg по загруженным пользователями файлам, и дыра в
+# декодере не должна давать root в контейнере. Писать процессу нужно только во временный
+# каталог перекодирования (MEDIA_TMP_DIR, по умолчанию системный /tmp) — код в /app ему
+# достаточно читать. Пользователь `node` (uid 1000) уже есть в базовом образе.
+USER node
 EXPOSE 3001
 # Миграции применяются отдельным шагом (migrate deploy) до старта, не в CMD.
 CMD ["node", "dist/main.js"]

@@ -1,16 +1,21 @@
-import { Role } from '@studenthub/shared-types'
+import { Role, isRestrictedRole } from '@studenthub/shared-types'
 import {
   Award,
   BarChart3,
+  BookDown,
   BookOpen,
+  BookUp,
+  BookmarkCheck,
   BriefcaseBusiness,
   Building2,
   CalendarClock,
   CalendarDays,
   CalendarRange,
+  Cctv,
   ClipboardCheck,
   ClipboardList,
   DoorClosed,
+  FileClock,
   FileCog,
   FileText,
   FolderLock,
@@ -22,6 +27,8 @@ import {
   Inbox,
   IdCard,
   LayoutDashboard,
+  Library,
+  LifeBuoy,
   ListChecks,
   MessagesSquare,
   Milestone,
@@ -32,6 +39,7 @@ import {
   Send,
   Table2,
   ShieldAlert,
+  ShieldCheck,
   FileUser,
   TrendingUp,
   UserCog,
@@ -62,6 +70,8 @@ export type NavVariant =
   | 'platform-moderator'
   | 'university-moderator'
   | 'employer'
+  | 'security'
+  | 'library'
 
 // Навигация студенческого дашборда (docs/PROJECT.md §12).
 // Профиль — плашка пользователя внизу сайдбара (см. AppSidebar), не пункт навигации.
@@ -81,6 +91,8 @@ export const STUDENT_NAV: NavItem[] = [
   { key: 'appointments', href: '/appointments', icon: CalendarClock, group: 'services' },
   { key: 'portfolio', href: '/portfolio', icon: BriefcaseBusiness, group: 'services' },
   { key: 'studentId', href: '/student-id', icon: IdCard, group: 'services' },
+  // Библиотека вуза (Фаза 20): пункт прячется, пока админ вуза не включил модуль (AppShell).
+  { key: 'books', href: '/books', icon: Library, group: 'services' },
   { key: 'applications', href: '/applications', icon: FileText, group: 'services' },
   { key: 'chats', href: '/chats', icon: MessagesSquare, group: 'communication' },
   { key: 'events', href: '/events', icon: CalendarClock, group: 'communication' },
@@ -110,6 +122,7 @@ export const UNIVERSITY_ADMIN_NAV: NavItem[] = [
   { key: 'groups', href: '/university-admin/groups', icon: Users, group: 'structure' },
   // Ф16: помещения и печатные QR над дверью.
   { key: 'rooms', href: '/university-admin/rooms', icon: DoorClosed, group: 'structure' },
+  { key: 'cameras', href: '/university-admin/cameras', icon: Cctv, group: 'structure' },
 
   // Учебный процесс.
   { key: 'schedule', href: '/university-admin/schedule', icon: CalendarDays, group: 'study' },
@@ -117,6 +130,9 @@ export const UNIVERSITY_ADMIN_NAV: NavItem[] = [
 
   // Люди: выдача доступа и списки по ролям.
   { key: 'invites', href: '/university-admin/invites', icon: Send, group: 'people' },
+  // Все люди вуза с фильтром роли: модераторов, охрану, библиотекарей и старост в экранах
+  // по одной роли не найти, а блокировать, сбрасывать 2FA и править учёбу их нужно так же.
+  { key: 'users', href: '/university-admin/users', icon: Users, group: 'people' },
   { key: 'students', href: '/university-admin/students', icon: GraduationCap, group: 'people' },
   { key: 'teachers', href: '/university-admin/teachers', icon: BookOpen, group: 'people' },
   { key: 'deans', href: '/university-admin/deans', icon: UserCog, group: 'people' },
@@ -129,7 +145,11 @@ export const UNIVERSITY_ADMIN_NAV: NavItem[] = [
     group: 'services',
   },
   { key: 'verifyId', href: '/verify-id', icon: ScanLine, group: 'services' },
+  // Каталог услуг вуза: что студент может заказать и что для этого приложить (§3.2).
+  { key: 'serviceCatalog', href: '/university-admin/services', icon: ClipboardList, group: 'services' }, // prettier-ignore
   { key: 'documentTypes', href: '/university-admin/document-types', icon: FileCog, group: 'services' }, // prettier-ignore
+  // Библиотека вуза (Фаза 20): выключатель, правила выдачи; фонд ведёт библиотекарь.
+  { key: 'library', href: '/university-admin/library', icon: Library, group: 'services' },
 
   // Коммуникации вуза.
   { key: 'posts', href: '/university-admin/posts', icon: Newspaper, group: 'communication' },
@@ -139,6 +159,10 @@ export const UNIVERSITY_ADMIN_NAV: NavItem[] = [
   // Контроль: разбор жалоб и журнал действий.
   { key: 'complaints', href: '/university-admin/complaints', icon: ShieldAlert, group: 'control' },
   { key: 'audit', href: '/university-admin/audit', icon: ScrollText, group: 'control' },
+  // Журнал действий с документами вуза: кто, над чьим документом, когда — без содержимого.
+  { key: 'documentJournal', href: '/university-admin/document-journal', icon: FileClock, group: 'control' }, // prettier-ignore
+  // Журналы поста охраны (§3.12): ведёт охрана, админ вуза читает.
+  { key: 'securityJournals', href: '/university-admin/security', icon: ShieldCheck, group: 'control' }, // prettier-ignore
 ]
 
 // Ролевые дашборды (docs/PROJECT.md §12). У каждого пункта ниже есть свой экран;
@@ -210,10 +234,11 @@ export const STAROSTA_NAV: NavItem[] = [
   ...STUDENT_NAV,
   { key: 'myGroup', href: '/starosta/group', icon: Users, group: 'starosta' },
   { key: 'classmates', href: '/starosta/classmates', icon: GraduationCap, group: 'starosta' },
+  // Кто из группы сдал комплект по запросу документов — без самих документов.
   {
-    key: 'groupRequests',
-    href: '/starosta/group-requests',
-    icon: ClipboardList,
+    key: 'groupDocuments',
+    href: '/starosta/group-documents',
+    icon: FolderLock,
     group: 'starosta',
   },
   { key: 'invites', href: '/starosta/invites', icon: Send, group: 'starosta' },
@@ -227,16 +252,24 @@ export const PLATFORM_ADMIN_NAV: NavItem[] = [
   { key: 'demoRequests', href: '/platform-admin/demo-requests', icon: Inbox },
   { key: 'users', href: '/platform-admin/users', icon: Users },
   { key: 'invites', href: '/platform-admin/invites', icon: Send },
+  // События платформы (§12): админ платформы создаёт события «для всех» (§2.2), а раздела
+  // у него не было — созданное нельзя было ни найти, ни поправить.
+  { key: 'events', href: '/platform-admin/events', icon: CalendarClock },
   { key: 'complaints', href: '/platform-admin/complaints', icon: ShieldAlert },
+  // Обращения в поддержку платформы: раньше их разбирали только в мини-аппе Telegram.
+  { key: 'support', href: '/platform-admin/support', icon: LifeBuoy },
   { key: 'stats', href: '/platform-admin/stats', icon: BarChart3 },
   { key: 'audit', href: '/platform-admin/audit', icon: ScrollText },
   { key: 'documentAccess', href: '/platform-admin/document-access', icon: FolderLock },
+  // Шаблоны услуг для всех вузов: вуз видит их сразу и может настроить под себя.
+  { key: 'serviceCatalog', href: '/platform-admin/services', icon: ClipboardList },
   { key: 'chats', href: '/platform-admin/chats', icon: MessagesSquare },
 ]
 
 export const PLATFORM_MODERATOR_NAV: NavItem[] = [
   { key: 'dashboard', href: '/moderator/platform', icon: LayoutDashboard, exact: true },
   { key: 'complaints', href: '/moderator/platform/complaints', icon: ShieldAlert },
+  { key: 'support', href: '/moderator/platform/support', icon: LifeBuoy },
   { key: 'posts', href: '/moderator/platform/posts', icon: Newspaper },
   { key: 'users', href: '/moderator/platform/users', icon: Users },
   { key: 'stats', href: '/moderator/platform/stats', icon: BarChart3 },
@@ -247,10 +280,34 @@ export const PLATFORM_MODERATOR_NAV: NavItem[] = [
 export const UNIVERSITY_MODERATOR_NAV: NavItem[] = [
   { key: 'dashboard', href: '/moderator/university', icon: LayoutDashboard, exact: true },
   { key: 'complaints', href: '/moderator/university/complaints', icon: ShieldAlert },
+  // Заявки вуза: модератор обрабатывает их наравне с админом (ApplicationPolicy).
+  { key: 'applications', href: '/moderator/university/applications', icon: FileText },
   { key: 'posts', href: '/moderator/university/posts', icon: Newspaper },
   { key: 'users', href: '/moderator/university/users', icon: Users },
   { key: 'audit', href: '/moderator/university/audit', icon: ScrollText },
   { key: 'chats', href: '/moderator/university/chats', icon: MessagesSquare },
+]
+
+// Охрана вуза (docs/PROJECT.md §2): пост, камеры, помещения. Сканера и проверки
+// студенческого в навигации нет: сканер — кнопка у профиля, проверка открывается сканом.
+export const SECURITY_GUARD_NAV: NavItem[] = [
+  { key: 'securityPost', href: '/security', icon: LayoutDashboard, exact: true },
+  { key: 'cameras', href: '/security/cameras', icon: Cctv },
+  // Своя подпись: «Помещения и QR» — раздел админа с печатью наклеек, у охраны её нет.
+  { key: 'securityRooms', href: '/security/rooms', icon: DoorClosed },
+]
+
+// Библиотекарь вуза (docs/PROJECT.md §2, Фаза 20). Каталог, выдачи и брони добавят задачи
+// 20.3–20.8; сканер для входа на компьютере — в шапке, как у всех.
+export const LIBRARIAN_NAV: NavItem[] = [
+  { key: 'libraryHome', href: '/library', icon: Library, exact: true },
+  { key: 'libraryIssue', href: '/library/issue', icon: BookUp },
+  { key: 'libraryReturn', href: '/library/return', icon: BookDown },
+  { key: 'libraryLoans', href: '/library/loans', icon: ListChecks },
+  { key: 'libraryReservations', href: '/library/reservations', icon: BookmarkCheck },
+  { key: 'libraryCatalog', href: '/library/catalog', icon: BookOpen },
+  { key: 'libraryInventory', href: '/library/inventory', icon: ClipboardCheck },
+  { key: 'libraryReports', href: '/library/reports', icon: BarChart3 },
 ]
 
 // Навигация определяется РОЛЬЮ пользователя, а не route-группой: общие страницы
@@ -265,6 +322,8 @@ export const ROLE_TO_VARIANT: Record<Role, NavVariant> = {
   [Role.STAROSTA]: 'starosta',
   [Role.STUDENT]: 'student',
   [Role.EMPLOYER]: 'employer',
+  [Role.SECURITY_GUARD]: 'security',
+  [Role.LIBRARIAN]: 'library',
 }
 
 // Документы — общий пункт для всех ролей: защищённое хранилище (Ф15, отдельный раздел /documents).
@@ -308,6 +367,9 @@ export const NAV_BY_VARIANT: Record<NavVariant, NavItem[]> = {
   // Без withCommon: общий раздел «Документы» — хранилище участника вуза, работодателя
   // оно не касается.
   employer: EMPLOYER_NAV,
+  // Без withCommon: хранилище документов участника вуза охране и библиотекарю не нужно.
+  security: SECURITY_GUARD_NAV,
+  library: LIBRARIAN_NAV,
 }
 
 // ── StudentHub Карьера ──────────────────────────────────────────────────────
@@ -364,6 +426,10 @@ const CAREER_NAV_BY_ROLE: Record<Role, NavItem[]> = {
   // Работодатель в /career не заходит — его продукт целиком в зоне /employer.
   // Значение задано, чтобы карта была исчерпывающей и не пришлось падать на undefined.
   [Role.EMPLOYER]: EMPLOYER_NAV,
+  // У охраны и библиотекаря карьерного продукта нет: переключатель под логотипом им не
+  // показывается.
+  [Role.SECURITY_GUARD]: [],
+  [Role.LIBRARIAN]: [],
 }
 
 /** Навигация карьерного продукта для роли. */
@@ -381,6 +447,23 @@ export function careerNavFor(role: Role | undefined): NavItem[] {
  */
 export function careerHomeFor(role: Role | undefined): string {
   return careerNavFor(role)[0]?.href ?? CAREER_ROOT
+}
+
+/**
+ * Есть ли у роли карьерный продукт — показывать ли переключатель под логотипом.
+ *
+ * Работодателю переключать нечего: «Учёбы» у него нет, а его карьерный продукт — это и
+ * есть вся зона /employer. Переключатель предлагал бы ему «StudentHub» с пометкой
+ * активного, хотя он в нём не бывает, — поэтому только логотип.
+ */
+export function hasCareerProduct(role: Role | undefined): boolean {
+  if (role === Role.EMPLOYER) return false
+  return careerNavFor(role).length > 0
+}
+
+/** Есть ли у роли чаты — без них бейдж непрочитанного не запрашивается. */
+export function hasChats(role: Role | undefined): boolean {
+  return !isRestrictedRole(role)
 }
 
 /** Путь относится к карьерному продукту. */

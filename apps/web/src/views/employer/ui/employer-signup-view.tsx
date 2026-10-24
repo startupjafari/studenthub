@@ -8,8 +8,9 @@ import { useTranslations } from 'next-intl'
 import { MailCheck } from 'lucide-react'
 import { EmployerSignupSchema, type EmployerSignupInput } from '@studenthub/shared-schemas'
 import { employerSignup } from '../../../entities/company'
-import { Button, FormAlert, Input, Label } from '../../../shared/ui'
+import { Button, FormAlert, Input, Label, FieldError } from '../../../shared/ui'
 import { useFormAlert } from '../../../shared/lib'
+import { ResendVerificationButton } from '../../../features/resend-company-verification'
 
 /**
  * Публичная регистрация работодателя — единственный вход на платформу без приглашения.
@@ -38,9 +39,12 @@ export function EmployerSignupView() {
           <h2 className="text-xl font-semibold">{t('signupSentTitle')}</h2>
           <p className="text-sm text-muted-foreground">{t('signupSentText', { email: sentTo })}</p>
         </div>
-        <Button asChild variant="outline">
-          <Link href="/login">{t('toLogin')}</Link>
-        </Button>
+        <div className="flex flex-wrap justify-center gap-2">
+          <Button asChild variant="outline">
+            <Link href="/login">{t('toLogin')}</Link>
+          </Button>
+          <ResendVerificationButton email={sentTo} variant="ghost" />
+        </div>
       </div>
     )
   }
@@ -73,25 +77,19 @@ export function EmployerSignupView() {
             aria-invalid={!!errors.companyName}
             {...register('companyName')}
           />
-          {errors.companyName && (
-            <p className="text-xs text-destructive">{errors.companyName.message}</p>
-          )}
+          <FieldError>{errors.companyName ? t('errCompanyName') : null}</FieldError>
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-2">
             <Label htmlFor="firstName">{t('fieldFirstName')}</Label>
             <Input id="firstName" aria-invalid={!!errors.firstName} {...register('firstName')} />
-            {errors.firstName && (
-              <p className="text-xs text-destructive">{errors.firstName.message}</p>
-            )}
+            <FieldError>{errors.firstName ? t('errFirstName') : null}</FieldError>
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="lastName">{t('fieldLastName')}</Label>
             <Input id="lastName" aria-invalid={!!errors.lastName} {...register('lastName')} />
-            {errors.lastName && (
-              <p className="text-xs text-destructive">{errors.lastName.message}</p>
-            )}
+            <FieldError>{errors.lastName ? t('errLastName') : null}</FieldError>
           </div>
         </div>
 
@@ -104,7 +102,7 @@ export function EmployerSignupView() {
             aria-invalid={!!errors.email}
             {...register('email')}
           />
-          {errors.email && <p className="text-xs text-destructive">{errors.email.message}</p>}
+          <FieldError>{errors.email ? t('errEmail') : null}</FieldError>
         </div>
 
         <div className="flex flex-col gap-2">
@@ -116,7 +114,7 @@ export function EmployerSignupView() {
             aria-invalid={!!errors.password}
             {...register('password')}
           />
-          {errors.password && <p className="text-xs text-destructive">{errors.password.message}</p>}
+          <FieldError>{errors.password ? t('errPassword') : null}</FieldError>
         </div>
 
         <div className="flex flex-col gap-2">
@@ -124,7 +122,7 @@ export function EmployerSignupView() {
             {t('fieldWebsite')} <span className="text-muted-foreground">({t('optional')})</span>
           </Label>
           <Input id="website" placeholder="https://" {...register('website')} />
-          {errors.website && <p className="text-xs text-destructive">{errors.website.message}</p>}
+          <FieldError>{errors.website ? t('errWebsite') : null}</FieldError>
         </div>
 
         <Button type="submit" size="xl" loading={isSubmitting} className="mt-2 w-full">

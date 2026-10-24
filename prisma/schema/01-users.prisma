@@ -91,6 +91,12 @@ model User {
   specialty         String?
   studentCardNumber String?   @map("student_card_number")
   academicStatus    String?   @map("academic_status")
+  // Когда студент ушёл из вуза: статус стал «Выпускник», «Отчислен» или «Переведён»
+  // (PATCH /users/:id/academic). От этой даты считаются сроки хранения учебных данных,
+  // переписки, документов и профиля (docs/PERSONAL_DATA.md §4). Возврат в «Обучающийся»
+  // обнуляет дату. NULL у ушедших до появления поля: дату задним числом не выдумываем,
+  // и уборка их не трогает, пока вуз не пересохранит статус.
+  leftUniversityAt  DateTime? @map("left_university_at")
   gpa               Float?
   interests         String[]  @default([])
   skills            String[]  @default([])
@@ -117,6 +123,7 @@ model User {
   moderationAreas   String?   @map("moderation_areas")
 
   refreshTokens        RefreshToken[]
+  passwordResetTokens  PasswordResetToken[]
   invitesCreated       Invite[]                @relation("InviteCreatedBy")
   invitesUsed          Invite[]                @relation("InviteUsedBy")
   demoRequestsReviewed UniversityDemoRequest[] @relation("DemoRequestReviewer")
@@ -148,6 +155,12 @@ model User {
   reactions     Reaction[]
   postBookmarks PostBookmark[] @relation("UserPostBookmarks")
 
+  // Сторисы (Ф14.1): авторство, просмотры, реакции и голоса в опросах сторис.
+  stories        Story[]         @relation("StoryAuthor")
+  storyViews     StoryView[]     @relation("UserStoryViews")
+  storyReactions StoryReaction[] @relation("UserStoryReactions")
+  storyPollVotes StoryPollVote[] @relation("UserStoryPollVotes")
+
   // Чаты (Ф9): членство в чатах, отправленные сообщения, закрепления, реакции.
   chatMemberships   ChatMember[]
   messages          Message[]
@@ -160,6 +173,7 @@ model User {
   // События (Ф10): организованные события и участия.
   eventsOrganized     Event[]            @relation("EventOrganizer")
   eventParticipations EventParticipant[]
+  eventComments       EventComment[]     @relation("EventCommentAuthor")
 
   // Жалобы (Ф11): поданные и разрешённые пользователем.
   complaintsReported  Complaint[] @relation("ComplaintReporter")
@@ -216,16 +230,41 @@ model User {
 
   // Scope-связи с академической структурой (Фаза 5). onDelete: Restrict — вуз/факультет/группу
   // нельзя удалить, пока в них есть пользователи (дублируется сервис-гвардами).
-  university      University? @relation(fields: [universityId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  faculty         Faculty?    @relation(fields: [facultyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  group           Group?      @relation("GroupMembers", fields: [groupId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  groupAsStarosta Group?      @relation("GroupStarosta")
+  university             University?          @relation(fields: [universityId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  faculty                Faculty?             @relation(fields: [facultyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  group                  Group?               @relation("GroupMembers", fields: [groupId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  groupAsStarosta        Group?               @relation("GroupStarosta")
+  // Камеры (docs/PROJECT.md §3.10): кто завёл агента и кто последним переключал модуль.
+  cameraAgentsCreated    CameraAgent[]        @relation("CameraAgentCreatedBy")
+  cameraSettingsUpdated  CameraSettings[]     @relation("CameraSettingsUpdatedBy")
+  cameraViews            CameraViewSession[]  @relation("CameraViewSessions")
+  // Библиотека (Фаза 20): свои выдачи и брони читателя, действия библиотекаря, журнал.
+  librarySettingsUpdated LibrarySettings[]    @relation("LibrarySettingsUpdatedBy")
+  booksCreated           Book[]               @relation("BookCreatedBy")
+  loansAsReader          Loan[]               @relation("LoanReader")
+  loansIssued            Loan[]               @relation("LoanIssuedBy")
+  loansReceived          Loan[]               @relation("LoanReturnedTo")
+  loansCancelled         Loan[]               @relation("LoanCancelledBy")
+  loansLostSettled       Loan[]               @relation("LoanLostSettledBy")
+  reservations           Reservation[]        @relation("ReservationReader")
+  libraryIdAccessDone    LibraryIdAccessLog[] @relation("LibraryIdAccessLibrarian")
+  libraryIdAccessOfMe    LibraryIdAccessLog[] @relation("LibraryIdAccessReader")
+  // Журналы охраны: кто записал посетителя и отметил выход, чьи проходы.
+  visitorsRecorded       SecurityVisitor[]    @relation("SecurityVisitorCreatedBy")
+  visitorsExited         SecurityVisitor[]    @relation("SecurityVisitorExitedBy")
+  passesChecked          SecurityPass[]       @relation("SecurityPassGuard")
+  passesOfMe             SecurityPass[]       @relation("SecurityPassStudent")
 
   @@index([role])
   @@index([universityId])
   @@index([facultyId])
   @@index([groupId])
   @@index([deletedAt])
+  // Ночная уборка по срокам хранения ищет ушедших из вуза больше года назад.
+  @@index([leftUniversityAt])
+  // Плюс индекс по выражению lower(email) — под поиск email без учёта регистра
+  // (users.service, emailIgnoringCase). Prisma выражения в индексах не моделирует, поэтому он
+  // только в миграции 20261024140100_add_index_users_email_lower; дрейфа схемы не даёт.
   @@map("users")
 }
 
@@ -235,7 +274,8 @@ model RefreshToken {
   // familyId = цепочка одной сессии/устройства; повторное использование
   // инвалидированного токена рвёт всю цепочку (docs/BACKEND_RULES.md §6.2).
   familyId  String    @map("family_id")
-  // Только bcrypt-хэш секрета; сам refresh в открытом виде в БД не хранится.
+  // Только хэш секрета (SHA-256 hex; выданные до перехода — bcrypt, доживают свой срок);
+  // сам refresh в открытом виде в БД не хранится.
   tokenHash String    @map("token_hash")
   expiresAt DateTime  @map("expires_at")
   revokedAt DateTime? @map("revoked_at")
@@ -247,6 +287,25 @@ model RefreshToken {
   @@index([familyId])
   @@index([expiresAt])
   @@map("refresh_tokens")
+}
+
+// Ссылка «забыли пароль» (docs/PROJECT.md §7.2). Владелец — AuthModule, как и у RefreshToken.
+// В БД только SHA-256 токена: сырой живёт в письме. Ссылка одноразовая (usedAt) и короткая
+// (expiresAt, час); новая просьба гасит прежние неиспользованные. Протухшие строки убирает
+// CleanupService.
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  userId    String    @map("user_id")
+  tokenHash String    @unique @map("token_hash")
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("password_reset_tokens")
 }
 
 model Invite {
@@ -276,5 +335,10 @@ model Invite {
   @@index([createdById])
   @@index([usedById])
   @@index([email])
+  // Инвайты вуза (список админа, воронка аналитики, онбординг) и массовый отзыв PENDING
+  // при удалении вуза, факультета или группы (revokePendingInScope).
+  @@index([universityId, status])
+  @@index([facultyId, status])
+  @@index([groupId, status])
   @@map("invites")
 }

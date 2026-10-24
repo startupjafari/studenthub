@@ -1,7 +1,5 @@
 'use client'
 
-import { ADMIN_PAGE_SIZES } from '@studenthub/shared-schemas'
-
 import { useState } from 'react'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
@@ -41,6 +39,8 @@ import {
 } from '../../../features/career-university-scope'
 import { toApiError } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
+import { salaryText } from '../lib/salary-text'
+import { VacancyDetailModal } from './vacancy-detail-modal'
 
 /**
  * Витрина вакансий для студента.
@@ -50,8 +50,8 @@ import { cn } from '../../../shared/lib/utils'
  * значило бы принять решение за человека на основании неполных данных.
  */
 // Ширины колонок: должность и компания — главное, формат и город сжимаются первыми.
-// Размеры страницы — общий для админских экранов набор из контракта.
-const PAGE_SIZES = ADMIN_PAGE_SIZES
+// Размеры страницы: список на OffsetPaginationSchema (limit ≤ 100), 150 и 200 дали бы 422.
+const PAGE_SIZES = [20, 50, 100] as const
 
 const COLS = ['30%', '20%', '20%', '12%', '10%', '8%'] as const
 
@@ -64,6 +64,8 @@ export function CareerVacanciesView() {
   const [workFormat, setWorkFormat] = useState<WorkFormat | null>(null)
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState<number>(PAGE_SIZES[0])
+  // Открытая карточка: строка витрины, по которой кликнули (свежие данные окно догрузит само).
+  const [opened, setOpened] = useState<Vacancy | null>(null)
 
   // Витрина показывает вакансии, одобренные конкретным вузом: у сотрудника он в токене,
   // платформенная роль выбирает его в шапке.
@@ -217,7 +219,18 @@ export function CareerVacanciesView() {
                     locale,
                   )
                   return (
-                    <TableRow key={vacancy.id} className="hover:bg-muted/40">
+                    <TableRow
+                      key={vacancy.id}
+                      tabIndex={0}
+                      onClick={() => setOpened(vacancy)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          setOpened(vacancy)
+                        }
+                      }}
+                      className="cursor-pointer hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:outline-none"
+                    >
                       <TableCell className="font-medium">
                         <TableText value={vacancy.title} />
                         {vacancy.skills.length > 0 && (
@@ -271,20 +284,14 @@ export function CareerVacanciesView() {
           </Card>
         </>
       )}
+
+      {opened && (
+        <VacancyDetailModal
+          vacancy={opened}
+          universityId={universityId}
+          onClose={() => setOpened(null)}
+        />
+      )}
     </div>
   )
-}
-
-function salaryText(
-  vacancy: Vacancy,
-  labels: { from: string; to: string },
-  locale: string,
-): string | null {
-  const { salaryMin: min, salaryMax: max, salaryCurrency: currency } = vacancy
-  if (min == null && max == null) return null
-  const unit = currency ?? ''
-  const fmt = (n: number) => n.toLocaleString(locale)
-  if (min != null && max != null) return `${fmt(min)} — ${fmt(max)} ${unit}`.trim()
-  if (min != null) return `${labels.from} ${fmt(min)} ${unit}`.trim()
-  return `${labels.to} ${fmt(max as number)} ${unit}`.trim()
 }

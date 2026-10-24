@@ -2,7 +2,7 @@ import { Global, Module } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { BullModule } from '@nestjs/bullmq'
 import type { EnvVars } from '../../config/env.schema'
-import { DEFAULT_JOB_OPTIONS, QUEUE_NAMES } from './queue.constants'
+import { DEFAULT_JOB_OPTIONS, QUEUE_NAMES, jobOptionsFor } from './queue.constants'
 import { QueueService } from './queue.service'
 
 // Инфраструктура очередей BullMQ поверх Redis (docs/PROJECT.md §10, docs/BACKEND_RULES.md §9).
@@ -26,7 +26,11 @@ import { QueueService } from './queue.service'
         defaultJobOptions: DEFAULT_JOB_OPTIONS,
       }),
     }),
-    BullModule.registerQueue(...QUEUE_NAMES.map((name) => ({ name }))),
+    // Опции job'ов — у каждой очереди свои (у почты попыток больше, F-F20). Опции очереди
+    // не сливаются с корневыми, а заменяют их целиком, поэтому задаются полностью.
+    BullModule.registerQueue(
+      ...QUEUE_NAMES.map((name) => ({ name, defaultJobOptions: jobOptionsFor(name) })),
+    ),
   ],
   providers: [QueueService],
   exports: [QueueService, BullModule],

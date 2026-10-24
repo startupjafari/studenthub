@@ -1,6 +1,6 @@
 'use client'
 
-import { Controller, useForm } from 'react-hook-form'
+import { Controller, useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
@@ -20,7 +20,13 @@ import {
 } from '../../../shared/ui'
 import { OPTIONAL_TEXT, useErrorToast } from '../../../shared/lib'
 import { createMaterialRequest, materialKeys } from '../../../entities/material'
-import { fetchGroups, groupKeys } from '../../../entities/group'
+import { GroupSelect } from '../../../entities/group'
+import { courseKeys, fetchCourses } from '../../../entities/course'
+import { useAppSelector } from '../../../shared/store'
+import { Role } from '@studenthub/shared-types'
+
+// «Без дисциплины» в селекте: Radix не принимает пустую строку как значение пункта.
+const NO_SUBJECT = '__none__'
 
 // Создание материала. Форма в окне, а не развёрнута на странице (§10.1): иначе список
 // материалов уезжает под сгиб, а сама форма висит на экране у всех, кто просто читает.
@@ -30,8 +36,22 @@ export function CreateMaterialModal({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient()
   const errorToast = useErrorToast('create-material')
 
-  const groups = useQuery({ queryKey: groupKeys.list(), queryFn: () => fetchGroups() })
   const form = useForm<CreateMaterialInput>({ resolver: zodResolver(CreateMaterialSchema) })
+  const role = useAppSelector((s) => s.auth.role)
+
+  // Предмет выбирается из дисциплин группы, а не вводится текстом: студент видит материал
+  // во вкладке дисциплины по ТОЧНОМУ совпадению названия, и опечатка прятала материал от
+  // него совсем. Преподавателю — только его дисциплины.
+  const groupId = useWatch({ control: form.control, name: 'groupId' })
+  const courseFilters = { groupId, ...(role === Role.TEACHER ? { mine: true } : {}) }
+  const courses = useQuery({
+    queryKey: courseKeys.list(courseFilters),
+    queryFn: () => fetchCourses(courseFilters),
+    enabled: !!groupId,
+  })
+  const subjects = [...new Set((courses.data ?? []).map((c) => c.subject.name))].sort((a, b) =>
+    a.localeCompare(b),
+  )
 
   const create = useMutation({
     mutationFn: (input: CreateMaterialInput) =>
@@ -55,30 +75,59 @@ export function CreateMaterialModal({ onClose }: { onClose: () => void }) {
             и ссылка идут во всю ширину окна. */}
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-1.5">
-            <Label>{t('group')}</Label>
+            <Label htmlFor="m-group">{t('group')}</Label>
+            {/* Поиск по группам на сервере: выбор из первых 100 по алфавиту не давал
+                выложить материал группе из хвоста алфавита в большом вузе. */}
             <Controller
               control={form.control}
               name="groupId"
               render={({ field }) => (
-                <Select value={field.value ?? ''} onValueChange={field.onChange}>
-                  <SelectTrigger aria-invalid={!!form.formState.errors.groupId}>
-                    <SelectValue placeholder={t('selectGroup')} />
+                <GroupSelect
+                  id="m-group"
+                  value={field.value ?? null}
+                  onChange={(v) => {
+                    field.onChange(v ?? undefined)
+                    // Дисциплины у другой группы свои — прежний выбор к ней не относится.
+                    form.setValue('subject', undefined)
+                  }}
+                  placeholder={t('selectGroup')}
+                />
+              )}
+            />
+            <FieldError>{form.formState.errors.groupId ? t('required') : null}</FieldError>
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <Label>{t('subject')}</Label>
+            <Controller
+              control={form.control}
+              name="subject"
+              render={({ field }) => (
+                <Select
+                  value={field.value ?? NO_SUBJECT}
+                  onValueChange={(v) => field.onChange(v === NO_SUBJECT ? undefined : v)}
+                  disabled={!groupId}
+                >
+                  <SelectTrigger aria-label={t('subject')}>
+                    <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {(groups.data ?? []).map((g) => (
-                      <SelectItem key={g.id} value={g.id}>
-                        {g.name}
+                    <SelectItem value={NO_SUBJECT}>{t('noSubject')}</SelectItem>
+                    {subjects.map((name) => (
+                      <SelectItem key={name} value={name}>
+                        {name}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               )}
             />
-            <FieldError>{form.formState.errors.groupId ? t('required') : null}</FieldError>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label htmlFor="m-subject">{t('subject')}</Label>
-            <Input id="m-subject" {...form.register('subject', OPTIONAL_TEXT)} />
+            {/* Преподавателю сервер примет материал без дисциплины, только если у него есть
+                пары в этой группе (C-F27) — подсказка говорит об этом заранее. */}
+            {groupId && !courses.isLoading && subjects.length === 0 && (
+              <p className="text-xs text-muted-foreground">
+                {t(role === Role.TEACHER ? 'noSubjectsHintTeacher' : 'noSubjectsHint')}
+              </p>
+            )}
           </div>
         </div>
 

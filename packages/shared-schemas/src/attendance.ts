@@ -54,11 +54,13 @@ export const QrCheckInSchema = z
   .strict()
 export type QrCheckInInput = z.infer<typeof QrCheckInSchema>
 
-// Сводка студента (опциональный диапазон дат).
+// Сводка студента (опциональный диапазон дат и дисциплина).
 export const AttendanceSummaryQuerySchema = z
   .object({
     from: ymd.optional(),
     to: ymd.optional(),
+    // Точное совпадение с названием дисциплины пары — сводка страницы курса.
+    subject: z.string().min(1).max(200).optional(),
   })
   .strict()
 export type AttendanceSummaryQueryInput = z.infer<typeof AttendanceSummaryQuerySchema>

@@ -22,6 +22,9 @@ export interface MeResponse {
   // Имя входа (Telegram-стиль). Только у владельца: в чужой карточке бэкенд его вырезает.
   // null — у зарегистрированных до появления фичи; такие входят только по email.
   username?: string | null
+  // Только в /auth/me: согласие на ПДн надо принять заново (A-F29). Подробности и само
+  // принятие — /users/me/consent (entities/user, гейт — features/accept-consent).
+  consentRequired?: boolean
   universityId: string | null
   facultyId: string | null
   groupId: string | null
@@ -131,6 +134,14 @@ export async function disable2faRequest(code: string): Promise<void> {
   await api.post('/auth/2fa/disable', { code })
 }
 
+// Новый набор резервных кодов взамен прежнего (нужен действующий код). Показываются один раз.
+export async function regenerateBackupCodesRequest(
+  code: string,
+): Promise<{ backupCodes: string[] }> {
+  const { data } = await api.post<{ backupCodes: string[] }>('/auth/2fa/backup-codes', { code })
+  return data
+}
+
 // ── Привязка Telegram для админского мини-аппа ───────────────────────────────
 //
 // Код запрашивается ЗДЕСЬ, в вебе, а не в самом мини-аппе: только здесь платформа знает,
@@ -190,6 +201,17 @@ export async function qrApproveRequest(approveToken: string): Promise<void> {
   await api.post('/auth/qr/approve', { approveToken })
 }
 
+// Кто просит вход по QR — показывается до подтверждения (защита от подмены QR).
+export interface QrPreview {
+  requester: { browser: string | null; os: string | null; ip: string | null }
+  createdAt: string | null
+}
+
+export async function qrPreviewRequest(approveToken: string): Promise<QrPreview> {
+  const { data } = await api.post<QrPreview>('/auth/qr/preview', { approveToken })
+  return data
+}
+
 export async function registerByInviteRequest(input: RegisterByInviteInput): Promise<string> {
   const { data } = await api.post<{ accessToken: string }>('/auth/register-by-invite', input)
   return data.accessToken
@@ -207,4 +229,14 @@ export async function meRequest(): Promise<MeResponse> {
 
 export async function logoutRequest(): Promise<void> {
   await api.post('/auth/logout')
+}
+
+// «Забыли пароль»: сервер отвечает одинаково для любого адреса и сам решает, слать ли письмо.
+export async function forgotPasswordRequest(email: string): Promise<void> {
+  await api.post('/auth/password/forgot', { email })
+}
+
+// Новый пароль по токену из письма. Сессию не выдаёт: дальше — обычный вход.
+export async function resetPasswordRequest(token: string, password: string): Promise<void> {
+  await api.post('/auth/password/reset', { token, password })
 }

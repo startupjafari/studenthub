@@ -25,21 +25,36 @@ import {
   deleteArticleComment,
   deleteProfileArticle,
   fetchArticleComments,
+  fetchProfileArticle,
   fetchProfileArticles,
   fetchRelatedArticles,
   incrementArticleView,
   profileContentKeys,
   toggleArticleBookmark,
-  type ProfileArticle,
+  type ProfileArticleCard,
 } from '../../../entities/profile-content'
-import { Badge, Button, EmptyState, Skeleton, useConfirm } from '../../../shared/ui'
+import {
+  Badge,
+  Button,
+  EmptyState,
+  MarkdownImage,
+  MosaicGrid,
+  MosaicTile,
+  Skeleton,
+  mosaicShape,
+  useConfirm,
+} from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { useBodyScrollLock } from '../../../shared/lib'
 import { ArticleEditorModal } from './article-editor-modal'
 import { ArticleCover } from './article-cover'
+import { ContentModal } from './content-modal'
 import { ContentComments } from './content-comments'
 import { ContentLayout, FilterGroup, FilterOption, FilterSkeleton } from './filter-sidebar'
 import { useRetryOnError } from './use-retry-on-error'
+import { LoadFailed } from './load-failed'
+import { useProgressive } from './use-progressive'
+import type { ContentModeration } from '../lib/content-moderation'
 
 function errCode(e: unknown): string {
   return (e as { code?: string }).code ?? 'INTERNAL_ERROR'
@@ -51,17 +66,18 @@ const MD_CLASS =
 interface Props {
   userId: string
   isOwner: boolean
+  moderation?: ContentModeration
   openCreate?: number
   onConsumed?: () => void
 }
 
-export function ProfileArticles({ userId, isOwner, openCreate, onConsumed }: Props) {
+export function ProfileArticles({ userId, isOwner, moderation, openCreate, onConsumed }: Props) {
   const t = useTranslations('Profile')
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
   const confirm = useConfirm()
-  const [editing, setEditing] = useState<ProfileArticle | 'new' | null>(null)
-  const [reading, setReading] = useState<ProfileArticle | null>(null)
+  const [editing, setEditing] = useState<ProfileArticleCard | 'new' | null>(null)
+  const [reading, setReading] = useState<ProfileArticleCard | null>(null)
 
   useEffect(() => {
     if (openCreate === undefined) return
@@ -73,8 +89,8 @@ export function ProfileArticles({ userId, isOwner, openCreate, onConsumed }: Pro
     queryKey: profileContentKeys.articles(userId),
     queryFn: () => fetchProfileArticles(userId),
   })
-  // При ошибке — держим скелетон, тост каждые 5 сек и повтор запроса.
-  useRetryOnError(q.isError, q.refetch, t('loadRetry'))
+  // Ошибка — один тост и повторы с растущей паузой; не помогло — ошибка на месте вкладки.
+  const loadState = useRetryOnError(q, t('loadRetry'))
 
   const delMut = useMutation({
     mutationFn: deleteProfileArticle,
@@ -105,45 +121,52 @@ export function ProfileArticles({ userId, isOwner, openCreate, onConsumed }: Pro
       return db - da
     })
   }, [articles, isOwner, statusFilter, category, sort])
+  // Порция — полный цикл мозаики: догрузка достраивает узор, а не обрывает его.
+  const { shown, pending, sentinelRef } = useProgressive(
+    visible.length,
+    14,
+    `${statusFilter}|${category}|${sort}`,
+  )
 
   const modals = (
     <>
-      {editing !== null && (
-        <ArticleEditorModal
-          userId={userId}
-          initial={editing === 'new' ? null : editing}
-          onClose={() => setEditing(null)}
-        />
+      {editing === 'new' && (
+        <ArticleEditorModal userId={userId} initial={null} onClose={() => setEditing(null)} />
+      )}
+      {editing !== null && editing !== 'new' && (
+        <ArticleEditLoader userId={userId} card={editing} onClose={() => setEditing(null)} />
       )}
       {reading && (
-        <ArticleReader article={reading} onClose={() => setReading(null)} onOpen={setReading} />
+        <ArticleReader
+          article={reading}
+          onClose={() => setReading(null)}
+          onOpen={setReading}
+          moderateComments={!isOwner && !!moderation?.comments}
+        />
       )}
     </>
   )
 
-  if (q.isLoading || q.isError) {
+  if (!q.data && loadState.failed) {
+    return (
+      <>
+        {modals}
+        <LoadFailed onRetry={loadState.retry} busy={q.isFetching} />
+      </>
+    )
+  }
+  if (!q.data) {
     return (
       <>
         {modals}
         <ContentLayout sidebar={<FilterSkeleton groups={3} />}>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {Array.from({ length: 6 }).map((_, i) => (
-              <article
-                key={i}
-                className="flex flex-col overflow-hidden rounded-2xl border border-border bg-card"
-              >
-                <Skeleton className="aspect-video w-full rounded-none" />
-                <div className="flex flex-col gap-2 p-4">
-                  <Skeleton className="h-4 w-1/3" />
-                  <Skeleton className="h-5 w-3/4" />
-                  <Skeleton className="h-4 w-full" />
-                  <div className="mt-1 border-t border-border pt-3">
-                    <Skeleton className="h-3 w-1/2" />
-                  </div>
-                </div>
-              </article>
+          <MosaicGrid aria-hidden>
+            {Array.from({ length: 14 }).map((_, i) => (
+              <MosaicTile key={i} index={i}>
+                <Skeleton className="size-full rounded-none" />
+              </MosaicTile>
             ))}
-          </div>
+          </MosaicGrid>
         </ContentLayout>
       </>
     )
@@ -220,13 +243,14 @@ export function ProfileArticles({ userId, isOwner, openCreate, onConsumed }: Pro
               {t('nothingFound')}
             </p>
           ) : (
-            // Сетка статей: до 3 карточек в ряд.
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-              {visible.map((a) => (
+            <MosaicGrid>
+              {visible.slice(0, shown).map((a, i) => (
                 <ArticleCard
                   key={a.id}
+                  index={i}
                   article={a}
                   isOwner={isOwner}
+                  canModerate={!isOwner && !!moderation?.content}
                   onRead={() => setReading(a)}
                   onEdit={() => setEditing(a)}
                   onDelete={() => {
@@ -236,9 +260,29 @@ export function ProfileArticles({ userId, isOwner, openCreate, onConsumed }: Pro
                       },
                     )
                   }}
+                  onModerate={() => {
+                    void confirm({
+                      title: t('articleDeleteConfirm'),
+                      description: t('moderationDeleteHint'),
+                      confirmLabel: t('deleteModeration'),
+                      destructive: true,
+                    }).then((ok) => {
+                      if (ok) delMut.mutate(a.id)
+                    })
+                  }}
                 />
               ))}
-            </div>
+              {Array.from({ length: pending }, (_, j) => (
+                <MosaicTile
+                  key={`pending-${j}`}
+                  ref={j === 0 ? sentinelRef : undefined}
+                  index={shown + j}
+                  aria-hidden
+                >
+                  <Skeleton className="size-full rounded-none" />
+                </MosaicTile>
+              ))}
+            </MosaicGrid>
           )}
         </div>
       </ContentLayout>
@@ -246,65 +290,73 @@ export function ProfileArticles({ userId, isOwner, openCreate, onConsumed }: Pro
   )
 }
 
+// Плитка статьи в мозаике: обложка во всю плитку, рубрика, заголовок и мета — на затемнении
+// снизу (читаются поверх любого снимка). Подзаголовок помещается только в высокую плитку.
 function ArticleCard({
+  index,
   article: a,
   isOwner,
+  canModerate,
   onRead,
   onEdit,
   onDelete,
+  onModerate,
 }: {
-  article: ProfileArticle
+  index: number
+  article: ProfileArticleCard
   isOwner: boolean
+  // Модератор scope: вместо «Изменить/Удалить» владельца — один пункт «Удалить (модерация)».
+  canModerate: boolean
   onRead: () => void
   onEdit: () => void
   onDelete: () => void
+  onModerate: () => void
 }) {
   const t = useTranslations('Profile')
-  const locale = useLocale()
-  const date = new Date(a.publishedAt ?? a.createdAt).toLocaleDateString(locale)
+  const shape = mosaicShape(index)
 
   return (
-    <article className="group relative flex flex-col overflow-hidden rounded-2xl border border-border bg-card transition-shadow hover:border-ring/50">
+    <MosaicTile index={index}>
       <button
         type="button"
         onClick={onRead}
-        className="flex w-full flex-1 flex-col text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+        className="absolute inset-0 text-left outline-none focus-visible:ring-4 focus-visible:ring-ring/30 focus-visible:ring-inset"
       >
-        {(a.coverUrl || a.coverGradient) && (
-          <ArticleCover
-            coverUrl={a.coverUrl}
-            coverGradient={a.coverGradient}
-            title={a.title}
-            className="aspect-video w-full"
-          />
-        )}
-        <div className="flex flex-1 flex-col gap-2 p-4">
-          <div className="flex flex-wrap items-center gap-2">
-            {a.status === 'DRAFT' && <Badge variant="secondary">{t('draft')}</Badge>}
-            {a.category && <Badge variant="default">{t(`cat_${a.category}`)}</Badge>}
-          </div>
-          <h3 className="line-clamp-2 text-lg font-bold leading-snug tracking-tight transition-colors group-hover:text-primary">
+        <ArticleCover
+          coverUrl={a.coverUrl}
+          coverGradient={a.coverGradient}
+          title={a.title}
+          // Заголовок и так стоит внизу плитки — градиентной обложке хватает буквы.
+          letter
+          className="size-full transition-transform duration-(--motion-large) group-hover/tile:scale-[1.03] motion-reduce:transition-none"
+        />
+        <span className="absolute inset-x-0 bottom-0 flex flex-col gap-1.5 bg-gradient-to-t from-black/80 via-black/45 to-transparent px-3 pt-10 pb-3 text-white">
+          <span className="flex flex-wrap items-center gap-1.5 max-sm:hidden">
+            {a.status === 'DRAFT' && (
+              <span className="rounded-full bg-warning px-2 py-0.5 text-[11px] font-medium text-warning-foreground">
+                {t('draft')}
+              </span>
+            )}
+            {a.category && (
+              <span className="rounded-full bg-black/40 px-2 py-0.5 text-[11px] font-medium">
+                {t(`cat_${a.category}`)}
+              </span>
+            )}
+          </span>
+          <span
+            className={cn(
+              'font-semibold leading-snug',
+              shape === 'square' ? 'line-clamp-2 text-sm max-sm:text-xs' : 'line-clamp-3 text-base',
+            )}
+          >
             {a.title}
-          </h3>
-          {a.description && (
-            <p className="line-clamp-2 text-sm leading-relaxed text-muted-foreground">
+          </span>
+          {shape === 'tall' && a.description && (
+            <span className="line-clamp-3 text-xs leading-relaxed text-white/80">
               {a.description}
-            </p>
+            </span>
           )}
-          {a.tags.length > 0 && (
-            <div className="flex flex-wrap gap-1.5">
-              {a.tags.slice(0, 3).map((tag) => (
-                <span
-                  key={tag}
-                  className="truncate rounded-full bg-muted px-2 py-0.5 text-xs font-medium text-muted-foreground"
-                >
-                  #{tag}
-                </span>
-              ))}
-            </div>
-          )}
-          <div className="mt-auto flex flex-wrap items-center gap-x-3.5 gap-y-1.5 border-t border-border pt-3 text-[13px] text-muted-foreground">
-            <time>{date}</time>
+          <span className="flex items-center gap-3 text-xs font-medium text-white/85 tabular-nums max-sm:hidden">
             {a.readingMinutes ? (
               <span className="inline-flex items-center gap-1">
                 <Clock className="size-3.5" aria-hidden />
@@ -320,14 +372,14 @@ function ArticleCard({
               {a.commentCount}
             </span>
             {a.bookmarked && (
-              <Bookmark className="ml-auto size-3.5 fill-primary text-primary" aria-hidden />
+              <Bookmark className="ml-auto size-3.5 fill-current" aria-label={t('bookmarked')} />
             )}
-          </div>
-        </div>
+          </span>
+        </span>
       </button>
 
       {isOwner && (
-        <div className="absolute right-3 top-3 z-10 flex gap-1 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+        <div className="absolute right-2 top-2 z-10 flex gap-1 opacity-0 transition-opacity group-hover/tile:opacity-100 focus-within:opacity-100 max-lg:opacity-100">
           <Button
             type="button"
             variant="secondary"
@@ -350,7 +402,22 @@ function ArticleCard({
           </Button>
         </div>
       )}
-    </article>
+      {canModerate && (
+        <div className="absolute right-2 top-2 z-10 flex opacity-0 transition-opacity group-hover/tile:opacity-100 focus-within:opacity-100 max-lg:opacity-100">
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            icon
+            aria-label={t('deleteModeration')}
+            title={t('deleteModeration')}
+            onClick={onModerate}
+          >
+            <Trash2 className="size-4 text-destructive" aria-hidden />
+          </Button>
+        </div>
+      )}
+    </MosaicTile>
   )
 }
 
@@ -387,23 +454,68 @@ function extractToc(md: string): { level: number; text: string; slug: string }[]
   return out
 }
 
-// Читалка статьи: обложка + мета + оглавление + полный markdown + похожие статьи.
+/** Статья целиком (с текстом) — по id; список профиля несёт только плитки без текста. */
+function useFullArticle(id: string) {
+  return useQuery({
+    queryKey: profileContentKeys.article(id),
+    queryFn: () => fetchProfileArticle(id),
+  })
+}
+
+// Редактор существующей статьи открывается с полным текстом: в плитке списка его нет.
+// Пока текст грузится — то же окно со скелетоном, чтобы нажатие отозвалось сразу.
+function ArticleEditLoader({
+  userId,
+  card,
+  onClose,
+}: {
+  userId: string
+  card: ProfileArticleCard
+  onClose: () => void
+}) {
+  const t = useTranslations('Profile')
+  const tErr = useTranslations('Errors')
+  const full = useFullArticle(card.id)
+  useEffect(() => {
+    if (!full.isError) return
+    toast.error(tErr(errCode(full.error)))
+    onClose()
+  }, [full.isError, full.error, onClose, tErr])
+  if (full.data) return <ArticleEditorModal userId={userId} initial={full.data} onClose={onClose} />
+  return (
+    <ContentModal title={t('editArticle')} onClose={onClose} size="xl">
+      <div className="flex flex-col gap-3" aria-busy="true">
+        <Skeleton className="h-10 w-full" />
+        <Skeleton className="h-10 w-2/3" />
+        <Skeleton className="h-64 w-full" />
+      </div>
+    </ContentModal>
+  )
+}
+
+// Читалка статьи: обложка + мета + оглавление + полный markdown + похожие статьи. Плитка
+// открывает читалку сразу, текст догружается отдельным запросом (в списке его нет).
 function ArticleReader({
   article: a,
   onClose,
   onOpen,
+  moderateComments,
 }: {
-  article: ProfileArticle
+  article: ProfileArticleCard
   onClose: () => void
-  onOpen: (article: ProfileArticle) => void
+  onOpen: (article: ProfileArticleCard) => void
+  moderateComments: boolean
 }) {
   const t = useTranslations('Profile')
   const tErr = useTranslations('Errors')
   const locale = useLocale()
+  const qc = useQueryClient()
   useBodyScrollLock()
   const [views, setViews] = useState(a.views)
   const [bookmarked, setBookmarked] = useState(a.bookmarked)
-  const toc = useMemo(() => extractToc(a.content), [a.content])
+  const full = useFullArticle(a.id)
+  const content = full.data?.content
+  const toc = useMemo(() => (content ? extractToc(content) : []), [content])
   const related = useQuery({
     queryKey: [...profileContentKeys.articles(a.userId), 'related', a.id],
     queryFn: () => fetchRelatedArticles(a.id),
@@ -440,6 +552,7 @@ function ArticleReader({
     h1: ({ children }) => <h1 id={slugify(nodeText(children))}>{children}</h1>,
     h2: ({ children }) => <h2 id={slugify(nodeText(children))}>{children}</h2>,
     h3: ({ children }) => <h3 id={slugify(nodeText(children))}>{children}</h3>,
+    img: MarkdownImage,
   }
 
   function scrollTo(slug: string): void {
@@ -455,7 +568,7 @@ function ArticleReader({
       role="dialog"
       aria-modal="true"
       onClick={onClose}
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-0 backdrop-blur-sm animate-in fade-in-0 duration-150 sm:px-6 sm:pt-6 sm:pb-16"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-0 animate-in fade-in-0 duration-200 sm:px-6 sm:pt-6 sm:pb-16"
     >
       <button
         type="button"
@@ -468,7 +581,7 @@ function ArticleReader({
 
       <div
         onClick={(e) => e.stopPropagation()}
-        className="flex h-full max-h-[88vh] w-full max-w-6xl flex-col overflow-hidden bg-background shadow-2xl sm:rounded-2xl md:flex-row"
+        className="flex h-full max-h-[88vh] w-full max-w-6xl flex-col overflow-hidden bg-background shadow-2xl animate-in fade-in-0 zoom-in-95 duration-200 sm:rounded-2xl md:flex-row"
       >
         {/* Левая колонка — статья (скролл) */}
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
@@ -537,11 +650,23 @@ function ArticleReader({
             {a.description && (
               <p className="text-base leading-relaxed text-muted-foreground">{a.description}</p>
             )}
-            <div className={MD_CLASS}>
-              <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
-                {a.content}
-              </ReactMarkdown>
-            </div>
+            {content !== undefined ? (
+              <div className={MD_CLASS}>
+                <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents}>
+                  {content}
+                </ReactMarkdown>
+              </div>
+            ) : full.isError ? (
+              <p className="text-sm text-muted-foreground">{tErr(errCode(full.error))}</p>
+            ) : (
+              <div className="flex flex-col gap-2" aria-busy="true">
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-11/12" />
+                <Skeleton className="h-4 w-4/5" />
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-2/3" />
+              </div>
+            )}
             {a.tags.length > 0 && (
               <div className="flex flex-wrap gap-1.5">
                 {a.tags.map((tag) => (
@@ -563,7 +688,11 @@ function ArticleReader({
                   <button
                     key={r.id}
                     type="button"
-                    onClick={() => onOpen(r)}
+                    onClick={() => {
+                      // Похожие приходят с текстом — читалке не нужно просить его заново.
+                      qc.setQueryData(profileContentKeys.article(r.id), r)
+                      onOpen(r)
+                    }}
                     className="flex items-center gap-3 rounded-lg border border-border p-2 text-left transition-colors hover:bg-muted/50"
                   >
                     <ArticleCover
@@ -598,10 +727,11 @@ function ArticleReader({
             <div className="flex min-h-0 flex-1 flex-col px-4 py-3">
               <ContentComments
                 queryKey={profileContentKeys.articles(a.userId).concat('comments', a.id)}
-                fetchFn={() => fetchArticleComments(a.id)}
+                fetchPage={(cursor) => fetchArticleComments(a.id, cursor)}
                 addFn={(content) => addArticleComment(a.id, content)}
                 deleteFn={(commentId) => deleteArticleComment(a.id, commentId)}
                 ownerId={a.userId}
+                moderate={moderateComments}
               />
             </div>
           </div>

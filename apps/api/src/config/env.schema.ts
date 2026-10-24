@@ -87,11 +87,70 @@ export const envSchema = z.object({
   // Публичный адрес MinIO для presigned-ссылок, отдаваемых в браузер (напр. домен
   // Railway у minio-сервиса). Если не задан — presigned генерятся на внутренний
   // MINIO_ENDPOINT (ок для dev, но в проде браузер его не резолвит).
-  MINIO_PUBLIC_ENDPOINT: z.string().optional(),
+  MINIO_PUBLIC_ENDPOINT: optionalEnv(z.string()),
   MINIO_PUBLIC_PORT: z.coerce.number().int().positive().default(443),
   MINIO_PUBLIC_USE_SSL: z
     .enum(['true', 'false'])
     .default('true')
+    .transform((v) => v === 'true'),
+
+  // ── Единая медиа-система (варианты изображений, постеры, HLS) ──
+  /**
+   * Где работают обработчики очередей `media-image` и `media-video`.
+   *
+   * `inline` — в процессе API: dev и деплой, где отдельного воркера ещё нет. `worker` — API
+   * только ставит задачи, обрабатывает `node dist/worker.js` (отдельный сервис): ffmpeg и
+   * sharp тогда не делят CPU и память с HTTP-запросами (BACKEND_RULES §9.2).
+   */
+  MEDIA_PROCESSING: z.enum(['inline', 'worker']).default('inline'),
+  /** Сколько изображений воркер обрабатывает одновременно. */
+  MEDIA_IMAGE_CONCURRENCY: z.coerce.number().int().min(1).max(16).default(2),
+  /** Сколько видео перекодируется одновременно: каждое — отдельный процесс ffmpeg. */
+  MEDIA_VIDEO_CONCURRENCY: z.coerce.number().int().min(1).max(8).default(1),
+  /** Бинарники ffmpeg/ffprobe. В образе API ставятся из apk и лежат в PATH. */
+  FFMPEG_PATH: z.string().min(1).default('ffmpeg'),
+  FFPROBE_PATH: z.string().min(1).default('ffprobe'),
+  /** Каталог временных файлов перекодирования. Не задан — системный tmp. */
+  MEDIA_TMP_DIR: optionalEnv(z.string().min(1)),
+  /**
+   * Секрет токенов доступа к HLS-плейлистам. Не задан — выводится из JWT_ACCESS_SECRET
+   * с отдельной солью, так что токен плейлиста не проходит проверку как access-токен.
+   */
+  MEDIA_TOKEN_SECRET: optionalEnv(z.string().min(32)),
+
+  /**
+   * Сторисы (Ф14.1) на сервере: `false` закрывает API сторис (лента колец пустая, остальные
+   * ручки — NOT_FOUND). Пара к веб-флагу NEXT_PUBLIC_FEATURE_STORIES: тот прячет раздел в
+   * интерфейсе, а без серверного флага `POST /stories` оставался открыт любому клиенту.
+   * По умолчанию `true` — как было до флага: уже включённые стенды не теряют сторисы.
+   * Крон удаления истёкших сторис от флага не зависит — выключение не оставит хвостов.
+   */
+  FEATURE_STORIES: z
+    .enum(['true', 'false'])
+    .default('true')
+    .transform((v) => v === 'true'),
+
+  /**
+   * Удалять неподтверждённых работодателей (крон purgeUnverifiedEmployers): компании в
+   * PENDING_EMAIL старше 30 дней и аккаунты их участников. Это удаление пользовательских
+   * данных, поэтому по умолчанию выключено — включается осознанно, после решения владельца.
+   */
+  CLEANUP_PURGE_UNVERIFIED_EMPLOYERS: z
+    .enum(['true', 'false'])
+    .default('false')
+    .transform((v) => v === 'true'),
+
+  /**
+   * Предохранитель уборки по срокам хранения ПДн (docs/PERSONAL_DATA.md §4): выдачи книг,
+   * журналы просмотров, учебные данные, заявки, переписка, документы и профили ушедших из
+   * вуза студентов, «надгробия» удалённых аккаунтов. Удаление необратимо, поэтому по
+   * умолчанию `false`: задачи идут по расписанию, но только считают и пишут в лог, сколько
+   * удалили бы (dry-run). Включается после того, как цифры в логе сверены с ожиданиями
+   * (docs/RUNBOOK.md, «Сроки хранения ПДн»).
+   */
+  PD_RETENTION_ENABLED: z
+    .enum(['true', 'false'])
+    .default('false')
     .transform((v) => v === 'true'),
 
   // SMTP используется с Фазы 3 — пока необязателен.
@@ -194,6 +253,15 @@ export const envSchema = z.object({
   /** Боевой шлюз вместо песочницы. TestFlight и App Store — боевой. */
   APNS_PRODUCTION: booleanFromString,
 
+  // Пуши на Android через FCM HTTP v1 (план Android, Задача АБ1). Три поля из JSON
+  // сервисного аккаунта Firebase. Без них отправка на Android молчит, как APNs без p8.
+  /** `project_id` проекта Firebase. */
+  FCM_PROJECT_ID: optionalEnv(z.string().min(1)),
+  /** `client_email` сервисного аккаунта. */
+  FCM_CLIENT_EMAIL: optionalEnv(z.string().email()),
+  /** `private_key` сервисного аккаунта. Переводы строк экранированы: PEM многострочный. */
+  FCM_PRIVATE_KEY: optionalEnv(z.string().min(1)),
+
   /**
    * Минимальная поддерживаемая версия приложения для iPhone (план iOS, Задача Б3).
    *
@@ -208,6 +276,36 @@ export const envSchema = z.object({
     .default('0.0.0'),
   /** Адрес приложения в App Store — для кнопки «Обновить». Не задан — кнопки не будет. */
   IOS_STORE_URL: optionalEnv(z.string().url()),
+
+  /**
+   * Минимальная поддерживаемая версия приложения для Android (план Android, Задача АБ2).
+   *
+   * Отдельно от iOS: релизы платформ выходят в разное время, и общая планка
+   * блокировала бы одних из-за других. Умолчание то же — `0.0.0`, никого не блокируем.
+   */
+  ANDROID_MIN_SUPPORTED_VERSION: z
+    .string()
+    .regex(/^\d+\.\d+\.\d+$/, 'ANDROID_MIN_SUPPORTED_VERSION: формат SemVer, например 1.2.0')
+    .default('0.0.0'),
+  /** Адрес приложения в Google Play — для кнопки «Обновить». Не задан — кнопки не будет. */
+  ANDROID_STORE_URL: optionalEnv(z.string().url()),
+
+  // Медиа-ретранслятор камер (docs/PROJECT.md §3.10). Без них просмотр камер выключен:
+  // запрос просмотра отвечает 409 (`details.field=relay`), агенты потоки не отдают.
+  /**
+   * Закрытый ключ EC P-256 (PKCS#8 PEM) для подписи медиатокенов ES256. Переводы строк
+   * экранированы. Открытая часть уходит ретранслятору через GET /.well-known/media-jwks.json.
+   */
+  MEDIA_JWT_PRIVATE_KEY: optionalEnv(z.string().min(1)),
+  /** Публичный HTTPS-адрес HLS ретранслятора — оттуда браузер берёт видео. */
+  MEDIA_RELAY_HLS_URL: optionalEnv(z.string().url()),
+  /** Адрес публикации для агентов: rtmps://<хост>:<порт> (TCP-прокси ретранслятора). */
+  MEDIA_RELAY_PUBLISH_URL: optionalEnv(z.string().regex(/^rtmps?:\/\/[^/]+$/)),
+  /**
+   * Сертификат ретранслятора (PEM, экранированные переводы строк). Агенты закрепляют его:
+   * поток с камеры уходит только тому, кто предъявил именно этот сертификат.
+   */
+  MEDIA_RELAY_CA_PEM: optionalEnv(z.string().min(1)),
 
   // Web Push (Ф13.3). Без ключей push отключён (сервис молча пропускает отправку).
   VAPID_PUBLIC_KEY: z.string().optional(),

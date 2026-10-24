@@ -39,7 +39,7 @@ vi.mock('../telegram/use-telegram', () => ({
 
 import { confirmAction } from '../telegram/webapp'
 import { goBack } from '../lib/back'
-import { searchPeople, setBlocked } from '../api/people'
+import { fetchInvites, searchPeople, setBlocked } from '../api/people'
 import { PeopleScreen } from './people'
 
 function person(over: Partial<Person> = {}): Person {
@@ -71,7 +71,7 @@ describe('PeopleScreen', () => {
   })
 
   it('находит человека и показывает его почту', async () => {
-    render(<PeopleScreen />)
+    render(<PeopleScreen viewerRole="PLATFORM_ADMIN" />)
     expect(await screen.findByText('Серикова Айгуль')).toBeInTheDocument()
     expect(screen.getByText('aigul@uni.kz')).toBeInTheDocument()
   })
@@ -79,7 +79,7 @@ describe('PeopleScreen', () => {
   // Список пользователей платформы велик: фильтровать загруженную страницу значило бы
   // искать среди первых двадцати.
   it('ищет на сервере, а не в загруженной странице', async () => {
-    render(<PeopleScreen />)
+    render(<PeopleScreen viewerRole="PLATFORM_ADMIN" />)
     await screen.findByText('Серикова Айгуль')
 
     await userEvent.type(screen.getByLabelText(/Фамилия/), 'Серик')
@@ -88,7 +88,7 @@ describe('PeopleScreen', () => {
   })
 
   it('открывает страницу человека по строке списка', async () => {
-    render(<PeopleScreen />)
+    render(<PeopleScreen viewerRole="PLATFORM_ADMIN" />)
     await openPerson()
 
     expect(await screen.findByRole('button', { name: 'Заблокировать' })).toBeInTheDocument()
@@ -96,7 +96,7 @@ describe('PeopleScreen', () => {
   })
 
   it('блокирует только после подтверждения', async () => {
-    render(<PeopleScreen />)
+    render(<PeopleScreen viewerRole="PLATFORM_ADMIN" />)
     await openPerson()
 
     await userEvent.click(await screen.findByRole('button', { name: 'Заблокировать' }))
@@ -110,7 +110,7 @@ describe('PeopleScreen', () => {
 
   it('не блокирует, если подтверждение отклонили', async () => {
     vi.mocked(confirmAction).mockResolvedValue(false)
-    render(<PeopleScreen />)
+    render(<PeopleScreen viewerRole="PLATFORM_ADMIN" />)
     await openPerson()
 
     await userEvent.click(await screen.findByRole('button', { name: 'Заблокировать' }))
@@ -123,7 +123,7 @@ describe('PeopleScreen', () => {
    * из выдачи прямо под пальцем — человек не успел бы увидеть, что действие сработало.
    */
   it('после блокировки правит строку списка на месте, не перезапрашивая его', async () => {
-    render(<PeopleScreen />)
+    render(<PeopleScreen viewerRole="PLATFORM_ADMIN" />)
     await openPerson()
     const callsBefore = vi.mocked(searchPeople).mock.calls.length
 
@@ -140,7 +140,7 @@ describe('PeopleScreen', () => {
 
   it('сообщает, когда никого не нашли', async () => {
     vi.mocked(searchPeople).mockResolvedValue({ items: [], total: 0 })
-    render(<PeopleScreen />)
+    render(<PeopleScreen viewerRole="PLATFORM_ADMIN" />)
     expect(await screen.findByText('Никого не нашли')).toBeInTheDocument()
   })
 })
@@ -153,7 +153,7 @@ describe('PeopleScreen — подтверждение блокировки', () 
   })
 
   it('передаёт введённый код вместе с блокировкой', async () => {
-    render(<PeopleScreen />)
+    render(<PeopleScreen viewerRole="PLATFORM_ADMIN" />)
     await openPerson()
 
     await userEvent.type(await screen.findByLabelText(/Код 2FA/), '123456')
@@ -165,7 +165,7 @@ describe('PeopleScreen — подтверждение блокировки', () 
   // Та же асимметрия, что у техработ: вернуть доступ обязано быть возможно сразу.
   it('разблокировка кода не требует', async () => {
     vi.mocked(searchPeople).mockResolvedValue({ items: [person({ isBlocked: true })], total: 1 })
-    render(<PeopleScreen />)
+    render(<PeopleScreen viewerRole="PLATFORM_ADMIN" />)
     await openPerson()
 
     await userEvent.click(await screen.findByRole('button', { name: 'Разблокировать' }))
@@ -176,10 +176,40 @@ describe('PeopleScreen — подтверждение блокировки', () 
   // Поле кода и сроки показываются только для блокировки: у заблокированного их нет.
   it('заблокированному не показывает ни кода, ни сроков', async () => {
     vi.mocked(searchPeople).mockResolvedValue({ items: [person({ isBlocked: true })], total: 1 })
-    render(<PeopleScreen />)
+    render(<PeopleScreen viewerRole="PLATFORM_ADMIN" />)
     await openPerson()
 
     await screen.findByRole('button', { name: 'Разблокировать' })
     expect(screen.queryByLabelText(/Код 2FA/)).not.toBeInTheDocument()
+  })
+})
+
+describe('PeopleScreen — модератор', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(searchPeople).mockResolvedValue({ items: [person()], total: 1 })
+  })
+
+  // `GET /invites` модератору закрыт: карточка с «приглашений нет» была бы неправдой.
+  it('не показывает и не запрашивает приглашения', async () => {
+    render(<PeopleScreen viewerRole="PLATFORM_MODERATOR" />)
+    await screen.findByText('Серикова Айгуль')
+
+    expect(screen.queryByText('Мои приглашения')).not.toBeInTheDocument()
+    expect(fetchInvites).not.toHaveBeenCalled()
+  })
+
+  // Меры — только к младшей роли, как в вебе (isHigherRole): старшую сервер не тронет.
+  it('к равной роли не предлагает мер', async () => {
+    vi.mocked(searchPeople).mockResolvedValue({
+      items: [person({ role: 'PLATFORM_MODERATOR' })],
+      total: 1,
+    })
+    render(<PeopleScreen viewerRole="PLATFORM_MODERATOR" />)
+    await openPerson()
+
+    expect(await screen.findByText(/не ниже вашей/)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Заблокировать' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Завершить сессии' })).not.toBeInTheDocument()
   })
 })

@@ -103,6 +103,29 @@ export class DemoRequestsController {
     return this.requests.approve(user, id, dto, this.ctx(req))
   }
 
+  @Post(':id/reissue-invite')
+  @Roles(Role.PLATFORM_ADMIN)
+  @ApiBearerAuth()
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({
+    summary: 'Выписать приглашение админу вуза заново: прежнее отзывается, письмо уходит повторно',
+  })
+  @ApiResponse({
+    status: 200,
+    description: '{ request, inviteUrl } — ссылка показывается один раз',
+  })
+  @ApiResponse({
+    status: 409,
+    description: 'CONFLICT — заявка не одобрена, вуз удалён или по приглашению уже вошли',
+  })
+  reissueInvite(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Req() req: FastifyRequest,
+  ) {
+    return this.requests.reissueInvite(user, id, this.ctx(req))
+  }
+
   @Post(':id/reject')
   @Roles(Role.PLATFORM_ADMIN)
   @ApiBearerAuth()

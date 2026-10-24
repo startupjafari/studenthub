@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { PageSchema } from './pagination.js'
 
 // Обращение в поддержку платформы: приватная переписка человека с командой платформы.
 //
@@ -8,14 +9,18 @@ import { z } from 'zod'
 // участники — автор и команда платформы.
 
 /** Первое сообщение. Нижняя граница не придирка: «Помогите» не даёт поддержке ничего. */
-export const OpenSupportTicketSchema = z.object({
-  text: z.string().trim().min(10, 'Опишите вопрос подробнее').max(4000),
-})
+export const OpenSupportTicketSchema = z
+  .object({
+    text: z.string().trim().min(10, 'Опишите вопрос подробнее').max(4000),
+  })
+  .strict()
 export type OpenSupportTicketInput = z.infer<typeof OpenSupportTicketSchema>
 
-export const SupportReplySchema = z.object({
-  text: z.string().trim().min(1).max(4000),
-})
+export const SupportReplySchema = z
+  .object({
+    text: z.string().trim().min(1).max(4000),
+  })
+  .strict()
 export type SupportReplyInput = z.infer<typeof SupportReplySchema>
 
 /**
@@ -65,7 +70,7 @@ export const SupportQueueQuerySchema = z.object({
   search: z.string().trim().min(2).max(100).optional(),
   /** Только обращения с этим тегом. Фильтрует сервер: клиент видит одну страницу. */
   tag: SupportTagSchema.optional(),
-  page: z.coerce.number().int().min(1).default(1),
+  page: PageSchema,
   limit: z.coerce.number().int().min(1).max(50).default(30),
 })
 export type SupportQueueQueryInput = z.infer<typeof SupportQueueQuerySchema>

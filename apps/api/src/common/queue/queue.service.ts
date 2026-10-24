@@ -31,22 +31,20 @@ export class QueueService {
     @InjectQueue(QUEUES.EMAIL) email: Queue,
     @InjectQueue(QUEUES.NOTIFICATIONS) notifications: Queue,
     @InjectQueue(QUEUES.FILE_PROCESSING) fileProcessing: Queue,
-    @InjectQueue(QUEUES.CLEANUP) cleanup: Queue,
     @InjectQueue(QUEUES.LINK_PREVIEW) linkPreview: Queue,
+    @InjectQueue(QUEUES.MEDIA_IMAGE) mediaImage: Queue,
+    @InjectQueue(QUEUES.MEDIA_VIDEO) mediaVideo: Queue,
   ) {
     this.queues = {
       [QUEUES.EMAIL]: email,
       [QUEUES.NOTIFICATIONS]: notifications,
       [QUEUES.FILE_PROCESSING]: fileProcessing,
-      [QUEUES.CLEANUP]: cleanup,
       [QUEUES.LINK_PREVIEW]: linkPreview,
+      [QUEUES.MEDIA_IMAGE]: mediaImage,
+      [QUEUES.MEDIA_VIDEO]: mediaVideo,
     }
   }
 
-  /**
-   * Ставит job в очередь. Для идемпотентности передавайте детерминированный `jobId`
-   * в опциях — BullMQ отбросит дубликат с тем же id.
-   */
   /**
    * Размеры очередей. Возвращён вместе с экраном, который его читает, — метод с тем же
    * именем однажды уже удаляли как мёртвый код именно потому, что читателя у него не было.
@@ -69,12 +67,21 @@ export class QueueService {
     )
   }
 
+  /**
+   * Ставит job в очередь. Для идемпотентности передавайте детерминированный `jobId`
+   * в опциях — BullMQ отбросит дубликат с тем же id.
+   *
+   * Возвращает, поставлен ли job. Ошибку постановки метод не бросает (см. ниже), поэтому
+   * тот, кто после постановки помечает событие «отправлено» (отметки напоминаний, «бронь
+   * готова»), обязан смотреть на результат: отметка без job'а теряет событие навсегда —
+   * следующий прогон его уже не увидит. Остальным вызывающим результат можно не читать.
+   */
   async enqueue<T extends object>(
     queue: QueueName,
     jobName: string,
     data: T,
     opts: EnqueueOptions = {},
-  ): Promise<void> {
+  ): Promise<boolean> {
     const { requestId, ...jobOptions } = opts
     const meta: JobMeta = {
       requestId: requestId ?? randomUUID(),
@@ -101,11 +108,13 @@ export class QueueService {
       this.logger.debug(
         `enqueued ${queue}/${jobName} jobId=${job.id ?? '?'} requestId=${meta.requestId}`,
       )
+      return true
     } catch (error) {
       this.logger.error(
         { err: error, queue, jobName, requestId: meta.requestId },
         `Не удалось поставить job ${queue}/${jobName} (Redis недоступен?) — сайд-эффект пропущен`,
       )
+      return false
     }
   }
 

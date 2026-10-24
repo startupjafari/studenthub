@@ -2,9 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { Check, ChevronDown } from 'lucide-react'
-import { LOCALES, localePath, type Locale } from '../config/site'
+import { LOCALES, LOCALE_NAMES, localePath, type Locale } from '../config/site'
 import { Flag } from './flag'
-import { getDictionary } from '../content'
 
 /**
  * Выбор языка — компактный список под кнопкой «RU ▾».
@@ -16,19 +15,24 @@ import { getDictionary } from '../content'
  * Пункты остаются ссылками, а не кнопками с обработчиком: у каждой версии свой адрес,
  * её можно открыть в новой вкладке и сохранить в закладки.
  *
+ * Подпись кнопки (`label`) приходит от родителя, а названия языков — из config/site.ts:
+ * компонент клиентский, и импорт словарей отсюда увозил бы в бандл тексты всех трёх языков.
+ *
  * `side` — куда раскрываться. В шапке список падает вниз, а в мобильном меню кнопка
  * прижата к нижнему краю экрана, и вниз ему просто некуда: он уходил за границу окна.
  */
 export function LanguageMenu({
   current,
+  label,
   side = 'bottom',
 }: {
   current: Locale
+  /** Доступное имя кнопки — «Язык» на языке страницы. */
+  label: string
   side?: 'top' | 'bottom'
 }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
-  const label = getDictionary(current).footer.language
 
   // Клик мимо и Esc закрывают список — иначе он остаётся висеть поверх страницы.
   useEffect(() => {
@@ -88,7 +92,7 @@ export function LanguageMenu({
                 ].join(' ')}
               >
                 <Flag locale={locale} className="h-3.5 w-[1.3125rem]" />
-                <span className="flex-1">{getDictionary(locale).meta.languageName}</span>
+                <span className="flex-1">{LOCALE_NAMES[locale]}</span>
                 {isCurrent && <Check className="size-3.5 shrink-0" aria-hidden />}
               </a>
             )

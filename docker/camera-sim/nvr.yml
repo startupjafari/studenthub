@@ -1,0 +1,80 @@
+# Эмулятор видеорегистратора (NVR) вуза — для разработки модуля камер без железа.
+#
+# Ведёт себя как регистратор Hikvision: пути `/Streaming/Channels/<канал><поток>`, где
+# поток 1 — основной, 2 — второй, пониженного качества. RTSP только с digest-авторизацией:
+# так у Hikvision по умолчанию, и наш агент обязан её проходить. Остальные протоколы
+# MediaMTX выключены — у настоящей камеры есть только RTSP.
+#
+# Пароль зрителя задаётся из compose.yml переменной MTX_AUTHINTERNALUSERS_1_PASS:
+# MediaMTX подставляет переменные MTX_* поверх этого файла.
+
+logLevel: info
+
+authMethod: internal
+authInternalUsers:
+  # Каналы 2 и 3 генерирует сам регистратор (runOnInit) и публикует их себе же. Публикация
+  # разрешена только с localhost — снаружи в регистратор не пишет никто.
+  - user: any
+    pass:
+    ips: ['127.0.0.1', '::1']
+    permissions:
+      - action: publish
+  # Учётка зрителя, как «admin» на настоящем регистраторе. Только чтение.
+  - user: admin
+    pass: overridden-by-env
+    ips: []
+    permissions:
+      - action: read
+
+rtsp: true
+rtspTransports: [tcp, udp]
+rtspAddress: :554
+rtspAuthMethods: [digest]
+
+rtmp: false
+hls: false
+webrtc: false
+srt: false
+api: false
+metrics: false
+pprof: false
+playback: false
+
+paths:
+  # Канал 1 — веб-камера разработчика (публикуется в контейнер ingest, см. webcam.ps1).
+  # Регистратор забирает её по требованию: веб-камера выключена — канал «офлайн», как
+  # отключённая камера на настоящем регистраторе.
+  Streaming/Channels/101:
+    source: rtsp://ingest:8554/webcam/main
+    sourceOnDemand: true
+  Streaming/Channels/102:
+    source: rtsp://ingest:8554/webcam/sub
+    sourceOnDemand: true
+
+  # Канал 2 — «коридор»: основной поток H.265 720p, второй — H.264 360p. Генерируется
+  # одним ffmpeg на оба потока, как кодировщик камеры.
+  Streaming/Channels/201:
+    runOnInit: >-
+      ffmpeg -hide_banner -loglevel error -re -f lavfi -i testsrc=size=1280x720:rate=25
+      -filter_complex [0:v]split=2[m][s];[s]scale=640:360,fps=15[sub]
+      -map [m] -c:v libx265 -preset ultrafast -tune zerolatency
+      -x265-params keyint=50:log-level=error -b:v 2M
+      -f rtsp rtsp://localhost:$RTSP_PORT/Streaming/Channels/201
+      -map [sub] -c:v libx264 -preset ultrafast -tune zerolatency -g 30 -b:v 512k
+      -f rtsp rtsp://localhost:$RTSP_PORT/Streaming/Channels/202
+    runOnInitRestart: true
+  Streaming/Channels/202: {}
+
+  # Канал 3 — «вход»: основной поток H.264 — в парке вуза обычно смешаны камеры разных
+  # поколений, и плеер с агентом должны принимать оба кодека.
+  Streaming/Channels/301:
+    runOnInit: >-
+      ffmpeg -hide_banner -loglevel error -re -f lavfi -i smptehdbars=size=1280x720:rate=25
+      -f lavfi -i testsrc=size=320x180:rate=25
+      -filter_complex [0:v][1:v]overlay=W-w-24:24,split=2[m][s];[s]scale=640:360,fps=15[sub]
+      -map [m] -c:v libx264 -preset ultrafast -tune zerolatency -g 50 -b:v 2M
+      -f rtsp rtsp://localhost:$RTSP_PORT/Streaming/Channels/301
+      -map [sub] -c:v libx264 -preset ultrafast -tune zerolatency -g 30 -b:v 512k
+      -f rtsp rtsp://localhost:$RTSP_PORT/Streaming/Channels/302
+    runOnInitRestart: true
+  Streaming/Channels/302: {}

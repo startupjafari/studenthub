@@ -1,0 +1,162 @@
+// Домен «Сторисы» (docs/PROJECT.md §3.4; задача Ф14.1).
+// Короткий формат на 24 часа: фото/видео, текст, ссылка, опрос, реакции. Видимость — по
+// аудитории, как у постов. Автоудаление: cron `deleteExpiredStories` (каждые 30 минут,
+// docs/BACKEND_RULES.md §9.3) + TTL-политика бакета `stories-media` как страховка объектов.
+//
+// Решения по модели, чтобы их не пересматривали на ревью:
+//
+// 1. Медиа — `fileId` + relation `file`, поля `mediaUrl` нет. Расхождение исходной
+//    документации закрыто в BACKEND_RULES §19 п. 1 ещё до старта фазы: URL в колонке
+//    протухает вместе с presigned-ссылкой и не даёт удалить объект вместе с записью.
+//    Направление связи здесь обратное постам (там File.postId): у сторис ровно одно медиа.
+//
+// 2. `expiresAt` хранится, а не считается из `createdAt + 24ч`. По нему идёт и фильтр
+//    видимости («живые»), и выборка крона — оба обязаны ложиться на индекс, а выражение
+//    над createdAt на индекс не ляжет. Побочно это даёт возможность менять срок жизни
+//    в будущем, не переписывая все запросы.
+//
+// 3. Soft delete нет намеренно. Список моделей с `deletedAt` закрыт (BACKEND_RULES §5.1),
+//    Story в нём не числится: запись живёт сутки и физически удаляется кроном, а
+//    мягко удалённая сторис означала бы строки, которые не видит никто и не чистит никто.
+//    Удаление автором или модератором — тот же физический delete, что и у крона.
+//
+// 4. Опрос — три таблицы (StoryPoll/StoryPollOption/StoryPollVote), как у опроса в чате
+//    (06-chats.prisma). Можно было хранить варианты массивом строк и голос индексом, но
+//    тогда голоса перестали бы ссылаться на вариант внешним ключом, а каскадного удаления
+//    вместе со сторис пришлось бы добиваться руками в кроне.
+//
+// 5. Просмотры — отдельная таблица, а не счётчик. Кольцо в ленте показывает «смотрел /
+//    не смотрел» конкретному зрителю, а автор видит поимённый список — и то, и другое
+//    требует пары «сторис + зритель». Счётчик просмотров при этом считается из неё же.
+
+/// Сторис: запись живёт 24 часа, после чего её удаляет cron вместе с медиа в MinIO.
+model Story {
+  id       String        @id @default(uuid())
+  authorId String        @map("author_id")
+  audience StoryAudience
+
+  // Аудитория-скоуп: заполняется сервисом по типу audience из scope АВТОРА, не из тела
+  // запроса (docs/BACKEND_RULES.md §14.5, §14.10). UNIVERSITY → universityId и т.д.
+  universityId String? @map("university_id")
+  facultyId    String? @map("faculty_id")
+  groupId      String? @map("group_id")
+
+  /// Фото или видео сторис. NULL — текстовая сторис (тогда обязателен `text`).
+  fileId     String? @map("file_id")
+  /// Текст: подпись к медиа или содержимое текстовой сторис.
+  text       String?
+  /// Ключ градиента фона текстовой сторис из общего набора (shared-schemas), не произвольный
+  /// CSS: цвет приходит от пользователя и попадает в style — набор держим закрытым.
+  background String?
+
+  /// Ссылка «подробнее». Протокол ограничен http/https на уровне схемы валидации.
+  linkUrl   String? @map("link_url")
+  /// Подпись к ссылке; NULL — клиент показывает домен.
+  linkLabel String? @map("link_label")
+
+  /// Момент, после которого сторис невидима и подлежит удалению (createdAt + 24 ч).
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  author     User        @relation("StoryAuthor", fields: [authorId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  file       File?       @relation("StoryMedia", fields: [fileId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  university University? @relation(fields: [universityId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  faculty    Faculty?    @relation(fields: [facultyId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  group      Group?      @relation(fields: [groupId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  poll      StoryPoll?
+  views     StoryView[]
+  reactions StoryReaction[]
+
+  @@index([authorId])
+  @@index([audience])
+  @@index([universityId])
+  @@index([facultyId])
+  @@index([groupId])
+  @@index([fileId])
+  // Крон выбирает истёкшие (`expiresAt <= now`), лента — живые того же автора по времени.
+  // Составной индекс закрывает оба запроса: первым полем — срок, вторым — порядок показа.
+  @@index([expiresAt, createdAt])
+  @@map("stories")
+}
+
+/// Опрос внутри сторис: один на сторис (@unique), одиночный выбор.
+/// Множественного выбора здесь нет намеренно: у сторис один экран и один тап, а
+/// «выбрать несколько» требует кнопки подтверждения, которой в этом формате нет.
+model StoryPoll {
+  id        String   @id @default(uuid())
+  storyId   String   @unique @map("story_id")
+  question  String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  story   Story             @relation(fields: [storyId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  options StoryPollOption[]
+  votes   StoryPollVote[]
+
+  @@map("story_polls")
+}
+
+model StoryPollOption {
+  id     String @id @default(uuid())
+  pollId String @map("poll_id")
+  text   String
+  order  Int
+
+  poll  StoryPoll       @relation(fields: [pollId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  votes StoryPollVote[]
+
+  @@index([pollId])
+  @@map("story_poll_options")
+}
+
+model StoryPollVote {
+  id        String   @id @default(uuid())
+  pollId    String   @map("poll_id")
+  optionId  String   @map("option_id")
+  userId    String   @map("user_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  poll   StoryPoll       @relation(fields: [pollId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  option StoryPollOption @relation(fields: [optionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  user   User            @relation("UserStoryPollVotes", fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  // Один голос на опрос от пользователя: выбор одиночный, перевыбор — update строки.
+  @@unique([pollId, userId])
+  @@index([optionId])
+  @@index([userId])
+  @@map("story_poll_votes")
+}
+
+/// Просмотр сторис зрителем. Пара уникальна: повторный показ не множит строки, а
+/// момент первого просмотра не перезаписывается — по нему строится список зрителей.
+model StoryView {
+  id        String   @id @default(uuid())
+  storyId   String   @map("story_id")
+  userId    String   @map("user_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  story Story @relation(fields: [storyId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  user  User  @relation("UserStoryViews", fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([storyId, userId])
+  // «Какие сторисы зритель уже смотрел» — запрос ленты колец по одному зрителю.
+  @@index([userId])
+  @@map("story_views")
+}
+
+/// Реакция на сторис — как Reaction у поста (05-posts.prisma): несколько разных эмодзи
+/// от одного человека допустимы, повтор того же эмодзи — нет.
+model StoryReaction {
+  id        String   @id @default(uuid())
+  storyId   String   @map("story_id")
+  userId    String   @map("user_id")
+  emoji     String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  story Story @relation(fields: [storyId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  user  User  @relation("UserStoryReactions", fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([storyId, userId, emoji])
+  @@index([userId])
+  @@map("story_reactions")
+}

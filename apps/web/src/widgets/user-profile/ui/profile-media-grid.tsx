@@ -27,12 +27,23 @@ import {
   uploadProfileMediaAuto,
   type ProfileMedia,
 } from '../../../entities/profile-content'
-import { Card, EmptyState, Skeleton, useConfirm } from '../../../shared/ui'
-import { cn } from '../../../shared/lib/utils'
+import {
+  EmptyState,
+  MediaImage,
+  MosaicGrid,
+  MosaicTile,
+  Skeleton,
+  mosaicShape,
+  useConfirm,
+} from '../../../shared/ui'
 import { MediaLightbox } from './media-lightbox'
 import { PhotoAlbumMenu, type AlbumFilter } from './album-controls'
 import { ContentLayout, FilterGroup, FilterOption, FilterSkeleton } from './filter-sidebar'
 import { useRetryOnError } from './use-retry-on-error'
+import { LoadFailed } from './load-failed'
+import { useProgressive } from './use-progressive'
+import type { ContentModeration } from '../lib/content-moderation'
+import { mediaQuotaNear, mediaUsage, useMediaQuota } from '../lib/media-quota'
 
 function errCode(e: unknown): string {
   return (e as { code?: string }).code ?? 'INTERNAL_ERROR'
@@ -45,9 +56,19 @@ function formatDuration(sec: number): string {
   return `${m}:${String(s).padStart(2, '0')}`
 }
 
+// Ширина плитки в раскладке — по ней браузер берёт копию нужного размера: высокая и широкая
+// плитки вдвое крупнее квадрата по одной из сторон, им нужна копия побольше.
+function tileSizes(index: number): string {
+  return mosaicShape(index) === 'square'
+    ? '(max-width: 640px) 33vw, 360px'
+    : '(max-width: 640px) 66vw, 720px'
+}
+
 interface ProfileMediaGridProps {
   userId: string
   isOwner: boolean
+  // Модератор scope снимает чужие фото и видео (пункт «Удалить (модерация)»; решает сервер).
+  moderation?: ContentModeration
   kind: 'PHOTO' | 'VIDEO'
   // Сигнал «открыть выбор файла» (из меню «+» в шапке профиля); nonce меняется при каждом вызове.
   openPicker?: number
@@ -57,6 +78,7 @@ interface ProfileMediaGridProps {
 export function ProfileMediaGrid({
   userId,
   isOwner,
+  moderation,
   kind,
   openPicker,
   onConsumed,
@@ -65,6 +87,7 @@ export function ProfileMediaGrid({
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
   const confirm = useConfirm()
+  const quota = useMediaQuota(userId)
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -77,8 +100,8 @@ export function ProfileMediaGrid({
     queryKey: profileContentKeys.media(userId),
     queryFn: () => fetchProfileMedia(userId),
   })
-  // При ошибке — держим скелетон, тост каждые 5 сек и повтор запроса.
-  useRetryOnError(q.isError, q.refetch, t('loadRetry'))
+  // Ошибка — один тост и повторы с растущей паузой; не помогло — ошибка на месте вкладки.
+  const loadState = useRetryOnError(q, t('loadRetry'))
   const isPhoto = kind === 'PHOTO'
   const albumsQ = useQuery({
     queryKey: profileContentKeys.albums(userId),
@@ -141,7 +164,10 @@ export function ProfileMediaGrid({
       void qc.invalidateQueries({ queryKey: profileContentKeys.media(userId) })
       toast.success(t('mediaUploaded'))
     },
-    onError: (e) => toast.error(tErr(errCode(e))),
+    // Квота — своим текстом («удалите лишнее»), а не общим «конфликт».
+    onError: (e) => {
+      if (!quota.handleError(e)) toast.error(tErr(errCode(e)))
+    },
   })
 
   const delMut = useMutation({
@@ -158,15 +184,50 @@ export function ProfileMediaGrid({
     return sort === 'new' ? d : -d
   })
   const activeAlbumId = albumFilter !== 'all' ? albumFilter : null
+  // Заполненность квоты — только владельцу и только когда она близко: постоянная строка
+  // «занято 3 МБ из 2 ГБ» у каждого профиля — шум.
+  const usage = mediaUsage(q.data ?? [])
+  const showUsage = isOwner && mediaQuotaNear(usage)
+  // Порция — полный цикл мозаики (14 плиток): каждая догрузка достраивает узор до конца.
+  const { shown, pending, sentinelRef } = useProgressive(
+    items.length,
+    14,
+    `${kind}|${albumFilter}|${sort}`,
+  )
+  const skeletonTail = Array.from({ length: pending }, (_, j) => (
+    <MosaicTile
+      key={`pending-${j}`}
+      ref={j === 0 ? sentinelRef : undefined}
+      index={shown + j}
+      aria-hidden
+    >
+      <Skeleton className="size-full rounded-none" />
+    </MosaicTile>
+  ))
 
   function onPick(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
-    if (file) uploadMut.mutate(file)
+    // Не влезает в квоту по уже загруженному — тост сразу, без заливки впустую.
+    if (file && quota.fits(file)) uploadMut.mutate(file)
     e.target.value = ''
   }
 
   function confirmDelete(id: string): void {
     void confirm({ title: t('mediaDeleteConfirm'), destructive: true }).then((ok) => {
+      if (ok) delMut.mutate(id)
+    })
+  }
+
+  // Чужое медиа снимает модератор scope: то же удаление, но с пояснением, что это решение
+  // модерации и оно попадёт в аудит.
+  const canModerate = !isOwner && !!moderation?.content
+  function confirmModerate(id: string): void {
+    void confirm({
+      title: t('mediaDeleteConfirm'),
+      description: t('moderationDeleteHint'),
+      confirmLabel: t('deleteModeration'),
+      destructive: true,
+    }).then((ok) => {
       if (ok) delMut.mutate(id)
     })
   }
@@ -223,23 +284,17 @@ export function ProfileMediaGrid({
         />
       )}
 
-      {q.isLoading || q.isError ? (
+      {!q.data && loadState.failed ? (
+        <LoadFailed onRetry={loadState.retry} busy={q.isFetching} />
+      ) : !q.data ? (
         <ContentLayout sidebar={<FilterSkeleton groups={isPhoto ? 2 : 1} />}>
-          <div
-            className={cn(
-              'grid gap-3',
-              isPhoto
-                ? 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6'
-                : 'grid-cols-1 sm:grid-cols-2 lg:grid-cols-3',
-            )}
-          >
-            {Array.from({ length: isPhoto ? 24 : 9 }).map((_, i) => (
-              <Skeleton
-                key={i}
-                className={cn('w-full rounded-xl', isPhoto ? 'aspect-square' : 'aspect-video')}
-              />
+          <MosaicGrid aria-hidden>
+            {Array.from({ length: 14 }).map((_, i) => (
+              <MosaicTile key={i} index={i}>
+                <Skeleton className="size-full rounded-none" />
+              </MosaicTile>
             ))}
-          </div>
+          </MosaicGrid>
         </ContentLayout>
       ) : allItems.length === 0 ? (
         <EmptyState
@@ -351,6 +406,9 @@ export function ProfileMediaGrid({
                   label={t('sortOldest')}
                 />
               </FilterGroup>
+              {showUsage && (
+                <p className="w-full text-xs text-muted-foreground">{quota.usageLabel(usage)}</p>
+              )}
             </div>
           }
         >
@@ -360,20 +418,24 @@ export function ProfileMediaGrid({
                 {t('albumEmpty')}
               </p>
             ) : isPhoto ? (
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-                {items.map((m, i) => (
-                  <Card key={m.id} className="group relative overflow-hidden p-0">
+              <MosaicGrid>
+                {items.slice(0, shown).map((m, i) => (
+                  <MosaicTile key={m.id} index={i}>
                     <button
                       type="button"
                       onClick={() => setLightbox(i)}
                       aria-label={t('tabPhotos')}
-                      className="block w-full outline-none focus-visible:ring-4 focus-visible:ring-ring/20"
+                      className="block size-full outline-none focus-visible:ring-4 focus-visible:ring-ring/20 focus-visible:ring-inset"
                     >
-                      {/* Внешний домен MinIO — next/image не оптимизирует, используем обычный img. */}
-                      <img
+                      {/* Внешний домен MinIO — next/image не оптимизирует. Плитка берёт копию
+                          своей ширины (медиа-система), а заглушка видна до прихода байтов. */}
+                      <MediaImage
                         src={m.url}
+                        media={m}
                         alt=""
-                        className="aspect-square w-full object-cover transition-transform duration-300 ease-out group-hover:scale-105"
+                        sizes={tileSizes(i)}
+                        className="size-full"
+                        imgClassName="transition-[opacity,transform] duration-(--motion-large) group-hover/tile:scale-[1.03] motion-reduce:transition-none"
                       />
                     </button>
                     {isOwner && (
@@ -392,22 +454,37 @@ export function ProfileMediaGrid({
                         onDelete={() => confirmDelete(m.id)}
                       />
                     )}
-                  </Card>
+                    {canModerate && (
+                      <DeleteButton
+                        label={t('deleteModeration')}
+                        onClick={() => confirmModerate(m.id)}
+                      />
+                    )}
+                  </MosaicTile>
                 ))}
-              </div>
+                {skeletonTail}
+              </MosaicGrid>
             ) : (
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                {items.map((m, i) => (
+              <MosaicGrid>
+                {items.slice(0, shown).map((m, i) => (
                   <VideoTile
                     key={m.id}
+                    index={i}
                     media={m}
                     label={t('tabVideos')}
                     onOpen={() => setLightbox(i)}
-                    onDelete={isOwner ? () => confirmDelete(m.id) : undefined}
-                    deleteLabel={t('delete')}
+                    onDelete={
+                      isOwner
+                        ? () => confirmDelete(m.id)
+                        : canModerate
+                          ? () => confirmModerate(m.id)
+                          : undefined
+                    }
+                    deleteLabel={isOwner ? t('delete') : t('deleteModeration')}
                   />
                 ))}
-              </div>
+                {skeletonTail}
+              </MosaicGrid>
             )}
 
             {lightbox !== null && (
@@ -487,59 +564,81 @@ function DeleteButton({ label, onClick }: { label: string; onClick: () => void }
     <button
       type="button"
       aria-label={label}
+      title={label}
       onClick={onClick}
-      className="absolute right-1.5 top-1.5 z-10 flex size-7 items-center justify-center rounded-lg bg-foreground/50 text-background opacity-0 backdrop-blur transition-opacity hover:bg-destructive group-hover:opacity-100"
+      className="absolute right-1.5 top-1.5 z-10 flex size-7 items-center justify-center rounded-lg bg-black/55 text-white opacity-0 transition-opacity hover:bg-destructive focus-visible:opacity-100 group-hover/tile:opacity-100"
     >
       <Trash2 className="size-3.5" aria-hidden />
     </button>
   )
 }
 
-// Карточка видео: широкая (16:9), кнопка воспроизведения и длительность (из метаданных).
+// Плитка видео в мозаике: постер во всю плитку, длительность внизу (из медиа-системы или метаданных).
 function VideoTile({
+  index,
   media,
   label,
   onOpen,
   onDelete,
   deleteLabel,
 }: {
+  index: number
   media: ProfileMedia
   label: string
   onOpen: () => void
   onDelete?: () => void
   deleteLabel: string
 }) {
-  const [duration, setDuration] = useState<number | null>(null)
+  const [measured, setMeasured] = useState<number | null>(null)
+  // Длительность — с сервера (медиа-система), иначе из метаданных самого ролика.
+  const duration = media.durationMs ? media.durationMs / 1000 : measured
+  // Постер — картинка: плитке не нужно тянуть начало ролика ради первого кадра.
+  const poster = media.posterUrl ?? media.poster?.at(-1)?.url
   return (
-    <Card className="group relative overflow-hidden p-0">
+    <MosaicTile index={index}>
       <button
         type="button"
         onClick={onOpen}
         aria-label={label}
-        className="relative block w-full outline-none focus-visible:ring-4 focus-visible:ring-ring/20"
+        className="relative block size-full outline-none focus-visible:ring-4 focus-visible:ring-ring/20 focus-visible:ring-inset"
       >
-        <video
-          src={media.url}
-          muted
-          preload="metadata"
-          poster={media.posterUrl ?? undefined}
-          onLoadedMetadata={(e) => setDuration(e.currentTarget.duration)}
-          className="aspect-video w-full bg-neutral-900 object-cover"
-        />
-        <span className="absolute inset-0 flex items-center justify-center bg-black/15 transition-colors group-hover:bg-black/30">
-          {/* Цвет значка — постоянный тёмный, а не `text-foreground`: кружок белый в обеих
-              темах, и в тёмной «▶» цвета текста сливался с ним. */}
-          <span className="flex size-11 items-center justify-center rounded-full bg-white/90 text-neutral-900">
+        {poster ? (
+          <MediaImage
+            src={poster}
+            // Выбранная владельцем обложка — одна картинка; кадр воркера — набор копий.
+            media={
+              media.posterUrl
+                ? { placeholder: media.placeholder }
+                : { ...media, sources: media.poster }
+            }
+            alt=""
+            sizes={tileSizes(index)}
+            className="size-full bg-neutral-900"
+            imgClassName="transition-[opacity,transform] duration-(--motion-large) group-hover/tile:scale-[1.03] motion-reduce:transition-none"
+          />
+        ) : (
+          <video
+            src={media.url}
+            muted
+            preload="metadata"
+            onLoadedMetadata={(e) => setMeasured(e.currentTarget.duration)}
+            className="size-full bg-neutral-900 object-cover"
+          />
+        )}
+        {/* Как в Reels: подпись внизу на затемнении (читается на любом кадре), кнопка
+            воспроизведения — по наведению, чтобы мозаика не пестрела кружками. Цвет значка —
+            постоянный тёмный: кружок белый в обеих темах, и «▶» цвета текста сливался бы с ним. */}
+        <span className="absolute inset-0 flex items-center justify-center bg-black/0 transition-colors group-hover/tile:bg-black/25">
+          <span className="flex size-11 items-center justify-center rounded-full bg-white/90 text-neutral-900 opacity-0 transition-opacity group-hover/tile:opacity-100">
             <Play className="size-5 translate-x-0.5 fill-current" aria-hidden />
           </span>
         </span>
-        {duration !== null && (
-          <span className="absolute bottom-2 right-2 rounded bg-black/70 px-1.5 py-0.5 text-xs font-medium text-white tabular-nums">
-            {formatDuration(duration)}
-          </span>
-        )}
+        <span className="absolute inset-x-0 bottom-0 flex items-center gap-1.5 bg-gradient-to-t from-black/70 to-transparent px-2.5 pt-6 pb-2 text-xs font-medium text-white">
+          <Play className="size-3.5 shrink-0 fill-current" aria-hidden />
+          {duration !== null && <span className="tabular-nums">{formatDuration(duration)}</span>}
+        </span>
       </button>
       {onDelete && <DeleteButton label={deleteLabel} onClick={onDelete} />}
-    </Card>
+    </MosaicTile>
   )
 }

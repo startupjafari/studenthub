@@ -1,16 +1,22 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { Prisma } from '@prisma/client'
-import type {
-  CreateDocumentInput,
-  DocumentListQueryInput,
-  DocumentSortValue,
-  SortOrderValue,
-  GrantDocumentAccessInput,
-  ReorderDocumentFilesInput,
-  UpdateDocumentInput,
+import {
+  DEFAULT_PAGE_LIMIT,
+  isPageRequested,
+  type CreateDocumentInput,
+  type CursorPaginationInput,
+  type DocumentJournalVia,
+  type DocumentListQueryInput,
+  type DocumentSortValue,
+  type SortOrderValue,
+  type GrantDocumentAccessInput,
+  type ReorderDocumentFilesInput,
+  type ReplaceDocumentFileInput,
+  type UpdateDocumentInput,
 } from '@studenthub/shared-schemas'
 import type { NotificationMessageKey } from '@studenthub/shared-config'
+import { Role } from '@studenthub/shared-types'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
@@ -18,39 +24,261 @@ import type { EnvVars } from '../../config/env.schema'
 import { FileService } from '../files/file.service'
 import { NOTIFICATION_JOBS, QUEUES, QueueService } from '../../common/queue'
 import { AuditService } from '../../common/audit/audit.service'
-import { DocumentTypesService } from './document-types.service'
+import { Paginated } from '../../common/http/paginated'
+import { endOfDay } from '../library/library-dates'
+import { DocumentTypesService, type RetentionRule } from './document-types.service'
 
 // Документы принимаем только как PDF/JPG/PNG (ТЗ §5, шаг 2).
 // Потолки на выборки (BACKEND_RULES §7.2). Страниц у документа не больше, чем разрешает
-// схема reorder (30), грантов на документ — единицы; лимит фиксируем в запросе.
+// схема reorder (30) — attachFiles держит этот потолок на документ целиком; грантов на
+// документ — единицы; лимит фиксируем в запросе.
 const DOCUMENT_FILES_LIMIT = 30
 const DOCUMENT_ACCESS_LIMIT = 200
+// Потолок прежнего ответа массивом (без limit/cursor): так читают веб и Android. Документов
+// у человека — десятки; кому нужно больше, листает страницами.
+const DOCUMENTS_LEGACY_LIMIT = 200
+// Деканов одного факультета — единицы; потолок на адресатов уведомления о гранте.
+const GRANT_RECIPIENTS_LIMIT = 50
+// Кто открывает документ по гранту «Университет»: администрация вуза, которая работает с
+// документами студентов (модератор вуза, деканы), а не все его люди. Админа вуза здесь нет
+// намеренно — см. CONTENT_BARRED_ROLES.
+const UNIVERSITY_GRANT_ROLES: ReadonlySet<Role> = new Set([Role.UNIVERSITY_MODERATOR, Role.DEAN])
+// Роли, которым содержимое чужих документов не открывается ни по какому гранту (§15.2,
+// решение владельца): админ вуза управляет типами, сроками хранения и журналом, но сканы
+// паспортов и дипломов студентов ему не положены. Раньше грант «Университет» открывал их и ему.
+const CONTENT_BARRED_ROLES: ReadonlySet<Role> = new Set([Role.UNIVERSITY_ADMIN])
 
 const DOCUMENT_MIME = new Set(['application/pdf', 'image/jpeg', 'image/png'])
 // Порог «скоро истекает» — 30 дней.
 const EXPIRING_WINDOW_MS = 30 * 24 * 60 * 60 * 1000
+const DAY_MS = 24 * 60 * 60 * 1000
+// Пояс, если вуз не указан (документы пользователей платформы): как у платформы.
+const DEFAULT_TIMEZONE = 'Asia/Almaty'
+// Статусы, которые выводятся из срока действия: при возврате из архива их пересчитываем.
+const EXPIRY_STATUSES: ReadonlySet<string> = new Set(['UPLOADED', 'EXPIRING', 'EXPIRED'])
+// Размер пачки ночного крона (правила сроков хранения, документы к архиву).
+const SWEEP_BATCH = 500
+// Комплекты по ОТКРЫТОМУ запросу, на которые вуз сейчас опирается: на проверке (SUBMITTED)
+// или уже принят (ACCEPTED). Страницы и данные приложенного к ним документа не меняются:
+// проверяющий обязан видеть ровно то, что отправлено, а принятая версия — то, что принято
+// (старый файл при замене удаляется, вернуть его было бы неоткуда).
+const SUBMISSION_LOCKING = ['SUBMITTED', 'ACCEPTED']
+// Комплекты, которые студент ещё ведёт (как STUDENT_EDITABLE в сервисе запросов): правка
+// документа снимает вердикт его позиции, а уже проверенный комплект (REJECTED/PARTIAL)
+// возвращается в черновик до повторной отправки — так же, как при выборе другого документа.
+const SUBMISSION_REOPENABLE = ['DRAFT', 'REJECTED', 'PARTIAL']
+// Позиций комплектов с одним документом — единицы (документ в нескольких запросах).
+const SUBMISSION_ITEMS_LIMIT = 200
 
-const DOCUMENT_SELECT = {
-  id: true,
-  category: true,
-  type: true,
-  title: true,
-  numberLast4: true,
-  issuedBy: true,
-  issuedAt: true,
-  expiresAt: true,
-  comment: true,
-  status: true,
-  rejectionReason: true,
-  issuedByUniversity: true,
-  archivedAt: true,
-  createdAt: true,
-  updatedAt: true,
-  files: { select: { id: true, mime: true, size: true, order: true }, orderBy: { order: 'asc' } },
-  _count: { select: { access: true } },
-} satisfies Prisma.DocumentSelect
+/**
+ * Действующий грант: не отозван и срок не прошёл. Счётчик «Доступ» в строке документа и
+ * раздел «Управление доступом» считают только такие: раньше отозванный или истёкший грант
+ * держал документ «открытым» для кого-то, хотя открыть его уже никто не мог.
+ */
+function activeAccessWhere(now: Date): Prisma.DocumentAccessWhereInput {
+  return { revokedAt: null, OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] }
+}
 
-type DocumentRow = Prisma.DocumentGetPayload<{ select: typeof DOCUMENT_SELECT }>
+const documentSelect = (now: Date = new Date()) =>
+  ({
+    id: true,
+    category: true,
+    type: true,
+    title: true,
+    numberLast4: true,
+    issuedBy: true,
+    issuedAt: true,
+    expiresAt: true,
+    comment: true,
+    status: true,
+    rejectionReason: true,
+    issuedByUniversity: true,
+    archivedAt: true,
+    createdAt: true,
+    updatedAt: true,
+    files: { select: { id: true, mime: true, size: true, order: true }, orderBy: { order: 'asc' } },
+    _count: { select: { access: { where: activeAccessWhere(now) } } },
+  }) satisfies Prisma.DocumentSelect
+
+type DocumentRow = Prisma.DocumentGetPayload<{ select: ReturnType<typeof documentSelect> }>
+
+/**
+ * Меняет ли правка содержимое документа — то, что выдаёт вуз и что он проверял (D-F22, D-F30):
+ * название, номер, кем выдан и даты. Пустая строка и `null` — одно и то же «не указано».
+ */
+function changedContent(
+  input: UpdateDocumentInput,
+  doc: {
+    title: string
+    number: string | null
+    issuedBy: string | null
+    issuedAt: Date | null
+    expiresAt: Date | null
+  },
+): boolean {
+  const time = (d: Date | null | undefined) => d?.getTime() ?? null
+  return (
+    (input.title !== undefined && input.title !== doc.title) ||
+    (input.number !== undefined && (input.number || null) !== doc.number) ||
+    (input.issuedBy !== undefined && (input.issuedBy || null) !== doc.issuedBy) ||
+    (input.issuedAt !== undefined && time(input.issuedAt) !== time(doc.issuedAt)) ||
+    (input.expiresAt !== undefined && time(input.expiresAt) !== time(doc.expiresAt))
+  )
+}
+
+/**
+ * Статус документа по сроку действия: прошёл — EXPIRED, в ближайшие 30 дней — EXPIRING,
+ * иначе (или срока нет) — UPLOADED. Те же границы, что у ночного крона sweepExpiry.
+ */
+function statusByExpiry(expiresAt: Date | null, now: number = Date.now()): string {
+  const expires = expiresAt?.getTime()
+  if (expires !== undefined && expires < now) return 'EXPIRED'
+  if (expires !== undefined && expires <= now + EXPIRING_WINDOW_MS) return 'EXPIRING'
+  return 'UPLOADED'
+}
+
+/**
+ * Действие события для показа (история документа, журнал вуза). Возврат из архива раньше
+ * писался тем же ARCHIVE с `archived: false` и выглядел как архивирование; новые события —
+ * UNARCHIVE, старые распознаются по пометке.
+ */
+export function documentEventAction(action: string, metadata: unknown): string {
+  const archived = (metadata as { archived?: unknown } | null)?.archived
+  return action === 'ARCHIVE' && archived === false ? 'UNARCHIVE' : action
+}
+
+/**
+ * Через что совершено действие — по тому, что о себе пишет событие (см. logEvent здесь и в
+ * сервисе запросов). Старые события без пометок: просмотр чужим — это доступ по гранту
+ * (иного пути к файлу чужого документа нет), остальное по актору. Общее правило для журнала
+ * документов вуза и истории документа у владельца.
+ */
+export function journalVia(
+  e: { action: string; actorId: string; requestId: string | null; metadata: unknown },
+  ownerId: string,
+): DocumentJournalVia {
+  const m = (e.metadata ?? {}) as Record<string, unknown>
+  if (m.platformMode) return 'PLATFORM'
+  if (m.viaApplication) return 'APPLICATION'
+  if (e.requestId || m.viaSubmission) return 'REQUEST'
+  if (e.action === 'EXPIRE' || e.action === 'EXPIRING' || m.retention !== undefined) {
+    return 'SYSTEM'
+  }
+  if (e.actorId === ownerId) return 'OWNER'
+  if (e.action === 'VIEW' || e.action === 'DOWNLOAD' || m.accessId) return 'GRANT'
+  return 'STAFF'
+}
+
+/** Колонка сортировки списка и направление — после подстановки умолчаний. */
+interface DocumentSortSpec {
+  sort: DocumentSortValue | undefined
+  dir: SortOrderValue
+}
+
+function documentSortSpec(
+  sort: DocumentSortValue | undefined,
+  order: SortOrderValue | undefined,
+): DocumentSortSpec {
+  // Порядок по умолчанию — свежие сверху, как было до появления сортировки по колонкам.
+  return sort ? { sort, dir: order ?? 'asc' } : { sort: undefined, dir: 'desc' }
+}
+
+/**
+ * Статус документа по вердиктам проверки в запросах вуза (решение владельца, 15.3).
+ *
+ * Документ бывает приложен к нескольким запросам сразу, и статус один, поэтому берётся
+ * ХУДШИЙ: «требует замены» > «на проверке» > «принят». Отклонение хотя бы в одном запросе —
+ * это действие, которого ждут от владельца, и принятие в другом запросе его не отменяет;
+ * пока хоть один комплект ждёт проверки, документ ещё не «принят».
+ *
+ * - позиция отклонена в открытом запросе → NEEDS_REPLACEMENT (с причиной);
+ * - позиция ждёт проверки в отправленном комплекте (SUBMITTED/PARTIAL) → IN_REVIEW — и в
+ *   закрытом запросе: проверить отправленное сотрудник может и после закрытия;
+ * - позиция принята в открытом запросе → ACCEPTED.
+ * Вердикты закрытых запросов — история: они не пересчитывают статус заново (тот, что они
+ * поставили, остаётся до следующего события). `ignoreVerdicts` — содержимое документа
+ * поменялось после вердиктов, они относятся к прежней версии и не считаются.
+ * `reviewedRequestId` — запрос, по которому вердикт выносится сейчас: отправленное до
+ * закрытия проверяют и после него, и такой вердикт — само событие, он ставит свой статус.
+ * Раньше он не считался: «на проверке» сменялось «Загружен», хотя документ отклонили.
+ */
+export const REVIEW_STATUS_RANK = ['NEEDS_REPLACEMENT', 'IN_REVIEW', 'ACCEPTED'] as const
+export type ReviewStatus = (typeof REVIEW_STATUS_RANK)[number]
+
+export interface ReviewItemState {
+  status: string
+  rejectionReason: string | null
+  reviewedAt: Date | null
+  submission: { status: string; requestId?: string; request: { status: string } }
+}
+
+export function reviewVerdict(
+  items: ReviewItemState[],
+  ignoreVerdicts = false,
+  reviewedRequestId?: string,
+): { status: ReviewStatus | null; reason: string | null } {
+  let best: ReviewStatus | null = null
+  let reason: string | null = null
+  let reasonAt = -1
+  for (const it of items) {
+    const open =
+      it.submission.request.status === 'OPEN' ||
+      (!!reviewedRequestId && it.submission.requestId === reviewedRequestId)
+    let st: ReviewStatus | null = null
+    if (it.status === 'PENDING' && ['SUBMITTED', 'PARTIAL'].includes(it.submission.status)) {
+      st = 'IN_REVIEW'
+    } else if (!ignoreVerdicts && open && it.status === 'REJECTED') {
+      st = 'NEEDS_REPLACEMENT'
+      // Причина — из последнего отклонения: её владелец и увидит в карточке.
+      const at = it.reviewedAt?.getTime() ?? 0
+      if (at >= reasonAt) {
+        reasonAt = at
+        reason = it.rejectionReason
+      }
+    } else if (!ignoreVerdicts && open && it.status === 'ACCEPTED') {
+      st = 'ACCEPTED'
+    }
+    if (
+      st &&
+      (best === null || REVIEW_STATUS_RANK.indexOf(st) < REVIEW_STATUS_RANK.indexOf(best))
+    ) {
+      best = st
+    }
+  }
+  return { status: best, reason: best === 'NEEDS_REPLACEMENT' ? reason : null }
+}
+
+/**
+ * Какой статус поставить документу при вердикте `target`; `null` — не трогать.
+ *
+ * Проверка управляет только «рабочими» статусами: UPLOADED и тремя своими. Не трогает
+ * черновик, архив, истёкший (срок главнее любого вердикта) и REJECTED — его ставит вуз,
+ * отзывая выданную справку. Два статуса уступают не всякому вердикту:
+ * - VERIFIED (сертификат подтверждён вузом, D-F30) снимают только «требует замены» и правка
+ *   содержимого — повторная сдача в другой запрос подтверждение не отменяет;
+ * - EXPIRING уступает «требует замены» и «на проверке» (они требуют действия), а «принят»
+ *   и отсутствие вердикта его не перебивают — срок по-прежнему близко.
+ */
+export function nextDocumentStatus(
+  current: string,
+  target: ReviewStatus | null,
+  contentChanged = false,
+): string | null {
+  switch (current) {
+    case 'UPLOADED':
+    case 'IN_REVIEW':
+    case 'ACCEPTED':
+    case 'NEEDS_REPLACEMENT':
+      return target ?? 'UPLOADED'
+    case 'VERIFIED':
+      if (contentChanged) return target ?? 'UPLOADED'
+      return target === 'NEEDS_REPLACEMENT' ? target : null
+    case 'EXPIRING':
+      return target === 'NEEDS_REPLACEMENT' || target === 'IN_REVIEW' ? target : null
+    default:
+      return null
+  }
+}
 
 /**
  * Порядок выборки документов по колонке таблицы.
@@ -58,31 +286,124 @@ type DocumentRow = Prisma.DocumentGetPayload<{ select: typeof DOCUMENT_SELECT }>
  * Даты и срок действия бывают пустыми: `nulls: 'last'` держит такие строки в конце
  * при любом направлении — иначе при сортировке по возрастанию сверху оказывалась бы
  * пачка документов без даты, а не самые ранние.
+ *
+ * Второй ключ — id в том же направлении: у документов с одинаковым названием или статусом
+ * порядок иначе случаен, и на стыке страниц строки терялись бы или повторялись.
  */
-function documentOrderBy(
-  sort: DocumentSortValue | undefined,
-  order: SortOrderValue | undefined,
-): Prisma.DocumentOrderByWithRelationInput {
-  const dir = order ?? 'asc'
-  switch (sort) {
+function documentOrderBy(spec: DocumentSortSpec): Prisma.DocumentOrderByWithRelationInput[] {
+  const { dir } = spec
+  const tie = { id: dir }
+  switch (spec.sort) {
     case 'title':
-      return { title: dir }
+      return [{ title: dir }, tie]
     case 'category':
-      return { category: dir }
+      return [{ category: dir }, tie]
     case 'status':
-      return { status: dir }
+      return [{ status: dir }, tie]
     case 'issuedAt':
-      return { issuedAt: { sort: dir, nulls: 'last' } }
+      return [{ issuedAt: { sort: dir, nulls: 'last' } }, tie]
     case 'expiresAt':
-      return { expiresAt: { sort: dir, nulls: 'last' } }
+      return [{ expiresAt: { sort: dir, nulls: 'last' } }, tie]
     case 'access':
-      return { access: { _count: dir } }
+      // Агрегат по связи с условием Prisma в сортировке не строит — здесь считаются все
+      // гранты документа, а не только действующие, как в колонке.
+      return [{ access: { _count: dir } }, tie]
     case 'createdAt':
-      return { createdAt: dir }
-    default:
-      // Порядок по умолчанию — свежие сверху, как было до появления сортировки по колонкам.
-      return { createdAt: 'desc' }
+    case undefined:
+      return [{ createdAt: dir }, tie]
   }
+}
+
+// ── Курсор страницы списка документов ─────────────────────────────────────────
+//
+// Список сортируется по любой колонке таблицы, поэтому курсор несёт значение этой колонки
+// у последней строки страницы и её id — а не голый id для Prisma-курсора: тот при удалённой
+// или ушедшей в архив курсорной строке съедал бы соседнюю (см. keyset-cursor.ts).
+// Формат непрозрачный (base64url от JSON), клиент возвращает meta.cursor как есть.
+
+type KeysetColumn = 'title' | 'category' | 'status' | 'issuedAt' | 'expiresAt' | 'createdAt'
+const NULLABLE_COLUMNS: ReadonlySet<KeysetColumn> = new Set(['issuedAt', 'expiresAt'])
+const DATE_COLUMNS: ReadonlySet<KeysetColumn> = new Set(['issuedAt', 'expiresAt', 'createdAt'])
+
+interface KeysetPosition {
+  /** Значение колонки у последней строки: строка, момент в мс или null (пустая дата). */
+  v: string | number | null
+  id: string
+}
+
+interface DocumentKeyset extends KeysetPosition {
+  /** Сортировка, под которую выдан курсор: `колонка:направление`. */
+  s: string
+}
+
+// Колонка keyset-позиции. Число доступов — агрегат по связи, условием WHERE его в Prisma
+// не выразить, поэтому у сортировки по доступу постраничной выдачи нет.
+function keysetColumn(spec: DocumentSortSpec): KeysetColumn | null {
+  return spec.sort === 'access' ? null : (spec.sort ?? 'createdAt')
+}
+
+function keysetTag(column: KeysetColumn, spec: DocumentSortSpec): string {
+  return `${column}:${spec.dir}`
+}
+
+function positionOf(
+  column: KeysetColumn,
+  row: Pick<DocumentRow, KeysetColumn | 'id'>,
+): KeysetPosition {
+  const value = row[column]
+  return { v: value instanceof Date ? value.getTime() : value, id: row.id }
+}
+
+function encodeDocumentKeyset(
+  column: KeysetColumn,
+  spec: DocumentSortSpec,
+  row: Pick<DocumentRow, KeysetColumn | 'id'>,
+): string {
+  const keyset: DocumentKeyset = { s: keysetTag(column, spec), ...positionOf(column, row) }
+  return Buffer.from(JSON.stringify(keyset)).toString('base64url')
+}
+
+function decodeDocumentKeyset(cursor: string): DocumentKeyset | null {
+  try {
+    const raw: unknown = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8'))
+    if (typeof raw !== 'object' || raw === null) return null
+    const { s, v, id } = raw as Record<string, unknown>
+    if (typeof s !== 'string' || typeof id !== 'string' || !id) return null
+    if (v !== null && typeof v !== 'string' && typeof v !== 'number') return null
+    return { s, v, id }
+  } catch {
+    return null
+  }
+}
+
+// Курсор приходит от клиента: значение должно подходить колонке, иначе подделанный курсор
+// (строка вместо даты) доходил бы до Prisma и отвечал 500 вместо пустой позиции.
+function fitsColumn(column: KeysetColumn, v: string | number | null): boolean {
+  if (v === null) return NULLABLE_COLUMNS.has(column)
+  return DATE_COLUMNS.has(column)
+    ? typeof v === 'number' && Number.isFinite(v)
+    : typeof v === 'string'
+}
+
+/**
+ * Условие «строго после позиции» для порядка documentOrderBy. Пустые даты стоят в конце при
+ * любом направлении: после непустого значения идут и все строки без даты, а позиция среди
+ * пустых сравнивается уже только по id.
+ */
+function documentsAfter(
+  column: KeysetColumn,
+  dir: SortOrderValue,
+  position: KeysetPosition,
+): Prisma.DocumentWhereInput {
+  const cmp = dir === 'asc' ? 'gt' : 'lt'
+  if (position.v === null) return { [column]: null, id: { [cmp]: position.id } }
+  const value = DATE_COLUMNS.has(column) ? new Date(position.v) : position.v
+  const or: Prisma.DocumentWhereInput[] = [
+    { [column]: { [cmp]: value } },
+    { [column]: value, id: { [cmp]: position.id } },
+  ]
+  if (NULLABLE_COLUMNS.has(column)) or.push({ [column]: null })
+  return { OR: or }
 }
 
 export interface DocumentFileDto {
@@ -91,6 +412,30 @@ export interface DocumentFileDto {
   size: number
   order: number | null
 }
+// Документ, открытый смотрящему по гранту (раздел «Открытые мне»). Только метаданные
+// с маской номера: комментарий владельца и причина отклонения сюда не попадают.
+export interface SharedDocumentDto {
+  accessId: string
+  granteeType: string
+  reason: string
+  grantedAt: Date
+  expiresAt: Date | null
+  owner: { id: string; name: string }
+  document: {
+    id: string
+    category: string
+    type: string
+    title: string
+    numberMasked: string | null
+    issuedBy: string | null
+    issuedAt: Date | null
+    expiresAt: Date | null
+    status: string
+    files: DocumentFileDto[]
+    fileCount: number
+  }
+}
+
 export interface DocumentDto {
   id: string
   category: string
@@ -139,6 +484,30 @@ export class DocumentsService {
     return this.files.getPresignedUrl(fileId)
   }
 
+  /**
+   * «Действует до 31.12» — включая 31.12 по часам вуза. Клиенты присылают срок датой без
+   * времени (полночь UTC), и так сохранённый срок истекал в 05:00 последнего дня по Алматы:
+   * с утра документ уже «Просрочен», крон слал «Документ истёк», окно «Скоро истекает»
+   * сдвигалось. Дата без времени хранится последним моментом этого дня в поясе вуза (как
+   * срок выдачи библиотеки); срок с явным временем — как прислан.
+   */
+  private async inclusiveUntil(
+    value: Date | null | undefined,
+    universityId: string | null | undefined,
+  ): Promise<Date | null | undefined> {
+    if (!value || value.getTime() % DAY_MS !== 0) return value
+    return endOfDay(value.toISOString().slice(0, 10), await this.timezoneOf(universityId))
+  }
+
+  private async timezoneOf(universityId: string | null | undefined): Promise<string> {
+    if (!universityId) return DEFAULT_TIMEZONE
+    const university = await this.prisma.university.findUnique({
+      where: { id: universityId },
+      select: { timezone: true },
+    })
+    return university?.timezone || DEFAULT_TIMEZONE
+  }
+
   private mask(last4: string | null): string | null {
     return last4 ? `******${last4}` : null
   }
@@ -173,13 +542,141 @@ export class DocumentsService {
     })
   }
 
-  private async findOwnedOrThrow(actor: JwtPayload, id: string): Promise<{ id: string }> {
+  private async findOwnedOrThrow(
+    actor: JwtPayload,
+    id: string,
+  ): Promise<{ id: string; issuedByUniversity: boolean }> {
     const doc = await this.prisma.document.findFirst({
       where: { id, ownerId: actor.sub, deletedAt: null },
-      select: { id: true },
+      select: { id: true, issuedByUniversity: true },
     })
     if (!doc) throw new AppException('NOT_FOUND', 'Документ не найден')
     return doc
+  }
+
+  /**
+   * После правки содержимого (данные, страницы) владельцем. Подтверждение вуза (VERIFIED,
+   * D-F30) и вердикты проверки относятся к прежней версии: позиции комплектов, которые
+   * студент ещё ведёт, снова ждут проверки, проверенный комплект возвращается в черновик, а
+   * документ — в «Загружен» (или «На проверке», если его отправленный комплект ещё ждёт).
+   */
+  private async afterContentChange(id: string): Promise<void> {
+    await this.reopenSubmissions(id)
+    await this.syncReviewStatus([id], { contentChanged: true })
+  }
+
+  // Позиции с этим документом в комплектах открытых запросов → снова «ожидает проверки»;
+  // проверенный комплект (REJECTED/PARTIAL) → черновик: сотрудник не примет и не досмотрит
+  // состав, который поменялся после его вердикта. Условие на статус — в самих UPDATE.
+  private async reopenSubmissions(id: string): Promise<void> {
+    const items = await this.prisma.documentSubmissionItem.findMany({
+      where: {
+        documentId: id,
+        submission: { status: { in: SUBMISSION_REOPENABLE }, request: { status: 'OPEN' } },
+      },
+      select: { id: true, submissionId: true },
+      take: SUBMISSION_ITEMS_LIMIT,
+    })
+    if (items.length === 0) return
+    const submissionIds = [...new Set(items.map((i) => i.submissionId))]
+    await this.prisma.$transaction([
+      this.prisma.documentSubmissionItem.updateMany({
+        where: {
+          id: { in: items.map((i) => i.id) },
+          submission: { status: { in: SUBMISSION_REOPENABLE } },
+        },
+        data: { status: 'PENDING', rejectionReason: null, reviewedById: null, reviewedAt: null },
+      }),
+      this.prisma.documentSubmission.updateMany({
+        where: { id: { in: submissionIds }, status: { in: ['REJECTED', 'PARTIAL'] } },
+        data: { status: 'DRAFT' },
+      }),
+    ])
+  }
+
+  /**
+   * Пересчитать статус документов по вердиктам проверки в запросах (reviewVerdict →
+   * nextDocumentStatus). Вызывается сервисом запросов после отправки комплекта, вердикта,
+   * завершения проверки и правки черновика, а здесь — после правки содержимого и возврата
+   * из архива. Выданные вузом документы не трогаются: их статус ведёт вуз (отзыв справки).
+   * Запись условная (статус не изменился с чтения): параллельный пересчёт не затрёт чужой.
+   * `reviewedRequestId` — запрос, по которому только что вынесен вердикт (см. reviewVerdict).
+   */
+  async syncReviewStatus(
+    documentIds: readonly string[],
+    opts: { contentChanged?: boolean; reviewedRequestId?: string } = {},
+  ): Promise<void> {
+    const ids = [...new Set(documentIds)]
+    if (ids.length === 0) return
+    const docs = await this.prisma.document.findMany({
+      where: { id: { in: ids }, deletedAt: null, issuedByUniversity: false },
+      select: {
+        id: true,
+        status: true,
+        rejectionReason: true,
+        submissionItems: {
+          select: {
+            status: true,
+            rejectionReason: true,
+            reviewedAt: true,
+            submission: {
+              select: { status: true, requestId: true, request: { select: { status: true } } },
+            },
+          },
+          take: SUBMISSION_ITEMS_LIMIT,
+        },
+      },
+      take: ids.length,
+    })
+    for (const doc of docs) {
+      const verdict = reviewVerdict(
+        doc.submissionItems,
+        opts.contentChanged,
+        opts.reviewedRequestId,
+      )
+      const next = nextDocumentStatus(doc.status, verdict.status, opts.contentChanged)
+      if (next === null) continue
+      const reason = next === 'NEEDS_REPLACEMENT' ? verdict.reason : null
+      if (next === doc.status && reason === doc.rejectionReason) continue
+      await this.prisma.document.updateMany({
+        where: { id: doc.id, status: doc.status },
+        data: { status: next, rejectionReason: reason },
+      })
+    }
+  }
+
+  /**
+   * Документ приложен к комплекту по открытому запросу, который сейчас проверяют или уже
+   * приняли, — его содержимое (страницы, данные) не меняется, `409 CONFLICT`. Новую версию
+   * владелец загружает отдельным документом. Закрытые запросы содержимое не держат: их
+   * комплекты — уже история, иначе однажды принятый паспорт нельзя было бы обновить никогда.
+   */
+  private async assertNotLockedByReview(id: string): Promise<void> {
+    const locked = await this.prisma.documentSubmissionItem.findFirst({
+      where: {
+        documentId: id,
+        submission: { status: { in: SUBMISSION_LOCKING }, request: { status: 'OPEN' } },
+      },
+      select: { submission: { select: { status: true } } },
+    })
+    if (!locked) return
+    throw new AppException(
+      'CONFLICT',
+      locked.submission.status === 'SUBMITTED'
+        ? 'Документ на проверке по запросу — дождитесь результата'
+        : 'Документ принят по запросу — новую версию загрузите отдельным документом',
+    )
+  }
+
+  /**
+   * Содержимое выданного вузом документа владельцу не правится (D-F22): справка уходит в
+   * заявки и запросы как выданная университетом, и дописанная страница или исправленный
+   * номер выдавались бы за подлинник. Владельцу остаются архив, удаление и личная заметка.
+   */
+  private assertContentEditable(doc: { issuedByUniversity: boolean }): void {
+    if (doc.issuedByUniversity) {
+      throw new AppException('FORBIDDEN', 'Документ выдан университетом — его данные не меняются')
+    }
   }
 
   private toDto(row: DocumentRow): DocumentDto {
@@ -196,7 +693,7 @@ export class DocumentsService {
   private async getOwnedDto(actor: JwtPayload, id: string): Promise<DocumentDto> {
     const doc = await this.prisma.document.findFirst({
       where: { id, ownerId: actor.sub, deletedAt: null },
-      select: DOCUMENT_SELECT,
+      select: documentSelect(),
     })
     if (!doc) throw new AppException('NOT_FOUND', 'Документ не найден')
     return this.toDto(doc)
@@ -256,7 +753,8 @@ export class DocumentsService {
     id: string,
     input: ReorderDocumentFilesInput,
   ): Promise<DocumentDto> {
-    await this.findOwnedOrThrow(actor, id)
+    this.assertContentEditable(await this.findOwnedOrThrow(actor, id))
+    await this.assertNotLockedByReview(id)
     const files = await this.prisma.file.findMany({
       where: {
         id: { in: input.fileIds },
@@ -271,6 +769,14 @@ export class DocumentsService {
       throw new AppException('BAD_REQUEST', 'Некоторые файлы недоступны для прикрепления')
     }
     const existing = await this.prisma.file.count({ where: { documentId: id } })
+    // Потолок — на документ целиком, а не на одну дозагрузку: раньше страницы дописывались
+    // сверх 30, и порядок, удаление и показ получателю (все читают первые 30) ломались.
+    if (existing + input.fileIds.length > DOCUMENT_FILES_LIMIT) {
+      throw new AppException(
+        'BAD_REQUEST',
+        `У документа может быть не больше ${DOCUMENT_FILES_LIMIT} страниц`,
+      )
+    }
     await this.prisma.$transaction(
       input.fileIds.map((fileId, i) =>
         this.prisma.file.update({
@@ -279,15 +785,128 @@ export class DocumentsService {
         }),
       ),
     )
-    // Черновик без файлов → «Загружен».
+    // Черновик с первыми страницами → «Загружен»; подтверждённый вузом или проверенный
+    // документ с новыми страницами — уже не тот, что проверяли (D-F30, 15.3).
     await this.prisma.document.updateMany({
       where: { id, status: 'DRAFT' },
       data: { status: 'UPLOADED' },
     })
-    await this.logEvent(actor.sub, id, existing === 0 ? 'UPLOAD' : 'REPLACE', {
+    if (existing > 0) await this.afterContentChange(id)
+    // Первые страницы — загрузка документа; дописанные к уже загруженному — добавление
+    // страниц (раньше писалось REPLACE, хотя ничего не заменялось).
+    await this.logEvent(actor.sub, id, existing === 0 ? 'UPLOAD' : 'PAGE_ADD', {
       added: input.fileIds.length,
     })
     return this.getOwnedDto(actor, id)
+  }
+
+  /**
+   * Заменить страницу: новый файл (загружен владельцем, ещё не прикреплён) встаёт на место
+   * старого с тем же порядковым номером, старый файл удаляется из хранилища сразу — это
+   * скан персональных данных, держать прежнюю версию незачем. Если удалить объект не вышло,
+   * отвязанную строку подберёт ночная cleanDetachedFiles.
+   */
+  async replaceFile(
+    actor: JwtPayload,
+    id: string,
+    fileId: string,
+    input: ReplaceDocumentFileInput,
+  ): Promise<DocumentDto> {
+    this.assertContentEditable(await this.findOwnedOrThrow(actor, id))
+    await this.assertNotLockedByReview(id)
+    if (input.fileId === fileId) {
+      throw new AppException('BAD_REQUEST', 'Новый файл совпадает с заменяемой страницей')
+    }
+    const old = await this.prisma.file.findFirst({
+      where: { id: fileId, documentId: id },
+      select: { id: true, order: true },
+    })
+    if (!old) throw new AppException('NOT_FOUND', 'Страница не найдена')
+    const next = await this.prisma.file.findFirst({
+      where: { id: input.fileId, ownerId: actor.sub, bucket: this.bucket, documentId: null },
+      select: { id: true },
+    })
+    if (!next) throw new AppException('BAD_REQUEST', 'Файл недоступен для прикрепления')
+
+    await this.prisma.$transaction(async (tx) => {
+      // Условные UPDATE: страницу могли удалить, а файл — прикрепить в другом окне между
+      // чтением и записью. Тогда откатываем обе половины, а не оставляем документ без
+      // страницы или с файлом в двух местах.
+      const detached = await tx.file.updateMany({
+        where: { id: old.id, documentId: id },
+        data: { documentId: null, order: null },
+      })
+      const attached = await tx.file.updateMany({
+        where: { id: next.id, ownerId: actor.sub, documentId: null },
+        data: { documentId: id, order: old.order },
+      })
+      if (detached.count === 0 || attached.count === 0) {
+        throw new AppException('CONFLICT', 'Страницы документа изменились — обновите страницу')
+      }
+    })
+    await this.purgePage(old.id)
+    await this.afterContentChange(id)
+    await this.logEvent(actor.sub, id, 'REPLACE', {
+      fileId: next.id,
+      replacedFileId: old.id,
+      order: old.order,
+    })
+    return this.getOwnedDto(actor, id)
+  }
+
+  /**
+   * Удалить страницу. Единственную — нельзя: документ без файлов выглядел бы загруженным,
+   * а в запросе или заявке уходил бы пустым. Чтобы поменять единственный скан, его
+   * заменяют; чтобы убрать документ целиком — удаляют документ (это отдельное действие с
+   * подтверждением и своим сроком хранения сканов). Оставшиеся страницы перенумеровываются
+   * подряд, порядок сохраняется.
+   */
+  async removeFile(actor: JwtPayload, id: string, fileId: string): Promise<DocumentDto> {
+    this.assertContentEditable(await this.findOwnedOrThrow(actor, id))
+    await this.assertNotLockedByReview(id)
+    const removed = await this.prisma.$transaction(async (tx) => {
+      // Блокировка строки документа: два параллельных удаления двух последних страниц иначе
+      // оба увидели бы «останется одна» и оставили документ пустым.
+      await tx.document.update({
+        where: { id },
+        data: { updatedAt: new Date() },
+        select: { id: true },
+      })
+      const pages = await tx.file.findMany({
+        where: { documentId: id },
+        select: { id: true },
+        orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
+        take: DOCUMENT_FILES_LIMIT,
+      })
+      const index = pages.findIndex((p) => p.id === fileId)
+      if (index < 0) throw new AppException('NOT_FOUND', 'Страница не найдена')
+      if (pages.length === 1) {
+        throw new AppException(
+          'BAD_REQUEST',
+          'Единственную страницу не удалить — замените её или удалите документ',
+        )
+      }
+      await tx.file.update({ where: { id: fileId }, data: { documentId: null, order: null } })
+      const rest = pages.filter((p) => p.id !== fileId)
+      for (const [i, page] of rest.entries()) {
+        await tx.file.update({ where: { id: page.id }, data: { order: i } })
+      }
+      return { order: index }
+    })
+    await this.purgePage(fileId)
+    await this.afterContentChange(id)
+    await this.logEvent(actor.sub, id, 'PAGE_REMOVE', { fileId, order: removed.order })
+    return this.getOwnedDto(actor, id)
+  }
+
+  // Снятая со страницы запись файла и её объект в хранилище. Ошибка не роняет уже
+  // выполненную замену: отвязанную строку ночью снимет cleanDetachedFiles.
+  private async purgePage(fileId: string): Promise<void> {
+    try {
+      await this.files.delete(fileId)
+    } catch (err: unknown) {
+      this.logger.warn({ err, fileId }, 'Не удалось удалить снятую страницу документа')
+    }
   }
 
   /** Изменить порядок страниц документа. */
@@ -296,7 +915,8 @@ export class DocumentsService {
     id: string,
     input: ReorderDocumentFilesInput,
   ): Promise<DocumentDto> {
-    await this.findOwnedOrThrow(actor, id)
+    this.assertContentEditable(await this.findOwnedOrThrow(actor, id))
+    await this.assertNotLockedByReview(id)
     const files = await this.prisma.file.findMany({
       where: { documentId: id },
       select: { id: true },
@@ -311,6 +931,7 @@ export class DocumentsService {
         this.prisma.file.update({ where: { id: fileId }, data: { order: i } }),
       ),
     )
+    await this.afterContentChange(id)
     await this.logEvent(actor.sub, id, 'EDIT', { reordered: true })
     return this.getOwnedDto(actor, id)
   }
@@ -328,7 +949,11 @@ export class DocumentsService {
     })
     if (!doc) throw new AppException('NOT_FOUND', 'Документ не найден')
     const isOwner = doc.ownerId === actor.sub
-    if (!isOwner && !(await this.hasActiveGrant(actor, doc))) {
+    // Админу вуза содержимое чужих документов не открывается ни по какому гранту (§15.2);
+    // грант нужен и дальше — журнал документов вуза пишет, по какому доступу открыт файл.
+    const grant =
+      isOwner || CONTENT_BARRED_ROLES.has(actor.role) ? null : await this.activeGrant(actor, doc)
+    if (!isOwner && !grant) {
       throw new AppException('NOT_FOUND', 'Документ не найден')
     }
     const file = await this.prisma.file.findFirst({
@@ -336,34 +961,139 @@ export class DocumentsService {
       select: { id: true },
     })
     if (!file) throw new AppException('NOT_FOUND', 'Файл не найден')
-    await this.logEvent(actor.sub, id, isOwner ? 'DOWNLOAD' : 'VIEW', { fileId })
+    // По какому гранту открыт чужой документ — видно в журнале документов вуза. Действие —
+    // по самой ссылке: вложением (`download=1`) — скачивание, иначе просмотр. Раньше его
+    // выводили из того, кто смотрит: просмотр владельцем писался скачиванием, а скачивание
+    // получателем гранта — просмотром.
+    await this.logEvent(
+      actor.sub,
+      id,
+      asAttachment ? 'DOWNLOAD' : 'VIEW',
+      grant ? { fileId, accessId: grant.id, granteeType: grant.granteeType } : { fileId },
+    )
     return this.files.getPresignedUrl(fileId, undefined, asAttachment)
   }
 
-  // Есть ли у смотрящего активный (не отозван, не истёк) грант на документ:
-  // персональный (USER), на его факультет/подразделение (DEPARTMENT) или на весь его вуз (UNIVERSITY).
-  private async hasActiveGrant(
+  // Под какие гранты попадает смотрящий: персональный (USER), на его факультет (DEPARTMENT)
+  // и на весь его вуз (UNIVERSITY). `university` — условие гранта «Университет» или null,
+  // если он смотрящему не положен.
+  // «Мой факультет (деканат)» и «Университет» — доступ администрации, а не всем людям
+  // факультета или вуза: раньше по такому гранту скан паспорта открывал и однокурсник.
+  private granteeOr(
+    actor: JwtPayload,
+    university: Prisma.DocumentAccessWhereInput | null,
+  ): Prisma.DocumentAccessWhereInput[] {
+    const or: Prisma.DocumentAccessWhereInput[] = [{ granteeType: 'USER', granteeId: actor.sub }]
+    if (actor.facultyId && actor.role === Role.DEAN) {
+      or.push({ granteeType: 'DEPARTMENT', granteeId: actor.facultyId })
+    }
+    if (university && actor.universityId && UNIVERSITY_GRANT_ROLES.has(actor.role)) {
+      or.push(university)
+    }
+    return or
+  }
+
+  // Активный (не отозван, не истёк) грант смотрящего на документ или null.
+  private async activeGrant(
     actor: JwtPayload,
     doc: { id: string; universityId: string | null },
-  ): Promise<boolean> {
+  ): Promise<{ id: string; granteeType: string } | null> {
     const now = new Date()
-    const granteeOr: { granteeType: string; granteeId?: string | null }[] = [
-      { granteeType: 'USER', granteeId: actor.sub },
-    ]
-    if (actor.facultyId) granteeOr.push({ granteeType: 'DEPARTMENT', granteeId: actor.facultyId })
-    if (actor.universityId && doc.universityId === actor.universityId) {
-      granteeOr.push({ granteeType: 'UNIVERSITY' })
-    }
+    const sameUniversity = !!actor.universityId && doc.universityId === actor.universityId
     const grant = await this.prisma.documentAccess.findFirst({
       where: {
         documentId: doc.id,
         revokedAt: null,
         AND: [{ OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] }],
-        OR: granteeOr,
+        OR: this.granteeOr(actor, sameUniversity ? { granteeType: 'UNIVERSITY' } : null),
       },
-      select: { id: true },
+      select: { id: true, granteeType: true },
     })
-    return grant !== null
+    return grant
+  }
+
+  /**
+   * Документы, открытые мне (D-F10): активные гранты на меня, на мой факультет (декану) и
+   * на мой вуз (администрации). Без этого списка грант не доходил до получателя: открыть
+   * файл можно только по id документа, а его знал один владелец. Только метаданные с маской
+   * номера и список страниц — сами файлы открываются через `GET :id/files/:fileId/url`
+   * с той же проверкой гранта и записью VIEW в журнал документа.
+   */
+  async listSharedWithMe(
+    actor: JwtPayload,
+    query: CursorPaginationInput,
+  ): Promise<Paginated<SharedDocumentDto>> {
+    // Открыть отсюда такой роли нечего (getFileUrl ей откажет), а метаданные чужих документов
+    // — название, маска номера, сроки — тоже часть содержимого.
+    if (CONTENT_BARRED_ROLES.has(actor.role)) return new Paginated([], { hasNext: false })
+    const now = new Date()
+    const rows = await this.prisma.documentAccess.findMany({
+      where: {
+        revokedAt: null,
+        AND: [
+          { OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] },
+          {
+            OR: this.granteeOr(actor, {
+              granteeType: 'UNIVERSITY',
+              document: { universityId: actor.universityId ?? '__none__' },
+            }),
+          },
+        ],
+        // Свои документы здесь не нужны — они в «Моих документах».
+        document: { deletedAt: null, ownerId: { not: actor.sub } },
+      },
+      orderBy: [{ grantedAt: 'desc' }, { id: 'desc' }],
+      take: query.limit + 1,
+      ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
+      select: {
+        id: true,
+        granteeType: true,
+        reason: true,
+        grantedAt: true,
+        expiresAt: true,
+        document: {
+          select: {
+            id: true,
+            category: true,
+            type: true,
+            title: true,
+            numberLast4: true,
+            issuedBy: true,
+            issuedAt: true,
+            expiresAt: true,
+            status: true,
+            files: {
+              select: { id: true, mime: true, size: true, order: true },
+              orderBy: { order: 'asc' },
+              take: DOCUMENT_FILES_LIMIT,
+            },
+            owner: { select: { id: true, firstName: true, lastName: true } },
+          },
+        },
+      },
+    })
+    const hasNext = rows.length > query.limit
+    const page = hasNext ? rows.slice(0, query.limit) : rows
+    return new Paginated(
+      page.map((r) => {
+        const { numberLast4, files, owner, ...doc } = r.document
+        return {
+          accessId: r.id,
+          granteeType: r.granteeType,
+          reason: r.reason,
+          grantedAt: r.grantedAt,
+          expiresAt: r.expiresAt,
+          owner: { id: owner.id, name: `${owner.lastName} ${owner.firstName}`.trim() },
+          document: {
+            ...doc,
+            numberMasked: this.mask(numberLast4),
+            files,
+            fileCount: files.length,
+          },
+        }
+      }),
+      { cursor: hasNext ? page[page.length - 1]?.id : undefined, hasNext },
+    )
   }
 
   // ── Управление доступом (ТЗ §9) ────────────────────────────────────────────────
@@ -373,18 +1103,79 @@ export class DocumentsService {
     if (input.granteeType !== 'UNIVERSITY' && !input.granteeId) {
       throw new AppException('BAD_REQUEST', 'Не указан получатель доступа')
     }
-    await this.prisma.documentAccess.create({
+    // Срок «до даты» — включая этот день (inclusiveUntil). Уже прошедший срок — ошибка ввода:
+    // такой грант никому ничего не открыл бы, а получатель всё равно получил бы уведомление.
+    const expiresAt = (await this.inclusiveUntil(input.expiresAt, actor.universityId)) ?? null
+    if (expiresAt && expiresAt.getTime() <= Date.now()) {
+      throw new AppException('BAD_REQUEST', 'Срок доступа уже прошёл')
+    }
+    const access = await this.prisma.documentAccess.create({
       data: {
         documentId: id,
         granteeType: input.granteeType,
         granteeId: input.granteeType === 'UNIVERSITY' ? null : (input.granteeId ?? null),
         reason: input.reason,
         grantedById: actor.sub,
-        expiresAt: input.expiresAt ?? null,
+        expiresAt,
       },
+      select: { id: true },
     })
     await this.logEvent(actor.sub, id, 'GRANT', { granteeType: input.granteeType })
+    await this.notifyGrantee(actor, id, access.id, input)
     return this.listAccess(actor, id)
+  }
+
+  /**
+   * Уведомить получателя гранта (D-F10): человека (USER) или деканов факультета (DEPARTMENT).
+   * Адресаты — только в вузе владельца: грант выписывается на любой id, и без сужения он
+   * становился бы рассылкой по чужим людям. Грант «Университет» не рассылается — он на всю
+   * администрацию вуза и виден ей в разделе «Открытые мне».
+   */
+  private async notifyGrantee(
+    actor: JwtPayload,
+    documentId: string,
+    accessId: string,
+    input: GrantDocumentAccessInput,
+  ): Promise<void> {
+    if (input.granteeType === 'UNIVERSITY' || !input.granteeId || !actor.universityId) return
+    const recipients = await this.prisma.user.findMany({
+      where: {
+        universityId: actor.universityId,
+        deletedAt: null,
+        isBlocked: false,
+        NOT: { id: actor.sub },
+        // Админ вуза документ не откроет и по персональному гранту — не зовём его смотреть.
+        role: { notIn: [...CONTENT_BARRED_ROLES] },
+        ...(input.granteeType === 'USER'
+          ? { id: input.granteeId }
+          : { role: Role.DEAN, facultyId: input.granteeId }),
+      },
+      select: { id: true },
+      take: GRANT_RECIPIENTS_LIMIT,
+    })
+    if (recipients.length === 0) return
+    const doc = await this.prisma.document.findUnique({
+      where: { id: documentId },
+      select: { title: true, owner: { select: { firstName: true, lastName: true } } },
+    })
+    if (!doc) return
+    await this.queue.enqueue(
+      QUEUES.NOTIFICATIONS,
+      NOTIFICATION_JOBS.DOCUMENT_SHARED,
+      {
+        recipientIds: recipients.map((r) => r.id),
+        type: 'SYSTEM',
+        titleKey: 'documents.shared.title',
+        bodyKey: 'documents.shared.body',
+        params: {
+          name: `${doc.owner.firstName} ${doc.owner.lastName}`.trim(),
+          title: doc.title,
+        },
+        data: { documentId, accessId, url: '/documents?section=shared' },
+        dedupeKey: `doc-shared:${accessId}`,
+      },
+      { jobId: `doc-shared:${accessId}` },
+    )
   }
 
   async listAccess(actor: JwtPayload, id: string) {
@@ -411,7 +1202,7 @@ export class DocumentsService {
     await this.findOwnedOrThrow(actor, id)
     const access = await this.prisma.documentAccess.findFirst({
       where: { id: accessId, documentId: id },
-      select: { id: true, revokedAt: true },
+      select: { id: true, revokedAt: true, granteeType: true },
     })
     if (!access) throw new AppException('NOT_FOUND', 'Доступ не найден')
     if (!access.revokedAt) {
@@ -419,7 +1210,7 @@ export class DocumentsService {
         where: { id: accessId },
         data: { revokedAt: new Date() },
       })
-      await this.logEvent(actor.sub, id, 'REVOKE')
+      await this.logEvent(actor.sub, id, 'REVOKE', { granteeType: access.granteeType })
     }
     return this.listAccess(actor, id)
   }
@@ -427,6 +1218,11 @@ export class DocumentsService {
   // ── Документы ───────────────────────────────────────────────────────────────
 
   async create(actor: JwtPayload, input: CreateDocumentInput): Promise<DocumentDto> {
+    // «Выданные университетом» кладёт в кабинет только вуз (issueToOwner): собственный
+    // документ этой категории стоял бы в каталоге рядом с настоящими справками (D-F22).
+    if (input.category === 'ISSUED_BY_UNIVERSITY') {
+      throw new AppException('FORBIDDEN', 'Документы этой категории выдаёт университет')
+    }
     await this.assertType(actor, input.category, input.type)
     const doc = await this.prisma.document.create({
       data: {
@@ -439,9 +1235,13 @@ export class DocumentsService {
         numberLast4: this.last4(input.number),
         issuedBy: input.issuedBy || null,
         issuedAt: input.issuedAt ?? null,
-        expiresAt: input.expiresAt ?? null,
+        expiresAt: (await this.inclusiveUntil(input.expiresAt, actor.universityId)) ?? null,
         comment: input.comment || null,
-        status: input.status === 'DRAFT' ? 'DRAFT' : 'UPLOADED',
+        // Документ рождается без страниц (файлы прикрепляются отдельно), поэтому он черновик:
+        // «Загружен» ставит attachFiles с первыми страницами. Раньше пустой документ сразу
+        // был «Загружен», плитка «Нужно загрузить» не считала его никогда, а в запрос он
+        // уходил без единого файла.
+        status: 'DRAFT',
       },
       select: { id: true },
     })
@@ -456,6 +1256,19 @@ export class DocumentsService {
    * выдачи (заявки-услуги, §17). Иначе выданная справка оседала бы в личных документах
    * сотрудника, а студент не находил бы её у себя.
    */
+  /**
+   * Принадлежит ли документ человеку (живой, не удалённый). Для других доменов, которые
+   * ссылаются на документ по id из запроса: без этой проверки id чужого документа
+   * превращался в доступ к его файлу (результат заявки, §3.2).
+   */
+  async isOwnedBy(documentId: string, ownerId: string): Promise<boolean> {
+    const doc = await this.prisma.document.findFirst({
+      where: { id: documentId, ownerId, deletedAt: null },
+      select: { id: true },
+    })
+    return doc !== null
+  }
+
   async issueToOwner(
     actor: JwtPayload,
     input: {
@@ -509,8 +1322,42 @@ export class DocumentsService {
     return doc
   }
 
-  async update(actor: JwtPayload, id: string, input: UpdateDocumentInput): Promise<DocumentDto> {
-    await this.findOwnedOrThrow(actor, id)
+  async update(actor: JwtPayload, id: string, patch: UpdateDocumentInput): Promise<DocumentDto> {
+    const doc = await this.prisma.document.findFirst({
+      where: { id, ownerId: actor.sub, deletedAt: null },
+      select: {
+        id: true,
+        universityId: true,
+        issuedByUniversity: true,
+        status: true,
+        title: true,
+        number: true,
+        issuedBy: true,
+        issuedAt: true,
+        expiresAt: true,
+      },
+    })
+    if (!doc) throw new AppException('NOT_FOUND', 'Документ не найден')
+    // Срок — в том же виде, в каком хранится (конец дня по часам вуза): иначе та же дата из
+    // формы выглядела бы правкой содержимого и снимала подтверждение. Срок, сохранённый до
+    // этого правила полуночью UTC, сравнивается так же.
+    const input: UpdateDocumentInput = {
+      ...patch,
+      expiresAt: await this.inclusiveUntil(patch.expiresAt, doc.universityId),
+    }
+    const stored = {
+      ...doc,
+      expiresAt: (await this.inclusiveUntil(doc.expiresAt, doc.universityId)) ?? null,
+    }
+    // Изменилось ли содержимое, а не просто пришло ли поле: веб присылает форму целиком, и
+    // правка одной заметки не должна ни упираться в запрет, ни снимать подтверждение вуза.
+    const contentChanged = changedContent(input, stored)
+    // У выданного вузом документа владелец меняет только свою заметку (comment) — она
+    // никому, кроме него, не показывается.
+    if (contentChanged) {
+      this.assertContentEditable(doc)
+      await this.assertNotLockedByReview(id)
+    }
     const data: Prisma.DocumentUpdateInput = {}
     if (input.title !== undefined) data.title = input.title
     if (input.number !== undefined) {
@@ -519,14 +1366,32 @@ export class DocumentsService {
     }
     if (input.issuedBy !== undefined) data.issuedBy = input.issuedBy || null
     if (input.issuedAt !== undefined) data.issuedAt = input.issuedAt
-    if (input.expiresAt !== undefined) data.expiresAt = input.expiresAt
+    if (input.expiresAt !== undefined) {
+      data.expiresAt = input.expiresAt
+      // Продлённый (или исправленный) срок у документа, который крон уже пометил «Скоро
+      // истекает» или «Просрочен», сразу пересчитывает этот статус: сам крон их не снимает,
+      // и продлённый паспорт оставался «Просрочен» навсегда. Дальше статус ведёт проверка
+      // (afterContentChange) и снова крон — по новому сроку.
+      if (doc.status === 'EXPIRING' || doc.status === 'EXPIRED') {
+        data.status = statusByExpiry(input.expiresAt)
+      }
+    }
     if (input.comment !== undefined) data.comment = input.comment || null
     await this.prisma.document.update({ where: { id }, data })
+    if (contentChanged) await this.afterContentChange(id)
     await this.logEvent(actor.sub, id, 'EDIT')
     return this.getOwnedDto(actor, id)
   }
 
-  async list(actor: JwtPayload, query: DocumentListQueryInput): Promise<DocumentDto[]> {
+  /**
+   * Мои документы. Без `limit`/`cursor` — прежний ответ массивом до DOCUMENTS_LEGACY_LIMIT
+   * (веб, Android); с ними — страница той же сортировки: `meta.cursor` — позиция последней
+   * строки, `meta.hasNext`, `meta.total` — сколько документов под фильтром всего.
+   */
+  async list(
+    actor: JwtPayload,
+    query: DocumentListQueryInput,
+  ): Promise<DocumentDto[] | Paginated<DocumentDto>> {
     const where: Prisma.DocumentWhereInput = {
       ownerId: actor.sub,
       deletedAt: null,
@@ -542,55 +1407,204 @@ export class DocumentsService {
             ],
           }
         : {}),
-      // Пресеты раздела. `shared` — документы, к которым выдан хотя бы один доступ;
-      // `issued` — выданные вузом. Раньше это отбиралось на клиенте уже после выборки.
-      ...(query.preset === 'shared' ? { access: { some: {} } } : {}),
+      // Пресеты раздела. `shared` — документы, к которым выдан хотя бы один действующий
+      // доступ; `issued` — выданные вузом. Раньше это отбиралось на клиенте уже после выборки.
+      ...(query.preset === 'shared' ? { access: { some: activeAccessWhere(new Date()) } } : {}),
       ...(query.preset === 'issued' ? { issuedByUniversity: true } : {}),
     }
-    const orderBy = documentOrderBy(query.sort, query.order)
+    const spec = documentSortSpec(query.sort, query.order)
+    const orderBy = documentOrderBy(spec)
+    if (!isPageRequested(query)) {
+      const rows = await this.prisma.document.findMany({
+        where,
+        select: documentSelect(),
+        orderBy,
+        take: DOCUMENTS_LEGACY_LIMIT,
+      })
+      return rows.map((r) => this.toDto(r))
+    }
+
+    const column = keysetColumn(spec)
+    if (!column) {
+      throw new AppException('BAD_REQUEST', 'Постраничная выдача не сортируется по доступу')
+    }
+    const limit = query.limit ?? DEFAULT_PAGE_LIMIT
+    const position = query.cursor
+      ? await this.keysetPosition(actor, column, spec, query.cursor)
+      : null
+    const total = await this.prisma.document.count({ where })
+    // Курсор указывает на документ, которого у смотрящего нет, — листать не от чего.
+    if (query.cursor && !position) return new Paginated([], { hasNext: false, total })
     const rows = await this.prisma.document.findMany({
-      where,
-      select: DOCUMENT_SELECT,
+      where: position ? { AND: [where, documentsAfter(column, spec.dir, position)] } : where,
+      select: documentSelect(),
       orderBy,
-      take: 200,
+      take: limit + 1,
     })
-    return rows.map((r) => this.toDto(r))
+    const hasNext = rows.length > limit
+    const items = hasNext ? rows.slice(0, limit) : rows
+    const last = items.at(-1)
+    return new Paginated(
+      items.map((r) => this.toDto(r)),
+      {
+        cursor: hasNext && last ? encodeDocumentKeyset(column, spec, last) : undefined,
+        hasNext,
+        total,
+      },
+    )
+  }
+
+  /**
+   * Позиция курсора: свой курсор той же сортировки — сразу; голый id документа или курсор
+   * другой сортировки (клиент сменил колонку, а курсор оставил) — значения колонки
+   * дочитываются по id. Только свои документы: чужой id не должен давать позицию в выдаче.
+   * Удалённый или ушедший в архив документ позицию даёт — по его значениям листание
+   * продолжается без потерь.
+   */
+  private async keysetPosition(
+    actor: JwtPayload,
+    column: KeysetColumn,
+    spec: DocumentSortSpec,
+    cursor: string,
+  ): Promise<KeysetPosition | null> {
+    const decoded = decodeDocumentKeyset(cursor)
+    if (decoded && decoded.s === keysetTag(column, spec) && fitsColumn(column, decoded.v)) {
+      return { v: decoded.v, id: decoded.id }
+    }
+    const doc = await this.prisma.document.findFirst({
+      where: { id: decoded?.id ?? cursor, ownerId: actor.sub },
+      select: {
+        id: true,
+        title: true,
+        category: true,
+        status: true,
+        issuedAt: true,
+        expiresAt: true,
+        createdAt: true,
+      },
+    })
+    return doc ? positionOf(column, doc) : null
   }
 
   getById(actor: JwtPayload, id: string): Promise<DocumentDto> {
     return this.getOwnedDto(actor, id)
   }
 
+  /**
+   * Архив и возврат из него. Прежний статус запоминается в событии ARCHIVE и при возврате
+   * восстанавливается (D-F22): раньше разархивация всегда ставила UPLOADED, и отозванная
+   * вузом справка (REJECTED) или просроченный документ возвращались «действующими».
+   * Повторный архив и возврат неархивного — без изменений: иначе запомнился бы ARCHIVED.
+   */
   async setArchived(actor: JwtPayload, id: string, archived: boolean): Promise<DocumentDto> {
-    await this.findOwnedOrThrow(actor, id)
-    await this.prisma.document.update({
-      where: { id },
-      data: {
-        archivedAt: archived ? new Date() : null,
-        status: archived ? 'ARCHIVED' : 'UPLOADED',
-      },
+    const doc = await this.prisma.document.findFirst({
+      where: { id, ownerId: actor.sub, deletedAt: null },
+      select: { id: true, status: true, archivedAt: true, expiresAt: true },
     })
-    await this.logEvent(actor.sub, id, 'ARCHIVE', { archived })
+    if (!doc) throw new AppException('NOT_FOUND', 'Документ не найден')
+    if (archived === (doc.archivedAt !== null)) return this.getOwnedDto(actor, id)
+
+    if (archived) {
+      const { count } = await this.prisma.document.updateMany({
+        where: { id, archivedAt: null },
+        data: { archivedAt: new Date(), status: 'ARCHIVED' },
+      })
+      if (count > 0) {
+        await this.logEvent(actor.sub, id, 'ARCHIVE', { archived, previousStatus: doc.status })
+      }
+    } else {
+      const status = await this.restoredStatus(doc)
+      const { count } = await this.prisma.document.updateMany({
+        where: { id, archivedAt: { not: null } },
+        data: { archivedAt: null, status },
+      })
+      if (count > 0) {
+        await this.logEvent(actor.sub, id, 'UNARCHIVE', { status })
+        // Пока документ лежал в архиве, проверка его статус не вела (ARCHIVED не
+        // пересчитывается): восстановленный «на проверке» мог давно стать «принят».
+        await this.syncReviewStatus([id])
+      }
+    }
     return this.getOwnedDto(actor, id)
   }
 
+  /**
+   * Статус документа после возврата из архива: прежний из последнего события архивации.
+   * Статусы срока (UPLOADED/EXPIRING/EXPIRED) пересчитываются по `expiresAt` — за время в
+   * архиве срок мог пройти или владелец его продлил. Если прежний неизвестен (архив до
+   * этого правила, архивация кроном по сроку хранения) — тоже по сроку.
+   */
+  private async restoredStatus(doc: { id: string; expiresAt: Date | null }): Promise<string> {
+    const event = await this.prisma.documentEvent.findFirst({
+      where: { documentId: doc.id, action: 'ARCHIVE' },
+      orderBy: { createdAt: 'desc' },
+      select: { metadata: true },
+    })
+    const meta = (event?.metadata ?? null) as { previousStatus?: unknown } | null
+    const previous = typeof meta?.previousStatus === 'string' ? meta.previousStatus : null
+    if (previous && !EXPIRY_STATUSES.has(previous) && previous !== 'ARCHIVED') return previous
+    return statusByExpiry(doc.expiresAt)
+  }
+
+  /**
+   * Удаление — мягкое, но окончательное для всех (D-F21): владелец, получатели грантов,
+   * сотрудник по заявке или запросу и админ платформы документ больше не открывают (везде
+   * условие `deletedAt: null`). Сканы снимает ночная уборка cleanDetachedFiles через
+   * 30 дней — запас на спор и ошибку; восстановления удалённого документа нет.
+   */
   async remove(actor: JwtPayload, id: string): Promise<void> {
     await this.findOwnedOrThrow(actor, id)
     await this.prisma.document.update({ where: { id }, data: { deletedAt: new Date() } })
     await this.logEvent(actor.sub, id, 'DELETE')
   }
 
-  /** История действий по документу (ТЗ §10). */
+  /**
+   * История действий по документу (ТЗ §10). Владелец видит не только что, но и кто и через
+   * что: `actor` (имя и роль) и `via` — грант (с `granteeType`), запрос, заявка, спец-режим
+   * платформы, система — по тем же правилам, что журнал вуза. Раньше история показывала
+   * одно действие, и просмотр по гранту было не отличить от своего. Сотрудник платформы в
+   * спец-режиме показывается ролью, без имени.
+   */
   async listEvents(actor: JwtPayload, id: string) {
     await this.findOwnedOrThrow(actor, id)
-    return this.prisma.documentEvent.findMany({
+    const events = await this.prisma.documentEvent.findMany({
       where: { documentId: id },
       orderBy: { createdAt: 'desc' },
       take: 200,
     })
+    const actorIds = [...new Set(events.map((e) => e.actorId))]
+    const people = actorIds.length
+      ? await this.prisma.user.findMany({
+          where: { id: { in: actorIds } },
+          select: { id: true, firstName: true, lastName: true, role: true },
+          take: actorIds.length,
+        })
+      : []
+    const byId = new Map(people.map((p) => [p.id, p]))
+    return events.map((e) => {
+      const meta = (e.metadata ?? null) as Record<string, unknown> | null
+      const via = journalVia(e, actor.sub)
+      const who = byId.get(e.actorId)
+      return {
+        ...e,
+        action: documentEventAction(e.action, e.metadata),
+        via,
+        granteeType: typeof meta?.granteeType === 'string' ? meta.granteeType : null,
+        actor: {
+          id: e.actorId,
+          name: who && via !== 'PLATFORM' ? `${who.lastName} ${who.firstName}`.trim() : '',
+          role: who?.role ?? null,
+        },
+      }
+    })
   }
 
-  /** Счётчики для экрана «Обзор» (ТЗ §3). */
+  /**
+   * Счётчики для экрана «Обзор» (ТЗ §3). Каждая плитка открывает «Мои документы» с фильтром
+   * по статусу, поэтому и считает ровно этот статус. Раньше «Скоро истекает» считала ещё и
+   * документы с близкой датой в других статусах, а «Требует замены» — отозванные справки
+   * (REJECTED): плитка обещала одно число, а список по клику показывал другое.
+   */
   async overview(actor: JwtPayload): Promise<{
     total: number
     toUpload: number
@@ -603,22 +1617,13 @@ export class DocumentsService {
       deletedAt: null,
       archivedAt: null,
     }
-    const now = new Date()
-    const soon = new Date(now.getTime() + EXPIRING_WINDOW_MS)
     const [total, toUpload, inReview, expiringSoon, needsReplacement] =
       await this.prisma.$transaction([
         this.prisma.document.count({ where: base }),
         this.prisma.document.count({ where: { ...base, status: 'DRAFT' } }),
         this.prisma.document.count({ where: { ...base, status: 'IN_REVIEW' } }),
-        this.prisma.document.count({
-          where: {
-            ...base,
-            OR: [{ status: 'EXPIRING' }, { expiresAt: { gte: now, lte: soon } }],
-          },
-        }),
-        this.prisma.document.count({
-          where: { ...base, status: { in: ['NEEDS_REPLACEMENT', 'REJECTED'] } },
-        }),
+        this.prisma.document.count({ where: { ...base, status: 'EXPIRING' } }),
+        this.prisma.document.count({ where: { ...base, status: 'NEEDS_REPLACEMENT' } }),
       ])
     return { total, toUpload, inReview, expiringSoon, needsReplacement }
   }
@@ -627,20 +1632,22 @@ export class DocumentsService {
 
   /**
    * Метаданные любого документа для платформенного админа (без полного номера — только маска).
-   * Обращение фиксируется: журнал документа (VIEW, platformMode) + аудит.
+   * Обращение фиксируется: журнал документа (VIEW, platformMode) + аудит, с причиной (D-F24).
+   * Причина обязательна: прежний GET без тела, открывавший документ без неё, убран.
    */
-  async platformGet(actor: JwtPayload, id: string): Promise<DocumentDto> {
+  async platformGet(actor: JwtPayload, id: string, reason: string): Promise<DocumentDto> {
     const doc = await this.prisma.document.findFirst({
       where: { id, deletedAt: null },
-      select: DOCUMENT_SELECT,
+      select: documentSelect(),
     })
     if (!doc) throw new AppException('NOT_FOUND', 'Документ не найден')
-    await this.logEvent(actor.sub, id, 'VIEW', { platformMode: true, meta: true })
+    await this.logEvent(actor.sub, id, 'VIEW', { platformMode: true, meta: true, reason })
     await this.audit.record({
       userId: actor.sub,
       action: 'DOCUMENT_PLATFORM_VIEW',
       entity: 'Document',
       entityId: id,
+      metadata: { reason },
     })
     return this.toDto(doc)
   }
@@ -720,7 +1727,21 @@ export class DocumentsService {
         deletedAt: null,
         archivedAt: null,
         expiresAt: { gte: now, lte: soon },
-        status: { notIn: ['DRAFT', 'ARCHIVED', 'EXPIRED', 'EXPIRING'] },
+        // «Требует замены» и «На проверке» главнее «Скоро истекает» (см. nextDocumentStatus):
+        // они ждут действия, а близость срока видна по дате в списке документов. «Подтверждён»
+        // уступает только «требует замены» и правке (§3.8): иначе за месяц до срока
+        // сертификат пропадал из резюме и карточки кандидата.
+        status: {
+          notIn: [
+            'DRAFT',
+            'ARCHIVED',
+            'EXPIRED',
+            'EXPIRING',
+            'IN_REVIEW',
+            'NEEDS_REPLACEMENT',
+            'VERIFIED',
+          ],
+        },
       },
       'EXPIRING',
       NOTIFICATION_JOBS.DOCUMENT_EXPIRING,
@@ -735,25 +1756,64 @@ export class DocumentsService {
   }
 
   // Архивирование по сроку хранения (15.20): EXPIRED-документ, у которого прошло
-  // `expiresAt + retentionDays` (retention типа вуза), уводим в архив (одна пачка за прогон).
+  // `expiresAt + retentionDays` (retention типа вуза), уводим в архив.
+  // Идём от правил (вуз + тип с заданным сроком), а не от документов: раньше брались первые
+  // 500 EXPIRED подряд без условия на срок, документы без срока хранения навсегда занимали
+  // эту пачку, и до подходящих архивация не доходила ни в одном вузе (D-F08).
   private async sweepRetention(now: Date): Promise<number> {
-    const candidates = await this.prisma.document.findMany({
-      where: { deletedAt: null, archivedAt: null, status: 'EXPIRED', expiresAt: { not: null } },
-      select: { id: true, ownerId: true, universityId: true, type: true, expiresAt: true },
-      take: 500,
-    })
     let archived = 0
-    for (const doc of candidates) {
-      const days = await this.types.retentionDays(doc.universityId, doc.type)
-      if (days === null || !doc.expiresAt) continue
-      const deadline = doc.expiresAt.getTime() + days * 24 * 60 * 60 * 1000
-      if (now.getTime() <= deadline) continue
-      await this.prisma.document.update({
-        where: { id: doc.id },
-        data: { status: 'ARCHIVED', archivedAt: now },
+    let afterId: string | null = null
+    for (;;) {
+      const rules = await this.types.retentionRules(afterId, SWEEP_BATCH)
+      for (const rule of rules) archived += await this.archiveByRule(rule, now)
+      const last = rules.at(-1)
+      if (!last || rules.length < SWEEP_BATCH) break
+      afterId = last.id
+    }
+    return archived
+  }
+
+  // Архивирует все документы одного правила пачками до исчерпания. Курсор по id гарантирует
+  // продвижение, даже если часть пачки не обновилась (владелец продлил или удалил документ).
+  private async archiveByRule(rule: RetentionRule, now: Date): Promise<number> {
+    const where: Prisma.DocumentWhereInput = {
+      universityId: rule.universityId,
+      type: rule.typeId,
+      status: 'EXPIRED',
+      deletedAt: null,
+      archivedAt: null,
+      expiresAt: { lt: new Date(now.getTime() - rule.retentionDays * DAY_MS) },
+    }
+    let archived = 0
+    let afterId: string | null = null
+    for (;;) {
+      const batch: { id: string }[] = await this.prisma.document.findMany({
+        where: { ...where, ...(afterId ? { id: { gt: afterId } } : {}) },
+        orderBy: { id: 'asc' },
+        select: { id: true },
+        take: SWEEP_BATCH,
       })
-      await this.logEvent(doc.ownerId, doc.id, 'ARCHIVE', { retention: days })
-      archived += 1
+      if (batch.length === 0) break
+      // Условие отбора повторяем в UPDATE: между выборкой и записью документ могли изменить.
+      const done = await this.prisma.document.updateManyAndReturn({
+        where: { ...where, id: { in: batch.map((d) => d.id) } },
+        data: { status: 'ARCHIVED', archivedAt: now },
+        select: { id: true, ownerId: true },
+      })
+      if (done.length > 0) {
+        await this.prisma.documentEvent.createMany({
+          data: done.map((d) => ({
+            actorId: d.ownerId,
+            documentId: d.id,
+            action: 'ARCHIVE',
+            metadata: { retention: rule.retentionDays, previousStatus: 'EXPIRED' },
+          })),
+        })
+      }
+      archived += done.length
+      const last = batch.at(-1)
+      if (!last || batch.length < SWEEP_BATCH) break
+      afterId = last.id
     }
     return archived
   }
@@ -769,17 +1829,21 @@ export class DocumentsService {
     for (;;) {
       const batch = await this.prisma.document.findMany({
         where,
-        select: { id: true, ownerId: true, title: true },
+        select: { id: true, ownerId: true, title: true, expiresAt: true },
         take: 500,
       })
       if (batch.length === 0) break
-      await this.prisma.document.updateMany({
-        where: { id: { in: batch.map((b) => b.id) } },
-        data: { status: nextStatus },
-      })
+      // Сначала уведомление, потом статус — и только тем, о ком уведомление поставлено.
+      // Статус «скоро истекает / истёк» и есть отметка «предупредили»: следующий прогон такие
+      // документы уже не выбирает, и при недоступном Redis владелец не узнал бы о сроке
+      // никогда. Не поставилось — останавливаемся, остаток подхватит следующий прогон.
+      const queued: typeof batch = []
+      let failed = false
       for (const doc of batch) {
-        await this.logEvent(doc.ownerId, doc.id, nextStatus === 'EXPIRED' ? 'EXPIRE' : 'EXPIRING')
-        await this.queue.enqueue(
+        // Ключ — на документ и его срок: продлённый документ, у которого снова подходит
+        // (новый) срок, получает новое напоминание, а прежний ключ его молча глушил.
+        const key = `${dedupePrefix}:${doc.id}:${doc.expiresAt?.getTime() ?? 0}`
+        const ok = await this.queue.enqueue(
           QUEUES.NOTIFICATIONS,
           jobName,
           {
@@ -789,12 +1853,32 @@ export class DocumentsService {
             bodyKey: 'documents.named.body',
             params: { title: doc.title },
             data: { documentId: doc.id, url: '/documents' },
-            dedupeKey: `${dedupePrefix}:${doc.id}`,
+            dedupeKey: key,
           },
-          { jobId: `${dedupePrefix}:${doc.id}` },
+          { jobId: key },
         )
+        if (!ok) {
+          failed = true
+          break
+        }
+        queued.push(doc)
       }
-      total += batch.length
+      if (queued.length > 0) {
+        await this.prisma.document.updateMany({
+          where: { id: { in: queued.map((b) => b.id) } },
+          data: { status: nextStatus },
+        })
+        for (const doc of queued) {
+          await this.logEvent(doc.ownerId, doc.id, nextStatus === 'EXPIRED' ? 'EXPIRE' : 'EXPIRING')
+        }
+      }
+      total += queued.length
+      if (failed) {
+        this.logger.warn(
+          `sweepExpiry: очередь недоступна — ${nextStatus} отложен до следующего прогона`,
+        )
+        break
+      }
       if (batch.length < 500) break
     }
     return total

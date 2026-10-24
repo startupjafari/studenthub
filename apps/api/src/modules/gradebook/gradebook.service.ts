@@ -104,6 +104,21 @@ export class GradebookService {
     ctx: RequestContext,
   ) {
     await this.findManageableColumn(actor, id)
+    // Максимум ниже уже выставленной оценки сделал бы её «больше 100 %» — и итог студента,
+    // и средний процент в аналитике декана уехали бы за сотню.
+    if (input.maxScore != null) {
+      const { _max } = await this.prisma.grade.aggregate({
+        where: { columnId: id, score: { not: null } },
+        _max: { score: true },
+      })
+      if (_max.score != null && _max.score > input.maxScore) {
+        throw new AppException(
+          'CONFLICT',
+          `В колонке уже есть оценка ${_max.score} — максимум не может быть меньше`,
+          [{ field: 'maxScore', message: `Не меньше ${_max.score}` }],
+        )
+      }
+    }
     const column = await this.prisma.gradeColumn.update({
       where: { id },
       data: {
@@ -131,25 +146,33 @@ export class GradebookService {
       id,
       ctx,
     )
-    // Realtime: при публикации колонки точечно уведомляем студентов, у кого есть оценка в ней —
-    // экран «Оценки» обновляется вживую. Payload минимальный (только columnId), без значений.
-    if (published) {
-      const graded = await this.prisma.grade.findMany({
-        where: { columnId: id },
-        select: { studentId: true },
-        take: GROUP_STUDENTS_LIMIT,
-      })
-      for (const g of graded) {
-        this.realtime.emitEventToUser(g.studentId, REALTIME_EVENTS.gradePublished, id, {
-          columnId: id,
-        })
-      }
-    }
+    // Realtime: точечно тем, у кого есть оценка в колонке, — экран «Оценки» обновляется
+    // вживую. И при публикации, и при снятии с публикации: снятая колонка иначе висела бы
+    // у студента до перезагрузки. Payload минимальный (только columnId), без значений.
+    const graded = await this.prisma.grade.findMany({
+      where: { columnId: id },
+      select: { studentId: true },
+      take: GROUP_STUDENTS_LIMIT,
+    })
+    this.emitGradesChanged(
+      id,
+      graded.map((g) => g.studentId),
+    )
     return column
   }
 
   async deleteColumn(actor: JwtPayload, id: string, ctx: RequestContext): Promise<void> {
-    await this.findManageableColumn(actor, id)
+    const column = await this.findManageableColumn(actor, id)
+    // Опубликованные оценки студенты уже видели: колонку с ними сначала снимают с публикации,
+    // а не стирают одним нажатием вместе с оценками.
+    if (column.published) {
+      const graded = await this.prisma.grade.count({
+        where: { columnId: id, score: { not: null } },
+      })
+      if (graded > 0) {
+        throw new AppException('CONFLICT', 'В опубликованной колонке есть оценки')
+      }
+    }
     await this.prisma.gradeColumn.delete({ where: { id } })
     await this.record(actor, 'grade_column_deleted', id, ctx)
   }
@@ -158,7 +181,11 @@ export class GradebookService {
   async saveGrades(actor: JwtPayload, input: SaveGradesInput, ctx: RequestContext) {
     const col = await this.findManageableColumn(actor, input.columnId)
     const groupStudents = await this.prisma.user.findMany({
-      where: { groupId: col.course.groupId, role: { in: ['STUDENT', 'STAROSTA'] } },
+      where: {
+        groupId: col.course.groupId,
+        role: { in: ['STUDENT', 'STAROSTA'] },
+        deletedAt: null,
+      },
       select: { id: true },
       take: GROUP_STUDENTS_LIMIT,
     })
@@ -167,29 +194,62 @@ export class GradebookService {
       if (!allowed.has(e.studentId))
         throw new AppException('WRONG_SCOPE', 'Студент не из этой группы')
     }
-    await this.prisma.$transaction(
-      input.entries.map((e) =>
-        e.score === null
-          ? this.prisma.grade.deleteMany({
-              where: { columnId: input.columnId, studentId: e.studentId },
-            })
-          : this.prisma.grade.upsert({
-              where: {
-                columnId_studentId: { columnId: input.columnId, studentId: e.studentId },
-              },
-              create: { columnId: input.columnId, studentId: e.studentId, score: e.score },
-              update: { score: e.score },
-            }),
-      ),
-    )
+    // Схема держит только общий потолок 0..1000, а максимум у каждой колонки свой: лишний
+    // ноль («150 из 10») сохранялся как есть. Отказ целиком, с адресом каждой ячейки — путь
+    // как у ошибок схемы (`entries.<i>.score`), чтобы клиент подсветил их одинаково.
+    const max = col.maxScore
+    if (max != null) {
+      const over = input.entries.flatMap((e, i) =>
+        e.score !== null && e.score > max
+          ? [{ field: `entries.${i}.score`, message: `Не больше ${max}` }]
+          : [],
+      )
+      if (over.length > 0) {
+        throw new AppException('VALIDATION_ERROR', `Балл больше максимума колонки (${max})`, over)
+      }
+    }
+    // Пишем только то, что действительно меняется: ячейка, присланная с прежним значением,
+    // не трогается вовсе. Прежние значения нужны и аудиту — по `{count}` правку
+    // опубликованной оценки было не восстановить.
+    const before = await this.prisma.grade.findMany({
+      where: { columnId: input.columnId, studentId: { in: input.entries.map((e) => e.studentId) } },
+      select: { studentId: true, score: true },
+      take: input.entries.length,
+    })
+    const changes = diffGrades(before, input.entries)
+    if (changes.length > 0) {
+      await this.prisma.$transaction(
+        changes.map((c) =>
+          c.to === null
+            ? this.prisma.grade.deleteMany({
+                where: { columnId: input.columnId, studentId: c.studentId },
+              })
+            : this.prisma.grade.upsert({
+                where: {
+                  columnId_studentId: { columnId: input.columnId, studentId: c.studentId },
+                },
+                create: { columnId: input.columnId, studentId: c.studentId, score: c.to },
+                update: { score: c.to },
+              }),
+        ),
+      )
+    }
     await this.audit.record({
       userId: actor.sub,
       action: 'grades_saved',
       entity: 'GradeColumn',
       entityId: input.columnId,
-      metadata: { count: input.entries.length },
+      metadata: { count: input.entries.length, published: col.published, changes },
       ...ctx,
     })
+    // Правка уже опубликованной оценки — то же событие, что публикация: студент видит новое
+    // значение без перезагрузки. Черновик студенту не виден — и сообщать не о чем.
+    if (col.published) {
+      this.emitGradesChanged(
+        input.columnId,
+        changes.map((c) => c.studentId),
+      )
+    }
     return this.prisma.grade.findMany({
       where: { columnId: input.columnId },
       select: { columnId: true, studentId: true, score: true },
@@ -197,14 +257,28 @@ export class GradebookService {
     })
   }
 
-  /** Оценки студента по его дисциплинам (только опубликованные колонки). Задача 8. */
+  /**
+   * Оценки студента по его дисциплинам (только опубликованные колонки). Задача 8.
+   *
+   * Дисциплины — текущей группы И те, где у студента есть опубликованная оценка: выборка
+   * только по группе после перевода в другую группу прятала всю прошлую успеваемость.
+   */
   async myGrades(viewer: JwtPayload) {
     if (!STUDENT_ROLES.includes(viewer.role)) {
       throw new AppException('FORBIDDEN', 'Только для студентов')
     }
     const courses = await this.prisma.course.findMany({
       take: GROUP_COURSES_LIMIT,
-      where: { groupId: viewer.groupId ?? '__none__' },
+      where: {
+        OR: [
+          { groupId: viewer.groupId ?? '__none__' },
+          {
+            gradeColumns: {
+              some: { published: true, grades: { some: { studentId: viewer.sub } } },
+            },
+          },
+        ],
+      },
       select: {
         id: true,
         credits: true,
@@ -217,9 +291,11 @@ export class GradebookService {
             kind: true,
             maxScore: true,
             position: true,
-            grades: { where: { studentId: viewer.sub }, select: { score: true } },
+            // Оценка студента в колонке одна (`@@unique([columnId, studentId])`).
+            grades: { where: { studentId: viewer.sub }, select: { score: true }, take: 1 },
           },
           orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
+          take: COURSE_COLUMNS_LIMIT,
         },
       },
       orderBy: { subject: { name: 'asc' } },
@@ -237,6 +313,19 @@ export class GradebookService {
         score: col.grades[0]?.score ?? null,
       })),
     }))
+  }
+
+  /**
+   * Событие «опубликованные оценки изменились» адресатам колонки. Имя — прежнее
+   * `grade.published`: клиенты по нему перечитывают «Оценки», а новое имя пришлось бы
+   * сначала научить слушать все клиенты (веб, iOS, Android).
+   */
+  private emitGradesChanged(columnId: string, studentIds: string[]): void {
+    for (const studentId of new Set(studentIds)) {
+      this.realtime.emitEventToUser(studentId, REALTIME_EVENTS.gradePublished, columnId, {
+        columnId,
+      })
+    }
   }
 
   // ── scope ─────────────────────────────────────────────────────────────────
@@ -266,6 +355,8 @@ export class GradebookService {
       where: { id },
       select: {
         id: true,
+        published: true,
+        maxScore: true,
         course: {
           select: {
             id: true,
@@ -283,7 +374,12 @@ export class GradebookService {
       facultyId: c.group.facultyId,
       universityId: c.group.faculty.universityId,
     })
-    return { id: column.id, course: { groupId: c.groupId } }
+    return {
+      id: column.id,
+      published: column.published,
+      maxScore: column.maxScore,
+      course: { groupId: c.groupId },
+    }
   }
 
   private async resolveCourse(courseId: string): Promise<{
@@ -317,4 +413,29 @@ export class GradebookService {
   ): Promise<void> {
     await this.audit.record({ userId: actor.sub, action, entity: 'GradeColumn', entityId, ...ctx })
   }
+}
+
+/** Изменение ячейки журнала для аудита: прежний и новый балл (null — ячейка пуста). */
+export interface GradeChange {
+  studentId: string
+  from: number | null
+  to: number | null
+}
+
+/**
+ * Какие из присланных ячеек меняют сохранённое значение. Повтор студента в одном запросе —
+ * последнее значение, как и при прежней записи по порядку.
+ */
+export function diffGrades(
+  before: { studentId: string; score: number | null }[],
+  entries: SaveGradesInput['entries'],
+): GradeChange[] {
+  const current = new Map(before.map((g) => [g.studentId, g.score]))
+  const last = new Map(entries.map((e) => [e.studentId, e.score]))
+  const changes: GradeChange[] = []
+  for (const [studentId, to] of last) {
+    const from = current.get(studentId) ?? null
+    if (from !== to) changes.push({ studentId, from, to })
+  }
+  return changes
 }

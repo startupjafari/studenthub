@@ -1,8 +1,14 @@
 import { z } from 'zod'
 
+// Номер страницы offset-списков. Предел нужен не ради интерфейса, а ради базы: `?page=1e20`
+// превращался в OFFSET за пределами целого, Prisma отвергала запрос, и клиент получал 500
+// вместо 422 (BACKEND_RULES §3, §4.4). 10 000 страниц по 200 строк — больше любого списка.
+export const PAGE_MAX = 10_000
+export const PageSchema = z.coerce.number().int().positive().max(PAGE_MAX).default(1)
+
 // Offset-пагинация для админских таблиц (docs/PROJECT.md §8.3). limit ≤ 100.
 export const OffsetPaginationSchema = z.object({
-  page: z.coerce.number().int().positive().default(1),
+  page: PageSchema,
   limit: z.coerce.number().int().positive().max(100).default(20),
 })
 
@@ -13,6 +19,16 @@ export type OffsetPaginationInput = z.infer<typeof OffsetPaginationSchema>
 // там, где выбор размера действительно есть (users, audit), а не во всех списках подряд.
 export const ADMIN_PAGE_SIZES = [20, 100, 150, 200] as const
 export const AdminLimitSchema = z.coerce.number().int().positive().max(200).default(20)
+
+// Флаг из query-строки у уже выпущенных параметров (`mine` у дисциплин, заданий, экзаменов).
+// `z.coerce.boolean()` превращал любую непустую строку в true, и `?mine=false` (так axios
+// отправляет `mine: false` формы декана) отдавал только «свои» записи. Теперь "false", "0" и
+// пустая строка — false; прочее, как и раньше, — true: запросы выпущенных клиентов не ломаются.
+const FALSE_QUERY_VALUES = new Set(['', 'false', '0'])
+export const queryBoolean = z.preprocess(
+  (v) => (typeof v === 'string' ? !FALSE_QUERY_VALUES.has(v.trim().toLowerCase()) : v),
+  z.coerce.boolean(),
+)
 
 // Направление сортировки для админских таблиц. Само поле сортировки — enum у каждого
 // списка отдельно: сортировать можно только по колонкам, которые таблица показывает,
@@ -28,3 +44,30 @@ export const CursorPaginationSchema = z.object({
 })
 
 export type CursorPaginationInput = z.infer<typeof CursorPaginationSchema>
+
+// Cursor-пагинация ПО ЗАПРОСУ — для списков, которые раньше отдавались целиком одним
+// массивом (комментарии, опросы автора, участники события). Без `limit` и `cursor` ручка
+// отвечает как раньше — так читают уже выпущенные клиенты (iOS, Android, мини-апп). С ними —
+// страница: `meta.cursor` — id последней записи страницы (по нему просят следующую),
+// `meta.hasNext` — есть ли ещё. limit ≤ 50, как у лент.
+export const OptionalCursorPaginationSchema = z.object({
+  cursor: z.string().min(1).optional(),
+  limit: z.coerce.number().int().positive().max(50).optional(),
+})
+export type OptionalCursorPaginationInput = z.infer<typeof OptionalCursorPaginationSchema>
+
+/** Клиент попросил страницу (прислал `limit` или `cursor`), а не прежний список целиком. */
+export function isPageRequested(query: OptionalCursorPaginationInput | undefined): boolean {
+  return query?.limit !== undefined || query?.cursor !== undefined
+}
+
+// Размер страницы, когда пришёл только `cursor`.
+export const DEFAULT_PAGE_LIMIT = 20
+
+// Комментарии (посты, статьи, опросы, события). Страница — свежие сверху: `meta.cursor` —
+// id самого старого комментария страницы, по нему просят более ранние; `meta.total` —
+// сколько комментариев всего (заголовок «N комментариев» не должен зависеть от того,
+// сколько страниц догружено). Без параметров — прежний ответ: последние комментарии
+// массивом по порядку написания.
+export const CommentsQuerySchema = OptionalCursorPaginationSchema
+export type CommentsQueryInput = OptionalCursorPaginationInput

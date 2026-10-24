@@ -13,11 +13,16 @@ import { IoAdapter } from '@nestjs/platform-socket.io'
 import helmet from '@fastify/helmet'
 import cookie from '@fastify/cookie'
 import multipart from '@fastify/multipart'
-import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger'
-import { Logger as PinoLogger } from 'nestjs-pino'
+import { SwaggerModule } from '@nestjs/swagger'
+import { Logger as PinoLogger, PinoLogger as RequestPinoLogger } from 'nestjs-pino'
 import { FILE_UPLOAD } from '@studenthub/shared-config'
 import { AppModule } from './app.module'
+import { registerAccessLog } from './common/logging/access-log'
+import { createOpenApiDocument } from './common/swagger/openapi-document'
 import type { EnvVars } from './config/env.schema'
+import { parseCorsOrigins } from './config/web-base'
+
+const REQUEST_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 // Node пробует адреса хоста по очереди и бросает соединение через 250 мс (значение по
 // умолчанию у autoSelectFamily). Для исходящих запросов этого мало: если TCP-рукопожатие с
@@ -48,11 +53,14 @@ function trustProxySetting(): string | boolean {
 async function bootstrap(): Promise<void> {
   // requestId: берём входящий x-request-id или генерируем uuid (docs/BACKEND_RULES.md §13).
   const adapter = new FastifyAdapter({
+    // Чужой x-request-id принимаем только в формате UUID: произвольная строка из заголовка
+    // попадала в логи как есть — переносы строк и подделка чужих записей журнала.
     genReqId: (req: IncomingMessage): string => {
       const header = req.headers['x-request-id']
-      return (Array.isArray(header) ? header[0] : header) ?? randomUUID()
+      const value = Array.isArray(header) ? header[0] : header
+      return value && REQUEST_ID_RE.test(value) ? value : randomUUID()
     },
-    // §14.5 — в проде API стоит за прокси (nginx из docker/nginx/nginx.conf либо edge
+    // §14.5 — в проде API стоит за прокси (nginx из docker/prod/nginx/nginx.conf либо edge
     // Railway), который проставляет X-Forwarded-For/X-Real-IP. Без trustProxy req.ip у
     // всех клиентов = внутренний адрес прокси, из-за чего IP-throttling логина
     // (auth.controller.ts) становится общим на всю платформу (DoS на аутентификацию),
@@ -80,13 +88,16 @@ async function bootstrap(): Promise<void> {
   app.useLogger(app.get(PinoLogger))
 
   // Возвращаем requestId клиенту для сквозной корреляции.
-  app
-    .getHttpAdapter()
-    .getInstance()
-    .addHook('onRequest', (req, reply, done) => {
-      void reply.header('x-request-id', req.id)
-      done()
-    })
+  const fastify = app.getHttpAdapter().getInstance()
+  fastify.addHook('onRequest', (req, reply, done) => {
+    void reply.header('x-request-id', req.id)
+    done()
+  })
+
+  // Строка на каждый запрос с настоящим статусом ответа (§13), в том числе на отказы guard'ов.
+  const accessLogger = await app.resolve(RequestPinoLogger)
+  accessLogger.setContext('AccessLog')
+  registerAccessLog(fastify, accessLogger)
 
   const config: ConfigService<EnvVars, true> = app.get(ConfigService)
 
@@ -107,11 +118,15 @@ async function bootstrap(): Promise<void> {
 
   // §14.5 — CORS по whitelist, credentials. Явно перечисляем методы: без этого адаптер разрешал
   // только GET/HEAD/POST, и preflight блокировал DELETE/PATCH/PUT (открепление, удаление, mark-read).
+  // exposedHeaders: при API на отдельном домене браузер прячет от скрипта всё, кроме
+  // «простых» заголовков, — выгрузки теряли имя файла (Content-Disposition), а клиент не
+  // видел, сколько ждать после 429 (Retry-After).
   app.enableCors({
-    origin: config.get('CORS_ORIGIN', { infer: true }).split(','),
+    origin: parseCorsOrigins(config.get('CORS_ORIGIN', { infer: true })),
     credentials: true,
     methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
+    exposedHeaders: ['Content-Disposition', 'Retry-After'],
   })
 
   // §9 — WebSocket поверх socket.io на том же HTTP-сервере (RealtimeGateway).
@@ -121,16 +136,8 @@ async function bootstrap(): Promise<void> {
 
   // §12 — Swagger только в development, по пути /api/docs.
   if (config.get('NODE_ENV', { infer: true }) === 'development') {
-    // TODO(Ф1): patchNestJsSwagger() для createZodDto-схем — включить после согласования
-    // совместимых версий nestjs-zod ↔ @nestjs/swagger (в 4.3.1 патч ломается о swagger 11).
-    const swaggerConfig = new DocumentBuilder()
-      .setTitle('StudentHub API')
-      .setDescription('Внутренний API образовательной платформы StudentHub')
-      .setVersion('1.0')
-      .addBearerAuth()
-      .build()
-    const document = SwaggerModule.createDocument(app, swaggerConfig)
-    SwaggerModule.setup('api/docs', app, document)
+    // Тот же документ, что экспортируется в openapi.json, со схемами zod-DTO.
+    SwaggerModule.setup('api/docs', app, createOpenApiDocument(app))
   }
 
   const port = config.get('PORT', { infer: true })

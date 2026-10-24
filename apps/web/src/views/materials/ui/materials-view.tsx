@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useMemo, useState } from 'react'
+import { useInfiniteQuery } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { ChevronRight, FolderOpen, Link2, Paperclip, Plus } from 'lucide-react'
 import { Role } from '@studenthub/shared-types'
@@ -12,6 +12,7 @@ import {
   Card,
   EmptyState,
   PageHeader,
+  SegmentedTabs,
   Table,
   TableBody,
   TableCell,
@@ -40,6 +41,14 @@ const HIDE = {
 } as const
 const SKELETON_COLS = [undefined, HIDE.subject, HIDE.teacher, undefined, HIDE.created, undefined]
 
+// «Мои» — по умолчанию: раньше экран показывал общий поток материалов всего вуза, и свой
+// материал недельной давности оказывался за пределами выдачи — ни найти, ни удалить.
+type TabId = 'mine' | 'all'
+const TAB_ORDER: TabId[] = ['mine', 'all']
+const TAB_LABEL: Record<TabId, string> = { mine: 'tabMine', all: 'tabAll' }
+// Страница выдачи; следующая — по кнопке «Показать ещё» (cursor = id последнего материала).
+const PAGE = 100
+
 /**
  * «Материалы»: таблица материалов, создание и содержимое — в модальных окнах.
  *
@@ -53,13 +62,26 @@ export function MaterialsView() {
   const tErr = useTranslations('Errors')
   const locale = useLocale()
   const role = useAppSelector((s) => s.auth.role)
+  const myId = useAppSelector((s) => s.auth.user?.id)
   const canCreate = role !== null && AUTHOR_ROLES.includes(role)
+  // Преподаватель управляет только своими материалами (так же решает сервер).
+  const canManage = (m: Material): boolean =>
+    canCreate && (role !== Role.TEACHER || m.teacher.id === myId)
 
-  const materials = useQuery({ queryKey: materialKeys.list(), queryFn: () => fetchMaterials() })
+  const [tab, setTab] = useState<TabId>('mine')
+  const filters = useMemo(() => ({ limit: PAGE, ...(tab === 'mine' ? { mine: true } : {}) }), [tab])
+  const materials = useInfiniteQuery({
+    queryKey: materialKeys.list(filters),
+    queryFn: ({ pageParam }: { pageParam: string | undefined }) =>
+      fetchMaterials({ ...filters, cursor: pageParam }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last: Material[]) =>
+      last.length === PAGE ? last[last.length - 1]?.id : undefined,
+  })
   const [creating, setCreating] = useState(false)
   const [openId, setOpenId] = useState<string | null>(null)
 
-  const rows = materials.data ?? []
+  const rows = useMemo(() => materials.data?.pages.flat() ?? [], [materials.data])
   // Сортировки по умолчанию нет: сервер отдаёт материалы в своём порядке, и стрелка
   // в шапке означала бы выбор, которого не делали.
   const {
@@ -83,6 +105,14 @@ export function MaterialsView() {
     <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
       <PageHeader
         title={t('title')}
+        tabs={
+          <SegmentedTabs
+            aria-label={t('title')}
+            value={tab}
+            onChange={setTab}
+            items={TAB_ORDER.map((id) => ({ value: id, label: t(TAB_LABEL[id]) }))}
+          />
+        }
         actions={
           canCreate && (
             <Button size="md" className="gap-1.5" onClick={() => setCreating(true)}>
@@ -173,13 +203,24 @@ export function MaterialsView() {
           </Table>
         </Card>
       )}
+      {materials.hasNextPage && (
+        <Button
+          type="button"
+          variant="ghost"
+          className="self-center"
+          loading={materials.isFetchingNextPage}
+          onClick={() => void materials.fetchNextPage()}
+        >
+          {t('showMore')}
+        </Button>
+      )}
 
       {creating && <CreateMaterialModal onClose={() => setCreating(false)} />}
       {open && (
         <MaterialDetailModal
           key={open.id}
           material={open}
-          canManage={canCreate}
+          canManage={canManage(open)}
           onClose={() => setOpenId(null)}
         />
       )}

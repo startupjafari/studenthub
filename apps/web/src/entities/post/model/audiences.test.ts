@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { Role } from '@studenthub/shared-types'
-import { REPOST_AUDIENCES_BY_ROLE, canRepost, selfRepostAudience } from './audiences'
+import {
+  GROUP_PICKER_ROLES,
+  REPOST_AUDIENCES_BY_ROLE,
+  canRepost,
+  selfRepostAudience,
+} from './audiences'
 import type { FeedPost } from './types'
 
 const post = (o: Partial<Pick<FeedPost, 'audience' | 'status'>> = {}) => ({
@@ -56,7 +61,7 @@ describe('selfRepostAudience', () => {
     expect(selfRepostAudience(Role.STAROSTA, student)).toBe('GROUP')
   })
 
-  it('декан — на свой факультет: группу он не выбирает, а своей у него нет', () => {
+  it('декан — на свой факультет: своей группы у него нет, группу он выбирает руками', () => {
     expect(selfRepostAudience(Role.DEAN, staff)).toBe('FACULTY')
   })
 
@@ -79,5 +84,11 @@ describe('selfRepostAudience', () => {
 
   it('группы в профиле нет — аудитория не выбирается вслепую', () => {
     expect(selfRepostAudience(Role.STUDENT, { groupId: null })).toBeNull()
+  })
+})
+
+describe('GROUP_PICKER_ROLES', () => {
+  it('декан выбирает группу факультета: своей группы в профиле у него нет', () => {
+    expect(GROUP_PICKER_ROLES).toContain(Role.DEAN)
   })
 })

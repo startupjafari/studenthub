@@ -4,17 +4,18 @@ import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useTranslations } from 'next-intl'
-import { Check, ChevronDown } from 'lucide-react'
+import { Check, ChevronDown, SkipForward } from 'lucide-react'
 import type { OnboardingStep } from '@studenthub/shared-schemas'
 import {
   confirmOnboardingProfile,
   fetchOnboardingState,
   launchUniversity,
   onboardingKeys,
+  skipOnboardingStep,
   type OnboardingState,
   type OnboardingStepState,
 } from '../../../entities/onboarding'
-import { Card, EmptyState, PageHeader, PageLoader } from '../../../shared/ui'
+import { Button, Card, EmptyState, PageHeader, PageLoader } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { StepBody } from './step-body'
 
@@ -55,6 +56,16 @@ export function SetupView() {
     toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR'))
 
   const confirmMut = useMutation({ mutationFn: confirmOnboardingProfile, onSuccess: onDone, onError: onFail }) // prettier-ignore
+  // Необязательный шаг (специальности, аудитории, предметы) пропускается явно: иначе
+  // запуск требовал бы фиктивных записей. После пропуска открываем следующий шаг.
+  const skipMut = useMutation({
+    mutationFn: (step: OnboardingStep) => skipOnboardingStep({ step }),
+    onSuccess: (next) => {
+      onDone(next)
+      setOpen(next.currentStep)
+    },
+    onError: onFail,
+  })
   const launchMut = useMutation({
     mutationFn: launchUniversity,
     onSuccess: (next) => {
@@ -82,7 +93,7 @@ export function SetupView() {
       <div className="flex items-center gap-3">
         <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
           <div
-            className="h-full rounded-full bg-primary transition-[width] duration-500"
+            className="h-full rounded-full bg-primary transition-[width] duration-(--motion-large)"
             style={{ width: `${(doneCount / data.steps.length) * 100}%` }}
           />
         </div>
@@ -105,6 +116,8 @@ export function SetupView() {
             confirming={confirmMut.isPending}
             onLaunch={() => launchMut.mutate()}
             launching={launchMut.isPending}
+            onSkip={() => skipMut.mutate(step.step)}
+            skipping={skipMut.isPending && skipMut.variables === step.step}
           />
         ))}
       </div>
@@ -123,10 +136,12 @@ interface StepCardProps {
   confirming: boolean
   onLaunch: () => void
   launching: boolean
+  onSkip: () => void
+  skipping: boolean
 }
 
 function StepCard(props: StepCardProps) {
-  const { step, index, open, onToggle } = props
+  const { step, index, open, onToggle, onSkip, skipping, ...bodyProps } = props
   const t = useTranslations('Setup')
 
   return (
@@ -185,7 +200,16 @@ function StepCard(props: StepCardProps) {
             {t(`step.${step.step}.hint`)}
           </p>
 
-          <StepBody {...props} />
+          <StepBody step={step} {...bodyProps} />
+
+          {step.skippable && !step.done && !step.skipped && (
+            <div>
+              <Button variant="ghost" size="sm" loading={skipping} onClick={onSkip}>
+                <SkipForward className="size-4" aria-hidden />
+                {t('skip')}
+              </Button>
+            </div>
+          )}
         </div>
       )}
     </Card>

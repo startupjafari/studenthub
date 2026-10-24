@@ -58,7 +58,7 @@ export class ChatFoldersService {
         `Больше ${CHAT_FOLDER_LIMITS.MAX_FOLDERS} папок не поддерживается`,
       )
     }
-    const chatIds = await this.assertOwnChats(userId, input.chatIds ?? [])
+    const chatIds = await this.ownChats(userId, input.chatIds ?? [])
 
     try {
       const folder = await this.prisma.chatFolder.create({
@@ -88,8 +88,7 @@ export class ChatFoldersService {
     // Состав заменяется целиком, а не дельтой: клиент присылает итоговый набор галочек, и
     // «удалить всё лишнее + добавить новое» одним переходом избавляет от рассинхрона,
     // если два устройства правили папку одновременно.
-    const chatIds =
-      input.chatIds === undefined ? null : await this.assertOwnChats(userId, input.chatIds)
+    const chatIds = input.chatIds === undefined ? null : await this.ownChats(userId, input.chatIds)
 
     try {
       await this.prisma.$transaction(async (tx) => {
@@ -129,9 +128,11 @@ export class ChatFoldersService {
    *
    * Чужой чат в папке не раскрыл бы содержимое (папка хранит лишь id), но список бы им
    * засорился: клиент показывает вкладку с «мёртвыми» строками, которых нет в /chats.
-   * Поэтому неизвестный id — явная ошибка, а не тихо отброшенный элемент.
+   * Недоступные id отбрасываются молча, а не валят всю правку: состав клиент присылает
+   * целиком, и чат, который человек покинул (или из которого его исключили), лежит в нём
+   * по-прежнему — с отказом папку нельзя было ни переименовать, ни поправить.
    */
-  private async assertOwnChats(userId: string, chatIds: string[]): Promise<string[]> {
+  private async ownChats(userId: string, chatIds: string[]): Promise<string[]> {
     const unique = [...new Set(chatIds)]
     if (unique.length === 0) return []
 
@@ -140,10 +141,8 @@ export class ChatFoldersService {
       select: { chatId: true },
       take: unique.length,
     })
-    if (mine.length !== unique.length) {
-      throw new AppException('BAD_REQUEST', 'В папку попал чат, недоступный пользователю')
-    }
-    return unique
+    const allowed = new Set(mine.map((m) => m.chatId))
+    return unique.filter((chatId) => allowed.has(chatId))
   }
 
   /** P2002 по (userId, name) — это «папка с таким именем уже есть», а не внутренняя ошибка. */

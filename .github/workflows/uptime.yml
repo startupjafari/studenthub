@@ -167,6 +167,11 @@ jobs:
       # Открытый инцидент — наша память между запусками. Ищем по точному заголовку, а не
       # по метке: метку пришлось бы заводить руками, и прогон молча ломался бы в
       # репозитории, где её забыли создать.
+      #
+      # И только среди issue, заведённых самим прогоном (токен прогона пишет от имени
+      # github-actions). Репозиторий публичный: чужой issue с тем же заголовком иначе
+      # глушил бы тревогу «упало», а при живом проде закрывался бы с сообщением «прод
+      # отвечает» — и каждый новый такой issue превращался бы в спам в Telegram.
       - name: Найти открытый инцидент
         id: incident
         if: steps.guard.outputs.skip != 'true'
@@ -175,7 +180,7 @@ jobs:
           GH_REPO: ${{ github.repository }}
           TITLE: Прод не отвечает
         run: |
-          number=$(gh issue list --state open --limit 100 --json number,title \
+          number=$(gh issue list --state open --author app/github-actions --limit 100 --json number,title \
             --jq "[.[] | select(.title == \"${TITLE}\")] | first | .number // empty")
           echo "number=${number}" >> "$GITHUB_OUTPUT"
           echo "Открытый инцидент: ${number:-нет}"

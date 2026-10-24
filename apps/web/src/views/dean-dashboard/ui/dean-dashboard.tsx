@@ -23,6 +23,7 @@ import {
 } from '../../../entities/analytics'
 import { applicationKeys, fetchQueueStats } from '../../../entities/application-service'
 import { DeanTodayBlock } from '../../../widgets/today'
+import { ExportReportButton } from '../../../features/export-analytics-report'
 
 // Тяжёлый recharts — только на клиенте, со скелетоном (FRONTEND_RULES §4, §11).
 // Опции у вызова свои: SWC-трансформ next/dynamic читает их статически и принимает
@@ -87,10 +88,11 @@ export function DeanDashboard() {
   // Худшие группы сверху: график для того и нужен, чтобы увидеть проседание.
   // Группы без отметок не рисуем вовсе — нулевой столбик прочитался бы как «ноль
   // процентов посещаемости», хотя там просто нечего считать.
-  const groups = [...(overview.data?.groups ?? [])]
-    .filter((g) => g.attendanceTracked > 0)
-    .sort((a, b) => a.attendanceRate - b.attendanceRate)
+  const groups = (overview.data?.groups ?? [])
+    .flatMap((g) => (g.attendanceRate === null ? [] : [{ name: g.name, rate: g.attendanceRate }]))
+    .sort((a, b) => a.rate - b.rate)
     .slice(0, WORST_GROUPS)
+  const attendanceRate = totals?.attendanceRate ?? null
 
   const students = risk.data?.students ?? []
   const riskCounts = [
@@ -131,7 +133,12 @@ export function DeanDashboard() {
     // показывала полторы полосы вместо двенадцати. Раньше страница почти умещалась в
     // экран и сжатия не было видно; блок дня сверху сделал его заметным.
     <div className="flex w-full flex-1 flex-col gap-4">
-      <PageHeader title={tNav('dashboard')} subtitle={greetingDate} />
+      {/* Отчёт факультета декана — строка на группу; факультет задаёт токен. */}
+      <PageHeader
+        title={tNav('dashboard')}
+        subtitle={greetingDate}
+        actions={<ExportReportButton />}
+      />
       <SeasonGreeting />
 
       <DeanTodayBlock />
@@ -160,9 +167,12 @@ export function DeanDashboard() {
           icon={Percent}
           tone="text-info"
           label={t('kpiAttendance')}
-          value={totals ? `${totals.attendanceRate}%` : null}
+          // null — факультет ещё не отмечали: прочерк, а не красные «0 %».
+          value={attendanceRate === null ? null : `${attendanceRate}%`}
           valueTone={
-            totals && totals.attendanceRate < lowThreshold ? 'text-destructive' : undefined
+            attendanceRate !== null && attendanceRate < lowThreshold
+              ? 'text-destructive'
+              : undefined
           }
           loading={overview.isLoading}
           href="/dean/analytics"
@@ -189,7 +199,7 @@ export function DeanDashboard() {
           карточки полосы сжимаются до неразличимых. */}
       <SectionPanel title={t('chartAttendance')} subtitle={t('chartAttendanceHint')}>
         {overview.isLoading ? (
-          <Skeleton className="h-64 w-full" />
+          <Skeleton fill className="min-h-64" />
         ) : groups.length === 0 ? (
           <EmptyState title={t('chartNoAttendance')} className="border-0 p-6" />
         ) : (
@@ -198,7 +208,7 @@ export function DeanDashboard() {
             palette={palette}
             height={Math.max(200, groups.length * 26 + 40)}
             labels={groups.map((g) => g.name)}
-            values={groups.map((g) => g.attendanceRate)}
+            values={groups.map((g) => g.rate)}
             seriesName={t('percentShort')}
           />
         )}
@@ -207,7 +217,9 @@ export function DeanDashboard() {
       <div className="grid gap-4 lg:grid-cols-2">
         <SectionPanel title={t('chartRisk')} subtitle={t('chartRiskHint')}>
           {risk.isLoading ? (
-            <Skeleton className="h-48 w-full" />
+            <Skeleton fill className="min-h-48" />
+          ) : risk.isError ? (
+            <PanelError onRetry={() => risk.refetch()} />
           ) : students.length === 0 ? (
             <EmptyState title={t('chartNoRisk')} className="border-0 p-6" />
           ) : (
@@ -237,7 +249,9 @@ export function DeanDashboard() {
           }
         >
           {queue.isLoading ? (
-            <Skeleton className="h-48 w-full" />
+            <Skeleton fill className="min-h-48" />
+          ) : queue.isError ? (
+            <PanelError onRetry={() => queue.refetch()} />
           ) : queueValues.every((v) => v === 0) ? (
             <EmptyState title={t('chartNoQueue')} className="border-0 p-6" />
           ) : (
@@ -253,5 +267,25 @@ export function DeanDashboard() {
         </SectionPanel>
       </div>
     </div>
+  )
+}
+
+/**
+ * Сбой запроса панели. Без него упавший запрос рисовался пустым состоянием — «никто не
+ * требует внимания», «очередь пуста» — и выдавал сбой за хорошую новость.
+ */
+function PanelError({ onRetry }: { onRetry: () => void }) {
+  const t = useTranslations('Dashboard')
+  const tErr = useTranslations('Errors')
+  return (
+    <EmptyState
+      title={tErr('retryHint')}
+      action={
+        <Button size="sm" variant="outline" onClick={onRetry}>
+          {t('retry')}
+        </Button>
+      }
+      className="border-0 p-6"
+    />
   )
 }

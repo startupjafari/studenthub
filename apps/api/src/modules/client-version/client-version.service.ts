@@ -15,13 +15,30 @@ export class ClientVersionService {
   constructor(private readonly config: ConfigService<EnvVars, true>) {}
 
   info(platform: ClientPlatform): ClientVersionInfo {
-    const storeUrl = this.config.get('IOS_STORE_URL', { infer: true })
+    const { minimumVersion, storeUrl } = this.settingsFor(platform)
     return {
       platform,
-      minimumVersion: this.config.get('IOS_MIN_SUPPORTED_VERSION', { infer: true }),
+      minimumVersion,
       // Ссылки нет — кнопки «Обновить» на экране тоже не будет: кнопка, ведущая в
       // никуда, хуже её отсутствия.
       ...(storeUrl ? { storeUrl } : {}),
+    }
+  }
+
+  // Явный switch, а не подстановка имени переменной из платформы: так новая платформа
+  // в схеме не соберётся, пока для неё не заведены свои переменные.
+  private settingsFor(platform: ClientPlatform): { minimumVersion: string; storeUrl?: string } {
+    switch (platform) {
+      case 'ios':
+        return {
+          minimumVersion: this.config.get('IOS_MIN_SUPPORTED_VERSION', { infer: true }),
+          storeUrl: this.config.get('IOS_STORE_URL', { infer: true }),
+        }
+      case 'android':
+        return {
+          minimumVersion: this.config.get('ANDROID_MIN_SUPPORTED_VERSION', { infer: true }),
+          storeUrl: this.config.get('ANDROID_STORE_URL', { infer: true }),
+        }
     }
   }
 }

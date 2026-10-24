@@ -15,6 +15,9 @@ import { AppException } from '../../common/exceptions/app.exception'
 import { Paginated } from '../../common/http/paginated'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
+import { InviteService } from '../invites/invites.service'
+import { RealtimeGateway } from '../../common/realtime/realtime.gateway'
+import { UniversityAccessService } from './university-access.service'
 
 const UNIVERSITY_SELECT = {
   id: true,
@@ -30,6 +33,14 @@ const UNIVERSITY_SELECT = {
 const STATS_TTL_SECONDS = 300
 const statsKey = (id: string): string => `stats:university:${id}`
 
+interface UniversityStats {
+  faculties: number
+  groups: number
+  rooms: number
+  students: number
+  teachers: number
+}
+
 function isPlatform(role: Role): boolean {
   return role === Role.PLATFORM_ADMIN || role === Role.PLATFORM_MODERATOR
 }
@@ -42,6 +53,9 @@ export class UniversityService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    private readonly access: UniversityAccessService,
+    private readonly invites: InviteService,
+    private readonly realtime: RealtimeGateway,
   ) {}
 
   /** Создание вуза (PLATFORM_ADMIN). Статус по умолчанию PENDING. */
@@ -133,7 +147,16 @@ export class UniversityService {
     return university
   }
 
-  /** Смена статуса PENDING/ACTIVE/BLOCKED (только PLATFORM_ADMIN). */
+  /**
+   * Смена статуса PENDING/ACTIVE/BLOCKED (только PLATFORM_ADMIN).
+   *
+   * Статус — не подпись в таблице: по нему пускают пользователей вуза
+   * (UniversityAccessService). BLOCKED закрывает вход, refresh, регистрацию по инвайту и
+   * запросы с уже выданными токенами. Сессии при блокировке не гасятся, а перестают
+   * приниматься: после разблокировки люди продолжают работу без повторного входа.
+   * Открытые сокеты пользователей вуза при блокировке рвутся: токен у них проверяется только
+   * на входе, и без разрыва они продолжали бы получать события и писать в чаты.
+   */
   async setStatus(
     actor: JwtPayload,
     id: string,
@@ -146,6 +169,15 @@ export class UniversityService {
       data: { status: input.status },
       select: UNIVERSITY_SELECT,
     })
+    // Этот инстанс начинает пускать по новому статусу сразу, остальные — по истечении памяти.
+    this.access.remember(id, university.status)
+    if (university.status === 'BLOCKED') {
+      // Статус уже записан и запомнен: разрыв не должен откатывать блокировку, а сбой
+      // разрыва — превращать её в 500. Не дорванные сокеты закроет первое же событие чата.
+      await this.realtime.disconnectUniversity(id).catch((error: unknown) => {
+        this.logger.warn({ err: error }, `Сокеты заблокированного вуза ${id} не разорваны`)
+      })
+    }
     await this.audit.record({
       userId: actor.sub,
       action: 'university_status_changed',
@@ -157,11 +189,20 @@ export class UniversityService {
     return university
   }
 
-  /** Удаление вуза (PLATFORM_ADMIN). Запрещено при наличии факультетов/пользователей/аудиторий. */
+  /**
+   * Удаление вуза (PLATFORM_ADMIN). Запрещено при наличии факультетов/пользователей/аудиторий.
+   * Ожидающие приглашения в вуз отзываются той же транзакцией (см. InviteService
+   * .revokePendingInScope): отказ в удалении откатывает и отзыв.
+   */
   async remove(actor: JwtPayload, id: string, ctx: RequestContext): Promise<void> {
     await this.findOrThrow(id)
+    let revokedInvites = 0
     try {
-      await this.prisma.university.delete({ where: { id } })
+      revokedInvites = await this.prisma.$transaction(async (tx) => {
+        const revoked = await this.invites.revokePendingInScope(tx, { universityId: id })
+        await tx.university.delete({ where: { id } })
+        return revoked
+      })
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
         throw new AppException(
@@ -177,6 +218,7 @@ export class UniversityService {
       action: 'university_deleted',
       entity: 'University',
       entityId: id,
+      metadata: { revokedInvites },
       ...ctx,
     })
   }
@@ -186,21 +228,47 @@ export class UniversityService {
     await this.findOrThrow(id)
     this.assertScope(viewer, id)
 
-    const cached = await this.redis.get(statsKey(id))
+    const cached = await this.readStatsCache(id)
     if (cached) {
-      return JSON.parse(cached) as Awaited<ReturnType<UniversityService['computeStats']>>
+      return cached
     }
     const stats = await this.computeStats(id)
-    await this.redis.set(statsKey(id), JSON.stringify(stats), 'EX', STATS_TTL_SECONDS)
+    await this.writeStatsCache(id, stats)
     return stats
   }
 
-  private async computeStats(id: string) {
+  /**
+   * Кэш статистики — ускорение, а не источник данных: сбой Redis не роняет плитки дашборда
+   * и `/platform-admin/stats`, а считает напрямую из БД (как `UniversityAnalyticsService.cached`).
+   * Испорченная запись в кэше — тоже промах.
+   */
+  private async readStatsCache(id: string): Promise<UniversityStats | null> {
+    try {
+      const cached = await this.redis.get(statsKey(id))
+      return cached ? (JSON.parse(cached) as UniversityStats) : null
+    } catch (error) {
+      this.logger.warn(`Кэш статистики вуза ${id} недоступен: ${(error as Error).message}`)
+      return null
+    }
+  }
+
+  private async writeStatsCache(id: string, stats: UniversityStats): Promise<void> {
+    try {
+      await this.redis.set(statsKey(id), JSON.stringify(stats), 'EX', STATS_TTL_SECONDS)
+    } catch (error) {
+      this.logger.warn(`Не удалось записать кэш статистики вуза ${id}: ${(error as Error).message}`)
+    }
+  }
+
+  private async computeStats(id: string): Promise<UniversityStats> {
     const [faculties, groups, rooms, students, teachers] = await this.prisma.$transaction([
       this.prisma.faculty.count({ where: { universityId: id } }),
       this.prisma.group.count({ where: { faculty: { universityId: id } } }),
       this.prisma.room.count({ where: { universityId: id } }),
-      this.prisma.user.count({ where: { universityId: id, role: Role.STUDENT, deletedAt: null } }),
+      // Староста — тоже студент: аналитика платформы считает их вместе, плитка вуза — так же.
+      this.prisma.user.count({
+        where: { universityId: id, role: { in: [Role.STUDENT, Role.STAROSTA] }, deletedAt: null },
+      }),
       this.prisma.user.count({ where: { universityId: id, role: Role.TEACHER, deletedAt: null } }),
     ])
     return { faculties, groups, rooms, students, teachers }

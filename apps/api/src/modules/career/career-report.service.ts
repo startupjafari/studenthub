@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common'
 import type Redis from 'ioredis'
 import type { CareerReportPeriod } from '@studenthub/shared-schemas'
-import { resolveUniversityScope } from './career-scope'
+import { CAREER_STUDENT_ROLES, resolveUniversityScope } from './career-scope'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { REDIS_CLIENT } from '../../common/redis/redis.module'
 import { AuditService } from '../../common/audit/audit.service'
@@ -43,8 +43,9 @@ const DAY_MS = 86_400_000
 export interface ReportRange {
   from: Date
   to: Date
-  /** Предыдущий период той же длины — для дельт. */
+  /** Предыдущий период той же длины — для дельт: [previousFrom, previousTo). */
   previousFrom: Date
+  previousTo: Date
 }
 
 @Injectable()
@@ -120,7 +121,7 @@ export class CareerReportService {
             AND a.created_at >= ${range.from} AND a.created_at < ${range.to}) AS applications,
         (SELECT COUNT(*) FROM career_applications a
           WHERE a.university_id = ${universityId}
-            AND a.created_at >= ${range.previousFrom} AND a.created_at < ${range.from}) AS applications_prev,
+            AND a.created_at >= ${range.previousFrom} AND a.created_at < ${range.previousTo}) AS applications_prev,
         (SELECT COUNT(DISTINCT e.application_id)
            FROM career_application_events e
            JOIN career_applications a ON a.id = e.application_id
@@ -130,7 +131,7 @@ export class CareerReportService {
            FROM career_application_events e
            JOIN career_applications a ON a.id = e.application_id
           WHERE a.university_id = ${universityId} AND e.to_status = 'HIRED'
-            AND e.created_at >= ${range.previousFrom} AND e.created_at < ${range.from}) AS hired_prev,
+            AND e.created_at >= ${range.previousFrom} AND e.created_at < ${range.previousTo}) AS hired_prev,
         (SELECT COUNT(*) FROM vacancy_university_reviews r
            JOIN vacancies v ON v.id = r.vacancy_id
           WHERE r.university_id = ${universityId} AND r.status = 'APPROVED'
@@ -138,13 +139,13 @@ export class CareerReportService {
         (SELECT COUNT(*) FROM vacancy_university_reviews r
            JOIN vacancies v ON v.id = r.vacancy_id
           WHERE r.university_id = ${universityId} AND r.status = 'APPROVED'
-            AND v.published_at >= ${range.previousFrom} AND v.published_at < ${range.from}) AS vacancies_prev,
+            AND v.published_at >= ${range.previousFrom} AND v.published_at < ${range.previousTo}) AS vacancies_prev,
         (SELECT COUNT(*) FROM company_university_access c
           WHERE c.university_id = ${universityId} AND c.status = 'APPROVED'
             AND c.decided_at >= ${range.from} AND c.decided_at < ${range.to}) AS companies,
         (SELECT COUNT(*) FROM company_university_access c
           WHERE c.university_id = ${universityId} AND c.status = 'APPROVED'
-            AND c.decided_at >= ${range.previousFrom} AND c.decided_at < ${range.from}) AS companies_prev
+            AND c.decided_at >= ${range.previousFrom} AND c.decided_at < ${range.previousTo}) AS companies_prev
     `
     const r = rows[0]
     const pair = (key: string) => ({
@@ -291,6 +292,10 @@ export class CareerReportService {
    * «на факультете 4 студента, трудоустроен 1» — это сведения о конкретном человеке,
    * а не агрегат. Сколько строк скрыто — возвращаем числом, чтобы таблица не выглядела
    * полной, когда это не так.
+   *
+   * Это не топ, а разрез: строки показываются все, а не первые десять — иначе в большом вузе
+   * таблица молча теряла факультеты, и `suppressed` об этом не говорил. Факультетов у вуза
+   * десятки, а не тысячи, и выборка ограничена одним вузом.
    */
   private async faculties(universityId: string, range: ReportRange) {
     const rows = await this.prisma.$queryRaw<
@@ -302,7 +307,8 @@ export class CareerReportService {
              COUNT(DISTINCT a.student_id) FILTER (WHERE a.status = 'HIRED') AS hired
         FROM faculties f
         LEFT JOIN users u
-               ON u.faculty_id = f.id AND u.role::text = 'STUDENT' AND u.deleted_at IS NULL
+               ON u.faculty_id = f.id AND u.role::text IN ('STUDENT', 'STAROSTA')
+              AND u.deleted_at IS NULL
         LEFT JOIN career_applications a
                ON a.student_id = u.id
               AND a.created_at >= ${range.from} AND a.created_at < ${range.to}
@@ -319,7 +325,7 @@ export class CareerReportService {
     }))
     const visible = mapped.filter((r) => r.students >= MIN_CELL)
     return {
-      items: visible.slice(0, TOP_LIMIT).map((r) => ({
+      items: visible.map((r) => ({
         ...r,
         appliedShare: rate(r.applied, r.students),
         hiredShare: rate(r.hired, r.students),
@@ -329,21 +335,35 @@ export class CareerReportService {
     }
   }
 
-  /** Выпускной курс: доля трудоустроенных среди тех, кто выпускается в этом учебном году. */
+  /**
+   * Выпускной курс: доля трудоустроенных среди тех, кто выпускается в этом учебном году.
+   * Трудоустроенные — COUNT(DISTINCT) запросом по тем же людям, что и знаменатель: выборка
+   * с потолком 10 000 строк молча упиралась в него в большом вузе (D-F31).
+   */
   private async graduates(universityId: string) {
     const year = graduationYear(new Date())
-    const [students, hired] = await Promise.all([
+    const [students, hiredRows] = await Promise.all([
       this.prisma.user.count({
-        where: { universityId, role: 'STUDENT', deletedAt: null, graduationYear: year },
+        where: {
+          universityId,
+          role: { in: CAREER_STUDENT_ROLES },
+          deletedAt: null,
+          graduationYear: year,
+        },
       }),
-      this.prisma.careerApplication.findMany({
-        where: { universityId, status: 'HIRED', student: { graduationYear: year } },
-        select: { studentId: true },
-        distinct: ['studentId'],
-        take: 10_000,
-      }),
+      this.prisma.$queryRaw<Array<{ n: bigint }>>`
+        SELECT COUNT(DISTINCT a.student_id) AS n
+          FROM career_applications a
+          JOIN users u ON u.id = a.student_id
+         WHERE a.university_id = ${universityId}
+           AND a.status = 'HIRED'
+           AND u.graduation_year = ${year}
+           AND u.role::text IN ('STUDENT', 'STAROSTA')
+           AND u.deleted_at IS NULL
+      `,
     ])
-    return { year, students, hired: hired.length, share: rate(hired.length, students) }
+    const hired = Number(hiredRows[0]?.n ?? 0)
+    return { year, students, hired, share: rate(hired, students) }
   }
 
   /** Кто из допущенных компаний реально берёт людей, а не просто публикует вакансии. */
@@ -502,17 +522,23 @@ export class CareerReportService {
       this.prisma.resume.count({
         where: { publishedAt: { not: null }, user: { universityId, deletedAt: null } },
       }),
+      // Числитель и знаменатель доли «открытых профилей» — по одним и тем же людям (D-F31).
       this.prisma.careerProfile.count({
-        where: { visibility: 'EMPLOYERS', user: { universityId, deletedAt: null } },
+        where: {
+          visibility: 'EMPLOYERS',
+          user: { universityId, deletedAt: null, role: { in: CAREER_STUDENT_ROLES } },
+        },
       }),
       this.prisma.careerProfile.count({
         where: {
           visibility: 'EMPLOYERS',
           createdAt: { gte: range.from, lt: range.to },
-          user: { universityId, deletedAt: null },
+          user: { universityId, deletedAt: null, role: { in: CAREER_STUDENT_ROLES } },
         },
       }),
-      this.prisma.user.count({ where: { universityId, role: 'STUDENT', deletedAt: null } }),
+      this.prisma.user.count({
+        where: { universityId, role: { in: CAREER_STUDENT_ROLES }, deletedAt: null },
+      }),
     ])
 
     // width_bucket отдаёт 1..4 (и 5 для ровно 100) — сворачиваем хвост в последнюю корзину.
@@ -640,11 +666,15 @@ export function resolveRange(period: CareerReportPeriod, now: Date = new Date())
     const previousFrom = new Date(
       Date.UTC(from.getUTCFullYear() - 1, from.getUTCMonth(), from.getUTCDate()),
     )
-    return { from, to: now, previousFrom }
+    // Текущий учебный год ещё идёт, поэтому сравниваем с ТОЙ ЖЕ его частью год назад:
+    // «с 1 сентября по сегодня» против «с 1 сентября по эту же дату прошлого года».
+    // Полный прошлый год против неполного текущего давал падение почти по всем плиткам.
+    const previousTo = new Date(previousFrom.getTime() + (now.getTime() - from.getTime()))
+    return { from, to: now, previousFrom, previousTo }
   }
   const days = period === 'month' ? 30 : 90
   const from = new Date(now.getTime() - days * DAY_MS)
-  return { from, to: now, previousFrom: new Date(from.getTime() - days * DAY_MS) }
+  return { from, to: now, previousFrom: new Date(from.getTime() - days * DAY_MS), previousTo: from }
 }
 
 /** 1 сентября текущего учебного года (UTC). */

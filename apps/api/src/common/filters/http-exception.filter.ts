@@ -1,3 +1,4 @@
+import { scrubUrl } from '@studenthub/shared-config'
 import {
   ArgumentsHost,
   Catch,
@@ -23,6 +24,11 @@ import { captureException } from '../monitoring/sentry'
 import { clientVersionFrom } from '../logging/client-version'
 import { recordServerError } from '../monitoring/error-rate'
 import { REDIS_CLIENT } from '../redis/redis.constants'
+
+// Ожидаемые 5xx: состояние платформы, а не сбой кода. Техработы отвечают 503 на каждый
+// запрос — в трекере и счётчике всплеска они утопили бы настоящие ошибки и подняли бы
+// тревогу «Всплеск ошибок» на ровном месте (BACKEND_RULES §13.1).
+const EXPECTED_SERVER_CODES: ReadonlySet<ErrorCode> = new Set<ErrorCode>(['MAINTENANCE'])
 
 // Глобальный фильтр: любую ошибку приводит к контракту
 // { success:false, error:{ code, message, details? }, statusCode, timestamp, path }.
@@ -71,9 +77,17 @@ export class HttpExceptionFilter implements ExceptionFilter {
         code = mapped.code
         message = mapped.message
       }
+    } else if (isFastifyClientError(exception)) {
+      // Ошибки самого Fastify и его плагинов (`req.file()` не на multipart → 406, лимит
+      // частей → 413) несут свой 4xx: это отказ запросу, а не сбой сервера, и в трекер
+      // он идти не должен. Текст у них английский — отдаём свой.
+      status = exception.statusCode
+      code = errorCodeFromStatus(status)
+      message = fastifyErrorMessage(status)
     }
 
-    if (status >= HttpStatus.INTERNAL_SERVER_ERROR) {
+    const expected = exception instanceof AppException && EXPECTED_SERVER_CODES.has(code)
+    if (status >= HttpStatus.INTERNAL_SERVER_ERROR && !expected) {
       // Необработанное/серверное — логируем с полным контекстом (но не в ответ)
       // и отправляем в Sentry (Ф13.8). Порог тот же, что у лога: 5xx = наш баг,
       // 4xx = ожидаемый отказ, его в трекер не шлём (иначе шум от 401/403/404).
@@ -98,7 +112,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
       this.logger.error(
         {
           err: exception,
-          path: request.url,
+          path: scrubUrl(request.url),
           method: request.method,
           ...(eventId ? { sentryEventId: eventId } : {}),
         },
@@ -137,8 +151,40 @@ function mapPrismaError(
         code: 'BAD_REQUEST',
         message: 'Нарушение ссылочной целостности',
       }
+    case 'P2020': // value out of range for the type
+    case 'P2033': // number does not fit into a 64 bit signed integer
+      return {
+        status: HttpStatus.UNPROCESSABLE_ENTITY,
+        code: 'VALIDATION_ERROR',
+        message: 'Значение вне допустимого диапазона',
+      }
     default:
       return null
+  }
+}
+
+/** Ошибка Fastify или его плагина со статусом 4xx (`FST_*`, @fastify/error). */
+function isFastifyClientError(exception: unknown): exception is Error & { statusCode: number } {
+  if (!(exception instanceof Error)) return false
+  const { statusCode, code } = exception as Error & { statusCode?: unknown; code?: unknown }
+  return (
+    typeof statusCode === 'number' &&
+    statusCode >= 400 &&
+    statusCode < 500 &&
+    typeof code === 'string' &&
+    code.startsWith('FST_')
+  )
+}
+
+function fastifyErrorMessage(status: number): string {
+  switch (status) {
+    case HttpStatus.PAYLOAD_TOO_LARGE:
+      return 'Запрос слишком большой'
+    case HttpStatus.NOT_ACCEPTABLE:
+    case HttpStatus.UNSUPPORTED_MEDIA_TYPE:
+      return 'Неподдерживаемый формат запроса'
+    default:
+      return 'Некорректный запрос'
   }
 }
 

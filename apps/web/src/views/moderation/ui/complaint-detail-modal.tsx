@@ -5,18 +5,44 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useLocale, useTranslations } from 'next-intl'
 import type { ReactNode } from 'react'
+import { Role } from '@studenthub/shared-types'
 import {
   complaintKeys,
+  fetchComplaint,
   fetchComplaintMessages,
+  reopenComplaintRequest,
   resolveComplaintRequest,
+  takeComplaintRequest,
   type Complaint,
   complaintPriority,
   PRIORITY_STYLE,
   STATUS_STYLE,
 } from '../../../entities/complaint'
 import { ProfileLink } from '../../../entities/user'
-import { Badge, Button, Input, Label, Modal } from '../../../shared/ui'
+import {
+  Badge,
+  Button,
+  Checkbox,
+  Input,
+  Label,
+  Modal,
+  SegmentedTabs,
+  useConfirm,
+} from '../../../shared/ui'
+import { toApiError } from '../../../shared/lib'
+import { useAppSelector } from '../../../shared/store'
 import { cn } from '../../../shared/lib/utils'
+
+type Decision = 'DELETE_CONTENT' | 'BLOCK_USER' | 'WARN_USER' | 'DISMISS'
+
+// Срок блокировки: 0 — бессрочно. Три значения, а не поле ввода — как в мини-аппе: «7» и
+// «70» в поле различаются одним промахом, а цена промаха здесь — чужой доступ.
+const BLOCK_TERMS = [
+  { days: 0, key: 'blockForever' },
+  { days: 7, key: 'blockWeek' },
+  { days: 30, key: 'blockMonth' },
+] as const
+type BlockTerm = (typeof BLOCK_TERMS)[number]['days']
 
 /** Пара «подпись — значение» списка деталей. Все пары одной сетки, поэтому колонки ровные. */
 function Field({ label, children }: { label: string; children: ReactNode }) {
@@ -47,11 +73,29 @@ export function ComplaintDetailModal({
   const tErr = useTranslations('Errors')
   const locale = useLocale()
   const qc = useQueryClient()
+  const confirm = useConfirm()
+  const myId = useAppSelector((st) => st.auth.user?.id)
+  // Личную переписку по жалобе читают модераторы; админу вуза матрица (§2.2) открывает
+  // только официальные чаты — сервер ему эту ручку не отдаёт.
+  const canReadChat = useAppSelector((st) => st.auth.role) !== Role.UNIVERSITY_ADMIN
   const [comment, setComment] = useState('')
   const [showChat, setShowChat] = useState(false)
+  const [applyToDuplicates, setApplyToDuplicates] = useState(false)
+  const [blockDays, setBlockDays] = useState<BlockTerm>(0)
+  // Карточка целиком — с текстом обжалованного: строка очереди его не несёт. Она же — свежее
+  // состояние: строка, по которой окно открыли, после «Взять» устаревает, и кнопка оставалась.
+  const detail = useQuery({
+    queryKey: complaintKeys.detail(complaint.id),
+    queryFn: () => fetchComplaint(complaint.id),
+  })
+  const current: Complaint = detail.data ?? complaint
+  const preview = detail.data?.targetPreview ?? null
+  const reviewer = current.reviewingBy ?? null
+  const takenByOther = reviewer !== null && reviewer.id !== myId
 
-  const isOpen = complaint.status === 'PENDING' || complaint.status === 'REVIEWING'
-  const priorityValue = complaintPriority(complaint)
+  const isOpen = current.status === 'PENDING' || current.status === 'REVIEWING'
+  const priorityValue = complaintPriority(current)
+  const hasPreview = complaint.targetType !== 'MESSAGE' && complaint.targetType !== 'USER'
 
   const messages = useQuery({
     queryKey: complaintKeys.messages(complaint.id),
@@ -63,15 +107,64 @@ export function ComplaintDetailModal({
   })
 
   const resolveMut = useMutation({
-    mutationFn: (action: 'DELETE_CONTENT' | 'BLOCK_USER' | 'DISMISS') =>
-      resolveComplaintRequest(complaint.id, { action, comment: comment.trim() || undefined }),
+    mutationFn: (action: Decision) =>
+      resolveComplaintRequest(complaint.id, {
+        action,
+        comment: comment.trim() || undefined,
+        applyToDuplicates: applyToDuplicates || undefined,
+        blockDays: action === 'BLOCK_USER' && blockDays > 0 ? blockDays : undefined,
+      }),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: complaintKeys.all })
       toast.success(t('resolved'))
       onClose()
     },
-    onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
+    onError: (e) => toast.error(tErr(toApiError(e).code)),
   })
+
+  const takeMut = useMutation({
+    mutationFn: () => takeComplaintRequest(complaint.id),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: complaintKeys.all })
+      toast.success(t('taken'))
+    },
+    // CONFLICT — жалобу уже взял другой: сервер не даёт перехватить чужую.
+    onError: (e) => {
+      const code = toApiError(e).code
+      toast.error(code === 'CONFLICT' ? t('takenByOther') : tErr(code))
+    },
+  })
+
+  const reopenMut = useMutation({
+    mutationFn: () => reopenComplaintRequest(complaint.id),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: complaintKeys.all })
+      toast.success(t('reopened'))
+      onClose()
+    },
+    onError: (e) => toast.error(tErr(toApiError(e).code)),
+  })
+
+  // Жёсткие меры — через подтверждение: блокировка отключает человека от платформы,
+  // предупреждение уходит ему уведомлением и остаётся в истории модерации навсегда, а снятый
+  // контент возврат жалобы в очередь не возвращает.
+  async function decide(action: Decision): Promise<void> {
+    if (action !== 'DISMISS') {
+      const ok = await confirm({
+        title:
+          action === 'WARN_USER'
+            ? t('confirmWarn')
+            : action === 'DELETE_CONTENT'
+              ? t('confirmDeleteContent')
+              : blockDays === 0
+                ? t('confirmBlockForever')
+                : t('confirmBlockFor', { days: blockDays }),
+        destructive: action !== 'WARN_USER',
+      })
+      if (!ok) return
+    }
+    resolveMut.mutate(action)
+  }
 
   const pill = 'rounded-full px-2 py-0.5 text-xs font-medium'
 
@@ -92,8 +185,8 @@ export function ComplaintDetailModal({
             ) : (
               <Badge variant="outline">{t(`target${complaint.targetType}`)}</Badge>
             )}
-            <span className={cn(pill, STATUS_STYLE[complaint.status])}>
-              {t(`status${complaint.status}`)}
+            <span className={cn(pill, STATUS_STYLE[current.status])}>
+              {t(`status${current.status}`)}
             </span>
           </div>
           <h3 className="text-base font-semibold">{complaint.reason}</h3>
@@ -117,18 +210,23 @@ export function ComplaintDetailModal({
               minute: '2-digit',
             })}
           </Field>
+          {isOpen && (
+            <Field label={t('reviewingBy')}>
+              {reviewer ? `${reviewer.lastName} ${reviewer.firstName}` : t('notTaken')}
+            </Field>
+          )}
           {/* Вторая пара появляется только у обработанных жалоб — сетка остаётся ровной:
               либо две ячейки, либо четыре. */}
           {!isOpen && (
             <>
-              <Field label={t('resolution')}>{complaint.resolution ?? '—'}</Field>
+              <Field label={t('resolution')}>{current.resolution ?? '—'}</Field>
               <Field label={t('resolvedBy')}>
-                {complaint.resolvedBy ? (
+                {current.resolvedBy ? (
                   <ProfileLink
-                    userId={complaint.resolvedBy.id}
+                    userId={current.resolvedBy.id}
                     className="hover:text-primary hover:underline"
                   >
-                    {complaint.resolvedBy.lastName} {complaint.resolvedBy.firstName}
+                    {current.resolvedBy.lastName} {current.resolvedBy.firstName}
                   </ProfileLink>
                 ) : (
                   '—'
@@ -138,21 +236,58 @@ export function ComplaintDetailModal({
           )}
         </dl>
 
+        {/* Что именно обжаловано: без текста цели контент снимали вслепую. */}
+        {hasPreview && (
+          <section className="flex flex-col gap-2 rounded-xl border border-border p-3">
+            <h4 className="text-sm font-medium">{t('targetContentTitle')}</h4>
+            {detail.isLoading ? (
+              <p className="text-xs text-muted-foreground">{tCommon('loading')}</p>
+            ) : detail.isError ? (
+              <p className="text-xs text-muted-foreground">{tErr(toApiError(detail.error).code)}</p>
+            ) : preview === null ? (
+              <p className="text-xs text-muted-foreground">{t('targetContentGone')}</p>
+            ) : (
+              <>
+                {preview.deleted && (
+                  <p className="text-xs text-muted-foreground">{t('targetContentDeleted')}</p>
+                )}
+                {preview.title && <p className="text-sm font-medium">{preview.title}</p>}
+                {preview.text && (
+                  <p className="max-h-60 overflow-y-auto whitespace-pre-wrap break-words text-sm">
+                    {preview.text}
+                  </p>
+                )}
+                {preview.mediaCount > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    {t('targetContentMedia', { count: preview.mediaCount })}
+                  </p>
+                )}
+              </>
+            )}
+          </section>
+        )}
+
         {/* Доступ к переписке по жалобе на сообщение (открытие пишется в аудит на бэке). */}
         {complaint.targetType === 'MESSAGE' && (
           <section className="flex flex-col gap-2 rounded-xl border border-border p-3">
             <div className="flex items-center justify-between gap-3">
               <h4 className="text-sm font-medium">{t('chatTitle')}</h4>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => setShowChat((v) => !v)}
-              >
-                {showChat ? t('hideChat') : t('showChat')}
-              </Button>
+              {canReadChat && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowChat((v) => !v)}
+                >
+                  {showChat ? t('hideChat') : t('showChat')}
+                </Button>
+              )}
             </div>
-            {showChat &&
+            {!canReadChat && (
+              <p className="text-xs text-muted-foreground">{t('chatModeratorsOnly')}</p>
+            )}
+            {canReadChat &&
+              showChat &&
               (messages.isLoading ? (
                 <p className="text-xs text-muted-foreground">{t('loadingChat')}</p>
               ) : messages.isError ? (
@@ -180,14 +315,38 @@ export function ComplaintDetailModal({
         )}
 
         {isOpen && (
-          <section className="flex flex-col gap-1.5">
-            <Label htmlFor="complaint-comment">{t('commentLabel')}</Label>
-            <Input
-              id="complaint-comment"
-              value={comment}
-              onChange={(e) => setComment(e.target.value)}
-              placeholder={t('commentPlaceholder')}
-            />
+          <section className="flex flex-col gap-3">
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="complaint-comment">{t('commentLabel')}</Label>
+              <Input
+                id="complaint-comment"
+                value={comment}
+                onChange={(e) => setComment(e.target.value)}
+                placeholder={t('commentPlaceholder')}
+              />
+            </div>
+            {/* Десять жалоб на один пост — обычное дело; мера при этом выполняется один
+                раз, остальные жалобы просто получают тот же статус. */}
+            <label className="flex items-center gap-2 text-sm">
+              <Checkbox
+                checked={applyToDuplicates}
+                onCheckedChange={(v) => setApplyToDuplicates(v === true)}
+              />
+              {t('applyToDuplicates')}
+            </label>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-sm text-muted-foreground">{t('blockTerm')}</span>
+              <SegmentedTabs<`${BlockTerm}`>
+                aria-label={t('blockTerm')}
+                compact
+                value={`${blockDays}`}
+                onChange={(v) => setBlockDays(Number(v) as BlockTerm)}
+                items={BLOCK_TERMS.map((term) => ({
+                  value: `${term.days}` as `${BlockTerm}`,
+                  label: t(term.key),
+                }))}
+              />
+            </div>
           </section>
         )}
 
@@ -196,21 +355,42 @@ export function ComplaintDetailModal({
           <Button type="button" variant="outline" onClick={onClose}>
             {tCommon('close')}
           </Button>
-          {isOpen && (
+          {isOpen && takenByOther && (
+            <p className="text-sm text-muted-foreground">{t('takenByOtherHint')}</p>
+          )}
+          {isOpen && !takenByOther && (
             <div className="flex flex-wrap justify-end gap-2">
+              {reviewer === null && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  loading={takeMut.isPending}
+                  onClick={() => takeMut.mutate()}
+                >
+                  {t('take')}
+                </Button>
+              )}
               <Button
                 type="button"
                 loading={resolveMut.isPending && resolveMut.variables === 'DISMISS'}
-                onClick={() => resolveMut.mutate('DISMISS')}
+                onClick={() => void decide('DISMISS')}
               >
                 {t('dismiss')}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                loading={resolveMut.isPending && resolveMut.variables === 'WARN_USER'}
+                onClick={() => void decide('WARN_USER')}
+              >
+                {t('warnUser')}
               </Button>
               {complaint.targetType !== 'USER' && (
                 <Button
                   type="button"
                   variant="destructive"
                   loading={resolveMut.isPending && resolveMut.variables === 'DELETE_CONTENT'}
-                  onClick={() => resolveMut.mutate('DELETE_CONTENT')}
+                  onClick={() => void decide('DELETE_CONTENT')}
                 >
                   {t('deleteContent')}
                 </Button>
@@ -219,11 +399,21 @@ export function ComplaintDetailModal({
                 type="button"
                 variant="destructive"
                 loading={resolveMut.isPending && resolveMut.variables === 'BLOCK_USER'}
-                onClick={() => resolveMut.mutate('BLOCK_USER')}
+                onClick={() => void decide('BLOCK_USER')}
               >
-                {t('blockUser')}
+                {blockDays === 0 ? t('blockUser') : t('blockUserFor', { days: blockDays })}
               </Button>
             </div>
+          )}
+          {!isOpen && (
+            <Button
+              type="button"
+              variant="outline"
+              loading={reopenMut.isPending}
+              onClick={() => reopenMut.mutate()}
+            >
+              {t('reopen')}
+            </Button>
           )}
         </footer>
       </div>

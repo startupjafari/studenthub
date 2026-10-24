@@ -16,6 +16,41 @@ export const ROLE_HOME: Record<Role, string> = {
   // Работодатель живёт только в карьерном продукте: разделов платформы (лента,
   // расписание, документы вуза) у него нет вовсе.
   [Role.EMPLOYER]: '/employer',
+  // Охрана вуза — свой раздел: сканер, проверка студенческого, помещения, камеры.
+  [Role.SECURITY_GUARD]: '/security',
+  // Библиотекарь — свой раздел: каталог, выдача и возврат книг (Фаза 20).
+  [Role.LIBRARIAN]: '/library',
+}
+
+/**
+ * Куда пускать роли с запретом по умолчанию (`RESTRICTED_ROLES`, docs/PROJECT.md §2) — тот
+ * же принцип «разрешено только по списку», что у RestrictedRoleGuard на сервере. Остальные
+ * экраны платформы им не нужны, а открытые прямой ссылкой показали бы стену ошибок `403`:
+ * middleware ведёт на главную роли. Сканер, проверка студенческого, свой профиль и настройки
+ * живут в общей группе `(student)`, поэтому перечислены здесь, а не закрыты одним префиксом.
+ */
+const ACCOUNT_PATHS = ['/settings', '/setup-2fa', '/qr'] as const
+
+/**
+ * Свой профиль — только ровно `/profile`: `/profile/<id>` — чужой, а чужие профили этим
+ * ролям сервер не отдаёт. Поэтому путь сравнивается целиком, а не как префикс.
+ */
+const RESTRICTED_EXACT_PATHS = ['/profile'] as const
+
+const RESTRICTED_ROLE_PATHS: Partial<Record<Role, readonly string[]>> = {
+  // Подтверждение входа на компьютере по QR (`/qr?t=`) и страница помещения (`/r/<код>`).
+  [Role.SECURITY_GUARD]: ['/security', '/scan', '/verify-id', '/r', ...ACCOUNT_PATHS],
+  // Сканер — для входа на компьютере и наклеек книг (`/c/<код>`); удостоверения читателей
+  // добавит выдача книг (20.4).
+  [Role.LIBRARIAN]: ['/library', '/scan', '/c', ...ACCOUNT_PATHS],
+}
+
+/** Можно ли роли с запретом по умолчанию открыть этот путь. Остальным ролям — всегда да. */
+export function isRestrictedRolePath(role: Role, pathname: string): boolean {
+  const paths = RESTRICTED_ROLE_PATHS[role]
+  if (!paths) return true
+  if ((RESTRICTED_EXACT_PATHS as readonly string[]).includes(pathname)) return true
+  return paths.some((p) => pathname === p || pathname.startsWith(`${p}/`))
 }
 
 // Юридические документы — отдельные публичные страницы, а не модалка: на них ссылаются

@@ -50,7 +50,17 @@ function statusMeta(status: string | null): { tone: StatusTone; raw: string | nu
 
 // Визуальная «карта» цифрового студенческого: шапка вуза, фото, ФИО, статус и реквизиты.
 // Используется и на своей карте, и в результате верификации сотрудником. Пустые поля скрываются.
-export function StudentIdCardFace({ card, footer }: { card: Card; footer?: ReactNode }) {
+// `selfDeclared` — поля, которые вуз не проверял (их студент заполнил сам): в результате
+// проверки они помечаются «со слов студента», чтобы сотрудник не принял их за данные вуза.
+export function StudentIdCardFace({
+  card,
+  footer,
+  selfDeclared,
+}: {
+  card: Card
+  footer?: ReactNode
+  selfDeclared?: readonly string[]
+}) {
   const t = useTranslations('StudentId')
   const locale = useLocale()
   const fullName = [card.lastName, card.firstName, card.middleName].filter(Boolean).join(' ')
@@ -67,7 +77,7 @@ export function StudentIdCardFace({ card, footer }: { card: Card; footer?: React
   // Реквизиты: только заполненные поля (без «—»). Длинные названия — на всю ширину и с
   // переносом; порядок повторяет бумажный билет: где учится → что изучает → на каких
   // условиях → кто он по документам.
-  const rows: { label: string; value: string; wide?: boolean; mono?: boolean }[] = []
+  const rows: { label: string; value: string; wide?: boolean; mono?: boolean; note?: string }[] = []
   if (card.university) rows.push({ label: t('university'), value: card.university, wide: true })
   if (card.faculty) rows.push({ label: t('faculty'), value: card.faculty, wide: true })
   if (card.specialty) rows.push({ label: t('specialty'), value: card.specialty, wide: true })
@@ -83,6 +93,7 @@ export function StudentIdCardFace({ card, footer }: { card: Card; footer?: React
     rows.push({
       label: t('birthDate'),
       value: new Date(card.birthDate).toLocaleDateString(locale),
+      note: selfDeclared?.includes('birthDate') ? t('selfDeclared') : undefined,
     })
   }
   if (card.enrollmentYear)
@@ -155,6 +166,7 @@ export function StudentIdCardFace({ card, footer }: { card: Card; footer?: React
                   >
                     {r.value}
                   </dd>
+                  {r.note && <dd className="text-[11px] text-muted-foreground">{r.note}</dd>}
                 </div>
               ))}
             </dl>

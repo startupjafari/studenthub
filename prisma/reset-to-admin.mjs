@@ -1,4 +1,4 @@
-// Полный сброс БД: все таблицы пустые, остаётся один PLATFORM_ADMIN.
+// Полный сброс БД: все таблицы пустые, остаётся один PLATFORM_ADMIN и каталог услуг.
 //
 // Зачем отдельно от seed: seed наливает демо-данные, а здесь нужно обратное — чистый
 // стенд перед реальным наполнением (вузы, инвайты, живые пользователи). Схема и журнал
@@ -13,12 +13,15 @@
 //   RESET_CONFIRM         обязательно строка RESET — защита от случайного запуска
 //   RESET_ALLOW_REMOTE=1  разрешить работу с нелокальной БД (иначе отказ)
 //   RESET_ADMIN_EMAIL     e-mail админа (по умолчанию admin@studenthub.app)
-//   RESET_ADMIN_PASSWORD  пароль; если не задан (или пустой) — генерируется и печатается
+//   RESET_ADMIN_PASSWORD  пароль; если не задан (или пустой) — генерируется и печатается.
+//                         В GitHub Actions обязателен: печатать пароль в лог нельзя
 import { randomInt } from 'node:crypto'
 import { PrismaClient } from '@prisma/client'
 import bcrypt from 'bcrypt'
 import { isLocalDatabase } from './seed/config.mjs'
 import { loadEnv } from './seed/lib/env.mjs'
+import { assertCanPrintPassword } from './seed/lib/seed-password.mjs'
+import { seedServiceCatalog } from './seed/steps/05-service-catalog.mjs'
 
 // DATABASE_URL живёт в apps/api/.env, а простой `node` его не читает: .env подхватывает
 // только Prisma CLI через prisma.config.ts (та же причина, что в prisma/seed-test.mjs).
@@ -88,6 +91,8 @@ async function main() {
   // вместе с ним.
   const fromEnv = process.env.RESET_ADMIN_PASSWORD?.trim()
   const generated = !fromEnv
+  // До TRUNCATE: отказ после очистки оставил бы базу вовсе без администратора.
+  if (generated) assertCanPrintPassword('RESET_ADMIN_PASSWORD')
   const password = fromEnv || generatePassword()
 
   console.log(`Сброс БД ${describeDatabase(databaseUrl)}${remote ? ' (удалённая)' : ''}`)
@@ -122,7 +127,13 @@ async function main() {
       },
     })
 
-    console.log('\nГотово. В базе один пользователь:')
+    // Каталог услуг — справочник платформы, а не данные вуза: категории создаются только
+    // сидом (через интерфейс админ каталога заводит услуги, но не категории), и после
+    // голого TRUNCATE завести ни одну услугу было бы нельзя. Шаг идемпотентный (upsert
+    // по фиксированным id), демо-данных не несёт — тот же, что у основного сида.
+    await seedServiceCatalog(prisma)
+
+    console.log('\nГотово. Каталог услуг восстановлен, в базе один пользователь:')
     console.log(`  e-mail: ${email}`)
     if (generated) {
       // Рамка — чтобы пароль не потерялся среди строк прогона: в базе лежит только

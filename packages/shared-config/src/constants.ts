@@ -78,7 +78,9 @@ export const FILE_UPLOAD = {
       'application/vnd.openxmlformats-officedocument.presentationml.presentation',
     ],
     // Голосовые/аудио-вложения чата (Ф9+). webm-контейнер file-type определяет как video/webm.
-    AUDIO: ['audio/mpeg', 'audio/ogg', 'audio/wav', 'audio/webm'],
+    // AAC в MP4-контейнере: iOS пишет голосовые в .m4a (file-type: `ftyp M4A ` → audio/x-m4a),
+    // аудиокниги и Flash-аудио file-type называет audio/mp4.
+    AUDIO: ['audio/mpeg', 'audio/ogg', 'audio/wav', 'audio/webm', 'audio/x-m4a', 'audio/mp4'],
     // Архивы — так их называет file-type по magic bytes. DOCX/XLSX/PPTX внутри тоже zip, но
     // детектор узнаёт их по содержимому и относит к документам, а не сюда.
     ARCHIVE: [
@@ -101,6 +103,29 @@ export const FILE_UPLOAD = {
 } as const
 
 export type FileCategory = keyof typeof FILE_UPLOAD.MAX_BYTES
+
+/**
+ * Квота медиа профиля на пользователя: фото и видео вкладок профиля (бакет profile-media,
+ * публичный). Лимиты категории в FILE_UPLOAD ограничивают один файл, а не сумму: без квоты
+ * один аккаунт мог залить в публичный бакет сколько угодно роликов.
+ *
+ * Сервер проверяет квоту на загрузке, presign и подтверждении прямой загрузки (409 CONFLICT
+ * с `details[0].field = 'profileMediaQuota'`), клиент — до отправки, по уже загруженному.
+ */
+export const PROFILE_MEDIA_QUOTA = {
+  /**
+   * Файлов на пользователя. Равен потолку списка медиа профиля (PROFILE_LIST_LIMITS.media в
+   * shared-schemas): список отдаётся без страниц, и сверх потолка загруженное не видно во
+   * вкладке — его нельзя ни посмотреть, ни удалить из интерфейса. Поднимать вместе со
+   * страничной выдачей списка.
+   */
+  MAX_FILES: 300,
+  /** Суммарный объём файлов пользователя, байты (обложки видео не считаются). */
+  MAX_BYTES: 2 * 1024 * 1024 * 1024,
+} as const
+
+/** Поле `details` ответа 409, по которому клиент узнаёт превышение квоты медиа профиля. */
+export const PROFILE_MEDIA_QUOTA_FIELD = 'profileMediaQuota'
 
 /** Быстрый набор эмодзи-реакций для сообщений чата (Ф9+). Единый для бэка (валидация UI) и фронта. */
 export const CHAT_REACTION_EMOJIS = ['👍', '❤️', '😂', '🎉', '😮', '😢', '🔥', '👀'] as const

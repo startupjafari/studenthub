@@ -4,8 +4,16 @@ import { useState } from 'react'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useLocale, useTranslations } from 'next-intl'
-import { Ban, Download, ShieldCheck, Users as UsersIcon } from 'lucide-react'
-import { Role } from '@studenthub/shared-types'
+import {
+  Ban,
+  Download,
+  GraduationCap,
+  KeyRound,
+  LogOut,
+  ShieldCheck,
+  Users as UsersIcon,
+} from 'lucide-react'
+import { Role, isHigherRole } from '@studenthub/shared-types'
 import { ADMIN_PAGE_SIZES, type UserSortValue } from '@studenthub/shared-schemas'
 import { useAppSelector } from '../../../shared/store'
 import { saveFile, useMediaQuery } from '../../../shared/lib'
@@ -13,17 +21,32 @@ import {
   adminUserKeys,
   blockUserRequest,
   exportUsers,
+  fetchMe,
   fetchUsers,
   ProfileLink,
+  resetUserTwoFactorRequest,
+  revokeUserSessionsRequest,
   unblockUserRequest,
+  userKeys,
+  type AdminUser,
 } from '../../../entities/user'
+import { AcademicRecordModal } from '../../../features/edit-academic-record'
 import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
   Badge,
   Button,
   Card,
   EmptyState,
   Input,
+  Label,
   PageHeader,
+  SegmentedTabs,
   Select,
   SelectContent,
   SelectItem,
@@ -49,19 +72,32 @@ interface UsersTableProps {
   showRoleFilter?: boolean
 }
 
-const FILTER_ROLES: Role[] = [
+// Роли вуза — их фильтр есть у всех, кому список доступен.
+const UNIVERSITY_FILTER_ROLES: Role[] = [
   Role.UNIVERSITY_ADMIN,
   Role.UNIVERSITY_MODERATOR,
   Role.DEAN,
   Role.TEACHER,
   Role.STAROSTA,
   Role.STUDENT,
+  Role.SECURITY_GUARD,
+  Role.LIBRARIAN,
 ]
+// Платформа видит всех (UserService.listScope), в том числе людей вне вузов: своих админов
+// и модераторов и работодателей. Вузу эти роли в фильтре не нужны — в его выборке их нет.
+const PLATFORM_FILTER_ROLES: Role[] = [
+  Role.PLATFORM_ADMIN,
+  Role.PLATFORM_MODERATOR,
+  ...UNIVERSITY_FILTER_ROLES,
+  Role.EMPLOYER,
+]
+const PLATFORM_VIEWERS: Role[] = [Role.PLATFORM_ADMIN, Role.PLATFORM_MODERATOR]
 // Варианты размера страницы — те же, что разрешает серверная схема (предел 200).
 const PAGE_SIZES = ADMIN_PAGE_SIZES
-// Ширины колонок: имя · email · роль · статус · действие (последняя — только тем,
-// кто может блокировать; без неё берём первые четыре).
-const COLS = ['26%', '30%', '18%', '14%', '12%'] as const
+// Ширины колонок: имя · email · роль · статус · действия (последняя — только тем,
+// кто может блокировать; без неё берём первые четыре). Действий в строке до четырёх
+// (учёба, сброс 2FA, сессии, блокировка с подписью) — колонка под них шире прочих служебных.
+const COLS = ['24%', '26%', '16%', '14%', '20%'] as const
 // До `md` почта и роль не показываются: пять колонок на 375px дают по 15–23px каждая, и
 // таблица превращается в столбик многоточий (DESIGN_SYSTEM §15 — на мобильном таблица
 // становится списком строк, а не сжимается). Остаются имя, статус и действие.
@@ -73,6 +109,18 @@ const CAN_BLOCK: Role[] = [
   Role.UNIVERSITY_ADMIN,
   Role.UNIVERSITY_MODERATOR,
 ]
+// Учебные данные студента (курс, форма оплаты, статус) ведёт вуз: декан — своего
+// факультета, админ — своего вуза. Сервер проверяет область сам.
+const CAN_EDIT_ACADEMIC: Role[] = [Role.DEAN, Role.UNIVERSITY_ADMIN]
+const STUDENT_ROLES: Role[] = [Role.STUDENT, Role.STAROSTA]
+// Срок блокировки: 0 — бессрочно. Три значения, а не поле ввода — как в разборе жалоб и
+// мини-аппе: «7» и «70» в поле различаются одним промахом, а цена промаха — чужой доступ.
+const BLOCK_TERMS = [
+  { days: 0, key: 'blockForever' },
+  { days: 7, key: 'blockWeek' },
+  { days: 30, key: 'blockMonth' },
+] as const
+type BlockTerm = (typeof BLOCK_TERMS)[number]['days']
 
 export function UsersTable({ title, subtitle, role, showRoleFilter = false }: UsersTableProps) {
   const t = useTranslations('Users')
@@ -83,6 +131,17 @@ export function UsersTable({ title, subtitle, role, showRoleFilter = false }: Us
   const qc = useQueryClient()
   const viewerRole = useAppSelector((s) => s.auth.role)
   const canBlock = viewerRole !== null && CAN_BLOCK.includes(viewerRole)
+  const canEditAcademic = viewerRole !== null && CAN_EDIT_ACADEMIC.includes(viewerRole)
+  const hasActions = canBlock || canEditAcademic
+  const filterRoles =
+    viewerRole !== null && PLATFORM_VIEWERS.includes(viewerRole)
+      ? PLATFORM_FILTER_ROLES
+      : UNIVERSITY_FILTER_ROLES
+  const [academicFor, setAcademicFor] = useState<string | null>(null)
+  const [resetTfaFor, setResetTfaFor] = useState<AdminUser | null>(null)
+  // Блокировка гасит все сессии человека — только через диалог со сроком, не одним кликом.
+  const [blockFor, setBlockFor] = useState<AdminUser | null>(null)
+  const [sessionsFor, setSessionsFor] = useState<AdminUser | null>(null)
   // `md` — та же граница, на которой в проекте прячут второстепенные колонки таблиц
   // (`hidden md:table-cell` в комнатах, документах, курсах).
   const isWide = useMediaQuery('(min-width: 768px)')
@@ -96,9 +155,12 @@ export function UsersTable({ title, subtitle, role, showRoleFilter = false }: Us
   const { sort, toggle } = useSortState()
 
   const effectiveRole = role ?? (roleFilter === 'all' ? undefined : roleFilter)
+  // Поле хранит ввод как есть, обрезается только запрос: trim прямо в onChange съедал
+  // пробел, едва его набирали, и имя с фамилией было не ввести.
+  const searchQuery = search.trim()
   const filters = {
     ...(effectiveRole ? { role: effectiveRole } : {}),
-    ...(search ? { search } : {}),
+    ...(searchQuery ? { search: searchQuery } : {}),
     ...(sort ? { sort: sort.key as UserSortValue, order: sort.dir } : {}),
   }
   const query = { ...filters, page, limit }
@@ -121,9 +183,9 @@ export function UsersTable({ title, subtitle, role, showRoleFilter = false }: Us
   }
   const sortBy = (key: string): void => refilter(() => toggle(key))
 
+  // Разблокировка — сразу по кнопке: она ничего не отбирает. Блокировка — в BlockUserDialog.
   const blockMut = useMutation({
-    mutationFn: ({ id, blocked }: { id: string; blocked: boolean }) =>
-      blocked ? unblockUserRequest(id) : blockUserRequest(id),
+    mutationFn: ({ id }: { id: string }) => unblockUserRequest(id),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: adminUserKeys.all })
       toast.success(t('updated'))
@@ -152,7 +214,7 @@ export function UsersTable({ title, subtitle, role, showRoleFilter = false }: Us
           <>
             <Input
               value={search}
-              onChange={(e) => refilter(() => setSearch(e.target.value.trim()))}
+              onChange={(e) => refilter(() => setSearch(e.target.value))}
               placeholder={t('searchPlaceholder')}
               size="md"
               className="w-40 sm:w-56"
@@ -162,12 +224,12 @@ export function UsersTable({ title, subtitle, role, showRoleFilter = false }: Us
                 value={roleFilter}
                 onValueChange={(v) => refilter(() => setRoleFilter(v as Role | 'all'))}
               >
-                <SelectTrigger size="md" className="w-36 sm:w-44">
+                <SelectTrigger size="md" className="w-36 sm:w-44" aria-label={t('colRole')}>
                   <SelectValue placeholder={t('allRoles')} />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">{t('allRoles')}</SelectItem>
-                  {FILTER_ROLES.map((r) => (
+                  {filterRoles.map((r) => (
                     <SelectItem key={r} value={r}>
                       {tRoles(r)}
                     </SelectItem>
@@ -203,10 +265,10 @@ export function UsersTable({ title, subtitle, role, showRoleFilter = false }: Us
             fill
             cols={
               isWide
-                ? canBlock
+                ? hasActions
                   ? COLS
                   : COLS.slice(0, 4)
-                : canBlock
+                : hasActions
                   ? COLS_NARROW
                   : COLS_NARROW_READONLY
             }
@@ -229,12 +291,12 @@ export function UsersTable({ title, subtitle, role, showRoleFilter = false }: Us
                 <TableHead sortKey="blocked" sort={sort} onSort={sortBy}>
                   {t('colStatus')}
                 </TableHead>
-                {canBlock && <TableHead />}
+                {hasActions && <TableHead />}
               </TableRow>
             </TableHeader>
             <TableBody>
               {users.isLoading && (
-                <TableSkeletonRows columns={(isWide ? 4 : 2) + (canBlock ? 1 : 0)} />
+                <TableSkeletonRows columns={(isWide ? 4 : 2) + (hasActions ? 1 : 0)} />
               )}
               {rows.map((u) => (
                 <TableRow key={u.id}>
@@ -267,31 +329,80 @@ export function UsersTable({ title, subtitle, role, showRoleFilter = false }: Us
                       <span className="text-xs text-muted-foreground">{t('active')}</span>
                     )}
                   </TableCell>
-                  {canBlock && (
+                  {hasActions && (
                     <TableCell className="text-right">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        loading={blockMut.isPending && blockMut.variables?.id === u.id}
-                        onClick={() => blockMut.mutate({ id: u.id, blocked: u.isBlocked })}
-                        className={u.isBlocked ? 'text-success' : 'text-destructive'}
-                        // До `md` подпись не влезает в колонку и обрезается на полуслове —
-                        // остаётся иконка, а название действия уходит в доступное имя.
-                        aria-label={isWide ? undefined : u.isBlocked ? t('unblock') : t('block')}
-                      >
-                        {u.isBlocked ? (
-                          <>
-                            <ShieldCheck className="size-4" aria-hidden />
-                            {isWide && t('unblock')}
-                          </>
-                        ) : (
-                          <>
-                            <Ban className="size-4" aria-hidden />
-                            {isWide && t('block')}
-                          </>
+                      {canEditAcademic && STUDENT_ROLES.includes(u.role) && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setAcademicFor(u.id)}
+                          aria-label={t('academicAction')}
+                          title={t('academicAction')}
+                        >
+                          <GraduationCap className="size-4" aria-hidden />
+                        </Button>
+                      )}
+                      {/* Сброс 2FA — тому, кто потерял аутентификатор: только у кого она
+                          включена и только строго младшему по роли (сервер так же). */}
+                      {canBlock &&
+                        viewerRole &&
+                        isHigherRole(viewerRole, u.role) &&
+                        u.twoFactorEnabled && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setResetTfaFor(u)}
+                            aria-label={t('resetTwoFactor')}
+                            title={t('resetTwoFactor')}
+                          >
+                            <KeyRound className="size-4" aria-hidden />
+                          </Button>
                         )}
-                      </Button>
+                      {/* Завершить сессии — угнанному аккаунту: чужой вылетает, а доступ
+                          хозяина остаётся (блокировка наказала бы пострадавшего). */}
+                      {canBlock && viewerRole && isHigherRole(viewerRole, u.role) && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setSessionsFor(u)}
+                          aria-label={t('endSessions')}
+                          title={t('endSessions')}
+                        >
+                          <LogOut className="size-4" aria-hidden />
+                        </Button>
+                      )}
+                      {/* Блокировать можно только того, кто ниже по роли (сервер так же):
+                          себя, равного и старшего — кнопки нет. */}
+                      {canBlock && viewerRole && isHigherRole(viewerRole, u.role) && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          loading={blockMut.isPending && blockMut.variables?.id === u.id}
+                          onClick={() =>
+                            u.isBlocked ? blockMut.mutate({ id: u.id }) : setBlockFor(u)
+                          }
+                          className={u.isBlocked ? 'text-success' : 'text-destructive'}
+                          // До `md` подпись не влезает в колонку и обрезается на полуслове —
+                          // остаётся иконка, а название действия уходит в доступное имя.
+                          aria-label={isWide ? undefined : u.isBlocked ? t('unblock') : t('block')}
+                        >
+                          {u.isBlocked ? (
+                            <>
+                              <ShieldCheck className="size-4" aria-hidden />
+                              {isWide && t('unblock')}
+                            </>
+                          ) : (
+                            <>
+                              <Ban className="size-4" aria-hidden />
+                              {isWide && t('block')}
+                            </>
+                          )}
+                        </Button>
+                      )}
                     </TableCell>
                   )}
                 </TableRow>
@@ -310,6 +421,210 @@ export function UsersTable({ title, subtitle, role, showRoleFilter = false }: Us
           />
         </Card>
       )}
+      {academicFor && (
+        <AcademicRecordModal userId={academicFor} onClose={() => setAcademicFor(null)} />
+      )}
+      {resetTfaFor && (
+        <ResetTwoFactorDialog user={resetTfaFor} onClose={() => setResetTfaFor(null)} />
+      )}
+      {blockFor && <BlockUserDialog user={blockFor} onClose={() => setBlockFor(null)} />}
+      {sessionsFor && <EndSessionsDialog user={sessionsFor} onClose={() => setSessionsFor(null)} />}
     </div>
+  )
+}
+
+/**
+ * Блокировка с выбором срока. Она мгновенно гасит все сессии человека, и в таблице её
+ * делал промах по иконке; срок (временная блокировка снимается сама) в вебе был недоступен.
+ */
+function BlockUserDialog({ user, onClose }: { user: AdminUser; onClose: () => void }) {
+  const t = useTranslations('Users')
+  const tMod = useTranslations('Moderation')
+  const tErr = useTranslations('Errors')
+  const tCommon = useTranslations('Common')
+  const qc = useQueryClient()
+  const [days, setDays] = useState<BlockTerm>(0)
+
+  const block = useMutation({
+    mutationFn: () => blockUserRequest(user.id, days > 0 ? days : undefined),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: adminUserKeys.all })
+      toast.success(t('updated'))
+      onClose()
+    },
+    onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
+  })
+
+  return (
+    <AlertDialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose()
+      }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>
+            {t('blockTitle', { name: `${user.lastName} ${user.firstName}` })}
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            {days === 0 ? tMod('confirmBlockForever') : tMod('confirmBlockFor', { days })}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-sm text-muted-foreground">{tMod('blockTerm')}</span>
+          <SegmentedTabs<`${BlockTerm}`>
+            aria-label={tMod('blockTerm')}
+            compact
+            value={`${days}`}
+            onChange={(v) => setDays(Number(v) as BlockTerm)}
+            items={BLOCK_TERMS.map((term) => ({
+              value: `${term.days}` as `${BlockTerm}`,
+              label: tMod(term.key),
+            }))}
+          />
+        </div>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={block.isPending}>{tCommon('cancel')}</AlertDialogCancel>
+          <Button
+            type="button"
+            variant="destructive"
+            loading={block.isPending}
+            onClick={() => block.mutate()}
+          >
+            <Ban className="size-4" aria-hidden />
+            {days === 0 ? tMod('blockUser') : tMod('blockUserFor', { days })}
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
+}
+
+/** Завершение всех сессий человека — с подтверждением, как и остальные меры в строке. */
+function EndSessionsDialog({ user, onClose }: { user: AdminUser; onClose: () => void }) {
+  const t = useTranslations('Users')
+  const tErr = useTranslations('Errors')
+  const tCommon = useTranslations('Common')
+
+  const revoke = useMutation({
+    mutationFn: () => revokeUserSessionsRequest(user.id),
+    onSuccess: () => {
+      toast.success(t('endSessionsDone'))
+      onClose()
+    },
+    onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
+  })
+
+  return (
+    <AlertDialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose()
+      }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{t('endSessions')}</AlertDialogTitle>
+          <AlertDialogDescription>
+            {t('endSessionsDesc', { name: `${user.lastName} ${user.firstName}` })}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={revoke.isPending}>{tCommon('cancel')}</AlertDialogCancel>
+          <Button
+            type="button"
+            variant="destructive"
+            loading={revoke.isPending}
+            onClick={() => revoke.mutate()}
+          >
+            <LogOut className="size-4" aria-hidden />
+            {t('endSessionsConfirm')}
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
+}
+
+/**
+ * Сброс 2FA человеку, потерявшему аутентификатор и резервные коды. Подтверждается кодом
+ * СВОЕГО второго фактора: сервер без него сброс не выполнит, а без включённой 2FA у самого
+ * администратора — откажет, поэтому в этом случае поле кода не показываем вовсе.
+ */
+function ResetTwoFactorDialog({ user, onClose }: { user: AdminUser; onClose: () => void }) {
+  const t = useTranslations('Users')
+  const tErr = useTranslations('Errors')
+  const tCommon = useTranslations('Common')
+  const qc = useQueryClient()
+  const me = useQuery({ queryKey: userKeys.me(), queryFn: fetchMe })
+  const [code, setCode] = useState('')
+  const ownTfa = me.data?.twoFactorEnabled === true
+
+  const reset = useMutation({
+    mutationFn: () => resetUserTwoFactorRequest(user.id, code.trim()),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: adminUserKeys.all })
+      toast.success(t('resetTwoFactorDone'))
+      onClose()
+    },
+    onError: (e) => {
+      setCode('')
+      toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR'))
+    },
+  })
+
+  return (
+    <AlertDialog
+      open
+      onOpenChange={(open) => {
+        if (!open) onClose()
+      }}
+    >
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{t('resetTwoFactor')}</AlertDialogTitle>
+          <AlertDialogDescription>
+            {t('resetTwoFactorDesc', { name: `${user.lastName} ${user.firstName}` })}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        {me.data && !ownTfa ? (
+          <p className="text-sm text-muted-foreground">{t('resetTwoFactorNeedOwn')}</p>
+        ) : (
+          <form
+            id="reset-2fa-form"
+            className="flex flex-col gap-2"
+            onSubmit={(e) => {
+              e.preventDefault()
+              if (code.trim()) reset.mutate()
+            }}
+          >
+            <Label htmlFor="reset-2fa-code">{t('resetTwoFactorCode')}</Label>
+            <Input
+              id="reset-2fa-code"
+              autoComplete="one-time-code"
+              placeholder="123456"
+              value={code}
+              onChange={(e) => setCode(e.target.value)}
+              autoFocus
+            />
+          </form>
+        )}
+        <AlertDialogFooter>
+          <AlertDialogCancel>{tCommon('cancel')}</AlertDialogCancel>
+          {ownTfa && (
+            <Button
+              type="submit"
+              form="reset-2fa-form"
+              variant="destructive"
+              loading={reset.isPending}
+              disabled={!code.trim()}
+            >
+              {t('resetTwoFactorConfirm')}
+            </Button>
+          )}
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   )
 }

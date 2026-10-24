@@ -1,0 +1,122 @@
+# Стенд «IP-камеры вуза» для разработки модуля камер без железа (docker/camera-sim/README.md).
+#
+# Две сети, как в жизни:
+#   campus — внутренняя сеть вуза (internal: выхода наружу нет, с хоста не видна). В ней
+#            регистратор с камерами; сюда же подключается наш агент — и только он.
+#   edge   — обычная сеть Docker: через неё с хоста доступны лишь вход веб-камеры (ingest)
+#            и пульт сетевых помех (API Toxiproxy). Сам регистратор на edge не торчит.
+#
+# Порты — только на 127.0.0.1, как в dev-стеке (docker/dev): это стенд разработчика.
+
+name: studenthub-cameras
+
+services:
+  # Регистратор: 3 канала × 2 потока, RTSP :554 с digest-авторизацией (nvr.yml).
+  nvr:
+    image: bluenviron/mediamtx:1.21.2-ffmpeg
+    restart: unless-stopped
+    environment:
+      MTX_AUTHINTERNALUSERS_1_PASS: ${CAM_PASSWORD:-Camera12345}
+    volumes:
+      - ./nvr.yml:/mediamtx.yml:ro
+    networks:
+      campus:
+        ipv4_address: 10.77.0.10
+
+  # Вход веб-камеры (канал 1): webcam.ps1 публикует сюда с Windows (ingest.yml).
+  ingest:
+    image: bluenviron/mediamtx:1.21.2-ffmpeg
+    restart: unless-stopped
+    environment:
+      MTX_AUTHINTERNALUSERS_0_PASS: ${WEBCAM_PUBLISH_PASSWORD:-webcam-dev}
+    ports:
+      - '127.0.0.1:${WEBCAM_PUBLISH_PORT:-18554}:8554'
+    volumes:
+      - ./ingest.yml:/mediamtx.yml:ro
+    networks:
+      campus:
+        ipv4_address: 10.77.0.20
+      edge: {}
+
+  # Плохая сеть между агентом и регистратором: задержки, потолок скорости, обрывы.
+  # Агент, подключённый к bad-network:554, идёт через неё; к nvr:554 — напрямую.
+  # Помехи включаются через API на 127.0.0.1:8474 (примеры — в README).
+  bad-network:
+    image: ghcr.io/shopify/toxiproxy:2.13.0
+    command: ['-host=0.0.0.0', '-config=/toxiproxy.json']
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:${TOXIPROXY_API_PORT:-8474}:8474'
+    volumes:
+      - ./toxiproxy.json:/toxiproxy.json:ro
+    networks:
+      campus:
+        ipv4_address: 10.77.0.30
+      edge: {}
+
+  # ONVIF-устройство поверх канала 2, профиль onvif. Сеть edge нужна самому эмулятору:
+  # без XSD-схем с www.onvif.org он отвечает 500 (README, «ONVIF»).
+  onvif:
+    profiles: ['onvif']
+    # У проекта есть только тег latest — закрепляем сборку по digest (октябрь 2024).
+    image: ghcr.io/daniela-hase/onvif-server@sha256:22cb34ce3707c12db4a49f29b1432437833d553fa723cdcb268a8e9f5522cd96
+    restart: unless-stopped
+    volumes:
+      - ./onvif.yaml:/onvif.yaml:ro
+    # MAC обязан совпадать с `mac` в onvif.yaml: по нему сервер выбирает интерфейс.
+    mac_address: 02:42:0a:4d:00:28
+    networks:
+      campus:
+        ipv4_address: 10.77.0.40
+      edge: {}
+
+  # Агент StudentHub внутри сети кампуса (apps/camera-agent) — как его поставят в вузе.
+  # Видит регистратор, наружу ходит к API на хосте разработчика. Профиль `agent`, токен
+  # берётся в разделе «Камеры» админа вуза:
+  #   STUDENTHUB_AGENT_TOKEN='<токен агента>' docker compose --profile agent up -d --build agent
+  agent:
+    profiles: ['agent']
+    build:
+      context: ../..
+      dockerfile: apps/camera-agent/Dockerfile
+    image: studenthub-camera-agent:dev
+    restart: unless-stopped
+    environment:
+      STUDENTHUB_API_URL: ${STUDENTHUB_API_URL:-http://host.docker.internal:3001/api/v1}
+      # Не задан — агент остановится с подсказкой (`docker compose logs agent`).
+      STUDENTHUB_AGENT_TOKEN: ${STUDENTHUB_AGENT_TOKEN:-}
+      # Стенд ходит к API по http на localhost разработчика. В вузе — только https.
+      STUDENTHUB_ALLOW_INSECURE: '1'
+      STUDENTHUB_PROBE_INTERVAL_S: ${STUDENTHUB_PROBE_INTERVAL_S:-15}
+    volumes:
+      - agent_state:/var/lib/studenthub-agent
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+    networks:
+      campus:
+        ipv4_address: 10.77.0.50
+      edge: {}
+
+  # Клиент внутри сети кампуса — пока нашего агента нет, им проверяют, что камеры
+  # отвечают: docker compose run --rm probe ffprobe ... (см. README).
+  probe:
+    profiles: ['tools']
+    image: bluenviron/mediamtx:1.21.2-ffmpeg
+    entrypoint: []
+    environment:
+      CAM_PASSWORD: ${CAM_PASSWORD:-Camera12345}
+    volumes:
+      - ./snapshots:/snapshots
+    networks:
+      campus: {}
+
+volumes:
+  agent_state: {}
+
+networks:
+  campus:
+    internal: true
+    ipam:
+      config:
+        - subnet: 10.77.0.0/24
+  edge: {}

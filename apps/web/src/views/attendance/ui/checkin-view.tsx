@@ -9,6 +9,7 @@ import { CheckCircle2, Info, Loader2, TriangleAlert } from 'lucide-react'
 import { Button, Card, CardContent } from '../../../shared/ui'
 import { toApiError } from '../../../shared/lib'
 import { attendanceKeys, checkInRequest, type CheckInResult } from '../../../entities/attendance'
+import { ATT_KEY } from '../lib/status-visuals'
 
 type State =
   | { kind: 'loading' }
@@ -39,8 +40,25 @@ export function CheckinView() {
         setState({ kind: 'done', result })
         qc.invalidateQueries({ queryKey: attendanceKeys.me() })
       })
-      .catch((e) => setState({ kind: 'error', message: tErr(toApiError(e).code) }))
-  }, [token, qc, tErr])
+      .catch((e) => {
+        // Отказы самоотметки объясняем своими словами: общие тексты кодов написаны для
+        // других экранов, и недействительный код выглядел как «Неверный email или пароль».
+        const code = toApiError(e).code
+        let message: string
+        if (code === 'BAD_REQUEST' || code === 'VALIDATION_ERROR' || code === 'NOT_FOUND') {
+          message = t('checkinError.invalid')
+        } else if (code === 'CONFLICT') {
+          message = t('checkinError.closed')
+        } else if (code === 'WRONG_SCOPE') {
+          message = t('checkinError.wrongGroup')
+        } else if (code === 'FORBIDDEN') {
+          message = t('checkinError.forbidden')
+        } else {
+          message = tErr(code)
+        }
+        setState({ kind: 'error', message })
+      })
+  }, [token, qc, t, tErr])
 
   return (
     <div className="mx-auto flex min-h-[60vh] w-full max-w-md items-center justify-center">
@@ -69,7 +87,20 @@ export function CheckinView() {
             </>
           )}
 
-          {state.kind === 'done' && (
+          {/* Самоотметка не перетирает отметку преподавателя: если там пропуск, опоздание
+              или уважительная причина, зелёное «Вы уже отмечены» было бы неправдой. */}
+          {state.kind === 'done' && state.result.status !== 'PRESENT' && (
+            <>
+              <Info className="size-10 text-muted-foreground" aria-hidden />
+              <h1 className="text-lg font-semibold">
+                {t('checkinAlreadyOther', { status: t(ATT_KEY[state.result.status]) })}
+              </h1>
+              <p className="text-sm text-muted-foreground">{state.result.subject}</p>
+              <p className="text-sm text-muted-foreground">{t('checkinAlreadyOtherHint')}</p>
+            </>
+          )}
+
+          {state.kind === 'done' && state.result.status === 'PRESENT' && (
             <>
               <CheckCircle2 className="size-12 text-success" aria-hidden />
               <h1 className="text-lg font-semibold">

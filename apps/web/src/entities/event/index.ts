@@ -1,6 +1,7 @@
 export {
   eventKeys,
   fetchEvents,
+  fetchEventsPage,
   fetchEvent,
   createEventRequest,
   updateEventRequest,
@@ -8,10 +9,21 @@ export {
   registerEventRequest,
   cancelEventRequest,
   fetchEventParticipants,
+  fetchEventParticipantsPage,
+  fetchEventMeeting,
+  fetchEventComments,
+  addEventCommentRequest,
+  deleteEventCommentRequest,
 } from './api/event-api'
 export {
+  MEETING_PROVIDER_NAME,
+  type EventCommentsPage,
+  type EventMeeting,
+  type MeetingProviderValue,
   type PostAudienceValue,
   type EventItem,
   type EventOrganizer,
   type EventParticipant,
+  type EventParticipantsPage,
+  type EventComment,
 } from './model/types'

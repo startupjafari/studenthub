@@ -24,7 +24,7 @@
 | DTO через `class-validator` | **Zod** через `packages/shared-schemas` | Единая схема валидации для API и фронта |
 | `npm run ...` | **`pnpm`** + Turborepo | Монорепо на pnpm workspaces |
 | Express-адаптер по умолчанию | **Fastify** (`@nestjs/platform-fastify`) | Производительность |
-| `postgres:17-alpine` | **`postgres:16-alpine`** | Зафиксировано в `docker-compose.yml` |
+| `postgres:17-alpine` | **`postgres:16-alpine`** | Зафиксировано в `docker/shared/infra.yml` |
 | Формат ошибки `{ statusCode, message, error }` | `{ success, error: { code, message, details } }` | Контракт фронтенда (`docs/PROJECT.md` §API) |
 | Одиночный `schema.prisma` | Multi-file схема в `prisma/schema/` | Схема на ~35 моделей |
 
@@ -66,7 +66,7 @@ apps/api/src/
 │   ├── guards/                   # JwtAuthGuard, RolesGuard, ScopeGuard, JwtWsGuard
 │   ├── decorators/               # @Roles, @CurrentUser, @Public, @Scope
 │   ├── filters/                  # HttpExceptionFilter
-│   ├── interceptors/             # ResponseInterceptor, LoggingInterceptor, AuditInterceptor
+│   ├── interceptors/             # ResponseInterceptor, LoggingInterceptor
 │   ├── pipes/                    # ZodValidationPipe
 │   └── prisma/                   # PrismaModule, PrismaService
 ├── config/                       # ConfigModule + Zod-валидация env
@@ -215,7 +215,7 @@ RolesGuard     (@Roles(Role.DEAN, Role.UNIVERSITY_ADMIN))
 ScopeGuard     (universityId / facultyId / groupId из токена = scope ресурса)
 ```
 
-- `JwtAuthGuard` регистрируется глобально. Публичные эндпоинты помечаются `@Public()`. **Полный список — ровно 16 маршрутов**, сверен с кодом 2026-10-06; всё, чего здесь нет, обязано быть закрыто. Расширение списка требует явного согласования (стоп-точка).
+- `JwtAuthGuard` регистрируется глобально. Публичные эндпоинты помечаются `@Public()`. **Полный список — ровно 25 маршрутов**, сверен с кодом 2026-10-21; всё, чего здесь нет, обязано быть закрыто. Расширение списка требует явного согласования (стоп-точка).
 
   | Маршрут | Почему публичный | Где обосновано |
   |---|---|---|
@@ -224,6 +224,8 @@ ScopeGuard     (universityId / facultyId / groupId из токена = scope р�
   | `POST /auth/refresh` | обмен по refresh-cookie | §6.2 |
   | `POST /auth/logout` | выход обязан работать при истёкшем access (см. ниже) | §6.1 |
   | `POST /auth/register-by-invite` | регистрация по инвайту | §7 |
+  | `POST /auth/password/forgot` | ссылка сброса пароля: человек, забывший пароль, войти не может; ответ одинаков для любого адреса | `PROJECT.md` §7.2 |
+  | `POST /auth/password/reset` | новый пароль по одноразовому токену из письма; сессию не выдаёт | `PROJECT.md` §7.2 |
   | `POST /auth/qr/create` | QR-сессию создаёт неавторизованный десктоп | `PROJECT.md` §Вход по QR |
   | `POST /auth/qr/claim` | сессию забирает тот же десктоп по `claimSecret` | `PROJECT.md` §Вход по QR |
   | `GET /invites/:token/preview` | превью инвайта до регистрации | §7 |
@@ -234,8 +236,14 @@ ScopeGuard     (universityId / facultyId / groupId из токена = scope р�
   | `GET /career/resume/public/:slug` | резюме по ссылке, публикацию включает сам студент | `PROJECT.md` §Резюме |
   | `POST /career/companies/signup` | единственное исключение из инвайт-онли | §18.7, §19 п. 9 |
   | `POST /career/companies/verify-email` | подтверждение почты по ссылке из письма | §19 п. 9 |
+  | `POST /career/companies/resend-verification` | новая ссылка взамен истёкшей: без входа компания с неподтверждённой почтой застревала навсегда; ответ одинаков для любого адреса | §19 п. 9 |
   | `POST /mini/session` | Telegram открывает мини-апп без нашего JWT; защита — подпись initData | `PROJECT.md` §Мини-апп |
   | `POST /mini/link` | то же, плюс одноразовый код, выданный в вебе | `PROJECT.md` §Мини-апп |
+  | `GET /media/:fileId/hls/master.m3u8` | HLS приватного видео: нативный плеер Safari/iOS не приложит JWT к плейлисту; доступ — master-токен `?t=`, который модуль-владелец выдаёт после своей проверки прав (как presigned-ссылку) | `PROJECT.md` §Медиа |
+  | `GET /media/:fileId/hls/:rendition/index.m3u8` | то же, play-токен из мастер-плейлиста | `PROJECT.md` §Медиа |
+  | `GET /media/:fileId/hls/:rendition/:segment` | `302` на presigned-ссылку сегмента по play-токену; байты через API не идут | `PROJECT.md` §Медиа |
+  | `POST /camera-agent/sync` | агент камер в сети вуза: у него нет JWT, вход — по токену агента (`AgentAuthGuard`, в базе SHA-256), лимит 60/мин | `PROJECT.md` §3.10 |
+  | `GET /.well-known/media-jwks.json` | открытый ключ медиатокенов: его забирает ретранслятор камер (MediaMTX), у которого нет входа; в ответе только открытая часть ключа | `PROJECT.md` §3.10 |
 
   `POST /auth/qr/approve` в списке **нет намеренно**: подтверждение входа делает уже залогиненный телефон, и этот маршрут закрыт. `claimSecret` в QR-код не попадает, поэтому публичность `qr/claim` не даёт забрать чужую сессию.
   - `POST /auth/logout` публичный намеренно: выход должен работать при истёкшем access-токене (иначе пользователь не сможет разлогиниться и очистить cookie). Безопасен — инвалидирует ТОЛЬКО сессию из refresh-cookie самого вызывающего; CSRF гасится `SameSite=Lax` (cookie не уходит на cross-site POST). Проверено аудитом §13.5.
@@ -250,7 +258,7 @@ ScopeGuard     (universityId / facultyId / groupId из токена = scope р�
 |---|---|---|
 | Срок | 15 мин | 30 дней |
 | Передача | `Authorization: Bearer` | httpOnly + Secure + SameSite=Lax cookie |
-| Payload | `{ sub, role, universityId, facultyId, groupId }` | UUID, в БД хранится только bcrypt-хэш |
+| Payload | `{ sub, role, universityId, facultyId, groupId }` | UUID, в БД хранится только SHA-256-хэш секрета |
 | Ротация | — | Новый при каждом refresh, предыдущий инвалидируется |
 
 Повторное использование инвалидированного токена рвёт всю цепочку — кроме **окна грации**
@@ -260,7 +268,13 @@ ScopeGuard     (universityId / facultyId / groupId из токена = scope р�
 клиента не доехала. В окне выдаётся новая ротация в той же цепочке (остаётся ровно один живой
 токен); вне окна — прежний строгий разрыв. `0` отключает послабление.
 
-- Refresh-токен в открытом виде в БД не хранится.
+- Refresh-токен в открытом виде в БД не хранится. Хэш секрета — SHA-256 со сравнением за
+  постоянное время, а не bcrypt: секрет — 122 бита из `randomUUID()`, перебирать нечего, а два
+  bcrypt cost 12 на каждый обмен забивали пул libuv. Записи, выданные до перехода (префикс `$2`),
+  сверяются bcrypt, пока не истекут; ветку убрать через срок жизни refresh после выката.
+- Погашенные refresh-строки не удаляются до своего `expiresAt`: на них держится детектор
+  повтора. Cron `purgeRefreshTokens` удаляет только истёкшие больше суток назад (§9.3).
+- Обычная ротация в `AuditLog` не пишется — только вход, выход и повтор погашенного токена.
 - Повторное использование уже инвалидированного refresh-токена → инвалидация **всей** сессионной цепочки пользователя + запись в `AuditLog` уровня `warn`.
 - Access-токен не пишется в cookie, refresh — не отдаётся в JSON body.
 - Секреты — минимум 32 символа, только из env. Значения по умолчанию в коде запрещены: отсутствующий `JWT_ACCESS_SECRET` должен ронять приложение на старте (Zod-валидация env).
@@ -271,6 +285,8 @@ ScopeGuard     (universityId / facultyId / groupId из токена = scope р�
 |---|---|
 | `POST /auth/login` | 5 / 15 мин с IP |
 | `POST /auth/register-by-invite` | 3 / час с IP |
+| `POST /auth/password/forgot` | 3 / 15 мин с IP |
+| `POST /auth/password/reset` | 5 / 15 мин с IP |
 | `GET /invites/:token/preview` | 10 / час с IP |
 | `POST /complaints` | 10 / час с пользователя |
 | Остальные | 100 / мин с пользователя |
@@ -293,6 +309,11 @@ ScopeGuard     (universityId / facultyId / groupId из токена = scope р�
 ## 8. Файлы и MinIO
 
 - Никакой файл не пишется на локальный диск контейнера. Только MinIO.
+  **Единственное исключение — воркер медиа** (`MediaProcessingService`, согласовано
+  16.10.2026): ffmpeg пишет постер и сегменты HLS в каталог временных файлов (`MEDIA_TMP_DIR`).
+  Каталог — один на job, удаляется в `finally`, брошенные упавшим процессом сносятся при старте
+  воркера; результат сразу уходит в MinIO, а хранилищем диск не становится. Исходник ffmpeg
+  читает потоком по ссылке из внутреннего MinIO и на диск не кладёт.
 - Бакеты и политики: `avatars` (публичный), `posts-media`, `stories-media` (TTL 24ч), `applications` (приватный, доступ только владельцу и деканату его факультета).
 - Метаданные каждого файла — в таблице `File`. Файл без записи в БД считается мусором и удаляется cron-задачей.
 - MIME-тип проверяется по **содержимому** (magic bytes), не по расширению и не по заголовку `Content-Type`.
@@ -330,7 +351,10 @@ ScopeGuard     (universityId / facultyId / groupId из токена = scope р�
 
 Отправка email, push-уведомления, генерация превью, сжатие видео, массовая рассылка уведомлений по аудитории. HTTP-запрос **не ждёт** этих операций.
 
-Очереди: `email`, `notifications`, `file-processing`, `cleanup`.
+Очереди: `email`, `notifications`, `file-processing`, `cleanup`, `link-preview`, `media-image`,
+`media-video`. Варианты изображений и HLS видео (медиа-система) готовятся только в
+`media-image`/`media-video`; модулю достаточно создать `File` через `FileService` — в обработку
+файл ставится там же.
 
 ### 9.2 Правила job'ов
 
@@ -349,6 +373,8 @@ ScopeGuard     (universityId / facultyId / groupId из токена = scope р�
 | `scheduleEventReminders` | `*/15 * * * *` (см. замечание ниже) |
 | `cleanOldNotifications` | `0 2 * * 0` |
 | `cleanAuditLogs` | `0 1 1 * *` |
+| `purgePasswordResetTokens` | `15 3 * * *` |
+| `purgeRefreshTokens` | `25 * * * *` (не больше 100 батчей за прогон) |
 
 - Все cron-задачи — только в `CleanupService`. Разбрасывать `@Cron` по модулям запрещено.
 - Каждая задача логирует количество обработанных записей.
@@ -414,7 +440,7 @@ ScopeGuard     (universityId / facultyId / groupId из токена = scope р�
 - Обязательный контекст в логах: `requestId`, `userId`, `path`, `action`. `requestId` генерируется в middleware и прокидывается в job'ы очередей.
 - **Никогда не логируются:** пароли, `passwordHash`, access/refresh-токены, токены инвайтов, содержимое личных сообщений, вложения заявок.
 - Уровни: `error` — сбой; `warn` — деградация, retry, подозрительная активность; `log` — бизнес-события (логин, создание инвайта, смена статуса заявки); `debug`/`verbose` — только dev.
-- `AuditLog` пишется через `AuditInterceptor` или явно в сервисе для: login, logout, всех операций с инвайтами, смены роли, смены статуса университета, блокировки пользователя, решений модератора, доступа администратора к личным чатам по жалобе.
+- `AuditLog` пишется явно в сервисе (`AuditService.log`, перехватчика аудита нет — IMPLEMENTATION_PLAN 11.6) для: login, logout, всех операций с инвайтами, смены роли, смены статуса университета, блокировки пользователя, решений модератора, доступа администратора к личным чатам по жалобе.
 - `GET /health` (`@nestjs/terminus`, публичный): проверки Prisma, Redis, MinIO.
 
 ### 13.1 Sentry (Ф13.8)
@@ -552,7 +578,7 @@ ScopeGuard     (universityId / facultyId / groupId из токена = scope р�
 
 | # | Расхождение | Принятое решение | Статус |
 |---|---|---|---|
-| 1 | `Story.mediaUrl` (§5) vs `Story.fileId` + relation `file` (§17, §24) | `fileId` + relation `file`, `mediaUrl` не вводить | 📌 Модель `Story` — Ф14 (v2.0) |
+| 1 | `Story.mediaUrl` (§5) vs `Story.fileId` + relation `file` (§17, §24) | `fileId` + relation `file`, `mediaUrl` не вводить | ✅ `prisma/schema/32-stories.prisma` (Ф14.1) |
 | 2 | Срок инвайта: 48 ч (§13) vs 1 год в seed (§21) | Seed-инвайт dev-only, срок 30 дней | ✅ `prisma/seed.mjs` |
 | 3 | `createdBy` (§13.3) vs `createdById` (§21.2, §26.5) | `createdById` + relation `createdBy` | ✅ `prisma/schema/01-users.prisma` |
 | 4 | `Invite.status` строкой `'PENDING'` вместо enum | Использовать `InviteStatus.*` из `@prisma/client` в коде и тестах | ✅ `invites.service.ts` + spec |

@@ -1,0 +1,86 @@
+name: Android release
+
+# Подписанный AAB для Google Play. Только вручную: выпуск — решение человека, а не
+# следствие пуша. Проверку кода на каждом PR делает `android.yml`.
+#
+# Первую сборку в Play Console загружают руками (так требует Google), поэтому прогон
+# кладёт AAB артефактом, а не публикует сам. Секреты и порядок — docs/RELEASE_ANDROID.md.
+on:
+  workflow_dispatch:
+    inputs:
+      versionCode:
+        description: Номер сборки (versionCode) — больше предыдущего в Google Play
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: apps/android
+
+jobs:
+  bundle:
+    name: Подписанный AAB
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Забрать код
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Поставить JDK 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Настроить Gradle
+        uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+
+      # Без ключа загрузки и адреса API собирать нечего: Play не примет неподписанный
+      # AAB, а релиз с заглушкой адреса ходит в никуда. Проверяем до сборки.
+      - name: Ключ загрузки
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          API_BASE_URL: ${{ vars.ANDROID_API_BASE_URL }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$API_BASE_URL" ]; then
+            echo "::error::Нет ANDROID_KEYSTORE_BASE64 или ANDROID_API_BASE_URL — см. docs/RELEASE_ANDROID.md" >&2
+            exit 1
+          fi
+          echo "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/upload.jks"
+
+      - name: Сборка
+        env:
+          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/upload.jks
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          VERSION_CODE: ${{ inputs.versionCode }}
+          API_BASE_URL: ${{ vars.ANDROID_API_BASE_URL }}
+          SENTRY_DSN: ${{ secrets.ANDROID_SENTRY_DSN }}
+          FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
+          FIREBASE_APP_ID: ${{ vars.FIREBASE_ANDROID_APP_ID }}
+          FIREBASE_API_KEY: ${{ secrets.FIREBASE_ANDROID_API_KEY }}
+          FIREBASE_SENDER_ID: ${{ vars.FIREBASE_SENDER_ID }}
+        run: |
+          ./gradlew bundleRelease \
+            -Pstudenthub.versionCode="$VERSION_CODE" \
+            -Pstudenthub.releaseApiBaseUrl="$API_BASE_URL" \
+            -Pstudenthub.sentryDsn="$SENTRY_DSN" \
+            -Pstudenthub.firebase.projectId="$FIREBASE_PROJECT_ID" \
+            -Pstudenthub.firebase.appId="$FIREBASE_APP_ID" \
+            -Pstudenthub.firebase.apiKey="$FIREBASE_API_KEY" \
+            -Pstudenthub.firebase.senderId="$FIREBASE_SENDER_ID"
+
+      - name: Сохранить AAB
+        uses: actions/upload-artifact@v7
+        with:
+          name: studenthub-${{ inputs.versionCode }}.aab
+          path: apps/android/app/build/outputs/bundle/release/app-release.aab
+
+      - name: Убрать ключ
+        if: always()
+        run: rm -f "$RUNNER_TEMP/upload.jks"

@@ -1,12 +1,15 @@
 import { Inject, Injectable, Logger } from '@nestjs/common'
 import { randomUUID } from 'node:crypto'
-import type { Client as MinioClient } from 'minio'
+import type { Prisma } from '@prisma/client'
+import { CopyDestinationOptions, CopySourceOptions, type Client as MinioClient } from 'minio'
 import sharp from 'sharp'
 import { FILE_UPLOAD, TTL, type FileCategory } from '@studenthub/shared-config'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { MINIO_CLIENT, MINIO_PUBLIC_CLIENT } from '../../common/minio/minio.constants'
+import { presignStableGet } from '../../common/minio/stable-sign'
 import { AppException } from '../../common/exceptions/app.exception'
 import { attachmentHeader } from '../../common/http/content-disposition'
+import { MediaService } from '../media/media.service'
 import { detectAllowedFileType } from './mime-detector'
 
 export interface UploadFileParams {
@@ -59,8 +62,61 @@ const FILE_SELECT = {
   // Размеры изображения: клиент резервирует под снимок точное место (иначе вёрстка прыгает).
   width: true,
   height: true,
+  // Медиа-система: PENDING у свежей загрузки — варианты в работе, клиент пока показывает
+  // оригинал; заглушка и длительность появятся после обработки.
+  mediaStatus: true,
+  placeholder: true,
+  durationMs: true,
   createdAt: true,
 } as const
+
+// Файл свободен — ни одна сущность на него не ссылается: все FK владельцев пусты, и он не
+// медиа сториса и не обложка альбома (эти две связи объявлены со стороны Story/Album).
+// Новая связь File с сущностью обязана попасть сюда, иначе общий `DELETE /files/:id`
+// снова начнёт снимать вложения мимо модуля-владельца.
+const DETACHED_WHERE = {
+  postId: null,
+  messageId: null,
+  materialId: null,
+  albumId: null,
+  documentId: null,
+  submissionId: null,
+  stories: { none: {} },
+  albumsCovered: { none: {} },
+  bookCovers: { none: {} },
+} satisfies Prisma.FileWhereInput
+
+const ATTACHMENT_SELECT = {
+  postId: true,
+  messageId: true,
+  materialId: true,
+  albumId: true,
+  documentId: true,
+  submissionId: true,
+  _count: { select: { stories: true, albumsCovered: true, bookCovers: true } },
+} satisfies Prisma.FileSelect
+
+/** Есть ли у файла сущность-владелец — та же проверка, что в DETACHED_WHERE, но по строке. */
+function isAttached(file: Prisma.FileGetPayload<{ select: typeof ATTACHMENT_SELECT }>): boolean {
+  return (
+    file.postId !== null ||
+    file.messageId !== null ||
+    file.materialId !== null ||
+    file.albumId !== null ||
+    file.documentId !== null ||
+    file.submissionId !== null ||
+    file._count.stories > 0 ||
+    file._count.albumsCovered > 0 ||
+    file._count.bookCovers > 0
+  )
+}
+
+function attachedConflict(): AppException {
+  return new AppException(
+    'CONFLICT',
+    'Файл используется — удалите его в разделе, к которому он прикреплён',
+  )
+}
 
 /**
  * Размеры изображения по содержимому: sharp читает только заголовок, декодировать не нужно.
@@ -94,6 +150,9 @@ export class FileService {
     @Inject(MINIO_CLIENT) private readonly minio: MinioClient,
     // Отдельный клиент на публичный адрес — только для presigned-ссылок в браузер.
     @Inject(MINIO_PUBLIC_CLIENT) private readonly minioPublic: MinioClient,
+    // Единая медиа-система: каждый новый файл-медиа уходит в обработку (варианты, LQIP,
+    // HLS) прямо отсюда — модулям не нужно помнить об этом в каждом месте загрузки.
+    private readonly media: MediaService,
   ) {}
 
   /**
@@ -159,10 +218,12 @@ export class FileService {
         height: dims?.height,
         // Обрезаем до лимита колонки; пустое имя не сохраняем.
         name: name?.slice(0, 255) || null,
+        mediaStatus: this.media.initialStatus(bucket, detected.mime),
       },
       select: FILE_SELECT,
     })
     this.logger.log(`Загружен файл ${file.id} (${detected.mime}, ${size} байт) → ${bucket}`)
+    await this.media.schedule(file)
     return file
   }
 
@@ -220,8 +281,9 @@ export class FileService {
     const key = `${params.ownerId}/${randomUUID()}.${ext}`
     // Тот же префикс владельца, что и у одиночного presign: на нём держится вся проверка
     // прав и на подписи частей, и на сборке.
+    // Тип клиента в метаданные не пишем: настоящий закрепляется на confirm по содержимому.
     const uploadId = await this.minio.initiateNewMultipartUpload(params.bucket, key, {
-      'Content-Type': params.mime,
+      'Content-Type': 'application/octet-stream',
     })
     return { key, uploadId, partSize, partCount }
   }
@@ -353,6 +415,16 @@ export class FileService {
    *
    * Любая неудачная проверка удаляет объект: в приватном бакете не должно оставаться
    * мусора, за который никто не отвечает.
+   *
+   * Проверенный объект ПЕРЕНОСИТСЯ на серверный ключ, которого выданная подпись не знает.
+   * Ссылка на PUT подписана только по ключу и живёт 15 минут: оставь мы файл на месте, тем
+   * же URL после подтверждения клали бы что угодно — HTML со скриптом в публичный бакет,
+   * гигабайты мимо квоты, подмену уже просмотренного вложения. Серверный ключ — без префикса
+   * владельца, как у буферной загрузки, поэтому и повторный `confirm` по нему не пройдёт.
+   *
+   * Ключ, на который уже ссылается File, не подтверждается вовсе: иначе общий
+   * `POST /files/confirm` перекладывал бы или удалял (архив без разрешения) объект уже
+   * прикреплённого файла мимо модуля-владельца.
    */
   async confirmDirectUpload(params: {
     bucket: string
@@ -370,11 +442,17 @@ export class FileService {
     allowArchives?: boolean
   }) {
     this.assertKeyOwner(params.key, params.ownerId)
+    const linked = await this.prisma.file.count({
+      where: { bucket: params.bucket, key: params.key },
+    })
+    if (linked > 0) throw new AppException('CONFLICT', 'Загрузка уже подтверждена')
 
     let size: number
+    let etag: string
     try {
       const stat = await this.minio.statObject(params.bucket, params.key)
       size = stat.size
+      etag = stat.etag
     } catch {
       throw new AppException('NOT_FOUND', 'Объект не найден — загрузка не завершена')
     }
@@ -409,22 +487,59 @@ export class FileService {
       throw new AppException('FILE_TOO_LARGE', `Файл превышает лимит ${maxBytes} байт`)
     }
 
+    // Тип объекта в хранилище — тот, что определён по содержимому, а не заявленный клиентом
+    // при PUT. Иначе файл, начинающийся как PDF или GIF, но залитый с Content-Type
+    // text/html, открывался бы в браузере как страница на домене хранилища (XSS, фишинг) —
+    // а у публичных бакетов ещё и по постоянной ссылке.
+    //
+    // Копия — на новый ключ (см. описание метода) и только того содержимого, которое видел
+    // `statObject`: подменённый за время проверки объект не совпадёт по ETag и не переедет.
+    const key = `${randomUUID()}.${detected.ext}`
+    try {
+      await this.minio.copyObject(
+        new CopySourceOptions({ Bucket: params.bucket, Object: params.key, MatchETag: etag }),
+        new CopyDestinationOptions({
+          Bucket: params.bucket,
+          Object: key,
+          MetadataDirective: 'REPLACE',
+          Headers: { 'Content-Type': detected.mime },
+        }),
+      )
+    } catch (error) {
+      await this.discard(params.bucket, params.key)
+      if ((error as { code?: string }).code === 'PreconditionFailed') {
+        throw new AppException('BAD_REQUEST', 'Файл изменился во время проверки — загрузите заново')
+      }
+      this.logger.error(
+        { err: error, bucket: params.bucket },
+        'Не удалось закрепить тип загруженного объекта',
+      )
+      throw new AppException('INTERNAL_ERROR', 'Не удалось сохранить файл')
+    }
+
     const file = await this.prisma.file.create({
       data: {
         bucket: params.bucket,
-        key: params.key,
+        key,
         mime: detected.mime,
         size,
         ownerId: params.ownerId,
         materialId: params.materialId,
         messageId: params.messageId,
         name: params.name?.slice(0, 255) || null,
+        mediaStatus: this.media.initialStatus(params.bucket, detected.mime),
       },
       select: FILE_SELECT,
     })
+    // Объект по выданной подписи больше не нужен; положенное туда позже станет ничьим и
+    // уйдёт с ночной cleanOrphanFiles.
+    await this.discard(params.bucket, params.key)
     this.logger.log(
       `Подтверждена прямая загрузка ${file.id} (${detected.mime}, ${size} байт) → ${params.bucket}`,
     )
+    // Здесь же доезжают размеры снимка: при прямой загрузке API не видел байтов, и
+    // width/height у такого файла проставит обработчик медиа.
+    await this.media.schedule(file)
     return file
   }
 
@@ -449,9 +564,13 @@ export class FileService {
     return Buffer.concat(chunks)
   }
 
-  /** Удалить объект, не сорвав основную ошибку, если удаление тоже не удалось. */
+  /**
+   * Удалить объект, не сорвав основную ошибку, если удаление тоже не удалось. Объект, на
+   * который ссылается File, не трогаем: его снимает только модуль-владелец (§8).
+   */
   private async discard(bucket: string, key: string): Promise<void> {
     try {
+      if ((await this.prisma.file.count({ where: { bucket, key } })) > 0) return
       await this.minio.removeObject(bucket, key)
     } catch (error) {
       this.logger.warn(
@@ -465,9 +584,15 @@ export class FileService {
    * (Ф9+, пересылка вложений). Копия остаётся копией и после снятия @@unique([bucket, key]):
    * пересланное вложение живёт своей жизнью, и удаление исходного сообщения не должно гасить
    * вложение у получателя. Ссылки на общий объект — приём сида, а не поведение продукта.
+   *
+   * Без `messageId` копия создаётся непривязанной: пересылка сначала копирует вложения, а
+   * сообщение заводит и привязывает их одной транзакцией — сбой копирования не оставляет
+   * в чате пересылку без вложений.
    */
   async copyToMessage(
     source: {
+      /** id исходной записи — чтобы скопировать её готовые варианты. */
+      id?: string
       bucket: string
       key: string
       mime: string
@@ -478,12 +603,12 @@ export class FileService {
       height?: number | null
     },
     ownerId: string,
-    messageId: string,
+    messageId?: string,
   ) {
     const ext = source.key.includes('.') ? source.key.split('.').pop() : undefined
     const newKey = ext ? `${randomUUID()}.${ext}` : randomUUID()
     await this.minio.copyObject(source.bucket, newKey, `/${source.bucket}/${source.key}`)
-    return this.prisma.file.create({
+    const copy = await this.prisma.file.create({
       data: {
         bucket: source.bucket,
         key: newKey,
@@ -494,9 +619,14 @@ export class FileService {
         width: source.width ?? null,
         height: source.height ?? null,
         name: source.name ?? null,
+        mediaStatus: this.media.initialStatus(source.bucket, source.mime),
       },
       select: FILE_SELECT,
     })
+    // Варианты копируются, а не готовятся заново: пересланное видео не перекодируется.
+    if (source.id) await this.media.scheduleCopy(source.id, copy)
+    else await this.media.schedule(copy)
+    return copy
   }
 
   /**
@@ -524,7 +654,7 @@ export class FileService {
     if (fileIds.length === 0) return new Map()
     const files = await this.prisma.file.findMany({
       where: { id: { in: fileIds } },
-      select: { id: true, bucket: true, key: true },
+      select: { id: true, bucket: true, key: true, mime: true },
       take: fileIds.length,
     })
     const out = new Map<string, string>()
@@ -532,11 +662,9 @@ export class FileService {
       files.map(async (f) => {
         out.set(
           f.id,
-          await this.minioPublic.presignedGetObject(
-            f.bucket,
-            f.key,
-            TTL.PRESIGNED_URL_MINUTES * 60,
-          ),
+          await presignStableGet(this.minioPublic, f.bucket, f.key, {
+            'response-content-type': f.mime,
+          }),
         )
       }),
     )
@@ -550,18 +678,21 @@ export class FileService {
   ): Promise<string> {
     const file = await this.findOrThrow(fileId)
     this.assertOwnership(file, requesterId)
-    return this.minioPublic.presignedGetObject(
-      file.bucket,
-      file.key,
-      TTL.PRESIGNED_URL_MINUTES * 60,
-      asAttachment ? { 'response-content-disposition': attachmentHeader(file.name) } : undefined,
-    )
+    // Тип ответа задаёт сервер (определён по содержимому при загрузке): метаданные объекта,
+    // залитого до закрепления типа на confirm, могли остаться клиентскими.
+    // Подпись стабильна в пределах окна (common/minio/stable-sign): повторная выдача ссылки
+    // на тот же файл даёт тот же URL, и браузер берёт байты из кеша, а не качает заново.
+    return presignStableGet(this.minioPublic, file.bucket, file.key, {
+      'response-content-type': file.mime,
+      ...(asAttachment ? { 'response-content-disposition': attachmentHeader(file.name) } : {}),
+    })
   }
 
   /**
    * Кладёт вспомогательный ОБЪЕКТ-изображение в бакет БЕЗ записи File (напр. постер видео).
    * Валидирует тип (только изображения) и размер. Возвращает ключ. Управление жизненным циклом
-   * (удаление) — на вызывающем модуле; бакет должен быть исключён из cleanOrphanFiles.
+   * (удаление) — на вызывающем модуле; `cleanOrphanFiles` узнаёт такие ключи по `File.posterKey`
+   * и `User.coverUrl` — новый вид ссылки на raw-объект обязан попасть туда же.
    */
   async putAuxImage(bucket: string, buffer: Buffer): Promise<string> {
     const detected = await detectAllowedFileType(buffer)
@@ -610,6 +741,56 @@ export class FileService {
     const file = await this.findOrThrow(fileId)
     this.assertOwnership(file, requesterId)
     await this.prisma.file.delete({ where: { id: file.id } })
+    await this.purgeStorage(file)
+  }
+
+  /**
+   * Удаление через общий `DELETE /files/:id`: только своего файла, который ни к чему не
+   * прикреплён, — брошенной загрузки, неотправленного вложения, страницы ещё не созданного
+   * документа.
+   *
+   * Прикреплённый файл (вложение сообщения, медиа поста или сториса, файл материала,
+   * страница документа, файл сданной работы, фото альбома или его обложка) — `CONFLICT`:
+   * его снимает только модуль-владелец со своими проверками и аудитом. Иначе владелец
+   * файла убирал скан из документа на проверке, вложение из чата, где он забанен, медиа
+   * из чужого альбома, а сущность оставалась «битой» и об этом не знала.
+   *
+   * `lockedBuckets` — бакеты, где ссылка на файл живёт не в FK, а в URL сущности (аватары
+   * пользователя и чата): такие файлы общим маршрутом не удаляются вовсе.
+   *
+   * Удаление условное — та же проверка «свободен» стоит в WHERE: модуль мог прикрепить файл
+   * между чтением и удалением (отправка сообщения с этим вложением).
+   */
+  async deleteDetached(
+    fileId: string,
+    requesterId: string,
+    lockedBuckets: readonly string[] = [],
+  ): Promise<void> {
+    const file = await this.prisma.file.findUnique({
+      where: { id: fileId },
+      select: { ...FILE_SELECT, ...ATTACHMENT_SELECT },
+    })
+    if (!file) throw new AppException('NOT_FOUND', 'Файл не найден')
+    this.assertOwnership(file, requesterId)
+    if (lockedBuckets.includes(file.bucket) || isAttached(file)) throw attachedConflict()
+
+    const { count } = await this.prisma.file.deleteMany({
+      where: { id: file.id, ownerId: requesterId, ...DETACHED_WHERE },
+    })
+    if (count === 0) throw attachedConflict()
+    await this.purgeStorage(file)
+  }
+
+  /**
+   * Объект и варианты записи, которую только что удалили. Объект — только когда это была
+   * последняя ссылка на него (см. `delete`).
+   */
+  private async purgeStorage(file: { id: string; bucket: string; key: string }): Promise<void> {
+    // Варианты принадлежат записи, а не объекту: у копий и у записей общего пула сида
+    // префикс свой, поэтому сносим его всегда. Не вышло — подберёт ночная чистка.
+    await this.media.purgeVariants(file.bucket, file.id).catch((err: unknown) => {
+      this.logger.warn({ err, fileId: file.id }, 'Не удалось удалить варианты медиа')
+    })
     const refs = await this.prisma.file.count({
       where: { bucket: file.bucket, key: file.key },
     })

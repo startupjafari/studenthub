@@ -86,14 +86,42 @@ export function AccordionMotion({ group }: { group: string }) {
       items.forEach((other) => other !== item && close(other))
     }
 
+    /*
+      Переход по якорю на вопрос раскрывает его. «Как получить доступ» из «Дверей» ведёт на
+      #faq-access, и прокрутка к свёрнутому вопросу без ответа ничего не давала: человек
+      видел заголовок и должен был догадаться нажать ещё раз.
+
+      Клик по ссылке ловится сам, а не только `hashchange`: повторный переход по тому же
+      якорю адрес не меняет, и события не будет. `hashchange` остаётся для «назад» и
+      ручного ввода, а адрес с якорем при загрузке разбирается сразу.
+    */
+    const openFromHash = (hash: string | null) => {
+      if (!hash || hash.length < 2) return
+      const target = items.find((item) => `#${item.id}` === hash)
+      if (!target) return
+      if (pending.has(target)) finish(target)
+      else if (!target.open) target.open = true
+    }
+    const onHashChange = () => openFromHash(window.location.hash)
+    const onLinkClick = (e: MouseEvent) => {
+      if (!(e.target instanceof Element)) return
+      const link = e.target.closest('a[href^="#"]')
+      if (link) openFromHash(link.getAttribute('href'))
+    }
+
     const names = items.map((item) => item.getAttribute('name'))
     items.forEach((item) => {
       item.removeAttribute('name')
       item.addEventListener('click', onClick)
       item.addEventListener('toggle', onToggle)
     })
+    window.addEventListener('hashchange', onHashChange)
+    document.addEventListener('click', onLinkClick)
+    openFromHash(window.location.hash)
 
     return () => {
+      window.removeEventListener('hashchange', onHashChange)
+      document.removeEventListener('click', onLinkClick)
       items.forEach((item, index) => {
         finish(item)
         item.removeEventListener('click', onClick)

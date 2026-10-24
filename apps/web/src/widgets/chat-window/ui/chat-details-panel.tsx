@@ -19,6 +19,7 @@ import {
   FileText,
   Image as ImageIcon,
   Link2,
+  RotateCcw,
   Loader2,
   LogOut,
   MessageSquare,
@@ -43,12 +44,15 @@ import {
   blockUserRequest,
   chatKeys,
   createChatRequest,
-  fetchAttachmentUrl,
+  deleteChatRequest,
+  fetchAttachmentLink,
   fetchBlockedUsers,
   fetchChatLinks,
   fetchChatMedia,
   fetchChatMembers,
+  fetchChatInviteCode,
   removeChatMemberRequest,
+  resetChatInviteCode,
   setChatAdminRequest,
   transferOwnershipRequest,
   unbanChatMemberRequest,
@@ -73,6 +77,7 @@ import {
   TabsList,
   TabsTrigger,
   useConfirm,
+  MediaImage,
   MediaViewer as PlainMediaViewer,
   ProgressRing,
 } from '../../../shared/ui'
@@ -164,11 +169,24 @@ function lastSeenText(iso: string, t: (k: string, v?: Record<string, number>) =>
   return t('lastSeenDay', { count: Math.floor(hr / 24) })
 }
 
-// presigned-URL вложения (кэш общий с сообщениями: тот же ключ ['chat-attachment', id]).
+// Ссылка на вложение и его варианты (кэш общий с сообщениями: тот же ключ ['chat-attachment', id]).
+function useFileLink(fileId: string, enabled = true) {
+  return useQuery({
+    queryKey: ['chat-attachment', fileId],
+    queryFn: () => fetchAttachmentLink(fileId),
+    enabled,
+    staleTime: 10 * 60 * 1000,
+    gcTime: 15 * 60 * 1000,
+  })
+}
+
+// Только presigned-URL оригинала (аудио, скачивание): в кэше лежит всё описание, `select`
+// отдаёт из него ссылку, не заводя второй записи.
 function useFileUrl(fileId: string, enabled = true) {
   return useQuery({
     queryKey: ['chat-attachment', fileId],
-    queryFn: () => fetchAttachmentUrl(fileId),
+    queryFn: () => fetchAttachmentLink(fileId),
+    select: (link) => link.url,
     enabled,
     staleTime: 10 * 60 * 1000,
     gcTime: 15 * 60 * 1000,
@@ -206,19 +224,34 @@ function LoadMore({
 // ── Медиа: сетка миниатюр → fullscreen viewer (§42) ──────────────────────────
 function MediaThumb({ item, onOpen }: { item: ChatMediaItem; onOpen: () => void }) {
   const isVideo = item.mime.startsWith('video/')
-  const url = useFileUrl(item.id)
+  const link = useFileLink(item.id)
+  // Миниатюра сетки — копия 320 (или постер видео), а не оригинал: вкладка показывает
+  // десятки снимков разом. Нет копий — оригинал, как раньше; у видео без постера — <video>.
+  const poster = link.data?.poster ?? []
   return (
     <button
       type="button"
       onClick={onOpen}
       className="relative aspect-square overflow-hidden rounded-md bg-muted"
     >
-      {url.data ? (
-        isVideo ? (
-          <video src={url.data} muted preload="metadata" className="size-full object-cover" />
+      {link.data ? (
+        isVideo && poster.length === 0 ? (
+          <video src={link.data.url} muted preload="metadata" className="size-full object-cover" />
         ) : (
-          <img src={url.data} alt="" loading="lazy" className="size-full object-cover" />
+          <MediaImage
+            src={isVideo ? poster[poster.length - 1]?.url : link.data.url}
+            media={{
+              placeholder: item.placeholder,
+              sources: isVideo ? poster : link.data.sources,
+              width: isVideo ? null : item.width,
+            }}
+            alt=""
+            sizes="120px"
+            className="size-full"
+          />
         )
+      ) : item.placeholder ? (
+        <MediaImage media={{ placeholder: item.placeholder }} alt="" className="size-full" />
       ) : (
         <div className="size-full animate-pulse bg-muted" />
       )}
@@ -252,6 +285,11 @@ function MediaTab({ chatId }: { chatId: string }) {
     mime: it.mime,
     size: it.size,
     name: it.name,
+    // Заглушка и размеры — чтобы просмотрщик показал силуэт снимка, не дожидаясь ссылки.
+    width: it.width,
+    height: it.height,
+    placeholder: it.placeholder,
+    durationMs: it.durationMs,
   }))
   return (
     <>
@@ -832,7 +870,8 @@ function ParticipantsTab({
         },
       })
     }
-    if (chat.isAdmin && m.id !== myId && (!m.isAdmin || m.banned)) {
+    // Бан — только создатель группы (§8.3), как и аватар.
+    if (chat.isOwner && m.id !== myId) {
       items.push({
         key: 'ban',
         label: m.banned ? t('unban') : t('ban'),
@@ -1059,10 +1098,13 @@ export function ChatDetailsPanel({
   const [editOpen, setEditOpen] = useState(false)
 
   const err = (e: unknown) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR'))
+  // Выход — DELETE /chats/:id, а не исключение самого себя: исключать может только админ, и у
+  // него в ленте вместо «вышел» появлялось «исключил».
   const leave = useMutation({
-    mutationFn: () => removeChatMemberRequest(chat.id, myId as string),
+    mutationFn: () => deleteChatRequest(chat.id),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: chatKeys.list() })
+      void qc.invalidateQueries({ queryKey: chatKeys.unread() })
       onLeft()
     },
     onError: err,
@@ -1076,6 +1118,7 @@ export function ChatDetailsPanel({
   // Аватар группы меняет владелец, название — любой админ. Окно редактирования
   // открывается по любому из двух прав, внутри доступное разграничено.
   const canEdit = isGroup && (chat.isAdmin || chat.isOwner)
+  const canLeave = chat.type === 'GROUP' && !chat.isOwner
   // Вкладка профиля есть только там, где есть один собеседник: у «Избранного»
   // (личный чат с самим собой) и групп её нет. Объект, а не флаг: из него TS видит,
   // что id и обработчик заданы, и приведения типов внутри вкладки не нужны.
@@ -1087,10 +1130,18 @@ export function ChatDetailsPanel({
   // заново на каждый чат (key={chat.id} у вызывающего).
   const [descriptionOpen, setDescriptionOpen] = useState(false)
 
-  // Адрес приглашения строим на клиенте: страница /join-chat/<id> публичная и одинакова
-  // для всех, отдельной ручки за ним нет. origin читается лениво — на сервере его нет.
-  const inviteLink =
-    typeof window === 'undefined' ? '' : `${window.location.origin}/join-chat/${chat.id}`
+  // Ссылка-приглашение: /join-chat/<id>?k=<код>. Код выдаёт сервер и только админу группы;
+  // один id чата больше не пускает — иначе исключённый возвращался по старой ссылке.
+  const copyInvite = useMutation({
+    mutationFn: async (reset: boolean) => {
+      const code = reset ? await resetChatInviteCode(chat.id) : await fetchChatInviteCode(chat.id)
+      const link = `${window.location.origin}/join-chat/${chat.id}?k=${encodeURIComponent(code)}`
+      await navigator.clipboard?.writeText(link)
+      return reset
+    },
+    onSuccess: (reset) => toast.success(reset ? t('inviteLinkReset') : t('linkCopied')),
+    onError: err,
+  })
 
   // Вкладка по умолчанию: участники в группе, профиль в личном чате, иначе медиа.
   const firstTab = isGroup ? 'participants' : peer ? 'profile' : 'media'
@@ -1245,21 +1296,29 @@ export function ChatDetailsPanel({
             )}
           </div>
 
-          {isGroup && (
+          {canEdit && (
             <>
               <div className="h-px bg-border" aria-hidden />
-              {/* В буфер уходит адрес приглашения — читать в нём нечего, это идентификатор
-                  чата, поэтому строка называет действие, а не показывает ссылку. */}
+              {/* В буфер уходит адрес приглашения — читать в нём нечего, поэтому строка
+                  называет действие, а не показывает ссылку. Ссылку выдаёт сервер и только
+                  админам группы. */}
               <button
                 type="button"
-                onClick={() => {
-                  void navigator.clipboard?.writeText(inviteLink)
-                  toast.success(t('linkCopied'))
-                }}
+                disabled={copyInvite.isPending}
+                onClick={() => copyInvite.mutate(false)}
                 className={DETAILS_ROW}
               >
                 <Link2 className="size-4 shrink-0 text-muted-foreground" aria-hidden />
                 <span className="min-w-0 flex-1 truncate">{t('inviteLink')}</span>
+              </button>
+              <button
+                type="button"
+                disabled={copyInvite.isPending}
+                onClick={() => copyInvite.mutate(true)}
+                className={DETAILS_ROW}
+              >
+                <RotateCcw className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+                <span className="min-w-0 flex-1 truncate">{t('inviteLinkResetAction')}</span>
               </button>
             </>
           )}
@@ -1284,7 +1343,9 @@ export function ChatDetailsPanel({
             </>
           )}
 
-          {isGroup && (
+          {/* Покинуть можно только пользовательскую группу. Создатель её не покидает, а
+              удаляет (пункт «Удалить группу» в меню шапки), официальные чаты не покидаются. */}
+          {canLeave && (
             <>
               <div className="h-px bg-border" aria-hidden />
               <button

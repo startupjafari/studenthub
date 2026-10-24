@@ -91,6 +91,7 @@ function ev(o: Partial<EventItem> = {}): EventItem {
     description: '',
     location: null,
     isOnline: false,
+    meetingProvider: null,
     startsAt: `${TODAY}T10:00:00.000Z`,
     endsAt: null,
     organizerId: 'o1',
@@ -101,7 +102,14 @@ function ev(o: Partial<EventItem> = {}): EventItem {
   }
 }
 
-const base = { applications: [], events: [], assignments: [], todayDate: TODAY, locale: 'ru' }
+const base = {
+  applications: [],
+  events: [],
+  assignments: [],
+  todayDate: TODAY,
+  timezone: 'UTC',
+  locale: 'ru',
+}
 
 describe('buildTasks — задания', () => {
   it('GRADED → корзина done; SUBMITTED (ждём проверку) пропуск', () => {
@@ -139,6 +147,16 @@ describe('buildTasks — задания', () => {
     expect(b['assignment-t']).toBe('today')
     expect(b['assignment-w']).toBe('week')
     expect(b['assignment-l']).toBe('later')
+  })
+
+  it('день срока — по поясу вуза, а не по UTC-префиксу', () => {
+    // 20:00 UTC 15-го — уже 01:00 16-го по Алматы (+05:00): срок завтра, а не сегодня.
+    const r = buildTasks({
+      ...base,
+      timezone: 'Asia/Almaty',
+      assignments: [asg({ id: 'n', dueAt: `${TODAY}T20:00:00.000Z` })],
+    })
+    expect(r[0]).toMatchObject({ id: 'assignment-n', bucket: 'week' })
   })
 })
 

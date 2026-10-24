@@ -13,12 +13,16 @@ model Attendance {
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
 
-  pair     Pair  @relation(fields: [pairId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  // Restrict, а не Cascade: удаление пары (или версии расписания каскадом через пары) не должно
+  // молча стирать историю посещаемости за семестр. Сервис отвечает CONFLICT заранее, а связь —
+  // страховка на уровне БД от гонок и обходных путей.
+  pair     Pair  @relation(fields: [pairId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   student  User  @relation("AttendanceStudent", fields: [studentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   markedBy User? @relation("AttendanceMarkedBy", fields: [markedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
 
   @@unique([pairId, date, studentId])
   @@index([studentId])
   @@index([pairId, date])
+  @@index([markedById])
   @@map("attendance")
 }

@@ -1,4 +1,4 @@
-import { InviteStatus } from '@prisma/client'
+import { InviteStatus, type Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
 import { InviteService } from './invites.service'
 import { AppException } from '../../common/exceptions/app.exception'
@@ -15,6 +15,10 @@ interface PrismaMock {
   user: {
     findUnique: jest.Mock
   }
+  // Связность scope инвайта (assertScopeExists): группа ∈ факультет ∈ вуз.
+  group: { findUnique: jest.Mock }
+  faculty: { findUnique: jest.Mock }
+  university: { findUnique: jest.Mock }
   invite: {
     create: jest.Mock
     // findFirst, а не findUnique: поиск идёт по двум значениям сразу — хэшу и (переходно)
@@ -22,7 +26,13 @@ interface PrismaMock {
     findFirst: jest.Mock
     findUnique: jest.Mock
     update: jest.Mock
+    // Отзыв — условной записью по статусу.
+    updateMany: jest.Mock
+    // Список выданных инвайтов.
+    findMany: jest.Mock
+    count: jest.Mock
   }
+  $transaction: jest.Mock
 }
 
 const ctx = { ip: '127.0.0.1', userAgent: 'jest' }
@@ -34,17 +44,40 @@ const deanA: JwtPayload = {
   groupId: null,
 }
 
+const activeDean = {
+  id: 'dean-1',
+  role: Role.DEAN,
+  isBlocked: false,
+  deletedAt: null,
+  universityId: 'uni-A',
+  facultyId: 'fac-A',
+  groupId: null,
+}
+
 function setup() {
   const prisma: PrismaMock = {
     // Язык письма-приглашения берётся из профиля приглашающего (invites.service:
     // issuerLocale) — без этого мока сервис падает ещё до постановки письма в очередь.
-    user: { findUnique: jest.fn().mockResolvedValue({ locale: 'ru' }) },
+    // Тот же запрос отвечает и на проверку права выдавшего (assertIssuerEntitled): по
+    // умолчанию выдавший — действующий декан deanA.
+    user: { findUnique: jest.fn().mockResolvedValue({ locale: 'ru', ...activeDean }) },
+    group: {
+      findUnique: jest
+        .fn()
+        .mockResolvedValue({ facultyId: 'fac-A', faculty: { universityId: 'uni-A' } }),
+    },
+    faculty: { findUnique: jest.fn().mockResolvedValue({ universityId: 'uni-A' }) },
+    university: { findUnique: jest.fn().mockResolvedValue({ id: 'uni-A' }) },
     invite: {
       create: jest.fn(),
       findFirst: jest.fn(),
       findUnique: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      findMany: jest.fn().mockResolvedValue([]),
+      count: jest.fn().mockResolvedValue(0),
     },
+    $transaction: jest.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
   }
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const queue = { enqueue: jest.fn().mockResolvedValue(undefined) }
@@ -127,6 +160,24 @@ describe('InviteService', () => {
       expect(res.token).toMatch(/^[0-9a-f-]{36}$/)
     })
 
+    // A-F18: второй origin в CORS_ORIGIN (переезд на поддомен) давал ссылку
+    // `https://a,https://b/register?...` во всех письмах-приглашениях.
+    it('ссылка в письме — от первого origin из CORS_ORIGIN', async () => {
+      const { service, prisma, queue, config } = setup()
+      config.get.mockReturnValue('https://app.studenthub.kz/, https://studenthub.kz')
+      prisma.invite.create.mockResolvedValue({ id: 'inv-1', token: 'x', role: Role.STUDENT })
+
+      const res = await service.create(
+        deanA,
+        { role: Role.STUDENT, groupId: 'grp-1', email: 'stud@demo.kz' },
+        ctx,
+      )
+
+      expect(queue.enqueue.mock.calls[0][2].inviteUrl).toBe(
+        `https://app.studenthub.kz/register?token=${res.token}`,
+      )
+    })
+
     it('без email письмо в очередь не ставится', async () => {
       const { service, prisma, queue } = setup()
       prisma.invite.create.mockResolvedValue({ id: 'inv-1', token: 'x', role: Role.STAROSTA })
@@ -151,6 +202,105 @@ describe('InviteService', () => {
     })
   })
 
+  describe('create — связность scope', () => {
+    const uniAdminA: JwtPayload = {
+      sub: 'ua-1',
+      role: Role.UNIVERSITY_ADMIN,
+      universityId: 'uni-A',
+      facultyId: null,
+      groupId: null,
+    }
+
+    it('декан не приглашает в группу чужого факультета', async () => {
+      const { service, prisma } = setup()
+      prisma.group.findUnique.mockResolvedValue({
+        facultyId: 'fac-B',
+        faculty: { universityId: 'uni-A' },
+      })
+      await expect(
+        service.create(deanA, { role: Role.STUDENT, groupId: 'grp-of-B' }, ctx),
+      ).rejects.toMatchObject({ code: 'WRONG_SCOPE' })
+      expect(prisma.invite.create).not.toHaveBeenCalled()
+    })
+
+    it('декан не приглашает в группу другого вуза', async () => {
+      const { service, prisma } = setup()
+      prisma.group.findUnique.mockResolvedValue({
+        facultyId: 'fac-A',
+        faculty: { universityId: 'uni-B' },
+      })
+      await expect(
+        service.create(deanA, { role: Role.STAROSTA, groupId: 'grp-X' }, ctx),
+      ).rejects.toMatchObject({ code: 'WRONG_SCOPE' })
+    })
+
+    it('несуществующая группа — тот же отказ, что чужая', async () => {
+      const { service, prisma } = setup()
+      prisma.group.findUnique.mockResolvedValue(null)
+      await expect(
+        service.create(deanA, { role: Role.STUDENT, groupId: 'nope' }, ctx),
+      ).rejects.toMatchObject({ code: 'WRONG_SCOPE' })
+    })
+
+    it('админ вуза не назначает декана на факультет другого вуза', async () => {
+      const { service, prisma } = setup()
+      prisma.faculty.findUnique.mockResolvedValue({ universityId: 'uni-B' })
+      await expect(
+        service.create(uniAdminA, { role: Role.DEAN, facultyId: 'fac-of-B' }, ctx),
+      ).rejects.toMatchObject({ code: 'WRONG_SCOPE' })
+      expect(prisma.invite.create).not.toHaveBeenCalled()
+    })
+
+    it('свой факультет — инвайт создаётся', async () => {
+      const { service, prisma } = setup()
+      prisma.invite.create.mockResolvedValue({ id: 'inv-1', token: 'x', role: Role.DEAN })
+      await service.create(uniAdminA, { role: Role.DEAN, facultyId: 'fac-A' }, ctx)
+      expect(prisma.invite.create).toHaveBeenCalled()
+    })
+  })
+
+  // Одобрение заявки вуза (§31): вуз и приглашение его админу пишутся одной транзакцией.
+  describe('createInTransaction', () => {
+    const platformAdmin: JwtPayload = {
+      sub: 'pa-1',
+      role: Role.PLATFORM_ADMIN,
+      universityId: null,
+      facultyId: null,
+      groupId: null,
+    }
+
+    it('проверяет scope и пишет через клиент транзакции, без аудита и письма', async () => {
+      const { service, prisma, audit, queue } = setup()
+      // Вуз заведён в той же транзакции: основной клиент его ещё не видит.
+      prisma.university.findUnique.mockResolvedValue(null)
+      const tx = {
+        university: { findUnique: jest.fn().mockResolvedValue({ id: 'uni-new' }) },
+        invite: {
+          create: jest
+            .fn()
+            .mockResolvedValue({ id: 'inv-1', token: 'хэш', role: Role.UNIVERSITY_ADMIN }),
+        },
+      }
+
+      const res = await service.createInTransaction(
+        tx as unknown as Prisma.TransactionClient,
+        platformAdmin,
+        { role: Role.UNIVERSITY_ADMIN, email: 'rector@example.edu', universityId: 'uni-new' },
+      )
+
+      expect(tx.university.findUnique).toHaveBeenCalled()
+      expect(tx.invite.create.mock.calls[0][0].data).toMatchObject({
+        role: Role.UNIVERSITY_ADMIN,
+        universityId: 'uni-new',
+        token: hashInviteToken(res.token),
+      })
+      expect(prisma.invite.create).not.toHaveBeenCalled()
+      // Побочные эффекты — после коммита, их делает вызывающий.
+      expect(audit.record).not.toHaveBeenCalled()
+      expect(queue.enqueue).not.toHaveBeenCalled()
+    })
+  })
+
   describe('preview', () => {
     const base = {
       role: Role.STUDENT,
@@ -158,6 +308,7 @@ describe('InviteService', () => {
       universityId: 'uni-A',
       facultyId: 'fac-A',
       groupId: 'grp-A',
+      createdById: 'dean-1',
     }
 
     it('не найден → NOT_FOUND', async () => {
@@ -251,6 +402,51 @@ describe('InviteService', () => {
       await expect(service.revoke(deanA, 'inv', ctx)).rejects.toMatchObject({ code: 'FORBIDDEN' })
     })
 
+    // Приглашение админа вуза выдаёт платформа — админ вуза его не отзывает (§2.1).
+    it('админ вуза не отзывает инвайт на UNIVERSITY_ADMIN своего вуза → FORBIDDEN', async () => {
+      const { service, prisma } = setup()
+      prisma.invite.findUnique.mockResolvedValue({
+        id: 'inv',
+        status: InviteStatus.PENDING,
+        role: Role.UNIVERSITY_ADMIN,
+        createdById: 'pa-1',
+        universityId: 'uni-A',
+      })
+      const uniAdmin: JwtPayload = {
+        sub: 'ua-1',
+        role: Role.UNIVERSITY_ADMIN,
+        universityId: 'uni-A',
+        facultyId: null,
+        groupId: null,
+      }
+      await expect(service.revoke(uniAdmin, 'inv', ctx)).rejects.toMatchObject({
+        code: 'FORBIDDEN',
+      })
+      expect(prisma.invite.updateMany).not.toHaveBeenCalled()
+    })
+
+    it('админ вуза отзывает инвайт декана своего вуза', async () => {
+      const { service, prisma } = setup()
+      prisma.invite.findUnique.mockResolvedValue({
+        id: 'inv',
+        status: InviteStatus.PENDING,
+        role: Role.TEACHER,
+        createdById: 'dean-1',
+        universityId: 'uni-A',
+      })
+      const uniAdmin: JwtPayload = {
+        sub: 'ua-1',
+        role: Role.UNIVERSITY_ADMIN,
+        universityId: 'uni-A',
+        facultyId: null,
+        groupId: null,
+      }
+      await expect(service.revoke(uniAdmin, 'inv', ctx)).resolves.toEqual({
+        id: 'inv',
+        status: InviteStatus.REVOKED,
+      })
+    })
+
     it('создатель отзывает PENDING', async () => {
       const { service, prisma, audit } = setup()
       prisma.invite.findUnique.mockResolvedValue({
@@ -259,16 +455,30 @@ describe('InviteService', () => {
         createdById: 'dean-1',
         universityId: 'uni-A',
       })
-      prisma.invite.update.mockResolvedValue({})
       const res = await service.revoke(deanA, 'inv', ctx)
       expect(res).toEqual({ id: 'inv', status: InviteStatus.REVOKED })
-      expect(prisma.invite.update).toHaveBeenCalledWith({
-        where: { id: 'inv' },
+      expect(prisma.invite.updateMany).toHaveBeenCalledWith({
+        where: { id: 'inv', status: InviteStatus.PENDING },
         data: { status: InviteStatus.REVOKED },
       })
       expect(audit.record).toHaveBeenCalledWith(
         expect.objectContaining({ action: 'invite_revoked' }),
       )
+    })
+
+    // A-F19: регистрация между проверкой и записью занимает инвайт (USED) — безусловный
+    // update переписывал его в REVOKED при живом пользователе.
+    it('инвайт заняли регистрацией между проверкой и записью → CONFLICT, аудита нет', async () => {
+      const { service, prisma, audit } = setup()
+      prisma.invite.findUnique.mockResolvedValue({
+        id: 'inv',
+        status: InviteStatus.PENDING,
+        createdById: 'dean-1',
+        universityId: 'uni-A',
+      })
+      prisma.invite.updateMany.mockResolvedValue({ count: 0 })
+      await expect(service.revoke(deanA, 'inv', ctx)).rejects.toMatchObject({ code: 'CONFLICT' })
+      expect(audit.record).not.toHaveBeenCalled()
     })
 
     it('уже USED → CONFLICT', async () => {
@@ -280,6 +490,158 @@ describe('InviteService', () => {
         universityId: 'uni-A',
       })
       await expect(service.revoke(deanA, 'inv', ctx)).rejects.toMatchObject({ code: 'CONFLICT' })
+    })
+  })
+
+  describe('list', () => {
+    const uniAdmin: JwtPayload = {
+      sub: 'ua-1',
+      role: Role.UNIVERSITY_ADMIN,
+      universityId: 'uni-A',
+      facultyId: null,
+      groupId: null,
+    }
+    const whereOf = (prisma: PrismaMock) => prisma.invite.findMany.mock.calls[0][0].where
+
+    it('по умолчанию — только свои инвайты', async () => {
+      const { service, prisma } = setup()
+      await service.list(uniAdmin, { page: 1, limit: 20 })
+      expect(whereOf(prisma)).toEqual({ createdById: 'ua-1' })
+      expect(prisma.invite.count).toHaveBeenCalledWith({ where: { createdById: 'ua-1' } })
+    })
+
+    // A-F19: отзывать инвайты сотрудников вуза админ вправе, а найти их не мог.
+    it('админ вуза со scope=university видит все инвайты своего вуза и кто их выдал', async () => {
+      const { service, prisma } = setup()
+      await service.list(uniAdmin, { page: 1, limit: 20, scope: 'university' })
+      expect(whereOf(prisma)).toEqual({ universityId: 'uni-A' })
+      expect(prisma.invite.findMany.mock.calls[0][0].select.createdBy).toEqual({
+        select: { id: true, firstName: true, lastName: true },
+      })
+    })
+
+    it('scope=university не у админа вуза → FORBIDDEN', async () => {
+      const { service, prisma } = setup()
+      await expect(
+        service.list(deanA, { page: 1, limit: 20, scope: 'university' }),
+      ).rejects.toMatchObject({ code: 'FORBIDDEN' })
+      expect(prisma.invite.findMany).not.toHaveBeenCalled()
+    })
+  })
+
+  // Удаление вуза, факультета или группы: ссылка на них больше не регистрирует.
+  describe('scope удалён', () => {
+    const pending = {
+      role: Role.STUDENT,
+      email: null,
+      universityId: 'uni-A',
+      facultyId: 'fac-A',
+      groupId: 'grp-A',
+      createdById: 'dean-1',
+      status: InviteStatus.PENDING,
+      expiresAt: new Date(Date.now() + HOUR),
+    }
+
+    it('preview: группы уже нет → INVITE_REVOKED, а не форма регистрации', async () => {
+      const { service, prisma } = setup()
+      prisma.invite.findFirst.mockResolvedValue(pending)
+      prisma.group.findUnique.mockResolvedValue(null)
+      await expect(service.preview('x')).rejects.toMatchObject({ code: 'INVITE_REVOKED' })
+    })
+
+    it('claimInvite: факультета уже нет → INVITE_REVOKED (захват откатится с транзакцией)', async () => {
+      const { service, prisma } = setup()
+      const tx = {
+        ...prisma,
+        invite: {
+          ...prisma.invite,
+          updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+          findFirstOrThrow: jest.fn().mockResolvedValue({ id: 'inv-1', ...pending }),
+        },
+      }
+      tx.faculty.findUnique.mockResolvedValue(null)
+      await expect(
+        service.claimInvite(tx as unknown as Prisma.TransactionClient, 'tok'),
+      ).rejects.toMatchObject({ code: 'INVITE_REVOKED' })
+    })
+
+    it('claimInvite: scope на месте — инвайт занят и возвращён', async () => {
+      const { service, prisma } = setup()
+      const tx = {
+        ...prisma,
+        invite: {
+          ...prisma.invite,
+          updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+          findFirstOrThrow: jest.fn().mockResolvedValue({ id: 'inv-1', ...pending }),
+        },
+      }
+      await expect(
+        service.claimInvite(tx as unknown as Prisma.TransactionClient, 'tok'),
+      ).resolves.toMatchObject({ id: 'inv-1' })
+      expect(tx.group.findUnique).toHaveBeenCalledWith({
+        where: { id: 'grp-A' },
+        select: { id: true },
+      })
+    })
+
+    // Право выдавшего сверяется при использовании: снятый староста, заблокированный или
+    // удалённый декан больше не приглашают.
+    const claimTx = (prisma: PrismaMock) => ({
+      ...prisma,
+      invite: {
+        ...prisma.invite,
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        findFirstOrThrow: jest.fn().mockResolvedValue({ id: 'inv-1', ...pending }),
+      },
+    })
+
+    it('claimInvite: выдавший заблокирован → INVITE_REVOKED', async () => {
+      const { service, prisma } = setup()
+      prisma.user.findUnique.mockResolvedValue({ ...activeDean, isBlocked: true })
+      await expect(
+        service.claimInvite(claimTx(prisma) as unknown as Prisma.TransactionClient, 'tok'),
+      ).rejects.toMatchObject({ code: 'INVITE_REVOKED' })
+    })
+
+    it('claimInvite: выдавший удалён → INVITE_REVOKED', async () => {
+      const { service, prisma } = setup()
+      prisma.user.findUnique.mockResolvedValue({ ...activeDean, deletedAt: new Date() })
+      await expect(
+        service.claimInvite(claimTx(prisma) as unknown as Prisma.TransactionClient, 'tok'),
+      ).rejects.toMatchObject({ code: 'INVITE_REVOKED' })
+    })
+
+    it('preview: старосту, выдавшего инвайт, сняли → INVITE_REVOKED', async () => {
+      const { service, prisma } = setup()
+      prisma.invite.findFirst.mockResolvedValue({ ...pending, createdById: 'st-1' })
+      prisma.user.findUnique.mockResolvedValue({
+        ...activeDean,
+        id: 'st-1',
+        role: Role.STUDENT,
+        groupId: 'grp-A',
+      })
+      await expect(service.preview('x')).rejects.toMatchObject({ code: 'INVITE_REVOKED' })
+    })
+
+    it('preview: декана перевели на другой факультет → INVITE_REVOKED', async () => {
+      const { service, prisma } = setup()
+      prisma.invite.findFirst.mockResolvedValue(pending)
+      prisma.user.findUnique.mockResolvedValue({ ...activeDean, facultyId: 'fac-B' })
+      await expect(service.preview('x')).rejects.toMatchObject({ code: 'INVITE_REVOKED' })
+    })
+
+    it('revokePendingInScope: только PENDING этого scope переводятся в REVOKED', async () => {
+      const { service } = setup()
+      const tx = { invite: { updateMany: jest.fn().mockResolvedValue({ count: 3 }) } }
+      await expect(
+        service.revokePendingInScope(tx as unknown as Prisma.TransactionClient, {
+          groupId: 'grp-A',
+        }),
+      ).resolves.toBe(3)
+      expect(tx.invite.updateMany).toHaveBeenCalledWith({
+        where: { groupId: 'grp-A', status: InviteStatus.PENDING },
+        data: { status: InviteStatus.REVOKED },
+      })
     })
   })
 })

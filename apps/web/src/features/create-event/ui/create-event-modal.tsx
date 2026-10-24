@@ -1,13 +1,14 @@
 'use client'
 
-import { useState } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useTranslations } from 'next-intl'
 import {
+  CAREER_EVENT_KINDS,
   CreateEventSchema,
+  type CareerEventKind,
   type CreateEventInput,
   type PostAudienceValue,
 } from '@studenthub/shared-schemas'
@@ -15,14 +16,10 @@ import { Role } from '@studenthub/shared-types'
 import { useAppSelector } from '../../../shared/store'
 import { useErrorToast } from '../../../shared/lib'
 import { createEventRequest, eventKeys } from '../../../entities/event'
-import { fetchGroups, groupKeys } from '../../../entities/group'
+import { GroupSelect } from '../../../entities/group'
 import { fetchFaculties, facultyKeys } from '../../../entities/faculty'
 import {
   Button,
-  Checkbox,
-  DateTimePicker,
-  FieldError,
-  Input,
   Label,
   Modal,
   Select,
@@ -30,8 +27,8 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
-  Textarea,
 } from '../../../shared/ui'
+import { EventDetailsFields } from './event-details-fields'
 
 // Кому роль вправе адресовать событие. Сервер проверяет то же самое — здесь только
 // не показываем заведомо недоступные варианты.
@@ -43,12 +40,26 @@ const UI_AUDIENCES: Partial<Record<Role, PostAudienceValue[]>> = {
   [Role.STAROSTA]: ['GROUP'],
   [Role.STUDENT]: ['GROUP'],
 }
-const GROUP_PICKER_ROLES: Role[] = [Role.UNIVERSITY_ADMIN, Role.TEACHER]
+// Декан тоже выбирает группу: без поля событие «для группы» уходило без groupId, и сервер
+// отвечал «Не указана группа» — у декана в токене группы нет.
+const GROUP_PICKER_ROLES: Role[] = [Role.UNIVERSITY_ADMIN, Role.DEAN, Role.TEACHER]
 const FACULTY_PICKER_ROLES: Role[] = [Role.UNIVERSITY_ADMIN]
+/**
+ * Кто может отметить событие как карьерное. Карьерные мероприятия показываются в разделе
+ * карьеры своего вуза, поэтому — организаторы событий вуза, а не платформы и не студенты.
+ */
+export const CAREER_EVENT_AUTHOR_ROLES: readonly Role[] = [
+  Role.UNIVERSITY_ADMIN,
+  Role.DEAN,
+  Role.TEACHER,
+]
+// «Не карьерное» — отдельное значение селекта: пустую строку Radix Select не принимает.
+const NO_CAREER_KIND = 'none'
 
-// datetime-local ("YYYY-MM-DDTHH:mm", локальное время) → ISO UTC для API.
-function toIso(local: string): string {
-  return local ? new Date(local).toISOString() : ''
+interface CreateEventModalProps {
+  onClose: () => void
+  /** Тип карьерного мероприятия заранее — когда событие создают из раздела карьеры. */
+  careerKind?: CareerEventKind
 }
 
 /**
@@ -58,37 +69,38 @@ function toIso(local: string): string {
  * при том что читают события куда чаще, чем создают. Теперь это модалка за кнопкой
  * в шапке, собранная как остальные создания в системе.
  */
-export function CreateEventModal({ onClose }: { onClose: () => void }) {
+export function CreateEventModal({ onClose, careerKind }: CreateEventModalProps) {
   const t = useTranslations('Events')
+  const tCareer = useTranslations('CareerEvents')
   const tCommon = useTranslations('Common')
   const qc = useQueryClient()
   const { show: showApiError } = useErrorToast('create-event')
   const role = useAppSelector((s) => s.auth.role)
+  const myFacultyId = useAppSelector((s) => s.auth.facultyId)
   const audiences = role ? (UI_AUDIENCES[role] ?? []) : []
 
   const form = useForm<CreateEventInput>({
     resolver: zodResolver(CreateEventSchema),
-    defaultValues: { audience: audiences[0], isOnline: false },
+    defaultValues: { audience: audiences[0], isOnline: false, careerKind },
   })
   const audience = form.watch('audience')
-  const isOnline = form.watch('isOnline')
   const showGroup = audience === 'GROUP' && role !== null && GROUP_PICKER_ROLES.includes(role)
   const showFaculty = audience === 'FACULTY' && role !== null && FACULTY_PICKER_ROLES.includes(role)
+  const showCareerKind = role !== null && CAREER_EVENT_AUTHOR_ROLES.includes(role)
 
-  const groups = useQuery({
-    queryKey: groupKeys.list(),
-    queryFn: () => fetchGroups(),
-    enabled: showGroup,
-  })
+  const kindLabel: Record<CareerEventKind, string> = {
+    CAREER_FAIR: tCareer('kindFair'),
+    WORKSHOP: tCareer('kindWorkshop'),
+    INTERVIEW_DAY: tCareer('kindInterviewDay'),
+    COMPANY_PRESENTATION: tCareer('kindPresentation'),
+    HACKATHON: tCareer('kindHackathon'),
+  }
+
   const faculties = useQuery({
     queryKey: facultyKeys.list(),
     queryFn: () => fetchFaculties(),
     enabled: showFaculty,
   })
-
-  // Пикеры хранят локальное время ("YYYY-MM-DDTHH:mm"), в форму уходит ISO UTC.
-  const [startLocal, setStartLocal] = useState('')
-  const [endLocal, setEndLocal] = useState('')
 
   const mutation = useMutation({
     mutationFn: (input: CreateEventInput) => createEventRequest(input),
@@ -103,56 +115,22 @@ export function CreateEventModal({ onClose }: { onClose: () => void }) {
   return (
     <Modal onClose={onClose} title={t('newEvent')} size="lg">
       <form onSubmit={form.handleSubmit((v) => mutation.mutate(v))} className="flex flex-col gap-4">
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="ev-title">{t('eventTitle')}</Label>
-          <Input id="ev-title" autoFocus {...form.register('title')} />
-          <FieldError>{form.formState.errors.title && t('required')}</FieldError>
-        </div>
-
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="ev-desc">{t('description')}</Label>
-          <Textarea id="ev-desc" rows={3} {...form.register('description')} />
-          <FieldError>{form.formState.errors.description && t('required')}</FieldError>
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="flex flex-col gap-1.5">
-            <Label>{t('audience')}</Label>
-            <Controller
-              control={form.control}
-              name="audience"
-              render={({ field }) => (
-                <Select value={field.value} onValueChange={field.onChange}>
-                  <SelectTrigger aria-label={t('audience')}>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {audiences.map((a) => (
-                      <SelectItem key={a} value={a}>
-                        {t(`audience${a}`)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-            />
-          </div>
-
-          {showGroup && (
+        <EventDetailsFields form={form} mode="create">
+          <div className="grid gap-3 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
-              <Label>{t('group')}</Label>
+              <Label>{t('audience')}</Label>
               <Controller
                 control={form.control}
-                name="groupId"
+                name="audience"
                 render={({ field }) => (
-                  <Select value={field.value ?? ''} onValueChange={field.onChange}>
-                    <SelectTrigger aria-label={t('group')}>
-                      <SelectValue placeholder={t('selectGroup')} />
+                  <Select value={field.value} onValueChange={field.onChange}>
+                    <SelectTrigger aria-label={t('audience')}>
+                      <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      {(groups.data ?? []).map((g) => (
-                        <SelectItem key={g.id} value={g.id}>
-                          {g.name}
+                      {audiences.map((a) => (
+                        <SelectItem key={a} value={a}>
+                          {t(`audience${a}`)}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -160,86 +138,83 @@ export function CreateEventModal({ onClose }: { onClose: () => void }) {
                 )}
               />
             </div>
-          )}
 
-          {showFaculty && (
-            <div className="flex flex-col gap-1.5">
-              <Label>{t('faculty')}</Label>
-              <Controller
-                control={form.control}
-                name="facultyId"
-                render={({ field }) => (
-                  <Select value={field.value ?? ''} onValueChange={field.onChange}>
-                    <SelectTrigger aria-label={t('faculty')}>
-                      <SelectValue placeholder={t('selectFaculty')} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {(faculties.data ?? []).map((f) => (
-                        <SelectItem key={f.id} value={f.id}>
-                          {f.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                )}
-              />
-            </div>
-          )}
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="flex flex-col gap-1.5">
-            <Label>{t('startsAt')}</Label>
-            <DateTimePicker
-              value={startLocal}
-              aria-label={t('startsAt')}
-              onChange={(v) => {
-                setStartLocal(v)
-                form.setValue('startsAt', toIso(v), { shouldValidate: true })
-              }}
-            />
-            <FieldError>{form.formState.errors.startsAt && t('required')}</FieldError>
-          </div>
-          <div className="flex flex-col gap-1.5">
-            <Label>{t('endsAt')}</Label>
-            <DateTimePicker
-              value={endLocal}
-              min={startLocal || undefined}
-              aria-label={t('endsAt')}
-              onChange={(v) => {
-                setEndLocal(v)
-                form.setValue('endsAt', v ? toIso(v) : undefined, { shouldValidate: true })
-              }}
-            />
-            <FieldError>{form.formState.errors.endsAt?.message}</FieldError>
-          </div>
-        </div>
-
-        <label className="flex cursor-pointer items-center gap-2 text-sm">
-          <Controller
-            control={form.control}
-            name="isOnline"
-            render={({ field }) => (
-              <Checkbox
-                checked={field.value === true}
-                onCheckedChange={(v) => field.onChange(v === true)}
-                onBlur={field.onBlur}
-              />
+            {showGroup && (
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="e-group">{t('group')}</Label>
+                {/* Поиск по группам на сервере, а не первые 100 по алфавиту. */}
+                <Controller
+                  control={form.control}
+                  name="groupId"
+                  render={({ field }) => (
+                    <GroupSelect
+                      id="e-group"
+                      // Декану — группы своего факультета: чужие сервер всё равно отклонит.
+                      facultyId={role === Role.DEAN ? (myFacultyId ?? undefined) : undefined}
+                      value={field.value ?? null}
+                      onChange={(v) => field.onChange(v ?? undefined)}
+                      placeholder={t('selectGroup')}
+                    />
+                  )}
+                />
+              </div>
             )}
-          />
-          {t('isOnline')}
-        </label>
 
-        {/* У онлайн-события «место» — это ссылка на встречу, поэтому подпись меняется:
-            поле «Аудитория / адрес» рядом с галочкой «онлайн» сбивало с толку. */}
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="ev-loc">{isOnline ? t('meetingLink') : t('location')}</Label>
-          <Input
-            id="ev-loc"
-            {...form.register('location')}
-            placeholder={isOnline ? t('meetingLinkPlaceholder') : t('locationPlaceholder')}
-          />
-        </div>
+            {showFaculty && (
+              <div className="flex flex-col gap-1.5">
+                <Label>{t('faculty')}</Label>
+                <Controller
+                  control={form.control}
+                  name="facultyId"
+                  render={({ field }) => (
+                    <Select value={field.value ?? ''} onValueChange={field.onChange}>
+                      <SelectTrigger aria-label={t('faculty')}>
+                        <SelectValue placeholder={t('selectFaculty')} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {(faculties.data ?? []).map((f) => (
+                          <SelectItem key={f.id} value={f.id}>
+                            {f.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+              </div>
+            )}
+
+            {showCareerKind && (
+              <div className="flex flex-col gap-1.5">
+                <Label>{t('careerKind')}</Label>
+                <Controller
+                  control={form.control}
+                  name="careerKind"
+                  render={({ field }) => (
+                    <Select
+                      value={field.value ?? NO_CAREER_KIND}
+                      onValueChange={(v) =>
+                        field.onChange(v === NO_CAREER_KIND ? undefined : (v as CareerEventKind))
+                      }
+                    >
+                      <SelectTrigger aria-label={t('careerKind')}>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={NO_CAREER_KIND}>{t('careerKindNone')}</SelectItem>
+                        {CAREER_EVENT_KINDS.map((kind) => (
+                          <SelectItem key={kind} value={kind}>
+                            {kindLabel[kind]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                />
+              </div>
+            )}
+          </div>
+        </EventDetailsFields>
 
         <div className="flex items-center justify-between gap-2">
           <Button type="button" variant="outline" onClick={onClose}>

@@ -14,6 +14,7 @@ export function PromptDialog({
   placeholder,
   multiline,
   required,
+  defaultValue,
   submitLabel,
   cancelLabel,
   onSubmit,
@@ -24,6 +25,8 @@ export function PromptDialog({
   placeholder?: string
   multiline?: boolean
   required?: boolean
+  /** Исходное значение поля — для переименования: правят текущее название, а не вводят заново. */
+  defaultValue?: string
   submitLabel: string
   cancelLabel: string
   onSubmit: (value: string) => void
@@ -31,8 +34,8 @@ export function PromptDialog({
 }) {
   const [value, setValue] = useState('')
   useEffect(() => {
-    if (open) setValue('')
-  }, [open])
+    if (open) setValue(defaultValue ?? '')
+  }, [open, defaultValue])
 
   const disabled = required && value.trim().length === 0
 
@@ -44,8 +47,8 @@ export function PromptDialog({
       }}
     >
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-[100] bg-overlay/50 backdrop-blur-sm data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0" />
-        <DialogPrimitive.Content className="fixed top-1/2 left-1/2 z-[100] flex w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 flex-col gap-4 rounded-2xl border border-border bg-card p-6 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95">
+        <DialogPrimitive.Overlay className="fixed inset-0 z-[100] bg-overlay/50 backdrop-blur-sm data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:duration-(--motion-modal) data-[state=open]:fade-in-0" />
+        <DialogPrimitive.Content className="fixed top-1/2 left-1/2 z-[100] flex w-[calc(100%-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 flex-col gap-4 rounded-2xl border border-border bg-card p-6 data-[state=open]:animate-in data-[state=open]:duration-(--motion-modal) data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95">
           <div className="flex items-center justify-between gap-3">
             <DialogPrimitive.Title className="text-base font-semibold">
               {title}
@@ -64,9 +67,12 @@ export function PromptDialog({
               if (!disabled) onSubmit(value.trim())
             }}
           >
+            {/* Подписи у поля нет — её роль играет заголовок окна; без aria-label скринридер
+                объявлял бы безымянное «поле ввода». */}
             {multiline ? (
               <Textarea
                 autoFocus
+                aria-label={title}
                 value={value}
                 placeholder={placeholder}
                 onChange={(e) => setValue(e.target.value)}
@@ -75,6 +81,7 @@ export function PromptDialog({
             ) : (
               <Input
                 autoFocus
+                aria-label={title}
                 value={value}
                 placeholder={placeholder}
                 onChange={(e) => setValue(e.target.value)}

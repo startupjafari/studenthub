@@ -92,6 +92,8 @@ function rawRouter(over: Record<string, unknown[]> = {}) {
           { bucket: 5, n: 3n },
         ],
       )
+    if (sql.includes('COUNT(DISTINCT a.student_id) AS n'))
+      return Promise.resolve(over.graduatesHired ?? [{ n: 2n }])
     if (sql.includes('event_participants p'))
       return Promise.resolve([{ bucket: new Date(), n: 7n }])
     if (sql.includes('FROM events e'))
@@ -170,6 +172,20 @@ describe('CareerReportService', () => {
     expect(report.faculties.minCell).toBe(5)
   })
 
+  it('разрез по факультетам не обрезается десяткой — показываются все крупные', async () => {
+    const many = Array.from({ length: 14 }, (_, i) => ({
+      id: `f-${i}`,
+      name: `Факультет ${i}`,
+      students: 50n,
+      applied: 10n,
+      hired: 1n,
+    }))
+    const { service } = setup({ faculties: many })
+    const report = await service.forUniversity(staff(), 'quarter')
+    expect(report.faculties.items).toHaveLength(14)
+    expect(report.faculties.suppressed).toBe(0)
+  })
+
   it('пустой город не попадает в географию', async () => {
     const { service } = setup()
     const report = await service.forUniversity(staff(), 'quarter')
@@ -223,11 +239,36 @@ describe('CareerReportService', () => {
 })
 
 describe('Границы периода', () => {
+  it('выпускники: трудоустроенные — подсчётом запросом, а не выборкой с потолком (D-F31)', async () => {
+    const { service, prisma } = setup({ graduatesHired: [{ n: 12_345n }] })
+    const report = await service.forUniversity(staff(), 'year')
+    expect(report.graduates).toMatchObject({ students: 400, hired: 12_345 })
+    expect(prisma.careerApplication.findMany).not.toHaveBeenCalled()
+  })
+
+  it('доля открытых профилей: старосты и в числителе, и в знаменателе (D-F31)', async () => {
+    const { service, prisma } = setup()
+    await service.forUniversity(staff(), 'year')
+    const roles = { in: [Role.STUDENT, Role.STAROSTA] }
+    expect(prisma.user.count).toHaveBeenCalledWith({
+      where: { universityId: 'uni-1', role: roles, deletedAt: null },
+    })
+    for (const [args] of prisma.careerProfile.count.mock.calls) {
+      expect(args.where.user).toMatchObject({ role: roles })
+    }
+  })
+
   it('«учебный год» начинается 1 сентября, а не 1 января', () => {
     const range = resolveRange('year', new Date('2026-03-10T00:00:00.000Z'))
     // Март — это ещё учебный год, начавшийся в сентябре прошлого календарного.
     expect(range.from.toISOString()).toBe('2025-09-01T00:00:00.000Z')
     expect(range.previousFrom.toISOString()).toBe('2024-09-01T00:00:00.000Z')
+  })
+
+  it('год идёт — сравнение с той же частью прошлого учебного года, а не с ним целиком', () => {
+    const range = resolveRange('year', new Date('2026-03-10T00:00:00.000Z'))
+    // 1 сен 2025 → 10 мар 2026 против 1 сен 2024 → той же длины (10 мар 2025).
+    expect(range.previousTo.toISOString()).toBe('2025-03-10T00:00:00.000Z')
   })
 
   it('после 1 сентября учебный год считается новым', () => {
@@ -241,6 +282,7 @@ describe('Границы периода', () => {
     const month = resolveRange('month', now)
     expect(month.from.toISOString()).toBe('2026-08-14T00:00:00.000Z')
     expect(month.previousFrom.toISOString()).toBe('2026-07-15T00:00:00.000Z')
+    expect(month.previousTo.toISOString()).toBe(month.from.toISOString())
     const quarter = resolveRange('quarter', now)
     expect(quarter.from.toISOString()).toBe('2026-06-15T00:00:00.000Z')
   })

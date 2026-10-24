@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import {
@@ -10,12 +10,10 @@ import {
   CalendarCheck2,
   Check,
   Clock,
-  Download,
   FileCheck2,
   FileText,
   MapPin,
   MessagesSquare,
-  Paperclip,
   User,
   X,
 } from 'lucide-react'
@@ -32,13 +30,8 @@ import {
 } from '../../../shared/ui'
 import { nowInTz } from '../../../shared/lib'
 import { useAppSelector } from '../../../shared/store'
-import { scheduleKeys, fetchSchedule } from '../../../entities/schedule'
-import {
-  materialKeys,
-  fetchMaterials,
-  fetchMaterialFileUrl,
-  type Material,
-} from '../../../entities/material'
+import { scheduleKeys, fetchSchedule, fetchScheduleChanges } from '../../../entities/schedule'
+import { materialKeys, fetchMaterials } from '../../../entities/material'
 import { GroupMembers } from '../../../widgets/group-members'
 import { cn } from '../../../shared/lib/utils'
 import { courseKeys, fetchCourses } from '../../../entities/course'
@@ -50,7 +43,8 @@ import {
 } from '../../../entities/assignment'
 import { gradebookKeys, fetchMyGrades } from '../../../entities/gradebook'
 import { attendanceKeys, fetchMyAttendance } from '../../../entities/attendance'
-import { buildCourses, mergeApiCourses } from '../lib/build-courses'
+import { buildCourses, mergeApiCourses, nextLessonRange, pickCourse } from '../lib/build-courses'
+import { MaterialRow } from './material-row'
 
 // Статус задания глазами студента → вариант бейджа + i18n-ключ (namespace Assignments.status).
 const ASG_STATUS_KEY: Record<StudentAssignmentStatus, string> = {
@@ -60,6 +54,7 @@ const ASG_STATUS_KEY: Record<StudentAssignmentStatus, string> = {
   GRADED: 'graded',
   RETURNED: 'returned',
   OVERDUE: 'overdue',
+  CLOSED: 'closed',
 }
 const ASG_STATUS_VARIANT: Record<
   StudentAssignmentStatus,
@@ -71,6 +66,7 @@ const ASG_STATUS_VARIANT: Record<
   GRADED: 'default',
   RETURNED: 'destructive',
   OVERDUE: 'destructive',
+  CLOSED: 'secondary',
 }
 
 // Разделы дисциплины. Живут в шапке страницы (SegmentedTabs), как на остальных экранах
@@ -125,43 +121,64 @@ export function CourseView({ subject }: CourseViewProps) {
   const locale = useLocale()
   const router = useRouter()
   const groupId = useAppSelector((s) => s.auth.groupId)
+  // Курс конкретного семестра из ссылки карточки: у «Математики» 1-го и 2-го семестров
+  // название одно, и по одному названию страница брала случайный из них (C-F25).
+  const courseParam = useSearchParams().get('course')
   const [tab, setTab] = useState<TabId>('overview')
 
   const schedule = useQuery({ queryKey: scheduleKeys.view({}), queryFn: () => fetchSchedule({}) })
-  const materials = useQuery({ queryKey: materialKeys.list(), queryFn: () => fetchMaterials() })
+  // Материалы дисциплины выбираются на сервере: раньше страница искала их среди последних
+  // 200 материалов группы, и к середине второго семестра материалы первого пропадали.
+  const materials = useQuery({
+    queryKey: materialKeys.list({ subject }),
+    queryFn: () => fetchMaterials({ subject }),
+  })
   const apiCourses = useQuery({
     queryKey: courseKeys.list(),
     queryFn: () => fetchCourses(),
     retry: false,
   })
 
+  // «Ближайшее занятие» — с отменами и переносами своей даты.
+  const now = useMemo(() => nowInTz(schedule.data?.timezone ?? null), [schedule.data?.timezone])
+  const changesRange = useMemo(() => nextLessonRange(now), [now])
+  const changes = useQuery({
+    queryKey: scheduleKeys.changes(changesRange),
+    queryFn: () => fetchScheduleChanges(changesRange),
+    enabled: !!schedule.data,
+  })
+
   const summary = useMemo(() => {
     if (!schedule.data) return null
-    const now = nowInTz(schedule.data.timezone ?? null)
-    const base = buildCourses(schedule.data.pairs, materials.data ?? [], now)
-    return mergeApiCourses(base, apiCourses.data ?? []).find((c) => c.subject === subject)
-  }, [schedule.data, materials.data, apiCourses.data, subject])
+    const counts = [{ subject, count: materials.data?.length ?? 0 }]
+    const base = buildCourses(schedule.data.pairs, counts, now, changes.data ?? [])
+    const merged = mergeApiCourses(base, apiCourses.data ?? [], counts)
+    return pickCourse(merged, subject, courseParam)
+  }, [schedule.data, materials.data, apiCourses.data, subject, courseParam, now, changes.data])
 
-  const subjectMaterials = useMemo(
-    () => (materials.data ?? []).filter((m) => m.subject === subject),
-    [materials.data, subject],
-  )
+  const subjectMaterials = useMemo(() => materials.data ?? [], [materials.data])
 
   // Workspace дисциплины (docs/UNIFIED_UX.md PR-3): единая дисциплина = расписание +
   // задания + материалы + оценки + посещаемость + чат. Всё из существующих сущностей.
   const myGrades = useQuery({ queryKey: gradebookKeys.me(), queryFn: fetchMyGrades, retry: false })
+  // Сводка по дисциплине считается на сервере за всё время: раньше страница фильтровала
+  // последние 100 отметок по всем предметам и показывала долю за пару недель.
   const myAttendance = useQuery({
-    queryKey: attendanceKeys.me(),
-    queryFn: () => fetchMyAttendance(),
+    queryKey: attendanceKeys.me({ subject }),
+    queryFn: () => fetchMyAttendance({ subject }),
     retry: false,
   })
 
-  const gradesCourse = useMemo(
-    () => (myGrades.data ?? []).find((c) => c.subject.name === subject) ?? null,
-    [myGrades.data, subject],
-  )
+  // Оценки — по id курса, когда он известен: по названию подтягивался журнал курса той же
+  // дисциплины из другого семестра. Без курса (только расписание) — по названию, как раньше.
+  const summaryCourseId = summary?.courseId ?? null
+  const gradesCourse = useMemo(() => {
+    const list = myGrades.data ?? []
+    if (summaryCourseId) return list.find((c) => c.courseId === summaryCourseId) ?? null
+    return list.find((c) => c.subject.name === subject) ?? null
+  }, [myGrades.data, subject, summaryCourseId])
   // id курса из backend-домена (когда миграция применена): из обзора или из «моих оценок».
-  const courseId = summary?.courseId ?? gradesCourse?.courseId ?? null
+  const courseId = summaryCourseId ?? gradesCourse?.courseId ?? null
 
   const assignments = useQuery({
     queryKey: assignmentKeys.list({ courseId: courseId ?? undefined }),
@@ -170,28 +187,30 @@ export function CourseView({ subject }: CourseViewProps) {
     retry: false,
   })
 
+  // Пары расписания достаются только основному курсу дисциплины (см. mergeApiCourses):
+  // у курса прошлого семестра с тем же названием занятий в текущей сетке нет.
+  const hasLessons = !summary || summary.lessonsPerWeek > 0
   const subjectPairs = useMemo(
     () =>
-      (schedule.data?.pairs ?? [])
-        .filter((p) => p.subject === subject)
-        .sort((a, b) => a.dayOfWeek - b.dayOfWeek || a.startTime.localeCompare(b.startTime)),
-    [schedule.data?.pairs, subject],
+      hasLessons
+        ? (schedule.data?.pairs ?? [])
+            .filter((p) => p.subject === subject)
+            .sort((a, b) => a.dayOfWeek - b.dayOfWeek || a.startTime.localeCompare(b.startTime))
+        : [],
+    [schedule.data?.pairs, subject, hasLessons],
   )
 
-  const subjectAttendance = useMemo(
-    () => (myAttendance.data?.records ?? []).filter((r) => r.pair.subject === subject),
-    [myAttendance.data, subject],
-  )
-  const attStats = useMemo(() => {
-    const s = { present: 0, late: 0, absent: 0, excused: 0 }
-    for (const r of subjectAttendance) {
-      const k = r.status.toLowerCase() as keyof typeof s
-      if (k in s) s[k] += 1
-    }
-    const total = subjectAttendance.length
-    const rate = total ? Math.round(((s.present + s.late) / total) * 100) : 0
-    return { ...s, total, rate }
-  }, [subjectAttendance])
+  // Отметки — последние занятия этой дисциплины; счётчики и процент — серверные, по той
+  // же формуле, что и общая сводка на «Посещаемости».
+  const subjectAttendance = myAttendance.data?.records ?? []
+  const attStats = myAttendance.data ?? {
+    present: 0,
+    late: 0,
+    absent: 0,
+    excused: 0,
+    total: 0,
+    rate: 0,
+  }
 
   // Средний процент по опубликованным оценкам дисциплины.
   const gradesAverage = useMemo(() => {
@@ -206,7 +225,7 @@ export function CourseView({ subject }: CourseViewProps) {
     return (
       <div className="flex w-full flex-1 flex-col gap-4">
         <Skeleton className="h-8 w-64" />
-        <Skeleton className="h-64 w-full rounded-xl" />
+        <Skeleton fill className="min-h-64 rounded-xl" />
       </div>
     )
   }
@@ -376,7 +395,7 @@ export function CourseView({ subject }: CourseViewProps) {
               description={t('noCourseLinkHint')}
             />
           ) : assignments.isLoading ? (
-            <Skeleton className="h-40 w-full rounded-xl" />
+            <Skeleton fill className="min-h-40 rounded-xl" />
           ) : (assignments.data ?? []).length === 0 ? (
             <EmptyState icon={<FileText />} title={t('noAssignments')} />
           ) : (
@@ -458,7 +477,7 @@ export function CourseView({ subject }: CourseViewProps) {
 
       {tab === 'attendance' && (
         <>
-          {subjectAttendance.length === 0 ? (
+          {attStats.total === 0 ? (
             <EmptyState icon={<Clock />} title={t('noAttendanceData')} />
           ) : (
             <div className="flex flex-col gap-4">
@@ -573,73 +592,5 @@ function Info({ label, children }: { label: string; children: React.ReactNode })
       <span className="text-xs text-muted-foreground">{label}</span>
       {children}
     </div>
-  )
-}
-
-function MaterialRow({
-  material,
-  locale,
-  t,
-}: {
-  material: Material
-  locale: string
-  t: ReturnType<typeof useTranslations>
-}) {
-  const [busy, setBusy] = useState<string | null>(null)
-  const date = new Date(material.createdAt).toLocaleDateString(locale, {
-    day: '2-digit',
-    month: 'short',
-  })
-
-  async function openFile(fileId: string) {
-    setBusy(fileId)
-    try {
-      const url = await fetchMaterialFileUrl(material.id, fileId)
-      window.open(url, '_blank', 'noopener')
-    } finally {
-      setBusy(null)
-    }
-  }
-
-  return (
-    // Одна строка: слева — что за материал, справа — чем его открыть. Раньше кнопки
-    // стояли под названием с отступом слева, и строка выглядела ступенькой, а правая
-    // половина карточки пустовала. На узком экране кнопки переносятся под текст.
-    <li className="flex flex-col gap-2 rounded-lg border border-border p-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
-      <div className="flex min-w-0 items-start gap-2">
-        <FileText className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium">{material.title}</p>
-          <p className="truncate text-xs text-muted-foreground">
-            {material.teacher.firstName} {material.teacher.lastName} · {date}
-          </p>
-        </div>
-      </div>
-      {(material.media.length > 0 || material.url) && (
-        <div className="flex flex-wrap gap-1.5 pl-6 sm:shrink-0 sm:justify-end sm:pl-0">
-          {material.url && (
-            <Button asChild variant="outline" size="sm" className="gap-1">
-              <a href={material.url} target="_blank" rel="noopener noreferrer">
-                <Paperclip className="size-3" aria-hidden />
-                {t('link')}
-              </a>
-            </Button>
-          )}
-          {material.media.map((f, i) => (
-            <Button
-              key={f.id}
-              variant="outline"
-              size="sm"
-              className="gap-1"
-              loading={busy === f.id}
-              onClick={() => openFile(f.id)}
-            >
-              <Download className="size-3" aria-hidden />
-              {t('file', { n: i + 1 })}
-            </Button>
-          ))}
-        </div>
-      )}
-    </li>
   )
 }

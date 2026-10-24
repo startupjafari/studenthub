@@ -20,13 +20,36 @@ export const UsernameSchema = z
   .toLowerCase()
   .regex(/^[a-z0-9_]{3,32}$/, 'Только латиница, цифры и _, 3–32 символа')
 
-// Политика пароля (docs/BACKEND_RULES.md §3): ≥8 символов, буква + цифра + спецсимвол.
+/**
+ * Предел длины пароля в байтах UTF-8. bcrypt учитывает только первые 72 байта и молча
+ * отбрасывает остальное: пароль из 40 кириллических букв (80 байт) принимался целиком, а
+ * входом служили первые 36. Считаем байты, а не символы — кириллица занимает по два.
+ */
+export const PASSWORD_MAX_BYTES = 72
+
+/** Длина строки в байтах UTF-8 — без TextEncoder: пакет собирается без DOM и Node-типов. */
+function utf8Length(value: string): number {
+  let bytes = 0
+  for (const ch of value) {
+    const code = ch.codePointAt(0) ?? 0
+    bytes += code < 0x80 ? 1 : code < 0x800 ? 2 : code < 0x10000 ? 3 : 4
+  }
+  return bytes
+}
+
+// Политика пароля (docs/BACKEND_RULES.md §3): ≥8 символов, буква + цифра + спецсимвол и
+// не длиннее PASSWORD_MAX_BYTES. Одна для всех, кто задаёт пароль: регистрация по инвайту,
+// работодатель, смена и сброс пароля.
 export const PasswordSchema = z
   .string()
   .min(8, 'Минимум 8 символов')
   .regex(/[A-Za-zА-Яа-я]/, 'Нужна хотя бы одна буква')
   .regex(/[0-9]/, 'Нужна хотя бы одна цифра')
   .regex(/[^A-Za-zА-Яа-я0-9]/, 'Нужен хотя бы один спецсимвол')
+  .refine(
+    (value) => utf8Length(value) <= PASSWORD_MAX_BYTES,
+    'Слишком длинный пароль: не больше 72 байт (около 36 букв кириллицей)',
+  )
 
 /**
  * Редакция правовых документов, на которую даётся согласие при регистрации.
@@ -71,7 +94,8 @@ export const RegisterByInviteSchema = z
     firstName: z.string().min(1).max(100),
     lastName: z.string().min(1).max(100),
     password: PasswordSchema,
-    email: z.string().email().optional(),
+    // Нижний регистр — как у адреса инвайта: email сравнивается без учёта регистра.
+    email: z.string().trim().toLowerCase().email().optional(),
     birthDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Дата в формате ГГГГ-ММ-ДД'),
     /** Согласие с политикой и соглашением. Только `true`: отказ — это незаполненная форма. */
     consent: z.literal(true),
@@ -133,6 +157,11 @@ export type TwoFactorEnableInput = z.infer<typeof TwoFactorEnableSchema>
 export const TwoFactorDisableSchema = z.object({ code: z.string().min(6).max(20) }).strict()
 export type TwoFactorDisableInput = z.infer<typeof TwoFactorDisableSchema>
 
+// Действие, подтверждённое СВОИМ вторым фактором (TOTP или backup-код): перевыпуск
+// backup-кодов владельцем, сброс 2FA другого человека администратором.
+export const TwoFactorConfirmSchema = z.object({ code: z.string().min(6).max(20) }).strict()
+export type TwoFactorConfirmInput = z.infer<typeof TwoFactorConfirmSchema>
+
 // ── Вход по QR (Telegram Web-стиль) ──────────────────────────────────────────
 
 // Подтверждение входа с уже залогиненного устройства (телефона): approveToken из QR.
@@ -144,3 +173,21 @@ export const QrClaimSchema = z
   .object({ qrId: z.string().min(1), claimSecret: z.string().min(1) })
   .strict()
 export type QrClaimInput = z.infer<typeof QrClaimSchema>
+
+// ── Сброс пароля по ссылке из письма (docs/PROJECT.md §7.2) ──────────────────
+
+// Просьба прислать ссылку. Только email: письмо уходит на адрес учётной записи, а имя
+// пользователя почтового ящика не знает. Ответ сервера одинаков для любого адреса.
+export const ForgotPasswordSchema = z
+  .object({ email: z.string().trim().toLowerCase().email().max(160) })
+  .strict()
+export type ForgotPasswordInput = z.infer<typeof ForgotPasswordSchema>
+
+// Новый пароль по одноразовому токену из письма. Политика пароля — та же, что везде.
+export const ResetPasswordSchema = z
+  .object({
+    token: z.string().min(16).max(200),
+    password: PasswordSchema,
+  })
+  .strict()
+export type ResetPasswordInput = z.infer<typeof ResetPasswordSchema>

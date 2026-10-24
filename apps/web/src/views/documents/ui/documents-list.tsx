@@ -7,6 +7,7 @@ import { FilterX, FolderLock, Lock, Paperclip, Plus, Search, SearchX, Users } fr
 import { DOCUMENT_CATEGORIES, DOCUMENT_STATUSES } from '@studenthub/shared-config'
 import type { DocumentSortValue } from '@studenthub/shared-schemas'
 import { documentKeys, fetchDocuments } from '../../../entities/document'
+import { useDocumentTypeCatalog } from '../../../entities/document-type'
 import {
   Badge,
   Button,
@@ -35,17 +36,21 @@ import { UploadWizard } from './upload-wizard'
 
 export type DocumentsPreset = 'active' | 'archived' | 'shared' | 'issued'
 
-// Тон бейджа статуса.
-const STATUS_TONE: Record<string, 'secondary' | 'info' | 'success' | 'outline'> = {
+// Тон бейджа статуса. Статусы проверки (15.3) теперь реально выставляются: «требует
+// замены» и «отклонён» ждут действия владельца — красным, близкий срок — предупреждением.
+const STATUS_TONE: Record<
+  string,
+  'secondary' | 'info' | 'success' | 'outline' | 'warning' | 'destructive'
+> = {
   DRAFT: 'secondary',
-  UPLOADED: 'info',
+  UPLOADED: 'outline',
   IN_REVIEW: 'info',
   VERIFIED: 'success',
   ACCEPTED: 'success',
-  REJECTED: 'outline',
-  NEEDS_REPLACEMENT: 'outline',
-  EXPIRING: 'outline',
-  EXPIRED: 'outline',
+  REJECTED: 'destructive',
+  NEEDS_REPLACEMENT: 'destructive',
+  EXPIRING: 'warning',
+  EXPIRED: 'destructive',
   ARCHIVED: 'secondary',
 }
 
@@ -87,6 +92,8 @@ export function DocumentsList({
   const t = useTranslations('Documents')
   const tErr = useTranslations('Errors')
   const locale = useLocale()
+  // Название собственного типа вуза задаёт вуз — в словаре его нет.
+  const { labelOf } = useDocumentTypeCatalog()
   const [search, setSearch] = useState('')
   const [category, setCategory] = useState<string>('all')
   const [status, setStatus] = useState<string>(initialStatus ?? 'all')
@@ -293,7 +300,7 @@ export function DocumentsList({
                       )}
                     </span>
                     <span className="block text-xs text-muted-foreground">
-                      <TableText value={t(`docType_${doc.type}`)} />
+                      <TableText value={labelOf(doc.type)} />
                     </span>
                   </TableCell>
                   <TableCell className={cn(HIDE.category, 'text-muted-foreground')}>

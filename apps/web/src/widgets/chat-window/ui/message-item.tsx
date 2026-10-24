@@ -21,10 +21,13 @@ import { cn } from '../../../shared/lib/utils'
 const QUICK_REACTION = '🔥'
 
 // Системные события группы (§20) → i18n-ключ. Текст строит клиент из actor/target/title.
-const SYSTEM_KEY: Record<string, string> = {
+// Ключ текста служебного сообщения по его типу — общий для пузыря и превью в списке чатов.
+export const SYSTEM_KEY: Record<string, string> = {
   member_added: 'sysMemberAdded',
   member_removed: 'sysMemberRemoved',
   member_left: 'sysMemberLeft',
+  member_joined: 'sysMemberJoined',
+  member_banned: 'sysMemberBanned',
   admin_granted: 'sysAdminGranted',
   admin_revoked: 'sysAdminRevoked',
   title_changed: 'sysTitleChanged',
@@ -158,7 +161,7 @@ function MessageItemInner({
           id={`msg-${m.id}`}
           className={cn(
             // -mx-4/px-4 — фон подсветки на всю ширину чата; select-none + touch-action:pan-y — для тач-жестов.
-            'group relative -mx-4 flex touch-pan-y items-center gap-1.5 px-4 py-0.5 transition-colors duration-700 ease-in-out select-none',
+            'group relative -mx-4 flex touch-pan-y items-center gap-1.5 px-4 py-0.5 transition-colors duration-(--motion-control) select-none',
             !isFirstInList && (firstOfRun ? 'mt-2' : 'mt-0.5'),
             mine && 'flex-row-reverse',
             (highlighted || (selecting && selected)) && 'bg-primary/10',
@@ -243,11 +246,28 @@ function MessageItemInner({
               // Снаружи пузыря, вровень с его низом: внахлёст на верхнем углу кнопка закрывала
               // имя отправителя. Сбоку у низа она не заслоняет ни текст, ни время с галочками.
               className={cn(
-                'absolute bottom-0 z-10 flex size-6 items-center justify-center rounded-full border border-border bg-background text-xs leading-none opacity-0 shadow-sm transition-[opacity,transform] hover:scale-110 active:scale-95 group-hover:opacity-100',
+                'absolute bottom-0 z-10 flex size-6 items-center justify-center rounded-full border border-border bg-background text-xs leading-none opacity-0 shadow-sm transition-[opacity,transform] hover:scale-110 focus-visible:opacity-100 active:scale-95 group-hover:opacity-100',
                 mine ? 'right-full mr-1.5' : 'left-full ml-1.5',
               )}
             >
               <span aria-hidden>{QUICK_REACTION}</span>
+            </button>
+            {/* Шеврон меню (как в Telegram) — над быстрой реакцией, одной колонкой у низа
+                пузыря. Раньше он стоял по центру всей строки: у высокого снимка две кнопки
+                висели в пустоте на разной высоте, у короткого — перекрывали друг друга. */}
+            <button
+              type="button"
+              aria-label={t('messageActions')}
+              onClick={(e) => {
+                const r = e.currentTarget.getBoundingClientRect()
+                actions.openMenu(m, r.left, r.bottom)
+              }}
+              className={cn(
+                'absolute bottom-7 z-10 flex size-6 items-center justify-center rounded-full text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100',
+                mine ? 'right-full mr-1.5' : 'left-full ml-1.5',
+              )}
+            >
+              <ChevronDown className="size-4" aria-hidden />
             </button>
             {!mine && firstOfRun && (
               <p className="mb-0.5 flex items-center gap-1.5 text-xs">
@@ -278,7 +298,9 @@ function MessageItemInner({
                 <span className="font-medium">{replyToNameText}</span>
                 {/* Цитата фрагмента заменяет начало оригинала: отвечают именно на неё. */}
                 <p className="line-clamp-2">
-                  {m.replyQuote || m.replyTo.content || t('attachment')}
+                  {m.replyTo.deletedAt
+                    ? t('replyDeleted')
+                    : m.replyQuote || m.replyTo.content || t('attachment')}
                 </p>
               </button>
             )}
@@ -408,18 +430,6 @@ function MessageItemInner({
               </span>
             </div>
           </div>
-          {/* Кнопка-шеврон открывает контекстное меню (как в Telegram) */}
-          <button
-            type="button"
-            aria-label={t('messageActions')}
-            onClick={(e) => {
-              const r = e.currentTarget.getBoundingClientRect()
-              actions.openMenu(m, r.left, r.bottom)
-            }}
-            className="flex size-6 shrink-0 items-center justify-center self-center rounded-full text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground group-hover:opacity-100"
-          >
-            <ChevronDown className="size-4" aria-hidden />
-          </button>
         </div>
       )}
     </div>

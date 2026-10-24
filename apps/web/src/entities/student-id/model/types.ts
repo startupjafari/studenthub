@@ -1,3 +1,5 @@
+import type { EntryDecision } from '@studenthub/shared-schemas'
+
 // Данные карты (общие для «моей» карты и результата верификации).
 export interface StudentIdCard {
   id: string
@@ -34,4 +36,10 @@ export interface MyStudentId extends StudentIdCard {
 export interface VerifiedStudentId extends StudentIdCard {
   valid: boolean
   verifiedAt: string
+  // Поля ответа, заполненные студентом самим, а не вузом (сейчас — дата рождения): на карте
+  // помечаются «со слов студента». Необязательное — старый сервер поле не присылал.
+  selfDeclared?: string[]
+  // Решение о проходе — только охране (пост, docs/PROJECT.md §3.12): карта может быть
+  // настоящей, а пропускать по ней нельзя (отчислен, выпускник, переведён).
+  entry?: EntryDecision
 }

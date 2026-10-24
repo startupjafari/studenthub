@@ -16,6 +16,7 @@ out/
 .env
 .env.*
 !.env.example
+!.env.*.example
 
 # Prisma
 prisma/**/*.db
@@ -27,11 +28,14 @@ pnpm-debug.log*
 
 # Coverage / test artifacts
 coverage/
-# Список находок axe из e2e-сценария доступности — артефакт прогона, не исходник.
-apps/web/a11y-axe.json
+# Находки axe из e2e-обхода доступности (по файлу на зону) — артефакт прогона, не исходник.
+apps/web/a11y-axe/
 # Рабочий каталог сравнения OpenAPI-схем в прогоне.
 .oasdiff/
 playwright-report/
+# Lighthouse CI (.github/workflows/lighthouse.yml): сырые прогоны и отчёты — артефакты.
+.lighthouseci/
+lhci-report/
 test-results/
 
 # Editor / OS
@@ -64,3 +68,6 @@ ui-audit/reports/
 
 # Кэш медиа для сида (prisma/seed/steps/10-media.mjs): скачанные фото и видео.
 .seed-media/
+
+# Локальные снимки базы (scripts/backup-db.sh кладёт их сюда по умолчанию).
+backups/

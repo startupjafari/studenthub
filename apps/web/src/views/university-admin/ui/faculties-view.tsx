@@ -6,11 +6,27 @@ import { toast } from 'sonner'
 import { useTranslations } from 'next-intl'
 import { Building2, Plus, Trash2 } from 'lucide-react'
 import { Button, Card, EmptyState, PageHeader, Skeleton, useConfirm } from '../../../shared/ui'
-import { deleteFacultyRequest, facultyKeys, fetchFaculties } from '../../../entities/faculty'
+import {
+  deleteFacultyRequest,
+  facultyKeys,
+  fetchFaculties,
+  updateFacultyRequest,
+} from '../../../entities/faculty'
 import { CreateFacultyModal } from './create-faculty-modal'
+import { RenameButton } from './rename-button'
 
 function errCode(e: unknown): string {
   return (e as { code?: string }).code ?? 'INTERNAL_ERROR'
+}
+
+// Что мешает удалить факультет — сервер кладёт вид записей в details.field
+// (faculties.service.ts): группы или люди, например декан.
+const FACULTY_BLOCKERS = ['groups', 'users'] as const
+type FacultyBlocker = (typeof FACULTY_BLOCKERS)[number]
+
+function facultyBlockers(e: unknown): FacultyBlocker[] {
+  const details = (e as { details?: { field?: string }[] }).details ?? []
+  return FACULTY_BLOCKERS.filter((b) => details.some((d) => d.field === b))
 }
 
 export function FacultiesAdminView() {
@@ -31,7 +47,20 @@ export function FacultiesAdminView() {
     },
     onError: (e) => {
       const code = errCode(e)
-      toast.error(code === 'CONFLICT' ? t('facultyHasGroups') : tErr(code))
+      if (code !== 'CONFLICT') {
+        toast.error(tErr(code))
+        return
+      }
+      // Сервер перечислил, что держит факультет: «есть группы» вводило в заблуждение,
+      // когда мешал декан, а групп не было.
+      const blockers = facultyBlockers(e)
+      toast.error(t('facultyDeleteBlocked'), {
+        description: blockers.length
+          ? t('facultyDeleteBlockedList', {
+              list: blockers.map((b) => t(`facultyBlockers.${b}`)).join(', '),
+            })
+          : undefined,
+      })
     },
   })
 
@@ -49,8 +78,8 @@ export function FacultiesAdminView() {
 
       {faculties.isLoading ? (
         <div className="flex flex-col gap-2">
-          <Skeleton className="h-14 w-full" />
-          <Skeleton className="h-14 w-full" />
+          <Skeleton fill className="min-h-14" />
+          <Skeleton fill className="min-h-14" />
         </div>
       ) : faculties.isError ? (
         <EmptyState title={tErr('INTERNAL_ERROR')} />
@@ -64,24 +93,32 @@ export function FacultiesAdminView() {
                 </span>
                 <span className="font-medium">{f.name}</span>
               </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                icon
-                aria-label={t('delete')}
-                loading={deleteMut.isPending && deleteMut.variables === f.id}
-                onClick={() => {
-                  void confirm({
-                    title: t('deleteFacultyConfirm', { name: f.name }),
-                    destructive: true,
-                  }).then((ok) => {
-                    if (ok) deleteMut.mutate(f.id)
-                  })
-                }}
-                className="text-muted-foreground hover:text-destructive"
-              >
-                <Trash2 className="size-4" aria-hidden />
-              </Button>
+              <div className="flex items-center gap-1">
+                <RenameButton
+                  name={f.name}
+                  title={t('renameFaculty')}
+                  save={(name) => updateFacultyRequest(f.id, { name })}
+                  onSaved={() => void qc.invalidateQueries({ queryKey: facultyKeys.list() })}
+                />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  icon
+                  aria-label={t('delete')}
+                  loading={deleteMut.isPending && deleteMut.variables === f.id}
+                  onClick={() => {
+                    void confirm({
+                      title: t('deleteFacultyConfirm', { name: f.name }),
+                      destructive: true,
+                    }).then((ok) => {
+                      if (ok) deleteMut.mutate(f.id)
+                    })
+                  }}
+                  className="text-muted-foreground hover:text-destructive"
+                >
+                  <Trash2 className="size-4" aria-hidden />
+                </Button>
+              </div>
             </Card>
           ))}
         </div>

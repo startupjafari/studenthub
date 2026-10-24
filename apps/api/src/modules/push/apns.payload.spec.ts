@@ -26,6 +26,17 @@ describe('buildApnsPayload', () => {
     expect(JSON.parse(buildApnsPayload({})).aps.badge).toBeUndefined()
   })
 
+  // Сообщения одного чата складываются в одну стопку уведомлений.
+  it('ключ группы уходит в thread-id, у тихого — нет', () => {
+    expect(JSON.parse(buildApnsPayload({ title: 'т', tag: 'chat:1' })).aps['thread-id']).toBe(
+      'chat:1',
+    )
+    expect(
+      JSON.parse(buildApnsPayload({ silent: true, tag: 'chat:1' })).aps['thread-id'],
+    ).toBeUndefined()
+    expect(JSON.parse(buildApnsPayload({ title: 'т' })).aps['thread-id']).toBeUndefined()
+  })
+
   it('ссылку перехода кладёт рядом с aps', () => {
     const payload = JSON.parse(buildApnsPayload({ title: 'т', url: '/chats?c=1' }))
 

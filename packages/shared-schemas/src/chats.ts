@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { CursorPaginationSchema } from './pagination.js'
+import { CursorPaginationSchema, queryBoolean } from './pagination.js'
 
 // Чаты (docs/PROJECT.md §3.6, §9; Ф9). ChatType дублирует Prisma-enum.
 
@@ -126,6 +126,19 @@ export const ChatMediaCalendarQuerySchema = z
 export type ChatMediaCalendarQueryInput = z.infer<typeof ChatMediaCalendarQuerySchema>
 
 /**
+ * Выгрузка истории чата файлом (`GET /chats/:id/export/file`): формат и язык шапки. Через
+ * схему, а не голым `@Query('locale')`: повторённый параметр приходил массивом и ронял
+ * разбор языка в 500.
+ */
+export const ChatExportFileQuerySchema = z
+  .object({
+    format: z.enum(['txt', 'json']).default('txt'),
+    locale: z.enum(['ru', 'kk', 'en']).optional(),
+  })
+  .strict()
+export type ChatExportFileQueryInput = z.infer<typeof ChatExportFileQuerySchema>
+
+/**
  * Сколько очищенных периодов помнит участник чата. Диапазоны хранятся слитыми, так что
  * пятьдесят — это пятьдесят разрозненных кусков истории; дальше человек не «чистит период»,
  * а хочет очистить чат целиком, и предлагать это честнее, чем молча склеивать его периоды
@@ -173,7 +186,8 @@ export type ChatMessagesQueryInput = z.infer<typeof ChatMessagesQuerySchema>
 // - sinceTs — время последней успешной синхронизации; без него правки/удаления не запрашиваются.
 export const ChatUpdatesQuerySchema = z
   .object({
-    since: z.coerce.number().int().min(0),
+    // Message.seq — Int (int32): больше значения в колонке быть не может.
+    since: z.coerce.number().int().min(0).max(2_147_483_647),
     sinceTs: z.string().datetime().optional(),
   })
   .strict()
@@ -185,16 +199,18 @@ export const MessageSearchQuerySchema = CursorPaginationSchema.extend({
   q: z.string().trim().min(2).max(100),
   chatId: z.string().min(1).optional(),
   senderId: z.string().min(1).optional(),
-  hasFile: z.coerce.boolean().optional(),
+  hasFile: queryBoolean.optional(),
 })
 export type MessageSearchQueryInput = z.infer<typeof MessageSearchQuerySchema>
 
 // Отключение уведомлений на время (§17): minutes — на сколько заглушить (нет/0 — «навсегда»).
+// Потолок — год: дольше это уже «навсегда», а без предела срок вылетал за пределы даты.
 // importantOnly — режим «только важные»: чат заглушён, но ответы на мои сообщения и упоминания
 // меня по имени уведомление всё равно создают.
+export const MUTE_MAX_MINUTES = 365 * 24 * 60
 export const MuteSchema = z
   .object({
-    minutes: z.coerce.number().int().positive().optional(),
+    minutes: z.coerce.number().int().positive().max(MUTE_MAX_MINUTES).optional(),
     importantOnly: z.boolean().optional(),
   })
   .strict()
@@ -266,7 +282,7 @@ export const MessageSendRestSchema = z
     // бессмыслен: цитировать нечего.
     replyQuote: z.string().min(1).max(500).optional(),
     // §34: пометить все вложения сообщения спойлером (размытие до клика).
-    spoiler: z.coerce.boolean().optional(),
+    spoiler: queryBoolean.optional(),
     // §34: спойлер не на всё сообщение, а поимённо — номера вложений в порядке их отправки
     // («0,3,4»). В альбоме из десяти снимков скрыть могут один, и общий флаг этого не выражает.
     // `spoiler: true` остаётся коротким «скрыть всё» и старые клиенты не ломает.
@@ -277,9 +293,10 @@ export const MessageSendRestSchema = z
     // §9: отправить вложения «без сжатия» — получатель видит строки файлов, а не превью,
     // даже если это картинки. Флаг всего сообщения: в одном сообщении вложения уходят
     // одним способом, как и выбирают его в диалоге отправки — один раз на всю отправку.
-    asFiles: z.coerce.boolean().optional(),
-    // multipart отдаёт поля строками, поэтому coerce (в отличие от WS-схемы ниже).
-    silent: z.coerce.boolean().optional(),
+    asFiles: queryBoolean.optional(),
+    // multipart отдаёт поля строками, поэтому queryBoolean (в отличие от WS-схемы ниже):
+    // `z.coerce.boolean()` читал строку "false" как true.
+    silent: queryBoolean.optional(),
   })
   .strict()
   // Цитата без ответа не имеет смысла — из чего цитата, непонятно ни серверу, ни клиенту.
@@ -346,6 +363,10 @@ export type SharePostInput = z.infer<typeof SharePostSchema>
 
 export const ChatJoinSchema = z.object({ chatId: z.string().min(1) }).strict()
 export type ChatJoinInput = z.infer<typeof ChatJoinSchema>
+
+// Вступление в группу по ссылке-приглашению: код из ссылки, а не только id чата.
+export const JoinChatByInviteSchema = z.object({ code: z.string().min(8).max(64) }).strict()
+export type JoinChatByInviteInput = z.infer<typeof JoinChatByInviteSchema>
 
 export const MessageSendSchema = z
   .object({

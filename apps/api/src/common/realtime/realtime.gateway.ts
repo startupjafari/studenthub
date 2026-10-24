@@ -15,10 +15,19 @@ import { REALTIME_CHANNEL, type RealtimeEnvelope } from '@studenthub/shared-sche
 import type { JwtPayload } from '../auth/jwt-payload.type'
 import { TWO_FACTOR_REQUIRED_ROLES } from '../guards/two-factor.guard'
 import type { EnvVars } from '../../config/env.schema'
+import { parseCorsOrigins } from '../../config/web-base'
 import { PrismaService } from '../prisma/prisma.service'
+import { SessionRevocationService } from '../redis/session-revocation.service'
+import { UniversityAccessService } from '../../modules/universities/university-access.service'
 
 // CORS для WS читаем из env на этапе загрузки модуля (декоратор вычисляется при импорте).
-const WS_CORS_ORIGIN = (process.env.CORS_ORIGIN ?? 'http://localhost:3000').split(',')
+const WS_CORS_ORIGIN = parseCorsOrigins(process.env.CORS_ORIGIN ?? 'http://localhost:3000')
+
+/**
+ * Комнаты, которым сообщать о присутствии пользователя. Решает домен чатов (собеседники
+ * личных чатов, открытые групповые чаты) — см. ChatsService.presenceRooms.
+ */
+export type PresenceAudience = (userId: string) => Promise<string[]>
 
 // Единый транспорт реального времени поверх socket.io (docs/PROJECT.md §9).
 // Отвечает за аутентификацию в handshake и автоматический вход в комнаты
@@ -30,13 +39,25 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   private readonly logger = new Logger(RealtimeGateway.name)
   // Счётчик активных соединений на пользователя: онлайн, пока > 0 (несколько вкладок/устройств).
   private readonly connections = new Map<string, number>()
+  private presenceAudience: PresenceAudience | null = null
 
   constructor(
     private readonly jwt: JwtService,
     private readonly prisma: PrismaService,
     private readonly config: ConfigService<EnvVars, true>,
+    private readonly revocation: SessionRevocationService,
+    private readonly universityAccess: UniversityAccessService,
   ) {}
 
+  /**
+   * Вход: проверка токена, свои комнаты, учёт присутствия.
+   *
+   * Между началом и концом обработчика несколько `await` (подпись, отзыв сессий), и клиент
+   * успевает отвалиться: `handleDisconnect` тогда отрабатывает РАНЬШЕ, чем соединение
+   * учтено. Раньше счётчик всё равно уходил в +1 — и человек оставался «в сети» до
+   * рестарта процесса, а `lastSeenAt` не писался (F-F18). Теперь соединение учитывается,
+   * только если оно ещё живо, а уход списывает лишь учтённое (`presenceTracked`).
+   */
   async handleConnection(client: Socket): Promise<void> {
     const token = this.extractToken(client)
     if (!token) {
@@ -44,18 +65,34 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
       return
     }
     try {
-      const payload = await this.jwt.verifyAsync<JwtPayload>(token)
-      if (!this.isUsableAccessToken(payload)) {
+      const payload = await this.jwt.verifyAsync<JwtPayload & { iat?: number }>(token)
+      if (
+        !this.isUsableAccessToken(payload) ||
+        (await this.isRevoked(payload)) ||
+        (await this.isUniversityBlocked(payload))
+      ) {
         client.disconnect()
         return
       }
+      // Отвалился, пока проверяли токен: ни комнат, ни онлайна.
+      if (!client.connected) return
       client.data.userId = payload.sub
       client.data.role = payload.role
       client.data.universityId = payload.universityId ?? null
       // §9.3: автоматический вход в свои комнаты при подключении.
-      await client.join(`user:${payload.sub}`)
-      if (payload.groupId) await client.join(`group:${payload.groupId}`)
-      if (payload.universityId) await client.join(`university:${payload.universityId}`)
+      const rooms = [
+        `user:${payload.sub}`,
+        ...(payload.groupId ? [`group:${payload.groupId}`] : []),
+        ...(payload.universityId ? [`university:${payload.universityId}`] : []),
+      ]
+      for (const room of rooms) await client.join(room)
+      // Вход в комнату у адаптера может быть асинхронным; закрытый за это время сокет из
+      // комнат выводим сами — разрыв уже прошёл и за ним никто не уберёт.
+      if (!client.connected) {
+        for (const room of rooms) await client.leave(room)
+        return
+      }
+      client.data.presenceTracked = true
       this.trackOnline(payload.sub, payload.universityId ?? null)
       this.logger.debug(`WS connected user=${payload.sub} socket=${client.id}`)
     } catch {
@@ -66,7 +103,10 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
 
   handleDisconnect(client: Socket): void {
     const userId = client.data?.userId as string | undefined
-    if (userId) {
+    // Списываем только учтённое соединение: иначе разрыв посреди handleConnection уменьшал
+    // счётчик, которого не увеличивал, — и «уводил в офлайн» другую вкладку того же человека.
+    if (userId && client.data?.presenceTracked === true) {
+      client.data.presenceTracked = false
       this.trackOffline(userId, (client.data?.universityId as string | null) ?? null)
       this.logger.debug(`WS disconnected user=${userId} socket=${client.id}`)
     }
@@ -76,7 +116,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   private trackOnline(userId: string, universityId: string | null): void {
     const next = (this.connections.get(userId) ?? 0) + 1
     this.connections.set(userId, next)
-    if (next === 1) this.emitPresence(userId, universityId, true)
+    if (next === 1) this.emitPresence(userId, universityId)
   }
 
   // Переход онлайн→оффлайн (последнее соединение закрыто).
@@ -84,7 +124,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     const next = (this.connections.get(userId) ?? 1) - 1
     if (next <= 0) {
       this.connections.delete(userId)
-      this.emitPresence(userId, universityId, false)
+      this.emitPresence(userId, universityId)
       // §49 last-seen: фиксируем момент ухода в оффлайн (fire-and-forget, не блокируем disconnect).
       void this.prisma.user
         .update({ where: { id: userId }, data: { lastSeenAt: new Date() } })
@@ -94,12 +134,33 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     }
   }
 
-  // Присутствие рассылаем ТОЛЬКО в комнату вуза пользователя, а не server.emit на всю
-  // платформу (§9.3): иначе студент чужого вуза видел бы онлайн/оффлайн любого пользователя
-  // (cross-tenant утечка присутствия) и каждый вход/выход стоил бы O(N) на всю платформу.
-  private emitPresence(userId: string, universityId: string | null, online: boolean): void {
+  /** Кому сообщать о присутствии — регистрирует домен чатов при старте модуля. */
+  setPresenceAudience(audience: PresenceAudience): void {
+    this.presenceAudience = audience
+  }
+
+  /**
+   * Присутствие — только тем, кто этого человека видит (F-F12): собеседникам личных чатов и
+   * открытым чатам, где он состоит. Ни server.emit на платформу (cross-tenant утечка, §9.3),
+   * ни комната вуза: там каждый вход/выход стоил отправки каждому подключённому, а после
+   * рестарта API все переподключаются разом — N² событий.
+   *
+   * Аудитория читается из базы асинхронно, поэтому отправляем состояние на момент отправки,
+   * а не перехода: быстрое «подключился — отключился» иначе могло прийти в обратном порядке
+   * и оставить человека «в сети».
+   */
+  private emitPresence(userId: string, universityId: string | null): void {
     if (!universityId) return // платформенные роли вне вуза — присутствие не рассылаем
-    this.server.to(`university:${universityId}`).emit('presence:changed', { userId, online })
+    const audience = this.presenceAudience
+    if (!audience) return
+    void audience(userId)
+      .then((rooms) => {
+        if (rooms.length === 0) return
+        this.server.to(rooms).emit('presence:changed', { userId, online: this.isOnline(userId) })
+      })
+      .catch((error: unknown) => {
+        this.logger.warn(`Присутствие user=${userId} не разослано: ${String(error)}`)
+      })
   }
 
   /** Онлайн ли пользователь (есть активные соединения). */
@@ -122,18 +183,87 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     const token = payload?.token
     if (typeof token !== 'string' || token.length === 0) return
     try {
-      const p = await this.jwt.verifyAsync<JwtPayload>(token)
-      // Те же требования, что и в handshake: промежуточный токен 2FA и непройденный
-      // второй фактор не должны продлевать уже открытое соединение.
-      if (!this.isUsableAccessToken(p)) {
+      const p = await this.jwt.verifyAsync<JwtPayload & { iat?: number }>(token)
+      // Те же требования, что и в handshake: промежуточный токен 2FA, токен мини-аппа,
+      // непройденный второй фактор, отозванная сессия и заблокированный вуз не должны
+      // продлевать уже открытое соединение.
+      if (
+        !this.isUsableAccessToken(p) ||
+        (await this.isRevoked(p)) ||
+        (await this.isUniversityBlocked(p))
+      ) {
         client.disconnect()
         return
       }
-      client.data.userId = p.sub
+      // Продлевать можно только свою сессию (F-F18). Токен другого человека раньше молча
+      // подменял `userId`: комнаты оставались прежнего владельца, а разрыв списывал онлайн
+      // уже нового — «вечный онлайн» одного и ложный офлайн другого. Смена пользователя —
+      // это новое подключение, а не продление: рвём, клиент переподключится своим токеном.
+      if (p.sub !== client.data.userId) {
+        this.logger.warn(`WS auth:refresh чужим токеном — разрыв (socket=${client.id})`)
+        client.disconnect()
+        return
+      }
       client.data.role = p.role
     } catch {
       this.logger.debug(`WS auth:refresh отклонён (невалидный токен) socket=${client.id}`)
     }
+  }
+
+  /** Токен выдан до отзыва сессий пользователя (блокировка, удаление, смена пароля). */
+  private async isRevoked(payload: JwtPayload & { iat?: number }): Promise<boolean> {
+    if (!(await this.revocation.isRevoked(payload.sub, payload.iat))) return false
+    this.logger.warn(`WS отклонён: сессии пользователя отозваны (user=${payload.sub})`)
+    return true
+  }
+
+  /**
+   * Вуз пользователя заблокирован платформой (§8.2 `UNIVERSITY_BLOCKED`). Источник тот же,
+   * что у HTTP (JwtStrategy) и входа, — UniversityAccessService с его памятью статуса: иначе
+   * пользователи закрытого вуза, которым HTTP уже отказывает, продолжали бы получать события
+   * и писать в чаты по сокету.
+   *
+   * Сбой чтения статуса соединение не рвёт — так же, как JwtStrategy не роняет запрос:
+   * отказ базы иначе разом отключил бы реальное время у всех.
+   */
+  private async isUniversityBlocked(member: {
+    sub?: string
+    role: JwtPayload['role']
+    universityId?: string | null
+  }): Promise<boolean> {
+    try {
+      const denial = await this.universityAccess.denial({
+        role: member.role,
+        universityId: member.universityId ?? null,
+      })
+      if (!denial) return false
+      this.logger.warn(`WS отклонён: вуз заблокирован (user=${member.sub ?? '?'})`)
+      return true
+    } catch (error) {
+      this.logger.warn(`Статус вуза не прочитан — WS-допуск без проверки: ${String(error)}`)
+      return false
+    }
+  }
+
+  /**
+   * Пускает ли вуз владельца уже открытого сокета. Для событий, которые пишут в базу или
+   * открывают доступ к переписке (ChatGateway): handshake и `auth:refresh` проверяют вуз
+   * только в момент входа, а сокет на соседнем инстансе блокировка вуза не рвёт
+   * (`disconnectUniversity` видит только свои соединения). Отказ — `error` с кодом
+   * `UNIVERSITY_BLOCKED` и разрыв: дальше клиент упрётся в тот же отказ на refresh.
+   */
+  async admitSocket(client: Socket, event: string): Promise<boolean> {
+    const role = client.data?.role as JwtPayload['role'] | undefined
+    if (!role) return true
+    const blocked = await this.isUniversityBlocked({
+      sub: client.data?.userId as string | undefined,
+      role,
+      universityId: (client.data?.universityId as string | null | undefined) ?? null,
+    })
+    if (!blocked) return true
+    client.emit('error', { event, code: 'UNIVERSITY_BLOCKED' })
+    client.disconnect(true)
+    return false
   }
 
   /**
@@ -144,6 +274,12 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
    * JwtStrategy.validate, и без такой же проверки здесь пароля было бы достаточно, чтобы
    * открыть WS и получать уведомления и сообщения жертвы, не зная её второго фактора.
    *
+   * Тем же секретом подписан и токен админского мини-аппа (`client='mini'`). По HTTP его
+   * держит MiniAppGuard — только маршруты с @MiniAllowed(), — а к handshake guard не
+   * применяется: без отказа здесь телефон с открытым Telegram получал бы весь realtime
+   * администратора, а через события чатов — писать, править и удалять от его имени.
+   * Мини-аппу WS не нужен; понадобится — отдельный namespace с белым списком событий.
+   *
    * Тем же барьером закрываем и форс 2FA: TwoFactorGuard — HTTP-guard, к handshake он не
    * применяется, и привилегированная роль, которой HTTP отвечает TWO_FACTOR_SETUP_REQUIRED,
    * подключалась бы по WS свободно.
@@ -151,6 +287,10 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   private isUsableAccessToken(payload: JwtPayload & { typ?: string }): boolean {
     if (payload.typ) {
       this.logger.warn(`WS отклонён: токен типа ${payload.typ} не является access-токеном`)
+      return false
+    }
+    if (payload.client === 'mini') {
+      this.logger.warn(`WS отклонён: токен мини-аппа не пускает в realtime (user=${payload.sub})`)
       return false
     }
     if (!this.config.get('TWO_FACTOR_ENFORCE', { infer: true })) return true
@@ -167,6 +307,39 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
    */
   disconnectUser(userId: string): void {
     this.server?.in(`user:${userId}`).disconnectSockets(true)
+  }
+
+  /**
+   * Рвёт соединения пользователей вуза, который платформа только что заблокировала. Без
+   * этого HTTP им уже отказывал, а открытый сокет продолжал получать события и принимать
+   * `message:send` в обход `UNIVERSITY_BLOCKED`. Решает тот же UniversityAccessService, что
+   * и handshake: платформенные роли, оказавшиеся в комнате вуза, остаются на связи.
+   *
+   * Видит только соединения этого инстанса (адаптер socket.io — в памяти процесса); на
+   * соседних сокет закроется на первом же событии чата (`admitSocket`) или переподключении.
+   */
+  async disconnectUniversity(universityId: string): Promise<void> {
+    if (!this.server) return
+    const sockets = await this.server.in(`university:${universityId}`).fetchSockets()
+    for (const socket of sockets) {
+      const role = socket.data?.role as JwtPayload['role'] | undefined
+      if (!role) continue
+      const blocked = await this.isUniversityBlocked({
+        sub: socket.data?.userId as string | undefined,
+        role,
+        universityId: (socket.data?.universityId as string | null | undefined) ?? universityId,
+      })
+      if (blocked) socket.disconnect(true)
+    }
+  }
+
+  /**
+   * Вывести все сокеты пользователя из комнаты (исключение или бан в чате). Без этого
+   * исключённый, чьё соединение уже было в `chat:<id>`, получал переписку вживую до
+   * переподключения — а злонамеренный клиент просто не переподключался бы.
+   */
+  leaveRoom(userId: string, room: string): void {
+    this.server?.in(`user:${userId}`).socketsLeave(room)
   }
 
   private extractToken(client: Socket): string | null {
@@ -218,12 +391,19 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
     this.server.to(room).emit(REALTIME_CHANNEL, this.envelope(type, entityId, data, version))
   }
 
-  /** Подмножество переданных id, у которых есть хотя бы одно активное соединение. */
+  /**
+   * Подмножество переданных id, у которых есть хотя бы одно активное соединение.
+   *
+   * Только сокеты адресатов — по их личным комнатам, а не `fetchSockets()` по всему
+   * серверу: тот на каждый job уведомлений перебирал все подключения платформы ради
+   * нескольких получателей. Через адаптер, а не по счётчику в памяти, — чтобы с общим
+   * адаптером ответ учитывал соединения на всех инстансах.
+   */
   async getOnlineUserIds(userIds: string[]): Promise<Set<string>> {
     if (userIds.length === 0) return new Set()
     const wanted = new Set(userIds)
     const online = new Set<string>()
-    const sockets = await this.server.fetchSockets()
+    const sockets = await this.server.in([...wanted].map((id) => `user:${id}`)).fetchSockets()
     for (const socket of sockets) {
       const uid = socket.data?.userId as string | undefined
       if (uid && wanted.has(uid)) online.add(uid)

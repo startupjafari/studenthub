@@ -22,6 +22,9 @@ import { EventsService } from './events.service'
 import { CreateEventDto } from './dto/create-event.dto'
 import { UpdateEventDto } from './dto/update-event.dto'
 import { EventListQueryDto } from './dto/event-list-query.dto'
+import { CreateEventCommentDto } from './dto/create-event-comment.dto'
+import { EventParticipantsQueryDto } from './dto/event-participants-query.dto'
+import { EventCommentsQueryDto } from './dto/event-comments-query.dto'
 
 // Создавать события могут все, кроме модераторов (docs/PROJECT.md §2.2).
 const AUTHOR_ROLES = [
@@ -90,9 +93,19 @@ export class EventsController {
     await this.events.remove(user, id, this.ctx(req))
   }
 
+  @Get(':id/meeting')
+  @ApiOperation({ summary: 'Ссылка на онлайн-встречу (только участникам и организатору)' })
+  @ApiResponse({ status: 200, description: 'Ссылка, код доступа и окно подключения' })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN — нужна регистрация на событие' })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND — событие не видно или встречи нет' })
+  meeting(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
+    return this.events.meeting(user, id)
+  }
+
   @Post(':id/register')
   @ApiOperation({ summary: 'Зарегистрироваться на событие' })
   @ApiResponse({ status: 201, description: 'Зарегистрирован' })
+  @ApiResponse({ status: 409, description: 'CONFLICT — событие уже завершилось' })
   register(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
     return this.events.register(user, id)
   }
@@ -105,11 +118,64 @@ export class EventsController {
   }
 
   @Get(':id/participants')
-  @ApiOperation({ summary: 'Участники события (организатор/админ)' })
-  @ApiResponse({ status: 200, description: 'Список участников' })
+  @ApiOperation({
+    summary: 'Участники события (организатор/админ); с limit/cursor — страница',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Без limit/cursor — массив (до 1000); с ними — страница с meta.cursor/hasNext',
+  })
   @ApiResponse({ status: 403, description: 'FORBIDDEN' })
-  participants(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
-    return this.events.listParticipants(user, id)
+  participants(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Query() query: EventParticipantsQueryDto,
+  ) {
+    return this.events.listParticipants(user, id, query)
+  }
+
+  @Get(':id/comments')
+  @ApiOperation({
+    summary: 'Комментарии к событию (видны всей аудитории); с limit/cursor — страница',
+  })
+  @ApiResponse({
+    status: 200,
+    description:
+      'Без limit/cursor — последние 100 по порядку написания; с ними — свежие сверху, meta.cursor/hasNext/total',
+  })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND — событие не видно' })
+  comments(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Query() query: EventCommentsQueryDto,
+  ) {
+    return this.events.listComments(user, id, query)
+  }
+
+  @Post(':id/comments')
+  @ApiOperation({ summary: 'Прокомментировать событие' })
+  @ApiResponse({ status: 201, description: 'Комментарий создан' })
+  @ApiResponse({ status: 422, description: 'VALIDATION_ERROR' })
+  addComment(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: CreateEventCommentDto,
+  ) {
+    return this.events.addComment(user, id, dto)
+  }
+
+  @Delete(':id/comments/:commentId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Удалить комментарий (автор, организатор, админ или модератор)' })
+  @ApiResponse({ status: 204, description: 'Удалён' })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN' })
+  async removeComment(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Param('commentId') commentId: string,
+    @Req() req: FastifyRequest,
+  ): Promise<void> {
+    await this.events.removeComment(user, id, commentId, this.ctx(req))
   }
 
   private ctx(req: FastifyRequest): RequestContext {

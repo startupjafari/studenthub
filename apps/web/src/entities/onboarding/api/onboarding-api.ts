@@ -57,6 +57,19 @@ export async function rejectDemoRequest(
   return data
 }
 
+/**
+ * Приглашение админу вуза заново: прежнее отзывается, письмо уходит повторно. Ссылка
+ * приходит один раз — сырого токена сервер не хранит.
+ */
+export async function reissueDemoInvite(
+  id: string,
+): Promise<{ request: DemoRequest; inviteUrl: string }> {
+  const { data } = await api.post<{ request: DemoRequest; inviteUrl: string }>(
+    `/demo-requests/${id}/reissue-invite`,
+  )
+  return data
+}
+
 // ── Мастер настройки (UNIVERSITY_ADMIN) ──────────────────────────────────────
 
 export async function fetchOnboardingState(): Promise<OnboardingState> {
