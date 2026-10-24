@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { Inbox } from 'lucide-react'
@@ -10,7 +10,8 @@ import { isSubstitutedAway } from '../../../entities/schedule'
 import { ExportReportButton } from '../../../features/export-analytics-report'
 import { useRealtimeEvent } from '../../../shared/realtime'
 import { useAppSelector } from '../../../shared/store'
-import { buildDayPairs, isoWeekParity, nextPair, nowInTz } from '../lib/schedule-day'
+import { buildDayPairs, nextPair } from '../lib/schedule-day'
+import { isoWeekParityOf, useNowInTz } from '../../../shared/lib'
 import { buildAttention } from '../lib/attention'
 import { NextPairCard } from './next-pair-card'
 import { TodayTimeline } from './today-timeline'
@@ -49,8 +50,16 @@ export function TeacherToday() {
   useRealtimeEvent('schedule:changed', () => {
     void qc.invalidateQueries({ queryKey: meKeys.today() })
   })
-  const now = useMemo(() => nowInTz(today.data?.timezone ?? null), [today.data?.timezone])
-  const parity = useMemo(() => isoWeekParity(), [])
+  // Часы идут, а день и чётность — по дате вуза (BUG-121): иначе «сейчас» застывало в
+  // момент открытия, а после полуночи экран показывал вчерашний день.
+  const now = useNowInTz(today.data?.timezone ?? null)
+  const parity = isoWeekParityOf(now.date)
+  // Наступили новые сутки по часам вуза — пары и изменения дня перечитываются.
+  useEffect(() => {
+    if (today.data && today.data.date !== now.date) {
+      void qc.invalidateQueries({ queryKey: meKeys.today() })
+    }
+  }, [today.data, now.date, qc])
 
   const dayPairs = useMemo(
     () => buildDayPairs(today.data?.pairs ?? [], today.data?.scheduleChanges ?? [], now, parity),

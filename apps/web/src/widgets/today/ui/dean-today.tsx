@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { AlertTriangle, CalendarDays, FileClock, FileText } from 'lucide-react'
 import { Badge, EmptyState, MetricTile, SectionPanel, Skeleton } from '../../../shared/ui'
-import { nowInTz, isoWeekParity } from '../../../shared/lib'
+import { isoWeekParityOf, useNowInTz } from '../../../shared/lib'
 import { scheduleKeys, fetchSchedule, fetchScheduleChanges } from '../../../entities/schedule'
 import { applicationKeys, fetchQueueStats } from '../../../entities/application-service'
 import { notificationKeys, fetchNotifications } from '../../../entities/notification'
@@ -30,8 +30,10 @@ export function DeanTodayBlock() {
   const t = useTranslations('Today')
 
   const schedule = useQuery({ queryKey: scheduleKeys.view({}), queryFn: () => fetchSchedule({}) })
-  const now = useMemo(() => nowInTz(schedule.data?.timezone ?? null), [schedule.data?.timezone])
-  const parity = useMemo(() => isoWeekParity(), [])
+  // Часы идут, день и чётность — по дате вуза (BUG-121); с новыми сутками меняется и
+  // ключ выборки изменений дня.
+  const now = useNowInTz(schedule.data?.timezone ?? null)
+  const parity = isoWeekParityOf(now.date)
 
   const changes = useQuery({
     queryKey: scheduleKeys.changes({ from: now.date, to: now.date }),

@@ -11,8 +11,9 @@ export interface NowInTz {
   date: string
 }
 
-export function nowInTz(timezone: string | null): NowInTz {
-  const d = new Date()
+// `at` — момент, который переводим (по умолчанию — сейчас); его передаёт `useNowInTz`.
+export function nowInTz(timezone: string | null, at: Date = new Date()): NowInTz {
+  const d = at
   if (!timezone) return localNow(d)
   try {
     const parts = new Intl.DateTimeFormat('en-CA', {
@@ -65,4 +66,10 @@ export function isoWeek(d: Date): number {
 // одну и ту же неделю.
 export function isoWeekParity(d = new Date()): 'ODD' | 'EVEN' {
   return isoWeek(d) % 2 === 1 ? 'ODD' : 'EVEN'
+}
+
+// Чётность недели календарной даты вуза "YYYY-MM-DD" (`NowInTz.date`), а не дня браузера:
+// с 00:00 до 05:00 понедельника по Алматы браузер в UTC ещё в прошлой неделе.
+export function isoWeekParityOf(date: string): 'ODD' | 'EVEN' {
+  return isoWeekParity(new Date(`${date}T12:00:00`))
 }
