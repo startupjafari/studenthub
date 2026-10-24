@@ -236,7 +236,7 @@ export function PollCard({ poll, isOwner, canModerate = false }: Props) {
                     aria-label={`${o.text}: ${pct}%`}
                     // Полоса растёт за 500 мс — оживление данных (DESIGN_SYSTEM §7).
                     indicatorClassName={cn(
-                      'duration-500 ease-out motion-reduce:transition-none',
+                      'duration-(--motion-large) motion-reduce:transition-none',
                       leader ? 'bg-primary' : 'bg-muted-foreground/40',
                     )}
                   />

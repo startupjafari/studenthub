@@ -130,7 +130,7 @@ export function ChatPollView({
                 {/* Шкала-заливка по проценту. */}
                 <span
                   className={cn(
-                    'absolute inset-y-0 left-0 rounded-lg transition-[width] duration-500',
+                    'absolute inset-y-0 left-0 rounded-lg transition-[width] duration-(--motion-large)',
                     mine ? 'bg-primary-foreground/20' : 'bg-primary/15',
                   )}
                   style={{ width: `${pct}%` }}

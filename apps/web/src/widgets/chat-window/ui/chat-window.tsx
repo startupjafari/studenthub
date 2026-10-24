@@ -3522,7 +3522,7 @@ export function ChatWindow() {
           </div>
         )}
         {!activeId ? (
-          <div className="flex flex-1 items-center justify-center p-6 duration-300 animate-in fade-in zoom-in-95">
+          <div className="flex flex-1 items-center justify-center p-6 duration-(--motion-page) animate-in fade-in zoom-in-95">
             <span className="rounded-full border border-border bg-muted/40 px-4 py-2 text-center text-sm text-muted-foreground">
               {t('selectChatPrompt')}
             </span>
@@ -3531,7 +3531,7 @@ export function ChatWindow() {
           // key={activeId} — контент разговора заново проигрывает анимацию при открытии/смене чата.
           <div
             key={activeId}
-            className="flex min-h-0 flex-1 flex-col duration-300 animate-in fade-in slide-in-from-right-4"
+            className="flex min-h-0 flex-1 flex-col duration-(--motion-page) animate-in fade-in slide-in-from-right-4"
           >
             {/* Панель множественного выбора (Telegram-стиль): счётчик + копировать/переслать/удалить. */}
             {selectMode && (
@@ -4377,7 +4377,7 @@ export function ChatWindow() {
       {isWide ? (
         <aside
           className={cn(
-            'hidden shrink-0 overflow-hidden transition-[width] duration-300 ease-out xl:block',
+            'hidden shrink-0 overflow-hidden transition-[width] duration-(--motion-panel) xl:block',
             detailsOpen && activeChat ? 'w-[22rem] border-l border-border' : 'w-0',
           )}
           aria-hidden={!(detailsOpen && activeChat)}

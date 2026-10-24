@@ -55,6 +55,23 @@
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
+
+  /* Движение (DESIGN_SYSTEM §7): утилиты Tailwind и tw-animate-css по умолчанию едут по
+     кривой и длительности из токенов ниже. Кривая и длительность в классе (`ease-*`,
+     `duration-*`) по-прежнему перекрывают умолчание. */
+  --ease-out: var(--motion-ease);
+  --default-transition-timing-function: var(--motion-ease);
+  --default-transition-duration: var(--motion-control);
+  /* Те же строки, что в tw-animate-css, — меняются только запасные значения: вход парящего
+     слоя по умолчанию длится как меню, уход короче входа. */
+  --animate-in: enter var(--tw-animation-duration, var(--tw-duration, var(--motion-menu)))
+    var(--tw-ease, var(--motion-ease)) var(--tw-animation-delay, 0s)
+    var(--tw-animation-iteration-count, 1) var(--tw-animation-direction, normal)
+    var(--tw-animation-fill-mode, none);
+  --animate-out: exit var(--tw-animation-duration, var(--tw-duration, var(--motion-exit)))
+    var(--tw-ease, var(--motion-ease)) var(--tw-animation-delay, 0s)
+    var(--tw-animation-iteration-count, 1) var(--tw-animation-direction, normal)
+    var(--tw-animation-fill-mode, none);
 }
 
 :root {
@@ -314,7 +331,7 @@
   );
   -webkit-mask-image: var(--mesh-mask);
   mask-image: var(--mesh-mask);
-  transition: opacity 0.35s ease;
+  transition: opacity var(--motion-large) var(--motion-ease);
 }
 
 .mesh-halo {
@@ -416,7 +433,7 @@
 }
 
 .status-in {
-  animation: status-in 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+  animation: status-in var(--motion-large) var(--motion-ease);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -476,14 +493,31 @@ summary {
   cursor: pointer;
 }
 
+/* Токены движения — единый источник кривой и длительностей (DESIGN_SYSTEM §7). В классах —
+   `duration-(--motion-modal)`, в стилях — `var(--motion-modal)`, в JS — `MOTION` из
+   shared/lib/motion.ts (держать значения одинаковыми). Жесты сюда не относятся: у них
+   пружина shared/lib/spring.ts, а не длительность (§7.1). */
+:root {
+  /* Быстрый старт, мягкая остановка — для всех обычных взаимодействий. */
+  --motion-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --motion-micro: 120ms; /* наведение, фокус, мелкие отклики */
+  --motion-control: 150ms; /* кнопки, переключатели, смена цвета */
+  --motion-menu: 180ms; /* меню, выпадающие списки, поповеры, подсказки */
+  --motion-exit: 150ms; /* уход любого слоя — короче входа */
+  --motion-page: 200ms; /* смена экрана или раздела */
+  --motion-modal: 220ms; /* модальные окна */
+  --motion-panel: 260ms; /* боковые панели и шторки */
+  --motion-large: 320ms; /* крупные содержательные изменения, оживление данных */
+}
+
 button,
 a,
 [role='button'],
 [role='menuitem'],
 summary {
   transition-property: background-color, color, border-color, box-shadow, transform, opacity;
-  transition-duration: 0.15s;
-  transition-timing-function: ease;
+  transition-duration: var(--motion-control);
+  transition-timing-function: var(--motion-ease);
 }
 
 /* Точечный фон экранов входа (мобильный): мягкая сетка точек с медленным дрейфом (ненавязчиво).

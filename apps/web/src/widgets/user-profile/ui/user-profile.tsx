@@ -359,7 +359,7 @@ function ProfileHeader({
           size="sm"
           onClick={onToggleEdit}
           aria-label={editing ? t('cancel') : t('editProfile')}
-          className="shadow-md transition-transform duration-300 ease-out hover:scale-[1.02] motion-reduce:transform-none"
+          className="shadow-md transition-transform duration-(--motion-control) hover:scale-[1.02] motion-reduce:transform-none"
         >
           {editing ? (
             <X className="size-4" aria-hidden />
@@ -375,7 +375,7 @@ function ProfileHeader({
             size="sm"
             loading={saving}
             aria-label={t('save')}
-            className="shadow-md transition-transform duration-300 ease-out hover:scale-[1.02] motion-reduce:transform-none"
+            className="shadow-md transition-transform duration-(--motion-control) hover:scale-[1.02] motion-reduce:transform-none"
           >
             <Check className="size-4" aria-hidden />
             <span className="hidden sm:inline">{t('save')}</span>
@@ -397,7 +397,7 @@ function ProfileHeader({
             onClick={() => coverRef.current?.click()}
             aria-label={me.coverUrl ? t('coverChange') : t('coverAdd')}
             disabled={uploadCoverMut.isPending}
-            className="flex items-center gap-1.5 rounded-lg bg-foreground/55 px-2.5 py-1.5 text-xs font-medium text-background opacity-0 shadow-md outline-none transition-opacity duration-300 ease-out hover:bg-foreground/70 focus-visible:opacity-100 group-hover/cover:opacity-100 disabled:opacity-60 motion-reduce:transition-none max-sm:opacity-100"
+            className="flex items-center gap-1.5 rounded-lg bg-foreground/55 px-2.5 py-1.5 text-xs font-medium text-background opacity-0 shadow-md outline-none transition-opacity duration-(--motion-micro) hover:bg-foreground/70 focus-visible:opacity-100 group-hover/cover:opacity-100 disabled:opacity-60 motion-reduce:transition-none max-sm:opacity-100"
           >
             <Camera className="size-4" aria-hidden />
             <span className="hidden sm:inline">
@@ -414,7 +414,7 @@ function ProfileHeader({
                   (ok) => ok && removeCoverMut.mutate(),
                 )
               }}
-              className="flex size-8 items-center justify-center rounded-lg bg-foreground/55 text-background opacity-0 shadow-md outline-none transition-opacity duration-300 ease-out hover:bg-destructive focus-visible:opacity-100 group-hover/cover:opacity-100 disabled:opacity-60 motion-reduce:transition-none max-sm:opacity-100"
+              className="flex size-8 items-center justify-center rounded-lg bg-foreground/55 text-background opacity-0 shadow-md outline-none transition-opacity duration-(--motion-micro) hover:bg-destructive focus-visible:opacity-100 group-hover/cover:opacity-100 disabled:opacity-60 motion-reduce:transition-none max-sm:opacity-100"
             >
               <Trash2 className="size-4" aria-hidden />
             </button>
@@ -451,7 +451,7 @@ function ProfileHeader({
               type="button"
               onClick={() => fileRef.current?.click()}
               aria-label={t('avatarChange')}
-              className="absolute inset-0 flex flex-col items-center justify-center gap-1 rounded-full bg-foreground/55 text-xs font-medium text-background opacity-0 outline-none transition-opacity duration-300 ease-out group-hover:opacity-100 focus-visible:opacity-100 motion-reduce:transition-none"
+              className="absolute inset-0 flex flex-col items-center justify-center gap-1 rounded-full bg-foreground/55 text-xs font-medium text-background opacity-0 outline-none transition-opacity duration-(--motion-micro) group-hover:opacity-100 focus-visible:opacity-100 motion-reduce:transition-none"
             >
               <Camera className="size-5" aria-hidden />
               {t('avatarChange')}

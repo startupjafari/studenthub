@@ -328,7 +328,7 @@ function ArticleCard({
           title={a.title}
           // Заголовок и так стоит внизу плитки — градиентной обложке хватает буквы.
           letter
-          className="size-full transition-transform duration-500 ease-out group-hover/tile:scale-[1.03] motion-reduce:transition-none"
+          className="size-full transition-transform duration-(--motion-large) group-hover/tile:scale-[1.03] motion-reduce:transition-none"
         />
         <span className="absolute inset-x-0 bottom-0 flex flex-col gap-1.5 bg-gradient-to-t from-black/80 via-black/45 to-transparent px-3 pt-10 pb-3 text-white">
           <span className="flex flex-wrap items-center gap-1.5 max-sm:hidden">

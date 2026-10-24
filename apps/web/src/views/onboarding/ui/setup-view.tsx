@@ -93,7 +93,7 @@ export function SetupView() {
       <div className="flex items-center gap-3">
         <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
           <div
-            className="h-full rounded-full bg-primary transition-[width] duration-500"
+            className="h-full rounded-full bg-primary transition-[width] duration-(--motion-large)"
             style={{ width: `${(doneCount / data.steps.length) * 100}%` }}
           />
         </div>

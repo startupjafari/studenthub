@@ -118,7 +118,7 @@ function PostCover({ postId, media }: { postId: string; media: { id: string; mim
             sizes="320px"
             alt=""
             loading="lazy"
-            className="size-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+            className="size-full object-cover transition-transform duration-(--motion-large) group-hover:scale-[1.03]"
           />
         )
       ) : (

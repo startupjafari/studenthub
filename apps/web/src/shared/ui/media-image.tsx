@@ -109,7 +109,7 @@ export function MediaImage({
           onClick={onClick}
           style={imgStyle}
           className={cn(
-            'relative size-full transition-opacity duration-300 motion-reduce:transition-none',
+            'relative size-full transition-opacity duration-(--motion-page) motion-reduce:transition-none',
             objectFit,
             loaded ? 'opacity-100' : 'opacity-0',
             imgClassName,
