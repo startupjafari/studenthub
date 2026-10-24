@@ -323,6 +323,50 @@ describe('ChatsService.editMessage / deleteMessage — только автор',
     expect(prisma.message.update).toHaveBeenCalled()
   })
 
+  // BUG-112: заменённая ссылка не должна оставаться под карточкой старой.
+  it('правка, заменившая ссылку, сбрасывает превью и ставит новый job', async () => {
+    const { service, prisma, queue } = setup()
+    prisma.message.findFirst.mockResolvedValue({
+      id: 'm1',
+      chatId: 'c1',
+      senderId: 'u1',
+      createdAt: new Date(),
+      content: 'см. https://a.example/x',
+    })
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'mem1', bannedAt: null })
+    prisma.message.update.mockResolvedValue({ id: 'm1', chatId: 'c1', content: 'x' })
+
+    await service.editMessage('u1', 'm1', 'см. https://b.example/y')
+
+    expect(prisma.message.update.mock.calls[0][0].data).toMatchObject({
+      linkPreview: Prisma.DbNull,
+    })
+    expect(queue.enqueue).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      { messageId: 'm1', chatId: 'c1', url: 'https://b.example/y' },
+      expect.objectContaining({ jobId: expect.stringMatching(/^link-preview:m1:\d+$/) }),
+    )
+  })
+
+  it('правка без смены ссылки превью не трогает', async () => {
+    const { service, prisma, queue } = setup()
+    prisma.message.findFirst.mockResolvedValue({
+      id: 'm1',
+      chatId: 'c1',
+      senderId: 'u1',
+      createdAt: new Date(),
+      content: 'см. https://a.example/x',
+    })
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'mem1', bannedAt: null })
+    prisma.message.update.mockResolvedValue({ id: 'm1', chatId: 'c1', content: 'x' })
+
+    await service.editMessage('u1', 'm1', 'смотри https://a.example/x')
+
+    expect(prisma.message.update.mock.calls[0][0].data).not.toHaveProperty('linkPreview')
+    expect(queue.enqueue).not.toHaveBeenCalled()
+  })
+
   // BUG-161: подпись «Переслано от X» не должна стоять над чужими словами, которых X не писал.
   it('правка пересланного сообщения → FORBIDDEN', async () => {
     const { service, prisma } = setup()

@@ -187,6 +187,11 @@ function quoteMatches(content: string, quote: string): boolean {
   return letters(content).includes(wanted)
 }
 
+/** Первая http(s)-ссылка текста — по ней строится превью сообщения. */
+function firstLinkUrl(content?: string): string | undefined {
+  return content ? /(https?:\/\/[^\s<>"']+)/i.exec(content)?.[1] : undefined
+}
+
 function unreadFloor(m: { lastReadAt: Date | null; clearedAt: Date | null }): Date | null {
   if (!m.lastReadAt) return m.clearedAt
   if (!m.clearedAt) return m.lastReadAt
@@ -2112,18 +2117,21 @@ export class ChatsService implements OnModuleInit {
   }
 
   // Первая http(s)-ссылка в тексте → job на выборку OG-превью (карточка появится по message:updated).
+  // `revision` различает job'ы правок одного сообщения: с тем же jobId очередь сочла бы
+  // новую ссылку повтором старой и не поставила бы её.
   private async enqueueLinkPreview(
     messageId: string,
     chatId: string,
     content?: string,
+    revision?: number,
   ): Promise<void> {
-    const url = content ? /(https?:\/\/[^\s<>"']+)/i.exec(content)?.[1] : undefined
+    const url = firstLinkUrl(content)
     if (!url) return
     await this.queue.enqueue(
       QUEUES.LINK_PREVIEW,
       LINK_PREVIEW_JOBS.FETCH,
       { messageId, chatId, url },
-      { jobId: `link-preview:${messageId}` },
+      { jobId: `link-preview:${messageId}${revision ? `:${revision}` : ''}` },
     )
   }
 
@@ -2633,7 +2641,14 @@ export class ChatsService implements OnModuleInit {
   async editMessage(senderId: string, messageId: string, content: string): Promise<MessageRow> {
     const msg = await this.prisma.message.findFirst({
       where: { id: messageId, deletedAt: null },
-      select: { id: true, chatId: true, senderId: true, createdAt: true, forwardedFromId: true },
+      select: {
+        id: true,
+        chatId: true,
+        senderId: true,
+        createdAt: true,
+        forwardedFromId: true,
+        content: true,
+      },
     })
     if (!msg) throw new AppException('NOT_FOUND', 'Сообщение не найдено')
     if (msg.senderId !== senderId)
@@ -2653,11 +2668,18 @@ export class ChatsService implements OnModuleInit {
         'Редактировать сообщение можно в течение 10 минут после отправки',
       )
     }
+    // Ссылку заменили — карточка старой больше не про это сообщение: под ней можно было
+    // выдать легитимный заголовок за подменённую ссылку. Сбрасываем и тянем новую.
+    const linkChanged = firstLinkUrl(msg.content ?? undefined) !== firstLinkUrl(content)
+    const editedAt = new Date()
     const updated = await this.prisma.message.update({
       where: { id: messageId },
-      data: { content, editedAt: new Date() },
+      data: { content, editedAt, ...(linkChanged ? { linkPreview: Prisma.DbNull } : {}) },
       select: MESSAGE_SELECT,
     })
+    if (linkChanged) {
+      await this.enqueueLinkPreview(messageId, updated.chatId, content, editedAt.getTime())
+    }
     await this.pingListsIfLatest(updated.chatId, updated.seq)
     return toClientMessage(updated)
   }
