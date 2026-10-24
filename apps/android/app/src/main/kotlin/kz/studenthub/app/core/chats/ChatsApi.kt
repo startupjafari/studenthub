@@ -68,7 +68,14 @@ class ChatsApi(private val client: ApiClient, private val storage: OkHttpClient)
 
     override suspend fun setArchived(archived: Boolean, chatId: String) = toggle(archived, "chats/$chatId/archive")
 
-    override suspend fun setMuted(muted: Boolean, chatId: String) = toggle(muted, "chats/$chatId/mute")
+    /**
+     * У «без звука» тело обязательно: сервер разбирает его схемой (`MuteSchema`), и POST
+     * без тела — не объект, а `422`. Пустой объект — «навсегда», как кнопка в вебе.
+     */
+    override suspend fun setMuted(muted: Boolean, chatId: String) {
+        val path = "chats/$chatId/mute"
+        client.send(if (muted) Endpoint.post(path, MuteRequest.serializer(), MuteRequest()) else Endpoint.delete(path))
+    }
 
     private suspend fun toggle(on: Boolean, path: String) {
         client.send(if (on) Endpoint.post(path) else Endpoint.delete(path))
@@ -125,6 +132,10 @@ class ChatsApi(private val client: ApiClient, private val storage: OkHttpClient)
 
     @Serializable
     data class AttachmentLink(val url: String, @Serializable(InstantSerializer::class) val expiresAt: Instant? = null)
+
+    /** Без полей уходит `{}`: срок и режим «только важные» приложение пока не выбирает. */
+    @Serializable
+    private data class MuteRequest(val minutes: Int? = null, val importantOnly: Boolean? = null)
 
     @Serializable
     private data class PresignRequest(val mime: String)

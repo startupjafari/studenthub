@@ -3,6 +3,7 @@ package kz.studenthub.app.core
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.Serializable
 import kz.studenthub.app.BuildConfig
+import kz.studenthub.app.core.chats.ChatsApi
 import kz.studenthub.app.core.network.ApiClient
 import kz.studenthub.app.core.network.ApiError
 import kz.studenthub.app.core.network.ApiErrorCode
@@ -153,6 +154,16 @@ class ApiClientTest {
         respond(503, """{"error":{"code":"INTERNAL_ERROR","message":"x"},"statusCode":503}""")
         runCatching { client().send(Endpoint.post("chats/c/messages")) }
         assertEquals(1, server.requestCount)
+    }
+
+    /** «Без звука» — POST с телом: сервер разбирает его схемой, и пустой запрос — это 422. */
+    @Test
+    fun muteSendsJsonObject() = runTest {
+        respond(201, """{"success":true,"data":null}""")
+        ChatsApi(client(), OkHttpClient()).setMuted(true, "c-1")
+        val request = server.takeRequest()
+        assertEquals("/api/v1/chats/c-1/mute", request.target)
+        assertEquals("{}", request.body?.utf8())
     }
 
     @Test
