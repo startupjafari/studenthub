@@ -93,7 +93,8 @@ fun ScheduleScreen() {
             ) {
                 model.failure?.let { item(key = "failure") { FormAlert(it.resolve()) } }
                 items(pairs.orEmpty(), key = { it.id }) { item ->
-                    PairRow(item) { services.router.push(AppRoute.Lesson(item.id)) }
+                    // Пара — в дату выбранного дня, а не сегодня: отметку сервер примет только на неё.
+                    PairRow(item) { services.router.push(AppRoute.Lesson(item.id, model.dateOf(day))) }
                 }
                 if (pairs?.isEmpty() == true) {
                     item(key = "empty") { EmptyRow(stringResource(R.string.schedule_empty)) }

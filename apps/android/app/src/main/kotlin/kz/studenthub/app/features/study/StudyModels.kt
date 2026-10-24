@@ -212,7 +212,8 @@ class SectionModel<T>(private val load: suspend () -> T) : ViewModel() {
 class AttendanceMarkingModel(
     private val pairId: String,
     private val api: StudyFetching,
-    private val date: LocalDate = LocalDate.now(),
+    /** День занятия: сервер принимает отметку только на день пары. */
+    val date: LocalDate = LocalDate.now(),
 ) : ViewModel() {
     var students by mutableStateOf<List<RosterDto.Student>>(emptyList())
         private set

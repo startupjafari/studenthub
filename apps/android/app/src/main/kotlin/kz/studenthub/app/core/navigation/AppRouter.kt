@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import kz.studenthub.app.core.model.Role
+import java.time.LocalDate
 
 /** Шаг внутри вкладки. */
 sealed interface AppRoute {
@@ -18,7 +19,11 @@ sealed interface AppRoute {
 
     data class Event(val id: String) : AppRoute
 
-    data class Lesson(val id: String) : AppRoute
+    /**
+     * Занятие: пара в конкретную дату. Дата нужна отметке посещаемости — сервер принимает
+     * её только на день пары. Без даты (ссылка из пуша) — сегодня.
+     */
+    data class Lesson(val id: String, val date: LocalDate? = null) : AppRoute
 
     data class Assignment(val id: String) : AppRoute
 

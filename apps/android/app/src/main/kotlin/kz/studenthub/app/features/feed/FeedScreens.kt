@@ -158,7 +158,7 @@ fun HomeScreen(viewer: AccessToken) {
                                 title = next.pair.subject,
                                 icon = Icons.Outlined.Schedule,
                                 subtitle = listOfNotNull("${next.startTime}–${next.endTime}", next.roomName).joinToString(" · "),
-                            ) { services.router.push(AppRoute.Lesson(next.id)) }
+                            ) { services.router.push(AppRoute.Lesson(next.id, schedule.dateOf(day))) }
                         }
                     }
                 }

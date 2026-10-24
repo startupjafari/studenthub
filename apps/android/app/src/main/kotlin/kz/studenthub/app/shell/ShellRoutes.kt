@@ -95,7 +95,7 @@ fun Destination(route: AppRoute, viewer: AccessToken) {
         is AppRoute.BookCopy -> return BookScreen(BookRef.CopyCode(route.code))
         // Преподаватель с занятия идёт отмечать посещаемость — главное, зачем он вообще
         // открывает пару на телефоне.
-        is AppRoute.Lesson -> return if (viewer.role == Role.TEACHER) AttendanceMarkingScreen(route.id) else LessonScreen(route.id)
+        is AppRoute.Lesson -> return if (viewer.role == Role.TEACHER) AttendanceMarkingScreen(route.id, route.date) else LessonScreen(route.id)
         else -> Unit
     }
     val title = when (route) {

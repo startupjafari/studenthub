@@ -68,6 +68,7 @@ import kz.studenthub.app.designsystem.currentLocale
 import kz.studenthub.app.shell.LocalServices
 import kz.studenthub.app.shell.ScreenScaffold
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
@@ -371,9 +372,9 @@ fun MaterialsScreen() {
  * Поэтому сверху «все присутствуют», а дальше правятся исключения.
  */
 @Composable
-fun AttendanceMarkingScreen(pairId: String) {
+fun AttendanceMarkingScreen(pairId: String, date: LocalDate? = null) {
     val api = LocalServices.current.studyApi
-    val model = viewModel { AttendanceMarkingModel(pairId, api) }
+    val model = viewModel { AttendanceMarkingModel(pairId, api, date ?: LocalDate.now()) }
     LaunchedEffect(Unit) { model.load() }
     val statuses = listOf("PRESENT", "LATE", "ABSENT", "EXCUSED")
 
@@ -390,6 +391,14 @@ fun AttendanceMarkingScreen(pairId: String) {
             contentPadding = PaddingValues(Spacing.xl),
             modifier = Modifier.fillMaxSize(),
         ) {
+            // За какой день отметка: занятие открывают и не в его день.
+            item {
+                Text(
+                    model.date.format(DateTimeFormatter.ofLocalizedDate(FormatStyle.FULL).withLocale(currentLocale())),
+                    style = AppType.meta,
+                    color = AppTheme.colors.mutedForeground,
+                )
+            }
             model.failure?.let { item { FormAlert(it.resolve()) } }
             if (model.saved) {
                 item { Text(stringResource(R.string.study_saved), style = AppType.meta, color = AppTheme.colors.success) }
