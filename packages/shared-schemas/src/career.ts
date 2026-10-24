@@ -102,19 +102,23 @@ export const CompanyWebsiteSchema = z
  * с НУЛЕВЫМ доступом: до подтверждения email и одобрения хотя бы одним вузом он не видит
  * ни одного студента.
  */
-export const EmployerSignupSchema = z.object({
-  email: z.string().trim().toLowerCase().email().max(160),
-  password: z.string().min(8).max(72),
-  firstName: z.string().trim().min(1).max(60),
-  lastName: z.string().trim().min(1).max(60),
-  companyName: CompanyNameSchema,
-  website: CompanyWebsiteSchema,
-})
+export const EmployerSignupSchema = z
+  .object({
+    email: z.string().trim().toLowerCase().email().max(160),
+    password: z.string().min(8).max(72),
+    firstName: z.string().trim().min(1).max(60),
+    lastName: z.string().trim().min(1).max(60),
+    companyName: CompanyNameSchema,
+    website: CompanyWebsiteSchema,
+  })
+  .strict()
 export type EmployerSignupInput = z.infer<typeof EmployerSignupSchema>
 
-export const VerifyCompanyEmailSchema = z.object({
-  token: z.string().min(16).max(200),
-})
+export const VerifyCompanyEmailSchema = z
+  .object({
+    token: z.string().min(16).max(200),
+  })
+  .strict()
 export type VerifyCompanyEmailInput = z.infer<typeof VerifyCompanyEmailSchema>
 
 /**
@@ -122,29 +126,35 @@ export type VerifyCompanyEmailInput = z.infer<typeof VerifyCompanyEmailSchema>
  * не успевшая открыть письмо, оставалась в PENDING_EMAIL навсегда — повторная регистрация
  * на тот же адрес молча ничего не делает (защита от перебора адресов).
  */
-export const ResendCompanyVerificationSchema = z.object({
-  email: z.string().trim().toLowerCase().email().max(160),
-})
+export const ResendCompanyVerificationSchema = z
+  .object({
+    email: z.string().trim().toLowerCase().email().max(160),
+  })
+  .strict()
 export type ResendCompanyVerificationInput = z.infer<typeof ResendCompanyVerificationSchema>
 
 // ── Профиль компании ─────────────────────────────────────────────────────────
 
-export const UpdateCompanySchema = z.object({
-  name: CompanyNameSchema.optional(),
-  description: optionalText(2000),
-  website: CompanyWebsiteSchema,
-  city: optionalText(24),
-  logoUrl: optionalText(500),
-})
+export const UpdateCompanySchema = z
+  .object({
+    name: CompanyNameSchema.optional(),
+    description: optionalText(2000),
+    website: CompanyWebsiteSchema,
+    city: optionalText(24),
+    logoUrl: optionalText(500),
+  })
+  .strict()
 export type UpdateCompanyInput = z.infer<typeof UpdateCompanySchema>
 
 // ── Допуск к вузу ────────────────────────────────────────────────────────────
 
 /** Заявка компании в вуз. Сообщение необязательно, но вузу без него труднее решать. */
-export const RequestCompanyAccessSchema = z.object({
-  universityId: z.string().uuid(),
-  message: optionalText(1000),
-})
+export const RequestCompanyAccessSchema = z
+  .object({
+    universityId: z.string().uuid(),
+    message: optionalText(1000),
+  })
+  .strict()
 export type RequestCompanyAccessInput = z.infer<typeof RequestCompanyAccessSchema>
 
 /**
@@ -160,6 +170,7 @@ export const DecideCompanyAccessSchema = z
     /** Вуз, от имени которого принимается решение — только для платформенных ролей. */
     universityId: z.string().min(1).optional(),
   })
+  .strict()
   .refine((v) => v.status === 'APPROVED' || !!v.reason, {
     message: 'Укажите причину',
     path: ['reason'],
@@ -244,26 +255,30 @@ export const CONSENT_FIELDS = ['GPA', 'PHONE', 'EMAIL'] as const
 export const ConsentFieldSchema = z.enum(CONSENT_FIELDS)
 export type ConsentField = z.infer<typeof ConsentFieldSchema>
 
-export const UpdateCareerProfileSchema = z.object({
-  visibility: CareerVisibilitySchema.optional(),
-  employmentStatus: EmploymentStatusSchema.optional(),
-  desiredPositions: z.array(z.string().trim().min(1).max(80)).max(10).optional(),
-  employmentTypes: z.array(EmploymentTypeSchema).max(EMPLOYMENT_TYPES.length).optional(),
-  workFormats: z.array(WorkFormatSchema).max(WORK_FORMATS.length).optional(),
-  relocationReady: z.boolean().optional(),
-  desiredSalaryMin: z.number().int().nonnegative().max(100_000_000).nullable().optional(),
-  desiredSalaryMax: z.number().int().nonnegative().max(100_000_000).nullable().optional(),
-  salaryCurrency: z.enum(['KZT', 'USD', 'EUR', 'RUB']).nullable().optional(),
-  about: optionalText(2000),
-})
+export const UpdateCareerProfileSchema = z
+  .object({
+    visibility: CareerVisibilitySchema.optional(),
+    employmentStatus: EmploymentStatusSchema.optional(),
+    desiredPositions: z.array(z.string().trim().min(1).max(80)).max(10).optional(),
+    employmentTypes: z.array(EmploymentTypeSchema).max(EMPLOYMENT_TYPES.length).optional(),
+    workFormats: z.array(WorkFormatSchema).max(WORK_FORMATS.length).optional(),
+    relocationReady: z.boolean().optional(),
+    desiredSalaryMin: z.number().int().nonnegative().max(100_000_000).nullable().optional(),
+    desiredSalaryMax: z.number().int().nonnegative().max(100_000_000).nullable().optional(),
+    salaryCurrency: z.enum(['KZT', 'USD', 'EUR', 'RUB']).nullable().optional(),
+    about: optionalText(2000),
+  })
+  .strict()
 export type UpdateCareerProfileInput = z.infer<typeof UpdateCareerProfileSchema>
 
 /** Выдать или отозвать согласие. companyId не задан — согласие для всех работодателей. */
-export const SetCareerConsentSchema = z.object({
-  field: ConsentFieldSchema,
-  granted: z.boolean(),
-  companyId: z.string().uuid().optional(),
-})
+export const SetCareerConsentSchema = z
+  .object({
+    field: ConsentFieldSchema,
+    granted: z.boolean(),
+    companyId: z.string().uuid().optional(),
+  })
+  .strict()
 export type SetCareerConsentInput = z.infer<typeof SetCareerConsentSchema>
 
 // ── Готовность профиля ───────────────────────────────────────────────────────
@@ -393,20 +408,22 @@ export type ExperienceLevel = z.infer<typeof ExperienceLevelSchema>
 
 const salaryField = z.number().int().nonnegative().max(100_000_000).nullable().optional()
 
-export const VacancyInputSchema = z.object({
-  title: z.string().trim().min(3).max(160),
-  description: z.string().trim().min(30).max(20_000),
-  employmentType: EmploymentTypeSchema,
-  workFormat: WorkFormatSchema,
-  experienceLevel: ExperienceLevelSchema,
-  city: optionalText(24),
-  salaryMin: salaryField,
-  salaryMax: salaryField,
-  salaryCurrency: z.enum(['KZT', 'USD', 'EUR', 'RUB']).nullable().optional(),
-  skills: z.array(z.string().trim().min(1).max(60)).max(30).default([]),
-  languages: z.array(z.string().trim().min(1).max(40)).max(10).default([]),
-  deadline: z.string().datetime().nullable().optional(),
-})
+export const VacancyInputSchema = z
+  .object({
+    title: z.string().trim().min(3).max(160),
+    description: z.string().trim().min(30).max(20_000),
+    employmentType: EmploymentTypeSchema,
+    workFormat: WorkFormatSchema,
+    experienceLevel: ExperienceLevelSchema,
+    city: optionalText(24),
+    salaryMin: salaryField,
+    salaryMax: salaryField,
+    salaryCurrency: z.enum(['KZT', 'USD', 'EUR', 'RUB']).nullable().optional(),
+    skills: z.array(z.string().trim().min(1).max(60)).max(30).default([]),
+    languages: z.array(z.string().trim().min(1).max(40)).max(10).default([]),
+    deadline: z.string().datetime().nullable().optional(),
+  })
+  .strict()
 export type VacancyInput = z.infer<typeof VacancyInputSchema>
 
 export const UpdateVacancySchema = VacancyInputSchema.partial()
@@ -439,6 +456,7 @@ export const DecideVacancySchema = z
     /** Вуз, от имени которого принимается решение — только для платформенных ролей. */
     universityId: z.string().min(1).optional(),
   })
+  .strict()
   .refine((v) => v.status === 'APPROVED' || !!v.reason, {
     message: 'Укажите причину',
     path: ['reason'],
@@ -462,7 +480,8 @@ export const VacancySearchSchema = OffsetPaginationSchema.extend({
   workFormat: WorkFormatSchema.optional(),
   experienceLevel: ExperienceLevelSchema.optional(),
   city: optionalText(24),
-  salaryFrom: z.coerce.number().int().nonnegative().optional(),
+  // Тот же потолок, что у зарплаты вакансии: больше значения колонка (Int) не примет.
+  salaryFrom: z.coerce.number().int().nonnegative().max(100_000_000).optional(),
   skills: z.array(z.string().trim().min(1).max(60)).max(10).optional(),
   sort: VacancySortSchema.default('publishedAt'),
   order: SortOrderSchema.default('desc'),
@@ -598,10 +617,12 @@ export function isApplicationFinal(status: CareerApplicationStatus): boolean {
   return CAREER_APPLICATION_TRANSITIONS[status].length === 0
 }
 
-export const CreateApplicationSchema = z.object({
-  vacancyId: z.string().uuid(),
-  coverLetter: optionalText(4000),
-})
+export const CreateApplicationSchema = z
+  .object({
+    vacancyId: z.string().uuid(),
+    coverLetter: optionalText(4000),
+  })
+  .strict()
 export type CreateApplicationInput = z.infer<typeof CreateApplicationSchema>
 
 /**
@@ -613,6 +634,7 @@ export const ChangeApplicationStatusSchema = z
     status: z.enum(EMPLOYER_APPLICATION_STATUSES),
     comment: optionalText(2000),
   })
+  .strict()
   .refine((v) => v.status !== 'REJECTED' || !!v.comment, {
     message: 'Укажите причину отказа',
     path: ['comment'],
@@ -627,12 +649,14 @@ export type ApplicationListQueryInput = z.infer<typeof ApplicationListQuerySchem
 
 // ── Резюме (18.E) ────────────────────────────────────────────────────────────
 
-export const UpdateResumeSchema = z.object({
-  title: z.string().trim().min(1).max(120).optional(),
-  /** Включить публичную ссылку. Выключение стирает slug — старая ссылка перестаёт работать. */
-  published: z.boolean().optional(),
-  includeContacts: z.boolean().optional(),
-})
+export const UpdateResumeSchema = z
+  .object({
+    title: z.string().trim().min(1).max(120).optional(),
+    /** Включить публичную ссылку. Выключение стирает slug — старая ссылка перестаёт работать. */
+    published: z.boolean().optional(),
+    includeContacts: z.boolean().optional(),
+  })
+  .strict()
 export type UpdateResumeInput = z.infer<typeof UpdateResumeSchema>
 
 // ── Карьерные мероприятия (18.F) ─────────────────────────────────────────────

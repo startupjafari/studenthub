@@ -115,15 +115,29 @@ export class MediaService {
     sourceId: string,
     target: { id: string; bucket: string; mime: string; mediaStatus?: MediaStatus },
   ): Promise<void> {
-    if (!this.kindOf(target.bucket, target.mime)) return
+    const kind = this.kindOf(target.bucket, target.mime)
+    if (!kind) return
     if (target.mediaStatus !== MediaStatus.PENDING && !(await this.markPending(target.id))) return
-    // Копирование — секунды при любом типе, поэтому в «быструю» очередь.
+    // Копирование готовых вариантов — секунды при любом типе, поэтому в «быструю» очередь.
+    // Но у неготового видео копия откатывается к перекодированию (copy → process): ffmpeg
+    // на минуты в очереди фото держал снимки, а с её lockDuration в 30 с BullMQ отдавал
+    // job второму воркеру — ролик кодировался дважды. Такая копия идёт в очередь видео:
+    // там она встаёт за кодированием источника и обычно застаёт его готовым.
+    const queueKind = kind === 'video' && !(await this.isReady(sourceId)) ? 'video' : 'image'
     await this.enqueue(
-      'image',
+      queueKind,
       MEDIA_JOBS.COPY,
       { sourceId, fileId: target.id },
       `media-copy_${target.id}`,
     )
+  }
+
+  private async isReady(fileId: string): Promise<boolean> {
+    const file = await this.prisma.file.findUnique({
+      where: { id: fileId },
+      select: { mediaStatus: true },
+    })
+    return file?.mediaStatus === MediaStatus.READY
   }
 
   private async markPending(fileId: string): Promise<boolean> {
@@ -241,6 +255,12 @@ export class MediaService {
     ])
     const hls = pick(MediaVariantKind.HLS).length > 0 ? this.masterPath(file, now) : null
     const signed = !isPublic && (sources.length > 0 || poster.length > 0 || hls !== null)
+    // Срок — ближайший из сроков подписанных ссылок и токена HLS. Токен плейлиста живёт
+    // 15 минут и в публичном бакете: там раньше уходил `null` («ссылки постоянные»), клиент
+    // описание не обновлял, и видео профиля переставало играть.
+    const expiries: number[] = []
+    if (signed) expiries.push(signingWindow(now).expiresAt.getTime())
+    if (hls !== null) expiries.push(this.tokenExpiry(HLS_TOKEN_TTL_SECONDS, now) * 1000)
     return {
       status: file.mediaStatus,
       placeholder: file.placeholder,
@@ -250,7 +270,7 @@ export class MediaService {
       sources,
       poster,
       hls,
-      expiresAt: signed ? signingWindow(now).expiresAt.toISOString() : null,
+      expiresAt: expiries.length > 0 ? new Date(Math.min(...expiries)).toISOString() : null,
     }
   }
 
@@ -272,10 +292,14 @@ export class MediaService {
     ttlSeconds: number,
     now = Date.now(),
   ): string {
-    const start = signingWindow(now).requestDate.getTime()
-    const exp = Math.floor(start / 1000) + ttlSeconds
+    const exp = this.tokenExpiry(ttlSeconds, now)
     const payload: HlsTokenPayload & { exp: number } = { fid: fileId, b: bucket, k: kind, exp }
     return this.jwt.sign(payload, { secret: this.tokenSecret, noTimestamp: true })
+  }
+
+  /** `exp` токена (секунды): от начала окна подписи, как и у presigned-ссылок. */
+  private tokenExpiry(ttlSeconds: number, now: number): number {
+    return Math.floor(signingWindow(now).requestDate.getTime() / 1000) + ttlSeconds
   }
 
   private verifyToken(token: string | undefined, fileId: string, kind: TokenKind): string {

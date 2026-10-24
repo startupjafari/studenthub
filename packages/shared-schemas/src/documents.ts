@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { OptionalCursorPaginationSchema, SortOrderSchema } from './pagination.js'
+import { OptionalCursorPaginationSchema, PageSchema, SortOrderSchema } from './pagination.js'
 
 // Схемы модуля «Документы» (Ф15, задача 15.3). Значения enum зеркалят справочник в
 // @studenthub/shared-config (DOCUMENT_CATEGORIES/…); сам `type` валидируется как строка,
@@ -328,7 +328,7 @@ export type DocumentJournalAction = z.infer<typeof DocumentJournalActionSchema>
 // любой из двух ролей. Период — по дате события, `to` включительно (до конца дня — в вебе).
 export const DocumentJournalQuerySchema = z
   .object({
-    page: z.coerce.number().int().positive().default(1),
+    page: PageSchema,
     limit: z.coerce.number().int().positive().max(100).default(20),
     action: DocumentJournalActionSchema.optional(),
     from: z.coerce.date().optional(),

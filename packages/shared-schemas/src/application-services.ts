@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { OffsetPaginationSchema } from './pagination.js'
+import { OffsetPaginationSchema, queryBoolean } from './pagination.js'
 
 // Контракт домена «Услуги университета» (переработка «Заявок»). Единый источник истины для
 // state-machine, формы и фильтров — и для бэкенда (guard/сервис), и для фронта. Значения —
@@ -235,8 +235,8 @@ export const ApplicationQuerySchema = OffsetPaginationSchema.extend({
   facultyId: z.string().min(1).optional(),
   assignedToId: z.string().min(1).optional(),
   search: z.string().max(120).optional(),
-  overdue: z.coerce.boolean().optional(),
-  dueToday: z.coerce.boolean().optional(),
+  overdue: queryBoolean.optional(),
+  dueToday: queryBoolean.optional(),
   sortBy: ApplicationSortSchema.default('createdAt'),
   sortOrder: z.enum(['asc', 'desc']).default('desc'),
 }).strict()

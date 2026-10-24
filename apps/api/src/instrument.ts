@@ -7,7 +7,7 @@
 // объявлены и валидируются в src/config/env.schema.ts — приложение упадёт на старте,
 // если DSN не URL или sample rate вне [0,1]; здесь дополнительно подстрахованы дефолты.
 import * as Sentry from '@sentry/nestjs'
-import { scrubEvent } from './common/monitoring/sentry-scrub'
+import { scrubBreadcrumb, scrubEvent, scrubTransaction } from './common/monitoring/sentry-scrub'
 
 const dsn = process.env.SENTRY_DSN
 
@@ -30,6 +30,10 @@ if (dsn) {
 
     // Последняя чистка события перед отправкой; покрыта unit-тестами.
     beforeSend: scrubEvent,
+    // Крошки — в момент записи: токен бота Telegram в пути, строка запроса, адреса превью
+    // ссылок из личных переписок. Транзакции несут те же адреса в спанах.
+    beforeBreadcrumb: scrubBreadcrumb,
+    beforeSendTransaction: scrubTransaction,
 
     // Пути health-чека Railway/nginx создавали бы транзакцию на каждый пробник.
     ignoreTransactions: ['GET /api/v1/health', 'GET /health'],

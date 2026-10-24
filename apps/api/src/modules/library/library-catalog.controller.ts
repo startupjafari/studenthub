@@ -13,7 +13,7 @@ import { Roles } from '../../common/decorators/roles.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import { RestrictedAllowed } from '../../common/decorators/restricted-allowed.decorator'
 import { AppException } from '../../common/exceptions/app.exception'
-import { readSingleUpload } from '../../common/http/read-upload'
+import { isFileTooLarge, readSingleUpload } from '../../common/http/read-upload'
 import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
 import { LibraryCatalogService } from './library-catalog.service'
@@ -201,7 +201,9 @@ export class LibraryCatalogController {
     }
     try {
       return { buffer: await part.toBuffer(), filename: part.filename }
-    } catch {
+    } catch (error) {
+      // Иная ошибка чтения — не «слишком большой»: её 4xx отдаст фильтр.
+      if (!isFileTooLarge(error)) throw error
       throw new AppException('BAD_REQUEST', 'Файл слишком большой для импорта')
     }
   }

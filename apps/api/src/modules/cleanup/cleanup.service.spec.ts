@@ -28,6 +28,8 @@ function makeService() {
     // Счётчики суточной сводки.
     complaint: { count: jest.fn(async () => 0) as Mock },
     chat: { count: jest.fn(async () => 0) as Mock },
+    // Обложки статей профиля — raw-объекты profile-covers, живые по ProfileArticle.coverUrl.
+    profileArticle: { findMany: jest.fn(async () => []) as Mock },
     // Снятие временных блокировок по сроку.
     user: {
       findMany: jest.fn(async () => []) as Mock,
@@ -587,7 +589,7 @@ describe('CleanupService', () => {
       expect(minio.removeObject).not.toHaveBeenCalled()
     })
 
-    it('не трогает постеры видео и обложки пользователей в profile-covers', async () => {
+    it('не трогает постеры видео, обложки пользователей и статей в profile-covers', async () => {
       const { service, prisma, minio } = makeService()
       const old = new Date(Date.now() - 2 * 60 * 60 * 1000)
       minio.listObjectsV2.mockImplementation((bucket: string) =>
@@ -595,16 +597,21 @@ describe('CleanupService', () => {
           ? objectStream([
               { name: 'poster.jpg', lastModified: old },
               { name: 'cover.jpg', lastModified: old },
+              { name: 'article.jpg', lastModified: old },
               { name: 'junk.jpg', lastModified: old },
             ])
           : objectStream([]),
       )
-      // Ни у одного из трёх нет File.key — это raw-объекты putAuxImage.
+      // Ни у одного из четырёх нет File.key — это raw-объекты putAuxImage.
       prisma.file.findMany.mockImplementation(async (args: { where: { posterKey?: unknown } }) =>
         args.where.posterKey ? [{ posterKey: 'poster.jpg' }] : [],
       )
       prisma.user.findMany.mockResolvedValue([
         { coverUrl: 'https://old-minio.example/profile-covers/cover.jpg' },
+      ])
+      // Обложка статьи: брошенная или заменённая сюда не попадает и уходит как junk.jpg.
+      prisma.profileArticle.findMany.mockResolvedValue([
+        { coverUrl: 'https://minio.example/profile-covers/article.jpg' },
       ])
 
       const removed = await service.cleanOrphanFiles()

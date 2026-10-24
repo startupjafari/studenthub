@@ -1,5 +1,9 @@
 import { z } from 'zod'
-import { OffsetPaginationSchema, OptionalCursorPaginationSchema } from './pagination.js'
+import {
+  OffsetPaginationSchema,
+  OptionalCursorPaginationSchema,
+  queryBoolean,
+} from './pagination.js'
 import { PostAudienceSchema } from './posts.js'
 
 // События (docs/PROJECT.md §3.5, Ф10). Аудитория — тот же enum, что у постов (видимость по аналогии).
@@ -99,7 +103,7 @@ export type UpdateEventInput = z.infer<typeof UpdateEventSchema>
 // Список: ближайшие/прошедшие + только свои (организатор/участник) + пагинация.
 export const EventListQuerySchema = OffsetPaginationSchema.extend({
   filter: z.enum(['upcoming', 'past']).default('upcoming'),
-  mine: z.coerce.boolean().optional(),
+  mine: queryBoolean.optional(),
 })
 export type EventListQueryInput = z.infer<typeof EventListQuerySchema>
 

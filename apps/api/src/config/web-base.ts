@@ -17,3 +17,14 @@ export function webBaseUrl(config: ConfigService<EnvVars, true>): string {
 export function pickWebBase(raw: string): string {
   return raw.split(',')[0]?.trim() ?? ''
 }
+
+/**
+ * Список разрешённых origin из `CORS_ORIGIN`. Пробел после запятой — обычная опечатка в
+ * панели хостинга: без `trim` второй origin сравнивался с « https://…» и молча не проходил.
+ */
+export function parseCorsOrigins(raw: string): string[] {
+  return raw
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter(Boolean)
+}

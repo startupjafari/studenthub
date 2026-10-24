@@ -45,10 +45,10 @@ function setup(
   const minio = {
     statObject: options.statFails
       ? jest.fn().mockRejectedValue(new Error('NoSuchKey'))
-      : jest.fn().mockResolvedValue({ size: options.size ?? 20 * 1024 * 1024 }),
+      : jest.fn().mockResolvedValue({ size: options.size ?? 20 * 1024 * 1024, etag: 'etag-1' }),
     getPartialObject: jest.fn().mockResolvedValue(Readable.from([options.head ?? PDF])),
     removeObject: jest.fn().mockResolvedValue(undefined),
-    // Закрепление типа по содержимому на confirm (copyObject объекта в самого себя).
+    // Закрепление типа по содержимому на confirm (copyObject на серверный ключ).
     copyObject: jest.fn().mockResolvedValue({ etag: 'c' }),
     presignedPutObject: jest.fn().mockResolvedValue('http://minio/put?sig=1'),
     presignedUrl: jest
@@ -132,6 +132,50 @@ describe('FileService.confirmDirectUpload', () => {
     const headers = dest.getHeaders()
     expect(headers['X-Amz-Metadata-Directive']).toBe('REPLACE')
     expect(headers['Content-Type']).toBe('application/pdf')
+  })
+
+  it('переносит объект на серверный ключ: подпись на PUT после confirm файл не подменит', async () => {
+    const { service, minio } = setup({ head: PDF })
+
+    const file = await service.confirmDirectUpload({ ...base, key: 'user-1/a.pdf' })
+
+    const [source, dest] = minio.copyObject.mock.calls[0] as [
+      { Object: string; MatchETag: string },
+      { Object: string },
+    ]
+    expect(source.Object).toBe('user-1/a.pdf')
+    // Переезжает ровно то содержимое, которое видел statObject.
+    expect(source.MatchETag).toBe('etag-1')
+    expect(dest.Object).toBe(file.key)
+    // Ключ без префикса владельца — повторный confirm по нему упрётся в FORBIDDEN.
+    expect(file.key.startsWith('user-1/')).toBe(false)
+    expect(file.key.endsWith('.pdf')).toBe(true)
+    expect(minio.removeObject).toHaveBeenCalledWith('documents', 'user-1/a.pdf')
+  })
+
+  it('ключ, на который уже ссылается File, не подтверждается и не удаляется', async () => {
+    // Сдача-архив уже отправлена: общий confirm без allowArchives снёс бы её объект.
+    const { service, minio, prisma } = setup({ head: ZIP })
+    prisma.file.count.mockResolvedValueOnce(1)
+
+    await expect(
+      service.confirmDirectUpload({ ...base, key: 'user-1/work.zip' }),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(minio.copyObject).not.toHaveBeenCalled()
+    expect(minio.removeObject).not.toHaveBeenCalled()
+    expect(prisma.file.create).not.toHaveBeenCalled()
+  })
+
+  it('объект подменили во время проверки — BAD_REQUEST, File не создаётся', async () => {
+    const { service, minio, prisma } = setup({ head: PDF })
+    minio.copyObject.mockRejectedValue(
+      Object.assign(new Error('precondition'), { code: 'PreconditionFailed' }),
+    )
+
+    await expect(
+      service.confirmDirectUpload({ ...base, key: 'user-1/a.pdf' }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    expect(prisma.file.create).not.toHaveBeenCalled()
   })
 
   it('сбой закрепления типа — объект удаляется, File не создаётся', async () => {

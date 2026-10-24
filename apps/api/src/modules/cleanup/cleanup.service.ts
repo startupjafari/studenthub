@@ -853,29 +853,38 @@ export class CleanupService {
    * Ключи из `keys`, на которые ссылаются НЕ через `File.key`.
    *
    * В `profile-covers` `putAuxImage` кладёт объекты без записи File: постер видео профиля
-   * (его ключ — в `File.posterKey`) и обложку пользователя (в `User.coverUrl` хранится
-   * публичный URL, ключ — его последний сегмент). Без этой сверки чистка удаляла их через
-   * час после загрузки. Сравниваем по окончанию URL, а не по целому адресу: домен MinIO
+   * (его ключ — в `File.posterKey`), обложку пользователя и обложку статьи (в
+   * `User.coverUrl` и `ProfileArticle.coverUrl` хранится публичный URL, ключ — его последний
+   * сегмент). Без этой сверки чистка удаляла их через час после загрузки. Сравниваем по окончанию URL, а не по целому адресу: домен MinIO
    * мог смениться, и старые URL с прежним хостом всё равно указывают на живой объект.
    */
   private async auxReferencedKeys(bucket: string, keys: string[]): Promise<string[]> {
     if (bucket !== this.config.get('MINIO_BUCKET_PROFILE_COVERS', { infer: true })) return []
     if (keys.length === 0) return []
-    const [posters, covers] = await Promise.all([
+    const coverUrlOf = { OR: keys.map((key) => ({ coverUrl: { endsWith: `/${key}` } })) }
+    const [posters, covers, articleCovers] = await Promise.all([
       this.prisma.file.findMany({
         where: { posterKey: { in: keys } },
         select: { posterKey: true },
         take: keys.length,
       }),
       this.prisma.user.findMany({
-        where: { OR: keys.map((key) => ({ coverUrl: { endsWith: `/${key}` } })) },
+        where: coverUrlOf,
         select: { coverUrl: true },
+        take: keys.length,
+      }),
+      // distinct: одну обложку могут делить несколько статей (сид), и без него потолок
+      // `take` съели бы повторы — непосчитанная живая обложка ушла бы в сироты.
+      this.prisma.profileArticle.findMany({
+        where: coverUrlOf,
+        select: { coverUrl: true },
+        distinct: ['coverUrl'],
         take: keys.length,
       }),
     ])
     const referenced: string[] = []
     for (const p of posters) if (p.posterKey) referenced.push(p.posterKey)
-    for (const c of covers) {
+    for (const c of [...covers, ...articleCovers]) {
       const key = c.coverUrl?.split('?')[0]?.split('/').pop()
       if (key) referenced.push(key)
     }

@@ -462,6 +462,11 @@ export class AuthService {
     // преемника (см. транзакцию ниже). Ширина окна — REFRESH_REUSE_GRACE_MS (0 отключает).
     if (record.revokedAt && !reuseInGrace) {
       await this.revokeFamily(record.familyId)
+      // Кража: у похитителя кроме refresh есть и свежий access, а с ним — открытый WS.
+      // Гасим выданные access-токены и рвём сокеты пользователя; честные устройства
+      // переподключатся после обычного refresh своей (другой) цепочкой.
+      await this.revocation.revokeIssuedBefore(record.userId)
+      this.realtime.disconnectUser(record.userId)
       await this.audit.record({
         userId: record.userId,
         action: 'refresh_reuse_detected',

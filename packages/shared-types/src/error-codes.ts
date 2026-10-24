@@ -94,11 +94,15 @@ export function errorCodeFromStatus(status: number): ErrorCode {
       return ErrorCode.NOT_FOUND
     case 409:
       return ErrorCode.CONFLICT
+    case 413:
+      return ErrorCode.FILE_TOO_LARGE
     case 422:
       return ErrorCode.VALIDATION_ERROR
     case 429:
       return ErrorCode.RATE_LIMIT
     default:
-      return ErrorCode.INTERNAL_ERROR
+      // Прочие 4xx (406, 415 от Fastify) — отказ запросу; INTERNAL_ERROR по контракту — только
+      // необработанная ошибка сервера, и клиент на него показывает «что-то сломалось».
+      return status < 500 ? ErrorCode.BAD_REQUEST : ErrorCode.INTERNAL_ERROR
   }
 }
