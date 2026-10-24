@@ -10,7 +10,7 @@ import {
   fetchFriendsPage,
   friendKeys,
 } from '../../../entities/friendship'
-import { Button, EmptyState, Modal, SegmentedTabs, Skeleton } from '../../../shared/ui'
+import { Button, EmptyState, Modal, SegmentedTabs, Skeleton, useConfirm } from '../../../shared/ui'
 import { useFriendshipMutations } from '../model/use-friendship-mutations'
 
 type Tab = 'friends' | 'incoming' | 'outgoing'
@@ -38,6 +38,19 @@ export function FriendsModal({ initialTab, onClose }: { initialTab: Tab; onClose
   const t = useTranslations('Friends')
   const [tab, setTab] = useState<Tab>(initialTab)
   const { accept, remove } = useFriendshipMutations()
+  const confirm = useConfirm()
+
+  // Удаление из друзей необратимо (вернуть — только новой заявкой) — с подтверждением;
+  // отмена своей заявки и отклонение чужой — сразу.
+  async function removeFriend(friendshipId: string): Promise<void> {
+    const ok = await confirm({
+      title: t('removeConfirm'),
+      description: t('removeConfirmHint'),
+      confirmLabel: t('remove'),
+      destructive: true,
+    })
+    if (ok) remove.mutate({ friendshipId, message: t('removed') })
+  }
 
   // Полные списки — страницами с курсором: одним запросом приходила только первая
   // страница сервера (20), и друзья и заявки сверх неё в окне не показывались вовсе.
@@ -98,7 +111,7 @@ export function FriendsModal({ initialTab, onClose }: { initialTab: Tab; onClose
         size="sm"
         variant="ghost"
         onClick={() =>
-          remove.mutate({ friendshipId, message: tab === 'friends' ? t('removed') : undefined })
+          tab === 'friends' ? void removeFriend(friendshipId) : remove.mutate({ friendshipId })
         }
         loading={remove.isPending && remove.variables?.friendshipId === friendshipId}
       >

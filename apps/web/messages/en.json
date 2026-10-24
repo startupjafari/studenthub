@@ -3176,6 +3176,8 @@
     "remove": "Remove",
     "cancel": "Cancel",
     "removed": "Removed from friends",
+    "removeConfirm": "Remove from friends?",
+    "removeConfirmHint": "You can only restore the friendship with a new request.",
     "accepted": "Request accepted",
     "emptyFriends": "No friends yet",
     "emptyIncoming": "No incoming requests",

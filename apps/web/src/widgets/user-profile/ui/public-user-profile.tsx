@@ -25,6 +25,7 @@ import {
   Card,
   CardContent,
   Skeleton,
+  useConfirm,
 } from '../../../shared/ui'
 import { BRAND_GRADIENT } from '../../../shared/config'
 import { fetchMe, fetchUserById, fetchUserPresence, userKeys } from '../../../entities/user'
@@ -269,6 +270,7 @@ function FriendButton({ userId }: { userId: string }) {
   const t = useTranslations('Friends')
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
+  const confirm = useConfirm()
   const statusQ = useQuery({
     queryKey: friendKeys.status(userId),
     queryFn: () => fetchFriendshipStatus(userId),
@@ -324,13 +326,28 @@ function FriendButton({ userId }: { userId: string }) {
   }
   const label = status === 'PENDING_OUTGOING' ? t('cancelRequest') : t('friendsLabel')
   const Icon = status === 'PENDING_OUTGOING' ? Clock : Check
+  // «В друзьях» — это состояние, а не команда: нажатие по нему удаляет дружбу, поэтому
+  // сначала спрашиваем. Свою исходящую заявку отменить можно и сразу — её легко повторить.
+  async function onRemove(id: string): Promise<void> {
+    if (
+      status === 'ACCEPTED' &&
+      !(await confirm({
+        title: t('removeConfirm'),
+        description: t('removeConfirmHint'),
+        confirmLabel: t('remove'),
+        destructive: true,
+      }))
+    )
+      return
+    removeMut.mutate(id)
+  }
   return (
     <Button
       size="sm"
       variant="secondary"
       className="shadow-md"
       loading={pending}
-      onClick={() => friendshipId && removeMut.mutate(friendshipId)}
+      onClick={() => friendshipId && void onRemove(friendshipId)}
     >
       <Icon className="size-4" aria-hidden />
       {label}
