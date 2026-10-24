@@ -46,6 +46,17 @@ function coursePercent(c: MyGradesCourse): number | null {
   return Math.round((scored.reduce((a, b) => a + b, 0) / scored.length) * 100)
 }
 
+// Учебный статус хранится кодом (`ACTIVE`, `EXPELLED`…), но вуз мог заполнить его и
+// строкой на своём языке: известный код — перевод, иное — как пришло (ключ из значения не
+// собираем, FRONTEND_RULES §10).
+const STATUS_KEYS: Record<string, string> = {
+  ACTIVE: 'statusActive',
+  ACADEMIC_LEAVE: 'statusAcademicLeave',
+  EXPELLED: 'statusExpelled',
+  GRADUATED: 'statusGraduated',
+  TRANSFERRED: 'statusTransferred',
+}
+
 function toneClass(pct: number): string {
   return pct >= 75 ? 'bg-success' : pct >= 50 ? 'bg-warning' : 'bg-destructive'
 }
@@ -120,6 +131,10 @@ export function AcademicView() {
     }
   }, [examsQ.data, asgQ.data])
 
+  const rawStatus = meQ.data?.academicStatus ?? null
+  const statusKey = rawStatus ? STATUS_KEYS[rawStatus] : 'statusActive'
+  const academicStatusLabel = statusKey ? t(statusKey) : rawStatus
+
   const att = attQ.data
   const rate = att?.rate ?? null
   const loading = meQ.isLoading || gradesQ.isLoading || attQ.isLoading || coursesQ.isLoading
@@ -171,7 +186,7 @@ export function AcademicView() {
                   ? `${t('status')} · ${t('since')} ${meQ.data.enrollmentYear}`
                   : t('status')
               }
-              value={meQ.data?.academicStatus ?? t('statusActive')}
+              value={academicStatusLabel}
             />
           </div>
 
