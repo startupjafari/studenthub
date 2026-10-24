@@ -1083,7 +1083,12 @@ describe('SchedulesService — разовые изменения (C-F16)', () =>
           scheduleId: 'sch-1',
           groupId: 'grp-1',
           subject: 'Матанализ',
+          dayOfWeek: 6,
+          startTime: '10:00',
+          endTime: '11:30',
+          weekType: 'BOTH',
           teacher: { id: 't-1', firstName: 'А', lastName: 'Б' },
+          room: { id: 'r-1', name: '101' },
         },
       }
     }
@@ -1114,6 +1119,33 @@ describe('SchedulesService — разовые изменения (C-F16)', () =>
       await service.removeChange(admin, 'chg-1', ctx)
       expect(prisma.scheduleChange.deleteMany).toHaveBeenCalled()
       expect(realtime.emitToRoom).toHaveBeenCalled()
+      expect(queue.enqueue).not.toHaveBeenCalled()
+      // Прошедшую дату не перепроверяем: история не переигрывается.
+      expect(prisma.pair.findMany).not.toHaveBeenCalled()
+    })
+
+    it('будущая дата: слот, куда возвращается пара, уже занят → CONFLICT, изменение остаётся', async () => {
+      const { service, prisma, queue } = setup()
+      prisma.scheduleChange.findUnique.mockResolvedValue(stored('2999-01-05'))
+      prisma.group.findUnique.mockResolvedValue(GROUP_CTX)
+      // В освободившуюся 101 на 10:00 уже поставили пару другой группы.
+      prisma.pair.findMany.mockResolvedValue([
+        {
+          subject: 'Физика',
+          startTime: '10:00',
+          endTime: '11:00',
+          weekType: 'BOTH',
+          groupId: 'grp-2',
+          teacherId: 't-9',
+          roomId: 'r-1',
+          changes: [],
+        },
+      ])
+      const err = await service.removeChange(admin, 'chg-1', ctx).catch((e) => e)
+      expect(err.code).toBe('CONFLICT')
+      expect(err.details).toEqual([expect.objectContaining({ field: 'roomId' })])
+      expect(prisma.$executeRaw.mock.calls[0].slice(1)).toEqual(['schedule-slot:uni-1:6'])
+      expect(prisma.scheduleChange.deleteMany).not.toHaveBeenCalled()
       expect(queue.enqueue).not.toHaveBeenCalled()
     })
 
@@ -1272,6 +1304,56 @@ describe('SchedulesService — назначение преподавателя �
     // Лок — до поиска конфликтов, запись — после.
     expect(callOrder(prisma.$executeRaw)).toBeLessThan(callOrder(prisma.pair.findMany))
     expect(callOrder(prisma.pair.findMany)).toBeLessThan(callOrder(prisma.pair.create))
+  })
+
+  it('чужая пара, перенесённая на будущую дату в ту же аудиторию и время → CONFLICT', async () => {
+    const { service, prisma } = setup()
+    primeCreate(prisma)
+    // Среда 09.01.2999: пару другой группы из 101 перенесли с 14:00 на 09:00.
+    const date = new Date('2999-01-09T00:00:00.000Z')
+    prisma.scheduleChange.findMany.mockResolvedValue([{ pairId: 'p-9', date }])
+    prisma.pair.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([
+      {
+        id: 'p-9',
+        subject: 'Физика',
+        dayOfWeek: 3,
+        startTime: '14:00',
+        endTime: '15:30',
+        weekType: 'BOTH',
+        groupId: 'grp-2',
+        teacherId: 't-9',
+        roomId: 'r-1',
+        changes: [
+          {
+            type: 'MOVED',
+            newStartTime: '09:00',
+            newEndTime: '10:30',
+            newTeacherId: null,
+            newRoomId: null,
+            date,
+          },
+        ],
+      },
+    ])
+    const err = await service.createPair(dean, input, ctx).catch((e) => e)
+    expect(err.code).toBe('CONFLICT')
+    expect(err.details).toEqual([
+      { field: 'roomId', message: expect.stringContaining('09.01 09:00–10:30') },
+    ])
+    expect(prisma.pair.create).not.toHaveBeenCalled()
+  })
+
+  it('разовое изменение — под тем же локом дня вуза, что и правка шаблона', async () => {
+    const { service, prisma } = setup()
+    prisma.pair.findUnique.mockResolvedValue(changedPair)
+    prisma.group.findUnique.mockResolvedValue(GROUP_CTX)
+    prisma.scheduleChange.create.mockResolvedValue({ id: 'chg-1', pairId: 'pair-1' })
+    await service.createChange(
+      dean,
+      { pairId: 'pair-1', type: 'CANCELLED', date: '2030-09-17' },
+      ctx,
+    )
+    expect(prisma.$executeRaw.mock.calls[0].slice(1)).toEqual(['schedule-slot:uni-1:2'])
   })
 
   it('черновик не конфликтует с действующей версией своей группы, но видит чужие сетки', async () => {
