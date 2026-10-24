@@ -107,8 +107,9 @@ export async function apiUpload<T>(path: string, form: FormData, retry = true): 
   })
 
   if (response.status === 401 && retry && token) {
-    token = null
-    await openSession()
+    const failure = await toApiError(response)
+    if (!isExpiredToken(failure)) throw failure
+    await renewSession()
     return apiUpload<T>(path, form, false)
   }
 
@@ -136,13 +137,27 @@ async function request<T>(
   })
 
   if (response.status === 401 && retry && token) {
+    // 401 — не всегда истёкший токен: неверный код 2FA (`INVALID_2FA_CODE`) приходит тем
+    // же статусом. Продлевать сессию на нём значило бы отправить код второй раз (и съесть
+    // лимит попыток), а через пять минут после открытия — потерять сессию из-за опечатки.
+    const failure = await toApiError(response)
+    if (!isExpiredToken(failure)) throw failure
     // Пятнадцать минут истекли — берём новый токен и повторяем ОДИН раз.
-    token = null
-    await openSession()
+    await renewSession()
     return request<T>(method, path, body, false)
   }
 
   return unwrap<T>(response)
+}
+
+/** Сессию продлеваем только на отказе в самом токене (§8.2): реагируем на `code`. */
+function isExpiredToken(error: ApiError): boolean {
+  return error.code === 'TOKEN_EXPIRED' || error.code === 'UNAUTHORIZED'
+}
+
+async function renewSession(): Promise<void> {
+  token = null
+  await openSession()
 }
 
 async function post<T>(path: string, body: unknown, retry = true): Promise<T> {
@@ -154,25 +169,32 @@ async function post<T>(path: string, body: unknown, retry = true): Promise<T> {
  * отказе. Разворачиваем здесь, чтобы экраны работали с чистыми сущностями.
  */
 async function unwrap<T>(response: Response): Promise<Envelope<T>> {
-  let payload: unknown = null
-  try {
-    payload = await response.json()
-  } catch {
-    // Пустое тело или не-JSON: ниже превратится в ошибку с кодом по статусу.
-  }
+  if (!response.ok) throw await toApiError(response)
 
-  if (!response.ok) {
-    const error = (payload as { error?: { code?: string; message?: string } } | null)?.error
-    throw new ApiError(
-      error?.code ?? `HTTP_${response.status}`,
-      error?.message ?? 'Запрос не удался',
-      response.status,
-    )
-  }
-
+  const payload = await readJson(response)
   const envelope = payload as { data?: T; meta?: { total?: number } } | null
   return {
     data: (envelope?.data ?? payload) as T,
     ...(envelope?.meta ? { meta: envelope.meta } : {}),
+  }
+}
+
+/** Отказ сервера → `ApiError` с кодом из `{ error: { code, message } }`. */
+async function toApiError(response: Response): Promise<ApiError> {
+  const payload = await readJson(response)
+  const error = (payload as { error?: { code?: string; message?: string } } | null)?.error
+  return new ApiError(
+    error?.code ?? `HTTP_${response.status}`,
+    error?.message ?? 'Запрос не удался',
+    response.status,
+  )
+}
+
+async function readJson(response: Response): Promise<unknown> {
+  try {
+    return await response.json()
+  } catch {
+    // Пустое тело или не-JSON: отказ превратится в ошибку с кодом по статусу.
+    return null
   }
 }
