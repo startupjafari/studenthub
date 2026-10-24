@@ -799,12 +799,13 @@
   отказывает по ключу с существующим `File`, `discard` не удаляет объект со ссылками.
 
 #### BUG-088 · 🟡 🔒 Оригиналы фото с EXIF и GPS отдаются всем зрителям постов и профиля
-- **Роль:** авторы постов и медиа профиля → любой зритель · **Статус:** новый
+- **Роль:** авторы постов и медиа профиля → любой зритель · **Статус:** отложен
 - **Где:** `apps/api/src/modules/media/image-pipeline.ts:25-29`, `apps/api/src/modules/profile-content/profile-content.service.ts:383`, `apps/api/src/modules/posts/posts.service.ts:505-513`; веб `apps/web/src/features/create-post/ui/create-post-form.tsx:162`, `apps/web/src/entities/profile-content/api/profile-content-api.ts:169`
 - **Сценарий:** веб грузит оригинал без пережатия, воркер чистит EXIF/GPS только в WebP-копиях, а
   API всегда отдаёт `url` оригинала — зритель читает координаты съёмки (часто дом студента).
 - **Ожидается:** метаданные чистить при приёме или не отдавать оригинал чужим (PROJECT «Медиа»,
   §11.3).
+- **Отложено:** PROJECT.md «Медиа» прямо фиксирует «из копий EXIF и GPS вычищены, оригинал не трогается»; нужно решение владельца: чистить метаданные оригинала при приёме (пережатие на сервере или на клиенте перед загрузкой — потеря качества/поворот) или не отдавать url оригинала чужим (но GIF/анимация и PENDING-медиа показываются оригиналом)
 
 #### BUG-089 · 🟡 В вебе к посту нельзя прикрепить видео больше 10 МБ
 - **Роль:** все, кто публикует посты · **Статус:** исправлен · `fix/bugs-web-shared` (4f3e8459)
@@ -990,7 +991,7 @@
 - **Ожидается:** любая мутация уведомлений сбрасывает кэш (§10.1).
 
 #### BUG-115 · 🟢 🔒 Обложки статей профиля — неограниченное публичное хранилище без уборки
-- **Роль:** любая роль с профилем · **Статус:** новый
+- **Роль:** любая роль с профилем · **Статус:** исправлен · `fix/bugs-api-infra` (a46e4ccc)
 - **Где:** `apps/api/src/modules/profile-content/profile-content.service.ts:535-544,676-707`, `apps/api/src/modules/cleanup/cleanup.service.ts:584-628`
 - **Ожидается:** BACKEND_RULES §8 — замена и удаление статьи удаляют обложку, брошенные чистятся, квота учитывает бакет.
 
@@ -1241,7 +1242,7 @@
 - **Ожидается:** выход через `DELETE /chats/:id`.
 
 #### BUG-165 · 🟡 Ошибки WS-событий чата клиент не слушает — правка и удаление молча теряются
-- **Роль:** все с чатами · **Статус:** новый
+- **Роль:** все с чатами · **Статус:** исправлен · `fix/bugs-chats` (0f484107)
 - **Где:** нет подписки на `error` в `apps/web/src/shared/realtime/*` и `widgets/chat-window` (сервер шлёт в `chats.gateway.ts:74,92,114,123-126`); `chat-window.tsx:2170-2174,2313-2339,2382-2387`
 - **Сценарий:** правка после окна или длиннее 4000 знаков, массовое удаление с чужими, `RATE_LIMIT`/`MAINTENANCE` — интерфейс считает действие выполненным.
 - **Ожидается:** FRONTEND_RULES §5.4, PROJECT §9.1 — обработка `error` с текстом по коду.
@@ -1267,7 +1268,7 @@
 - **Где:** `apps/api/src/modules/chats/chats.service.ts:1779-1785,3396-3417,3441-3446,3511-3520` · **Статус:** исправлен · `fix/bugs-chats` (9ab1a1a6)
 
 #### BUG-171 · 🟢 Окно чата остаётся открытым после исключения, бана, удаления группы или отказа в запросе
-- **Где:** `apps/web/src/widgets/chat-window/ui/chat-window.tsx:1679-1684,2936,4129` · **Статус:** новый
+- **Где:** `apps/web/src/widgets/chat-window/ui/chat-window.tsx:1679-1684,2936,4129` · **Статус:** исправлен · `fix/bugs-chats` (c05126b7)
 
 #### BUG-172 · 🟢 Повторное «Написать» скрытому у себя личному чату открывает окно без шапки и плашки блокировки
 - **Где:** `apps/api/src/modules/chats/chats.service.ts:550,852-857` (`createChat` не снимает `hiddenAt`), веб `chat-window.tsx:658-664`, `widgets/user-profile/ui/public-user-profile.tsx:107` · **Статус:** исправлен · `fix/bugs-chats` (5dcddd17)
@@ -1288,13 +1289,13 @@
 - **Где:** `apps/api/src/modules/chats/chats.service.ts:3553-3561` · **Статус:** исправлен · `fix/bugs-chats` (a8e57c45)
 
 #### BUG-178 · 🟢 Множественный выбор: пересылка в порядке кликов, удаление чужих молча не срабатывает
-- **Где:** `apps/web/src/widgets/chat-window/ui/chat-window.tsx:2170-2174,3409` · **Статус:** новый
+- **Где:** `apps/web/src/widgets/chat-window/ui/chat-window.tsx:2170-2174,3409` · **Статус:** исправлен · `fix/bugs-chats` (4332e518)
 
 #### BUG-179 · 🟢 Реакция — любая строка до 16 знаков, а не эмодзи
 - **Где:** `packages/shared-schemas/src/chats.ts:331`, `apps/api/src/modules/chats/chats.service.ts:2842-2870` — набор из `CHAT_REACTION_EMOJIS`; правка `shared-schemas` — стоп-точка · **Статус:** исправлен · `fix/bugs-chats` (0a1dd600)
 
 #### BUG-180 · 🟢 Оптимистичные медиа сверяются по размеру до сжатия; повтор теряет цитату и «без звука»
-- **Где:** `apps/web/src/widgets/chat-window/ui/chat-window.tsx:1144-1149,1183-1195,1457-1465,2363-2369` · **Статус:** новый
+- **Где:** `apps/web/src/widgets/chat-window/ui/chat-window.tsx:1144-1149,1183-1195,1457-1465,2363-2369` · **Статус:** исправлен · `fix/bugs-chats` (ecb4e4a2)
 
 #### BUG-181 · 🟢 Выгрузка чата: «[вложение]» по-русски в kk/en; повтор `locale` в query даёт `500` (корень BUG-130)
 - **Где:** `apps/api/src/modules/chats/chats.service.ts:997,3113`, `chats.controller.ts:383-389`, `apps/api/src/common/export/export-branding.service.ts:78` · **Статус:** исправлен · `fix/bugs-chats` (60985ce3)
@@ -1361,7 +1362,7 @@
 - **Где:** `apps/api/src/modules/analytics/university-analytics.service.ts:350-385,481-490`, `analytics-report.service.ts:597-604` · **Статус:** новый
 
 #### BUG-198 · 🟢 Плитка «Просрочено» у модератора вуза упирается в 200
-- **Где:** `apps/web/src/views/moderator-dashboard/ui/university-moderator-dashboard.tsx:105-110,149-164` · **Статус:** новый
+- **Где:** `apps/web/src/views/moderator-dashboard/ui/university-moderator-dashboard.tsx:105-110,149-164` · **Статус:** исправлен · `fix/bugs-analytics` (d1c3baa2)
 
 ### Карьера
 
@@ -1570,13 +1571,13 @@
 - **Отложено:** нужен свой счётчик throttler по токену агента в UserThrottlerGuard (новый AuthThrottleKey 'agent' + потолок с IP) — это правка guard'а, стоп-точка AGENTS.md; согласуйте
 
 #### BUG-260 · 🟢 Состояние камеры «В сети» не гаснет, когда агент пропал или модуль выключен
-- **Где:** `apps/api/src/modules/cameras/camera-agent-sync.service.ts:147-165`, `cameras.service.ts:59-68`, `apps/web/src/widgets/camera-wall/ui/camera-wall.tsx:121-123` · **Статус:** исправлен · `fix/bugs-library-security` (e1466fc0)
+- **Где:** `apps/api/src/modules/cameras/camera-agent-sync.service.ts:147-165`, `cameras.service.ts:59-68`, `apps/web/src/widgets/camera-wall/ui/camera-wall.tsx:121-123` · **Статус:** исправлен · `fix/bugs-library-security` (ccdf5964)
 
 #### BUG-261 · 🟢 Один сбой продления навсегда гасит окно камеры; ошибка адреса потока — по-русски на всех языках
 - **Где:** `apps/web/src/features/watch-camera/model/use-camera-view.ts:45-54,65-71`, `apps/web/src/views/cameras/ui/camera-form-modal.tsx:174`, `packages/shared-schemas/src/cameras.ts:35-47` · **Статус:** исправлен · `fix/bugs-library-security` (d6e32c50)
 
 #### BUG-262 · 🟢 Помещения: печать QR пачкой на корпус или этаж убрана из веба
-- **Где:** `apps/web/src/views/rooms/ui/rooms-admin-view.tsx:139-147,299,366-369` (§3.9 обещает пачку — поправить код или PROJECT) · **Статус:** новый
+- **Где:** `apps/web/src/views/rooms/ui/rooms-admin-view.tsx:139-147,299,366-369` (§3.9 обещает пачку — поправить код или PROJECT) · **Статус:** исправлен · `fix/bugs-library-security` (c4ec9643)
 
 Попутно в этом модуле: даты библиотеки «ГГГГ-ММ-ДД» разбираются полночью браузера (`entities/library/ui/loan-due-badge.tsx:16-17`, `reservation-badge.tsx:15-16`, `library-debts-notice.tsx:62-63`, `views/library-desk/ui/reader-card-dialog.tsx:52`) — корень BUG-103; «Выбрать все» у книги больше чем с 200 экземплярами даёт `422` (`book-detail-view.tsx:309`), карточка показывает только первые 500 экземпляров (`library-catalog.service.ts:193`).
 
@@ -1639,13 +1640,13 @@
 - **Где:** `apps/web/src/features/create-post/ui/create-post-form.tsx:131-137,410-415`, `apps/api/src/modules/posts/posts.service.ts:860-863` · **Статус:** исправлен · `fix/bugs-feed-social` (da506c40)
 
 #### BUG-280 · 🟢 Новая запись портфолио ломает ручной порядок
-- **Где:** `apps/api/src/modules/portfolio/portfolio.service.ts:35-39,120-143` (`order` по умолчанию 0) · **Статус:** новый
+- **Где:** `apps/api/src/modules/portfolio/portfolio.service.ts:35-39,120-143` (`order` по умолчанию 0) · **Статус:** исправлен · `fix/bugs-feed-social` (0dc5b799)
 
 #### BUG-281 · 🟢 Голосование и удаление в сторис падают молча, прочие ошибки — «Внутренняя ошибка» (тот же приём, что BUG-042)
 - **Где:** `apps/web/src/widgets/stories-rail/ui/story-viewer.tsx:184-196`, `features/bookmark-post/model/use-bookmark.ts:35`, `widgets/friends-panel/model/use-friendship-mutations.ts:35,47`, `widgets/feed-list/ui/post-card.tsx:138-141` · **Статус:** исправлен · `fix/bugs-feed-social` (9d9c3a5a)
 
 #### BUG-282 · 🟢 Заметку репоста нельзя очистить правкой
-- **Где:** `packages/shared-schemas/src/posts.ts:47-53`, `apps/web/src/features/edit-post/ui/edit-post-modal.tsx:39,92` · **Статус:** новый
+- **Где:** `packages/shared-schemas/src/posts.ts:47-53`, `apps/web/src/features/edit-post/ui/edit-post-modal.tsx:39,92` · **Статус:** исправлен · `fix/bugs-feed-social` (ff171f21)
 
 #### BUG-283 · 🟢 Список зрителей сторис: «Далее» вместо «Показать ещё»
 - **Где:** `apps/web/src/widgets/stories-rail/ui/story-viewers-sheet.tsx:58-67` · **Статус:** исправлен · `fix/bugs-feed-social` (f9a74eb2)
@@ -1993,15 +1994,15 @@
 - **Ожидается:** §11.4.
 
 #### BUG-377 · 🟢 Курсор ленты уведомлений ломается на свёрнутых и удалённых строках
-- **Где:** `apps/api/src/modules/notifications/notifications.service.ts:72-84` (Prisma-курсор по `id` при `orderBy createdAt`), `notifications.processor.ts:324-327` · **Статус:** новый
+- **Где:** `apps/api/src/modules/notifications/notifications.service.ts:72-84` (Prisma-курсор по `id` при `orderBy createdAt`), `notifications.processor.ts:324-327` · **Статус:** исправлен · `fix/bugs-events-moderation` (92431cfc)
 - **Сценарий:** свёрнутая строка чата «подпрыгнула» — дубли страницы; курсорную удалили — `[]`.
 - **Ожидается:** keyset по (`createdAt`, `id`), как `keysetFrom` в событиях.
 
 #### BUG-378 · 🟢 «Прочитать всё» неактивно, когда непрочитанные старше 50 загруженных — бейдж не сбросить
-- **Где:** `apps/web/src/views/notifications/ui/notifications-view.tsx:116,156,261` · **Статус:** новый
+- **Где:** `apps/web/src/views/notifications/ui/notifications-view.tsx:116,156,261` · **Статус:** исправлен · `fix/bugs-events-moderation` (18ed62c0)
 
 #### BUG-379 · 🟢 Переписка обращения в поддержку — только 50 последних сообщений
-- **Где:** `apps/api/src/modules/chats/support.service.ts:299,311`, `apps/web/src/views/support-desk/ui/support-thread-modal.tsx:149,215-246` · **Статус:** новый
+- **Где:** `apps/api/src/modules/chats/support.service.ts:299,311`, `apps/web/src/views/support-desk/ui/support-thread-modal.tsx:149,215-246` · **Статус:** исправлен · `fix/bugs-events-moderation` (1c058b2b)
 
 #### BUG-380 · 🟢 Любой CONFLICT в окне обращения — «Обращение уже разбирает другой» (класс BUG-042)
 - **Где:** `apps/web/src/views/support-desk/ui/support-thread-modal.tsx:81-84` · **Статус:** новый
@@ -2062,10 +2063,10 @@
 - **Сценарий:** ffmpeg на 15 мин в очереди фото с `lockDuration` 30 с — фото ждут, ролик кодируется дважды.
 
 #### BUG-393 · 🟢 Подвисший Redis добавляет до 3–6 с к каждому запросу: у троттлера нет короткого таймаута
-- **Где:** `apps/api/src/common/security/resilient-throttler.storage.ts:299-312`, `common/redis/redis.module.ts:94-95` (`commandTimeout: 3000`); у проверки отзыва — 150 мс (`session-revocation.service.ts:13,55-60`) · **Статус:** новый
+- **Где:** `apps/api/src/common/security/resilient-throttler.storage.ts:299-312`, `common/redis/redis.module.ts:94-95` (`commandTimeout: 3000`); у проверки отзыва — 150 мс (`session-revocation.service.ts:13,55-60`) · **Статус:** исправлен · `fix/bugs-api-infra` (db80761a)
 
 #### BUG-394 · 🟢 Анимированный WebP показывается статичной картинкой
-- **Где:** `apps/api/src/modules/media/image-pipeline.ts:24-30,68-79` (GIF исключён, WebP нет; sharp без `animated`), `media-plan.ts:101-105` · **Статус:** новый
+- **Где:** `apps/api/src/modules/media/image-pipeline.ts:24-30,68-79` (GIF исключён, WebP нет; sharp без `animated`), `media-plan.ts:101-105` · **Статус:** исправлен · `fix/bugs-api-infra` (81d641c9)
 
 #### BUG-395 · 🟢 Access-лог пишет неверные статусы и не видит отказов guard'ов
 - **Где:** `apps/api/src/common/interceptors/logging.interceptor.ts:92-96` · **Статус:** исправлен · `fix/bugs-api-infra` (70fd319a)
@@ -2079,8 +2080,9 @@
 - **Где:** `apps/api/src/main.ts:103` (helmet по умолчанию), `modules/media/media-hls.controller.ts:24-74`, `apps/web/src/shared/lib/use-hls.ts:57-63` · **Статус:** исправлен · `fix/bugs-api-infra` (75c349ad)
 
 #### BUG-398 · 🟢 🔒 Публичных маршрутов в коде 29, а BACKEND_RULES §6.1 говорит «ровно 25»
-- **Где:** `docs/BACKEND_RULES.md:218-246` против `modules/onboarding/demo-requests.controller.ts:42,54`, `modules/telegram-hook/telegram-hook.controller.ts:22`, `modules/platform/platform.controller.ts:46` · **Статус:** новый
+- **Где:** `docs/BACKEND_RULES.md:218-246` против `modules/onboarding/demo-requests.controller.ts:42,54`, `modules/telegram-hook/telegram-hook.controller.ts:22`, `modules/platform/platform.controller.ts:46` · **Статус:** отложен
 - **Ожидается:** список §6.1 синхронизирован с кодом (стоп-точка — согласует человек).
+- **Отложено:** стоп-точка «список публичных эндпоинтов»: в коде публичны ещё 4 маршрута сверх 25 из BACKEND_RULES §6.1 — POST /demo-requests, POST /demo-requests/verify, POST /telegram/webhook (секрет в заголовке), GET /platform/state (OptionalJwtGuard). Нужно решение: внести их в §6.1 с обоснованием (в коде оно уже есть) или закрыть
 
 ### Общие компоненты веба (`shared/**`) и оставшиеся экраны
 
@@ -2180,7 +2182,7 @@
 - **Где:** `features/study/StudyModels.kt:187` (`LocalDate.now()`), `features/study/ScheduleScreen.kt:41`, `shell/ShellRoutes.kt:275` (`AppRoute.Lesson` без даты); сервер `attendance.service.ts:397-401`
 
 #### BUG-423 · 🟡 Черновики чата не синхронизируются с сервером; отправленный текст воскресает черновиком
-- **Где:** `features/chats/ChatThreadModel.kt:224-233` (`isSynced = false`, `PUT /chats/:id/draft` не вызывается), `core/chats/ChatStore.kt:94-105` · **Статус:** новый
+- **Где:** `features/chats/ChatThreadModel.kt:224-233` (`isSynced = false`, `PUT /chats/:id/draft` не вызывается), `core/chats/ChatStore.kt:94-105` · **Статус:** исправлен · `fix/bugs-android` (7f6baf0c)
 
 #### BUG-424 · 🟡 Очередь отправки: дубли при параллельной досылке, одно отвергнутое сообщение блокирует очередь навсегда
 - **Где:** `core/chats/MessageOutbox.kt:56-62` (`flush` без блокировки, стоп на первой неудаче), `core/chats/OutboxWorker.kt` (`Result.retry()`), `features/chats/ChatThreadModel.kt:130,270` · **Статус:** новый
@@ -2199,7 +2201,7 @@
 - **Где:** `core/storage/Entities.kt:150`; ср. веб `apps/web/src/entities/chat/lib/attachment-kind.ts:8-14` (по имени `voice-…`) · **Статус:** исправлен · `fix/bugs-android` (409b4e22)
 
 #### BUG-429 · 🟡 Свёрнутое приложение с открытым чатом глушит уведомления по нему на всех устройствах
-- **Где:** `features/chats/ChatThreadScreen.kt:130` (`leave()` только при уходе экрана, нет `ProcessLifecycleOwner`), `core/realtime/RealtimeCoordinator.kt:67-77`; сервер `chats.service.ts:2450-2486` · **Статус:** новый
+- **Где:** `features/chats/ChatThreadScreen.kt:130` (`leave()` только при уходе экрана, нет `ProcessLifecycleOwner`), `core/realtime/RealtimeCoordinator.kt:67-77`; сервер `chats.service.ts:2450-2486` · **Статус:** исправлен · `fix/bugs-android` (e0e641be)
 
 #### BUG-430 · 🟡 🔒 После выхода телефон показывает чужие пуши, старые плашки и кэши файлов остаются (клиентская часть BUG-081)
 - **Где:** `core/push/MessagingService.kt:37-45` (без проверки сессии), `core/push/Push.kt:88-94` (отвязка офлайн молча проваливается), `shell/AppServices.kt:148-158` (нет `cancelAll()`, не чистятся `cacheDir/outgoing` и кэш Coil) · **Статус:** исправлен · `fix/bugs-android` (c7b58b40)
@@ -2212,7 +2214,7 @@
 - **Сценарий:** преподаватель отметил 25 студентов, повернул телефон — всё потеряно, сохранение в полёте отменено.
 
 #### BUG-433 · 🟡 Прочтение уходит только по сокету и теряется без связи
-- **Где:** `features/chats/ChatThreadModel.kt:201-214`, `core/realtime/RealtimeTransport.kt:106` (`if (!connected) return`) · **Статус:** новый
+- **Где:** `features/chats/ChatThreadModel.kt:201-214`, `core/realtime/RealtimeTransport.kt:106` (`if (!connected) return`) · **Статус:** исправлен · `fix/bugs-android` (001553d8)
 
 #### BUG-434 · 🟡 Падение приложения на `message:new` для чата, которого нет в локальной базе
 - **Где:** `core/realtime/RealtimeCoordinator.kt:145-150` (FK-ошибка вставки), `:69` (`collect` в `MainScope` без обработчика) · **Статус:** исправлен · `fix/bugs-android` (2517ce10)
@@ -2374,16 +2376,16 @@
 - **Где:** `Features/Chats/Thread/AttachmentView.swift:14-22,67-89`, `Core/Storage/Records.swift` (нет `spoiler`) · **Статус:** новый
 
 #### BUG-476 · 🟢 iOS: «Ближайшая пара» показывает уже прошедшую
-- **Где:** `Features/Feed/HomeView.swift:24` · **Статус:** новый
+- **Где:** `Features/Feed/HomeView.swift:24` · **Статус:** исправлен · `fix/bugs-ios-miniapp` (36f7c8d4)
 
 #### BUG-477 · 🟢 iOS: посещаемость всегда на сегодня; ручная чётность накладывает изменения текущей недели (как BUG-422/436)
-- **Где:** `Features/Study/StudyModels.swift:148`, `Features/Study/ScheduleModel.swift:66-69,127-132` · **Статус:** новый
+- **Где:** `Features/Study/StudyModels.swift:148`, `Features/Study/ScheduleModel.swift:66-69,127-132` · **Статус:** исправлен · `fix/bugs-ios-miniapp` (0c8382eb)
 
 #### BUG-478 · 🟢 iOS: задание из ссылки ищется в первых 50; «Ответ», «Ссылка», «О себе» нельзя очистить (корень BUG-047/BUG-128, как BUG-441)
 - **Где:** `Features/Study/AssignmentsView.swift:88-90,146,163-167`, `Features/Feed/ProfileView.swift:134-138` · **Статус:** исправлен · `fix/bugs-ios-miniapp` (f1f2c262)
 
 #### BUG-479 · 🟢 iOS: после сгоревшего challenge 2FA экран остаётся на шаге кода (как BUG-345)
-- **Где:** `Features/Auth/LoginModel.swift:66-86,121-149` · **Статус:** новый
+- **Где:** `Features/Auth/LoginModel.swift:66-86,121-149` · **Статус:** исправлен · `fix/bugs-ios-miniapp` (5b4aaae0)
 
 #### BUG-480 · 🟢 iOS: переходы из пушей и колокольчика неполные; бейдж и баннер расходятся с сервером
 - **Где:** `Core/Navigation/DeepLink.swift:244-299` (нет `/feed`, `/profile/:id`), `Features/Feed/FeedScreens.swift:5-60,186-188` (строка уведомления никуда не ведёт, пост без самого поста), `Core/Push/PushSync.swift:128-143` (бейдж = сумма чатов), `App/AppDelegate.swift:91-97` (баннер для открытого чата) · **Статус:** новый
