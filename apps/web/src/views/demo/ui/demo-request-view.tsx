@@ -53,6 +53,7 @@ export function DemoRequestView() {
     control,
     handleSubmit,
     setValue,
+    setError,
     watch,
     formState: { errors, isSubmitting },
   } = useForm<SubmitDemoRequestInput>({ resolver: zodResolver(SubmitDemoRequestSchema) })
@@ -85,6 +86,13 @@ export function DemoRequestView() {
 
       <form
         onSubmit={handleSubmit(async (values) => {
+          // Полнота номера — здесь, а не в `rules` у Controller: при zodResolver правила
+          // полей RHF не вызывает вовсе, и неполный номер уходил на сервер. Схема
+          // (shared-schemas) принимает любой телефон, маска — только казахстанский.
+          if (values.phone && !isCompletePhone(values.phone)) {
+            setError('phone', { message: tCommon('phoneIncomplete') })
+            return
+          }
           try {
             const result = await submitDemoRequest(values)
             setSentTo(result.email)
@@ -173,7 +181,6 @@ export function DemoRequestView() {
           <Controller
             control={control}
             name="phone"
-            rules={{ validate: (v) => !v || isCompletePhone(v) || tCommon('phoneIncomplete') }}
             render={({ field }) => (
               <PhoneInput
                 id="phone"
