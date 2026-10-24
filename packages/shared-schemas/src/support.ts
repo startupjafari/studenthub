@@ -9,14 +9,18 @@ import { PageSchema } from './pagination.js'
 // участники — автор и команда платформы.
 
 /** Первое сообщение. Нижняя граница не придирка: «Помогите» не даёт поддержке ничего. */
-export const OpenSupportTicketSchema = z.object({
-  text: z.string().trim().min(10, 'Опишите вопрос подробнее').max(4000),
-})
+export const OpenSupportTicketSchema = z
+  .object({
+    text: z.string().trim().min(10, 'Опишите вопрос подробнее').max(4000),
+  })
+  .strict()
 export type OpenSupportTicketInput = z.infer<typeof OpenSupportTicketSchema>
 
-export const SupportReplySchema = z.object({
-  text: z.string().trim().min(1).max(4000),
-})
+export const SupportReplySchema = z
+  .object({
+    text: z.string().trim().min(1).max(4000),
+  })
+  .strict()
 export type SupportReplyInput = z.infer<typeof SupportReplySchema>
 
 /**
