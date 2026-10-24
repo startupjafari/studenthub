@@ -1,5 +1,5 @@
 import { ChevronDown } from 'lucide-react'
-import { PLATFORM_LINKS } from '../config/site'
+import { platformLinks, type Locale } from '../config/site'
 import type { Dictionary } from '../content'
 import { Reveal, Section, SectionHeading, type SectionTone } from './primitives'
 import { AccordionMotion } from './accordion-motion'
@@ -19,8 +19,17 @@ import { AccordionMotion } from './accordion-motion'
  * Разметка FAQPage для поисковой выдачи добавляется в PR 4 (SEO) — из этого же словаря,
  * чтобы ответы в JSON-LD и на странице не разъехались.
  */
-export function Faq({ dict, tone }: { dict: Dictionary; tone?: SectionTone }) {
+export function Faq({
+  dict,
+  locale,
+  tone,
+}: {
+  dict: Dictionary
+  locale: Locale
+  tone?: SectionTone
+}) {
   const t = dict.faq
+  const links = platformLinks(locale)
 
   return (
     <Section id="faq" tone={tone}>
@@ -60,7 +69,7 @@ export function Faq({ dict, tone }: { dict: Dictionary; tone?: SectionTone }) {
                       <>
                         {' '}
                         <a
-                          href={PLATFORM_LINKS.verifyDocument}
+                          href={links.verifyDocument}
                           rel="noopener"
                           className="font-medium text-foreground underline underline-offset-4 hover:text-primary"
                         >

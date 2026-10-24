@@ -1,7 +1,9 @@
 import { NextResponse, type NextRequest } from 'next/server'
+import { SUPPORTED_LOCALES, type Locale } from '@studenthub/shared-config'
 import { Role } from '@studenthub/shared-types'
 import { LEGAL_BASE, ROLE_HOME, isRestrictedRolePath } from './shared/config/routes'
 import { safeNextPath } from './shared/lib/safe-next'
+import { LOCALE_COOKIE, LOCALE_COOKIE_MAX_AGE, LOCALE_PARAM } from './shared/i18n/locale-cookie'
 
 // Ролевой редирект ДО рендера (docs/FRONTEND_RULES.md §3), по нечувствительной role-cookie
 // sh_role (решение §16.2). Реальная авторизация — на сервере (guard'ы), это только UX.
@@ -75,6 +77,26 @@ function decodeRoleCookie(value: string | undefined): RoleCookie | null {
 export function middleware(request: NextRequest): NextResponse {
   const { pathname } = request.nextUrl
   const session = decodeRoleCookie(request.cookies.get('sh_role')?.value)
+
+  // Язык с лендинга: ссылки сайта несут ?lang=, потому что cookie NEXT_LOCALE с чужого
+  // домена не поставить. Переносим в cookie и убираем из адреса — повторным заходом, иначе
+  // этот же запрос отрисовался бы ещё на старом языке. Вошедшему язык задаёт профиль
+  // (shared/i18n/locale-cookie.ts), и параметр с сайта его не перебивает.
+  const lang = request.nextUrl.searchParams.get(LOCALE_PARAM)
+  if (lang !== null) {
+    const url = request.nextUrl.clone()
+    url.searchParams.delete(LOCALE_PARAM)
+    const response = NextResponse.redirect(url)
+    if (!session && SUPPORTED_LOCALES.includes(lang as Locale)) {
+      response.cookies.set(LOCALE_COOKIE, lang, {
+        path: '/',
+        maxAge: LOCALE_COOKIE_MAX_AGE,
+        sameSite: 'lax',
+      })
+    }
+    return response
+  }
+
   const isPublic = PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`))
 
   if (!session) {

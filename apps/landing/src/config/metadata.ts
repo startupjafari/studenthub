@@ -1,5 +1,5 @@
 import type { Metadata } from 'next'
-import { LOCALES, SITE_URL, localePath, type Locale } from './site'
+import { LOCALES, OG_LOCALES, SITE_URL, localePath, type Locale } from './site'
 import { getDictionary } from '../content'
 
 /**
@@ -32,7 +32,8 @@ export function buildMetadata(locale: Locale): Metadata {
       siteName: 'StudentHub',
       title: dict.meta.title,
       description: dict.meta.description,
-      locale,
+      locale: OG_LOCALES[locale],
+      alternateLocale: LOCALES.filter((l) => l !== locale).map((l) => OG_LOCALES[l]),
       url: localePath(locale),
     },
     twitter: {
