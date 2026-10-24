@@ -179,7 +179,9 @@ export class AuthService {
       // Уникальный индекс email различает регистр: учётку, заведённую до нормализации как
       // «Ivanov@Uni.kz», он от «ivanov@uni.kz» не защищает — вторая учётка того же человека.
       if (await this.users.findEmailOwnerId(email)) {
-        throw new AppException('CONFLICT', 'Пользователь с таким email уже существует')
+        throw new AppException('CONFLICT', 'Пользователь с таким email уже существует', [
+          { field: 'email', message: 'Пользователь с таким email уже существует' },
+        ])
       }
       const created = await this.users.createInvitedUser(tx, {
         email,

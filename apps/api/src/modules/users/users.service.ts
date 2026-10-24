@@ -2566,12 +2566,16 @@ export class UserService {
         const conflictsUsername = Array.isArray(target)
           ? target.includes('username')
           : String(target).includes('username')
-        throw new AppException(
-          'CONFLICT',
-          conflictsUsername
-            ? 'Это имя пользователя уже занято'
-            : 'Пользователь с таким email уже существует',
-        )
+        // Занятое имя — свой код, как у PATCH /users/me/username: форма подсвечивает поле
+        // имени, а общий CONFLICT ей не по чему разобрать.
+        if (conflictsUsername) {
+          throw new AppException('USERNAME_TAKEN', 'Это имя пользователя уже занято', [
+            { field: 'username', message: 'Это имя пользователя уже занято' },
+          ])
+        }
+        throw new AppException('CONFLICT', 'Пользователь с таким email уже существует', [
+          { field: 'email', message: 'Пользователь с таким email уже существует' },
+        ])
       }
       throw error
     }

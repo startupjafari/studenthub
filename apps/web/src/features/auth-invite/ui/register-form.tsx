@@ -18,7 +18,7 @@ import {
   type RegisterByInviteInput,
 } from '@studenthub/shared-schemas'
 import { Badge, Button, Input, Label, Skeleton, FieldError } from '../../../shared/ui'
-import { useErrorToast } from '../../../shared/lib'
+import { toApiError, useErrorToast } from '../../../shared/lib'
 import { previewInviteRequest, registerByInviteRequest } from '../../../shared/api'
 import { uploadAvatarRequest } from '../../../entities/user'
 import { establishSession } from '../../../shared/session'
@@ -69,6 +69,7 @@ export function RegisterByInviteForm({ token }: { token: string }) {
   const t = useTranslations('Auth')
   const tRoles = useTranslations('Roles')
   const tStrength = useTranslations('Auth.passwordStrength')
+  const tErr = useTranslations('Errors')
   const router = useRouter()
   const [showPassword, setShowPassword] = useState(false)
   const [avatarFile, setAvatarFile] = useState<File | null>(null)
@@ -110,6 +111,7 @@ export function RegisterByInviteForm({ token }: { token: string }) {
     register,
     handleSubmit,
     watch,
+    setError,
     formState: { errors, isSubmitting },
   } = useForm<RegisterByInviteInput>({
     resolver: zodResolver(schema),
@@ -178,6 +180,21 @@ export function RegisterByInviteForm({ token }: { token: string }) {
       }
       router.replace(ROLE_HOME[role])
     } catch (err) {
+      // Занятые имя и адрес — ошибки конкретного поля: подсвечиваем его, а не тост
+      // «конфликт данных», по которому не понять, что исправлять (FRONTEND_RULES §7).
+      const apiErr = toApiError(err)
+      if (apiErr.code === 'USERNAME_TAKEN') {
+        setError('username', { message: tErr('USERNAME_TAKEN') }, { shouldFocus: true })
+        return
+      }
+      if (
+        apiErr.code === 'CONFLICT' &&
+        emailRequired &&
+        apiErr.details?.some((d) => d.field === 'email')
+      ) {
+        setError('email', { message: t('emailTaken') }, { shouldFocus: true })
+        return
+      }
       // Серверный отказ — тостом, а не полосой в форме: форма длинная, кнопка внизу, и
       // сообщение в её начале человек не увидит (DESIGN_SYSTEM §9). Ошибки полей при
       // этом остаются у полей.

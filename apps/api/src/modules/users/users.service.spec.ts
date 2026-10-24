@@ -559,6 +559,41 @@ describe('UserService — закрытый профиль (видимость п
     )
     void prisma
   })
+
+  it('createInvitedUser — занятое имя → USERNAME_TAKEN, занятый адрес → CONFLICT по полю email', async () => {
+    const { service } = setup()
+    const p2002 = (target: string[]) =>
+      new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+        code: 'P2002',
+        clientVersion: 'test',
+        meta: { target },
+      })
+    const tx = { user: { create: jest.fn().mockRejectedValueOnce(p2002(['username'])) } }
+    const input = {
+      email: 'a@b.io',
+      username: 'taken',
+      passwordHash: 'h',
+      firstName: 'A',
+      lastName: 'B',
+      role: Role.STUDENT,
+      universityId: null,
+      facultyId: null,
+      groupId: null,
+      birthDate: new Date('2000-01-01T00:00:00Z'),
+      consentAt: new Date('2026-09-30T00:00:00Z'),
+      consentVersion: '2026-09-30',
+      consentByGuardian: false,
+    }
+    await expect(service.createInvitedUser(tx as never, input)).rejects.toMatchObject({
+      code: 'USERNAME_TAKEN',
+      details: [{ field: 'username' }],
+    })
+    tx.user.create.mockRejectedValueOnce(p2002(['email']))
+    await expect(service.createInvitedUser(tx as never, input)).rejects.toMatchObject({
+      code: 'CONFLICT',
+      details: [{ field: 'email' }],
+    })
+  })
 })
 
 describe('UserService — дружба и личная блокировка (контент профиля)', () => {

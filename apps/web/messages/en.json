@@ -991,6 +991,7 @@
     "email": "Email",
     "emailInviteHint": "The invite came without an address — enter an email; it becomes your login and password-recovery address.",
     "emailRequired": "Enter an email address",
+    "emailTaken": "A user with this email already exists",
     "emailOrUsername": "Email or username",
     "username": "Username",
     "usernameHint": "Latin letters, digits and _, 3–32 chars. Use it to sign in and to be mentioned in chat.",
