@@ -1,5 +1,7 @@
 package kz.studenthub.app.core
 
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.test.runTest
 import kz.studenthub.app.core.chats.AttachmentSending
 import kz.studenthub.app.core.chats.AttachmentUpload
@@ -18,6 +20,7 @@ import kz.studenthub.app.core.chats.MessageOutbox
 import kz.studenthub.app.core.chats.MessageStore
 import kz.studenthub.app.core.chats.OutgoingAttachment
 import kz.studenthub.app.core.network.ApiError
+import kz.studenthub.app.core.network.ApiErrorCode
 import kz.studenthub.app.core.network.AppJson
 import kz.studenthub.app.core.storage.AttachmentEntity
 import kz.studenthub.app.core.storage.DraftEntity
@@ -219,14 +222,59 @@ class MessageSyncTest {
         assertEquals(7, row.seq)
     }
 
-    /** Сеть отказала — текст остаётся в ленте со своим состоянием. */
+    /** Сеть отказала — текст остаётся в ленте и в очереди: уйдёт сам, когда появится связь. */
     @Test
     fun failedSendStaysInTheThread() = runTest {
         chats.saveChats(listOf(chatDto("c1")))
         var stuck = 0
         assertFalse(MessageOutbox(db, FailingSender(), onStuck = { stuck++ }).send("привет", "c1", "me", null))
-        assertEquals(SendState.FAILED, db.messages().thread("c1").single().sendState)
+        assertEquals(SendState.PENDING, db.messages().thread("c1").single().sendState)
         assertEquals(1, stuck)
+    }
+
+    /**
+     * Отказ сервера по одному сообщению очередь не держит: оно помечается неотправленным
+     * (повторит человек), остальные уходят, и фоновая работа не повторяется вечно.
+     */
+    @Test
+    fun rejectedMessageDoesNotBlockQueue() = runTest {
+        chats.saveChats(listOf(chatDto("c1")))
+        var clock = T0
+        val offline = MessageOutbox(db, FailingSender(), now = { clock.also { clock = clock.plusSeconds(1) } })
+        offline.send("запретное", "c1", "me", null)
+        offline.send("обычное", "c1", "me", null)
+        val sent = mutableListOf<String>()
+        val picky = object : ChatMessageSending {
+            override suspend fun send(text: String, chatId: String, replyToId: String?): ChatMessageDto {
+                if (text == "запретное") throw ApiError.Server(ApiErrorCode.FORBIDDEN, "нет", emptyList(), 403)
+                sent += text
+                return messageDto("srv-$text", chatId, 9, sender = "me", content = text)
+            }
+        }
+        assertTrue(MessageOutbox(db, picky).flush())
+        assertEquals(listOf("обычное"), sent)
+        assertEquals(SendState.FAILED, db.messages().thread("c1").first { it.content == "запретное" }.sendState)
+        // Отвергнутое само не повторяется: его повторяет человек.
+        assertTrue(MessageOutbox(db, picky).flush())
+        assertEquals(listOf("обычное"), sent)
+    }
+
+    /** Две досылки разом (открытие чата и фоновая работа) не отправляют одно сообщение дважды. */
+    @Test
+    fun concurrentFlushSendsOnce() = runTest {
+        chats.saveChats(listOf(chatDto("c1")))
+        MessageOutbox(db, FailingSender()).send("одно", "c1", "me", null)
+        val sent = mutableListOf<String>()
+        val slow = object : ChatMessageSending {
+            override suspend fun send(text: String, chatId: String, replyToId: String?): ChatMessageDto {
+                sent += text
+                kotlinx.coroutines.delay(50)
+                return messageDto("srv-1", chatId, 1, sender = "me", content = text)
+            }
+        }
+        val outbox = MessageOutbox(db, slow)
+        listOf(async { outbox.flush() }, async { outbox.flush("c1") }).awaitAll()
+        assertEquals(listOf("одно"), sent)
     }
 
     /** Очередь — сами сообщения в базе: переживает перезапуск, досылается по порядку. */
@@ -294,14 +342,14 @@ class AttachmentTest {
         assertEquals(photo.absolutePath, attachment.localPath)
     }
 
-    /** Загрузка сорвалась — сообщение неотправленным, файл на месте: человек нажмёт «ещё раз». */
+    /** Загрузка сорвалась без сети — сообщение в очереди, файл на месте: уйдёт, когда появится связь. */
     @Test
     fun failedUploadKeepsMessageAndFile() = runTest {
         ChatStore(db).saveChats(listOf(chatDto("c1")))
         val photo = file()
         assertFalse(AttachmentUploader(db, StubStorage(fail = true)).send(OutgoingAttachment(photo, "image/jpeg", "photo.jpg"), "c1", "me", null, null))
         val message = db.messages().thread("c1").single()
-        assertEquals(SendState.FAILED, message.sendState)
+        assertEquals(SendState.PENDING, message.sendState)
         assertTrue(File(db.messages().attachments(message.id).single().localPath!!).exists())
     }
 

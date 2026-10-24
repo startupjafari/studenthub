@@ -130,11 +130,14 @@ interface MessageDao {
     @Query("SELECT * FROM message WHERE chatId = :chatId ORDER BY createdAt ASC, seq ASC")
     suspend fun thread(chatId: String): List<MessageEntity>
 
-    /** Очередь отправки — сообщения без серверного id, по времени написания. */
-    @Query("SELECT * FROM message WHERE remoteId IS NULL ORDER BY createdAt ASC")
+    /**
+     * Очередь отправки — сообщения без серверного id, ждущие досылки, по времени
+     * написания. Отвергнутые сервером (`FAILED`) сюда не входят: их повторяет человек.
+     */
+    @Query("SELECT * FROM message WHERE remoteId IS NULL AND sendState = 'PENDING' ORDER BY createdAt ASC")
     suspend fun unsent(): List<MessageEntity>
 
-    @Query("SELECT * FROM message WHERE remoteId IS NULL AND chatId = :chatId ORDER BY createdAt ASC")
+    @Query("SELECT * FROM message WHERE remoteId IS NULL AND sendState = 'PENDING' AND chatId = :chatId ORDER BY createdAt ASC")
     suspend fun unsent(chatId: String): List<MessageEntity>
 
     @Query("SELECT COUNT(*) FROM attachment WHERE messageId = :messageId")
