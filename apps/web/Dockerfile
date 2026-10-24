@@ -77,10 +77,17 @@ FROM node:24-alpine AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
+
+# Непривилегированный пользователь, как у лендинга. Владелец файлов — он же: Next пишет
+# кэш оптимизации изображений в .next/cache рядом с server.js.
+RUN addgroup -g 1001 -S nodejs && adduser -S nextjs -u 1001 -G nodejs
+
 # standalone кладёт минимальный node_modules и server.js; static/public — рядом.
-COPY --from=build /repo/apps/web/.next/standalone ./
-COPY --from=build /repo/apps/web/.next/static ./apps/web/.next/static
-COPY --from=build /repo/apps/web/public ./apps/web/public
+COPY --from=build --chown=nextjs:nodejs /repo/apps/web/.next/standalone ./
+COPY --from=build --chown=nextjs:nodejs /repo/apps/web/.next/static ./apps/web/.next/static
+COPY --from=build --chown=nextjs:nodejs /repo/apps/web/public ./apps/web/public
+
+USER nextjs
 EXPOSE 3000
 
 # Адрес бинда — `::` (dual-stack), присваиванием прямо в команде, как у лендинга (там же
