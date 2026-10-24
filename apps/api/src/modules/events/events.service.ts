@@ -323,6 +323,9 @@ export class EventsService {
         : null
     const hasMeetingUrl = meeting ? meeting.meetingUrl !== null : !!event.meetingUrl
     const rescheduled = startsAt.getTime() !== event.startsAt.getTime()
+    // Момент правки — в ключе уведомления о переносе: «туда и обратно» на прежнее время
+    // иначе давало ключ, который у участника уже есть, и уведомление молча отбрасывалось.
+    const changedAt = Date.now()
     const updated = await this.prisma.event.update({
       where: { id },
       data: {
@@ -360,9 +363,9 @@ export class EventsService {
         bodyKey: 'events.rescheduled.body',
         params: { title: updated.title, date: localDateTimeLabel(startsAt, timezone) },
         data: { eventId: id, url: `/events/${id}` },
-        // Ключ — на новое время: каждый следующий перенос — новое уведомление, а повторная
-        // доставка того же переноса отсекается.
-        dedupeKey: `event-rescheduled:${id}:${startsAt.getTime()}`,
+        // Ключ — на новое время и момент правки: каждый следующий перенос (и на прежнее
+        // время тоже) — новое уведомление, а повторная доставка того же переноса отсекается.
+        dedupeKey: `event-rescheduled:${id}:${startsAt.getTime()}:${changedAt}`,
       })
     }
     return updated
@@ -601,7 +604,7 @@ export class EventsService {
           // (начало перенесли посреди прогона) не читается по кругу.
           ...(lastId ? { id: { gt: lastId } } : {}),
         },
-        select: { id: true, title: true, startsAt: true },
+        select: { id: true, title: true, startsAt: true, updatedAt: true },
         orderBy: { id: 'asc' },
         take: BATCH,
       })
@@ -613,6 +616,7 @@ export class EventsService {
       const queued: { id: string; startsAt: Date }[] = []
       let failed = false
       for (const event of events) {
+        const reminderKey = `event-reminder:${event.id}:${event.startsAt.getTime()}:${event.updatedAt.getTime()}`
         let cursor: string | undefined
         let page = 0
         for (;;) {
@@ -635,12 +639,13 @@ export class EventsService {
               params: { title: event.title },
               // Карточка события, а не общий список: в напоминании речь об одном событии.
               data: { eventId: event.id, url: `/events/${event.id}` },
-              // dedupeKey один на событие и его время начала: повторная доставка отсекается по
-              // (пользователь, ключ), а перенесённое событие напоминает о себе заново. jobId
-              // разный — иначе BullMQ отбросил бы все страницы кроме первой.
-              dedupeKey: `event-reminder:${event.id}:${event.startsAt.getTime()}`,
+              // dedupeKey один на версию события (время начала и момент последней правки):
+              // повторная доставка отсекается по (пользователь, ключ), а перенесённое событие
+              // напоминает о себе заново — и при переносе обратно на уже напомненное время.
+              // jobId разный — иначе BullMQ отбросил бы все страницы кроме первой.
+              dedupeKey: reminderKey,
             },
-            { jobId: `event-reminder:${event.id}:${event.startsAt.getTime()}:${page}` },
+            { jobId: `${reminderKey}:${page}` },
           )
           if (!ok) {
             failed = true
