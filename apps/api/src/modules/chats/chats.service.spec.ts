@@ -835,6 +835,23 @@ describe('ChatsService.searchMessages — область поиска', () => {
     expect(page.items.map((m: { id: string }) => m.id)).toEqual(['m-open'])
   })
 
+  // BUG-169: очищенное «у себя» и чат, удалённый у себя, глобальный поиск не находит.
+  it('без chatId → не отдаёт очищенное у себя, курсор — по странице до фильтра', async () => {
+    const { service, prisma } = setup()
+    const clearedAt = new Date('2026-05-01T00:00:00Z')
+    prisma.message.findMany.mockResolvedValue([
+      { id: 'm-new', chatId: 'c1', content: 'тест', createdAt: new Date('2026-05-02T00:00:00Z') },
+      { id: 'm-old', chatId: 'c1', content: 'тест', createdAt: new Date('2026-04-30T00:00:00Z') },
+      { id: 'm-more', chatId: 'c2', content: 'тест', createdAt: new Date('2026-04-01T00:00:00Z') },
+    ])
+    prisma.chatMember.findMany.mockResolvedValue([{ chatId: 'c1', clearedAt, clearedRanges: null }])
+
+    const page = await service.searchMessages(user('u1'), { limit: 2, q: 'тест' })
+
+    expect(page.items.map((m: { id: string }) => m.id)).toEqual(['m-new'])
+    expect(page.meta).toMatchObject({ cursor: 'm-old', hasNext: true })
+  })
+
   it('забаненный в группе не ищет внутри неё → FORBIDDEN, выборки нет', async () => {
     const { service, prisma } = setup()
     prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1', bannedAt: new Date() })

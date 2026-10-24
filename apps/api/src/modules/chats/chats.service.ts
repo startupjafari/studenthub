@@ -2785,8 +2785,13 @@ export class ChatsService implements OnModuleInit {
 
   async listPinned(userId: string, chatId: string): Promise<MessageRow[]> {
     await this.assertMembership(userId, chatId)
+    // Закреп общий на чат, но очищенное «у себя» не показывается и в плашке — как в ленте.
+    const mem = await this.prisma.chatMember.findUnique({
+      where: { chatId_userId: { chatId, userId } },
+      select: CLEARED_SELECT,
+    })
     const rows = await this.prisma.message.findMany({
-      where: { chatId, deletedAt: null, pinnedAt: { not: null } },
+      where: { chatId, deletedAt: null, pinnedAt: { not: null }, ...clearedWhere(mem) },
       select: MESSAGE_SELECT,
       orderBy: { pinnedAt: 'desc' },
       take: 50,
@@ -2936,8 +2941,28 @@ export class ChatsService implements OnModuleInit {
       ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
     })
     const hasNext = rows.length > query.limit
-    const items = (hasNext ? rows.slice(0, query.limit) : rows).map(toClientMessage)
-    const nextCursor = hasNext ? items[items.length - 1]?.id : undefined
+    const page = hasNext ? rows.slice(0, query.limit) : rows
+    // Курсор — по странице до фильтра очищенного, иначе отброшенные строки читались бы снова.
+    const nextCursor = hasNext ? page[page.length - 1]?.id : undefined
+    // Очищенное «у себя» (и чат, удалённый у себя, — он чистится до момента удаления) поиск
+    // не находит, как лента и поиск в чате. Граница своя у каждого чата и в where одного
+    // запроса по всем чатам не выражается — отсеиваем страницу по отметкам её чатов.
+    const chatIds = [...new Set(page.map((row) => row.chatId))]
+    const cleared =
+      chatIds.length > 0
+        ? await this.prisma.chatMember.findMany({
+            where: { userId: viewer.sub, chatId: { in: chatIds } },
+            select: { chatId: true, ...CLEARED_SELECT },
+            take: chatIds.length,
+          })
+        : []
+    const clearedByChat = new Map(cleared.map((mem) => [mem.chatId, mem]))
+    const items = page
+      .filter((row) => {
+        const mem = clearedByChat.get(row.chatId)
+        return !mem || !isCleared(row.createdAt, mem)
+      })
+      .map(toClientMessage)
     return new Paginated(items, { cursor: nextCursor, hasNext })
   }
 
