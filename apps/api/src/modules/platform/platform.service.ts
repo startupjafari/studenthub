@@ -482,23 +482,16 @@ export class PlatformService {
    */
   async rotateDuty(now: Date = new Date()): Promise<string | null> {
     const row = await this.read()
-    const rotation = row?.dutyRotation ?? []
-    if (rotation.length < 2) return null
-
-    // Круг от следующего за текущим. Кому бот не может написать (отвязал Telegram,
-    // заблокирован, удалён, ушёл из команды), того пропускаем: дежурство, переданное ему,
-    // означало бы неделю, в которую уведомления о жалобах не доходят до дежурного.
-    const index = row?.dutyUserId ? rotation.indexOf(row.dutyUserId) : -1
-    const order = rotation.map((_, step) => rotation[(index + 1 + step) % rotation.length]!)
-    const reachable = await this.reachable(rotation)
-    const next = order.find((id) => reachable.has(id))
+    const { candidate, order } = await this.pickNextOnDuty(row)
+    if (order.length === 0) return null
     // Передавать дежурство «никому» нельзя — лучше пропустить понедельник, чем оставить
     // команду без адресата уведомлений.
-    if (!next) {
+    if (!candidate) {
       this.logger.warn('rotateDuty: в очереди нет никого с привязанным Telegram — смена пропущена')
       return null
     }
-    if (next === row?.dutyUserId) return null
+    if (candidate === row?.dutyUserId) return null
+    const next = candidate
 
     await this.write(row?.updatedById ?? next, { dutyUserId: next })
     await this.audit.record({
@@ -507,6 +500,34 @@ export class PlatformService {
       metadata: { to: next, at: now.toISOString(), skipped: order.indexOf(next) },
     })
     return next
+  }
+
+  /**
+   * Кому крон передаст дежурство в понедельник, или null — смены не будет. Тот же выбор,
+   * что у `rotateDuty`, без записи: `/duty` в боте обязан называть следующим именно его,
+   * а не соседа по списку, которого крон пропустит.
+   */
+  async nextOnDuty(): Promise<string | null> {
+    const row = await this.read()
+    const { candidate } = await this.pickNextOnDuty(row)
+    return candidate && candidate !== row?.dutyUserId ? candidate : null
+  }
+
+  /**
+   * Первый, кому бот может написать, по кругу от следующего за текущим дежурным. Очередь
+   * короче двух — не ротация: `order` пуст. Кому бот не может написать (отвязал Telegram,
+   * заблокирован, удалён, ушёл из команды), того пропускаем: дежурство, переданное ему,
+   * означало бы неделю, в которую уведомления о жалобах не доходят до дежурного.
+   */
+  private async pickNextOnDuty(
+    row: PlatformState | null,
+  ): Promise<{ candidate: string | undefined; order: string[] }> {
+    const rotation = row?.dutyRotation ?? []
+    if (rotation.length < 2) return { candidate: undefined, order: [] }
+    const index = row?.dutyUserId ? rotation.indexOf(row.dutyUserId) : -1
+    const order = rotation.map((_, step) => rotation[(index + 1 + step) % rotation.length]!)
+    const reachable = await this.reachable(rotation)
+    return { candidate: order.find((id) => reachable.has(id)), order }
   }
 
   /**

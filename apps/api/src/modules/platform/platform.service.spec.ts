@@ -763,6 +763,22 @@ describe('PlatformService — дежурство по очереди', () => {
     const { service } = setup(row({ dutyUserId: 'a', dutyRotation: ['a'] }))
     await expect(service.rotateDuty()).resolves.toBeNull()
   })
+
+  // BUG-351: `/duty` называет следующим того же, кого выберет крон, и ничего не пишет.
+  it('nextOnDuty пропускает недоступных, как смена', async () => {
+    const { service, updates } = setup(
+      row({ dutyUserId: 'a', dutyRotation: ['a', 'b', 'c'] }),
+      null,
+      ['b'],
+    )
+    await expect(service.nextOnDuty()).resolves.toBe('c')
+    expect(updates).toHaveLength(0)
+  })
+
+  it('nextOnDuty: очередь короче двух — следующего нет', async () => {
+    const { service } = setup(row({ dutyUserId: 'z', dutyRotation: ['a'] }))
+    await expect(service.nextOnDuty()).resolves.toBeNull()
+  })
 })
 
 describe('PlatformService — дежурный, которому бот не может написать', () => {

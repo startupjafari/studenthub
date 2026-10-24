@@ -149,18 +149,6 @@ export function parseCommand(text: string | undefined): string | null {
   return word ? word : 'help'
 }
 
-/** Следующий в очереди дежурства после текущего; по кругу. */
-export function nextInRotation(duty: {
-  dutyUserId: string | null
-  rotation: string[]
-}): string | null {
-  const { rotation, dutyUserId } = duty
-  if (rotation.length === 0) return null
-  const index = dutyUserId ? rotation.indexOf(dutyUserId) : -1
-  // Дежурного нет в списке (назначили руками) — следующим считается первый по очереди.
-  return rotation[index === -1 ? 0 : (index + 1) % rotation.length] ?? null
-}
-
 @Injectable()
 export class TelegramHookService implements OnModuleInit {
   private readonly logger = new Logger(TelegramHookService.name)
@@ -389,12 +377,15 @@ export class TelegramHookService implements OnModuleInit {
 
   /** Кто разбирает сейчас, кто следующий и что с тишиной. */
   private async dutyText(): Promise<string> {
-    const [duty, policy] = await Promise.all([
+    // Следующего выбирает тот же код, что и крон смены: с пропуском тех, кому бот не может
+    // написать, и без «следующего» при очереди короче двух.
+    const [duty, policy, next] = await Promise.all([
       this.platform.duty(),
       this.platform.notificationPolicy(),
+      this.platform.nextOnDuty(),
     ])
 
-    const ids = [duty.dutyUserId, nextInRotation(duty)].filter((id): id is string => id !== null)
+    const ids = [duty.dutyUserId, next].filter((id): id is string => id !== null)
     const names = await this.namesOf(ids)
 
     const lines = [
@@ -402,7 +393,6 @@ export class TelegramHookService implements OnModuleInit {
         ? `Дежурит: ${names.get(duty.dutyUserId) ?? 'неизвестно кто'}`
         : 'Дежурного нет — уведомления уходят всей команде',
     ]
-    const next = nextInRotation(duty)
     if (next && next !== duty.dutyUserId) lines.push(`Следующий: ${names.get(next) ?? '—'}`)
 
     lines.push(

@@ -63,6 +63,11 @@ export interface PlatformStateReader {
    */
   duty(): Promise<{ dutyUserId: string | null; rotation: string[] }>
   /**
+   * Кому крон передаст дежурство (с пропуском недоступных), или null — смены не будет.
+   * Чтение: `/duty` называет следующим ровно того, кого выберет `rotateDuty`.
+   */
+  nextOnDuty(): Promise<string | null>
+  /**
    * Передать дежурство следующему в очереди; отвечает id нового дежурного или null.
    *
    * Единственный метод здесь, который пишет. Он тут по той же причине, по которой

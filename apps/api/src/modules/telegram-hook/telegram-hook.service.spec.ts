@@ -1,5 +1,5 @@
 import { Role } from '@studenthub/shared-types'
-import { TelegramHookService, nextInRotation, parseCommand } from './telegram-hook.service'
+import { TelegramHookService, parseCommand } from './telegram-hook.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { SupportService } from '../chats/support.service'
@@ -55,6 +55,7 @@ function setup(env: Record<string, string | boolean | undefined> = {}) {
       digestHour: null,
     }),
     duty: jest.fn().mockResolvedValue({ dutyUserId: null, rotation: [] }),
+    nextOnDuty: jest.fn().mockResolvedValue(null),
     rotateDuty: jest.fn().mockResolvedValue(null),
   }
   const redis = { ping: jest.fn().mockResolvedValue('PONG') }
@@ -258,21 +259,6 @@ describe('parseCommand', () => {
   })
 })
 
-describe('nextInRotation', () => {
-  it('идёт по кругу', () => {
-    expect(nextInRotation({ dutyUserId: 'b', rotation: ['a', 'b', 'c'] })).toBe('c')
-    expect(nextInRotation({ dutyUserId: 'c', rotation: ['a', 'b', 'c'] })).toBe('a')
-  })
-
-  it('дежурного назначили мимо очереди — следующим считается первый', () => {
-    expect(nextInRotation({ dutyUserId: 'x', rotation: ['a', 'b'] })).toBe('a')
-  })
-
-  it('пустая очередь не выдумывает дежурного', () => {
-    expect(nextInRotation({ dutyUserId: null, rotation: [] })).toBeNull()
-  })
-})
-
 describe('TelegramHookService — команды', () => {
   it('постороннему не отвечает ни одним числом', async () => {
     const { service, prisma, complaints, support } = setup({ TELEGRAM_BOT_TOKEN: 't' })
@@ -399,6 +385,34 @@ describe('TelegramHookService — команды', () => {
     const text = String(cap.sent[0]?.body.text)
     expect(text).toContain('Тихие часы: с 22:00 до 8:00 по времени Алматы (UTC+5)')
     expect(text).toContain('Сводка приходит в 9:00 по времени Алматы (UTC+5)')
+    cap.restore()
+  })
+
+  // BUG-351: «следующего» считает тот же код, что и крон смены, — с пропуском недоступных.
+  it('/duty называет следующим того, кого выберет смена дежурства', async () => {
+    const { service, platform, prisma } = setup({ TELEGRAM_BOT_TOKEN: 't' })
+    platform.duty.mockResolvedValue({ dutyUserId: 'a', rotation: ['a', 'b', 'c'] })
+    platform.nextOnDuty.mockResolvedValue('c')
+    prisma.user.findMany.mockResolvedValue([
+      { id: 'a', firstName: 'Анна', lastName: 'А' },
+      { id: 'c', firstName: 'Сергей', lastName: 'С' },
+    ])
+    const cap = captureSend()
+
+    await service.handleMessage(privateMsg('/duty'))
+
+    expect(String(cap.sent[0]?.body.text)).toContain('Следующий: Сергей С')
+    cap.restore()
+  })
+
+  it('/duty без смены впереди «следующего» не выдумывает', async () => {
+    const { service, platform } = setup({ TELEGRAM_BOT_TOKEN: 't' })
+    platform.duty.mockResolvedValue({ dutyUserId: 'a', rotation: ['a'] })
+    const cap = captureSend()
+
+    await service.handleMessage(privateMsg('/duty'))
+
+    expect(String(cap.sent[0]?.body.text)).not.toContain('Следующий')
     cap.restore()
   })
 
