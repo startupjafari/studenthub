@@ -41,8 +41,16 @@ function setup(over: { openTicket?: { id: string } | null; chatType?: ChatType |
     // Счётчики тегов считаются одним запросом: массив в GROUP BY Prisma не умеет.
     $queryRaw: jest.fn().mockResolvedValue([]),
     // Размер очереди для уведомления и сводки: count + findFirst одной транзакцией.
-    $transaction: jest.fn().mockResolvedValue([0, null]),
+    // Колбэк — создание обращения под локом: выполняется на том же моке.
+    $transaction: jest.fn(),
+    // Advisory-лок по автору при создании обращения.
+    $executeRaw: jest.fn().mockResolvedValue(1),
   }
+  prisma.$transaction.mockImplementation((arg: unknown) =>
+    typeof arg === 'function'
+      ? (arg as (tx: typeof prisma) => Promise<unknown>)(prisma)
+      : Promise.resolve([0, null]),
+  )
   const chats = {
     createMessage: jest.fn().mockResolvedValue({ message: { id: 'msg-1' }, recipientIds: [] }),
     publishNewMessage: jest.fn(),
@@ -86,6 +94,23 @@ describe('SupportService.open', () => {
     expect(chats.createMessage).toHaveBeenCalledWith('u1', {
       chatId: 'ticket-9',
       content: 'ещё вопрос',
+    })
+  })
+
+  // Двойной клик или две вкладки: оба запроса видели «открытого нет» и заводили по
+  // обращению. Под локом второй находит обращение, созданное первым.
+  it('при параллельной отправке не заводит второе обращение — повторяет поиск под локом', async () => {
+    const { service, prisma, chats } = setup()
+    prisma.chat.findFirst.mockResolvedValueOnce(null).mockResolvedValueOnce({ id: 'ticket-7' })
+
+    const res = await service.open(who(Role.STUDENT), { text: 'вопрос' })
+
+    expect(res).toEqual({ id: 'ticket-7', created: false })
+    expect(prisma.$executeRaw).toHaveBeenCalledTimes(1)
+    expect(prisma.chat.create).not.toHaveBeenCalled()
+    expect(chats.createMessage).toHaveBeenCalledWith('u1', {
+      chatId: 'ticket-7',
+      content: 'вопрос',
     })
   })
 
