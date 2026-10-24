@@ -20,6 +20,7 @@ import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { NotificationMessageKey } from '@studenthub/shared-config'
 import type { RequestContext } from '../auth/auth.service'
 import { rethrowStaleStatus } from '../../common/prisma/stale-status'
+import { advisoryXactLock } from '../../common/prisma/advisory-lock'
 import { localDateTimeLabel } from '../../common/time/local-label'
 
 // Допустимые переходы записи в деканат — APPOINTMENT_TRANSITIONS (SSOT, по нему же веб строит
@@ -97,28 +98,34 @@ export class AppointmentsService {
         ])
       }
     }
-    const active = await this.prisma.deaneryAppointment.count({
-      where: { studentId: actor.sub, status: { in: [...ACTIVE_APPOINTMENT_STATUSES] } },
-    })
-    if (active >= MAX_ACTIVE_APPOINTMENTS_PER_STUDENT) {
-      throw new AppException(
-        'CONFLICT',
-        `Открытых записей уже ${active} — дождитесь ответа деканата или отмените лишние`,
-      )
-    }
-    const appointment = await this.prisma.deaneryAppointment.create({
-      data: {
-        studentId: actor.sub,
-        facultyId: actor.facultyId,
-        type: input.type,
-        topic: input.topic,
-        requestedAt,
-        applicationId: input.applicationId,
-      },
-      select: SELECT,
+    const facultyId = actor.facultyId
+    // Подсчёт и создание — под локом студента: параллельные запросы иначе видели одно и то же
+    // «открытых меньше потолка» и создавали записи сверх него.
+    const appointment = await this.prisma.$transaction(async (tx) => {
+      await advisoryXactLock(tx, `deanery-appointments:${actor.sub}`)
+      const active = await tx.deaneryAppointment.count({
+        where: { studentId: actor.sub, status: { in: [...ACTIVE_APPOINTMENT_STATUSES] } },
+      })
+      if (active >= MAX_ACTIVE_APPOINTMENTS_PER_STUDENT) {
+        throw new AppException(
+          'CONFLICT',
+          `Открытых записей уже ${active} — дождитесь ответа деканата или отмените лишние`,
+        )
+      }
+      return tx.deaneryAppointment.create({
+        data: {
+          studentId: actor.sub,
+          facultyId,
+          type: input.type,
+          topic: input.topic,
+          requestedAt,
+          applicationId: input.applicationId,
+        },
+        select: SELECT,
+      })
     })
     await this.record(actor, 'appointment_created', appointment.id, ctx)
-    await this.notifyDeanery(actor.facultyId, appointment.id, requestedAt)
+    await this.notifyDeanery(facultyId, appointment.id, requestedAt)
     return appointment
   }
 

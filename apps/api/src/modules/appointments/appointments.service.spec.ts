@@ -131,6 +131,9 @@ describe('AppointmentsService.create (C-F24)', () => {
         count: jest.fn().mockResolvedValue(opts.active ?? 0),
         create: jest.fn().mockResolvedValue({ id: 'ap-new' }),
       },
+      // Подсчёт и создание идут транзакцией под локом студента: tx — тот же мок.
+      $executeRaw: jest.fn().mockResolvedValue(1),
+      $transaction: jest.fn((fn: (tx: unknown) => unknown): unknown => fn(prisma)),
       application: {
         findFirst: jest
           .fn()
@@ -185,6 +188,17 @@ describe('AppointmentsService.create (C-F24)', () => {
       where: { studentId: 'stu-1', status: { in: ['REQUESTED', 'CONFIRMED', 'RESCHEDULED'] } },
     })
     expect(prisma.deaneryAppointment.create).not.toHaveBeenCalled()
+  })
+
+  // Параллельные запросы видели одно «меньше потолка» и создавали записи сверх него.
+  it('подсчёт и создание — в одной транзакции под локом студента', async () => {
+    const { service, prisma } = setupCreate()
+    await service.create(student, { type: 'OTHER', requestedAt: tomorrow }, ctx)
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1)
+    expect(prisma.$executeRaw).toHaveBeenCalledTimes(1)
+    expect(prisma.$executeRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      prisma.deaneryAppointment.count.mock.invocationCallOrder[0]!,
+    )
   })
 
   it('новая запись → уведомление деканам факультета, время по поясу вуза', async () => {
