@@ -5,6 +5,7 @@ import {
   REPORT_MAX_UNITS,
   REPORT_MIN_CELL,
   reportRange,
+  suppressedGroups,
   type AnalyticsReport,
 } from './analytics-report.service'
 import { reportColumns, reportRows } from './analytics-report.export'
@@ -39,6 +40,7 @@ function rawRouter(rows: Record<string, unknown[]>, calls: Call[]) {
     const sql = Array.isArray(strings) ? strings.join(' ') : String(strings)
     calls.push({ sql, values })
     const pick = (key: string) => Promise.resolve(rows[key] ?? [])
+    if (sql.includes('AS size')) return pick('groups')
     if (sql.includes('AS students')) return pick('students')
     if (sql.includes('AS marks')) return pick('attendance')
     if (sql.includes('"gradeSum"')) return pick('grades')
@@ -215,7 +217,13 @@ describe('AnalyticsReportService — расчёт', () => {
     })
     expect(big?.metrics?.grades).toEqual({ count: 20, avg: 75 })
     // «Трое студентов, посещаемость 67 %» — это сведения о людях, а не агрегат.
-    expect(small).toEqual({ id: 'g2', name: 'ИС-22', suppressed: true, metrics: null })
+    expect(small).toEqual({
+      id: 'g2',
+      name: 'ИС-22',
+      suppressed: true,
+      partial: false,
+      metrics: null,
+    })
     expect(report.suppressed).toBe(1)
     expect(report.minCell).toBe(REPORT_MIN_CELL)
   })
@@ -344,6 +352,84 @@ describe('AnalyticsReportService — расчёт', () => {
     const serialized = JSON.stringify(await service.build(facultyScope, 'quarter'))
     expect(serialized).not.toContain('firstName')
     expect(serialized).not.toContain('email')
+  })
+})
+
+describe('Вторичное подавление между уровнями (BUG-185)', () => {
+  const g = (groupId: string, facultyId: string, students: number, universityId = 'uni-1') => ({
+    groupId,
+    facultyId,
+    universityId,
+    students,
+  })
+
+  it('строка факультета в отчёте вуза — без скрытых групп, как итог отчёта факультета', () => {
+    // В отчёте факультета F группа на 3 студента скрыта, а итог посчитан без неё. Если
+    // строка F в отчёте вуза её включает, «строка F минус видимые группы» = эта группа.
+    const { excluded, partialUnits } = suppressedGroups(
+      [g('big', 'F', 25), g('small', 'F', 3), g('other', 'G', 30)],
+      'university',
+    )
+    expect(excluded).toEqual(['small'])
+    expect([...partialUnits]).toEqual(['F'])
+  })
+
+  it('скрытые группы вместе не меньше порога — факультет считается целиком', () => {
+    const { excluded, partialUnits } = suppressedGroups(
+      [g('big', 'F', 25), g('a', 'F', 3), g('b', 'F', 4)],
+      'university',
+    )
+    expect(excluded).toEqual([])
+    expect(partialUnits.size).toBe(0)
+  })
+
+  it('в отчёте платформы вуз — без скрытых групп и без скрытых факультетов', () => {
+    const { excluded, partialUnits } = suppressedGroups(
+      [
+        g('big', 'F', 25),
+        g('small', 'F', 2),
+        // Факультет на троих: в отчёте вуза он скрыт, а итог вуза посчитан без него.
+        g('tiny', 'H', 3),
+      ],
+      'platform',
+    )
+    expect(excluded.sort()).toEqual(['small', 'tiny'])
+    expect([...partialUnits]).toEqual(['uni-1'])
+  })
+
+  it('исключённые группы уходят в SQL параметром, строка помечена неполной', async () => {
+    const { service, calls } = setup({
+      units: [
+        { id: 'F', name: 'Инженерный' },
+        { id: 'G', name: 'Экономический' },
+      ],
+      rows: {
+        groups: [
+          { groupId: 'big', facultyId: 'F', universityId: 'uni-1', size: 25n },
+          { groupId: 'small', facultyId: 'F', universityId: 'uni-1', size: 3n },
+          { groupId: 'other', facultyId: 'G', universityId: 'uni-1', size: 30n },
+        ],
+        students: [
+          { unitId: 'F', students: 25n },
+          { unitId: 'G', students: 30n },
+        ],
+      },
+    })
+    const report = await service.build(
+      { level: 'university', id: 'uni-1', universityId: 'uni-1' },
+      'quarter',
+    )
+    const students = calls.find((c) => c.sql.includes('AS students'))
+    expect(JSON.stringify(students?.values)).toContain('small')
+    expect(report.units.find((u) => u.id === 'F')?.partial).toBe(true)
+    expect(report.units.find((u) => u.id === 'G')?.partial).toBe(false)
+    expect(reportRows(report, 'ru')[0]?.note).toBe('Без скрытых подразделений')
+  })
+
+  it('отчёт факультета групп не исключает: подавление — только для сводных уровней', async () => {
+    const { service, calls } = setup()
+    await service.build({ level: 'faculty', id: 'fac-1', universityId: 'uni-1' }, 'quarter')
+    expect(calls.some((c) => c.sql.includes('AS size'))).toBe(false)
   })
 })
 
