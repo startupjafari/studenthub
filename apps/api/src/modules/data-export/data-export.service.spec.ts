@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
-import { DataExportService, USER_RELATIONS } from './data-export.service'
+import { DataExportService, SCALAR_ID_FIELDS, USER_RELATIONS } from './data-export.service'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { AuditService } from '../../common/audit/audit.service'
 import type { ExportBrandingService } from '../../common/export/export-branding.service'
@@ -65,6 +65,10 @@ const MODELS = [
   'reservation',
   'libraryIdAccessLog',
   'securityPass',
+  'userBlock',
+  'documentAccess',
+  'documentEvent',
+  'documentExport',
 ] as const
 
 function account(over: Record<string, unknown> = {}) {
@@ -239,8 +243,62 @@ describe('DataExportService — полнота по схеме (D-F26)', () => {
     const { service } = setup()
     const { body } = await service.exportPersonalData(viewer, 'ru', ctx)
     const sections = Object.keys((JSON.parse(body) as { sections: object }).sections)
-    const named = Object.values(USER_RELATIONS).flatMap((v) => ('section' in v ? [v.section] : []))
+    const named = [...Object.values(USER_RELATIONS), ...Object.values(SCALAR_ID_FIELDS)].flatMap(
+      (v) => ('section' in v ? [v.section] : []),
+    )
     expect(named.filter((name) => !sections.includes(name))).toEqual([])
+  })
+
+  // Ссылки на человека без FK (BUG-194): чёрный список, выданные доступы, журнал документов,
+  // свои выгрузки. По связям их не найти — сверяем все скалярные «…Id» вне связей.
+  it('каждое скалярное …Id вне связей разобрано: раздел, исключение или «не человек»', () => {
+    const scalarIds = Prisma.dmmf.datamodel.models.flatMap((model) => {
+      const fks = new Set(model.fields.flatMap((f) => f.relationFromFields ?? []))
+      return model.fields
+        .filter(
+          (f) =>
+            f.kind === 'scalar' &&
+            f.type === 'String' &&
+            f.name !== 'id' &&
+            f.name.endsWith('Id') &&
+            !fks.has(f.name),
+        )
+        .map((f) => `${model.name}.${f.name}`)
+    })
+    expect(scalarIds.filter((key) => !(key in SCALAR_ID_FIELDS))).toEqual([])
+    expect(Object.keys(SCALAR_ID_FIELDS).filter((key) => !scalarIds.includes(key))).toEqual([])
+  })
+
+  it('свои выгрузки — без параметров выборки, журнал документов — без id сотрудника', async () => {
+    const { service, models } = setup()
+    models.documentEvent.findMany.mockResolvedValue([
+      {
+        documentId: 'd1',
+        requestId: null,
+        actorId: 'u-1',
+        action: 'UPLOAD',
+        createdAt: new Date(),
+      },
+      {
+        documentId: 'd1',
+        requestId: null,
+        actorId: 'staff-9',
+        action: 'VIEW',
+        createdAt: new Date(),
+      },
+    ])
+    const { body } = await service.exportPersonalData(viewer, 'ru', ctx)
+    const archive = JSON.parse(body) as {
+      sections: { documentEvents: { items: Record<string, unknown>[] } }
+    }
+
+    expect(models.documentExport.findMany.mock.calls[0]?.[0].select).not.toHaveProperty('params')
+    expect(archive.sections.documentEvents.items).toEqual([
+      expect.objectContaining({ action: 'UPLOAD', byMe: true }),
+      expect.objectContaining({ action: 'VIEW', byMe: false }),
+    ])
+    expect(JSON.stringify(archive.sections.documentEvents)).not.toContain('staff-9')
+    expect(models.userBlock.findMany.mock.calls[0]?.[0].where).toEqual({ blockerId: 'u-1' })
   })
 
   it('выданные приглашения — без адресов приглашённых', async () => {
