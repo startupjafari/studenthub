@@ -2,7 +2,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { PostAudience, Prisma } from '@prisma/client'
 import type Redis from 'ioredis'
-import { Role, isHigherRole } from '@studenthub/shared-types'
+import { RESTRICTED_ROLES, Role, isHigherRole } from '@studenthub/shared-types'
 import {
   DEFAULT_PAGE_LIMIT,
   POST_REACTION_EMOJIS,
@@ -1292,6 +1292,8 @@ export class PostsService {
         deletedAt: null,
         isBlocked: false,
         id: { not: actor.sub },
+        // Охрана и библиотекарь постов не открывают — уведомление вело бы в закрытый раздел.
+        role: { notIn: [...RESTRICTED_ROLES] },
       },
       select: { id: true, role: true, universityId: true, facultyId: true, groupId: true },
       take: logins.length,
@@ -1491,7 +1493,9 @@ export class PostsService {
 
   private async assertTargetUser(actor: JwtPayload, targetUserId: string): Promise<void> {
     const user = await this.prisma.user.findFirst({
-      where: { id: targetUserId, deletedAt: null },
+      // Охрана и библиотекарь ленты не открывают (§2.1): личный пост им — сообщение, которое
+      // не прочитать. Для автора они — как несуществующий получатель.
+      where: { id: targetUserId, deletedAt: null, role: { notIn: [...RESTRICTED_ROLES] } },
       select: { universityId: true },
     })
     if (!user) throw new AppException('NOT_FOUND', 'Получатель не найден')

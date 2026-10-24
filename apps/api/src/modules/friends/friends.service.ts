@@ -1,4 +1,4 @@
-import { Role } from '@studenthub/shared-types'
+import { RESTRICTED_ROLES, Role } from '@studenthub/shared-types'
 import { Inject, Injectable, Logger } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import type Redis from 'ioredis'
@@ -86,8 +86,14 @@ export class FriendsService {
     if (viewer.role === Role.EMPLOYER) {
       throw new AppException('FORBIDDEN', 'Работодатель не добавляет в друзья')
     }
+    // Охрана и библиотекарь друзей не имеют вовсе (§2.1): заявку им не принять и не увидеть.
     const target = await this.prisma.user.findFirst({
-      where: { id: targetId, deletedAt: null, isBlocked: false, role: { not: Role.EMPLOYER } },
+      where: {
+        id: targetId,
+        deletedAt: null,
+        isBlocked: false,
+        role: { notIn: [Role.EMPLOYER, ...RESTRICTED_ROLES] },
+      },
       select: { id: true },
     })
     if (!target) {

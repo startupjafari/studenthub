@@ -153,13 +153,16 @@ describe('FriendsService.sendRequest — кому нельзя', () => {
     expect(queue.enqueue).not.toHaveBeenCalled()
   })
 
-  it('работодателя и заблокированного платформой цель не находит', async () => {
+  it('работодателя, охрану, библиотекаря и заблокированного платформой цель не находит', async () => {
     const { service, prisma } = setup()
     prisma.user.findFirst.mockResolvedValue(null)
     await service.sendRequest(me, 'u2').catch(() => undefined)
     expect(prisma.user.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({ isBlocked: false, role: { not: Role.EMPLOYER } }),
+        where: expect.objectContaining({
+          isBlocked: false,
+          role: { notIn: [Role.EMPLOYER, Role.SECURITY_GUARD, Role.LIBRARIAN] },
+        }),
       }),
     )
   })

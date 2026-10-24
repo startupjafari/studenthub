@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { Role } from '@studenthub/shared-types'
+import { Role, isRestrictedRole } from '@studenthub/shared-types'
 import {
   ArrowLeft,
   Check,
@@ -188,8 +188,11 @@ export function PublicUserProfile({ userId }: { userId: string }) {
               до full (users.service: resolveAccessWithFriendship). Скрывать кнопку именно там,
               где она нужна, значило запереть связь в замкнутом круге — профиль закрыт, потому
               что вы не друзья, а подружиться нельзя, потому что профиль закрыт.
-              Ограничений по ролям нет ни здесь, ни на бэке: заявку шлёт и принимает любая роль. */}
-          {me.data && me.data.id !== u.id && <FriendButton userId={u.id} />}
+              Исключение одно — охрана и библиотекарь: друзей у этих ролей нет (§2.1), заявку
+              им не принять, и бэкенд её не примет. */}
+          {me.data && me.data.id !== u.id && !isRestrictedRole(u.role) && (
+            <FriendButton userId={u.id} />
+          )}
           <ShareProfileButton userId={u.id} name={fullNameOf(u)} className="shadow-md" />
         </div>
         <div className="relative h-36 w-full overflow-hidden sm:h-44">

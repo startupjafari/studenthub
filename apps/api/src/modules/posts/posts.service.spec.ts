@@ -1684,7 +1684,10 @@ describe('PostsService — комментарии: страницы, права,
 
     expect(prisma.user.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({ username: { in: ['mate', 'stranger'] } }),
+        where: expect.objectContaining({
+          username: { in: ['mate', 'stranger'] },
+          role: { notIn: [Role.SECURITY_GUARD, Role.LIBRARIAN] },
+        }),
       }),
     )
     expect(queue.enqueue).toHaveBeenCalledWith(
