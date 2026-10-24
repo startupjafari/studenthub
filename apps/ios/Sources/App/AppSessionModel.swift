@@ -53,6 +53,8 @@ final class AppSessionModel {
         // Вошёл другой человек, чем тот, чьи данные лежат на устройстве (прежний не
         // выходил, а сессия у него истекла), — его чаты и расписание стираются.
         await LocalData.claim(for: token.subject)
+        // Сбои этого человека — под его id, а не под id того, кто входил до него.
+        Observability.identify(userID: token.subject)
         state = .signedIn(token)
         return true
     }
@@ -69,6 +71,10 @@ final class AppSessionModel {
         // Данные прежнего человека не должны достаться следующему (как clearAllTables
         // в Android): список чатов читается из базы и только дописывается.
         await LocalData.erase()
+        // Память — тоже данные прежнего человека: открытый чат в стеке навигации и
+        // его id в трекере ошибок.
+        AppServices.router.reset()
+        Observability.identify(userID: nil)
         state = .signedOut
     }
 }
