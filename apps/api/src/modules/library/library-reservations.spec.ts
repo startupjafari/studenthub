@@ -142,6 +142,17 @@ describe('Бронь', () => {
     })
   })
 
+  it('предел броней перепроверяется под локом читателя: параллельная бронь его не превысит', async () => {
+    const { service, tx } = setup()
+    tx.reservation.count.mockResolvedValueOnce(0).mockResolvedValueOnce(rules.maxActiveReservations)
+    await expect(service.reserve(student, 'book-1', ctx)).rejects.toMatchObject({
+      details: [expect.objectContaining({ field: 'reservationLimit' })],
+    })
+    // Лок читателя и лок книги.
+    expect(tx.$executeRaw).toHaveBeenCalledTimes(2)
+    expect(tx.reservation.create).not.toHaveBeenCalled()
+  })
+
   it('книга без экземпляров в обороте — 409 noCopies', async () => {
     const { service } = setup({
       counts: { active: 0, sameBook: 0, borrowed: 0, inCirculation: 0 },

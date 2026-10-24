@@ -55,6 +55,7 @@ function setup({ queued = null as null | Record<string, unknown>, queueCount = 0
     reservation: {
       findFirst: jest.fn().mockResolvedValue(queued),
       update: jest.fn().mockResolvedValue({}),
+      count: jest.fn().mockResolvedValue(queueCount),
     },
   }
   const prisma = {
@@ -203,12 +204,14 @@ describe('Продление', () => {
     ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' })
   })
 
-  it('продлевает и сбрасывает отметки напоминаний', async () => {
-    const { service, prisma } = setup()
+  it('продлевает условно и сбрасывает отметки напоминаний', async () => {
+    const { service, prisma, tx } = setup()
     prisma.loan.findUnique.mockResolvedValue(loanRow({ dueAt: new Date(Date.now() + 86_400_000) }))
     await service.renew(librarian, 'loan-1', {}, ctx)
-    expect(prisma.loan.update).toHaveBeenCalledWith(
+    expect(tx.loan.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
+        // Двойное продление и продление закрытой выдачи не пройдут.
+        where: { id: 'loan-1', status: 'OPEN', renewals: 0 },
         data: expect.objectContaining({
           renewals: { increment: 1 },
           dueSoonSentAt: null,
@@ -217,6 +220,27 @@ describe('Продление', () => {
         }),
       }),
     )
+  })
+})
+
+describe('Продление: гонки и срок по умолчанию', () => {
+  it('выдачу только что продлили или закрыли — 409 renewals, срок не меняется', async () => {
+    const { service, prisma, tx, notifier } = setup()
+    prisma.loan.findUnique.mockResolvedValue(loanRow({ dueAt: new Date(Date.now() + 86_400_000) }))
+    tx.loan.updateMany.mockResolvedValue({ count: 0 })
+    await expect(service.renew(librarian, 'loan-1', {}, ctx)).rejects.toMatchObject({
+      details: [expect.objectContaining({ field: 'renewals' })],
+    })
+    expect(notifier.send).not.toHaveBeenCalled()
+  })
+
+  it('срок по умолчанию дальше maxLoanDays — урезается до предела, а не 422', async () => {
+    const { service, prisma, tx } = setup()
+    prisma.loan.findUnique.mockResolvedValue(
+      loanRow({ dueAt: new Date(Date.now() + 115 * 86_400_000) }),
+    )
+    await expect(service.renew(librarian, 'loan-1', {}, ctx)).resolves.toBeDefined()
+    expect(tx.loan.updateMany).toHaveBeenCalled()
   })
 })
 

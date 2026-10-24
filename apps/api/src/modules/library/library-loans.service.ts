@@ -32,7 +32,7 @@ import { LibrarySettingsService } from './library-settings.service'
 import { LibraryNotifier } from './library-notifier'
 import { addDays, daysBetween, endOfDay, formatDay, todayIn } from './library-dates'
 import { issueReaderTicket, readTicket } from './library-ticket'
-import { lockBookQueue, releaseCopy, type HeldFor } from './library-holds'
+import { lockBookQueue, lockReader, releaseCopy, type HeldFor } from './library-holds'
 import {
   READER_ROLES,
   libraryConflict,
@@ -212,6 +212,13 @@ export class LibraryLoansService {
     }
 
     const { created: loan, released } = await this.prisma.$transaction(async (tx) => {
+      // Под локом читателя — повторная сверка: две одновременные выдачи одному читателю иначе
+      // обе видят «на одну меньше предела». Лок очереди книги — бронь, отложившая экземпляр,
+      // и её отмена или истечение не проскочат между проверкой и выдачей.
+      await lockReader(tx, reader.id)
+      await lockBookQueue(tx, copy.book.id)
+      const late = (await this.eligibility(reader, settings.maxActiveLoans, tx)).blockers[0]
+      if (late) throw this.blockerConflict(late)
       // Условная запись: экземпляр забирает только одна выдача, даже при двух одновременных.
       const { count } = await tx.bookCopy.updateMany({
         where: { id: copy.id, status: copy.status },
@@ -234,10 +241,15 @@ export class LibraryLoansService {
         select: LOAN_SELECT,
       })
       if (reservationId) {
-        await tx.reservation.update({
-          where: { id: reservationId },
+        // Условно: бронь, которую успели снять или которая истекла (экземпляр уже отложен
+        // следующему), выдачу не закрывает — откат, экземпляр остаётся тому, чья бронь.
+        const fulfilled = await tx.reservation.updateMany({
+          where: { id: reservationId, status: 'READY', copyId: copy.id, readerId: reader.id },
           data: { status: 'FULFILLED', loanId: created.id, closedAt: new Date() },
         })
+        if (fulfilled.count === 0) {
+          throw libraryConflict('reserved', 'Экземпляр отложен под бронь другого читателя')
+        }
         return { created, released: null }
       }
       // Читатель взял с полки книгу, на которую стоял в очереди или чья бронь отложена на
@@ -315,6 +327,8 @@ export class LibraryLoansService {
     const timezone = await this.timezoneOf(universityId)
     const now = new Date()
     const { loan, heldFor } = await this.prisma.$transaction(async (tx) => {
+      // Лок очереди книги — до записей в строки: тот же порядок, что у выдачи.
+      await lockBookQueue(tx, copy.book.id)
       const { count } = await tx.loan.updateMany({
         where: { id: open.id, status: 'OPEN' },
         data: {
@@ -373,7 +387,12 @@ export class LibraryLoansService {
   /**
    * Продление: делает библиотекарь, не больше `maxRenewals` раз. Нельзя, если на книгу есть
    * очередь броней — книгу ждут другие. Новый срок — указанная дата или срок по умолчанию от
-   * текущего (просроченной — от сегодня); не дальше `maxLoanDays` от сегодня.
+   * текущего (просроченной — от сегодня), урезанный до `maxLoanDays` от сегодня: продлить на
+   * меньший срок лучше, чем отказать.
+   *
+   * Запись условная (открытая выдача с прежним числом продлений) и под локом очереди книги:
+   * два одновременных продления не проходят оба, продление, совпавшее с возвратом, не меняет
+   * срок закрытой выдачи, а бронь не встаёт в очередь между проверкой и продлением.
    */
   async renew(
     actor: JwtPayload,
@@ -387,15 +406,16 @@ export class LibraryLoansService {
     if (loan.renewals >= settings.maxRenewals) {
       throw libraryConflict('renewals', 'Продлений больше нельзя')
     }
-    const queued = await this.prisma.reservation.count({
-      where: { bookId: loan.copy.book.id, status: 'QUEUED' },
-    })
-    if (queued > 0) throw libraryConflict('queue', 'На книгу есть очередь броней')
+    if (await this.queueOf(this.prisma, loan.copy.book.id)) {
+      throw libraryConflict('queue', 'На книгу есть очередь броней')
+    }
     const timezone = await this.timezoneOf(universityId)
     const today = todayIn(timezone)
     const currentDue = todayIn(timezone, loan.dueAt)
     const base = daysBetween(today, currentDue) > 0 ? currentDue : today
-    const dueDate = input.dueDate ?? addDays(base, settings.defaultLoanDays)
+    const latest = addDays(today, settings.maxLoanDays)
+    const byDefault = addDays(base, settings.defaultLoanDays)
+    const dueDate = input.dueDate ?? (daysBetween(byDefault, latest) < 0 ? latest : byDefault)
     if (
       daysBetween(currentDue, dueDate) <= 0 ||
       daysBetween(today, dueDate) > settings.maxLoanDays
@@ -404,17 +424,25 @@ export class LibraryLoansService {
         { field: 'dueDate', message: `Позже текущего срока, до ${settings.maxLoanDays} дней` },
       ])
     }
-    const updated = await this.prisma.loan.update({
-      where: { id: loanId },
-      // Напоминания о новом сроке придут заново.
-      data: {
-        dueAt: endOfDay(dueDate, timezone),
-        renewals: { increment: 1 },
-        dueSoonSentAt: null,
-        dueTodaySentAt: null,
-        overdueSentAt: null,
-      },
-      select: LOAN_SELECT,
+    const updated = await this.prisma.$transaction(async (tx) => {
+      // Под локом очереди — ещё раз: бронь могла встать в очередь после проверки выше.
+      await lockBookQueue(tx, loan.copy.book.id)
+      if (await this.queueOf(tx, loan.copy.book.id)) {
+        throw libraryConflict('queue', 'На книгу есть очередь броней')
+      }
+      const { count } = await tx.loan.updateMany({
+        where: { id: loanId, status: 'OPEN', renewals: loan.renewals },
+        // Напоминания о новом сроке придут заново.
+        data: {
+          dueAt: endOfDay(dueDate, timezone),
+          renewals: { increment: 1 },
+          dueSoonSentAt: null,
+          dueTodaySentAt: null,
+          overdueSentAt: null,
+        },
+      })
+      if (count === 0) throw libraryConflict('renewals', 'Выдачу только что продлили или закрыли')
+      return tx.loan.findUniqueOrThrow({ where: { id: loanId }, select: LOAN_SELECT })
     })
     await this.audit.record({
       userId: actor.sub,
@@ -522,6 +550,7 @@ export class LibraryLoansService {
     const timezone = await this.timezoneOf(universityId)
     const now = new Date()
     const { updated, heldFor } = await this.prisma.$transaction(async (tx) => {
+      await lockBookQueue(tx, loan.copy.book.id)
       const { count } = await tx.loan.updateMany({
         where: { id: loanId, status: 'OPEN' },
         data: {
@@ -706,6 +735,11 @@ export class LibraryLoansService {
     return true
   }
 
+  /** Стоит ли на книгу очередь броней. */
+  private async queueOf(db: Prisma.TransactionClient, bookId: string): Promise<boolean> {
+    return (await db.reservation.count({ where: { bookId, status: 'QUEUED' } })) > 0
+  }
+
   /** Открытая выдача своего вуза; чужая и несуществующая — 404, закрытая — 409. */
   private async openLoan(universityId: string, loanId: string): Promise<LoanRow> {
     const loan = await this.prisma.loan.findUnique({ where: { id: loanId }, select: LOAN_SELECT })
@@ -829,15 +863,16 @@ export class LibraryLoansService {
   async eligibility(
     reader: { id: string; academicStatus: string | null },
     maxActiveLoans: number,
+    db: Prisma.TransactionClient = this.prisma,
   ): Promise<ReaderEligibility> {
     const now = new Date()
     const [activeLoans, overdueLoans, lostLoans] = await Promise.all([
-      this.prisma.loan.count({ where: { readerId: reader.id, status: 'OPEN' } }),
-      this.prisma.loan.count({
+      db.loan.count({ where: { readerId: reader.id, status: 'OPEN' } }),
+      db.loan.count({
         where: { readerId: reader.id, status: 'OPEN', dueAt: { lt: now } },
       }),
       // Утерянная и не возмещённая книга — тот же долг, что просрочка: новых книг не дают.
-      this.prisma.loan.count({
+      db.loan.count({
         where: { readerId: reader.id, status: 'LOST', lostSettledAt: null },
       }),
     ])

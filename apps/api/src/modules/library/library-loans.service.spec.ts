@@ -84,15 +84,23 @@ function setup({
   overdue = 0,
   lost = 0,
 }: { open?: number; overdue?: number; lost?: number } = {}) {
+  const loanCount = jest
+    .fn()
+    .mockImplementation(({ where }) =>
+      Promise.resolve(where.status === 'LOST' ? lost : where.dueAt ? overdue : open),
+    )
   const tx = {
+    $executeRaw: jest.fn().mockResolvedValue(0),
     bookCopy: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
     loan: {
+      count: loanCount,
       create: jest
         .fn()
         .mockImplementation(({ data }) => Promise.resolve(loanRow({ ...data, id: 'loan-new' }))),
     },
     reservation: {
       update: jest.fn().mockResolvedValue({}),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       findFirst: jest.fn().mockResolvedValue(null),
     },
   }
@@ -102,11 +110,7 @@ function setup({
       findMany: jest.fn().mockResolvedValue([{ id: 'lib-1' }, { id: 'lib-2' }]),
     },
     loan: {
-      count: jest
-        .fn()
-        .mockImplementation(({ where }) =>
-          Promise.resolve(where.status === 'LOST' ? lost : where.dueAt ? overdue : open),
-        ),
+      count: loanCount,
       findMany: jest.fn().mockResolvedValue([]),
       findUnique: jest.fn().mockResolvedValue(loanRow()),
       update: jest.fn().mockImplementation(({ data }) => Promise.resolve(loanRow(data))),
@@ -269,12 +273,39 @@ describe('LibraryLoansService — выдача', () => {
     ).rejects.toMatchObject({ details: [expect.objectContaining({ field: 'reserved' })] })
     prisma.reservation.findFirst.mockResolvedValue({ id: 'res-1', readerId: 'stu-1' })
     await service.issue(librarian, { ticket: ticketFor(), copyCode: 'ABCD2345' }, ctx)
-    expect(tx.reservation.update).toHaveBeenCalledWith(
+    // Бронь закрывается условно: всё ещё готова, на этот экземпляр и этого читателя.
+    expect(tx.reservation.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { id: 'res-1' },
-        data: expect.objectContaining({ status: 'FULFILLED' }),
+        where: { id: 'res-1', status: 'READY', copyId: 'copy-1', readerId: 'stu-1' },
+        data: expect.objectContaining({ status: 'FULFILLED', loanId: 'loan-new' }),
       }),
     )
+  })
+
+  it('бронь сняли между проверкой и выдачей — 409 reserved, выдача откатывается', async () => {
+    const { service, prisma, tx } = setup()
+    prisma.bookCopy.findUnique.mockResolvedValue(copyRow({ status: 'RESERVED' }))
+    prisma.reservation.findFirst.mockResolvedValue({ id: 'res-1', readerId: 'stu-1' })
+    tx.reservation.updateMany.mockResolvedValue({ count: 0 })
+    await expect(
+      service.issue(librarian, { ticket: ticketFor(), copyCode: 'ABCD2345' }, ctx),
+    ).rejects.toMatchObject({ details: [expect.objectContaining({ field: 'reserved' })] })
+  })
+
+  it('предел книг перепроверяется под локами читателя и книги', async () => {
+    const { service, tx } = setup()
+    // До транзакции у читателя 4 книги, внутри — уже 5: параллельная выдача успела раньше.
+    tx.loan.count.mockImplementation(({ where }) =>
+      Promise.resolve(where.status === 'OPEN' && !where.dueAt ? 5 : 0),
+    )
+    tx.loan.count.mockImplementationOnce(() => Promise.resolve(4))
+    tx.loan.count.mockImplementationOnce(() => Promise.resolve(0))
+    tx.loan.count.mockImplementationOnce(() => Promise.resolve(0))
+    await expect(
+      service.issue(librarian, { ticket: ticketFor(), copyCode: 'ABCD2345' }, ctx),
+    ).rejects.toMatchObject({ details: [expect.objectContaining({ field: 'limit' })] })
+    expect(tx.$executeRaw).toHaveBeenCalledTimes(2)
+    expect(tx.loan.create).not.toHaveBeenCalled()
   })
 
   it('книга с полки читателю из очереди — его бронь закрыта выдачей', async () => {

@@ -13,7 +13,7 @@ import { LibrarySettingsService } from './library-settings.service'
 import { LibraryLoansService } from './library-loans.service'
 import { LibraryNotifier } from './library-notifier'
 import { todayIn } from './library-dates'
-import { lockBookQueue, releaseCopy, serveQueue, type HeldFor } from './library-holds'
+import { lockBookQueue, lockReader, releaseCopy, serveQueue, type HeldFor } from './library-holds'
 import { libraryConflict, librarianLibrary, readerLibrary, staffLibrary } from './library-scope'
 
 // Брони библиотеки (Фаза 20.8, docs/PROJECT.md §3.11). Читатель встаёт в очередь на книгу;
@@ -108,12 +108,22 @@ export class LibraryReservationsService {
 
     const timezone = await this.loans.timezoneOf(universityId)
     const { id, held } = await this.prisma.$transaction(async (tx) => {
+      // Лок читателя, затем книги — тот же порядок, что у выдачи. Под ними: две одновременные
+      // брони одного читателя не пройдут обе ни на одну книгу, ни сверх предела броней.
+      await lockReader(tx, reader.id)
       await lockBookQueue(tx, bookId)
-      // Под локом: две одновременные брони одного читателя на книгу не пройдут обе.
-      const dup = await tx.reservation.count({
-        where: { readerId: reader.id, bookId, status: { in: ['QUEUED', 'READY'] } },
-      })
+      const [dup, current] = await Promise.all([
+        tx.reservation.count({
+          where: { readerId: reader.id, bookId, status: { in: ['QUEUED', 'READY'] } },
+        }),
+        tx.reservation.count({
+          where: { readerId: reader.id, status: { in: ['QUEUED', 'READY'] } },
+        }),
+      ])
       if (dup > 0) throw libraryConflict('alreadyReserved', 'Книга уже забронирована вами')
+      if (current >= settings.maxActiveReservations) {
+        throw libraryConflict('reservationLimit', 'Достигнут предел броней')
+      }
       const created = await tx.reservation.create({
         data: { universityId, bookId, readerId: reader.id },
         select: { id: true },

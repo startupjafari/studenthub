@@ -14,6 +14,15 @@ export function lockBookQueue(tx: Prisma.TransactionClient, bookId: string): Pro
   return advisoryXactLock(tx, `library:book:${bookId}`)
 }
 
+/**
+ * Лок читателя — берут выдача и бронь, пока считают его книги и брони: две одновременные
+ * выдачи или брони иначе обе видят «на одну меньше предела» и вместе его превышают. Берётся
+ * раньше лока книги — один порядок у всех, кто берёт оба.
+ */
+export function lockReader(tx: Prisma.TransactionClient, readerId: string): Promise<void> {
+  return advisoryXactLock(tx, `library:reader:${readerId}`)
+}
+
 /** Готовая бронь держится до конца N-го дня по часам вуза. */
 function holdUntilOf(hold: { holdDays: number; timezone: string }, now: Date): Date {
   return endOfDay(addDays(todayIn(hold.timezone, now), hold.holdDays), hold.timezone)
