@@ -6,13 +6,19 @@ import type { CameraCredentials } from './sealed.js'
 const RTSP = /^(rtsps?:\/\/)([^/?#]*)(.*)$/i
 
 export function withCredentials(streamUrl: string, credentials: CameraCredentials | null): string {
-  if (!credentials) return streamUrl
   const match = RTSP.exec(streamUrl)
-  if (!match) throw new Error('Адрес потока должен начинаться с rtsp://')
-  const [, scheme, authority, rest] = match
+  if (!match) {
+    if (!credentials) return streamUrl
+    throw new Error('Адрес потока должен начинаться с rtsp://')
+  }
+  const [, scheme = '', authority, rest] = match
+  // Схема в адресе регистронезависима, и платформа принимает `RTSP://`, а ffmpeg и ffprobe
+  // ищут протокол по имени с учётом регистра и такой адрес не откроют.
+  const lower = scheme.toLowerCase()
+  if (!credentials) return `${lower}${authority}${rest}`
   const user = encodeURIComponent(credentials.username)
   const pass = encodeURIComponent(credentials.password)
-  return `${scheme}${user}:${pass}@${authority}${rest}`
+  return `${lower}${user}:${pass}@${authority}${rest}`
 }
 
 /** Адрес для журнала: логин и пароль вырезаны, даже если кто-то вписал их в адрес. */
