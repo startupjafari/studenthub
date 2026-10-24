@@ -357,11 +357,17 @@ export async function seedSocial(prisma, writer, ctx) {
       }
       // Блокировка: одна на группу. Экран «Заблокированные» должен быть непустым
       // хотя бы у части пользователей.
-      if (random.chance(0.3) && members.length > 2) {
+      //
+      // Пара — первый и последний в списке: дружбы выше идут только «вперёд» не дальше
+      // чем на 6 человек, а личные диалоги (шаг 60) — между соседями 0–3. Блокировать
+      // соседа значило бы держать человека одновременно в друзьях, в личном чате и в
+      // блоке — так не бывает: блокировка рвёт дружбу.
+      const blockedId = members[members.length - 1]
+      if (random.chance(0.3) && members.length > 7) {
         await writer.add('userBlock', {
-          id: `${members[0]}-blk-${members[1]}`,
+          id: `${members[0]}-blk-${blockedId}`,
           blockerId: members[0],
-          blockedId: members[1],
+          blockedId,
           createdAt: random.randomDate(-100, -1),
         })
       }
