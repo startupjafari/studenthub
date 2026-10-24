@@ -32,11 +32,26 @@ const CAMERA_SELECT = {
   status: true,
   lastSeenAt: true,
   createdAt: true,
-  agent: { select: { id: true, name: true } },
+  agent: { select: { id: true, name: true, lastSeenAt: true } },
   room: { select: { id: true, name: true } },
 } satisfies Prisma.CameraSelect
 
 type CameraRow = Prisma.CameraGetPayload<{ select: typeof CAMERA_SELECT }>
+
+// Агент на связи, пока синхронизируется: длинный опрос держится 25 с, пауза после ошибки —
+// до минуты. Дольше двух минут тишины — агент пропал, и его последний отчёт устарел.
+export const AGENT_STALE_MS = 2 * 60_000
+
+/**
+ * Состояние камеры, которое можно показать. Статус пишет агент, и сам он не гаснет: агент
+ * пропал, модуль выключили или камеру отключили — отчётов больше нет, а в базе навсегда
+ * осталось бы последнее «В сети». Без живого агента и работающей камеры — «неизвестно».
+ */
+function liveStatus(row: CameraRow, moduleEnabled: boolean, now = Date.now()): CameraStatusValue {
+  const agentSeen = row.agent.lastSeenAt?.getTime() ?? 0
+  if (!moduleEnabled || !row.enabled || now - agentSeen > AGENT_STALE_MS) return 'UNKNOWN'
+  return row.status
+}
 
 /** Камера глазами охраны: что и где, без адреса в сети вуза и без сведений об агенте. */
 export interface CameraView {
@@ -56,21 +71,21 @@ export interface CameraAdminView extends CameraView {
   createdAt: Date
 }
 
-function toView(row: CameraRow): CameraView {
+function toView(row: CameraRow, moduleEnabled = true): CameraView {
   return {
     id: row.id,
     name: row.name,
     room: row.room,
     enabled: row.enabled,
-    status: row.status,
+    status: liveStatus(row, moduleEnabled),
     lastSeenAt: row.lastSeenAt,
   }
 }
 
-function toAdminView(row: CameraRow): CameraAdminView {
+function toAdminView(row: CameraRow, moduleEnabled = true): CameraAdminView {
   return {
-    ...toView(row),
-    agent: row.agent,
+    ...toView(row, moduleEnabled),
+    agent: { id: row.agent.id, name: row.agent.name },
     streamUrl: row.streamUrl,
     hasCredentials: row.credentialsSealed !== null,
     createdAt: row.createdAt,
@@ -117,7 +132,15 @@ export class CamerasService {
       }),
       this.prisma.camera.count({ where }),
     ])
-    return new Paginated(rows.map(admin ? toAdminView : toView), { total })
+    const settings = await this.prisma.cameraSettings.findUnique({
+      where: { universityId },
+      select: { enabled: true },
+    })
+    const enabled = settings?.enabled ?? false
+    return new Paginated(
+      rows.map((row) => (admin ? toAdminView(row, enabled) : toView(row, enabled))),
+      { total },
+    )
   }
 
   async create(
