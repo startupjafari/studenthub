@@ -57,6 +57,8 @@ function setup({ enabled = true }: { enabled?: boolean } = {}) {
     $queryRaw: jest.fn().mockResolvedValue([{ max: BigInt(120) }]),
     bookCopy: {
       findMany: jest.fn().mockResolvedValue([]),
+      findUniqueOrThrow: jest.fn(),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       create: jest
         .fn()
         .mockImplementation(({ data }) => Promise.resolve({ id: `copy-${data.inventoryNumber}` })),
@@ -199,18 +201,65 @@ describe('LibraryCatalogService — фонд', () => {
   })
 
   it('выданный экземпляр вручную не списать', async () => {
-    const { service, prisma } = setup()
-    prisma.bookCopy.findUnique.mockResolvedValue({
-      id: 'copy-1',
-      universityId: 'uni-1',
+    const { service, prisma, tx } = setup()
+    const owned = { id: 'copy-1', universityId: 'uni-1', bookId: 'book-1', code: 'X' }
+    prisma.bookCopy.findUnique.mockResolvedValue({ ...owned, status: 'ON_LOAN' })
+    tx.bookCopy.findUniqueOrThrow.mockResolvedValue({
       status: 'ON_LOAN',
-      code: 'X',
+      inventoryNumber: '101',
+      universityId: 'uni-1',
     })
     await expect(
       service.updateCopy(librarian, 'copy-1', { status: 'WRITTEN_OFF' }, ctx),
     ).rejects.toMatchObject({
       code: 'CONFLICT',
       details: [expect.objectContaining({ field: 'status' })],
+    })
+    expect(tx.bookCopy.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('номер выданного экземпляра не меняется: по нему принимают возврат', async () => {
+    const { service, prisma, tx } = setup()
+    prisma.bookCopy.findUnique.mockResolvedValue({
+      id: 'copy-1',
+      universityId: 'uni-1',
+      bookId: 'book-1',
+      status: 'ON_LOAN',
+      code: 'X',
+    })
+    tx.bookCopy.findUniqueOrThrow.mockResolvedValue({
+      status: 'ON_LOAN',
+      inventoryNumber: '101',
+      universityId: 'uni-1',
+    })
+    await expect(
+      service.updateCopy(librarian, 'copy-1', { inventoryNumber: '202' }, ctx),
+    ).rejects.toMatchObject({ details: [expect.objectContaining({ field: 'status' })] })
+    expect(tx.bookCopy.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('списание — под локом книги и условием на прежний статус: гонку с выдачей ловит запись', async () => {
+    const { service, prisma, tx } = setup()
+    prisma.bookCopy.findUnique.mockResolvedValue({
+      id: 'copy-1',
+      universityId: 'uni-1',
+      bookId: 'book-1',
+      status: 'AVAILABLE',
+      code: 'X',
+    })
+    tx.bookCopy.findUniqueOrThrow.mockResolvedValue({
+      status: 'AVAILABLE',
+      inventoryNumber: '101',
+      universityId: 'uni-1',
+    })
+    tx.bookCopy.updateMany.mockResolvedValue({ count: 0 })
+    await expect(
+      service.updateCopy(librarian, 'copy-1', { status: 'WRITTEN_OFF' }, ctx),
+    ).rejects.toMatchObject({ details: [expect.objectContaining({ field: 'status' })] })
+    expect(tx.$executeRaw).toHaveBeenCalled()
+    expect(tx.bookCopy.updateMany).toHaveBeenCalledWith({
+      where: { id: 'copy-1', status: 'AVAILABLE' },
+      data: { status: 'WRITTEN_OFF' },
     })
   })
 

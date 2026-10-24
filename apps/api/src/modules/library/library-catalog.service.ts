@@ -28,6 +28,7 @@ import type { RequestContext } from '../auth/auth.service'
 import { FileService } from '../files/file.service'
 import { LibrarySettingsService } from './library-settings.service'
 import { LibraryReservationsService } from './library-reservations.service'
+import { lockBookQueue } from './library-holds'
 import { LIBRARY_STAFF_ROLES, libraryConflict, memberLibrary, staffLibrary } from './library-scope'
 
 // Каталог и экземпляры (Фаза 20.3, docs/PROJECT.md §3.11). Фонд ведут библиотекарь и админ
@@ -434,25 +435,49 @@ export class LibraryCatalogService {
     input: UpdateBookCopyInput,
     ctx: RequestContext,
   ): Promise<BookCopyItem> {
-    const copy = await this.ownedCopy(actor, copyId)
-    if (input.status && input.status !== copy.status) {
-      // Выдачу и бронь двигают сами выдачи и брони: руками — только вывод из оборота.
-      if (copy.status === 'ON_LOAN' || copy.status === 'RESERVED') {
-        throw libraryConflict('status', 'Экземпляр выдан или отложен под бронь')
-      }
-    }
+    const owned = await this.ownedCopy(actor, copyId)
     try {
-      const updated = await this.prisma.bookCopy.update({
-        where: { id: copyId },
-        data: {
-          ...(input.inventoryNumber !== undefined
-            ? { inventoryNumber: input.inventoryNumber }
-            : {}),
-          ...(input.condition !== undefined ? { condition: input.condition } : {}),
-          ...(input.note !== undefined ? { note: input.note } : {}),
-          ...(input.status !== undefined ? { status: input.status } : {}),
-        },
-        select: COPY_SELECT,
+      // Проверка статуса и запись — под локом очереди книги и условием на прежний статус:
+      // выдача или бронь, взявшие экземпляр между чтением и записью, иначе получили бы
+      // списанный экземпляр с открытой выдачей или готовой бронью (§3.11).
+      const { copy, updated } = await this.prisma.$transaction(async (tx) => {
+        await lockBookQueue(tx, owned.bookId)
+        const copy = await tx.bookCopy.findUniqueOrThrow({
+          where: { id: copyId },
+          select: { status: true, inventoryNumber: true, universityId: true },
+        })
+        // Выдачу и бронь двигают сами выдачи и брони: руками — только вывод из оборота.
+        const busy = copy.status === 'ON_LOAN' || copy.status === 'RESERVED'
+        if (input.status && input.status !== copy.status && busy) {
+          throw libraryConflict('status', 'Экземпляр выдан или отложен под бронь')
+        }
+        // В выдаче лежит номер на момент выдачи, по нему принимают возврат из списка выдач:
+        // номер выданного экземпляра меняется после возврата, иначе «Принять» не найдёт
+        // экземпляр или, хуже, закроет выдачу того, кому достался старый номер.
+        if (
+          input.inventoryNumber !== undefined &&
+          input.inventoryNumber !== copy.inventoryNumber &&
+          copy.status === 'ON_LOAN'
+        ) {
+          throw libraryConflict('status', 'Номер выданного экземпляра меняют после возврата')
+        }
+        const { count } = await tx.bookCopy.updateMany({
+          where: { id: copyId, status: copy.status },
+          data: {
+            ...(input.inventoryNumber !== undefined
+              ? { inventoryNumber: input.inventoryNumber }
+              : {}),
+            ...(input.condition !== undefined ? { condition: input.condition } : {}),
+            ...(input.note !== undefined ? { note: input.note } : {}),
+            ...(input.status !== undefined ? { status: input.status } : {}),
+          },
+        })
+        if (count === 0) throw libraryConflict('status', 'Экземпляр только что выдали')
+        const updated = await tx.bookCopy.findUniqueOrThrow({
+          where: { id: copyId },
+          select: COPY_SELECT,
+        })
+        return { copy, updated }
       })
       await this.audit.record({
         userId: actor.sub,
@@ -632,11 +657,11 @@ export class LibraryCatalogService {
   private async ownedCopy(
     actor: JwtPayload,
     id: string,
-  ): Promise<{ id: string; universityId: string; status: string; code: string }> {
+  ): Promise<{ id: string; universityId: string; bookId: string; status: string; code: string }> {
     const universityId = staffLibrary(actor)
     const copy = await this.prisma.bookCopy.findUnique({
       where: { id },
-      select: { id: true, universityId: true, status: true, code: true },
+      select: { id: true, universityId: true, bookId: true, status: true, code: true },
     })
     if (!copy || copy.universityId !== universityId) {
       throw new AppException('NOT_FOUND', 'Экземпляр не найден')
