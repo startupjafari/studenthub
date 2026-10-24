@@ -137,4 +137,8 @@
     <string name="study_kindControl">Бақылау</string>
     <string name="study_kindExam">Емтихан</string>
     <string name="study_kindOther">Басқа</string>
+
+    <string name="auth_qrChecking">Кодты тексеріп жатырмыз…</string>
+    <string name="auth_qrApproveRequester">Кіруді сұрап тұрған</string>
+    <string name="auth_qrApproveUnknownBrowser">Белгісіз браузер</string>
 </resources>

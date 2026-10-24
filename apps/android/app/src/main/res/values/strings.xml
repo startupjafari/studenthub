@@ -152,4 +152,9 @@
     <string name="study_kindControl">Контрольная</string>
     <string name="study_kindExam">Экзамен</string>
     <string name="study_kindOther">Другое</string>
+
+    <!-- Вход по QR: чьё устройство просит вход — до кнопки, как на странице /qr в вебе -->
+    <string name="auth_qrChecking">Проверяем код…</string>
+    <string name="auth_qrApproveRequester">Вход запрашивает</string>
+    <string name="auth_qrApproveUnknownBrowser">Неизвестный браузер</string>
 </resources>

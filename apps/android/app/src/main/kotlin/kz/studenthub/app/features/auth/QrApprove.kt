@@ -23,6 +23,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberCoroutineScope
@@ -44,9 +45,12 @@ import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kz.studenthub.app.R
+import kz.studenthub.app.core.network.ApiError
+import kz.studenthub.app.core.network.ApiErrorCode
 import kz.studenthub.app.core.network.displayMessage
 import kz.studenthub.app.core.session.QrLoginApproving
 import kz.studenthub.app.core.session.QrLoginTicket
+import kz.studenthub.app.core.session.QrRequester
 import kz.studenthub.app.core.ui.UiText
 import kz.studenthub.app.designsystem.AppTheme
 import kz.studenthub.app.designsystem.AppType
@@ -62,13 +66,18 @@ import kotlin.coroutines.resume
  *
  * Не делается молча по факту сканирования: код может оказаться чужим, и единственная
  * защита здесь — человек, который видит, что подтверждает. Поэтому между сканированием
- * и запросом стоит шаг `Confirming` с предупреждением, как на странице `/qr` в вебе.
+ * и запросом стоят два шага, как на странице `/qr` в вебе: `Checking` спрашивает сервер,
+ * чьё устройство просит вход (`/auth/qr/preview`), а `Confirming` показывает его рядом с
+ * предупреждением. Подтвердить, не увидев устройства, нельзя.
  */
 class QrApproveModel(private val api: QrLoginApproving) : ViewModel() {
     sealed interface State {
         data object Scanning : State
 
-        data class Confirming(val ticket: QrLoginTicket) : State
+        /** Код распознан, спрашиваем сервер, кто просит вход. */
+        data class Checking(val ticket: QrLoginTicket) : State
+
+        data class Confirming(val ticket: QrLoginTicket, val requester: QrRequester) : State
 
         data object Approving : State
 
@@ -89,7 +98,25 @@ class QrApproveModel(private val api: QrLoginApproving) : ViewModel() {
     fun scanned(payload: String) {
         if (state != State.Scanning) return
         val ticket = QrLoginTicket.parse(payload)
-        state = if (ticket == null) State.Failed(UiText.Res(R.string.auth_qrApproveInvalid)) else State.Confirming(ticket)
+        state = if (ticket == null) State.Failed(UiText.Res(R.string.auth_qrApproveInvalid)) else State.Checking(ticket)
+    }
+
+    /**
+     * Узнать, кто просит вход. Код истёк или уже подтверждён — `404`: показываем то же,
+     * что веб, «ссылка недействительна или устарела».
+     */
+    suspend fun inspect() {
+        val ticket = (state as? State.Checking)?.ticket ?: return
+        state = try {
+            State.Confirming(ticket, api.preview(ticket))
+        } catch (error: Exception) {
+            if (error is kotlinx.coroutines.CancellationException) throw error
+            if ((error as? ApiError)?.code == ApiErrorCode.NOT_FOUND) {
+                State.Failed(UiText.Res(R.string.auth_qrApproveInvalid))
+            } else {
+                State.Failed(error.displayMessage())
+            }
+        }
     }
 
     fun confirm() {
@@ -173,9 +200,25 @@ fun QrApproveScreen(onClose: () -> Unit) {
                 PrimaryButton(text = stringResource(R.string.auth_qrScanStart), onClick = startScan)
                 QuietButton(text = stringResource(R.string.common_close), onClick = onClose)
             }
+            is QrApproveModel.State.Checking -> {
+                LaunchedEffect(state) { model.inspect() }
+                CircularProgressIndicator(color = colors.primary)
+                Text(stringResource(R.string.auth_qrChecking), style = AppType.meta, color = colors.mutedForeground)
+            }
             is QrApproveModel.State.Confirming -> {
                 Icon(Icons.Outlined.Computer, null, tint = colors.primary, modifier = Modifier.size(36.dp))
                 Text(stringResource(R.string.auth_qrApprovePrompt), style = AppType.sectionTitle, color = colors.foreground, textAlign = TextAlign.Center)
+                // Чьё устройство просит вход: браузер, система и сеть — до кнопки.
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(Spacing.xs),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(colors.card, RoundedCornerShape(Radius.xl))
+                        .padding(Spacing.lg),
+                ) {
+                    Text(stringResource(R.string.auth_qrApproveRequester), style = AppType.meta, color = colors.mutedForeground)
+                    Text(requesterLine(state.requester), style = AppType.body, color = colors.foreground)
+                }
                 // Предупреждение — главная часть экрана: единственное, что отделяет
                 // подтверждение своего входа от чужого, — внимание человека.
                 Row(
@@ -216,6 +259,15 @@ fun QrApproveScreen(onClose: () -> Unit) {
         }
     }
 }
+
+/** «Chrome · Windows · IP 1.2.3.x» — как строка устройства на странице `/qr` в вебе. */
+@Composable
+private fun requesterLine(requester: QrRequester): String =
+    listOfNotNull(
+        requester.browser ?: stringResource(R.string.auth_qrApproveUnknownBrowser),
+        requester.os,
+        requester.ip?.let { "IP $it" },
+    ).joinToString(" · ")
 
 @Composable
 private fun Outcome(

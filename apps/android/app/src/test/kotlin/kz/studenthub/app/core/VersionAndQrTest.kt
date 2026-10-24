@@ -5,6 +5,7 @@ import kz.studenthub.app.core.network.ApiError
 import kz.studenthub.app.core.network.ApiErrorCode
 import kz.studenthub.app.core.session.QrLoginApproving
 import kz.studenthub.app.core.session.QrLoginTicket
+import kz.studenthub.app.core.session.QrRequester
 import kz.studenthub.app.core.ui.UiText
 import kz.studenthub.app.core.version.AppVersion
 import kz.studenthub.app.core.version.ClientVersionCache
@@ -131,14 +132,31 @@ class QrLoginTest {
         ).forEach { assertNull("принят чужой код: $it", QrLoginTicket.parse(it)) }
     }
 
-    /** Между сканированием и запросом стоит подтверждение: молча подтверждать вход нельзя. */
+    /**
+     * Между сканированием и запросом стоит подтверждение с устройством, которое просит
+     * вход: молча или вслепую подтверждать вход нельзя.
+     */
     @Test
-    fun scanOnlyAsksForConfirmation() {
+    fun scanShowsRequesterBeforeConfirmation() = runTest {
         val api = StubApprover()
         val model = QrApproveModel(api)
         model.scanned("https://studenthub.kz/qr?t=$token")
-        assertEquals(QrApproveModel.State.Confirming(QrLoginTicket(token)), model.state)
+        assertEquals(QrApproveModel.State.Checking(QrLoginTicket(token)), model.state)
+        model.approve()
         assertEquals(0, api.calls)
+        model.inspect()
+        assertEquals(QrApproveModel.State.Confirming(QrLoginTicket(token), requester), model.state)
+        assertEquals(0, api.calls)
+    }
+
+    /** Истёкший или уже подтверждённый код — до кнопки «Подтвердить» дело не доходит. */
+    @Test
+    fun expiredCodeFailsAtPreview() = runTest {
+        val api = StubApprover(previewFailure = ApiError.Server(ApiErrorCode.NOT_FOUND, "x", emptyList(), 404))
+        val model = QrApproveModel(api)
+        model.scanned("https://studenthub.kz/qr?t=$token")
+        model.inspect()
+        assertEquals(QrApproveModel.State.Failed(UiText.Res(kz.studenthub.app.R.string.auth_qrApproveInvalid)), model.state)
     }
 
     @Test
@@ -146,6 +164,7 @@ class QrLoginTest {
         val api = StubApprover()
         val model = QrApproveModel(api)
         model.scanned("https://studenthub.kz/qr?t=$token")
+        model.inspect()
         model.approve()
         assertEquals(1, api.calls)
         assertEquals(QrApproveModel.State.Approved, model.state)
@@ -157,6 +176,7 @@ class QrLoginTest {
         val api = StubApprover(ApiError.Server(ApiErrorCode.NOT_FOUND, "QR-сессия не найдена или истекла", emptyList(), 404))
         val model = QrApproveModel(api)
         model.scanned("https://studenthub.kz/qr?t=$token")
+        model.inspect()
         model.approve()
         assertEquals(QrApproveModel.State.Failed(UiText.Raw("QR-сессия не найдена или истекла")), model.state)
     }
@@ -171,8 +191,15 @@ class QrLoginTest {
         assertTrue(model.state is QrApproveModel.State.Failed)
     }
 
-    private class StubApprover(private val failure: ApiError? = null) : QrLoginApproving {
+    private val requester = QrRequester(browser = "Chrome", os = "Windows", ip = "1.2.3.x")
+
+    private inner class StubApprover(private val failure: ApiError? = null, private val previewFailure: ApiError? = null) : QrLoginApproving {
         var calls = 0
+
+        override suspend fun preview(ticket: QrLoginTicket): QrRequester {
+            previewFailure?.let { throw it }
+            return requester
+        }
 
         override suspend fun approve(ticket: QrLoginTicket) {
             calls++
