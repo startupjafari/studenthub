@@ -2582,6 +2582,9 @@ export class UserService {
           ...data,
           username: data.username.trim().toLowerCase(),
           profileVisibility: this.defaultVisibilityFor(data.role),
+          // Староста по инвайту приходит уже с ролью STAROSTA, и syncGroupStarosta дату
+          // начала полномочий ему не ставит (ставит только при повышении из студентов).
+          ...(data.role === Role.STAROSTA ? { starostaSince: new Date() } : {}),
         },
         select: { id: true, role: true, universityId: true, facultyId: true, groupId: true },
       })

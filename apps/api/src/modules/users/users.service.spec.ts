@@ -560,6 +560,41 @@ describe('UserService — закрытый профиль (видимость п
     void prisma
   })
 
+  it('createInvitedUser — староста по инвайту получает дату начала полномочий', async () => {
+    const { service } = setup()
+    const tx = {
+      user: {
+        create: jest.fn().mockResolvedValue({
+          id: 'n',
+          role: Role.STAROSTA,
+          universityId: 'uni-1',
+          facultyId: 'fac-1',
+          groupId: 'grp-1',
+        }),
+      },
+    }
+    const input = {
+      email: 'st@b.io',
+      username: 'starosta',
+      passwordHash: 'h',
+      firstName: 'S',
+      lastName: 'T',
+      role: Role.STAROSTA,
+      universityId: 'uni-1',
+      facultyId: 'fac-1',
+      groupId: 'grp-1',
+      birthDate: new Date('2005-01-01T00:00:00Z'),
+      consentAt: new Date('2026-09-30T00:00:00Z'),
+      consentVersion: '2026-09-30',
+      consentByGuardian: false,
+    }
+    await service.createInvitedUser(tx as never, input)
+    expect(tx.user.create.mock.calls[0][0].data.starostaSince).toBeInstanceOf(Date)
+
+    await service.createInvitedUser(tx as never, { ...input, role: Role.STUDENT })
+    expect(tx.user.create.mock.calls[1][0].data).not.toHaveProperty('starostaSince')
+  })
+
   it('createInvitedUser — занятое имя → USERNAME_TAKEN, занятый адрес → CONFLICT по полю email', async () => {
     const { service } = setup()
     const p2002 = (target: string[]) =>
