@@ -1169,6 +1169,23 @@ describe('ChatsService.toggleReaction (одна реакция на сообще
     })
   })
 
+  // BUG-179: схема пропускала любую строку до 16 знаков — под сообщением появлялись слова.
+  it('эмодзи не из набора реакций → BAD_REQUEST, но свою прежнюю снять можно', async () => {
+    const { service, prisma } = setup()
+    prisma.message.findFirst.mockResolvedValue({ id: 'm1', chatId: 'c1' })
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'mem1' })
+    prisma.messageReaction.findMany.mockResolvedValueOnce([])
+    prisma.message.findUniqueOrThrow.mockResolvedValue({ id: 'm1', chatId: 'c1', reactions: [] })
+
+    const err = await service.toggleReaction('u1', 'm1', 'ДА').catch((e) => e)
+    expect(err.code).toBe('BAD_REQUEST')
+    expect(prisma.messageReaction.create).not.toHaveBeenCalled()
+
+    prisma.messageReaction.findMany.mockResolvedValueOnce([{ id: 'r1', emoji: 'ДА' }])
+    await service.toggleReaction('u1', 'm1', 'ДА')
+    expect(prisma.messageReaction.deleteMany).toHaveBeenCalledWith({ where: { id: 'r1' } })
+  })
+
   it('не участник → WRONG_SCOPE', async () => {
     const { service, prisma } = setup()
     prisma.message.findFirst.mockResolvedValue({ id: 'm1', chatId: 'c1' })

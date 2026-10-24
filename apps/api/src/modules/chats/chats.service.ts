@@ -20,7 +20,7 @@ import type {
   PollVoteInput,
 } from '@studenthub/shared-schemas'
 import { CLEARED_RANGES_MAX } from '@studenthub/shared-schemas'
-import { MESSAGE_EDIT_WINDOW_MS } from '@studenthub/shared-config'
+import { CHAT_REACTION_EMOJIS, MESSAGE_EDIT_WINDOW_MS } from '@studenthub/shared-config'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { REDIS_CLIENT } from '../../common/redis/redis.module'
 import { buildPublicObjectUrl } from '../../common/minio/public-url'
@@ -3096,6 +3096,11 @@ export class ChatsService implements OnModuleInit {
         // Повтор той же реакции — снять.
         await tx.messageReaction.deleteMany({ where: { id: same.id } })
         return
+      }
+      // Поставить можно только эмодзи из набора реакций: схема пропускала любую строку до
+      // 16 знаков, и под сообщением появлялись слова. Снять свою прежнюю (выше) — любую.
+      if (!(CHAT_REACTION_EMOJIS as readonly string[]).includes(emoji)) {
+        throw new AppException('BAD_REQUEST', 'Такой реакции нет')
       }
       // Заменить любую прежнюю реакцию этого пользователя на новую (одна на сообщение).
       if (existing.length > 0) {
