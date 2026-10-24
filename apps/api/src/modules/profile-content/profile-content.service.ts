@@ -532,15 +532,18 @@ export class ProfileContentService {
 
   // ── Статьи ──────────────────────────────────────────────────────────────────
 
-  /** Загрузка обложки статьи (изображение) в бакет profile-covers → публичный URL. */
-  async uploadCover(actor: JwtPayload, buffer: Buffer): Promise<{ url: string }> {
-    const file = await this.files.upload({
-      buffer,
-      bucket: this.coversBucket,
-      ownerId: actor.sub,
-      expectedCategory: 'IMAGE',
-    })
-    return { url: this.buildPublicUrl(this.coversBucket, file.key) }
+  /**
+   * Загрузка обложки статьи (изображение) в бакет profile-covers → публичный URL.
+   *
+   * Объектом без записи File, как постер видео и обложка пользователя: обложка живёт, пока
+   * на неё ссылается `ProfileArticle.coverUrl`. Брошенная (статью не сохранили), заменённая
+   * и обложка удалённой статьи становятся сиротами и уходят с ночной `cleanOrphanFiles`.
+   * Раньше каждая загрузка заводила File, который не удалял никто: публичный бакет рос без
+   * предела и мимо квоты медиа профиля.
+   */
+  async uploadCover(_actor: JwtPayload, buffer: Buffer): Promise<{ url: string }> {
+    const key = await this.files.putAuxImage(this.coversBucket, buffer)
+    return { url: this.buildPublicUrl(this.coversBucket, key) }
   }
 
   /**
