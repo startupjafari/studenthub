@@ -2509,6 +2509,7 @@
     "notTaken": "Nobody",
     "warnUser": "Warn",
     "confirmWarn": "Warn the author? They'll get a notification and it stays in the moderation history.",
+    "confirmDeleteContent": "Delete the content? It disappears for everyone and can't be restored from moderation.",
     "blockTerm": "Block duration",
     "blockForever": "Permanent",
     "blockWeek": "Week",

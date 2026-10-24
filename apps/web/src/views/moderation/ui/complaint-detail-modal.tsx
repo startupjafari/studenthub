@@ -141,18 +141,21 @@ export function ComplaintDetailModal({
     onError: (e) => toast.error(tErr(toApiError(e).code)),
   })
 
-  // Жёсткие меры — через подтверждение: блокировка отключает человека от платформы, а
-  // предупреждение уходит ему уведомлением и остаётся в истории модерации навсегда.
+  // Жёсткие меры — через подтверждение: блокировка отключает человека от платформы,
+  // предупреждение уходит ему уведомлением и остаётся в истории модерации навсегда, а снятый
+  // контент возврат жалобы в очередь не возвращает.
   async function decide(action: Decision): Promise<void> {
-    if (action === 'BLOCK_USER' || action === 'WARN_USER') {
+    if (action !== 'DISMISS') {
       const ok = await confirm({
         title:
           action === 'WARN_USER'
             ? t('confirmWarn')
-            : blockDays === 0
-              ? t('confirmBlockForever')
-              : t('confirmBlockFor', { days: blockDays }),
-        destructive: action === 'BLOCK_USER',
+            : action === 'DELETE_CONTENT'
+              ? t('confirmDeleteContent')
+              : blockDays === 0
+                ? t('confirmBlockForever')
+                : t('confirmBlockFor', { days: blockDays }),
+        destructive: action !== 'WARN_USER',
       })
       if (!ok) return
     }
