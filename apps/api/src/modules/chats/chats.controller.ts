@@ -347,7 +347,7 @@ export class ChatsController {
     @Param('id') id: string,
     @Body() dto: MessageForwardDto,
   ) {
-    return this.chats.forwardMessage(user.sub, id, dto.messageId)
+    return this.chats.forwardMessage(user, id, dto.messageId)
   }
 
   @Post(':id/share-post')

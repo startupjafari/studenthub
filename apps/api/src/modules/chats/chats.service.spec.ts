@@ -1199,7 +1199,7 @@ describe('ChatsService.forwardMessage', () => {
     })
     prisma.chat.update.mockResolvedValue({})
     prisma.chatMember.findMany.mockResolvedValue([{ userId: 'u2' }])
-    const res = await service.forwardMessage('u1', 'c1', 'src')
+    const res = await service.forwardMessage(user('u1'), 'c1', 'src')
     expect(prisma.message.create.mock.calls[0][0].data.forwardedFromId).toBe('src')
     expect(files.copyToMessage).toHaveBeenCalledTimes(1)
     // Копия делается до сообщения и привязывается к нему в транзакции создания.
@@ -1229,18 +1229,70 @@ describe('ChatsService.forwardMessage', () => {
       .mockResolvedValueOnce({ id: 'copy-1' })
       .mockRejectedValueOnce(new Error('minio down'))
 
-    await expect(service.forwardMessage('u1', 'c1', 'src')).rejects.toThrow('minio down')
+    await expect(service.forwardMessage(user('u1'), 'c1', 'src')).rejects.toThrow('minio down')
 
     expect(prisma.message.create).not.toHaveBeenCalled()
     expect(files.delete).toHaveBeenCalledWith('copy-1')
     expect(realtime.emitToRoom).not.toHaveBeenCalled()
   })
 
+  // BUG-173: пересылка поста приходила пустым пузырём, опрос и спойлер терялись.
+  it('переносит карточку поста, опрос и спойлер вложения', async () => {
+    const { service, prisma, files, posts } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'mem1' })
+    prisma.message.findFirst.mockResolvedValue({
+      id: 'src',
+      chatId: 'c0',
+      content: '',
+      linkPreview: null,
+      sharedPostId: 'post-1',
+      poll: {
+        question: 'Когда?',
+        multiple: true,
+        anonymous: false,
+        allowRevote: true,
+        randomOrder: false,
+        options: [
+          { text: 'Утром', order: 0 },
+          { text: 'Вечером', order: 1 },
+        ],
+      },
+      media: [{ bucket: 'chat-media', key: 'k1', mime: 'image/png', size: 10, spoiler: true }],
+    })
+    files.copyToMessage.mockResolvedValueOnce({ id: 'copy-1' })
+    prisma.message.create.mockResolvedValue({ id: 'fwd1' })
+    prisma.message.findUniqueOrThrow.mockResolvedValue({ id: 'fwd1', chatId: 'c1' })
+    prisma.chat.update.mockResolvedValue({})
+
+    await service.forwardMessage(user('u1'), 'c1', 'src')
+
+    expect(posts.assertVisibleToViewer).toHaveBeenCalledWith(
+      expect.objectContaining({ sub: 'u1' }),
+      'post-1',
+    )
+    const data = prisma.message.create.mock.calls[0][0].data
+    expect(data.sharedPostId).toBe('post-1')
+    expect(data.poll.create).toMatchObject({
+      question: 'Когда?',
+      multiple: true,
+      options: {
+        create: [
+          { text: 'Утром', order: 0 },
+          { text: 'Вечером', order: 1 },
+        ],
+      },
+    })
+    expect(prisma.file.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ['copy-1'] } },
+      data: { spoiler: true },
+    })
+  })
+
   it('исходное сообщение не найдено → NOT_FOUND', async () => {
     const { service, prisma } = setup()
     prisma.chatMember.findUnique.mockResolvedValue({ id: 'mem1' })
     prisma.message.findFirst.mockResolvedValue(null)
-    const err = await service.forwardMessage('u1', 'c1', 'src').catch((e) => e)
+    const err = await service.forwardMessage(user('u1'), 'c1', 'src').catch((e) => e)
     expect(err.code).toBe('NOT_FOUND')
   })
 })
@@ -3187,7 +3239,7 @@ describe('ChatsService — общие условия отправки (assertCan
   it('пересылка в личный чат к заблокировавшему — FORBIDDEN, сообщение не создаётся', async () => {
     const { service, prisma } = blockedSetup()
 
-    const err = await service.forwardMessage('u1', 'c1', 'src1').catch((e) => e)
+    const err = await service.forwardMessage(user('u1'), 'c1', 'src1').catch((e) => e)
 
     expect(err).toBeInstanceOf(AppException)
     expect(err.code).toBe('FORBIDDEN')
@@ -3277,7 +3329,7 @@ describe('ChatsService — общие условия отправки (assertCan
     prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1' })
     redis.incr.mockResolvedValue(21)
 
-    const err = await service.forwardMessage('u1', 'c1', 'src1').catch((e) => e)
+    const err = await service.forwardMessage(user('u1'), 'c1', 'src1').catch((e) => e)
 
     expect(err.code).toBe('RATE_LIMIT')
     expect(prisma.message.create).not.toHaveBeenCalled()

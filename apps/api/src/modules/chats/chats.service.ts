@@ -3123,10 +3123,11 @@ export class ChatsService implements OnModuleInit {
    * (новые File-записи на тот же объект MinIO, без повторной загрузки) и метку источника.
    */
   async forwardMessage(
-    userId: string,
+    viewer: JwtPayload,
     targetChatId: string,
     sourceMessageId: string,
   ): Promise<MessageRow> {
+    const userId = viewer.sub
     await this.assertMembership(userId, targetChatId)
     await this.assertCanSend(targetChatId, userId)
     const source = await this.prisma.message.findFirst({
@@ -3136,6 +3137,19 @@ export class ChatsService implements OnModuleInit {
         chatId: true,
         content: true,
         linkPreview: true,
+        // Карточка поста и опрос — содержимое сообщения наравне с текстом: без них пересылка
+        // поста приходила пустым пузырём, а опрос — голым вопросом.
+        sharedPostId: true,
+        poll: {
+          select: {
+            question: true,
+            multiple: true,
+            anonymous: true,
+            allowRevote: true,
+            randomOrder: true,
+            options: { select: { text: true, order: true }, orderBy: { order: 'asc' } },
+          },
+        },
         media: {
           select: {
             // id — чтобы копия забрала готовые варианты медиа, а не готовила их заново.
@@ -3147,12 +3161,17 @@ export class ChatsService implements OnModuleInit {
             name: true,
             width: true,
             height: true,
+            spoiler: true,
+            asDocument: true,
           },
         },
       },
     })
     if (!source) throw new AppException('NOT_FOUND', 'Исходное сообщение не найдено')
     await this.assertMembership(userId, source.chatId)
+    // Пост пересылает дальше тот, кто его видит, — как и при «поделиться» (IDOR-защита):
+    // иначе карточка уходила бы за пределы аудитории поста через цепочку пересылок.
+    if (source.sharedPostId) await this.posts.assertVisibleToViewer(viewer, source.sharedPostId)
     // Копируем каждое вложение на новый ключ — пересланное живёт своей жизнью. Копии
     // делаются ДО сообщения: сбой копирования не должен оставлять в чате пересылку без
     // вложений с занятым seq (см. createWithAttachments).
@@ -3161,7 +3180,8 @@ export class ChatsService implements OnModuleInit {
     try {
       for (const f of source.media) {
         const copy = await this.files.copyToMessage(f, userId)
-        copies.push({ id: copy.id })
+        // Спойлер — свойство вложения: пересланный снимок скрыт так же, как в оригинале.
+        copies.push({ id: copy.id, spoiler: f.spoiler })
       }
       created = await this.createWithAttachments(
         {
@@ -3173,9 +3193,29 @@ export class ChatsService implements OnModuleInit {
           // результатом не нужен. Если у оригинала его нет — доберём job'ом ниже.
           linkPreview:
             source.linkPreview === null ? undefined : (source.linkPreview as Prisma.InputJsonValue),
+          sharedPostId: source.sharedPostId,
+          // Опрос пересылается новым, со своими голосами: опрос привязан к одному сообщению,
+          // а чужие голоса из другого чата здесь ничего не значат.
+          ...(source.poll
+            ? {
+                poll: {
+                  create: {
+                    question: source.poll.question,
+                    multiple: source.poll.multiple,
+                    anonymous: source.poll.anonymous,
+                    allowRevote: source.poll.allowRevote,
+                    randomOrder: source.poll.randomOrder,
+                    options: {
+                      create: source.poll.options.map((o) => ({ text: o.text, order: o.order })),
+                    },
+                  },
+                },
+              }
+            : {}),
         },
         copies,
-        false,
+        // «Без сжатия» выбирается на всё сообщение разом — переносим как было.
+        source.media.some((f) => f.asDocument),
       )
     } catch (error) {
       await this.discardAttachments(copies)
