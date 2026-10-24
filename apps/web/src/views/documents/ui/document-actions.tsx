@@ -17,6 +17,7 @@ import {
   Trash2,
   Users,
 } from 'lucide-react'
+import type { DocumentField } from '@studenthub/shared-config'
 import {
   archiveDocument,
   deleteDocument,
@@ -32,7 +33,11 @@ import {
   unarchiveDocument,
   updateDocument,
   type DocumentDto,
+  type DocumentEvent,
 } from '../../../entities/document'
+import { useDocumentTypeCatalog } from '../../../entities/document-type'
+import { UserPicker, type PickedUser } from '../../../entities/user'
+import { nowInTz } from '../../../shared/lib'
 import { useAppSelector } from '../../../shared/store'
 import {
   Badge,
@@ -57,6 +62,13 @@ import { DocumentPagesModal } from './document-pages-modal'
 
 function errCode(e: unknown): string {
   return (e as { code?: string }).code ?? 'INTERNAL_ERROR'
+}
+
+// Дата документа для поля формы (YYYY-MM-DD). Сервер хранит «дату без времени» полуночью
+// UTC, а срок действия — концом этого дня по часам вуза: у вузов Казахстана это тот же
+// календарный день и в UTC, поэтому достаточно отрезать время.
+function dateInput(iso: string | null): string {
+  return iso ? iso.slice(0, 10) : ''
 }
 
 // Действия над документом: меню «…» в строке таблицы плюс его модалки (данные, доступ,
@@ -98,11 +110,13 @@ export function DocumentActions({ doc }: { doc: DocumentDto }) {
   })
 
   // Картинки и видео открываем в общем просмотрщике (как в чате и постах), остальное —
-  // PDF, docx — отдаём браузеру вкладкой: показать их просмотрщик не умеет.
+  // PDF, docx — отдаём браузеру вкладкой: показать их просмотрщик не умеет. Листает он
+  // только снимки: PDF-страница в его списке закрывала бы просмотр на полпути.
+  const media = doc.files.filter((f) => isViewableMedia(f.mime))
   async function openFile(fileId: string): Promise<void> {
-    const file = doc.files.find((f) => f.id === fileId)
-    if (file && isViewableMedia(file.mime)) {
-      setViewerIndex(doc.files.indexOf(file))
+    const file = media.find((f) => f.id === fileId)
+    if (file) {
+      setViewerIndex(media.indexOf(file))
       return
     }
     try {
@@ -115,8 +129,7 @@ export function DocumentActions({ doc }: { doc: DocumentDto }) {
   // Из окна страниц: снимок открываем в просмотрщике, закрыв окно (просмотрщик не живёт
   // поверх модального диалога — тот держит фокус и клики), PDF — вкладкой, окно остаётся.
   function openFromPages(fileId: string): void {
-    const file = doc.files.find((f) => f.id === fileId)
-    if (file && isViewableMedia(file.mime)) setPages(false)
+    if (media.some((f) => f.id === fileId)) setPages(false)
     void openFile(fileId)
   }
 
@@ -179,7 +192,7 @@ export function DocumentActions({ doc }: { doc: DocumentDto }) {
           </DropdownMenuItem>
           {/* Идентификатор документа нигде больше не показан, а поддержка и платформенный
               админ спрашивают именно его: спец-доступ открывается только по точному id
-              (GET /documents/:id/platform), списка чужих документов не существует.
+              (POST /documents/:id/platform с причиной), списка чужих документов не существует.
               Сам по себе id ничего не открывает — доступ по-прежнему у одной роли и
               под запись в аудит. */}
           <DropdownMenuItem onSelect={() => void copyId()}>
@@ -211,7 +224,7 @@ export function DocumentActions({ doc }: { doc: DocumentDto }) {
 
       {viewerIndex !== null && (
         <DocumentFileViewer
-          files={doc.files}
+          files={media}
           index={viewerIndex}
           onIndexChange={setViewerIndex}
           onClose={() => setViewerIndex(null)}
@@ -236,8 +249,22 @@ function EditModal({ doc, onClose }: { doc: DocumentDto; onClose: () => void }) 
   const [title, setTitle] = useState(doc.title)
   const [issuedBy, setIssuedBy] = useState(doc.issuedBy ?? '')
   const [comment, setComment] = useState(doc.comment ?? '')
+  // Номер наружу не отдаётся (только маска), поэтому поле — для нового номера: пустое
+  // значение номер не меняет.
+  const [number, setNumber] = useState('')
+  const [issuedAt, setIssuedAt] = useState(dateInput(doc.issuedAt))
+  const [expiresAt, setExpiresAt] = useState(dateInput(doc.expiresAt))
   const [submitted, setSubmitted] = useState(false)
+  // Поля — как в мастере загрузки, по набору полей типа; заполненное поле показываем, даже
+  // если тип его больше не предусматривает. Раньше номер и даты после загрузки было не
+  // поменять вовсе, и продлённый документ оставался «Просрочен».
+  const fields = (useDocumentTypeCatalog().typeOf(doc.type)?.fields ?? []) as DocumentField[]
+  const showNumber = fields.includes('number') || !!doc.numberMasked
+  const showIssuedAt = fields.includes('issuedAt') || !!doc.issuedAt
+  const showExpiresAt = fields.includes('expiresAt') || !!doc.expiresAt
   const titleError = !title.trim() ? tCommon('fieldRequired') : null
+  const expiresError =
+    issuedAt && expiresAt && expiresAt < issuedAt ? tCommon('endNotBeforeStart') : null
   // Данные выданного вузом документа меняет только вуз; владельцу остаётся своя заметка.
   const locked = doc.issuedByUniversity
 
@@ -247,7 +274,14 @@ function EditModal({ doc, onClose }: { doc: DocumentDto; onClose: () => void }) 
         doc.id,
         locked
           ? { comment: comment || null }
-          : { title, issuedBy: issuedBy || null, comment: comment || null },
+          : {
+              title,
+              issuedBy: issuedBy || null,
+              comment: comment || null,
+              ...(showNumber && number.trim() ? { number: number.trim() } : {}),
+              ...(showIssuedAt ? { issuedAt: issuedAt ? new Date(issuedAt) : null } : {}),
+              ...(showExpiresAt ? { expiresAt: expiresAt ? new Date(expiresAt) : null } : {}),
+            },
       ),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: documentKeys.all })
@@ -271,7 +305,7 @@ function EditModal({ doc, onClose }: { doc: DocumentDto; onClose: () => void }) 
             loading={mut.isPending}
             onClick={() => {
               setSubmitted(true)
-              if (!titleError) mut.mutate()
+              if (!titleError && !expiresError) mut.mutate()
             }}
           >
             {t('save')}
@@ -289,6 +323,46 @@ function EditModal({ doc, onClose }: { doc: DocumentDto; onClose: () => void }) 
         />
         <FieldError>{submitted ? titleError : null}</FieldError>
       </label>
+      {showNumber && (
+        <label className="flex flex-col gap-1 text-sm">
+          {t('fieldNumber')}
+          <Input
+            value={number}
+            onChange={(e) => setNumber(e.target.value)}
+            placeholder={doc.numberMasked ?? undefined}
+            disabled={locked}
+          />
+          {!locked && (
+            <span className="text-xs text-muted-foreground">{t('numberReplaceHint')}</span>
+          )}
+        </label>
+      )}
+      {showIssuedAt && (
+        <label className="flex flex-col gap-1 text-sm">
+          {t('fieldIssuedAt')}
+          <DatePicker
+            value={issuedAt}
+            onChange={setIssuedAt}
+            max={expiresAt || undefined}
+            disabled={locked}
+            aria-label={t('fieldIssuedAt')}
+          />
+        </label>
+      )}
+      {showExpiresAt && (
+        <label className="flex flex-col gap-1 text-sm">
+          {t('fieldExpiresAt')}
+          <DatePicker
+            value={expiresAt}
+            onChange={setExpiresAt}
+            min={issuedAt || undefined}
+            disabled={locked}
+            aria-label={t('fieldExpiresAt')}
+            aria-invalid={submitted && !!expiresError}
+          />
+          <FieldError>{submitted ? expiresError : null}</FieldError>
+        </label>
+      )}
       <label className="flex flex-col gap-1 text-sm">
         {t('fieldIssuedBy')}
         <Input value={issuedBy} onChange={(e) => setIssuedBy(e.target.value)} disabled={locked} />
@@ -306,12 +380,30 @@ function EditModal({ doc, onClose }: { doc: DocumentDto; onClose: () => void }) 
 
 function HistoryModal({ docId, onClose }: { docId: string; onClose: () => void }) {
   const t = useTranslations('Documents')
+  const tJournal = useTranslations('DocumentJournal')
+  const tRoles = useTranslations('Roles')
   const locale = useLocale()
   const q = useQuery({
     queryKey: documentKeys.events(docId),
     queryFn: () => fetchDocumentEvents(docId),
   })
   const events = q.data ?? []
+
+  // Кто и через что — как в журнале документов вуза. Свои действия владельца не
+  // подписываем: в его собственной истории это и так понятно.
+  const byWhom = (e: DocumentEvent): string | null => {
+    if (e.via === 'OWNER') return null
+    const via =
+      e.granteeType === 'UNIVERSITY'
+        ? tJournal('viaGrantUniversity')
+        : e.granteeType === 'DEPARTMENT'
+          ? tJournal('viaGrantDepartment')
+          : e.granteeType === 'USER'
+            ? tJournal('viaGrantUser')
+            : tJournal(`via_${e.via}`)
+    const who = e.actor.name || (e.actor.role ? tRoles(e.actor.role) : null)
+    return who && e.via !== 'SYSTEM' ? `${who} · ${via}` : via
+  }
 
   return (
     <DocModal title={t('historyTitle')} onClose={onClose}>
@@ -324,6 +416,7 @@ function HistoryModal({ docId, onClose }: { docId: string; onClose: () => void }
           {events.map((e) => (
             <li key={e.id} className="flex flex-col border-l-2 border-border pl-3">
               <span className="text-sm font-medium">{t(`evt_${e.action}`)}</span>
+              {byWhom(e) && <span className="text-xs text-muted-foreground">{byWhom(e)}</span>}
               {/* Причина отклонения по запросу — ровно то, что нужно исправить. */}
               {e.action === 'REJECT' && typeof e.metadata?.reason === 'string' && (
                 <span className="text-xs text-destructive">{e.metadata.reason}</span>
@@ -354,12 +447,16 @@ function AccessModal({ docId, onClose }: { docId: string; onClose: () => void })
   const qc = useQueryClient()
   const myFacultyId = useAppSelector((s) => s.auth.facultyId)
 
-  const [target, setTarget] = useState<'UNIVERSITY' | 'DEPARTMENT'>('UNIVERSITY')
+  const [target, setTarget] = useState<'UNIVERSITY' | 'DEPARTMENT' | 'USER'>('UNIVERSITY')
+  // Персональный доступ (USER): так документ открывают студенты и преподаватели (§3.8) —
+  // гранты «Университет» и «Факультет» пускают только администрацию.
+  const [person, setPerson] = useState<PickedUser | null>(null)
   const [reason, setReason] = useState('')
   const [expiresAt, setExpiresAt] = useState('')
   const [submitted, setSubmitted] = useState(false)
   // Основание обязательно: оно уходит в журнал документа и в аудит.
   const reasonError = !reason.trim() ? tCommon('fieldRequired') : null
+  const personError = target === 'USER' && !person ? tCommon('fieldRequired') : null
 
   const q = useQuery({
     queryKey: documentKeys.access(docId),
@@ -373,7 +470,12 @@ function AccessModal({ docId, onClose }: { docId: string; onClose: () => void })
     mutationFn: () =>
       grantDocumentAccess(docId, {
         granteeType: target,
-        granteeId: target === 'DEPARTMENT' ? (myFacultyId ?? undefined) : undefined,
+        granteeId:
+          target === 'DEPARTMENT'
+            ? (myFacultyId ?? undefined)
+            : target === 'USER'
+              ? person?.id
+              : undefined,
         reason: reason.trim(),
         expiresAt: expiresAt ? new Date(expiresAt) : undefined,
       }),
@@ -382,6 +484,7 @@ function AccessModal({ docId, onClose }: { docId: string; onClose: () => void })
       void qc.invalidateQueries({ queryKey: documentKeys.all })
       setReason('')
       setExpiresAt('')
+      setPerson(null)
       setSubmitted(false)
       toast.success(t('granted'))
     },
@@ -436,7 +539,11 @@ function AccessModal({ docId, onClose }: { docId: string; onClose: () => void })
                   {t('grantRevoke')}
                 </Button>
               ) : (
-                <Badge variant="secondary">{t('grantRevoked')}</Badge>
+                // Неактивный грант — либо отозван владельцем, либо истёк сам: раньше истёкший
+                // тоже показывался «Отозван».
+                <Badge variant="secondary">
+                  {g.revokedAt ? t('grantRevoked') : t('grantExpired')}
+                </Badge>
               )}
             </li>
           ))}
@@ -455,9 +562,16 @@ function AccessModal({ docId, onClose }: { docId: string; onClose: () => void })
             <SelectContent>
               <SelectItem value="UNIVERSITY">{t('grantUniversity')}</SelectItem>
               {myFacultyId && <SelectItem value="DEPARTMENT">{t('grantDepartment')}</SelectItem>}
+              <SelectItem value="USER">{t('grantUser')}</SelectItem>
             </SelectContent>
           </Select>
         </label>
+        {target === 'USER' && (
+          <div className="flex flex-col gap-1 text-sm">
+            <UserPicker value={person} onSelect={setPerson} />
+            <FieldError>{submitted ? personError : null}</FieldError>
+          </div>
+        )}
         <label className="flex flex-col gap-1 text-sm">
           {t('grantReason')}
           <Input
@@ -470,7 +584,13 @@ function AccessModal({ docId, onClose }: { docId: string; onClose: () => void })
         </label>
         <label className="flex flex-col gap-1 text-sm">
           {t('grantExpiry')}
-          <DatePicker value={expiresAt} onChange={setExpiresAt} aria-label={t('grantExpiry')} />
+          {/* Срок в прошлом сервер не примет: доступ «до вчера» никому ничего не открыл бы. */}
+          <DatePicker
+            value={expiresAt}
+            onChange={setExpiresAt}
+            min={nowInTz(null).date}
+            aria-label={t('grantExpiry')}
+          />
         </label>
         {/* Подтверждающее действие — справа, как во всех окнах (DESIGN_SYSTEM §10.5). */}
         <div className="flex justify-end">
@@ -479,7 +599,7 @@ function AccessModal({ docId, onClose }: { docId: string; onClose: () => void })
             loading={grantMut.isPending}
             onClick={() => {
               setSubmitted(true)
-              if (!reasonError) grantMut.mutate()
+              if (!reasonError && !personError) grantMut.mutate()
             }}
           >
             {t('grantSubmit')}

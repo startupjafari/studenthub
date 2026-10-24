@@ -55,6 +55,7 @@ function setup() {
       count: jest.fn().mockResolvedValue(0),
     },
     user: { findMany: jest.fn().mockResolvedValue([]) },
+    university: { findUnique: jest.fn().mockResolvedValue({ timezone: 'Asia/Almaty' }) },
     documentEvent: {
       create: jest.fn().mockResolvedValue({}),
       createMany: jest.fn().mockResolvedValue({ count: 0 }),
@@ -135,6 +136,19 @@ describe('DocumentsService', () => {
     expect((dto as unknown as Record<string, unknown>).number).toBeUndefined()
   })
 
+  it('create: срок датой без времени действует до конца этого дня по часам вуза', async () => {
+    const { service, prisma } = setup()
+    await service.create(actor(), {
+      category: 'PERSONAL',
+      type: 'ID_CARD',
+      title: 'Удостоверение',
+      expiresAt: new Date('2026-12-31'),
+    })
+    const data = prisma.document.create.mock.calls[0][0].data
+    // 23:59:59.999 31.12 по Алматы (UTC+5), а не 05:00 того же дня.
+    expect(data.expiresAt).toEqual(new Date('2026-12-31T18:59:59.999Z'))
+  })
+
   it('create: неизвестный тип для категории → BAD_REQUEST', async () => {
     const { service } = setup()
     const err = await service
@@ -175,7 +189,9 @@ describe('DocumentsService', () => {
   it('sweepExpiry: просроченный → EXPIRED + уведомление владельцу + событие EXPIRE', async () => {
     const { service, prisma, queue } = setup()
     prisma.document.findMany
-      .mockResolvedValueOnce([{ id: 'd1', ownerId: 'u1', title: 'Паспорт' }]) // стадия EXPIRED
+      .mockResolvedValueOnce([
+        { id: 'd1', ownerId: 'u1', title: 'Паспорт', expiresAt: new Date(1_700_000_000_000) },
+      ]) // стадия EXPIRED
       .mockResolvedValue([]) // затем пусто (и стадия EXPIRING)
     const res = await service.sweepExpiry()
     expect(res.expired).toBe(1)
@@ -188,7 +204,8 @@ describe('DocumentsService', () => {
     const [, jobName, payload] = queue.enqueue.mock.calls[0]
     expect(jobName).toBe('document-expiring')
     expect(payload.recipientIds).toEqual(['u1'])
-    expect(payload.dedupeKey).toBe('doc-expired:d1')
+    // Ключ — на срок: продлённый и снова истёкший документ получит новое уведомление.
+    expect(payload.dedupeKey).toBe('doc-expired:d1:1700000000000')
     expect(payload.type).toBe('SYSTEM')
   })
 
@@ -373,6 +390,22 @@ describe('DocumentsService — доступ (15.11)', () => {
     expect(prisma.documentAccess.create).not.toHaveBeenCalled()
   })
 
+  it('grantAccess: срок в прошлом → BAD_REQUEST, гранта и уведомления нет', async () => {
+    const { service, prisma, queue } = setup()
+    prisma.document.findFirst.mockResolvedValue({ id: 'd1' })
+    const err = await service
+      .grantAccess(actor(), 'd1', {
+        granteeType: 'USER',
+        granteeId: 'u2',
+        reason: 'дело',
+        expiresAt: new Date('2020-01-01T00:00:00Z'),
+      })
+      .catch((e) => e)
+    expect(err.code).toBe('BAD_REQUEST')
+    expect(prisma.documentAccess.create).not.toHaveBeenCalled()
+    expect(queue.enqueue).not.toHaveBeenCalled()
+  })
+
   it('grantAccess: UNIVERSITY → granteeId=null, событие GRANT', async () => {
     const { service, prisma } = setup()
     prisma.document.findFirst.mockResolvedValue({ id: 'd1' })
@@ -412,6 +445,23 @@ describe('DocumentsService — доступ (15.11)', () => {
     expect(prisma.documentEvent.create).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ action: 'VIEW' }) }),
     )
+  })
+
+  it('getFileUrl: действие в журнале — по ссылке, а не по тому, кто смотрит', async () => {
+    const cases: [string, boolean, string][] = [
+      ['me', false, 'VIEW'], // владелец смотрит — не «скачал»
+      ['me', true, 'DOWNLOAD'],
+      ['other', true, 'DOWNLOAD'], // получатель гранта скачал — не «посмотрел»
+    ]
+    for (const [ownerId, download, action] of cases) {
+      const { service, prisma } = setup()
+      prisma.document.findFirst.mockResolvedValue({ id: 'd1', ownerId, universityId: 'uni-1' })
+      prisma.documentAccess.findFirst.mockResolvedValue({ id: 'g1', granteeType: 'USER' })
+      prisma.file.findFirst.mockResolvedValue({ id: 'f1' })
+      await service.getFileUrl(actor(), 'd1', 'f1', download)
+      expect(prisma.documentEvent.create).toHaveBeenCalledTimes(1)
+      expect(prisma.documentEvent.create.mock.calls[0][0].data.action).toBe(action)
+    }
   })
 
   it('гранты «Университет» и «факультет» не действуют для студента — только USER', async () => {
@@ -747,6 +797,59 @@ describe('DocumentsService — выданные вузом и архив (D-F22)
     )
   })
 
+  it('возврат из архива пишется UNARCHIVE; старый возврат (ARCHIVE, archived: false) в истории — тоже', async () => {
+    const { service, prisma } = setup()
+    prisma.document.findFirst.mockResolvedValueOnce(
+      row({ status: 'ARCHIVED', archivedAt: new Date() }),
+    )
+    prisma.document.updateMany.mockResolvedValue({ count: 1 })
+    await service.setArchived(actor(), 'd1', false)
+    expect(prisma.documentEvent.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ action: 'UNARCHIVE' }) }),
+    )
+
+    prisma.documentEvent.findMany.mockResolvedValue([
+      { id: 'e1', action: 'ARCHIVE', actorId: 'me', metadata: { archived: false } },
+      { id: 'e2', action: 'ARCHIVE', actorId: 'me', metadata: { archived: true } },
+    ])
+    const events = await service.listEvents(actor(), 'd1')
+    expect(events.map((e) => e.action)).toEqual(['UNARCHIVE', 'ARCHIVE'])
+  })
+
+  it('история у владельца: кто открыл и через что; сотрудник платформы — без имени', async () => {
+    const { service, prisma } = setup()
+    prisma.documentEvent.findMany.mockResolvedValue([
+      {
+        id: 'e1',
+        action: 'VIEW',
+        actorId: 'dean-1',
+        requestId: null,
+        metadata: { fileId: 'f1', accessId: 'a1', granteeType: 'DEPARTMENT' },
+      },
+      {
+        id: 'e2',
+        action: 'VIEW',
+        actorId: 'pa-1',
+        requestId: null,
+        metadata: { platformMode: true, reason: 'жалоба' },
+      },
+    ])
+    prisma.user.findMany.mockResolvedValue([
+      { id: 'dean-1', firstName: 'Дана', lastName: 'Ахметова', role: Role.DEAN },
+      { id: 'pa-1', firstName: 'Ержан', lastName: 'Бек', role: Role.PLATFORM_ADMIN },
+    ])
+    const [grant, platform] = await service.listEvents(actor(), 'd1')
+    expect(grant).toMatchObject({
+      via: 'GRANT',
+      granteeType: 'DEPARTMENT',
+      actor: { id: 'dean-1', name: 'Ахметова Дана', role: Role.DEAN },
+    })
+    expect(platform).toMatchObject({
+      via: 'PLATFORM',
+      actor: { id: 'pa-1', name: '', role: Role.PLATFORM_ADMIN },
+    })
+  })
+
   it('повторный архив ничего не меняет — прежний статус не затирается ARCHIVED', async () => {
     const { service, prisma } = setup()
     prisma.document.findFirst.mockResolvedValue(row({ status: 'ARCHIVED', archivedAt: new Date() }))
@@ -770,6 +873,26 @@ describe('DocumentsService — подтверждение вуза снимае�
       where: { id: 'd1', status: 'VERIFIED' },
       data: { status: 'UPLOADED', rejectionReason: null },
     })
+  })
+})
+
+describe('DocumentsService — продление срока', () => {
+  it('новый срок снимает «Просрочен»/«Скоро истекает»; правка без срока статус не трогает', async () => {
+    const { service, prisma } = setup()
+    const nextYear = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000)
+    prisma.document.findFirst.mockResolvedValue(
+      row({
+        status: 'EXPIRED',
+        expiresAt: new Date('2026-01-01T00:00:00Z'),
+        universityId: 'uni-1',
+      }),
+    )
+    await service.update(actor(), 'd1', { expiresAt: nextYear })
+    expect(prisma.document.update.mock.calls[0][0].data.status).toBe('UPLOADED')
+
+    prisma.document.findFirst.mockResolvedValue(row({ status: 'EXPIRING', universityId: 'uni-1' }))
+    await service.update(actor(), 'd1', { title: 'Новое название' })
+    expect(prisma.document.update.mock.calls[1][0].data.status).toBeUndefined()
   })
 })
 
@@ -822,6 +945,19 @@ describe('статус документа по вердиктам проверк
     expect(reviewVerdict([item('REJECTED', 'REJECTED', 'CLOSED')]).status).toBeNull()
     // Отправленное в закрытом запросе ещё проверяют.
     expect(reviewVerdict([item('PENDING', 'SUBMITTED', 'CLOSED')]).status).toBe('IN_REVIEW')
+  })
+
+  it('вердикт, вынесенный после закрытия запроса, ставит свой статус', () => {
+    const closed = {
+      ...item('REJECTED', 'REJECTED', 'CLOSED', 'нечётко'),
+      submission: { status: 'REJECTED', requestId: 'r1', request: { status: 'CLOSED' } },
+    }
+    expect(reviewVerdict([closed], false, 'r1')).toEqual({
+      status: 'NEEDS_REPLACEMENT',
+      reason: 'нечётко',
+    })
+    // Вердикт другого закрытого запроса по-прежнему история.
+    expect(reviewVerdict([closed], false, 'r2').status).toBeNull()
   })
 
   it('после правки содержимого прежние вердикты не считаются', () => {
@@ -903,6 +1039,18 @@ describe('статус документа по вердиктам проверк
     expect(expiringWhere?.status?.notIn).toEqual(
       expect.arrayContaining(['IN_REVIEW', 'NEEDS_REPLACEMENT']),
     )
+  })
+
+  it('крон срока: подтверждённый сертификат не становится «Скоро истекает» (§3.8)', async () => {
+    const { service, prisma } = setup()
+    await service.sweepExpiry()
+    const expiringWhere = prisma.document.findMany.mock.calls
+      .map(
+        (c) =>
+          (c[0] as { where: { expiresAt?: { gte?: Date }; status?: { notIn: string[] } } }).where,
+      )
+      .find((w) => w.expiresAt?.gte)
+    expect(expiringWhere?.status?.notIn).toContain('VERIFIED')
   })
 })
 
@@ -1073,6 +1221,15 @@ describe('DocumentsService — страницы документа: замена
       where: { id: { in: ['s1'] }, status: { in: ['REJECTED', 'PARTIAL'] } },
       data: { status: 'DRAFT' },
     })
+  })
+
+  it('attachFiles: больше 30 страниц на документ не прикрепить → BAD_REQUEST', async () => {
+    const { service, prisma } = setup()
+    prisma.file.findMany.mockResolvedValueOnce([{ id: 'n1' }, { id: 'n2' }])
+    prisma.file.count.mockResolvedValueOnce(29)
+    const err = await service.attachFiles(actor(), 'd1', { fileIds: ['n1', 'n2'] }).catch((e) => e)
+    expect(err.code).toBe('BAD_REQUEST')
+    expect(prisma.file.update).not.toHaveBeenCalled()
   })
 
   it('attachFiles к загруженному документу пишет PAGE_ADD, а не REPLACE', async () => {

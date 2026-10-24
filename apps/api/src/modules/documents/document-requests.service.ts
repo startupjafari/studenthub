@@ -97,14 +97,25 @@ const STUDENT_EDITABLE = ['DRAFT', 'REJECTED', 'PARTIAL']
 // Сотрудник проверяет только отправленный комплект: черновик студент ещё не сдавал, а
 // принятый или отклонённый ждёт повторной отправки. PARTIAL — проверку можно продолжить.
 const STAFF_REVIEWABLE = ['SUBMITTED', 'PARTIAL']
+// Комплект, который сотрудник может открыть: любой, кроме черновика. Черновик студент ещё
+// собирает — его состав и файлы проверяющему не видны, пока не отправлены (как сдачи работ,
+// BACKEND_RULES §14.7). Возвращённый и снова правящийся комплект — тоже черновик.
+const STAFF_VISIBLE = { status: { not: 'DRAFT' } } satisfies Prisma.DocumentSubmissionWhereInput
 
 const DAY_MS = 24 * 60 * 60 * 1000
+// Позиция заполнена живым документом: удалённый владельцем (D-F21) обязательную позицию
+// не закрывает и на проверку не уходит.
+const ATTACHED_LIVE = {
+  documentId: { not: null },
+  document: { is: { deletedAt: null } },
+} satisfies Prisma.DocumentSubmissionItemWhereInput
 // Из каких статусов принятый в запросе сертификат становится подтверждённым: просроченный,
 // отклонённый (в т.ч. отозванный вузом), архивный и черновик подтверждением не становятся.
 // Проверяется уже пересчитанный по вердиктам статус (syncReviewStatus): «требует замены»
 // или «на проверке» по другому запросу подтверждением не перекрываются — худший статус
-// главнее, подтверждение придёт с принятием там.
-const VERIFIABLE_STATUSES = ['UPLOADED', 'ACCEPTED']
+// главнее, подтверждение придёт с принятием там. «Скоро истекает» подтверждению не мешает:
+// срок ещё не прошёл, а подтверждённый сертификат крон в EXPIRING уже не переводит.
+const VERIFIABLE_STATUSES = ['UPLOADED', 'ACCEPTED', 'EXPIRING']
 
 // Строка комплекта в карточке запроса у сотрудника.
 const SUBMISSION_SUMMARY_SELECT = {
@@ -212,7 +223,8 @@ export class DocumentRequestsService {
           titleKey: 'documents.request.title',
           bodyKey: 'documents.named.body',
           params: { title },
-          data: { requestId, url: '/documents' },
+          // Сразу в раздел запросов, а не на «Обзор»: студенту отвечать именно там.
+          data: { requestId, url: '/documents?section=requests' },
           dedupeKey: `doc-request:${requestId}`,
         },
         { jobId: `doc-request:${requestId}:${batch}` },
@@ -429,6 +441,11 @@ export class DocumentRequestsService {
         throw new AppException('BAD_REQUEST', 'Для адресата не указан получатель')
       }
     }
+    // Срок уже прошёл — запрос ушёл бы адресатам, но ответить на него было бы нельзя
+    // (acceptsSubmissions), а ночью крон закрыл бы его. Срок датой действует весь этот день.
+    if (input.dueAt && !acceptsSubmissions({ status: 'OPEN', dueAt: input.dueAt })) {
+      throw new AppException('BAD_REQUEST', 'Срок сдачи уже прошёл')
+    }
     await this.assertTargetsInScope(actor, input.targets)
     const created = await this.prisma.documentRequest.create({
       data: {
@@ -628,7 +645,7 @@ export class DocumentRequestsService {
   async getSubmissionForStaff(actor: JwtPayload, submissionId: string) {
     this.assertStaff(actor)
     const sub = await this.prisma.documentSubmission.findFirst({
-      where: { id: submissionId, request: this.staffScopeWhere(actor) },
+      where: { id: submissionId, ...STAFF_VISIBLE, request: this.staffScopeWhere(actor) },
       select: {
         id: true,
         status: true,
@@ -711,7 +728,7 @@ export class DocumentRequestsService {
       where: {
         id: submissionItemId,
         documentId: { not: null },
-        submission: { request: this.staffScopeWhere(actor) },
+        submission: { ...STAFF_VISIBLE, request: this.staffScopeWhere(actor) },
       },
       select: {
         documentId: true,
@@ -790,8 +807,13 @@ export class DocumentRequestsService {
       },
     )
     // Вердикт сразу в статус документа (15.3): владелец видит «принят» / «требует замены»
-    // с причиной. Сертификат после этого может стать VERIFIED (он главнее «принят»).
-    if (item.documentId) await this.documents.syncReviewStatus([item.documentId])
+    // с причиной — и когда запрос уже закрыт (сданное до закрытия проверяют и после).
+    // Сертификат после этого может стать VERIFIED (он главнее «принят»).
+    if (item.documentId) {
+      await this.documents.syncReviewStatus([item.documentId], {
+        reviewedRequestId: item.submission.requestId,
+      })
+    }
     if (input.status === 'ACCEPTED') await this.verifyCertificate(actor, item)
     return this.getSubmissionForStaff(actor, item.submission.id)
   }
@@ -842,7 +864,7 @@ export class DocumentRequestsService {
         status: true,
         requestId: true,
         studentId: true,
-        request: { select: { title: true } },
+        request: { select: { title: true, status: true, dueAt: true } },
         items: { select: { status: true } },
       },
     })
@@ -850,13 +872,17 @@ export class DocumentRequestsService {
     this.assertReviewable(sub.status)
     const statuses = sub.items.map((i) => i.status)
     const hasRejected = statuses.includes('REJECTED')
-    const allAccepted = statuses.length > 0 && statuses.every((s) => s === 'ACCEPTED')
+    // Комплект без единой позиции (все необязательны, ничего не приложено) проверять нечего —
+    // он принят. Раньше он навсегда оставался «Частично»: принять было нечего, а итог не
+    // становился ни принятым, ни отклонённым.
+    const allAccepted = statuses.every((s) => s === 'ACCEPTED')
     const status = hasRejected ? 'REJECTED' : allAccepted ? 'ACCEPTED' : 'PARTIAL'
     // Условный UPDATE: если студент успел вернуть комплект в черновик (заменить документ),
     // итог по прочитанным вердиктам уже неверен — отвечаем 409, а не «принимаем» новый файл.
+    const reviewedAt = new Date()
     const updated = await this.prisma.documentSubmission.updateMany({
       where: { id: submissionId, status: { in: STAFF_REVIEWABLE } },
-      data: { status, reviewedById: actor.sub, reviewedAt: new Date() },
+      data: { status, reviewedById: actor.sub, reviewedAt },
     })
     if (updated.count === 0) {
       throw new AppException('CONFLICT', 'Комплект изменился — обновите страницу')
@@ -866,11 +892,17 @@ export class DocumentRequestsService {
       status,
       submissionId,
     })
-    await this.documents.syncReviewStatus(documentIds)
-    // Уведомляем студента о результате проверки (§15.19). dedupeKey включает статус,
-    // чтобы повторная проверка (изменение вердикта) дошла новым уведомлением. Есть
-    // отклонённые позиции — заголовок прямо говорит, что документ нужно заменить: это
-    // единственное уведомление о «требует замены», отдельного на каждый документ нет.
+    await this.documents.syncReviewStatus(documentIds, { reviewedRequestId: sub.requestId })
+    // Уведомляем студента о результате проверки (§15.19). Ключ — на событие проверки
+    // (момент завершения), а не на комплект и статус: отклонили → студент заменил → снова
+    // отклонили — это новое уведомление, а прежний ключ `…:REJECTED` его молча глушил
+    // (идемпотентность — против повтора job'а, BACKEND_RULES §9.2). Есть отклонённые
+    // позиции — заголовок прямо говорит, что документ нужно заменить: это единственное
+    // уведомление о «требует замены», отдельного на каждый документ нет.
+    // Запрос, который уже не принимает ответы (закрыт или прошёл срок), у студента в
+    // разделе запросов не открыть и не пересдать — ссылка ведёт на «Обзор», где документ
+    // «требует замены»: заменить его страницы можно и после закрытия.
+    const url = acceptsSubmissions(sub.request) ? '/documents?section=requests' : '/documents'
     await this.queue.enqueue(
       QUEUES.NOTIFICATIONS,
       NOTIFICATION_JOBS.DOCUMENT_RESULT,
@@ -880,10 +912,10 @@ export class DocumentRequestsService {
         titleKey: status === 'REJECTED' ? 'documents.replacement.title' : 'documents.result.title',
         bodyKey: 'documents.named.body',
         params: { title: sub.request.title },
-        data: { requestId: sub.requestId, status, url: '/documents' },
-        dedupeKey: `doc-result:${submissionId}:${status}`,
+        data: { requestId: sub.requestId, status, url },
+        dedupeKey: `doc-result:${submissionId}:${reviewedAt.getTime()}`,
       },
-      { jobId: `doc-result:${submissionId}:${status}` },
+      { jobId: `doc-result:${submissionId}:${reviewedAt.getTime()}` },
     )
     return this.getSubmissionForStaff(actor, submissionId)
   }
@@ -1013,7 +1045,8 @@ export class DocumentRequestsService {
           where: { studentId: actor.sub },
           select: {
             status: true,
-            items: { where: { documentId: { not: null } }, select: { requestItemId: true } },
+            // Удалённый владельцем документ позицию не заполняет (D-F21).
+            items: { where: ATTACHED_LIVE, select: { requestItemId: true } },
           },
         },
       },
@@ -1064,7 +1097,7 @@ export class DocumentRequestsService {
                 requestItemId: true,
                 status: true,
                 rejectionReason: true,
-                document: { select: { id: true, title: true, type: true } },
+                document: { select: { id: true, title: true, type: true, deletedAt: true } },
               },
             },
           },
@@ -1092,7 +1125,12 @@ export class DocumentRequestsService {
               requestItemId: it.requestItemId,
               status: it.status,
               rejectionReason: it.rejectionReason,
-              document: it.document,
+              // Удалённый документ позицию не заполняет: клиент видит её пустой и при
+              // сохранении присылает null (иначе — id удалённого и отказ «недоступны»).
+              document:
+                it.document && !it.document.deletedAt
+                  ? { id: it.document.id, title: it.document.title, type: it.document.type }
+                  : null,
             })),
           }
         : null,
@@ -1145,7 +1183,13 @@ export class DocumentRequestsService {
     if (docIds.length > 0) {
       const owned = await this.prisma.document.findMany({
         where: { id: { in: docIds }, ownerId: actor.sub, deletedAt: null },
-        select: { id: true, type: true, status: true, issuedByUniversity: true },
+        select: {
+          id: true,
+          type: true,
+          status: true,
+          issuedByUniversity: true,
+          _count: { select: { files: true } },
+        },
         take: REQUEST_ITEMS_LIMIT,
       })
       if (owned.length !== new Set(docIds).size) {
@@ -1160,10 +1204,17 @@ export class DocumentRequestsService {
       // «только учебные» открывал проверяющему удостоверение личности (§15.2).
       // Сверяем только меняемые позиции: привязка, сохранённая до этого правила, не должна
       // блокировать студенту сохранение остального чек-листа.
-      const docType = new Map(owned.map((d) => [d.id, d.type]))
+      // Документ без единой страницы (черновик, файлы не загружены) проверяющему открыть
+      // нечего — в позицию он не встаёт.
+      const ownedById = new Map(owned.map((d) => [d.id, d]))
       for (const it of changes) {
-        if (it.documentId && docType.get(it.documentId) !== itemType.get(it.requestItemId)) {
+        if (!it.documentId) continue
+        const doc = ownedById.get(it.documentId)
+        if (doc?.type !== itemType.get(it.requestItemId)) {
           throw new AppException('BAD_REQUEST', 'Тип документа не совпадает с позицией запроса')
+        }
+        if (doc._count.files === 0) {
+          throw new AppException('BAD_REQUEST', 'В документе нет загруженных файлов')
         }
       }
     }
@@ -1264,7 +1315,7 @@ export class DocumentRequestsService {
         throw new AppException('CONFLICT', 'Комплект уже отправлен на проверку или принят')
       }
       const filled = await tx.documentSubmissionItem.findMany({
-        where: { submissionId: sub.id, documentId: { not: null } },
+        where: { submissionId: sub.id, ...ATTACHED_LIVE },
         select: { requestItemId: true },
         take: REQUEST_ITEMS_LIMIT,
       })
@@ -1272,9 +1323,12 @@ export class DocumentRequestsService {
       if (req.items.some((i) => !have.has(i.id))) {
         throw new AppException('BAD_REQUEST', 'Заполните все обязательные позиции')
       }
-      // Отправка — новая проверка всего комплекта: прежние вердикты сбрасываются.
+      // Отправка — новая проверка всего, что не принято: отклонённые позиции снова ждут
+      // проверки. Принятые сохраняют вердикт (§3.8: «вердикты нетронутых позиций
+      // сохраняются»): позиция, где студент сменил документ или правил его содержимое, уже
+      // снова PENDING. Раньше сбрасывались все, и принятое приходилось проверять заново.
       await tx.documentSubmissionItem.updateMany({
-        where: { submissionId: sub.id },
+        where: { submissionId: sub.id, status: { not: 'ACCEPTED' } },
         data: { status: 'PENDING', rejectionReason: null },
       })
     })

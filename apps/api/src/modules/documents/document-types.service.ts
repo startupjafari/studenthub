@@ -196,9 +196,21 @@ export class DocumentTypesService {
     return this.effective(universityId)
   }
 
-  /** Удалить настройку типа: для custom — удаляет тип; для статического — сбрасывает к дефолту. */
+  /**
+   * Удалить настройку типа: для custom — удаляет тип; для статического — сбрасывает к дефолту.
+   * Собственный тип, по которому уже есть документы или позиции запросов, не удаляется
+   * (`409`): без него их тип нечем назвать и нечем проверить — его выключают. Раньше такой
+   * тип исчезал одним кликом, а документы студентов оставались с голым кодом вместо названия.
+   */
   async remove(actor: JwtPayload, typeId: string): Promise<EffectiveDocumentType[]> {
     const universityId = this.assertAdmin(actor)
+    const row = await this.prisma.documentType.findUnique({
+      where: { universityId_typeId: { universityId, typeId } },
+      select: { custom: true },
+    })
+    if (row?.custom && (await this.isInUse(universityId, typeId))) {
+      throw new AppException('CONFLICT', 'Тип уже используется — выключите его вместо удаления')
+    }
     await this.prisma.documentType.deleteMany({ where: { universityId, typeId } })
     await this.audit.record({
       userId: actor.sub,
@@ -208,5 +220,20 @@ export class DocumentTypesService {
       metadata: { universityId },
     })
     return this.effective(universityId)
+  }
+
+  // Есть ли у вуза живые документы этого типа или позиции запросов, которые его требуют.
+  private async isInUse(universityId: string, typeId: string): Promise<boolean> {
+    const [doc, item] = await Promise.all([
+      this.prisma.document.findFirst({
+        where: { universityId, type: typeId, deletedAt: null },
+        select: { id: true },
+      }),
+      this.prisma.documentRequestItem.findFirst({
+        where: { documentType: typeId, request: { universityId } },
+        select: { id: true },
+      }),
+    ])
+    return doc !== null || item !== null
   }
 }

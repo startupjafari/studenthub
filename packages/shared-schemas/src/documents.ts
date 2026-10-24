@@ -43,7 +43,8 @@ export const CreateDocumentSchema = z
     issuedAt: z.coerce.date().optional().nullable(),
     expiresAt: z.coerce.date().optional().nullable(),
     comment: z.string().max(2000).optional(),
-    // DRAFT — сохранить черновик; UPLOADED — сразу «загружен» (по умолчанию). Прочие статусы ставит сервис/проверка.
+    // Сохраняется для совместимости и не влияет: документ без страниц всегда создаётся
+    // черновиком (DRAFT), «Загружен» он становится с первыми прикреплёнными файлами.
     status: z.enum(['DRAFT', 'UPLOADED']).optional(),
   })
   .strict()

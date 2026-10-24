@@ -262,17 +262,8 @@ export class DocumentsController {
     return this.documents.setArchived(user, id, false)
   }
 
-  @Get(':id/platform')
-  @Roles(Role.PLATFORM_ADMIN)
-  @ApiOperation({
-    summary:
-      'Спец-режим: метаданные чужого документа без причины (устарело — используйте POST с причиной)',
-    deprecated: true,
-  })
-  platformGet(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
-    return this.documents.platformGet(user, id)
-  }
-
+  // Прежнего `GET :id/platform` без причины больше нет: он открывал метаданные любого
+  // документа в обход обязательной причины (§3.8 «только спец-режим с причиной»).
   @Post(':id/platform')
   @HttpCode(HttpStatus.OK)
   @Roles(Role.PLATFORM_ADMIN)

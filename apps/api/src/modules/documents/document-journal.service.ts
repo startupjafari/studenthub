@@ -1,41 +1,33 @@
 import { Injectable } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
-import type {
-  DocumentJournalItem,
-  DocumentJournalQueryInput,
-  DocumentJournalVia,
-} from '@studenthub/shared-schemas'
+import type { DocumentJournalItem, DocumentJournalQueryInput } from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import { Paginated } from '../../common/http/paginated'
+import { documentEventAction, journalVia } from './documents.service'
 
-// Сколько людей вуза подбирается по поиску ФИО. Поиск — сужение журнала до конкретного
-// человека, а не выгрузка списка: больше совпадений означает «уточните запрос».
+// Через что совершено действие — общее правило с историей документа у владельца.
+export { journalVia }
+
+// Сколько людей вуза подбирается по ФИО как действующих (DocumentEvent.actorId — скаляр без
+// связи, условие по имени к нему не приложить). Владелец документа ищется связью без потолка.
 const NAME_MATCH_LIMIT = 200
 
 type Meta = Record<string, unknown> | null
 
-/**
- * Через что совершено действие — по тому, что о себе пишет событие (см. logEvent в
- * DocumentsService и сервисе запросов). Старые события без пометок: просмотр чужим — это
- * доступ по гранту (иного пути к файлу чужого документа нет), остальное по актору.
- */
-export function journalVia(
-  e: { action: string; actorId: string; requestId: string | null; metadata: Meta },
-  ownerId: string,
-): DocumentJournalVia {
-  const m = e.metadata ?? {}
-  if (m.platformMode) return 'PLATFORM'
-  if (m.viaApplication) return 'APPLICATION'
-  if (e.requestId || m.viaSubmission) return 'REQUEST'
-  if (e.action === 'EXPIRE' || e.action === 'EXPIRING' || m.retention !== undefined) {
-    return 'SYSTEM'
+// Условие по ФИО: каждое слово запроса — в имени или фамилии.
+function nameWhere(q: string): Prisma.UserWhereInput {
+  const words = q.split(/\s+/).filter(Boolean).slice(0, 4)
+  return {
+    AND: words.map((w) => ({
+      OR: [
+        { firstName: { contains: w, mode: 'insensitive' as const } },
+        { lastName: { contains: w, mode: 'insensitive' as const } },
+      ],
+    })),
   }
-  if (e.actorId === ownerId) return 'OWNER'
-  if (e.action === 'VIEW' || e.action === 'DOWNLOAD' || m.accessId) return 'GRANT'
-  return 'STAFF'
 }
 
 function fullName(u: { firstName: string; lastName: string }): string {
@@ -65,7 +57,10 @@ export class DocumentJournalService {
     }
     const universityId = actor.universityId
     const and: Prisma.DocumentEventWhereInput[] = [{ document: { universityId } }]
-    if (query.action) and.push({ action: query.action })
+    // «Архивирование» в фильтре — и возврат из архива: отдельного пункта для него в фильтре
+    // нет, а прежние события возврата и так записаны как ARCHIVE.
+    if (query.action === 'ARCHIVE') and.push({ action: { in: ['ARCHIVE', 'UNARCHIVE'] } })
+    else if (query.action) and.push({ action: query.action })
     if (query.from || query.to) {
       and.push({
         createdAt: {
@@ -78,9 +73,13 @@ export class DocumentJournalService {
       and.push({ OR: [{ actorId: query.userId }, { document: { ownerId: query.userId } }] })
     }
     if (query.q) {
-      const ids = await this.matchPeople(universityId, query.q)
+      // Владелец — условием по связи, без потолка: раньше и владельцы брались из первых 200
+      // совпавших людей, и при частом имени нужный студент молча выпадал из журнала.
+      // Действующий — по найденным id (связи у actorId нет), до NAME_MATCH_LIMIT.
+      const name = nameWhere(query.q)
+      const ids = await this.matchPeople(universityId, name)
       if (ids.length === 0) return new Paginated([], { total: 0 })
-      and.push({ OR: [{ actorId: { in: ids } }, { document: { ownerId: { in: ids } } }] })
+      and.push({ OR: [{ actorId: { in: ids } }, { document: { owner: name } }] })
     }
     const where: Prisma.DocumentEventWhereInput = { AND: and }
     const { page, limit } = query
@@ -145,7 +144,7 @@ export class DocumentJournalService {
       items.push({
         id: r.id,
         createdAt: r.createdAt.toISOString(),
-        action: r.action,
+        action: documentEventAction(r.action, meta),
         actor: {
           id: r.actorId,
           name: who ? fullName(who) : '',
@@ -161,19 +160,10 @@ export class DocumentJournalService {
     return new Paginated(items, { total })
   }
 
-  // Люди вуза по ФИО: каждое слово запроса — в имени или фамилии.
-  private async matchPeople(universityId: string, q: string): Promise<string[]> {
-    const words = q.split(/\s+/).filter(Boolean).slice(0, 4)
+  // Люди вуза под условием по ФИО.
+  private async matchPeople(universityId: string, name: Prisma.UserWhereInput): Promise<string[]> {
     const users = await this.prisma.user.findMany({
-      where: {
-        universityId,
-        AND: words.map((w) => ({
-          OR: [
-            { firstName: { contains: w, mode: 'insensitive' as const } },
-            { lastName: { contains: w, mode: 'insensitive' as const } },
-          ],
-        })),
-      },
+      where: { universityId, ...name },
       select: { id: true },
       take: NAME_MATCH_LIMIT,
     })

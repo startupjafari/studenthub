@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useLocale, useTranslations } from 'next-intl'
-import { FileText, Inbox, Paperclip } from 'lucide-react'
+import { Eye, FileText, Inbox, Paperclip } from 'lucide-react'
 import {
   documentKeys,
   DocumentFileViewer,
@@ -14,6 +14,7 @@ import {
   type SharedDocument,
   type SharedDocumentsPage,
 } from '../../../entities/document'
+import { useDocumentTypeCatalog } from '../../../entities/document-type'
 import {
   Button,
   Card,
@@ -29,6 +30,7 @@ import {
   TableText,
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
+import { DocModal } from './doc-modal'
 
 // Ширины колонок: документ · владелец · основание · доступ до · «открыть».
 const COLS = ['30%', '20%', '26%', '12%', '8rem'] as const
@@ -51,6 +53,9 @@ export function SharedWithMe() {
   const tErr = useTranslations('Errors')
   const locale = useLocale()
   const [viewer, setViewer] = useState<{ row: SharedDocument; index: number } | null>(null)
+  // Документ из нескольких страниц открывается списком страниц, как у владельца: раньше
+  // получателю была доступна только первая.
+  const [pagesOf, setPagesOf] = useState<SharedDocument | null>(null)
 
   const q = useInfiniteQuery({
     queryKey: documentKeys.sharedWithMe(),
@@ -62,23 +67,33 @@ export function SharedWithMe() {
 
   const fmt = (iso: string | null): string | null =>
     iso ? new Date(iso).toLocaleDateString(locale) : null
-  // Собственный тип вуза в словаре не найти — показываем его код, а не ключ перевода.
-  const typeLabel = (type: string): string =>
-    t.has(`docType_${type}`) ? t(`docType_${type}`) : type
+  // Название типа — из каталога вуза: у собственного типа его задаёт вуз, в словаре его нет,
+  // и раньше здесь показывался код.
+  const { labelOf: typeLabel } = useDocumentTypeCatalog()
 
-  // Картинки — в общем просмотрщике, PDF — вкладкой браузера (как у владельца).
-  async function open(row: SharedDocument): Promise<void> {
-    const first = row.document.files[0]
-    if (!first) return
-    if (isViewableMedia(first.mime)) {
-      setViewer({ row, index: 0 })
+  // Снимки — в общем просмотрщике (листает только их), PDF — вкладкой браузера (как у
+  // владельца). Просмотрщик не живёт поверх модального окна, поэтому список страниц
+  // закрываем перед ним.
+  async function openPage(row: SharedDocument, fileId: string): Promise<void> {
+    const media = row.document.files.filter((f) => isViewableMedia(f.mime))
+    const index = media.findIndex((f) => f.id === fileId)
+    if (index >= 0) {
+      setPagesOf(null)
+      setViewer({ row, index })
       return
     }
     try {
-      window.open(await fetchDocumentFileUrl(row.document.id, first.id), '_blank', 'noopener')
+      window.open(await fetchDocumentFileUrl(row.document.id, fileId), '_blank', 'noopener')
     } catch (e) {
       toast.error(tErr(errCode(e)))
     }
+  }
+
+  function open(row: SharedDocument): void {
+    const [first, ...rest] = row.document.files
+    if (!first) return
+    if (rest.length === 0) void openPage(row, first.id)
+    else setPagesOf(row)
   }
 
   if (q.isError) return <EmptyState title={tErr('INTERNAL_ERROR')} />
@@ -151,7 +166,7 @@ export function SharedWithMe() {
                     variant="outline"
                     size="sm"
                     disabled={row.document.fileCount === 0}
-                    onClick={() => void open(row)}
+                    onClick={() => open(row)}
                   >
                     <FileText className="size-4" aria-hidden /> {t('actionOpen')}
                   </Button>
@@ -171,6 +186,31 @@ export function SharedWithMe() {
         >
           {t('showMore')}
         </Button>
+      )}
+
+      {pagesOf && (
+        <DocModal title={pagesOf.document.title} onClose={() => setPagesOf(null)}>
+          <ul className="flex flex-col gap-1.5">
+            {pagesOf.document.files.map((page, i) => (
+              <li
+                key={page.id}
+                className="flex items-center gap-1 rounded-lg border border-border py-1 pr-1 pl-2.5 text-sm"
+              >
+                <span className="min-w-0 flex-1 truncate">{t('pageN', { n: i + 1 })}</span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  icon
+                  aria-label={t('pageOpen', { n: i + 1 })}
+                  onClick={() => void openPage(pagesOf, page.id)}
+                >
+                  <Eye className="size-4" aria-hidden />
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </DocModal>
       )}
 
       {viewer && (

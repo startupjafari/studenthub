@@ -28,8 +28,10 @@ function makePrisma(appRow: Record<string, unknown>) {
     count: jest.fn().mockResolvedValue(1),
   }
   // Документ студента — отметка об отзыве справки.
-  const document = { updateMany: jest.fn().mockResolvedValue({ count: 1 }) }
-  const tx = { application, applicationEvent, applicationResult, document }
+  const document = { updateManyAndReturn: jest.fn().mockResolvedValue([{ id: 'doc-1' }]) }
+  // Журнал документа — запись об отзыве справки.
+  const documentEvent = { createMany: jest.fn().mockResolvedValue({ count: 1 }) }
+  const tx = { application, applicationEvent, applicationResult, document, documentEvent }
   const prisma = {
     ...tx,
     $transaction: jest.fn((arg: unknown) =>
@@ -383,7 +385,7 @@ describe('ApplicationProcessService — отзыв справки', () => {
 
     await service.revokeStudyCertificate(dean, 'app-1', 'выдана ошибочно')
 
-    expect(prisma.document.updateMany).toHaveBeenCalledWith({
+    expect(prisma.document.updateManyAndReturn).toHaveBeenCalledWith({
       where: expect.objectContaining({
         ownerId: 'stu-1',
         type: 'STUDY_PLACE_REF',
@@ -391,6 +393,18 @@ describe('ApplicationProcessService — отзыв справки', () => {
         applicationResults: { some: { applicationId: 'app-1' } },
       }),
       data: { status: 'REJECTED', rejectionReason: 'выдана ошибочно' },
+      select: { id: true },
+    })
+    // Отзыв виден и в журнале самого документа.
+    expect(prisma.documentEvent.createMany).toHaveBeenCalledWith({
+      data: [
+        {
+          actorId: 'dean',
+          documentId: 'doc-1',
+          action: 'REJECT',
+          metadata: { reason: 'выдана ошибочно', revoked: true, viaApplication: 'app-1' },
+        },
+      ],
     })
     expect(queue.enqueue).toHaveBeenCalledWith(
       'notifications',
@@ -409,7 +423,8 @@ describe('ApplicationProcessService — отзыв справки', () => {
     exportRegistry.revokeByDocumentNumber.mockResolvedValue(0)
 
     await expect(service.revokeStudyCertificate(dean, 'app-1')).rejects.toThrow(AppException)
-    expect(prisma.document.updateMany).not.toHaveBeenCalled()
+    expect(prisma.document.updateManyAndReturn).not.toHaveBeenCalled()
+    expect(prisma.documentEvent.createMany).not.toHaveBeenCalled()
     expect(queue.enqueue).not.toHaveBeenCalled()
   })
 })
