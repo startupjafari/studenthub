@@ -26,6 +26,7 @@ import {
   phone,
   translit,
 } from './people.mjs'
+import { courseOf } from '../lib/calendar.mjs'
 
 // Общая часть профиля — есть у любой роли.
 export function commonProfile(p, random, { profile, cityName }) {
@@ -55,7 +56,8 @@ export function commonProfile(p, random, { profile, cityName }) {
 
 export function studentProfile(p, random, { group, specialties, cityName, profile }) {
   const year = group.year
-  const course = Math.max(1, Math.min(4, new Date().getUTCFullYear() - year + 1))
+  // Курс — от учебного года, а не от календарного: весной набор прошлой осени ещё на первом.
+  const course = courseOf(year)
   const birthYear = year - random.randInt(17, 20)
   return {
     ...commonProfile(p, random, { profile, cityName }),

@@ -24,6 +24,7 @@ import { runCleanup } from './seed/cleanup.mjs'
 import { loadEnv } from './seed/lib/env.mjs'
 import { createWriter } from './seed/lib/writer.mjs'
 import { postPriority } from './seed/data/content.mjs'
+import { academicCalendar, courseOf } from './seed/lib/calendar.mjs'
 import { createStorage } from './seed/lib/storage.mjs'
 
 // DATABASE_URL живёт в apps/api/.env, а `node prisma/seed.mjs` его сам не читает: .env
@@ -688,16 +689,20 @@ async function seedDemoUniverse({ passwordHash, admin, progress, seedPassword })
     where: { email: 'teacher@studenthub.app' },
     select: { id: true },
   })
+  // Семестр — текущий по календарю прогона (seed/lib/calendar.mjs), а не зашитая «Осень
+  // 2025»: посещаемость и задания демо-вуза считаются от сегодняшнего дня, и через год
+  // они лежали бы за пределами единственного активного семестра.
+  const demoTerm = academicCalendar().cur
+  const demoTermDates = { startsOn: new Date(demoTerm.from), endsOn: new Date(demoTerm.to) }
   const term = await prisma.term.upsert({
     where: { id: 'seed-term-001' },
-    update: { name: 'Осень 2025', isActive: true },
+    update: { name: demoTerm.name, ...demoTermDates, isActive: true },
     create: {
       id: 'seed-term-001',
       universityId: SEED_UNIVERSITY_ID,
-      name: 'Осень 2025',
+      name: demoTerm.name,
       number: 5,
-      startsOn: new Date('2025-09-01'),
-      endsOn: new Date('2025-12-31'),
+      ...demoTermDates,
       isActive: true,
     },
   })
@@ -954,7 +959,7 @@ async function seedDemoUniverse({ passwordHash, admin, progress, seedPassword })
           universityId: U,
           facultyId: fac.id,
           groupId: gid,
-          course: 2025 - year,
+          course: courseOf(year),
           enrollmentYear: year,
           educationLevel: 'BACHELOR',
           studyForm: pick(['FULL_TIME', 'FULL_TIME', 'PART_TIME']),
@@ -1028,7 +1033,12 @@ async function seedDemoUniverse({ passwordHash, admin, progress, seedPassword })
   const pairRows = []
   for (const g of groupList) {
     const schId = `seed-sch-${g.id}`
-    scheduleRows.push({ id: schId, groupId: g.id, name: 'Осенний семестр 2025/26', isActive: true })
+    scheduleRows.push({
+      id: schId,
+      groupId: g.id,
+      name: academicCalendar().scheduleName,
+      isActive: true,
+    })
     g.courses.forEach((c, idx) => {
       const day = (idx % 5) + 1
       const slot = TIMES[idx % TIMES.length]

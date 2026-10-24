@@ -65,7 +65,7 @@ export async function seedAcademics(prisma, writer, ctx) {
       await writer.add('schedule', {
         id: scheduleId,
         groupId: group.id,
-        name: `Осенний семестр ${new Date().getUTCFullYear()}/${(new Date().getUTCFullYear() + 1) % 100}`, // prettier-ignore
+        name: structure.calendar.scheduleName,
         isActive: true,
       })
 
