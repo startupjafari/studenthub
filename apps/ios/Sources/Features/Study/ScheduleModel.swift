@@ -97,7 +97,7 @@ final class ScheduleModel {
             .sorted { $0.startTime < $1.startTime }
     }
 
-    private static let syncedKey = "schedule.synced-at"
+    static let syncedKey = "schedule.synced-at"
 
     @MainActor
     private func observe() {
