@@ -48,6 +48,17 @@ type MaterialRow = Prisma.MaterialGetPayload<{ select: typeof MATERIAL_SELECT }>
 // Потолок счётчиков по дисциплинам: у группы их десятки, у вуза — сотни.
 const MATERIAL_SUBJECTS_LIMIT = 500
 
+/**
+ * Группы, где преподаватель ведёт занятия: дисциплина группы или пара действующего
+ * расписания — то же основание, что у выкладки материалов и у составов групп (groups).
+ */
+function taughtBy(teacherId: string): Prisma.GroupWhereInput[] {
+  return [
+    { courses: { some: { teacherId } } },
+    { pairs: { some: { teacherId, schedule: { is: { isActive: true } } } } },
+  ]
+}
+
 @Injectable()
 export class MaterialsService {
   constructor(
@@ -189,7 +200,7 @@ export class MaterialsService {
       select: MATERIAL_SELECT,
     })
     if (!material) throw new AppException('NOT_FOUND', 'Материал не найден')
-    await this.assertRead(viewer, material.groupId)
+    await this.assertRead(viewer, material.groupId, material.teacher?.id ?? null)
     const file = await this.prisma.file.findFirst({
       where: { id: fileId, materialId: id },
       select: MEDIA_FILE_SELECT,
@@ -245,17 +256,53 @@ export class MaterialsService {
     if (viewer.role === Role.DEAN) {
       return { group: { is: { facultyId: viewer.facultyId ?? '__none__' } } }
     }
-    // TEACHER / UNIVERSITY_ADMIN / UNIVERSITY_MODERATOR — материалы групп своего вуза.
+    // Преподаватель — свои материалы и материалы групп, где ведёт занятия (§2.2 «✅ свои»,
+    // §5.5 бакет materials — участникам группы и автору). Раньше — все группы вуза.
+    if (viewer.role === Role.TEACHER) {
+      return {
+        OR: [
+          { teacherId: viewer.sub },
+          {
+            group: {
+              is: {
+                faculty: { is: { universityId: viewer.universityId ?? '__none__' } },
+                OR: taughtBy(viewer.sub),
+              },
+            },
+          },
+        ],
+      }
+    }
+    // UNIVERSITY_ADMIN / UNIVERSITY_MODERATOR — материалы групп своего вуза.
     return {
       group: { is: { faculty: { is: { universityId: viewer.universityId ?? '__none__' } } } },
     }
   }
 
-  private async assertRead(viewer: JwtPayload, groupId: string): Promise<void> {
+  private async assertRead(
+    viewer: JwtPayload,
+    groupId: string,
+    authorId: string | null,
+  ): Promise<void> {
     if (isPlatformRole(viewer.role)) return
     if (viewer.role === Role.STUDENT || viewer.role === Role.STAROSTA) {
       if (viewer.groupId === groupId) return
       throw new AppException('WRONG_SCOPE', 'Материал другой группы')
+    }
+    // Преподаватель — автор или ведёт занятия в группе (как `scopeWhere`): подписанная
+    // ссылка на файл — это уже доступ к содержимому.
+    if (viewer.role === Role.TEACHER) {
+      if (authorId === viewer.sub) return
+      const taught = await this.prisma.group.findFirst({
+        where: {
+          id: groupId,
+          faculty: { is: { universityId: viewer.universityId ?? '__none__' } },
+          OR: taughtBy(viewer.sub),
+        },
+        select: { id: true },
+      })
+      if (taught) return
+      throw new AppException('WRONG_SCOPE', 'Вы не ведёте занятий в этой группе')
     }
     const group = await resolveGroupScope(this.prisma, groupId)
     if (viewer.role === Role.DEAN) {

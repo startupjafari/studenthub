@@ -35,7 +35,7 @@ function setup() {
       deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     attendance: { findFirst: jest.fn().mockResolvedValue(null) },
-    group: { findUnique: jest.fn() },
+    group: { findUnique: jest.fn(), findFirst: jest.fn().mockResolvedValue(null) },
     course: { findFirst: jest.fn().mockResolvedValue({ id: 'c-1' }) },
     user: { findFirst: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
     university: { findUnique: jest.fn().mockResolvedValue({ timezone: 'Asia/Almaty' }) },
@@ -197,6 +197,45 @@ describe('SchedulesService — модератору платформы расп�
     await expect(service.getScheduleById(admin, 'sch-1')).resolves.toBeDefined()
     await service.listChanges(admin, { from: '2026-10-19', to: '2026-10-25' } as never)
     expect(prisma.scheduleChange.findMany.mock.calls[0][0].where.pair).toEqual({ is: {} })
+  })
+})
+
+describe('SchedulesService — версии расписания преподавателю: только свои группы (§2.2)', () => {
+  const teacher = viewer(Role.TEACHER, { sub: 't-1', universityId: 'uni-1' })
+  const taught = [
+    { courses: { some: { teacherId: 't-1' } } },
+    { pairs: { some: { teacherId: 't-1', schedule: { is: { isActive: true } } } } },
+  ]
+
+  it('GET /schedules — группы, где он ведёт занятия, а не весь вуз', async () => {
+    const { service, prisma } = setup()
+    prisma.schedule.findMany.mockResolvedValue([])
+    await service.listSchedules(teacher, 'grp-1')
+    expect(prisma.schedule.findMany.mock.calls[0][0].where).toEqual({
+      group: { is: { faculty: { is: { universityId: 'uni-1' } }, OR: taught } },
+      groupId: 'grp-1',
+    })
+  })
+
+  it('GET /schedules/:id чужой группы → WRONG_SCOPE, пары не читаются', async () => {
+    const { service, prisma } = setup()
+    prisma.schedule.findUnique.mockResolvedValue({ id: 'sch-1', groupId: 'grp-1' })
+    prisma.group.findUnique.mockResolvedValue(GROUP_CTX)
+    const err = await service.getScheduleById(teacher, 'sch-1').catch((e) => e)
+    expect(err.code).toBe('WRONG_SCOPE')
+    expect(prisma.group.findFirst).toHaveBeenCalledWith({
+      where: { id: 'grp-1', OR: taught },
+      select: { id: true },
+    })
+    expect(prisma.pair.findMany).not.toHaveBeenCalled()
+  })
+
+  it('GET /schedules/:id своей группы → версия с парами', async () => {
+    const { service, prisma } = setup()
+    prisma.schedule.findUnique.mockResolvedValue({ id: 'sch-1', groupId: 'grp-1' })
+    prisma.group.findUnique.mockResolvedValue(GROUP_CTX)
+    prisma.group.findFirst.mockResolvedValue({ id: 'grp-1' })
+    await expect(service.getScheduleById(teacher, 'sch-1')).resolves.toBeDefined()
   })
 })
 

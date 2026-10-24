@@ -165,6 +165,17 @@ function seesAllSchedules(role: Role): boolean {
   return role === Role.PLATFORM_ADMIN
 }
 
+/**
+ * Группы, где преподаватель ведёт занятия: дисциплина группы или пара действующего
+ * расписания — то же основание, что у составов групп (groups) и материалов.
+ */
+function taughtBy(teacherId: string): Prisma.GroupWhereInput[] {
+  return [
+    { courses: { some: { teacherId } } },
+    { pairs: { some: { teacherId, schedule: { is: { isActive: true } } } } },
+  ]
+}
+
 function assertCanReadSchedule(viewer: JwtPayload): void {
   if (viewer.role === Role.PLATFORM_MODERATOR) {
     throw new AppException('FORBIDDEN', 'Расписание недоступно модератору платформы')
@@ -413,6 +424,7 @@ export class SchedulesService {
     }
     const gctx = await this.resolveGroupContext(schedule.groupId)
     this.assertReadScopeForGroup(viewer, gctx)
+    if (viewer.role === Role.TEACHER) await this.assertTeacherSeesGroup(viewer.sub, gctx.groupId)
     const pairs = await this.prisma.pair.findMany({
       where: { scheduleId: id },
       select: PAIR_SELECT,
@@ -1605,11 +1617,29 @@ export class SchedulesService {
       }
       return groupId ? { ...base, groupId } : base
     }
-    // UNIVERSITY_ADMIN / UNIVERSITY_MODERATOR / TEACHER — свой вуз.
+    // UNIVERSITY_ADMIN / UNIVERSITY_MODERATOR — свой вуз; TEACHER — только группы, где ведёт
+    // занятия (§2.2 «Расписание — чтение: ✅ свои»): раньше он листал сетки всего вуза.
+    const universityWhere = { faculty: { is: { universityId: viewer.universityId ?? '__none__' } } }
     const base: Prisma.ScheduleWhereInput = {
-      group: { is: { faculty: { is: { universityId: viewer.universityId ?? '__none__' } } } },
+      group: {
+        is:
+          viewer.role === Role.TEACHER
+            ? { ...universityWhere, OR: taughtBy(viewer.sub) }
+            : universityWhere,
+      },
     }
     return groupId ? { ...base, groupId } : base
+  }
+
+  /** Версию расписания группы преподаватель читает, только если ведёт в ней занятия. */
+  private async assertTeacherSeesGroup(teacherId: string, groupId: string): Promise<void> {
+    const taught = await this.prisma.group.findFirst({
+      where: { id: groupId, OR: taughtBy(teacherId) },
+      select: { id: true },
+    })
+    if (!taught) {
+      throw new AppException('WRONG_SCOPE', 'Вы не ведёте занятий в этой группе')
+    }
   }
 
   private changePairScope(

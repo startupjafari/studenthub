@@ -17,7 +17,7 @@ function setup() {
       create: jest.fn().mockResolvedValue({ id: 'm-new' }),
       delete: jest.fn(),
     },
-    group: { findUnique: jest.fn() },
+    group: { findUnique: jest.fn(), findFirst: jest.fn().mockResolvedValue(null) },
     file: { findFirst: jest.fn().mockResolvedValue(null) },
     // По умолчанию преподаватель ведёт дисциплину в группе.
     course: { findFirst: jest.fn().mockResolvedValue({ id: 'c1' }) },
@@ -61,9 +61,24 @@ describe('MaterialsService.list — scope', () => {
     const and = await scopeOf(user(Role.DEAN, { facultyId: 'f1' }))
     expect(and[0]).toEqual({ group: { is: { facultyId: 'f1' } } })
   })
-  it('преподаватель — свой вуз', async () => {
-    const and = await scopeOf(user(Role.TEACHER, { universityId: 'uni1' }))
-    expect(and[0]).toEqual({ group: { is: { faculty: { is: { universityId: 'uni1' } } } } })
+  it('преподаватель — свои материалы и группы, где ведёт занятия, а не весь вуз', async () => {
+    const and = await scopeOf(user(Role.TEACHER, { sub: 't1', universityId: 'uni1' }))
+    expect(and[0]).toEqual({
+      OR: [
+        { teacherId: 't1' },
+        {
+          group: {
+            is: {
+              faculty: { is: { universityId: 'uni1' } },
+              OR: [
+                { courses: { some: { teacherId: 't1' } } },
+                { pairs: { some: { teacherId: 't1', schedule: { is: { isActive: true } } } } },
+              ],
+            },
+          },
+        },
+      ],
+    })
   })
   // Регрессия: ?groupId=чужая-группа НЕ перезаписывает scope студента — в AND остаются оба
   // условия (своя группа И запрошенная), пересечение = пусто, чужие материалы не видны.
@@ -239,6 +254,21 @@ describe('MaterialsService — управление своими', () => {
     expect(prisma.file.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: 'f1', materialId: 'm1' } }),
     )
+    expect(files.getPresignedUrl).not.toHaveBeenCalled()
+  })
+
+  it('getFileUrl: преподаватель группы, где не ведёт занятий, → WRONG_SCOPE без ссылки', async () => {
+    const { service, prisma, files } = setup()
+    prisma.material.findUnique.mockResolvedValue({
+      id: 'm1',
+      groupId: 'g9',
+      teacher: { id: 'other' },
+      media: [],
+    })
+    const err = await service
+      .getFileUrl(user(Role.TEACHER, { sub: 't1', universityId: 'uni1' }), 'm1', 'f1')
+      .catch((e) => e)
+    expect(err.code).toBe('WRONG_SCOPE')
     expect(files.getPresignedUrl).not.toHaveBeenCalled()
   })
 
