@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import { PrismaService } from '../../common/prisma/prisma.service'
+import { advisoryXactLock } from '../../common/prisma/advisory-lock'
 import { AppException } from '../../common/exceptions/app.exception'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
@@ -59,31 +60,36 @@ export class CameraViewsService {
       throw new AppException('NOT_FOUND', 'Камера не найдена')
     }
     if (!camera.enabled) throw conflict('camera', 'Камера отключена')
-    const active = await this.prisma.cameraViewSession.count({
-      where: {
-        userId: actor.sub,
-        endedAt: null,
-        lastSeenAt: { gte: new Date(Date.now() - VIEW_ACTIVE_WINDOW_MS) },
-      },
-    })
-    if (active >= MAX_ACTIVE_VIEWS) {
-      throw conflict('views', `Одновременно можно смотреть не больше ${MAX_ACTIVE_VIEWS} камер`)
-    }
     const viewer = await this.prisma.user.findUnique({
       where: { id: actor.sub },
       select: { firstName: true, lastName: true },
     })
-    const session = await this.prisma.cameraViewSession.create({
-      data: {
-        universityId,
-        cameraId: camera.id,
-        cameraName: camera.name,
-        userId: actor.sub,
-        userName: viewer ? `${viewer.lastName} ${viewer.firstName}` : actor.sub,
-        ip: ctx.ip,
-        userAgent: ctx.userAgent?.slice(0, 500),
-      },
-      select: { id: true },
+    // Подсчёт и создание — под локом человека: два параллельных старта иначе оба видят
+    // три просмотра и вместе дают пять.
+    const session = await this.prisma.$transaction(async (tx) => {
+      await advisoryXactLock(tx, `camera-views:${actor.sub}`)
+      const active = await tx.cameraViewSession.count({
+        where: {
+          userId: actor.sub,
+          endedAt: null,
+          lastSeenAt: { gte: new Date(Date.now() - VIEW_ACTIVE_WINDOW_MS) },
+        },
+      })
+      if (active >= MAX_ACTIVE_VIEWS) {
+        throw conflict('views', `Одновременно можно смотреть не больше ${MAX_ACTIVE_VIEWS} камер`)
+      }
+      return tx.cameraViewSession.create({
+        data: {
+          universityId,
+          cameraId: camera.id,
+          cameraName: camera.name,
+          userId: actor.sub,
+          userName: viewer ? `${viewer.lastName} ${viewer.firstName}` : actor.sub,
+          ip: ctx.ip,
+          userAgent: ctx.userAgent?.slice(0, 500),
+        },
+        select: { id: true },
+      })
     })
     await this.demand.mark(camera.id)
     // Агент держит длинный опрос — пусть узнает о зрителе сразу, а не через 25 с.
@@ -94,7 +100,9 @@ export class CameraViewsService {
   /**
    * Плеер подтверждает просмотр и получает свежий токен. Модуль выключили или камеру
    * отключили — сессия закрывается, и токен больше не выдаётся: просмотр гаснет не позже,
-   * чем истечёт последний токен.
+   * чем истечёт последний токен. Сессия, не подтверждённая дольше VIEW_ACTIVE_WINDOW_MS, уже
+   * выпала из лимита просмотров — её не оживить, иначе лимит обходится: открыть четыре,
+   * переждать, открыть ещё четыре и продлить первые.
    */
   async heartbeat(actor: JwtPayload, sessionId: string): Promise<CameraViewTicket> {
     const universityId = viewedUniversity(actor)
@@ -114,10 +122,19 @@ export class CameraViewsService {
       await this.close(session.id)
       throw conflict(settings?.enabled ? 'camera' : 'module', 'Просмотр этой камеры закрыт')
     }
-    await this.prisma.cameraViewSession.update({
-      where: { id: session.id },
-      data: { lastSeenAt: new Date() },
+    const now = Date.now()
+    const renewed = await this.prisma.cameraViewSession.updateMany({
+      where: {
+        id: session.id,
+        endedAt: null,
+        lastSeenAt: { gte: new Date(now - VIEW_ACTIVE_WINDOW_MS) },
+      },
+      data: { lastSeenAt: new Date(now) },
     })
+    if (renewed.count === 0) {
+      await this.close(session.id)
+      throw new AppException('NOT_FOUND', 'Сессия просмотра истекла')
+    }
     await this.demand.mark(camera.id)
     return this.ticket(session.id, camera.id, actor.sub, relay)
   }

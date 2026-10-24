@@ -37,9 +37,13 @@ function setup(
       create: jest.fn().mockResolvedValue({ id: 'view-1' }),
       findUnique: jest.fn(),
       update: jest.fn().mockResolvedValue({}),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
     user: { findUnique: jest.fn().mockResolvedValue({ firstName: 'Ерлан', lastName: 'Тестов' }) },
+    $executeRaw: jest.fn().mockResolvedValue(1),
+    $transaction: jest.fn(),
   }
+  prisma.$transaction.mockImplementation((fn: (tx: typeof prisma) => unknown) => fn(prisma))
   const tokens = {
     relaySettings: jest.fn(() =>
       options.relay === false
@@ -130,10 +134,37 @@ describe('CameraViewsService', () => {
     })
     const ticket = await service.heartbeat(guard, 'view-1')
     expect(ticket.token).toBe('jwt')
-    expect(prisma.cameraViewSession.update.mock.calls[0][0].data).toEqual({
-      lastSeenAt: expect.any(Date),
+    expect(prisma.cameraViewSession.updateMany.mock.calls[0][0]).toEqual({
+      where: { id: 'view-1', endedAt: null, lastSeenAt: { gte: expect.any(Date) } },
+      data: { lastSeenAt: expect.any(Date) },
     })
     expect(demand.mark).toHaveBeenCalledWith('cam-1')
+  })
+
+  it('устаревшую сессию не оживить: она закрывается, токена нет — лимит не обойти', async () => {
+    const { service, prisma, tokens } = setup()
+    prisma.cameraViewSession.findUnique.mockResolvedValue({
+      id: 'view-1',
+      cameraId: 'cam-1',
+      userId: 'u-1',
+      endedAt: null,
+    })
+    prisma.cameraViewSession.updateMany.mockResolvedValue({ count: 0 })
+    await expect(service.heartbeat(guard, 'view-1')).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    expect(prisma.cameraViewSession.update.mock.calls[0][0].data).toEqual({
+      endedAt: expect.any(Date),
+    })
+    expect(tokens.sign).not.toHaveBeenCalled()
+  })
+
+  it('лимит считается и сессия создаётся под локом человека', async () => {
+    const { service, prisma } = setup()
+    await service.start(guard, 'cam-1', ctx)
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1)
+    expect(prisma.$executeRaw).toHaveBeenCalledTimes(1)
+    expect(prisma.$executeRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      prisma.cameraViewSession.count.mock.invocationCallOrder[0],
+    )
   })
 
   it('модуль выключили — продление закрывает сессию и токена не даёт', async () => {
