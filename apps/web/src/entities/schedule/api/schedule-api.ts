@@ -7,7 +7,7 @@ import type {
   UpdatePairInput,
   UpdateScheduleInput,
 } from '@studenthub/shared-schemas'
-import { api } from '../../../shared/api'
+import { api, type ResponseWithMeta } from '../../../shared/api'
 import type {
   Pair,
   ScheduleChange,
@@ -30,16 +30,43 @@ export const scheduleKeys = {
 
 // ── Просмотр (6.3) ───────────────────────────────────────────────────────────
 
+// Пары и изменения сервер отдаёт страницами по 500: у факультета пар за неделю больше, и
+// раньше ответ молча обрезался — у декана пропадали пятница и суббота (BUG-018, BUG-342).
+// Страницы забираются подряд до конца; потолок страховочный — десять тысяч пар или
+// изменений в одной выборке означали бы не «не дочитали», а сломанные данные.
+const SCHEDULE_PAGE_LIMIT = 500
+const SCHEDULE_PAGE_MAX = 20
+
 export async function fetchSchedule(filters: ScheduleQueryInput = {}): Promise<ScheduleResponse> {
-  const { data } = await api.get<ScheduleResponse>('/schedule', { params: filters })
-  return data
+  const pairs: Pair[] = []
+  let timezone: string | null = null
+  let cursor: string | undefined
+  for (let page = 0; page < SCHEDULE_PAGE_MAX; page += 1) {
+    const { data } = await api.get<ScheduleResponse>('/schedule', {
+      params: { ...filters, ...(cursor ? { cursor } : {}) },
+    })
+    timezone = data.timezone
+    pairs.push(...data.pairs)
+    if (!data.nextCursor) break
+    cursor = data.nextCursor
+  }
+  return { timezone, pairs }
 }
 
 export async function fetchScheduleChanges(
   query: ScheduleChangeQueryInput,
 ): Promise<ScheduleChange[]> {
-  const { data } = await api.get<ScheduleChange[]>('/schedule/changes', { params: query })
-  return data
+  const out: ScheduleChange[] = []
+  let cursor: string | undefined
+  for (let page = 0; page < SCHEDULE_PAGE_MAX; page += 1) {
+    const res = (await api.get<ScheduleChange[]>('/schedule/changes', {
+      params: { ...query, limit: SCHEDULE_PAGE_LIMIT, ...(cursor ? { cursor } : {}) },
+    })) as ResponseWithMeta & { data: ScheduleChange[] }
+    out.push(...res.data)
+    if (!res.meta?.hasNext || !res.meta.cursor) break
+    cursor = res.meta.cursor
+  }
+  return out
 }
 
 export async function createScheduleChangeRequest(

@@ -26,6 +26,7 @@ function setup(
     // Ротацию дежурства уведомления не трогают — заглушка нужна лишь для полноты токена.
     rotateDuty: jest.fn().mockResolvedValue(null),
     duty: jest.fn(async () => ({ dutyUserId: null, rotation: [] })),
+    nextOnDuty: jest.fn().mockResolvedValue(null),
   }
   const service = new TelegramNotifyService(
     prisma as unknown as PrismaService,

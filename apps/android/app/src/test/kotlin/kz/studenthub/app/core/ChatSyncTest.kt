@@ -1,5 +1,7 @@
 package kz.studenthub.app.core
 
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.test.runTest
 import kz.studenthub.app.core.chats.AttachmentSending
 import kz.studenthub.app.core.chats.AttachmentUpload
@@ -12,10 +14,13 @@ import kz.studenthub.app.core.chats.ChatMessageDto
 import kz.studenthub.app.core.chats.ChatMessageSending
 import kz.studenthub.app.core.chats.ChatStore
 import kz.studenthub.app.core.chats.ChatUpdatesDto
+import kz.studenthub.app.core.chats.DraftSaving
+import kz.studenthub.app.core.chats.DraftSync
 import kz.studenthub.app.core.chats.MessageOutbox
 import kz.studenthub.app.core.chats.MessageStore
 import kz.studenthub.app.core.chats.OutgoingAttachment
 import kz.studenthub.app.core.network.ApiError
+import kz.studenthub.app.core.network.ApiErrorCode
 import kz.studenthub.app.core.network.AppJson
 import kz.studenthub.app.core.storage.AttachmentEntity
 import kz.studenthub.app.core.storage.DraftEntity
@@ -56,15 +61,19 @@ class ChatSyncTest {
         store.saveChats(listOf(chatDto("c1", last = messageDto("m1", "c1", 5))))
         assertEquals("m1", db.chats().get("c1")?.lastMessageId)
         assertNotNull(db.messages().get("m1"))
-        assertEquals(5, db.chats().get("c1")?.lastSeq)
     }
 
-    /** Позиция догона только растёт: страница списка может опоздать за сокетом. */
+    /**
+     * Превью не двигает позицию догона (§9.2c): локально M1–M50, список принёс M70 —
+     * догон обязан запросить разницу с 50, а не с 70, иначе M51–M69 пропадут.
+     */
     @Test
-    fun lastSeqNeverGoesBackwards() = runTest {
-        store.saveChats(listOf(chatDto("c1", last = messageDto("m9", "c1", 9))))
-        store.saveChats(listOf(chatDto("c1", last = messageDto("m3", "c1", 3))))
-        assertEquals(9, db.chats().get("c1")?.lastSeq)
+    fun previewDoesNotMoveCatchUpPosition() = runTest {
+        store.saveChats(listOf(chatDto("c1")))
+        MessageStore(db).saveMessages(listOf(messageDto("m50", "c1", 50)), "c1")
+        store.saveChats(listOf(chatDto("c1", last = messageDto("m70", "c1", 70))))
+        assertEquals(50, db.chats().get("c1")?.lastSeq)
+        assertEquals("m70", db.chats().get("c1")?.lastMessageId)
     }
 
     /** Местный неотправленный черновик всегда свежее серверного. */
@@ -74,6 +83,47 @@ class ChatSyncTest {
         db.drafts().upsert(DraftEntity("c1", "печатаю", null, T0, isSynced = false))
         store.saveChats(listOf(chatDto("c1", draft = "старый с сервера")))
         assertEquals("печатаю", db.drafts().get("c1")?.text)
+    }
+
+    /**
+     * Отправленный текст не воскресает черновиком: очистка живёт у себя, пока сервер её не
+     * подтвердит, и ответ списка со старым серверным черновиком её не перебивает.
+     */
+    @Test
+    fun clearedDraftSurvivesUntilServerConfirms() = runTest {
+        store.saveChats(listOf(chatDto("c1")))
+        var online = false
+        val sent = mutableListOf<String>()
+        val drafts = DraftSync(
+            db,
+            object : DraftSaving {
+                override suspend fun saveDraft(chatId: String, text: String) {
+                    if (!online) throw ApiError.Transport(IOException("offline"))
+                    sent += text
+                }
+            },
+        )
+        drafts.save("c1", "")
+        store.saveChats(listOf(chatDto("c1", draft = "уже отправленный текст")))
+        assertEquals("", db.drafts().get("c1")?.text)
+        online = true
+        drafts.flush()
+        assertEquals(listOf(""), sent)
+        assertNull(db.drafts().get("c1"))
+    }
+
+    @Test
+    fun draftIsSentToServerAndMarkedSynced() = runTest {
+        store.saveChats(listOf(chatDto("c1")))
+        val sent = mutableListOf<Pair<String, String>>()
+        val api = object : DraftSaving {
+            override suspend fun saveDraft(chatId: String, text: String) {
+                sent += chatId to text
+            }
+        }
+        DraftSync(db, api).save("c1", "печатаю")
+        assertEquals(listOf("c1" to "печатаю"), sent)
+        assertTrue(db.drafts().get("c1")!!.isSynced)
     }
 
     @Test
@@ -88,6 +138,21 @@ class ChatSyncTest {
         store.saveFolders(listOf(ChatFolderDto("f1", "Раз", 0), ChatFolderDto("f2", "Два", 1)))
         store.saveFolders(listOf(ChatFolderDto("f2", "Два", 0)))
         assertEquals(listOf("f2"), db.folders().all().map { it.id })
+    }
+
+    /**
+     * Чат, которого сервер больше не отдаёт (человека убрали из группы), уходит из базы
+     * вместе с перепиской и черновиком: база повторяет доступ на сервере (§11.3).
+     */
+    @Test
+    fun chatsGoneFromServerAreForgotten() = runTest {
+        store.saveChats(listOf(chatDto("c1"), chatDto("c2", draft = "черновик")))
+        MessageStore(db).saveMessages(listOf(messageDto("m1", "c2", 1)), "c2")
+        store.retainChats(setOf("c1"))
+        assertNotNull(db.chats().get("c1"))
+        assertNull(db.chats().get("c2"))
+        assertNull(db.messages().get("m1"))
+        assertNull(db.drafts().get("c2"))
     }
 
     /** Обновление строки чата не стирает его переписку: каскад не должен срабатывать. */
@@ -114,6 +179,27 @@ class MessageSyncTest {
         store.saveMessages(listOf(messageDto("m1", "c1", 1), messageDto("m2", "c1", 2)), "c1")
         assertEquals(2, db.messages().thread("c1").size)
         assertEquals(2, store.lastSeq("c1"))
+    }
+
+    /** Автор и детали системного события ложатся в строку: лента подписывает и строит текст сама. */
+    @Test
+    fun senderAndSystemDetailsAreStored() = runTest {
+        chats.saveChats(listOf(chatDto("c1")))
+        val system = ChatMessageDto(
+            id = "m1",
+            chatId = "c1",
+            seq = 1,
+            senderId = "u1",
+            content = "",
+            systemType = "member_added",
+            createdAt = T0,
+            sender = ChatMessageDto.Sender("u1", firstName = "Айдана", lastName = "Сейткали"),
+            systemMeta = ChatMessageDto.SystemMeta(targetName = "Нуртаев Ерлан"),
+        )
+        store.saveMessages(listOf(system), "c1")
+        val row = db.messages().get("m1")!!
+        assertEquals("Сейткали Айдана", row.senderName)
+        assertEquals("Нуртаев Ерлан", row.systemTarget)
     }
 
     /** Удаление ставит метку, а не стирает строку: соседи в ленте не прыгают. */
@@ -157,14 +243,59 @@ class MessageSyncTest {
         assertEquals(7, row.seq)
     }
 
-    /** Сеть отказала — текст остаётся в ленте со своим состоянием. */
+    /** Сеть отказала — текст остаётся в ленте и в очереди: уйдёт сам, когда появится связь. */
     @Test
     fun failedSendStaysInTheThread() = runTest {
         chats.saveChats(listOf(chatDto("c1")))
         var stuck = 0
         assertFalse(MessageOutbox(db, FailingSender(), onStuck = { stuck++ }).send("привет", "c1", "me", null))
-        assertEquals(SendState.FAILED, db.messages().thread("c1").single().sendState)
+        assertEquals(SendState.PENDING, db.messages().thread("c1").single().sendState)
         assertEquals(1, stuck)
+    }
+
+    /**
+     * Отказ сервера по одному сообщению очередь не держит: оно помечается неотправленным
+     * (повторит человек), остальные уходят, и фоновая работа не повторяется вечно.
+     */
+    @Test
+    fun rejectedMessageDoesNotBlockQueue() = runTest {
+        chats.saveChats(listOf(chatDto("c1")))
+        var clock = T0
+        val offline = MessageOutbox(db, FailingSender(), now = { clock.also { clock = clock.plusSeconds(1) } })
+        offline.send("запретное", "c1", "me", null)
+        offline.send("обычное", "c1", "me", null)
+        val sent = mutableListOf<String>()
+        val picky = object : ChatMessageSending {
+            override suspend fun send(text: String, chatId: String, replyToId: String?): ChatMessageDto {
+                if (text == "запретное") throw ApiError.Server(ApiErrorCode.FORBIDDEN, "нет", emptyList(), 403)
+                sent += text
+                return messageDto("srv-$text", chatId, 9, sender = "me", content = text)
+            }
+        }
+        assertTrue(MessageOutbox(db, picky).flush())
+        assertEquals(listOf("обычное"), sent)
+        assertEquals(SendState.FAILED, db.messages().thread("c1").first { it.content == "запретное" }.sendState)
+        // Отвергнутое само не повторяется: его повторяет человек.
+        assertTrue(MessageOutbox(db, picky).flush())
+        assertEquals(listOf("обычное"), sent)
+    }
+
+    /** Две досылки разом (открытие чата и фоновая работа) не отправляют одно сообщение дважды. */
+    @Test
+    fun concurrentFlushSendsOnce() = runTest {
+        chats.saveChats(listOf(chatDto("c1")))
+        MessageOutbox(db, FailingSender()).send("одно", "c1", "me", null)
+        val sent = mutableListOf<String>()
+        val slow = object : ChatMessageSending {
+            override suspend fun send(text: String, chatId: String, replyToId: String?): ChatMessageDto {
+                sent += text
+                kotlinx.coroutines.delay(50)
+                return messageDto("srv-1", chatId, 1, sender = "me", content = text)
+            }
+        }
+        val outbox = MessageOutbox(db, slow)
+        listOf(async { outbox.flush() }, async { outbox.flush("c1") }).awaitAll()
+        assertEquals(listOf("одно"), sent)
     }
 
     /** Очередь — сами сообщения в базе: переживает перезапуск, досылается по порядку. */
@@ -232,14 +363,14 @@ class AttachmentTest {
         assertEquals(photo.absolutePath, attachment.localPath)
     }
 
-    /** Загрузка сорвалась — сообщение неотправленным, файл на месте: человек нажмёт «ещё раз». */
+    /** Загрузка сорвалась без сети — сообщение в очереди, файл на месте: уйдёт, когда появится связь. */
     @Test
     fun failedUploadKeepsMessageAndFile() = runTest {
         ChatStore(db).saveChats(listOf(chatDto("c1")))
         val photo = file()
         assertFalse(AttachmentUploader(db, StubStorage(fail = true)).send(OutgoingAttachment(photo, "image/jpeg", "photo.jpg"), "c1", "me", null, null))
         val message = db.messages().thread("c1").single()
-        assertEquals(SendState.FAILED, message.sendState)
+        assertEquals(SendState.PENDING, message.sendState)
         assertTrue(File(db.messages().attachments(message.id).single().localPath!!).exists())
     }
 
@@ -255,10 +386,12 @@ class AttachmentTest {
         assertEquals("/cache/f1", db.messages().attachments("m1").single().localPath)
     }
 
-    /** Голосовое узнаётся по имени, как на сервере. */
+    /** Голосовое узнаётся по имени, как на сервере; mime по содержимому бывает и `video/*`. */
     @Test
     fun voiceIsRecognisedByName() {
         assertTrue(AttachmentEntity("1", "m", "audio/m4a", "voice-1.m4a", null, null, null, null).isVoice)
+        assertTrue(AttachmentEntity("3", "m", "video/webm", "voice-2.webm", null, null, null, null).isVoice)
+        assertTrue(AttachmentEntity("4", "m", "video/mp4", "voice-3.m4a", null, null, null, null).isVoice)
         assertFalse(AttachmentEntity("2", "m", "audio/mpeg", "song.mp3", null, null, null, null).isVoice)
     }
 

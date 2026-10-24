@@ -36,7 +36,22 @@ class ScheduleStore(private val db: AppDatabase) {
     suspend fun saveChanges(changes: List<ScheduleChangeDto>, from: Instant) = db.transaction {
         val dao = db.schedule()
         dao.deleteChangesBefore(from)
-        dao.insertChanges(changes.map { PairChangeEntity(it.id, it.pairId, it.type, it.date, it.newStartTime, it.newEndTime, it.note) })
+        dao.insertChanges(
+            changes.map {
+                PairChangeEntity(
+                    id = it.id,
+                    pairId = it.pairId,
+                    type = it.type,
+                    date = it.date,
+                    newStartTime = it.newStartTime,
+                    newEndTime = it.newEndTime,
+                    note = it.note,
+                    newRoomName = it.newRoom?.name,
+                    newTeacherName = name(it.newTeacher),
+                    createdAt = it.createdAt,
+                )
+            },
+        )
     }
 
     private fun name(person: PairDto.Person?): String? =

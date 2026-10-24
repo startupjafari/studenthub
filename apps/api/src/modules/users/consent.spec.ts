@@ -94,6 +94,7 @@ describe('UserService.acceptConsent', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
     )
     return { service, prisma, audit }
   }
@@ -189,6 +190,7 @@ describe('AuthService.getMe: флаг consentRequired', () => {
       {} as never,
       {} as never,
       {} as never,
+      { removeAllForUser: jest.fn() } as never,
     )
 
     await expect(service.getMe('u1')).resolves.toEqual({

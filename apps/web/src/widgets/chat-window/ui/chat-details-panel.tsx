@@ -44,6 +44,7 @@ import {
   blockUserRequest,
   chatKeys,
   createChatRequest,
+  deleteChatRequest,
   fetchAttachmentLink,
   fetchBlockedUsers,
   fetchChatLinks,
@@ -869,7 +870,8 @@ function ParticipantsTab({
         },
       })
     }
-    if (chat.isAdmin && m.id !== myId && (!m.isAdmin || m.banned)) {
+    // Бан — только создатель группы (§8.3), как и аватар.
+    if (chat.isOwner && m.id !== myId) {
       items.push({
         key: 'ban',
         label: m.banned ? t('unban') : t('ban'),
@@ -1096,10 +1098,13 @@ export function ChatDetailsPanel({
   const [editOpen, setEditOpen] = useState(false)
 
   const err = (e: unknown) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR'))
+  // Выход — DELETE /chats/:id, а не исключение самого себя: исключать может только админ, и у
+  // него в ленте вместо «вышел» появлялось «исключил».
   const leave = useMutation({
-    mutationFn: () => removeChatMemberRequest(chat.id, myId as string),
+    mutationFn: () => deleteChatRequest(chat.id),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: chatKeys.list() })
+      void qc.invalidateQueries({ queryKey: chatKeys.unread() })
       onLeft()
     },
     onError: err,
@@ -1113,6 +1118,7 @@ export function ChatDetailsPanel({
   // Аватар группы меняет владелец, название — любой админ. Окно редактирования
   // открывается по любому из двух прав, внутри доступное разграничено.
   const canEdit = isGroup && (chat.isAdmin || chat.isOwner)
+  const canLeave = chat.type === 'GROUP' && !chat.isOwner
   // Вкладка профиля есть только там, где есть один собеседник: у «Избранного»
   // (личный чат с самим собой) и групп её нет. Объект, а не флаг: из него TS видит,
   // что id и обработчик заданы, и приведения типов внутри вкладки не нужны.
@@ -1337,7 +1343,9 @@ export function ChatDetailsPanel({
             </>
           )}
 
-          {isGroup && (
+          {/* Покинуть можно только пользовательскую группу. Создатель её не покидает, а
+              удаляет (пункт «Удалить группу» в меню шапки), официальные чаты не покидаются. */}
+          {canLeave && (
             <>
               <div className="h-px bg-border" aria-hidden />
               <button

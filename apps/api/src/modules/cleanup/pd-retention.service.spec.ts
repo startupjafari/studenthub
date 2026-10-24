@@ -108,14 +108,14 @@ describe('PdRetentionService.purgeClosedLoans', () => {
 
     const where = prisma.loan.count.mock.calls[0][0].where
     expect(where.OR).toEqual([
-      {
-        status: { in: [LoanStatus.RETURNED, LoanStatus.LOST] },
-        returnedAt: { lt: expect.any(Date) },
-      },
+      { status: LoanStatus.RETURNED, returnedAt: { lt: expect.any(Date) } },
+      // Утеря — только погашенная и считая от погашения: непогашенный долг не исчезает.
+      { status: LoanStatus.LOST, lostSettledAt: { lt: expect.any(Date) } },
       { status: LoanStatus.CANCELLED, cancelledAt: { lt: expect.any(Date) } },
     ])
     expectYearAgo(where.OR[0].returnedAt.lt, before)
-    expectYearAgo(where.OR[1].cancelledAt.lt, before)
+    expectYearAgo(where.OR[1].lostSettledAt.lt, before)
+    expectYearAgo(where.OR[2].cancelledAt.lt, before)
     // Открытая выдача (долг) в условие не попадает никогда — статуса OPEN там нет.
     expect(JSON.stringify(where)).not.toContain(LoanStatus.OPEN)
     expect(prisma.loan.findMany).not.toHaveBeenCalled()
@@ -132,7 +132,7 @@ describe('PdRetentionService.purgeClosedLoans', () => {
 
     const del = prisma.loan.deleteMany.mock.calls[0][0].where
     expect(del.id).toEqual({ in: ['l1', 'l2'] })
-    expect(del.OR).toHaveLength(2)
+    expect(del.OR).toHaveLength(3)
     expect(prisma.loan.count).not.toHaveBeenCalled()
     expect(audit.record).toHaveBeenCalledWith({
       action: 'pd_retention_purged',
@@ -338,41 +338,42 @@ describe('PdRetentionService.purgeDepartedProfiles', () => {
 })
 
 describe('PdRetentionService.purgeAccountTombstones', () => {
-  const noBlockers = {
-    _count: {
-      gradeColumnsMade: 0,
-      examsCreated: 0,
-      assignmentsCreated: 0,
-      materials: 0,
-      scheduleChangesCreated: 0,
-      documentRequestsAuthored: 0,
-      eventsOrganized: 0,
-      consultationSlots: 0,
-    },
+  type CountArgs = { where: { AND?: Record<string, unknown>[] } }
+  /** Какая связь проверяется в условии счётчика заблокированных (`some`), если проверяется. */
+  function blockerOf(args: CountArgs): string | null {
+    const rel = args.where.AND?.[1]
+    if (!rel) return null
+    const [key, value] = Object.entries(rel)[0] ?? []
+    return value && typeof value === 'object' && 'some' in value ? (key ?? null) : null
   }
 
-  it('отбирает удалённых больше года назад, курсором по id', async () => {
+  it('отбирает удалённых больше года назад без блокирующих связей, курсором по id', async () => {
     const { service, prisma } = makeService()
     const before = Date.now()
 
     await service.purgeAccountTombstones(true)
 
-    const where = prisma.user.findMany.mock.calls[0][0].where
-    expectYearAgo(where.deletedAt.lt, before)
+    const [period, noBlockers] = prisma.user.findMany.mock.calls[0][0].where.AND
+    expectYearAgo(period.deletedAt.lt, before)
+    // Заблокированные исключены в самом запросе: они не тратят потолок прогона и не
+    // возвращаются в выборку каждую ночь.
+    expect(noBlockers).toMatchObject({
+      gradeColumnsMade: { none: {} },
+      examsCreated: { none: {} },
+      eventsOrganized: { none: {} },
+      consultationSlots: { none: {} },
+    })
     expect(prisma.user.findMany.mock.calls[0][0].orderBy).toEqual({ id: 'asc' })
   })
 
   it('dry-run: считает, кого удалил бы и кто заблокирован, ничего не удаляя', async () => {
     const { service, prisma } = makeService()
-    prisma.user.count.mockResolvedValue(3)
-    prisma.user.findMany
-      .mockResolvedValueOnce([{ id: 'a' }, { id: 'b' }, { id: 'c' }])
-      .mockResolvedValueOnce([])
-    prisma.user.findUnique.mockImplementation(async ({ where }: { where: { id: string } }) =>
-      where.id === 'b'
-        ? { _count: { ...noBlockers._count, gradeColumnsMade: 4, examsCreated: 1 } }
-        : noBlockers,
-    )
+    prisma.user.count.mockImplementation(async (args: CountArgs) => {
+      const blocker = blockerOf(args)
+      if (blocker === null) return 3
+      return blocker === 'gradeColumnsMade' || blocker === 'examsCreated' ? 1 : 0
+    })
+    prisma.user.findMany.mockResolvedValueOnce([{ id: 'a' }, { id: 'c' }]).mockResolvedValueOnce([])
     prisma.file.count.mockImplementation(async ({ where }: { where: { ownerId: string } }) =>
       where.ownerId === 'c' ? 1 : 0,
     )
@@ -387,13 +388,12 @@ describe('PdRetentionService.purgeAccountTombstones', () => {
     expect(prisma.$transaction).not.toHaveBeenCalled()
     expect(prisma.user.deleteMany).not.toHaveBeenCalled()
     // Второй запрос продолжает после последнего проверенного, а не с начала.
-    expect(prisma.user.findMany.mock.calls[1][0].where.id).toEqual({ gt: 'c' })
+    expect(prisma.user.findMany.mock.calls[1][0].where.AND[1]).toEqual({ id: { gt: 'c' } })
   })
 
   it('боевой прогон: переписывает чужие сканы, стирает цитаты и гранты, удаляет строку', async () => {
     const { service, prisma, audit } = makeService()
     prisma.user.findMany.mockResolvedValueOnce([{ id: 'u1' }]).mockResolvedValueOnce([])
-    prisma.user.findUnique.mockResolvedValue(noBlockers)
     prisma.user.deleteMany.mockResolvedValue({ count: 1 })
 
     const counts = await service.purgeAccountTombstones(false)
@@ -422,10 +422,11 @@ describe('PdRetentionService.purgeAccountTombstones', () => {
 
   it('заблокированный (автор колонок журнала) не удаляется — оценки группы целы', async () => {
     const { service, prisma } = makeService()
-    prisma.user.findMany.mockResolvedValueOnce([{ id: 't1' }]).mockResolvedValueOnce([])
-    prisma.user.findUnique.mockResolvedValue({
-      _count: { ...noBlockers._count, gradeColumnsMade: 2 },
-    })
+    prisma.user.count.mockImplementation(async (args: CountArgs) =>
+      blockerOf(args) === 'gradeColumnsMade' ? 1 : 0,
+    )
+    // Выборка кандидатов его уже не возвращает.
+    prisma.user.findMany.mockResolvedValueOnce([])
 
     const counts = await service.purgeAccountTombstones(false)
 
@@ -433,10 +434,25 @@ describe('PdRetentionService.purgeAccountTombstones', () => {
     expect(prisma.$transaction).not.toHaveBeenCalled()
   })
 
+  // Владельцы чужих файлов пропускаются, но потолок удалений не тратят: раньше 200
+  // пропущенных подряд останавливали удаление насовсем.
+  it('пропущенные не тратят потолок прогона', async () => {
+    const { service, prisma } = makeService()
+    const owners = Array.from({ length: 250 }, (_, i) => ({ id: `f${String(i).padStart(3, '0')}` }))
+    prisma.user.findMany.mockResolvedValueOnce([...owners, { id: 'z1' }]).mockResolvedValueOnce([])
+    prisma.file.count.mockImplementation(async ({ where }: { where: { ownerId: string } }) =>
+      where.ownerId.startsWith('f') ? 1 : 0,
+    )
+
+    await expect(service.purgeAccountTombstones(true)).resolves.toMatchObject({
+      User: 1,
+      'blocked.foreignFiles': 250,
+    })
+  })
+
   it('владелец чужих файлов (обложка книги) не удаляется', async () => {
     const { service, prisma } = makeService()
     prisma.user.findMany.mockResolvedValueOnce([{ id: 'lib' }]).mockResolvedValueOnce([])
-    prisma.user.findUnique.mockResolvedValue(noBlockers)
     prisma.file.count.mockResolvedValue(1)
 
     const counts = await service.purgeAccountTombstones(false)
@@ -451,7 +467,6 @@ describe('PdRetentionService.purgeAccountTombstones', () => {
   it('сбой одного удаления не останавливает остальных', async () => {
     const { service, prisma } = makeService()
     prisma.user.findMany.mockResolvedValueOnce([{ id: 'x' }, { id: 'y' }]).mockResolvedValueOnce([])
-    prisma.user.findUnique.mockResolvedValue(noBlockers)
     prisma.user.deleteMany
       .mockRejectedValueOnce(new Error('timeout'))
       .mockResolvedValueOnce({ count: 1 })

@@ -13,7 +13,11 @@ import {
   MoreHorizontal,
   XCircle,
 } from 'lucide-react'
-import type { AppointmentQueueView } from '@studenthub/shared-schemas'
+import {
+  APPOINTMENT_TRANSITIONS,
+  canAppointmentTransition,
+  type AppointmentQueueView,
+} from '@studenthub/shared-schemas'
 import {
   Badge,
   Button,
@@ -35,6 +39,7 @@ import {
   TableRow,
   TableSkeletonRows,
   TableText,
+  useConfirm,
   useTableSort,
 } from '../../../shared/ui'
 import { toApiError } from '../../../shared/lib'
@@ -45,9 +50,11 @@ import {
   completeAppointmentRequest,
   staffCancelAppointmentRequest,
   type Appointment,
+  type AppointmentStatus,
 } from '../../../entities/appointment'
 import { APPT_STATUS_BADGE, APPT_STATUS_KEY, apptTypeKey } from '../lib/visuals'
 import { ConfirmAppointmentModal } from './confirm-appointment-modal'
+import { useUniversityTimezone } from '../lib/university-time'
 
 // Ширины колонок: тема тянет остаток — это единственное свободное поле в строке.
 const COLS = ['22%', '15%', '15%', '28%', '14%', '3.5rem'] as const
@@ -91,6 +98,7 @@ export function DeanAppointmentsView() {
   const tErr = useTranslations('Errors')
   const locale = useLocale()
   const qc = useQueryClient()
+  const confirm = useConfirm()
   const [modal, setModal] = useState<{ id: string; mode: 'confirm' | 'reschedule' } | null>(null)
 
   const [tab, setTab] = useState<TabId>('active')
@@ -141,12 +149,15 @@ export function DeanAppointmentsView() {
     return null
   })
 
+  // Время приёма — по часам вуза, как его назначали, а не по поясу браузера.
+  const timezone = useUniversityTimezone()
   const fmt = (iso: string) =>
     new Date(iso).toLocaleString(locale, {
       day: '2-digit',
       month: 'short',
       hour: '2-digit',
       minute: '2-digit',
+      ...(timezone ? { timeZone: timezone } : {}),
     })
 
   return (
@@ -205,7 +216,11 @@ export function DeanAppointmentsView() {
             <TableBody>
               {q.isLoading && <TableSkeletonRows columns={APPOINTMENT_SKELETON_COLS} />}
               {sorted.map((a) => {
-                const active = a.status !== 'COMPLETED' && a.status !== 'CANCELLED'
+                // Пункты меню — по той же таблице переходов, что проверяет сервер: иначе
+                // «Завершить» неподтверждённую запись или «Подтвердить» подтверждённую
+                // упирались в 409.
+                const can = (to: AppointmentStatus) => canAppointmentTransition(a.status, to)
+                const active = APPOINTMENT_TRANSITIONS[a.status].length > 0
                 return (
                   <TableRow key={a.id} className="hover:bg-muted/40">
                     <TableCell className="font-medium">
@@ -239,30 +254,59 @@ export function DeanAppointmentsView() {
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end">
-                            <DropdownMenuItem
-                              onClick={() => setModal({ id: a.id, mode: 'confirm' })}
-                            >
-                              <CheckCircle2 aria-hidden />
-                              {t('confirm')}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              onClick={() => setModal({ id: a.id, mode: 'reschedule' })}
-                            >
-                              <Clock aria-hidden />
-                              {t('reschedule')}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => complete.mutate(a.id)}>
-                              <CheckCircle2 aria-hidden />
-                              {t('complete')}
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                              variant="destructive"
-                              onClick={() => cancel.mutate(a.id)}
-                            >
-                              <XCircle aria-hidden />
-                              {t('cancelAppointment')}
-                            </DropdownMenuItem>
+                            {can('CONFIRMED') && (
+                              <DropdownMenuItem
+                                onClick={() => setModal({ id: a.id, mode: 'confirm' })}
+                              >
+                                <CheckCircle2 aria-hidden />
+                                {t('confirm')}
+                              </DropdownMenuItem>
+                            )}
+                            {can('RESCHEDULED') && (
+                              <DropdownMenuItem
+                                onClick={() => setModal({ id: a.id, mode: 'reschedule' })}
+                              >
+                                <Clock aria-hidden />
+                                {t('reschedule')}
+                              </DropdownMenuItem>
+                            )}
+                            {can('COMPLETED') && (
+                              <DropdownMenuItem
+                                onClick={async () => {
+                                  const ok = await confirm({
+                                    title: t('completeConfirmTitle'),
+                                    description: t('completeConfirmHint'),
+                                    confirmLabel: t('complete'),
+                                  })
+                                  if (ok) complete.mutate(a.id)
+                                }}
+                              >
+                                <CheckCircle2 aria-hidden />
+                                {t('complete')}
+                              </DropdownMenuItem>
+                            )}
+                            {can('CANCELLED') && (
+                              <>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  variant="destructive"
+                                  onClick={async () => {
+                                    // Отмена и завершение конечны: случайный клик в меню
+                                    // раньше сразу закрывал запись и уведомлял студента.
+                                    const ok = await confirm({
+                                      title: t('cancelConfirmTitle'),
+                                      description: t('staffCancelConfirmHint'),
+                                      confirmLabel: t('cancelAppointment'),
+                                      destructive: true,
+                                    })
+                                    if (ok) cancel.mutate(a.id)
+                                  }}
+                                >
+                                  <XCircle aria-hidden />
+                                  {t('cancelAppointment')}
+                                </DropdownMenuItem>
+                              </>
+                            )}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       )}

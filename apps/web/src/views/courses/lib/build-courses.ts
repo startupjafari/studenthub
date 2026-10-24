@@ -1,7 +1,14 @@
-import type { Pair, PairTeacher } from '../../../entities/schedule'
+import {
+  changesByPairDate,
+  pairDateKey,
+  type Pair,
+  type PairTeacher,
+  type ScheduleChange,
+} from '../../../entities/schedule'
 import type { MaterialSubjectCount } from '../../../entities/material'
 import type { CourseItem } from '../../../entities/course'
 import { isoWeekParity, type NowInTz } from '../../../shared/lib'
+import { formatYmd } from '../../../shared/ui/calendar-grid'
 
 // «Дисциплины» без отдельной модели: агрегируем из существующих данных (пары
 // расписания + материалы). Дисциплина = уникальный `subject` группы. Со своим
@@ -32,38 +39,64 @@ function dowOf(d: Date): number {
   return ((d.getDay() + 6) % 7) + 1
 }
 
-// Ближайшее занятие дисциплины за 14 дней вперёд.
-function nextLessonFor(subjectPairs: Pair[], now: NowInTz): CourseNextLesson | null {
+// Ближайшее занятие ищется на две недели вперёд — за тот же период берутся изменения.
+const NEXT_LESSON_DAYS = 14
+
+/** Период изменений расписания для «ближайшего занятия»: сегодня и 13 дней вперёд. */
+export function nextLessonRange(now: NowInTz): { from: string; to: string } {
+  const last = new Date(`${now.date}T00:00:00`)
+  last.setDate(last.getDate() + NEXT_LESSON_DAYS - 1)
+  return { from: now.date, to: formatYmd(last) }
+}
+
+// Ближайшее занятие дисциплины за 14 дней вперёд — с изменениями своей даты, как в
+// «Сегодня»: отменённое занятие пропускается, у перенесённого — новое время и аудитория.
+function nextLessonFor(
+  subjectPairs: Pair[],
+  now: NowInTz,
+  changes: Map<string, ScheduleChange>,
+): CourseNextLesson | null {
   const base = new Date(`${now.date}T00:00:00`)
-  for (let offset = 0; offset < 14; offset++) {
+  for (let offset = 0; offset < NEXT_LESSON_DAYS; offset++) {
     const day = new Date(base)
     day.setDate(base.getDate() + offset)
     const dow = dowOf(day)
+    const date = formatYmd(day)
     const parity = isoWeekParity(day)
-    const candidates = subjectPairs
-      .filter((p) => p.dayOfWeek === dow && (p.weekType === 'BOTH' || p.weekType === parity))
-      .filter((p) => offset > 0 || p.startTime > now.time)
-      .sort((a, b) => a.startTime.localeCompare(b.startTime))
-    const first = candidates[0]
-    if (first) {
-      return {
-        inDays: offset,
-        dayOfWeek: dow,
-        startTime: first.startTime,
-        room: first.room?.name ?? null,
-      }
+    const candidates: CourseNextLesson[] = []
+    for (const p of subjectPairs) {
+      if (p.dayOfWeek !== dow || (p.weekType !== 'BOTH' && p.weekType !== parity)) continue
+      const change = changes.get(pairDateKey(p.id, date))
+      if (change?.type === 'CANCELLED') continue
+      const startTime = change?.newStartTime ?? p.startTime
+      if (offset === 0 && startTime <= now.time) continue
+      const room = change?.newRoom ?? p.room
+      candidates.push({ inDays: offset, dayOfWeek: dow, startTime, room: room?.name ?? null })
     }
+    candidates.sort((a, b) => a.startTime.localeCompare(b.startTime))
+    if (candidates[0]) return candidates[0]
   }
   return null
 }
 
+function countsBySubject(materialCounts: MaterialSubjectCount[]): Map<string, number> {
+  const out = new Map<string, number>()
+  for (const c of materialCounts) {
+    if (c.subject) out.set(c.subject, c.count)
+  }
+  return out
+}
+
 // `materialCounts` — счётчики с сервера (`GET /materials/subjects`): посчитанные по странице
 // списка материалов, они занижались, как только материалов становилось больше страницы.
+// `changes` — изменения расписания за `nextLessonRange`.
 export function buildCourses(
   pairs: Pair[],
   materialCounts: MaterialSubjectCount[],
   now: NowInTz,
+  changes: ScheduleChange[] = [],
 ): CourseSummary[] {
+  const changeByPairDate = changesByPairDate(changes)
   const bySubject = new Map<string, Pair[]>()
   for (const p of pairs) {
     const list = bySubject.get(p.subject) ?? []
@@ -71,10 +104,7 @@ export function buildCourses(
     bySubject.set(p.subject, list)
   }
 
-  const materialCount = new Map<string, number>()
-  for (const c of materialCounts) {
-    if (c.subject) materialCount.set(c.subject, c.count)
-  }
+  const materialCount = countsBySubject(materialCounts)
 
   const courses: CourseSummary[] = []
   for (const [subject, subjectPairs] of bySubject) {
@@ -91,7 +121,7 @@ export function buildCourses(
       teachers,
       lessonsPerWeek: subjectPairs.length,
       materialsCount: materialCount.get(subject) ?? 0,
-      next: nextLessonFor(subjectPairs, now),
+      next: nextLessonFor(subjectPairs, now, changeByPairDate),
       courseId: null,
       credits: null,
       termName: null,
@@ -132,12 +162,14 @@ function courseTeachers(course: CourseItem): PairTeacher[] {
     : []
 }
 
-function summaryOf(course: CourseItem): CourseSummary {
+// Материалы привязаны к названию дисциплины, а не к курсу: страница курса прошлого семестра
+// или курса без пар показывает материалы по названию — карточка считает их так же.
+function summaryOf(course: CourseItem, materialCount: Map<string, number>): CourseSummary {
   return {
     subject: course.subject.name,
     teachers: courseTeachers(course),
     lessonsPerWeek: 0,
-    materialsCount: 0,
+    materialsCount: materialCount.get(course.subject.name) ?? 0,
     next: null,
     courseId: course.id,
     credits: course.credits,
@@ -150,9 +182,15 @@ function summaryOf(course: CourseItem): CourseSummary {
 // официальным преподавателем. Остальные курсы с тем же названием (прошлые семестры) и курсы
 // без пар в расписании — отдельными карточками: раньше карта по названию склеивала
 // «Математику» 1-го и 2-го семестров в одну, и побеждал случайный курс (C-F25).
-// Пустой `apiCourses` → возвращаем базу как есть.
-export function mergeApiCourses(base: CourseSummary[], apiCourses: CourseItem[]): CourseSummary[] {
+// Пустой `apiCourses` → возвращаем базу как есть. `materialCounts` — те же счётчики, что у
+// `buildCourses`: по ним считаются карточки курсов без пар.
+export function mergeApiCourses(
+  base: CourseSummary[],
+  apiCourses: CourseItem[],
+  materialCounts: MaterialSubjectCount[] = [],
+): CourseSummary[] {
   if (apiCourses.length === 0) return base
+  const materialCount = countsBySubject(materialCounts)
   const byName = new Map<string, CourseItem[]>()
   for (const course of apiCourses) {
     const list = byName.get(course.subject.name) ?? []
@@ -175,10 +213,12 @@ export function mergeApiCourses(base: CourseSummary[], apiCourses: CourseItem[])
       termName: primary.term?.name ?? null,
       teachers: card.teachers.length > 0 ? card.teachers : courseTeachers(primary),
     })
-    for (const course of rest) result.push(summaryOf(course))
+    for (const course of rest) result.push(summaryOf(course, materialCount))
   }
   for (const list of byName.values()) {
-    for (const course of list.sort(compareCourses)) result.push(summaryOf(course))
+    for (const course of list.sort(compareCourses)) {
+      result.push(summaryOf(course, materialCount))
+    }
   }
 
   // Сортировка устойчивая: внутри одной дисциплины основной курс остаётся первым.

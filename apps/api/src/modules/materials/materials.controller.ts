@@ -23,7 +23,7 @@ import type { FastifyRequest } from 'fastify'
 import { Roles } from '../../common/decorators/roles.decorator'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
-import { readSingleUpload } from '../../common/http/read-upload'
+import { readNamedUpload } from '../../common/http/read-upload'
 import type { RequestContext } from '../auth/auth.service'
 import { MaterialsService } from './materials.service'
 import { ConfirmMaterialFileDto, PresignMaterialFileDto } from './dto/presign-material-file.dto'
@@ -105,8 +105,8 @@ export class MaterialsController {
     @Param('id') id: string,
     @Req() req: FastifyRequest,
   ) {
-    const buffer = await readSingleUpload(req)
-    return this.materials.addFile(user, id, buffer, this.ctx(req))
+    const { buffer, filename } = await readNamedUpload(req)
+    return this.materials.addFile(user, id, buffer, filename, this.ctx(req))
   }
 
   @Get(':id/files/:fileId/presigned')

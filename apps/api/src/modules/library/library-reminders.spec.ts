@@ -64,7 +64,8 @@ describe('Напоминания библиотеки', () => {
         recipientIds: ['stu-1'],
         titleKey: 'library.dueSoon.title',
         params: { title: 'Русская литература', date: '24.10.2026' },
-        dedupeKey: 'library-dueSoon:loan-1',
+        // Срок в ключе: после продления напоминание о новом сроке не отбросится как повтор.
+        dedupeKey: 'library-dueSoon:loan-1:2026-10-24',
       }),
     )
     expect(prisma.loan.updateMany).toHaveBeenCalledWith({
@@ -80,7 +81,7 @@ describe('Напоминания библиотеки', () => {
       expect.objectContaining({
         titleKey: 'library.overdue.title',
         params: { title: 'Русская литература', date: '10.10.2026' },
-        dedupeKey: expect.stringMatching(/^library-overdue:loan-2:\d{4}-\d{2}-\d{2}$/),
+        dedupeKey: expect.stringMatching(/^library-overdue:loan-2:2026-10-10:\d{4}-\d{2}-\d{2}$/),
       }),
     )
   })

@@ -1,5 +1,6 @@
 import { z } from 'zod'
-import { OffsetPaginationSchema, SortOrderSchema } from './pagination.js'
+import { OffsetPaginationSchema, SortOrderSchema, queryBoolean } from './pagination.js'
+import { PasswordSchema } from './auth.js'
 
 // Карьера (Фаза 18): компании-работодатели и их допуск к студентам вузов.
 // Единый источник истины для валидации на бэке и типов на фронте — дублировать
@@ -74,6 +75,21 @@ const optionalText = (max: number) =>
     .optional()
     .transform((v) => (v && v.length > 0 ? v : undefined))
 
+/**
+ * Текстовое поле формы правки, которое можно очистить. `optionalText` превращал пустой
+ * input в undefined — «поле не трогать», и стереть город или описание было нельзя: сервер
+ * отвечал «Сохранено», форма возвращала старое. Здесь undefined — «не трогать», а `''`
+ * и null — «очистить» (в базу пишется null).
+ */
+const clearableText = (max: number) =>
+  z
+    .string()
+    .trim()
+    .max(max)
+    .nullable()
+    .optional()
+    .transform((v) => (v === '' ? null : v))
+
 /** Slug компании: только строчная латиница, цифры и дефис — попадает в публичный URL. */
 export const CompanySlugSchema = z
   .string()
@@ -85,14 +101,22 @@ export const CompanySlugSchema = z
 export const CompanyNameSchema = z.string().trim().min(2).max(120)
 
 /** Сайт компании: только http(s) — ссылку показываем студенту, javascript: недопустим. */
-export const CompanyWebsiteSchema = z
+const companyWebsiteUrl = z
   .string()
   .trim()
   .max(200)
   .url()
   .refine((v) => v.startsWith('http://') || v.startsWith('https://'), 'Ссылка должна быть http(s)')
+
+export const CompanyWebsiteSchema = companyWebsiteUrl
   .optional()
   .or(z.literal('').transform(() => undefined))
+
+/** Сайт в форме правки: пустое поле — «убрать сайт» (null), как у `clearableText`. */
+const ClearableCompanyWebsiteSchema = companyWebsiteUrl
+  .nullable()
+  .optional()
+  .or(z.literal('').transform(() => null))
 
 // ── Регистрация работодателя ─────────────────────────────────────────────────
 
@@ -102,19 +126,24 @@ export const CompanyWebsiteSchema = z
  * с НУЛЕВЫМ доступом: до подтверждения email и одобрения хотя бы одним вузом он не видит
  * ни одного студента.
  */
-export const EmployerSignupSchema = z.object({
-  email: z.string().trim().toLowerCase().email().max(160),
-  password: z.string().min(8).max(72),
-  firstName: z.string().trim().min(1).max(60),
-  lastName: z.string().trim().min(1).max(60),
-  companyName: CompanyNameSchema,
-  website: CompanyWebsiteSchema,
-})
+export const EmployerSignupSchema = z
+  .object({
+    email: z.string().trim().toLowerCase().email().max(160),
+    // Та же политика, что у всех: без неё работодатель регистрировался с «aaaaaaaa».
+    password: PasswordSchema,
+    firstName: z.string().trim().min(1).max(60),
+    lastName: z.string().trim().min(1).max(60),
+    companyName: CompanyNameSchema,
+    website: CompanyWebsiteSchema,
+  })
+  .strict()
 export type EmployerSignupInput = z.infer<typeof EmployerSignupSchema>
 
-export const VerifyCompanyEmailSchema = z.object({
-  token: z.string().min(16).max(200),
-})
+export const VerifyCompanyEmailSchema = z
+  .object({
+    token: z.string().min(16).max(200),
+  })
+  .strict()
 export type VerifyCompanyEmailInput = z.infer<typeof VerifyCompanyEmailSchema>
 
 /**
@@ -122,30 +151,44 @@ export type VerifyCompanyEmailInput = z.infer<typeof VerifyCompanyEmailSchema>
  * не успевшая открыть письмо, оставалась в PENDING_EMAIL навсегда — повторная регистрация
  * на тот же адрес молча ничего не делает (защита от перебора адресов).
  */
-export const ResendCompanyVerificationSchema = z.object({
-  email: z.string().trim().toLowerCase().email().max(160),
-})
+export const ResendCompanyVerificationSchema = z
+  .object({
+    email: z.string().trim().toLowerCase().email().max(160),
+  })
+  .strict()
 export type ResendCompanyVerificationInput = z.infer<typeof ResendCompanyVerificationSchema>
 
 // ── Профиль компании ─────────────────────────────────────────────────────────
 
-export const UpdateCompanySchema = z.object({
-  name: CompanyNameSchema.optional(),
-  description: optionalText(2000),
-  website: CompanyWebsiteSchema,
-  city: optionalText(24),
-  logoUrl: optionalText(500),
-})
+export const UpdateCompanySchema = z
+  .object({
+    name: CompanyNameSchema.optional(),
+    description: clearableText(2000),
+    website: ClearableCompanyWebsiteSchema,
+    city: clearableText(24),
+    logoUrl: optionalText(500),
+  })
+  .strict()
 export type UpdateCompanyInput = z.infer<typeof UpdateCompanySchema>
 
 // ── Допуск к вузу ────────────────────────────────────────────────────────────
 
 /** Заявка компании в вуз. Сообщение необязательно, но вузу без него труднее решать. */
-export const RequestCompanyAccessSchema = z.object({
-  universityId: z.string().uuid(),
-  message: optionalText(1000),
-})
+export const RequestCompanyAccessSchema = z
+  .object({
+    universityId: z.string().uuid(),
+    message: optionalText(1000),
+  })
+  .strict()
 export type RequestCompanyAccessInput = z.infer<typeof RequestCompanyAccessSchema>
+
+/** Справочник вузов для заявки компании: поиск по названию. */
+export const CompanyUniversityDirectoryQuerySchema = z.object({
+  search: z.string().trim().max(120).optional(),
+})
+export type CompanyUniversityDirectoryQueryInput = z.infer<
+  typeof CompanyUniversityDirectoryQuerySchema
+>
 
 /**
  * Решение вуза по заявке. reason обязателен при отказе и отзыве: компания должна понимать,
@@ -160,6 +203,7 @@ export const DecideCompanyAccessSchema = z
     /** Вуз, от имени которого принимается решение — только для платформенных ролей. */
     universityId: z.string().min(1).optional(),
   })
+  .strict()
   .refine((v) => v.status === 'APPROVED' || !!v.reason, {
     message: 'Укажите причину',
     path: ['reason'],
@@ -244,26 +288,30 @@ export const CONSENT_FIELDS = ['GPA', 'PHONE', 'EMAIL'] as const
 export const ConsentFieldSchema = z.enum(CONSENT_FIELDS)
 export type ConsentField = z.infer<typeof ConsentFieldSchema>
 
-export const UpdateCareerProfileSchema = z.object({
-  visibility: CareerVisibilitySchema.optional(),
-  employmentStatus: EmploymentStatusSchema.optional(),
-  desiredPositions: z.array(z.string().trim().min(1).max(80)).max(10).optional(),
-  employmentTypes: z.array(EmploymentTypeSchema).max(EMPLOYMENT_TYPES.length).optional(),
-  workFormats: z.array(WorkFormatSchema).max(WORK_FORMATS.length).optional(),
-  relocationReady: z.boolean().optional(),
-  desiredSalaryMin: z.number().int().nonnegative().max(100_000_000).nullable().optional(),
-  desiredSalaryMax: z.number().int().nonnegative().max(100_000_000).nullable().optional(),
-  salaryCurrency: z.enum(['KZT', 'USD', 'EUR', 'RUB']).nullable().optional(),
-  about: optionalText(2000),
-})
+export const UpdateCareerProfileSchema = z
+  .object({
+    visibility: CareerVisibilitySchema.optional(),
+    employmentStatus: EmploymentStatusSchema.optional(),
+    desiredPositions: z.array(z.string().trim().min(1).max(80)).max(10).optional(),
+    employmentTypes: z.array(EmploymentTypeSchema).max(EMPLOYMENT_TYPES.length).optional(),
+    workFormats: z.array(WorkFormatSchema).max(WORK_FORMATS.length).optional(),
+    relocationReady: z.boolean().optional(),
+    desiredSalaryMin: z.number().int().nonnegative().max(100_000_000).nullable().optional(),
+    desiredSalaryMax: z.number().int().nonnegative().max(100_000_000).nullable().optional(),
+    salaryCurrency: z.enum(['KZT', 'USD', 'EUR', 'RUB']).nullable().optional(),
+    about: clearableText(2000),
+  })
+  .strict()
 export type UpdateCareerProfileInput = z.infer<typeof UpdateCareerProfileSchema>
 
 /** Выдать или отозвать согласие. companyId не задан — согласие для всех работодателей. */
-export const SetCareerConsentSchema = z.object({
-  field: ConsentFieldSchema,
-  granted: z.boolean(),
-  companyId: z.string().uuid().optional(),
-})
+export const SetCareerConsentSchema = z
+  .object({
+    field: ConsentFieldSchema,
+    granted: z.boolean(),
+    companyId: z.string().uuid().optional(),
+  })
+  .strict()
 export type SetCareerConsentInput = z.infer<typeof SetCareerConsentSchema>
 
 // ── Готовность профиля ───────────────────────────────────────────────────────
@@ -393,20 +441,22 @@ export type ExperienceLevel = z.infer<typeof ExperienceLevelSchema>
 
 const salaryField = z.number().int().nonnegative().max(100_000_000).nullable().optional()
 
-export const VacancyInputSchema = z.object({
-  title: z.string().trim().min(3).max(160),
-  description: z.string().trim().min(30).max(20_000),
-  employmentType: EmploymentTypeSchema,
-  workFormat: WorkFormatSchema,
-  experienceLevel: ExperienceLevelSchema,
-  city: optionalText(24),
-  salaryMin: salaryField,
-  salaryMax: salaryField,
-  salaryCurrency: z.enum(['KZT', 'USD', 'EUR', 'RUB']).nullable().optional(),
-  skills: z.array(z.string().trim().min(1).max(60)).max(30).default([]),
-  languages: z.array(z.string().trim().min(1).max(40)).max(10).default([]),
-  deadline: z.string().datetime().nullable().optional(),
-})
+export const VacancyInputSchema = z
+  .object({
+    title: z.string().trim().min(3).max(160),
+    description: z.string().trim().min(30).max(20_000),
+    employmentType: EmploymentTypeSchema,
+    workFormat: WorkFormatSchema,
+    experienceLevel: ExperienceLevelSchema,
+    city: clearableText(24),
+    salaryMin: salaryField,
+    salaryMax: salaryField,
+    salaryCurrency: z.enum(['KZT', 'USD', 'EUR', 'RUB']).nullable().optional(),
+    skills: z.array(z.string().trim().min(1).max(60)).max(30).default([]),
+    languages: z.array(z.string().trim().min(1).max(40)).max(10).default([]),
+    deadline: z.string().datetime().nullable().optional(),
+  })
+  .strict()
 export type VacancyInput = z.infer<typeof VacancyInputSchema>
 
 export const UpdateVacancySchema = VacancyInputSchema.partial()
@@ -439,6 +489,7 @@ export const DecideVacancySchema = z
     /** Вуз, от имени которого принимается решение — только для платформенных ролей. */
     universityId: z.string().min(1).optional(),
   })
+  .strict()
   .refine((v) => v.status === 'APPROVED' || !!v.reason, {
     message: 'Укажите причину',
     path: ['reason'],
@@ -462,7 +513,8 @@ export const VacancySearchSchema = OffsetPaginationSchema.extend({
   workFormat: WorkFormatSchema.optional(),
   experienceLevel: ExperienceLevelSchema.optional(),
   city: optionalText(24),
-  salaryFrom: z.coerce.number().int().nonnegative().optional(),
+  // Тот же потолок, что у зарплаты вакансии: больше значения колонка (Int) не примет.
+  salaryFrom: z.coerce.number().int().nonnegative().max(100_000_000).optional(),
   skills: z.array(z.string().trim().min(1).max(60)).max(10).optional(),
   sort: VacancySortSchema.default('publishedAt'),
   order: SortOrderSchema.default('desc'),
@@ -598,10 +650,12 @@ export function isApplicationFinal(status: CareerApplicationStatus): boolean {
   return CAREER_APPLICATION_TRANSITIONS[status].length === 0
 }
 
-export const CreateApplicationSchema = z.object({
-  vacancyId: z.string().uuid(),
-  coverLetter: optionalText(4000),
-})
+export const CreateApplicationSchema = z
+  .object({
+    vacancyId: z.string().uuid(),
+    coverLetter: optionalText(4000),
+  })
+  .strict()
 export type CreateApplicationInput = z.infer<typeof CreateApplicationSchema>
 
 /**
@@ -613,6 +667,7 @@ export const ChangeApplicationStatusSchema = z
     status: z.enum(EMPLOYER_APPLICATION_STATUSES),
     comment: optionalText(2000),
   })
+  .strict()
   .refine((v) => v.status !== 'REJECTED' || !!v.comment, {
     message: 'Укажите причину отказа',
     path: ['comment'],
@@ -627,13 +682,35 @@ export type ApplicationListQueryInput = z.infer<typeof ApplicationListQuerySchem
 
 // ── Резюме (18.E) ────────────────────────────────────────────────────────────
 
-export const UpdateResumeSchema = z.object({
-  title: z.string().trim().min(1).max(120).optional(),
-  /** Включить публичную ссылку. Выключение стирает slug — старая ссылка перестаёт работать. */
-  published: z.boolean().optional(),
-  includeContacts: z.boolean().optional(),
-})
+export const UpdateResumeSchema = z
+  .object({
+    title: z.string().trim().min(1).max(120).optional(),
+    /** Включить публичную ссылку. Выключение стирает slug — старая ссылка перестаёт работать. */
+    published: z.boolean().optional(),
+    includeContacts: z.boolean().optional(),
+  })
+  .strict()
 export type UpdateResumeInput = z.infer<typeof UpdateResumeSchema>
+
+const resumePdfLabel = z.string().trim().min(1).max(80).optional()
+
+/**
+ * Запрос PDF резюме: подписи разделов на языке интерфейса (их знает клиент) и язык
+ * брендирования. Всё необязательно — без подписи API берёт английскую, без языка — русский.
+ */
+export const ResumePdfQuerySchema = z.object({
+  about: resumePdfLabel,
+  education: resumePdfLabel,
+  skills: resumePdfLabel,
+  languages: resumePdfLabel,
+  experience: resumePdfLabel,
+  projects: resumePdfLabel,
+  certificates: resumePdfLabel,
+  verified: resumePdfLabel,
+  generated: resumePdfLabel,
+  locale: z.string().trim().max(16).optional(),
+})
+export type ResumePdfQueryInput = z.infer<typeof ResumePdfQuerySchema>
 
 // ── Карьерные мероприятия (18.F) ─────────────────────────────────────────────
 
@@ -654,7 +731,10 @@ export type CareerEventKind = z.infer<typeof CareerEventKindSchema>
 
 export const CareerEventListQuerySchema = OffsetPaginationSchema.extend({
   kind: CareerEventKindSchema.optional(),
-  /** Прошедшие мероприятия по умолчанию не показываем. */
-  past: z.coerce.boolean().default(false),
+  /**
+   * Прошедшие мероприятия по умолчанию не показываем. `queryBoolean`, а не `z.coerce.boolean()`:
+   * экран шлёт `past=false`, и coerce превращал эту строку в true.
+   */
+  past: queryBoolean.default(false),
 }).extend(UniversityScopeSchema.shape)
 export type CareerEventListQueryInput = z.infer<typeof CareerEventListQuerySchema>

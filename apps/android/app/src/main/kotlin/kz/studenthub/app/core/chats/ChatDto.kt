@@ -62,7 +62,21 @@ data class ChatMessageDto(
     @Serializable(InstantSerializer::class) val pinnedAt: Instant? = null,
     @Serializable(InstantSerializer::class) val createdAt: Instant,
     val media: List<ChatAttachmentDto>? = null,
-)
+    /** Автор: в группах и официальных чатах его имя стоит над первым сообщением серии. */
+    val sender: Sender? = null,
+    /** Детали системного сообщения: текст строит клиент по `systemType` (§20). */
+    val systemMeta: SystemMeta? = null,
+) {
+    @Serializable
+    data class Sender(val id: String, val firstName: String? = null, val lastName: String? = null) {
+        /** «Фамилия Имя» — так автора подписывает веб. */
+        val name: String?
+            get() = listOfNotNull(lastName, firstName).map(String::trim).filter(String::isNotEmpty).joinToString(" ").ifEmpty { null }
+    }
+
+    @Serializable
+    data class SystemMeta(val targetName: String? = null, val title: String? = null)
+}
 
 @Serializable
 data class ChatFolderDto(val id: String, val name: String, val position: Int, val chatIds: List<String> = emptyList())

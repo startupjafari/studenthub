@@ -44,7 +44,9 @@ const AUDIT_LIMIT = 2000
  *
  * ПОЛНОТА СВЕРЯЕТСЯ СО СХЕМОЙ (D-F26): каждая связь «таблица → User» перечислена в
  * USER_RELATIONS — либо разделом архива, либо исключением с причиной. Тест проходит по
- * схеме Prisma и падает на новой связи, которой там нет.
+ * схеме Prisma и падает на новой связи, которой там нет. Ссылки на человека без FK
+ * (скаляры вроде `UserBlock.blockerId`, `DocumentExport.userId`) сверка по связям не видит —
+ * их держит SCALAR_ID_FIELDS: тест проходит по всем скалярным `…Id` вне связей.
  */
 @Injectable()
 export class DataExportService {
@@ -156,6 +158,7 @@ export class DataExportService {
       social,
       career,
       services,
+      records,
     ] = await Promise.all([
       this.prisma.file.findMany({
         where: { ownerId: userId },
@@ -441,6 +444,7 @@ export class DataExportService {
       this.collectSocial(userId, take),
       this.collectCareer(userId, take),
       this.collectServices(userId, take),
+      this.collectRecords(userId, take),
     ])
 
     return {
@@ -473,6 +477,7 @@ export class DataExportService {
       ...social,
       ...career,
       ...services,
+      ...records,
       auditLog: section(auditLog, AUDIT_LIMIT),
     }
   }
@@ -887,6 +892,81 @@ export class DataExportService {
     }
   }
 
+  /**
+   * Записи о человеке без FK на User (SCALAR_ID_FIELDS): кого он заблокировал, кому открыл
+   * свои документы, журнал его документов и выгрузки, которые он делал. Сверка по связям
+   * схемы их не видела, и архив выходил неполным молча (BUG-194).
+   */
+  private async collectRecords(
+    userId: string,
+    take: number,
+  ): Promise<Record<string, ExportSection>> {
+    const [blocks, accessGranted, documentEvents, exports] = await Promise.all([
+      this.prisma.userBlock.findMany({
+        where: { blockerId: userId },
+        select: { blockedId: true, createdAt: true },
+        orderBy: { createdAt: 'desc' },
+        take,
+      }),
+      this.prisma.documentAccess.findMany({
+        where: { grantedById: userId },
+        select: {
+          documentId: true,
+          granteeType: true,
+          granteeId: true,
+          reason: true,
+          grantedAt: true,
+          expiresAt: true,
+          revokedAt: true,
+        },
+        orderBy: { grantedAt: 'desc' },
+        take,
+      }),
+      // Журнал своих документов: и свои действия, и чужие над своими документами (кто из
+      // сотрудников смотрел, принимал, отклонял). Кто именно — данные сотрудника, как и в
+      // просмотрах удостоверения библиотекарем: остаётся признак «сам или нет».
+      this.prisma.documentEvent.findMany({
+        where: { OR: [{ actorId: userId }, { document: { ownerId: userId } }] },
+        select: {
+          documentId: true,
+          requestId: true,
+          actorId: true,
+          action: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: 'desc' },
+        take,
+      }),
+      // Свои выгрузки. Без `params`: там условия выборки — у выгрузки списка пользователей
+      // это поисковая строка с чужими именами и адресами.
+      this.prisma.documentExport.findMany({
+        where: { userId },
+        select: {
+          shortId: true,
+          kind: true,
+          format: true,
+          rows: true,
+          documentNumber: true,
+          ip: true,
+          userAgent: true,
+          createdAt: true,
+          revokedAt: true,
+        },
+        orderBy: { createdAt: 'desc' },
+        take,
+      }),
+    ])
+    return {
+      blocks: section(blocks, SECTION_LIMIT),
+      documentAccessGranted: section(accessGranted, SECTION_LIMIT),
+      documentEvents: section(
+        documentEvents.map(({ actorId, ...event }) => ({ ...event, byMe: actorId === userId })),
+        SECTION_LIMIT,
+      ),
+      exports: section(exports, SECTION_LIMIT),
+    }
+  }
+
   /** Учётная запись и профиль: всё, что лежит в самой строке User, кроме ключей доступа. */
   private accountView(account: AccountRow): Record<string, unknown> {
     const { university, faculty, group, ...rest } = account
@@ -1214,3 +1294,73 @@ export const USER_RELATIONS: Readonly<Record<string, { section: string } | { exc
     'SecurityVisitor.createdById': { excluded: STAFF_WORK },
     'SecurityVisitor.exitedById': { excluded: STAFF_WORK },
   }
+
+const NOT_USER = 'идентификатор не человека'
+
+/**
+ * Сверка скалярных ссылок (BUG-194). Ключ — «модель.поле» каждого скалярного `…Id`, не
+ * входящего в связь Prisma: такие поля сверка USER_RELATIONS не видит, а среди них есть
+ * ссылки на человека без FK (запись переживает удаление аккаунта или не расширяет User
+ * обратными связями). Значение — раздел архива, исключение с причиной или `notUser`, если
+ * поле указывает не на человека. Тест data-export.service.spec падает на новом поле,
+ * которого здесь нет.
+ */
+export const SCALAR_ID_FIELDS: Readonly<
+  Record<string, { section: string } | { excluded: string } | { notUser: string }>
+> = {
+  'AuditLog.userId': { section: 'auditLog' },
+  'AuditLog.entityId': { excluded: STAFF_WORK },
+  'UserBlock.blockerId': { section: 'blocks' },
+  'UserBlock.blockedId': { excluded: 'кто заблокировал субъекта — решение другого человека' },
+  'DocumentAccess.grantedById': { section: 'documentAccessGranted' },
+  'DocumentAccess.granteeId': {
+    excluded: 'доступ к чужому документу: документ и решение о доступе — данные владельца',
+  },
+  'DocumentEvent.actorId': { section: 'documentEvents' },
+  'DocumentExport.userId': { section: 'exports' },
+  'Chat.createdById': { section: 'supportTickets' },
+  'Chat.requestPendingForId': {
+    excluded: 'служебная отметка запроса на переписку; сам чат — в разделе chats',
+  },
+  'Chat.supportAssigneeId': { excluded: STAFF_WORK },
+  'Complaint.targetId': {
+    excluded: 'жалоба на субъекта — данные заявителя; меры по ней — раздел moderationWarnings',
+  },
+  'DocumentRequestTarget.targetId': {
+    excluded: 'адресат запроса вуза; ответы субъекта — раздел documentSubmissions',
+  },
+  'DocumentSubmission.reviewedById': { excluded: STAFF_WORK },
+  'DocumentSubmissionItem.reviewedById': { excluded: STAFF_WORK },
+  'Application.assignedToId': { excluded: STAFF_WORK },
+  'Application.issuedById': { excluded: STAFF_WORK },
+  'ApplicationEvent.actorId': {
+    excluded: 'история заявки: шаги сотрудников — их работа, итог — раздел applications',
+  },
+  'ApplicationDocument.reviewedById': { excluded: STAFF_WORK },
+  'ApplicationResult.issuedById': { excluded: STAFF_WORK },
+  'Company.createdById': { section: 'companies' },
+  'CompanyUniversityAccess.requestedById': {
+    excluded: 'работа сотрудника компании от её имени — данные компании',
+  },
+  'CompanyUniversityAccess.decidedById': { excluded: STAFF_WORK },
+  'Vacancy.createdById': { excluded: 'работа сотрудника компании от её имени — данные компании' },
+  'VacancyUniversityReview.decidedById': { excluded: STAFF_WORK },
+  'CareerApplicationEvent.actorId': {
+    excluded: 'история отклика: шаги компании — её работа, итог — раздел careerApplications',
+  },
+  'PlatformState.dutyUserId': { excluded: STAFF_WORK },
+  'PlatformState.updatedById': { excluded: STAFF_WORK },
+  'RefreshToken.familyId': { notUser: NOT_USER },
+  'Invite.universityId': { notUser: NOT_USER },
+  'Invite.facultyId': { notUser: NOT_USER },
+  'Invite.groupId': { notUser: NOT_USER },
+  'Chat.supportMergedIntoId': { notUser: NOT_USER },
+  'ScheduledMessage.replyToId': { notUser: NOT_USER },
+  'DocumentEvent.requestId': { notUser: NOT_USER },
+  'DocumentType.typeId': { notUser: NOT_USER },
+  'DeaneryAppointment.applicationId': { notUser: NOT_USER },
+  'CareerConsent.companyId': { notUser: NOT_USER },
+  'CareerApplication.companyId': { notUser: NOT_USER },
+  'CareerApplication.universityId': { notUser: NOT_USER },
+  'DocumentExport.shortId': { notUser: NOT_USER },
+}

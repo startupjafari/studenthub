@@ -5,7 +5,6 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import kz.studenthub.app.core.chats.ChatListItemDto
 import kz.studenthub.app.core.chats.ChatMessageDto
 import kz.studenthub.app.core.network.AppJson
 import java.time.Instant
@@ -40,7 +39,18 @@ sealed interface RealtimeEvent {
 
     data class Presence(val userId: String, val online: Boolean) : RealtimeEvent
 
-    data class ChatUpdated(val chat: ChatListItemDto) : RealtimeEvent
+    /**
+     * Сменились название или аватар чата. Сервер шлёт только то, что сменилось:
+     * `{ chatId, title }` или `{ chatId, avatarUrl }` (`null` — аватар убрали).
+     */
+    data class ChatUpdated(val chatId: String, val title: String? = null, val avatarChanged: Boolean = false, val avatarUrl: String? = null) :
+        RealtimeEvent
+
+    /**
+     * Тихий сигнал «обнови список чатов» (§9.2): новое или системное сообщение, правка
+     * последнего. Приходит в личную комнату — и для чатов, которые сейчас не открыты.
+     */
+    data class ChatActivity(val chatId: String) : RealtimeEvent
 
     /** Из единого конверта `event` приложению пока нужна смена статуса заявки. */
     data class ApplicationStatusChanged(val applicationId: String, val status: String) : RealtimeEvent
@@ -55,6 +65,7 @@ sealed interface RealtimeEvent {
         const val CHAT_ACTION = "chat:action"
         const val PRESENCE = "presence:changed"
         const val CHAT_UPDATED = "chat:updated"
+        const val CHAT_ACTIVITY = "chat:activity"
         const val ENVELOPE = "event"
         const val APPLICATION_STATUS = "application.status.changed"
 
@@ -64,7 +75,10 @@ sealed interface RealtimeEvent {
         const val ACTION = "chat:action"
         const val AUTH_REFRESH = "auth:refresh"
 
-        val incoming = listOf(MESSAGE_NEW, MESSAGE_UPDATED, MESSAGE_DELETED, MESSAGE_READ, CHAT_READ, CHAT_ACTION, PRESENCE, CHAT_UPDATED, ENVELOPE)
+        val incoming = listOf(
+            MESSAGE_NEW, MESSAGE_UPDATED, MESSAGE_DELETED, MESSAGE_READ, CHAT_READ, CHAT_ACTION, PRESENCE, CHAT_UPDATED,
+            CHAT_ACTIVITY, ENVELOPE,
+        )
     }
 
     companion object {
@@ -91,9 +105,13 @@ sealed interface RealtimeEvent {
                     val online = (payload["online"] as? kotlinx.serialization.json.JsonPrimitive)?.booleanOrNull ?: return null
                     Presence(text("userId") ?: return null, online)
                 }
-                Names.CHAT_UPDATED -> payload["chat"]?.let {
-                    runCatching { AppJson.decodeFromJsonElement(ChatListItemDto.serializer(), it) }.getOrNull()
-                }?.let(::ChatUpdated)
+                Names.CHAT_UPDATED -> ChatUpdated(
+                    chatId = text("chatId") ?: return null,
+                    title = text("title"),
+                    avatarChanged = "avatarUrl" in payload,
+                    avatarUrl = text("avatarUrl"),
+                )
+                Names.CHAT_ACTIVITY -> ChatActivity(text("chatId") ?: return null)
                 // Конверт: `{ type, entityId, version, ts, data }`. Только известные типы.
                 Names.ENVELOPE -> {
                     if (text("type") != Names.APPLICATION_STATUS) return null

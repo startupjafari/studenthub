@@ -41,6 +41,20 @@ ENV NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL}
 ENV NEXT_PUBLIC_SITE_URL=${NEXT_PUBLIC_SITE_URL}
 ENV NEXT_PUBLIC_SALES_EMAIL=${NEXT_PUBLIC_SALES_EMAIL}
 
+# Адреса платформы и сайта обязательны. Незаданный build-arg приезжает сюда пустой строкой,
+# конфиг принимает её за «не задано» и подставляет адреса для разработки — localhost. Образ
+# при этом собирается, а на проде все кнопки и постоянные 308-редиректы ведут на
+# http://localhost:3000; браузеры запоминают 308 навсегда, и поправить переменную потом
+# уже мало. Поэтому сборка падает здесь, с понятной причиной. Значение без хоста
+# (`https://` от пустого домена в compose) отбрасывается так же.
+RUN for name in NEXT_PUBLIC_APP_URL NEXT_PUBLIC_SITE_URL; do \
+      value=$(printenv "$name" || true); \
+      if ! printf '%s' "$value" | grep -Eq '^(https?://)?[^/:]+(:[0-9]+)?(/.*)?$'; then \
+        echo "Не задан $name (адрес вида https://app.example.kz) — сборка лендинга остановлена" >&2; \
+        exit 1; \
+      fi; \
+    done
+
 # Прямой `pnpm --filter landing build`, а не turbo: у лендинга нет workspace-зависимостей,
 # собирать по графу ^build нечего.
 RUN pnpm --filter landing build

@@ -24,6 +24,56 @@ const CHANGE_STATE: Record<ScheduleChange['type'], PairState> = {
 }
 
 /**
+ * Изменения одной пары на одну дату, сведённые в одно — по правилам `effectiveSlot` сервера,
+ * по которому считаются конфликты и QR-окно: позднее перекрывает раннее, отмена — всё.
+ * Перенос даёт время (и аудиторию, если указана), смена аудитории — аудиторию, замена —
+ * преподавателя; тип и заметка — последнего изменения. Раньше веб брал только последнее:
+ * после «перенос на 14:00» и «смена аудитории на 305» показывал 10:00 в 305.
+ * Изменения — в порядке создания.
+ */
+export function mergeChanges(changes: ScheduleChange[]): ScheduleChange | null {
+  const cancel = changes.find((c) => c.type === 'CANCELLED')
+  if (cancel) return cancel
+  // Через `as`: иначе TS сужает `merged` до null по начальному значению и в цикле.
+  let merged = null as ScheduleChange | null
+  for (const c of changes) {
+    const moved = c.type === 'MOVED' && !!c.newStartTime && !!c.newEndTime
+    const roomChanged = (c.type === 'ROOM_CHANGED' || c.type === 'MOVED') && !!c.newRoom
+    const substituted = c.type === 'SUBSTITUTED' && !!c.newTeacher
+    merged = {
+      ...c,
+      newStartTime: moved ? c.newStartTime : (merged?.newStartTime ?? null),
+      newEndTime: moved ? c.newEndTime : (merged?.newEndTime ?? null),
+      newRoom: roomChanged ? c.newRoom : (merged?.newRoom ?? null),
+      newTeacher: substituted ? c.newTeacher : (merged?.newTeacher ?? null),
+      note: c.note ?? merged?.note ?? null,
+    }
+  }
+  return merged
+}
+
+/** Ключ «пара|дата» карты `changesByPairDate`. */
+export function pairDateKey(pairId: string, date: string): string {
+  return `${pairId}|${date.slice(0, 10)}`
+}
+
+/** Изменения, сведённые по паре и дате (`mergeChanges`), — для наложения на сетку и календарь. */
+export function changesByPairDate(changes: ScheduleChange[]): Map<string, ScheduleChange> {
+  const grouped = new Map<string, ScheduleChange[]>()
+  for (const c of changes) {
+    const key = pairDateKey(c.pairId, c.date)
+    grouped.set(key, [...(grouped.get(key) ?? []), c])
+  }
+  const out = new Map<string, ScheduleChange>()
+  for (const [key, list] of grouped) {
+    const sorted = [...list].sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+    const merged = mergeChanges(sorted)
+    if (merged) out.set(key, merged)
+  }
+  return out
+}
+
+/**
  * Пары на сегодня с наложенными изменениями и признаком «сейчас/прошло».
  *
  * Дженерик по типу пары: страница помещения передаёт пару с именем группы
@@ -35,10 +85,7 @@ export function buildDayPairs<T extends Pair>(
   now: NowInTz,
   parity: 'ODD' | 'EVEN',
 ): DayPair<T>[] {
-  const todayChanges = new Map<string, ScheduleChange>()
-  for (const c of changes) {
-    if (c.date.slice(0, 10) === now.date) todayChanges.set(c.pairId, c)
-  }
+  const todayChanges = changesByPairDate(changes)
 
   return pairs
     .filter(
@@ -46,7 +93,7 @@ export function buildDayPairs<T extends Pair>(
     )
     .sort((a, b) => a.startTime.localeCompare(b.startTime))
     .map((pair) => {
-      const change = todayChanges.get(pair.id) ?? null
+      const change = todayChanges.get(pairDateKey(pair.id, now.date)) ?? null
       const start = change?.newStartTime ?? pair.startTime
       const end = change?.newEndTime ?? pair.endTime
       let state: PairState = change ? CHANGE_STATE[change.type] : 'normal'

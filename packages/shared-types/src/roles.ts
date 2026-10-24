@@ -59,6 +59,27 @@ export function isRestrictedRole(role: Role | null | undefined): boolean {
   return role != null && RESTRICTED_ROLES.includes(role)
 }
 
+/**
+ * Роли, которым 2FA обязательна (docs/PROJECT.md §8.3 «Форс 2FA»): платформа, админ и
+ * модератор вуза, декан, охрана, библиотекарь. Скомпрометированный пароль такой учётки
+ * открывает чужие данные целого вуза или факультета. Сервер закрывает им API до настройки
+ * (`TwoFactorGuard`) и не даёт отключить 2FA; веб не показывает кнопку отключения.
+ */
+export const TWO_FACTOR_REQUIRED_ROLES: readonly Role[] = [
+  Role.PLATFORM_ADMIN,
+  Role.PLATFORM_MODERATOR,
+  Role.UNIVERSITY_ADMIN,
+  Role.UNIVERSITY_MODERATOR,
+  Role.DEAN,
+  Role.SECURITY_GUARD,
+  Role.LIBRARIAN,
+]
+
+/** true, если роли 2FA обязательна (`TWO_FACTOR_REQUIRED_ROLES`). */
+export function isTwoFactorRequired(role: Role | null | undefined): boolean {
+  return role != null && TWO_FACTOR_REQUIRED_ROLES.includes(role)
+}
+
 /** true, если роль `a` строго выше роли `b` в иерархии (для проверки выдачи инвайтов). */
 export function isHigherRole(a: Role, b: Role): boolean {
   return ROLE_HIERARCHY.indexOf(a) < ROLE_HIERARCHY.indexOf(b)

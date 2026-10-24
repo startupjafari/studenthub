@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { PageSchema } from './pagination.js'
 
 // Библиотека вуза (Фаза 20, docs/PROJECT.md §3.11): каталог, экземпляры, выдачи, брони.
 // Книги берут студенты и старосты своего вуза, выдаёт и принимает библиотекарь, модуль и
@@ -129,7 +130,7 @@ export const BookSortSchema = z.enum(BOOK_SORT_FIELDS)
  * которых есть экземпляр на полке. `archived` видят только те, кто ведёт фонд.
  */
 export const BookListQuerySchema = z.object({
-  page: z.coerce.number().int().positive().default(1),
+  page: PageSchema,
   limit: z.coerce.number().int().positive().max(100).default(20),
   q: z.string().trim().max(100).optional(),
   section: z.string().trim().max(100).optional(),
@@ -295,10 +296,18 @@ export interface LibraryImportResult {
 
 // ── Выдачи (20.4–20.6) ───────────────────────────────────────────────────────────────
 
+/** Такой день есть в календаре: `2026-02-31` иначе молча становится 3 марта. */
+function isCalendarDay(value: string): boolean {
+  const [y, m, d] = value.split('-').map(Number) as [number, number, number]
+  const date = new Date(Date.UTC(y, m - 1, d))
+  return date.getUTCFullYear() === y && date.getUTCMonth() === m - 1 && date.getUTCDate() === d
+}
+
 /** Дата «YYYY-MM-DD»: срок выдачи — до конца этого дня по часам вуза. */
 export const LibraryDateSchema = z
   .string()
   .regex(/^\d{4}-\d{2}-\d{2}$/, 'Дата в формате ГГГГ-ММ-ДД')
+  .refine(isCalendarDay, 'Такой даты нет')
 
 /** Сканер студенческого отдал токен из QR — сервер сверяет читателя и выдаёт пропуск. */
 export const ResolveReaderSchema = z.object({ token: z.string().min(1).max(2048) }).strict()
@@ -361,7 +370,7 @@ export type LoanStatusValue = z.infer<typeof LoanStatusSchema>
  */
 export const LOAN_FILTERS = ['open', 'overdue', 'lost', 'closed', 'all'] as const
 export const LoanListQuerySchema = z.object({
-  page: z.coerce.number().int().positive().default(1),
+  page: PageSchema,
   limit: z.coerce.number().int().positive().max(100).default(20),
   filter: z.enum(LOAN_FILTERS).default('open'),
   q: z.string().trim().max(100).optional(),
@@ -461,7 +470,7 @@ export interface LoanReaderCard {
 
 /** Журнал просмотров удостоверений: кто, чьё, по какой выдаче, когда, с какого адреса. */
 export const IdAccessQuerySchema = z.object({
-  page: z.coerce.number().int().positive().default(1),
+  page: PageSchema,
   limit: z.coerce.number().int().positive().max(100).default(20),
   q: z.string().trim().max(100).optional(),
   readerId: z.string().min(1).optional(),
@@ -495,7 +504,7 @@ export type ReservationStatusValue = z.infer<typeof ReservationStatusSchema>
 /** Фильтр броней у библиотекаря: действующие, готовые (полка броней), в очереди, закрытые. */
 export const RESERVATION_FILTERS = ['active', 'ready', 'queued', 'closed', 'all'] as const
 export const ReservationListQuerySchema = z.object({
-  page: z.coerce.number().int().positive().default(1),
+  page: PageSchema,
   limit: z.coerce.number().int().positive().max(100).default(20),
   filter: z.enum(RESERVATION_FILTERS).default('active'),
   q: z.string().trim().max(100).optional(),
@@ -613,7 +622,7 @@ export interface InventoryScanResult {
 /** Ход инвентаризации с даты `since`: что отмечено и что из «должно быть на полке» не нашли. */
 export const InventoryQuerySchema = z.object({
   since: LibraryDateSchema,
-  page: z.coerce.number().int().positive().default(1),
+  page: PageSchema,
   limit: z.coerce.number().int().positive().max(100).default(20),
 })
 export type InventoryQueryInput = z.infer<typeof InventoryQuerySchema>

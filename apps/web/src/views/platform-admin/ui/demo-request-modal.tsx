@@ -3,6 +3,8 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
+import { toast } from 'sonner'
+import { Copy, Link2 } from 'lucide-react'
 import { Controller, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import {
@@ -14,6 +16,7 @@ import {
 import {
   approveDemoRequest,
   rejectDemoRequest,
+  reissueDemoInvite,
   type DemoRequest,
 } from '../../../entities/onboarding'
 import {
@@ -37,8 +40,9 @@ import {
   SelectTrigger,
   SelectValue,
   Textarea,
+  useConfirm,
 } from '../../../shared/ui'
-import { OPTIONAL_TEXT, useFormAlert } from '../../../shared/lib'
+import { OPTIONAL_TEXT, toApiError, useFormAlert } from '../../../shared/lib'
 
 const REASONS = DemoRejectionReasonSchema.options
 
@@ -150,6 +154,8 @@ export function DemoRequestModal({ request, onClose, onDecided }: Props) {
           </section>
         )}
 
+        {request.status === 'APPROVED' && mode === 'view' && <ReissueInvite request={request} />}
+
         {mode === 'approve' && (
           <ApproveForm request={request} onBack={() => setMode('view')} onDecided={onDecided} />
         )}
@@ -179,6 +185,74 @@ export function DemoRequestModal({ request, onClose, onDecided }: Props) {
         )}
       </div>
     </Modal>
+  )
+}
+
+/**
+ * Приглашение админу вуза заново. Письмо могло не дойти, а ссылку на одобрении никто не
+ * видел: сервер хранит только хэш токена. Повтор выписывает новое приглашение, старая
+ * ссылка перестаёт работать, письмо уходит снова, а ссылка показывается здесь один раз —
+ * её можно передать руками.
+ */
+function ReissueInvite({ request }: { request: DemoRequest }) {
+  const t = useTranslations('DemoAdmin')
+  const tErr = useTranslations('Errors')
+  const confirm = useConfirm()
+  const [link, setLink] = useState<string | null>(null)
+
+  const mut = useMutation({
+    mutationFn: () => reissueDemoInvite(request.id),
+    // Окно не закрываем: ссылка показывается здесь один раз, её ещё нужно скопировать.
+    onSuccess: ({ inviteUrl }) => {
+      setLink(inviteUrl)
+      toast.success(t('reissued'))
+    },
+    onError: (e: unknown) => toast.error(tErr(toApiError(e).code)),
+  })
+
+  async function reissue(): Promise<void> {
+    const ok = await confirm({
+      title: t('reissueConfirmTitle'),
+      description: t('reissueConfirmDesc', { email: request.email }),
+      confirmLabel: t('reissueInvite'),
+    })
+    if (ok) mut.mutate()
+  }
+
+  return (
+    <section className="flex flex-col gap-2 rounded-xl border border-border p-3">
+      <p className="text-sm text-muted-foreground">{t('reissueExplain')}</p>
+      {link ? (
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <code className="flex h-10 min-w-0 flex-1 items-center truncate rounded-xl border border-border bg-background px-3.5 text-sm">
+            {link}
+          </code>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              void navigator.clipboard.writeText(link)
+              toast.success(t('linkCopied'))
+            }}
+          >
+            <Copy className="size-4" aria-hidden />
+            {t('copyLink')}
+          </Button>
+        </div>
+      ) : (
+        <div>
+          <Button
+            type="button"
+            variant="outline"
+            loading={mut.isPending}
+            onClick={() => void reissue()}
+          >
+            <Link2 className="size-4" aria-hidden />
+            {t('reissueInvite')}
+          </Button>
+        </div>
+      )}
+    </section>
   )
 }
 

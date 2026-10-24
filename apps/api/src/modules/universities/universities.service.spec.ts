@@ -211,6 +211,14 @@ describe('UniversityService — stats cache', () => {
     const stats = await service.getStats(viewer(Role.PLATFORM_ADMIN), 'uni-1')
     expect(stats).toEqual({ faculties: 1, groups: 2, rooms: 3, students: 4, teachers: 5 })
     expect(redis.set).toHaveBeenCalledWith('stats:university:uni-1', expect.any(String), 'EX', 300)
+    // Плитка «Студенты» считает и старост — как аналитика платформы.
+    expect(prisma.user.count).toHaveBeenCalledWith({
+      where: {
+        universityId: 'uni-1',
+        role: { in: [Role.STUDENT, Role.STAROSTA] },
+        deletedAt: null,
+      },
+    })
   })
 
   // Кэш — ускорение: без Redis плитки дашборда считаются из БД, а не отвечают 500.

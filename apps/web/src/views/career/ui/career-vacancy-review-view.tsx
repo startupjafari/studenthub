@@ -5,13 +5,13 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { Briefcase } from 'lucide-react'
-import { ADMIN_PAGE_SIZES } from '@studenthub/shared-schemas'
 import type { VacancyReviewStatus } from '@studenthub/shared-schemas'
 import {
   VACANCY_REVIEW_DECIDERS,
   decideVacancyReview,
   fetchVacancyReviewQueue,
   vacancyKeys,
+  type VacancyReviewRow,
 } from '../../../entities/vacancy'
 import {
   Badge,
@@ -37,6 +37,7 @@ import {
 } from '../../../features/career-university-scope'
 import { toApiError } from '../../../shared/lib'
 import { useAppSelector } from '../../../shared/store'
+import { VacancyReviewModal } from './vacancy-review-modal'
 
 type Filter = VacancyReviewStatus | 'ALL'
 
@@ -47,8 +48,8 @@ type Filter = VacancyReviewStatus | 'ALL'
  * каждым допустившим компанию университетом отдельно.
  */
 // Ширины колонок: решение и название важнее описания, поэтому описание сжимается первым.
-// Размеры страницы — общий для админских экранов набор из контракта.
-const PAGE_SIZES = ADMIN_PAGE_SIZES
+// Размеры страницы: список на OffsetPaginationSchema (limit ≤ 100), 150 и 200 дали бы 422.
+const PAGE_SIZES = [20, 50, 100] as const
 
 const COLS = ['26%', '20%', '30%', '10%', '14%'] as const
 // Без колонки решений — для декана: очередь он видит, а решает вуз.
@@ -97,7 +98,7 @@ export function CareerVacancyReviewView() {
       toast.success(t('decisionSaved'))
       await queryClient.invalidateQueries({ queryKey: vacancyKeys.all })
     },
-    onError: (error) => toast.error(toApiError(error).message),
+    onError: (error) => toast.error(tErr(toApiError(error).code)),
   })
 
   const rows = query.data?.items ?? []
@@ -109,8 +110,10 @@ export function CareerVacancyReviewView() {
     setPage(1)
   }
 
-  // Заявка, по которой спрашиваем причину отказа.
-  const [asking, setAsking] = useState<string | null>(null)
+  // Заявка, по которой спрашиваем причину отказа (или снятия уже одобренной).
+  const [asking, setAsking] = useState<VacancyReviewRow | null>(null)
+  // Открытая карточка вакансии: условия, по которым решают, в строку таблицы не влезают.
+  const [opened, setOpened] = useState<VacancyReviewRow | null>(null)
 
   const statusLabel: Record<VacancyReviewStatus, string> = {
     PENDING: t('statusPending'),
@@ -168,7 +171,19 @@ export function CareerVacancyReviewView() {
               <TableBody>
                 {query.isLoading && <TableSkeletonRows columns={canDecide ? 5 : 4} />}
                 {rows.map((row) => (
-                  <TableRow key={row.id} className="hover:bg-muted/40">
+                  <TableRow
+                    key={row.id}
+                    tabIndex={0}
+                    onClick={() => setOpened(row)}
+                    onKeyDown={(e) => {
+                      if (e.target !== e.currentTarget) return
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        setOpened(row)
+                      }
+                    }}
+                    className="cursor-pointer hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:outline-none"
+                  >
                     <TableCell className="font-medium">
                       <TableText value={row.vacancy.title} />
                     </TableCell>
@@ -186,7 +201,8 @@ export function CareerVacancyReviewView() {
                       </Badge>
                     </TableCell>
                     {canDecide && (
-                      <TableCell className="text-right">
+                      // Клик по кнопке решения не открывает карточку строки.
+                      <TableCell className="text-right" onClick={(e) => e.stopPropagation()}>
                         {row.status === 'PENDING' && (
                           <span className="flex justify-end gap-2">
                             <Button
@@ -200,11 +216,23 @@ export function CareerVacancyReviewView() {
                               size="sm"
                               variant="outline"
                               disabled={decide.isPending}
-                              onClick={() => setAsking(row.id)}
+                              onClick={() => setAsking(row)}
                             >
                               {t('reject')}
                             </Button>
                           </span>
+                        )}
+                        {/* Одобренную вакансию вуз может снять с витрины своих студентов
+                            (APPROVED → REJECTED), не отзывая допуск всей компании. */}
+                        {row.status === 'APPROVED' && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={decide.isPending}
+                            onClick={() => setAsking(row)}
+                          >
+                            {t('unpublish')}
+                          </Button>
                         )}
                       </TableCell>
                     )}
@@ -232,14 +260,32 @@ export function CareerVacancyReviewView() {
         placeholder={t('reasonPlaceholder')}
         multiline
         required
-        submitLabel={t('reject')}
+        submitLabel={asking?.status === 'APPROVED' ? t('unpublish') : t('reject')}
         cancelLabel={t('cancel')}
         onSubmit={(reason) => {
-          if (asking) decide.mutate({ id: asking, status: 'REJECTED', reason })
+          if (asking) decide.mutate({ id: asking.id, status: 'REJECTED', reason })
           setAsking(null)
         }}
         onClose={() => setAsking(null)}
       />
+
+      {opened && (
+        <VacancyReviewModal
+          row={opened}
+          canDecide={canDecide}
+          busy={decide.isPending}
+          onApprove={() => {
+            decide.mutate({ id: opened.id, status: 'APPROVED' })
+            setOpened(null)
+          }}
+          // Причину спрашивает отдельный диалог — карточку закрываем, чтобы окна не стопкой.
+          onReject={() => {
+            setAsking(opened)
+            setOpened(null)
+          }}
+          onClose={() => setOpened(null)}
+        />
+      )}
     </div>
   )
 }

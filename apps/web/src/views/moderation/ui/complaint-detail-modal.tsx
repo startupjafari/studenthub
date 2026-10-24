@@ -5,8 +5,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useLocale, useTranslations } from 'next-intl'
 import type { ReactNode } from 'react'
+import { Role } from '@studenthub/shared-types'
 import {
   complaintKeys,
+  fetchComplaint,
   fetchComplaintMessages,
   reopenComplaintRequest,
   resolveComplaintRequest,
@@ -73,15 +75,27 @@ export function ComplaintDetailModal({
   const qc = useQueryClient()
   const confirm = useConfirm()
   const myId = useAppSelector((st) => st.auth.user?.id)
+  // Личную переписку по жалобе читают модераторы; админу вуза матрица (§2.2) открывает
+  // только официальные чаты — сервер ему эту ручку не отдаёт.
+  const canReadChat = useAppSelector((st) => st.auth.role) !== Role.UNIVERSITY_ADMIN
   const [comment, setComment] = useState('')
   const [showChat, setShowChat] = useState(false)
   const [applyToDuplicates, setApplyToDuplicates] = useState(false)
   const [blockDays, setBlockDays] = useState<BlockTerm>(0)
-  const reviewer = complaint.reviewingBy ?? null
+  // Карточка целиком — с текстом обжалованного: строка очереди его не несёт. Она же — свежее
+  // состояние: строка, по которой окно открыли, после «Взять» устаревает, и кнопка оставалась.
+  const detail = useQuery({
+    queryKey: complaintKeys.detail(complaint.id),
+    queryFn: () => fetchComplaint(complaint.id),
+  })
+  const current: Complaint = detail.data ?? complaint
+  const preview = detail.data?.targetPreview ?? null
+  const reviewer = current.reviewingBy ?? null
   const takenByOther = reviewer !== null && reviewer.id !== myId
 
-  const isOpen = complaint.status === 'PENDING' || complaint.status === 'REVIEWING'
-  const priorityValue = complaintPriority(complaint)
+  const isOpen = current.status === 'PENDING' || current.status === 'REVIEWING'
+  const priorityValue = complaintPriority(current)
+  const hasPreview = complaint.targetType !== 'MESSAGE' && complaint.targetType !== 'USER'
 
   const messages = useQuery({
     queryKey: complaintKeys.messages(complaint.id),
@@ -131,18 +145,21 @@ export function ComplaintDetailModal({
     onError: (e) => toast.error(tErr(toApiError(e).code)),
   })
 
-  // Жёсткие меры — через подтверждение: блокировка отключает человека от платформы, а
-  // предупреждение уходит ему уведомлением и остаётся в истории модерации навсегда.
+  // Жёсткие меры — через подтверждение: блокировка отключает человека от платформы,
+  // предупреждение уходит ему уведомлением и остаётся в истории модерации навсегда, а снятый
+  // контент возврат жалобы в очередь не возвращает.
   async function decide(action: Decision): Promise<void> {
-    if (action === 'BLOCK_USER' || action === 'WARN_USER') {
+    if (action !== 'DISMISS') {
       const ok = await confirm({
         title:
           action === 'WARN_USER'
             ? t('confirmWarn')
-            : blockDays === 0
-              ? t('confirmBlockForever')
-              : t('confirmBlockFor', { days: blockDays }),
-        destructive: action === 'BLOCK_USER',
+            : action === 'DELETE_CONTENT'
+              ? t('confirmDeleteContent')
+              : blockDays === 0
+                ? t('confirmBlockForever')
+                : t('confirmBlockFor', { days: blockDays }),
+        destructive: action !== 'WARN_USER',
       })
       if (!ok) return
     }
@@ -168,8 +185,8 @@ export function ComplaintDetailModal({
             ) : (
               <Badge variant="outline">{t(`target${complaint.targetType}`)}</Badge>
             )}
-            <span className={cn(pill, STATUS_STYLE[complaint.status])}>
-              {t(`status${complaint.status}`)}
+            <span className={cn(pill, STATUS_STYLE[current.status])}>
+              {t(`status${current.status}`)}
             </span>
           </div>
           <h3 className="text-base font-semibold">{complaint.reason}</h3>
@@ -202,14 +219,14 @@ export function ComplaintDetailModal({
               либо две ячейки, либо четыре. */}
           {!isOpen && (
             <>
-              <Field label={t('resolution')}>{complaint.resolution ?? '—'}</Field>
+              <Field label={t('resolution')}>{current.resolution ?? '—'}</Field>
               <Field label={t('resolvedBy')}>
-                {complaint.resolvedBy ? (
+                {current.resolvedBy ? (
                   <ProfileLink
-                    userId={complaint.resolvedBy.id}
+                    userId={current.resolvedBy.id}
                     className="hover:text-primary hover:underline"
                   >
-                    {complaint.resolvedBy.lastName} {complaint.resolvedBy.firstName}
+                    {current.resolvedBy.lastName} {current.resolvedBy.firstName}
                   </ProfileLink>
                 ) : (
                   '—'
@@ -219,21 +236,58 @@ export function ComplaintDetailModal({
           )}
         </dl>
 
+        {/* Что именно обжаловано: без текста цели контент снимали вслепую. */}
+        {hasPreview && (
+          <section className="flex flex-col gap-2 rounded-xl border border-border p-3">
+            <h4 className="text-sm font-medium">{t('targetContentTitle')}</h4>
+            {detail.isLoading ? (
+              <p className="text-xs text-muted-foreground">{tCommon('loading')}</p>
+            ) : detail.isError ? (
+              <p className="text-xs text-muted-foreground">{tErr(toApiError(detail.error).code)}</p>
+            ) : preview === null ? (
+              <p className="text-xs text-muted-foreground">{t('targetContentGone')}</p>
+            ) : (
+              <>
+                {preview.deleted && (
+                  <p className="text-xs text-muted-foreground">{t('targetContentDeleted')}</p>
+                )}
+                {preview.title && <p className="text-sm font-medium">{preview.title}</p>}
+                {preview.text && (
+                  <p className="max-h-60 overflow-y-auto whitespace-pre-wrap break-words text-sm">
+                    {preview.text}
+                  </p>
+                )}
+                {preview.mediaCount > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    {t('targetContentMedia', { count: preview.mediaCount })}
+                  </p>
+                )}
+              </>
+            )}
+          </section>
+        )}
+
         {/* Доступ к переписке по жалобе на сообщение (открытие пишется в аудит на бэке). */}
         {complaint.targetType === 'MESSAGE' && (
           <section className="flex flex-col gap-2 rounded-xl border border-border p-3">
             <div className="flex items-center justify-between gap-3">
               <h4 className="text-sm font-medium">{t('chatTitle')}</h4>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => setShowChat((v) => !v)}
-              >
-                {showChat ? t('hideChat') : t('showChat')}
-              </Button>
+              {canReadChat && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowChat((v) => !v)}
+                >
+                  {showChat ? t('hideChat') : t('showChat')}
+                </Button>
+              )}
             </div>
-            {showChat &&
+            {!canReadChat && (
+              <p className="text-xs text-muted-foreground">{t('chatModeratorsOnly')}</p>
+            )}
+            {canReadChat &&
+              showChat &&
               (messages.isLoading ? (
                 <p className="text-xs text-muted-foreground">{t('loadingChat')}</p>
               ) : messages.isError ? (

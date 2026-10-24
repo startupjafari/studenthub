@@ -66,6 +66,11 @@ enum Observability {
         breadcrumb("push", data: ["action": "opened"])
     }
 
+    /// Система не выдала токен устройства — пуши на это устройство не придут.
+    static func pushRegistrationFailed(_ error: Error) {
+        breadcrumb("push", data: ["action": "register-failed", "error": error.localizedDescription])
+    }
+
     private static func breadcrumb(_ category: String, data: [String: String]) {
         let crumb = Breadcrumb(level: .info, category: category)
         crumb.data = data

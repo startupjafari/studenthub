@@ -41,12 +41,13 @@ import { StudentAssignmentDetail } from './student-assignment-detail'
 type TabId = 'active' | 'submitted' | 'graded' | 'overdue'
 
 // «Активные» — всё, по чему студенту ещё предстоит работать: не начато, черновик и
-// возвращённое на исправление. Остальные вкладки повторяют статус один в один.
+// возвращённое на исправление. Закрытое без сданной работы — в «Просроченных»: сдать его
+// уже нельзя, как и просроченное. Остальные вкладки повторяют статус один в один.
 const TAB_STATUSES: Record<TabId, StudentStatus[]> = {
   active: ['NOT_STARTED', 'DRAFT', 'RETURNED'],
   submitted: ['SUBMITTED'],
   graded: ['GRADED'],
-  overdue: ['OVERDUE'],
+  overdue: ['OVERDUE', 'CLOSED'],
 }
 const TAB_LABEL: Record<TabId, string> = {
   active: 'tabActive',

@@ -116,6 +116,11 @@ function BottomNav({
   useRealtimeEvent('notification:new', () => {
     void queryClient.invalidateQueries({ queryKey: notificationKeys.unreadCount() })
   })
+  // Прочтение чата гасит его свёрнутую строку в колокольчике (§10.1), а отдельного события
+  // об этом нет — без перечитывания бейдж висел до следующего уведомления.
+  useRealtimeEvent('chat:read', () => {
+    void queryClient.invalidateQueries({ queryKey: notificationKeys.unreadCount() })
+  })
   const count = unread.data ?? 0
   const badge = count > 99 ? '99+' : String(count)
 

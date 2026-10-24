@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { Pair } from '../../../entities/schedule'
+import type { Pair, ScheduleChange } from '../../../entities/schedule'
 import type { CourseItem } from '../../../entities/course'
 import type { NowInTz } from '../../../shared/lib'
 import {
@@ -132,11 +132,52 @@ describe('buildCourses — дисциплины из расписания', () =
       const [math] = buildCourses([pair({ dayOfWeek: 3, weekType: 'EVEN' })], [], MONDAY)
       expect(math?.next).toMatchObject({ inDays: 9, dayOfWeek: 3 })
     })
+
+    // BUG-336: изменения своей даты — как в «Сегодня».
+    function change(over: Partial<ScheduleChange>): ScheduleChange {
+      return {
+        id: 'ch-1',
+        pairId: 'p-math',
+        type: 'CANCELLED',
+        date: '2026-10-19T00:00:00.000Z',
+        newStartTime: null,
+        newEndTime: null,
+        note: null,
+        createdAt: '2026-10-10T00:00:00.000Z',
+        newRoom: null,
+        newTeacher: null,
+        pair: {
+          groupId: 'g-1',
+          subject: 'Математика',
+          dayOfWeek: 1,
+          startTime: '11:00',
+          endTime: '12:30',
+        },
+        ...over,
+      }
+    }
+
+    it('отменённое сегодня занятие пропускается — следующее через неделю', () => {
+      const [math] = buildCourses([pair({ id: 'p-math' })], [], MONDAY, [change({})])
+      expect(math?.next).toMatchObject({ inDays: 7, startTime: '11:00' })
+    })
+
+    it('перенесённое занятие — новое время и аудитория', () => {
+      const moved = change({
+        type: 'MOVED',
+        newStartTime: '15:00',
+        newEndTime: '16:30',
+        newRoom: { id: 'r-5', name: '505' },
+      })
+      const [math] = buildCourses([pair({ id: 'p-math' })], [], MONDAY, [moved])
+      expect(math?.next).toEqual({ inDays: 0, dayOfWeek: 1, startTime: '15:00', room: '505' })
+    })
   })
 })
 
 describe('mergeApiCourses — курсы поверх расписания (C-F25)', () => {
-  const base = () => buildCourses([pair()], [{ subject: 'Математика', count: 4 }], MONDAY)
+  const counts = [{ subject: 'Математика', count: 4 }]
+  const base = () => buildCourses([pair()], counts, MONDAY)
 
   it('без курсов — расписание как есть', () => {
     const b = base()
@@ -150,7 +191,7 @@ describe('mergeApiCourses — курсы поверх расписания (C-F2
       [past, current],
       [current, past],
     ]) {
-      const merged = mergeApiCourses(base(), api)
+      const merged = mergeApiCourses(base(), api, counts)
       expect(merged.map((c) => [c.courseId, c.lessonsPerWeek])).toEqual([
         ['c-now', 1],
         ['c-past', 0],
@@ -165,7 +206,8 @@ describe('mergeApiCourses — курсы поверх расписания (C-F2
         subject: 'Математика',
         credits: 4,
         termName: 'Осень 2025',
-        materialsCount: 0,
+        // Материалы — по названию дисциплины, как на странице курса.
+        materialsCount: 4,
         next: null,
         teachers: [petrova],
       })
@@ -205,8 +247,9 @@ describe('mergeApiCourses — курсы поверх расписания (C-F2
       id: 'c-alg',
       subject: { id: 's-alg', name: 'Алгебра', code: 'ALG' },
     })
-    const merged = mergeApiCourses(base(), [history, algebra])
+    const merged = mergeApiCourses(base(), [history, algebra], [{ subject: 'История', count: 3 }])
     expect(merged.map((c) => c.subject)).toEqual(['Алгебра', 'История', 'Математика'])
+    expect(merged.map((c) => c.materialsCount)).toEqual([0, 3, 4])
     expect(merged[0]).toMatchObject({ courseId: 'c-alg', lessonsPerWeek: 0, teachers: [petrova] })
     expect(merged[1]?.teachers).toEqual([])
     // Карточка из расписания без курса остаётся без courseId.

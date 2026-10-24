@@ -1,4 +1,4 @@
-import { Role } from '@studenthub/shared-types'
+import { RESTRICTED_ROLES, Role } from '@studenthub/shared-types'
 import { Inject, Injectable, Logger } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import type Redis from 'ioredis'
@@ -15,6 +15,8 @@ import { AppException } from '../../common/exceptions/app.exception'
 import { Paginated } from '../../common/http/paginated'
 import { QueueService, QUEUES, NOTIFICATION_JOBS } from '../../common/queue'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
+import { NotificationsService } from '../notifications/notifications.service'
+import { ChatsService } from '../chats/chats.service'
 
 // Публичная карточка пользователя в списках друзей/заявок (без чувствительных полей).
 const FRIEND_USER_SELECT = {
@@ -48,6 +50,16 @@ const ACTIVE_USER = { deletedAt: null, isBlocked: false } satisfies Prisma.UserW
 // отклонивший может написать заявку в ответ когда угодно.
 const DECLINE_PAUSE_SECONDS = 7 * 24 * 60 * 60
 
+// Окно уведомления о заявке: одна пара будит адресата не чаще раза в сутки. Отмена своей
+// заявки паузы не ставит (передумать — нормально), но «отменил — отправил снова» по кругу
+// иначе давал новое уведомление на каждом шаге. Заявка при этом создаётся как обычно и
+// видна во входящих — молчит только колокольчик.
+const REQUEST_NOTICE_WINDOW_SECONDS = 24 * 60 * 60
+
+function requestNoticeKey(requesterId: string, addresseeId: string): string {
+  return `friend-request-notice:${requesterId}:${addresseeId}`
+}
+
 /** Ключ паузы: `requesterId` отклонён `addresseeId` и пока не может повторить заявку. */
 function declinePauseKey(requesterId: string, addresseeId: string): string {
   return `friend-declined:${requesterId}:${addresseeId}`
@@ -71,6 +83,8 @@ export class FriendsService {
     private readonly prisma: PrismaService,
     private readonly queue: QueueService,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
+    private readonly notifications: NotificationsService,
+    private readonly chats: ChatsService,
   ) {}
 
   /** Отправить заявку. Если есть встречная PENDING — авто-принятие. */
@@ -86,8 +100,14 @@ export class FriendsService {
     if (viewer.role === Role.EMPLOYER) {
       throw new AppException('FORBIDDEN', 'Работодатель не добавляет в друзья')
     }
+    // Охрана и библиотекарь друзей не имеют вовсе (§2.1): заявку им не принять и не увидеть.
     const target = await this.prisma.user.findFirst({
-      where: { id: targetId, deletedAt: null, isBlocked: false, role: { not: Role.EMPLOYER } },
+      where: {
+        id: targetId,
+        deletedAt: null,
+        isBlocked: false,
+        role: { notIn: [Role.EMPLOYER, ...RESTRICTED_ROLES] },
+      },
       select: { id: true },
     })
     if (!target) {
@@ -159,6 +179,7 @@ export class FriendsService {
       return { status: 'accepted' }
     }
     const friendshipId = outcome.friendshipId
+    if (!(await this.claimRequestNotice(viewer.sub, targetId))) return { status: 'pending' }
     // Имя отправителя — для тела уведомления с кнопками принять/отклонить.
     const requester = await this.prisma.user.findUnique({
       where: { id: viewer.sub },
@@ -223,7 +244,7 @@ export class FriendsService {
     await this.prisma.friendship.delete({ where: { id: f.id } })
     // Отклонение/отмена/удаление — гасим уведомление-заявку у получателя. Отправителю НИЧЕГО
     // не шлём (по требованию: при отклонении инициатор ничего не получает).
-    await this.clearRequestNotification(f.id)
+    await this.clearRequestNotification(f.id, f.addresseeId)
     // Отклонение — адресат снимает висящую заявку — ставит паузу на повтор. Отмена своей
     // заявки и удаление из друзей паузы не ставят.
     if (f.status === 'PENDING' && f.addresseeId === viewer.sub) {
@@ -420,15 +441,25 @@ export class FriendsService {
     return duplicate.id
   }
 
-  /** После коммита принятия: гасим уведомления-заявки и уведомляем инициатора. */
+  /**
+   * После коммита принятия: гасим уведомления-заявки, снимаем висящий запрос на переписку
+   * пары (§3.6 — дружба тоже согласие) и уведомляем инициатора.
+   */
   private async afterAccept(
     friendshipId: string,
     requesterId: string,
     accepterId: string,
     duplicateId: string | null,
   ): Promise<void> {
-    await this.clearRequestNotification(friendshipId)
-    if (duplicateId) await this.clearRequestNotification(duplicateId)
+    await this.clearRequestNotification(friendshipId, accepterId)
+    // Дубль — встречная заявка принявшего: её уведомление лежит у инициатора.
+    if (duplicateId) await this.clearRequestNotification(duplicateId, requesterId)
+    try {
+      await this.chats.clearRequestBetween(requesterId, accepterId)
+    } catch (error) {
+      // Дружба уже принята; запрос всё равно снимется первой же репликой (resolveChatRequest).
+      this.logger.warn({ err: error, friendshipId }, 'Запрос на переписку не снят после дружбы')
+    }
     await this.notify(requesterId, NOTIFICATION_JOBS.FRIEND_ACCEPTED, {
       titleKey: 'friends.accepted.title',
       bodyKey: 'friends.accepted.body',
@@ -485,6 +516,26 @@ export class FriendsService {
     }
   }
 
+  /**
+   * Занять окно уведомления о заявке пары: false — адресата в эти сутки уже будили.
+   * Redis недоступен — уведомляем: пропущенная заявка хуже лишнего уведомления.
+   */
+  private async claimRequestNotice(requesterId: string, addresseeId: string): Promise<boolean> {
+    try {
+      const claimed = await this.redis.set(
+        requestNoticeKey(requesterId, addresseeId),
+        '1',
+        'EX',
+        REQUEST_NOTICE_WINDOW_SECONDS,
+        'NX',
+      )
+      return claimed === 'OK'
+    } catch (error) {
+      this.logger.warn(`Окно уведомления о заявке не проверено: ${(error as Error).message}`)
+      return true
+    }
+  }
+
   /** Поставить паузу на повторную заявку. Ошибка Redis не мешает самому отклонению. */
   private async pauseRequests(requesterId: string, addresseeId: string): Promise<void> {
     try {
@@ -500,9 +551,12 @@ export class FriendsService {
   }
 
   // Гасим уведомление-заявку у получателя после принятия/отклонения (dedupeKey одноразовый).
-  private async clearRequestNotification(friendshipId: string): Promise<void> {
-    await this.prisma.notification.deleteMany({
+  // Вместе со строкой сбрасываем его кэш непрочитанных: иначе бейдж колокольчика показывал
+  // удалённую заявку до истечения кэша (§10.1 — любая мутация уведомлений его сбрасывает).
+  private async clearRequestNotification(friendshipId: string, recipientId: string): Promise<void> {
+    const { count } = await this.prisma.notification.deleteMany({
       where: { dedupeKey: `friend-request:${friendshipId}` },
     })
+    if (count > 0) await this.notifications.invalidateUnread(recipientId)
   }
 }

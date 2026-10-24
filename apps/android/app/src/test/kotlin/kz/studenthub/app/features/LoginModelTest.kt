@@ -86,7 +86,7 @@ class LoginModelTest {
 
         model.verifyTwoFactor()
 
-        assertEquals(UiText.Raw("Неверный код"), model.codeError)
+        assertEquals(UiText.Res(R.string.error_invalid2fa), model.codeError)
         assertNull(model.formError)
     }
 
@@ -102,7 +102,22 @@ class LoginModelTest {
 
         model.signIn()
 
-        assertEquals(UiText.Raw("Вход заблокирован на 15 минут"), model.formError)
+        assertEquals(UiText.Res(R.string.error_loginLocked), model.formError)
+    }
+
+    /** 401 на входе — неверная пара, а не «сессия истекла»; текст на языке приложения, а не сервера. */
+    @Test
+    fun wrongPasswordIsLocalised() = runTest {
+        val issuer = StubIssuer(
+            signInFailure = ApiError.Server(ApiErrorCode.UNAUTHORIZED, "Неверный email или пароль", emptyList(), 401),
+        )
+        val model = LoginModel(issuer, { true })
+        model.identifier = "u"
+        model.password = "p"
+
+        model.signIn()
+
+        assertEquals(UiText.Res(R.string.auth_error_invalidCredentials), model.formError)
     }
 
     /** Возврат с шага кода выбрасывает challenge: он одноразовый. */

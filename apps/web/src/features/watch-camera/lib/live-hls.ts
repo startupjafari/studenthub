@@ -7,6 +7,14 @@ import type { LoaderResponse, RetryConfig } from 'hls.js'
 //
 // Первые секунды плейлиста может не быть: агент только поднимает поток. Поэтому манифест
 // повторяем терпеливо, а не сдаёмся на первом 404.
+//
+// Поток может и перезапуститься посреди просмотра (у агента перезапустился ffmpeg, камера
+// моргнула): прежние плейлист варианта и сегменты пропадают, ретранслятор отвечает 404.
+// Такой обрыв — не конец: загружаем источник заново, пока не кончатся попытки.
+
+// Сколько раз подряд поднимать оборвавшийся поток, не дождавшись ни одного кадра.
+const MAX_RELOADS = 5
+const RELOAD_DELAY_MS = 2_000
 
 export type LiveState = 'connecting' | 'playing' | 'unsupported' | 'failed'
 
@@ -55,6 +63,14 @@ export async function attachLive(
       return code !== 401 && code !== 403 && count < (config?.maxNumRetry ?? 0)
     },
   }
+  const loadPolicy = {
+    default: {
+      maxTimeToFirstByteMs: 10_000,
+      maxLoadTimeMs: 20_000,
+      timeoutRetry: retry,
+      errorRetry: retry,
+    },
+  }
   const hls: Hls = new HlsCtor({
     lowLatencyMode: true,
     // Держимся у края эфира: охране нужен «сейчас», а не запас в буфере.
@@ -64,22 +80,31 @@ export async function attachLive(
     xhrSetup: (xhr) => {
       xhr.setRequestHeader('Authorization', `Bearer ${getToken()}`)
     },
-    manifestLoadPolicy: {
-      default: {
-        maxTimeToFirstByteMs: 10_000,
-        maxLoadTimeMs: 20_000,
-        timeoutRetry: retry,
-        errorRetry: retry,
-      },
-    },
+    // Плейлист варианта — та же политика, что у манифеста: после перезапуска потока его
+    // 404 тоже временный.
+    manifestLoadPolicy: loadPolicy,
+    playlistLoadPolicy: loadPolicy,
   })
   let recovered = false
-  hls.on(HlsCtor.Events.FRAG_BUFFERED, () => onState('playing'))
+  let reloads = 0
+  let reloadTimer: ReturnType<typeof setTimeout> | null = null
+  hls.on(HlsCtor.Events.FRAG_BUFFERED, () => {
+    reloads = 0
+    onState('playing')
+  })
   hls.on(HlsCtor.Events.ERROR, (_e, data) => {
     if (!data.fatal) return
     if (!recovered && data.type === HlsCtor.ErrorTypes.MEDIA_ERROR) {
       recovered = true
       hls.recoverMediaError()
+      return
+    }
+    const code = data.response?.code ?? 0
+    const denied = code === 401 || code === 403
+    if (data.type === HlsCtor.ErrorTypes.NETWORK_ERROR && !denied && reloads < MAX_RELOADS) {
+      reloads += 1
+      onState('connecting')
+      reloadTimer = setTimeout(() => hls.loadSource(url), RELOAD_DELAY_MS)
       return
     }
     onState('failed')
@@ -88,5 +113,10 @@ export async function attachLive(
   hls.loadSource(url)
   hls.attachMedia(video)
   void video.play().catch(() => undefined)
-  return { destroy: () => hls.destroy() }
+  return {
+    destroy: () => {
+      if (reloadTimer) clearTimeout(reloadTimer)
+      hls.destroy()
+    },
+  }
 }

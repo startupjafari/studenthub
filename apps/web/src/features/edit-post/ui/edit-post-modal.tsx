@@ -39,7 +39,9 @@ export function EditPostModal({ post, onClose }: { post: FeedPost; onClose: () =
     onError: (e) => show(e),
   })
 
-  const empty = content.trim().length === 0
+  // Заметка репоста необязательна (как при репосте) — её можно и стереть; у обычного
+  // поста без текста публиковать нечего.
+  const empty = !post.originalPostId && content.trim().length === 0
 
   return (
     <Modal

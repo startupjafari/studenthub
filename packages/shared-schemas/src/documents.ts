@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { OptionalCursorPaginationSchema, SortOrderSchema } from './pagination.js'
+import { OptionalCursorPaginationSchema, PageSchema, SortOrderSchema } from './pagination.js'
 
 // Схемы модуля «Документы» (Ф15, задача 15.3). Значения enum зеркалят справочник в
 // @studenthub/shared-config (DOCUMENT_CATEGORIES/…); сам `type` валидируется как строка,
@@ -43,7 +43,8 @@ export const CreateDocumentSchema = z
     issuedAt: z.coerce.date().optional().nullable(),
     expiresAt: z.coerce.date().optional().nullable(),
     comment: z.string().max(2000).optional(),
-    // DRAFT — сохранить черновик; UPLOADED — сразу «загружен» (по умолчанию). Прочие статусы ставит сервис/проверка.
+    // Сохраняется для совместимости и не влияет: документ без страниц всегда создаётся
+    // черновиком (DRAFT), «Загружен» он становится с первыми прикреплёнными файлами.
     status: z.enum(['DRAFT', 'UPLOADED']).optional(),
   })
   .strict()
@@ -328,7 +329,7 @@ export type DocumentJournalAction = z.infer<typeof DocumentJournalActionSchema>
 // любой из двух ролей. Период — по дате события, `to` включительно (до конца дня — в вебе).
 export const DocumentJournalQuerySchema = z
   .object({
-    page: z.coerce.number().int().positive().default(1),
+    page: PageSchema,
     limit: z.coerce.number().int().positive().max(100).default(20),
     action: DocumentJournalActionSchema.optional(),
     from: z.coerce.date().optional(),

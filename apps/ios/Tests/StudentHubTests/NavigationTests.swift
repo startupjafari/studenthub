@@ -27,6 +27,13 @@ final class DeepLinkTests: XCTestCase {
         }
     }
 
+    /// Уведомления о постах и подписках ведут в ленту и в чужой профиль.
+    func testFeedAndProfileLinks() {
+        XCTAssertEqual(link("https://studenthub.kz/feed"), .tab(.home))
+        XCTAssertEqual(link("studenthub://profile/u-7"), .profile(id: "u-7"))
+        XCTAssertEqual(link("https://studenthub.kz/profile"), .section(.profile))
+    }
+
     /// Ролевой префикс веба на телефоне ничего не значит: вкладки у всех одни.
     func testRolePrefixIsIgnored() {
         XCTAssertEqual(link("https://studenthub.kz/teacher/schedule"), .tab(.schedule))
@@ -146,6 +153,32 @@ final class AppRouterTests: XCTestCase {
 
         XCTAssertFalse(router.open(.section(.classmates), for: .student))
         XCTAssertTrue(router.open(.section(.classmates), for: .starosta))
+    }
+
+    /// Пуш на холодном старте ждёт роли: с неизвестной ролью библиотека отказала бы.
+    func testPostponedLinkOpensOnceRoleIsKnown() {
+        let router = AppRouter()
+
+        router.postpone(.myBooks)
+        XCTAssertTrue(router.stack(for: .more).isEmpty)
+
+        router.openPending(for: .student)
+        XCTAssertEqual(router.selectedTab, .more)
+        XCTAssertEqual(router.stack(for: .more), [.section(.library), .myBooks])
+    }
+
+    /// Выход: следующий человек начинает с главной и не получает ни открытого чата
+    /// прежнего, ни его отложенной ссылки.
+    func testResetForgetsStacksAndPendingLink() {
+        let router = AppRouter()
+        router.open(.chat(id: "chat-1"), for: .student)
+        router.postpone(.chat(id: "chat-2"))
+
+        router.reset()
+        router.openPending(for: .student)
+
+        XCTAssertEqual(router.selectedTab, .home)
+        XCTAssertTrue(router.stack(for: .chats).isEmpty)
     }
 }
 

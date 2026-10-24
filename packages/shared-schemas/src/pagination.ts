@@ -1,8 +1,14 @@
 import { z } from 'zod'
 
+// Номер страницы offset-списков. Предел нужен не ради интерфейса, а ради базы: `?page=1e20`
+// превращался в OFFSET за пределами целого, Prisma отвергала запрос, и клиент получал 500
+// вместо 422 (BACKEND_RULES §3, §4.4). 10 000 страниц по 200 строк — больше любого списка.
+export const PAGE_MAX = 10_000
+export const PageSchema = z.coerce.number().int().positive().max(PAGE_MAX).default(1)
+
 // Offset-пагинация для админских таблиц (docs/PROJECT.md §8.3). limit ≤ 100.
 export const OffsetPaginationSchema = z.object({
-  page: z.coerce.number().int().positive().default(1),
+  page: PageSchema,
   limit: z.coerce.number().int().positive().max(100).default(20),
 })
 

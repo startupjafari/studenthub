@@ -39,6 +39,7 @@ import {
   Send,
   Table2,
   ShieldAlert,
+  ShieldCheck,
   FileUser,
   TrendingUp,
   UserCog,
@@ -129,6 +130,9 @@ export const UNIVERSITY_ADMIN_NAV: NavItem[] = [
 
   // Люди: выдача доступа и списки по ролям.
   { key: 'invites', href: '/university-admin/invites', icon: Send, group: 'people' },
+  // Все люди вуза с фильтром роли: модераторов, охрану, библиотекарей и старост в экранах
+  // по одной роли не найти, а блокировать, сбрасывать 2FA и править учёбу их нужно так же.
+  { key: 'users', href: '/university-admin/users', icon: Users, group: 'people' },
   { key: 'students', href: '/university-admin/students', icon: GraduationCap, group: 'people' },
   { key: 'teachers', href: '/university-admin/teachers', icon: BookOpen, group: 'people' },
   { key: 'deans', href: '/university-admin/deans', icon: UserCog, group: 'people' },
@@ -157,6 +161,8 @@ export const UNIVERSITY_ADMIN_NAV: NavItem[] = [
   { key: 'audit', href: '/university-admin/audit', icon: ScrollText, group: 'control' },
   // Журнал действий с документами вуза: кто, над чьим документом, когда — без содержимого.
   { key: 'documentJournal', href: '/university-admin/document-journal', icon: FileClock, group: 'control' }, // prettier-ignore
+  // Журналы поста охраны (§3.12): ведёт охрана, админ вуза читает.
+  { key: 'securityJournals', href: '/university-admin/security', icon: ShieldCheck, group: 'control' }, // prettier-ignore
 ]
 
 // Ролевые дашборды (docs/PROJECT.md §12). У каждого пункта ниже есть свой экран;
@@ -246,6 +252,9 @@ export const PLATFORM_ADMIN_NAV: NavItem[] = [
   { key: 'demoRequests', href: '/platform-admin/demo-requests', icon: Inbox },
   { key: 'users', href: '/platform-admin/users', icon: Users },
   { key: 'invites', href: '/platform-admin/invites', icon: Send },
+  // События платформы (§12): админ платформы создаёт события «для всех» (§2.2), а раздела
+  // у него не было — созданное нельзя было ни найти, ни поправить.
+  { key: 'events', href: '/platform-admin/events', icon: CalendarClock },
   { key: 'complaints', href: '/platform-admin/complaints', icon: ShieldAlert },
   // Обращения в поддержку платформы: раньше их разбирали только в мини-аппе Telegram.
   { key: 'support', href: '/platform-admin/support', icon: LifeBuoy },
@@ -440,8 +449,15 @@ export function careerHomeFor(role: Role | undefined): string {
   return careerNavFor(role)[0]?.href ?? CAREER_ROOT
 }
 
-/** Есть ли у роли карьерный продукт — показывать ли переключатель под логотипом. */
+/**
+ * Есть ли у роли карьерный продукт — показывать ли переключатель под логотипом.
+ *
+ * Работодателю переключать нечего: «Учёбы» у него нет, а его карьерный продукт — это и
+ * есть вся зона /employer. Переключатель предлагал бы ему «StudentHub» с пометкой
+ * активного, хотя он в нём не бывает, — поэтому только логотип.
+ */
 export function hasCareerProduct(role: Role | undefined): boolean {
+  if (role === Role.EMPLOYER) return false
   return careerNavFor(role).length > 0
 }
 

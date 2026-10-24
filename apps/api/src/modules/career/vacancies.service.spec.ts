@@ -37,9 +37,12 @@ const staff = (universityId: string | null = 'uni-1'): JwtPayload => ({
 
 function setup(allowedUniversities: string[] = ['uni-1']) {
   const tx = {
-    vacancy: { update: jest.fn(), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    vacancy: {
+      update: jest.fn().mockResolvedValue({}),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
     vacancyUniversityReview: {
-      upsert: jest.fn(),
+      createMany: jest.fn().mockResolvedValue({ count: 1 }),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
   }
@@ -67,6 +70,7 @@ function setup(allowedUniversities: string[] = ['uni-1']) {
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const access = {
     requireCompany: jest.fn().mockReturnValue('co-1'),
+    assertCompanyActive: jest.fn().mockResolvedValue(undefined),
     allowedUniversityIds: jest.fn().mockResolvedValue(allowedUniversities),
   }
   // Уведомления компании о решениях вуза: сборка и доставка — в career-notifier.spec.ts.
@@ -80,13 +84,45 @@ function setup(allowedUniversities: string[] = ['uni-1']) {
   return { service, prisma, tx, audit, access, notifier }
 }
 
+describe('VacanciesService — заблокированная компания', () => {
+  it('не создаёт, не правит и не публикует вакансии — блокировка перекрывает допуски', async () => {
+    const { service, prisma, tx, access } = setup(['uni-1'])
+    access.assertCompanyActive.mockRejectedValue(new AppException('FORBIDDEN', 'Заблокирована'))
+    const input = {
+      title: 'Стажёр',
+      description: 'x'.repeat(50),
+      employmentType: 'INTERNSHIP' as const,
+      workFormat: 'REMOTE' as const,
+      experienceLevel: 'NO_EXPERIENCE' as const,
+      skills: [],
+      languages: [],
+    }
+
+    await expect(service.create(employer, input, ctx)).rejects.toBeInstanceOf(AppException)
+    await expect(service.update(employer, 'v-1', { title: 'Новое' }, ctx)).rejects.toBeInstanceOf(
+      AppException,
+    )
+    await expect(service.publish(employer, 'v-1', ctx)).rejects.toBeInstanceOf(AppException)
+    expect(prisma.vacancy.create).not.toHaveBeenCalled()
+    expect(tx.vacancy.update).not.toHaveBeenCalled()
+    expect(tx.vacancy.updateMany).not.toHaveBeenCalled()
+  })
+})
+
 describe('VacanciesService — публикация', () => {
   it('создаёт по строке модерации на каждый допустивший вуз', async () => {
     const { service, tx } = setup(['uni-1', 'uni-2'])
 
     await service.publish(employer, 'v-1', ctx)
 
-    expect(tx.vacancyUniversityReview.upsert).toHaveBeenCalledTimes(2)
+    expect(tx.vacancyUniversityReview.createMany).toHaveBeenCalledWith({
+      data: [
+        { vacancyId: 'v-1', universityId: 'uni-1', status: 'PENDING' },
+        { vacancyId: 'v-1', universityId: 'uni-2', status: 'PENDING' },
+      ],
+      // Вуз, где строка уже есть, свою строку сохраняет — с прежним решением.
+      skipDuplicates: true,
+    })
     expect(tx.vacancy.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: 'v-1', status: 'DRAFT', deletedAt: null },
@@ -95,17 +131,23 @@ describe('VacanciesService — публикация', () => {
     )
   })
 
-  it('повторная публикация сбрасывает прежние решения вузов', async () => {
-    const { service, tx } = setup(['uni-1'])
+  it('повторная публикация возвращает на модерацию только отклонённое, одобрения не трогает', async () => {
+    const { service, tx, prisma } = setup(['uni-1', 'uni-2'])
+    prisma.vacancy.findFirst.mockResolvedValue({
+      id: 'v-1',
+      status: 'PUBLISHED',
+      salaryMin: null,
+      salaryMax: null,
+    })
 
     await service.publish(employer, 'v-1', ctx)
 
-    // Вуз одобрял конкретный текст, а не вакансию навсегда.
-    expect(tx.vacancyUniversityReview.upsert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        update: expect.objectContaining({ status: 'PENDING', reason: null, decidedAt: null }),
-      }),
-    )
+    // Вуз, вернувший допуск, рассматривает вакансию заново; одобрившие — не теряют одобрения.
+    expect(tx.vacancyUniversityReview.updateMany).toHaveBeenCalledTimes(1)
+    expect(tx.vacancyUniversityReview.updateMany).toHaveBeenCalledWith({
+      where: { vacancyId: 'v-1', universityId: { in: ['uni-1', 'uni-2'] }, status: 'REJECTED' },
+      data: { status: 'PENDING', reason: null, decidedById: null, decidedAt: null },
+    })
   })
 
   it('без единого допуска публиковать нечего — отказ с объяснением', async () => {
@@ -214,6 +256,29 @@ describe('VacanciesService — правка опубликованной вак�
     expect(tx.vacancyUniversityReview.updateMany).not.toHaveBeenCalled()
   })
 
+  it('закрытую вакансию править нельзя — и на модерацию она не возвращается', async () => {
+    const { service, prisma, tx } = setup()
+    prisma.vacancy.findFirst.mockResolvedValue({ ...approved, status: 'CLOSED' })
+
+    await expect(
+      service.update(employer, 'v-1', { description: 'y'.repeat(50) }, ctx),
+    ).rejects.toMatchObject({ code: 'CONFLICT' })
+    expect(tx.vacancy.update).not.toHaveBeenCalled()
+    expect(tx.vacancyUniversityReview.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('правка пишется с условием «не закрыта» — параллельное закрытие не обойти', async () => {
+    const { service, prisma, tx } = setup()
+    prisma.vacancy.findFirst.mockResolvedValue({ ...approved, status: 'PUBLISHED' })
+
+    await service.update(employer, 'v-1', { title: 'Frontend-стажёр (React)' }, ctx)
+
+    expect(tx.vacancy.update.mock.calls[0][0].where).toEqual({
+      id: 'v-1',
+      status: { not: 'CLOSED' },
+    })
+  })
+
   it('чужую вакансию править нельзя', async () => {
     const { service, prisma, tx } = setup()
     prisma.vacancy.findFirst.mockResolvedValue(null)
@@ -222,6 +287,80 @@ describe('VacanciesService — правка опубликованной вак�
       AppException,
     )
     expect(tx.vacancy.update).not.toHaveBeenCalled()
+  })
+})
+
+describe('VacanciesService — просмотры', () => {
+  it('просмотр считается у студента, но не у сотрудника вуза', async () => {
+    const { service, prisma } = setup()
+    prisma.vacancy.findFirst.mockResolvedValue({ id: 'v-1' })
+
+    await service.byIdForStudent(student(), 'v-1')
+    expect(prisma.vacancy.update).toHaveBeenCalledWith({
+      where: { id: 'v-1' },
+      data: { views: { increment: 1 } },
+    })
+
+    prisma.vacancy.update.mockClear()
+    await service.byIdForStudent(staff(), 'v-1')
+    expect(prisma.vacancy.update).not.toHaveBeenCalled()
+  })
+})
+
+describe('VacanciesService — совпадение с профилем', () => {
+  it('страна студента не сравнивается с городом вакансии', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findFirst.mockResolvedValue({
+      skills: [],
+      country: 'Казахстан',
+      careerProfile: { employmentTypes: [], workFormats: [], relocationReady: false },
+    })
+    prisma.vacancy.findMany.mockResolvedValue([
+      {
+        id: 'v-1',
+        skills: [],
+        employmentType: 'FULL_TIME',
+        workFormat: 'ONSITE',
+        city: 'Алматы',
+      },
+    ])
+
+    const page = await service.search(student(), {
+      page: 1,
+      limit: 20,
+      sort: 'publishedAt',
+      order: 'desc',
+    })
+
+    // Без требований и предпочтений — полное совпадение, город не отнимает своих 15.
+    expect(page.items[0]?.match?.score).toBe(100)
+  })
+})
+
+describe('VacanciesService — вакансии компании', () => {
+  it('вложенные решения вузов выбираются с пределом', async () => {
+    const { service, prisma } = setup()
+    await service.listMine(employer, 1, 20)
+    const select = prisma.vacancy.findMany.mock.calls[0][0].select
+    expect(select.reviews).toMatchObject({ take: expect.any(Number) })
+  })
+})
+
+describe('VacanciesService — фильтр зарплаты', () => {
+  it('«от N» учитывает и вакансии без верхней границы', async () => {
+    const { service, prisma } = setup()
+    await service.search(student(), {
+      page: 1,
+      limit: 20,
+      sort: 'publishedAt',
+      order: 'desc',
+      salaryFrom: 300_000,
+    })
+    const where = prisma.vacancy.findMany.mock.calls[0][0].where
+    expect(where.AND).toContainEqual({
+      OR: [{ salaryMax: { gte: 300_000 } }, { salaryMax: null, salaryMin: { gte: 300_000 } }],
+    })
+    expect(where).not.toHaveProperty('salaryMax')
   })
 })
 

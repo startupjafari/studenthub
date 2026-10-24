@@ -130,6 +130,33 @@ describe('parseBulkInviteFile', () => {
     expect(rows[0]).toMatchObject({ email: 's0@x.kz', group: 'BT-101' })
   })
 
+  it('номер строки — строка в файле: пустые строки выше его не сдвигают (BUG-196)', () => {
+    const csv = 'email,group\n\nfirst@x.kz,BT-101\n,\n\nsecond@x.kz,BT-101\n'
+    const rows = parseBulkInviteFile(Buffer.from(csv), 'list.csv')
+    expect(rows.map((r) => [r.line, r.email])).toEqual([
+      [3, 'first@x.kz'],
+      [6, 'second@x.kz'],
+    ])
+  })
+
+  it('XLSX: пропуски и таблица не с первой строки — номера как в Excel', () => {
+    const sheet = XLSX.utils.sheet_add_aoa({}, [['email'], [''], ['a@x.kz']], { origin: 'A3' })
+    const book = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(book, sheet, 'Список')
+    const buffer = XLSX.write(book, { type: 'buffer', bookType: 'xlsx' }) as Buffer
+
+    const rows = parseBulkInviteFile(buffer, 'list.xlsx')
+
+    // Заголовок в строке 3, пустая 4, данные в строке 5.
+    expect(rows).toEqual([{ line: 5, email: 'a@x.kz', group: '', role: '', faculty: '' }])
+  })
+
+  it('CSV: дальше потолка колонок строка не разворачивается', () => {
+    const csv = `email,group${','.repeat(100_000)}\nstud@x.kz,BT-101${',x'.repeat(100_000)}\n`
+    const rows = parseBulkInviteFile(Buffer.from(csv), 'list.csv')
+    expect(rows[0]).toMatchObject({ line: 2, email: 'stud@x.kz', group: 'BT-101' })
+  })
+
   it('CSV: дальше потолка строк файл не разбирается', () => {
     const lines = ['email']
     for (let i = 0; i < BULK_INVITE_MAX_ROWS * 3; i++) lines.push(`s${i}@x.kz`)
@@ -163,6 +190,17 @@ describe('InviteService.bulkPreview', () => {
       { line: 2, email: 'not-an-email', group: 'BT-101', role: '', faculty: '' },
     ])
     expect(res.rows[0]).toMatchObject({ status: 'ERROR' })
+  })
+
+  // Предпросмотр проверяет адрес той же схемой, что подтверждение: иначе строка «Готово»
+  // в предпросмотре валила всю пачку на POST /invites/bulk.
+  it('адрес, который не примет подтверждение, → ERROR уже в предпросмотре', async () => {
+    const { service } = setup()
+    const res = await service.bulkPreview(dean, [
+      { line: 2, email: 'ivan..petrov@uni.kz', group: 'BT-101', role: '', faculty: '' },
+      { line: 3, email: 'иван@uni.kz', group: 'BT-101', role: '', faculty: '' },
+    ])
+    expect(res.rows.map((r) => r.status)).toEqual(['ERROR', 'ERROR'])
   })
 
   it('уже приглашённый email → DUPLICATE', async () => {

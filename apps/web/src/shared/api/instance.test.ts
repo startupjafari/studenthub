@@ -6,6 +6,8 @@ const h = vi.hoisted(() => {
   const state = {
     created: 0,
     rejected: null as ((error: unknown) => Promise<unknown>) | null,
+    // Кто вошёл во вкладке — для сверки sub у токена после обмена.
+    userId: null as string | null,
   }
   const refreshPost = vi.fn()
   const apiCall = vi.fn()
@@ -31,7 +33,12 @@ const h = vi.hoisted(() => {
 
 vi.mock('axios', () => ({ default: { create: h.create }, AxiosError: class extends Error {} }))
 vi.mock('../store/store', () => ({
-  store: { dispatch: h.dispatch, getState: () => ({ auth: { accessToken: 'old' } }) },
+  store: {
+    dispatch: h.dispatch,
+    getState: () => ({
+      auth: { accessToken: 'old', user: h.state.userId ? { id: h.state.userId } : null },
+    }),
+  },
 }))
 vi.mock('../store/auth-slice', () => ({
   clearAuth: () => ({ type: 'auth/clearAuth' }),
@@ -115,6 +122,43 @@ describe('refresh под лимитом запросов (429)', () => {
   })
 })
 
+// Скачивания (responseType: 'blob') получают тело ошибки Blob'ом — его разбирают как JSON.
+describe('ошибка скачивания файла (Blob вместо JSON)', () => {
+  beforeEach(() => {
+    h.refreshPost.mockReset()
+    h.apiCall.mockReset()
+    h.dispatch.mockReset()
+  })
+
+  const blobError = (status: number, body: string) => ({
+    config: { url: '/me/export', headers: { Authorization: 'Bearer old' }, responseType: 'blob' },
+    response: { status, headers: {}, data: new Blob([body]) },
+  })
+  const json = (code: string) => JSON.stringify({ success: false, error: { code, message: code } })
+
+  it('код ошибки берётся из тела-Blob, а не теряется', async () => {
+    await expect(h.state.rejected!(blobError(429, json('RATE_LIMIT')))).rejects.toMatchObject({
+      code: 'RATE_LIMIT',
+    })
+  })
+
+  it('истёкший токен у скачивания лечится refresh и повтором', async () => {
+    h.refreshPost.mockResolvedValue(ok('fresh'))
+    h.apiCall.mockResolvedValue({ data: 'file' })
+
+    await expect(h.state.rejected!(blobError(401, json('TOKEN_EXPIRED')))).resolves.toEqual({
+      data: 'file',
+    })
+    expect(h.refreshPost).toHaveBeenCalledTimes(1)
+  })
+
+  it('не-JSON тело — общий вид ошибки, а не исключение разбора', async () => {
+    await expect(h.state.rejected!(blobError(502, 'Bad gateway'))).rejects.toMatchObject({
+      code: 'INTERNAL_ERROR',
+    })
+  })
+})
+
 // A-F30: вкладки делят одну refresh-cookie — обмен идёт под межвкладочной блокировкой.
 describe('refresh под межвкладочной блокировкой (Web Locks)', () => {
   const original = Object.getOwnPropertyDescriptor(navigator, 'locks')
@@ -165,5 +209,42 @@ describe('refresh под межвкладочной блокировкой (Web 
     h.refreshPost.mockRejectedValue(failure(401, 'UNAUTHORIZED'))
 
     await expect(refreshAccessToken()).rejects.toMatchObject({ response: { status: 401 } })
+  })
+})
+
+describe('обмен вернул токен другого пользователя', () => {
+  // Минимальный JWT: подпись клиент не проверяет, ему нужен только sub из полезной нагрузки.
+  const jwt = (sub: string) => `h.${btoa(JSON.stringify({ sub })).replace(/=+$/, '')}.s`
+  const acceptedToken = () =>
+    h.dispatch.mock.calls.some(
+      ([action]) => (action as { type: string }).type === 'auth/setAccessToken',
+    )
+
+  beforeEach(() => {
+    h.refreshPost.mockReset()
+    h.dispatch.mockReset()
+  })
+
+  afterEach(() => {
+    h.state.userId = null
+  })
+
+  it('в соседней вкладке вошёл другой — токен не принимается, сессия вкладки сбрасывается', async () => {
+    h.state.userId = 'u1'
+    h.refreshPost.mockResolvedValueOnce(ok(jwt('u2')))
+
+    await expect(refreshAccessToken()).rejects.toThrow()
+    expect(acceptedToken()).toBe(false)
+    expect(clearedAuth()).toBe(true)
+  })
+
+  it('токен того же человека принимается как обычно', async () => {
+    h.state.userId = 'u1'
+    const token = jwt('u1')
+    h.refreshPost.mockResolvedValueOnce(ok(token))
+
+    await expect(refreshAccessToken()).resolves.toBe(token)
+    expect(acceptedToken()).toBe(true)
+    expect(clearedAuth()).toBe(false)
   })
 })

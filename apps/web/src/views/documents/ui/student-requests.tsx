@@ -199,8 +199,9 @@ function StudentRequestModal({ id, onClose }: { id: string; onClose: () => void 
   const itemError = (it: { id: string; required: boolean }): string | null =>
     submitted && it.required && !current[it.id] ? tCommon('fieldRequired') : null
 
+  // Документ без страниц (черновик) проверяющему открыть нечего — сервер его не примет.
   const docsByType = (type: string): DocumentDto[] =>
-    (docsQ.data ?? []).filter((x) => x.type === type)
+    (docsQ.data ?? []).filter((x) => x.type === type && x.fileCount > 0)
 
   return (
     <DocModal

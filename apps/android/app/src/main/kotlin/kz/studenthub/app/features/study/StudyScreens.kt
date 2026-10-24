@@ -68,26 +68,30 @@ import kz.studenthub.app.designsystem.currentLocale
 import kz.studenthub.app.shell.LocalServices
 import kz.studenthub.app.shell.ScreenScaffold
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
 
 /**
  * Вкладка «Учёба». Структура одна для всех ролей, состав — по роли: преподаватель
- * вместо своей успеваемости ведёт журнал (тот же раздел, другой заголовок).
+ * вместо своей успеваемости ведёт журнал (тот же раздел, другой заголовок), а
+ * посещаемость отмечает на занятии — из расписания: студенческие сводки ему отвечают 403.
  */
 @Composable
 fun StudyScreen(role: Role) {
     val router = LocalServices.current.router
+    val teaches = role == Role.TEACHER
     ScreenScaffold(title = stringResource(AppTab.STUDY.title)) {
         Column(Modifier.verticalScroll(rememberScrollState()).padding(Spacing.xl)) {
             ListGroup {
-                ListRow(stringResource(if (role == Role.TEACHER) R.string.study_gradebook else R.string.study_grades), Icons.Outlined.School) {
+                ListRow(stringResource(if (teaches) R.string.study_gradebook else R.string.study_grades), Icons.Outlined.School) {
                     router.push(AppRoute.Section(MoreSection.GRADES))
                 }
                 ListDivider()
                 ListRow(stringResource(R.string.study_attendance), Icons.Outlined.CheckCircle) {
-                    router.push(AppRoute.Section(MoreSection.ATTENDANCE))
+                    // Преподаватель отмечает посещаемость на занятии: пара в расписании.
+                    if (teaches) router.switchTo(AppTab.SCHEDULE) else router.push(AppRoute.Section(MoreSection.ATTENDANCE))
                 }
                 ListDivider()
                 ListRow(stringResource(R.string.study_assignments), Icons.AutoMirrored.Outlined.Assignment) {
@@ -126,6 +130,7 @@ fun <T> SectionScreen(title: String, model: SectionModel<T>, content: LazyListSc
 fun GradesScreen() {
     val api = LocalServices.current.studyApi
     val model = viewModel { SectionModel<List<CourseGradesDto>> { api.grades() } }
+    val locale = currentLocale()
     SectionScreen(stringResource(R.string.study_grades), model) { courses ->
         if (courses.isEmpty()) item { EmptyRow(stringResource(R.string.study_noGrades)) }
         items(courses, key = { it.courseId }) { course ->
@@ -143,10 +148,12 @@ fun GradesScreen() {
                         ) {
                             Column(Modifier.weight(1f)) {
                                 Text(column.title, style = AppType.body, color = AppTheme.colors.foreground)
-                                Text(column.kind, style = AppType.meta, color = AppTheme.colors.mutedForeground)
+                                GradeFormat.kindTitle(column.kind)?.let {
+                                    Text(stringResource(it), style = AppType.meta, color = AppTheme.colors.mutedForeground)
+                                }
                             }
                             Text(
-                                column.score?.let { "${it.toInt()} / ${column.maxScore}" } ?: stringResource(R.string.study_noScore),
+                                column.score?.let { GradeFormat.score(it, column.maxScore, locale) } ?: stringResource(R.string.study_noScore),
                                 style = AppType.tabular(AppType.body),
                                 color = if (column.score == null) AppTheme.colors.mutedForeground else AppTheme.colors.foreground,
                             )
@@ -171,13 +178,13 @@ fun AttendanceScreen() {
                     modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.xl, vertical = Spacing.md),
                 ) {
                     Text(stringResource(R.string.study_attendanceRate), style = AppType.body, color = AppTheme.colors.foreground, modifier = Modifier.weight(1f))
-                    Text(summary.rate?.let { "${(it * 100).toInt()}%" } ?: "—", style = AppType.tabular(AppType.metric), color = AppTheme.colors.primary)
+                    Text(if (summary.total == 0) "—" else "${summary.rate}%", style = AppType.tabular(AppType.metric), color = AppTheme.colors.primary)
                 }
                 listOf("PRESENT", "LATE", "ABSENT", "EXCUSED").forEach { status ->
                     ListDivider(inset = false)
                     Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.xl, vertical = Spacing.md)) {
                         Text(attendanceTitle(status), style = AppType.body, color = AppTheme.colors.foreground, modifier = Modifier.weight(1f))
-                        Text("${summary.counts[status] ?: 0}", style = AppType.tabular(AppType.body), color = AppTheme.colors.mutedForeground)
+                        Text("${summary.count(status)}", style = AppType.tabular(AppType.body), color = AppTheme.colors.mutedForeground)
                     }
                 }
             }
@@ -230,21 +237,24 @@ private fun formatDate(instant: Instant): String =
 private fun formatDateTime(instant: Instant): String =
     instant.atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM, FormatStyle.SHORT).withLocale(currentLocale()))
 
-/** Задания студента: что сдано, что на проверке, что просрочено. */
+/**
+ * Задания: у студента — что сдано, что на проверке, что просрочено; у преподавателя —
+ * его задания, без студенческого статуса сдачи (сдавать ему нечего).
+ */
 @Composable
-fun AssignmentsScreen() {
+fun AssignmentsScreen(submits: Boolean = true) {
     val services = LocalServices.current
     val model = viewModel { SectionModel<List<AssignmentDto>> { services.studyApi.assignments() } }
     SectionScreen(stringResource(R.string.study_assignments), model) { assignments ->
         if (assignments.isEmpty()) item { EmptyRow(stringResource(R.string.study_noAssignments)) }
         items(assignments, key = { it.id }) { assignment ->
-            AssignmentRow(assignment) { services.router.push(AppRoute.Assignment(assignment.id)) }
+            AssignmentRow(assignment, submits) { services.router.push(AppRoute.Assignment(assignment.id)) }
         }
     }
 }
 
 @Composable
-private fun AssignmentRow(assignment: AssignmentDto, onOpen: () -> Unit) {
+private fun AssignmentRow(assignment: AssignmentDto, submits: Boolean, onOpen: () -> Unit) {
     val colors = AppTheme.colors
     Column(
         verticalArrangement = Arrangement.spacedBy(Spacing.xs),
@@ -264,13 +274,17 @@ private fun AssignmentRow(assignment: AssignmentDto, onOpen: () -> Unit) {
                 Text(formatDateTime(due), style = AppType.meta, color = if (overdue) colors.destructive else colors.mutedForeground)
             }
         }
-        Text(SubmissionState.of(assignment).title.resolve(), style = AppType.meta, color = colors.primary)
+        if (submits) Text(SubmissionState.of(assignment).title.resolve(), style = AppType.meta, color = colors.primary)
     }
 }
 
-/** Карточка задания со сдачей: текст и ссылка — то, что принимает сервер. */
+/**
+ * Карточка задания со сдачей: текст и ссылка — то, что принимает сервер. Сдаёт только
+ * студент (`PUT /assignments/:id/submission` — роли студента): преподавателю форма сдачи
+ * ответила бы 403, ему — только описание задания.
+ */
 @Composable
-fun AssignmentDetailScreen(assignmentId: String) {
+fun AssignmentDetailScreen(assignmentId: String, submits: Boolean = true) {
     val services = LocalServices.current
     val list = viewModel { SectionModel<List<AssignmentDto>> { services.studyApi.assignments() } }
     val submission = viewModel { SubmissionModel(assignmentId, services.studyApi) }
@@ -290,6 +304,7 @@ fun AssignmentDetailScreen(assignmentId: String) {
                 assignment.description?.takeIf { it.isNotEmpty() }?.let {
                     Text(it, style = AppType.body, color = AppTheme.colors.mutedForeground)
                 }
+                if (!submits) return@Column
                 Text(SubmissionState.of(assignment).title.resolve(), style = AppType.meta, color = AppTheme.colors.primary)
                 assignment.mySubmission?.feedback?.takeIf { it.isNotEmpty() }?.let {
                     Text(it, style = AppType.meta, color = AppTheme.colors.foreground)
@@ -368,9 +383,9 @@ fun MaterialsScreen() {
  * Поэтому сверху «все присутствуют», а дальше правятся исключения.
  */
 @Composable
-fun AttendanceMarkingScreen(pairId: String) {
+fun AttendanceMarkingScreen(pairId: String, date: LocalDate? = null) {
     val api = LocalServices.current.studyApi
-    val model = viewModel { AttendanceMarkingModel(pairId, api) }
+    val model = viewModel { AttendanceMarkingModel(pairId, api, date ?: LocalDate.now()) }
     LaunchedEffect(Unit) { model.load() }
     val statuses = listOf("PRESENT", "LATE", "ABSENT", "EXCUSED")
 
@@ -387,6 +402,14 @@ fun AttendanceMarkingScreen(pairId: String) {
             contentPadding = PaddingValues(Spacing.xl),
             modifier = Modifier.fillMaxSize(),
         ) {
+            // За какой день отметка: занятие открывают и не в его день.
+            item {
+                Text(
+                    model.date.format(DateTimeFormatter.ofLocalizedDate(FormatStyle.FULL).withLocale(currentLocale())),
+                    style = AppType.meta,
+                    color = AppTheme.colors.mutedForeground,
+                )
+            }
             model.failure?.let { item { FormAlert(it.resolve()) } }
             if (model.saved) {
                 item { Text(stringResource(R.string.study_saved), style = AppType.meta, color = AppTheme.colors.success) }

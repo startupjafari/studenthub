@@ -19,6 +19,7 @@ import {
 } from 'lucide-react'
 import {
   fetchNotifications,
+  fetchUnreadCount,
   notificationKeys,
   notificationCategory,
   isActionable,
@@ -153,7 +154,13 @@ export function NotificationsPanel({ onClose }: { onClose: () => void }) {
   } = useNotificationMutations()
 
   const items = useMemo(() => list.data ?? [], [list.data])
-  const unread = items.filter((n) => !n.isRead).length
+  // «Прочитать всё» — по серверному счётчику, как у колокольчика: непрочитанные старше
+  // загруженных пятидесяти иначе держали кнопку выключенной, и бейдж было не сбросить.
+  const unreadCount = useQuery({
+    queryKey: notificationKeys.unreadCount(),
+    queryFn: fetchUnreadCount,
+  })
+  const unread = Math.max(unreadCount.data ?? 0, items.filter((n) => !n.isRead).length)
   const menuItem = rowMenu ? items.find((n) => n.id === rowMenu.id) : undefined
 
   // Счётчики продуктовых категорий + «требует действия» (один проход).

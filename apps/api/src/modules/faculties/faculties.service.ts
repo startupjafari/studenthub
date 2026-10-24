@@ -11,6 +11,7 @@ import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
 import { InviteService } from '../invites/invites.service'
 import { UniversityService } from '../universities/universities.service'
+import { UserService } from '../users/users.service'
 
 const FACULTY_SELECT = {
   id: true,
@@ -30,6 +31,16 @@ function facultyName(raw: string): string {
   return name
 }
 
+// Что не даёт удалить факультет (связи Restrict): группы и люди. Ключ уходит клиенту в
+// details.field — экран перечисляет, что разбирать, а не пишет «есть группы» про декана.
+const FACULTY_DELETION_BLOCKERS = ['groups', 'users'] as const
+type FacultyDeletionBlocker = (typeof FACULTY_DELETION_BLOCKERS)[number]
+
+const FACULTY_DELETION_LABELS: Record<FacultyDeletionBlocker, string> = {
+  groups: 'группы',
+  users: 'пользователи',
+}
+
 function isPlatform(role: Role): boolean {
   return role === Role.PLATFORM_ADMIN || role === Role.PLATFORM_MODERATOR
 }
@@ -41,6 +52,7 @@ export class FacultyService {
     private readonly audit: AuditService,
     private readonly universities: UniversityService,
     private readonly invites: InviteService,
+    private readonly users: UserService,
   ) {}
 
   /** Создание факультета. Платформа — в любой вуз; UNIVERSITY_ADMIN — только в свой. */
@@ -118,9 +130,15 @@ export class FacultyService {
   }
 
   /**
-   * Удаление факультета — запрещено при наличии групп (FK Restrict → CONFLICT).
-   * Ожидающие приглашения на факультет отзываются той же транзакцией (см. InviteService
-   * .revokePendingInScope): отказ в удалении откатывает и отзыв.
+   * Удаление факультета — запрещено, пока на нём есть группы или люди (FK Restrict →
+   * CONFLICT, в details — что именно мешает: `groups`, `users`).
+   *
+   * Удалённые аккаунты («надгробия») факультет больше не держат: их привязка к факультету
+   * снимается в той же транзакции. Раньше удалить факультет не давал давно удалённый декан,
+   * и экран писал «есть группы», которых не было.
+   *
+   * Ожидающие приглашения на факультет отзываются той же транзакцией первым шагом (см.
+   * InviteService.revokePendingInScope): отказ в удалении откатывает и отзыв.
    */
   async remove(actor: JwtPayload, id: string, ctx: RequestContext): Promise<void> {
     const faculty = await this.findOrThrow(id)
@@ -129,6 +147,15 @@ export class FacultyService {
     try {
       revokedInvites = await this.prisma.$transaction(async (tx) => {
         const revoked = await this.invites.revokePendingInScope(tx, { facultyId: id })
+        await this.users.detachDeletedFromFaculty(tx, id)
+        const blockers = await this.deletionBlockers(tx, id)
+        if (blockers.length > 0) {
+          throw new AppException(
+            'CONFLICT',
+            `Нельзя удалить факультет, пока на нём есть: ${blockers.map((b) => b.message).join(', ')}`,
+            blockers,
+          )
+        }
         await tx.faculty.delete({ where: { id } })
         return revoked
       })
@@ -147,6 +174,28 @@ export class FacultyService {
       metadata: { revokedInvites },
       ...ctx,
     })
+  }
+
+  /**
+   * Что держит факультет от удаления: группы и действующие пользователи (удалённых к этому
+   * моменту отвязал `UserService.detachDeletedFromFaculty`).
+   *
+   * Счётчик по таблице пользователей читается здесь напрямую, вопреки правилу
+   * самодостаточности модуля (BACKEND_RULES §2.1), — как в `GroupService.deletionBlockers`:
+   * подсчёт обязан идти в транзакции удаления, а наружу отсюда идут только числа.
+   */
+  private async deletionBlockers(
+    tx: Prisma.TransactionClient,
+    facultyId: string,
+  ): Promise<{ field: FacultyDeletionBlocker; message: string }[]> {
+    const counts: Record<FacultyDeletionBlocker, number> = {
+      groups: await tx.group.count({ where: { facultyId } }),
+      users: await tx.user.count({ where: { facultyId } }),
+    }
+    return FACULTY_DELETION_BLOCKERS.filter((field) => counts[field] > 0).map((field) => ({
+      field,
+      message: `${FACULTY_DELETION_LABELS[field]} (${counts[field]})`,
+    }))
   }
 
   /**

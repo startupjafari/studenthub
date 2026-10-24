@@ -4,7 +4,17 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { Eye, EyeOff, MoreHorizontal, Plus, Save, Trash2 } from 'lucide-react'
+import {
+  ArrowLeft,
+  ArrowRight,
+  Eye,
+  EyeOff,
+  MoreHorizontal,
+  Pencil,
+  Plus,
+  Save,
+  Trash2,
+} from 'lucide-react'
 import {
   Badge,
   Button,
@@ -39,6 +49,7 @@ import {
   publishColumnRequest,
   deleteColumnRequest,
   saveGradesRequest,
+  updateColumnRequest,
   type GradeColumnItem,
   type GradebookStudent,
 } from '../../../entities/gradebook'
@@ -83,11 +94,15 @@ export function GradebookTable({
   const confirm = useConfirm()
   const isDesktop = useMediaQuery('(min-width: 1024px)')
   const [adding, setAdding] = useState(false)
-  const [values, setValues] = useState<Record<string, string>>({})
-  // Изменённые ЯЧЕЙКИ (cellKey), а не колонки: на сохранение уходят только они. Колонка
-  // целиком затирала оценки, выставленные в соседней вкладке или деканом после загрузки
-  // журнала, — пустая у нас ячейка уходила как «очистить».
-  const [dirty, setDirty] = useState<Set<string>>(new Set())
+  const [editing, setEditing] = useState<GradeColumnItem | null>(null)
+  // Изменённые ЯЧЕЙКИ (cellKey → введённое), а не колонки: на сохранение уходят только
+  // они. Колонка целиком затирала оценки, выставленные в соседней вкладке или деканом
+  // после загрузки журнала, — пустая у нас ячейка уходила как «очистить».
+  //
+  // Правки лежат поверх серверных значений, а не вместо них: журнал перечитывается и
+  // после публикации, удаления или добавления колонки, и каждый такой ответ раньше
+  // стирал всё несохранённое.
+  const [edits, setEdits] = useState<Record<string, string>>({})
 
   const q = useQuery({
     queryKey: gradebookKeys.course(courseId),
@@ -96,31 +111,32 @@ export function GradebookTable({
     placeholderData: keepPreviousData,
   })
 
-  useEffect(() => {
-    if (!q.data) return
+  // Другая дисциплина — другой журнал: правки прежней к нему не относятся.
+  useEffect(() => setEdits({}), [courseId])
+
+  const values = useMemo(() => {
     const next: Record<string, string> = {}
-    for (const g of q.data.grades) {
+    for (const g of q.data?.grades ?? []) {
       if (g.score != null) next[cellKey(g.columnId, g.studentId)] = String(g.score)
     }
-    setValues(next)
-    setDirty(new Set())
-  }, [q.data])
+    return { ...next, ...edits }
+  }, [q.data, edits])
+  const dirtyCount = Object.keys(edits).length
+  const hasEditsIn = (columnId: string) =>
+    Object.keys(edits).some((key) => key.startsWith(`${columnId}|`))
 
   const invalidate = () => qc.invalidateQueries({ queryKey: gradebookKeys.course(courseId) })
 
   const setCell = (columnId: string, studentId: string, v: string) => {
-    const key = cellKey(columnId, studentId)
-    setValues((prev) => ({ ...prev, [key]: v }))
-    setDirty((prev) => new Set(prev).add(key))
+    setEdits((prev) => ({ ...prev, [cellKey(columnId, studentId)]: v }))
   }
 
   const save = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (sent: Record<string, string>) => {
       const byColumn = new Map<string, { studentId: string; score: number | null }[]>()
-      for (const key of dirty) {
+      for (const [key, raw] of Object.entries(sent)) {
         const [columnId, studentId] = key.split('|') as [string, string]
-        const raw = values[key]
-        const score = raw === undefined || raw === '' ? null : Number(raw)
+        const score = raw === '' ? null : Number(raw)
         const entries = byColumn.get(columnId) ?? []
         entries.push({ studentId, score: Number.isNaN(score as number) ? null : score })
         byColumn.set(columnId, entries)
@@ -129,8 +145,13 @@ export function GradebookTable({
         await saveGradesRequest({ columnId, entries })
       }
     },
-    onSuccess: () => {
-      invalidate()
+    onSuccess: async (_, sent) => {
+      // Сначала свежий журнал, потом снимаем правки — иначе ячейка на миг показала бы
+      // прежнее значение. Правку, сделанную, пока запрос летел, оставляем.
+      await invalidate()
+      setEdits((prev) =>
+        Object.fromEntries(Object.entries(prev).filter(([key, v]) => sent[key] !== v)),
+      )
       toast.success(t('saved'))
     },
     onError: (e) => {
@@ -147,14 +168,14 @@ export function GradebookTable({
     const invalid = cols.some((c) =>
       students.some((s) => {
         const key = cellKey(c.id, s.id)
-        return dirty.has(key) && isOutOfRange(c, values[key])
+        return key in edits && isOutOfRange(c, values[key])
       }),
     )
     if (invalid) {
       toast.error(t('scoresOutOfRange'))
       return
     }
-    save.mutate()
+    save.mutate(edits)
   }
 
   const publish = useMutation({
@@ -163,9 +184,24 @@ export function GradebookTable({
     onSuccess: () => invalidate(),
     onError: (e) => toast.error(tErr(toApiError(e).code)),
   })
+
+  // Опубликовать колонку с несохранёнными баллами — значит показать студентам пустую
+  // или устаревшую: сначала «Сохранить».
+  function onPublish(col: GradeColumnItem) {
+    if (!col.published && hasEditsIn(col.id)) {
+      toast.error(t('publishUnsaved'))
+      return
+    }
+    publish.mutate({ id: col.id, published: !col.published })
+  }
+
   const removeCol = useMutation({
     mutationFn: (id: string) => deleteColumnRequest(id),
-    onSuccess: () => {
+    onSuccess: (_, id) => {
+      // Правки удалённой колонки сохранять больше некуда.
+      setEdits((prev) =>
+        Object.fromEntries(Object.entries(prev).filter(([key]) => !key.startsWith(`${id}|`))),
+      )
       invalidate()
       toast.success(t('columnDeleted'))
     },
@@ -173,6 +209,25 @@ export function GradebookTable({
       const code = toApiError(e).code
       toast.error(code === 'CONFLICT' ? t('deleteColumnPublished') : tErr(code))
     },
+  })
+
+  // Порядок колонок — `position`. После удалений номера бывают с дырами и повторами
+  // (новая колонка получает номер по их числу), поэтому сдвиг перенумеровывает журнал
+  // по новому порядку целиком, а на сервер уходят только изменившиеся номера.
+  const move = useMutation({
+    mutationFn: async ({ id, by }: { id: string; by: -1 | 1 }) => {
+      const order = [...(q.data?.columns ?? [])]
+      const from = order.findIndex((c) => c.id === id)
+      const to = from + by
+      if (from < 0 || to < 0 || to >= order.length) return
+      const [col] = order.splice(from, 1)
+      if (col) order.splice(to, 0, col)
+      await Promise.all(
+        order.map((c, i) => (c.position === i ? null : updateColumnRequest(c.id, { position: i }))),
+      )
+    },
+    onSettled: () => invalidate(),
+    onError: (e) => toast.error(tErr(toApiError(e).code)),
   })
 
   async function onDeleteColumn(col: GradeColumnItem) {
@@ -222,7 +277,7 @@ export function GradebookTable({
   const columns = q.data?.columns ?? []
   const students = q.data?.students ?? []
 
-  const columnMenu = (col: GradeColumnItem) => (
+  const columnMenu = (col: GradeColumnItem, index: number) => (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" size="sm" icon aria-label={t('columnActions')}>
@@ -230,7 +285,26 @@ export function GradebookTable({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
-        <DropdownMenuItem onClick={() => publish.mutate({ id: col.id, published: !col.published })}>
+        <DropdownMenuItem onClick={() => setEditing(col)}>
+          <Pencil aria-hidden />
+          {t('editColumn')}
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          disabled={index === 0 || move.isPending}
+          onClick={() => move.mutate({ id: col.id, by: -1 })}
+        >
+          <ArrowLeft aria-hidden />
+          {t('moveLeft')}
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          disabled={index === columns.length - 1 || move.isPending}
+          onClick={() => move.mutate({ id: col.id, by: 1 })}
+        >
+          <ArrowRight aria-hidden />
+          {t('moveRight')}
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onClick={() => onPublish(col)}>
           {col.published ? <EyeOff aria-hidden /> : <Eye aria-hidden />}
           {col.published ? t('unpublish') : t('publish')}
         </DropdownMenuItem>
@@ -262,7 +336,7 @@ export function GradebookTable({
               className="gap-1.5"
               onClick={onSave}
               loading={save.isPending}
-              disabled={dirty.size === 0}
+              disabled={dirtyCount === 0}
             >
               <Save className="size-4" aria-hidden />
               {t('save')}
@@ -293,11 +367,11 @@ export function GradebookTable({
                   >
                     {t('student')}
                   </TableHead>
-                  {columns.map((col) => (
+                  {columns.map((col, index) => (
                     <TableHead key={col.id} className="px-2 text-center">
                       <div className="flex items-center justify-center gap-1">
                         <span className="truncate">{col.title}</span>
-                        {columnMenu(col)}
+                        {columnMenu(col, index)}
                       </div>
                       <div className="flex items-center justify-center gap-1 text-[11px] font-normal">
                         {col.maxScore != null && <span>/{col.maxScore}</span>}
@@ -363,6 +437,9 @@ export function GradebookTable({
       )}
 
       {adding && <AddColumnModal courseId={courseId} onClose={() => setAdding(false)} />}
+      {editing && (
+        <AddColumnModal courseId={courseId} column={editing} onClose={() => setEditing(null)} />
+      )}
     </div>
   )
 }

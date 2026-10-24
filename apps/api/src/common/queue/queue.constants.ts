@@ -73,9 +73,10 @@ export const NOTIFICATION_JOBS = {
   APPOINTMENT_UPDATED: 'appointment-updated',
   // Деканату факультета: студент записался на приём.
   APPOINTMENT_REQUESTED: 'appointment-requested',
-  // Студентам группы: экзамен назначен, перенесён (дата/аудитория), внесён результат.
+  // Студентам группы: экзамен назначен, перенесён (дата/аудитория), отменён, внесён результат.
   EXAM_SCHEDULED: 'exam-scheduled',
   EXAM_UPDATED: 'exam-updated',
+  EXAM_CANCELLED: 'exam-cancelled',
   EXAM_RESULT: 'exam-result',
   // Автору публикации, статьи или опроса — новый комментарий; упомянутому — упоминание.
   COMMENT_ADDED: 'comment-added',

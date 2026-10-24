@@ -42,10 +42,14 @@ export type CreatePostInput = z.infer<typeof CreatePostSchema>
 // Правка своей публикации. Аудиторию и вложения не трогаем: смена аудитории меняет
 // круг тех, кто пост уже видел, а подмена вложений после публикации — совсем другой
 // пост. Меняются только заголовок и текст.
+//
+// Пустой текст схема пропускает ради репоста: его заметка необязательна (RepostSchema), и
+// очистить её правкой иначе было нельзя. Что у обычного поста текст обязателен, проверяет
+// сервер — схема не знает, репост ли это.
 export const UpdatePostSchema = z
   .object({
     title: z.string().max(200).optional().nullable(),
-    content: z.string().min(1).max(5000).optional(),
+    content: z.string().max(5000).optional(),
   })
   .strict()
 export type UpdatePostInput = z.infer<typeof UpdatePostSchema>

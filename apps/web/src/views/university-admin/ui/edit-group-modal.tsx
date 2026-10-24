@@ -61,10 +61,12 @@ export function EditGroupModal({ group, onClose }: EditGroupModalProps) {
             placeholder="2024"
             aria-invalid={!!form.formState.errors.year}
             {...form.register('year', {
-              setValueAs: (v: string | number) =>
-                v === '' || v === undefined ? undefined : Number(v),
+              // Пустое поле — «год не указан» (null стирает прежний), а не «не менять».
+              setValueAs: (v: string | number | null | undefined) =>
+                v === '' || v === undefined || v === null ? null : Number(v),
             })}
           />
+          <FieldError>{form.formState.errors.year ? t('yearInvalid') : null}</FieldError>
         </div>
         <div className="flex items-center justify-between gap-2">
           <Button type="button" variant="outline" onClick={onClose}>

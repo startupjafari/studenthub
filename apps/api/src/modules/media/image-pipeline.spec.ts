@@ -46,6 +46,28 @@ describe('buildImageVariants', () => {
     expect(result.variants).toEqual([])
     expect(result.placeholder).toMatch(/^data:image\/webp;base64,/)
   })
+
+  it('анимированный WebP — тоже только заглушка: копия была бы первым кадром', async () => {
+    // Два кадра 800×600 стопкой: при заданной высоте страницы sharp пишет их анимацией. Кадры
+    // с шумом: одинаковые libwebp склеивает в один, и файл выходит не анимированным.
+    const webp = await sharp({
+      create: {
+        width: 800,
+        height: 1200,
+        channels: 3,
+        background: '#0af',
+        noise: { type: 'gaussian', mean: 128, sigma: 30 },
+        pageHeight: 600,
+      },
+    })
+      .webp({ loop: 0, delay: [100, 100] })
+      .toBuffer()
+    expect((await sharp(webp).metadata()).pages).toBe(2)
+
+    const result = await buildImageVariants(webp, 'image/webp')
+    expect(result.variants).toEqual([])
+    expect(result).toMatchObject({ width: 800, height: 600 })
+  })
 })
 
 describe('buildPosterVariants', () => {

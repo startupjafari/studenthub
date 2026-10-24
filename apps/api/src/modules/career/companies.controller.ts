@@ -24,6 +24,7 @@ import { VerifyCompanyEmailDto } from './dto/verify-company-email.dto'
 import { ResendCompanyVerificationDto } from './dto/resend-company-verification.dto'
 import { UpdateCompanyDto } from './dto/update-company.dto'
 import { RequestCompanyAccessDto } from './dto/request-company-access.dto'
+import { CompanyUniversityDirectoryQueryDto } from './dto/company-university-directory-query.dto'
 
 @ApiTags('Карьера — компании')
 @Controller('career/companies')
@@ -112,8 +113,11 @@ export class CompaniesController {
   @ApiBearerAuth()
   @ApiOperation({ summary: 'Вузы, куда можно подать заявку, со статусом своей заявки' })
   @ApiResponse({ status: 200, description: 'Справочник вузов' })
-  universities(@CurrentUser() user: CurrentUserData, @Query('search') search?: string) {
-    return this.companies.universityDirectory(user, search)
+  universities(
+    @CurrentUser() user: CurrentUserData,
+    @Query() query: CompanyUniversityDirectoryQueryDto,
+  ) {
+    return this.companies.universityDirectory(user, query.search)
   }
 
   @Post('me/access')

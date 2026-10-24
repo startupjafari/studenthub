@@ -64,9 +64,10 @@ updates:
       - dependency-name: '@prisma/client'
         update-types: [version-update:semver-major]
 
-  # Базовые образы четырёх приложений (node:24-alpine, nginx:1.27-alpine). Причина та же,
-  # что в шапке файла: обновления приходят молча, а в базовом образе живёт вся системная
-  # часть контейнера. Раз в месяц — как у actions: чаще их всё равно не читают.
+  # Базовые образы всех Dockerfile (node:24-alpine, nginx:1.27-alpine, alpine и mediamtx у
+  # ретранслятора камер). Причина та же, что в шапке файла: обновления приходят молча, а в
+  # базовом образе живёт вся системная часть контейнера. Раз в месяц — как у actions: чаще
+  # их всё равно не читают.
   - package-ecosystem: docker
     target-branch: develop
     directories:
@@ -74,6 +75,8 @@ updates:
       - /apps/web
       - /apps/landing
       - /apps/mini-app
+      - /apps/camera-agent
+      - /docker/media-relay
     schedule:
       interval: monthly
     # Выдержка в неделю — см. «Про cooldown» в шапке файла.
@@ -86,6 +89,20 @@ updates:
     ignore:
       - dependency-name: node
         update-types: [version-update:semver-major]
+    commit-message:
+      prefix: 'chore(deps)'
+
+  # Готовые образы прод-стека (nginx, certbot в docker/prod/compose.yml) — та же причина.
+  # docker/shared/infra.yml (postgres, redis, pgsty/minio) бот не видит: он читает только
+  # файлы с compose в имени.
+  - package-ecosystem: docker-compose
+    target-branch: develop
+    directory: /docker/prod
+    schedule:
+      interval: monthly
+    # Выдержка в неделю — см. «Про cooldown» в шапке файла.
+    cooldown:
+      default-days: 7
     commit-message:
       prefix: 'chore(deps)'
 

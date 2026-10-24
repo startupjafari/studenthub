@@ -34,8 +34,10 @@ function toLocalInput(iso: string | null | undefined): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
-// Пустое поле ссылки при правке — «не указано», а не невалидная ссылка: текущую ссылку
-// админ без регистрации прочитать не может, и пустое поле её не трогает.
+// Пустое поле ссылки — «не указано», а не невалидная ссылка. При правке: текущую ссылку админ
+// без регистрации прочитать не может, и пустое поле её не трогает. При создании: включили
+// «Онлайн» и выключили — в форме оставалась пустая строка, схема отвергала её как ссылку, а
+// ошибку под скрытым полем не видно — форма молча не отправлялась.
 const blankToUndefined = (v: unknown): unknown =>
   typeof v === 'string' && v.trim() === '' ? undefined : v
 
@@ -127,7 +129,16 @@ export function EventDetailsFields<T extends EventDetailsValues & FieldValues>({
           render={({ field }) => (
             <Checkbox
               checked={field.value === true}
-              onCheckedChange={(v) => field.onChange(v === true)}
+              onCheckedChange={(v) => {
+                field.onChange(v === true)
+                // Очное событие при создании встречи не несёт: ссылка, набранная и
+                // оставленная за выключенным «Онлайн», сделала бы его онлайновым на сервере.
+                if (v !== true && mode === 'create') {
+                  form.setValue('meetingUrl', undefined)
+                  form.setValue('meetingPasscode', undefined)
+                  form.clearErrors(['meetingUrl', 'meetingPasscode'])
+                }
+              }}
               onBlur={field.onBlur}
             />
           )}
@@ -146,10 +157,7 @@ export function EventDetailsFields<T extends EventDetailsValues & FieldValues>({
               id="ev-meeting"
               type="url"
               inputMode="url"
-              {...form.register(
-                'meetingUrl',
-                mode === 'edit' ? { setValueAs: blankToUndefined } : undefined,
-              )}
+              {...form.register('meetingUrl', { setValueAs: blankToUndefined })}
               placeholder={t('meetingLinkPlaceholder')}
             />
             {meetingHint && <p className="text-xs text-muted-foreground">{meetingHint}</p>}

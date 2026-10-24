@@ -11,7 +11,7 @@ vi.mock('../../../entities/analytics/api/analytics-api', async (orig) => {
 })
 vi.mock('../../../entities/university/api/university-api', async (orig) => {
   const actual = await orig<typeof import('../../../entities/university/api/university-api')>()
-  return { ...actual, fetchUniversityStats: vi.fn(), fetchUniversityOptions: vi.fn() }
+  return { ...actual, fetchUniversityStats: vi.fn() }
 })
 // Справочник КАТО ходит в сеть — здесь он не предмет проверки.
 vi.mock('../../../entities/kato', () => ({
@@ -19,7 +19,7 @@ vi.mock('../../../entities/kato', () => ({
 }))
 
 import { fetchUniversitiesSize, type UniversitySize } from '../../../entities/analytics'
-import { fetchUniversityOptions, fetchUniversityStats } from '../../../entities/university'
+import { fetchUniversityStats } from '../../../entities/university'
 import { TooltipProvider } from '../../../shared/ui'
 import { PlatformStatsView } from './platform-stats-view'
 
@@ -110,7 +110,6 @@ describe('PlatformStatsView', () => {
     // выедала пользовательский лимит API на сотне вузов.
     expect(fetchUniversitiesSize).toHaveBeenCalledTimes(1)
     expect(fetchUniversityStats).not.toHaveBeenCalled()
-    expect(fetchUniversityOptions).not.toHaveBeenCalled()
     expect(screen.getByText('Вузов: 2')).toBeInTheDocument()
     expect(screen.getByText('Людей всего: 1146')).toBeInTheDocument()
   })

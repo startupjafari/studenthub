@@ -34,6 +34,9 @@ interface ChatDao {
     @Query("DELETE FROM chat WHERE id = :id")
     suspend fun delete(id: String)
 
+    @Query("SELECT id FROM chat")
+    suspend fun ids(): List<String>
+
     /*
      * Строки списка. Порядок повторяет сервер и веб: закреплённые сверху по времени
      * закрепления, дальше по свежести. `pinnedAt IS NULL` первой ступенью — это и есть
@@ -127,11 +130,14 @@ interface MessageDao {
     @Query("SELECT * FROM message WHERE chatId = :chatId ORDER BY createdAt ASC, seq ASC")
     suspend fun thread(chatId: String): List<MessageEntity>
 
-    /** Очередь отправки — сообщения без серверного id, по времени написания. */
-    @Query("SELECT * FROM message WHERE remoteId IS NULL ORDER BY createdAt ASC")
+    /**
+     * Очередь отправки — сообщения без серверного id, ждущие досылки, по времени
+     * написания. Отвергнутые сервером (`FAILED`) сюда не входят: их повторяет человек.
+     */
+    @Query("SELECT * FROM message WHERE remoteId IS NULL AND sendState = 'PENDING' ORDER BY createdAt ASC")
     suspend fun unsent(): List<MessageEntity>
 
-    @Query("SELECT * FROM message WHERE remoteId IS NULL AND chatId = :chatId ORDER BY createdAt ASC")
+    @Query("SELECT * FROM message WHERE remoteId IS NULL AND sendState = 'PENDING' AND chatId = :chatId ORDER BY createdAt ASC")
     suspend fun unsent(chatId: String): List<MessageEntity>
 
     @Query("SELECT COUNT(*) FROM attachment WHERE messageId = :messageId")
@@ -223,7 +229,8 @@ interface ScheduleDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertChanges(changes: List<PairChangeEntity>)
 
-    @Query("SELECT * FROM pairChange WHERE date >= :from AND date < :to")
+    /** Изменения дня по порядку внесения: позднее перекрывает раннее, как на сервере. */
+    @Query("SELECT * FROM pairChange WHERE date >= :from AND date < :to ORDER BY createdAt, id")
     fun observeChanges(from: java.time.Instant, to: java.time.Instant): Flow<List<PairChangeEntity>>
 }
 

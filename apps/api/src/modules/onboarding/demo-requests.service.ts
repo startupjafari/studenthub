@@ -21,6 +21,7 @@ import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
 import type { EnvVars } from '../../config/env.schema'
 import { webBaseUrl } from '../../config/web-base'
+import { deadlineLabel } from '../../common/time/local-label'
 import { InviteService } from '../invites/invites.service'
 
 /** Срок жизни ссылки подтверждения адреса. Сутки — как у подтверждения компании. */
@@ -36,7 +37,8 @@ const VERIFY_TTL_MS = 24 * 60 * 60 * 1000
  */
 const RESEND_COOLDOWN_MS = 5 * 60 * 1000
 
-const DATE_FORMAT = new Intl.DateTimeFormat('ru-RU', { dateStyle: 'long', timeStyle: 'short' })
+// Письма заявителю — по-русски; пояс — вуза, если он уже заведён, иначе платформы.
+const DATE_LOCALE = 'ru-RU'
 
 /** Код КАТО — 9 цифр (KatoCodeSchema). Всё остальное в `city` — свободный текст. */
 const KATO_CODE = /^\d{9}$/
@@ -189,7 +191,7 @@ export class DemoRequestsService {
         to: input.email,
         universityName: request.universityName,
         verifyUrl: `${this.webBase()}/demo/verify?token=${rawToken}`,
-        expiresAt: DATE_FORMAT.format(expiresAt),
+        expiresAt: deadlineLabel(expiresAt, DATE_LOCALE, null),
       },
       `demo-verify:${request.id}`,
     )
@@ -285,7 +287,7 @@ export class DemoRequestsService {
         to: email,
         universityName: existing.universityName,
         verifyUrl: `${this.webBase()}/demo/verify?token=${rawToken}`,
-        expiresAt: DATE_FORMAT.format(expiresAt),
+        expiresAt: deadlineLabel(expiresAt, DATE_LOCALE, null),
       },
       // jobId со временем: BullMQ отбрасывает дубль по id, и без метки повторное письмо
       // молча не ушло бы — а оно и есть смысл этой ветки.
@@ -489,7 +491,7 @@ export class DemoRequestsService {
           ...(input.timezone ? { timezone: input.timezone } : {}),
           status: 'PENDING',
         },
-        select: { id: true, name: true },
+        select: { id: true, name: true, timezone: true },
       })
       // Мастер заводится вместе с вузом: админ вуза входит уже в начатый процесс,
       // а не в пустую платформу, где непонятно, с чего начинать.
@@ -521,7 +523,7 @@ export class DemoRequestsService {
         universityName: university.name,
         contactName: request.contactName,
         inviteUrl: `${this.webBase()}/register?token=${invite.token}`,
-        expiresAt: DATE_FORMAT.format(invite.expiresAt),
+        expiresAt: deadlineLabel(invite.expiresAt, DATE_LOCALE, university.timezone),
       },
       `demo-approved:${id}`,
     )
@@ -536,6 +538,97 @@ export class DemoRequestsService {
     })
 
     return updated
+  }
+
+  /**
+   * Приглашение админу вуза заново — по одобренной заявке, без второго вуза.
+   *
+   * Сырой токен в базе не хранится (только хэш), поэтому «показать ссылку ещё раз»
+   * нельзя: выписывается новое приглашение, прежнее ожидающее отзывается той же
+   * транзакцией, и письмо об одобрении уходит повторно с новой ссылкой. Ссылка
+   * возвращается и модератору — если письмо не дошло, её передают руками.
+   *
+   * Повтор параллельно с другим повтором решает условная смена `inviteId`: выигрывает
+   * один, второй получает CONFLICT и откатывает своё приглашение.
+   */
+  async reissueInvite(actor: JwtPayload, id: string, ctx: RequestContext) {
+    const request = await this.prisma.universityDemoRequest.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        status: true,
+        universityId: true,
+        inviteId: true,
+        email: true,
+        contactName: true,
+      },
+    })
+    if (!request || request.status === 'PENDING_EMAIL') {
+      throw new AppException('NOT_FOUND', 'Заявка не найдена')
+    }
+    if (request.status !== 'APPROVED' || !request.universityId) {
+      throw new AppException('CONFLICT', 'Приглашение выписывается только по одобренной заявке')
+    }
+    const university = await this.prisma.university.findUnique({
+      where: { id: request.universityId },
+      select: { id: true, name: true, timezone: true },
+    })
+    if (!university) {
+      throw new AppException('CONFLICT', 'Вуз по этой заявке удалён')
+    }
+
+    const { invite, updated } = await this.prisma.$transaction(async (tx) => {
+      if (request.inviteId) {
+        const previous = await this.invites.retireForReissue(tx, request.inviteId)
+        if (previous === 'USED') {
+          throw new AppException(
+            'CONFLICT',
+            'По приглашению уже зарегистрировались — выписывать заново незачем',
+          )
+        }
+      }
+      const created = await this.invites.createInTransaction(tx, actor, {
+        role: Role.UNIVERSITY_ADMIN,
+        email: request.email,
+        universityId: university.id,
+      })
+      const { count } = await tx.universityDemoRequest.updateMany({
+        where: { id, inviteId: request.inviteId },
+        data: { inviteId: created.id },
+      })
+      if (count === 0) {
+        throw new AppException('CONFLICT', 'Приглашение по заявке только что выписали заново')
+      }
+      const updated = await tx.universityDemoRequest.findUniqueOrThrow({
+        where: { id },
+        select: REQUEST_SELECT,
+      })
+      return { invite: created, updated }
+    })
+
+    await this.invites.recordCreated(actor, invite, ctx)
+    const inviteUrl = `${this.webBase()}/register?token=${invite.token}`
+    await this.enqueueQuietly(
+      EMAIL_JOBS.SEND_DEMO_APPROVED,
+      {
+        to: request.email,
+        universityName: university.name,
+        contactName: request.contactName,
+        inviteUrl,
+        expiresAt: deadlineLabel(invite.expiresAt, DATE_LOCALE, university.timezone),
+      },
+      `demo-approved:${id}:${invite.id}`,
+    )
+    await this.audit.record({
+      userId: actor.sub,
+      action: 'demo_request_invite_reissued',
+      entity: 'UniversityDemoRequest',
+      entityId: id,
+      metadata: { universityId: university.id, inviteId: invite.id },
+      ...ctx,
+    })
+
+    return { request: updated, inviteUrl }
   }
 
   /**

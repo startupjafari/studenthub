@@ -81,8 +81,14 @@ data class MessageEntity(
     val content: String,
     val replyToId: String? = null,
     val replyQuote: String? = null,
-    /** Системное сообщение («N вошёл в группу») — у него нет автора-человека. */
+    /** Системное сообщение («N вошёл в группу»): текст строит клиент по типу (§20). */
     val systemType: String? = null,
+    /** Имя автора на момент сообщения — подпись в группах и «кто» в системных. */
+    val senderName: String? = null,
+    /** Кого касается системное событие (добавили, удалили, назначили) — из `systemMeta`. */
+    val systemTarget: String? = null,
+    /** Новое название группы — для системного «изменил(а) название». */
+    val systemTitle: String? = null,
     val editedAt: Instant? = null,
     /** Мягкое удаление, как на сервере: строка остаётся, текст в ленте заменяется. */
     val deletedAt: Instant? = null,
@@ -146,8 +152,13 @@ data class AttachmentEntity(
 ) {
     val isImage: Boolean get() = mime.startsWith("image/")
 
-    /** Голосовое узнаётся по имени, как и в вебе: отдельного признака в модели нет. */
-    val isVoice: Boolean get() = mime.startsWith("audio/") && name?.startsWith("voice-") == true
+    /**
+     * Голосовое узнаётся по имени (`voice-…`), как и в вебе (`attachment-kind.ts`):
+     * отдельного признака в модели нет. Mime сервер берёт по содержимому, и запись
+     * приходит не только `audio/*`, но и `video/webm` (веб) или `video/mp4` (iOS).
+     */
+    val isVoice: Boolean
+        get() = name?.startsWith("voice-", ignoreCase = true) == true && (mime.startsWith("audio/") || mime.startsWith("video/"))
 }
 
 /** Сообщение вместе с вложениями — одним чтением, без кадра «картинка без сообщения». */
@@ -221,5 +232,10 @@ data class PairChangeEntity(
     val newStartTime: String?,
     val newEndTime: String?,
     val note: String?,
+    /** Новая аудитория (смена аудитории, перенос) и заменяющий преподаватель — уже именами. */
+    val newRoomName: String? = null,
+    val newTeacherName: String? = null,
+    /** Когда изменение внесли: несколько изменений одной пары накладываются по порядку. */
+    val createdAt: Instant? = null,
 )
 

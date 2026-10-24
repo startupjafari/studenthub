@@ -12,7 +12,6 @@ export { INTERESTS_DICT } from './interests'
 export { ARTICLE_TAGS } from './article-tags'
 export { COUNTRIES_DICT, COUNTRY_VALUES, countryCodeOf, type CountryDictItem } from './countries'
 export {
-  MARITAL_STATUS_DICT,
   EDUCATION_LEVEL_DICT,
   STUDY_FORM_DICT,
   FUNDING_TYPE_DICT,

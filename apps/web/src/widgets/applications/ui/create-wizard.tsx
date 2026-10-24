@@ -17,13 +17,11 @@ import {
   submitApplicationRequest,
   pickLocale,
   type ServiceDetail,
-  type ServiceFormField,
 } from '../../../entities/application-service'
 import {
   Button,
   Card,
   EmptyState,
-  Input,
   Label,
   Modal,
   PageHeader,
@@ -34,21 +32,13 @@ import {
   SelectValue,
   Skeleton,
   Stepper,
-  Textarea,
 } from '../../../shared/ui'
 import { DocumentChecklist } from './document-checklist'
+import { FormAnswers } from './form-answers'
+import { DynamicField, isAnswerMissing } from './dynamic-field'
+import { allowedDeliveryTypes } from '../lib/delivery-types'
 
 type Step = 'catalog' | 'info' | 'form' | 'docs' | 'review'
-
-function allowedDeliveryTypes(modes: string[]): DeliveryType[] {
-  const e = modes.includes('ELECTRONIC')
-  const p = modes.includes('PAPER')
-  const out: DeliveryType[] = []
-  if (e) out.push('ELECTRONIC')
-  if (p) out.push('PAPER')
-  if (e && p) out.push('BOTH')
-  return out
-}
 
 // Мастер создания заявки: каталог → услуга → форма → проверка → отправка (§30, mobile-first).
 export function CreateWizard({
@@ -187,11 +177,7 @@ export function CreateWizard({
   const missingRequired = useMemo(() => {
     if (!service) return true
     if (!deliveryType) return true
-    return service.formFields.some((f) => {
-      if (!f.required) return false
-      const v = formData[f.code]
-      return v === undefined || v === null || v === ''
-    })
+    return service.formFields.some((f) => f.required && isAnswerMissing(f, formData[f.code]))
   }, [service, deliveryType, formData])
 
   // Степпер шагов заполнения (после выбора услуги): Услуга → Данные → Документы → Проверка.
@@ -214,11 +200,36 @@ export function CreateWizard({
       />
     ) : null
 
-  // Режим правки черновика: пока подгружается — скелетон.
+  // Режим правки черновика: пока подгружается — скелетон, не загрузился — ошибка с повтором
+  // (раньше скелетон оставался навсегда).
   if (initialDraftId && !seeded) {
     return (
       <Page onClose={onCancel} modal={asModal}>
-        <SkeletonList />
+        {draftQ.isError ? <ErrorState onRetry={() => draftQ.refetch()} /> : <SkeletonList />}
+      </Page>
+    )
+  }
+
+  // Услугу черновика могли выключить или заменить копией вуза: каталог отвечает 404, и
+  // шаги после каталога рисовали пустой экран без объяснения. Говорим, что случилось.
+  if (step !== 'catalog' && serviceQ.isError) {
+    const gone = toApiError(serviceQ.error).code === 'NOT_FOUND'
+    return (
+      <Page onClose={onCancel} modal={asModal}>
+        {gone ? (
+          <EmptyState
+            icon={<FileText className="size-6" aria-hidden />}
+            title={t('serviceUnavailableTitle')}
+            description={t('serviceUnavailableHint')}
+            action={
+              <Button variant="outline" onClick={onCancel}>
+                {t('backBtn')}
+              </Button>
+            }
+          />
+        ) : (
+          <ErrorState onRetry={() => serviceQ.refetch()} />
+        )}
       </Page>
     )
   }
@@ -325,6 +336,15 @@ export function CreateWizard({
     )
   }
 
+  // Шаги после «Услуги» ждут её данных — пока грузятся, скелетон, а не пустое окно.
+  if (!service) {
+    return (
+      <Page onClose={onCancel} modal={asModal}>
+        <SkeletonList />
+      </Page>
+    )
+  }
+
   // ── Форма ───────────────────────────────────────────────────────────────────
   if (step === 'form' && service) {
     return (
@@ -367,6 +387,8 @@ export function CreateWizard({
                   value={formData[f.code]}
                   onChange={(v) => setFormData((prev) => ({ ...prev, [f.code]: v }))}
                   optionalLabel={t('optional')}
+                  yesLabel={t('answerYes')}
+                  noLabel={t('answerNo')}
                 />
               ))}
             </div>
@@ -460,18 +482,9 @@ export function CreateWizard({
             {deliveryType && (
               <Row label={t('deliveryTitle')} value={t(`delivery_${deliveryType}`)} />
             )}
-            {service.formFields.map((f) => {
-              const v = formData[f.code]
-              if (v === undefined || v === null || v === '') return null
-              return (
-                <Row
-                  key={f.id}
-                  label={pickLocale(f as unknown as Record<string, unknown>, 'label', locale)}
-                  value={String(v)}
-                />
-              )
-            })}
           </Card>
+          {/* Ответы — подписями вариантов и «Да/Нет», а не кодами и true/false. */}
+          <FormAnswers fields={service.formFields} formData={formData} />
           <div className="flex sm:justify-end">
             <Button
               className="w-full sm:w-auto"
@@ -591,77 +604,6 @@ function ServiceInfo({
       <Button className="w-full" loading={proceeding} onClick={onProceed}>
         {proceedLabel}
       </Button>
-    </div>
-  )
-}
-
-function DynamicField({
-  field,
-  locale,
-  value,
-  onChange,
-  optionalLabel,
-}: {
-  field: ServiceFormField
-  locale: string
-  value: unknown
-  onChange: (v: unknown) => void
-  optionalLabel: string
-}) {
-  const rec = field as unknown as Record<string, unknown>
-  const label = pickLocale(rec, 'label', locale)
-  const placeholder = pickLocale(rec, 'placeholder', locale)
-  const id = `field-${field.code}`
-  const common = { id, placeholder, 'aria-required': field.required }
-
-  return (
-    <div className="flex flex-col gap-2">
-      <Label htmlFor={id}>
-        {label}
-        {!field.required && (
-          <span className="ml-1 text-xs text-muted-foreground">({optionalLabel})</span>
-        )}
-      </Label>
-      {field.type === 'TEXTAREA' ? (
-        <Textarea
-          {...common}
-          value={(value as string) ?? ''}
-          onChange={(e) => onChange(e.target.value)}
-        />
-      ) : field.type === 'SELECT' || field.type === 'RADIO' ? (
-        <select
-          id={id}
-          value={(value as string) ?? ''}
-          onChange={(e) => onChange(e.target.value)}
-          className="h-9 rounded-md border border-input bg-transparent px-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/30"
-        >
-          <option value="" disabled>
-            —
-          </option>
-          {(field.options ?? []).map((o) => (
-            <option key={o.value} value={o.value}>
-              {pickLocale(o as unknown as Record<string, unknown>, 'label', locale) || o.value}
-            </option>
-          ))}
-        </select>
-      ) : field.type === 'BOOLEAN' || field.type === 'CHECKBOX' ? (
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            className="size-4 accent-primary"
-            checked={Boolean(value)}
-            onChange={(e) => onChange(e.target.checked)}
-          />
-          {placeholder || label}
-        </label>
-      ) : (
-        <Input
-          {...common}
-          type={field.type === 'NUMBER' ? 'number' : field.type === 'DATE' ? 'date' : 'text'}
-          value={(value as string) ?? ''}
-          onChange={(e) => onChange(e.target.value)}
-        />
-      )}
     </div>
   )
 }

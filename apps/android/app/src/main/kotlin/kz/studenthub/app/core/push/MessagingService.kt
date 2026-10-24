@@ -20,6 +20,7 @@ import kz.studenthub.app.MainActivity
 import kz.studenthub.app.R
 import kz.studenthub.app.StudentHubApplication
 import kz.studenthub.app.core.navigation.DeepLink
+import kotlin.random.Random
 
 /**
  * Приём FCM. Сервер шлёт data-сообщения (план, Задача АБ1): плашку собирает приложение —
@@ -38,23 +39,39 @@ class MessagingService : FirebaseMessagingService() {
         val data = message.data
         val silent = data["silent"] == "1"
         services.observability.pushDelivered(silent)
+        // Из аккаунта вышли, а пуш пришёл: отвязка на сервере не дошла (выход без сети).
+        // Чужое не показываем, а токен гасим сейчас — раз пуш дошёл, сеть есть.
+        if (!services.session.hasStoredSession) {
+            scope.launch { services.push.forgetStaleToken() }
+            return
+        }
         // Тихий — повод сходить за данными, а не показать плашку.
         scope.launch { services.pushSync.catchUp() }
         if (silent) return
-        show(this, title = data["title"].orEmpty(), body = data["body"].orEmpty(), url = data["url"], badge = data["badge"]?.toIntOrNull())
+        show(
+            this,
+            title = data["title"].orEmpty(),
+            body = data["body"].orEmpty(),
+            url = data["url"],
+            badge = data["badge"]?.toIntOrNull(),
+            tag = data["tag"],
+        )
     }
 
     companion object {
         const val REPLY_KEY = "reply"
 
-        fun show(context: Context, title: String, body: String, url: String?, badge: Int?) {
+        fun show(context: Context, title: String, body: String, url: String?, badge: Int?, tag: String?) {
             if (ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED &&
                 android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU
             ) {
                 return
             }
-            // Одна плашка на чат: новое сообщение заменяет прошлое, а не копит десяток.
-            val id = (url ?: title).hashCode()
+            // Заменяют друг друга только уведомления одного источника — ключ группы `tag`
+            // от сервера (чат, обсуждение поста): новое сообщение чата встаёт на место
+            // прошлого. Без ключа каждое уведомление своё: две готовые справки по одной
+            // ссылке на «Документы» — это две новости, а не одна.
+            val id = tag?.hashCode() ?: Random.nextInt()
             val open = PendingIntent.getActivity(
                 context,
                 id,

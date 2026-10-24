@@ -47,3 +47,4 @@ export {
   withMyReaction,
 } from './model/reactions'
 export { inlineMediaLink } from './model/media'
+export { patchCachedPost } from './model/cache'

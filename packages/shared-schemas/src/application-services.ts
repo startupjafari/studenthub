@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { OffsetPaginationSchema } from './pagination.js'
+import { OffsetPaginationSchema, queryBoolean } from './pagination.js'
 
 // Контракт домена «Услуги университета» (переработка «Заявок»). Единый источник истины для
 // state-machine, формы и фильтров — и для бэкенда (guard/сервис), и для фронта. Значения —
@@ -214,6 +214,14 @@ export const IssueApplicationSchema = z
   .default({})
 export type IssueApplicationInput = z.infer<typeof IssueApplicationSchema>
 
+// Ссылка на страницу документа заявки (GET /applications/:id/documents/:docId/url).
+// `fileId` — страница из `documents[].files` карточки заявки; без него — первая страница.
+// Через схему, а не голым @Query: повторённый параметр приходил массивом и ронял запрос в 500.
+export const ApplicationDocumentUrlQuerySchema = z
+  .object({ fileId: z.string().min(1).max(64).optional() })
+  .strict()
+export type ApplicationDocumentUrlQueryInput = z.infer<typeof ApplicationDocumentUrlQuerySchema>
+
 // Статусы документа заявки (для фронта).
 export const APPLICATION_DOCUMENT_STATUSES = [
   'PENDING',
@@ -235,8 +243,8 @@ export const ApplicationQuerySchema = OffsetPaginationSchema.extend({
   facultyId: z.string().min(1).optional(),
   assignedToId: z.string().min(1).optional(),
   search: z.string().max(120).optional(),
-  overdue: z.coerce.boolean().optional(),
-  dueToday: z.coerce.boolean().optional(),
+  overdue: queryBoolean.optional(),
+  dueToday: queryBoolean.optional(),
   sortBy: ApplicationSortSchema.default('createdAt'),
   sortOrder: z.enum(['asc', 'desc']).default('desc'),
 }).strict()
@@ -361,3 +369,10 @@ export const ManagedServicesQuerySchema = OffsetPaginationSchema.extend({
   categoryId: z.string().min(1).optional(),
 }).strict()
 export type ManagedServicesQueryInput = z.infer<typeof ManagedServicesQuerySchema>
+
+// Причина отзыва справки необязательна, но если её указали — она попадает в событие заявки и
+// остаётся в истории: «почему отозвали» спрашивают чаще, чем «когда».
+export const RevokeCertificateSchema = z.object({
+  reason: z.string().trim().min(1).max(500).optional(),
+})
+export type RevokeCertificateInput = z.infer<typeof RevokeCertificateSchema>

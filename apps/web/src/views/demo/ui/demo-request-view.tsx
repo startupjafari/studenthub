@@ -53,11 +53,14 @@ export function DemoRequestView() {
     control,
     handleSubmit,
     setValue,
+    setError,
     watch,
     formState: { errors, isSubmitting },
   } = useForm<SubmitDemoRequestInput>({ resolver: zodResolver(SubmitDemoRequestSchema) })
 
   const consent = watch('consent')
+  // Тексты ошибок полей — из словаря, а не сообщения Zod: схема общая с сервером и пишет
+  // по-английски («String must contain at least 3 character(s)»), а форма бывает на трёх языках.
 
   if (sentTo) {
     return (
@@ -85,6 +88,13 @@ export function DemoRequestView() {
 
       <form
         onSubmit={handleSubmit(async (values) => {
+          // Полнота номера — здесь, а не в `rules` у Controller: при zodResolver правила
+          // полей RHF не вызывает вовсе, и неполный номер уходил на сервер. Схема
+          // (shared-schemas) принимает любой телефон, маска — только казахстанский.
+          if (values.phone && !isCompletePhone(values.phone)) {
+            setError('phone', { message: tCommon('phoneIncomplete') })
+            return
+          }
           try {
             const result = await submitDemoRequest(values)
             setSentTo(result.email)
@@ -101,7 +111,7 @@ export function DemoRequestView() {
             aria-invalid={!!errors.universityName}
             {...register('universityName')}
           />
-          <FieldError>{errors.universityName?.message}</FieldError>
+          <FieldError>{errors.universityName && t('errUniversityName')}</FieldError>
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
@@ -110,7 +120,7 @@ export function DemoRequestView() {
               <OptionalLabel text={t('fieldCity')} optional={t('optional')} />
             </Label>
             <Input id="city" {...register('city', OPTIONAL_TEXT)} />
-            <FieldError>{errors.city?.message}</FieldError>
+            <FieldError>{errors.city && t('errCity')}</FieldError>
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="studentsEstimate">
@@ -128,7 +138,7 @@ export function DemoRequestView() {
               placeholder={t('fieldStudentsHint')}
               {...register('studentsEstimate', OPTIONAL_NUMBER)}
             />
-            <FieldError>{errors.studentsEstimate?.message}</FieldError>
+            <FieldError>{errors.studentsEstimate && t('errStudents')}</FieldError>
           </div>
         </div>
 
@@ -141,14 +151,14 @@ export function DemoRequestView() {
               aria-invalid={!!errors.contactName}
               {...register('contactName')}
             />
-            <FieldError>{errors.contactName?.message}</FieldError>
+            <FieldError>{errors.contactName && t('errContactName')}</FieldError>
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="contactRole">
               <OptionalLabel text={t('fieldContactRole')} optional={t('optional')} />
             </Label>
             <Input id="contactRole" {...register('contactRole', OPTIONAL_TEXT)} />
-            <FieldError>{errors.contactRole?.message}</FieldError>
+            <FieldError>{errors.contactRole && t('errContactRole')}</FieldError>
           </div>
         </div>
 
@@ -163,7 +173,7 @@ export function DemoRequestView() {
           />
           {/* Подпись, а не плейсхолдер: на этот адрес уйдёт и подтверждение, и доступ. */}
           <p className="text-xs text-muted-foreground">{t('emailHint')}</p>
-          <FieldError>{errors.email?.message}</FieldError>
+          <FieldError>{errors.email && t('errEmail')}</FieldError>
         </div>
 
         <div className="flex flex-col gap-2">
@@ -173,7 +183,6 @@ export function DemoRequestView() {
           <Controller
             control={control}
             name="phone"
-            rules={{ validate: (v) => !v || isCompletePhone(v) || tCommon('phoneIncomplete') }}
             render={({ field }) => (
               <PhoneInput
                 id="phone"
@@ -184,7 +193,7 @@ export function DemoRequestView() {
               />
             )}
           />
-          <FieldError>{errors.phone?.message}</FieldError>
+          <FieldError>{errors.phone && tCommon('phoneIncomplete')}</FieldError>
         </div>
 
         <div className="flex flex-col gap-2">
@@ -192,7 +201,7 @@ export function DemoRequestView() {
             <OptionalLabel text={t('fieldComment')} optional={t('optional')} />
           </Label>
           <Textarea id="comment" rows={3} {...register('comment', OPTIONAL_TEXT)} />
-          <FieldError>{errors.comment?.message}</FieldError>
+          <FieldError>{errors.comment && t('errComment')}</FieldError>
         </div>
 
         {/* Согласие — обязательное поле, а не приписка под кнопкой: без отметки форма

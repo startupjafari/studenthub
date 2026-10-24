@@ -45,6 +45,7 @@ import {
 import { careerHomeFor } from '../../../widgets/app-shell'
 import { useAppSelector } from '../../../shared/store'
 import { cn } from '../../../shared/lib/utils'
+import { toApiError } from '../../../shared/lib'
 import {
   Badge,
   Button,
@@ -85,6 +86,8 @@ const STAFF_ROLES: Role[] = [
 ]
 
 const COMPANIES_HREF = '/career/companies'
+// Истекающие допуски — среди действующих, а не среди новых заявок (вкладка по умолчанию).
+const COMPANIES_APPROVED_HREF = '/career/companies?status=APPROVED'
 const REVIEW_HREF = '/career/vacancy-review'
 
 export function CareerView() {
@@ -169,6 +172,9 @@ function StaffOverview() {
             <CareerUniversityPicker />
           </div>
         </div>
+      ) : analytics.isError ? (
+        // Без этой ветки сбой сводки выглядел вечной загрузкой: плитки и панели ждут `d`.
+        <QueryError error={analytics.error} onRetry={() => void analytics.refetch()} />
       ) : (
         <>
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -252,7 +258,7 @@ function StaffOverview() {
                   hint={tA('queueRequestsHint')}
                 />
                 <QueueItem
-                  href={COMPANIES_HREF}
+                  href={COMPANIES_APPROVED_HREF}
                   icon={TimerReset}
                   label={tA('queueExpiring')}
                   value={d.queue.accessExpiringSoon}
@@ -570,21 +576,21 @@ function SeekerOverview() {
           index={0}
           icon={Send}
           label={tHome('statsActive')}
-          value={appsQ.isLoading ? null : stats.active}
+          value={appsQ.isLoading || appsQ.isError ? null : stats.active}
         />
         <MetricTile
           index={1}
           icon={ClipboardCheck}
           tone="text-info"
           label={tHome('statsInterview')}
-          value={appsQ.isLoading ? null : stats.interview}
+          value={appsQ.isLoading || appsQ.isError ? null : stats.interview}
         />
         <MetricTile
           index={2}
           icon={Handshake}
           tone="text-success"
           label={tHome('statsHired')}
-          value={appsQ.isLoading ? null : stats.hired}
+          value={appsQ.isLoading || appsQ.isError ? null : stats.hired}
         />
       </div>
 
@@ -603,6 +609,12 @@ function SeekerOverview() {
         >
           {vacQ.isLoading ? (
             <Skeleton fill className="min-h-32 rounded-lg" />
+          ) : vacQ.isError ? (
+            <QueryError
+              error={vacQ.error}
+              onRetry={() => void vacQ.refetch()}
+              className="border-0 p-6"
+            />
           ) : (vacQ.data?.items.length ?? 0) === 0 ? (
             <EmptyState title={tHome('noVacancies')} className="border-0 p-6" />
           ) : (
@@ -628,6 +640,12 @@ function SeekerOverview() {
         >
           {eventsQ.isLoading ? (
             <Skeleton fill className="min-h-32 rounded-lg" />
+          ) : eventsQ.isError ? (
+            <QueryError
+              error={eventsQ.error}
+              onRetry={() => void eventsQ.refetch()}
+              className="border-0 p-6"
+            />
           ) : (eventsQ.data?.items.length ?? 0) === 0 ? (
             <EmptyState title={tHome('noEvents')} className="border-0 p-6" />
           ) : (
@@ -666,6 +684,8 @@ function SeekerOverview() {
 
       {/* Последние отклики не дублируем списком: их статусы уже сведены в плитках выше,
           а сам список — отдельный раздел со своей таблицей. */}
+      {/* Сбой откликов не выдаём за «откликов нет»: плитки выше тогда показывают прочерк. */}
+      {appsQ.isError && <QueryError error={appsQ.error} onRetry={() => void appsQ.refetch()} />}
       {appsQ.data && appsQ.data.items.length === 0 && (
         <EmptyState
           icon={<Briefcase className="size-6" aria-hidden />}
@@ -712,43 +732,78 @@ function VacancyRow({ vacancy: v }: { vacancy: Vacancy }) {
   )
 }
 
+/**
+ * Сбой загрузки — ошибкой с повтором, а не пустым списком или вечным скелетоном: «пусто»
+ * говорит «данных нет» и прячет настоящую причину.
+ */
+function QueryError({
+  error,
+  onRetry,
+  className,
+}: {
+  error: unknown
+  onRetry: () => void
+  className?: string
+}) {
+  const tErr = useTranslations('Errors')
+  const tCommon = useTranslations('Common')
+  return (
+    <EmptyState
+      title={tErr(toApiError(error).code)}
+      description={tErr('retryHint')}
+      action={
+        <Button variant="outline" onClick={onRetry}>
+          {tCommon('retry')}
+        </Button>
+      }
+      className={className}
+    />
+  )
+}
+
 function CareerEventRow({ event: e }: { event: CareerEvent }) {
   const t = useTranslations('CareerEvents')
   const format = useFormatter()
   return (
-    <li className="flex items-center gap-3 rounded-lg border border-border p-2.5">
-      <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-        <CalendarClock className="size-4" aria-hidden />
-      </span>
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-medium">{e.title}</span>
-        <span className="flex items-center gap-2 truncate text-xs text-muted-foreground">
-          {format.dateTime(new Date(e.startsAt), {
-            day: 'numeric',
-            month: 'short',
-            hour: '2-digit',
-            minute: '2-digit',
-          })}
-          {e.isOnline ? (
-            <span className="inline-flex items-center gap-1 text-info">
-              <Video className="size-3" aria-hidden />
-              {t('online')}
-            </span>
-          ) : (
-            e.location && (
-              <span className="inline-flex min-w-0 items-center gap-1">
-                <MapPin className="size-3 shrink-0" aria-hidden />
-                <span className="truncate">{e.location}</span>
-              </span>
-            )
-          )}
+    <li>
+      {/* Строка ведёт в карточку события: там описание, запись и обсуждение. */}
+      <Link
+        href={`/events/${e.id}`}
+        className="flex items-center gap-3 rounded-lg border border-border p-2.5 transition-colors hover:bg-muted/50"
+      >
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+          <CalendarClock className="size-4" aria-hidden />
         </span>
-      </span>
-      {e.registered && (
-        <Badge variant="success" className="shrink-0">
-          {t('registered')}
-        </Badge>
-      )}
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-medium">{e.title}</span>
+          <span className="flex items-center gap-2 truncate text-xs text-muted-foreground">
+            {format.dateTime(new Date(e.startsAt), {
+              day: 'numeric',
+              month: 'short',
+              hour: '2-digit',
+              minute: '2-digit',
+            })}
+            {e.isOnline ? (
+              <span className="inline-flex items-center gap-1 text-info">
+                <Video className="size-3" aria-hidden />
+                {t('online')}
+              </span>
+            ) : (
+              e.location && (
+                <span className="inline-flex min-w-0 items-center gap-1">
+                  <MapPin className="size-3 shrink-0" aria-hidden />
+                  <span className="truncate">{e.location}</span>
+                </span>
+              )
+            )}
+          </span>
+        </span>
+        {e.registered && (
+          <Badge variant="success" className="shrink-0">
+            {t('registered')}
+          </Badge>
+        )}
+      </Link>
     </li>
   )
 }

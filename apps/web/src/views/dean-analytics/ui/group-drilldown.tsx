@@ -2,9 +2,12 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
+import { Inbox } from 'lucide-react'
 import {
   Badge,
+  Button,
   Card,
+  EmptyState,
   PageHeader,
   Progress,
   Skeleton,
@@ -60,7 +63,7 @@ export function GroupDrilldown({
     toggle,
   } = useTableSort<StudentAttendanceStat>(q.data?.students ?? [], (s, key) => {
     if (key === 'name') return `${s.lastName} ${s.firstName}`
-    if (key === 'rate') return s.tracked > 0 ? s.attendanceRate : null
+    if (key === 'rate') return s.attendanceRate
     if (key === 'tracked') return s.tracked
     return null
   })
@@ -76,6 +79,12 @@ export function GroupDrilldown({
 
       {q.isLoading ? (
         <Skeleton fill className="min-h-80 rounded-xl" />
+      ) : q.isError ? (
+        <EmptyState
+          icon={<Inbox className="size-6" aria-hidden />}
+          title={t('loadError')}
+          action={<Button onClick={() => q.refetch()}>{t('retry')}</Button>}
+        />
       ) : (
         <Card className="flex min-h-0 flex-1 flex-col gap-0 py-0">
           <Table fixed scrollBody fill cols={COLS}>
@@ -94,8 +103,8 @@ export function GroupDrilldown({
             </TableHeader>
             <TableBody>
               {sorted.map((s) => {
-                const tracked = s.tracked > 0
-                const atRisk = tracked && s.attendanceRate < RISK_RATE
+                const rate = s.attendanceRate
+                const atRisk = rate !== null && rate < RISK_RATE
                 return (
                   <TableRow key={s.studentId} className="hover:bg-muted/40">
                     <TableCell className="font-medium">
@@ -106,17 +115,14 @@ export function GroupDrilldown({
                     </TableCell>
                     <TableCell>
                       <span className="flex items-center gap-2">
-                        <Progress
-                          value={s.attendanceRate}
-                          indicatorClassName={rateTone(s.attendanceRate)}
-                        />
+                        <Progress value={rate ?? 0} indicatorClassName={rateTone(rate ?? 0)} />
                         <span
                           className={cn(
                             'w-10 shrink-0 text-right text-xs tabular-nums',
                             atRisk && 'font-medium text-destructive',
                           )}
                         >
-                          {tracked ? `${s.attendanceRate}%` : '—'}
+                          {rate !== null ? `${rate}%` : '—'}
                         </span>
                       </span>
                     </TableCell>

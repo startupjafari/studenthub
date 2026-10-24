@@ -93,7 +93,8 @@ fun ScheduleScreen() {
             ) {
                 model.failure?.let { item(key = "failure") { FormAlert(it.resolve()) } }
                 items(pairs.orEmpty(), key = { it.id }) { item ->
-                    PairRow(item) { services.router.push(AppRoute.Lesson(item.id)) }
+                    // Пара — в дату выбранного дня, а не сегодня: отметку сервер примет только на неё.
+                    PairRow(item) { services.router.push(AppRoute.Lesson(item.id, model.dateOf(day))) }
                 }
                 if (pairs?.isEmpty() == true) {
                     item(key = "empty") { EmptyRow(stringResource(R.string.schedule_empty)) }
@@ -168,8 +169,8 @@ private fun PairRow(item: SchedulePair, onOpen: () -> Unit) {
                 textDecoration = if (item.isCancelled) TextDecoration.LineThrough else null,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
-                item.pair.teacherName?.let { Meta(Icons.Outlined.Person, it) }
-                item.pair.roomName?.let { Meta(Icons.Outlined.Place, it) }
+                item.teacherName?.let { Meta(Icons.Outlined.Person, it) }
+                item.roomName?.let { Meta(Icons.Outlined.Place, it) }
             }
             item.changeNote?.let { Text(it.resolve(), style = AppType.meta, color = colors.warning) }
         }

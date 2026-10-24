@@ -72,7 +72,8 @@ interface UsersTableProps {
   showRoleFilter?: boolean
 }
 
-const FILTER_ROLES: Role[] = [
+// Роли вуза — их фильтр есть у всех, кому список доступен.
+const UNIVERSITY_FILTER_ROLES: Role[] = [
   Role.UNIVERSITY_ADMIN,
   Role.UNIVERSITY_MODERATOR,
   Role.DEAN,
@@ -82,6 +83,15 @@ const FILTER_ROLES: Role[] = [
   Role.SECURITY_GUARD,
   Role.LIBRARIAN,
 ]
+// Платформа видит всех (UserService.listScope), в том числе людей вне вузов: своих админов
+// и модераторов и работодателей. Вузу эти роли в фильтре не нужны — в его выборке их нет.
+const PLATFORM_FILTER_ROLES: Role[] = [
+  Role.PLATFORM_ADMIN,
+  Role.PLATFORM_MODERATOR,
+  ...UNIVERSITY_FILTER_ROLES,
+  Role.EMPLOYER,
+]
+const PLATFORM_VIEWERS: Role[] = [Role.PLATFORM_ADMIN, Role.PLATFORM_MODERATOR]
 // Варианты размера страницы — те же, что разрешает серверная схема (предел 200).
 const PAGE_SIZES = ADMIN_PAGE_SIZES
 // Ширины колонок: имя · email · роль · статус · действия (последняя — только тем,
@@ -123,6 +133,10 @@ export function UsersTable({ title, subtitle, role, showRoleFilter = false }: Us
   const canBlock = viewerRole !== null && CAN_BLOCK.includes(viewerRole)
   const canEditAcademic = viewerRole !== null && CAN_EDIT_ACADEMIC.includes(viewerRole)
   const hasActions = canBlock || canEditAcademic
+  const filterRoles =
+    viewerRole !== null && PLATFORM_VIEWERS.includes(viewerRole)
+      ? PLATFORM_FILTER_ROLES
+      : UNIVERSITY_FILTER_ROLES
   const [academicFor, setAcademicFor] = useState<string | null>(null)
   const [resetTfaFor, setResetTfaFor] = useState<AdminUser | null>(null)
   // Блокировка гасит все сессии человека — только через диалог со сроком, не одним кликом.
@@ -141,9 +155,12 @@ export function UsersTable({ title, subtitle, role, showRoleFilter = false }: Us
   const { sort, toggle } = useSortState()
 
   const effectiveRole = role ?? (roleFilter === 'all' ? undefined : roleFilter)
+  // Поле хранит ввод как есть, обрезается только запрос: trim прямо в onChange съедал
+  // пробел, едва его набирали, и имя с фамилией было не ввести.
+  const searchQuery = search.trim()
   const filters = {
     ...(effectiveRole ? { role: effectiveRole } : {}),
-    ...(search ? { search } : {}),
+    ...(searchQuery ? { search: searchQuery } : {}),
     ...(sort ? { sort: sort.key as UserSortValue, order: sort.dir } : {}),
   }
   const query = { ...filters, page, limit }
@@ -197,7 +214,7 @@ export function UsersTable({ title, subtitle, role, showRoleFilter = false }: Us
           <>
             <Input
               value={search}
-              onChange={(e) => refilter(() => setSearch(e.target.value.trim()))}
+              onChange={(e) => refilter(() => setSearch(e.target.value))}
               placeholder={t('searchPlaceholder')}
               size="md"
               className="w-40 sm:w-56"
@@ -212,7 +229,7 @@ export function UsersTable({ title, subtitle, role, showRoleFilter = false }: Us
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">{t('allRoles')}</SelectItem>
-                  {FILTER_ROLES.map((r) => (
+                  {filterRoles.map((r) => (
                     <SelectItem key={r} value={r}>
                       {tRoles(r)}
                     </SelectItem>

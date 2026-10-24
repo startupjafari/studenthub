@@ -36,15 +36,16 @@ import {
   fetchCommentsPage,
   hasMyReaction,
   incrementPostView,
+  patchCachedPost,
   postKeys,
   reactionSummaryOf,
   reactionTotal,
   removeReactionRequest,
   withMyReaction,
-  type FeedPage,
   type FeedPost,
   type PostComment,
   type PostCommentsPage,
+  type PostReactionSummary,
 } from '../../../entities/post'
 import { ProfileLink } from '../../../entities/user'
 import { RepostDialog, useRepost } from '../../../features/repost-post'
@@ -59,7 +60,7 @@ import {
   useConfirm,
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
-import { relativeTime, useBackClose, useBodyScrollLock } from '../../../shared/lib'
+import { relativeTime, toApiError, useBackClose, useBodyScrollLock } from '../../../shared/lib'
 import { SharePostMenu } from '../../../features/share-post'
 import { useBookmark } from '../../../features/bookmark-post'
 import { PostTileMenu } from './post-tile-menu'
@@ -111,25 +112,10 @@ const MODERATOR_ROLES: Role[] = [
  * и перерисовывались, лента за окном перезагружалась целиком — всё дёргалось.
  */
 function patchCommentCount(qc: QueryClient, postId: string, delta: number): void {
-  const bump = (p: FeedPost): FeedPost =>
-    p.id === postId
-      ? { ...p, _count: { ...p._count, comments: Math.max(0, p._count.comments + delta) } }
-      : p
-  // Обсуждение лежит под тем же ['posts', …] и тоже бесконечный список — его не трогаем:
-  // там не посты, а комментарии, и правка дала бы лишнюю перерисовку окна.
-  const notComments = (q: { queryKey: readonly unknown[] }) => q.queryKey[2] !== 'comments'
-  qc.setQueriesData<unknown>(
-    { queryKey: postKeys.all, predicate: notComments },
-    (data: unknown) => {
-      if (!data || typeof data !== 'object' || Array.isArray(data)) return data
-      if ('pages' in data) {
-        const feed = data as InfiniteData<FeedPage>
-        return { ...feed, pages: feed.pages.map((pg) => ({ ...pg, items: pg.items.map(bump) })) }
-      }
-      if ('id' in data && '_count' in data) return bump(data as FeedPost)
-      return data
-    },
-  )
+  patchCachedPost(qc, postId, (p) => ({
+    ...p,
+    _count: { ...p._count, comments: Math.max(0, p._count.comments + delta) },
+  }))
 }
 
 function initials(a: { firstName: string; lastName: string }): string {
@@ -328,6 +314,8 @@ function PostView({
   const [zoomed, setZoomed] = useState(false)
   const [views, setViews] = useState(post.views)
   const [reactions, setReactions] = useState(() => reactionSummaryOf(post, myId))
+  // Сводка — из кэша постов: лайк в карточке ленты приходит сюда правкой кэша.
+  useEffect(() => setReactions(reactionSummaryOf(post, myId)), [post, myId])
 
   // Засчитываем просмотр один раз при открытии поста (PostView ремонтируется по key={post.id}).
   useEffect(() => {
@@ -490,6 +478,19 @@ function PostView({
     onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
   })
 
+  // Отправка комментария — не чаще одной за раз. isPending мутации приходит в рендер не сразу, и второй
+  // быстрый Enter (или автоповтор клавиши) успевал отправить тот же комментарий ещё раз.
+  const sendingRef = useRef(false)
+  function send(): void {
+    if (sendingRef.current || text.trim().length === 0) return
+    sendingRef.current = true
+    addMut.mutate(undefined, {
+      onSettled: () => {
+        sendingRef.current = false
+      },
+    })
+  }
+
   const delCommentMut = useMutation({
     mutationFn: (commentId: string) => deleteCommentRequest(post.id, commentId),
     // Ответы удалённого остаются (они всплывают корнями, см. `roots`) — убираем одну строку.
@@ -537,20 +538,27 @@ function PostView({
     setScrollToId(null)
   }, [scrollToId, comments.data])
 
-  // Оптимистичный лайк ❤️ с откатом (docs/FRONTEND_RULES.md §5.5).
+  // Оптимистичный лайк ❤️ с откатом (docs/FRONTEND_RULES.md §5.5) — и в кэше постов, чтобы
+  // карточка того же поста в ленте за окном показывала тот же лайк.
   function toggleLike(): void {
     if (!myId) return
     const prev = reactions
-    setReactions(withMyReaction(prev, LIKE_EMOJI, !liked))
+    const apply = (summary: PostReactionSummary[]): void => {
+      setReactions(summary)
+      patchCachedPost(qc, post.id, (p) => ({ ...p, reactionSummary: summary }))
+    }
+    apply(withMyReaction(prev, LIKE_EMOJI, !liked))
     const request = liked ? removeReactionRequest : addReactionRequest
-    request(post.id, LIKE_EMOJI).catch(() => {
-      setReactions(prev)
-      toast.error(tErr('INTERNAL_ERROR'))
+    request(post.id, LIKE_EMOJI).catch((e: unknown) => {
+      apply(prev)
+      toast.error(tErr(toApiError(e).code))
     })
   }
 
+  // Дата поста — момент публикации, как в карточке ленты (у черновика — дата создания).
+  const shownAt = post.publishedAt ?? post.createdAt
   // Точная дата — в подсказке к относительному времени в панели действий.
-  const exactDate = new Date(post.createdAt).toLocaleDateString(locale, {
+  const exactDate = new Date(shownAt).toLocaleDateString(locale, {
     day: '2-digit',
     month: 'long',
     year: 'numeric',
@@ -759,11 +767,11 @@ function PostView({
                       сам, с пометкой «Репост от …» сверху. */}
                   {originalUnavailable && <RepostUnavailable className="mt-1" />}
                   <time
-                    dateTime={post.createdAt}
+                    dateTime={shownAt}
                     title={exactDate}
                     className="text-xs text-muted-foreground"
                   >
-                    {relativeTime(post.createdAt, locale)}
+                    {relativeTime(shownAt, locale)}
                   </time>
                 </div>
               </div>
@@ -895,7 +903,7 @@ function PostView({
               {t('likesCount', { count: reactionTotal(reactions) })}
             </p>
             <p className="flex items-center gap-1.5 px-2 text-xs text-muted-foreground">
-              <time dateTime={post.createdAt}>{exactDate}</time>
+              <time dateTime={shownAt}>{exactDate}</time>
               <span aria-hidden>·</span>
               <span className="flex items-center gap-1" title={t('viewsCount', { count: views })}>
                 <Eye className="size-3.5" aria-hidden />
@@ -993,7 +1001,7 @@ function PostView({
                   // Enter — отправить; Shift+Enter — перенос строки.
                   if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault()
-                    if (text.trim().length > 0) addMut.mutate()
+                    send()
                   }
                 }}
                 placeholder={replyTo ? t('replyPlaceholder') : t('commentPlaceholder')}
@@ -1002,7 +1010,7 @@ function PostView({
 
               <button
                 type="button"
-                onClick={() => addMut.mutate()}
+                onClick={send}
                 disabled={text.trim().length === 0 || addMut.isPending}
                 className="flex h-8 shrink-0 items-center self-end text-sm font-semibold text-primary transition-opacity hover:opacity-70 disabled:opacity-40"
               >

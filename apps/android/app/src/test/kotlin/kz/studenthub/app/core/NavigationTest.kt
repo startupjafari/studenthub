@@ -72,6 +72,24 @@ class DeepLinkTest {
         assertNull(DeepLink.parse("https://studenthub.kz/my-books/extra"))
     }
 
+    /** Ссылки из пушей друзей, комментариев и записей в деканат (`friends`, `polls`, `appointments`). */
+    @Test
+    fun profileFeedAndAppointmentsAreOurs() {
+        assertEquals(DeepLink.Profile("user-7"), DeepLink.parse("/profile/user-7"))
+        assertEquals(DeepLink.Section(MoreSection.PROFILE), DeepLink.parse("/profile"))
+        assertEquals(DeepLink.Tab(AppTab.HOME), DeepLink.parse("/feed"))
+        assertEquals(DeepLink.Notifications, DeepLink.parse("/appointments"))
+    }
+
+    /** Идентификатор уходит в путь запроса API: `..` и `/` в нём не пропускаем. */
+    @Test
+    fun traversalInIdentifiersIsRefused() {
+        assertEquals(DeepLink.Tab(AppTab.CHATS), DeepLink.parse("studenthub://chats?c=..%2F..%2Fusers%2Fme"))
+        assertEquals(DeepLink.Section(MoreSection.APPLICATIONS), DeepLink.parse("/applications?a=..%2Fadmin"))
+        assertNull(DeepLink.parse("studenthub://posts/.."))
+        assertNull(DeepLink.parse("https://studenthub.kz/books/a%20b"))
+    }
+
     /** Незнакомый адрес не угадываем: его откроет браузер, где работает полная версия. */
     @Test
     fun unknownRoutesAreNotOurs() {

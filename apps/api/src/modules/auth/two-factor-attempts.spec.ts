@@ -6,7 +6,7 @@ import type { LoginAttemptsService } from './login-attempts.service'
 import type { UserService } from '../users/users.service'
 
 // Второй шаг входа: шестизначный код перебирается, а throttle на эндпоинте считает по IP
-// и обходится сменой адреса. Единственный настоящий предел — счётчик на самом challenge.
+// и обходится сменой адреса. Пределы — счётчик на самом challenge и счётчик по пользователю.
 describe('AuthService: попытки ввода кода 2FA', () => {
   const CHALLENGE = 'challenge-token'
   const JTI = 'jti-1'
@@ -46,6 +46,12 @@ describe('AuthService: попытки ввода кода 2FA', () => {
     // Верный код — функция списания (для backup-кода — условная запись в БД).
     const consume = jest.fn().mockResolvedValue(true)
     const twoFactor = { checkCode: jest.fn().mockResolvedValue(codeValid ? consume : null) }
+    // Счётчик по пользователю (BUG-076) — свой сервис со своими тестами; здесь важно,
+    // что второй шаг его занимает и обнуляет.
+    const loginAttempts = {
+      beginAttempt: jest.fn().mockResolvedValue(undefined),
+      reset: jest.fn().mockResolvedValue(undefined),
+    }
 
     const service = new AuthService(
       {} as never,
@@ -56,7 +62,7 @@ describe('AuthService: попытки ввода кода 2FA', () => {
       users as unknown as UserService,
       {} as never,
       twoFactor as unknown as TwoFactorService,
-      {} as unknown as LoginAttemptsService,
+      loginAttempts as unknown as LoginAttemptsService,
       {} as never,
       redis as unknown as Redis,
       {} as never,
@@ -64,6 +70,7 @@ describe('AuthService: попытки ввода кода 2FA', () => {
       // Компания работодателя подтверждена — вход не упирается в почту (D-F28).
       { loginDenial: jest.fn().mockResolvedValue(null) } as never,
       {} as never,
+      { removeAllForUser: jest.fn() } as never,
     )
     // Выдача сессии — не предмет этого теста: она тянет Prisma и подпись токенов.
     const withPrivate = service as unknown as {
@@ -73,7 +80,7 @@ describe('AuthService: попытки ввода кода 2FA', () => {
       .spyOn(withPrivate, 'issueSession')
       .mockResolvedValue({ accessToken: 'a' })
 
-    return { service, redis, store, twoFactor, users, issueSession, consume }
+    return { service, redis, store, twoFactor, users, issueSession, consume, loginAttempts }
   }
 
   const verify = (service: AuthService) => service.loginVerifyTwoFactor(CHALLENGE, '000000', {})
@@ -157,6 +164,38 @@ describe('AuthService: попытки ввода кода 2FA', () => {
     await expect(verify(service)).resolves.toMatchObject({ accessToken: 'a' })
 
     expect(redis.incr).not.toHaveBeenCalled()
+  })
+
+  // BUG-076: счётчик на challenge обходится новым входом, лимиты входа — сменой IP.
+  // Перебор кода по многим challenge останавливает счётчик по пользователю.
+  it('код занимает попытку по пользователю до проверки', async () => {
+    const { service, loginAttempts, twoFactor } = setup(false)
+
+    await verify(service).catch(() => undefined)
+
+    expect(loginAttempts.beginAttempt).toHaveBeenCalledWith('2fa:user-1')
+    expect(loginAttempts.beginAttempt.mock.invocationCallOrder[0]).toBeLessThan(
+      twoFactor.checkCode.mock.invocationCallOrder[0] ?? 0,
+    )
+    expect(loginAttempts.reset).not.toHaveBeenCalled()
+  })
+
+  it('вход по пользователю закрыт → код не проверяется', async () => {
+    const { service, loginAttempts, twoFactor } = setup(true)
+    loginAttempts.beginAttempt.mockRejectedValue(
+      Object.assign(new Error('locked'), { code: 'LOGIN_LOCKED' }),
+    )
+
+    await expect(verify(service)).rejects.toMatchObject({ code: 'LOGIN_LOCKED' })
+    expect(twoFactor.checkCode).not.toHaveBeenCalled()
+  })
+
+  it('верный код обнуляет серию по пользователю', async () => {
+    const { service, loginAttempts } = setup(true)
+
+    await verify(service)
+
+    expect(loginAttempts.reset).toHaveBeenCalledWith('2fa:user-1')
   })
 
   it('недоступный Redis не ломает второй шаг входа', async () => {

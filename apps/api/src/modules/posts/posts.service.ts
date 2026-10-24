@@ -2,7 +2,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { PostAudience, Prisma } from '@prisma/client'
 import type Redis from 'ioredis'
-import { Role, isHigherRole } from '@studenthub/shared-types'
+import { RESTRICTED_ROLES, Role, isHigherRole } from '@studenthub/shared-types'
 import {
   DEFAULT_PAGE_LIMIT,
   POST_REACTION_EMOJIS,
@@ -72,14 +72,18 @@ const ALLOWED_AUDIENCES: Record<Role, PostAudience[]> = {
   [Role.LIBRARIAN]: [],
 }
 
-// Базовый приоритет в ленте по аудитории (docs/PROJECT.md §3.3).
+// Базовый приоритет в ленте по аудитории (docs/PROJECT.md §3.3). Сотрудник получает +2
+// (priorityFor), поэтому итоговый порядок: объявление группы (32) → пост преподавателя по
+// предмету (31) → пост студента в группу (30). SUBJECT публикует только преподаватель, и
+// база 25 ставила его пост (27) ниже студенческих — вопреки «посты преподавателей выше
+// постов студентов».
 const AUDIENCE_PRIORITY: Record<PostAudience, number> = {
   [PostAudience.ALL]: 50,
   [PostAudience.UNIVERSITY]: 40,
   [PostAudience.FACULTY]: 35,
   [PostAudience.TEACHERS]: 32,
   [PostAudience.GROUP]: 30,
-  [PostAudience.SUBJECT]: 25,
+  [PostAudience.SUBJECT]: 29,
   [PostAudience.PERSONAL]: 20,
 }
 
@@ -560,14 +564,20 @@ export class PostsService {
       // Модерации нужен поток свежего, а не порядок чтения: там просто новые сверху. Профиль
       // с sort=new — закреплённые и дальше по времени, без приоритета аудитории: иначе свежий
       // пост «для группы» автора-админа оказывался бы ниже его старых постов «для вуза».
+      //
+      // Время — момент публикации, а не создания (§3.3): отложенный пост и опубликованный
+      // черновик иначе вставали в ленту на дату, когда их начали писать, — под постами,
+      // вышедшими раньше них. У опубликованного поста publishedAt есть всегда; пустой он
+      // только у черновика и отложенного — они видны лишь автору на своей вкладке и стоят
+      // там сверху (DESC в Postgres — NULLS FIRST).
       orderBy: moderation
         ? [{ createdAt: 'desc' }, { id: 'desc' }]
         : sort === 'new'
-          ? [{ pinnedAt: { sort: 'desc', nulls: 'last' } }, { createdAt: 'desc' }, { id: 'desc' }]
+          ? [{ pinnedAt: { sort: 'desc', nulls: 'last' } }, { publishedAt: 'desc' }, { id: 'desc' }]
           : [
               { pinnedAt: { sort: 'desc', nulls: 'last' } },
               { priority: 'desc' },
-              { createdAt: 'desc' },
+              { publishedAt: 'desc' },
               { id: 'desc' },
             ],
       take: query.limit + 1,
@@ -610,7 +620,7 @@ export class PostsService {
         { pinnedAt: { sort: 'desc', nulls: 'last' } },
         { reactions: { _count: 'desc' } },
         { comments: { _count: 'desc' } },
-        { createdAt: 'desc' },
+        { publishedAt: 'desc' },
         { id: 'desc' },
       ],
       skip: offset,
@@ -918,6 +928,8 @@ export class PostsService {
         content: input.content ?? '',
         priority: this.priorityFor(actor, input.audience as PostAudience),
         originalPostId,
+        // Репост публикуется сразу — момент публикации нужен ленте для порядка.
+        publishedAt: new Date(),
         ...target,
       },
       select: { id: true },
@@ -949,13 +961,17 @@ export class PostsService {
   ): Promise<ViewerPost> {
     const post = await this.prisma.post.findFirst({
       where: { id, deletedAt: null },
-      select: { id: true, authorId: true },
+      select: { id: true, authorId: true, originalPostId: true },
     })
     if (!post) {
       throw new AppException('NOT_FOUND', 'Пост не найден')
     }
     if (post.authorId !== actor.sub) {
       throw new AppException('FORBIDDEN', 'Редактировать можно только свою публикацию')
+    }
+    // Пустой текст допустим только у репоста — его заметка необязательна, как при создании.
+    if (input.content !== undefined && !input.content.trim() && !post.originalPostId) {
+      throw new AppException('BAD_REQUEST', 'Текст публикации не может быть пустым')
     }
     const data: Prisma.PostUpdateInput = {}
     if (input.title !== undefined) data.title = input.title?.trim() || null
@@ -1292,6 +1308,8 @@ export class PostsService {
         deletedAt: null,
         isBlocked: false,
         id: { not: actor.sub },
+        // Охрана и библиотекарь постов не открывают — уведомление вело бы в закрытый раздел.
+        role: { notIn: [...RESTRICTED_ROLES] },
       },
       select: { id: true, role: true, universityId: true, facultyId: true, groupId: true },
       take: logins.length,
@@ -1486,17 +1504,46 @@ export class PostsService {
     } else if (universityId !== actor.universityId) {
       throw new AppException('WRONG_SCOPE', 'Группа другого университета')
     }
+    if (actor.role === Role.TEACHER) await this.assertTeachesGroup(actor.sub, groupId)
     return { facultyId: group.facultyId, universityId }
+  }
+
+  /**
+   * Преподаватель адресует группе только там, где ведёт занятия (§2 «работает со своими
+   * группами»): раньше хватало совпадения вуза, и посты уходили в ленту любой группы.
+   * Основание — как у материалов (materials.service): дисциплина группы или пара
+   * действующего расписания.
+   */
+  private async assertTeachesGroup(teacherId: string, groupId: string): Promise<void> {
+    const course = await this.prisma.course.findFirst({
+      where: { teacherId, groupId },
+      select: { id: true },
+    })
+    if (course) return
+    const pair = await this.prisma.pair.findFirst({
+      where: { teacherId, groupId, schedule: { is: { isActive: true } } },
+      select: { id: true },
+    })
+    if (pair) return
+    throw new AppException('WRONG_SCOPE', 'Вы не ведёте занятий в этой группе')
   }
 
   private async assertTargetUser(actor: JwtPayload, targetUserId: string): Promise<void> {
     const user = await this.prisma.user.findFirst({
-      where: { id: targetUserId, deletedAt: null },
+      // Охрана и библиотекарь ленты не открывают (§2.1): личный пост им — сообщение, которое
+      // не прочитать. Для автора они — как несуществующий получатель.
+      where: { id: targetUserId, deletedAt: null, role: { notIn: [...RESTRICTED_ROLES] } },
       select: { universityId: true },
     })
     if (!user) throw new AppException('NOT_FOUND', 'Получатель не найден')
     if (!isPlatform(actor.role) && user.universityId !== actor.universityId) {
       throw new AppException('WRONG_SCOPE', 'Получатель из другого университета')
+    }
+    // Личный пост (и репост лично) — адресное обращение, как сообщение в чат: личная
+    // блокировка в любую сторону его закрывает (§3.6), иначе заблокировавший получал бы
+    // пост от заблокированного прямо в ленту.
+    if ((await this.blockedAmong(actor.sub, [targetUserId])).size > 0) {
+      throw new AppException('FORBIDDEN', 'Получатель недоступен: пользователь заблокирован')
     }
   }
 

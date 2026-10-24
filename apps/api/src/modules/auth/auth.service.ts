@@ -5,7 +5,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { Prisma } from '@prisma/client'
 import type Redis from 'ioredis'
 import { PrismaService } from '../../common/prisma/prisma.service'
-import { advisoryXactLock } from '../../common/prisma/advisory-lock'
+import { advisoryXactLock, advisoryXactLockShared } from '../../common/prisma/advisory-lock'
 import { AuditService } from '../../common/audit/audit.service'
 import { PasswordService } from '../../common/security/password.service'
 import { CryptoService } from '../../common/security/crypto.service'
@@ -22,6 +22,7 @@ import { UserService, type UserProfile } from '../users/users.service'
 import { InviteService } from '../invites/invites.service'
 import { UniversityAccessService } from '../universities/university-access.service'
 import { CompaniesService } from '../career/companies.service'
+import { PushService } from '../push/push.service'
 import { TwoFactorService } from './two-factor.service'
 import { LoginAttemptsService } from './login-attempts.service'
 import { parseDurationMs } from './auth.constants'
@@ -60,6 +61,11 @@ function refreshSuccessorKey(familyId: string): string {
   return `auth:refresh:successor:${familyId}`
 }
 
+// Лок «все сессии пользователя»: гашение берёт его исключительно, ротация — разделяемо.
+function sessionsLockKey(userId: string): string {
+  return `sessions:${userId}`
+}
+
 export interface RequestContext {
   ip?: string
   userAgent?: string
@@ -71,6 +77,14 @@ export interface SessionResult {
   refreshToken: string
   refreshExpiresAt: Date
   payload: JwtPayload
+}
+
+/**
+ * Ключ счётчика неудачных кодов второго шага в LoginAttemptsService. Префикс отделяет его
+ * от счётчика пароля по логину: промахи кодом не закрывают ввод пароля и наоборот.
+ */
+function twoFactorAttemptKey(userId: string): string {
+  return `2fa:${userId}`
 }
 
 // Первый шаг входа при включённой 2FA: вместо сессии — короткоживущий challenge.
@@ -103,13 +117,16 @@ export class AuthService {
     private readonly universityAccess: UniversityAccessService,
     private readonly companies: CompaniesService,
     private readonly crypto: CryptoService,
+    // PushModule глобальный и сам ничего из auth/users не импортирует — кольца нет.
+    private readonly push: PushService,
   ) {}
 
   /** Проверка идентификатор (email/username) + пароль для LocalStrategy. Не раскрывает, что именно неверно. */
   async validateUser(identifier: string, password: string): Promise<JwtPayload> {
     // До сверки пароля: серия неудач по этому логину закрывает вход независимо от того,
-    // с какого адреса пришла следующая попытка (login-attempts.service.ts — зачем).
-    await this.loginAttempts.assertNotLocked(identifier)
+    // с какого адреса пришла следующая попытка (login-attempts.service.ts — зачем). Попытка
+    // засчитывается здесь же, атомарно, — параллельная пачка не проскочит порог.
+    await this.loginAttempts.beginAttempt(identifier)
 
     const user = await this.users.findByLoginIdentifierForAuth(identifier)
     // Несуществующий пользователь тоже стоит одного bcrypt: без холостого сравнения ответ
@@ -119,7 +136,6 @@ export class AuthService {
       ? await this.passwords.compare(password, user.passwordHash)
       : await this.passwords.compareWithDummy(password)
     if (!user || !passwordOk) {
-      await this.loginAttempts.registerFailure(identifier)
       throw new AppException('UNAUTHORIZED', 'Неверный email или пароль')
     }
     // Пароль верный — серия прервана, даже если аккаунт заблокирован администратором:
@@ -179,7 +195,9 @@ export class AuthService {
       // Уникальный индекс email различает регистр: учётку, заведённую до нормализации как
       // «Ivanov@Uni.kz», он от «ivanov@uni.kz» не защищает — вторая учётка того же человека.
       if (await this.users.findEmailOwnerId(email)) {
-        throw new AppException('CONFLICT', 'Пользователь с таким email уже существует')
+        throw new AppException('CONFLICT', 'Пользователь с таким email уже существует', [
+          { field: 'email', message: 'Пользователь с таким email уже существует' },
+        ])
       }
       const created = await this.users.createInvitedUser(tx, {
         email,
@@ -294,6 +312,13 @@ export class AuthService {
     // Первый шаг вуз уже проверил, но между шагами до пяти минут — блокировка могла успеть.
     await this.universityAccess.assertAllowed(rec)
     await this.assertEmployerVerified(rec)
+    // Счётчик на challenge ограничивает один ввод пароля, но не учётку: тот, кто знает
+    // пароль, получает новый challenge на каждом входе, а лимиты входа считаются по IP и
+    // обходятся сменой адреса. Отсюда второй счётчик — по пользователю, с той же
+    // нарастающей блокировкой, что у пароля. Попытка занимается до проверки кода
+    // (атомарно), верный код серию обнуляет.
+    const attemptKey = twoFactorAttemptKey(userId)
+    await this.loginAttempts.beginAttempt(attemptKey)
     const consume = await this.twoFactor.checkCode(rec, code)
     if (!consume) {
       // Опечатка в шестизначном коде дело обычное, и сжигать за неё весь вход незачем —
@@ -311,6 +336,7 @@ export class AuthService {
     if (!(await consume())) {
       throw new AppException('INVALID_2FA_CODE', 'Неверный код')
     }
+    await this.loginAttempts.reset(attemptKey)
     const session = await this.issueSession(this.toPayload(rec), randomUUID())
     await this.audit.record({ userId, action: 'login', ...ctx })
     return session
@@ -397,10 +423,10 @@ export class AuthService {
   /**
    * Учесть неверный код 2FA по конкретному challenge и сжечь его, когда попытки кончились.
    *
-   * Счётчик именно на challenge, а не на пользователя: привязка к аккаунту дала бы тому,
-   * кто знает пароль, способ запереть чужой вход навсегда — достаточно раз за разом
-   * вводить неверный код. Здесь же цена промахов — повторный ввод пароля, то есть новый
-   * challenge, а первый шаг уже ограничен throttle'ом.
+   * Этот счётчик — на challenge: цена трёх промахов — повторный ввод пароля. Перебор по
+   * многим challenge подряд останавливает второй, по пользователю (`twoFactorAttemptKey`):
+   * блокировка там нарастающая и не дольше часа, так что знающий пароль не запрёт чужой
+   * вход навсегда.
    *
    * Сгоревший challenge гасится тем же ключом, что и использованный (`2fa:challenge:<jti>`),
    * поэтому следующая попытка с ним получит «этот код входа уже использован».
@@ -462,6 +488,11 @@ export class AuthService {
     // преемника (см. транзакцию ниже). Ширина окна — REFRESH_REUSE_GRACE_MS (0 отключает).
     if (record.revokedAt && !reuseInGrace) {
       await this.revokeFamily(record.familyId)
+      // Кража: у похитителя кроме refresh есть и свежий access, а с ним — открытый WS.
+      // Гасим выданные access-токены и рвём сокеты пользователя; честные устройства
+      // переподключатся после обычного refresh своей (другой) цепочкой.
+      await this.revocation.revokeIssuedBefore(record.userId)
+      this.realtime.disconnectUser(record.userId)
       await this.audit.record({
         userId: record.userId,
         action: 'refresh_reuse_detected',
@@ -515,6 +546,11 @@ export class AuthService {
     // сессии — вход, выход и повтор погашенного токена — пишутся по-прежнему.
     return this.prisma.$transaction(async (tx) => {
       await advisoryXactLock(tx, `refresh:${record.familyId}`)
+      // С гашением всех сессий пользователя (revokeAllUserSessions) ротация не пересекается:
+      // иначе преемник, вставленный ещё не закоммиченной ротацией, не попадал под UPDATE
+      // гашения (READ COMMITTED его не видит) и жил 30 дней после смены пароля. Лок
+      // разделяемый — обмены разных устройств одного человека друг друга не ждут.
+      await advisoryXactLockShared(tx, sessionsLockKey(record.userId))
       // Состояние токена — заново, под локом: пока запрос ждал, его мог ротировать соседний.
       const current = await tx.refreshToken.findUnique({
         where: { id: record.id },
@@ -591,9 +627,14 @@ export class AuthService {
 
   /** Гасит ВСЕ активные сессии пользователя. Вызывается UserService при смене пароля/блокировке/удалении. */
   async revokeAllUserSessions(userId: string): Promise<void> {
-    await this.prisma.refreshToken.updateMany({
-      where: { userId, revokedAt: null },
-      data: { revokedAt: new Date() },
+    // Под исключительным локом пользователя: идущая сейчас ротация дописывает преемника до
+    // конца, и UPDATE его видит; начавшаяся позже ждёт и находит цепочку погашенной.
+    await this.prisma.$transaction(async (tx) => {
+      await advisoryXactLock(tx, sessionsLockKey(userId))
+      await tx.refreshToken.updateMany({
+        where: { userId, revokedAt: null },
+        data: { revokedAt: new Date() },
+      })
     })
     // Уже выданные access-токены тоже: без метки отзыва заблокированный ещё до 15 минут
     // ходил в API и переподключал WS тем же токеном (JwtStrategy и gateway её проверяют).
@@ -601,6 +642,10 @@ export class AuthService {
     // Открытый WS живёт сам по себе: рвём соединения сразу, переподключиться старым
     // токеном не даст метка отзыва.
     this.realtime.disconnectUser(userId)
+    // Push-привязки — тоже часть сессии: «выйти везде» должно выгнать и телефон угонщика.
+    await this.push.removeAllForUser(userId)
+    // Неподтверждённый секрет 2FA мог выдать себе тот, кого сейчас выгоняют.
+    await this.users.clearPendingTwoFactorSecret(userId)
   }
 
   // --- приватные ---

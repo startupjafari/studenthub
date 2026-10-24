@@ -27,7 +27,21 @@ final class RealtimeCoordinator {
     private let database: AppDatabase
     private let store: ChatStore
 
+    /// Единственный читатель потока событий. Живёт столько же, сколько транспорт, и
+    /// при выходе из аккаунта не отменяется: отмена читающей задачи завершает
+    /// `AsyncStream` навсегда, и после входа следующего человека событий не было бы.
     private var pump: Task<Void, Never>?
+    /// Есть ли сессия, которой события адресованы. Между выходом и входом приходящее
+    /// (запоздалое событие старого сокета) в базу не пишется.
+    private var active = false
+    /// Переподключение со свежим токеном. Свой автоповтор socket.io шлёт тот токен,
+    /// с которым соединение открывали, — через 15 минут сервер его отклоняет и рвёт
+    /// связь, и без этой задачи реального времени не было бы до перезапуска.
+    private var reconnect: Task<Void, Never>?
+    private var reconnectDelay = RealtimeCoordinator.firstReconnectDelay
+    /// Когда соединение поднялось: короткое (сервер принял и тут же отключил) не
+    /// сбрасывает паузу, иначе отказ сервера превратился бы в долбёжку раз в секунду.
+    private var connectedAt: Date?
     private var expiry: [String: Task<Void, Never>] = [:]
     /// Чат, открытый на экране: его сообщения не увеличивают счётчик непрочитанного.
     private var openChatID: String?
@@ -45,28 +59,41 @@ final class RealtimeCoordinator {
 
     deinit {
         pump?.cancel()
+        reconnect?.cancel()
         for task in expiry.values { task.cancel() }
     }
 
     @MainActor
     func start() {
-        guard pump == nil else { return }
-        pump = Task { @MainActor [weak self] in
-            guard let self else { return }
-            for await event in self.transport.events {
-                await self.handle(event)
+        if pump == nil {
+            pump = Task { @MainActor [weak self] in
+                guard let self else { return }
+                for await event in self.transport.events {
+                    await self.handle(event)
+                }
             }
         }
+        guard !active else { return }
+        active = true
+        reconnectDelay = Self.firstReconnectDelay
         Task { await connect() }
     }
 
+    /// Выход из аккаунта: рвём соединение и забываем всё, что знали о прежнем
+    /// человеке. Читатель потока остаётся — его понадобится следующему входу.
     @MainActor
     func stop() async {
-        pump?.cancel()
-        pump = nil
+        active = false
+        reconnect?.cancel()
+        reconnect = nil
+        connectedAt = nil
         isConnected = false
         actions = [:]
         onlineUsers = []
+        openChatID = nil
+        applicationStatus = nil
+        for task in expiry.values { task.cancel() }
+        expiry = [:]
         await transport.disconnect()
     }
 
@@ -77,6 +104,10 @@ final class RealtimeCoordinator {
         openChatID = chatID
         await transport.join(chatID: chatID)
     }
+
+    /// Чат, открытый на экране: баннер о сообщении в нём не нужен — человек его читает.
+    @MainActor
+    var openChat: String? { openChatID }
 
     @MainActor
     func close(chatID: String) async {
@@ -98,15 +129,24 @@ final class RealtimeCoordinator {
 
     @MainActor
     private func handle(_ event: RealtimeEvent) async {
+        guard active else { return }
         switch event {
         case .connected:
             isConnected = true
+            connectedAt = Date()
+            reconnect?.cancel()
+            reconnect = nil
             connectionEpoch += 1
             // Комнату после переподключения сервер не помнит — входим заново.
             if let openChatID { await transport.join(chatID: openChatID) }
 
         case .disconnected:
             isConnected = false
+            if let connectedAt, Date().timeIntervalSince(connectedAt) >= Self.stableConnection {
+                reconnectDelay = Self.firstReconnectDelay
+            }
+            connectedAt = nil
+            scheduleReconnect()
 
         case .messageNew(let message):
             await save(message, countsAsUnread: true)
@@ -198,6 +238,27 @@ final class RealtimeCoordinator {
         guard let token = await session.accessToken() else { return }
         await transport.connect(token: token)
     }
+
+    /// Обрыв: через паузу подключиться заново с токеном, который выдаст сессия сейчас
+    /// (`accessToken()` продлит просроченный). Пауза растёт до минуты, пока соединение
+    /// не продержится дольше `stableConnection`.
+    @MainActor
+    private func scheduleReconnect() {
+        guard active, reconnect == nil else { return }
+        let delay = reconnectDelay
+        reconnectDelay = min(reconnectDelay * 2, Self.maxReconnectDelay)
+        reconnect = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: delay)
+            guard let self, !Task.isCancelled else { return }
+            self.reconnect = nil
+            guard self.active, !self.isConnected else { return }
+            await self.connect()
+        }
+    }
+
+    private static let firstReconnectDelay: Duration = .seconds(2)
+    private static let maxReconnectDelay: Duration = .seconds(60)
+    private static let stableConnection: TimeInterval = 10
 }
 
 

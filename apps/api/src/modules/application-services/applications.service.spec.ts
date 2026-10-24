@@ -27,7 +27,7 @@ const staleStatus = () =>
 function setup(overrides: Record<string, jest.Mock> = {}) {
   const application = {
     findFirst: jest.fn(),
-    findUnique: jest.fn().mockResolvedValue({ documents: [] }),
+    findUnique: jest.fn().mockResolvedValue({ documents: [], events: [], results: [] }),
     findMany: jest.fn().mockResolvedValue([]),
     update: jest.fn().mockResolvedValue({}),
     create: jest.fn().mockResolvedValue({ id: 'new' }),
@@ -280,6 +280,65 @@ describe('ApplicationsService.updateDraft — только поля анкеты
   })
 })
 
+// Сотрудник просит уточнить поле анкеты — раньше PATCH отвечал 400, и править было негде.
+describe('ApplicationsService.updateDraft — исправление ответов (NEEDS_CORRECTION)', () => {
+  it('в исправлении ответы правятся, с условием на статус и событием в истории', async () => {
+    const { service, application, serviceFormField, prisma } = setup()
+    application.findFirst.mockResolvedValue({
+      id: 'a1',
+      studentId: 'stud',
+      status: 'NEEDS_CORRECTION',
+      serviceId: 's1',
+    })
+    serviceFormField.findMany.mockResolvedValue([{ code: 'purpose' }])
+    await service.updateDraft(student, 'a1', { formData: { purpose: 'в банк «Альфа»' } })
+    expect(application.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'a1', status: 'NEEDS_CORRECTION' },
+        data: { formData: { purpose: 'в банк «Альфа»' } },
+      }),
+    )
+    expect(prisma.applicationEvent.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ applicationId: 'a1', action: 'FORM_UPDATED' }),
+    })
+  })
+
+  it.each(['SUBMITTED', 'IN_REVIEW', 'RESUBMITTED', 'IN_PREPARATION'])(
+    'в статусе %s ответы не правятся → BAD_REQUEST',
+    async (status) => {
+      const { service, application } = setup()
+      application.findFirst.mockResolvedValue({ id: 'a1', studentId: 'stud', status })
+      await expect(
+        service.updateDraft(student, 'a1', { formData: { purpose: 'x' } }),
+      ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+      expect(application.update).not.toHaveBeenCalled()
+    },
+  )
+
+  it('повторная отправка проверяет ответы заново', async () => {
+    const { service, application, serviceFormField } = setup()
+    application.findFirst.mockResolvedValue({
+      id: 'a1',
+      studentId: 'stud',
+      status: 'NEEDS_CORRECTION',
+      serviceId: 's1',
+      formData: {},
+    })
+    serviceFormField.findMany.mockResolvedValue([
+      {
+        code: 'purpose',
+        type: 'TEXT',
+        required: true,
+        options: null,
+        validation: null,
+        labelRu: 'Цель',
+      },
+    ])
+    await expect(service.resubmit(student, 'a1')).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    expect(application.update).not.toHaveBeenCalled()
+  })
+})
+
 describe('ApplicationsService.updateDraft — условие на статус', () => {
   it('черновик отправили между проверкой и записью → CONFLICT', async () => {
     const { service, application } = setup()
@@ -365,6 +424,29 @@ describe('ApplicationsService.cancel / resubmit', () => {
     // applicationDocument.findMany → [] (по умолчанию): приложенного документа нет.
     await expect(service.resubmit(student, 'a1')).rejects.toMatchObject({ code: 'BAD_REQUEST' })
     expect(application.update).not.toHaveBeenCalled()
+  })
+
+  // Приложенный документ потом удалили из хранилища (или сняли с него все страницы):
+  // строка привязки осталась, а открыть по заявке нечего.
+  it('комплект считается только по живым документам со страницами', async () => {
+    const { service, application, serviceRequirement, applicationDocument } = setup()
+    application.findFirst.mockResolvedValue({
+      id: 'a1',
+      studentId: 'stud',
+      status: 'NEEDS_CORRECTION',
+      serviceId: 's1',
+    })
+    serviceRequirement.findMany.mockResolvedValue([{ id: 'r1', titleRu: 'Удостоверение' }])
+    // Живого документа по требованию нет — выборка с условием на документ пуста.
+    applicationDocument.findMany.mockResolvedValue([])
+    await expect(service.resubmit(student, 'a1')).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    expect(applicationDocument.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          document: { is: { deletedAt: null, files: { some: {} } } },
+        }),
+      }),
+    )
   })
 
   it('resubmit с полным комплектом → RESUBMITTED с условием на NEEDS_CORRECTION', async () => {
@@ -508,6 +590,8 @@ describe('ApplicationsService.getById — страницы документов'
     ]
     application.findUnique.mockResolvedValue({
       id: 'a1',
+      events: [],
+      results: [],
       documents: [
         { id: 'ad1', documentId: 'doc1', status: 'PENDING', document: { files: pages } },
         { id: 'ad2', documentId: null, status: 'PENDING', document: null },
@@ -557,5 +641,171 @@ describe('ApplicationsService.list — «срок сегодня»', () => {
     } finally {
       jest.useRealTimers()
     }
+  })
+})
+
+describe('ApplicationsService.list — устойчивый порядок страниц', () => {
+  it('после поля сортировки — тай-брейкер по id в том же направлении', async () => {
+    const { service, application } = setup()
+    await service.list(dean, {
+      page: 2,
+      limit: 20,
+      sortBy: 'status',
+      sortOrder: 'asc',
+    } as never)
+    expect(application.findMany.mock.calls[0][0].orderBy).toEqual([
+      { status: 'asc' },
+      { id: 'asc' },
+    ])
+  })
+})
+
+describe('ApplicationsService.getById — потолки вложенных выборок', () => {
+  it('события, документы и результаты — с take; история — по порядку, от первого шага', async () => {
+    const { service, application } = setup()
+    application.findFirst.mockResolvedValue({
+      studentId: 'stud',
+      facultyId: 'fac',
+      universityId: 'uni',
+    })
+    application.findUnique.mockResolvedValue({
+      id: 'a1',
+      documents: [],
+      results: [],
+      // Выборка идёт с конца (desc) — клиенту отдаётся в хронологическом порядке.
+      events: [{ id: 'e2' }, { id: 'e1' }],
+    })
+    const app = await service.getById(student, 'a1')
+    expect(app?.events).toEqual([
+      { id: 'e1', requirementId: null },
+      { id: 'e2', requirementId: null },
+    ])
+    const select = application.findUnique.mock.calls[0][0].select
+    expect(select.events.take).toBeGreaterThan(0)
+    expect(select.events.orderBy).toEqual([{ createdAt: 'desc' }, { id: 'desc' }])
+    expect(select.documents.take).toBeGreaterThan(0)
+    expect(select.results.take).toBeGreaterThan(0)
+  })
+})
+
+describe('ApplicationsService.getById — id сотрудника не уходит в историю', () => {
+  it('у назначения прежнего формата (id в comment) comment не отдаётся', async () => {
+    const { service, application } = setup()
+    application.findFirst.mockResolvedValue({
+      studentId: 'stud',
+      facultyId: 'fac',
+      universityId: 'uni',
+    })
+    application.findUnique.mockResolvedValue({
+      id: 'a1',
+      documents: [],
+      results: [],
+      events: [
+        { id: 'e2', action: 'ASSIGNED', comment: 'staff-uuid' },
+        { id: 'e1', action: 'REJECTED', comment: 'нет справки' },
+      ],
+    })
+    const app = await service.getById(student, 'a1')
+    expect(app?.events).toEqual([
+      { id: 'e1', action: 'REJECTED', comment: 'нет справки', requirementId: null },
+      { id: 'e2', action: 'ASSIGNED', comment: null, requirementId: null },
+    ])
+  })
+})
+
+// Обработчик видел студента, документы и историю, но не ответы анкеты: formData хранится
+// кодами полей, а подписей в карточке не было.
+describe('ApplicationsService.getById — поля анкеты для ответов', () => {
+  it('отдаёт поля услуги с подписями, включая выключенные', async () => {
+    const { service, application } = setup()
+    application.findFirst.mockResolvedValue({
+      studentId: 'stud',
+      facultyId: 'fac',
+      universityId: 'uni',
+    })
+    await service.getById(dean, 'a1')
+    const formFields = application.findUnique.mock.calls[0][0].select.service.select.formFields
+    expect(formFields.where).toBeUndefined()
+    expect(formFields.take).toBeGreaterThan(0)
+    expect(formFields.select).toMatchObject({ code: true, labelRu: true, active: true })
+  })
+})
+
+describe('ApplicationsService.getById — чек-лист и история по требованиям', () => {
+  it('отдаёт действующие требования услуги и requirementId событий документа без metadata', async () => {
+    const { service, application } = setup()
+    application.findFirst.mockResolvedValue({
+      studentId: 'stud',
+      facultyId: 'fac',
+      universityId: 'uni',
+    })
+    application.findUnique.mockResolvedValue({
+      id: 'a1',
+      documents: [],
+      results: [],
+      events: [
+        { id: 'e2', action: 'ASSIGNED', comment: null, metadata: { assigneeId: 'staff' } },
+        {
+          id: 'e1',
+          action: 'DOCUMENT_ADDED',
+          comment: 'Удостоверение',
+          metadata: { requirementId: 'r1' },
+        },
+      ],
+    })
+    const app = await service.getById(student, 'a1')
+    expect(app?.events).toEqual([
+      { id: 'e1', action: 'DOCUMENT_ADDED', comment: 'Удостоверение', requirementId: 'r1' },
+      { id: 'e2', action: 'ASSIGNED', comment: null, requirementId: null },
+    ])
+    const requirements = application.findUnique.mock.calls[0][0].select.service.select.requirements
+    expect(requirements.where).toEqual({ active: true })
+    expect(requirements.take).toBeGreaterThan(0)
+  })
+})
+
+describe('ApplicationsService.getById — отозванный результат', () => {
+  it('помечает результат с отозванной справкой, document наружу не отдаёт', async () => {
+    const { service, application } = setup()
+    application.findFirst.mockResolvedValue({
+      studentId: 'stud',
+      facultyId: 'fac',
+      universityId: 'uni',
+    })
+    application.findUnique.mockResolvedValue({
+      id: 'a1',
+      documents: [],
+      events: [],
+      results: [
+        { id: 'r2', document: { status: 'ISSUED', issuedByUniversity: true } },
+        { id: 'r1', document: { status: 'REJECTED', issuedByUniversity: true } },
+        { id: 'r0', document: null },
+      ],
+    })
+    const app = await service.getById(student, 'a1')
+    expect(app?.results).toEqual([
+      { id: 'r2', revoked: false },
+      { id: 'r1', revoked: true },
+      { id: 'r0', revoked: false },
+    ])
+  })
+})
+
+describe('ApplicationsService.getById — код получения', () => {
+  const scope = { studentId: 'stud', facultyId: 'fac', universityId: 'uni' }
+  const row = { id: 'a1', pickupCode: 'SH-P-1', documents: [], events: [], results: [] }
+
+  it('владельцу отдаётся', async () => {
+    const { service, application } = setup()
+    application.findFirst.mockResolvedValue(scope)
+    application.findUnique.mockResolvedValue(row)
+    expect((await service.getById(student, 'a1'))?.pickupCode).toBe('SH-P-1')
+  })
+
+  it('обработчику — нет: код сверяется со словами студента', async () => {
+    const { service, application } = setup()
+    application.findFirst.mockResolvedValue(scope)
+    application.findUnique.mockResolvedValue(row)
+    expect((await service.getById(dean, 'a1'))?.pickupCode).toBeNull()
   })
 })

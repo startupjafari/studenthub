@@ -22,6 +22,11 @@ const SCORE_CEILING = 1000
 interface Props {
   assignmentId: string
   maxScore: number | null
+  /**
+   * Можно ли вернуть работу на доработку: только пока задание принимает работы. Из закрытого
+   * возвращённую студент не смог бы ни поправить, ни отправить снова (сервер отвечает 409).
+   */
+  returnable: boolean
   submission: SubmissionItem
   onClose: () => void
   /** Работа оценена или возвращена — родитель переходит к следующей непроверенной. */
@@ -38,6 +43,7 @@ interface Props {
 export function GradeSubmissionModal({
   assignmentId,
   maxScore,
+  returnable,
   submission,
   onClose,
   onGraded,
@@ -50,7 +56,11 @@ export function GradeSubmissionModal({
   // и увёл кнопки из-под курсора ровно при повторной попытке.
   const errorToast = useErrorToast(`grade-${submission.id}`)
   const [score, setScore] = useState(submission.score != null ? String(submission.score) : '')
-  const [feedback, setFeedback] = useState(submission.feedback ?? '')
+  // Отзыв подставляется только у оценённой (переоценка). У сданной в поле был бы комментарий
+  // «на доработку» к прошлой попытке — и он молча стал бы отзывом к итоговой оценке.
+  const [feedback, setFeedback] = useState(
+    submission.status === 'GRADED' ? (submission.feedback ?? '') : '',
+  )
   // Ошибка балла — под полем, а не тостом: исправляют её там же (DESIGN_SYSTEM §10.3).
   const [scoreError, setScoreError] = useState<string | null>(null)
   const ceiling = maxScore ?? SCORE_CEILING
@@ -67,7 +77,8 @@ export function GradeSubmissionModal({
     mutationFn: () =>
       gradeSubmissionRequest(submission.id, {
         score: Number(score),
-        ...(feedback.trim() ? { feedback: feedback.trim() } : {}),
+        // Пустой отзыв уходит пустой строкой: сервер очищает поле, а не оставляет прежний.
+        feedback: feedback.trim(),
       }),
     onSuccess: () => {
       invalidate()
@@ -245,15 +256,17 @@ export function GradeSubmissionModal({
             ))}
           {gradable && (
             <div className="flex flex-wrap gap-2">
-              <Button
-                variant="outline"
-                className="gap-1.5"
-                onClick={onReturn}
-                loading={back.isPending}
-              >
-                <RotateCcw className="size-4" aria-hidden />
-                {t('returnForFix')}
-              </Button>
+              {returnable && (
+                <Button
+                  variant="outline"
+                  className="gap-1.5"
+                  onClick={onReturn}
+                  loading={back.isPending}
+                >
+                  <RotateCcw className="size-4" aria-hidden />
+                  {t('returnForFix')}
+                </Button>
+              )}
               <Button className="gap-1.5" onClick={onGrade} loading={grade.isPending}>
                 <CheckCircle2 className="size-4" aria-hidden />
                 {t('publishGrade')}

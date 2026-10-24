@@ -105,7 +105,15 @@ export function CreateRoomModal({ onClose, room }: Props) {
     <Modal onClose={onClose} title={room ? t('editRoom') : t('addRoom')} size="lg">
       <form
         onSubmit={form.handleSubmit(
-          (v) => createMut.mutate(v),
+          (v) => {
+            // Полнота номера — здесь, а не в `rules` у Controller: при zodResolver правила
+            // полей RHF не вызывает, и неполный номер уходил на сервер и на наклейку.
+            if (v.phone && !isCompletePhone(v.phone)) {
+              form.setError('phone', { message: tCommon('phoneIncomplete') })
+              return
+            }
+            createMut.mutate(v)
+          },
           // Без этого отказ валидации был бы молчаливым: кнопка ничего не делает,
           // а под полем ошибки нет (все поля, кроме названия, опциональны).
           () => toast.error(t('checkFields')),
@@ -187,7 +195,6 @@ export function CreateRoomModal({ onClose, room }: Props) {
               <Controller
                 control={form.control}
                 name="phone"
-                rules={{ validate: (v) => !v || isCompletePhone(v) || tCommon('phoneIncomplete') }}
                 render={({ field }) => (
                   <PhoneInput
                     id="room-phone"

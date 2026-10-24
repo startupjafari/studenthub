@@ -23,5 +23,6 @@ model Attendance {
   @@unique([pairId, date, studentId])
   @@index([studentId])
   @@index([pairId, date])
+  @@index([markedById])
   @@map("attendance")
 }

@@ -1,16 +1,19 @@
 export interface FacultyTotals {
   groups: number
   students: number
-  attendanceRate: number
+  /** Доля не-пропусков, проценты; null — посещаемость ещё не отмечали. */
+  attendanceRate: number | null
   submissionsPending: number
   examsUpcoming: number
 }
 
+/** Группы факультета: худшие первыми, без отметок — в конце. */
 export interface GroupStat {
   groupId: string
   name: string
   students: number
-  attendanceRate: number
+  /** null — в группе ещё не отмечали посещаемость. */
+  attendanceRate: number | null
   attendanceTracked: number
 }
 
@@ -31,7 +34,8 @@ export interface StudentAttendanceStat {
   studentId: string
   firstName: string
   lastName: string
-  attendanceRate: number
+  /** null — студента ещё не отмечали. */
+  attendanceRate: number | null
   tracked: number
 }
 
@@ -191,12 +195,14 @@ export interface UniversityOverview {
 export interface WeeklyPoint {
   /** Понедельник недели, ISO. */
   at: string
-  value: number
+  /** Доля не-пропусков, проценты; null — в эту неделю не отмечали. */
+  value: number | null
 }
 
 export interface AttendanceTrend {
   weeks: number
   from: string
+  /** У каждого ряда ровно `weeks` точек на общей сетке недель. */
   series: { facultyId: string; name: string; points: WeeklyPoint[] }[]
 }
 

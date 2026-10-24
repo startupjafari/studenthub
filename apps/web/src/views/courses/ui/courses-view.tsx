@@ -15,7 +15,7 @@ import {
   Skeleton,
 } from '../../../shared/ui'
 import { nowInTz } from '../../../shared/lib'
-import { scheduleKeys, fetchSchedule } from '../../../entities/schedule'
+import { scheduleKeys, fetchSchedule, fetchScheduleChanges } from '../../../entities/schedule'
 import { materialKeys, fetchMaterials, fetchMaterialSubjects } from '../../../entities/material'
 import { courseKeys, fetchCourses } from '../../../entities/course'
 import {
@@ -23,6 +23,7 @@ import {
   courseHref,
   courseKey,
   mergeApiCourses,
+  nextLessonRange,
   type CourseNextLesson,
 } from '../lib/build-courses'
 import { MaterialRow } from './material-row'
@@ -48,12 +49,25 @@ export function CoursesView() {
     retry: false,
   })
 
+  // «Ближайшее занятие» — с отменами и переносами своей даты.
+  const now = useMemo(() => nowInTz(schedule.data?.timezone ?? null), [schedule.data?.timezone])
+  const changesRange = useMemo(() => nextLessonRange(now), [now])
+  const changes = useQuery({
+    queryKey: scheduleKeys.changes(changesRange),
+    queryFn: () => fetchScheduleChanges(changesRange),
+    enabled: !!schedule.data,
+  })
+
   const courses = useMemo(() => {
     if (!schedule.data) return []
-    const now = nowInTz(schedule.data.timezone ?? null)
-    const base = buildCourses(schedule.data.pairs, materialCounts.data ?? [], now)
-    return mergeApiCourses(base, apiCourses.data ?? [])
-  }, [schedule.data, materialCounts.data, apiCourses.data])
+    const base = buildCourses(
+      schedule.data.pairs,
+      materialCounts.data ?? [],
+      now,
+      changes.data ?? [],
+    )
+    return mergeApiCourses(base, apiCourses.data ?? [], materialCounts.data ?? [])
+  }, [schedule.data, materialCounts.data, apiCourses.data, now, changes.data])
 
   // Материалы, которые не попали ни в одну дисциплину: без предмета или с предметом, которого
   // нет в расписании студента. Во вкладке дисциплины их не найти — показываем здесь, иначе

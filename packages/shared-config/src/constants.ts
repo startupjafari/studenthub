@@ -78,7 +78,9 @@ export const FILE_UPLOAD = {
       'application/vnd.openxmlformats-officedocument.presentationml.presentation',
     ],
     // Голосовые/аудио-вложения чата (Ф9+). webm-контейнер file-type определяет как video/webm.
-    AUDIO: ['audio/mpeg', 'audio/ogg', 'audio/wav', 'audio/webm'],
+    // AAC в MP4-контейнере: iOS пишет голосовые в .m4a (file-type: `ftyp M4A ` → audio/x-m4a),
+    // аудиокниги и Flash-аудио file-type называет audio/mp4.
+    AUDIO: ['audio/mpeg', 'audio/ogg', 'audio/wav', 'audio/webm', 'audio/x-m4a', 'audio/mp4'],
     // Архивы — так их называет file-type по magic bytes. DOCX/XLSX/PPTX внутри тоже zip, но
     // детектор узнаёт их по содержимому и относит к документам, а не сюда.
     ARCHIVE: [

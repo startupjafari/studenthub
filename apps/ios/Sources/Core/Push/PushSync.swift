@@ -39,23 +39,27 @@ struct PushSync: Sendable {
 
 /// Число на иконке.
 ///
-/// Считаем по своей базе, а не по счётчику из пуша: пуши теряются, приходят не по
-/// порядку и не приходят вовсе при выключенных уведомлениях, а база — то, что
-/// человек увидит, открыв приложение.
+/// То же число, что сервер кладёт в `aps.badge` каждого пуша, — непрочитанные
+/// уведомления (`GET /notifications/unread-count`). Раньше приложение ставило сумму
+/// непрочитанного по чатам: пуш показывал одно, открытое приложение — другое, и бейдж
+/// прыгал. Нет связи — не трогаем: старое число честнее, чем ноль.
 struct BadgeCounter: Sendable {
-    private let database: AppDatabase
+    private let client: APIClient
 
-    init(database: AppDatabase = AppServices.database) {
-        self.database = database
+    init(client: APIClient = AppServices.api) {
+        self.client = client
     }
 
     func refresh() async {
-        let unread = (try? await database.reader.read { db in
-            try Int.fetchOne(
-                db,
-                sql: "SELECT COALESCE(SUM(unreadCount), 0) FROM chat WHERE archivedAt IS NULL"
-            ) ?? 0
-        }) ?? 0
-        try? await UNUserNotificationCenter.current().setBadgeCount(unread)
+        struct Answer: Decodable { let count: Int }
+        guard let answer = try? await client.send(.get("notifications/unread-count"), as: Answer.self) else {
+            return
+        }
+        try? await UNUserNotificationCenter.current().setBadgeCount(answer.count)
+    }
+
+    /// Выход из аккаунта: чужое число на иконке следующему человеку ни к чему.
+    func reset() async {
+        try? await UNUserNotificationCenter.current().setBadgeCount(0)
     }
 }

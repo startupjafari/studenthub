@@ -72,17 +72,28 @@ if [[ -n "${BACKUP_S3_ENDPOINT:-}" && -n "${BACKUP_S3_BUCKET:-}" ]]; then
   mc cp "$DUMP" "backup/${BACKUP_S3_BUCKET}/db/" > /dev/null
   mc cp "${DUMP}.sha256" "backup/${BACKUP_S3_BUCKET}/db/" > /dev/null
 
-  # Зеркало медиа. stories-media исключён намеренно: его содержимое живёт сутки и
-  # удаляется само (TTL бакета), бэкапить срочное бессмысленно.
+  # Зеркало медиа. Список — все бакеты из apps/api/src/config/env.schema.ts, кроме
+  # stories-media: его содержимое живёт сутки и удаляется само (TTL бакета), бэкапить
+  # срочное бессмысленно. Новый бакет в env.schema — новая строка здесь.
   if [[ -n "${MEDIA_S3_ENDPOINT:-}" ]]; then
     : "${MEDIA_S3_KEY:?нужен MEDIA_S3_KEY}"
     : "${MEDIA_S3_SECRET:?нужен MEDIA_S3_SECRET}"
     mc alias set media "$MEDIA_S3_ENDPOINT" "$MEDIA_S3_KEY" "$MEDIA_S3_SECRET" > /dev/null
-    for bucket in avatars posts-media applications documents materials profile-media chat-media; do
-      if mc ls "media/${bucket}" > /dev/null 2>&1; then
-        echo "→ Зеркало ${bucket}"
-        mc mirror --overwrite --remove "media/${bucket}" "backup/${BACKUP_S3_BUCKET}/media/${bucket}"
+    # Список бакетов — одним запросом, и его ошибка роняет скрипт (set -e). Раньше каждый
+    # бакет проверялся `mc ls … 2>/dev/null`, и отказ в доступе выглядел как «бакета нет»:
+    # зеркало молча не снималось. Теперь пропускается только бакет, которого правда нет.
+    existing="$(mc ls media | awk '{print $NF}' | sed 's#/$##')"
+    for bucket in avatars posts-media applications documents materials profile-media profile-covers chat-media; do
+      if ! grep -qx "$bucket" <<< "$existing"; then
+        echo "   ! бакета ${bucket} в MinIO нет — пропущен"
+        continue
       fi
+      echo "→ Зеркало ${bucket}"
+      # Без --remove: удалённое на проде в бэкапе остаётся. С ним ошибочное удаление
+      # (оператор, баг уборки) за ночь стирало и копию — ровно то, от чего бэкап и
+      # страхует. Цена — зеркало только растёт; чистить его, если место станет
+      # проблемой, — правилом жизненного цикла бакета снимков, а не этим скриптом.
+      mc mirror --overwrite "media/${bucket}" "backup/${BACKUP_S3_BUCKET}/media/${bucket}"
     done
   fi
 

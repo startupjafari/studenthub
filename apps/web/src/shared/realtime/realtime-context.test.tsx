@@ -39,6 +39,7 @@ vi.mock('@tanstack/react-query', () => ({
 import { REALTIME_CHANNEL } from '@studenthub/shared-schemas'
 // Импорт после vi.mock — провайдер увидит замоканные модули.
 import {
+  NO_RESYNC_META,
   RealtimeProvider,
   SELF_RESYNC_META,
   useRealtimeEvent,
@@ -219,11 +220,17 @@ describe('RealtimeProvider — жизненный цикл соединения'
       const openChat = query(SELF_RESYNC_META, 1)
       const closedChat = query(SELF_RESYNC_META, 0)
       const badge = query(undefined, 1)
+      // Проверка студенческого гасит одноразовый токен — её ресинк не повторяет никогда.
+      const verifyOnce = query(NO_RESYNC_META, 1)
+      const verifyOnceClosed = query(NO_RESYNC_META, 0)
 
       expect(active!.refetchType).toBeUndefined()
       expect(active!.predicate(badge)).toBe(true)
       expect(active!.predicate(openChat)).toBe(false)
       expect(active!.predicate(closedChat)).toBe(false)
+      expect(active!.predicate(verifyOnce)).toBe(false)
+      expect(active!.predicate(verifyOnceClosed)).toBe(false)
+      expect(closed!.predicate(verifyOnceClosed)).toBe(false)
 
       expect(closed!.refetchType).toBe('none')
       expect(closed!.predicate(closedChat)).toBe(true)

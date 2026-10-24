@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config'
 import { Prisma, StoryAudience } from '@prisma/client'
 import { Role, isHigherRole } from '@studenthub/shared-types'
 import {
+  STORY_REACTION_EMOJIS,
   STORY_TTL_HOURS,
   type CreateStoryInput,
   type StoriesFeedQueryInput,
@@ -50,6 +51,10 @@ const FEED_TAKE = 200
 
 // Размер батча удаления в кроне (как BATCH_SIZE в CleanupService).
 const CLEANUP_BATCH = 500
+
+// Реакции из белого списка (StoryReactionSchema). Строки с произвольным текстом, поставленные
+// до списка, в сводке не считаются — как у постов; через сутки они уходят вместе со сторис.
+const REACTION_EMOJI_WHERE = { emoji: { in: [...STORY_REACTION_EMOJIS] } }
 
 const AUTHOR_SELECT = {
   select: { id: true, firstName: true, lastName: true, role: true, avatarUrl: true },
@@ -215,6 +220,14 @@ export class StoriesService {
     return story as Prisma.StoryGetPayload<{ select: S }>
   }
 
+  /**
+   * Бросает NOT_FOUND, если сторис не видна зрителю. Нужна жалобам: пожаловаться можно только
+   * на то, что видишь, иначе жалоба подтверждает существование чужой сторис по id.
+   */
+  async assertVisibleToViewer(viewer: JwtPayload, id: string): Promise<void> {
+    await this.findVisibleOrThrow(viewer, id, { id: true })
+  }
+
   // ── Лента колец ─────────────────────────────────────────────────────────────
 
   async feed(viewer: JwtPayload, query: StoriesFeedQueryInput): Promise<StoryRing[]> {
@@ -269,15 +282,15 @@ export class StoriesService {
           : Promise.resolve([]),
         this.prisma.storyReaction.groupBy({
           by: ['storyId', 'emoji'],
-          where: { storyId: { in: ids } },
+          where: { storyId: { in: ids }, ...REACTION_EMOJI_WHERE },
           _count: { _all: true },
         }),
         this.prisma.storyReaction.findMany({
-          where: { userId: viewer.sub, storyId: { in: ids } },
+          where: { userId: viewer.sub, storyId: { in: ids }, ...REACTION_EMOJI_WHERE },
           select: { storyId: true, emoji: true },
-          // Свои реакции на показанных сторис: разных эмодзи от одного человека на одну
-          // сторис бывает единицы, потолок здесь — предохранитель (§5.3), а не обрезка.
-          take: ids.length * 4,
+          // Уникальность [storyId, userId, emoji] и белый список дают точный потолок: раньше
+          // стояло «4 на сторис», и пятая своя реакция приходила с mine: false.
+          take: ids.length * STORY_REACTION_EMOJIS.length,
         }),
         pollIds.length > 0
           ? this.prisma.storyPollVote.groupBy({
@@ -733,6 +746,27 @@ export class StoriesService {
     } else if (universityId !== actor.universityId) {
       throw new AppException('WRONG_SCOPE', 'Группа другого университета')
     }
+    if (actor.role === Role.TEACHER) await this.assertTeachesGroup(actor.sub, groupId)
     return { facultyId: group.facultyId, universityId }
+  }
+
+  /**
+   * Преподаватель адресует группе только там, где ведёт занятия (§2 «работает со своими
+   * группами»): раньше хватало совпадения вуза, и сторис уходили в ленту любой группы.
+   * Основание — как у материалов (materials.service): дисциплина группы или пара
+   * действующего расписания.
+   */
+  private async assertTeachesGroup(teacherId: string, groupId: string): Promise<void> {
+    const course = await this.prisma.course.findFirst({
+      where: { teacherId, groupId },
+      select: { id: true },
+    })
+    if (course) return
+    const pair = await this.prisma.pair.findFirst({
+      where: { teacherId, groupId, schedule: { is: { isActive: true } } },
+      select: { id: true },
+    })
+    if (pair) return
+    throw new AppException('WRONG_SCOPE', 'Вы не ведёте занятий в этой группе')
   }
 }

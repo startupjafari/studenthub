@@ -28,6 +28,8 @@ function makeService() {
     // Счётчики суточной сводки.
     complaint: { count: jest.fn(async () => 0) as Mock },
     chat: { count: jest.fn(async () => 0) as Mock },
+    // Обложки статей профиля — raw-объекты profile-covers, живые по ProfileArticle.coverUrl.
+    profileArticle: { findMany: jest.fn(async () => []) as Mock },
     // Снятие временных блокировок по сроку.
     user: {
       findMany: jest.fn(async () => []) as Mock,
@@ -587,7 +589,7 @@ describe('CleanupService', () => {
       expect(minio.removeObject).not.toHaveBeenCalled()
     })
 
-    it('не трогает постеры видео и обложки пользователей в profile-covers', async () => {
+    it('не трогает постеры видео, обложки пользователей и статей в profile-covers', async () => {
       const { service, prisma, minio } = makeService()
       const old = new Date(Date.now() - 2 * 60 * 60 * 1000)
       minio.listObjectsV2.mockImplementation((bucket: string) =>
@@ -595,16 +597,21 @@ describe('CleanupService', () => {
           ? objectStream([
               { name: 'poster.jpg', lastModified: old },
               { name: 'cover.jpg', lastModified: old },
+              { name: 'article.jpg', lastModified: old },
               { name: 'junk.jpg', lastModified: old },
             ])
           : objectStream([]),
       )
-      // Ни у одного из трёх нет File.key — это raw-объекты putAuxImage.
+      // Ни у одного из четырёх нет File.key — это raw-объекты putAuxImage.
       prisma.file.findMany.mockImplementation(async (args: { where: { posterKey?: unknown } }) =>
         args.where.posterKey ? [{ posterKey: 'poster.jpg' }] : [],
       )
       prisma.user.findMany.mockResolvedValue([
         { coverUrl: 'https://old-minio.example/profile-covers/cover.jpg' },
+      ])
+      // Обложка статьи: брошенная или заменённая сюда не попадает и уходит как junk.jpg.
+      prisma.profileArticle.findMany.mockResolvedValue([
+        { coverUrl: 'https://minio.example/profile-covers/article.jpg' },
       ])
 
       const removed = await service.cleanOrphanFiles()
@@ -892,9 +899,22 @@ describe('CleanupService.liftExpiredBlocks', () => {
 
     await expect(c.service.liftExpiredBlocks()).resolves.toBe(2)
     expect(c.prisma.user.updateMany).toHaveBeenCalledWith({
-      where: { id: { in: ['u1', 'u2'] } },
+      where: { id: { in: ['u1', 'u2'] }, isBlocked: true, blockedUntil: { lte: expect.any(Date) } },
       data: { isBlocked: false, blockedUntil: null },
     })
+  })
+
+  // Блокировку продлили между выборкой и записью — крон её не снимает и снятия не пишет.
+  it('продлённую после выборки блокировку не снимает', async () => {
+    const c = makeService()
+    c.prisma.user.findMany
+      .mockResolvedValueOnce([{ id: 'u1' }, { id: 'u2' }])
+      .mockResolvedValueOnce([{ id: 'u2' }])
+    c.prisma.user.updateMany.mockResolvedValueOnce({ count: 1 })
+
+    await expect(c.service.liftExpiredBlocks()).resolves.toBe(1)
+    expect(c.audit.record).toHaveBeenCalledTimes(1)
+    expect(c.audit.record).toHaveBeenCalledWith(expect.objectContaining({ entityId: 'u1' }))
   })
 
   // Снятие блокировки — событие того же веса, что и сама блокировка: без записи человек

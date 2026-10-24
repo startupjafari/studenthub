@@ -6,11 +6,12 @@ import type { AnalyticsReportFormat, AnalyticsReportPeriod } from '@studenthub/s
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { REDIS_CLIENT } from '../../common/redis/redis.module'
 import { AppException } from '../../common/exceptions/app.exception'
-import { AuditService } from '../../common/audit/audit.service'
+import { AUDIT_RETENTION_DAYS, AuditService } from '../../common/audit/audit.service'
 import { ExportBrandingService } from '../../common/export/export-branding.service'
 import { ExportRegistryService } from '../../common/export/export-registry.service'
 import type { ExportContext, ExportLocale } from '../../common/export/export-branding.types'
 import { buildCsv, buildWorkbook } from '../../common/export/spreadsheet.builder'
+import { localDateString, localMidnight } from '../../common/time/local-label'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import { reportColumns, reportRows } from './analytics-report.export'
 
@@ -62,6 +63,11 @@ export interface ReportScope {
   id: string | null
   /** Вуз области — для таймзоны дат в файле. У платформы — null (UTC). */
   universityId: string | null
+  /**
+   * Группы, которые не входят в счётчики подразделений (вторичное подавление, см.
+   * suppressedGroups). Заполняет расчёт, а не resolveScope.
+   */
+  excludedGroups?: string[]
 }
 
 export interface ReportMetrics {
@@ -72,7 +78,10 @@ export interface ReportMetrics {
   /** null — у уровня показателя нет: заявки преподавателю не подают. */
   applications: { submitted: number; closed: number; overdue: number } | null
   submissions: number
-  /** null — у преподавателя показателя нет (см. reportColumns). */
+  /**
+   * null — показателя нет: у преподавателя (см. reportColumns) или когда период длиннее
+   * срока хранения журнала аудита (activityCovered).
+   */
   activeStudents: number | null
 }
 
@@ -81,6 +90,11 @@ export interface ReportUnit {
   name: string
   /** В подразделении меньше REPORT_MIN_CELL студентов — показатели скрыты. */
   suppressed: boolean
+  /**
+   * Показатели посчитаны без скрытых порогом групп внутри подразделения — тех, что
+   * раскрылись бы разностью с отчётом уровнем ниже (suppressedGroups).
+   */
+  partial: boolean
   metrics: ReportMetrics | null
 }
 
@@ -277,7 +291,7 @@ export class AnalyticsReportService {
     scope: ReportScope,
     period: AnalyticsReportPeriod,
   ): Promise<AnalyticsReport> {
-    const range = reportRange(period)
+    const range = reportRange(period, new Date(), await this.universityTimezone(scope.universityId))
     const units = await this.units(scope)
     if (units.length > REPORT_MAX_UNITS) {
       throw new AppException(
@@ -286,16 +300,26 @@ export class AnalyticsReportService {
       )
     }
 
+    // Вторичное подавление: строка вуза или платформы складывается из подразделений
+    // уровнем ниже так же, как итог их собственного отчёта, — без малых групп, которые
+    // иначе раскрылись бы разностью «строка факультета минус видимые группы».
+    const { excluded, partialUnits } =
+      scope.level === 'university' || scope.level === 'platform'
+        ? suppressedGroups(await this.groupSizes(scope), scope.level)
+        : { excluded: [] as string[], partialUnits: new Set<string>() }
+    const counted: ReportScope = { ...scope, excludedGroups: excluded }
+
     const teacher = scope.level === 'teacher'
+    const activity = !teacher && activityCovered(range)
     const [students, attendance, grades, exams, submissions, applications, active] =
       await Promise.all([
-        this.students(scope),
-        this.attendance(scope, range),
-        this.grades(scope, range),
-        this.exams(scope, range),
-        this.submissions(scope, range),
-        teacher ? Promise.resolve([]) : this.applications(scope, range),
-        teacher ? Promise.resolve([]) : this.activeStudents(scope, range),
+        this.students(counted),
+        this.attendance(counted, range),
+        this.grades(counted, range),
+        this.exams(counted, range),
+        this.submissions(counted, range),
+        teacher ? Promise.resolve([]) : this.applications(counted, range),
+        activity ? this.activeStudents(counted, range) : Promise.resolve([]),
       ])
 
     const counts = new Map<string, Counts>(units.map((u) => [u.id, { ...ZERO }]))
@@ -342,13 +366,14 @@ export class AnalyticsReportService {
           id: u.id,
           name: u.name,
           suppressed,
-          metrics: suppressed ? null : toMetrics(u.counts, scope.level),
+          partial: !suppressed && partialUnits.has(u.id),
+          metrics: suppressed ? null : toMetrics(u.counts, scope.level, activity),
         }
       }),
       total:
         totalCounts.students < REPORT_MIN_CELL
           ? null
-          : { metrics: toMetrics(totalCounts, scope.level), partial },
+          : { metrics: toMetrics(totalCounts, scope.level, activity), partial },
     }
   }
 
@@ -390,18 +415,50 @@ export class AnalyticsReportService {
   }
 
   /**
+   * Группы области с числом студентов, факультетом и вузом — вход вторичного подавления.
+   * Нужны только уровням, чьи строки складываются из групп (вуз, платформа).
+   */
+  private async groupSizes(scope: ReportScope): Promise<GroupSize[]> {
+    const where =
+      scope.level === 'university' ? Prisma.sql`WHERE f.university_id = ${scope.id}` : Prisma.empty
+    const rows = await this.prisma.$queryRaw<
+      Array<{ groupId: string; facultyId: string; universityId: string; size: bigint }>
+    >`
+      SELECT g.id AS "groupId", g.faculty_id AS "facultyId", f.university_id AS "universityId",
+             COUNT(u.id) AS size
+        FROM groups g
+        JOIN faculties f ON f.id = g.faculty_id
+        LEFT JOIN users u ON u.group_id = g.id
+                         AND u.role::text IN ${STUDENT_ROLES}
+                         AND u.deleted_at IS NULL
+                         AND u.is_blocked = false
+       ${where}
+       GROUP BY g.id, g.faculty_id, f.university_id`
+    return rows.map((r) => ({
+      groupId: r.groupId,
+      facultyId: r.facultyId,
+      universityId: r.universityId,
+      students: Number(r.size),
+    }))
+  }
+
+  /**
    * Группы области и подразделение каждой — общая раскладка для всех показателей.
+   * Группы из `excludedGroups` в неё не входят (вторичное подавление).
    * Фрагменты статические, значения — плейсхолдерами (§14.4).
    */
   private unitGroups(scope: ReportScope): Prisma.Sql {
+    const excluded = scope.excludedGroups ?? []
+    const skip = excluded.length > 0 ? Prisma.sql`AND NOT (g.id = ANY(${excluded}))` : Prisma.empty
     switch (scope.level) {
       case 'platform':
         return Prisma.sql`SELECT g.id AS group_id, f.university_id AS unit_id
-          FROM groups g JOIN faculties f ON f.id = g.faculty_id`
+          FROM groups g JOIN faculties f ON f.id = g.faculty_id
+         WHERE true ${skip}`
       case 'university':
         return Prisma.sql`SELECT g.id AS group_id, g.faculty_id AS unit_id
           FROM groups g JOIN faculties f ON f.id = g.faculty_id
-         WHERE f.university_id = ${scope.id}`
+         WHERE f.university_id = ${scope.id} ${skip}`
       case 'faculty':
         return Prisma.sql`SELECT g.id AS group_id, g.id AS unit_id
           FROM groups g WHERE g.faculty_id = ${scope.id}`
@@ -592,15 +649,96 @@ export interface ReportRange {
 
 /**
  * Границы периода — те же, что у отчёта карьеры: месяц и квартал — последние 30 и 90
- * дней, год — УЧЕБНЫЙ, с 1 сентября: отчётность вуза живёт по нему.
+ * дней, год — УЧЕБНЫЙ, с 1 сентября: отчётность вуза живёт по нему. Полночь 1 сентября —
+ * по часам вуза (у платформы — UTC): по UTC первые пять часов учебного года в Алматы
+ * относились к прошлому, а 1 сентября до 05:00 отчёт считал ещё прошлый год.
  */
-export function reportRange(period: AnalyticsReportPeriod, now: Date = new Date()): ReportRange {
+export function reportRange(
+  period: AnalyticsReportPeriod,
+  now: Date = new Date(),
+  timezone: string | null = null,
+): ReportRange {
   if (period === 'year') {
-    const year = now.getUTCMonth() >= 8 ? now.getUTCFullYear() : now.getUTCFullYear() - 1
-    return { from: new Date(Date.UTC(year, 8, 1)), to: now }
+    const [y, m] = localDateString(now, timezone).split('-').map(Number) as [number, number]
+    const year = m >= 9 ? y : y - 1
+    return { from: localMidnight(year, 8, 1, timezone), to: now }
   }
   const days = period === 'month' ? 30 : 90
   return { from: new Date(now.getTime() - days * DAY_MS), to: now }
+}
+
+export interface GroupSize {
+  groupId: string
+  facultyId: string
+  universityId: string
+  students: number
+}
+
+/**
+ * Вторичное подавление малых групп между уровнями отчёта (§8.3 «иначе разность раскрыла
+ * бы группу»).
+ *
+ * Внутри одного отчёта итог уже считается без скрытых строк, если вместе их меньше порога.
+ * Но строка «Факультет F» в отчёте вуза складывалась из ВСЕХ групп F, а отчёт факультета F
+ * показывает видимые группы: разность давала точные показатели скрытой малой группы.
+ * Поэтому строка уровнем выше считается ровно как итог отчёта уровнем ниже: факультет —
+ * без своих скрытых групп, если вместе в них меньше порога; вуз (в отчёте платформы) —
+ * ещё и без скрытых так же факультетов.
+ *
+ * Возвращает группы, которые не входят в счётчики, и подразделения отчёта, чьи строки из-за
+ * этого неполные.
+ */
+export function suppressedGroups(
+  groups: GroupSize[],
+  level: 'university' | 'platform',
+): { excluded: string[]; partialUnits: Set<string> } {
+  const excluded: string[] = []
+  const partialUnits = new Set<string>()
+
+  // Шаг 1: группы внутри факультета — как итог отчёта факультета.
+  const byFaculty = groupBy(groups, (g) => g.facultyId)
+  const faculties: Array<{ id: string; universityId: string; students: number; groups: string[] }> =
+    []
+  for (const [facultyId, list] of byFaculty) {
+    const universityId = list[0]?.universityId ?? ''
+    const hidden = list.filter((g) => g.students < REPORT_MIN_CELL)
+    const hiddenStudents = hidden.reduce((acc, g) => acc + g.students, 0)
+    // Как `partial` у итога: скрытые вместе меньше порога — в строку не входят. Пустые
+    // группы тоже: отметки ушедших студентов остаются при группе.
+    const dropped = hidden.length > 0 && hiddenStudents < REPORT_MIN_CELL ? hidden : []
+    for (const g of dropped) excluded.push(g.groupId)
+    if (dropped.length > 0) partialUnits.add(level === 'university' ? facultyId : universityId)
+    const kept = list.filter((g) => !dropped.includes(g))
+    faculties.push({
+      id: facultyId,
+      universityId,
+      students: kept.reduce((acc, g) => acc + g.students, 0),
+      groups: kept.map((g) => g.groupId),
+    })
+  }
+  if (level === 'university') return { excluded, partialUnits }
+
+  // Шаг 2 (платформа): факультеты внутри вуза — как итог отчёта вуза.
+  for (const [universityId, list] of groupBy(faculties, (f) => f.universityId)) {
+    const hidden = list.filter((f) => f.students < REPORT_MIN_CELL)
+    const hiddenStudents = hidden.reduce((acc, f) => acc + f.students, 0)
+    if (hidden.length === 0 || hiddenStudents >= REPORT_MIN_CELL) continue
+    const dropped = hidden.flatMap((f) => f.groups)
+    excluded.push(...dropped)
+    if (dropped.length > 0) partialUnits.add(universityId)
+  }
+  return { excluded, partialUnits }
+}
+
+function groupBy<T>(list: T[], key: (item: T) => string): Map<string, T[]> {
+  const out = new Map<string, T[]>()
+  for (const item of list) {
+    const k = key(item)
+    const bucket = out.get(k)
+    if (bucket) bucket.push(item)
+    else out.set(k, [item])
+  }
+  return out
 }
 
 function sumCounts(list: Counts[]): Counts {
@@ -616,7 +754,17 @@ function percent(part: number, whole: number): number | null {
   return whole === 0 ? null : Math.round((part / whole) * 100)
 }
 
-export function toMetrics(c: Counts, level: ReportLevel): ReportMetrics {
+/**
+ * Покрывает ли журнал аудита период целиком. Журнал чистится через AUDIT_RETENTION_DAYS, и
+ * «активных за учебный год» по нему считались бы только последние три месяца — цифра
+ * выглядела бы годовой, а была квартальной. Такой период показатель не получает вовсе.
+ * Сутки запаса: квартал — ровно 90 дней, и «сейчас» у отчёта и у проверки расходится на мс.
+ */
+export function activityCovered(range: ReportRange): boolean {
+  return range.to.getTime() - range.from.getTime() <= (AUDIT_RETENTION_DAYS + 1) * DAY_MS
+}
+
+export function toMetrics(c: Counts, level: ReportLevel, activity = true): ReportMetrics {
   const teacher = level === 'teacher'
   return {
     students: c.students,
@@ -635,6 +783,6 @@ export function toMetrics(c: Counts, level: ReportLevel): ReportMetrics {
     exams: { passed: c.passed, failed: c.failed, absent: c.examAbsent, retake: c.retake },
     applications: teacher ? null : { submitted: c.submitted, closed: c.closed, overdue: c.overdue },
     submissions: c.submissions,
-    activeStudents: teacher ? null : c.active,
+    activeStudents: teacher || !activity ? null : c.active,
   }
 }

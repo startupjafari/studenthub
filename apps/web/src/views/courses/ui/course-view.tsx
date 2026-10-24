@@ -30,7 +30,7 @@ import {
 } from '../../../shared/ui'
 import { nowInTz } from '../../../shared/lib'
 import { useAppSelector } from '../../../shared/store'
-import { scheduleKeys, fetchSchedule } from '../../../entities/schedule'
+import { scheduleKeys, fetchSchedule, fetchScheduleChanges } from '../../../entities/schedule'
 import { materialKeys, fetchMaterials } from '../../../entities/material'
 import { GroupMembers } from '../../../widgets/group-members'
 import { cn } from '../../../shared/lib/utils'
@@ -43,7 +43,7 @@ import {
 } from '../../../entities/assignment'
 import { gradebookKeys, fetchMyGrades } from '../../../entities/gradebook'
 import { attendanceKeys, fetchMyAttendance } from '../../../entities/attendance'
-import { buildCourses, mergeApiCourses, pickCourse } from '../lib/build-courses'
+import { buildCourses, mergeApiCourses, nextLessonRange, pickCourse } from '../lib/build-courses'
 import { MaterialRow } from './material-row'
 
 // Статус задания глазами студента → вариант бейджа + i18n-ключ (namespace Assignments.status).
@@ -54,6 +54,7 @@ const ASG_STATUS_KEY: Record<StudentAssignmentStatus, string> = {
   GRADED: 'graded',
   RETURNED: 'returned',
   OVERDUE: 'overdue',
+  CLOSED: 'closed',
 }
 const ASG_STATUS_VARIANT: Record<
   StudentAssignmentStatus,
@@ -65,6 +66,7 @@ const ASG_STATUS_VARIANT: Record<
   GRADED: 'default',
   RETURNED: 'destructive',
   OVERDUE: 'destructive',
+  CLOSED: 'secondary',
 }
 
 // Разделы дисциплины. Живут в шапке страницы (SegmentedTabs), как на остальных экранах
@@ -137,13 +139,22 @@ export function CourseView({ subject }: CourseViewProps) {
     retry: false,
   })
 
+  // «Ближайшее занятие» — с отменами и переносами своей даты.
+  const now = useMemo(() => nowInTz(schedule.data?.timezone ?? null), [schedule.data?.timezone])
+  const changesRange = useMemo(() => nextLessonRange(now), [now])
+  const changes = useQuery({
+    queryKey: scheduleKeys.changes(changesRange),
+    queryFn: () => fetchScheduleChanges(changesRange),
+    enabled: !!schedule.data,
+  })
+
   const summary = useMemo(() => {
     if (!schedule.data) return null
-    const now = nowInTz(schedule.data.timezone ?? null)
     const counts = [{ subject, count: materials.data?.length ?? 0 }]
-    const base = buildCourses(schedule.data.pairs, counts, now)
-    return pickCourse(mergeApiCourses(base, apiCourses.data ?? []), subject, courseParam)
-  }, [schedule.data, materials.data, apiCourses.data, subject, courseParam])
+    const base = buildCourses(schedule.data.pairs, counts, now, changes.data ?? [])
+    const merged = mergeApiCourses(base, apiCourses.data ?? [], counts)
+    return pickCourse(merged, subject, courseParam)
+  }, [schedule.data, materials.data, apiCourses.data, subject, courseParam, now, changes.data])
 
   const subjectMaterials = useMemo(() => materials.data ?? [], [materials.data])
 

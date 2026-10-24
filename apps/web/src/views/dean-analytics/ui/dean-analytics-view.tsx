@@ -1,10 +1,12 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import {
   BookOpen,
+  Building2,
   ChevronRight,
   FileClock,
   GraduationCap,
@@ -64,8 +66,8 @@ function rateTone(rate: number): string {
 type Tab = 'students' | 'groups'
 
 // Аналитика факультета (задача 14): показатели, «требует внимания», drill-down по группам.
-// У декана факультет один — берётся из токена. Админу и модератору вуза сервер факультет
-// не выводит (analytics.service: resolveFaculty), поэтому им нужен выбор в шапке.
+// У декана факультет один — берётся из токена. Админу вуза сервер факультет не выводит
+// (analytics.service: resolveFaculty), поэтому ему нужен выбор в шапке.
 export function DeanAnalyticsView() {
   const t = useTranslations('Analytics')
   const role = useAppSelector((s) => s.auth.role)
@@ -83,6 +85,8 @@ export function DeanAnalyticsView() {
   }, [picksFaculty, facultyId, faculties.data])
 
   const ready = !picksFaculty || !!facultyId
+  // Вуз без факультетов: считать нечего, и без явного состояния экран оставался пустым.
+  const noFaculties = picksFaculty && faculties.isSuccess && faculties.data.length === 0
   const scope = picksFaculty ? facultyId : undefined
   const q = useQuery({
     queryKey: analyticsKeys.faculty(scope),
@@ -136,7 +140,26 @@ export function DeanAnalyticsView() {
         }
       />
 
-      {q.isLoading ? (
+      {picksFaculty && faculties.isError ? (
+        <EmptyState
+          icon={<Inbox className="size-6" aria-hidden />}
+          title={t('loadError')}
+          action={<Button onClick={() => faculties.refetch()}>{t('retry')}</Button>}
+        />
+      ) : noFaculties ? (
+        <EmptyState
+          icon={<Building2 className="size-6" aria-hidden />}
+          title={t('noFaculties')}
+          description={t('noFacultiesHint')}
+          action={
+            role === Role.UNIVERSITY_ADMIN ? (
+              <Button asChild>
+                <Link href="/university-admin/faculties">{t('openFaculties')}</Link>
+              </Button>
+            ) : undefined
+          }
+        />
+      ) : !ready || q.isLoading ? (
         <div className="flex flex-col gap-3">
           <Skeleton className="h-24 w-full rounded-xl" />
           <Skeleton fill className="min-h-64 rounded-xl" />
@@ -170,9 +193,15 @@ export function DeanAnalyticsView() {
                 icon={Percent}
                 tone="text-info"
                 label={t('kpi.attendance')}
-                value={`${q.data.totals.attendanceRate}%`}
+                // null — факультет ещё не отмечали: прочерк, а не красные «0 %».
+                value={
+                  q.data.totals.attendanceRate === null ? null : `${q.data.totals.attendanceRate}%`
+                }
                 valueTone={
-                  q.data.totals.attendanceRate < lowAttendance ? 'text-destructive' : undefined
+                  q.data.totals.attendanceRate !== null &&
+                  q.data.totals.attendanceRate < lowAttendance
+                    ? 'text-destructive'
+                    : undefined
                 }
               />
               <MetricTile
@@ -215,6 +244,8 @@ export function DeanAnalyticsView() {
                 students={risk.data?.students ?? []}
                 totalStudents={q.data.totals.students}
                 loading={risk.isLoading}
+                // Сбой Early Warning — не «никто не требует внимания».
+                onRetry={risk.isError ? () => risk.refetch() : undefined}
               />
             ) : (
               <GroupsTab
@@ -297,10 +328,13 @@ function RiskStudentsTab({
   students,
   totalStudents,
   loading,
+  onRetry,
 }: {
   students: AtRiskStudent[]
   totalStudents: number
   loading: boolean
+  /** Задан — запрос упал: вместо списка ошибка с повтором. */
+  onRetry?: () => void
 }) {
   const t = useTranslations('Analytics')
   const rows = useMemo(() => students.map(toRiskRow).sort(byRisk), [students])
@@ -327,6 +361,15 @@ function RiskStudentsTab({
   })
 
   if (loading) return <Skeleton fill className="min-h-64 rounded-xl" />
+  if (onRetry) {
+    return (
+      <EmptyState
+        icon={<Inbox className="size-6" aria-hidden />}
+        title={t('loadError')}
+        action={<Button onClick={onRetry}>{t('retry')}</Button>}
+      />
+    )
+  }
   if (rows.length === 0) {
     return (
       <EmptyState
@@ -437,7 +480,7 @@ function GroupsTab({
       if (key === 'name') return g.name
       if (key === 'students') return g.students
       // Группа без отметок — не «ноль процентов», а «нечего считать»: уводим в конец.
-      if (key === 'rate') return g.attendanceTracked > 0 ? g.attendanceRate : null
+      if (key === 'rate') return g.attendanceRate
       return null
     },
     // Сортировки по умолчанию нет: порядок задаёт сервер, колонки сортируются щелчком.
@@ -470,8 +513,8 @@ function GroupsTab({
         </TableHeader>
         <TableBody>
           {sorted.map((g) => {
-            const tracked = g.attendanceTracked > 0
-            const atRisk = tracked && g.attendanceRate < threshold
+            const rate = g.attendanceRate
+            const atRisk = rate !== null && rate < threshold
             return (
               <TableRow
                 key={g.groupId}
@@ -489,17 +532,14 @@ function GroupsTab({
                 </TableCell>
                 <TableCell>
                   <span className="flex items-center gap-2">
-                    <Progress
-                      value={g.attendanceRate}
-                      indicatorClassName={rateTone(g.attendanceRate)}
-                    />
+                    <Progress value={rate ?? 0} indicatorClassName={rateTone(rate ?? 0)} />
                     <span
                       className={cn(
                         'w-10 shrink-0 text-right text-xs tabular-nums',
                         atRisk && 'font-medium text-destructive',
                       )}
                     >
-                      {tracked ? `${g.attendanceRate}%` : '—'}
+                      {rate !== null ? `${rate}%` : '—'}
                     </span>
                   </span>
                 </TableCell>

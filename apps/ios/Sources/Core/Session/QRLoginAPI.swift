@@ -30,9 +30,23 @@ struct QRLoginTicket: Equatable {
     }
 }
 
+/// Кто просит вход: браузер, система и сеть компьютера (`POST /auth/qr/preview`).
+struct QRLoginPreview: Decodable, Equatable {
+    struct Requester: Decodable, Equatable {
+        let browser: String?
+        let os: String?
+        let ip: String?
+    }
+
+    let requester: Requester
+    let createdAt: Date?
+}
+
 /// Подтверждение входа с уже залогиненного устройства. Протокол — чтобы экран
 /// проверялся без сети: отказ сервера здесь такой же сценарий, как успех.
 protocol QRLoginApproving: Sendable {
+    /// Кто просит вход — показывается до кнопки подтверждения (§8.3 «Вход по QR»).
+    func preview(_ ticket: QRLoginTicket) async throws -> QRLoginPreview
     func approve(_ ticket: QRLoginTicket) async throws
 }
 
@@ -46,6 +60,13 @@ struct QRLoginAPI: QRLoginApproving {
 
     init(client: APIClient) {
         self.client = client
+    }
+
+    /// Без этого шага телефон подтверждал вход вслепую: злоумышленник присылает QR
+    /// со своего компьютера, а жертва видит лишь общее предупреждение.
+    func preview(_ ticket: QRLoginTicket) async throws -> QRLoginPreview {
+        let endpoint = try Endpoint.post("auth/qr/preview", json: ApproveRequest(approveToken: ticket.approveToken))
+        return try await client.send(endpoint, as: QRLoginPreview.self)
     }
 
     func approve(_ ticket: QRLoginTicket) async throws {

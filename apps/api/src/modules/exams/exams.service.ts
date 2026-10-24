@@ -135,10 +135,13 @@ export class ExamsService {
       select: withMine ? this.selectWithMine(viewer.sub) : EXAM_SELECT,
     })
     if (!exam) throw new AppException('NOT_FOUND', 'Экзамен не найден')
+    const mine = (exam as Record<string, unknown>).results
     await this.assertRead(viewer, {
       groupId: exam.groupId,
       teacherId: exam.course.teacherId,
       examinerId: exam.examiner?.id ?? null,
+      // Свой результат по экзамену прежней группы — тот же признак, что в `scopeWhere`.
+      ownResult: Array.isArray(mine) && mine.length > 0,
     })
     return this.mapMine(exam)
   }
@@ -274,15 +277,17 @@ export class ExamsService {
         updated,
         NOTIFICATION_JOBS.EXAM_UPDATED,
         'exams.updated.title',
-        // Время и аудитория — в ключе: второй перенос того же экзамена — новое уведомление.
-        `exam-updated:${id}:${next.date.toISOString()}:${next.roomId ?? '-'}`,
+        // Ключ на сохранение, а не на состояние: перенос обратно на уже бывшее время совпал
+        // бы с ключом первого переноса, и очередь молча погасила бы уведомление. Повторы
+        // одной задачи ключ при этом не меняют — он вычислен один раз здесь.
+        `exam-updated:${id}:${Date.now()}`,
       )
     }
     return updated
   }
 
   async remove(actor: JwtPayload, id: string, ctx: RequestContext): Promise<void> {
-    await this.findManageable(actor, id)
+    const exam = await this.findManageable(actor, id)
     // Экзамен с выставленными результатами не удаляем: каскад стёр бы ведомость.
     const scored = await this.prisma.examResult.count({
       where: { examId: id, OR: [{ score: { not: null } }, { status: { not: 'SCHEDULED' } }] },
@@ -292,6 +297,17 @@ export class ExamsService {
     }
     await this.prisma.exam.delete({ where: { id } })
     await this.record(actor, 'exam_deleted', id, ctx)
+    // Отмена предстоящего экзамена — такая же новость для группы, как назначение и перенос:
+    // иначе студенты узнавали бы о ней, только не найдя экзамен в «Экзаменах».
+    if (exam.date.getTime() > Date.now()) {
+      await this.notifyStudents(
+        exam,
+        NOTIFICATION_JOBS.EXAM_CANCELLED,
+        'exams.cancelled.title',
+        'SCHEDULE_CHANGE',
+        `exam-cancelled:${id}`,
+      )
+    }
   }
 
   async setResults(actor: JwtPayload, input: SetExamResultsInput, ctx: RequestContext) {
@@ -384,12 +400,28 @@ export class ExamsService {
 
   private scopeWhere(viewer: JwtPayload): Prisma.ExamWhereInput {
     if (isPlatform(viewer.role)) return {}
-    if (STUDENT_ROLES.includes(viewer.role)) return { groupId: viewer.groupId ?? '__none__' }
+    if (STUDENT_ROLES.includes(viewer.role)) {
+      // Экзамены текущей группы И те, где у студента есть результат: после перевода в другую
+      // группу выборка только по группе прятала всю прежнюю сессию (как в журнале оценок).
+      return {
+        OR: [
+          { groupId: viewer.groupId ?? '__none__' },
+          { results: { some: { studentId: viewer.sub } } },
+        ],
+      }
+    }
     if (viewer.role === Role.TEACHER) {
       return { OR: [{ course: { is: { teacherId: viewer.sub } } }, { examinerId: viewer.sub }] }
     }
     if (viewer.role === Role.DEAN) {
-      return { group: { is: { facultyId: viewer.facultyId ?? '__none__' } } }
+      // Экзаменатором бывает и декан другого факультета (председатель комиссии): экзамен,
+      // который он принимает, он видит, как и преподаватель-экзаменатор.
+      return {
+        OR: [
+          { group: { is: { facultyId: viewer.facultyId ?? '__none__' } } },
+          { examinerId: viewer.sub },
+        ],
+      }
     }
     return {
       group: { is: { faculty: { is: { universityId: viewer.universityId ?? '__none__' } } } },
@@ -398,11 +430,16 @@ export class ExamsService {
 
   private async assertRead(
     viewer: JwtPayload,
-    exam: { groupId: string; teacherId: string | null; examinerId: string | null },
+    exam: {
+      groupId: string
+      teacherId: string | null
+      examinerId: string | null
+      ownResult?: boolean
+    },
   ): Promise<void> {
     if (isPlatform(viewer.role)) return
     if (STUDENT_ROLES.includes(viewer.role)) {
-      if (viewer.groupId === exam.groupId) return
+      if (viewer.groupId === exam.groupId || exam.ownResult) return
       throw new AppException('WRONG_SCOPE', 'Экзамен другой группы')
     }
     // Преподаватель — то же условие, что в `scopeWhere`: своя дисциплина или он экзаменатор.
@@ -411,6 +448,7 @@ export class ExamsService {
       if (exam.teacherId === viewer.sub || exam.examinerId === viewer.sub) return
       throw new AppException('FORBIDDEN', 'Не ваш экзамен')
     }
+    if (viewer.role === Role.DEAN && exam.examinerId === viewer.sub) return
     const meta = await this.resolveGroup(exam.groupId)
     if (viewer.role === Role.DEAN) {
       if (viewer.facultyId === meta.facultyId) return
@@ -479,7 +517,13 @@ export class ExamsService {
       maxScore: exam.maxScore ?? null,
       subject: exam.course.subject.name,
     }
-    if (opts.examiner && actor.role === Role.TEACHER && exam.examinerId === actor.sub) {
+    // Экзаменатор — преподаватель или декан (`assertSameUniversity`); декан другого
+    // факультета без этой ветки упирался бы в scope своего факультета.
+    if (
+      opts.examiner &&
+      (actor.role === Role.TEACHER || actor.role === Role.DEAN) &&
+      exam.examinerId === actor.sub
+    ) {
       return found
     }
     this.assertManageCourse(actor, {

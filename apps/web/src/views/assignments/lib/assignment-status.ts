@@ -19,6 +19,7 @@ export const STUDENT_STATUS_BADGE: Record<
   GRADED: 'success',
   RETURNED: 'warning',
   OVERDUE: 'destructive',
+  CLOSED: 'secondary',
 }
 
 export const STUDENT_STATUS_KEY: Record<StudentStatus, string> = {
@@ -28,11 +29,16 @@ export const STUDENT_STATUS_KEY: Record<StudentStatus, string> = {
   GRADED: 'status.graded',
   RETURNED: 'status.returned',
   OVERDUE: 'status.overdue',
+  CLOSED: 'status.closed',
 }
 
-// Можно ли редактировать/отправлять работу (DRAFT/RETURNED и задание опубликовано).
-export function canEditSubmission(a: AssignmentItem): boolean {
+// Можно ли редактировать/отправлять работу: задание опубликовано, работа — черновик или
+// возвращена. Срок держит только первую сдачу: после него без «поздней сдачи» сервер
+// отвечает 409, а возвращённую на доработку принимает и после срока.
+export function canEditSubmission(a: AssignmentItem, now = new Date()): boolean {
   const s = a.mySubmission?.status
   if (a.status !== 'PUBLISHED') return false
-  return s === undefined || s === 'DRAFT' || s === 'RETURNED'
+  if (s === 'RETURNED') return true
+  if (s !== undefined && s !== 'DRAFT') return false
+  return !(a.dueAt != null && new Date(a.dueAt) < now && !a.allowLate)
 }

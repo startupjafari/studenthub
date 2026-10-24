@@ -33,7 +33,7 @@ function chatsPath(role: Role | null): string {
   return home === '/' ? '/chats' : `${home}/chats`
 }
 
-// Приземление по ссылке-приглашению в группу: присоединяемся и уходим к чатам роли.
+// Приземление по ссылке-приглашению в группу: присоединяемся и открываем группу в чатах роли.
 export default function JoinChatPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
   const router = useRouter()
@@ -57,8 +57,12 @@ export default function JoinChatPage({ params }: { params: Promise<{ id: string 
     const viewerRole = roleFromCookie()
     setRole(viewerRole)
     if (viewerRole === Role.EMPLOYER) return
+    // Сразу в группу, а не в общий список: ?chat= открывает чат и перечитывает список, где
+    // группы, в которую только что вступили, ещё нет.
     joinChatRequest(id, code)
-      .then(() => router.replace(chatsPath(viewerRole)))
+      .then((chat) =>
+        router.replace(`${chatsPath(viewerRole)}?chat=${encodeURIComponent(chat.id)}`),
+      )
       .catch(() => setError(true))
   }, [id, code, router])
 

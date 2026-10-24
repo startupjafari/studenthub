@@ -15,6 +15,22 @@ export const APPOINTMENT_STATUSES = [
 export const AppointmentStatusSchema = z.enum(APPOINTMENT_STATUSES)
 export type AppointmentStatus = z.infer<typeof AppointmentStatusSchema>
 
+// Допустимые переходы записи (SSOT): сервер проверяет по ним каждое действие, клиенты строят
+// по ним меню. Завершённая и отменённая — конечные. Раньше таблица жила только на сервере, и
+// очередь деканата предлагала все действия подряд: «Завершить» неподтверждённую или
+// «Подтвердить» подтверждённую упиралось в 409.
+export const APPOINTMENT_TRANSITIONS: Record<AppointmentStatus, readonly AppointmentStatus[]> = {
+  REQUESTED: ['CONFIRMED', 'RESCHEDULED', 'CANCELLED'],
+  CONFIRMED: ['RESCHEDULED', 'COMPLETED', 'CANCELLED'],
+  RESCHEDULED: ['CONFIRMED', 'RESCHEDULED', 'COMPLETED', 'CANCELLED'],
+  COMPLETED: [],
+  CANCELLED: [],
+}
+
+export function canAppointmentTransition(from: string, to: AppointmentStatus): boolean {
+  return (APPOINTMENT_TRANSITIONS[from as AppointmentStatus] ?? []).includes(to)
+}
+
 const isoDateTime = z.string().datetime({ offset: true })
 
 export const CreateAppointmentSchema = z

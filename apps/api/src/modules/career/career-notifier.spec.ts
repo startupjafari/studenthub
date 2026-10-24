@@ -121,6 +121,26 @@ describe('CareerNotifier — решение по допуску', () => {
   })
 })
 
+describe('CareerNotifier — истечение допуска', () => {
+  it('свой заголовок «срок истёк», а не «отозван»: решения вуза не было', async () => {
+    const { notifier, queue } = setup()
+    await notifier.accessExpired({
+      accessId: 'a-1',
+      companyId: 'co-1',
+      universityId: 'uni-1',
+      expiredAt: at,
+    })
+    expect(queue.enqueue.mock.calls[0][2]).toMatchObject({
+      recipientIds: ['hr-1', 'hr-2'],
+      titleKey: 'career.accessExpired.title',
+      bodyKey: 'career.university.body',
+      params: { university: 'Туран' },
+      data: { url: '/employer/access' },
+      dedupeKey: `company-access:a-1:EXPIRED:${at.getTime()}`,
+    })
+  })
+})
+
 describe('CareerNotifier — решение по вакансии', () => {
   it('одобрение — компании, с названием вакансии и вуза', async () => {
     const { notifier, queue } = setup()

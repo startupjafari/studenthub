@@ -20,11 +20,13 @@ import kz.studenthub.app.core.observability.SentryObservability
 import kz.studenthub.app.core.session.AccessToken
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kz.studenthub.app.core.chats.AttachmentUploader
 import kz.studenthub.app.core.chats.AttachmentUrls
 import kz.studenthub.app.core.chats.ChatStore
 import kz.studenthub.app.core.chats.ChatsApi
+import kz.studenthub.app.core.chats.DraftSync
 import kz.studenthub.app.core.chats.MessageOutbox
 import kz.studenthub.app.core.chats.MessageStore
 import kz.studenthub.app.core.chats.OutboxWorker
@@ -38,6 +40,12 @@ import kz.studenthub.app.core.applications.ApplicationsApi
 import kz.studenthub.app.core.feed.FeedApi
 import kz.studenthub.app.core.library.LibraryApi
 import kz.studenthub.app.core.study.StudyApi
+import kz.studenthub.app.features.chats.outgoingDir
+import androidx.core.app.NotificationManagerCompat
+import coil3.SingletonImageLoader
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
@@ -91,12 +99,22 @@ class AppServices(context: Context) {
     val messageStore = MessageStore(database)
     val uploader = AttachmentUploader(database, chatsApi)
     val outbox = MessageOutbox(database, chatsApi, uploader, onStuck = { OutboxWorker.schedule(appContext) })
+    val drafts = DraftSync(database, chatsApi)
 
     /** Ссылки на вложения: кэш по id файла, а не по адресу. */
     val attachmentUrls = AttachmentUrls(chatsApi::attachmentUrl)
 
+    val pushSync = PushSync(chatsApi, chatStore)
+
     /** Реальное время. Транспорт — единственное место, знающее про socket.io. */
-    val realtime = RealtimeCoordinator(SocketIoTransport(BuildConfig.API_BASE_URL), session, database, appScope)
+    val realtime = RealtimeCoordinator(
+        SocketIoTransport(BuildConfig.API_BASE_URL),
+        session,
+        database,
+        appScope,
+        // `chat:activity` — тот же догон первой страницы списка, что и по тихому пушу.
+        refreshChats = { pushSync.catchUp() },
+    )
 
     val studyApi = StudyApi(api)
     val feedApi = FeedApi(api)
@@ -110,7 +128,6 @@ class AppServices(context: Context) {
     }
 
     val push = PushRegistrar(appContext, api, clientVersion)
-    val pushSync = PushSync(chatsApi, chatStore)
 
     /** Навигация общая: по нажатию на уведомление переход делает не экран. */
     val router = AppRouter()
@@ -139,6 +156,7 @@ class AppServices(context: Context) {
         push.register()
         // Неотправленное с прошлого раза уходит само, как только есть связь.
         OutboxWorker.schedule(appContext)
+        drafts.flush()
     }
 
     /**
@@ -151,13 +169,39 @@ class AppServices(context: Context) {
         push.unregister()
     }
 
-    /** После выхода: переписка, черновики и очередь отправки не достаются следующему человеку. */
+    /**
+     * После выхода: переписка, черновики и очередь отправки не достаются следующему
+     * человеку. Как и плашки уведомлений, файлы, которые он отправлял, кэш картинок
+     * переписки и подписанные ссылки на них.
+     */
     suspend fun afterSignOut() {
-        withContext(Dispatchers.IO) { database.clearAllTables() }
+        withContext(Dispatchers.IO) {
+            database.clearAllTables()
+            outgoingDir(appContext).deleteRecursively()
+            SingletonImageLoader.get(appContext).let { loader ->
+                loader.memoryCache?.clear()
+                loader.diskCache?.clear()
+            }
+        }
+        attachmentUrls.clear()
+        postMediaUrls.clear()
+        NotificationManagerCompat.from(appContext).cancelAll()
         router.reset()
     }
 
     init {
         NotificationChannels.register(appContext)
+        // Отказ в продлении сессии ведёт на вход, откуда бы ни пришёл запрос: с экрана,
+        // из сокета или из фоновой досылки сообщений.
+        appScope.launch { session.expired.collect { sessionModel.sessionExpired() } }
+        // Свёрнутое приложение не держит комнату открытого чата: иначе сервер считает, что
+        // его читают, и не шлёт по нему пуши ни на одно устройство человека.
+        ProcessLifecycleOwner.get().lifecycle.addObserver(
+            object : DefaultLifecycleObserver {
+                override fun onStart(owner: LifecycleOwner) = realtime.setForeground(true)
+
+                override fun onStop(owner: LifecycleOwner) = realtime.setForeground(false)
+            },
+        )
     }
 }

@@ -12,7 +12,7 @@ vi.mock('../../../entities/document/api/document-api', async (orig) => {
 })
 // Каталог типов вуза ходит в сеть — здесь он не предмет проверки.
 vi.mock('../../../entities/document-type', () => ({
-  useDocumentTypeCatalog: () => ({ labelOf: (id: string) => id }),
+  useDocumentTypeCatalog: () => ({ labelOf: (id: string) => id, typeOf: () => undefined }),
 }))
 vi.mock('../../../shared/store', () => ({ useAppSelector: () => null }))
 

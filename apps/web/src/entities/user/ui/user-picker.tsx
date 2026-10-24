@@ -19,7 +19,8 @@ export interface PickedUser {
 interface UserPickerProps {
   value: PickedUser | null
   onSelect: (user: PickedUser | null) => void
-  roleFilter?: Role
+  // Одна роль или несколько: преподавателем пары можно поставить и декана (C-F27).
+  roleFilter?: Role | readonly Role[]
   placeholder?: string
 }
 
@@ -61,10 +62,24 @@ export function UserPicker({ value, onSelect, roleFilter, placeholder }: UserPic
     return () => document.removeEventListener('mousedown', onDown)
   }, [open])
 
+  const roles: readonly Role[] =
+    roleFilter === undefined ? [] : typeof roleFilter === 'string' ? [roleFilter] : roleFilter
+
   const adminQuery = useQuery({
-    queryKey: adminUserKeys.list({ search, role: roleFilter }),
-    // Пикеру нужны только строки — общее число страниц ему ни к чему.
-    queryFn: async () => (await fetchUsers({ search, role: roleFilter, limit: 20 })).items,
+    queryKey: [...adminUserKeys.list({ search }), 'roles', ...roles],
+    // Пикеру нужны только строки — общее число страниц ему ни к чему. GET /users фильтрует по
+    // одной роли — на несколько ролей идёт по запросу на каждую.
+    queryFn: async () => {
+      if (roles.length <= 1) {
+        return (await fetchUsers({ search, role: roles[0], limit: 20 })).items
+      }
+      const pages = await Promise.all(roles.map((role) => fetchUsers({ search, role, limit: 20 })))
+      return pages
+        .flatMap((p) => p.items)
+        .sort(
+          (a, b) => a.lastName.localeCompare(b.lastName) || a.firstName.localeCompare(b.firstName),
+        )
+    },
     enabled: canAdminSearch && search.trim().length >= 2,
   })
 
@@ -78,7 +93,7 @@ export function UserPicker({ value, onSelect, roleFilter, placeholder }: UserPic
   // вокруг) — отсеиваем на клиенте по роли, которая и так есть в каждой карточке.
   const results: PickedUser[] = canAdminSearch
     ? (adminQuery.data ?? [])
-    : (directoryQuery.data?.items ?? []).filter((u) => !roleFilter || u.role === roleFilter)
+    : (directoryQuery.data?.items ?? []).filter((u) => roles.length === 0 || roles.includes(u.role))
 
   if (value) {
     return (

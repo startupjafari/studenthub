@@ -296,19 +296,22 @@ describe('StudentIdService — журнал проходов охраны', () =
     })
   })
 
-  it('отчисленный — карта показана, но проход запрещён по статусу', async () => {
-    const { service, prisma, passes } = setup()
-    const card = await service.myCard(viewer('stu-1', 'uni-A'))
-    prisma.user.findFirst.mockResolvedValue({ ...student, academicStatus: 'Отчислен' })
+  it.each(['Отчислен', 'EXPELLED', 'GRADUATED'])(
+    'статус %s — карта показана, но проход запрещён по статусу',
+    async (academicStatus) => {
+      const { service, prisma, passes } = setup()
+      const card = await service.myCard(viewer('stu-1', 'uni-A'))
+      prisma.user.findFirst.mockResolvedValue({ ...student, academicStatus })
 
-    await expect(service.verify(guard(), card.token)).resolves.toMatchObject({
-      valid: true,
-      entry: { allowed: false, denyReason: 'STATUS' },
-    })
-    expect(passes.record).toHaveBeenCalledWith(
-      expect.objectContaining({ allowed: false, denyReason: 'STATUS' }),
-    )
-  })
+      await expect(service.verify(guard(), card.token)).resolves.toMatchObject({
+        valid: true,
+        entry: { allowed: false, denyReason: 'STATUS' },
+      })
+      expect(passes.record).toHaveBeenCalledWith(
+        expect.objectContaining({ allowed: false, denyReason: 'STATUS' }),
+      )
+    },
+  )
 
   it('повторное открытие того же результата — второй строки нет', async () => {
     const { service, prisma, passes } = setup()
@@ -317,6 +320,35 @@ describe('StudentIdService — журнал проходов охраны', () =
 
     await service.verify(guard(), card.token)
     await service.verify(guard(), card.token)
+    expect(passes.record).toHaveBeenCalledTimes(1)
+  })
+
+  it('повторное открытие после истечения кода — тот же проход, а не EXPIRED_QR', async () => {
+    const { service, prisma, passes } = setup()
+    const card = await service.myCard(viewer('stu-1', 'uni-A'))
+    prisma.user.findFirst.mockResolvedValue(student)
+    await service.verify(guard(), card.token)
+
+    const later = jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 3 * 60_000)
+    await expect(service.verify(guard(), card.token)).resolves.toMatchObject({
+      entry: { allowed: true, denyReason: null },
+    })
+    // Чужой сотрудник с тем же истёкшим кодом — по-прежнему отказ по сроку.
+    await expect(
+      service.verify({ ...viewer('dean-1', 'uni-A'), role: Role.DEAN }, card.token),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    later.mockRestore()
+    expect(passes.record).toHaveBeenCalledTimes(1)
+  })
+
+  it('повторное открытие отказа — вторая строка не пишется', async () => {
+    const { service, passes } = setup()
+    await expect(service.verify(guard(), 'garbage')).rejects.toMatchObject({
+      code: 'UNAUTHORIZED',
+    })
+    await expect(service.verify(guard(), 'garbage')).rejects.toMatchObject({
+      code: 'UNAUTHORIZED',
+    })
     expect(passes.record).toHaveBeenCalledTimes(1)
   })
 

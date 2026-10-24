@@ -185,8 +185,9 @@ export class LibraryRemindersService {
           bodyKey: TEXT[kind].body,
           params: { title: loan.bookTitle, date: formatDay(dueDate) },
           url: '/my-books',
-          // Просрочка повторяется — в ключе день отправки, иначе повтор отбросит очередь.
-          dedupeKey: `library-${kind}:${loan.id}${kind === 'overdue' ? `:${todayIn(timezone)}` : ''}`,
+          // В ключе срок: после продления напоминания о новом сроке — новые уведомления, а не
+          // повтор, который отбросит очередь. Просрочка повторяется — ещё и день отправки.
+          dedupeKey: `library-${kind}:${loan.id}:${dueDate}${kind === 'overdue' ? `:${todayIn(timezone)}` : ''}`,
         })
         if (!ok) {
           failed = true

@@ -14,11 +14,13 @@ import helmet from '@fastify/helmet'
 import cookie from '@fastify/cookie'
 import multipart from '@fastify/multipart'
 import { SwaggerModule } from '@nestjs/swagger'
-import { Logger as PinoLogger } from 'nestjs-pino'
+import { Logger as PinoLogger, PinoLogger as RequestPinoLogger } from 'nestjs-pino'
 import { FILE_UPLOAD } from '@studenthub/shared-config'
 import { AppModule } from './app.module'
+import { registerAccessLog } from './common/logging/access-log'
 import { createOpenApiDocument } from './common/swagger/openapi-document'
 import type { EnvVars } from './config/env.schema'
+import { parseCorsOrigins } from './config/web-base'
 
 const REQUEST_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -86,13 +88,16 @@ async function bootstrap(): Promise<void> {
   app.useLogger(app.get(PinoLogger))
 
   // Возвращаем requestId клиенту для сквозной корреляции.
-  app
-    .getHttpAdapter()
-    .getInstance()
-    .addHook('onRequest', (req, reply, done) => {
-      void reply.header('x-request-id', req.id)
-      done()
-    })
+  const fastify = app.getHttpAdapter().getInstance()
+  fastify.addHook('onRequest', (req, reply, done) => {
+    void reply.header('x-request-id', req.id)
+    done()
+  })
+
+  // Строка на каждый запрос с настоящим статусом ответа (§13), в том числе на отказы guard'ов.
+  const accessLogger = await app.resolve(RequestPinoLogger)
+  accessLogger.setContext('AccessLog')
+  registerAccessLog(fastify, accessLogger)
 
   const config: ConfigService<EnvVars, true> = app.get(ConfigService)
 
@@ -113,11 +118,15 @@ async function bootstrap(): Promise<void> {
 
   // §14.5 — CORS по whitelist, credentials. Явно перечисляем методы: без этого адаптер разрешал
   // только GET/HEAD/POST, и preflight блокировал DELETE/PATCH/PUT (открепление, удаление, mark-read).
+  // exposedHeaders: при API на отдельном домене браузер прячет от скрипта всё, кроме
+  // «простых» заголовков, — выгрузки теряли имя файла (Content-Disposition), а клиент не
+  // видел, сколько ждать после 429 (Retry-After).
   app.enableCors({
-    origin: config.get('CORS_ORIGIN', { infer: true }).split(','),
+    origin: parseCorsOrigins(config.get('CORS_ORIGIN', { infer: true })),
     credentials: true,
     methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
+    exposedHeaders: ['Content-Disposition', 'Retry-After'],
   })
 
   // §9 — WebSocket поверх socket.io на том же HTTP-сервере (RealtimeGateway).

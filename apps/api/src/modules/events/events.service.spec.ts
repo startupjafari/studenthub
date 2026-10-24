@@ -41,7 +41,8 @@ function setup() {
     $transaction: jest.fn((ops: unknown) => Promise.all(ops as Promise<unknown>[])),
   }
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
-  const queue = { enqueue: jest.fn().mockResolvedValue(undefined) }
+  // true — job поставлен: по нему remindDue решает, ставить ли отметку reminderSentAt.
+  const queue = { enqueue: jest.fn().mockResolvedValue(true) }
   const service = new EventsService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
@@ -71,6 +72,27 @@ describe('EventsService.create — аудитория по роли (10.2)', () 
       ctx,
     )
     expect(res.id).toBe('e-new')
+  })
+
+  // BUG-200: careerKind не принимал ни один эндпоинт — раздел «Карьерные мероприятия»
+  // наполнялся только сидом.
+  it('тип карьерного мероприятия сохраняется; без него событие не карьерное', async () => {
+    const { service, prisma } = setup()
+    prisma.group.findUnique.mockResolvedValue({
+      facultyId: 'f1',
+      faculty: { universityId: 'uni1' },
+    })
+    const student = user(Role.STUDENT, { groupId: 'g1', facultyId: 'f1', universityId: 'uni1' })
+    const base = {
+      audience: 'GROUP' as const,
+      title: 'T',
+      description: 'D',
+      startsAt: '2026-09-01T10:00:00.000Z',
+    }
+    await service.create(student, { ...base, careerKind: 'CAREER_FAIR' }, ctx)
+    await service.create(student, base, ctx)
+    expect(prisma.event.create.mock.calls[0][0].data.careerKind).toBe('CAREER_FAIR')
+    expect(prisma.event.create.mock.calls[1][0].data.careerKind).toBeNull()
   })
 
   it('студент → UNIVERSITY: FORBIDDEN', async () => {
@@ -204,15 +226,17 @@ describe('EventsService.remindDue — окно и дедуп (10.4)', () => {
   it('шлёт job участникам и помечает reminderSentAt', async () => {
     const { service, prisma, queue } = setup()
     prisma.event.findMany
-      .mockResolvedValueOnce([{ id: 'e1', title: 'Событие', startsAt: new Date(1_000_000) }])
+      .mockResolvedValueOnce([
+        { id: 'e1', title: 'Событие', startsAt: new Date(1_000_000), updatedAt: new Date(7) },
+      ])
       .mockResolvedValueOnce([])
     prisma.eventParticipant.findMany.mockResolvedValue([{ userId: 'u2' }, { userId: 'u3' }])
     const n = await service.remindDue()
     expect(n).toBe(1)
     const job = queue.enqueue.mock.calls[0][2]
     expect(job.type).toBe('EVENT')
-    // Время начала в ключе: перенесённое событие напомнит о себе заново.
-    expect(job.dedupeKey).toBe('event-reminder:e1:1000000')
+    // Время начала и момент правки в ключе: перенесённое событие напомнит о себе заново.
+    expect(job.dedupeKey).toBe('event-reminder:e1:1000000:7')
     // Напоминание ведёт в карточку этого события, а не в общий список.
     expect(job.data.url).toBe('/events/e1')
     expect(new Set(job.recipientIds)).toEqual(new Set(['u2', 'u3']))
@@ -221,6 +245,40 @@ describe('EventsService.remindDue — окно и дедуп (10.4)', () => {
         data: expect.objectContaining({ reminderSentAt: expect.any(Date) }),
       }),
     )
+  })
+
+  // Окно ловит и события через десять минут: «примерно через час» про них — неправда.
+  it('в тексте — время начала по часам вуза, а не «примерно через час»', async () => {
+    const { service, prisma, queue } = setup()
+    prisma.event.findMany.mockResolvedValueOnce([
+      {
+        id: 'e1',
+        title: 'Событие',
+        startsAt: new Date('2030-03-02T09:10:00.000Z'),
+        updatedAt: new Date(0),
+        universityId: 'uni1',
+      },
+    ])
+    prisma.university.findUnique.mockResolvedValue({ timezone: 'Asia/Almaty' })
+    prisma.eventParticipant.findMany.mockResolvedValue([{ id: 'p1', userId: 'u2' }])
+    await service.remindDue()
+    const job = queue.enqueue.mock.calls[0][2]
+    expect(job.bodyKey).toBe('events.reminder.bodyAt')
+    expect(job.params).toEqual({ title: 'Событие', time: '14:10' })
+  })
+
+  // Отметка без job'а теряла напоминание навсегда: следующий тик событие уже не выбирал.
+  it('очередь недоступна — reminderSentAt не ставится, прогон останавливается', async () => {
+    const { service, prisma, queue } = setup()
+    prisma.event.findMany.mockResolvedValueOnce([
+      { id: 'e1', title: 'Первое', startsAt: new Date(1_000_000), updatedAt: new Date(0) },
+      { id: 'e2', title: 'Второе', startsAt: new Date(2_000_000), updatedAt: new Date(0) },
+    ])
+    prisma.eventParticipant.findMany.mockResolvedValue([{ id: 'p1', userId: 'u2' }])
+    queue.enqueue.mockResolvedValue(false)
+    await expect(service.remindDue()).resolves.toBe(0)
+    expect(queue.enqueue).toHaveBeenCalledTimes(1)
+    expect(prisma.event.updateMany).not.toHaveBeenCalled()
   })
 
   it('окно запроса — (now, now+70м], reminderSentAt null, с потолком', async () => {
@@ -247,6 +305,7 @@ describe('EventsService.remindDue — пропущенный тик, поздн�
     id: string
     title: string
     startsAt: Date
+    updatedAt: Date
     reminderSentAt: Date | null
   }
 
@@ -264,9 +323,14 @@ describe('EventsService.remindDue — пропущенный тик, поздн�
    * Мини-БД: findMany/updateMany понимают ровно те условия, что строит remindDue, — тики
    * можно гонять подряд и смотреть, что уходит в очередь. Участники — по одному на событие.
    */
-  function store(rows: Array<Omit<StoredEvent, 'reminderSentAt' | 'title'>>) {
+  function store(rows: Array<Omit<StoredEvent, 'reminderSentAt' | 'title' | 'updatedAt'>>) {
     const base = setup()
-    const db: StoredEvent[] = rows.map((r) => ({ ...r, title: r.id, reminderSentAt: null }))
+    const db: StoredEvent[] = rows.map((r) => ({
+      ...r,
+      title: r.id,
+      updatedAt: new Date(0),
+      reminderSentAt: null,
+    }))
     base.prisma.event.findMany.mockImplementation(async ({ where, take }: FindArgs) =>
       db
         .filter(
@@ -278,7 +342,7 @@ describe('EventsService.remindDue — пропущенный тик, поздн�
         )
         .sort((a, b) => a.id.localeCompare(b.id))
         .slice(0, take)
-        .map(({ id, title, startsAt }) => ({ id, title, startsAt })),
+        .map(({ id, title, startsAt, updatedAt }) => ({ id, title, startsAt, updatedAt })),
     )
     base.prisma.event.updateMany.mockImplementation(async ({ where, data }: MarkArgs) => {
       let count = 0
@@ -323,16 +387,22 @@ describe('EventsService.remindDue — пропущенный тик, поздн�
     // было вне [55, 70] и не напоминало никогда.
     const s = store([{ id: 'e1', startsAt: min(65) }])
     expect(await s.tick(15)).toBe(1)
-    expect(s.keys()).toEqual([`event-reminder:e1:${min(65).getTime()}`])
+    expect(s.keys()).toEqual([`event-reminder:e1:${min(65).getTime()}:0`])
     expect(s.row('e1').reminderSentAt).toEqual(min(15))
   })
 
   it('событие, созданное за 40 минут до начала, получает напоминание на ближайшем тике', async () => {
     const s = store([])
     expect(await s.tick(0)).toBe(0)
-    s.db.push({ id: 'late', title: 'late', startsAt: min(45), reminderSentAt: null })
+    s.db.push({
+      id: 'late',
+      title: 'late',
+      startsAt: min(45),
+      updatedAt: new Date(0),
+      reminderSentAt: null,
+    })
     expect(await s.tick(15)).toBe(1)
-    expect(s.keys()).toEqual([`event-reminder:late:${min(45).getTime()}`])
+    expect(s.keys()).toEqual([`event-reminder:late:${min(45).getTime()}:0`])
   })
 
   it('уже начавшемуся событию не напоминает', async () => {
@@ -346,7 +416,7 @@ describe('EventsService.remindDue — пропущенный тик, поздн�
     await s.tick(0)
     await s.tick(15)
     await s.tick(30)
-    expect(s.keys()).toEqual([`event-reminder:e1:${min(65).getTime()}`])
+    expect(s.keys()).toEqual([`event-reminder:e1:${min(65).getTime()}:0`])
   })
 
   it('перенесённое после напоминания событие напоминает о новом времени заново', async () => {
@@ -358,8 +428,23 @@ describe('EventsService.remindDue — пропущенный тик, поздн�
     await s.tick(15)
     await s.tick(30)
     expect(s.keys()).toEqual([
-      `event-reminder:e1:${min(65).getTime()}`,
-      `event-reminder:e1:${min(95).getTime()}`,
+      `event-reminder:e1:${min(65).getTime()}:0`,
+      `event-reminder:e1:${min(95).getTime()}:0`,
+    ])
+  })
+
+  // Ключ только по времени начала совпадал с уже доставленным — напоминание отбрасывалось.
+  it('перенос туда и обратно на уже напомненное время напоминает заново', async () => {
+    const s = store([{ id: 'e1', startsAt: min(65) }])
+    await s.tick(0)
+    // Перенесли на позже и вернули обратно: update сбрасывает отметку и двигает updatedAt.
+    s.row('e1').startsAt = min(65)
+    s.row('e1').updatedAt = min(5)
+    s.row('e1').reminderSentAt = null
+    await s.tick(15)
+    expect(s.keys()).toEqual([
+      `event-reminder:e1:${min(65).getTime()}:0`,
+      `event-reminder:e1:${min(65).getTime()}:${min(5).getTime()}`,
     ])
   })
 
@@ -375,8 +460,8 @@ describe('EventsService.remindDue — пропущенный тик, поздн�
     expect(s.row('e1').reminderSentAt).toBeNull()
     await s.tick(15)
     expect(s.keys()).toEqual([
-      `event-reminder:e1:${min(65).getTime()}`,
-      `event-reminder:e1:${min(50).getTime()}`,
+      `event-reminder:e1:${min(65).getTime()}:0`,
+      `event-reminder:e1:${min(50).getTime()}:0`,
     ])
   })
 
@@ -388,7 +473,7 @@ describe('EventsService.remindDue — пропущенный тик, поздн�
     // remove удаляет событие вместе с регистрациями.
     s.db.splice(0, 1)
     await s.tick(0)
-    expect(s.keys()).toEqual([`event-reminder:e2:${min(60).getTime()}`])
+    expect(s.keys()).toEqual([`event-reminder:e2:${min(60).getTime()}:0`])
   })
 
   it('больше пачки событий: всё разослано, каждое — один раз', async () => {
@@ -850,9 +935,21 @@ describe('EventsService — уведомления участникам о пе�
       // 10:00 UTC — 15:00 в Алматы.
       params: { title: 'Лекция', date: '2030-03-02 15:00' },
       data: { eventId: 'e1', url: '/events/e1' },
-      dedupeKey: `event-rescheduled:e1:${ms}`,
+      dedupeKey: expect.stringMatching(new RegExp(`^event-rescheduled:e1:${ms}:\\d+$`)),
     })
-    expect(opts).toEqual({ jobId: `event-rescheduled:e1:${ms}:0` })
+    expect(opts).toEqual({ jobId: `${payload.dedupeKey}:0` })
+  })
+
+  // У события платформы вуза нет: голые «10:00» читались по своим часам.
+  it('событие платформы — время в UTC с пометкой', async () => {
+    const { service, prisma, queue } = setup()
+    prisma.event.findUnique.mockResolvedValue(row({ universityId: null }))
+    prisma.event.update.mockResolvedValue({ id: 'e1', title: 'Лекция' })
+    prisma.eventParticipant.findMany.mockResolvedValue([{ id: 'p1', userId: 'u2' }])
+
+    await service.update(organizer, 'e1', { startsAt: '2030-03-02T10:00:00.000Z' }, ctx)
+
+    expect(queue.enqueue.mock.calls[0][2].params.date).toBe('2030-03-02 10:00 UTC')
   })
 
   it('без переноса начала уведомлений нет', async () => {
@@ -1175,5 +1272,48 @@ describe('EventsService.listComments — страница и canDelete', () => {
     prisma.eventComment.findMany.mockResolvedValue([comment('c1', adminAuthor)])
     const res = await service.listComments(user(Role.TEACHER, { sub: 'org' }), 'e1', { limit: 20 })
     expect((res as Paginated<{ canDelete: boolean }>).items[0]!.canDelete).toBe(true)
+  })
+})
+
+// ── Scope управления и модерации добавляется к видимости (как moderationWhere у постов) ──
+describe('EventsService — админ и модераторы видят то, чем управляют', () => {
+  it('админ вуза открывает событие группы своего вуза: в условии — его вуз', async () => {
+    const { service, prisma } = setup()
+    prisma.event.findFirst.mockResolvedValue({
+      id: 'e',
+      organizerId: 'org',
+      universityId: 'uni1',
+      facultyId: 'f1',
+      participants: [],
+    })
+    await service.getById(user(Role.UNIVERSITY_ADMIN, { sub: 'a', universityId: 'uni1' }), 'e')
+    const where = prisma.event.findFirst.mock.calls[0][0].where
+    expect(where.OR).toContainEqual({ universityId: 'uni1' })
+  })
+
+  it('декан — события своего факультета, модератор платформы — все', async () => {
+    const { service, prisma } = setup()
+    await service.list(user(Role.DEAN, { universityId: 'uni1', facultyId: 'f1' }), {
+      filter: 'upcoming',
+      page: 1,
+      limit: 20,
+    })
+    expect(prisma.event.findMany.mock.calls[0][0].where.AND[0].OR).toContainEqual({
+      facultyId: 'f1',
+    })
+
+    await service.list(user(Role.PLATFORM_MODERATOR), { filter: 'upcoming', page: 1, limit: 20 })
+    expect(prisma.event.findMany.mock.calls[1][0].where.AND[0].OR).toContainEqual({})
+  })
+
+  it('студенту scope модерации не добавляется', async () => {
+    const { service, prisma } = setup()
+    await service.list(user(Role.STUDENT, { groupId: 'g1', universityId: 'uni1' }), {
+      filter: 'upcoming',
+      page: 1,
+      limit: 20,
+    })
+    const visibility = prisma.event.findMany.mock.calls[0][0].where.AND[0]
+    expect(visibility.OR).not.toContainEqual({ universityId: 'uni1' })
   })
 })

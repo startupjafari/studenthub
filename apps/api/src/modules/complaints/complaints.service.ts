@@ -18,6 +18,8 @@ import type { RequestContext } from '../auth/auth.service'
 import { NOTIFICATION_JOBS, QUEUES, QueueService } from '../../common/queue'
 import { UserService } from '../users/users.service'
 import { StoriesService } from '../stories/stories.service'
+import { PostsService } from '../posts/posts.service'
+import { RealtimeGateway } from '../../common/realtime'
 
 const USER_MINI = { select: { id: true, firstName: true, lastName: true } }
 
@@ -42,6 +44,20 @@ type ComplaintRow = Prisma.ComplaintGetPayload<{ select: typeof COMPLAINT_SELECT
 interface TargetInfo {
   universityId: string | null
   ownerId: string | null
+}
+
+/**
+ * Что именно обжаловано — текст поста, комментария или сторис. Без него модератор видел
+ * только тип цели и причину и снимал контент вслепую. У сообщения контекст — отдельной
+ * ручкой с аудитом (`/messages`), у человека — его карточка.
+ */
+interface TargetPreview {
+  title: string | null
+  text: string | null
+  /** Сколько медиа у цели: само медиа не отдаём, но «в посте три фото» меняет разбор. */
+  mediaCount: number
+  /** Автор успел удалить цель — её текст остаётся предметом жалобы. */
+  deleted: boolean
 }
 
 function isPlatform(role: Role): boolean {
@@ -80,6 +96,15 @@ const TARGET_WORD: Record<ComplaintTargetType, string> = {
   COMMENT: 'на комментарий',
 }
 
+// Ответ на невидимую цель — слово в слово как на несуществующую (getTarget).
+const NOT_FOUND_MESSAGE: Record<ComplaintTargetType, string> = {
+  USER: 'Пользователь не найден',
+  MESSAGE: 'Сообщение не найдено',
+  POST: 'Пост не найден',
+  STORY: 'Сторис не найдена',
+  COMMENT: 'Комментарий не найден',
+}
+
 // Сколько сообщений до и после обжалованного видит модератор (getMessageContext).
 const CONTEXT_WINDOW = 50
 
@@ -103,6 +128,8 @@ export class ComplaintsService {
     private readonly users: UserService,
     private readonly telegram: TelegramNotifyService,
     private readonly stories: StoriesService,
+    private readonly realtime: RealtimeGateway,
+    private readonly posts: PostsService,
   ) {}
 
   // ── Создание (11.2) ──────────────────────────────────────────────────────
@@ -123,6 +150,11 @@ export class ComplaintsService {
       })
       if (!member) throw new AppException('NOT_FOUND', 'Сообщение не найдено')
     }
+    await this.assertVisibleToReporter(
+      reporter,
+      input.targetType as ComplaintTargetType,
+      input.targetId,
+    )
     const complaint = await this.createOnce({
       reporterId: reporter.sub,
       targetType: input.targetType as ComplaintTargetType,
@@ -143,6 +175,38 @@ export class ComplaintsService {
     })
     await this.announceIfUrgent(complaint)
     return complaint
+  }
+
+  /**
+   * Пост, комментарий и сторис — только видимые автору жалобы (BACKEND_RULES §14.10). Иначе
+   * жалоба по одному id чужого поста «для группы» подтверждала, что такой пост есть. Ответ тот
+   * же, что у несуществующей цели. Сообщение проверено выше (участник чата), человек виден
+   * любому хотя бы «визиткой» профиля.
+   */
+  private async assertVisibleToReporter(
+    reporter: JwtPayload,
+    type: ComplaintTargetType,
+    targetId: string,
+  ): Promise<void> {
+    try {
+      if (type === ComplaintTargetType.POST) {
+        await this.posts.assertVisibleToViewer(reporter, targetId)
+      } else if (type === ComplaintTargetType.STORY) {
+        await this.stories.assertVisibleToViewer(reporter, targetId)
+      } else if (type === ComplaintTargetType.COMMENT) {
+        const comment = await this.prisma.comment.findFirst({
+          where: { id: targetId, deletedAt: null },
+          select: { postId: true },
+        })
+        if (!comment) throw new AppException('NOT_FOUND', 'Комментарий не найден')
+        await this.posts.assertVisibleToViewer(reporter, comment.postId)
+      }
+    } catch (error) {
+      if (error instanceof AppException && error.code === 'NOT_FOUND') {
+        throw new AppException('NOT_FOUND', NOT_FOUND_MESSAGE[type])
+      }
+      throw error
+    }
   }
 
   /**
@@ -214,11 +278,18 @@ export class ComplaintsService {
    * брать нечего. Статус тоже в условии записи: решение, успевшее между чтением и записью,
    * иначе возвращалось бы в REVIEWING без решающего, а мера по нему уже применена.
    */
-  async take(actor: JwtPayload, id: string): Promise<{ takenBy: string }> {
+  async take(
+    actor: JwtPayload,
+    id: string,
+    ctx: RequestContext = {},
+  ): Promise<{ takenBy: string }> {
     const complaint = await this.findScoped(actor, id)
     if (!OPEN_STATUSES.includes(complaint.status)) {
       throw new AppException('CONFLICT', 'Жалоба уже разобрана')
     }
+    // Уже моя — повторное «беру» (второе нажатие, кнопка в Telegram после веба) не ошибка:
+    // иначе человек получал «разбирает другой» про собственную жалобу.
+    if (complaint.reviewingBy?.id === actor.sub) return { takenBy: actor.sub }
 
     const { count } = await this.prisma.complaint.updateMany({
       where: { id, reviewingById: null, status: { in: OPEN_STATUSES } },
@@ -231,6 +302,7 @@ export class ComplaintsService {
       action: 'complaint_taken',
       entity: 'Complaint',
       entityId: id,
+      ...ctx,
     })
     return { takenBy: actor.sub }
   }
@@ -341,7 +413,13 @@ export class ComplaintsService {
   async getById(
     viewer: JwtPayload,
     id: string,
-  ): Promise<ComplaintRow & { targetReports: number; targetOwnerId: string | null }> {
+  ): Promise<
+    ComplaintRow & {
+      targetReports: number
+      targetOwnerId: string | null
+      targetPreview: TargetPreview | null
+    }
+  > {
     const complaint = await this.findScoped(viewer, id)
     // Разные авторы, а не строки: повторные жалобы одного человека (до запрета повтора их
     // заводили сколько угодно) травлю не означают.
@@ -356,7 +434,8 @@ export class ComplaintsService {
     // принимается про человека: заблокировать — значит заблокировать именно его.
     // Снесённая цель отвечает null — карточку нарушителя тогда просто не показываем.
     const targetOwnerId = await this.ownerOf(complaint)
-    return { ...complaint, targetReports, targetOwnerId }
+    const targetPreview = await this.previewOf(complaint)
+    return { ...complaint, targetReports, targetOwnerId, targetPreview }
   }
 
   // ── Разрешение (11.4) ────────────────────────────────────────────────────
@@ -392,7 +471,7 @@ export class ComplaintsService {
     if (count === 0) throw new AppException('CONFLICT', 'Жалоба уже обработана')
 
     try {
-      await this.applyAction(actor, complaint, input, ownerId)
+      await this.applyAction(actor, complaint, input, ownerId, ctx)
     } catch (error) {
       // Мера не прошла (scope нарушителя, сбой записи) — жалоба возвращается в очередь в
       // прежнем виде, иначе числилась бы решённой без применённой меры. Условие — наш
@@ -502,6 +581,7 @@ export class ComplaintsService {
     complaint: ComplaintRow,
     input: ResolveComplaintInput,
     ownerId: string | null,
+    ctx: RequestContext,
   ): Promise<void> {
     if (input.action === 'DELETE_CONTENT') {
       await this.softDeleteTarget(complaint.targetType, complaint.targetId)
@@ -510,13 +590,17 @@ export class ComplaintsService {
       const until = input.blockDays
         ? new Date(Date.now() + input.blockDays * 24 * 60 * 60 * 1000)
         : null
-      // UserService.setBlocked проверяет scope и рвёт сессии.
-      await this.users.setBlocked(actor, ownerId, true, until)
+      // UserService.setBlocked проверяет scope и рвёт сессии. Жалоба — в журнал блокировки:
+      // иначе по аудиту не восстановить, за что человека заблокировали.
+      await this.users.setBlocked(actor, ownerId, true, until, {
+        ...ctx,
+        complaintId: complaint.id,
+      })
     } else if (input.action === 'WARN_USER' && ownerId) {
       // Предупреждение не трогает ни контент, ни доступ: человеку уходит уведомление,
       // а модерации остаётся запись — вторая жалоба на того же человека будет разбираться
       // уже зная, что разговор был.
-      await this.users.warn(actor, ownerId, complaint.id)
+      await this.users.warn(actor, ownerId, complaint.id, ctx)
     }
   }
 
@@ -768,6 +852,65 @@ export class ComplaintsService {
     return complaint
   }
 
+  /** Текст цели для карточки разбора; удалённую автором показываем тоже — это предмет жалобы. */
+  private async previewOf(complaint: {
+    targetType: ComplaintTargetType
+    targetId: string
+  }): Promise<TargetPreview | null> {
+    const id = complaint.targetId
+    switch (complaint.targetType) {
+      case ComplaintTargetType.POST: {
+        const post = await this.prisma.post.findUnique({
+          where: { id },
+          select: {
+            title: true,
+            content: true,
+            deletedAt: true,
+            _count: { select: { media: true } },
+          },
+        })
+        return post
+          ? {
+              title: post.title,
+              text: post.content,
+              mediaCount: post._count.media,
+              deleted: post.deletedAt !== null,
+            }
+          : null
+      }
+      case ComplaintTargetType.COMMENT: {
+        const comment = await this.prisma.comment.findUnique({
+          where: { id },
+          select: { content: true, deletedAt: true },
+        })
+        return comment
+          ? {
+              title: null,
+              text: comment.content,
+              mediaCount: 0,
+              deleted: comment.deletedAt !== null,
+            }
+          : null
+      }
+      case ComplaintTargetType.STORY: {
+        const story = await this.prisma.story.findUnique({
+          where: { id },
+          select: { text: true, linkUrl: true, fileId: true },
+        })
+        return story
+          ? {
+              title: null,
+              text: [story.text, story.linkUrl].filter(Boolean).join('\n') || null,
+              mediaCount: story.fileId ? 1 : 0,
+              deleted: false,
+            }
+          : null
+      }
+      default:
+        return null
+    }
+  }
+
   /** Проверка существования цели и вычисление её вуза/владельца. */
   /** Владелец цели: автор поста, отправитель сообщения или сам пользователь. */
   // Автора ищем и у уже удалённого контента: иначе нарушитель уходил от блокировки, просто
@@ -850,7 +993,19 @@ export class ComplaintsService {
     } else if (type === ComplaintTargetType.COMMENT) {
       await this.prisma.comment.updateMany({ where: { id: targetId }, data: { deletedAt: now } })
     } else if (type === ComplaintTargetType.MESSAGE) {
+      const message = await this.prisma.message.findUnique({
+        where: { id: targetId },
+        select: { chatId: true },
+      })
       await this.prisma.message.updateMany({ where: { id: targetId }, data: { deletedAt: now } })
+      // Участники чата видят снятие сразу — тем же событием, что и удаление автором
+      // (ChatGateway.onMessageDelete), иначе обжалованное сообщение висело до перезахода.
+      if (message) {
+        this.realtime.emitToRoom(`chat:${message.chatId}`, 'message:deleted', {
+          messageId: targetId,
+          chatId: message.chatId,
+        })
+      }
     } else if (type === ComplaintTargetType.STORY) {
       // У сторис мягкого удаления нет: она живёт сутки и удаляется физически вместе с
       // медиа. Делает это владелец домена — он же знает про объект в MinIO (§2.1).

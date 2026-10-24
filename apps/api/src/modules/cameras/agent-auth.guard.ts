@@ -8,6 +8,8 @@ export interface AgentPrincipal {
   id: string
   universityId: string
   publicKey: string | null
+  /** Хэш предъявленного токена: длинный опрос сверяет его перед ответом (перевыпуск). */
+  tokenHash: string
 }
 
 const SCHEME = 'Agent '
@@ -33,7 +35,7 @@ export class AgentAuthGuard implements CanActivate {
     if (!token) throw new AppException('UNAUTHORIZED', 'Нужен токен агента')
     const agent = await this.prisma.cameraAgent.findUnique({
       where: { tokenHash: hashAgentToken(token) },
-      select: { id: true, universityId: true, publicKey: true },
+      select: { id: true, universityId: true, publicKey: true, tokenHash: true },
     })
     if (!agent) throw new AppException('UNAUTHORIZED', 'Токен агента недействителен')
     req.cameraAgent = agent

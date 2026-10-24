@@ -51,26 +51,33 @@ async function encodeWidths(input: Buffer, widths: number[]): Promise<EncodedVar
   return out
 }
 
-async function orientedSize(input: Buffer): Promise<{ width: number; height: number }> {
+async function orientedSize(
+  input: Buffer,
+): Promise<{ width: number; height: number; animated: boolean }> {
   const meta = await sharp(input, { limitInputPixels: LIMIT_INPUT_PIXELS }).metadata()
   const w = meta.width ?? 0
   const h = meta.height ?? 0
+  // Несколько кадров — анимация (WebP, GIF). Высота у sharp здесь — высота одного кадра.
+  const animated = (meta.pages ?? 1) > 1
   // Orientation 5–8 — кадр повёрнут на 90°: стороны меняются местами.
-  return (meta.orientation ?? 1) >= 5 ? { width: h, height: w } : { width: w, height: h }
+  return (meta.orientation ?? 1) >= 5
+    ? { width: h, height: w, animated }
+    : { width: w, height: h, animated }
 }
 
 /**
  * Варианты изображения: уменьшенные WebP-копии и LQIP.
  *
- * GIF получает только заглушку: копия была бы первым кадром, а показывать гифку надо
- * анимированной — значит, оригиналом.
+ * GIF и анимированный WebP получают только заглушку: копия была бы первым кадром, а
+ * показывать анимацию надо анимированной — значит, оригиналом.
  */
 export async function buildImageVariants(
   input: Buffer,
   mime: string,
 ): Promise<ImagePipelineResult> {
-  const { width, height } = await orientedSize(input)
-  const widths = mime === 'image/gif' ? [] : planImageWidths(width, mime === 'image/webp')
+  const { width, height, animated } = await orientedSize(input)
+  const widths =
+    mime === 'image/gif' || animated ? [] : planImageWidths(width, mime === 'image/webp')
   const [placeholder, variants] = await Promise.all([
     encodePlaceholder(input),
     encodeWidths(input, widths),

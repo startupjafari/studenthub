@@ -38,10 +38,11 @@ import {
   TableRow,
   TableSkeletonRows,
   TableText,
+  useConfirm,
   useSortState,
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
-import { CreateUniversityModal } from './create-university-modal'
+import { UniversityFormModal } from './university-form-modal'
 
 const STATUSES: UniversityStatusValue[] = ['PENDING', 'ACTIVE', 'BLOCKED']
 const STATUS_STYLE: Record<UniversityStatusValue, string> = {
@@ -74,8 +75,11 @@ export function UniversitiesAdminView() {
   const tErr = useTranslations('Errors')
   const locale = useLocale()
   const qc = useQueryClient()
+  const confirm = useConfirm()
 
   const [createOpen, setCreateOpen] = useState(false)
+  // Правка реквизитов, пояса и удаление — по клику на строку, как у заявок на демо.
+  const [editing, setEditing] = useState<University | null>(null)
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState<number>(PAGE_SIZES[0])
@@ -83,10 +87,13 @@ export function UniversitiesAdminView() {
   // а не только открытая страница.
   const { sort, toggle } = useSortState()
 
+  // Поле хранит ввод как есть, обрезается только запрос: trim прямо в onChange съедал
+  // пробел, едва его набирали, и «Евразийский национальный» было не ввести.
+  const searchQuery = search.trim()
   const query = {
     page,
     limit,
-    ...(search ? { search } : {}),
+    ...(searchQuery ? { search: searchQuery } : {}),
     ...(sort ? { sort: sort.key as UniversitySortValue, order: sort.dir } : {}),
   }
 
@@ -125,6 +132,23 @@ export function UniversitiesAdminView() {
     onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
   })
 
+  // Блокировка закрывает вуз целиком: рвутся все его сокеты, у всех пользователей —
+  // UNIVERSITY_BLOCKED. Промах в селекте не должен этого делать, поэтому — подтверждение,
+  // как у блокировки пользователя. PENDING и ACTIVE пускают всех — меняются сразу.
+  async function changeStatus(u: University, status: UniversityStatusValue): Promise<void> {
+    if (status === u.status) return
+    if (status === 'BLOCKED') {
+      const ok = await confirm({
+        title: t('blockConfirmTitle'),
+        description: t('blockConfirmDesc', { name: u.name }),
+        confirmLabel: t('block'),
+        destructive: true,
+      })
+      if (!ok) return
+    }
+    statusMut.mutate({ id: u.id, status })
+  }
+
   return (
     <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
       {/* Создание — кнопка в шапке и модалка: постоянная форма наверху страницы
@@ -139,7 +163,7 @@ export function UniversitiesAdminView() {
                 аббревиатуре, по всей выборке, а не по открытой странице. */}
             <Input
               value={search}
-              onChange={(e) => refilter(() => setSearch(e.target.value.trim()))}
+              onChange={(e) => refilter(() => setSearch(e.target.value))}
               placeholder={t('searchPlaceholder')}
               size="md"
               className="w-40 sm:w-56"
@@ -152,14 +176,15 @@ export function UniversitiesAdminView() {
         }
       />
 
-      {createOpen && <CreateUniversityModal onClose={() => setCreateOpen(false)} />}
+      {createOpen && <UniversityFormModal onClose={() => setCreateOpen(false)} />}
+      {editing && <UniversityFormModal university={editing} onClose={() => setEditing(null)} />}
 
       {universities.isError ? (
         <EmptyState title={tErr('INTERNAL_ERROR')} />
       ) : !universities.isLoading && rows.length === 0 ? (
         <EmptyState
           icon={<Building2 className="size-6" aria-hidden />}
-          title={search ? t('nothingFound') : t('empty')}
+          title={searchQuery ? t('nothingFound') : t('empty')}
         />
       ) : (
         <Card className="flex min-h-0 flex-1 flex-col gap-0 py-0">
@@ -198,7 +223,11 @@ export function UniversitiesAdminView() {
             <TableBody>
               {universities.isLoading && <TableSkeletonRows columns={SKELETON_COLS} />}
               {rows.map((u) => (
-                <TableRow key={u.id} className="hover:bg-muted/40">
+                <TableRow
+                  key={u.id}
+                  onClick={() => setEditing(u)}
+                  className="cursor-pointer hover:bg-muted/40"
+                >
                   <TableCell className="font-medium">
                     <TableText value={u.name} />
                     {/* На узком экране колонки аббревиатуры и города скрыты — город
@@ -224,12 +253,13 @@ export function UniversitiesAdminView() {
                   </TableCell>
                   {/* Статус — сразу селект: смена статуса это основное действие экрана,
                       отдельная колонка «только прочитать» дублировала бы значение. */}
-                  <TableCell>
+                  {/* Клик по селекту — смена статуса, а не правка вуза: всплытие до строки
+                      (и из портала меню — React ведёт события по дереву компонентов)
+                      гасим здесь. */}
+                  <TableCell onClick={(e) => e.stopPropagation()}>
                     <Select
                       value={u.status}
-                      onValueChange={(v) =>
-                        statusMut.mutate({ id: u.id, status: v as UniversityStatusValue })
-                      }
+                      onValueChange={(v) => void changeStatus(u, v as UniversityStatusValue)}
                     >
                       <SelectTrigger
                         size="sm"

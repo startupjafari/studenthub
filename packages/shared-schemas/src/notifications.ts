@@ -1,9 +1,9 @@
 import { z } from 'zod'
-import { CursorPaginationSchema } from './pagination.js'
+import { CursorPaginationSchema, queryBoolean } from './pagination.js'
 
 // Список уведомлений: cursor-пагинация + опциональный фильтр «только непрочитанные».
 export const NotificationListQuerySchema = CursorPaginationSchema.extend({
-  unreadOnly: z.coerce.boolean().optional(),
+  unreadOnly: queryBoolean.optional(),
 })
 export type NotificationListQueryInput = z.infer<typeof NotificationListQuerySchema>
 

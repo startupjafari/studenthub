@@ -64,6 +64,9 @@ class AuthRoutes {
   @AuthThrottle('invite-param', { limit: 2, ttl: 60_000 }, { limit: 4, ttl: 60_000 })
   preview() {}
 
+  @AuthThrottle('password-forgot', { limit: 2, ttl: 60_000 }, { limit: 4, ttl: 60_000 })
+  forgot() {}
+
   plain() {}
 }
 
@@ -188,6 +191,18 @@ describe('UserThrottlerGuard — публичные auth-маршруты (@Auth
     await expect(preview('invite-1')).resolves.toBe(true)
     await expect(preview('invite-1')).rejects.toBeInstanceOf(ThrottlerException)
     await expect(preview('invite-2')).resolves.toBe(true)
+  })
+
+  // BUG-349: сменой адреса письма на чужой ящик не нашлёшь — счёт по почте, без IP.
+  it('«забыли пароль»: счёт по адресу почты, ротация IP его не обходит', async () => {
+    const { hit } = await makeGuard()
+    const forgot = (ip: string, email: string) => hit('forgot', { ip, body: { email } })
+
+    await expect(forgot('10.0.0.1', 'Victim@Uni.kz')).resolves.toBe(true)
+    await expect(forgot('10.0.0.2', 'victim@uni.kz ')).resolves.toBe(true)
+    await expect(forgot('10.0.0.3', 'VICTIM@UNI.KZ')).rejects.toBeInstanceOf(ThrottlerException)
+    // Другой адрес почты — свой счётчик.
+    await expect(forgot('10.0.0.3', 'other@uni.kz')).resolves.toBe(true)
   })
 
   it('маршрут без @AuthThrottle считается по-прежнему — общим лимитом', async () => {

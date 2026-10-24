@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { redactUrl, withCredentials } from './rtsp.js'
+import { redactText, redactUrl, withCredentials } from './rtsp.js'
 
 test('логин и пароль подставляются с экранированием', () => {
   assert.equal(
@@ -16,7 +16,23 @@ test('без учётных данных адрес не меняется', () =
   assert.equal(withCredentials('rtsp://h/x', null), 'rtsp://h/x')
 })
 
+test('схема в верхнем регистре приводится к нижнему — иначе ffmpeg адрес не откроет', () => {
+  assert.equal(withCredentials('RTSP://h/X', null), 'rtsp://h/X')
+  assert.equal(withCredentials('Rtsps://h/x', { username: 'a', password: 'b' }), 'rtsps://a:b@h/x')
+})
+
 test('в журнал адрес уходит без логина и пароля', () => {
   assert.equal(redactUrl('rtsp://admin:secret@10.0.0.5/x'), 'rtsp://***@10.0.0.5/x')
   assert.equal(redactUrl('rtsp://10.0.0.5/x'), 'rtsp://10.0.0.5/x')
+})
+
+test('в stderr ffmpeg вырезаются пароль камеры и токен ретранслятора', () => {
+  assert.equal(
+    redactText(
+      'rtsp://admin:p%40ss@10.0.0.5:554/s: Connection refused\n' +
+        'rtmps://relay/cam/c-1?user=agent&pass=a.b.c: I/O error',
+    ),
+    'rtsp://***@10.0.0.5:554/s: Connection refused\n' +
+      'rtmps://relay/cam/c-1?user=agent&pass=***: I/O error',
+  )
 })

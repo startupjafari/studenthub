@@ -68,8 +68,7 @@ function setup(status: 'ACTIVE' | 'BLOCKED' | 'PENDING') {
     markUsed: jest.fn(),
   }
   const loginAttempts = {
-    assertNotLocked: jest.fn(),
-    registerFailure: jest.fn(),
+    beginAttempt: jest.fn(),
     reset: jest.fn(),
   }
   const passwords = { compare: jest.fn().mockResolvedValue(true), hash: jest.fn() }
@@ -90,6 +89,7 @@ function setup(status: 'ACTIVE' | 'BLOCKED' | 'PENDING') {
     access,
     {} as never,
     {} as never,
+    { removeAllForUser: jest.fn() } as never,
   )
   return { service, prisma, tx, users, invites, loginAttempts }
 }

@@ -113,6 +113,23 @@ describe('CamerasService', () => {
       expect(JSON.stringify(page.items)).not.toContain('v1.x.y.z.w')
     })
 
+    it('«В сети» — только пока агент на связи и модуль включён', async () => {
+      const { service, prisma } = setup()
+      const fresh = { id: 'agent-1', name: 'Корпус А', lastSeenAt: new Date() }
+      const stale = { ...fresh, lastSeenAt: new Date(Date.now() - 10 * 60_000) }
+      prisma.camera.findMany.mockResolvedValue([
+        cameraRow({ id: 'cam-1', status: 'ONLINE', agent: fresh }),
+        cameraRow({ id: 'cam-2', status: 'ONLINE', agent: stale }),
+      ])
+      prisma.cameraSettings.findUnique.mockResolvedValue({ enabled: true })
+      const page = await service.list(guard, { page: 1, limit: 20 })
+      expect(page.items.map((c) => c.status)).toEqual(['ONLINE', 'UNKNOWN'])
+
+      prisma.cameraSettings.findUnique.mockResolvedValue({ enabled: false })
+      const off = await service.list(guard, { page: 1, limit: 20 })
+      expect(off.items.map((c) => c.status)).toEqual(['UNKNOWN', 'UNKNOWN'])
+    })
+
     it('остальным ролям камер не видно', async () => {
       const { service } = setup()
       for (const role of [Role.DEAN, Role.TEACHER, Role.STUDENT, Role.PLATFORM_ADMIN]) {
@@ -296,6 +313,13 @@ describe('CameraAgentsService', () => {
       where: { agentId: 'agent-1' },
       data: { credentialsSealed: null, status: 'UNKNOWN' },
     })
+  })
+
+  it('удаление агента будит его длинный опрос — тот ответит 401 сразу', async () => {
+    const { agents, prisma, signal } = setup()
+    await agents.remove(admin, 'agent-1', ctx)
+    expect(prisma.cameraAgent.delete).toHaveBeenCalledWith({ where: { id: 'agent-1' } })
+    expect(signal.bump).toHaveBeenCalledWith('agent-1')
   })
 
   it('агенты видит и заводит только админ вуза', async () => {

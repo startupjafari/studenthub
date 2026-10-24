@@ -170,6 +170,9 @@ model Message {
   // Закрепление сообщения в чате (Ф9+): кто и когда закрепил.
   pinnedAt        DateTime? @map("pinned_at")
   pinnedById      String?   @map("pinned_by_id")
+  // Когда закреп сняли. Снятие обнуляет pinnedAt и следа иначе не оставляет: догон после
+  // обрыва (GET /chats/:id/updates) по этому времени узнаёт, что закреп больше не действует.
+  unpinnedAt      DateTime? @map("unpinned_at")
   // Расшаренный пост (Ф9+ share-to-chat): превью-карточка поста в сообщении.
   sharedPostId    String?   @map("shared_post_id")
   // Инлайн-превью первой ссылки (Ф9+): OG-мета {url,title,description,image,siteName}.
@@ -345,5 +348,6 @@ model ScheduledMessage {
   @@index([scheduledAt])
   // Список своих отложенных в конкретном чате.
   @@index([chatId, senderId])
+  @@index([senderId])
   @@map("scheduled_messages")
 }

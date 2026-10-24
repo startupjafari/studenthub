@@ -73,6 +73,11 @@ export interface DocumentEvent {
   action: string
   metadata: Record<string, unknown> | null
   createdAt: string
+  // Кто и через что: сам владелец, грант (с типом), запрос, заявка, спец-режим, система.
+  via: 'OWNER' | 'GRANT' | 'REQUEST' | 'APPLICATION' | 'PLATFORM' | 'SYSTEM' | 'STAFF'
+  granteeType: string | null
+  // Имя пустое у сотрудника платформы в спец-режиме — он показывается ролью.
+  actor: { id: string; name: string; role: string | null }
 }
 
 export interface UploadedDocFile {

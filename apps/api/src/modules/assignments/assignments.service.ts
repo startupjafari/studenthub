@@ -34,6 +34,10 @@ export const SUBMISSION_FILES_LIMIT = 10
 
 const STUDENT_ROLES: Role[] = [Role.STUDENT, Role.STAROSTA]
 
+// Кто проверяет работы: тот же список ролей, что у `GET /assignments/:id/submissions` и
+// оценки. Модератор платформы в него не входит, хотя `isPlatform` пропускает его в scope.
+const REVIEWER_ROLES: Role[] = [Role.PLATFORM_ADMIN, Role.UNIVERSITY_ADMIN, Role.DEAN, Role.TEACHER]
+
 type AssignmentStatus = 'DRAFT' | 'PUBLISHED' | 'CLOSED'
 
 /**
@@ -311,7 +315,13 @@ export class AssignmentsService {
       select: withMine ? this.selectWithMine(viewer.sub) : ASSIGNMENT_SELECT,
     })
     if (!assignment) throw new AppException('NOT_FOUND', 'Задание не найдено')
-    await this.assertRead(viewer, assignment.course)
+    const mine = (assignment as Record<string, unknown>).submissions
+    await this.assertRead(viewer, {
+      ...assignment.course,
+      // Отправленная работа по заданию прежней группы — тот же признак, что в `scopeWhere`.
+      ownWork:
+        Array.isArray(mine) && (mine as { status: string }[]).some((s) => s.status !== 'DRAFT'),
+    })
     // Черновик виден только тем, кто ведёт дисциплину. Студенту/старосте getById не должен
     // раскрывать DRAFT (list его прячет через scope) — иначе утечка title/условий до публикации.
     if (STUDENT_ROLES.includes(viewer.role) && assignment.status === 'DRAFT') {
@@ -328,8 +338,10 @@ export class AssignmentsService {
     })
     if (!assignment) throw new AppException('NOT_FOUND', 'Задание не найдено')
     await this.assertManage(viewer, assignment.course)
+    // Черновик — ещё не работа: студент его не отправлял, и проверяющему он не виден
+    // (как неотправленные заявки, BACKEND_RULES §14.7).
     return this.prisma.submission.findMany({
-      where: { assignmentId },
+      where: { assignmentId, status: { not: 'DRAFT' } },
       select: SUBMISSION_SELECT,
       orderBy: [{ status: 'asc' }, { submittedAt: 'asc' }],
       take: 500,
@@ -626,14 +638,23 @@ export class AssignmentsService {
   async getSubmissionFileUrl(viewer: JwtPayload, submissionId: string, fileId: string) {
     const sub = await this.prisma.submission.findUnique({
       where: { id: submissionId },
-      select: { studentId: true, assignment: { select: { course: { select: COURSE_MINI } } } },
+      select: {
+        studentId: true,
+        status: true,
+        assignment: { select: { course: { select: COURSE_MINI } } },
+      },
     })
     if (!sub) throw new AppException('NOT_FOUND', 'Работа не найдена')
     if (STUDENT_ROLES.includes(viewer.role)) {
       // Чужую работу студенту не раскрываем даже фактом существования.
       if (sub.studentId !== viewer.sub) throw new AppException('NOT_FOUND', 'Работа не найдена')
     } else {
+      if (!REVIEWER_ROLES.includes(viewer.role)) {
+        throw new AppException('FORBIDDEN', 'Недостаточно прав')
+      }
       await this.assertManage(viewer, sub.assignment.course)
+      // Файлы неотправленного черновика — тот же черновик, что скрыт из списка сдач.
+      if (sub.status === 'DRAFT') throw new AppException('NOT_FOUND', 'Работа не найдена')
     }
     const file = await this.prisma.file.findFirst({
       where: { id: fileId, submissionId },
@@ -675,6 +696,11 @@ export class AssignmentsService {
         { field: 'score', message: `Не больше ${max}` },
       ])
     }
+    // Отзыв к оценке. Пустой — очищает поле: при первой оценке там мог остаться комментарий
+    // «на доработку» к прошлой попытке, при переоценке его стёрли намеренно. Не передан
+    // при переоценке — прежний отзыв остаётся (клиенты, правящие только балл).
+    const feedback =
+      regrade && input.feedback === undefined ? undefined : input.feedback?.trim() || null
     const gradedAt = new Date()
     const graded = await this.prisma.submission
       .update({
@@ -686,7 +712,7 @@ export class AssignmentsService {
         data: {
           status: 'GRADED',
           score: input.score,
-          feedback: input.feedback,
+          feedback,
           gradedById: actor.sub,
           gradedAt,
         },
@@ -724,6 +750,11 @@ export class AssignmentsService {
   ) {
     const sub = await this.findGradableSubmission(actor, submissionId)
     if (sub.status !== 'SUBMITTED') throw new AppException('CONFLICT', 'Работа не на проверке')
+    // Закрытое задание работ не принимает: возвращённую студент не смог бы ни поправить, ни
+    // отправить снова. Сначала задание открывают заново, потом возвращают работу.
+    if (sub.assignment.status !== 'PUBLISHED') {
+      throw new AppException('CONFLICT', 'Задание закрыто — откройте его, чтобы вернуть работу')
+    }
     const returned = await this.prisma.submission
       .update({
         where: { id: submissionId, status: 'SUBMITTED' },
@@ -774,7 +805,13 @@ export class AssignmentsService {
     if (STUDENT_ROLES.includes(viewer.role)) {
       return {
         status: { in: ['PUBLISHED', 'CLOSED'] },
-        course: { is: { groupId: viewer.groupId ?? '__none__' } },
+        // Задания текущей группы И те, по которым студент отправлял работу: после перевода в
+        // другую группу выборка только по группе прятала прежние работы и оценки за них (как
+        // в журнале оценок). Черновик в прежней группе — не работа, его не считаем.
+        OR: [
+          { course: { is: { groupId: viewer.groupId ?? '__none__' } } },
+          { submissions: { some: { studentId: viewer.sub, status: { not: 'DRAFT' } } } },
+        ],
       }
     }
     if (viewer.role === Role.TEACHER) {
@@ -794,11 +831,11 @@ export class AssignmentsService {
 
   private async assertRead(
     viewer: JwtPayload,
-    course: { groupId: string; teacherId: string | null },
+    course: { groupId: string; teacherId: string | null; ownWork?: boolean },
   ): Promise<void> {
     if (isPlatform(viewer.role)) return
     if (STUDENT_ROLES.includes(viewer.role)) {
-      if (viewer.groupId === course.groupId) return
+      if (viewer.groupId === course.groupId || course.ownWork) return
       throw new AppException('WRONG_SCOPE', 'Задание другой группы')
     }
     if (viewer.role === Role.TEACHER) {
@@ -908,7 +945,9 @@ export class AssignmentsService {
         score: true,
         gradedAt: true,
         gradedById: true,
-        assignment: { select: { title: true, maxScore: true, course: { select: COURSE_MINI } } },
+        assignment: {
+          select: { title: true, status: true, maxScore: true, course: { select: COURSE_MINI } },
+        },
       },
     })
     if (!sub) throw new AppException('NOT_FOUND', 'Работа не найдена')

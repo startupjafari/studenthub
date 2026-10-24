@@ -35,17 +35,12 @@ function setup() {
     }),
     get: jest.fn(async (key: string) => store.get(key) ?? null),
     del: jest.fn(async (key: string) => (store.delete(key) ? 1 : 0)),
-    multi: jest.fn(() => {
-      const chain = {
-        incr: (key: string) => {
-          store.set(key, String(Number(store.get(key) ?? 0) + 1))
-          return chain
-        },
-        expire: () => chain,
-        exec: async () => [],
-      }
-      return chain
+    incr: jest.fn(async (key: string) => {
+      const next = Number(store.get(key) ?? 0) + 1
+      store.set(key, String(next))
+      return next
     }),
+    expire: jest.fn(async () => 1),
   }
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const service = new TwoFactorService(
@@ -195,6 +190,47 @@ describe('TwoFactorService', () => {
     )
   })
 
+  // BUG-077: попытка занимается до проверки — пачка одновременных запросов не видит пустой
+  // счётчик, и кодов проверяется не больше порога.
+  it('verifyForUser: параллельная пачка проверяет не больше пяти кодов', async () => {
+    const { service, users, passwords } = setup()
+    users.getTwoFactorForLogin.mockResolvedValue(
+      loginRecord({ twoFactorBackupCodes: ['hash:ABCD1234'] }),
+    )
+
+    const results = await Promise.allSettled(
+      Array.from({ length: 20 }, () => service.verifyForUser('u1', 'WRONGONE')),
+    )
+
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(5)
+    expect(passwords.compare).toHaveBeenCalledTimes(5)
+  })
+
+  it('verifyForUser: верный код возвращает попытку — счётчик стирается', async () => {
+    const { service, users, store } = setup()
+    users.getTwoFactorForLogin.mockResolvedValue(
+      loginRecord({ twoFactorBackupCodes: ['hash:ABCD1234'] }),
+    )
+    await service.verifyForUser('u1', 'WRONGONE')
+
+    await expect(service.verifyForUser('u1', 'ABCD1234')).resolves.toBe(true)
+    expect(store.has('2fa:confirm-fails:u1')).toBe(false)
+  })
+
+  // BUG-347: обязательную 2FA привилегированная роль не снимает сама — даже верным кодом.
+  it('disable: роли с обязательной 2FA — FORBIDDEN, 2FA остаётся', async () => {
+    const { service, users } = setup()
+    users.getTwoFactorForLogin.mockResolvedValue(
+      loginRecord({
+        role: 'DEAN' as TwoFactorLoginRecord['role'],
+        twoFactorBackupCodes: ['hash:ABCD1234'],
+      }),
+    )
+    await expect(service.disable('u1', 'ABCD1234')).rejects.toMatchObject({ code: 'FORBIDDEN' })
+    expect(users.disableTwoFactor).not.toHaveBeenCalled()
+    expect(users.consumeBackupCode).not.toHaveBeenCalled()
+  })
+
   it('verifyCode: неверный код → false', async () => {
     const { service } = setup()
     const rec = loginRecord({ twoFactorBackupCodes: ['hash:ABCD1234'] })
@@ -318,6 +354,22 @@ describe('TwoFactorService.checkCode — проверка без списани�
 
     await expect(consume?.()).resolves.toBe(true)
     expect(users.consumeBackupCode).toHaveBeenCalledWith('u1', 'hash:ABCD1234')
+  })
+
+  // BUG-348: код с бумаги или из заметок — строчными, с пробелами и дефисом.
+  it('backup-код принимается строчными, с пробелами и дефисом', async () => {
+    const { service } = setup()
+    const rec = loginRecord({ twoFactorBackupCodes: ['hash:ABCD1234'] })
+    expect(await service.checkCode(rec, ' abcd-1234 ')).toEqual(expect.any(Function))
+  })
+
+  it('TOTP с пробелами по краям принимается', async () => {
+    const { service } = setup()
+    const secret = authenticator.generateSecret()
+    const rec = loginRecord({ twoFactorSecret: `enc(${secret})` })
+    expect(await service.checkCode(rec, ` ${authenticator.generate(secret)} `)).toEqual(
+      expect.any(Function),
+    )
   })
 
   it('неверный код → null', async () => {

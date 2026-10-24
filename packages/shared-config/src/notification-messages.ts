@@ -40,6 +40,17 @@ const RU = {
 
   'schedule.changed.title': 'Изменение в расписании',
   'schedule.changed.body': '{subject}: {change} на {date}',
+  // Своя статья на тип изменения: прежняя `{change}` приходила готовой русской строкой и
+  // в kk/en (старые уведомления по-прежнему собираются по `schedule.changed.body`).
+  'schedule.moved.body': '{subject}: перенос занятия на {date}',
+  'schedule.roomChanged.body': '{subject}: смена аудитории на {date}',
+  'schedule.cancelled.body': '{subject}: отмена занятия на {date}',
+  'schedule.substituted.body': '{subject}: замена преподавателя на {date}',
+  // Деканат убрал ошибочное изменение (C-F16).
+  'schedule.movedRevoked.body': '{subject}: перенос на {date} отменён, занятие в обычное время',
+  'schedule.roomChangedRevoked.body': '{subject}: смена аудитории на {date} отменена',
+  'schedule.cancelledRevoked.body': '{subject}: занятие {date} состоится',
+  'schedule.substitutedRevoked.body': '{subject}: замена преподавателя на {date} отменена',
 
   'moderation.warning.title': 'Предупреждение модератора',
   'moderation.warning.body':
@@ -99,6 +110,10 @@ const RU = {
 
   'events.reminder.title': 'Скоро событие',
   'events.reminder.body': '«{title}» начнётся примерно через час',
+  // Время начала, а не «через час»: окно напоминаний (now, now+70м] ловит и события через
+  // десять минут — созданные или перенесённые поздно, пропущенный тик крона. Прежний
+  // `events.reminder.body` остаётся для уже сохранённых уведомлений.
+  'events.reminder.bodyAt': '«{title}» начнётся в {time}',
   // Участникам: организатор перенёс или отменил событие.
   'events.rescheduled.title': 'Событие перенесено',
   'events.rescheduled.body': '«{title}»: новое время — {date}',
@@ -128,6 +143,7 @@ const RU = {
 
   'exams.scheduled.title': 'Назначен экзамен',
   'exams.updated.title': 'Изменения по экзамену',
+  'exams.cancelled.title': 'Экзамен отменён',
   'exams.result.title': 'Результат экзамена',
   'exams.course.body': '{subject}: {date}',
 
@@ -144,6 +160,7 @@ const RU = {
   'career.accessApproved.title': 'Допуск к студентам открыт',
   'career.accessRejected.title': 'Заявка на допуск отклонена',
   'career.accessRevoked.title': 'Допуск к студентам отозван',
+  'career.accessExpired.title': 'Срок допуска к студентам истёк',
   'career.university.body': '{university}',
   'career.universityReason.body': '{university}: {reason}',
   // Компании: решение вуза по вакансии.
@@ -194,6 +211,15 @@ const KK: Record<NotificationMessageKey, string> = {
 
   'schedule.changed.title': 'Сабақ кестесіндегі өзгеріс',
   'schedule.changed.body': '{subject}: {date} күніне {change}',
+  'schedule.moved.body': '{subject}: {date} күнгі сабақ ауыстырылды',
+  'schedule.roomChanged.body': '{subject}: {date} күні аудитория ауыстырылды',
+  'schedule.cancelled.body': '{subject}: {date} күнгі сабақ болмайды',
+  'schedule.substituted.body': '{subject}: {date} күні оқытушы ауыстырылды',
+  'schedule.movedRevoked.body':
+    '{subject}: {date} күнгі ауыстыру болдырылмады, сабақ әдеттегі уақытта',
+  'schedule.roomChangedRevoked.body': '{subject}: {date} күнгі аудитория ауыстыру болдырылмады',
+  'schedule.cancelledRevoked.body': '{subject}: {date} күнгі сабақ өтеді',
+  'schedule.substitutedRevoked.body': '{subject}: {date} күнгі оқытушы ауыстыру болдырылмады',
 
   'moderation.warning.title': 'Модератор ескертуі',
   'moderation.warning.body':
@@ -245,6 +271,7 @@ const KK: Record<NotificationMessageKey, string> = {
 
   'events.reminder.title': 'Жақында іс-шара',
   'events.reminder.body': '«{title}» шамамен бір сағаттан кейін басталады',
+  'events.reminder.bodyAt': '«{title}» {time} басталады',
   'events.rescheduled.title': 'Іс-шара ауыстырылды',
   'events.rescheduled.body': '«{title}»: жаңа уақыты — {date}',
   'events.cancelled.title': 'Іс-шара тоқтатылды',
@@ -269,6 +296,7 @@ const KK: Record<NotificationMessageKey, string> = {
 
   'exams.scheduled.title': 'Емтихан тағайындалды',
   'exams.updated.title': 'Емтихан бойынша өзгерістер',
+  'exams.cancelled.title': 'Емтихан болдырылмады',
   'exams.result.title': 'Емтихан нәтижесі',
   'exams.course.body': '{subject}: {date}',
 
@@ -283,6 +311,7 @@ const KK: Record<NotificationMessageKey, string> = {
   'career.accessApproved.title': 'Студенттерге қолжетімділік ашылды',
   'career.accessRejected.title': 'Қолжетімділік сұрауы қабылданбады',
   'career.accessRevoked.title': 'Студенттерге қолжетімділік тоқтатылды',
+  'career.accessExpired.title': 'Студенттерге қолжетімділік мерзімі аяқталды',
   'career.university.body': '{university}',
   'career.universityReason.body': '{university}: {reason}',
   'career.vacancyApproved.title': 'Вакансия мақұлданды',
@@ -327,6 +356,14 @@ const EN: Record<NotificationMessageKey, string> = {
 
   'schedule.changed.title': 'Schedule change',
   'schedule.changed.body': '{subject}: {change} on {date}',
+  'schedule.moved.body': '{subject}: class moved on {date}',
+  'schedule.roomChanged.body': '{subject}: room changed on {date}',
+  'schedule.cancelled.body': '{subject}: class cancelled on {date}',
+  'schedule.substituted.body': '{subject}: substitute teacher on {date}',
+  'schedule.movedRevoked.body': '{subject}: the move on {date} is undone, class at the usual time',
+  'schedule.roomChangedRevoked.body': '{subject}: the room change on {date} is undone',
+  'schedule.cancelledRevoked.body': '{subject}: the class on {date} will take place',
+  'schedule.substitutedRevoked.body': '{subject}: the teacher substitution on {date} is undone',
 
   'moderation.warning.title': 'Moderator warning',
   'moderation.warning.body':
@@ -378,6 +415,7 @@ const EN: Record<NotificationMessageKey, string> = {
 
   'events.reminder.title': 'Event starting soon',
   'events.reminder.body': '“{title}” starts in about an hour',
+  'events.reminder.bodyAt': '“{title}” starts at {time}',
   'events.rescheduled.title': 'Event rescheduled',
   'events.rescheduled.body': '“{title}”: new time — {date}',
   'events.cancelled.title': 'Event cancelled',
@@ -402,6 +440,7 @@ const EN: Record<NotificationMessageKey, string> = {
 
   'exams.scheduled.title': 'Exam scheduled',
   'exams.updated.title': 'Exam details changed',
+  'exams.cancelled.title': 'Exam cancelled',
   'exams.result.title': 'Exam result',
   'exams.course.body': '{subject}: {date}',
 
@@ -416,6 +455,7 @@ const EN: Record<NotificationMessageKey, string> = {
   'career.accessApproved.title': 'Access to students granted',
   'career.accessRejected.title': 'Access request declined',
   'career.accessRevoked.title': 'Access to students revoked',
+  'career.accessExpired.title': 'Access to students expired',
   'career.university.body': '{university}',
   'career.universityReason.body': '{university}: {reason}',
   'career.vacancyApproved.title': 'Vacancy approved',

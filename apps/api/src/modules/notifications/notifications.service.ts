@@ -9,6 +9,7 @@ import { PrismaService } from '../../common/prisma/prisma.service'
 import { REDIS_CLIENT } from '../../common/redis/redis.module'
 import { AppException } from '../../common/exceptions/app.exception'
 import { Paginated } from '../../common/http/paginated'
+import { NEWEST_FIRST, encodeKeyset, keysetFrom, olderThan } from '../../common/http/keyset-cursor'
 
 // Публичная выборка уведомления: без userId и dedupeKey (внутренние поля).
 //
@@ -74,23 +75,41 @@ export class NotificationsService {
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
   ) {}
 
-  /** Лента уведомлений пользователя (cursor-пагинация, свежие сверху). */
+  /**
+   * Лента уведомлений пользователя (cursor-пагинация, свежие сверху).
+   *
+   * Курсор несёт момент и id последней строки (keyset-cursor.ts), а не голый id для
+   * Prisma-курсора: свёрнутая строка чата при новом сообщении «подпрыгивает» наверх (новый
+   * createdAt), и курсор по её id отдавал страницу заново — дубли; удалённая курсорная строка
+   * обрывала листание пустой страницей. Голый id от прежних клиентов ещё понимаем.
+   */
   async list(userId: string, query: NotificationListQueryInput): Promise<Paginated<unknown>> {
     const where: Prisma.NotificationWhereInput = {
       userId,
       ...(query.unreadOnly ? { isRead: false } : {}),
     }
+    const after = query.cursor
+      ? await keysetFrom(query.cursor, (id) =>
+          this.prisma.notification.findFirst({
+            where: { id, userId },
+            select: { createdAt: true, id: true },
+          }),
+        )
+      : null
+    if (query.cursor && !after) return new Paginated([], { hasNext: false })
     const rows = await this.prisma.notification.findMany({
-      where,
+      where: after ? { AND: [where, olderThan(after)] } : where,
       select: NOTIFICATION_SELECT,
-      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      orderBy: NEWEST_FIRST,
       take: query.limit + 1,
-      ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
     })
     const hasNext = rows.length > query.limit
     const items = hasNext ? rows.slice(0, query.limit) : rows
-    const nextCursor = hasNext ? items[items.length - 1]?.id : undefined
-    return new Paginated(items, { cursor: nextCursor, hasNext })
+    const last = items.at(-1)
+    return new Paginated(items, {
+      cursor: hasNext && last ? encodeKeyset(last) : undefined,
+      hasNext,
+    })
   }
 
   /**

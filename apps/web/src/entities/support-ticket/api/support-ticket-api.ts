@@ -1,5 +1,5 @@
 import type { SupportQueueQueryInput, SupportTag } from '@studenthub/shared-schemas'
-import { api, getPaged, type Paged } from '../../../shared/api'
+import { api, getPaged, type Paged, type ResponseWithMeta } from '../../../shared/api'
 
 // Обращения в поддержку платформы — рабочее место команды платформы (админ и модератор
 // платформы). Типы повторяют ответ `/support`; тот же контракт читает мини-апп.
@@ -36,6 +36,8 @@ export interface SupportMessage {
 export interface SupportThread {
   ticket: SupportTicket
   messages: SupportMessage[]
+  /** Курсор истории обращения до загруженных 50 сообщений; null — раньше ничего нет. */
+  earlierCursor?: string | null
   mergedCount: number
   siblings: { id: string; createdAt: string; closed: boolean }[]
 }
@@ -61,6 +63,20 @@ export async function fetchSupportTagCounts(): Promise<{ tag: SupportTag; count:
 export async function fetchSupportThread(id: string): Promise<SupportThread> {
   const { data } = await api.get<SupportThread>(`/support/${id}`)
   return data
+}
+
+/**
+ * Более ранние сообщения обращения — обычной историей чата: обращение и есть чат, а
+ * сотрудник платформы в нём участник. Свежие сверху, `cursor` — для следующей порции.
+ */
+export async function fetchSupportEarlierMessages(
+  id: string,
+  cursor: string,
+): Promise<{ items: SupportMessage[]; cursor: string | null }> {
+  const res = (await api.get<SupportMessage[]>(`/chats/${id}/messages`, {
+    params: { cursor, limit: 50 },
+  })) as ResponseWithMeta & { data: SupportMessage[] }
+  return { items: res.data, cursor: res.meta?.hasNext ? (res.meta.cursor ?? null) : null }
 }
 
 export async function replySupportRequest(id: string, text: string): Promise<SupportMessage> {

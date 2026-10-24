@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl'
 import {
   CheckCheck,
   Copy,
+  Flag,
   Forward,
   Link2,
   Pencil,
@@ -38,6 +39,8 @@ export interface MessageMenuActions {
   onForward: () => void
   onDelete: () => void
   onSelect: () => void
+  /** Пожаловаться на чужое сообщение. Нет — пункта нет (роль жалоб не подаёт). */
+  onReport?: () => void
 }
 
 /** Пузырь, из которого выросло меню (долгое нажатие на телефоне). */
@@ -185,8 +188,11 @@ export function MessageContextMenu({
     dismiss()
   }
 
+  // Пересланное — чужие слова под подписью «Переслано от X»: их не правят (сервер тоже откажет).
   const canEdit =
-    mine && Date.now() - new Date(message.createdAt).getTime() < MESSAGE_EDIT_WINDOW_MS
+    mine &&
+    !message.forwardedFromId &&
+    Date.now() - new Date(message.createdAt).getTime() < MESSAGE_EDIT_WINDOW_MS
   const items: ActionDef[] = [
     { key: 'reply', label: t('reply'), icon: Reply, onClick: actions.onReply },
     ...(canEdit ? [{ key: 'edit', label: t('edit'), icon: Pencil, onClick: actions.onEdit }] : []),
@@ -200,6 +206,9 @@ export function MessageContextMenu({
     { key: 'link', label: t('copyLink'), icon: Link2, onClick: actions.onCopyLink },
     { key: 'forward', label: t('forward'), icon: Forward, onClick: actions.onForward },
     { key: 'select', label: t('select'), icon: CheckCheck, onClick: actions.onSelect },
+    ...(!mine && actions.onReport
+      ? [{ key: 'report', label: t('report'), icon: Flag, onClick: actions.onReport, danger: true }]
+      : []),
     ...(mine
       ? [
           {

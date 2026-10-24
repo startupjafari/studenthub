@@ -2,9 +2,10 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
-import { BadgeCheck, FileWarning, Loader2, ShieldX } from 'lucide-react'
+import { BadgeCheck, CloudOff, FileWarning, Loader2, RotateCcw, ShieldX } from 'lucide-react'
 import { verificationKeys, verifyDocument } from '../../../entities/document-verification'
-import { Card, CardContent } from '../../../shared/ui'
+import { Button, Card, CardContent } from '../../../shared/ui'
+import { toApiError } from '../../../shared/lib'
 
 /**
  * Публичная проверка выданного документа по коду из бланка.
@@ -20,12 +21,14 @@ import { Card, CardContent } from '../../../shared/ui'
  */
 export function VerifyDocumentView({ code }: { code: string }) {
   const t = useTranslations('Verify')
+  const tCommon = useTranslations('Common')
   const locale = useLocale()
 
   const query = useQuery({
     queryKey: verificationKeys.byCode(code),
     queryFn: () => verifyDocument(code),
-    // Один выстрел: ошибка здесь — это «кода нет», а не сетевой сбой, повторять нечего.
+    // Без автоповторов: каждый тратит лимит проверок с адреса (20 в минуту), а банк проверяет
+    // пачку справок с одного IP. Повтор — кнопкой, когда человек сам решит.
     retry: false,
   })
 
@@ -38,8 +41,27 @@ export function VerifyDocumentView({ code }: { code: string }) {
     )
   }
 
-  // Не найдено и «сервер недоступен» для проверяющего одно и то же: документ не подтверждён.
-  // Разница важна нам, а не ему, и она в логах.
+  // «Не найдено» — только когда сервер так и ответил. Лимит запросов, 5xx и обрыв сети —
+  // это «проверить не удалось»: показанный под ними «Документ не найден» выдавал подлинную
+  // справку за подделку. Подсказки перебирающему здесь нет: лимит и так виден в ответе.
+  if (query.isError && toApiError(query.error).code !== 'NOT_FOUND') {
+    const limited = toApiError(query.error).code === 'RATE_LIMIT'
+    return (
+      <Shell>
+        <CloudOff className="size-10 text-muted-foreground" aria-hidden />
+        <h1 className="text-lg font-semibold">{t('failedTitle')}</h1>
+        <p className="max-w-sm text-sm text-muted-foreground">
+          {limited ? t('rateLimitedHint') : t('failedHint')}
+        </p>
+        <Code value={code} />
+        <Button variant="outline" loading={query.isFetching} onClick={() => void query.refetch()}>
+          <RotateCcw className="size-4" aria-hidden />
+          {tCommon('retry')}
+        </Button>
+      </Shell>
+    )
+  }
+
   if (query.isError || !query.data) {
     return (
       <Shell>

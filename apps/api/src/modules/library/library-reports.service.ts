@@ -59,12 +59,17 @@ export class LibraryReportsService {
         this.prisma.loan.count({
           where: { universityId, status: 'RETURNED', returnedAt: { gte: monthAgo } },
         }),
-        // Читателей считаем в базе: выдач у вуза могут быть десятки тысяч.
+        // Читателей считаем в базе: выдач у вуза могут быть десятки тысяч. Должник — с
+        // просрочкой или с утерянной книгой, долг за которую не погашен: пока не погашен,
+        // он считается как просрочка (§3.11).
         this.prisma.$queryRaw<{ withLoans: number; debtors: number }[]>`
-          SELECT count(DISTINCT reader_id)::int AS "withLoans",
-                 count(DISTINCT reader_id) FILTER (WHERE due_at < ${now})::int AS "debtors"
+          SELECT count(DISTINCT reader_id) FILTER (WHERE status = 'OPEN')::int AS "withLoans",
+                 count(DISTINCT reader_id) FILTER (
+                   WHERE (status = 'OPEN' AND due_at < ${now}) OR status = 'LOST'
+                 )::int AS "debtors"
           FROM loans
-          WHERE university_id = ${universityId} AND status = 'OPEN'`,
+          WHERE university_id = ${universityId}
+            AND (status = 'OPEN' OR (status = 'LOST' AND lost_settled_at IS NULL))`,
         this.prisma.reservation.groupBy({
           by: ['status'],
           where: { universityId, status: { in: ['QUEUED', 'READY'] } },

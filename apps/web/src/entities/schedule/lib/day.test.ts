@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { isSubstitutedAway, substitutionOn, substitutionPairs } from './day'
+import {
+  changesByPairDate,
+  isSubstitutedAway,
+  mergeChanges,
+  pairDateKey,
+  substitutionOn,
+  substitutionPairs,
+} from './day'
 import type { ScheduleChange } from '../model/types'
 
 const MAIN = { id: 't-main', firstName: 'Анна', lastName: 'Основная' }
@@ -77,5 +84,57 @@ describe('замены преподавателя', () => {
     expect(isSubstitutedAway([change()], 'p1', DATE, SUB.id)).toBe(false)
     // Аккаунт заменяющего удалён (newTeacher = null) — занятие снова за основным.
     expect(isSubstitutedAway([change({ newTeacher: null })], 'p1', DATE, MAIN.id)).toBe(false)
+  })
+})
+
+// BUG-072: несколько изменений пары на дату накладываются, как в `effectiveSlot` сервера.
+describe('изменения пары на дату', () => {
+  const ROOM = { id: 'r305', name: '305' }
+
+  it('перенос и затем смена аудитории — новое время в новой аудитории', () => {
+    const merged = mergeChanges([
+      change({
+        id: 'c1',
+        type: 'MOVED',
+        newTeacher: null,
+        newStartTime: '14:00',
+        newEndTime: '15:30',
+      }),
+      change({ id: 'c2', type: 'ROOM_CHANGED', newTeacher: null, newRoom: ROOM }),
+    ])
+    expect(merged).toMatchObject({
+      id: 'c2',
+      type: 'ROOM_CHANGED',
+      newStartTime: '14:00',
+      newEndTime: '15:30',
+      newRoom: ROOM,
+      newTeacher: null,
+    })
+  })
+
+  it('отмена перекрывает всё', () => {
+    const merged = mergeChanges([
+      change({ id: 'c1' }),
+      change({ id: 'c2', type: 'CANCELLED', newTeacher: null }),
+    ])
+    expect(merged?.type).toBe('CANCELLED')
+  })
+
+  it('карта по паре и дате сводит изменения в порядке создания', () => {
+    const map = changesByPairDate([
+      change({
+        id: 'c2',
+        type: 'ROOM_CHANGED',
+        newTeacher: null,
+        newRoom: ROOM,
+        createdAt: '2026-09-11T00:00:00.000Z',
+      }),
+      change({ id: 'c1', createdAt: '2026-09-10T00:00:00.000Z' }),
+    ])
+    expect(map.get(pairDateKey('p1', DATE))).toMatchObject({
+      type: 'ROOM_CHANGED',
+      newRoom: ROOM,
+      newTeacher: SUB,
+    })
   })
 })

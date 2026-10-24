@@ -291,9 +291,11 @@ export class GradebookService {
             kind: true,
             maxScore: true,
             position: true,
-            grades: { where: { studentId: viewer.sub }, select: { score: true } },
+            // Оценка студента в колонке одна (`@@unique([columnId, studentId])`).
+            grades: { where: { studentId: viewer.sub }, select: { score: true }, take: 1 },
           },
           orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
+          take: COURSE_COLUMNS_LIMIT,
         },
       },
       orderBy: { subject: { name: 'asc' } },

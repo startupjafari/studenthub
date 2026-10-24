@@ -5,7 +5,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { AlertTriangle, CalendarDays, FileClock, FileText } from 'lucide-react'
 import { Badge, EmptyState, MetricTile, SectionPanel, Skeleton } from '../../../shared/ui'
-import { nowInTz, isoWeekParity } from '../../../shared/lib'
+import { isoWeekParityOf, useNowInTz } from '../../../shared/lib'
 import { scheduleKeys, fetchSchedule, fetchScheduleChanges } from '../../../entities/schedule'
 import { applicationKeys, fetchQueueStats } from '../../../entities/application-service'
 import { notificationKeys, fetchNotifications } from '../../../entities/notification'
@@ -30,8 +30,10 @@ export function DeanTodayBlock() {
   const t = useTranslations('Today')
 
   const schedule = useQuery({ queryKey: scheduleKeys.view({}), queryFn: () => fetchSchedule({}) })
-  const now = useMemo(() => nowInTz(schedule.data?.timezone ?? null), [schedule.data?.timezone])
-  const parity = useMemo(() => isoWeekParity(), [])
+  // Часы идут, день и чётность — по дате вуза (BUG-121); с новыми сутками меняется и
+  // ключ выборки изменений дня.
+  const now = useNowInTz(schedule.data?.timezone ?? null)
+  const parity = isoWeekParityOf(now.date)
 
   const changes = useQuery({
     queryKey: scheduleKeys.changes({ from: now.date, to: now.date }),
@@ -51,7 +53,14 @@ export function DeanTodayBlock() {
     () => buildDayPairs(schedule.data?.pairs ?? [], changes.data ?? [], now, parity),
     [schedule.data?.pairs, changes.data, now, parity],
   )
-  const todayChanges = changes.data ?? []
+  // Отменённое занятие не проводится — в «Пар сегодня» его нет (оно среди проблем ниже).
+  const classesToday = dayPairs.filter((dp) => dp.state !== 'cancelled').length
+  // Проблемы — только у пар действующих версий: изменения пар черновика или архива группа не
+  // видит, и в сетке дня их нет.
+  const todayChanges = useMemo(() => {
+    const activePairIds = new Set((schedule.data?.pairs ?? []).map((p) => p.id))
+    return (changes.data ?? []).filter((c) => activePairIds.has(c.pairId))
+  }, [schedule.data?.pairs, changes.data])
 
   if (schedule.isLoading) {
     return <Skeleton fill className="min-h-24 rounded-xl" />
@@ -67,7 +76,7 @@ export function DeanTodayBlock() {
           index={0}
           icon={CalendarDays}
           label={t('kpi.classesToday')}
-          value={dayPairs.length}
+          value={classesToday}
           href="/dean/schedule"
         />
         <MetricTile

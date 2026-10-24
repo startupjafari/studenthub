@@ -63,6 +63,27 @@ final class AppDatabaseTests: XCTestCase {
         }
     }
 
+    /// Выход из аккаунта стирает всё, что было у прежнего человека, но не схему:
+    /// следующий вход пишет в ту же базу без миграций.
+    func testEraseAllRemovesDataButKeepsSchema() async throws {
+        let database = try AppDatabase.inMemory()
+        let chat = makeChat(id: "c-1")
+        let message = makeMessage(id: "m-1", chatId: "c-1", seq: 1)
+        try database.writer.write { db in
+            try chat.insert(db)
+            try message.insert(db)
+        }
+
+        try await database.eraseAll()
+
+        try database.reader.read { db in
+            XCTAssertEqual(try ChatRecord.fetchCount(db), 0)
+            XCTAssertEqual(try MessageRecord.fetchCount(db), 0)
+            XCTAssertTrue(try db.tableExists(ChatRecord.databaseTableName))
+        }
+        try database.writer.write { db in try chat.insert(db) }
+    }
+
     /// Номер сообщения уникален в пределах чата — то же правило, что на сервере.
     func testDuplicateSeqInOneChatIsRejected() throws {
         let database = try AppDatabase.inMemory()

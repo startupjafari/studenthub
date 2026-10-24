@@ -7,7 +7,7 @@ import type Redis from 'ioredis'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { MINIO_CLIENT } from '../../common/minio/minio.constants'
 import { CronLockService } from '../../common/redis/cron-lock.service'
-import { AuditService } from '../../common/audit/audit.service'
+import { AUDIT_RETENTION_DAYS, AuditService } from '../../common/audit/audit.service'
 import { REDIS_CLIENT } from '../../common/redis/redis.constants'
 import type { EnvVars } from '../../config/env.schema'
 import { EventsService } from '../events/events.service'
@@ -96,7 +96,6 @@ const NOTIFICATION_RETENTION_DAYS = 30
 // Свёрнутое уведомление чата при каждом сообщении получает свежее время — живой чат
 // своё уведомление не теряет.
 const UNREAD_NOTIFICATION_RETENTION_DAYS = 90
-const AUDIT_RETENTION_DAYS = 90
 // Потолок удаления refresh-сессий за один прогон: 100 батчей, 50 тысяч строк. Каждый refresh
 // пишет строку, и хвост, накопленный до появления задачи, может исчисляться миллионами — он
 // уходит за несколько ежечасных прогонов, а не одним многоминутным циклом под локом. Обычный
@@ -361,12 +360,23 @@ export class CleanupService {
         take: BATCH_SIZE,
       })
       if (batch.length === 0) break
-      const ids = batch.map((row) => row.id)
+      let ids = batch.map((row) => row.id)
+      // Условие срока — и в самой записи: блокировку, продлённую между выборкой и записью
+      // (новая жалоба, бессрочная поверх срочной), крон снимать не должен.
       const { count } = await this.prisma.user.updateMany({
-        where: { id: { in: ids } },
+        where: { id: { in: ids }, isBlocked: true, blockedUntil: { lte: now } },
         data: { isBlocked: false, blockedUntil: null },
       })
       total += count
+      if (count < ids.length) {
+        const kept = await this.prisma.user.findMany({
+          where: { id: { in: ids }, isBlocked: true },
+          select: { id: true },
+          take: ids.length,
+        })
+        const keptIds = new Set(kept.map((row) => row.id))
+        ids = ids.filter((id) => !keptIds.has(id))
+      }
       // Снятие блокировки — событие того же веса, что и сама блокировка: без записи в
       // журнале человек «разблокировался сам», и через месяц никто не объяснит, почему.
       for (const id of ids) {
@@ -854,29 +864,38 @@ export class CleanupService {
    * Ключи из `keys`, на которые ссылаются НЕ через `File.key`.
    *
    * В `profile-covers` `putAuxImage` кладёт объекты без записи File: постер видео профиля
-   * (его ключ — в `File.posterKey`) и обложку пользователя (в `User.coverUrl` хранится
-   * публичный URL, ключ — его последний сегмент). Без этой сверки чистка удаляла их через
-   * час после загрузки. Сравниваем по окончанию URL, а не по целому адресу: домен MinIO
+   * (его ключ — в `File.posterKey`), обложку пользователя и обложку статьи (в
+   * `User.coverUrl` и `ProfileArticle.coverUrl` хранится публичный URL, ключ — его последний
+   * сегмент). Без этой сверки чистка удаляла их через час после загрузки. Сравниваем по окончанию URL, а не по целому адресу: домен MinIO
    * мог смениться, и старые URL с прежним хостом всё равно указывают на живой объект.
    */
   private async auxReferencedKeys(bucket: string, keys: string[]): Promise<string[]> {
     if (bucket !== this.config.get('MINIO_BUCKET_PROFILE_COVERS', { infer: true })) return []
     if (keys.length === 0) return []
-    const [posters, covers] = await Promise.all([
+    const coverUrlOf = { OR: keys.map((key) => ({ coverUrl: { endsWith: `/${key}` } })) }
+    const [posters, covers, articleCovers] = await Promise.all([
       this.prisma.file.findMany({
         where: { posterKey: { in: keys } },
         select: { posterKey: true },
         take: keys.length,
       }),
       this.prisma.user.findMany({
-        where: { OR: keys.map((key) => ({ coverUrl: { endsWith: `/${key}` } })) },
+        where: coverUrlOf,
         select: { coverUrl: true },
+        take: keys.length,
+      }),
+      // distinct: одну обложку могут делить несколько статей (сид), и без него потолок
+      // `take` съели бы повторы — непосчитанная живая обложка ушла бы в сироты.
+      this.prisma.profileArticle.findMany({
+        where: coverUrlOf,
+        select: { coverUrl: true },
+        distinct: ['coverUrl'],
         take: keys.length,
       }),
     ])
     const referenced: string[] = []
     for (const p of posters) if (p.posterKey) referenced.push(p.posterKey)
-    for (const c of covers) {
+    for (const c of [...covers, ...articleCovers]) {
       const key = c.coverUrl?.split('?')[0]?.split('/').pop()
       if (key) referenced.push(key)
     }

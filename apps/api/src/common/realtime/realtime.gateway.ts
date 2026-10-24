@@ -15,12 +15,13 @@ import { REALTIME_CHANNEL, type RealtimeEnvelope } from '@studenthub/shared-sche
 import type { JwtPayload } from '../auth/jwt-payload.type'
 import { TWO_FACTOR_REQUIRED_ROLES } from '../guards/two-factor.guard'
 import type { EnvVars } from '../../config/env.schema'
+import { parseCorsOrigins } from '../../config/web-base'
 import { PrismaService } from '../prisma/prisma.service'
 import { SessionRevocationService } from '../redis/session-revocation.service'
 import { UniversityAccessService } from '../../modules/universities/university-access.service'
 
 // CORS для WS читаем из env на этапе загрузки модуля (декоратор вычисляется при импорте).
-const WS_CORS_ORIGIN = (process.env.CORS_ORIGIN ?? 'http://localhost:3000').split(',')
+const WS_CORS_ORIGIN = parseCorsOrigins(process.env.CORS_ORIGIN ?? 'http://localhost:3000')
 
 /**
  * Комнаты, которым сообщать о присутствии пользователя. Решает домен чатов (собеседники

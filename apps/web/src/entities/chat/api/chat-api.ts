@@ -177,6 +177,8 @@ export interface ChatUpdates {
   latestSeq: number
   // Разрыв больше серверного лимита — склеить ленту нельзя, нужен полный рефетч истории.
   overflow: boolean
+  // Момент выборки по часам сервера — следующий `sinceTs` (§9.2c).
+  syncedAt: string
 }
 
 export async function fetchChatUpdates(

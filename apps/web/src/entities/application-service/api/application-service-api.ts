@@ -83,6 +83,18 @@ export interface ServiceDetail extends ServiceCard {
   formFields: ServiceFormField[]
 }
 
+/** Поле анкеты в карточке заявки: по нему ответы formData показываются с подписями. */
+export interface ApplicationFormField extends ServiceFormField {
+  // Выключенное поле: ответ на него в заявке остался, править его уже нельзя.
+  active: boolean
+}
+
+/** Действующее требование услуги в карточке заявки: по ним строится чек-лист исправления. */
+export type ApplicationRequirementRef = Pick<
+  ServiceRequirement,
+  'id' | 'documentType' | 'titleRu' | 'titleKk' | 'titleEn' | 'required'
+>
+
 export interface ApplicationServiceRef {
   id: string
   code: string
@@ -93,6 +105,10 @@ export interface ApplicationServiceRef {
   descriptionRu?: string | null
   descriptionKk?: string | null
   descriptionEn?: string | null
+  // Есть только в деталях заявки (GET /applications/:id).
+  deliveryModes?: DeliveryMode[]
+  requirements?: ApplicationRequirementRef[]
+  formFields?: ApplicationFormField[]
 }
 
 export interface ApplicationListItem {
@@ -123,6 +139,9 @@ export interface TimelineEvent {
   comment: string | null
   actorId: string | null
   createdAt: string
+  // Требование, к которому относится событие документа (DOCUMENT_ADDED / DOCUMENT_ACCEPTED):
+  // по нему событие подписывается названием на языке интерфейса, а не русским comment.
+  requirementId?: string | null
 }
 
 /** Страница приложенного документа (паспорт — разворот и прописка, диплом — с приложением). */
@@ -158,7 +177,12 @@ export interface ApplicationResultItem {
   documentNumber: string | null
   note: string | null
   createdAt: string
+  // Выданная справка отозвана: файл у студента остался, но ничего не подтверждает.
+  revoked?: boolean
 }
+
+/** Справка, сформированная платформой (её и только её отзывают по коду проверки). */
+export const CERTIFICATE_RESULT_TYPE = 'DOCUMENT'
 
 export interface ApplicationDetail extends ApplicationListItem {
   rejectionReason: string | null
@@ -222,6 +246,30 @@ export async function fetchApplications(filters: ApplicationFilters): Promise<Ap
     params: filters,
   })) as ResponseWithMeta & { data: ApplicationListItem[] }
   return { items: res.data, total: res.meta?.total ?? res.data.length }
+}
+
+// Потолок страницы списка на сервере (OffsetPaginationSchema) и страниц на один обход:
+// своих заявок у студента единицы-десятки, 20 страниц — с большим запасом.
+const LIST_PAGE_MAX = 100
+const LIST_PAGES_MAX = 20
+
+/**
+ * Все заявки по фильтру — страницами по 100 до `total`. Нужен списку студента: он
+ * раскладывает свои заявки по вкладкам и считает их на клиенте, и одна страница обрезала
+ * бы и вкладки, и счётчики.
+ */
+export async function fetchAllApplications(
+  filters: Omit<ApplicationFilters, 'page' | 'limit'>,
+): Promise<ApplicationListPage> {
+  const items: ApplicationListItem[] = []
+  let total = 0
+  for (let page = 1; page <= LIST_PAGES_MAX; page++) {
+    const res = await fetchApplications({ ...filters, page, limit: LIST_PAGE_MAX })
+    items.push(...res.items)
+    total = res.total
+    if (res.items.length < LIST_PAGE_MAX || items.length >= total) break
+  }
+  return { items, total }
 }
 
 export async function fetchApplication(id: string): Promise<ApplicationDetail> {
@@ -347,8 +395,9 @@ export async function markReadyRequest(
 ): Promise<void> {
   await api.post(`/applications/${id}/mark-ready`, body)
 }
-export async function issueApplicationRequest(id: string): Promise<void> {
-  await api.post(`/applications/${id}/issue`)
+// Код получения называет студент; сервер сверяет его с выданным при «готово».
+export async function issueApplicationRequest(id: string, pickupCode: string): Promise<void> {
+  await api.post(`/applications/${id}/issue`, { pickupCode })
 }
 export async function deliverApplicationRequest(id: string): Promise<void> {
   await api.post(`/applications/${id}/deliver`)

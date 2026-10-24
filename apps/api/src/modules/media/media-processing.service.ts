@@ -82,12 +82,23 @@ export class MediaProcessingService implements OnModuleInit {
     await this.sweepStaleTmp()
   }
 
-  /** Временные каталоги, брошенные убитым посреди перекодирования процессом. */
-  private async sweepStaleTmp(): Promise<void> {
+  /**
+   * Временные каталоги, брошенные убитым посреди перекодирования процессом. Идёт при старте
+   * и перед каждым видео: воркер, который живёт неделями, тоже должен их убирать. С
+   * `fileId` сносит и каталоги прежних попыток этого файла независимо от возраста: процесс
+   * убили на нём (OOM), job пришёл снова — иначе каждый круг копил бы ещё одну частичную
+   * HLS-раскладку, пока не кончится диск. Параллельно один файл не обрабатывается: jobId
+   * детерминирован.
+   */
+  private async sweepStaleTmp(fileId?: string): Promise<void> {
     const entries = await readdir(this.tmpRoot).catch(() => [] as string[])
     const before = Date.now() - STALE_TMP_MS
     for (const name of entries) {
       const path = join(this.tmpRoot, name)
+      if (fileId && name.startsWith(`${fileId}-`)) {
+        await rm(path, { recursive: true, force: true })
+        continue
+      }
       const info = await stat(path).catch(() => null)
       if (info && info.mtimeMs < before) await rm(path, { recursive: true, force: true })
     }
@@ -221,9 +232,23 @@ export class MediaProcessingService implements OnModuleInit {
     )
   }
 
-  /** Исчерпаны попытки: показываем оригинал, как до медиа-системы. */
+  /**
+   * Исчерпаны попытки: показываем оригинал, как до медиа-системы. Всё, что неудачные попытки
+   * успели залить под префикс вариантов (постер, часть сегментов HLS), убираем: строк у этих
+   * объектов нет, а живой владелец не даёт ночной чистке счесть их сиротами. Готовый файл
+   * (READY от параллельной копии) не трогаем.
+   */
   async markFailed(fileId: string): Promise<void> {
-    await this.setStatus(fileId, MediaStatus.FAILED)
+    const { count } = await this.prisma.file.updateMany({
+      where: { id: fileId, mediaStatus: { not: MediaStatus.READY } },
+      data: { mediaStatus: MediaStatus.FAILED },
+    })
+    if (count === 0) return
+    const file = await this.prisma.file.findUnique({
+      where: { id: fileId },
+      select: { bucket: true },
+    })
+    if (file) await this.removePrefix(file.bucket, variantPrefix(fileId))
   }
 
   // ── Изображения ──
@@ -275,12 +300,23 @@ export class MediaProcessingService implements OnModuleInit {
     // воркера и не ложатся вторым экземпляром на диск — перекодирование потоковое.
     const input = await this.minio.presignedGetObject(file.bucket, file.key, SOURCE_URL_TTL_SECONDS)
     const meta = await probe(this.ffprobe, input)
+    if (meta.width === 0 && meta.hasAudio) {
+      // Только звук в контейнере webm/mp4 — голосовое чата: по сигнатуре такой контейнер не
+      // отличить от видео, и mime у него video/*. Это не сбой: готовить нечего, играет
+      // оригинал, как у любого не-медиа файла. Длительность пригодится плееру.
+      await this.prisma.file.updateMany({
+        where: { id: file.id },
+        data: { mediaStatus: MediaStatus.NONE, durationMs: meta.durationMs },
+      })
+      return
+    }
     if (meta.width === 0) {
-      this.logger.warn(`Файл ${file.id}: видеодорожка не найдена — без HLS`)
+      this.logger.warn(`Файл ${file.id}: ни видео-, ни звуковой дорожки — без HLS`)
       await this.setStatus(file.id, MediaStatus.FAILED)
       return
     }
 
+    await this.sweepStaleTmp(file.id)
     const dir = await mkdtemp(join(this.tmpRoot, `${file.id}-`))
     try {
       const framePath = join(dir, 'poster.jpg')

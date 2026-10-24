@@ -92,6 +92,8 @@ struct MessageRecord: Codable, FetchableRecord, PersistableRecord, Hashable {
         static let remoteId = Column(CodingKeys.remoteId)
         static let chatId = Column(CodingKeys.chatId)
         static let seq = Column(CodingKeys.seq)
+        static let senderId = Column(CodingKeys.senderId)
+        static let content = Column(CodingKeys.content)
         static let createdAt = Column(CodingKeys.createdAt)
         static let sendState = Column(CodingKeys.sendState)
     }

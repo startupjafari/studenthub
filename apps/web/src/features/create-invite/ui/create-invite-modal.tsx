@@ -25,7 +25,7 @@ import { OPTIONAL_TEXT, useErrorToast } from '../../../shared/lib'
 import { fetchMe, userKeys } from '../../../entities/user'
 import { fetchFaculties, facultyKeys } from '../../../entities/faculty'
 import { GroupSelect } from '../../../entities/group'
-import { fetchUniversityOptions, universityKeys } from '../../../entities/university'
+import { UniversitySelect } from '../../../entities/university'
 import { createInviteRequest, inviteKeys, type CreatedInvite } from '../../../entities/invite'
 import {
   FACULTY_ROLES,
@@ -55,22 +55,25 @@ export function CreateInviteModal({ onClose }: Props) {
   const [created, setCreated] = useState<CreatedInvite | null>(null)
 
   const me = useQuery({ queryKey: userKeys.me(), queryFn: fetchMe })
-  const faculties = useQuery({ queryKey: facultyKeys.list(), queryFn: () => fetchFaculties() })
+  const faculties = useQuery({
+    queryKey: facultyKeys.list(),
+    queryFn: () => fetchFaculties(),
+    enabled: me.data !== undefined && me.data.role !== Role.DEAN,
+  })
 
   const invitable = me.data ? (INVITABLE_ROLES[me.data.role] ?? []) : []
 
   const form = useForm<CreateInviteInput>({ resolver: zodResolver(CreateInviteSchema) })
   const role = form.watch('role')
-  const needsFaculty = role !== undefined && FACULTY_ROLES.includes(role)
+  // Декан приглашает преподавателя только на свой факультет — сервер берёт его из токена
+  // (invite-hierarchy.ts), поэтому выбирать нечего: в селекте были чужие факультеты, и
+  // выбор любого из них давал 403 WRONG_SCOPE.
+  const facultyFromIssuer = me.data?.role === Role.DEAN
+  const needsFaculty = role !== undefined && FACULTY_ROLES.includes(role) && !facultyFromIssuer
   const needsGroup = role !== undefined && GROUP_ROLES.includes(role)
   // Приглашение админа вуза выдаёт платформа — целевой вуз она указывает явно
   // (invite-hierarchy.ts: scope не выводится из выдающего).
   const needsUniversity = role !== undefined && UNIVERSITY_ROLES.includes(role)
-  const universities = useQuery({
-    queryKey: universityKeys.options(),
-    queryFn: fetchUniversityOptions,
-    enabled: needsUniversity,
-  })
 
   const createMut = useMutation({
     mutationFn: createInviteRequest,
@@ -180,23 +183,19 @@ export function CreateInviteModal({ onClose }: Props) {
 
         {needsUniversity && (
           <div className="flex flex-col gap-1.5">
-            <Label>{t('university')}</Label>
+            <Label htmlFor="inv-university">{t('university')}</Label>
+            {/* Серверный поиск, а не справочник целиком: вузов больше, чем отдаёт одна
+                страница (предел 200), и хвост списка иначе было не выбрать. */}
             <Controller
               control={form.control}
               name="universityId"
               render={({ field }) => (
-                <Select value={field.value ?? ''} onValueChange={field.onChange}>
-                  <SelectTrigger aria-invalid={!!form.formState.errors.universityId}>
-                    <SelectValue placeholder={t('selectUniversity')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {universities.data?.map((u) => (
-                      <SelectItem key={u.id} value={u.id}>
-                        {u.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <UniversitySelect
+                  id="inv-university"
+                  value={field.value ?? null}
+                  onChange={(v) => field.onChange(v ?? undefined)}
+                  placeholder={t('selectUniversity')}
+                />
               )}
             />
             <FieldError>{form.formState.errors.universityId?.message}</FieldError>

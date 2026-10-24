@@ -1,4 +1,11 @@
-import type { Pair, ScheduleChange } from '../../../entities/schedule'
+import { Role } from '@studenthub/shared-types'
+import {
+  changesByPairDate,
+  pairDateKey,
+  substitutionPairs,
+  type Pair,
+  type ScheduleChange,
+} from '../../../entities/schedule'
 import type { EventItem } from '../../../entities/event'
 import type { AssignmentItem } from '../../../entities/assignment'
 import type { ExamItem } from '../../../entities/exam'
@@ -27,24 +34,66 @@ export interface CalItem {
 
 export type CalFilter = 'all' | 'pair' | 'event' | 'assignment' | 'exam'
 
+// Куда ведёт элемент календаря: календарь общий, а экраны у ролей свои — преподаватель со
+// студенческих «Заданий» попадал на «Сдать» и «Сохранить черновик».
+export type CalendarLinks = Record<CalItemType, string>
+
+const STUDENT_LINKS: CalendarLinks = {
+  pair: '/schedule',
+  event: '/events',
+  assignment: '/assignments',
+  exam: '/exams',
+}
+
+const ROLE_LINKS: Partial<Record<Role, CalendarLinks>> = {
+  [Role.TEACHER]: {
+    pair: '/teacher/schedule',
+    event: '/teacher/events',
+    assignment: '/teacher/assignments',
+    exam: '/teacher/exams',
+  },
+  // Своих «Заданий» у декана нет — задания живут в дисциплинах факультета.
+  [Role.DEAN]: {
+    pair: '/dean/schedule',
+    event: '/dean/events',
+    assignment: '/dean/courses',
+    exam: '/dean/exams',
+  },
+}
+
+export function calendarLinks(role: Role | null): CalendarLinks {
+  return (role && ROLE_LINKS[role]) || STUDENT_LINKS
+}
+
 function dowOf(d: Date): number {
   return ((d.getDay() + 6) % 7) + 1
 }
 
 // Разворачивает недельные пары на конкретные даты диапазона, накладывая изменения.
-export function expandPairs(pairs: Pair[], changes: ScheduleChange[], dates: Date[]): CalItem[] {
-  const changeByKey = new Map<string, ScheduleChange>()
-  for (const c of changes) changeByKey.set(`${c.pairId}|${c.date.slice(0, 10)}`, c)
+// `substituteId` — преподаватель, которому добавляются чужие пары, где он заменяющий на
+// дату (PROJECT «Расписание»): в его недельной выборке их нет.
+export function expandPairs(
+  pairs: Pair[],
+  changes: ScheduleChange[],
+  dates: Date[],
+  substituteId: string | null = null,
+  href = STUDENT_LINKS.pair,
+): CalItem[] {
+  // Несколько изменений пары на дату сводятся в одно — как на сервере.
+  const changeByKey = changesByPairDate(changes)
 
   const items: CalItem[] = []
   for (const d of dates) {
     const ds = formatYmd(d)
     const dow = dowOf(d)
     const parity = isoWeekParity(d)
-    for (const p of pairs) {
+    const dayPairs = substituteId
+      ? [...pairs, ...substitutionPairs(changes, ds, substituteId)]
+      : pairs
+    for (const p of dayPairs) {
       if (p.dayOfWeek !== dow) continue
       if (p.weekType !== 'BOTH' && p.weekType !== parity) continue
-      const change = changeByKey.get(`${p.id}|${ds}`) ?? null
+      const change = changeByKey.get(pairDateKey(p.id, ds)) ?? null
       const cancelled = change?.type === 'CANCELLED'
       const start = change?.newStartTime ?? p.startTime
       const end = change?.newEndTime ?? p.endTime
@@ -61,7 +110,7 @@ export function expandPairs(pairs: Pair[], changes: ScheduleChange[], dates: Dat
         title: p.subject,
         subtitle: subtitle || null,
         type: 'pair',
-        href: '/schedule',
+        href,
         cancelled,
         changed: !!change && !cancelled,
       })
@@ -71,7 +120,7 @@ export function expandPairs(pairs: Pair[], changes: ScheduleChange[], dates: Dat
 }
 
 // События в конкретные даты (по локальному дню начала).
-export function mapEvents(events: EventItem[]): CalItem[] {
+export function mapEvents(events: EventItem[], href = STUDENT_LINKS.event): CalItem[] {
   return events.map((ev) => {
     const d = new Date(ev.startsAt)
     return {
@@ -82,7 +131,7 @@ export function mapEvents(events: EventItem[]): CalItem[] {
       title: ev.title,
       subtitle: ev.location ?? (ev.isOnline ? 'online' : null),
       type: 'event' as const,
-      href: '/events',
+      href,
       cancelled: false,
       changed: false,
     }
@@ -90,7 +139,10 @@ export function mapEvents(events: EventItem[]): CalItem[] {
 }
 
 // Дедлайны заданий (по dueAt) как события календаря.
-export function mapAssignments(assignments: AssignmentItem[]): CalItem[] {
+export function mapAssignments(
+  assignments: AssignmentItem[],
+  href = STUDENT_LINKS.assignment,
+): CalItem[] {
   return assignments
     .filter((a) => a.dueAt != null)
     .map((a) => {
@@ -103,7 +155,7 @@ export function mapAssignments(assignments: AssignmentItem[]): CalItem[] {
         title: a.title,
         subtitle: a.course.subject.name,
         type: 'assignment' as const,
-        href: '/assignments',
+        href,
         cancelled: false,
         changed: false,
       }
@@ -112,7 +164,7 @@ export function mapAssignments(assignments: AssignmentItem[]): CalItem[] {
 
 // Экзамены (C-F22): особое событие расписания, раньше в календарь не попадали вовсе —
 // о сессии студент узнавал, только открыв «Экзамены».
-export function mapExams(exams: ExamItem[]): CalItem[] {
+export function mapExams(exams: ExamItem[], href = STUDENT_LINKS.exam): CalItem[] {
   return exams.map((ex) => {
     const d = new Date(ex.date)
     const examiner = ex.examiner ? `${ex.examiner.firstName} ${ex.examiner.lastName}` : null
@@ -125,7 +177,7 @@ export function mapExams(exams: ExamItem[]): CalItem[] {
       title: ex.course.subject.name,
       subtitle: subtitle || null,
       type: 'exam' as const,
-      href: '/exams',
+      href,
       cancelled: false,
       changed: false,
     }
@@ -140,12 +192,18 @@ export function buildCalendar(
   dates: Date[],
   filter: CalFilter,
   exams: ExamItem[] = [],
+  substituteId: string | null = null,
+  links: CalendarLinks = STUDENT_LINKS,
 ): CalItem[] {
   const items: CalItem[] = []
-  if (filter === 'all' || filter === 'pair') items.push(...expandPairs(pairs, changes, dates))
-  if (filter === 'all' || filter === 'event') items.push(...mapEvents(events))
-  if (filter === 'all' || filter === 'assignment') items.push(...mapAssignments(assignments))
-  if (filter === 'all' || filter === 'exam') items.push(...mapExams(exams))
+  if (filter === 'all' || filter === 'pair') {
+    items.push(...expandPairs(pairs, changes, dates, substituteId, links.pair))
+  }
+  if (filter === 'all' || filter === 'event') items.push(...mapEvents(events, links.event))
+  if (filter === 'all' || filter === 'assignment') {
+    items.push(...mapAssignments(assignments, links.assignment))
+  }
+  if (filter === 'all' || filter === 'exam') items.push(...mapExams(exams, links.exam))
   return items
 }
 

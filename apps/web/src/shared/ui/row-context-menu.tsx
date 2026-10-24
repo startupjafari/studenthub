@@ -64,6 +64,7 @@ export function RowContextMenu({
   ariaLabel: string
   onClose: () => void
 }) {
+  const rootRef = useRef<HTMLDivElement>(null)
   const ref = useRef<HTMLDivElement>(null)
   const [pos, setPos] = useState({ left: x, top: y })
   // Открытый вложенный список. Хранится ключом, а не ссылкой на пункт: массив пунктов
@@ -91,12 +92,50 @@ export function RowContextMenu({
     // раскрытые папки уезжали бы за нижний край экрана.
   }, [x, y, openKey])
 
+  // Пункты меню, в котором сейчас фокус (или первого видимого): у ПК и телефона разметка
+  // своя, и скрытая через display:none копия в обход не попадает.
+  const menuItems = (): HTMLElement[] => {
+    const active = document.activeElement
+    const scope =
+      (active instanceof HTMLElement && rootRef.current?.contains(active)
+        ? active.closest('[role="menu"]')
+        : null) ?? rootRef.current
+    return Array.from(scope?.querySelectorAll<HTMLElement>('[role^="menuitem"]') ?? []).filter(
+      (el) => el.getClientRects().length > 0,
+    )
+  }
+
+  // Меню, открытое с клавиатуры (клавиша меню, Shift+F10), обязано получить фокус: иначе он
+  // оставался на строке под оверлеем, и до пунктов было не добраться. Закрылось — фокус
+  // возвращается туда, откуда меню открыли.
+  useEffect(() => {
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    menuItems()[0]?.focus({ preventScroll: true })
+    return () => opener?.focus({ preventScroll: true })
+    // Только при открытии: дальше фокусом управляют стрелки.
+  }, [])
+
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') {
         e.preventDefault()
         dismiss()
+        return
       }
+      if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) return
+      const all = menuItems()
+      if (all.length === 0) return
+      e.preventDefault()
+      const at = all.indexOf(document.activeElement as HTMLElement)
+      const next =
+        e.key === 'Home'
+          ? 0
+          : e.key === 'End'
+            ? all.length - 1
+            : e.key === 'ArrowDown'
+              ? (at + 1) % all.length
+              : (at - 1 + all.length) % all.length
+      all[next]?.focus({ preventScroll: true })
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
@@ -168,7 +207,7 @@ export function RowContextMenu({
               : undefined
           }
           className={cn(
-            'flex w-full cursor-pointer items-center text-left transition-colors hover:bg-muted active:bg-muted',
+            'flex w-full cursor-pointer items-center text-left outline-none transition-colors hover:bg-muted focus-visible:bg-muted active:bg-muted',
             card ? 'gap-3 px-4 py-2.5 text-[15px]' : 'gap-2 px-3 py-2 text-sm',
             it.danger ? 'text-destructive' : 'text-foreground',
             parentOnDesktop && fly?.key === it.key && 'bg-muted',
@@ -204,6 +243,7 @@ export function RowContextMenu({
 
   return (
     <div
+      ref={rootRef}
       // Маркер для глобального Esc (shared/lib/use-escape-back).
       data-overlay
       className={cn(
@@ -211,8 +251,6 @@ export function RowContextMenu({
         // Во время ухода слой уже не ловит нажатия: второй тап по пункту ничего не повторит.
         closing ? 'pointer-events-none animate-out fade-out' : 'animate-in fade-in',
       )}
-      role="menu"
-      aria-label={ariaLabel}
       onClick={dismiss}
       onContextMenu={(e) => {
         // Второй правый клик закрывает меню, а не открывает системное поверх него.
@@ -221,8 +259,12 @@ export function RowContextMenu({
       }}
     >
       {/* ПК: меню у точки нажатия. */}
+      {/* role="menu" — у самих меню, а не у оверлея: на оверлее второе меню (папки)
+          оказывалось вложенным в первое. */}
       <div
         ref={ref}
+        role="menu"
+        aria-label={ariaLabel}
         style={{ left: pos.left, top: pos.top }}
         onClick={(e) => e.stopPropagation()}
         className={cn(
@@ -259,7 +301,11 @@ export function RowContextMenu({
         closing={closing}
         onBackdropTap={dismiss}
         snapshotClassName="rounded-2xl shadow-xl"
-        card={<div className="py-1">{list('card')}</div>}
+        card={
+          <div role="menu" aria-label={ariaLabel} className="py-1">
+            {list('card')}
+          </div>
+        }
       />
     </div>
   )

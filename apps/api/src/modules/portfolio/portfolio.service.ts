@@ -121,6 +121,15 @@ export class PortfolioService {
           `В портфолио может быть не больше ${PORTFOLIO_MAX_ITEMS} записей`,
         )
       }
+      // Новая запись встаёт в конец ручного порядка. С `order` по умолчанию (0) она делила
+      // место с первой записью, и порядок между ними решала дата начала — перестановка,
+      // сделанная пользователем, ломалась от первой же новой записи. Порядка ещё нет (у всех
+      // 0) — остаётся 0: записи и дальше идут по дате.
+      const last = await tx.portfolioItem.aggregate({
+        where: { userId: actor.sub },
+        _max: { order: true },
+      })
+      const maxOrder = last._max.order ?? 0
       return tx.portfolioItem.create({
         data: {
           userId: actor.sub,
@@ -132,6 +141,7 @@ export class PortfolioService {
           startDate: input.startDate ? new Date(input.startDate) : null,
           endDate: input.endDate ? new Date(input.endDate) : null,
           visibility: input.visibility ?? 'UNIVERSITY',
+          order: maxOrder > 0 ? maxOrder + 1 : 0,
         },
         select: ITEM_SELECT,
       })

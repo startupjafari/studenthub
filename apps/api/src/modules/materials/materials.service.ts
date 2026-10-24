@@ -20,6 +20,10 @@ import { MEDIA_FILE_SELECT, MEDIA_PREVIEW_SELECT, type MediaInfo } from '../medi
 import { signingWindow } from '../../common/minio/stable-sign'
 import type { EnvVars } from '../../config/env.schema'
 
+// Файлов у одного материала — лекция, презентация, раздатка: единицы. Потолок держит и
+// загрузку (409 сверх него), и вложенную выборку списка (BACKEND_RULES §18 п. 8).
+const MATERIAL_FILES_LIMIT = 30
+
 const MATERIAL_SELECT = {
   id: true,
   groupId: true,
@@ -33,6 +37,8 @@ const MATERIAL_SELECT = {
   media: {
     select: {
       id: true,
+      // Исходное имя файла — без него в окне материала был виден только MIME-тип.
+      name: true,
       mime: true,
       size: true,
       createdAt: true,
@@ -40,6 +46,8 @@ const MATERIAL_SELECT = {
       height: true,
       ...MEDIA_PREVIEW_SELECT,
     },
+    orderBy: { createdAt: 'asc' },
+    take: MATERIAL_FILES_LIMIT,
   },
 } satisfies Prisma.MaterialSelect
 
@@ -47,6 +55,17 @@ type MaterialRow = Prisma.MaterialGetPayload<{ select: typeof MATERIAL_SELECT }>
 
 // Потолок счётчиков по дисциплинам: у группы их десятки, у вуза — сотни.
 const MATERIAL_SUBJECTS_LIMIT = 500
+
+/**
+ * Группы, где преподаватель ведёт занятия: дисциплина группы или пара действующего
+ * расписания — то же основание, что у выкладки материалов и у составов групп (groups).
+ */
+function taughtBy(teacherId: string): Prisma.GroupWhereInput[] {
+  return [
+    { courses: { some: { teacherId } } },
+    { pairs: { some: { teacherId, schedule: { is: { isActive: true } } } } },
+  ]
+}
 
 @Injectable()
 export class MaterialsService {
@@ -126,6 +145,7 @@ export class MaterialsService {
   async presignFile(actor: JwtPayload, id: string, mime: string) {
     // Права на материал проверяем ДО выдачи ключа: подписанная ссылка — это уже доступ на запись.
     await this.findManageable(actor, id)
+    await this.assertFilesRoom(id)
     const bucket = this.config.get('MINIO_BUCKET_MATERIALS', { infer: true })
     return this.files.presignPut(bucket, mime, actor.sub)
   }
@@ -139,6 +159,7 @@ export class MaterialsService {
     ctx: RequestContext,
   ) {
     const material = await this.findManageable(actor, id)
+    await this.assertFilesRoom(material.id)
     const bucket = this.config.get('MINIO_BUCKET_MATERIALS', { infer: true })
     const file = await this.files.confirmDirectUpload({
       bucket,
@@ -155,17 +176,31 @@ export class MaterialsService {
       metadata: { fileId: file.id, direct: true },
       ...ctx,
     })
-    return { id: file.id, mime: file.mime, size: file.size, createdAt: file.createdAt }
+    return {
+      id: file.id,
+      name: file.name,
+      mime: file.mime,
+      size: file.size,
+      createdAt: file.createdAt,
+    }
   }
 
-  async addFile(actor: JwtPayload, id: string, buffer: Buffer, ctx: RequestContext) {
+  async addFile(
+    actor: JwtPayload,
+    id: string,
+    buffer: Buffer,
+    name: string | undefined,
+    ctx: RequestContext,
+  ) {
     const material = await this.findManageable(actor, id)
+    await this.assertFilesRoom(material.id)
     const bucket = this.config.get('MINIO_BUCKET_MATERIALS', { infer: true })
     const file = await this.files.upload({
       buffer,
       bucket,
       ownerId: actor.sub,
       materialId: material.id,
+      name,
     })
     await this.audit.record({
       userId: actor.sub,
@@ -175,7 +210,13 @@ export class MaterialsService {
       metadata: { fileId: file.id },
       ...ctx,
     })
-    return { id: file.id, mime: file.mime, size: file.size, createdAt: file.createdAt }
+    return {
+      id: file.id,
+      name: file.name,
+      mime: file.mime,
+      size: file.size,
+      createdAt: file.createdAt,
+    }
   }
 
   /** Ссылка на файл материала и, для фото и видео, описание вариантов — по scope группы. */
@@ -189,7 +230,7 @@ export class MaterialsService {
       select: MATERIAL_SELECT,
     })
     if (!material) throw new AppException('NOT_FOUND', 'Материал не найден')
-    await this.assertRead(viewer, material.groupId)
+    await this.assertRead(viewer, material.groupId, material.teacher?.id ?? null)
     const file = await this.prisma.file.findFirst({
       where: { id: fileId, materialId: id },
       select: MEDIA_FILE_SELECT,
@@ -215,6 +256,14 @@ export class MaterialsService {
       entityId: id,
       ...ctx,
     })
+  }
+
+  /** У материала есть место ещё для одного файла — иначе 409 с полем `files`. */
+  private async assertFilesRoom(materialId: string): Promise<void> {
+    const count = await this.prisma.file.count({ where: { materialId } })
+    if (count < MATERIAL_FILES_LIMIT) return
+    const message = `У материала может быть не больше ${MATERIAL_FILES_LIMIT} файлов`
+    throw new AppException('CONFLICT', message, [{ field: 'files', message }])
   }
 
   // ── scope ────────────────────────────────────────────────────────────────
@@ -245,17 +294,53 @@ export class MaterialsService {
     if (viewer.role === Role.DEAN) {
       return { group: { is: { facultyId: viewer.facultyId ?? '__none__' } } }
     }
-    // TEACHER / UNIVERSITY_ADMIN / UNIVERSITY_MODERATOR — материалы групп своего вуза.
+    // Преподаватель — свои материалы и материалы групп, где ведёт занятия (§2.2 «✅ свои»,
+    // §5.5 бакет materials — участникам группы и автору). Раньше — все группы вуза.
+    if (viewer.role === Role.TEACHER) {
+      return {
+        OR: [
+          { teacherId: viewer.sub },
+          {
+            group: {
+              is: {
+                faculty: { is: { universityId: viewer.universityId ?? '__none__' } },
+                OR: taughtBy(viewer.sub),
+              },
+            },
+          },
+        ],
+      }
+    }
+    // UNIVERSITY_ADMIN / UNIVERSITY_MODERATOR — материалы групп своего вуза.
     return {
       group: { is: { faculty: { is: { universityId: viewer.universityId ?? '__none__' } } } },
     }
   }
 
-  private async assertRead(viewer: JwtPayload, groupId: string): Promise<void> {
+  private async assertRead(
+    viewer: JwtPayload,
+    groupId: string,
+    authorId: string | null,
+  ): Promise<void> {
     if (isPlatformRole(viewer.role)) return
     if (viewer.role === Role.STUDENT || viewer.role === Role.STAROSTA) {
       if (viewer.groupId === groupId) return
       throw new AppException('WRONG_SCOPE', 'Материал другой группы')
+    }
+    // Преподаватель — автор или ведёт занятия в группе (как `scopeWhere`): подписанная
+    // ссылка на файл — это уже доступ к содержимому.
+    if (viewer.role === Role.TEACHER) {
+      if (authorId === viewer.sub) return
+      const taught = await this.prisma.group.findFirst({
+        where: {
+          id: groupId,
+          faculty: { is: { universityId: viewer.universityId ?? '__none__' } },
+          OR: taughtBy(viewer.sub),
+        },
+        select: { id: true },
+      })
+      if (taught) return
+      throw new AppException('WRONG_SCOPE', 'Вы не ведёте занятий в этой группе')
     }
     const group = await resolveGroupScope(this.prisma, groupId)
     if (viewer.role === Role.DEAN) {

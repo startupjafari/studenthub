@@ -2,17 +2,19 @@ package kz.studenthub.app.core.study
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kz.studenthub.app.core.network.ApiClient
 import kz.studenthub.app.core.network.Endpoint
 import kz.studenthub.app.core.network.HttpMethod
-import java.time.Instant
 import java.time.LocalDate
-import java.time.format.DateTimeFormatter
 
 interface ScheduleFetching {
     suspend fun schedule(): ScheduleDto
 
-    suspend fun changes(from: Instant, to: Instant): List<ScheduleChangeDto>
+    /** Изменения с дня `from` по день `to` включительно — календарные дни вуза. */
+    suspend fun changes(from: LocalDate, to: LocalDate): List<ScheduleChangeDto>
 }
 
 interface StudyFetching {
@@ -42,9 +44,14 @@ interface StudyFetching {
 class StudyApi(private val client: ApiClient) : ScheduleFetching, StudyFetching {
     override suspend fun schedule(): ScheduleDto = client.send(Endpoint.get("schedule"), ScheduleDto.serializer())
 
-    override suspend fun changes(from: Instant, to: Instant): List<ScheduleChangeDto> =
+    /**
+     * Период — датами `YYYY-MM-DD`, как требует `ScheduleChangeQuerySchema`. Метка времени
+     * получала `422` на каждом обновлении, и разовые изменения на телефоне не
+     * показывались вовсе (BUG-073).
+     */
+    override suspend fun changes(from: LocalDate, to: LocalDate): List<ScheduleChangeDto> =
         client.send(
-            Endpoint.get("schedule/changes", "from" to DateTimeFormatter.ISO_INSTANT.format(from), "to" to DateTimeFormatter.ISO_INSTANT.format(to)),
+            Endpoint.get("schedule/changes", "from" to from.toString(), "to" to to.toString()),
             ListSerializer(ScheduleChangeDto.serializer()),
         )
 
@@ -60,8 +67,19 @@ class StudyApi(private val client: ApiClient) : ScheduleFetching, StudyFetching 
         client.send(Endpoint.post("assignments/$assignmentId/submit"))
     }
 
+    /**
+     * `null` — очистить поле. Уходит явным `null`: пропущенное поле сервер оставляет как
+     * было, а общий разбор JSON (`explicitNulls = false`) пустые поля как раз пропускает —
+     * стереть ответ или ссылку было бы нельзя.
+     */
     override suspend fun saveSubmissionDraft(assignmentId: String, text: String?, linkUrl: String?) {
-        client.send(Endpoint.json(HttpMethod.PUT, "assignments/$assignmentId/submission", DraftBody.serializer(), DraftBody(text, linkUrl)))
+        val body = JsonObject(
+            mapOf(
+                "text" to (text?.let(::JsonPrimitive) ?: JsonNull),
+                "linkUrl" to (linkUrl?.let(::JsonPrimitive) ?: JsonNull),
+            ),
+        )
+        client.send(Endpoint.json(HttpMethod.PUT, "assignments/$assignmentId/submission", JsonObject.serializer(), body))
     }
 
     override suspend fun materials(): List<MaterialDto> =
@@ -80,9 +98,6 @@ class StudyApi(private val client: ApiClient) : ScheduleFetching, StudyFetching 
     override suspend fun mark(pairId: String, date: LocalDate, entries: List<AttendanceEntry>) {
         client.send(Endpoint.json(HttpMethod.PUT, "attendance", MarkBody.serializer(), MarkBody(pairId, date.toString(), entries)))
     }
-
-    @Serializable
-    private data class DraftBody(val text: String?, val linkUrl: String?)
 
     @Serializable
     private data class MarkBody(val pairId: String, val date: String, val entries: List<AttendanceEntry>)

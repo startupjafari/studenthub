@@ -26,6 +26,16 @@ class ChatStore(private val db: AppDatabase, private val now: () -> Instant = In
     }
 
     /**
+     * Оставить только чаты, которые сервер отдал при полном проходе списка. Человека
+     * убрали из группы, забанили, чат скрыли — сервер его больше не отдаёт, и локальная
+     * база повторяет доступ на сервере (§11.3): строка уходит вместе с перепиской и
+     * черновиком (каскад). Вызывать только после прохода до последней страницы.
+     */
+    suspend fun retainChats(ids: Set<String>) = db.transaction {
+        db.chats().ids().filter { it !in ids }.forEach { db.chats().delete(it) }
+    }
+
+    /**
      * Папки, наоборот, заменяются целиком: их единицы, сервер отдаёт их разом, и
      * удалённая папка иначе осталась бы вкладкой навсегда.
      */
@@ -77,9 +87,10 @@ class ChatStore(private val db: AppDatabase, private val now: () -> Instant = In
                 requestOutgoing = item.requestOutgoing ?: false,
                 othersReadAt = item.othersReadAt,
                 lastMessageId = item.lastMessage?.id ?: known?.lastMessageId,
-                // Номер только растёт: страница списка может приехать с отставанием от
-                // сокета, и откат позиции догона означал бы перекачку переписки.
-                lastSeq = maxOf(known?.lastSeq ?: 0, item.lastMessage?.seq ?: 0),
+                // Позиция догона — «всё до N у клиента есть» (§9.2c), и превью её не двигает:
+                // список знает последнее сообщение, а не те, что между ним и прошлым визитом.
+                // Подняв её до превью, догон запросил бы разницу с конца и пропустил середину.
+                lastSeq = known?.lastSeq ?: 0,
                 updatedAt = item.updatedAt,
             ),
         )
@@ -162,6 +173,9 @@ class MessageStore(private val db: AppDatabase, private val now: () -> Instant =
                         deletedAt = message.deletedAt,
                         pinnedAt = message.pinnedAt,
                         sendState = SendState.SENT,
+                        senderName = message.sender?.name ?: local.senderName,
+                        systemTarget = message.systemMeta?.targetName ?: local.systemTarget,
+                        systemTitle = message.systemMeta?.title ?: local.systemTitle,
                     ),
                 )
                 saveAttachments(db, message, local.id)
@@ -178,6 +192,9 @@ class MessageStore(private val db: AppDatabase, private val now: () -> Instant =
                     replyToId = message.replyToId,
                     replyQuote = message.replyQuote,
                     systemType = message.systemType,
+                    senderName = message.sender?.name,
+                    systemTarget = message.systemMeta?.targetName,
+                    systemTitle = message.systemMeta?.title,
                     editedAt = message.editedAt,
                     deletedAt = message.deletedAt,
                     pinnedAt = message.pinnedAt,

@@ -77,19 +77,19 @@ export function EmployerSignupView() {
             aria-invalid={!!errors.companyName}
             {...register('companyName')}
           />
-          <FieldError>{errors.companyName && errors.companyName.message}</FieldError>
+          <FieldError>{errors.companyName ? t('errCompanyName') : null}</FieldError>
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-2">
             <Label htmlFor="firstName">{t('fieldFirstName')}</Label>
             <Input id="firstName" aria-invalid={!!errors.firstName} {...register('firstName')} />
-            <FieldError>{errors.firstName && errors.firstName.message}</FieldError>
+            <FieldError>{errors.firstName ? t('errFirstName') : null}</FieldError>
           </div>
           <div className="flex flex-col gap-2">
             <Label htmlFor="lastName">{t('fieldLastName')}</Label>
             <Input id="lastName" aria-invalid={!!errors.lastName} {...register('lastName')} />
-            <FieldError>{errors.lastName && errors.lastName.message}</FieldError>
+            <FieldError>{errors.lastName ? t('errLastName') : null}</FieldError>
           </div>
         </div>
 
@@ -102,7 +102,7 @@ export function EmployerSignupView() {
             aria-invalid={!!errors.email}
             {...register('email')}
           />
-          <FieldError>{errors.email && errors.email.message}</FieldError>
+          <FieldError>{errors.email ? t('errEmail') : null}</FieldError>
         </div>
 
         <div className="flex flex-col gap-2">
@@ -114,7 +114,7 @@ export function EmployerSignupView() {
             aria-invalid={!!errors.password}
             {...register('password')}
           />
-          <FieldError>{errors.password && errors.password.message}</FieldError>
+          <FieldError>{errors.password ? t('errPassword') : null}</FieldError>
         </div>
 
         <div className="flex flex-col gap-2">
@@ -122,7 +122,7 @@ export function EmployerSignupView() {
             {t('fieldWebsite')} <span className="text-muted-foreground">({t('optional')})</span>
           </Label>
           <Input id="website" placeholder="https://" {...register('website')} />
-          <FieldError>{errors.website && errors.website.message}</FieldError>
+          <FieldError>{errors.website ? t('errWebsite') : null}</FieldError>
         </div>
 
         <Button type="submit" size="xl" loading={isSubmitting} className="mt-2 w-full">

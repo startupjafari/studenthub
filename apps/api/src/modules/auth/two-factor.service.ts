@@ -2,6 +2,7 @@ import { forwardRef, Inject, Injectable } from '@nestjs/common'
 import { randomBytes } from 'node:crypto'
 import type Redis from 'ioredis'
 import { authenticator } from 'otplib'
+import { isTwoFactorRequired } from '@studenthub/shared-types'
 import { REDIS_CLIENT } from '../../common/redis/redis.constants'
 import { AuditService } from '../../common/audit/audit.service'
 import { renderQrDataUrl } from '../../common/qr/qr-image'
@@ -161,11 +162,20 @@ export class TwoFactorService {
     return { backupCodes, hashes }
   }
 
-  /** Отключить 2FA (требует действующий TOTP или backup-код). */
+  /**
+   * Отключить 2FA (требует действующий TOTP или backup-код).
+   *
+   * Ролям с обязательной 2FA (§8.3 «Форс 2FA») — отказ: иначе привилегированная учётка
+   * снимала второй фактор сама и до 15 минут работала по токену с `tfa=true`. Потерянный
+   * телефон — перевыпуск резервных кодов или сброс 2FA старшим по роли.
+   */
   async disable(userId: string, code: string, ctx: TwoFactorRequestContext = {}): Promise<void> {
     const rec = await this.users.getTwoFactorForLogin(userId)
     if (!rec?.twoFactorEnabled) {
       throw new AppException('BAD_REQUEST', 'Двухфакторная аутентификация не включена')
+    }
+    if (isTwoFactorRequired(rec.role)) {
+      throw new AppException('FORBIDDEN', 'Для вашей роли двухфакторная аутентификация обязательна')
     }
     const ok = await this.verifyWithLimit(userId, () => this.verifyCode(rec, code))
     if (!ok) {
@@ -199,24 +209,25 @@ export class TwoFactorService {
    * 2FA перебирались под общим лимитом 100 запросов в минуту — миллион кодов за пару недель
    * с одной сессии. Redis недоступен — проверяем без счётчика: запереть админов из-за сбоя
    * кэша хуже.
+   *
+   * Попытка занимается атомарным `INCR` ДО проверки кода, а верный код её возвращает
+   * (счётчик стирается). «Прочитать → проверить → INCR» пропускал пачку одновременных
+   * запросов: все видели пустой счётчик, и пять попыток превращались в сотню.
    */
   private async verifyWithLimit(userId: string, check: () => Promise<boolean>): Promise<boolean> {
     const key = `2fa:confirm-fails:${userId}`
-    const fails = Number((await this.redis.get(key).catch(() => null)) ?? 0)
-    if (fails >= CONFIRM_MAX_FAILS) {
+    const attempt = await this.redis
+      .incr(key)
+      .then(async (count) => {
+        if (count === 1) await this.redis.expire(key, CONFIRM_FAIL_WINDOW_SEC)
+        return count
+      })
+      .catch(() => 0)
+    if (attempt > CONFIRM_MAX_FAILS) {
       throw new AppException('RATE_LIMIT', 'Слишком много неверных кодов — попробуйте позже')
     }
     const ok = await check()
-    if (ok) {
-      await this.redis.del(key).catch(() => undefined)
-    } else {
-      await this.redis
-        .multi()
-        .incr(key)
-        .expire(key, CONFIRM_FAIL_WINDOW_SEC)
-        .exec()
-        .catch(() => undefined)
-    }
+    if (ok) await this.redis.del(key).catch(() => undefined)
     return ok
   }
 
@@ -235,7 +246,11 @@ export class TwoFactorService {
    * терять его на отказе («код входа уже использован»). TOTP-шаг занимается здесь же —
    * повтор кода отсекается атомарно, а потерять шаг не страшно: через 30 с будет новый.
    */
-  async checkCode(rec: TwoFactorLoginRecord, code: string): Promise<ConsumeTwoFactorCode | null> {
+  async checkCode(rec: TwoFactorLoginRecord, raw: string): Promise<ConsumeTwoFactorCode | null> {
+    // Коды переписывают с бумаги и вставляют из заметок: пробелы по краям, дефис посередине
+    // и строчные буквы (мобильная клавиатура, автокапитализация) — не повод отвергнуть
+    // верный код. Ячейки на входе нормализуют сами, а поля настроек и мини-апп — нет.
+    const code = raw.trim()
     if (/^\d{6}$/.test(code)) {
       if (!rec.twoFactorSecret) return null
       const secret = this.crypto.decrypt(rec.twoFactorSecret)
@@ -249,8 +264,9 @@ export class TwoFactorService {
     }
     // Backup-код: ищем совпадающий хэш; сжигается он условной записью — из двух
     // одновременных входов с одним кодом пройдёт один.
+    const backup = code.replace(/[\s-]/g, '').toUpperCase()
     for (const hash of rec.twoFactorBackupCodes) {
-      if (await this.passwords.compare(code, hash)) {
+      if (await this.passwords.compare(backup, hash)) {
         return () => this.users.consumeBackupCode(rec.id, hash)
       }
     }

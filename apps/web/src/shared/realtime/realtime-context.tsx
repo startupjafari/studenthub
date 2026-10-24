@@ -50,12 +50,27 @@ function resyncsItself(query: Query): boolean {
 }
 
 /**
+ * Пометка запроса, который ресинк не трогает вовсе: `useQuery({ meta: NO_RESYNC_META })`.
+ *
+ * Для разовых действий, оформленных чтением: проверка студенческого гасит одноразовый
+ * QR-токен, и повтор после моргнувшей связи получал «код уже проверен» — охрана видела
+ * «Проход запрещён», а в журнале проходов появлялась лишняя строка отказа.
+ */
+export const NO_RESYNC_META = { reconnectResync: 'never' } as const
+
+function skipsResync(query: Query): boolean {
+  return query.meta?.reconnectResync === NO_RESYNC_META.reconnectResync
+}
+
+/**
  * Ресинк после реконнекта: пока связи не было, события (schedule:changed, notification:new,
  * изменения заявок и т.п.) никто не переприсылает. Активные запросы перезапрашиваются, кроме
  * догоняющих себя сами; неактивные помечаются устаревшими.
  */
 function resyncAfterReconnect(qc: QueryClient): void {
-  void qc.invalidateQueries({ predicate: (query) => !resyncsItself(query) })
+  void qc.invalidateQueries({
+    predicate: (query) => !resyncsItself(query) && !skipsResync(query),
+  })
   void qc.invalidateQueries({
     predicate: (query) => resyncsItself(query) && query.getObserversCount() === 0,
     refetchType: 'none',

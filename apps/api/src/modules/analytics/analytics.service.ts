@@ -10,9 +10,21 @@ function isPlatform(role: Role): boolean {
   return role === Role.PLATFORM_ADMIN || role === Role.PLATFORM_MODERATOR
 }
 
-// Доля не-пропусков: (всего − отсутствовал) / всего, в процентах.
-function rateOf(counts: { total: number; absent: number }): number {
-  return counts.total === 0 ? 0 : Math.round(((counts.total - counts.absent) / counts.total) * 100)
+// Доля не-пропусков: (всего − отсутствовал) / всего, в процентах. null — отметок не было:
+// «0 %» читалось бы как «никто не ходил» (красная плитка, группа первой среди худших), а это
+// «нечего считать». Так же отвечает сводка вуза (UniversityAnalyticsService.overview).
+function rateOf(counts: { total: number; absent: number }): number | null {
+  return counts.total === 0
+    ? null
+    : Math.round(((counts.total - counts.absent) / counts.total) * 100)
+}
+
+// Худшие первыми, группы без отметок — в конце: им нечего проигрывать.
+function byRateAsc(a: { attendanceRate: number | null }, b: { attendanceRate: number | null }) {
+  if (a.attendanceRate === null || b.attendanceRate === null) {
+    return (a.attendanceRate === null ? 1 : 0) - (b.attendanceRate === null ? 1 : 0)
+  }
+  return a.attendanceRate - b.attendanceRate
 }
 
 // Потолок на список групп факультета (BACKEND_RULES §7.2); остальные агрегаты
@@ -178,24 +190,33 @@ export class AnalyticsService {
   }
 
   /**
-   * Сколько заданий с истёкшим сроком студент сдал. Просрочку вызывающий считает
-   * вычитанием из числа заданий его группы — множество идентификаторов для этого не нужно.
+   * Сколько заданий СВОЕЙ ТЕКУЩЕЙ группы с истёкшим сроком студент не сдал. Считает база
+   * целиком: раньше задания читались `findMany` с потолком в 20 000 без порядка (в крупном
+   * факультете — случайная часть), а из их числа вычитались сдачи по ВСЕМ заданиям
+   * факультета — переведённый студент «гасил» долги новой группы работами старой.
    */
-  private async doneAssignmentsByStudent(
+  private async overdueByStudent(
     facultyId: string,
-  ): Promise<{ studentId: string; done: number }[]> {
-    const rows = await this.prisma.$queryRaw<{ studentId: string; done: bigint }[]>`
-      SELECT s.student_id AS "studentId", count(DISTINCT s.assignment_id) AS done
-      FROM submissions s
-      JOIN assignments asg ON asg.id = s.assignment_id
-      JOIN courses c ON c.id = asg.course_id
-      JOIN groups g ON g.id = c.group_id
-      WHERE g.faculty_id = ${facultyId}
+  ): Promise<{ studentId: string; overdue: number }[]> {
+    const rows = await this.prisma.$queryRaw<{ studentId: string; overdue: bigint }[]>`
+      SELECT u.id AS "studentId", count(*) AS overdue
+      FROM users u
+      JOIN courses c ON c.group_id = u.group_id
+      JOIN assignments asg ON asg.course_id = c.id
+      WHERE u.faculty_id = ${facultyId}
+        AND u.role IN ('STUDENT', 'STAROSTA')
+        AND u.deleted_at IS NULL
+        AND u.is_blocked = false
         AND asg.status = 'PUBLISHED'
         AND asg.due_at < now()
-        AND s.status IN ('SUBMITTED', 'GRADED')
-      GROUP BY s.student_id`
-    return rows.map((r) => ({ studentId: r.studentId, done: Number(r.done) }))
+        AND NOT EXISTS (
+          SELECT 1 FROM submissions s
+          WHERE s.assignment_id = asg.id
+            AND s.student_id = u.id
+            AND s.status IN ('SUBMITTED', 'GRADED')
+        )
+      GROUP BY u.id`
+    return rows.map((r) => ({ studentId: r.studentId, overdue: Number(r.overdue) }))
   }
 
   /**
@@ -284,10 +305,12 @@ export class AnalyticsService {
           attendanceTracked: att.total,
         }
       })
-      .sort((a, b) => a.attendanceRate - b.attendanceRate)
+      .sort(byRateAsc)
 
-    const atRisk = groupStats.filter(
-      (g) => g.attendanceTracked > 0 && g.attendanceRate < AT_RISK_THRESHOLD,
+    const atRisk = groupStats.flatMap((g) =>
+      g.attendanceRate !== null && g.attendanceRate < AT_RISK_THRESHOLD
+        ? [{ groupId: g.groupId, name: g.name, attendanceRate: g.attendanceRate }]
+        : [],
     )
 
     return {
@@ -300,11 +323,7 @@ export class AnalyticsService {
         examsUpcoming,
       },
       groups: groupStats,
-      atRisk: atRisk.map((g) => ({
-        groupId: g.groupId,
-        name: g.name,
-        attendanceRate: g.attendanceRate,
-      })),
+      atRisk,
     }
   }
 
@@ -361,48 +380,33 @@ export class AnalyticsService {
    */
   async atRiskStudents(viewer: JwtPayload, requestedFacultyId?: string) {
     const facultyId = await this.resolveFaculty(viewer, requestedFacultyId)
-    const now = new Date()
 
-    const [students, groups, attendance, dueAssignments, doneAssignments, gradeRates] =
-      await Promise.all([
-        this.prisma.user.findMany({
-          where: {
-            facultyId,
-            role: { in: ['STUDENT', 'STAROSTA'] },
-            deletedAt: null,
-            isBlocked: false,
-          },
-          select: { id: true, firstName: true, lastName: true, groupId: true },
-          take: 20000,
-        }),
-        this.prisma.group.findMany({
-          where: { facultyId },
-          select: { id: true, name: true },
-          take: FACULTY_GROUPS_LIMIT,
-        }),
-        this.attendanceByStudent(facultyId),
-        // Опубликованные задания с истёкшим сроком в группах факультета.
-        this.prisma.assignment.findMany({
-          where: { status: 'PUBLISHED', dueAt: { lt: now }, course: { group: { facultyId } } },
-          select: { id: true, course: { select: { groupId: true } } },
-          take: 20000,
-        }),
-        this.doneAssignmentsByStudent(facultyId),
-        this.gradeRateByStudent(facultyId),
-      ])
+    const [students, groups, attendance, overdueRows, gradeRates] = await Promise.all([
+      this.prisma.user.findMany({
+        where: {
+          facultyId,
+          role: { in: ['STUDENT', 'STAROSTA'] },
+          deletedAt: null,
+          isBlocked: false,
+        },
+        select: { id: true, firstName: true, lastName: true, groupId: true },
+        take: 20000,
+      }),
+      this.prisma.group.findMany({
+        where: { facultyId },
+        select: { id: true, name: true },
+        take: FACULTY_GROUPS_LIMIT,
+      }),
+      this.attendanceByStudent(facultyId),
+      this.overdueByStudent(facultyId),
+      this.gradeRateByStudent(facultyId),
+    ])
 
     const groupName = new Map(groups.map((g) => [g.id, g.name]))
 
-    // Посещаемость и сдачи приходят уже свёрнутыми базой — остаётся разложить по ключу.
+    // Посещаемость и просрочки приходят уже свёрнутыми базой — остаётся разложить по ключу.
     const att = new Map(attendance.map((row) => [row.studentId, row]))
-    const doneByStudent = new Map(doneAssignments.map((row) => [row.studentId, row.done]))
-    const dueByGroup = new Map<string, string[]>()
-    for (const a of dueAssignments) {
-      const gid = a.course.groupId
-      const arr = dueByGroup.get(gid) ?? []
-      arr.push(a.id)
-      dueByGroup.set(gid, arr)
-    }
+    const overdueByStudent = new Map(overdueRows.map((row) => [row.studentId, row.overdue]))
 
     // Средний процент по опубликованным колонкам — тоже агрегат базы (gradeRateByStudent).
     const gradeAgg = new Map(gradeRates.map((row) => [row.studentId, row]))
@@ -412,19 +416,14 @@ export class AnalyticsService {
       const reasons: RiskReason[] = []
 
       const a = att.get(s.id)
-      if (a && a.total > 0) {
-        const rate = rateOf(a)
-        if (rate < AT_RISK_THRESHOLD) reasons.push({ kind: 'LOW_ATTENDANCE', value: rate })
+      const rate = a ? rateOf(a) : null
+      if (rate !== null && rate < AT_RISK_THRESHOLD) {
+        reasons.push({ kind: 'LOW_ATTENDANCE', value: rate })
       }
 
-      if (s.groupId) {
-        // Просрочено = сколько заданий группы с истёкшим сроком студент не сдал. Считается
-        // вычитанием, а не разностью множеств: база возвращает ЧИСЛО сдач студента по тем
-        // же заданиям, и тянуть сто тысяч идентификаторов ради той же цифры незачем.
-        const dueCount = dueByGroup.get(s.groupId)?.length ?? 0
-        const overdue = Math.max(0, dueCount - (doneByStudent.get(s.id) ?? 0))
-        if (overdue > 0) reasons.push({ kind: 'OVERDUE_ASSIGNMENTS', value: overdue })
-      }
+      // Просрочено = сколько заданий своей группы с истёкшим сроком студент не сдал.
+      const overdue = overdueByStudent.get(s.id) ?? 0
+      if (overdue > 0) reasons.push({ kind: 'OVERDUE_ASSIGNMENTS', value: overdue })
 
       const ga = gradeAgg.get(s.id)
       if (ga && ga.n > 0) {
@@ -468,7 +467,7 @@ export class AnalyticsService {
     }
     if (!requested) throw new AppException('BAD_REQUEST', 'Не указан факультет')
     if (isPlatform(viewer.role)) return requested
-    if (viewer.role === Role.UNIVERSITY_ADMIN || viewer.role === Role.UNIVERSITY_MODERATOR) {
+    if (viewer.role === Role.UNIVERSITY_ADMIN) {
       const faculty = await this.prisma.faculty.findUnique({
         where: { id: requested },
         select: { universityId: true },
@@ -493,7 +492,7 @@ export class AnalyticsService {
       if (viewer.facultyId === group.facultyId) return
       throw new AppException('WRONG_SCOPE', 'Другой факультет')
     }
-    if (viewer.role === Role.UNIVERSITY_ADMIN || viewer.role === Role.UNIVERSITY_MODERATOR) {
+    if (viewer.role === Role.UNIVERSITY_ADMIN) {
       if (viewer.universityId === group.faculty.universityId) return
       throw new AppException('WRONG_SCOPE', 'Другой университет')
     }

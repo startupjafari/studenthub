@@ -73,12 +73,15 @@ export class ApplicationDocumentsService {
         },
         select: { id: true, requirementId: true, status: true, snapshotTitle: true },
       })
+      // comment — русское название для прежних клиентов; requirementId — чтобы история
+      // подписывала событие названием требования на языке интерфейса.
       await tx.applicationEvent.create({
         data: {
           applicationId: appId,
           actorId: viewer.sub,
           action: 'DOCUMENT_ADDED',
           comment: req.titleRu,
+          metadata: { requirementId },
         },
       })
       return saved
@@ -126,7 +129,7 @@ export class ApplicationDocumentsService {
     }
     const ad = await this.prisma.applicationDocument.findFirst({
       where: { id: docId, applicationId: appId },
-      select: { id: true, requirement: { select: { titleRu: true } } },
+      select: { id: true, requirementId: true, requirement: { select: { titleRu: true } } },
     })
     if (!ad) {
       throw new AppException('NOT_FOUND', 'Документ заявки не найден')
@@ -148,6 +151,7 @@ export class ApplicationDocumentsService {
             actorId: viewer.sub,
             action: 'DOCUMENT_ACCEPTED',
             comment: ad.requirement.titleRu,
+            metadata: { requirementId: ad.requirementId },
           },
         }),
       ])
@@ -159,12 +163,20 @@ export class ApplicationDocumentsService {
     // Запрос замены двигает заявку в NEEDS_CORRECTION — переход обязан пройти через SSOT
     // (canTransition), иначе из IN_PREPARATION/READY/READY_FOR_PICKUP заявку откатывало бы
     // в исправление в обход графа и портило SLA. NEEDS_CORRECTION допустим только из IN_REVIEW.
-    if (!canTransition(app.status as ApplicationServiceStatus, 'NEEDS_CORRECTION')) {
+    // Заявка, уже возвращённая на исправление, остаётся в нём: так за одну проверку
+    // помечается несколько документов, а не каждый — отдельным кругом исправления.
+    const alreadyCorrecting = app.status === 'NEEDS_CORRECTION'
+    if (
+      !alreadyCorrecting &&
+      !canTransition(app.status as ApplicationServiceStatus, 'NEEDS_CORRECTION')
+    ) {
       throw new AppException('BAD_REQUEST', 'Недопустимый переход')
     }
     const { eventId } = await this.prisma.$transaction(async (tx) => {
       // Статус заявки — в условии записи, как у прочих переходов: параллельные «начать
       // подготовку», отказ или отзыв студентом иначе затирались бы откатом в NEEDS_CORRECTION.
+      // В исправлении запись та же (статус не меняется): студент мог успеть отправить
+      // заявку повторно или отозвать её — тогда пометка опоздала, и это CONFLICT.
       await tx.application
         .update({
           where: { id: appId, status: app.status },
@@ -185,8 +197,9 @@ export class ApplicationDocumentsService {
           applicationId: appId,
           actorId: viewer.sub,
           action: 'DOCUMENT_REJECTED',
-          fromStatus: app.status,
-          toStatus: 'NEEDS_CORRECTION',
+          // Без смены статуса событие — не переход: история не покажет «исправление» дважды.
+          fromStatus: alreadyCorrecting ? null : app.status,
+          toStatus: alreadyCorrecting ? null : 'NEEDS_CORRECTION',
           comment,
         },
         select: { id: true },

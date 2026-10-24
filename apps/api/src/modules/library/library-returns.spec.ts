@@ -53,8 +53,10 @@ function setup({ queued = null as null | Record<string, unknown>, queueCount = 0
       findUniqueOrThrow: jest.fn().mockResolvedValue({ status: 'AVAILABLE' }),
     },
     reservation: {
-      findFirst: jest.fn().mockResolvedValue(queued),
+      // Очередь книги: первый, кому выдача открыта (library-holds.ts).
+      findMany: jest.fn().mockResolvedValue(queued ? [queued] : []),
       update: jest.fn().mockResolvedValue({}),
+      count: jest.fn().mockResolvedValue(queueCount),
     },
   }
   const prisma = {
@@ -143,7 +145,12 @@ describe('Возврат', () => {
     })
     expect(result.heldFor).toBeNull()
     expect(notifier.send).toHaveBeenCalledWith(
-      expect.objectContaining({ recipientIds: ['stu-1'], titleKey: 'library.loanReturned.title' }),
+      expect.objectContaining({
+        recipientIds: ['stu-1'],
+        titleKey: 'library.loanReturned.title',
+        // Ключ на конкретный возврат: повторный приём после «Отменить возврат» — новое уведомление.
+        dedupeKey: expect.stringMatching(/^library-loan-returned:loan-1:\d+$/),
+      }),
     )
   })
 
@@ -180,6 +187,44 @@ describe('Возврат', () => {
   })
 })
 
+describe('Очередь броней пропускает тех, кому выдача закрыта', () => {
+  it('первый в очереди отчислен — экземпляр откладывается следующему', async () => {
+    const { service, tx } = setup()
+    tx.reservation.findMany.mockResolvedValue([
+      {
+        id: 'res-1',
+        readerId: 'stu-2',
+        reader: { firstName: 'А', lastName: 'Б', academicStatus: 'EXPELLED', group: null },
+      },
+      {
+        id: 'res-2',
+        readerId: 'stu-3',
+        reader: { firstName: 'В', lastName: 'Г', academicStatus: null, group: null },
+      },
+    ])
+    const result = await service.returnCopy(
+      librarian,
+      { copyCode: 'ABCD2345', condition: 'GOOD' },
+      ctx,
+    )
+    expect(result.heldFor).toMatchObject({ name: 'Г В' })
+    expect(tx.reservation.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'res-2' } }),
+    )
+    // Должники, заблокированные и очередь архивной книги отсеиваются запросом.
+    const where = tx.reservation.findMany.mock.calls[0][0].where
+    expect(where).toMatchObject({
+      status: 'QUEUED',
+      book: { archivedAt: null },
+      reader: { deletedAt: null, isBlocked: false },
+    })
+    expect(where.reader.loansAsReader.none.OR).toEqual([
+      { status: 'OPEN', dueAt: { lt: expect.any(Date) } },
+      { status: 'LOST', lostSettledAt: null },
+    ])
+  })
+})
+
 describe('Продление', () => {
   it('сверх maxRenewals — 409 renewals', async () => {
     const { service, prisma } = setup()
@@ -203,12 +248,14 @@ describe('Продление', () => {
     ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' })
   })
 
-  it('продлевает и сбрасывает отметки напоминаний', async () => {
-    const { service, prisma } = setup()
+  it('продлевает условно и сбрасывает отметки напоминаний', async () => {
+    const { service, prisma, tx } = setup()
     prisma.loan.findUnique.mockResolvedValue(loanRow({ dueAt: new Date(Date.now() + 86_400_000) }))
     await service.renew(librarian, 'loan-1', {}, ctx)
-    expect(prisma.loan.update).toHaveBeenCalledWith(
+    expect(tx.loan.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
+        // Двойное продление и продление закрытой выдачи не пройдут.
+        where: { id: 'loan-1', status: 'OPEN', renewals: 0 },
         data: expect.objectContaining({
           renewals: { increment: 1 },
           dueSoonSentAt: null,
@@ -217,6 +264,27 @@ describe('Продление', () => {
         }),
       }),
     )
+  })
+})
+
+describe('Продление: гонки и срок по умолчанию', () => {
+  it('выдачу только что продлили или закрыли — 409 renewals, срок не меняется', async () => {
+    const { service, prisma, tx, notifier } = setup()
+    prisma.loan.findUnique.mockResolvedValue(loanRow({ dueAt: new Date(Date.now() + 86_400_000) }))
+    tx.loan.updateMany.mockResolvedValue({ count: 0 })
+    await expect(service.renew(librarian, 'loan-1', {}, ctx)).rejects.toMatchObject({
+      details: [expect.objectContaining({ field: 'renewals' })],
+    })
+    expect(notifier.send).not.toHaveBeenCalled()
+  })
+
+  it('срок по умолчанию дальше maxLoanDays — урезается до предела, а не 422', async () => {
+    const { service, prisma, tx } = setup()
+    prisma.loan.findUnique.mockResolvedValue(
+      loanRow({ dueAt: new Date(Date.now() + 115 * 86_400_000) }),
+    )
+    await expect(service.renew(librarian, 'loan-1', {}, ctx)).resolves.toBeDefined()
+    expect(tx.loan.updateMany).toHaveBeenCalled()
   })
 })
 

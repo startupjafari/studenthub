@@ -105,12 +105,19 @@ function setup(user: Record<string, unknown> | null = sourceUser(), consents: st
       findFirst: jest.fn().mockResolvedValue(null),
       create: jest.fn(),
       update: jest.fn(),
+      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
+    // Выдача и отзыв согласия — под локом в транзакции; колбэк идёт на том же моке.
+    $executeRaw: jest.fn().mockResolvedValue(1),
+    $transaction: jest.fn(),
   }
+  prisma.$transaction.mockImplementation((fn: (tx: typeof prisma) => Promise<unknown>) =>
+    fn(prisma),
+  )
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const access = {
     requireCompany: jest.fn().mockReturnValue('co-1'),
-    assertCanAccessUniversity: jest.fn().mockResolvedValue(undefined),
+    canAccessUniversity: jest.fn().mockResolvedValue(true),
   }
   const service = new CareerProfileService(
     prisma as unknown as PrismaService,
@@ -157,13 +164,26 @@ describe('CareerProfileService — карточка для работодате�
     )
   })
 
-  it('допуск компании к вузу проверяется до выдачи данных', async () => {
-    const { service, access } = setup()
-    access.assertCanAccessUniversity.mockRejectedValue(
-      new AppException('WRONG_SCOPE', 'нет допуска'),
-    )
-    await expect(service.cardForEmployer(employer, 'stu-1', ctx)).rejects.toBeInstanceOf(
-      AppException,
+  // BUG-222: «чужой вуз» отвечал WRONG_SCOPE, а «нет такого» — NOT_FOUND, и перебор id
+  // подтверждал существование студента.
+  it('без допуска к вузу — тот же NOT_FOUND, что и для несуществующего id', async () => {
+    const { service, access, audit } = setup()
+    access.canAccessUniversity.mockResolvedValue(false)
+    await expect(service.cardForEmployer(employer, 'stu-1', ctx)).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    })
+    expect(access.canAccessUniversity).toHaveBeenCalledWith('co-1', expect.any(String))
+    expect(audit.record).not.toHaveBeenCalled()
+  })
+
+  // BUG-221: карточка заблокированного студента отдавалась работодателю.
+  it('заблокированный студент работодателю не отдаётся', async () => {
+    const { service, prisma } = setup()
+    await service.cardForEmployer(employer, 'stu-1', ctx)
+    expect(prisma.user.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: 'stu-1', deletedAt: null, isBlocked: false }),
+      }),
     )
   })
 
@@ -313,15 +333,19 @@ describe('CareerProfileService — свой профиль', () => {
     )
   })
 
-  it('отзыв согласия не удаляет запись, а гасит её', async () => {
+  // Отзыв гасит ВСЕ активные строки поля: дубль от параллельной выдачи иначе продолжал
+  // отдавать GPA, телефон и почту работодателю после отзыва.
+  it('отзыв согласия не удаляет записи, а гасит все активные под локом', async () => {
     const { service, prisma } = setup()
-    prisma.careerConsent.findFirst.mockResolvedValue({ id: 'c-1' })
 
     await service.setConsent(student, { field: 'GPA', granted: false }, ctx)
 
-    expect(prisma.careerConsent.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ revokedAt: expect.any(Date) }) }),
-    )
+    expect(prisma.$executeRaw).toHaveBeenCalledTimes(1)
+    expect(prisma.careerConsent.updateMany).toHaveBeenCalledWith({
+      where: { userId: student.sub, field: 'GPA', companyId: null, revokedAt: null },
+      data: { revokedAt: expect.any(Date) },
+    })
+    expect(prisma.careerConsent.update).not.toHaveBeenCalled()
   })
 
   it('повторная выдача уже активного согласия не плодит записи', async () => {

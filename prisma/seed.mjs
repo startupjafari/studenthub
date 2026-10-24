@@ -23,6 +23,8 @@ import { recordRun } from './seed/lib/marker.mjs'
 import { runCleanup } from './seed/cleanup.mjs'
 import { loadEnv } from './seed/lib/env.mjs'
 import { createWriter } from './seed/lib/writer.mjs'
+import { postPriority } from './seed/data/content.mjs'
+import { academicCalendar, courseOf } from './seed/lib/calendar.mjs'
 import { createStorage } from './seed/lib/storage.mjs'
 
 // DATABASE_URL живёт в apps/api/.env, а `node prisma/seed.mjs` его сам не читает: .env
@@ -198,8 +200,10 @@ async function main() {
   const admin = await prisma.user.upsert({
     where: { email: 'admin@studenthub.app' },
     // Пароль/профиль при повторном запуске не трогаем, но 2FA сбрасываем: демо-аккаунт
-    // должен пускать по одному паролю (см. TWO_FACTOR_RESET).
-    update: TWO_FACTOR_RESET,
+    // должен пускать по одному паролю (см. TWO_FACTOR_RESET). На удалённой базе
+    // (SEED_ALLOW_REMOTE=1 — workflow «Seed», база общая с продом) это боевой админ:
+    // снять ему 2FA значит оставить вход по одному паролю, поэтому существующего не трогаем.
+    update: config.allowRemote ? {} : TWO_FACTOR_RESET,
     create: {
       email: 'admin@studenthub.app',
       passwordHash,
@@ -687,16 +691,20 @@ async function seedDemoUniverse({ passwordHash, admin, progress, seedPassword })
     where: { email: 'teacher@studenthub.app' },
     select: { id: true },
   })
+  // Семестр — текущий по календарю прогона (seed/lib/calendar.mjs), а не зашитая «Осень
+  // 2025»: посещаемость и задания демо-вуза считаются от сегодняшнего дня, и через год
+  // они лежали бы за пределами единственного активного семестра.
+  const demoTerm = academicCalendar().cur
+  const demoTermDates = { startsOn: new Date(demoTerm.from), endsOn: new Date(demoTerm.to) }
   const term = await prisma.term.upsert({
     where: { id: 'seed-term-001' },
-    update: { name: 'Осень 2025', isActive: true },
+    update: { name: demoTerm.name, ...demoTermDates, isActive: true },
     create: {
       id: 'seed-term-001',
       universityId: SEED_UNIVERSITY_ID,
-      name: 'Осень 2025',
+      name: demoTerm.name,
       number: 5,
-      startsOn: new Date('2025-09-01'),
-      endsOn: new Date('2025-12-31'),
+      ...demoTermDates,
       isActive: true,
     },
   })
@@ -953,7 +961,7 @@ async function seedDemoUniverse({ passwordHash, admin, progress, seedPassword })
           universityId: U,
           facultyId: fac.id,
           groupId: gid,
-          course: 2025 - year,
+          course: courseOf(year),
           enrollmentYear: year,
           educationLevel: 'BACHELOR',
           studyForm: pick(['FULL_TIME', 'FULL_TIME', 'PART_TIME']),
@@ -1027,7 +1035,12 @@ async function seedDemoUniverse({ passwordHash, admin, progress, seedPassword })
   const pairRows = []
   for (const g of groupList) {
     const schId = `seed-sch-${g.id}`
-    scheduleRows.push({ id: schId, groupId: g.id, name: 'Осенний семестр 2025/26', isActive: true })
+    scheduleRows.push({
+      id: schId,
+      groupId: g.id,
+      name: academicCalendar().scheduleName,
+      isActive: true,
+    })
     g.courses.forEach((c, idx) => {
       const day = (idx % 5) + 1
       const slot = TIMES[idx % TIMES.length]
@@ -1146,6 +1159,8 @@ async function seedDemoUniverse({ passwordHash, admin, progress, seedPassword })
       for (let w = 0; w < ATT_WEEKS; w += 1) {
         const d = new Date(attMonday)
         d.setUTCDate(d.getUTCDate() + (p.day - 1) - 7 * (ATT_WEEKS - 1 - w))
+        // Окно доходит до конца текущей недели: на ещё не наступившие пары отметок нет.
+        if (d > daysFromNow(0)) continue
         for (const sid of g.studentIds) {
           const roll = rng()
           const status =
@@ -1300,6 +1315,7 @@ async function seedDemoUniverse({ passwordHash, admin, progress, seedPassword })
       universityId: U,
       status: 'PUBLISHED',
       publishedAt: daysFromNow(-randInt(1, 20)),
+      priority: postPriority('UNIVERSITY', true),
     })
   }
   for (const fac of FACS) {
@@ -1318,6 +1334,7 @@ async function seedDemoUniverse({ passwordHash, admin, progress, seedPassword })
         facultyId: fac.id,
         status: 'PUBLISHED',
         publishedAt: daysFromNow(-randInt(1, 15)),
+        priority: postPriority('FACULTY', true),
       })
     }
   }
@@ -1336,6 +1353,7 @@ async function seedDemoUniverse({ passwordHash, admin, progress, seedPassword })
       groupId: g.id,
       status: 'PUBLISHED',
       publishedAt: daysFromNow(-randInt(1, 10)),
+      priority: postPriority('GROUP', false),
     })
   }
   counts.posts = await insertMany(prisma.post, postRows)

@@ -5,7 +5,6 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { ClipboardList, Plus, Search } from 'lucide-react'
-import { ADMIN_PAGE_SIZES } from '@studenthub/shared-schemas'
 import { Role } from '@studenthub/shared-types'
 import {
   catalogAdminKeys,
@@ -38,7 +37,9 @@ import { cn } from '../../../shared/lib/utils'
 import { useAppSelector } from '../../../shared/store'
 import { ServiceEditorModal } from './service-editor-modal'
 
-const PAGE_SIZES = ADMIN_PAGE_SIZES
+// Размеры страницы. Потолок 100 — столько разрешает OffsetPaginationSchema, на которой
+// построен GET /application-services/manage; ADMIN_PAGE_SIZES с его 150 и 200 здесь дал бы 422.
+const PAGE_SIZES = [20, 50, 100] as const
 
 // Услуга · категория · срок · состав (документы/поля) · статус · действие.
 const COLS = ['30%', '18%', '10%', '14%', '14%', '14%'] as const

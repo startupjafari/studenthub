@@ -125,6 +125,19 @@ describe('DocumentJournalService', () => {
     expect(args.take).toBe(50)
   })
 
+  it('возврат из архива — своим действием; фильтр «Архивирование» включает и его', async () => {
+    const { service, prisma } = setup()
+    prisma.documentEvent.findMany.mockResolvedValue([
+      event({ action: 'ARCHIVE', actorId: 'stu-1', metadata: { archived: false } }),
+      event({ id: 'e2', action: 'UNARCHIVE', actorId: 'stu-1', metadata: {} }),
+    ])
+    const page = await service.list(admin(), { ...QUERY, action: 'ARCHIVE' })
+    expect(prisma.documentEvent.findMany.mock.calls[0][0].where.AND[1]).toEqual({
+      action: { in: ['ARCHIVE', 'UNARCHIVE'] },
+    })
+    expect(page.items.map((i) => i.action)).toEqual(['UNARCHIVE', 'UNARCHIVE'])
+  })
+
   it('поиск по ФИО ищет людей только в своём вузе; никого — пустая страница без выборки', async () => {
     const { service, prisma } = setup()
     prisma.user.findMany.mockResolvedValueOnce([])
@@ -133,6 +146,32 @@ describe('DocumentJournalService', () => {
     expect(prisma.user.findMany.mock.calls[0][0].where.AND).toHaveLength(2)
     expect(page.items).toEqual([])
     expect(prisma.documentEvent.findMany).not.toHaveBeenCalled()
+  })
+
+  it('поиск по ФИО: владелец — условием по связи без потолка, действующий — по найденным id', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findMany.mockResolvedValueOnce([{ id: 'dean-1' }])
+    await service.list(admin(), { ...QUERY, q: 'Абишева' })
+    const where = prisma.documentEvent.findMany.mock.calls[0][0].where
+    expect(where.AND[1]).toEqual({
+      OR: [
+        { actorId: { in: ['dean-1'] } },
+        {
+          document: {
+            owner: {
+              AND: [
+                {
+                  OR: [
+                    { firstName: { contains: 'Абишева', mode: 'insensitive' } },
+                    { lastName: { contains: 'Абишева', mode: 'insensitive' } },
+                  ],
+                },
+              ],
+            },
+          },
+        },
+      ],
+    })
   })
 
   it('название запроса — только из своего вуза', async () => {
