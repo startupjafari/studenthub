@@ -236,7 +236,8 @@ export const AXE_ALLOWLIST: AxeAllowance[] = [
   {
     rule: 'scrollable-region-focusable',
     zone: 'universityAdmin',
-    routes: ['/university-admin'],
+    // Журналы поста охраны у админа вуза — только чтение: в <main> нет ни одной кнопки.
+    routes: ['/university-admin', '/university-admin/security'],
     reason: SCROLL,
   },
   {

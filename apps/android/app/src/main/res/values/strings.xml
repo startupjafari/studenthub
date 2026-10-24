@@ -22,6 +22,7 @@
 
     <!-- Отметка посещаемости сохранена -->
     <string name="study_saved">Сохранено</string>
+    <string name="study_gradebook">Журнал</string>
 
     <!-- Настройки: типы уведомлений — те же переключатели, что в вебе -->
     <string name="notifications_types">Что присылать</string>
@@ -147,12 +148,6 @@
     <string name="books_clearanceUniversity">Вуз</string>
     <string name="books_clearanceChecked">Проверено</string>
 
-    <!-- Тип контрольной точки журнала — как в вебе (Gradebook.kind_*) -->
-    <string name="study_kindLab">Лабораторная</string>
-    <string name="study_kindControl">Контрольная</string>
-    <string name="study_kindExam">Экзамен</string>
-    <string name="study_kindOther">Другое</string>
-
     <!-- Вход по QR: чьё устройство просит вход — до кнопки, как на странице /qr в вебе -->
     <string name="auth_qrChecking">Проверяем код…</string>
     <string name="auth_qrApproveRequester">Вход запрашивает</string>
@@ -175,7 +170,6 @@
     <string name="error_universityBlocked">Доступ вашего вуза к платформе приостановлен</string>
     <string name="error_internal">Ошибка на сервере. Попробуйте позже</string>
     <string name="auth_error_invalidCredentials">Неверный email или пароль</string>
-    <string name="auth_error_challengeExpired">Сессия входа истекла — войдите заново</string>
     <string name="auth_error_accountBlocked">Учётная запись заблокирована</string>
     <string name="auth_qrApproveTaken">Вход по этому QR-коду уже подтверждён</string>
 

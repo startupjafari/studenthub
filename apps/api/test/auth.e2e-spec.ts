@@ -247,15 +247,35 @@ describe('Auth (e2e)', () => {
     })
 
     it('несовершеннолетний с согласием представителя регистрируется', async () => {
+      // Инвайт студенту выписывает декан на группу своего факультета: при использовании
+      // право выдавшего сверяется заново, и приглашение «от платформы без группы» —
+      // такого выдать нельзя — считается отозванным (410).
+      const faculty = await prisma.faculty.create({
+        data: { name: 'E2E Факультет', universityId: 'uni-e2e' },
+      })
+      const group = await prisma.group.create({ data: { name: 'E2E-26', facultyId: faculty.id } })
+      const dean = await prisma.user.create({
+        data: {
+          email: 'dean@t.io',
+          passwordHash: 'x',
+          firstName: 'Декан',
+          lastName: 'Е2Е',
+          role: 'DEAN',
+          universityId: 'uni-e2e',
+          facultyId: faculty.id,
+        },
+      })
       await prisma.invite.create({
         data: {
           token: 'e2e-minor-ok',
           role: 'STUDENT',
           email: 'minor-ok@t.io',
           universityId: 'uni-e2e',
+          facultyId: faculty.id,
+          groupId: group.id,
           status: 'PENDING',
           expiresAt: new Date(Date.now() + 3_600_000),
-          createdById: adminId,
+          createdById: dean.id,
         },
       })
       const res = await request(server).post('/api/v1/auth/register-by-invite').send({
@@ -444,7 +464,32 @@ describe('Auth (e2e)', () => {
       expect(reuse.status).toBe(401)
     })
 
+    it('роли с обязательной 2FA отключить её нельзя → 403, вход по-прежнему через код', async () => {
+      const { secret } = await enable2fa()
+      const login = await request(server).post('/api/v1/auth/login').send(LOGIN)
+      const verified = await request(server)
+        .post('/api/v1/auth/login/2fa')
+        .send({
+          challengeToken: login.body.data.challengeToken,
+          code: authenticator.generate(secret),
+        })
+      const disable = await request(server)
+        .post('/api/v1/auth/2fa/disable')
+        .set('Authorization', `Bearer ${verified.body.data.accessToken as string}`)
+        .send({ code: authenticator.generate(secret) })
+      expect(disable.status).toBe(403)
+
+      const res = await request(server).post('/api/v1/auth/login').send(LOGIN)
+      expect(res.body.data.twoFactorRequired).toBe(true)
+    })
+
     it('disable отключает 2FA → login снова отдаёт токены напрямую', async () => {
+      // Платформенному админу 2FA обязательна (§8.3) — отключение проверяем на
+      // преподавателе, которому она добровольна.
+      await prisma.user.update({
+        where: { id: adminId },
+        data: { role: 'TEACHER', universityId: 'uni-e2e' },
+      })
       const { secret, backupCodes } = await enable2fa()
       // Войти (через 2FA), получить access-токен.
       const login = await request(server).post('/api/v1/auth/login').send(LOGIN)

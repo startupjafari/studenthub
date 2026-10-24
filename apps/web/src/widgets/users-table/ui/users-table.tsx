@@ -224,7 +224,7 @@ export function UsersTable({ title, subtitle, role, showRoleFilter = false }: Us
                 value={roleFilter}
                 onValueChange={(v) => refilter(() => setRoleFilter(v as Role | 'all'))}
               >
-                <SelectTrigger size="md" className="w-36 sm:w-44">
+                <SelectTrigger size="md" className="w-36 sm:w-44" aria-label={t('colRole')}>
                   <SelectValue placeholder={t('allRoles')} />
                 </SelectTrigger>
                 <SelectContent>

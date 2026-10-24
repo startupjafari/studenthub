@@ -3,6 +3,7 @@
 <resources>
     <string name="applications_approved">Мақұлданған</string>
     <string name="applications_cancelled">Болдырылмады</string>
+    <string name="applications_days">Мерзімі: %1$s жұмыс күні</string>
     <string name="applications_draft">Жоба</string>
     <string name="applications_empty">Әзірге өтініш жоқ</string>
     <string name="applications_history">Тарих</string>
@@ -14,6 +15,7 @@
     <string name="applications_service">Қызмет</string>
     <string name="applications_submit">Өтінім беру</string>
     <string name="applications_submitted">Берілген</string>
+    <string name="auth_error_challengeExpired">Кодты енгізу уақыты өтті немесе әрекеттер таусылды — құпиясөзді қайта енгізіңіз</string>
     <string name="auth_hidePassword">Құпиясөзді жасыру</string>
     <string name="auth_identifier">Email немесе пайдаланушы аты</string>
     <string name="auth_identifierPlaceholder">you@example.com немесе username</string>
@@ -27,6 +29,9 @@
     <string name="auth_qrApproveReject">Қабылдамау</string>
     <string name="auth_qrApproveRejected">Кіру қабылданбады.</string>
     <string name="auth_qrApproveTitle">Басқа құрылғыда кіру</string>
+    <string name="auth_qrPreviewing">Кодты тексеріп жатырмыз…</string>
+    <string name="auth_qrRequester">Кіруді кім сұрап отыр</string>
+    <string name="auth_qrUnknownDevice">Белгісіз құрылғы</string>
     <string name="auth_showPassword">Құпиясөзді көрсету</string>
     <string name="auth_signIn">Кіру</string>
     <string name="auth_signingIn">Кіруде…</string>
@@ -66,6 +71,17 @@
     <string name="common_close">Жабу</string>
     <string name="common_done">Дайын</string>
     <string name="common_save">Сақтау</string>
+    <string name="consent_accept">Қабылдау</string>
+    <string name="consent_adultText">Профильдегі туған күніңіз бойынша сізге 18 жас толған, ал дербес деректерді өңдеуге келісімді заңды өкіліңіз берген. Келісімді өз атыңыздан растаңыз.</string>
+    <string name="consent_ageTitle">Келісімді растаңыз</string>
+    <string name="consent_agree">Мен құпиялылық саясаты мен пайдаланушы келісімін қабылдаймын</string>
+    <string name="consent_birthDate">Туған күні</string>
+    <string name="consent_guardian">Маған 18 жас толмаған, және заңды өкілім дербес деректерімді өңдеуге келісім берді</string>
+    <string name="consent_guardianRequired">Заңды өкілдің келісімі қажет</string>
+    <string name="consent_minorText">Профильдегі туған күніңіз бойынша сізге 18 жас толмаған. Кәмелетке толмаған адамның дербес деректерін өңдеуге келісімді заңды өкілі береді — оны растаңыз.</string>
+    <string name="consent_required">Келісімсіз жалғастыру мүмкін емес</string>
+    <string name="consent_versionText">Біз құпиялылық саясаты мен пайдаланушы келісімін жаңарттық. Платформада жұмысты жалғастыру үшін жаңа редакциямен танысып, оны қабылдаңыз.</string>
+    <string name="consent_versionTitle">Құқықтық құжаттар жаңартылды</string>
     <string name="documents_empty">Әзірге құжат жоқ</string>
     <string name="documents_noFiles">Файлдар жоқ</string>
     <string name="documents_save">Сақтау</string>
@@ -184,6 +200,7 @@
     <string name="schedule_moved">Ауыстырылды</string>
     <string name="schedule_oddWeek">Тақ апта</string>
     <string name="schedule_substituted">Алмастыру</string>
+    <string name="schedule_syncedAt">Жаңартылды: %1$s</string>
     <string name="session_signOut">Шығу</string>
     <string name="shell_chat">Чат</string>
     <string name="shell_lesson">Сабақ</string>
@@ -195,8 +212,12 @@
     <string name="study_attendance">Сабаққа қатысу</string>
     <string name="study_attendanceRate">Сабаққа қатысу</string>
     <string name="study_excused">Дәлелді себеп</string>
-    <string name="study_gradebook">Журнал</string>
+    <string name="study_graded">Баға %1$s%2$s</string>
     <string name="study_grades">Бағалар</string>
+    <string name="study_kindControl">Бақылау</string>
+    <string name="study_kindExam">Емтихан</string>
+    <string name="study_kindLab">Зертханалық</string>
+    <string name="study_kindOther">Басқа</string>
     <string name="study_late">Кешікті</string>
     <string name="study_link">Сілтеме</string>
     <string name="study_materials">Материалдар</string>
@@ -205,6 +226,7 @@
     <string name="study_noMaterials">Әзірге материал жоқ</string>
     <string name="study_noScore">—</string>
     <string name="study_submitted">Тексерілуде</string>
+    <string name="study_teacherHint">Қатысу кестедегі сабақтан белгіленеді, бағалар журналы — веб-нұсқада.</string>
     <string name="study_yourWork">Сіздің жұмысыңыз</string>
     <string name="tab_chats">Чаттар</string>
     <string name="tab_more">Тағы</string>

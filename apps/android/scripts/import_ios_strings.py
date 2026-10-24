@@ -14,10 +14,13 @@ Localizable.xcstrings`; этот скрипт пересобирает из не
 """
 import json
 import pathlib
+import re
 
 ROOT = pathlib.Path(__file__).resolve().parents[3]
 CATALOG = ROOT / "apps/ios/Resources/Localizable.xcstrings"
 RES = ROOT / "apps/android/app/src/main/res"
+# Спецификатор printf из каталога: `%@`, `%lld`, `%d`, `%.1f`, позиционный `%2$@`, `%%`.
+PRINTF = re.compile(r"%%|%(?:(\d+)\$)?(?:\.\d+)?(?:ll|l|h)?[@sdiuf]")
 
 HEADER = """<?xml version="1.0" encoding="utf-8"?>
 <!-- Сгенерировано apps/android/scripts/import_ios_strings.py из каталога iOS. Не править руками. -->
@@ -38,13 +41,25 @@ def escape(value: str) -> str:
 
 
 def placeholders(value: str) -> str:
-    """Интерполяция Swift `\\(days)` → позиционный параметр Android `%1$s`.
+    """Интерполяция Swift `\\(days)` и printf-формат `%lld`/`%@` → позиционный `%1$s` Android.
 
     В каталоге iOS часть строк хранит подстановку в записи Swift, с вложенными скобками
     (`\\(date.formatted(...))`), поэтому разбор идёт со счётчиком скобок, а не
     регулярным выражением. Параметры нумеруются по порядку появления."""
     out, index, i = [], 0, 0
     while i < len(value):
+        # printf-формат каталога (`%@`, `%lld`, `%1$@`) → тот же позиционный `%n$s`: Java
+        # Formatter не знает ни `@`, ни длины `ll` и падает на getString. `%s` у Android
+        # принимает и число, поэтому вызовы getString(…, days) остаются прежними.
+        spec = PRINTF.match(value, i)
+        if spec:
+            if spec.group(0) == "%%":
+                out.append("%%")
+            else:
+                index = int(spec.group(1)) if spec.group(1) else index + 1
+                out.append(f"%{index}$s")
+            i = spec.end()
+            continue
         if value.startswith("\\(", i):
             depth, j = 1, i + 2
             while j < len(value) and depth:

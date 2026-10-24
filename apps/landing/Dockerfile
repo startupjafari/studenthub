@@ -47,6 +47,8 @@ ENV NEXT_PUBLIC_SALES_EMAIL=${NEXT_PUBLIC_SALES_EMAIL}
 # http://localhost:3000; браузеры запоминают 308 навсегда, и поправить переменную потом
 # уже мало. Поэтому сборка падает здесь, с понятной причиной. Значение без хоста
 # (`https://` от пустого домена в compose) отбрасывается так же.
+# pipefail: проверка идёт через `printf | grep`, и сбой левой части не должен теряться.
+SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 RUN for name in NEXT_PUBLIC_APP_URL NEXT_PUBLIC_SITE_URL; do \
       value=$(printenv "$name" || true); \
       if ! printf '%s' "$value" | grep -Eq '^(https?://)?[^/:]+(:[0-9]+)?(/.*)?$'; then \
