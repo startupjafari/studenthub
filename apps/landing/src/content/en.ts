@@ -18,6 +18,7 @@ export const en: Dictionary = {
     demo: 'Request a demo',
     menu: 'Menu',
     close: 'Close',
+    sections: 'Page sections',
   },
 
   hero: {
@@ -248,5 +249,6 @@ export const en: Dictionary = {
     rights: 'All rights reserved.',
     language: 'Language',
     company: 'For companies',
+    links: 'Platform and contact',
   },
 }

@@ -24,6 +24,7 @@ export const kk: Dictionary = {
     demo: 'Демонстрация сұрау',
     menu: 'Мәзір',
     close: 'Жабу',
+    sections: 'Бет бөлімдері',
   },
 
   hero: {
@@ -253,5 +254,6 @@ export const kk: Dictionary = {
     rights: 'Барлық құқықтар қорғалған.',
     language: 'Тіл',
     company: 'Компанияларға',
+    links: 'Платформа және байланыс',
   },
 }

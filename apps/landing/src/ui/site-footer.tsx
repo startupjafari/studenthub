@@ -29,7 +29,7 @@ export function SiteFooter({ dict, locale }: { dict: Dictionary; locale: Locale 
             <p className="text-sm leading-relaxed text-muted-foreground">{dict.footer.tagline}</p>
           </div>
 
-          <nav className="flex flex-col gap-2 text-sm" aria-label={dict.nav.product}>
+          <nav className="flex flex-col gap-2 text-sm" aria-label={dict.footer.links}>
             <FooterLink href={links.login}>{dict.nav.login}</FooterLink>
             <FooterLink href={links.employerSignup}>{dict.footer.company}</FooterLink>
             {/* Почта показана целиком, а не спрятана под словом «Контакты»: её копируют

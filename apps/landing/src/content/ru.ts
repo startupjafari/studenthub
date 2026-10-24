@@ -24,6 +24,7 @@ export const ru: Dictionary = {
     demo: 'Запросить демонстрацию',
     menu: 'Меню',
     close: 'Закрыть',
+    sections: 'Разделы страницы',
   },
 
   hero: {
@@ -252,5 +253,6 @@ export const ru: Dictionary = {
     rights: 'Все права защищены.',
     language: 'Язык',
     company: 'Для компаний',
+    links: 'Платформа и контакты',
   },
 }
