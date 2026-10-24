@@ -2212,6 +2212,7 @@
     "save": "Сохранить",
     "historyCleared": "История очищена",
     "chatDeleted": "Чат удалён",
+    "chatUnavailable": "Этот чат вам больше недоступен",
     "clearHistory": "Очистить историю",
     "groupDescriptionLabel": "Описание группы",
     "groupDescriptionPlaceholder": "Зачем этот чат, правила, полезные ссылки",

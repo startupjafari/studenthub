@@ -2212,6 +2212,7 @@
     "save": "Save",
     "historyCleared": "History cleared",
     "chatDeleted": "Chat deleted",
+    "chatUnavailable": "This chat is no longer available to you",
     "clearHistory": "Clear history",
     "groupDescriptionLabel": "Group description",
     "groupDescriptionPlaceholder": "What this chat is for, rules, useful links",

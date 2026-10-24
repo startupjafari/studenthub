@@ -3023,6 +3023,27 @@ export function ChatWindow() {
       )?.firstName
     : undefined
   const activeChat = chats.data?.find((c) => c.id === activeId)
+  // Открытый чат пропал из списка — исключили, забанили, группу удалили, запрос отклонили
+  // или скрыли на другом устройстве. Сервер шлёт об этом только `chat:activity`, и окно
+  // оставалось открытым над чатом, где ничего уже нельзя. Закрываем, но только чат, который
+  // в списке уже был: только что созданный появляется в нём не сразу.
+  const seenInListRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!activeId) {
+      seenInListRef.current = null
+      return
+    }
+    if (activeChat) {
+      seenInListRef.current = activeId
+      return
+    }
+    if (chats.isSuccess && seenInListRef.current === activeId) {
+      seenInListRef.current = null
+      setActiveId(null)
+      setDetailsOpen(false)
+      toast.info(t('chatUnavailable'))
+    }
+  }, [activeId, activeChat, chats.isSuccess, t])
   const activeIsGroup = activeChat != null && activeChat.type !== 'PRIVATE'
   // Роли участников для бейджей у сообщений (§21): только «заметные» роли + админ группы, не студенты.
   const roleByUser = useMemo(() => {

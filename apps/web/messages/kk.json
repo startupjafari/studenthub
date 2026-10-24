@@ -2212,6 +2212,7 @@
     "save": "Сақтау",
     "historyCleared": "Тарих тазаланды",
     "chatDeleted": "Чат жойылды",
+    "chatUnavailable": "Бұл чат сізге енді қолжетімсіз",
     "clearHistory": "Тарихты тазалау",
     "groupDescriptionLabel": "Топ сипаттамасы",
     "groupDescriptionPlaceholder": "Бұл чат не үшін, ережелер, пайдалы сілтемелер",
