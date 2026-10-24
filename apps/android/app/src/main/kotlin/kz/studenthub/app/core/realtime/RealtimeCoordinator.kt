@@ -63,6 +63,7 @@ class RealtimeCoordinator(
     private var pump: Job? = null
     private var keepAlive: Job? = null
     private val expiry = mutableMapOf<String, Job>()
+    private val lastReads = mutableMapOf<String, String>()
 
     /** Чат на экране: его сообщения не увеличивают счётчик непрочитанного. */
     @Volatile
@@ -100,6 +101,7 @@ class RealtimeCoordinator(
         keepAlive = null
         expiry.values.forEach { it.cancel() }
         expiry.clear()
+        lastReads.clear()
         _isConnected.value = false
         _actions.value = emptyMap()
         _online.value = emptySet()
@@ -117,7 +119,17 @@ class RealtimeCoordinator(
         transport.leave(chatId)
     }
 
-    fun markRead(chatId: String, messageId: String) = transport.markRead(chatId, messageId)
+    /**
+     * «Прочитано до этого сообщения». Отметка уходит только по сокету — HTTP-маршрута у
+     * неё нет, — поэтому последняя по каждому чату запоминается и повторяется после
+     * каждого подключения: прочитанное без связи иначе пропадало бы, и счётчик на
+     * других устройствах и в списке вернулся бы. Сервер двигает отметку только вперёд,
+     * так что повтор безвреден.
+     */
+    fun markRead(chatId: String, messageId: String) {
+        lastReads[chatId] = messageId
+        if (_isConnected.value) transport.markRead(chatId, messageId)
+    }
 
     fun send(action: String?, chatId: String) = transport.send(action, chatId)
 
@@ -129,6 +141,7 @@ class RealtimeCoordinator(
                 _connectionEpoch.value += 1
                 // Комнату после переподключения сервер не помнит — входим заново.
                 openChatId?.let(transport::join)
+                lastReads.forEach { (chatId, messageId) -> transport.markRead(chatId, messageId) }
             }
             RealtimeEvent.Disconnected -> _isConnected.value = false
             // Сервер отверг рукопожатие — подкладываем свежий токен: следующая попытка

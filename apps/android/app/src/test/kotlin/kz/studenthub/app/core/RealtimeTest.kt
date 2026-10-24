@@ -105,6 +105,17 @@ class RealtimeCoordinatorTest {
         assertEquals(listOf("c1", "c1"), transport.joined)
     }
 
+    /** Прочитанное без связи не теряется: отметка уходит, как только сокет подключится. */
+    @Test
+    fun readWithoutConnectionIsSentOnConnect() = runTest {
+        val transport = FakeTransport()
+        val realtime = coordinator(transport)
+        realtime.markRead("c1", "m5")
+        assertTrue(transport.reads.isEmpty())
+        realtime.handle(RealtimeEvent.Connected)
+        assertEquals(listOf("c1" to "m5"), transport.reads)
+    }
+
     /** «Печатает…» держится в памяти и снимается явным «закончил» или через 4 секунды. */
     @Test
     fun actionAppearsClearsAndExpires() = runTest {
@@ -172,7 +183,11 @@ class RealtimeCoordinatorTest {
 
         override fun leave(chatId: String) {}
 
-        override fun markRead(chatId: String, messageId: String) {}
+        val reads = mutableListOf<Pair<String, String>>()
+
+        override fun markRead(chatId: String, messageId: String) {
+            reads += chatId to messageId
+        }
 
         override fun send(action: String?, chatId: String) {}
     }
