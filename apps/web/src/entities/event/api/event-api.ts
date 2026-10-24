@@ -5,11 +5,19 @@ import type {
   UpdateEventInput,
 } from '@studenthub/shared-schemas'
 import { api, getPaged, type Paged, type ResponseWithMeta } from '../../../shared/api'
-import type { EventComment, EventCommentsPage, EventItem, EventParticipant } from '../model/types'
+import type {
+  EventComment,
+  EventCommentsPage,
+  EventItem,
+  EventParticipant,
+  EventParticipantsPage,
+} from '../model/types'
 
 const DEFAULT_EVENTS_LIMIT = 50
 // Страница обсуждения под событием: ровно столько, сколько помещается на экран-другой.
 const EVENT_COMMENTS_PAGE_SIZE = 20
+// Страница участников — максимум, что отдаёт сервер (OptionalCursorPaginationSchema).
+const EVENT_PARTICIPANTS_PAGE_SIZE = 50
 
 export const eventKeys = {
   all: ['events'] as const,
@@ -84,6 +92,20 @@ export async function cancelEventRequest(id: string): Promise<void> {
 export async function fetchEventParticipants(id: string): Promise<EventParticipant[]> {
   const { data } = await api.get<EventParticipant[]>(`/events/${id}/participants`)
   return data
+}
+
+/**
+ * Участники страницами по порядку регистрации. Без `limit` сервер отдаёт прежний массив с
+ * потолком в 1000 — у события вуза участников больше, и список молча обрезался.
+ */
+export async function fetchEventParticipantsPage(
+  id: string,
+  cursor?: string,
+): Promise<EventParticipantsPage> {
+  const res = (await api.get<EventParticipant[]>(`/events/${id}/participants`, {
+    params: { limit: EVENT_PARTICIPANTS_PAGE_SIZE, cursor },
+  })) as ResponseWithMeta & { data: EventParticipant[] }
+  return { items: res.data, cursor: res.meta?.cursor, hasNext: res.meta?.hasNext ?? false }
 }
 
 /**

@@ -9,6 +9,7 @@ export {
   registerEventRequest,
   cancelEventRequest,
   fetchEventParticipants,
+  fetchEventParticipantsPage,
   fetchEventMeeting,
   fetchEventComments,
   addEventCommentRequest,
@@ -23,5 +24,6 @@ export {
   type EventItem,
   type EventOrganizer,
   type EventParticipant,
+  type EventParticipantsPage,
   type EventComment,
 } from './model/types'
