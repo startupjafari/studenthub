@@ -40,6 +40,11 @@ sealed interface DeepLink {
     companion object {
         const val SCHEME = "studenthub"
 
+        /** Формат идентификаторов и кодов в ссылках: uuid, cuid, код наклейки книги. */
+        private val ID_PATTERN = Regex("^[A-Za-z0-9_-]{1,64}$")
+
+        private fun id(raw: String?): String? = raw?.takeIf(ID_PATTERN::matches)
+
         /** `null` — «не наше»: такую ссылку открывает браузер, где работает полная версия. */
         fun parse(raw: String): DeepLink? {
             // Пуш кладёт путь веба без адреса (`/chats?c=1`) — это наша же ссылка.
@@ -74,16 +79,19 @@ sealed interface DeepLink {
             val head = segments.firstOrNull() ?: return Tab(AppTab.HOME)
             // Глубже двух сегментов адресов у нас нет.
             if (segments.size > 2) return null
-            val tail = segments.getOrNull(1)
+            // Идентификатор из ссылки уходит в путь запроса API: `..` или `/` в нём увели бы
+            // запрос с токеном человека на другой маршрут. Чужой формат — ссылка не наша.
+            val tail = segments.getOrNull(1)?.let { id(it) ?: return null }
+            val ref = { key: String -> id(query[key]) }
 
             return when (head) {
-                "chats" -> tail?.let(::Chat) ?: query["c"]?.let(::Chat) ?: Tab(AppTab.CHATS)
-                "schedule" -> tail?.let(::Lesson) ?: query["lesson"]?.let(::Lesson) ?: Tab(AppTab.SCHEDULE)
+                "chats" -> tail?.let(::Chat) ?: ref("c")?.let(::Chat) ?: Tab(AppTab.CHATS)
+                "schedule" -> tail?.let(::Lesson) ?: ref("lesson")?.let(::Lesson) ?: Tab(AppTab.SCHEDULE)
                 // Учёба — одна вкладка на несколько разделов веба.
                 "academic", "grades", "assignments", "attendance", "courses", "materials", "gradebook", "exams" ->
                     if (tail == null) Tab(AppTab.STUDY) else null
                 "posts" -> tail?.let(::Post)
-                "applications" -> tail?.let(::Application) ?: query["a"]?.let(::Application)
+                "applications" -> tail?.let(::Application) ?: ref("a")?.let(::Application)
                     ?: Section(MoreSection.APPLICATIONS)
                 "events" -> tail?.let(::Event) ?: Section(MoreSection.EVENTS)
                 "profile" -> if (tail == null) Section(MoreSection.PROFILE) else null

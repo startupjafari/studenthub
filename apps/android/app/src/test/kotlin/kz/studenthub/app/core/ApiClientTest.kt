@@ -156,6 +156,14 @@ class ApiClientTest {
         assertEquals(1, server.requestCount)
     }
 
+    /** `..` в пути OkHttp разрешил бы как переход по каталогу — такой запрос не уходит вовсе. */
+    @Test
+    fun dotSegmentsNeverLeaveTheClient() = runTest {
+        val result = runCatching { client().send(Endpoint.get("chats/../users/me"), Item.serializer()) }
+        assertTrue(result.exceptionOrNull() is IllegalArgumentException)
+        assertEquals(0, server.requestCount)
+    }
+
     /** «Без звука» — POST с телом: сервер разбирает его схемой, и пустой запрос — это 422. */
     @Test
     fun muteSendsJsonObject() = runTest {

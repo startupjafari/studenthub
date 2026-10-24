@@ -129,7 +129,12 @@ class ApiClient(
 
     private fun request(endpoint: Endpoint, token: String?): Request {
         val url = baseUrl.newBuilder().apply {
-            endpoint.path.trim('/').split('/').forEach { addPathSegment(it) }
+            endpoint.path.trim('/').split('/').forEach { segment ->
+                // `.` и `..` OkHttp разрешает как переход по каталогам: id из ссылки вида
+                // `..` увёл бы запрос с токеном на другой маршрут API. Такой путь не шлём.
+                require(segment != "." && segment != "..") { "Недопустимый сегмент пути: $segment" }
+                addPathSegment(segment)
+            }
             endpoint.query.forEach { (name, value) -> addQueryParameter(name, value) }
         }.build()
 

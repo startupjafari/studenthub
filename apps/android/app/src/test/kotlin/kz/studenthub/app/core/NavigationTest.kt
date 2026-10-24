@@ -72,6 +72,15 @@ class DeepLinkTest {
         assertNull(DeepLink.parse("https://studenthub.kz/my-books/extra"))
     }
 
+    /** Идентификатор уходит в путь запроса API: `..` и `/` в нём не пропускаем. */
+    @Test
+    fun traversalInIdentifiersIsRefused() {
+        assertEquals(DeepLink.Tab(AppTab.CHATS), DeepLink.parse("studenthub://chats?c=..%2F..%2Fusers%2Fme"))
+        assertEquals(DeepLink.Section(MoreSection.APPLICATIONS), DeepLink.parse("/applications?a=..%2Fadmin"))
+        assertNull(DeepLink.parse("studenthub://posts/.."))
+        assertNull(DeepLink.parse("https://studenthub.kz/books/a%20b"))
+    }
+
     /** Незнакомый адрес не угадываем: его откроет браузер, где работает полная версия. */
     @Test
     fun unknownRoutesAreNotOurs() {
