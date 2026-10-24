@@ -140,7 +140,7 @@ describe('parseBulkInviteFile', () => {
   })
 
   it('XLSX: пропуски и таблица не с первой строки — номера как в Excel', () => {
-    const sheet = XLSX.utils.aoa_to_sheet([['email'], [''], ['a@x.kz']], { origin: 'A3' })
+    const sheet = XLSX.utils.sheet_add_aoa({}, [['email'], [''], ['a@x.kz']], { origin: 'A3' })
     const book = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(book, sheet, 'Список')
     const buffer = XLSX.write(book, { type: 'buffer', bookType: 'xlsx' }) as Buffer

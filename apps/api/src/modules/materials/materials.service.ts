@@ -20,6 +20,10 @@ import { MEDIA_FILE_SELECT, MEDIA_PREVIEW_SELECT, type MediaInfo } from '../medi
 import { signingWindow } from '../../common/minio/stable-sign'
 import type { EnvVars } from '../../config/env.schema'
 
+// Файлов у одного материала — лекция, презентация, раздатка: единицы. Потолок держит и
+// загрузку (409 сверх него), и вложенную выборку списка (BACKEND_RULES §18 п. 8).
+const MATERIAL_FILES_LIMIT = 30
+
 const MATERIAL_SELECT = {
   id: true,
   groupId: true,
@@ -51,9 +55,6 @@ type MaterialRow = Prisma.MaterialGetPayload<{ select: typeof MATERIAL_SELECT }>
 
 // Потолок счётчиков по дисциплинам: у группы их десятки, у вуза — сотни.
 const MATERIAL_SUBJECTS_LIMIT = 500
-// Файлов у одного материала — лекция, презентация, раздатка: единицы. Потолок держит и
-// загрузку (409 сверх него), и вложенную выборку списка (BACKEND_RULES §18 п. 8).
-const MATERIAL_FILES_LIMIT = 30
 
 /**
  * Группы, где преподаватель ведёт занятия: дисциплина группы или пара действующего

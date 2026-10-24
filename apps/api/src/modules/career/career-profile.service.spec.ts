@@ -180,9 +180,11 @@ describe('CareerProfileService — карточка для работодате�
   it('заблокированный студент работодателю не отдаётся', async () => {
     const { service, prisma } = setup()
     await service.cardForEmployer(employer, 'stu-1', ctx)
-    expect(prisma.user.findFirst.mock.calls[0][0]).toMatchObject({
-      where: { id: 'stu-1', deletedAt: null, isBlocked: false },
-    })
+    expect(prisma.user.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: 'stu-1', deletedAt: null, isBlocked: false }),
+      }),
+    )
   })
 
   it('каждое открытие карточки попадает в аудит', async () => {

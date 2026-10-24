@@ -1210,7 +1210,7 @@ export class DocumentRequestsService {
       for (const it of changes) {
         if (!it.documentId) continue
         const doc = ownedById.get(it.documentId)
-        if (doc?.type !== itemType.get(it.requestItemId)) {
+        if (!doc || doc.type !== itemType.get(it.requestItemId)) {
           throw new AppException('BAD_REQUEST', 'Тип документа не совпадает с позицией запроса')
         }
         if (doc._count.files === 0) {

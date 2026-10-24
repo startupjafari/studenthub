@@ -180,7 +180,7 @@ describe('CameraViewsService', () => {
     expect(prisma.$transaction).toHaveBeenCalledTimes(1)
     expect(prisma.$executeRaw).toHaveBeenCalledTimes(1)
     expect(prisma.$executeRaw.mock.invocationCallOrder[0]).toBeLessThan(
-      prisma.cameraViewSession.count.mock.invocationCallOrder[0],
+      prisma.cameraViewSession.count.mock.invocationCallOrder[0]!,
     )
   })
 
