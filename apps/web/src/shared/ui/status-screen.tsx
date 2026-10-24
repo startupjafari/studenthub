@@ -1,5 +1,6 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useTranslations } from 'next-intl'
@@ -51,6 +52,13 @@ export function StatusScreen({
 }: StatusScreenProps) {
   const t = useTranslations('Common')
   const router = useRouter()
+  // Страница, открытая прямой ссылкой (закладка, ссылка из чата или письма), назад
+  // вернуться не может: истории у вкладки нет, и кнопка ничего не делала. Узнаём это только
+  // в браузере — до монтирования кнопку не показываем, чтобы разметка совпала с серверной.
+  const [canGoBack, setCanGoBack] = useState(false)
+  useEffect(() => {
+    setCanGoBack(window.history.length > 1)
+  }, [])
 
   return (
     <div className="status-screen relative flex w-full flex-1 flex-col overflow-hidden bg-muted/30">
@@ -128,7 +136,7 @@ export function StatusScreen({
               {t('goHome')}
             </Link>
           )}
-          {showBack && (
+          {showBack && canGoBack && (
             <Button variant="outline" onClick={() => router.back()}>
               <ArrowLeft className="size-4" aria-hidden />
               {t('goBack')}
