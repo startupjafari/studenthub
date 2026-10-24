@@ -2665,7 +2665,10 @@
     "statusACTIVE": "Active",
     "statusBLOCKED": "Blocked",
     "searchPlaceholder": "Search by name",
-    "nothingFound": "Nothing found"
+    "nothingFound": "Nothing found",
+    "blockConfirmTitle": "Block the university?",
+    "blockConfirmDesc": "All users of “{name}” will be disconnected at once and won't be able to sign in until the university is unblocked.",
+    "block": "Block"
   },
   "Materials": {
     "title": "Materials",

@@ -2665,7 +2665,10 @@
     "statusACTIVE": "Белсенді",
     "statusBLOCKED": "Бұғатталған",
     "searchPlaceholder": "Атауы бойынша іздеу",
-    "nothingFound": "Ештеңе табылмады"
+    "nothingFound": "Ештеңе табылмады",
+    "blockConfirmTitle": "ЖОО-ны бұғаттау керек пе?",
+    "blockConfirmDesc": "«{name}» барлық пайдаланушылары бірден ажыратылады және ЖОО бұғаттан шығарылмайынша кіре алмайды.",
+    "block": "Бұғаттау"
   },
   "Materials": {
     "title": "Материалдар",

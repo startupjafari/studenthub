@@ -2665,7 +2665,10 @@
     "statusACTIVE": "Активен",
     "statusBLOCKED": "Заблокирован",
     "searchPlaceholder": "Поиск по названию",
-    "nothingFound": "Ничего не нашлось"
+    "nothingFound": "Ничего не нашлось",
+    "blockConfirmTitle": "Заблокировать вуз?",
+    "blockConfirmDesc": "Все пользователи «{name}» будут сразу отключены и не смогут войти, пока вуз не разблокируют.",
+    "block": "Заблокировать"
   },
   "Materials": {
     "title": "Материалы",

@@ -38,6 +38,7 @@ import {
   TableRow,
   TableSkeletonRows,
   TableText,
+  useConfirm,
   useSortState,
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
@@ -74,6 +75,7 @@ export function UniversitiesAdminView() {
   const tErr = useTranslations('Errors')
   const locale = useLocale()
   const qc = useQueryClient()
+  const confirm = useConfirm()
 
   const [createOpen, setCreateOpen] = useState(false)
   const [search, setSearch] = useState('')
@@ -124,6 +126,23 @@ export function UniversitiesAdminView() {
     },
     onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
   })
+
+  // Блокировка закрывает вуз целиком: рвутся все его сокеты, у всех пользователей —
+  // UNIVERSITY_BLOCKED. Промах в селекте не должен этого делать, поэтому — подтверждение,
+  // как у блокировки пользователя. PENDING и ACTIVE пускают всех — меняются сразу.
+  async function changeStatus(u: University, status: UniversityStatusValue): Promise<void> {
+    if (status === u.status) return
+    if (status === 'BLOCKED') {
+      const ok = await confirm({
+        title: t('blockConfirmTitle'),
+        description: t('blockConfirmDesc', { name: u.name }),
+        confirmLabel: t('block'),
+        destructive: true,
+      })
+      if (!ok) return
+    }
+    statusMut.mutate({ id: u.id, status })
+  }
 
   return (
     <div className="flex min-h-0 w-full flex-1 flex-col gap-4">
@@ -227,9 +246,7 @@ export function UniversitiesAdminView() {
                   <TableCell>
                     <Select
                       value={u.status}
-                      onValueChange={(v) =>
-                        statusMut.mutate({ id: u.id, status: v as UniversityStatusValue })
-                      }
+                      onValueChange={(v) => void changeStatus(u, v as UniversityStatusValue)}
                     >
                       <SelectTrigger
                         size="sm"
