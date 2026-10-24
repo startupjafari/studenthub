@@ -340,7 +340,7 @@ export class UsersController {
   @ApiOperation({
     summary: 'Учебные данные студента (декан своего факультета, админ своего вуза)',
   })
-  @ApiResponse({ status: 200, description: 'Профиль студента' })
+  @ApiResponse({ status: 200, description: 'Учебные данные студента (без номера студенческого)' })
   @ApiResponse({ status: 403, description: 'WRONG_SCOPE — студент вне области' })
   updateAcademic(
     @CurrentUser() user: CurrentUserData,

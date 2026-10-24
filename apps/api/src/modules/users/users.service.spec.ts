@@ -1885,6 +1885,27 @@ describe('UserService — учебные данные ведёт вуз', () => 
     )
   })
 
+  it('ответ — только учебные поля: ни телефона, ни адреса, ни номера студенческого', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findFirst.mockResolvedValue({
+      id: 's1',
+      role: Role.STUDENT,
+      universityId: 'uni-A',
+      facultyId: 'fac-A',
+    })
+    prisma.user.update.mockResolvedValue({ id: 's1' })
+    await service.updateAcademicRecord(
+      viewer(Role.DEAN, { universityId: 'uni-A', facultyId: 'fac-A' }),
+      's1',
+      {},
+    )
+    const select = prisma.user.update.mock.calls[0][0].select
+    expect(select).toMatchObject({ id: true, course: true, academicStatus: true })
+    for (const hidden of ['phone', 'address', 'studentCardNumber', 'username', 'email']) {
+      expect(select).not.toHaveProperty(hidden)
+    }
+  })
+
   it('декан чужого факультета — WRONG_SCOPE', async () => {
     const { service, prisma } = setup()
     prisma.user.findFirst.mockResolvedValue({

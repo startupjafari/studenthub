@@ -217,6 +217,26 @@ const ACCOUNT_CONTENT_BATCH = 100
 // цикл не закончился бы. Остаток подберёт ночная чистка осиротевших объектов.
 const ACCOUNT_CONTENT_MAX_ROUNDS = 50
 
+/**
+ * Ответ правки учебных данных — только сами учебные поля, без номера студенческого: карточка
+ * целиком (телефон при `showPhone=false`, адрес, логин) по пустому `PATCH {}` открывала декану
+ * и админу вуза всё, что `getProfileForViewer` им не отдаёт (§3.7).
+ */
+const ACADEMIC_RECORD_SELECT = {
+  id: true,
+  course: true,
+  enrollmentYear: true,
+  graduationYear: true,
+  educationLevel: true,
+  studyForm: true,
+  fundingType: true,
+  specialty: true,
+  academicStatus: true,
+  gpa: true,
+  dormitory: true,
+} satisfies Prisma.UserSelect
+export type AcademicRecord = Prisma.UserGetPayload<{ select: typeof ACADEMIC_RECORD_SELECT }>
+
 // Полный профиль (собственный) выводится из select. Публичный — прячет чувствительное.
 export type UserProfile = Prisma.UserGetPayload<{ select: typeof PROFILE_SELECT }>
 // access: 'full' — карточка целиком (по правам), 'limited' — только «визитка» закрытого профиля.
@@ -1882,7 +1902,7 @@ export class UserService {
     userId: string,
     data: UpdateAcademicRecordInput,
     ctx: { ip?: string; userAgent?: string } = {},
-  ): Promise<UserProfile> {
+  ): Promise<AcademicRecord> {
     const target = await this.prisma.user.findFirst({
       where: { id: userId, deletedAt: null },
       select: {
@@ -1915,7 +1935,7 @@ export class UserService {
         ...(await this.withDictionarySpecialty(target, data)),
         ...(leftUniversityAt !== undefined ? { leftUniversityAt } : {}),
       },
-      select: PROFILE_SELECT,
+      select: ACADEMIC_RECORD_SELECT,
     })
     await this.audit.record({
       userId: actor.sub,
