@@ -7,10 +7,11 @@
 /**
  * Query-параметры, значение которых является учётными данными или персональными
  * данными. В URL встречаются: `?token=` (ссылка-приглашение, QR студенческого),
- * `?code=` (код 2FA).
+ * `?code=` (код 2FA), `?t=` (токен HLS-плейлиста: по нему смотрят приватное видео).
  */
 export const SENSITIVE_QUERY_PARAMS: readonly string[] = [
   'token',
+  't',
   'code',
   'password',
   'secret',
@@ -27,6 +28,8 @@ export const SENSITIVE_HEADERS: readonly string[] = [
   'cookie',
   'set-cookie',
   'x-refresh-token',
+  // Секрет вебхука Telegram: с ним любой прислал бы боту поддельные обновления.
+  'x-telegram-bot-api-secret-token',
 ]
 
 /**
