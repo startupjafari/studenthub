@@ -9,22 +9,27 @@ import SwiftUI
 struct StudyView: View {
     let role: Role
 
+    private var isTeacher: Bool { role == .teacher }
+
     var body: some View {
         List {
             Section {
-                NavigationLink(value: AppRoute.section(.grades)) {
-                    Label(
-                        role == .teacher
-                            ? String(localized: "study.gradebook", defaultValue: "Журнал")
-                            : String(localized: "study.grades", defaultValue: "Оценки"),
-                        systemImage: "graduationcap"
-                    )
-                }
-                NavigationLink(value: AppRoute.section(.attendance)) {
-                    Label(
-                        String(localized: "study.attendance", defaultValue: "Посещаемость"),
-                        systemImage: "checkmark.circle"
-                    )
+                // Оценки и посещаемость здесь — свои, студенческие (`/gradebook/me`,
+                // `/attendance/me`): преподавателю они отвечают 403. Отметка у него —
+                // с пары в расписании, журнал — в вебе.
+                if !isTeacher {
+                    NavigationLink(value: AppRoute.section(.grades)) {
+                        Label(
+                            String(localized: "study.grades", defaultValue: "Оценки"),
+                            systemImage: "graduationcap"
+                        )
+                    }
+                    NavigationLink(value: AppRoute.section(.attendance)) {
+                        Label(
+                            String(localized: "study.attendance", defaultValue: "Посещаемость"),
+                            systemImage: "checkmark.circle"
+                        )
+                    }
                 }
                 NavigationLink(value: AppRoute.section(.assignments)) {
                     Label(
@@ -37,6 +42,13 @@ struct StudyView: View {
                         String(localized: "study.materials", defaultValue: "Материалы"),
                         systemImage: "folder"
                     )
+                }
+            } footer: {
+                if isTeacher {
+                    Text(String(
+                        localized: "study.teacherHint",
+                        defaultValue: "Посещаемость отмечается с пары в расписании, журнал оценок — в веб-версии."
+                    ))
                 }
             }
             .listRowBackground(Palette.card)

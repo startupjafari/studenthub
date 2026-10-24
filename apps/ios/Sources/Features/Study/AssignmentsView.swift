@@ -2,6 +2,9 @@ import SwiftUI
 
 /// Задания студента: что сдано, что на проверке, что просрочено.
 struct AssignmentsView: View {
+    /// Преподавателю сдавать нечего: состояние «Не сдано» в строке было бы неправдой.
+    var isStudent = true
+
     @State private var model = StudySectionModel<[AssignmentDTO]> {
         try await StudyAPI().assignments().items
     }
@@ -19,7 +22,7 @@ struct AssignmentsView: View {
 
             ForEach(model.value ?? []) { assignment in
                 NavigationLink(value: AppRoute.assignment(id: assignment.id)) {
-                    AssignmentRow(assignment: assignment)
+                    AssignmentRow(assignment: assignment, isStudent: isStudent)
                 }
                 .listRowBackground(Palette.card)
             }
@@ -39,6 +42,7 @@ struct AssignmentsView: View {
 
 private struct AssignmentRow: View {
     let assignment: AssignmentDTO
+    let isStudent: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: Spacing.xs) {
@@ -64,9 +68,11 @@ private struct AssignmentRow: View {
                 }
             }
 
-            Text(SubmissionState.of(assignment).title)
-                .font(Typography.meta)
-                .foregroundStyle(Palette.primary)
+            if isStudent {
+                Text(SubmissionState.of(assignment).title)
+                    .font(Typography.meta)
+                    .foregroundStyle(Palette.primary)
+            }
         }
         .padding(.vertical, Spacing.xs)
         .accessibilityElement(children: .combine)
@@ -76,6 +82,8 @@ private struct AssignmentRow: View {
 /// Карточка задания со сдачей: текст и ссылка — то, что принимает сервер.
 struct AssignmentDetailView: View {
     let assignmentID: String
+    /// Сдача — только студенту: преподавателю `PUT …/submission` отвечает 403.
+    var isStudent = true
 
     @State private var model: StudySectionModel<[AssignmentDTO]>?
     @State private var text = ""
@@ -105,12 +113,16 @@ struct AssignmentDetailView: View {
                             .font(Typography.body)
                             .foregroundStyle(Palette.mutedForeground)
                     }
-                    Text(SubmissionState.of(assignment).title)
-                        .font(Typography.meta)
-                        .foregroundStyle(Palette.primary)
+                    if isStudent {
+                        Text(SubmissionState.of(assignment).title)
+                            .font(Typography.meta)
+                            .foregroundStyle(Palette.primary)
+                    }
                 }
                 .listRowBackground(Palette.card)
+            }
 
+            if assignment != nil, isStudent {
                 Section {
                     TextField(text: $text, axis: .vertical) {
                         Text(verbatim: String(localized: "study.answer", defaultValue: "Ответ"))

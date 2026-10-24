@@ -76,7 +76,7 @@ struct AppShellView: View {
         case .section(.attendance):
             AttendanceView()
         case .section(.assignments):
-            AssignmentsView()
+            AssignmentsView(isStudent: role != .teacher)
         case .section(.materials):
             MaterialsView()
         case .section(.notifications):
@@ -114,7 +114,7 @@ struct AppShellView: View {
                 PlaceholderScreen(title: String(localized: "shell.lesson", defaultValue: "Пара"), reference: id)
             }
         case .assignment(let id):
-            AssignmentDetailView(assignmentID: id)
+            AssignmentDetailView(assignmentID: id, isStudent: role != .teacher)
         case .myBooks:
             MyBooksView()
         case .libraryClearance:

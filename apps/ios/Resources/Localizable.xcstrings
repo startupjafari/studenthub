@@ -3905,23 +3905,6 @@
         }
       }
     },
-    "study.gradebook": {
-      "extractionState": "manual",
-      "localizations": {
-        "ru": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Журнал"
-          }
-        },
-        "kk": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Журнал"
-          }
-        }
-      }
-    },
     "study.graded": {
       "extractionState": "manual",
       "localizations": {
@@ -4233,6 +4216,23 @@
           "stringUnit": {
             "state": "translated",
             "value": "Тексерілуде"
+          }
+        }
+      }
+    },
+    "study.teacherHint": {
+      "extractionState": "manual",
+      "localizations": {
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Посещаемость отмечается с пары в расписании, журнал оценок — в веб-версии."
+          }
+        },
+        "kk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Қатысу кестедегі сабақтан белгіленеді, бағалар журналы — веб-нұсқада."
           }
         }
       }
