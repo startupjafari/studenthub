@@ -227,7 +227,13 @@ export class PlatformAnalyticsService {
   }
 
   /**
-   * DAU/WAU по журналу аудита: COUNT(DISTINCT user_id) за корзину и за скользящие 7 дней.
+   * DAU/WAU по журналу аудита.
+   *
+   * `dau` — среднее число уникальных за СУТКИ корзины, `wau` — уникальные за 7 суток,
+   * заканчивающихся концом корзины. На дневном шаге это обычные DAU и скользящий WAU.
+   * Раньше `dau` был COUNT(DISTINCT) за всю корзину, а окно `wau` — «корзина минус 6
+   * дней»: на недельном шаге (окно 90 дней) «За сутки» показывал недельных уникальных,
+   * а «За неделю» — уникальных за 13 дней.
    *
    * Источник — audit_logs, а НЕ users.last_seen_at: last_seen_at перезаписывается при
    * каждом уходе в оффлайн (realtime.gateway), то есть хранит только последний момент —
@@ -236,24 +242,36 @@ export class PlatformAnalyticsService {
    */
   activeUsers(input: RangeInput): Promise<MultiSeries> {
     const range = resolveRange(input)
-    return this.cached('active-users', range, async () => {
+    return this.cached('active-users.v2', range, async () => {
       const rows = await this.prisma.$queryRaw<{ bucket: Date; series: string; count: bigint }[]>`
         WITH buckets AS (
-          SELECT generate_series(
+          SELECT b AS bucket,
+                 LEAST(b + ('1 ' || ${range.interval}::text)::interval,
+                       ${range.to}::timestamptz) AS bucket_end
+            FROM generate_series(
                    date_trunc(${range.interval}::text, ${range.from}::timestamptz),
                    date_trunc(${range.interval}::text, ${range.to}::timestamptz),
                    ('1 ' || ${range.interval}::text)::interval
-                 ) AS bucket
+                 ) AS b
+        ),
+        daily AS (
+          SELECT date_trunc('day', a.created_at) AS day,
+                 COUNT(DISTINCT a.user_id) AS users
+            FROM audit_logs a
+           WHERE a.user_id IS NOT NULL
+             AND a.created_at >= (SELECT min(bucket) FROM buckets)
+             AND a.created_at < ${range.to}
+           GROUP BY 1
         )
         SELECT b.bucket,
                'dau' AS series,
-               COUNT(DISTINCT a.user_id) AS count
+               ROUND(
+                 COALESCE(SUM(d.users), 0)
+                 / GREATEST(CEIL(EXTRACT(EPOCH FROM (b.bucket_end - b.bucket)) / 86400), 1)
+               )::bigint AS count
           FROM buckets b
-          LEFT JOIN audit_logs a
-                 ON a.user_id IS NOT NULL
-                AND a.created_at >= b.bucket
-                AND a.created_at < b.bucket + ('1 ' || ${range.interval}::text)::interval
-         GROUP BY b.bucket
+          LEFT JOIN daily d ON d.day >= b.bucket AND d.day < b.bucket_end
+         GROUP BY b.bucket, b.bucket_end
         UNION ALL
         SELECT b.bucket,
                'wau' AS series,
@@ -261,8 +279,8 @@ export class PlatformAnalyticsService {
           FROM buckets b
           LEFT JOIN audit_logs a
                  ON a.user_id IS NOT NULL
-                AND a.created_at >= b.bucket - interval '6 days'
-                AND a.created_at < b.bucket + ('1 ' || ${range.interval}::text)::interval
+                AND a.created_at >= b.bucket_end - interval '7 days'
+                AND a.created_at < b.bucket_end
          GROUP BY b.bucket
          ORDER BY 1
       `

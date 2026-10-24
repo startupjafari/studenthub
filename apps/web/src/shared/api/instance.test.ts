@@ -115,6 +115,43 @@ describe('refresh под лимитом запросов (429)', () => {
   })
 })
 
+// Скачивания (responseType: 'blob') получают тело ошибки Blob'ом — его разбирают как JSON.
+describe('ошибка скачивания файла (Blob вместо JSON)', () => {
+  beforeEach(() => {
+    h.refreshPost.mockReset()
+    h.apiCall.mockReset()
+    h.dispatch.mockReset()
+  })
+
+  const blobError = (status: number, body: string) => ({
+    config: { url: '/me/export', headers: { Authorization: 'Bearer old' }, responseType: 'blob' },
+    response: { status, headers: {}, data: new Blob([body]) },
+  })
+  const json = (code: string) => JSON.stringify({ success: false, error: { code, message: code } })
+
+  it('код ошибки берётся из тела-Blob, а не теряется', async () => {
+    await expect(h.state.rejected!(blobError(429, json('RATE_LIMIT')))).rejects.toMatchObject({
+      code: 'RATE_LIMIT',
+    })
+  })
+
+  it('истёкший токен у скачивания лечится refresh и повтором', async () => {
+    h.refreshPost.mockResolvedValue(ok('fresh'))
+    h.apiCall.mockResolvedValue({ data: 'file' })
+
+    await expect(h.state.rejected!(blobError(401, json('TOKEN_EXPIRED')))).resolves.toEqual({
+      data: 'file',
+    })
+    expect(h.refreshPost).toHaveBeenCalledTimes(1)
+  })
+
+  it('не-JSON тело — общий вид ошибки, а не исключение разбора', async () => {
+    await expect(h.state.rejected!(blobError(502, 'Bad gateway'))).rejects.toMatchObject({
+      code: 'INTERNAL_ERROR',
+    })
+  })
+})
+
 // A-F30: вкладки делят одну refresh-cookie — обмен идёт под межвкладочной блокировкой.
 describe('refresh под межвкладочной блокировкой (Web Locks)', () => {
   const original = Object.getOwnPropertyDescriptor(navigator, 'locks')

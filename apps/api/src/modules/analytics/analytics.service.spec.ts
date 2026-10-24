@@ -85,9 +85,39 @@ describe('AnalyticsService.facultyOverview — посещаемость из а�
 
     const res = await service.facultyOverview(dean)
 
-    expect(res.totals.attendanceRate).toBe(0)
-    expect(res.groups).toEqual([expect.objectContaining({ attendanceTracked: 0 })])
+    // Нечего считать — null, а не «0 %», которое экран красил бы красным (BUG-191).
+    expect(res.totals.attendanceRate).toBeNull()
+    expect(res.groups).toEqual([
+      expect.objectContaining({ attendanceTracked: 0, attendanceRate: null }),
+    ])
     expect(res.atRisk).toHaveLength(0)
+  })
+
+  it('группы без отметок идут после отмеченных, а не первыми среди худших', async () => {
+    const raw = rawMock({
+      'GROUP BY p.group_id': [
+        { groupId: 'g2', total: 10n, absent: 5n },
+        { groupId: 'g3', total: 10n, absent: 1n },
+      ],
+    })
+    const { service } = setup(raw, {
+      group: {
+        findMany: jest.fn().mockResolvedValue([
+          { id: 'g1', name: 'Без отметок' },
+          { id: 'g2', name: 'Половина' },
+          { id: 'g3', name: 'Почти все' },
+        ]),
+      },
+    })
+
+    const res = await service.facultyOverview(dean)
+
+    expect(res.groups.map((g) => [g.groupId, g.attendanceRate])).toEqual([
+      ['g2', 50],
+      ['g3', 90],
+      ['g1', null],
+    ])
+    expect(res.atRisk).toEqual([{ groupId: 'g2', name: 'Половина', attendanceRate: 50 }])
   })
 })
 
@@ -100,56 +130,44 @@ describe('AnalyticsService.atRiskStudents — причины риска', () => 
   function atRiskSetup(raw: jest.Mock) {
     return setup(raw, {
       user: { findMany: jest.fn().mockResolvedValue(students) },
-      assignment: {
-        findMany: jest.fn().mockResolvedValue([
-          { id: 'a1', course: { groupId: 'g1' } },
-          { id: 'a2', course: { groupId: 'g1' } },
-          { id: 'a3', course: { groupId: 'g1' } },
-        ]),
-      },
     })
   }
 
-  it('просрочка = задания группы минус сдачи студента', async () => {
+  it('просрочки — несданные задания своей группы, посчитанные базой (BUG-193)', async () => {
     const raw = rawMock({
       'GROUP BY a.student_id': [],
-      'count(DISTINCT s.assignment_id)': [{ studentId: 's1', done: 1n }],
+      'NOT EXISTS': [{ studentId: 's1', overdue: 2n }],
       'sum(g.score': [],
     })
-    const { service } = atRiskSetup(raw)
+    const { service, prisma } = atRiskSetup(raw)
 
     const res = await service.atRiskStudents(dean)
     const byId = Object.fromEntries(res.students.map((s) => [s.studentId, s.reasons]))
 
-    // Из трёх просроченных заданий s1 сдал одно, s2 — ни одного.
     expect(byId.s1).toEqual([{ kind: 'OVERDUE_ASSIGNMENTS', value: 2 }])
-    expect(byId.s2).toEqual([{ kind: 'OVERDUE_ASSIGNMENTS', value: 3 }])
+    // Нет строки — нет просрочек: s2 всё сдал и в список не попал.
+    expect(byId.s2).toBeUndefined()
+    // Задания в Node не читаются: прежний findMany с потолком брал случайную их часть.
+    expect(prisma.assignment.findMany).not.toHaveBeenCalled()
   })
 
-  it('сдавший всё в список не попадает', async () => {
-    const raw = rawMock({
-      'GROUP BY a.student_id': [],
-      'count(DISTINCT s.assignment_id)': [
-        { studentId: 's1', done: 3n },
-        { studentId: 's2', done: 5n },
-      ],
-      'sum(g.score': [],
-    })
+  it('просрочки сверяются с текущей группой студента, а не со всем факультетом', async () => {
+    const raw = rawMock({})
     const { service } = atRiskSetup(raw)
 
-    const res = await service.atRiskStudents(dean)
+    await service.atRiskStudents(dean)
 
-    // Сдач больше, чем заданий, быть не может, но если так — это ноль просрочек, а не минус.
-    expect(res.students).toHaveLength(0)
+    const sql = raw.mock.calls
+      .map((c) => (c[0] as TemplateStringsArray).join(' '))
+      .find((q) => q.includes('NOT EXISTS'))
+    expect(sql).toContain('c.group_id = u.group_id')
+    expect(sql).toContain('s.student_id = u.id')
   })
 
   it('низкая посещаемость и низкий средний балл дают свои причины', async () => {
     const raw = rawMock({
       'GROUP BY a.student_id': [{ studentId: 's1', total: 10n, absent: 6n }],
-      'count(DISTINCT s.assignment_id)': [
-        { studentId: 's1', done: 3n },
-        { studentId: 's2', done: 3n },
-      ],
+      'NOT EXISTS': [],
       'sum(g.score': [{ studentId: 's1', sumPct: 0.8, n: 2n }],
     })
     const { service } = atRiskSetup(raw)
@@ -206,8 +224,14 @@ describe('AnalyticsService.groupAttendance — drill-down из агрегата'
         attendanceRate: 90,
         tracked: 30_000,
       },
-      // Без отметок — ноль отмеченных, а не пропуск строки.
-      { studentId: 's2', firstName: 'Ержан', lastName: 'Бектуров', attendanceRate: 0, tracked: 0 },
+      // Без отметок — строка остаётся, процента нет (null), а не «0 %».
+      {
+        studentId: 's2',
+        firstName: 'Ержан',
+        lastName: 'Бектуров',
+        attendanceRate: null,
+        tracked: 0,
+      },
     ])
     expect(attendanceFindMany).not.toHaveBeenCalled()
   })
@@ -233,6 +257,41 @@ describe('AnalyticsService.groupAttendance — drill-down из агрегата'
 
     await expect(service.groupAttendance(dean, 'g9')).rejects.toMatchObject({
       code: 'WRONG_SCOPE',
+    })
+    expect(raw).not.toHaveBeenCalled()
+  })
+})
+
+describe('AnalyticsService — модератор вуза (BUG-004)', () => {
+  const moderator: JwtPayload = {
+    sub: 'm1',
+    role: Role.UNIVERSITY_MODERATOR,
+    universityId: 'uni-1',
+    facultyId: null,
+    groupId: null,
+  }
+
+  // Матрица §2.2: аналитика модератору вуза закрыта — даже своего вуза, а поимённые
+  // сводки (ФИО, просрочки, оценки) тем более.
+  it('обзор, Early Warning и drill-down своего вуза — FORBIDDEN, в базу не идём', async () => {
+    const raw = rawMock({})
+    const { service } = setup(raw, {
+      group: {
+        findMany: jest.fn().mockResolvedValue([]),
+        findUnique: jest
+          .fn()
+          .mockResolvedValue({ facultyId: 'fac-1', faculty: { universityId: 'uni-1' } }),
+      },
+    })
+
+    await expect(service.facultyOverview(moderator, 'fac-1')).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    })
+    await expect(service.atRiskStudents(moderator, 'fac-1')).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+    })
+    await expect(service.groupAttendance(moderator, 'g1')).rejects.toMatchObject({
+      code: 'FORBIDDEN',
     })
     expect(raw).not.toHaveBeenCalled()
   })

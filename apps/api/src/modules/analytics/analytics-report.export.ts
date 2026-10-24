@@ -44,7 +44,7 @@ interface Labels {
   total: string
   /** Пометка скрытой строки: `{min}` — порог малых групп. */
   suppressed: string
-  /** Пометка итога, посчитанного без скрытых подразделений. */
+  /** Пометка итога или строки, посчитанных без скрытых подразделений. */
   partialTotal: string
 }
 
@@ -136,7 +136,9 @@ export function reportRows(report: AnalyticsReport, locale: ExportLocale): Repor
   const rows: ReportRow[] = report.units.map((unit) => ({
     name: unit.name,
     metrics: unit.metrics,
-    note: unit.suppressed ? suppressedNote : '',
+    // Строка вуза или факультета без своих скрытых групп — иначе разность с отчётом
+    // уровнем ниже раскрыла бы их (suppressedGroups).
+    note: unit.suppressed ? suppressedNote : unit.partial ? l.partialTotal : '',
   }))
   rows.push({
     name: l.total,

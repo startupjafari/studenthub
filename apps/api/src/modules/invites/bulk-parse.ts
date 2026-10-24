@@ -1,6 +1,6 @@
 import { BULK_INVITE_MAX_ROWS } from '@studenthub/shared-schemas'
 import { AppException } from '../../common/exceptions/app.exception'
-import { readTableFile } from '../../common/import/table-file'
+import { nonEmptyRows, readTableFile } from '../../common/import/table-file'
 
 // Разбор загруженного файла массового приглашения в нормализованные строки.
 // Поддержка CSV (без внешних зависимостей) и XLSX/XLS (SheetJS). Колонки распознаём
@@ -58,16 +58,17 @@ function resolveColumns(headers: string[]): Record<BulkColumn, number> {
 
 // Матрица (первая строка — заголовки) → нормализованные строки email/group/role/faculty.
 function toRows(matrix: string[][]): RawBulkRow[] {
-  const nonEmpty = matrix.filter((r) => r.some((c) => String(c ?? '').trim() !== ''))
+  const nonEmpty = nonEmptyRows(matrix)
   const headerRow = nonEmpty[0]
   if (!headerRow) {
     throw new AppException('BAD_REQUEST', 'Файл пуст')
   }
-  const headers = headerRow.map((c) => String(c ?? ''))
+  const headers = headerRow.cells.map((c) => String(c ?? ''))
   const cols = resolveColumns(headers)
   const cell = (r: string[], idx: number): string => (idx === -1 ? '' : String(r[idx] ?? '').trim())
-  return nonEmpty.slice(1).map((r, i) => ({
-    line: i + 2, // +1 за заголовок, +1 за 1-based
+  return nonEmpty.slice(1).map(({ line, cells: r }) => ({
+    // Номер строки в файле, а не по счёту непустых: его ищут глазами в Excel.
+    line,
     email: cell(r, cols.email),
     group: cell(r, cols.group),
     role: cell(r, cols.role),

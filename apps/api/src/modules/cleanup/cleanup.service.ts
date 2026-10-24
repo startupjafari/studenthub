@@ -7,7 +7,7 @@ import type Redis from 'ioredis'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { MINIO_CLIENT } from '../../common/minio/minio.constants'
 import { CronLockService } from '../../common/redis/cron-lock.service'
-import { AuditService } from '../../common/audit/audit.service'
+import { AUDIT_RETENTION_DAYS, AuditService } from '../../common/audit/audit.service'
 import { REDIS_CLIENT } from '../../common/redis/redis.constants'
 import type { EnvVars } from '../../config/env.schema'
 import { EventsService } from '../events/events.service'
@@ -96,7 +96,6 @@ const NOTIFICATION_RETENTION_DAYS = 30
 // Свёрнутое уведомление чата при каждом сообщении получает свежее время — живой чат
 // своё уведомление не теряет.
 const UNREAD_NOTIFICATION_RETENTION_DAYS = 90
-const AUDIT_RETENTION_DAYS = 90
 // Потолок удаления refresh-сессий за один прогон: 100 батчей, 50 тысяч строк. Каждый refresh
 // пишет строку, и хвост, накопленный до появления задачи, может исчисляться миллионами — он
 // уходит за несколько ежечасных прогонов, а не одним многоминутным циклом под локом. Обычный

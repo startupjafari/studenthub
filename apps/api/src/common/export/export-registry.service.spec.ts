@@ -1,5 +1,9 @@
 import type { PrismaService } from '../prisma/prisma.service'
-import { ExportRegistryService, VERIFIABLE_EXPORT_KINDS } from './export-registry.service'
+import {
+  ExportRegistryService,
+  FREE_TEXT_MARK,
+  VERIFIABLE_EXPORT_KINDS,
+} from './export-registry.service'
 import type { ExportContext } from './export-branding.types'
 
 function setup(create: jest.Mock) {
@@ -71,6 +75,20 @@ describe('ExportRegistryService', () => {
         }),
       }),
     )
+  })
+
+  it('строка поиска в бессрочный журнал не попадает — только пометка (BUG-195)', async () => {
+    const create = jest.fn().mockResolvedValue({ id: 'e-1', shortId: 'ABCD2345' })
+    const { service } = setup(create)
+
+    await service.register({
+      context: { ...context, params: { role: 'STUDENT', search: 'aruzhan@u.kz Оспанова' } },
+      format: 'csv',
+    })
+
+    const data = (create.mock.calls[0]?.[0] as { data: { params: Record<string, string> } }).data
+    expect(data.params).toEqual({ role: 'STUDENT', search: FREE_TEXT_MARK })
+    expect(JSON.stringify(data)).not.toContain('Оспанова')
   })
 
   it('сбой записи не роняет выгрузку, но возвращает null', async () => {

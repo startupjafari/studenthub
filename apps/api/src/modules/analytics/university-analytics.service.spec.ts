@@ -21,6 +21,7 @@ function setup() {
     submission: { count: jest.fn().mockResolvedValue(0) },
     exam: { count: jest.fn().mockResolvedValue(0) },
     room: { count: jest.fn().mockResolvedValue(0) },
+    university: { findUnique: jest.fn().mockResolvedValue({ timezone: 'UTC' }) },
   }
   const redis = { get: jest.fn().mockResolvedValue(null), set: jest.fn().mockResolvedValue('OK') }
   const service = new UniversityAnalyticsService(
@@ -124,37 +125,65 @@ describe('UniversityAnalyticsService.roomLoad (B-F22)', () => {
     expect(res.peak).toBe(2.5)
     expect(res.rooms).toBe(12)
   })
+
+  it('пары и помещения — по одному множеству учебных помещений (BUG-192)', async () => {
+    const { service, prisma } = setup()
+
+    await service.roomLoad(ADMIN)
+
+    const sql = sqlOf(prisma.$queryRaw.mock.calls[0] as unknown[])
+    expect(sql).toContain('r.kind::text IN')
+    expect(JSON.stringify(prisma.$queryRaw.mock.calls[0])).toContain('SPORT_HALL')
+    expect(prisma.room.count).toHaveBeenCalledWith({
+      where: { universityId: 'uni-1', kind: { in: ['AUDITORIUM', 'LAB', 'SPORT_HALL'] } },
+    })
+  })
 })
 
 describe('UniversityAnalyticsService.attendanceTrend', () => {
-  it('строки SQL раскладываются в ряды по факультетам, окно — с понедельника', async () => {
+  afterEach(() => jest.useRealTimers())
+
+  it('ряд на факультет по всем неделям окна, пустая неделя — null (BUG-187)', async () => {
+    // Среда 23.09.2026: окно в 4 недели — с понедельника 31.08 по неделю 21.09.
+    jest.useFakeTimers({ now: new Date('2026-09-23T10:00:00Z') })
     const { service, prisma } = setup()
-    const w1 = new Date('2026-09-07T00:00:00Z')
-    const w2 = new Date('2026-09-14T00:00:00Z')
+    const w = (iso: string) => new Date(`${iso}T00:00:00.000Z`)
     prisma.$queryRaw.mockResolvedValueOnce([
-      { faculty_id: 'f1', name: 'ФИТ', bucket: w1, rate: 90 },
-      { faculty_id: 'f2', name: 'ФЭ', bucket: w1, rate: 70 },
-      { faculty_id: 'f1', name: 'ФИТ', bucket: w2, rate: 85 },
+      { faculty_id: 'f1', name: 'ФИТ', bucket: w('2026-09-07'), rate: 90 },
+      { faculty_id: 'f2', name: 'ФЭ', bucket: w('2026-09-14'), rate: 70 },
+      { faculty_id: 'f1', name: 'ФИТ', bucket: w('2026-09-14'), rate: 85 },
     ])
 
     const res = await service.attendanceTrend(ADMIN, 4)
 
+    const weeks = ['2026-08-31', '2026-09-07', '2026-09-14', '2026-09-21'].map((d) =>
+      w(d).toISOString(),
+    )
     expect(res.weeks).toBe(4)
+    expect(res.from).toBe(weeks[0])
+    // Факультет, начавший отмечать позже, стоит на своих неделях, а не сдвинут к началу.
     expect(res.series).toEqual([
       {
         facultyId: 'f1',
         name: 'ФИТ',
         points: [
-          { at: w1.toISOString(), value: 90 },
-          { at: w2.toISOString(), value: 85 },
+          { at: weeks[0], value: null },
+          { at: weeks[1], value: 90 },
+          { at: weeks[2], value: 85 },
+          { at: weeks[3], value: null },
         ],
       },
-      { facultyId: 'f2', name: 'ФЭ', points: [{ at: w1.toISOString(), value: 70 }] },
+      {
+        facultyId: 'f2',
+        name: 'ФЭ',
+        points: [
+          { at: weeks[0], value: null },
+          { at: weeks[1], value: null },
+          { at: weeks[2], value: 70 },
+          { at: weeks[3], value: null },
+        ],
+      },
     ])
-    // Начало окна — понедельник 00:00 UTC, как date_trunc('week') в Postgres.
-    const from = new Date(res.from)
-    expect(from.getUTCDay()).toBe(1)
-    expect(from.getUTCHours()).toBe(0)
     expect(prisma.$queryRaw.mock.calls[0]).toContain('uni-1')
   })
 
@@ -164,9 +193,9 @@ describe('UniversityAnalyticsService.attendanceTrend', () => {
     await expect(service.attendanceTrend(ADMIN, 0)).resolves.toMatchObject({ weeks: 1 })
     await expect(service.attendanceTrend(ADMIN, Number.NaN)).resolves.toMatchObject({ weeks: 12 })
     expect(redis.set.mock.calls.map((c) => c[0])).toEqual([
-      'analytics:university:attendance-trend:span=52&universityId=uni-1',
-      'analytics:university:attendance-trend:span=1&universityId=uni-1',
-      'analytics:university:attendance-trend:span=12&universityId=uni-1',
+      'analytics:university:attendance-trend.v2:span=52&universityId=uni-1',
+      'analytics:university:attendance-trend.v2:span=1&universityId=uni-1',
+      'analytics:university:attendance-trend.v2:span=12&universityId=uni-1',
     ])
   })
 })
@@ -237,6 +266,32 @@ describe('UniversityAnalyticsService.applicationsFlow', () => {
     expect(call).toContain('uni-1')
     // Удалённые заявки в поток не попадают.
     expect(sqlOf(call)).toContain('deleted_at IS NULL')
+  })
+})
+
+describe('Границы недель — по часам вуза (BUG-197)', () => {
+  afterEach(() => jest.useRealTimers())
+
+  it('окно тренда считается от «сегодня» вуза, а не от даты UTC', async () => {
+    // Воскресенье 20:00 UTC — в Алматы уже понедельник 01:00: идёт новая неделя.
+    jest.useFakeTimers({ now: new Date('2026-09-20T20:00:00Z') })
+    const { service, prisma } = setup()
+    prisma.university.findUnique.mockResolvedValue({ timezone: 'Asia/Almaty' })
+
+    const res = await service.attendanceTrend(ADMIN, 1)
+
+    expect(res.from).toBe('2026-09-21T00:00:00.000Z')
+  })
+
+  it('поток заявок режет недели в зоне вуза', async () => {
+    const { service, prisma } = setup()
+    prisma.university.findUnique.mockResolvedValue({ timezone: 'Asia/Almaty' })
+
+    await service.applicationsFlow(ADMIN, 4)
+
+    const call = prisma.$queryRaw.mock.calls[0] as unknown[]
+    expect(sqlOf(call)).toContain("AT TIME ZONE 'UTC') AT TIME ZONE")
+    expect(call).toContain('Asia/Almaty')
   })
 })
 

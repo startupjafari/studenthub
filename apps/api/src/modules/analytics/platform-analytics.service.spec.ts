@@ -106,6 +106,37 @@ describe('PlatformAnalyticsService.overview', () => {
   })
 })
 
+describe('PlatformAnalyticsService.activeUsers (BUG-186)', () => {
+  const sqlOf = (queryRaw: jest.Mock): string =>
+    (queryRaw.mock.calls[0]?.[0] as TemplateStringsArray).join('?')
+
+  it('«За неделю» — 7 суток до конца корзины, а не «корзина минус 6 дней»', async () => {
+    const { service, queryRaw } = setup([])
+    await service.activeUsers({ from: FROM, to: TO, interval: 'week' })
+    const sql = sqlOf(queryRaw)
+    // На недельном шаге прежнее окно тянулось на 13 дней.
+    expect(sql).toContain("b.bucket_end - interval '7 days'")
+    expect(sql).not.toContain("b.bucket - interval '6 days'")
+  })
+
+  it('«За сутки» — среднее уникальных за день корзины, а не уникальные за корзину', async () => {
+    const { service, queryRaw } = setup([
+      { bucket: new Date('2026-08-03T00:00:00.000Z'), series: 'dau', count: 12n },
+      { bucket: new Date('2026-08-03T00:00:00.000Z'), series: 'wau', count: 40n },
+    ])
+    const res = await service.activeUsers({
+      from: new Date('2026-08-03T00:00:00.000Z'),
+      to: new Date('2026-08-10T00:00:00.000Z'),
+      interval: 'week',
+    })
+    expect(sqlOf(queryRaw)).toContain("date_trunc('day', a.created_at)")
+    expect(res.series.map((s) => [s.key, s.points[0]?.value])).toEqual([
+      ['dau', 12],
+      ['wau', 40],
+    ])
+  })
+})
+
 describe('PlatformAnalyticsService.universitiesSize', () => {
   /** Строка SQL: счётчики приходят bigint'ами, как их отдаёт Postgres. */
   function row(id: string, name: string, over: Record<string, unknown> = {}) {

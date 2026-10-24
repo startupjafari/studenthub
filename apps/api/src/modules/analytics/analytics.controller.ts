@@ -7,12 +7,9 @@ import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
 import { AnalyticsService } from './analytics.service'
 import { FacultyAnalyticsQueryDto } from './dto/faculty-analytics-query.dto'
 
-const ANALYTICS_ROLES = [
-  Role.PLATFORM_ADMIN,
-  Role.UNIVERSITY_ADMIN,
-  Role.UNIVERSITY_MODERATOR,
-  Role.DEAN,
-] as const
+// Поимённые сводки (ФИО, посещаемость, просрочки, оценки) — только декан и админ вуза
+// (§8.3 «Аналитика декана»); модератору вуза аналитика закрыта матрицей §2.2.
+const ANALYTICS_ROLES = [Role.PLATFORM_ADMIN, Role.UNIVERSITY_ADMIN, Role.DEAN] as const
 
 @ApiTags('Аналитика')
 @ApiBearerAuth()
