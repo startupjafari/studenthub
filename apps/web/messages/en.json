@@ -540,7 +540,9 @@
     "salaryRange": "Minimum salary is above the maximum",
     "formInvalid": "Check the form fields",
     "reReviewWarning": "Changes to the text or terms send the vacancy back to moderation: students will not see it until the university approves it again.",
-    "rejectReason": "{university}: reason — {reason}"
+    "rejectReason": "{university}: reason — {reason}",
+    "closeConfirm": "Close the vacancy?",
+    "closeConfirmText": "The vacancy will disappear from university listings. A closed vacancy cannot be edited or published again."
   },
   "CareerApplications": {
     "title": "My applications",
@@ -581,7 +583,11 @@
     "statusWithdrawn": "Withdrawn",
     "history": "History",
     "historyHide": "Hide history",
-    "historyEmpty": "No changes yet"
+    "historyEmpty": "No changes yet",
+    "withdrawConfirm": "Withdraw the application?",
+    "withdrawConfirmText": "The company will see that the application was withdrawn. This cannot be undone.",
+    "statusConfirm": "Move to “{status}”?",
+    "statusConfirmText": "{name} will see the new status right away. It cannot be reverted."
   },
   "CareerHome": {
     "statsActive": "Active applications",

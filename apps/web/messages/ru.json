@@ -540,7 +540,9 @@
     "salaryRange": "Минимальная зарплата больше максимальной",
     "formInvalid": "Проверьте поля формы",
     "reReviewWarning": "Изменения в тексте или условиях вернут вакансию на модерацию: пока университет не одобрит её снова, студенты её не увидят.",
-    "rejectReason": "{university}: причина — {reason}"
+    "rejectReason": "{university}: причина — {reason}",
+    "closeConfirm": "Закрыть вакансию?",
+    "closeConfirmText": "Вакансия пропадёт с витрин университетов. Закрытую вакансию нельзя изменить или опубликовать снова."
   },
   "CareerApplications": {
     "title": "Мои отклики",
@@ -581,7 +583,11 @@
     "statusWithdrawn": "Отозван",
     "history": "История",
     "historyHide": "Скрыть историю",
-    "historyEmpty": "Изменений пока не было"
+    "historyEmpty": "Изменений пока не было",
+    "withdrawConfirm": "Отозвать отклик?",
+    "withdrawConfirmText": "Компания увидит, что отклик отозван. Вернуть его нельзя.",
+    "statusConfirm": "Перевести в «{status}»?",
+    "statusConfirmText": "{name} сразу увидит новый статус. Вернуть прежний нельзя."
   },
   "CareerHome": {
     "statsActive": "Активные отклики",

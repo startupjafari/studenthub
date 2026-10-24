@@ -21,6 +21,7 @@ import {
   PageHeader,
   Skeleton,
   TablePagination,
+  useConfirm,
 } from '../../../shared/ui'
 import { toApiError } from '../../../shared/lib'
 import { VacancyFormModal } from './vacancy-form-modal'
@@ -36,6 +37,7 @@ export function EmployerVacanciesView() {
   const t = useTranslations('EmployerVacancies')
   const tErr = useTranslations('Errors')
   const queryClient = useQueryClient()
+  const confirm = useConfirm()
   const [page, setPage] = useState(1)
   const limit = 20
   // Открытая форма: `null` — новая вакансия, строка — правка этой вакансии.
@@ -103,7 +105,22 @@ export function EmployerVacanciesView() {
                 key={vacancy.id}
                 vacancy={vacancy}
                 busy={act.isPending}
-                onAct={(action) => act.mutate({ id: vacancy.id, action })}
+                onAct={(action) => {
+                  if (action !== 'close') {
+                    act.mutate({ id: vacancy.id, action })
+                    return
+                  }
+                  // Закрытие необратимо: вакансия уходит с витрин, её нельзя ни править,
+                  // ни опубликовать снова — поэтому только после подтверждения.
+                  void confirm({
+                    title: t('closeConfirm'),
+                    description: t('closeConfirmText'),
+                    confirmLabel: t('close'),
+                    destructive: true,
+                  }).then((ok) => {
+                    if (ok) act.mutate({ id: vacancy.id, action })
+                  })
+                }}
                 onEdit={() => setForm({ vacancy })}
               />
             ))}

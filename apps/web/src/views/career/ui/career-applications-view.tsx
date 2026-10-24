@@ -20,6 +20,7 @@ import {
   PageHeader,
   Skeleton,
   TablePagination,
+  useConfirm,
 } from '../../../shared/ui'
 import { toApiError, useApplicationStatusLabels } from '../../../shared/lib'
 
@@ -33,6 +34,7 @@ export function CareerApplicationsView() {
   const t = useTranslations('CareerApplications')
   const tErr = useTranslations('Errors')
   const queryClient = useQueryClient()
+  const confirm = useConfirm()
   const [page, setPage] = useState(1)
   const limit = 20
 
@@ -86,7 +88,18 @@ export function CareerApplicationsView() {
                 key={application.id}
                 application={application}
                 busy={withdraw.isPending}
-                onWithdraw={() => withdraw.mutate(application.id)}
+                // Отзыв необратим (WITHDRAWN — конечный статус): спрашиваем, а не отзываем
+                // с одного случайного нажатия.
+                onWithdraw={() =>
+                  void confirm({
+                    title: t('withdrawConfirm'),
+                    description: t('withdrawConfirmText'),
+                    confirmLabel: t('withdraw'),
+                    destructive: true,
+                  }).then((ok) => {
+                    if (ok) withdraw.mutate(application.id)
+                  })
+                }
               />
             ))}
           </ul>

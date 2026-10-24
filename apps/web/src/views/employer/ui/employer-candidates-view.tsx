@@ -26,6 +26,7 @@ import {
   Skeleton,
   TablePagination,
   Textarea,
+  useConfirm,
 } from '../../../shared/ui'
 import { toApiError, useApplicationStatusLabels } from '../../../shared/lib'
 
@@ -147,6 +148,7 @@ function CandidateRow({
 }) {
   const t = useTranslations('CareerApplications')
   const { label, tone } = useApplicationStatusLabels()
+  const confirm = useConfirm()
   const [rejecting, setRejecting] = useState(false)
   const [comment, setComment] = useState('')
 
@@ -192,7 +194,28 @@ function CandidateRow({
           {next
             .filter((status) => status !== 'REJECTED')
             .map((status) => (
-              <Button key={status} size="sm" disabled={busy} onClick={() => onChange(status)}>
+              <Button
+                key={status}
+                size="sm"
+                disabled={busy}
+                onClick={() => {
+                  // Оффер и «Принят» — решения, которые студент сразу видит и которые
+                  // не откатить: из них только вперёд. Их — после подтверждения.
+                  if (status !== 'OFFER' && status !== 'HIRED') {
+                    onChange(status)
+                    return
+                  }
+                  void confirm({
+                    title: t('statusConfirm', { status: label[status] }),
+                    description: t('statusConfirmText', {
+                      name: `${application.student.firstName} ${application.student.lastName}`,
+                    }),
+                    confirmLabel: label[status],
+                  }).then((ok) => {
+                    if (ok) onChange(status)
+                  })
+                }}
+              >
                 {label[status]}
               </Button>
             ))}
