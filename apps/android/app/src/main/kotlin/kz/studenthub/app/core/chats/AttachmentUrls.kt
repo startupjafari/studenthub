@@ -22,4 +22,7 @@ class AttachmentUrls(private val fetch: suspend (String) -> ChatsApi.AttachmentL
         lock.withLock { cache[fileId] = answer.url to until }
         return answer.url
     }
+
+    /** Подписанные ссылки прошлой сессии — тоже доступ к её файлам: при выходе их забываем. */
+    suspend fun clear() = lock.withLock { cache.clear() }
 }

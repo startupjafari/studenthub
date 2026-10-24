@@ -39,6 +39,9 @@ import kz.studenthub.app.core.applications.ApplicationsApi
 import kz.studenthub.app.core.feed.FeedApi
 import kz.studenthub.app.core.library.LibraryApi
 import kz.studenthub.app.core.study.StudyApi
+import kz.studenthub.app.features.chats.outgoingDir
+import androidx.core.app.NotificationManagerCompat
+import coil3.SingletonImageLoader
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
@@ -152,9 +155,23 @@ class AppServices(context: Context) {
         push.unregister()
     }
 
-    /** После выхода: переписка, черновики и очередь отправки не достаются следующему человеку. */
+    /**
+     * После выхода: переписка, черновики и очередь отправки не достаются следующему
+     * человеку. Как и плашки уведомлений, файлы, которые он отправлял, кэш картинок
+     * переписки и подписанные ссылки на них.
+     */
     suspend fun afterSignOut() {
-        withContext(Dispatchers.IO) { database.clearAllTables() }
+        withContext(Dispatchers.IO) {
+            database.clearAllTables()
+            outgoingDir(appContext).deleteRecursively()
+            SingletonImageLoader.get(appContext).let { loader ->
+                loader.memoryCache?.clear()
+                loader.diskCache?.clear()
+            }
+        }
+        attachmentUrls.clear()
+        postMediaUrls.clear()
+        NotificationManagerCompat.from(appContext).cancelAll()
         router.reset()
     }
 

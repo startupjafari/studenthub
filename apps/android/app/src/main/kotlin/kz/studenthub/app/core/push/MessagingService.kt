@@ -39,6 +39,12 @@ class MessagingService : FirebaseMessagingService() {
         val data = message.data
         val silent = data["silent"] == "1"
         services.observability.pushDelivered(silent)
+        // Из аккаунта вышли, а пуш пришёл: отвязка на сервере не дошла (выход без сети).
+        // Чужое не показываем, а токен гасим сейчас — раз пуш дошёл, сеть есть.
+        if (!services.session.hasStoredSession) {
+            scope.launch { services.push.forgetStaleToken() }
+            return
+        }
         // Тихий — повод сходить за данными, а не показать плашку.
         scope.launch { services.pushSync.catchUp() }
         if (silent) return
