@@ -30,7 +30,10 @@ final class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
         didFailToRegisterForRemoteNotificationsWithError error: Error
     ) {
         // Не ошибка приложения: в симуляторе без Apple ID токена нет вовсе, и
-        // падать из-за этого нечему.
+        // падать из-за этого нечему. Но и глушить нельзя: на устройстве это значит
+        // «пуши не придут никогда» (например, нет entitlement `aps-environment`), и
+        // без следа в трекере жалоба на тишину нерасследуема.
+        Observability.pushRegistrationFailed(error)
     }
 
     /// Тихий пуш: данных в нём нет, есть повод за ними сходить. Система даёт на это

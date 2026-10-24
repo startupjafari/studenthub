@@ -59,6 +59,14 @@ targets:
     configFiles:
       Debug: Config/Debug.xcconfig
       Release: Config/Release.xcconfig
+    # Без `aps-environment` система отказывает в токене устройства («no valid
+    # aps-environment entitlement») и пуши не приходят вовсе. Файл генерирует XcodeGen,
+    # как и Info.plist. `development` — верно и для релиза: при экспорте в App Store
+    # Xcode берёт окружение из профиля распространения и ставит `production` сам.
+    entitlements:
+      path: Config/StudentHub.entitlements
+      properties:
+        aps-environment: development
     info:
       path: Config/Info.plist
       properties:
