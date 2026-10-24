@@ -38,7 +38,9 @@ const UI_AUDIENCES: Partial<Record<Role, PostAudienceValue[]>> = {
   [Role.STAROSTA]: ['GROUP'],
   [Role.STUDENT]: ['GROUP'],
 }
-const GROUP_PICKER_ROLES: Role[] = [Role.UNIVERSITY_ADMIN, Role.TEACHER]
+// Декан тоже выбирает группу: без поля событие «для группы» уходило без groupId, и сервер
+// отвечал «Не указана группа» — у декана в токене группы нет.
+const GROUP_PICKER_ROLES: Role[] = [Role.UNIVERSITY_ADMIN, Role.DEAN, Role.TEACHER]
 const FACULTY_PICKER_ROLES: Role[] = [Role.UNIVERSITY_ADMIN]
 
 /**
@@ -54,6 +56,7 @@ export function CreateEventModal({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient()
   const { show: showApiError } = useErrorToast('create-event')
   const role = useAppSelector((s) => s.auth.role)
+  const myFacultyId = useAppSelector((s) => s.auth.facultyId)
   const audiences = role ? (UI_AUDIENCES[role] ?? []) : []
 
   const form = useForm<CreateEventInput>({
@@ -117,6 +120,8 @@ export function CreateEventModal({ onClose }: { onClose: () => void }) {
                   render={({ field }) => (
                     <GroupSelect
                       id="e-group"
+                      // Декану — группы своего факультета: чужие сервер всё равно отклонит.
+                      facultyId={role === Role.DEAN ? (myFacultyId ?? undefined) : undefined}
                       value={field.value ?? null}
                       onChange={(v) => field.onChange(v ?? undefined)}
                       placeholder={t('selectGroup')}
