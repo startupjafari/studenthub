@@ -40,6 +40,18 @@ export const PLATFORM_TIME_ZONE = 'Asia/Almaty'
  */
 export const PLATFORM_TIME_ZONE_LABEL = 'по времени Алматы (UTC+5)'
 
+/**
+ * Попадает ли час (0–23 по поясу платформы) в окно тишины. Окно задают как «с 22 до 8», то
+ * есть через полночь — поэтому сравнение не «между», а «вне диапазона» при from > to.
+ * `from === to` — тишина круглые сутки; любое null — тишины нет. Здесь, а не в рассылке:
+ * тем же правилом настройки уведомлений проверяют час сводки, а бот — его подпись.
+ */
+export function isQuietHour(from: number | null, to: number | null, hour: number): boolean {
+  if (from === null || to === null) return false
+  if (from === to) return true
+  return from < to ? hour >= from && hour < to : hour >= from || hour < to
+}
+
 export interface NotificationPolicy {
   /** Часы тишины по времени платформы (PLATFORM_TIME_ZONE); null — тишины нет. */
   quietFrom: number | null

@@ -9,6 +9,7 @@ import { MINIO_CLIENT } from '../../common/minio/minio.module'
 import {
   PLATFORM_STATE,
   PLATFORM_TIME_ZONE_LABEL,
+  isQuietHour,
   type PlatformStateReader,
 } from '../platform/platform.constants'
 import { AppException } from '../../common/exceptions/app.exception'
@@ -405,7 +406,12 @@ export class TelegramHookService implements OnModuleInit {
     // Час — по поясу платформы (PLATFORM_TIME_ZONE), а не по часам того, кто спросил:
     // без пояса «в 9:00» читается по-разному у человека в Алматы и в командировке.
     if (policy.digestHour !== null) {
-      lines.push(`Сводка приходит в ${policy.digestHour}:00 ${PLATFORM_TIME_ZONE_LABEL}`)
+      // Тихие часы глушат и сводку: обещать её время, когда она не придёт, нельзя.
+      lines.push(
+        isQuietHour(policy.quietFrom, policy.quietTo, policy.digestHour)
+          ? `Сводка назначена на ${policy.digestHour}:00 ${PLATFORM_TIME_ZONE_LABEL}, но попадает в тихие часы и не приходит`
+          : `Сводка приходит в ${policy.digestHour}:00 ${PLATFORM_TIME_ZONE_LABEL}`,
+      )
     }
     if (policy.muted.length > 0) lines.push(`Отключено: ${policy.muted.join(', ')}`)
     return lines.join('\n')

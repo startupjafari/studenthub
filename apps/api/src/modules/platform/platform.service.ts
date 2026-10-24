@@ -14,7 +14,7 @@ import { AuditService } from '../../common/audit/audit.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import type { NotificationPolicy } from './platform.constants'
-import { PLATFORM_STATE_CACHE_KEY, PLATFORM_STATE_ID } from './platform.constants'
+import { PLATFORM_STATE_CACHE_KEY, PLATFORM_STATE_ID, isQuietHour } from './platform.constants'
 import { REDIS_CLIENT } from '../../common/redis/redis.module'
 import { TwoFactorService } from '../auth/two-factor.service'
 import type { RequestContext } from '../auth/auth.service'
@@ -627,6 +627,21 @@ export class PlatformService {
           [{ field: 'dutyUserId', message: 'Нет активной привязки Telegram' }],
         )
       }
+    }
+
+    // Сводку в тихий час рассылка глушит тем же окном — она не пришла бы никогда, а бот
+    // обещал бы её время. Тишина круглые сутки (`from === to`) — осознанное «выключить
+    // всё, не стирая настройку», её не трогаем.
+    if (
+      input.digestHour !== null &&
+      input.quietFrom !== input.quietTo &&
+      isQuietHour(input.quietFrom, input.quietTo, input.digestHour)
+    ) {
+      throw new AppException(
+        'VALIDATION_ERROR',
+        'Час сводки попадает в тихие часы — сводка не придёт',
+        [{ field: 'digestHour', message: 'Час сводки внутри тихих часов' }],
+      )
     }
 
     const { state, before } = await this.write(userId, {

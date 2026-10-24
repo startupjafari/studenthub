@@ -416,6 +416,26 @@ describe('TelegramHookService — команды', () => {
     cap.restore()
   })
 
+  // BUG-352: сводку в тихий час рассылка глушит — бот не обещает её время.
+  it('/duty не обещает сводку, которая попадает в тихие часы', async () => {
+    const { service, platform } = setup({ TELEGRAM_BOT_TOKEN: 't' })
+    platform.notificationPolicy.mockResolvedValue({
+      quietFrom: 22,
+      quietTo: 10,
+      muted: [],
+      dutyUserId: null,
+      digestHour: 9,
+    })
+    const cap = captureSend()
+
+    await service.handleMessage(privateMsg('/duty'))
+
+    const text = String(cap.sent[0]?.body.text)
+    expect(text).toContain('попадает в тихие часы и не приходит')
+    expect(text).not.toContain('Сводка приходит')
+    cap.restore()
+  })
+
   it('/digest отвечает сводкой за сутки', async () => {
     const { service, complaints, support } = setup({ TELEGRAM_BOT_TOKEN: 't' })
     complaints.dayStats.mockResolvedValue({ created: 4, closed: 4 })

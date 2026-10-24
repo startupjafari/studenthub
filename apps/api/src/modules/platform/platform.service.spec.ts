@@ -901,4 +901,28 @@ describe('PlatformService — дежурный, которому бот не м�
     expect(updates.at(-1)).toMatchObject({ dutyUserId: 'a', quietFrom: 22 })
     expect(prisma.telegramAccount.findMany).not.toHaveBeenCalled()
   })
+
+  // BUG-352: рассылка глушит сводку тем же окном — в тихий час она не пришла бы никогда.
+  it('не принимает час сводки внутри тихих часов', async () => {
+    const { service, updates } = setup(row())
+
+    await expect(
+      service.setNotifications('admin', { ...SETTINGS, digestHour: 23, dutyUserId: null }),
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' })
+    expect(updates).toHaveLength(0)
+  })
+
+  // Тишина круглые сутки — «выключить всё, не стирая настройку»: час сводки остаётся.
+  it('тишина круглые сутки не стирает час сводки', async () => {
+    const { service, updates } = setup(row())
+
+    await service.setNotifications('admin', {
+      ...SETTINGS,
+      quietFrom: 8,
+      quietTo: 8,
+      dutyUserId: null,
+    })
+
+    expect(updates.at(-1)).toMatchObject({ digestHour: 9, quietFrom: 8, quietTo: 8 })
+  })
 })
