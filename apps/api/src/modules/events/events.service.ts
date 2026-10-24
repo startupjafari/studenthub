@@ -361,7 +361,7 @@ export class EventsService {
       await this.notifyParticipants(pages, NOTIFICATION_JOBS.EVENT_RESCHEDULED, {
         titleKey: 'events.rescheduled.title',
         bodyKey: 'events.rescheduled.body',
-        params: { title: updated.title, date: localDateTimeLabel(startsAt, timezone) },
+        params: { title: updated.title, date: eventTimeLabel(startsAt, timezone) },
         data: { eventId: id, url: `/events/${id}` },
         // Ключ — на новое время и момент правки: каждый следующий перенос (и на прежнее
         // время тоже) — новое уведомление, а повторная доставка того же переноса отсекается.
@@ -391,7 +391,7 @@ export class EventsService {
     await this.notifyParticipants(pages, NOTIFICATION_JOBS.EVENT_CANCELLED, {
       titleKey: 'events.cancelled.title',
       bodyKey: 'events.cancelled.body',
-      params: { title: event.title, date: localDateTimeLabel(event.startsAt, timezone) },
+      params: { title: event.title, date: eventTimeLabel(event.startsAt, timezone) },
       // Карточки больше нет — уведомление ведёт в общий список.
       data: { url: '/events' },
       dedupeKey: `event-cancelled:${id}`,
@@ -767,7 +767,10 @@ export class EventsService {
     }
   }
 
-  /** Часовой пояс вуза события — время в тексте уведомления. Событие платформы — UTC. */
+  /**
+   * Часовой пояс вуза события — время в тексте уведомления. У события платформы вуза нет, а
+   * участники из разных вузов: время уходит в UTC с пометкой (eventTimeLabel).
+   */
   private async timezoneOf(universityId: string | null): Promise<string | null> {
     if (!universityId) return null
     const university = await this.prisma.university.findUnique({
@@ -898,6 +901,15 @@ function toCommentView(viewer: JwtPayload, event: EventScope, row: CommentListRo
     author.id === viewer.sub ||
     canModerateEventComment(viewer, event, { role: role as Role, universityId, facultyId })
   return { ...row, author, canDelete }
+}
+
+/**
+ * Время события для текста уведомления — по часам вуза. Без пояса (событие платформы, вуз не
+ * указал пояс) — UTC с пометкой: голые «10:00» читались по своим часам и врали на пять часов.
+ */
+function eventTimeLabel(date: Date, timezone: string | null): string {
+  const label = localDateTimeLabel(date, timezone)
+  return timezone ? label : `${label} UTC`
 }
 
 /** Конец события: указанный или начало + длительность по умолчанию. */

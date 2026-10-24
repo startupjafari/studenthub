@@ -899,6 +899,18 @@ describe('EventsService — уведомления участникам о пе�
     expect(opts).toEqual({ jobId: `${payload.dedupeKey}:0` })
   })
 
+  // У события платформы вуза нет: голые «10:00» читались по своим часам.
+  it('событие платформы — время в UTC с пометкой', async () => {
+    const { service, prisma, queue } = setup()
+    prisma.event.findUnique.mockResolvedValue(row({ universityId: null }))
+    prisma.event.update.mockResolvedValue({ id: 'e1', title: 'Лекция' })
+    prisma.eventParticipant.findMany.mockResolvedValue([{ id: 'p1', userId: 'u2' }])
+
+    await service.update(organizer, 'e1', { startsAt: '2030-03-02T10:00:00.000Z' }, ctx)
+
+    expect(queue.enqueue.mock.calls[0][2].params.date).toBe('2030-03-02 10:00 UTC')
+  })
+
   it('без переноса начала уведомлений нет', async () => {
     const { service, prisma, queue } = setup()
     prisma.event.findUnique.mockResolvedValue(row())
