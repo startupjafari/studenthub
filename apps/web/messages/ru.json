@@ -3557,6 +3557,7 @@
     "colState": "Отметки",
     "marked": "Отмечено",
     "notMarked": "Не отмечено",
+    "cancelled": "Отменено",
     "open": "Открыть",
     "colStudent": "Студент",
     "colMark": "Отметка",

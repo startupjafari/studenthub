@@ -3557,6 +3557,7 @@
     "colState": "Marks",
     "marked": "Marked",
     "notMarked": "Not marked",
+    "cancelled": "Cancelled",
     "open": "Open",
     "colStudent": "Student",
     "colMark": "Mark",

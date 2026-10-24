@@ -3557,6 +3557,7 @@
     "colState": "Белгілер",
     "marked": "Белгіленді",
     "notMarked": "Белгіленбеген",
+    "cancelled": "Болдырылмады",
     "open": "Ашу",
     "colStudent": "Студент",
     "colMark": "Белгі",
