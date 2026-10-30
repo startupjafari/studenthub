@@ -5,7 +5,7 @@ import type { RoomPair, RoomStatusResponse } from '../model/types'
 // Ф16. Смысл этих тестов: наклейка на двери не должна врать. «Занято», когда пара
 // отменена или переехала, — хуже, чем отсутствие QR вообще.
 
-// 2026-08-24 — понедельник; ISO-неделя 35 → чётность EVEN.
+// 2026-08-24 — понедельник; ISO-неделя 35 → чётность ODD.
 const MONDAY = '2026-08-24'
 
 const pair = (over: Partial<RoomPair> = {}): RoomPair => ({
@@ -136,8 +136,8 @@ describe('buildRoomStatus', () => {
   })
 
   it('пара другой чётности недели не считается занятостью', () => {
-    // MONDAY = чётная неделя, пара только на нечётной.
-    const status = buildRoomStatus(data({ pairs: [pair({ weekType: 'ODD' })] }))
+    // MONDAY = нечётная неделя, пара только на чётной.
+    const status = buildRoomStatus(data({ pairs: [pair({ weekType: 'EVEN' })] }))
 
     expect(status.occupancy).toBe('free')
     expect(status.day).toHaveLength(0)

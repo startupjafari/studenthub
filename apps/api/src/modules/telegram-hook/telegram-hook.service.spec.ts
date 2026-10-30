@@ -1,5 +1,5 @@
 import { Role } from '@studenthub/shared-types'
-import { TelegramHookService, nextInRotation, parseCommand } from './telegram-hook.service'
+import { TelegramHookService, parseCommand } from './telegram-hook.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { SupportService } from '../chats/support.service'
@@ -9,7 +9,7 @@ import type { PlatformStateReader } from '../platform/platform.constants'
 // Вебхук — единственное место, куда пишет чужая система. Проверяем ровно то, что делает
 // его безопасным: секрет, отсутствие доверия к телу запроса и молчание при отказах.
 
-function setup(env: Record<string, string | undefined> = {}) {
+function setup(env: Record<string, string | boolean | undefined> = {}) {
   const prisma = {
     user: { findMany: jest.fn().mockResolvedValue([]) },
     $queryRaw: jest.fn().mockResolvedValue([{ '?column?': 1 }]),
@@ -55,6 +55,7 @@ function setup(env: Record<string, string | undefined> = {}) {
       digestHour: null,
     }),
     duty: jest.fn().mockResolvedValue({ dutyUserId: null, rotation: [] }),
+    nextOnDuty: jest.fn().mockResolvedValue(null),
     rotateDuty: jest.fn().mockResolvedValue(null),
   }
   const redis = { ping: jest.fn().mockResolvedValue('PONG') }
@@ -145,6 +146,69 @@ describe('TelegramHookService — нажатие', () => {
     expect(support.assign).not.toHaveBeenCalled()
   })
 
+  // Роль удалённому сохраняется, а привязка могла пережить удаление (старые данные):
+  // аккаунт «Удалённый пользователь» не должен брать жалобы и обращения кнопкой.
+  it('удалённого не подпускает', async () => {
+    const { service, prisma, support, complaints } = setup()
+    prisma.telegramAccount.findFirst.mockResolvedValue({
+      user: {
+        id: 'staff-1',
+        role: Role.PLATFORM_MODERATOR,
+        isBlocked: false,
+        deletedAt: new Date('2026-10-01'),
+        twoFactorEnabled: false,
+        universityId: null,
+        facultyId: null,
+        groupId: null,
+      },
+    })
+    await service.handleCallback(query('take:ticket:chat-1'))
+    await service.handleCallback(query('take:complaint:c-1'))
+    expect(support.assign).not.toHaveBeenCalled()
+    expect(complaints.take).not.toHaveBeenCalled()
+  })
+
+  // Веб и мини-апп отказывают платформенной роли без второго фактора — бот не обход.
+  it('при форсе 2FA сотрудника без второго фактора не подпускает', async () => {
+    const { service, prisma, support } = setup({ TWO_FACTOR_ENFORCE: true })
+    prisma.telegramAccount.findFirst.mockResolvedValue({
+      user: {
+        id: 'staff-1',
+        role: Role.PLATFORM_ADMIN,
+        isBlocked: false,
+        deletedAt: null,
+        twoFactorEnabled: false,
+        universityId: null,
+        facultyId: null,
+        groupId: null,
+      },
+    })
+    await service.handleCallback(query('take:ticket:chat-1'))
+    expect(support.assign).not.toHaveBeenCalled()
+  })
+
+  it('при форсе 2FA сотрудника со вторым фактором пускает', async () => {
+    const { service, prisma, support } = setup({ TWO_FACTOR_ENFORCE: true })
+    prisma.telegramAccount.findFirst.mockResolvedValue({
+      user: {
+        id: 'staff-1',
+        role: Role.PLATFORM_ADMIN,
+        isBlocked: false,
+        deletedAt: null,
+        twoFactorEnabled: true,
+        universityId: null,
+        facultyId: null,
+        groupId: null,
+      },
+    })
+    await service.handleCallback(query('take:ticket:chat-1'))
+    expect(support.assign).toHaveBeenCalledWith(
+      expect.objectContaining({ sub: 'staff-1' }),
+      'chat-1',
+      true,
+    )
+  })
+
   // Обновление, на которое не ответили 200, Telegram повторяет часами: отказ сервиса —
   // это текст человеку, а не исключение наружу.
   it('отказ сервиса не превращается в исключение', async () => {
@@ -195,21 +259,6 @@ describe('parseCommand', () => {
   })
 })
 
-describe('nextInRotation', () => {
-  it('идёт по кругу', () => {
-    expect(nextInRotation({ dutyUserId: 'b', rotation: ['a', 'b', 'c'] })).toBe('c')
-    expect(nextInRotation({ dutyUserId: 'c', rotation: ['a', 'b', 'c'] })).toBe('a')
-  })
-
-  it('дежурного назначили мимо очереди — следующим считается первый', () => {
-    expect(nextInRotation({ dutyUserId: 'x', rotation: ['a', 'b'] })).toBe('a')
-  })
-
-  it('пустая очередь не выдумывает дежурного', () => {
-    expect(nextInRotation({ dutyUserId: null, rotation: [] })).toBeNull()
-  })
-})
-
 describe('TelegramHookService — команды', () => {
   it('постороннему не отвечает ни одним числом', async () => {
     const { service, prisma, complaints, support } = setup({ TELEGRAM_BOT_TOKEN: 't' })
@@ -219,6 +268,34 @@ describe('TelegramHookService — команды', () => {
     await service.handleMessage(privateMsg('/queue'))
 
     // Очередь даже не спрашивали: незачем, ответ всё равно один.
+    expect(complaints.queueStats).not.toHaveBeenCalled()
+    expect(support.queueStats).not.toHaveBeenCalled()
+    expect(String(cap.sent[0]?.body.text)).toContain('не привязан')
+    cap.restore()
+  })
+
+  // Удалённому — тот же ответ, что постороннему: ни очереди, ни дежурства, ни состояния.
+  it('удалённому аккаунту отвечает как постороннему', async () => {
+    const { service, prisma, complaints, support } = setup({ TELEGRAM_BOT_TOKEN: 't' })
+    prisma.telegramAccount.findFirst.mockResolvedValue({
+      linkedAt: new Date('2026-09-12T10:00:00Z'),
+      user: {
+        id: 'staff-1',
+        role: Role.PLATFORM_ADMIN,
+        isBlocked: false,
+        deletedAt: new Date('2026-10-01'),
+        twoFactorEnabled: false,
+        universityId: null,
+        facultyId: null,
+        groupId: null,
+        firstName: 'Удалённый',
+        lastName: 'пользователь',
+      },
+    })
+    const cap = captureSend()
+
+    await service.handleMessage(privateMsg('/queue'))
+
     expect(complaints.queueStats).not.toHaveBeenCalled()
     expect(support.queueStats).not.toHaveBeenCalled()
     expect(String(cap.sent[0]?.body.text)).toContain('не привязан')
@@ -290,6 +367,75 @@ describe('TelegramHookService — команды', () => {
     cap.restore()
   })
 
+  // Часы тишины и сводки считаются по Алматы (PLATFORM_TIME_ZONE): без пояса в ответе
+  // «в 9:00» читается по часам того, кто спросил.
+  it('/duty называет пояс у тихих часов и часа сводки', async () => {
+    const { service, platform } = setup({ TELEGRAM_BOT_TOKEN: 't' })
+    platform.notificationPolicy.mockResolvedValue({
+      quietFrom: 22,
+      quietTo: 8,
+      muted: [],
+      dutyUserId: null,
+      digestHour: 9,
+    })
+    const cap = captureSend()
+
+    await service.handleMessage(privateMsg('/duty'))
+
+    const text = String(cap.sent[0]?.body.text)
+    expect(text).toContain('Тихие часы: с 22:00 до 8:00 по времени Алматы (UTC+5)')
+    expect(text).toContain('Сводка приходит в 9:00 по времени Алматы (UTC+5)')
+    cap.restore()
+  })
+
+  // BUG-351: «следующего» считает тот же код, что и крон смены, — с пропуском недоступных.
+  it('/duty называет следующим того, кого выберет смена дежурства', async () => {
+    const { service, platform, prisma } = setup({ TELEGRAM_BOT_TOKEN: 't' })
+    platform.duty.mockResolvedValue({ dutyUserId: 'a', rotation: ['a', 'b', 'c'] })
+    platform.nextOnDuty.mockResolvedValue('c')
+    prisma.user.findMany.mockResolvedValue([
+      { id: 'a', firstName: 'Анна', lastName: 'А' },
+      { id: 'c', firstName: 'Сергей', lastName: 'С' },
+    ])
+    const cap = captureSend()
+
+    await service.handleMessage(privateMsg('/duty'))
+
+    expect(String(cap.sent[0]?.body.text)).toContain('Следующий: Сергей С')
+    cap.restore()
+  })
+
+  it('/duty без смены впереди «следующего» не выдумывает', async () => {
+    const { service, platform } = setup({ TELEGRAM_BOT_TOKEN: 't' })
+    platform.duty.mockResolvedValue({ dutyUserId: 'a', rotation: ['a'] })
+    const cap = captureSend()
+
+    await service.handleMessage(privateMsg('/duty'))
+
+    expect(String(cap.sent[0]?.body.text)).not.toContain('Следующий')
+    cap.restore()
+  })
+
+  // BUG-352: сводку в тихий час рассылка глушит — бот не обещает её время.
+  it('/duty не обещает сводку, которая попадает в тихие часы', async () => {
+    const { service, platform } = setup({ TELEGRAM_BOT_TOKEN: 't' })
+    platform.notificationPolicy.mockResolvedValue({
+      quietFrom: 22,
+      quietTo: 10,
+      muted: [],
+      dutyUserId: null,
+      digestHour: 9,
+    })
+    const cap = captureSend()
+
+    await service.handleMessage(privateMsg('/duty'))
+
+    const text = String(cap.sent[0]?.body.text)
+    expect(text).toContain('попадает в тихие часы и не приходит')
+    expect(text).not.toContain('Сводка приходит')
+    cap.restore()
+  })
+
   it('/digest отвечает сводкой за сутки', async () => {
     const { service, complaints, support } = setup({ TELEGRAM_BOT_TOKEN: 't' })
     complaints.dayStats.mockResolvedValue({ created: 4, closed: 4 })
@@ -328,6 +474,19 @@ describe('TelegramHookService — команды', () => {
     await service.handleMessage(privateMsg('/me'))
 
     expect(String(cap.sent[0]?.body.text)).toContain('Дежурит другой')
+    cap.restore()
+  })
+
+  // BUG-350: база не ответила на проверку привязки — исключение уходило из вебхука 500-й,
+  // и `/status` в аварию молчал, а Telegram повторял обновление.
+  it('сбой базы при проверке привязки — ответ без данных, а не исключение', async () => {
+    const { service, prisma } = setup({ TELEGRAM_BOT_TOKEN: 't' })
+    prisma.telegramAccount.findFirst.mockRejectedValue(new Error('база легла'))
+    const cap = captureSend()
+
+    await expect(service.handleMessage(privateMsg('/status'))).resolves.toBeUndefined()
+
+    expect(String(cap.sent[0]?.body.text)).toContain('Не получилось проверить привязку')
     cap.restore()
   })
 

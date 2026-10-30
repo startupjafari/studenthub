@@ -3,6 +3,7 @@
 import type { ReactNode } from 'react'
 import Link from 'next/link'
 import { ChevronRight } from 'lucide-react'
+import { staggerDelay } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 import { sequentialStep, type ChartPalette } from '../../../shared/ui/chart'
 // ActivityGrid и ChartLegend переехали в систему (shared/ui/chart) — здесь только
@@ -45,10 +46,10 @@ export function StatTile({
 }) {
   const body = (
     <div
-      style={{ animationDelay: `${index * 70}ms` }}
+      style={{ animationDelay: `${staggerDelay(index)}ms` }}
       className={cn(
         'flex h-full flex-col gap-1.5 rounded-xl bg-card p-4 ring-1 ring-foreground/10',
-        'animate-in fade-in-0 slide-in-from-bottom-2 fill-mode-both duration-500 motion-reduce:animate-none',
+        'animate-in fade-in-0 slide-in-from-bottom-2 fill-mode-both duration-(--motion-large) motion-reduce:animate-none',
         href
           ? // Кликабельная карточка (§8): подложка на наведении; кольцо фокуса на обёртке.
             'transition-colors group-hover/tile:bg-muted/40'
@@ -126,7 +127,7 @@ export function Meter({
         style={{ backgroundColor: palette.sequential[0] }}
       >
         <div
-          className="h-full rounded-full transition-[width] duration-500"
+          className="h-full rounded-full transition-[width] duration-(--motion-large)"
           style={{
             width: `${clamped}%`,
             backgroundColor: sequentialStep(palette, Math.max(0.35, clamped / 100)),

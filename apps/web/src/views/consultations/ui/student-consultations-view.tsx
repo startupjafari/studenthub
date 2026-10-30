@@ -18,6 +18,7 @@ import {
   EmptyState,
   PageHeader,
   Skeleton,
+  useConfirm,
 } from '../../../shared/ui'
 import { toApiError } from '../../../shared/lib'
 import {
@@ -45,6 +46,7 @@ export function StudentConsultationsView() {
   const tErr = useTranslations('Errors')
   const locale = useLocale()
   const qc = useQueryClient()
+  const confirm = useConfirm()
   const [teacher, setTeacher] = useState<{ id: string; name: string } | null>(null)
   const [bookSlot, setBookSlot] = useState<ConsultationSlot | null>(null)
 
@@ -73,6 +75,18 @@ export function StudentConsultationsView() {
     onError: (e) => toast.error(tErr(toApiError(e).code)),
   })
 
+  // Отмена живой записи — с подтверждением: слот тут же достаётся другим, и вернуть его
+  // одним нажатием уже нельзя.
+  async function onCancel(s: ConsultationSlot) {
+    const ok = await confirm({
+      title: t('confirmCancelBooking'),
+      description: slotTime(locale, s),
+      confirmLabel: t('cancelBooking'),
+      destructive: true,
+    })
+    if (ok) cancel.mutate(s.id)
+  }
+
   // Экран слотов преподавателя.
   if (teacher) {
     // Без `min-h-0`: экран прокручивается целиком, внутреннего скролл-контейнера тут нет.
@@ -87,7 +101,7 @@ export function StudentConsultationsView() {
           backLabel={t('back')}
         />
         {teacherSlots.isLoading ? (
-          <Skeleton className="h-64 w-full rounded-xl" />
+          <Skeleton fill className="min-h-64 rounded-xl" />
         ) : (teacherSlots.data ?? []).length === 0 ? (
           <EmptyState
             icon={<CalendarClock />}
@@ -118,8 +132,13 @@ export function StudentConsultationsView() {
                         )}
                       </span>
                     </span>
-                    {s.status === 'BOOKED' && s.student ? (
-                      <Button variant="outline" size="sm" onClick={() => cancel.mutate(s.id)}>
+                    {/* В список попадают и мои записи, в том числе отменённые
+                        преподавателем: записаться на такой слот нельзя (409), он только
+                        сообщает, что консультации не будет. */}
+                    {s.status === 'CANCELLED' ? (
+                      <Badge variant="outline">{t('status.CANCELLED')}</Badge>
+                    ) : s.status === 'BOOKED' && s.student ? (
+                      <Button variant="outline" size="sm" onClick={() => onCancel(s)}>
                         {t('cancelBooking')}
                       </Button>
                     ) : (
@@ -148,7 +167,7 @@ export function StudentConsultationsView() {
         </CardHeader>
         <CardContent>
           {mine.isLoading ? (
-            <Skeleton className="h-16 w-full rounded-lg" />
+            <Skeleton fill className="min-h-16 rounded-lg" />
           ) : (mine.data?.items ?? []).length === 0 ? (
             <EmptyState title={t('noBookings')} className="border-0 p-6" />
           ) : (
@@ -172,9 +191,12 @@ export function StudentConsultationsView() {
                       </span>
                     )}
                   </span>
-                  <Button variant="ghost" size="sm" onClick={() => cancel.mutate(s.id)}>
-                    {t('cancelBooking')}
-                  </Button>
+                  {/* Прошедшую или идущую консультацию отменять нечего — сервер ответит 409. */}
+                  {new Date(s.startsAt) > new Date() && (
+                    <Button variant="ghost" size="sm" onClick={() => onCancel(s)}>
+                      {t('cancelBooking')}
+                    </Button>
+                  )}
                 </li>
               ))}
             </ul>
@@ -188,7 +210,7 @@ export function StudentConsultationsView() {
         </CardHeader>
         <CardContent>
           {teachers.isLoading ? (
-            <Skeleton className="h-16 w-full rounded-lg" />
+            <Skeleton fill className="min-h-16 rounded-lg" />
           ) : (teachers.data ?? []).length === 0 ? (
             <EmptyState title={t('noTeachers')} className="border-0 p-6" />
           ) : (

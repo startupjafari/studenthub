@@ -1,7 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import Link from 'next/link'
+import { useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useFormatter, useLocale, useTranslations } from 'next-intl'
 import { CalendarClock, Check, MapPin, Plus, Trash2, Users, Video } from 'lucide-react'
@@ -11,12 +12,14 @@ import {
   cancelEventRequest,
   deleteEventRequest,
   eventKeys,
-  fetchEvents,
+  fetchEventsPage,
   registerEventRequest,
   type EventItem,
+  MEETING_PROVIDER_NAME,
 } from '../../../entities/event'
 import { ProfileLink } from '../../../entities/user'
 import { CreateEventModal } from '../../../features/create-event'
+import { JoinMeetingButton } from '../../../features/join-meeting'
 import {
   Badge,
   Button,
@@ -29,6 +32,8 @@ import {
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 
+// Запасной расчёт права удалять — для ответа без серверного `canManage` (E-F16): роль не
+// знает scope, и декан видел бы корзину у событий всего вуза.
 const MANAGER_ROLES: Role[] = [Role.PLATFORM_ADMIN, Role.UNIVERSITY_ADMIN, Role.DEAN]
 // Модераторы события не создают — только читают ленту.
 const READONLY_ROLES: Role[] = [Role.PLATFORM_MODERATOR, Role.UNIVERSITY_MODERATOR]
@@ -43,11 +48,18 @@ export function EventsView() {
   const role = useAppSelector((s) => s.auth.role)
   const canCreate = role !== null && !READONLY_ROLES.includes(role)
 
-  const events = useQuery({
-    queryKey: eventKeys.list(filter),
-    queryFn: () => fetchEvents({ filter }),
+  // Страницами по 50: раньше экран брал одну страницу, и всё после пятидесятого события
+  // пропадало без признака, что список неполный.
+  const events = useInfiniteQuery({
+    queryKey: eventKeys.pages(filter),
+    queryFn: ({ pageParam }) => fetchEventsPage({ filter, page: pageParam }),
+    initialPageParam: 1,
+    getNextPageParam: (last, all) => {
+      const loaded = all.reduce((sum, page) => sum + page.items.length, 0)
+      return last.items.length > 0 && loaded < last.total ? all.length + 1 : undefined
+    },
   })
-  const items = events.data ?? []
+  const items = events.data?.pages.flatMap((page) => page.items) ?? []
 
   return (
     // Без `min-h-0` (§4): сетка карточек длиннее экрана, и с ним корень сжимался до
@@ -108,10 +120,21 @@ export function EventsView() {
               key={e.id}
               event={e}
               past={filter === 'past'}
-              canManage={role !== null && MANAGER_ROLES.includes(role)}
+              managerRole={role !== null && MANAGER_ROLES.includes(role)}
             />
           ))}
         </div>
+      )}
+      {events.hasNextPage && (
+        <Button
+          type="button"
+          variant="ghost"
+          className="self-center"
+          loading={events.isFetchingNextPage}
+          onClick={() => void events.fetchNextPage()}
+        >
+          {t('showMore')}
+        </Button>
       )}
 
       {createOpen && <CreateEventModal onClose={() => setCreateOpen(false)} />}
@@ -122,11 +145,11 @@ export function EventsView() {
 function EventCard({
   event,
   past,
-  canManage,
+  managerRole,
 }: {
   event: EventItem
   past: boolean
-  canManage: boolean
+  managerRole: boolean
 }) {
   const t = useTranslations('Events')
   const tErr = useTranslations('Errors')
@@ -136,6 +159,8 @@ function EventCard({
   const qc = useQueryClient()
   const myId = useAppSelector((s) => s.auth.user?.id)
   const isOrganizer = event.organizerId === myId
+  // Право решает сервер (тем же правилом, что проверяет удаление); роль — только запасной вариант.
+  const canManage = event.canManage ?? (isOrganizer || managerRole)
 
   const invalidate = (): void => {
     void qc.invalidateQueries({ queryKey: eventKeys.all })
@@ -192,8 +217,17 @@ function EventCard({
 
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <div className="flex items-start gap-2">
-            <h3 className="min-w-0 flex-1 text-sm leading-snug font-semibold">{event.title}</h3>
-            {(isOrganizer || canManage) && (
+            {/* Название ведёт в карточку события: там описание целиком, участники и
+                обсуждение. */}
+            <h3 className="min-w-0 flex-1 text-sm leading-snug font-semibold">
+              <Link
+                href={`/events/${event.id}`}
+                className="hover:text-primary hover:underline focus-visible:underline focus-visible:outline-none"
+              >
+                {event.title}
+              </Link>
+            </h3>
+            {canManage && (
               <Button
                 type="button"
                 variant="ghost"
@@ -243,7 +277,10 @@ function EventCard({
         {event.isOnline ? (
           <span className="flex items-center gap-1.5 text-info">
             <Video className="size-3.5 shrink-0" aria-hidden />
-            {t('online')}
+            {/* Назван сервис, если он известен: «Zoom» говорит больше, чем «онлайн». */}
+            {event.meetingProvider
+              ? (MEETING_PROVIDER_NAME[event.meetingProvider] ?? t('meetingOther'))
+              : t('online')}
           </span>
         ) : (
           event.location && (
@@ -268,16 +305,27 @@ function EventCard({
           // Подпись кнопки — действие, а не состояние: «Вы участвуете» на кнопке
           // читается как результат нажатия. Состояние показывает бейдж выше и
           // зелёная полоса сверху карточки.
-          <Button
-            type="button"
-            variant={event.isRegistered ? 'outline' : 'default'}
-            size="sm"
-            className="w-full"
-            loading={registerMut.isPending}
-            onClick={() => registerMut.mutate()}
-          >
-            {event.isRegistered ? t('cancelRegistration') : t('register')}
-          </Button>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              variant={event.isRegistered ? 'outline' : 'default'}
+              size="sm"
+              className="flex-1"
+              loading={registerMut.isPending}
+              onClick={() => registerMut.mutate()}
+            >
+              {event.isRegistered ? t('cancelRegistration') : t('register')}
+            </Button>
+            {/* Кнопка встречи — зарегистрированным и организатору: остальным сервер ссылку
+                не отдаст, и показывать кнопку, которая ответит 403, незачем. */}
+            {(event.isRegistered || isOrganizer) && event.meetingProvider && (
+              <JoinMeetingButton
+                eventId={event.id}
+                provider={event.meetingProvider}
+                className="flex-1"
+              />
+            )}
+          </div>
         )}
       </div>
     </Card>

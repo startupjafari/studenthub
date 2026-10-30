@@ -1,15 +1,37 @@
 import type { AxiosProgressEvent } from 'axios'
-import type { CreateMaterialInput } from '@studenthub/shared-schemas'
+import type {
+  CreateMaterialInput,
+  MaterialListQueryInput,
+  MaterialSubjectsQueryInput,
+} from '@studenthub/shared-schemas'
 import { api, needsDirectUpload, uploadDirect, type PresignedTarget } from '../../../shared/api'
-import type { Material, MaterialFile } from '../model/types'
+import type { Material, MaterialFile, MaterialSubjectCount } from '../model/types'
 
 export const materialKeys = {
   all: ['materials'] as const,
-  list: (groupId?: string) => ['materials', 'list', groupId ?? 'all'] as const,
+  list: (filters: Partial<MaterialListQueryInput> = {}) => ['materials', 'list', filters] as const,
+  subjects: (filters: Partial<MaterialSubjectsQueryInput> = {}) =>
+    ['materials', 'subjects', filters] as const,
 }
 
-export async function fetchMaterials(groupId?: string): Promise<Material[]> {
-  const { data } = await api.get<Material[]>('/materials', { params: { groupId } })
+/**
+ * Страница материалов, свежие сверху. Сервер отдаёт до `MATERIAL_LIST_LIMIT` (или `limit`)
+ * строк; следующая страница — с `cursor` = id последнего материала.
+ */
+export async function fetchMaterials(
+  filters: Partial<MaterialListQueryInput> = {},
+): Promise<Material[]> {
+  const { data } = await api.get<Material[]>('/materials', { params: filters })
+  return data
+}
+
+/** Число материалов по дисциплинам — по всей выборке, а не по одной странице списка. */
+export async function fetchMaterialSubjects(
+  filters: Partial<MaterialSubjectsQueryInput> = {},
+): Promise<MaterialSubjectCount[]> {
+  const { data } = await api.get<MaterialSubjectCount[]>('/materials/subjects', {
+    params: filters,
+  })
   return data
 }
 

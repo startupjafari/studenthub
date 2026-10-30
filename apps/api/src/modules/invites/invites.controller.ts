@@ -1,20 +1,23 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, Req } from '@nestjs/common'
-import { Throttle } from '@nestjs/throttler'
 import { ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger'
 import { Role } from '@studenthub/shared-types'
 import type { FastifyRequest } from 'fastify'
 import { Public } from '../../common/decorators/public.decorator'
 import { Roles } from '../../common/decorators/roles.decorator'
 import { MiniAllowed } from '../../common/decorators/mini-allowed.decorator'
+import { AuthThrottle } from '../../common/guards/user-throttler.guard'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
 import { AppException } from '../../common/exceptions/app.exception'
+import { isFileTooLarge } from '../../common/http/read-upload'
 import type { RequestContext } from '../auth/auth.service'
 import { InviteService } from './invites.service'
 import { CreateInviteDto } from './dto/create-invite.dto'
 import { BulkInviteCommitDto } from './dto/bulk-invite-commit.dto'
 import { InviteListDto } from './dto/invite-list.dto'
 import { parseBulkInviteFile } from './bulk-parse'
+
+const HOUR = 60 * 60_000
 
 @ApiTags('Инвайты')
 @Controller('invites')
@@ -65,7 +68,10 @@ export class InvitesController {
 
   @Public()
   @Get(':token/preview')
-  @Throttle({ default: { limit: 10, ttl: 60 * 60_000 } }) // §6.3: 10 / час с IP
+  // §6.3: 30 / час на токен и мягкий потолок 200 / час с адреса. Потолок выше, чем у
+  // регистрации: каждая регистрация открывает предпросмотр минимум раз, а форма перечитывает
+  // его при возврате на вкладку. Перебор токенов (122 бита) этот лимит и так не делает возможным.
+  @AuthThrottle('invite-param', { limit: 30, ttl: HOUR }, { limit: 200, ttl: HOUR })
   @ApiOperation({ summary: 'Публичный предпросмотр инвайта по токену' })
   preview(@Param('token') token: string) {
     return this.invites.preview(token)
@@ -92,7 +98,9 @@ export class InvitesController {
     }
     try {
       return { buffer: await part.toBuffer(), filename: part.filename }
-    } catch {
+    } catch (error) {
+      // Иная ошибка чтения — не «слишком большой»: её 4xx отдаст фильтр.
+      if (!isFileTooLarge(error)) throw error
       throw new AppException('BAD_REQUEST', 'Файл слишком большой для импорта')
     }
   }

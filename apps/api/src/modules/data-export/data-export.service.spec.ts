@@ -1,0 +1,387 @@
+import { Prisma } from '@prisma/client'
+import { Role } from '@studenthub/shared-types'
+import { DataExportService, SCALAR_ID_FIELDS, USER_RELATIONS } from './data-export.service'
+import type { PrismaService } from '../../common/prisma/prisma.service'
+import type { AuditService } from '../../common/audit/audit.service'
+import type { ExportBrandingService } from '../../common/export/export-branding.service'
+import type { ExportRegistryService } from '../../common/export/export-registry.service'
+import type { JwtPayload } from '../../common/auth/jwt-payload.type'
+
+const ctx = { ip: '127.0.0.1', userAgent: 'jest' }
+
+// Модели, из которых собирается архив. Список живёт в тесте отдельно от сервиса
+// намеренно: если в сервисе появится новый источник, мок его не отдаст и тест упадёт —
+// ровно так и должно быть замечено, что в выгрузку добавили таблицу.
+const MODELS = [
+  'file',
+  'post',
+  'comment',
+  'reaction',
+  'postBookmark',
+  'chatMember',
+  'message',
+  'document',
+  'documentSubmission',
+  'grade',
+  'attendance',
+  'submission',
+  'examResult',
+  'application',
+  'eventParticipant',
+  'portfolioItem',
+  'friendship',
+  'notification',
+  'invite',
+  'story',
+  'storyView',
+  'storyReaction',
+  'storyPollVote',
+  'auditLog',
+  'messageReaction',
+  'chatPollVote',
+  'chatFolder',
+  'scheduledMessage',
+  'event',
+  'eventComment',
+  'profileArticle',
+  'contentComment',
+  'bookmark',
+  'album',
+  'poll',
+  'pollVote',
+  'careerProfile',
+  'careerConsent',
+  'careerApplication',
+  'resume',
+  'companyMember',
+  'complaint',
+  'moderationWarning',
+  'chat',
+  'deaneryAppointment',
+  'consultationSlot',
+  'telegramAccount',
+  'notificationSettings',
+  'loan',
+  'reservation',
+  'libraryIdAccessLog',
+  'securityPass',
+  'userBlock',
+  'documentAccess',
+  'documentEvent',
+  'documentExport',
+] as const
+
+function account(over: Record<string, unknown> = {}) {
+  return {
+    id: 'u-1',
+    email: 'student@u.kz',
+    firstName: 'Асем',
+    lastName: 'Абишева',
+    timezone: null,
+    university: { name: 'Университет', timezone: 'Asia/Almaty' },
+    faculty: { name: 'Юридический' },
+    group: { name: 'ЮР-26-1' },
+    phone: '+7 700 000 00 00',
+    twoFactorEnabled: true,
+    ...over,
+  }
+}
+
+type ModelMock = { findMany: jest.Mock }
+
+function setup() {
+  const models = Object.fromEntries(
+    MODELS.map((model) => [model, { findMany: jest.fn().mockResolvedValue([]) }]),
+  ) as Record<(typeof MODELS)[number], ModelMock>
+  const user = { findFirst: jest.fn().mockResolvedValue(account()) }
+  const prisma = { ...models, user }
+  const audit = { record: jest.fn().mockResolvedValue(undefined) }
+  const exports = { register: jest.fn().mockResolvedValue({ id: 'e1', shortId: 'ABCD1234' }) }
+  const branding = {
+    brand: 'StudentHub',
+    publicUrl: 'https://studenthub.kz',
+    version: '1.4.0',
+    filename: jest.fn().mockReturnValue('studenthub_my-data_2026-10-11.json'),
+  }
+  const service = new DataExportService(
+    prisma as unknown as PrismaService,
+    audit as unknown as AuditService,
+    branding as unknown as ExportBrandingService,
+    exports as unknown as ExportRegistryService,
+  )
+  return { service, models, user, audit, exports }
+}
+
+const viewer: JwtPayload = {
+  sub: 'u-1',
+  role: Role.STUDENT,
+  universityId: 'uni-1',
+  facultyId: 'fac-1',
+  groupId: 'grp-1',
+}
+
+describe('DataExportService — состав архива', () => {
+  it('каждый раздел читается только по своему пользователю', async () => {
+    const { service, models, user } = setup()
+    await service.exportPersonalData(viewer, 'ru', ctx)
+
+    for (const model of MODELS) {
+      const where = models[model].findMany.mock.calls[0][0].where as Record<string, unknown>
+      expect(JSON.stringify(where)).toContain('"u-1"')
+    }
+    expect(user.findFirst).toHaveBeenCalled()
+  })
+
+  it('у каждой выборки есть потолок строк', async () => {
+    const { service, models } = setup()
+    await service.exportPersonalData(viewer, 'ru', ctx)
+    for (const model of MODELS) {
+      expect(models[model].findMany.mock.calls[0][0].take).toBeGreaterThan(0)
+    }
+  })
+
+  it('усечённый раздел помечен и обрезан до потолка', async () => {
+    const { service, models } = setup()
+    // Потолок раздела — 5000; отдаём на одну строку больше, чем влезает.
+    models.message.findMany.mockResolvedValue(
+      Array.from({ length: 5001 }, (_, i) => ({ id: `m${i}`, content: 'текст' })),
+    )
+    const { body } = await service.exportPersonalData(viewer, 'ru', ctx)
+    const archive = JSON.parse(body) as {
+      sections: { messages: { count: number; truncated: boolean }; posts: { truncated: boolean } }
+    }
+    expect(archive.sections.messages).toEqual(
+      expect.objectContaining({ truncated: true, count: 5000 }),
+    )
+    expect(archive.sections.posts.truncated).toBe(false)
+  })
+})
+
+describe('DataExportService — что наружу не уходит', () => {
+  it('ключи доступа в файл не попадают', async () => {
+    const { service, models } = setup()
+    // Даже если выборка вдруг принесёт лишнее, в файле этого быть не должно.
+    models.invite.findMany.mockResolvedValue([{ role: 'STUDENT', status: 'USED' }])
+    const { body } = await service.exportPersonalData(viewer, 'ru', ctx)
+
+    for (const secret of [
+      'passwordHash',
+      'twoFactorSecret',
+      'twoFactorBackupCodes',
+      'refreshToken',
+      'tokenHash',
+      '"token"',
+    ]) {
+      expect(body).not.toContain(secret)
+    }
+    // Флаг «двухфакторная включена» — это не секрет, он остаётся.
+    expect(body).toContain('twoFactorEnabled')
+  })
+
+  it('номер документа маскируется до последних четырёх цифр', async () => {
+    const { service, models } = setup()
+    models.document.findMany.mockResolvedValue([
+      { id: 'd1', title: 'Удостоверение', number: 'AB1234567890', status: 'VERIFIED' },
+    ])
+    const { body } = await service.exportPersonalData(viewer, 'ru', ctx)
+
+    expect(body).not.toContain('AB1234567890')
+    expect(body).toContain('"numberLast4": "7890"')
+  })
+
+  it('у сторис остаётся признак медиа, а не идентификатор файла', async () => {
+    const { service, models } = setup()
+    models.story.findMany.mockResolvedValue([
+      { id: 's1', text: 'привет', fileId: 'f-777', audience: 'GROUP' },
+      { id: 's2', text: 'текстовая', fileId: null, audience: 'GROUP' },
+    ])
+    const { body } = await service.exportPersonalData(viewer, 'ru', ctx)
+    const archive = JSON.parse(body) as {
+      sections: { stories: { items: { id: string; hasMedia: boolean }[] } }
+    }
+
+    expect(body).not.toContain('f-777')
+    expect(archive.sections.stories.items).toEqual([
+      expect.objectContaining({ id: 's1', hasMedia: true }),
+      expect.objectContaining({ id: 's2', hasMedia: false }),
+    ])
+  })
+
+  it('из дружбы остаётся вторая сторона и дата, без контактов', async () => {
+    const { service, models } = setup()
+    models.friendship.findMany.mockResolvedValue([
+      {
+        createdAt: new Date('2026-01-01'),
+        requester: { id: 'u-1', firstName: 'Асем', lastName: 'Абишева' },
+        addressee: { id: 'u-2', firstName: 'Ержан', lastName: 'Абишев' },
+      },
+    ])
+    const { body } = await service.exportPersonalData(viewer, 'ru', ctx)
+    const archive = JSON.parse(body) as { sections: { friends: { items: { id: string }[] } } }
+
+    expect(archive.sections.friends.items[0]).toMatchObject({ id: 'u-2', firstName: 'Ержан' })
+  })
+})
+
+describe('DataExportService — полнота по схеме (D-F26)', () => {
+  // Все внешние ключи на User из схемы Prisma: «модель.поле».
+  const schemaRelations = Prisma.dmmf.datamodel.models.flatMap((model) =>
+    model.fields
+      .filter((f) => f.kind === 'object' && f.type === 'User' && f.relationFromFields?.length)
+      .map((f) => `${model.name}.${f.relationFromFields![0]}`),
+  )
+
+  it('каждая связь с User выгружается или исключена с причиной', () => {
+    const missing = schemaRelations.filter((key) => !(key in USER_RELATIONS))
+    expect(missing).toEqual([])
+    // И наоборот: в перечне нет связей, которых уже нет в схеме.
+    const stale = Object.keys(USER_RELATIONS).filter((key) => !schemaRelations.includes(key))
+    expect(stale).toEqual([])
+  })
+
+  it('каждый названный раздел действительно есть в архиве', async () => {
+    const { service } = setup()
+    const { body } = await service.exportPersonalData(viewer, 'ru', ctx)
+    const sections = Object.keys((JSON.parse(body) as { sections: object }).sections)
+    const named = [...Object.values(USER_RELATIONS), ...Object.values(SCALAR_ID_FIELDS)].flatMap(
+      (v) => ('section' in v ? [v.section] : []),
+    )
+    expect(named.filter((name) => !sections.includes(name))).toEqual([])
+  })
+
+  // Ссылки на человека без FK (BUG-194): чёрный список, выданные доступы, журнал документов,
+  // свои выгрузки. По связям их не найти — сверяем все скалярные «…Id» вне связей.
+  it('каждое скалярное …Id вне связей разобрано: раздел, исключение или «не человек»', () => {
+    const scalarIds = Prisma.dmmf.datamodel.models.flatMap((model) => {
+      const fks = new Set(model.fields.flatMap((f) => f.relationFromFields ?? []))
+      return model.fields
+        .filter(
+          (f) =>
+            f.kind === 'scalar' &&
+            f.type === 'String' &&
+            f.name !== 'id' &&
+            f.name.endsWith('Id') &&
+            !fks.has(f.name),
+        )
+        .map((f) => `${model.name}.${f.name}`)
+    })
+    expect(scalarIds.filter((key) => !(key in SCALAR_ID_FIELDS))).toEqual([])
+    expect(Object.keys(SCALAR_ID_FIELDS).filter((key) => !scalarIds.includes(key))).toEqual([])
+  })
+
+  it('свои выгрузки — без параметров выборки, журнал документов — без id сотрудника', async () => {
+    const { service, models } = setup()
+    models.documentEvent.findMany.mockResolvedValue([
+      {
+        documentId: 'd1',
+        requestId: null,
+        actorId: 'u-1',
+        action: 'UPLOAD',
+        createdAt: new Date(),
+      },
+      {
+        documentId: 'd1',
+        requestId: null,
+        actorId: 'staff-9',
+        action: 'VIEW',
+        createdAt: new Date(),
+      },
+    ])
+    const { body } = await service.exportPersonalData(viewer, 'ru', ctx)
+    const archive = JSON.parse(body) as {
+      sections: { documentEvents: { items: Record<string, unknown>[] } }
+    }
+
+    expect(models.documentExport.findMany.mock.calls[0]?.[0].select).not.toHaveProperty('params')
+    expect(archive.sections.documentEvents.items).toEqual([
+      expect.objectContaining({ action: 'UPLOAD', byMe: true }),
+      expect.objectContaining({ action: 'VIEW', byMe: false }),
+    ])
+    expect(JSON.stringify(archive.sections.documentEvents)).not.toContain('staff-9')
+    expect(models.userBlock.findMany.mock.calls[0]?.[0].where).toEqual({ blockerId: 'u-1' })
+  })
+
+  it('выданные приглашения — без адресов приглашённых', async () => {
+    const { service, models } = setup()
+    await service.exportPersonalData(viewer, 'ru', ctx)
+    const issued = models.invite.findMany.mock.calls.find(
+      ([args]) => (args as { where: { createdById?: string } }).where.createdById === 'u-1',
+    )
+    expect(issued?.[0].select).not.toHaveProperty('email')
+  })
+
+  it('привязка Telegram выгружается: BigInt-идентификатор — строкой', async () => {
+    const { service, models } = setup()
+    models.telegramAccount.findMany.mockResolvedValue([
+      { telegramId: BigInt('900000000001'), username: 'asem', linkedAt: new Date('2026-01-01') },
+    ])
+    const { body } = await service.exportPersonalData(viewer, 'ru', ctx)
+    const archive = JSON.parse(body) as { sections: { telegram: { items: unknown[] } } }
+    expect(archive.sections.telegram.items[0]).toMatchObject({ telegramId: '900000000001' })
+  })
+
+  it('работодатель получает данные своей компании, студент — отклики с названием вакансии', async () => {
+    const { service, models } = setup()
+    models.companyMember.findMany.mockResolvedValue([
+      { role: 'OWNER', company: { id: 'c1', name: 'ТОО «Ромашка»', status: 'ACTIVE' } },
+    ])
+    models.careerApplication.findMany.mockResolvedValue([
+      {
+        vacancyId: 'v1',
+        status: 'SUBMITTED',
+        coverLetter: null,
+        vacancy: { title: 'Стажёр', company: { name: 'ТОО «Ромашка»' } },
+      },
+    ])
+    const { body } = await service.exportPersonalData(viewer, 'ru', ctx)
+    const archive = JSON.parse(body) as {
+      sections: { companies: { items: unknown[] }; careerApplications: { items: unknown[] } }
+    }
+    expect(archive.sections.companies.items[0]).toMatchObject({
+      company: { name: 'ТОО «Ромашка»' },
+    })
+    expect(archive.sections.careerApplications.items[0]).toMatchObject({
+      vacancy: 'Стажёр',
+      company: 'ТОО «Ромашка»',
+    })
+  })
+})
+
+describe('DataExportService — след в журналах', () => {
+  it('выгрузка попадает и в аудит, и в реестр выгрузок — без самих данных', async () => {
+    const { service, audit, exports } = setup()
+    await service.exportPersonalData(viewer, 'ru', ctx)
+
+    expect(audit.record.mock.calls[0][0]).toMatchObject({
+      userId: 'u-1',
+      action: 'personal_data_export',
+      entity: 'User',
+    })
+    const registered = exports.register.mock.calls[0][0] as {
+      context: { kind: string; timezone: string }
+      format: string
+    }
+    expect(registered.format).toBe('json')
+    expect(registered.context.kind).toBe('my-data')
+    // Дата в имени файла считается в таймзоне вуза, а не сервера.
+    expect(registered.context.timezone).toBe('Asia/Almaty')
+  })
+
+  it('пустая таймзона не роняет выгрузку: у платформенных ролей вуза нет', async () => {
+    const { service, user, exports } = setup()
+    // Ровно та строка, на которой ручка отвечала 500: вуза нет, а своя таймзона — ''.
+    user.findFirst.mockResolvedValue(account({ university: null, timezone: '' }))
+    const { body } = await service.exportPersonalData(viewer, 'ru', ctx)
+
+    expect(JSON.parse(body)).toHaveProperty('sections')
+    const registered = exports.register.mock.calls[0][0] as { context: { timezone: string } }
+    expect(registered.context.timezone).toBe('UTC')
+  })
+
+  it('удалённый аккаунт выгрузку не получает', async () => {
+    const { service, user } = setup()
+    user.findFirst.mockResolvedValue(null)
+    const err = await service.exportPersonalData(viewer, 'ru', ctx).catch((e) => e)
+    expect(err.code).toBe('NOT_FOUND')
+  })
+})

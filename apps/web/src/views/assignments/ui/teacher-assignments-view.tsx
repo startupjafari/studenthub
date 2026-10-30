@@ -1,10 +1,21 @@
 'use client'
 
 import { useState } from 'react'
+import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { ClipboardList, Inbox, MoreHorizontal, Plus, Send, Trash2, XCircle } from 'lucide-react'
+import {
+  ClipboardList,
+  Inbox,
+  MoreHorizontal,
+  Pencil,
+  Plus,
+  RotateCcw,
+  Send,
+  Trash2,
+  XCircle,
+} from 'lucide-react'
 import type { AssignmentSort } from '@studenthub/shared-schemas'
 import {
   Badge,
@@ -78,7 +89,14 @@ export function TeacherAssignmentsView() {
   const qc = useQueryClient()
   const confirm = useConfirm()
   const [creating, setCreating] = useState(false)
-  const [gradingId, setGradingId] = useState<string | null>(null)
+  // Задание на правку (C-F20): продлить срок, исправить условие или максимум.
+  const [editing, setEditing] = useState<AssignmentItem | null>(null)
+  // Диплинк из очереди проверки на главной: /teacher/assignments?open=<id> сразу открывает
+  // проверку работ этого задания (отдельного роута у проверки нет — как и у студента).
+  const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
+  const [gradingId, setGradingId] = useState<string | null>(() => searchParams.get('open'))
   const paged = usePagedSort<AssignmentSort>()
 
   const q = useQuery({
@@ -87,14 +105,25 @@ export function TeacherAssignmentsView() {
   })
 
   const invalidate = () => qc.invalidateQueries({ queryKey: assignmentKeys.all })
+  // CONFLICT на смене статуса — задание уже перевели (другой вкладкой или коллегой):
+  // перечитываем список, чтобы меню показало действия для настоящего статуса.
+  const onStatusError = (e: unknown) => {
+    const code = toApiError(e).code
+    if (code === 'CONFLICT') {
+      invalidate()
+      toast.error(t('statusChanged'))
+      return
+    }
+    toast.error(tErr(code))
+  }
 
   const publish = useMutation({
-    mutationFn: (id: string) => publishAssignmentRequest(id),
-    onSuccess: () => {
+    mutationFn: (a: AssignmentItem) => publishAssignmentRequest(a.id),
+    onSuccess: (_data, a) => {
       invalidate()
-      toast.success(t('published'))
+      toast.success(a.status === 'CLOSED' ? t('reopened') : t('published'))
     },
-    onError: (e) => toast.error(tErr(toApiError(e).code)),
+    onError: onStatusError,
   })
   const close = useMutation({
     mutationFn: (id: string) => closeAssignmentRequest(id),
@@ -102,7 +131,7 @@ export function TeacherAssignmentsView() {
       invalidate()
       toast.success(t('closed'))
     },
-    onError: (e) => toast.error(tErr(toApiError(e).code)),
+    onError: onStatusError,
   })
   const remove = useMutation({
     mutationFn: (id: string) => deleteAssignmentRequest(id),
@@ -110,11 +139,22 @@ export function TeacherAssignmentsView() {
       invalidate()
       toast.success(t('deleted'))
     },
-    onError: (e) => toast.error(tErr(toApiError(e).code)),
+    onError: (e) => {
+      // CONFLICT — по заданию есть сданные работы: сервер их не стирает, подсказываем выход.
+      const code = toApiError(e).code
+      toast.error(code === 'CONFLICT' ? t('deleteHasWork') : tErr(code))
+    },
   })
 
   async function onDelete(a: AssignmentItem) {
-    const ok = await confirm({ title: t('confirmDelete'), description: a.title, destructive: true })
+    // Черновик студенты не видели — хватит названия. У опубликованного предупреждаем
+    // заранее: черновики студентов уйдут вместе с заданием, а со сданными работами
+    // удаление не пройдёт — такое задание закрывают.
+    const ok = await confirm({
+      title: t('confirmDelete'),
+      description: a.status === 'DRAFT' ? a.title : t('confirmDeletePublished', { title: a.title }),
+      destructive: true,
+    })
     if (ok) remove.mutate(a.id)
   }
 
@@ -122,7 +162,16 @@ export function TeacherAssignmentsView() {
   // проверки меняло число хуков между рендерами: React бросал исключение, экран уходил
   // в общий error boundary («Что-то пошло не так»).
   if (gradingId) {
-    return <GradingWorkspace assignmentId={gradingId} onBack={() => setGradingId(null)} />
+    return (
+      <GradingWorkspace
+        assignmentId={gradingId}
+        onBack={() => {
+          setGradingId(null)
+          // Иначе обновление страницы снова открыло бы проверку из диплинка.
+          if (searchParams.has('open')) router.replace(pathname)
+        }}
+      />
+    )
   }
 
   const rows = q.data?.items ?? []
@@ -233,8 +282,12 @@ export function TeacherAssignmentsView() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => setEditing(a)}>
+                          <Pencil aria-hidden />
+                          {t('edit')}
+                        </DropdownMenuItem>
                         {a.status === 'DRAFT' && (
-                          <DropdownMenuItem onClick={() => publish.mutate(a.id)}>
+                          <DropdownMenuItem onClick={() => publish.mutate(a)}>
                             <Send aria-hidden />
                             {t('publish')}
                           </DropdownMenuItem>
@@ -245,10 +298,14 @@ export function TeacherAssignmentsView() {
                             {t('close')}
                           </DropdownMenuItem>
                         )}
-                        {/* Линия перед «Удалить» — только если над ним есть обычный пункт. */}
-                        {(a.status === 'DRAFT' || a.status === 'PUBLISHED') && (
-                          <DropdownMenuSeparator />
+                        {/* Закрыли по ошибке — открыть снова: без повторной рассылки. */}
+                        {a.status === 'CLOSED' && (
+                          <DropdownMenuItem onClick={() => publish.mutate(a)}>
+                            <RotateCcw aria-hidden />
+                            {t('reopen')}
+                          </DropdownMenuItem>
                         )}
+                        <DropdownMenuSeparator />
                         <DropdownMenuItem variant="destructive" onClick={() => onDelete(a)}>
                           <Trash2 aria-hidden />
                           {t('delete')}
@@ -272,6 +329,7 @@ export function TeacherAssignmentsView() {
       )}
 
       {creating && <CreateAssignmentModal onClose={() => setCreating(false)} />}
+      {editing && <CreateAssignmentModal assignment={editing} onClose={() => setEditing(null)} />}
     </div>
   )
 }

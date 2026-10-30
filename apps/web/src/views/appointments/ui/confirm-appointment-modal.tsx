@@ -12,6 +12,7 @@ import {
   confirmAppointmentRequest,
   rescheduleAppointmentRequest,
 } from '../../../entities/appointment'
+import { useUniversityTimezone, wallInputToIso } from '../lib/university-time'
 
 interface Props {
   appointmentId: string
@@ -25,6 +26,8 @@ export function ConfirmAppointmentModal({ appointmentId, mode, onClose }: Props)
   const tCommon = useTranslations('Common')
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
+  // Время приёма назначается по часам вуза: его увидит студент, возможно, в другом поясе.
+  const timezone = useUniversityTimezone()
   const [whenLocal, setWhenLocal] = useState('')
   const [note, setNote] = useState('')
   const [pending, setPending] = useState(false)
@@ -35,7 +38,7 @@ export function ConfirmAppointmentModal({ appointmentId, mode, onClose }: Props)
     setSubmitted(true)
     if (whenError) return
     const payload = {
-      scheduledAt: whenLocal ? new Date(whenLocal).toISOString() : '',
+      scheduledAt: whenLocal ? wallInputToIso(whenLocal, timezone) : '',
       ...(note.trim() ? { staffNote: note.trim() } : {}),
     }
     const parsed = ConfirmAppointmentSchema.safeParse(payload)

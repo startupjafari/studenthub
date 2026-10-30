@@ -5,14 +5,14 @@ import { Controller, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { useTranslations } from 'next-intl'
+import { useLocale, useTranslations } from 'next-intl'
 import { Plus } from 'lucide-react'
 import { CreatePairSchema, type CreatePairInput } from '@studenthub/shared-schemas'
 import type { ApiErrorBody } from '@studenthub/shared-types'
-import { Role } from '@studenthub/shared-types'
+import { PAIR_TEACHER_ROLES } from '../lib/pair-teacher-roles'
 import { UserPicker, type PickedUser } from '../../../entities/user'
 import { createPairRequest, scheduleKeys } from '../../../entities/schedule'
-import type { Room } from '../../../entities/room'
+import { RoomSelect } from '../../../entities/room'
 import {
   Button,
   FieldError,
@@ -26,6 +26,7 @@ import {
   SelectValue,
 } from '../../../shared/ui'
 import { useErrorToast } from '../../../shared/lib'
+import { conflictDescription } from '../lib/conflict-description'
 
 const DAYS = [1, 2, 3, 4, 5, 6, 7]
 const WEEK_TYPES = ['BOTH', 'ODD', 'EVEN'] as const
@@ -43,20 +44,21 @@ function apiErr(e: unknown): ApiErrorBody {
  */
 export function AddPairModal({
   scheduleId,
-  rooms,
+  universityId,
   isTeacher,
   meId,
   initial,
   onClose,
 }: {
   scheduleId: string
-  rooms: Room[]
+  universityId?: string
   isTeacher: boolean
   meId?: string
   initial: { dayOfWeek: number; startTime: string; endTime: string }
   onClose: () => void
 }) {
   const t = useTranslations('Schedule')
+  const locale = useLocale()
   const tPeople = useTranslations('People')
   const tCommon = useTranslations('Common')
   const qc = useQueryClient()
@@ -82,7 +84,7 @@ export function AddPairModal({
       const err = apiErr(e)
       if (err.code === 'CONFLICT') {
         toast.error(t('conflictTitle'), {
-          description: err.details?.map((d) => d.message).join('; ') ?? t('conflictGeneric'),
+          description: conflictDescription(err.details, locale, (k) => t(k)),
         })
       } else show(e)
     },
@@ -167,23 +169,17 @@ export function AddPairModal({
         </div>
 
         <div className="flex flex-col gap-1.5">
-          <Label>{t('room')}</Label>
+          <Label htmlFor="p-room">{t('roomOptional')}</Label>
           <Controller
             control={form.control}
             name="roomId"
             render={({ field }) => (
-              <Select value={field.value ?? ''} onValueChange={(v) => field.onChange(v || null)}>
-                <SelectTrigger aria-label={t('room')}>
-                  <SelectValue placeholder={t('roomOptional')} />
-                </SelectTrigger>
-                <SelectContent>
-                  {rooms.map((r) => (
-                    <SelectItem key={r.id} value={r.id}>
-                      {r.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <RoomSelect
+                id="p-room"
+                universityId={universityId}
+                value={field.value ?? null}
+                onChange={field.onChange}
+              />
             )}
           />
         </div>
@@ -193,7 +189,7 @@ export function AddPairModal({
             <Label>{tPeople('teacherOptional')}</Label>
             <UserPicker
               value={teacher}
-              roleFilter={Role.TEACHER}
+              roleFilter={PAIR_TEACHER_ROLES}
               placeholder={tPeople('pickUser')}
               onSelect={(u) => {
                 setTeacher(u)

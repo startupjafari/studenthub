@@ -10,17 +10,11 @@ import type { ExamItem, ExamRoster } from '../model/types'
 export const examKeys = {
   all: ['exams'] as const,
   list: (filters: Partial<ExamListQueryInput> = {}) => ['exams', 'list', filters] as const,
-  detail: (id: string) => ['exams', 'detail', id] as const,
   results: (id: string) => ['exams', id, 'results'] as const,
 }
 
 export async function fetchExams(filters: Partial<ExamListQueryInput> = {}): Promise<ExamItem[]> {
   const { data } = await api.get<ExamItem[]>('/exams', { params: filters })
-  return data
-}
-
-export async function fetchExam(id: string): Promise<ExamItem> {
-  const { data } = await api.get<ExamItem>(`/exams/${id}`)
   return data
 }
 

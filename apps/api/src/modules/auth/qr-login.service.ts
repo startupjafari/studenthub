@@ -11,12 +11,28 @@ import { QrLoginGateway } from './qr-login.gateway'
 const TTL_SECONDS = 120
 const key = (qrId: string): string => `qrlogin:${qrId}`
 const tokKey = (approveToken: string): string => `qrlogin:tok:${approveToken}`
+// Кто подтвердил вход: одноразовая отметка SET NX — подтверждает ровно один человек.
+const approverKey = (qrId: string): string => `qrlogin:approver:${qrId}`
 
 interface QrState {
   approveToken: string
   claimSecretHash: string
   status: 'pending' | 'approved'
   userId?: string
+  requester?: QrRequester
+  createdAt?: string
+}
+
+/**
+ * Кто просит вход — показывается на телефоне перед подтверждением. Без этого QR-вход
+ * уязвим к подмене (QRLjacking): злоумышленник присылает ссылку на свой QR «подтверди,
+ * это проверка», и жертва одним нажатием отдаёт ему сессию, не видя, чей это компьютер.
+ * IP маскируется: подтверждающему хватает сети и города, а не точного адреса.
+ */
+export interface QrRequester {
+  browser: string | null
+  os: string | null
+  ip: string | null
 }
 
 export interface QrCreateResult {
@@ -37,7 +53,7 @@ export class QrLoginService {
     private readonly gateway: QrLoginGateway,
   ) {}
 
-  async create(): Promise<QrCreateResult> {
+  async create(ctx: { ip?: string; userAgent?: string } = {}): Promise<QrCreateResult> {
     const qrId = randomUUID()
     const approveToken = randomUUID()
     const claimSecret = randomUUID()
@@ -45,6 +61,8 @@ export class QrLoginService {
       approveToken,
       claimSecretHash: this.hash(claimSecret),
       status: 'pending',
+      requester: describeRequester(ctx),
+      createdAt: new Date().toISOString(),
     }
     await this.redis.set(key(qrId), JSON.stringify(state), 'EX', TTL_SECONDS)
     await this.redis.set(tokKey(approveToken), qrId, 'EX', TTL_SECONDS)
@@ -54,7 +72,30 @@ export class QrLoginService {
     return { qrId, qr, claimSecret, expiresIn: TTL_SECONDS }
   }
 
-  /** Телефон (авторизован) подтверждает вход: помечаем approved + userId, шлём WS-событие. */
+  /** Что показать на телефоне до подтверждения: устройство и сеть, запросившие вход. */
+  async preview(
+    approveToken: string,
+  ): Promise<{ requester: QrRequester; createdAt: string | null }> {
+    const qrId = await this.redis.get(tokKey(approveToken))
+    const state = qrId ? await this.read(qrId) : null
+    if (!state || state.approveToken !== approveToken || state.status !== 'pending') {
+      throw new AppException('NOT_FOUND', 'QR-сессия не найдена или истекла')
+    }
+    return {
+      requester: state.requester ?? { browser: null, os: null, ip: null },
+      createdAt: state.createdAt ?? null,
+    }
+  }
+
+  /**
+   * Телефон (авторизован) подтверждает вход: помечаем approved + userId, шлём WS-событие.
+   *
+   * Подтверждает ровно один человек. Раньше повторный approve перезаписывал `userId`: пока
+   * десктоп не забрал сессию, второй видевший QR подтверждал его своим аккаунтом, и
+   * компьютер входил под чужим (жертва потом пишет личное в аккаунт злоумышленника).
+   * Первым считается тот, чей `SET NX` поставил отметку, — гонку решает Redis. Повтор тем
+   * же человеком (двойное нажатие) — не ошибка; другим — 409.
+   */
   async approve(approveToken: string, userId: string): Promise<void> {
     const qrId = await this.redis.get(tokKey(approveToken))
     if (!qrId) {
@@ -64,11 +105,27 @@ export class QrLoginService {
     if (!state || state.approveToken !== approveToken) {
       throw new AppException('NOT_FOUND', 'QR-сессия не найдена или истекла')
     }
+    if (state.status !== 'pending') {
+      if (state.userId === userId) return
+      throw new AppException('CONFLICT', 'Вход по этому QR уже подтверждён')
+    }
+    // Оставшийся TTL: отметка живёт не дольше сессии, а у десктопа остаётся время забрать её.
+    const ttl = await this.redis.ttl(key(qrId))
+    if (ttl <= 0) {
+      throw new AppException('NOT_FOUND', 'QR-сессия не найдена или истекла')
+    }
+    const first = await this.redis.set(approverKey(qrId), userId, 'EX', ttl, 'NX')
+    if (first !== 'OK') {
+      if ((await this.redis.get(approverKey(qrId))) === userId) return
+      throw new AppException('CONFLICT', 'Вход по этому QR уже подтверждён')
+    }
     state.status = 'approved'
     state.userId = userId
-    // Сохраняем оставшийся TTL, чтобы у десктопа было время забрать сессию.
-    const ttl = await this.redis.ttl(key(qrId))
-    await this.redis.set(key(qrId), JSON.stringify(state), 'EX', ttl > 0 ? ttl : TTL_SECONDS)
+    // XX: истёкшую за это время сессию не воскрешаем.
+    const saved = await this.redis.set(key(qrId), JSON.stringify(state), 'EX', ttl, 'XX')
+    if (saved !== 'OK') {
+      throw new AppException('NOT_FOUND', 'QR-сессия не найдена или истекла')
+    }
     this.gateway.emitApproved(qrId)
   }
 
@@ -84,7 +141,12 @@ export class QrLoginService {
     if (this.hash(claimSecret) !== state.claimSecretHash) {
       throw new AppException('UNAUTHORIZED', 'Недопустимый секрет QR-сессии')
     }
-    await this.redis.del(key(qrId))
+    // Забирает тот, чей DEL удалил ключ: два одновременных claim с тем же секретом больше
+    // не получают по сессии каждый.
+    const removed = await this.redis.del(key(qrId))
+    if (removed === 0) {
+      throw new AppException('NOT_FOUND', 'QR-сессия не найдена или истекла')
+    }
     await this.redis.del(tokKey(state.approveToken))
     return state.userId
   }
@@ -102,4 +164,43 @@ export class QrLoginService {
   private webBase(): string {
     return this.config.get('CORS_ORIGIN', { infer: true }).split(',')[0]?.trim() ?? ''
   }
+}
+
+/** Браузер и ОС по User-Agent — грубо, ради подписи «Chrome · Windows», не для аналитики. */
+export function describeRequester(ctx: { ip?: string; userAgent?: string }): QrRequester {
+  const ua = ctx.userAgent ?? ''
+  const browser = /Edg\//.test(ua)
+    ? 'Edge'
+    : /YaBrowser\//.test(ua)
+      ? 'Яндекс Браузер'
+      : /OPR\//.test(ua)
+        ? 'Opera'
+        : /Firefox\//.test(ua)
+          ? 'Firefox'
+          : /Chrome\//.test(ua)
+            ? 'Chrome'
+            : /Safari\//.test(ua)
+              ? 'Safari'
+              : null
+  const os = /Windows/.test(ua)
+    ? 'Windows'
+    : /Android/.test(ua)
+      ? 'Android'
+      : /iPhone|iPad|iPod/.test(ua)
+        ? 'iOS'
+        : /Mac OS X|Macintosh/.test(ua)
+          ? 'macOS'
+          : /Linux/.test(ua)
+            ? 'Linux'
+            : null
+  return { browser, os, ip: maskIp(ctx.ip) }
+}
+
+// 203.0.113.57 → 203.0.113.x; 2001:db8:1:2::5 → 2001:db8:1::/48.
+function maskIp(ip: string | undefined): string | null {
+  if (!ip) return null
+  const v4 = ip.replace(/^::ffff:/, '')
+  if (/^\d+\.\d+\.\d+\.\d+$/.test(v4)) return v4.replace(/\.\d+$/, '.x')
+  const parts = ip.split(':').filter(Boolean)
+  return parts.length >= 3 ? `${parts.slice(0, 3).join(':')}::/48` : null
 }

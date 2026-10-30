@@ -1,20 +1,28 @@
-import { Role } from '@studenthub/shared-types'
+import { Role, isRestrictedRole } from '@studenthub/shared-types'
 import {
   Award,
   BarChart3,
+  BookDown,
   BookOpen,
+  BookUp,
+  BookmarkCheck,
   Building2,
   CalendarDays,
   CalendarRange,
+  Cctv,
   ClipboardCheck,
   ClipboardList,
+  DoorClosed,
   FileText,
   FolderLock,
   GraduationCap,
   LayoutDashboard,
+  Library,
   ListChecks,
   MessagesSquare,
   Newspaper,
+  ScanLine,
+  ScanQrCode,
   ScrollText,
   Send,
   ShieldAlert,
@@ -67,7 +75,6 @@ const STAROSTA: QuickAction[] = [
   ...STUDENT,
   { navKey: 'myGroup', href: '/starosta/group', icon: Users },
   { navKey: 'classmates', href: '/starosta/classmates', icon: GraduationCap },
-  { navKey: 'groupRequests', href: '/starosta/group-requests', icon: ClipboardList },
 ]
 
 const UNIVERSITY_ADMIN: QuickAction[] = [
@@ -116,6 +123,30 @@ const EMPLOYER: QuickAction[] = [
   { navKey: 'universityAccess', href: '/employer/access', icon: GraduationCap },
 ]
 
+// Охрана вуза: пост, сканер, проверка студенческого, помещения. «Документы» ей не
+// добавляются — хранилище участника вуза охране не нужно (см. quickActionsFor).
+const SECURITY_GUARD: QuickAction[] = [
+  { navKey: 'securityPost', href: '/security', icon: LayoutDashboard },
+  { navKey: 'cameras', href: '/security/cameras', icon: Cctv },
+  { navKey: 'scan', href: '/scan', icon: ScanQrCode },
+  { navKey: 'verifyId', href: '/verify-id', icon: ScanLine },
+  { navKey: 'securityRooms', href: '/security/rooms', icon: DoorClosed },
+]
+
+// Библиотекарь вуза: главная раздела и сканер для входа на компьютере. Каталог и выдачи
+// добавят задачи Фазы 20. «Документы» ему не добавляются — как и охране.
+const LIBRARIAN: QuickAction[] = [
+  { navKey: 'libraryHome', href: '/library', icon: Library },
+  { navKey: 'libraryIssue', href: '/library/issue', icon: BookUp },
+  { navKey: 'libraryReturn', href: '/library/return', icon: BookDown },
+  { navKey: 'libraryLoans', href: '/library/loans', icon: ListChecks },
+  { navKey: 'libraryReservations', href: '/library/reservations', icon: BookmarkCheck },
+  { navKey: 'libraryCatalog', href: '/library/catalog', icon: BookOpen },
+  { navKey: 'libraryInventory', href: '/library/inventory', icon: ClipboardCheck },
+  { navKey: 'libraryReports', href: '/library/reports', icon: BarChart3 },
+  { navKey: 'scan', href: '/scan', icon: ScanQrCode },
+]
+
 // Быстрые действия есть у КАЖДОЙ роли: пустая палитра при открытии — это экран
 // «введите запрос», на котором нечего выбрать, и первое, что видит администратор.
 const BY_ROLE: Record<Role, QuickAction[]> = {
@@ -128,11 +159,14 @@ const BY_ROLE: Record<Role, QuickAction[]> = {
   [Role.PLATFORM_ADMIN]: PLATFORM_ADMIN,
   [Role.PLATFORM_MODERATOR]: PLATFORM_MODERATOR,
   [Role.EMPLOYER]: EMPLOYER,
+  [Role.SECURITY_GUARD]: SECURITY_GUARD,
+  [Role.LIBRARIAN]: LIBRARIAN,
 }
 
 export function quickActionsFor(role: Role | null): QuickAction[] {
   if (!role) return []
-  // Работодателю общий раздел «Документы» не показываем: это хранилище участника вуза.
-  if (role === Role.EMPLOYER) return BY_ROLE[role]
+  // Работодателю, охране и библиотекарю общий раздел «Документы» не показываем: это
+  // хранилище участника вуза.
+  if (role === Role.EMPLOYER || isRestrictedRole(role)) return BY_ROLE[role]
   return [...BY_ROLE[role], DOCUMENTS]
 }

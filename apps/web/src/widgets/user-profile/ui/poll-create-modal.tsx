@@ -18,6 +18,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  toDateTimeLocal,
 } from '../../../shared/ui'
 import { localId, useErrorToast } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
@@ -49,7 +50,6 @@ export function PollCreateModal({ userId, initial, onClose }: Props) {
         ],
   )
   const [multiple, setMultiple] = useState(initial?.multiple ?? false)
-  const [anonymous, setAnonymous] = useState(initial?.anonymous ?? true)
   const [allowRevote, setAllowRevote] = useState(initial?.allowRevote ?? false)
   const [resultsVisibility, setResultsVisibility] = useState(
     initial?.resultsVisibility ?? 'AFTER_VOTE',
@@ -57,7 +57,8 @@ export function PollCreateModal({ userId, initial, onClose }: Props) {
   const [visibility, setVisibility] = useState(initial?.visibility ?? 'UNIVERSITY')
   const [closePreset, setClosePreset] = useState<ClosePreset>(initial?.closesAt ? 'custom' : 'none')
   const [customClose, setCustomClose] = useState(
-    initial?.closesAt ? initial.closesAt.slice(0, 16) : '',
+    // Поле показывает местное время, а сервер отдаёт UTC (см. toDateTimeLocal).
+    initial?.closesAt ? toDateTimeLocal(initial.closesAt) : '',
   )
   const [showSettings, setShowSettings] = useState(false)
 
@@ -67,7 +68,10 @@ export function PollCreateModal({ userId, initial, onClose }: Props) {
         question: question.trim(),
         options: options.map((o) => o.text.trim()).filter(Boolean),
         multiple,
-        anonymous,
+        // Голосование в опросах профиля всегда анонимно: списка проголосовавших нет ни у одного
+        // клиента, поэтому галочки в форме нет. Поле шлём явно (его требует тип входа схемы) и
+        // всегда true — «неанонимный» опрос обещал бы то, чего платформа не показывает.
+        anonymous: true,
         allowRevote,
         resultsVisibility: resultsVisibility as (typeof POLL_RESULTS_VISIBILITY)[number],
         visibility: visibility as (typeof CONTENT_VISIBILITY)[number],
@@ -196,10 +200,6 @@ export function PollCreateModal({ userId, initial, onClose }: Props) {
               </div>
             </div>
 
-            <label className="flex cursor-pointer items-center gap-2 text-sm">
-              <Checkbox checked={anonymous} onCheckedChange={(v) => setAnonymous(v === true)} />
-              {t('pollAnonymous')}
-            </label>
             <label className="flex cursor-pointer items-center gap-2 text-sm">
               <Checkbox checked={allowRevote} onCheckedChange={(v) => setAllowRevote(v === true)} />
               {t('pollAllowRevote')}

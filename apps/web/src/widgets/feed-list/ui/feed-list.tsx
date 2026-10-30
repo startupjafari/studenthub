@@ -49,7 +49,7 @@ export function FeedList({ filter = 'ALL' }: { filter?: FeedFilterValue }) {
     return (
       <div className="flex flex-col gap-4">
         {Array.from({ length: 3 }).map((_, i) => (
-          <Skeleton key={i} className="h-64 w-full rounded-2xl" />
+          <Skeleton key={i} fill className="min-h-64 rounded-2xl" />
         ))}
       </div>
     )

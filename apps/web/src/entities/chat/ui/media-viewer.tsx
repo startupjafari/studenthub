@@ -6,8 +6,8 @@ import { useLocale, useTranslations } from 'next-intl'
 import { Copy, Eye, Forward, ImageDown, MoreVertical, Trash2 } from 'lucide-react'
 import { MediaViewer as BaseMediaViewer, MenuSeparator } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
-import { useBodyScrollLock } from '../../../shared/lib'
-import { fetchAttachmentUrl } from '../api/chat-api'
+import { srcSetOf, useBodyScrollLock } from '../../../shared/lib'
+import { useAttachmentLinkSource } from './attachment-link-source'
 import type { MessageAttachment } from '../model/types'
 
 /** Ссылка на вложение живёт дольше показа: вернулись к тому же кадру — второй раз не просим. */
@@ -35,8 +35,8 @@ async function copyImageToClipboard(url: string): Promise<void> {
   await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })])
 }
 
-const attachmentKey = (fileId: string | undefined): (string | undefined)[] => [
-  'chat-attachment',
+const attachmentKey = (scope: string, fileId: string | undefined): (string | undefined)[] => [
+  scope,
   fileId,
 ]
 
@@ -83,10 +83,11 @@ export function MediaViewer({
   const cur = items[index]
 
   const qc = useQueryClient()
+  const source = useAttachmentLinkSource()
 
-  const { data: url } = useQuery({
-    queryKey: attachmentKey(cur?.id),
-    queryFn: () => fetchAttachmentUrl(cur?.id as string),
+  const { data: link } = useQuery({
+    queryKey: attachmentKey(source.scope, cur?.id),
+    queryFn: () => source.fetch(cur?.id as string),
     enabled: !!cur,
     staleTime: URL_STALE_MS,
     gcTime: URL_GC_MS,
@@ -108,22 +109,28 @@ export function MediaViewer({
     for (const it of around) {
       void qc
         .fetchQuery({
-          queryKey: attachmentKey(it.id),
-          queryFn: () => fetchAttachmentUrl(it.id),
+          queryKey: attachmentKey(source.scope, it.id),
+          queryFn: () => source.fetch(it.id),
           staleTime: URL_STALE_MS,
           gcTime: URL_GC_MS,
         })
         .then((next) => {
           // Видео целиком тянуть незачем — браузер возьмёт его потоком; греем только снимки.
           if (!next || !it.mime.startsWith('image/')) return
+          // Греем ту же копию, что выберет просмотрщик (srcset + sizes=100vw), а не оригинал.
           const img = new Image()
-          img.src = next
+          img.sizes = '100vw'
+          const srcset = srcSetOf(next.sources, { url: next.url, width: next.width })
+          if (srcset) img.srcset = srcset
+          img.src = next.url
         })
         .catch(() => undefined)
     }
-  }, [items, index, qc])
+  }, [items, index, qc, source])
 
   if (!cur) return null
+  // Оптимистичное вложение играет из локального файла; у отправленного — подписанная ссылка.
+  const url = cur.localUrl ?? link?.url
 
   const run =
     (fn?: () => void): (() => void) =>
@@ -238,6 +245,15 @@ export function MediaViewer({
       items={items.map((a) => ({ mime: a.mime, name: a.name }))}
       index={index}
       src={url}
+      // Заглушка из списка сообщений видна сразу, варианты и HLS — когда пришла ссылка.
+      media={{
+        placeholder: cur.placeholder,
+        width: link?.width ?? cur.width,
+        height: link?.height ?? cur.height,
+        sources: link?.sources,
+        poster: link?.poster,
+        hls: link?.hls,
+      }}
       onIndexChange={onIndexChange}
       onClose={onClose}
       topLeft={topLeft}

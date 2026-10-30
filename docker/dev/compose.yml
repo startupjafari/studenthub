@@ -1,0 +1,57 @@
+# StudentHub — инфраструктура для разработки: postgres, redis, minio, mailpit.
+# Запуск: pnpm infra:up (docker/README.md). Переменные — .env рядом (образец .env.example).
+# Порты — только на 127.0.0.1: база и хранилище стенда не должны слушать внешний интерфейс.
+
+name: studenthub
+
+x-dev-healthcheck: &dev-healthcheck
+  interval: 5s
+  start_period: 10s
+
+services:
+  postgres:
+    extends: { file: ../shared/infra.yml, service: postgres }
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      # Рядом с основной базой при первом старте создаётся studenthub_test.
+      - ./postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck: *dev-healthcheck
+
+  redis:
+    extends: { file: ../shared/infra.yml, service: redis }
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:${REDIS_PORT:-6379}:6379'
+    healthcheck:
+      <<: *dev-healthcheck
+      start_period: 5s
+
+  minio:
+    extends: { file: ../shared/infra.yml, service: minio }
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:${MINIO_PORT:-9000}:9000'
+      - '127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001' # веб-консоль
+    healthcheck: *dev-healthcheck
+
+  # Ловит все исходящие письма api и показывает их на http://localhost:8025 — наружу ничего
+  # не уходит. В apps/api/.env: SMTP_HOST=localhost, SMTP_PORT=1025.
+  mailpit:
+    image: axllent/mailpit:v1.31.4
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:${MAILPIT_SMTP_PORT:-1025}:1025' # SMTP
+      - '127.0.0.1:${MAILPIT_UI_PORT:-8025}:8025' # веб-интерфейс
+    healthcheck:
+      <<: *dev-healthcheck
+      test: ['CMD', 'wget', '-q', '-O', '-', 'http://localhost:8025/readyz']
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+volumes:
+  pg_data:
+  redis_data:
+  minio_data:

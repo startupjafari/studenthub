@@ -1,113 +1,20 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
-import { Inbox, Maximize2, RefreshCw } from 'lucide-react'
-import { Button, EmptyState, Modal, PageHeader, Skeleton } from '../../../shared/ui'
-import { cn } from '../../../shared/lib/utils'
-import { fetchMyStudentId, studentIdKeys } from '../../../entities/student-id'
-import { StudentIdCardFace } from './student-id-card'
+import { PageHeader } from '../../../shared/ui'
+import { StudentIdPanel } from '../../../features/show-student-id'
 
-// QR обновляется каждые 45с (динамический токен, TTL на бэке ~120с). Держим интервал в
-// диапазоне 30-60с из требований и заметно короче TTL, чтобы код не «истекал в руках».
-const REFRESH_SECONDS = 45
-
-// «Цифровой студенческий» (задача 20): карта студента + динамический QR для верификации.
+// Прямая ссылка на студенческий (`/student-id`): в меню пункта нет, карту открывают из
+// профиля, но адрес живёт — закладки и ярлыки на телефоне продолжают работать.
+// Плашка ошибки — единственное содержимое страницы, и колонка отдаёт ей всю высоту `main`;
+// карточке и скелету `flex-1` не нужен: в растянутой колонке они бы сжимались (§4).
 export function StudentIdView() {
   const t = useTranslations('StudentId')
 
-  const q = useQuery({
-    queryKey: studentIdKeys.mine(),
-    queryFn: () => fetchMyStudentId(),
-    // Тихо обновляем токен/QR (данные карты те же — без скелета, keepPreviousData по умолчанию
-    // для того же ключа: React Query отдаёт прежние данные, пока грузится новые).
-    refetchInterval: REFRESH_SECONDS * 1000,
-  })
-
-  // Плашка ошибки — единственное содержимое страницы, и колонка должна отдать ей всю
-  // высоту `main`. Карточке и скелету `flex-1` не нужен: у них своя высота, а в
-  // растянутой колонке они бы ещё и сжимались на низких экранах (§4).
-  const placeholder = !q.isLoading && (q.isError || !q.data)
-
   return (
-    <div className={cn('flex w-full flex-col gap-6', placeholder && 'min-h-0 flex-1')}>
+    <div className="flex w-full flex-col gap-6 has-[[data-empty-state]]:min-h-0 has-[[data-empty-state]]:flex-1">
       <PageHeader title={t('title')} subtitle={t('subtitle')} />
-
-      {q.isLoading ? (
-        <Skeleton className="h-96 w-full rounded-2xl lg:h-[26rem]" />
-      ) : q.isError || !q.data ? (
-        <EmptyState
-          icon={<Inbox />}
-          title={t('loadError')}
-          action={<Button onClick={() => q.refetch()}>{t('retry')}</Button>}
-        />
-      ) : (
-        <StudentIdCardFace
-          card={q.data}
-          footer={<QrPanel qr={q.data.qr} updatedAt={q.dataUpdatedAt} />}
-        />
-      )}
-    </div>
-  )
-}
-
-// Секунды до следующего обновления QR: считаем от момента последнего успешного refetch.
-function useCountdown(fromTs: number, seconds: number): number {
-  const [now, setNow] = useState(() => Date.now())
-  useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(id)
-  }, [])
-  return Math.max(0, seconds - Math.floor((now - fromTs) / 1000))
-}
-
-function QrPanel({ qr, updatedAt }: { qr: string; updatedAt: number }) {
-  const t = useTranslations('StudentId')
-  const [open, setOpen] = useState(false)
-  const remaining = useCountdown(updatedAt, REFRESH_SECONDS)
-
-  return (
-    <div className="relative z-30 flex flex-col items-center justify-center gap-2 border-t border-border p-5 lg:h-full lg:border-t-0 lg:border-l">
-      {/* QR крупный — его показывают с экрана телефона сотруднику; тап открывает
-          модалку на весь экран, когда света мало и камера не ловит. */}
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        aria-label={t('qrEnlarge')}
-        className="group relative rounded-xl outline-none focus-visible:ring-4 focus-visible:ring-ring/20"
-      >
-        <img
-          src={qr}
-          alt={t('qrAlt')}
-          width={288}
-          height={288}
-          className="aspect-square w-72 max-w-full rounded-xl border border-border bg-white p-3 transition group-hover:opacity-90"
-        />
-        <span className="absolute right-1.5 bottom-1.5 rounded-md bg-foreground/70 p-1 text-background">
-          <Maximize2 className="size-3.5" aria-hidden />
-        </span>
-      </button>
-
-      {/* Таймер до обновления QR. */}
-      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-        <RefreshCw className="size-3.5" aria-hidden />
-        {t('refreshIn', { s: remaining })}
-      </div>
-      <p className="text-center text-xs text-muted-foreground">{t('qrHint')}</p>
-
-      {open && (
-        <Modal onClose={() => setOpen(false)} title={t('qrTitle')} size="md">
-          <div className="flex flex-col items-center gap-3">
-            <img
-              src={qr}
-              alt={t('qrAlt')}
-              className="aspect-square w-full max-w-sm rounded-xl border border-border bg-white p-3"
-            />
-            <p className="text-center text-xs text-muted-foreground">{t('qrHint')}</p>
-          </div>
-        </Modal>
-      )}
+      <StudentIdPanel />
     </div>
   )
 }

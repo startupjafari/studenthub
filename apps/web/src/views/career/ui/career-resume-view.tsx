@@ -4,14 +4,22 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { Check, Copy, Download, Globe, Lock } from 'lucide-react'
+import { Check, Copy, Download, EyeOff, Globe, Lock } from 'lucide-react'
 import {
   downloadResumePdf,
   fetchResumeSettings,
   resumeKeys,
   updateResume,
 } from '../../../entities/resume'
-import { Button, Checkbox, Input, Label, PageHeader, PageLoader } from '../../../shared/ui'
+import {
+  Button,
+  Checkbox,
+  EmptyState,
+  Input,
+  Label,
+  PageHeader,
+  PageLoader,
+} from '../../../shared/ui'
 import { saveFile, toApiError } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 
@@ -24,6 +32,7 @@ import { cn } from '../../../shared/lib/utils'
  */
 export function CareerResumeView() {
   const t = useTranslations('Resume')
+  const tErr = useTranslations('Errors')
   const tCommon = useTranslations('Common')
   // Язык брендирования PDF (шапка, колонтитул, свойства файла) — эти строки переводит API.
   const locale = useLocale()
@@ -35,7 +44,7 @@ export function CareerResumeView() {
   const save = useMutation({
     mutationFn: updateResume,
     onSuccess: (updated) => queryClient.setQueryData(resumeKeys.mine(), updated),
-    onError: (error) => toast.error(toApiError(error).message),
+    onError: (error) => toast.error(tErr(toApiError(error).code)),
   })
 
   const download = useMutation({
@@ -57,9 +66,26 @@ export function CareerResumeView() {
     // Сохранение файла из памяти: эндпоинт требует токен, прямой ссылкой не обойтись.
     // Имя приходит от сервера вместе с файлом (см. shared/lib/download-file).
     onSuccess: saveFile,
-    onError: (error) => toast.error(toApiError(error).message),
+    onError: (error) => toast.error(tErr(toApiError(error).code)),
   })
 
+  // Сбой загрузки — ошибкой с повтором: без этой ветки экран навсегда оставался загрузкой.
+  if (settings.isError) {
+    return (
+      <div className="flex w-full flex-1 flex-col gap-4">
+        <PageHeader title={t('title')} />
+        <EmptyState
+          title={tErr(toApiError(settings.error).code)}
+          description={tErr('retryHint')}
+          action={
+            <Button variant="outline" onClick={() => void settings.refetch()}>
+              {tCommon('retry')}
+            </Button>
+          }
+        />
+      </div>
+    )
+  }
   if (settings.isLoading || !settings.data) return <PageLoader label={tCommon('loading')} />
 
   const data = settings.data
@@ -168,6 +194,12 @@ export function CareerResumeView() {
         )}
       </section>
 
+      {/* Видимость записей портфолио решает, что увидят по ссылке и работодатели: без
+          подсказки «Только я» и «Вуз» молча пропадали из резюме, и казалось, что оно сломано. */}
+      <p className="flex items-start gap-2 text-sm text-muted-foreground">
+        <EyeOff className="mt-0.5 size-4 shrink-0" aria-hidden />
+        <span>{t('portfolioVisibilityHint')}</span>
+      </p>
       <p className="text-sm text-muted-foreground">{t('sourceHint')}</p>
     </div>
   )

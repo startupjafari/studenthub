@@ -7,6 +7,7 @@ import Image from 'next/image'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useTranslations } from 'next-intl'
+import { Role, isRestrictedRole } from '@studenthub/shared-types'
 import {
   BarChart3,
   Camera,
@@ -38,6 +39,7 @@ import { BRAND_GRADIENT } from '../../../shared/config'
 import { useSheetDragClose } from '../../../shared/lib'
 import { syncSessionUser } from '../../../shared/session'
 import { AccountSettingsPanels } from '../../account-settings'
+import { StudentIdButton } from '../../../features/show-student-id'
 import { FILE_UPLOAD } from '@studenthub/shared-config'
 import {
   fetchMe,
@@ -48,7 +50,7 @@ import {
   uploadCoverRequest,
   userKeys,
 } from '../../../entities/user'
-import { visibleSections } from './sections'
+import { editableSections } from './sections'
 import { ProfileEditForm, PROFILE_EDIT_FORM_ID } from './profile-edit-form'
 import {
   ENTER,
@@ -59,6 +61,7 @@ import {
   initialsOf,
 } from './profile-content'
 import { ProfileTabs, type ProfileTabId } from './profile-tabs'
+import { useMediaQuota } from '../lib/media-quota'
 import { PostFromUrl } from '../../feed-list'
 import { ProfileCompletion } from './profile-completion'
 import { ShareProfileButton } from './share-profile-button'
@@ -103,6 +106,7 @@ export function UserProfile() {
   const qc = useQueryClient()
 
   const me = useQuery({ queryKey: userKeys.me(), queryFn: fetchMe })
+  const quota = useMediaQuota(me.data?.id ?? '')
   const [editing, setEditing] = useState(false)
   const [tab, setTab] = useState<ProfileTabId>('profile')
   const [createModal, setCreateModal] = useState<CreateKind | null>(null)
@@ -130,7 +134,8 @@ export function UserProfile() {
       const f = e.target.files?.[0]
       // Сброс — чтобы тот же файл можно было выбрать повторно после отмены.
       e.target.value = ''
-      if (!f) return
+      // Квота исчерпана — сразу тост, а не кадрирование и выбор обложки впустую.
+      if (!f || !quota.fits(f)) return
       setPickedFile(f)
       setCreateModal(kind)
     }
@@ -145,7 +150,7 @@ export function UserProfile() {
     onError: (e) => toast.error(tErr(errCode(e))),
   })
 
-  const editSections = useMemo(() => (me.data ? visibleSections(me.data.role) : []), [me.data])
+  const editSections = useMemo(() => (me.data ? editableSections(me.data.role) : []), [me.data])
 
   if (me.isLoading) return <ProfileSkeleton />
   if (me.isError || !me.data)
@@ -156,6 +161,9 @@ export function UserProfile() {
     )
 
   const u = me.data
+  // Охрана и библиотекарь: служебный профиль без постов и медиа (docs/PROJECT.md §2) —
+  // без вкладок контента, меню «+» и «Поделиться» (чатов у них тоже нет).
+  const social = !isRestrictedRole(u.role)
 
   return (
     // flex-1 — профиль занимает всю высоту страницы: пустая вкладка растягивает свою
@@ -167,10 +175,12 @@ export function UserProfile() {
         tab={tab}
         onTabChange={setTab}
         locked={editing}
+        content={social}
         settings={<AccountSettingsPanels />}
         stickyTop={
           <ProfileHeader
             me={u}
+            social={social}
             editing={editing}
             saving={updateMut.isPending}
             onToggleEdit={() => {
@@ -204,9 +214,11 @@ export function UserProfile() {
       </ProfileTabs>
 
       {/* `?post=` — свой пост, на который нажали в чате: сразу поверх профиля. */}
-      <Suspense fallback={null}>
-        <PostFromUrl onOpen={() => setTab('posts')} />
-      </Suspense>
+      {social && (
+        <Suspense fallback={null}>
+          <PostFromUrl onOpen={() => setTab('posts')} />
+        </Suspense>
+      )}
 
       {createModal === 'post' && <PostCreateModal onClose={() => setCreateModal(null)} />}
       <input
@@ -248,12 +260,14 @@ const COVER_WIDTH = 1500
 // ── Шапка своего профиля: обложка + аватар (со сменой фото) + действия ──────
 function ProfileHeader({
   me,
+  social,
   editing,
   saving,
   onToggleEdit,
   onQuickCreate,
 }: {
   me: MeResponse
+  social: boolean
   editing: boolean
   saving: boolean
   onToggleEdit: () => void
@@ -337,14 +351,20 @@ function ProfileHeader({
     <Card className={`relative overflow-hidden p-0 ${ENTER}`}>
       {/* Действия — над обложкой справа (Telegram/VK-стиль): поделиться + редактировать/сохранить. */}
       <div className="absolute top-3 right-3 z-20 flex items-center gap-2 sm:top-4 sm:right-4">
-        <ShareProfileButton userId={me.id} name={fullNameOf(me)} className="shadow-md" />
+        {/* Цифровой студенческий живёт в профиле, а не в меню: показывают его с телефона. */}
+        {!editing && (me.role === Role.STUDENT || me.role === Role.STAROSTA) && (
+          <StudentIdButton className="shadow-md" />
+        )}
+        {social && (
+          <ShareProfileButton userId={me.id} name={fullNameOf(me)} className="shadow-md" />
+        )}
         <Button
           type="button"
           variant={editing ? 'secondary' : 'default'}
           size="sm"
           onClick={onToggleEdit}
           aria-label={editing ? t('cancel') : t('editProfile')}
-          className="shadow-md transition-transform duration-300 ease-out hover:scale-[1.02] motion-reduce:transform-none"
+          className="shadow-md transition-transform duration-(--motion-control) hover:scale-[1.02] motion-reduce:transform-none"
         >
           {editing ? (
             <X className="size-4" aria-hidden />
@@ -360,7 +380,7 @@ function ProfileHeader({
             size="sm"
             loading={saving}
             aria-label={t('save')}
-            className="shadow-md transition-transform duration-300 ease-out hover:scale-[1.02] motion-reduce:transform-none"
+            className="shadow-md transition-transform duration-(--motion-control) hover:scale-[1.02] motion-reduce:transform-none"
           >
             <Check className="size-4" aria-hidden />
             <span className="hidden sm:inline">{t('save')}</span>
@@ -382,7 +402,7 @@ function ProfileHeader({
             onClick={() => coverRef.current?.click()}
             aria-label={me.coverUrl ? t('coverChange') : t('coverAdd')}
             disabled={uploadCoverMut.isPending}
-            className="flex items-center gap-1.5 rounded-lg bg-foreground/55 px-2.5 py-1.5 text-xs font-medium text-background opacity-0 shadow-md outline-none transition-opacity duration-300 ease-out hover:bg-foreground/70 focus-visible:opacity-100 group-hover/cover:opacity-100 disabled:opacity-60 motion-reduce:transition-none max-sm:opacity-100"
+            className="flex items-center gap-1.5 rounded-lg bg-foreground/55 px-2.5 py-1.5 text-xs font-medium text-background opacity-0 shadow-md outline-none transition-opacity duration-(--motion-micro) hover:bg-foreground/70 focus-visible:opacity-100 group-hover/cover:opacity-100 disabled:opacity-60 motion-reduce:transition-none max-sm:opacity-100"
           >
             <Camera className="size-4" aria-hidden />
             <span className="hidden sm:inline">
@@ -399,7 +419,7 @@ function ProfileHeader({
                   (ok) => ok && removeCoverMut.mutate(),
                 )
               }}
-              className="flex size-8 items-center justify-center rounded-lg bg-foreground/55 text-background opacity-0 shadow-md outline-none transition-opacity duration-300 ease-out hover:bg-destructive focus-visible:opacity-100 group-hover/cover:opacity-100 disabled:opacity-60 motion-reduce:transition-none max-sm:opacity-100"
+              className="flex size-8 items-center justify-center rounded-lg bg-foreground/55 text-background opacity-0 shadow-md outline-none transition-opacity duration-(--motion-micro) hover:bg-destructive focus-visible:opacity-100 group-hover/cover:opacity-100 disabled:opacity-60 motion-reduce:transition-none max-sm:opacity-100"
             >
               <Trash2 className="size-4" aria-hidden />
             </button>
@@ -436,7 +456,7 @@ function ProfileHeader({
               type="button"
               onClick={() => fileRef.current?.click()}
               aria-label={t('avatarChange')}
-              className="absolute inset-0 flex flex-col items-center justify-center gap-1 rounded-full bg-foreground/55 text-xs font-medium text-background opacity-0 outline-none transition-opacity duration-300 ease-out group-hover:opacity-100 focus-visible:opacity-100 motion-reduce:transition-none"
+              className="absolute inset-0 flex flex-col items-center justify-center gap-1 rounded-full bg-foreground/55 text-xs font-medium text-background opacity-0 outline-none transition-opacity duration-(--motion-micro) group-hover:opacity-100 focus-visible:opacity-100 motion-reduce:transition-none"
             >
               <Camera className="size-5" aria-hidden />
               {t('avatarChange')}
@@ -461,7 +481,7 @@ function ProfileHeader({
             </span>
           </div>
           {/* Меню «+» — внизу справа, вне group аватара (чтобы не триггерить оверлей) */}
-          <AvatarCreateMenu onSelect={onQuickCreate} />
+          {social && <AvatarCreateMenu onSelect={onQuickCreate} />}
           <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onPick} />
         </div>
 

@@ -1,6 +1,7 @@
 export {
   chatKeys,
   fetchChats,
+  fetchChatsHead,
   fetchChatsUnread,
   type ChatUnreadSummary,
   fetchSavedChat,
@@ -8,6 +9,8 @@ export {
   acceptChatRequestRequest,
   declineChatRequestRequest,
   joinChatRequest,
+  fetchChatInviteCode,
+  resetChatInviteCode,
   fetchMessages,
   sendMessageWithAttachments,
   sendMessageWithUploaded,
@@ -18,7 +21,7 @@ export {
   fetchPinned,
   pinMessageRequest,
   unpinMessageRequest,
-  fetchAttachmentUrl,
+  fetchAttachmentLink,
   toggleReactionRequest,
   forwardMessageRequest,
   sharePostRequest,
@@ -61,6 +64,7 @@ export {
   type ChatMediaPage,
   type ChatLinksPage,
 } from './api/chat-api'
+export { sendMessageWithDirectUpload, type DirectSendFields } from './api/send-direct'
 export {
   type ChatTypeValue,
   type ChatMessage,
@@ -84,6 +88,7 @@ export {
 export { MessageContent } from './ui/message-content'
 export { ChatPollView } from './ui/chat-poll'
 export { MessageAttachments } from './ui/message-attachments'
+export { AttachmentLinkProvider, type AttachmentLinkSource } from './ui/attachment-link-source'
 export { LinkPreviewCard } from './ui/link-preview-card'
 export { MediaViewer, type MediaViewerMeta, type MediaViewerActions } from './ui/media-viewer'
 export { VoiceWaveform } from './ui/voice-waveform'
@@ -98,6 +103,7 @@ export {
   MessageContextMenu,
   type MessageMenuActions,
   type MessageMenuAnchor,
+  type MessageMenuTarget,
 } from './ui/message-context-menu'
 export { useVoiceRecorder, type VoiceRecorderController } from './lib/use-voice-recorder'
 export { fileKind, type FileKind } from './lib/file-kind'
@@ -110,4 +116,5 @@ export {
 } from './lib/attachment-kind'
 export { compressImage, compressImages, convertUnsupportedImages } from './lib/compress-image'
 export { sortChats } from './lib/sort-chats'
-export { useChatsUnread } from './lib/use-chats-unread'
+export { useChatsUnread, scheduleChatsUnreadRefresh } from './lib/use-chats-unread'
+export { createRefreshCoalescer, type RefreshCoalescer } from './lib/refresh-coalescer'

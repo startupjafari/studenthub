@@ -14,6 +14,12 @@ export const Role = {
   // Работодатель (Ф18) — единственная роль вне вуза. В иерархию инвайтов не входит:
   // её не «выдают сверху вниз», компания регистрируется сама и получает допуск от вуза.
   EMPLOYER: 'EMPLOYER',
+  // Охрана одного вуза (docs/PROJECT.md §2): сканер QR, проверка студенческого, помещения,
+  // камеры. Остальное API закрыто ей списком разрешённых маршрутов, а не по сервисам.
+  SECURITY_GUARD: 'SECURITY_GUARD',
+  // Библиотекарь одного вуза (docs/PROJECT.md §2, Фаза 20): каталог, выдача и возврат
+  // книг. Закрыт так же, как охрана, — списком разрешённых маршрутов.
+  LIBRARIAN: 'LIBRARIAN',
 } as const
 
 export type Role = (typeof Role)[keyof typeof Role]
@@ -28,10 +34,51 @@ export const ROLE_HIERARCHY: readonly Role[] = [
   Role.TEACHER,
   Role.STAROSTA,
   Role.STUDENT,
+  // Охранник ниже студента. Место нужно правилу инвайтов «строго ниже своей роли»
+  // (выдаёт только админ вуза) и модерации: модератор вуза может заблокировать охранника.
+  // Студентам это ничего не открывает — модерация закрыта ролями отдельно.
+  Role.SECURITY_GUARD,
+  // Библиотекарь — там же и по той же причине. Друг над другом у охраны и библиотекаря
+  // власти нет: модерация им обоим закрыта списком разрешённых маршрутов.
+  Role.LIBRARIAN,
   // Работодатель стоит ниже всех: он не может пригласить никого и никем не приглашается
   // по обычной цепочке. Место в массиве нужно только чтобы indexOf возвращал число.
   Role.EMPLOYER,
 ]
+
+/**
+ * Роли с запретом по умолчанию (docs/PROJECT.md §2): им открыт только явный список
+ * маршрутов, а не всё, что открыто любому вошедшему. Сервер закрывает остальное `403`
+ * (`RestrictedRoleGuard`), веб не показывает и не запрашивает то, что им не положено:
+ * поиск по платформе, чаты, профиль, документы.
+ */
+export const RESTRICTED_ROLES: readonly Role[] = [Role.SECURITY_GUARD, Role.LIBRARIAN]
+
+/** true, если у роли запрет по умолчанию (`RESTRICTED_ROLES`). */
+export function isRestrictedRole(role: Role | null | undefined): boolean {
+  return role != null && RESTRICTED_ROLES.includes(role)
+}
+
+/**
+ * Роли, которым 2FA обязательна (docs/PROJECT.md §8.3 «Форс 2FA»): платформа, админ и
+ * модератор вуза, декан, охрана, библиотекарь. Скомпрометированный пароль такой учётки
+ * открывает чужие данные целого вуза или факультета. Сервер закрывает им API до настройки
+ * (`TwoFactorGuard`) и не даёт отключить 2FA; веб не показывает кнопку отключения.
+ */
+export const TWO_FACTOR_REQUIRED_ROLES: readonly Role[] = [
+  Role.PLATFORM_ADMIN,
+  Role.PLATFORM_MODERATOR,
+  Role.UNIVERSITY_ADMIN,
+  Role.UNIVERSITY_MODERATOR,
+  Role.DEAN,
+  Role.SECURITY_GUARD,
+  Role.LIBRARIAN,
+]
+
+/** true, если роли 2FA обязательна (`TWO_FACTOR_REQUIRED_ROLES`). */
+export function isTwoFactorRequired(role: Role | null | undefined): boolean {
+  return role != null && TWO_FACTOR_REQUIRED_ROLES.includes(role)
+}
 
 /** true, если роль `a` строго выше роли `b` в иерархии (для проверки выдачи инвайтов). */
 export function isHigherRole(a: Role, b: Role): boolean {

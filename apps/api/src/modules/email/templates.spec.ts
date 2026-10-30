@@ -1,12 +1,10 @@
 import {
-  renderApplicationStatus,
   renderDemoApproved,
   renderDemoRejected,
-  renderEventReminder,
   renderInvite,
   renderNotification,
-  renderScheduleChange,
-  renderWelcome,
+  renderPasswordReset,
+  renderTwoFactorReset,
 } from './templates'
 
 describe('email templates', () => {
@@ -36,60 +34,43 @@ describe('email templates', () => {
     expect(r.html).toContain('Вас пригласили')
   })
 
-  it('welcome: обращается по имени', () => {
-    const r = renderWelcome({ to: 'a@b.c', firstName: 'Алия' })
-    expect(r.subject).toContain('Добро пожаловать')
+  it('password-reset: ссылка, срок и что делать, если сброс просили не вы', () => {
+    const r = renderPasswordReset({
+      to: 'a@b.c',
+      firstName: 'Алия',
+      resetUrl: 'https://app/reset-password?token=xyz',
+      expiresAt: '14 октября 2026 г. в 13:00',
+    })
+    expect(r.subject).toContain('Сброс пароля')
+    expect(r.html).toContain('https://app/reset-password?token=xyz')
     expect(r.html).toContain('Алия')
-    expect(r.text).toContain('Алия')
+    expect(r.text).toContain('https://app/reset-password?token=xyz')
+    expect(r.text).toContain('14 октября 2026 г. в 13:00')
+    expect(r.text).toContain('проигнорируйте')
   })
 
-  it('application-status: показывает id, статус и комментарий', () => {
-    const r = renderApplicationStatus({
+  it('password-reset: имя экранируется в html', () => {
+    const r = renderPasswordReset({
       to: 'a@b.c',
-      firstName: 'Алия',
-      applicationId: 'APP-1',
-      statusLabel: 'Одобрена',
-      comment: 'Готово к выдаче',
+      firstName: '<b>x</b>',
+      resetUrl: 'https://app/x',
+      expiresAt: '-',
     })
-    expect(r.subject).toContain('APP-1')
-    expect(r.subject).toContain('Одобрена')
-    expect(r.html).toContain('APP-1')
-    expect(r.html).toContain('Готово к выдаче')
+    expect(r.html).not.toContain('<b>x</b>')
   })
 
-  it('application-status: без комментария не падает', () => {
-    const r = renderApplicationStatus({
-      to: 'a@b.c',
-      firstName: 'Алия',
-      applicationId: 'APP-2',
-      statusLabel: 'В обработке',
-    })
-    expect(r.html).toContain('APP-2')
-    expect(r.text).not.toContain('Комментарий')
+  it('two-factor-reset: по имени, без кнопки, с подсказкой на случай чужого сброса', () => {
+    const r = renderTwoFactorReset({ to: 'a@b.c', firstName: 'Алия' })
+    expect(r.subject).toContain('Двухфакторная')
+    expect(r.html).toContain('Алия')
+    // Кнопки-действия нет: письмо сообщает о свершившемся, а не зовёт куда-то нажать.
+    expect(r.html).not.toContain('Если кнопка не открывается')
+    expect(r.text).toContain('смените пароль')
   })
 
-  it('schedule-change: включает группу и описание', () => {
-    const r = renderScheduleChange({
-      to: 'a@b.c',
-      firstName: 'Алия',
-      groupName: 'ИТ-23-1',
-      summary: 'Пара по алгоритмам перенесена в ауд. 302',
-    })
-    expect(r.html).toContain('ИТ-23-1')
-    expect(r.html).toContain('ауд. 302')
-    expect(r.text).toContain('ИТ-23-1')
-  })
-
-  it('event-reminder: содержит название и время', () => {
-    const r = renderEventReminder({
-      to: 'a@b.c',
-      firstName: 'Алия',
-      eventTitle: 'День открытых дверей',
-      startsAtLabel: 'сегодня в 15:00',
-    })
-    expect(r.subject).toContain('День открытых дверей')
-    expect(r.html).toContain('сегодня в 15:00')
-    expect(r.text).toContain('День открытых дверей')
+  it('two-factor-reset: письмо на языке получателя', () => {
+    const r = renderTwoFactorReset({ to: 'a@b.c', firstName: 'Aliya', locale: 'en' })
+    expect(r.subject).toBe('Two-factor authentication turned off')
   })
 })
 

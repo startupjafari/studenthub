@@ -5,7 +5,7 @@ import type { ApiErrorBody, ApiErrorResponse, ApiMeta } from '@studenthub/shared
 export type ResponseWithMeta = AxiosResponse & { meta?: ApiMeta }
 import { store } from '../store/store'
 import { clearAuth, setAccessToken } from '../store/auth-slice'
-import { isRecoverableAuthError } from './auth-retry'
+import { isRecoverableAuthError, isSessionRefused, refreshRetryDelayMs } from './auth-retry'
 
 // Единственная точка входа для HTTP (docs/FRONTEND_RULES.md §5.1).
 export const api = axios.create({
@@ -28,6 +28,9 @@ api.interceptors.request.use((config) => {
   return config
 })
 
+// Ответа сервера нет (обрыв сети, CORS) — общий вид ошибки для UI.
+const NETWORK_ERROR: ApiErrorBody = { code: 'INTERNAL_ERROR', message: 'Ошибка сети' }
+
 // Дедупликация refresh: параллельные 401 ждут один общий промис (§5.3).
 //
 // Это ЕДИНСТВЕННАЯ точка обмена refresh-токена в приложении — восстановление сессии после
@@ -39,18 +42,74 @@ let refreshPromise: Promise<string> | null = null
 
 export async function refreshAccessToken(): Promise<string> {
   if (!refreshPromise) {
-    refreshPromise = refreshClient
-      .post<{ success: true; data: { accessToken: string } }>('/auth/refresh')
-      .then((res) => {
-        const token = res.data.data.accessToken
-        store.dispatch(setAccessToken(token))
-        return token
-      })
-      .finally(() => {
-        refreshPromise = null
-      })
+    // Повторы после 429 — внутри общего промиса: ждущие запросы получают один итог.
+    refreshPromise = withCrossTabRefreshLock(exchangeRefreshToken).finally(() => {
+      refreshPromise = null
+    })
   }
   return refreshPromise
+}
+
+// Межвкладочная очередь обмена (A-F30). Промис выше дедуплицирует обмен только внутри
+// вкладки, а cookie у вкладок общая: браузер, восстановив пять вкладок, слал пять обменов
+// одной cookie разом. Под Web Locks вкладки меняют её по очереди — каждая уже свежим
+// токеном соседки. Сервер такие гонки и сам сводит к одному преемнику, но очередь не
+// зависит от его кэша.
+const REFRESH_LOCK = 'sh-refresh'
+// Обмен с повторами после 429 укладывается в десяток секунд. Повисший запрос соседней
+// вкладки не должен держать остальные вечно: дольше этого ждём без очереди.
+const REFRESH_LOCK_WAIT_MS = 15_000
+
+async function withCrossTabRefreshLock<T>(exchange: () => Promise<T>): Promise<T> {
+  const locks = typeof navigator === 'undefined' ? undefined : navigator.locks
+  // Старый браузер без Web Locks или без таймаута ожидания — как раньше, без очереди.
+  if (!locks || typeof AbortSignal.timeout !== 'function') return exchange()
+  try {
+    return await locks.request(
+      REFRESH_LOCK,
+      { signal: AbortSignal.timeout(REFRESH_LOCK_WAIT_MS) },
+      exchange,
+    )
+  } catch (error) {
+    // Не дождались очереди — меняем сами: сессия важнее порядка.
+    if (error instanceof DOMException && error.name === 'TimeoutError') return exchange()
+    throw error
+  }
+}
+
+// Обмен refresh с повтором после 429 (правило выдержки — refreshRetryDelayMs в auth-retry.ts).
+async function exchangeRefreshToken(): Promise<string> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      const res = await refreshClient.post<{ success: true; data: { accessToken: string } }>(
+        '/auth/refresh',
+      )
+      const token = res.data.data.accessToken
+      // Cookie у вкладок общая: пока эта вкладка висела с прошлой сессией, в соседней мог
+      // войти другой человек, и обмен вернул ЕГО токен. Подложить его под открытый экран
+      // значило бы показывать чужие данные и действовать от чужого имени — сбрасываем
+      // сессию вкладки, а вход сам приведёт к тому, кто сейчас вошёл.
+      // Брошенная здесь ошибка не 429 — повторов не будет, она уходит вызывающему как есть.
+      const current = store.getState().auth.user?.id
+      const subject = tokenSubject(token)
+      if (current && subject && subject !== current) {
+        store.dispatch(clearAuth())
+        redirectToLogin()
+        throw new Error('Session belongs to another user')
+      }
+      store.dispatch(setAccessToken(token))
+      return token
+    } catch (error) {
+      const response = (error as AxiosError | undefined)?.response
+      const delay = refreshRetryDelayMs({
+        status: response?.status,
+        retryAfter: readHeader(response?.headers, 'retry-after'),
+        attempt,
+      })
+      if (delay === null) throw error
+      await new Promise((resolve) => setTimeout(resolve, delay))
+    }
+  }
 }
 
 api.interceptors.response.use(
@@ -64,6 +123,7 @@ api.interceptors.response.use(
     return response
   },
   async (error: AxiosError<ApiErrorResponse>): Promise<unknown> => {
+    await parseBlobError(error)
     const original = error.config as (InternalAxiosRequestConfig & { _retry?: boolean }) | undefined
     const code = error.response?.data?.error?.code
     // Восстановимый 401 → один refresh (с дедупликацией) и один повтор исходного запроса.
@@ -79,14 +139,23 @@ api.interceptors.response.use(
       })
     ) {
       original._retry = true
+      let token: string
       try {
-        const token = await refreshAccessToken()
-        original.headers.Authorization = `Bearer ${token}`
-        return api(original)
-      } catch {
+        token = await refreshAccessToken()
+      } catch (refreshError) {
+        const refresh = (refreshError as AxiosError<ApiErrorResponse> | undefined)?.response
+        // На вход ведём только по отказу сервера в сессии. 429 (кампус за одним адресом упёрся
+        // в лимит и повторы не помогли), 5xx, сеть — сессия жива: запрос падает этой ошибкой,
+        // следующий попробует обмен заново.
+        if (!isSessionRefused(refresh?.status)) {
+          return Promise.reject(refresh?.data?.error ?? NETWORK_ERROR)
+        }
         store.dispatch(clearAuth())
         redirectToLogin()
+        return Promise.reject(error.response?.data?.error ?? NETWORK_ERROR)
       }
+      original.headers.Authorization = `Bearer ${token}`
+      return api(original)
     }
 
     // Привилегированной роли форсим 2FA: любой не-exempt эндпоинт вернул 403 с этим кодом —
@@ -95,10 +164,55 @@ api.interceptors.response.use(
       redirectToSetup2fa()
     }
 
-    const fallback: ApiErrorBody = { code: 'INTERNAL_ERROR', message: 'Ошибка сети' }
-    return Promise.reject(error.response?.data?.error ?? fallback)
+    return Promise.reject(error.response?.data?.error ?? NETWORK_ERROR)
   },
 )
+
+/**
+ * Тело ошибки скачивания — Blob, а не JSON: запрос ушёл с `responseType: 'blob'`
+ * (shared/lib/download-file.ts), и axios отдаёт ответ сервера как есть. Без разбора `code`
+ * всегда undefined — 429, 400 и 403 показывались «Ошибкой сервера», а 401 `TOKEN_EXPIRED`
+ * не лечился refresh. Разбираем Blob как JSON до проверки кода (§8.2).
+ */
+async function parseBlobError(error: AxiosError<ApiErrorResponse>): Promise<void> {
+  const response = error.response
+  const data: unknown = response?.data
+  if (!response || typeof Blob === 'undefined' || !(data instanceof Blob)) return
+  try {
+    response.data = JSON.parse(await readBlobText(data)) as ApiErrorResponse
+  } catch {
+    // Не JSON (страница прокси, обрыв) — остаётся общий вид ошибки.
+  }
+}
+
+// FileReader, а не `blob.text()`: его умеют все браузеры и jsdom тестов.
+function readBlobText(blob: Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '')
+    reader.onerror = () => reject(reader.error ?? new Error('blob read failed'))
+    reader.readAsText(blob)
+  })
+}
+
+/** `sub` из полезной нагрузки JWT — без проверки подписи: это сверка, а не авторизация. */
+function tokenSubject(token: string): string | null {
+  try {
+    const payload = token.split('.')[1] ?? ''
+    const b64 = payload.replace(/-/g, '+').replace(/_/g, '/')
+    const padded = b64 + '='.repeat((4 - (b64.length % 4)) % 4)
+    const parsed = JSON.parse(atob(padded)) as { sub?: unknown }
+    return typeof parsed.sub === 'string' ? parsed.sub : null
+  } catch {
+    return null
+  }
+}
+
+function readHeader(headers: unknown, name: string): string | null {
+  if (!headers || typeof headers !== 'object') return null
+  const value = (headers as Record<string, unknown>)[name]
+  return typeof value === 'string' ? value : null
+}
 
 function isEnvelope(body: unknown): body is { success: true; data: unknown } {
   return typeof body === 'object' && body !== null && 'success' in body && 'data' in body

@@ -1,0 +1,72 @@
+name: Android
+
+# Устроен как ios.yml: прогон привязан к путям, чтобы правки бэкенда и веба его не
+# запускали, и проверяет PR в develop — иначе Kotlin впервые собирался бы уже после
+# вливания. Раннер обычный Linux: Android SDK в образе уже есть, недостающую платформу
+# AGP докачивает сам. Образ пришпилен, как во всех прогонах (см. ci.yml): `ubuntu-latest`
+# переезжает на новую Ubuntu молча.
+#
+# Каталог строк iOS — тоже в путях: шаг «Строки совпадают с каталогом iOS» сверяет с ним,
+# и правка одного каталога без перегенерации иначе всплывала бы только на следующей
+# правке Android.
+on:
+  push:
+    branches: [develop, main]
+    paths:
+      - 'apps/android/**'
+      - 'apps/ios/Resources/Localizable.xcstrings'
+      - '.github/workflows/android.yml'
+  pull_request:
+    branches: [develop, main]
+    paths:
+      - 'apps/android/**'
+      - 'apps/ios/Resources/Localizable.xcstrings'
+      - '.github/workflows/android.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: apps/android
+
+jobs:
+  build-and-test:
+    name: Сборка, тесты и lint
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Забрать код
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Поставить JDK 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # Кэш Gradle и проверка gradle-wrapper.jar по официальным контрольным суммам:
+      # подменённый jar исполнялся бы на раннере с правами сборки.
+      - name: Настроить Gradle
+        uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+
+      # Строки общие с iOS и генерируются из её каталога. Правка каталога без перегенерации
+      # — тихо разошедшиеся платформы; ловим здесь, а не на скриншоте.
+      - name: Строки совпадают с каталогом iOS
+        run: python3 scripts/import_ios_strings.py && git diff --exit-code -- app/src/main/res
+
+      - name: Сборка, unit-тесты и lint
+        run: ./gradlew assembleDebug testDebugUnitTest lintDebug
+
+      - name: Сохранить отчёты
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: android-reports
+          path: apps/android/app/build/reports

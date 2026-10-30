@@ -1,6 +1,7 @@
 import { getTranslations } from 'next-intl/server'
 import { PageHeader, SeasonGreeting } from '../../../shared/ui'
 import { FeedList } from '../../../widgets/feed-list'
+import { StoriesRail } from '../../../widgets/stories-rail'
 import { HomeSidebar } from './home-sidebar'
 
 // Главная лента студента (дашборд): лента + сайдбар (пары на сегодня, ближайшие события).
@@ -26,6 +27,9 @@ export async function HomeView() {
           уходит под ленту — на телефоне расписание и события читают после постов. */}
       <div className="mx-auto flex w-full max-w-xl flex-col gap-6 lg:max-w-[57.5rem] lg:flex-row lg:justify-center">
         <section className="flex w-full min-w-0 flex-1 flex-col gap-4 lg:max-w-xl">
+          {/* Кольца сторис стоят над лентой и сами решают, показываться ли:
+              раздел за флагом раскатки, а пустую полосу виджет не рисует. */}
+          <StoriesRail />
           <FeedList />
         </section>
 

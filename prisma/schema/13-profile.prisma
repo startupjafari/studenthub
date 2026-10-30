@@ -45,6 +45,7 @@ model ContentComment {
 
   @@index([articleId, createdAt])
   @@index([pollId, createdAt])
+  @@index([authorId])
   @@map("content_comments")
 }
 
@@ -60,6 +61,7 @@ model Bookmark {
 
   @@unique([userId, articleId])
   @@index([userId])
+  @@index([articleId])
   @@map("bookmarks")
 }
 
@@ -77,6 +79,7 @@ model Album {
   files File[] @relation("AlbumFiles")
 
   @@index([userId])
+  @@index([coverFileId])
   @@map("albums")
 }
 

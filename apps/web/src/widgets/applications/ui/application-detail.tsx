@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
@@ -12,14 +13,11 @@ import {
   resubmitApplicationRequest,
   fetchApplicationResultUrl,
   pickLocale,
-  type TimelineEvent,
+  type ApplicationDetail as ApplicationDetailData,
   type ApplicationDocumentItem,
   type ApplicationResultItem,
 } from '../../../entities/application-service'
-import {
-  STUDENT_CANCELLABLE_STATUSES,
-  type ApplicationServiceStatus,
-} from '@studenthub/shared-schemas'
+import { canTransition, type ApplicationServiceStatus } from '@studenthub/shared-schemas'
 import {
   Button,
   Card,
@@ -30,6 +28,10 @@ import {
   useConfirm,
 } from '../../../shared/ui'
 import { DocumentChecklist } from './document-checklist'
+import { FormAnswers } from './form-answers'
+import { CorrectionFormModal } from './correction-form-modal'
+import { useActionError } from '../lib/use-action-error'
+import { applicationRequirements, eventComment } from '../lib/requirement-titles'
 
 export function ApplicationDetail({
   id,
@@ -50,6 +52,9 @@ export function ApplicationDetail({
   const locale = useLocale()
   const qc = useQueryClient()
   const confirm = useConfirm()
+  const err = useActionError()
+  // Окно правки ответов анкеты (только в NEEDS_CORRECTION).
+  const [editingAnswers, setEditingAnswers] = useState(false)
 
   // placeholderData: при переключении заявок держим прошлую, пока грузится новая (без скелета).
   const q = useQuery({
@@ -64,7 +69,7 @@ export function ApplicationDetail({
       toast.success(t('cancelledToast'))
       onBack()
     },
-    onError: () => toast.error(t('loadError')),
+    onError: err,
   })
   // Оптимистично переводим бейдж в RESUBMITTED сразу по клику (SSOT: NEEDS_CORRECTION→RESUBMITTED),
   // сервер подтверждает в фоне; при ошибке — откат снимка.
@@ -79,9 +84,9 @@ export function ApplicationDetail({
       )
       return { prev }
     },
-    onError: (_e, _v, ctx) => {
+    onError: (e, _v, ctx) => {
       if (ctx?.prev !== undefined) qc.setQueryData(applicationKeys.detail(id), ctx.prev)
-      toast.error(t('loadError'))
+      err(e)
     },
     onSettled: () => {
       void qc.invalidateQueries({ queryKey: applicationKeys.all })
@@ -90,12 +95,15 @@ export function ApplicationDetail({
 
   const app = q.data
   const docs: ApplicationDocumentItem[] = app?.documents ?? []
+  const requirements = app ? applicationRequirements(app) : []
   const editableDocs = app?.status === 'NEEDS_CORRECTION'
   const replacementPending = docs.some((d) => d.status === 'REPLACEMENT_REQUIRED')
   const serviceName = app
     ? pickLocale(app.service as unknown as Record<string, unknown>, 'name', locale)
     : ''
-  const cancellable = app ? STUDENT_CANCELLABLE_STATUSES.includes(app.status) : false
+  // «Отозвать» — по тому же графу переходов, которым сервер проверяет отзыв (SSOT):
+  // отдельный список отзываемых статусов разошёлся с графом, и кнопка вела в отказ.
+  const cancellable = app ? canTransition(app.status, 'CANCELLED') : false
   const isDraft = app?.status === 'DRAFT'
 
   const body = (
@@ -103,7 +111,7 @@ export function ApplicationDetail({
       {q.isLoading ? (
         <div className="flex flex-col gap-4">
           <Skeleton className="h-28 w-full rounded-xl" />
-          <Skeleton className="h-56 w-full rounded-xl" />
+          <Skeleton fill className="min-h-56 rounded-xl" />
         </div>
       ) : q.isError || !app ? (
         <EmptyState
@@ -149,6 +157,20 @@ export function ApplicationDetail({
             )}
           </Card>
 
+          {/* Что студент указал в анкете: после отправки ответы иначе было негде увидеть.
+              В исправлении их можно поправить — сотрудник мог попросить уточнить поле. */}
+          <FormAnswers
+            fields={app.service.formFields ?? []}
+            formData={app.formData}
+            action={
+              editableDocs ? (
+                <Button variant="outline" size="sm" onClick={() => setEditingAnswers(true)}>
+                  {t('editAnswers')}
+                </Button>
+              ) : undefined
+            }
+          />
+
           {app.status === 'NEEDS_CORRECTION' && (
             <Card className="flex items-start gap-3 border-warning/40 bg-warning/5 p-4">
               <AlertTriangle className="mt-0.5 size-5 shrink-0 text-warning" aria-hidden />
@@ -170,29 +192,34 @@ export function ApplicationDetail({
           )}
 
           {(app.status === 'READY_FOR_PICKUP' || app.status === 'ISSUED') &&
-            (app.pickupLocation || app.pickupInstructions) && (
+            (app.pickupLocation ||
+              app.pickupInstructions ||
+              (app.status === 'READY_FOR_PICKUP' && app.pickupCode)) && (
               <Card className="flex flex-col gap-1.5 p-4">
                 <h3 className="text-sm font-semibold">{t('pickupTitle')}</h3>
                 {app.pickupLocation && <p className="text-sm">{app.pickupLocation}</p>}
                 {app.pickupInstructions && (
                   <p className="text-sm text-muted-foreground">{app.pickupInstructions}</p>
                 )}
+                {/* Код получения сверяют при выдаче оригинала. После выдачи он уже не нужен. */}
+                {app.status === 'READY_FOR_PICKUP' && app.pickupCode && (
+                  <div className="mt-1 flex flex-col gap-0.5">
+                    <span className="text-xs text-muted-foreground">{t('pickupCodeLabel')}</span>
+                    <span className="font-mono text-base font-semibold tracking-wider">
+                      {app.pickupCode}
+                    </span>
+                    <span className="text-xs text-muted-foreground">{t('pickupCodeHint')}</span>
+                  </div>
+                )}
               </Card>
             )}
 
-          {docs.length > 0 && (
+          {requirements.length > 0 && (
             <Card className="flex flex-col gap-3 p-4">
               <h3 className="text-sm font-semibold">{t('documentsTitle')}</h3>
               <DocumentChecklist
                 appId={app.id}
-                requirements={docs.map((d) => ({
-                  id: d.requirement.id,
-                  documentType: null,
-                  titleRu: d.requirement.titleRu,
-                  titleKk: d.requirement.titleKk,
-                  titleEn: d.requirement.titleEn,
-                  required: d.requirement.required,
-                }))}
+                requirements={requirements}
                 documents={docs}
                 editable={editableDocs}
                 locale={locale}
@@ -203,7 +230,7 @@ export function ApplicationDetail({
 
           <Card className="flex flex-col gap-3 p-4">
             <h3 className="text-sm font-semibold">{t('timelineTitle')}</h3>
-            <Timeline events={app.events} />
+            <Timeline app={app} />
           </Card>
           {/* Действия — под историей, в подвале окна: «Отозвать» слева, основное
               действие справа, как в диалогах с подтверждением. На телефоне столбиком,
@@ -250,11 +277,16 @@ export function ApplicationDetail({
     </>
   )
 
+  const correctionModal = editingAnswers && app && app.status === 'NEEDS_CORRECTION' && (
+    <CorrectionFormModal app={app} onClose={() => setEditingAnswers(false)} />
+  )
+
   // В окне заголовок и «назад» рисует сама оболочка окна — второй шапки внутри не нужно.
   if (asModal) {
     return (
       <Modal onClose={onBack} title={serviceName || t('title')} size="2xl">
         <div className="flex flex-col gap-4">{body}</div>
+        {correctionModal}
       </Modal>
     )
   }
@@ -263,6 +295,7 @@ export function ApplicationDetail({
     <div className="flex w-full flex-col gap-4">
       <PageHeader title={serviceName || t('title')} onBack={onBack} backLabel={t('backBtn')} />
       {body}
+      {correctionModal}
     </div>
   )
 }
@@ -272,10 +305,11 @@ export function ApplicationDetail({
 // вложением (`download`), а не открываем вкладкой: студенту нужен файл, а не просмотр.
 function ResultRow({ appId, result }: { appId: string; result: ApplicationResultItem }) {
   const t = useTranslations('Applications')
+  const err = useActionError()
   const downloadMut = useMutation({
     mutationFn: () => fetchApplicationResultUrl(appId, result.id, true),
     onSuccess: (url) => window.open(url, '_blank', 'noopener'),
-    onError: () => toast.error(t('loadError')),
+    onError: err,
   })
   return (
     <div className="flex items-center gap-2 text-sm">
@@ -286,6 +320,9 @@ function ResultRow({ appId, result }: { appId: string; result: ApplicationResult
           </span>
         )}
         {result.note && <p className="text-muted-foreground">{result.note}</p>}
+        {result.revoked && (
+          <span className="text-xs font-medium text-destructive">{t('resultRevoked')}</span>
+        )}
       </div>
       {result.documentId && (
         <Button
@@ -302,15 +339,16 @@ function ResultRow({ appId, result }: { appId: string; result: ApplicationResult
   )
 }
 
-function Timeline({ events }: { events: TimelineEvent[] }) {
+function Timeline({ app }: { app: ApplicationDetailData }) {
   const t = useTranslations('Applications')
   const locale = useLocale()
-  if (!events.length) return null
+  if (!app.events.length) return null
   return (
     <ol className="flex flex-col gap-4">
-      {events.map((e) => {
+      {app.events.map((e) => {
         const key = `event_${e.action}`
         const label = t.has(key) ? t(key) : e.toStatus ? t(`status2_${e.toStatus}`) : e.action
+        const comment = eventComment(e, app, locale)
         return (
           <li key={e.id} className="flex gap-3">
             <span className="mt-1 size-2 shrink-0 rounded-full bg-primary" aria-hidden />
@@ -319,9 +357,7 @@ function Timeline({ events }: { events: TimelineEvent[] }) {
               <span className="text-xs text-muted-foreground">
                 {new Date(e.createdAt).toLocaleString(locale)}
               </span>
-              {e.comment && (
-                <span className="mt-0.5 text-sm text-muted-foreground">{e.comment}</span>
-              )}
+              {comment && <span className="mt-0.5 text-sm text-muted-foreground">{comment}</span>}
             </div>
           </li>
         )

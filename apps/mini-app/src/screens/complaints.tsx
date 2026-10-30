@@ -5,6 +5,7 @@ import {
   takeComplaint,
   type Complaint,
   type ComplaintPriority,
+  type ComplaintStatus,
   type ComplaintTarget,
 } from '../api/complaints'
 import { ComplaintScreen } from './complaint'
@@ -75,7 +76,23 @@ const UNDO_MS = 4000
 
 type Tab = 'open' | 'done'
 
-type State = { status: 'loading' } | { status: 'ready'; items: Complaint[] } | { status: 'error' }
+// Что лежит во вкладке. В очереди — и взятые в разбор (REVIEWING): как OPEN_STATUSES на
+// сервере. Без них жалоба, взятая свайпом, пропадала с экрана, а решить её было негде.
+// В разобранных — и отклонённые (DISMISSED), а не только решённые с мерой.
+const TAB_STATUSES: Record<Tab, ComplaintStatus[]> = {
+  open: ['PENDING', 'REVIEWING'],
+  done: ['RESOLVED', 'DISMISSED'],
+}
+
+// Страница очереди и её потолок (AdminLimitSchema списка жалоб). Больше двухсот на статус
+// телефон не листает — об остатке говорит подпись «показаны N из M».
+const PAGE_SIZE = 30
+const MAX_PAGE_SIZE = 200
+
+type State =
+  | { status: 'loading' }
+  | { status: 'ready'; items: Complaint[]; total: number; truncated: boolean }
+  | { status: 'error' }
 
 /** `initialId` — жалоба из ссылки в уведомлении: открываем её сразу, минуя очередь. */
 export function ComplaintsScreen({ initialId }: { initialId?: string }) {
@@ -102,14 +119,32 @@ export function ComplaintsScreen({ initialId }: { initialId?: string }) {
   // исчезающие под пальцем фильтры хуже, чем фильтры над заглушкой.
   const [seen, setSeen] = useState(false)
 
+  // Сколько строк каждого статуса просить. Очередь больше страницы раньше молча обрезалась
+  // на тридцати, а счётчик на вкладке показывал полный размер — остальное было не найти.
+  const [limit, setLimit] = useState(PAGE_SIZE)
+  // «Показать ещё» дозагружает без скелетона: список не должен пропадать из-под пальца.
+  const quiet = useRef(false)
+
   const load = useCallback(async () => {
-    setState({ status: 'loading' })
+    if (!quiet.current) setState({ status: 'loading' })
+    quiet.current = false
     try {
-      const page = await fetchComplaints({
-        status: tab === 'open' ? 'PENDING' : 'RESOLVED',
-        ...(priority ? { priority } : {}),
+      // Список принимает один статус, а вкладка — два: каждый своим запросом.
+      const pages = await Promise.all(
+        TAB_STATUSES[tab].map((status) =>
+          fetchComplaints({ status, limit, ...(priority ? { priority } : {}) }),
+        ),
+      )
+      const items = pages.flatMap((page) => page.items)
+      // Очередь — в порядке сервера: сначала ничьи, потом взятые. Разобранные — по
+      // свежести, иначе отклонённые шли бы отдельным хвостом после всех решённых.
+      if (tab === 'done') items.sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      setState({
+        status: 'ready',
+        items,
+        total: pages.reduce((sum, page) => sum + page.total, 0),
+        truncated: pages.some((page) => page.items.length < page.total),
       })
-      setState({ status: 'ready', items: page.items })
       setSeen(true)
       // Скрытой остаётся только та, чьё решение ещё ждёт отправки: остальные либо уже
       // ушли из очереди на сервере, либо вернулись по отмене.
@@ -118,11 +153,26 @@ export function ComplaintsScreen({ initialId }: { initialId?: string }) {
       setState({ status: 'error' })
       setSeen(true)
     }
-  }, [tab, priority])
+  }, [tab, priority, limit])
 
   useEffect(() => {
     void load()
   }, [load])
+
+  // Другая вкладка или фильтр — снова с первой страницы.
+  const selectTab = (next: Tab): void => {
+    setLimit(PAGE_SIZE)
+    setTab(next)
+  }
+  const selectPriority = (next: ComplaintPriority | null): void => {
+    setLimit(PAGE_SIZE)
+    setPriority(next)
+  }
+  const showMore = (): void => {
+    haptic.tap()
+    quiet.current = true
+    setLimit((current) => Math.min(current + PAGE_SIZE, MAX_PAGE_SIZE))
+  }
 
   const restore = useCallback((id: string) => {
     setHidden((prev) => {
@@ -274,7 +324,7 @@ export function ComplaintsScreen({ initialId }: { initialId?: string }) {
               { id: 'done', label: t('complaintsTabDone') },
             ]}
             active={tab}
-            onSelect={setTab}
+            onSelect={selectTab}
           />
         }
       />
@@ -287,7 +337,7 @@ export function ComplaintsScreen({ initialId }: { initialId?: string }) {
             aria-pressed={priority === null}
             onClick={() => {
               haptic.select()
-              if (priority !== null) navigate(() => setPriority(null), 'fade')
+              if (priority !== null) navigate(() => selectPriority(null), 'fade')
             }}
           >
             {t('complaintsFilterAll')}
@@ -300,7 +350,7 @@ export function ComplaintsScreen({ initialId }: { initialId?: string }) {
               aria-pressed={priority === value}
               onClick={() => {
                 haptic.select()
-                if (priority !== value) navigate(() => setPriority(value), 'fade')
+                if (priority !== value) navigate(() => selectPriority(value), 'fade')
               }}
             >
               {t(PRIORITY_KEY[value])}
@@ -326,6 +376,19 @@ export function ComplaintsScreen({ initialId }: { initialId?: string }) {
           // Разобранные свайпами не решают: решение там уже принято.
           swipes={tab === 'open' ? { dismiss: dismissBySwipe, take: takeBySwipe } : undefined}
         />
+      )}
+
+      {state.status === 'ready' && state.truncated && (
+        <section className="card">
+          <p className="hint">
+            {t('complaintsShownOf', { shown: state.items.length, total: state.total })}
+          </p>
+          {limit < MAX_PAGE_SIZE && (
+            <button type="button" className="fallback-submit plain" onClick={showMore}>
+              {t('complaintsShowMore')}
+            </button>
+          )}
+        </section>
       )}
 
       {toast && (
@@ -359,8 +422,10 @@ function ComplaintList({
 
   return (
     <>
-      {groups.map((group) => (
-        <section className="list" key={group.label}>
+      {groups.map((group, index) => (
+        // Индекс в ключе: порядок задаёт сервер (статус, приоритет), и один и тот же день
+        // может встретиться группой дважды.
+        <section className="list" key={`${index}-${group.label}`}>
           <p className="list-day">{group.label}</p>
           {group.items.map((complaint) => (
             <SwipeRow

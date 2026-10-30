@@ -1,8 +1,9 @@
 import { SubscribeMessage, WebSocketGateway, WebSocketServer } from '@nestjs/websockets'
 import { ConnectedSocket, MessageBody } from '@nestjs/websockets'
 import type { Server, Socket } from 'socket.io'
+import { parseCorsOrigins } from '../../config/web-base'
 
-const WS_CORS_ORIGIN = (process.env.CORS_ORIGIN ?? 'http://localhost:3000').split(',')
+const WS_CORS_ORIGIN = parseCorsOrigins(process.env.CORS_ORIGIN ?? 'http://localhost:3000')
 
 // Отдельный namespace для входа по QR: подключение БЕЗ токена (десктоп ещё не авторизован).
 // Изолирован от основного '/' (там handshake требует JWT). Десктоп подписывается на комнату

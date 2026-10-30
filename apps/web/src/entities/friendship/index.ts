@@ -2,6 +2,8 @@ export {
   friendKeys,
   fetchFriends,
   fetchFriendRequests,
+  fetchFriendsPage,
+  fetchFriendRequestsPage,
   fetchFriendCount,
   fetchFriendshipStatus,
   sendFriendRequest,
@@ -12,6 +14,7 @@ export {
   type FriendRequestItem,
   type FriendCount,
   type FriendshipStatusResult,
+  type FriendsPage,
   type RequestDirection,
 } from './api/friendship-api'
 export { FriendCard } from './ui/friend-card'

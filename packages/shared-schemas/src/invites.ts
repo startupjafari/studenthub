@@ -12,18 +12,31 @@ export const INVITE_SORT_FIELDS = ['role', 'email', 'status', 'expiresAt', 'crea
 export const InviteSortSchema = z.enum(INVITE_SORT_FIELDS)
 export type InviteSortValue = z.infer<typeof InviteSortSchema>
 
+// Чьи приглашения в списке: свои (по умолчанию, как раньше) или все приглашения своего вуза.
+// Второе — только админу вуза: он вправе отозвать инвайт любого сотрудника вуза
+// (InviteService.revoke), но найти инвайт декана в «своём» списке не мог.
+export const INVITE_LIST_SCOPES = ['mine', 'university'] as const
+export const InviteListScopeSchema = z.enum(INVITE_LIST_SCOPES)
+export type InviteListScopeValue = z.infer<typeof InviteListScopeSchema>
+
 // Список выданных приглашений: offset-пагинация + сортировка по всей выборке.
 // Раньше эндпоинт принимал только page/limit, и таблица сортировала открытую страницу.
 export const InviteListQuerySchema = OffsetPaginationSchema.extend({
   sort: InviteSortSchema.optional(),
   order: SortOrderSchema.optional(),
+  scope: InviteListScopeSchema.optional(),
 })
 export type InviteListQueryInput = z.infer<typeof InviteListQuerySchema>
+
+// Адрес приглашения приводится к нижнему регистру: email на платформе сравнивается без учёта
+// регистра (вход, «Забыли пароль», проверка дублей), и «Ivanov@Uni.kz» из таблицы деканата
+// иначе давал вторую учётку того же человека.
+const InviteEmailSchema = z.string().trim().toLowerCase().email()
 
 export const CreateInviteSchema = z
   .object({
     role: RoleSchema,
-    email: z.string().email().optional(),
+    email: InviteEmailSchema.optional(),
     universityId: z.string().min(1).optional(),
     facultyId: z.string().min(1).optional(),
     groupId: z.string().min(1).optional(),
@@ -51,6 +64,9 @@ export const BulkInvitePreviewRowSchema = z.object({
   groupName: z.string(),
   role: RoleSchema,
   groupId: z.string().nullable(),
+  // Факультет из файла: обязателен для декана, по желанию у преподавателя.
+  facultyName: z.string(),
+  facultyId: z.string().nullable(),
   status: BulkInviteRowStatusSchema,
   error: z.string().nullable(),
 })
@@ -67,11 +83,14 @@ export const BulkInvitePreviewResponseSchema = z.object({
 })
 export type BulkInvitePreviewResponse = z.infer<typeof BulkInvitePreviewResponseSchema>
 
-// Подтверждение импорта: только валидные строки (groupId уже разрешён на preview).
+// Подтверждение импорта: только валидные строки (groupId/facultyId уже разрешены на preview,
+// сервер всё равно перепроверяет их по scope создателя). Группа нужна студентам и старостам,
+// факультет — деканам; у преподавателя обязательного нет.
 export const BulkInviteCommitRowSchema = z
   .object({
-    email: z.string().email(),
-    groupId: z.string().min(1),
+    email: InviteEmailSchema,
+    groupId: z.string().min(1).nullish(),
+    facultyId: z.string().min(1).nullish(),
     role: RoleSchema.optional(),
   })
   .strict()

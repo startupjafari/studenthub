@@ -141,7 +141,10 @@ async function main() {
   console.log(`Вход выполнен: ${identifier}`)
   console.log(`API: ${API} · прогревов ${WARMUP} · замеров ${ROUNDS}\n`)
 
-  // Три места, где запрос идёт по самым крупным таблицам, плюс агрегат главного экрана.
+  // Места, где запрос идёт по самым крупным таблицам, плюс агрегаты главного экрана.
+  // Сторисы и выгрузка данных добавлены в прогон Ф13.6: первые читают таблицу со своим
+  // сроком жизни, вторая делает два десятка запросов за один HTTP — ровно те две формы,
+  // которые на маленькой базе выглядят одинаково быстро.
   const cases = [
     ['Лента', '/posts?limit=20'],
     ['Лента, вторая страница', '/posts?limit=20&offset=20'],
@@ -151,6 +154,27 @@ async function main() {
     ['Расписание', '/schedules'],
     ['Сегодня (агрегат)', '/me/today'],
     ['Активность', '/me/activity?limit=20'],
+    ['Сторисы (кольца)', '/stories'],
+    ['События', '/events?limit=20'],
+    ['Документы', '/documents'],
+    ['Выгрузка моих данных', '/me/export'],
+  ]
+
+  const staffLogin = process.env.PERF_STAFF_LOGIN
+  const staffToken = staffLogin
+    ? await login(staffLogin, process.env.PERF_STAFF_PASSWORD ?? password)
+    : null
+  if (staffToken) console.log(`Вход сотрудника: ${staffLogin}`)
+
+  // Аналитика декана: агрегаты по посещаемости и оценкам всего факультета. Меряются
+  // отдельным набором, потому что студенту эти эндпоинты закрыты правами.
+  const staffCases = [
+    ['Аналитика факультета', '/analytics/faculty'],
+    ['Группа риска', '/analytics/at-risk'],
+    ['Посещаемость: тренд', '/analytics/university/attendance-trend'],
+    ['Посещаемость: разрез', '/analytics/university/attendance-breakdown'],
+    ['Загрузка помещений', '/analytics/university/room-load'],
+    ['Результаты экзаменов', '/analytics/university/exam-results'],
   ]
 
   const rows = []
@@ -161,6 +185,17 @@ async function main() {
     console.log(
       row.error ? `HTTP ${row.status}` : `${row.p50.toFixed(0)} / ${row.p95.toFixed(0)} мс`,
     )
+  }
+
+  if (staffToken) {
+    for (const [name, path] of staffCases) {
+      process.stdout.write(`  ${name}… `)
+      const row = await measure(name, path, staffToken)
+      rows.push(row)
+      console.log(
+        row.error ? `HTTP ${row.status}` : `${row.p50.toFixed(0)} / ${row.p95.toFixed(0)} мс`,
+      )
+    }
   }
 
   console.log('\n| Экран | Путь | p50 | p95 | макс | запросов в БД | ответ |')

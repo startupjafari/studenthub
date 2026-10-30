@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, Patch, Post, Query, Req } from '@nestjs/c
 import { Throttle } from '@nestjs/throttler'
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger'
 import { Role } from '@studenthub/shared-types'
+import { COMPLAINT_REPORTER_ROLES } from '@studenthub/shared-schemas'
 import type { FastifyRequest } from 'fastify'
 import { Roles } from '../../common/decorators/roles.decorator'
 import { MiniAllowed } from '../../common/decorators/mini-allowed.decorator'
@@ -23,6 +24,13 @@ const MODERATOR_ROLES = [
   Role.UNIVERSITY_MODERATOR,
 ] as const
 
+// «Личные чаты: ⚠️ по жалобе» в матрице §2.2. Админ вуза там «⚠️ официальные».
+const CHAT_BY_COMPLAINT_ROLES = [
+  Role.PLATFORM_ADMIN,
+  Role.PLATFORM_MODERATOR,
+  Role.UNIVERSITY_MODERATOR,
+] as const
+
 @ApiTags('Жалобы')
 @ApiBearerAuth()
 @Controller('complaints')
@@ -30,11 +38,13 @@ export class ComplaintsController {
   constructor(private readonly complaints: ComplaintsService) {}
 
   @Post()
-  @Roles(Role.STUDENT, Role.STAROSTA, Role.TEACHER)
+  // Тот же список, по которому клиенты показывают «Пожаловаться» (shared-schemas).
+  @Roles(...COMPLAINT_REPORTER_ROLES)
   @Throttle({ default: { limit: 10, ttl: 60 * 60_000 } }) // §6.3: 10 / час с пользователя
   @ApiOperation({ summary: 'Подать жалобу на пост/комментарий/сообщение/пользователя' })
   @ApiResponse({ status: 201, description: 'Жалоба создана' })
   @ApiResponse({ status: 404, description: 'NOT_FOUND — цель не найдена' })
+  @ApiResponse({ status: 409, description: 'CONFLICT — ваша жалоба на эту цель уже в очереди' })
   @ApiResponse({ status: 429, description: 'RATE_LIMIT' })
   create(
     @CurrentUser() user: CurrentUserData,
@@ -58,6 +68,10 @@ export class ComplaintsController {
   @ApiResponse({ status: 201, description: 'Жалоба создана' })
   @ApiResponse({ status: 400, description: 'BAD_REQUEST — у обращения нет автора' })
   @ApiResponse({ status: 404, description: 'NOT_FOUND — обращение или человек не найдены' })
+  @ApiResponse({
+    status: 409,
+    description: 'CONFLICT — жалоба автора на этого человека уже в очереди',
+  })
   fromSupport(
     @CurrentUser() user: CurrentUserData,
     @Body() dto: ComplaintFromSupportDto,
@@ -86,11 +100,14 @@ export class ComplaintsController {
   }
 
   @Get(':id/messages')
-  @Roles(...MODERATOR_ROLES)
+  // Без админа вуза: по матрице (§2.2) ему открыты только официальные чаты, а личную
+  // переписку по жалобе читают модераторы — вуза и платформы — и админ платформы.
+  @Roles(...CHAT_BY_COMPLAINT_ROLES)
   @MiniAllowed()
   @ApiOperation({ summary: 'Сообщения чата по жалобе (доступ только по жалобе, пишется в аудит)' })
   @ApiResponse({ status: 200, description: 'Сообщения чата' })
   @ApiResponse({ status: 400, description: 'BAD_REQUEST — жалоба не на сообщение' })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN — админ вуза (только официальные чаты)' })
   messages(
     @CurrentUser() user: CurrentUserData,
     @Param('id') id: string,
@@ -124,8 +141,8 @@ export class ComplaintsController {
   @MiniAllowed()
   @ApiOperation({ summary: 'Взять жалобу в разбор (квитирование; перехватить чужую нельзя)' })
   @ApiResponse({ status: 409, description: 'CONFLICT — уже разбирают или уже разобрана' })
-  take(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
-    return this.complaints.take(user, id)
+  take(@CurrentUser() user: CurrentUserData, @Param('id') id: string, @Req() req: FastifyRequest) {
+    return this.complaints.take(user, id, this.ctx(req))
   }
 
   @Patch(':id/reopen')

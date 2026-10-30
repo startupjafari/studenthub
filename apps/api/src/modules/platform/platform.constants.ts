@@ -21,15 +21,46 @@ export const PLATFORM_STATE = Symbol('PLATFORM_STATE')
 export const PLATFORM_STATE_ID = 'singleton'
 export const PLATFORM_STATE_CACHE_KEY = 'platform:state'
 
+/**
+ * Часовой пояс команды платформы: по нему считаются тихие часы, час суточной сводки и
+ * понедельничная смена дежурства. Процесс API живёт в UTC (в образе нет `TZ`), и
+ * `getHours()` сервера превращал «тишину с 22 до 8» в тишину с 03:00 до 13:00 по
+ * Алматы — ночью будил, а утром глушил.
+ *
+ * Константа, а не поле `PlatformState`: команда платформы одна и сидит в одном поясе, а
+ * настройка без экрана для неё была бы ещё одним местом, где можно ошибиться. Подписи в
+ * мини-аппе называют тот же пояс (`notifTimeZone`) — меняется одно, меняй и другое.
+ */
+export const PLATFORM_TIME_ZONE = 'Asia/Almaty'
+
+/**
+ * Пояс PLATFORM_TIME_ZONE словами — для ответов бота. Без него «Сводка приходит в 9:00»
+ * читается по часам того, кто спросил, а команда бывает в разъездах. Меняется вместе с
+ * PLATFORM_TIME_ZONE и подписью `notifTimeZone` мини-аппа.
+ */
+export const PLATFORM_TIME_ZONE_LABEL = 'по времени Алматы (UTC+5)'
+
+/**
+ * Попадает ли час (0–23 по поясу платформы) в окно тишины. Окно задают как «с 22 до 8», то
+ * есть через полночь — поэтому сравнение не «между», а «вне диапазона» при from > to.
+ * `from === to` — тишина круглые сутки; любое null — тишины нет. Здесь, а не в рассылке:
+ * тем же правилом настройки уведомлений проверяют час сводки, а бот — его подпись.
+ */
+export function isQuietHour(from: number | null, to: number | null, hour: number): boolean {
+  if (from === null || to === null) return false
+  if (from === to) return true
+  return from < to ? hour >= from && hour < to : hour >= from || hour < to
+}
+
 export interface NotificationPolicy {
-  /** Часы тишины по времени сервера; null — тишины нет. */
+  /** Часы тишины по времени платформы (PLATFORM_TIME_ZONE); null — тишины нет. */
   quietFrom: number | null
   quietTo: number | null
   /** Виды уведомлений, которые не слать. */
   muted: string[]
   /** Дежурный: когда задан, уведомления уходят только ему. */
   dutyUserId: string | null
-  /** Час ежедневной сводки по времени сервера; null — сводку не слать. */
+  /** Час ежедневной сводки по времени платформы (PLATFORM_TIME_ZONE); null — не слать. */
   digestHour: number | null
 }
 
@@ -43,6 +74,11 @@ export interface PlatformStateReader {
    * `/duty`, чтобы ответить «кто разбирает сейчас и кто следующий», не открывая веб.
    */
   duty(): Promise<{ dutyUserId: string | null; rotation: string[] }>
+  /**
+   * Кому крон передаст дежурство (с пропуском недоступных), или null — смены не будет.
+   * Чтение: `/duty` называет следующим ровно того, кого выберет `rotateDuty`.
+   */
+  nextOnDuty(): Promise<string | null>
   /**
    * Передать дежурство следующему в очереди; отвечает id нового дежурного или null.
    *

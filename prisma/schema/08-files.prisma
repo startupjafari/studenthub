@@ -4,52 +4,77 @@
 // Бакеты и политики создаются на старте (MinioBucketsService).
 
 model File {
-  id         String   @id @default(uuid())
+  id             String      @id @default(uuid())
   // Имя бакета MinIO (avatars / posts-media / stories-media / applications).
-  bucket     String
+  bucket         String
   // Ключ объекта внутри бакета. На один ключ может ссылаться несколько записей (см. индекс ниже).
-  key        String
+  key            String
   // MIME, определённый по содержимому (magic bytes), не по расширению.
-  mime       String
+  mime           String
   // Размер в байтах (лимиты: изображения 10 МБ, видео 100 МБ, документы 25 МБ).
-  size       Int
+  size           Int
   // Оригинальное имя файла при загрузке (Ф9+): для отображения в чате как в Telegram. NULL у старых.
-  name       String?
-  ownerId    String   @map("owner_id")
+  name           String?
+  ownerId        String      @map("owner_id")
   // Медиа/файл поста (Ф8): NULL для файлов вне постов.
-  postId     String?  @map("post_id")
+  postId         String?     @map("post_id")
   // Вложение сообщения чата (Ф9).
-  messageId  String?  @map("message_id")
+  messageId      String?     @map("message_id")
   // Файл учебного материала (Ф12 teacher/materials).
-  materialId String?  @map("material_id")
+  materialId     String?     @map("material_id")
   // Альбом фото профиля (Ф-albums): NULL — медиа без альбома.
-  albumId    String?  @map("album_id")
+  albumId        String?     @map("album_id")
   // Документ (Ф15): NULL для файлов вне документов. order — порядок страниц (лицо/оборот и т.д.).
-  documentId String?  @map("document_id")
-  order      Int?
+  documentId     String?     @map("document_id")
+  order          Int?
+  // Вложение сдачи задания (аудит C-F06): файл работы студента. NULL — файл вне сдач.
+  submissionId   String?     @map("submission_id")
+  // Вложение комментария к событию (фото, видео, файл, голосовое). Лежит в бакете постов.
+  eventCommentId String?     @map("event_comment_id")
   // Обложка видео профиля: ключ объекта-постера в бакете profile-covers. NULL — нет/это фото.
-  posterKey  String?  @map("poster_key")
+  posterKey      String?     @map("poster_key")
   // Спойлер (§34): медиа показывается размытым до клика (для вложений сообщений чата).
-  spoiler    Boolean  @default(false)
+  spoiler        Boolean     @default(false)
   // Отправлено «без сжатия» (§9): снимок показывается строкой файла, а не превью, даже когда
   // mime — картинка. Флаг отправителя, а не свойство байтов: то же изображение можно послать
   // и превью, и документом, и получатель обязан увидеть ровно то, что выбрали при отправке.
-  asDocument Boolean  @default(false) @map("as_document")
+  asDocument     Boolean     @default(false) @map("as_document")
   // Размеры изображения в пикселях: клиент резервирует под снимок точное место и показывает
   // скелетон нужной формы, пока идут байты. NULL — не изображение, размеры не определились
   // или файл загружен до появления полей.
-  width      Int?
-  height     Int?
-  createdAt  DateTime @default(now()) @map("created_at")
+  width          Int?
+  height         Int?
+  // Единая медиа-система: статус подготовки вариантов (см. FileVariant). Варианты лежат в том
+  // же бакете под префиксом `variants/<id>/` — права доступа у них те же, что у оригинала.
+  mediaStatus    MediaStatus @default(NONE) @map("media_status")
+  // LQIP: крошечная WebP-копия (≈16px) data-URI, несколько сотен байт. Приходит прямо в
+  // списках, поэтому клиент рисует размытый силуэт до первого запроса за байтами.
+  placeholder    String?     @db.Text
+  // Длительность видео/аудио в миллисекундах (ffprobe). NULL — не измерялась.
+  durationMs     Int?        @map("duration_ms")
+  processedAt    DateTime?   @map("processed_at")
+  createdAt      DateTime    @default(now()) @map("created_at")
 
-  owner         User      @relation(fields: [ownerId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  post          Post?     @relation(fields: [postId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  message       Message?  @relation(fields: [messageId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  material      Material? @relation(fields: [materialId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  album         Album?    @relation("AlbumFiles", fields: [albumId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  owner         User          @relation(fields: [ownerId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  post          Post?         @relation(fields: [postId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  message       Message?      @relation(fields: [messageId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  material      Material?     @relation(fields: [materialId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  album         Album?        @relation("AlbumFiles", fields: [albumId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   // Альбомы, для которых этот файл — обложка (обычно один).
-  albumsCovered Album[]   @relation("AlbumCover")
-  document      Document? @relation(fields: [documentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  albumsCovered Album[]       @relation("AlbumCover")
+  bookCovers    Book[]        @relation("BookCover")
+  document      Document?     @relation(fields: [documentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  // Cascade, а не SetNull, как у материалов: файлы сдач лежат в бакете applications, который
+  // cleanDetachedFiles не обходит, — отвязанная строка жила бы вечно. Удалили сдачу — уходит
+  // строка, а объект без строки ночью снимет cleanOrphanFiles.
+  submission    Submission?   @relation(fields: [submissionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  // SetNull, как у вложений сообщений: комментарий удаляется мягко, а при сносе события
+  // отвязанный файл снимет cleanDetachedFiles.
+  eventComment  EventComment? @relation(fields: [eventCommentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  // Сторисы, у которых этот файл — медиа (Ф14.1). Связь объявлена со стороны Story
+  // (Story.fileId), поэтому здесь только обратная сторона.
+  stories       Story[]       @relation("StoryMedia")
+  variants      FileVariant[]
 
   // Пара (bucket, key) НЕ уникальна: несколько записей могут ссылаться на один объект
   // хранилища (общий пул медиа у сида, см. prisma/seed/steps/10-media.mjs). Следствие для
@@ -62,6 +87,36 @@ model File {
   @@index([materialId])
   @@index([albumId])
   @@index([documentId])
+  @@index([submissionId])
+  @@index([eventCommentId])
   @@index([createdAt])
+  // Догонялка обработки и backfill читают файлы по статусу.
+  @@index([mediaStatus, createdAt])
   @@map("files")
+}
+
+// Производный объект медиа: уменьшенная копия изображения, постер или рендишн HLS видео.
+// Строка на каждый объект, а не JSON в File: варианты выбираются пачкой вместе с файлами
+// (`include`), а уникальный ключ делает повторный прогон воркера идемпотентным.
+model FileVariant {
+  id        String           @id @default(uuid())
+  fileId    String           @map("file_id")
+  kind      MediaVariantKind
+  // Размеры кадра в пикселях после поворота по EXIF/матрице дисплея.
+  width     Int
+  height    Int
+  // Ключ объекта в бакете файла. Для HLS — плейлист рендишна (`.../720/index.m3u8`).
+  key       String
+  mime      String
+  // Байты объекта; у HLS — сумма сегментов рендишна.
+  size      Int
+  // Средний битрейт рендишна HLS, бит/с (атрибут BANDWIDTH мастер-плейлиста).
+  bitrate   Int?
+  createdAt DateTime         @default(now()) @map("created_at")
+
+  file File @relation(fields: [fileId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([fileId, kind, width])
+  @@index([fileId])
+  @@map("file_variants")
 }

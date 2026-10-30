@@ -97,19 +97,19 @@ model PushSubscription {
 // другим сроком жизни и другой причиной смерти; складывать их в одну значило бы
 // хранить половину полей пустыми у каждой строки.
 model DeviceToken {
-  id       String         @id @default(uuid())
-  userId   String         @map("user_id")
-  platform DevicePlatform
+  id         String         @id @default(uuid())
+  userId     String         @map("user_id")
+  platform   DevicePlatform
   // Токен APNs. Уникален: система выдаёт его устройству, и одно устройство не может
   // числиться дважды. Переустановка приложения даёт новый токен, старый умирает сам.
-  token    String         @unique
+  token      String         @unique
   // Версия сборки, которая зарегистрировала токен. Нужна при разборе жалоб: «не
   // приходят уведомления» почти всегда про конкретную версию.
-  appVersion String?      @map("app_version")
+  appVersion String?        @map("app_version")
   // Последняя регистрация. Приложение подтверждает токен при каждом запуске, и по
   // этой отметке чистятся устройства, которые не заходили месяцами.
-  lastSeenAt DateTime     @default(now()) @map("last_seen_at")
-  createdAt  DateTime     @default(now()) @map("created_at")
+  lastSeenAt DateTime       @default(now()) @map("last_seen_at")
+  createdAt  DateTime       @default(now()) @map("created_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
 

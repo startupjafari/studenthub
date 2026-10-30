@@ -7,22 +7,30 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { UpdateCompanySchema, type UpdateCompanyInput } from '@studenthub/shared-schemas'
-import { companyKeys, fetchMyCompany, updateMyCompany } from '../../../entities/company'
+import {
+  companyKeys,
+  fetchMyCompany,
+  isCompanyOwner,
+  updateMyCompany,
+} from '../../../entities/company'
 import {
   Button,
+  EmptyState,
   FormAlert,
   Input,
   Label,
   PageHeader,
   PageLoader,
   Textarea,
+  FieldError,
 } from '../../../shared/ui'
-import { useFormAlert } from '../../../shared/lib'
+import { toApiError, useFormAlert } from '../../../shared/lib'
 
 // Профиль компании: то, что увидит студент в карточке вакансии.
 export function EmployerCompanyView() {
   const t = useTranslations('Employer')
   const tCommon = useTranslations('Common')
+  const tErr = useTranslations('Errors')
   const queryClient = useQueryClient()
   const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
 
@@ -62,7 +70,27 @@ export function EmployerCompanyView() {
     onError: showApiError,
   })
 
+  // Сбой загрузки — ошибкой с повтором: без этой ветки экран навсегда оставался загрузкой.
+  if (company.isError) {
+    return (
+      <div className="flex w-full flex-1 flex-col gap-4">
+        <PageHeader title={t('companyTitle')} />
+        <EmptyState
+          title={tErr(toApiError(company.error).code)}
+          description={tErr('retryHint')}
+          action={
+            <Button variant="outline" onClick={() => void company.refetch()}>
+              {tCommon('retry')}
+            </Button>
+          }
+        />
+      </div>
+    )
+  }
   if (company.isLoading) return <PageLoader label={tCommon('loading')} />
+
+  // Профиль компании меняет только владелец (assertOwner в API): рекрутёру — только чтение.
+  const canEdit = isCompanyOwner(company.data)
 
   return (
     <div className="flex w-full flex-1 flex-col gap-4">
@@ -76,37 +104,40 @@ export function EmployerCompanyView() {
         className="flex max-w-2xl flex-col gap-4 rounded-xl border border-border bg-card p-4 sm:p-6"
       >
         <FormAlert error={apiError} />
+        {!canEdit && <p className="text-sm text-muted-foreground">{t('ownerOnlyCompany')}</p>}
 
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="name">{t('fieldName')}</Label>
-          <Input id="name" aria-invalid={!!errors.name} {...register('name')} />
-          {errors.name && <p className="text-xs text-destructive">{errors.name.message}</p>}
-        </div>
-
-        <div className="flex flex-col gap-2">
-          <Label htmlFor="description">{t('fieldDescription')}</Label>
-          <Textarea id="description" rows={5} {...register('description')} />
-          {errors.description && (
-            <p className="text-xs text-destructive">{errors.description.message}</p>
-          )}
-        </div>
-
-        <div className="grid gap-4 sm:grid-cols-2">
+        <fieldset disabled={!canEdit} className="flex min-w-0 flex-col gap-4">
           <div className="flex flex-col gap-2">
-            <Label htmlFor="website">{t('fieldWebsite')}</Label>
-            <Input id="website" placeholder="https://" {...register('website')} />
-            {errors.website && <p className="text-xs text-destructive">{errors.website.message}</p>}
+            <Label htmlFor="name">{t('fieldName')}</Label>
+            <Input id="name" aria-invalid={!!errors.name} {...register('name')} />
+            <FieldError>{errors.name ? t('errCompanyName') : null}</FieldError>
           </div>
-          <div className="flex flex-col gap-2">
-            <Label htmlFor="city">{t('fieldCity')}</Label>
-            <Input id="city" {...register('city')} />
-            {errors.city && <p className="text-xs text-destructive">{errors.city.message}</p>}
-          </div>
-        </div>
 
-        <Button type="submit" className="self-start" loading={save.isPending} disabled={!isDirty}>
-          {t('save')}
-        </Button>
+          <div className="flex flex-col gap-2">
+            <Label htmlFor="description">{t('fieldDescription')}</Label>
+            <Textarea id="description" rows={5} {...register('description')} />
+            <FieldError>{errors.description ? t('errDescription') : null}</FieldError>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="website">{t('fieldWebsite')}</Label>
+              <Input id="website" placeholder="https://" {...register('website')} />
+              <FieldError>{errors.website ? t('errWebsite') : null}</FieldError>
+            </div>
+            <div className="flex flex-col gap-2">
+              <Label htmlFor="city">{t('fieldCity')}</Label>
+              <Input id="city" {...register('city')} />
+              <FieldError>{errors.city ? t('errCity') : null}</FieldError>
+            </div>
+          </div>
+        </fieldset>
+
+        {canEdit && (
+          <Button type="submit" className="self-start" loading={save.isPending} disabled={!isDirty}>
+            {t('save')}
+          </Button>
+        )}
       </form>
     </div>
   )

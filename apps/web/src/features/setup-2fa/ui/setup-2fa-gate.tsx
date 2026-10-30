@@ -32,20 +32,35 @@ export function SetupTwoFactorGate() {
   const [attempt, setAttempt] = useState(0)
   const [failed, setFailed] = useState(false)
 
+  // CONFLICT на setup или enable — 2FA уже включена: перезагрузка на шаге кодов, вторая
+  // вкладка. Настраивать нечего, а экран без этого был тупиком: каждое нажатие давало тост
+  // ошибки. Жёсткий переход на «/» перевыпускает токен (tfa=true) и снимает форс; коды,
+  // если их не успели сохранить, перевыпускаются в настройках.
+  function leaveIfAlreadyEnabled(e: unknown): boolean {
+    if (errCode(e) !== 'CONFLICT') return false
+    toast.info(tG('alreadyEnabled'))
+    window.location.assign('/')
+    return true
+  }
+
   const setupMut = useMutation({
     mutationFn: setup2faRequest,
     onSuccess: (data) => setSetup({ qr: data.qr, secret: data.secret }),
-    onError: (e) => toast.error(tErr(errCode(e))),
+    onError: (e) => {
+      if (leaveIfAlreadyEnabled(e)) return
+      toast.error(tErr(errCode(e)))
+    },
   })
 
   // Выход со страницы форса. Именно выход, а не ссылка на /login: пока cookie сессии живы,
   // middleware уводит с /login на home роли, а там первый же запрос ловит 403
   // TWO_FACTOR_SETUP_REQUIRED и возвращает сюда — экран без этой кнопки был тупиком.
   // logout чистит и refresh, и sh_role (@Public на бэке, форс 2FA его не режет).
+  // Сбой выхода (сеть, 5xx) не оставляет на экране: локальный стор endSession чистит в
+  // любом исходе, и на вход ведём всегда — как «Выйти на всех устройствах» в настройках.
   const logoutMut = useMutation({
-    mutationFn: endSession,
-    onSuccess: () => window.location.assign('/login'),
-    onError: (e) => toast.error(tErr(errCode(e))),
+    mutationFn: () => endSession().catch(() => undefined),
+    onSettled: () => window.location.assign('/login'),
   })
 
   const enableMut = useMutation({
@@ -60,6 +75,7 @@ export function SetupTwoFactorGate() {
       toast.success(tS('twoFactorEnabledToast'))
     },
     onError: (e) => {
+      if (leaveIfAlreadyEnabled(e)) return
       setCode('')
       setFailed(true)
       setAttempt((n) => n + 1)

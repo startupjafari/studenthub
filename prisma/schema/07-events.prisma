@@ -22,9 +22,24 @@ model Event {
   facultyId    String? @map("faculty_id")
   groupId      String? @map("group_id")
 
-  // Место (или ссылка на онлайн-встречу).
+  // Место проведения. У онлайн-события остаётся пустым: ссылка живёт в meetingUrl.
   location String?
   isOnline Boolean @default(false) @map("is_online")
+
+  // ── Онлайн-встреча (Ф14.5) ───────────────────────────────────────────────────
+  // Раньше ссылку клали в `location` — туда же, куда адрес аудитории. Это плохо ровно
+  // двумя вещами: ссылку видел каждый, кому видно само событие (а не только участники),
+  // и отличить «Zoom» от «корпус Б, ауд. 305» можно было только взглядом человека.
+  //
+  // Провайдер хранится строкой, как status и visibility в остальных доменах, и ставится
+  // СЕРВЕРОМ по хосту ссылки: клиент о нём не сообщает, иначе «Zoom» в карточке означал
+  // бы лишь то, что так написал организатор.
+  /// ZOOM | GOOGLE_MEET | TEAMS | OTHER. NULL — встречи нет.
+  meetingProvider String? @map("meeting_provider")
+  /// Ссылка на встречу. Наружу уходит ТОЛЬКО участникам и организатору (events.service).
+  meetingUrl      String? @map("meeting_url")
+  /// Код доступа: Zoom выдаёт его отдельно от ссылки, и без него на встречу не попасть.
+  meetingPasscode String? @map("meeting_passcode")
 
   startsAt DateTime  @map("starts_at")
   endsAt   DateTime? @map("ends_at")
@@ -40,6 +55,7 @@ model Event {
   faculty      Faculty?           @relation(fields: [facultyId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   group        Group?             @relation(fields: [groupId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   participants EventParticipant[]
+  comments     EventComment[]
 
   // Фильтр видимости по audience-скоупу + выборка ближайших/для напоминаний по времени.
   @@index([audience])
@@ -65,4 +81,52 @@ model EventParticipant {
   @@unique([eventId, userId])
   @@index([userId])
   @@map("event_participants")
+}
+
+// Комментарии к событию (docs/PROJECT.md §3.5): вопросы организатору и обсуждение. Видны всей
+// аудитории события. Мягкое удаление, как у комментариев к постам (BACKEND_RULES §5.1).
+//
+// Обсуждение устроено как чат: вложения (File.eventCommentId), ответ на комментарий и реакции.
+// Текст может быть пустым, если есть вложения, — как подпись к фото в чате.
+model EventComment {
+  id        String  @id @default(uuid())
+  eventId   String  @map("event_id")
+  authorId  String  @map("author_id")
+  content   String
+  // Ответ на другой комментарий того же события. SetNull: удалённый оригинал не уносит ответ.
+  replyToId String? @map("reply_to_id")
+
+  deletedAt DateTime? @map("deleted_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  event     Event                  @relation(fields: [eventId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  author    User                   @relation("EventCommentAuthor", fields: [authorId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  replyTo   EventComment?          @relation("EventCommentReply", fields: [replyToId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  replies   EventComment[]         @relation("EventCommentReply")
+  media     File[]
+  reactions EventCommentReaction[]
+
+  @@index([eventId, createdAt])
+  @@index([authorId])
+  @@index([deletedAt])
+  @@index([replyToId])
+  @@map("event_comments")
+}
+
+// Реакция на комментарий к событию — как MessageReaction в чате: несколько разных эмодзи от
+// одного человека можно, один и тот же дважды — нет.
+model EventCommentReaction {
+  id        String   @id @default(uuid())
+  commentId String   @map("comment_id")
+  userId    String   @map("user_id")
+  emoji     String
+  createdAt DateTime @default(now()) @map("created_at")
+
+  comment EventComment @relation(fields: [commentId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  user    User         @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([commentId, userId, emoji])
+  @@index([commentId])
+  @@index([userId])
+  @@map("event_comment_reactions")
 }

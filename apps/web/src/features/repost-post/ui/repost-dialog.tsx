@@ -18,7 +18,7 @@ import {
   repostRequest,
   type FeedPost,
 } from '../../../entities/post'
-import { fetchGroups, groupKeys } from '../../../entities/group'
+import { GroupSelect } from '../../../entities/group'
 import { fetchFaculties, facultyKeys } from '../../../entities/faculty'
 import { UserPicker, type PickedUser } from '../../../entities/user'
 import {
@@ -31,6 +31,7 @@ import {
   SelectTrigger,
   SelectValue,
   Textarea,
+  FieldError,
 } from '../../../shared/ui'
 
 // Какая цель не выбрана — ошибка показывается под соответствующим полем (FRONTEND_RULES §7).
@@ -60,11 +61,6 @@ export function RepostDialog({ post, onClose }: { post: FeedPost; onClose: () =>
     audience === 'FACULTY' && role !== null && FACULTY_PICKER_ROLES.includes(role)
   const showPersonal = audience === 'PERSONAL'
 
-  const groups = useQuery({
-    queryKey: groupKeys.list(),
-    queryFn: () => fetchGroups(),
-    enabled: showGroupPicker,
-  })
   const faculties = useQuery({
     queryKey: facultyKeys.list(),
     queryFn: () => fetchFaculties(),
@@ -145,27 +141,20 @@ export function RepostDialog({ post, onClose }: { post: FeedPost; onClose: () =>
             <Label className="text-xs" htmlFor="repost-group">
               {t('group')}
             </Label>
+            {/* Поиск по группам на сервере, а не первые 100 по алфавиту. */}
             <Controller
               control={form.control}
               name="groupId"
               render={({ field }) => (
-                <Select value={field.value ?? ''} onValueChange={field.onChange}>
-                  <SelectTrigger id="repost-group" className="w-full">
-                    <SelectValue placeholder={t('selectGroup')} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(groups.data ?? []).map((g) => (
-                      <SelectItem key={g.id} value={g.id}>
-                        {g.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <GroupSelect
+                  id="repost-group"
+                  value={field.value ?? null}
+                  onChange={(v) => field.onChange(v ?? undefined)}
+                  placeholder={t('selectGroup')}
+                />
               )}
             />
-            {missing === 'group' && (
-              <p className="text-xs text-destructive">{t('targetRequired')}</p>
-            )}
+            <FieldError>{missing === 'group' && t('targetRequired')}</FieldError>
           </div>
         )}
 
@@ -192,9 +181,7 @@ export function RepostDialog({ post, onClose }: { post: FeedPost; onClose: () =>
                 </Select>
               )}
             />
-            {missing === 'faculty' && (
-              <p className="text-xs text-destructive">{t('targetRequired')}</p>
-            )}
+            <FieldError>{missing === 'faculty' && t('targetRequired')}</FieldError>
           </div>
         )}
 
@@ -202,9 +189,7 @@ export function RepostDialog({ post, onClose }: { post: FeedPost; onClose: () =>
           <div className="flex flex-col gap-1.5">
             <Label className="text-xs">{tPeople('pickUser')}</Label>
             <UserPicker value={target} onSelect={setTarget} />
-            {missing === 'user' && (
-              <p className="text-xs text-destructive">{t('targetRequired')}</p>
-            )}
+            <FieldError>{missing === 'user' && t('targetRequired')}</FieldError>
           </div>
         )}
 
@@ -218,9 +203,7 @@ export function RepostDialog({ post, onClose }: { post: FeedPost; onClose: () =>
             placeholder={t('repostPlaceholder')}
             {...form.register('content')}
           />
-          {form.formState.errors.content && (
-            <p className="text-xs text-destructive">{t('contentTooLong')}</p>
-          )}
+          <FieldError>{form.formState.errors.content && t('contentTooLong')}</FieldError>
         </div>
 
         <div className="flex items-center justify-between gap-2">

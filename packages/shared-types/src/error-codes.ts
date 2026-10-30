@@ -33,6 +33,18 @@ export const ErrorCode = {
   // закрыт, даже с верным паролем. Отдельно от RATE_LIMIT: тот про частоту запросов с
   // адреса, а этот про конкретный аккаунт, и сказать пользователю нужно разное.
   LOGIN_LOCKED: 'LOGIN_LOCKED',
+  // Вуз пользователя заблокирован платформой (статус BLOCKED): вход, обновление сессии,
+  // регистрация по инвайту и запросы с уже выданным токеном закрыты. Отдельно от FORBIDDEN:
+  // дело не в правах человека, и сказать ему нужно, к кому идти.
+  UNIVERSITY_BLOCKED: 'UNIVERSITY_BLOCKED',
+  // Работодатель не подтвердил почту компании (Company.status = PENDING_EMAIL): вход и
+  // обновление сессии закрыты до перехода по ссылке из письма. Отдельно от FORBIDDEN:
+  // клиент предлагает отправить письмо ещё раз, а не говорит «недостаточно прав».
+  EMAIL_NOT_VERIFIED: 'EMAIL_NOT_VERIFIED',
+  // Выборка больше предела выгрузки в XLSX (книгу SheetJS собирает в памяти целиком).
+  // Отдельно от BAD_REQUEST: клиент предлагает выгрузить ту же выборку в CSV — его сервер
+  // отдаёт потоком и без предела.
+  EXPORT_TOO_LARGE: 'EXPORT_TOO_LARGE',
 } as const
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode]
@@ -67,6 +79,13 @@ export const ERROR_CODE_STATUS: Record<ErrorCode, number> = {
   MAINTENANCE: 503,
   // 429 — как и RATE_LIMIT: запросов было слишком много, приходите позже.
   LOGIN_LOCKED: 429,
+  // 403 — человек опознан, но вуз закрыт: повтор входа или refresh ничего не изменит.
+  UNIVERSITY_BLOCKED: 403,
+  // 403 — пароль верный, но вход откроется только после подтверждения адреса.
+  EMAIL_NOT_VERIFIED: 403,
+  // 400 — запрос корректен, но в этом формате невыполним; 413 тут неверен: он про тело
+  // запроса, а не про ответ.
+  EXPORT_TOO_LARGE: 400,
 }
 
 /** Код по умолчанию для HTTP-статуса (для стандартных Nest-исключений без явного кода). */
@@ -82,11 +101,15 @@ export function errorCodeFromStatus(status: number): ErrorCode {
       return ErrorCode.NOT_FOUND
     case 409:
       return ErrorCode.CONFLICT
+    case 413:
+      return ErrorCode.FILE_TOO_LARGE
     case 422:
       return ErrorCode.VALIDATION_ERROR
     case 429:
       return ErrorCode.RATE_LIMIT
     default:
-      return ErrorCode.INTERNAL_ERROR
+      // Прочие 4xx (406, 415 от Fastify) — отказ запросу; INTERNAL_ERROR по контракту — только
+      // необработанная ошибка сервера, и клиент на него показывает «что-то сломалось».
+      return status < 500 ? ErrorCode.BAD_REQUEST : ErrorCode.INTERNAL_ERROR
   }
 }

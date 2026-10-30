@@ -26,8 +26,10 @@ export const REPOST_AUDIENCES_BY_ROLE: Partial<Record<Role, PostAudienceValue[]>
     ]),
   )
 
-// Кто выбирает конкретную группу/факультет (у студента/старосты/декана — свои, без пикера).
-export const GROUP_PICKER_ROLES: Role[] = [Role.UNIVERSITY_ADMIN, Role.TEACHER]
+// Кто выбирает конкретную группу/факультет. У студента и старосты группа своя, у декана —
+// свой факультет, но не группа: группу факультета он выбирает (сервер подставил бы
+// actor.groupId, а его у декана нет — «Не указана группа»).
+export const GROUP_PICKER_ROLES: Role[] = [Role.UNIVERSITY_ADMIN, Role.DEAN, Role.TEACHER]
 export const FACULTY_PICKER_ROLES: Role[] = [Role.UNIVERSITY_ADMIN]
 
 // Куда уходит репост «к себе»: своя группа → свой факультет → свой университет → «все».

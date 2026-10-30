@@ -1,7 +1,7 @@
 'use client'
 
-import { useCallback, useMemo, useState } from 'react'
-import { useQueries, useQuery } from '@tanstack/react-query'
+import { useCallback, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import {
   BookOpen,
@@ -13,12 +13,10 @@ import {
   Users,
 } from 'lucide-react'
 import {
-  fetchUniversityOptions,
-  fetchUniversityStats,
-  universityKeys,
-  type University,
-  type UniversityStats,
-} from '../../../entities/university'
+  fetchUniversitiesSize,
+  platformAnalyticsKeys,
+  type UniversitySize,
+} from '../../../entities/analytics'
 import { useKatoNames } from '../../../entities/kato'
 import {
   Card,
@@ -73,10 +71,7 @@ const STATUS_STYLE: Record<string, string> = {
   BLOCKED: 'text-destructive',
 }
 
-interface Row extends University {
-  stats: UniversityStats | null
-  people: number | null
-}
+type Row = UniversitySize
 
 // Статистика платформы: сводка по всем вузам сверху и таблица сравнения ниже —
 // раскладка та же, что у остальных экранов админа платформы (шапка → карточка с таблицей).
@@ -86,45 +81,27 @@ export function PlatformStatsView() {
   const tErr = useTranslations('Errors')
   const [search, setSearch] = useState('')
 
-  const unis = useQuery({ queryKey: universityKeys.options(), queryFn: fetchUniversityOptions })
-  const list = useMemo(() => unis.data ?? [], [unis.data])
-
-  // Счётчики по вузу отдаёт отдельный эндпоинт (кэш 5 мин на сервере) — тянем их
-  // параллельно одним хуком, а не по карточке, чтобы собрать общую таблицу и итоги.
-  const statsQueries = useQueries({
-    queries: list.map((u) => ({
-      queryKey: universityKeys.stats(u.id),
-      queryFn: () => fetchUniversityStats(u.id),
-    })),
+  // Вузы со всеми счётчиками и итоги платформы — один запрос (кэш 5 мин на сервере),
+  // тот же, что у диаграммы размеров на дашборде, поэтому и ключ общий. Раньше здесь
+  // шёл `GET /universities/:id/stats` на каждый вуз: при сотне вузов пользовательский
+  // лимит API кончался на хвосте таблицы, и админа на минуту отрезало от всех экранов.
+  const q = useQuery({
+    queryKey: platformAnalyticsKeys.universitiesSize(),
+    queryFn: fetchUniversitiesSize,
   })
-  const statsLoading = statsQueries.some((q) => q.isLoading)
-
-  // Вузов на платформе десятки, не тысячи — сборку строк не мемоизируем.
-  const rows: Row[] = list.map((u, i) => {
-    const stats = statsQueries[i]?.data ?? null
-    return { ...u, stats, people: stats ? stats.students + stats.teachers : null }
-  })
-
-  const totals = rows.reduce(
-    (acc, r) => ({
-      faculties: acc.faculties + (r.stats?.faculties ?? 0),
-      groups: acc.groups + (r.stats?.groups ?? 0),
-      rooms: acc.rooms + (r.stats?.rooms ?? 0),
-      students: acc.students + (r.stats?.students ?? 0),
-      teachers: acc.teachers + (r.stats?.teachers ?? 0),
-      active: acc.active + (r.status === 'ACTIVE' ? 1 : 0),
-    }),
-    { faculties: 0, groups: 0, rooms: 0, students: 0, teachers: 0, active: 0 },
-  )
+  const rows: Row[] = q.data?.items ?? []
+  // Итоги — по всей платформе с сервера, а не сумма строк: строк не больше 200.
+  const totals = q.data?.totals
+  const truncated = !!totals && totals.universities > rows.length
 
   // `city` хранит код КАТО, поэтому и поиск, и подпись под названием идут по
   // резолвнутому имени: иначе фильтр «Алматы» не нашёл бы вуз с городом «750000000».
   const { nameOf: cityName } = useKatoNames(rows.map((r) => r.city))
 
-  const q = search.trim().toLowerCase()
-  const filtered = q
+  const needle = search.trim().toLowerCase()
+  const filtered = needle
     ? rows.filter((r) =>
-        [r.name, r.shortName, cityName(r.city)].some((v) => v?.toLowerCase().includes(q)),
+        [r.name, r.shortName, cityName(r.city)].some((v) => v?.toLowerCase().includes(needle)),
       )
     : rows
 
@@ -136,35 +113,36 @@ export function PlatformStatsView() {
         case 'status':
           return tUni(`status${row.status}`)
         case 'faculties':
-          return row.stats?.faculties ?? null
+          return row.faculties
         case 'groups':
-          return row.stats?.groups ?? null
+          return row.groups
         case 'rooms':
-          return row.stats?.rooms ?? null
+          return row.rooms
         case 'students':
-          return row.stats?.students ?? null
+          return row.students
         case 'teachers':
-          return row.stats?.teachers ?? null
+          return row.teachers
         case 'people':
-          return row.people
+          // Все пользователи вуза любой роли — то же число, что у диаграммы размеров
+          // на дашборде платформы.
+          return row.total
         default:
           return null
       }
     },
     [tUni],
   )
-  // Сортировка клиентская намеренно: строки собираются на клиенте из GET /universities
-  // и отдельного запроса статистики по каждому вузу. Серверного списка с этими числами
-  // не существует — сортировать по «студентам» было бы нечему.
+  // Сортировка клиентская: сервер отдаёт весь список (до 200 вузов) одним ответом,
+  // перезапрашивать его ради другого порядка незачем.
   const { rows: sorted, sort, toggle } = useTableSort(filtered, cellValue)
 
   const tiles = [
-    { key: 'universities', value: list.length, label: t('universities'), icon: Building2 },
-    { key: 'active', value: totals.active, label: t('activeUniversities'), icon: CheckCircle2 },
-    { key: 'faculties', value: totals.faculties, label: t('faculties'), icon: Layers },
-    { key: 'groups', value: totals.groups, label: t('groups'), icon: Users },
-    { key: 'students', value: totals.students, label: t('students'), icon: GraduationCap },
-    { key: 'teachers', value: totals.teachers, label: t('teachers'), icon: BookOpen },
+    { key: 'universities', value: totals?.universities, label: t('universities'), icon: Building2 },
+    { key: 'active', value: totals?.active, label: t('activeUniversities'), icon: CheckCircle2 },
+    { key: 'faculties', value: totals?.faculties, label: t('faculties'), icon: Layers },
+    { key: 'groups', value: totals?.groups, label: t('groups'), icon: Users },
+    { key: 'students', value: totals?.students, label: t('students'), icon: GraduationCap },
+    { key: 'teachers', value: totals?.teachers, label: t('teachers'), icon: BookOpen },
   ]
 
   return (
@@ -207,11 +185,7 @@ export function PlatformStatsView() {
                   {/* Числа — главное на плитке, поэтому крупнее подписи и с tabular-nums:
                       колонка цифр не «дышит» при обновлении данных. */}
                   <span className="block text-xl leading-tight font-semibold tabular-nums">
-                    {unis.isLoading || statsLoading ? (
-                      <Skeleton className="h-5 w-10" />
-                    ) : (
-                      tile.value
-                    )}
+                    {q.isLoading ? <Skeleton className="h-5 w-10" /> : (tile.value ?? 0)}
                   </span>
                   <span className="block truncate text-xs text-muted-foreground">{tile.label}</span>
                 </span>
@@ -221,12 +195,12 @@ export function PlatformStatsView() {
         })}
       </div>
 
-      {unis.isError ? (
+      {q.isError ? (
         <EmptyState title={tErr('INTERNAL_ERROR')} />
-      ) : !unis.isLoading && sorted.length === 0 ? (
+      ) : !q.isLoading && sorted.length === 0 ? (
         <EmptyState
           icon={<Building2 className="size-6" aria-hidden />}
-          title={q ? t('nothingFound') : t('noUniversities')}
+          title={needle ? t('nothingFound') : t('noUniversities')}
         />
       ) : (
         <Card className="flex min-h-0 flex-1 flex-col gap-0 py-0">
@@ -284,7 +258,7 @@ export function PlatformStatsView() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {unis.isLoading && <TableSkeletonRows columns={SKELETON_COLS} />}
+              {q.isLoading && <TableSkeletonRows columns={SKELETON_COLS} />}
               {sorted.map((row) => (
                 <TableRow key={row.id} className="hover:bg-muted/40">
                   <TableCell className="font-medium">
@@ -298,22 +272,26 @@ export function PlatformStatsView() {
                   <TableCell className={cn('text-sm', HIDE.status, STATUS_STYLE[row.status])}>
                     <TableText value={tUni(`status${row.status}`)} />
                   </TableCell>
-                  <Num value={row.stats?.faculties} className={HIDE.faculties} />
-                  <Num value={row.stats?.groups} className={HIDE.groups} />
-                  <Num value={row.stats?.rooms} className={HIDE.rooms} />
-                  <Num value={row.stats?.students} />
-                  <Num value={row.stats?.teachers} className={HIDE.teachers} />
-                  <Num value={row.people ?? undefined} className="font-semibold" />
+                  <Num value={row.faculties} className={HIDE.faculties} />
+                  <Num value={row.groups} className={HIDE.groups} />
+                  <Num value={row.rooms} className={HIDE.rooms} />
+                  <Num value={row.students} />
+                  <Num value={row.teachers} className={HIDE.teachers} />
+                  <Num value={row.total} className="font-semibold" />
                 </TableRow>
               ))}
             </TableBody>
           </Table>
-          {/* Итоговая строка: сравнение вузов без общей суммы читается наполовину. */}
+          {/* Итоговая строка: сравнение вузов без общей суммы читается наполовину.
+              Если сервер обрезал список потолком, это сказано прямо: молча показывать
+              часть вузов как все нельзя. */}
           <div className="flex items-center justify-between gap-2 border-t border-border px-4 py-2 text-sm text-muted-foreground">
-            <span>{t('universitiesCount', { n: sorted.length })}</span>
-            <span className="tabular-nums">
-              {t('totalPeople', { n: totals.students + totals.teachers })}
+            <span>
+              {totals && truncated
+                ? t('universitiesShown', { n: sorted.length, total: totals.universities })
+                : t('universitiesCount', { n: sorted.length })}
             </span>
+            <span className="tabular-nums">{t('totalPeople', { n: totals?.total ?? 0 })}</span>
           </div>
         </Card>
       )}
@@ -321,11 +299,7 @@ export function PlatformStatsView() {
   )
 }
 
-// Числовая ячейка: пока счётчики вуза грузятся — скелетон вместо прыжка нулей.
-function Num({ value, className }: { value?: number; className?: string }) {
-  return (
-    <TableCell className={cn('text-right tabular-nums', className)}>
-      {value === undefined ? <Skeleton className="ml-auto h-4 w-8" /> : value}
-    </TableCell>
-  )
+// Числовая ячейка: счётчики приходят вместе со строкой, ждать по ячейке нечего.
+function Num({ value, className }: { value: number; className?: string }) {
+  return <TableCell className={cn('text-right tabular-nums', className)}>{value}</TableCell>
 }

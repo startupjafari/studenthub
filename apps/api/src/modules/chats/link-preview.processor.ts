@@ -15,9 +15,14 @@ interface LinkPreviewJob {
   url: string
 }
 
+// Сколько ссылок разбираем одновременно. С одним обработчиком «медленный» сайт держал
+// очередь целиком — превью остальных сообщений ждали его срока. Выборка — сетевое
+// ожидание, а не CPU: несколько параллельных стоят процессу почти ничего.
+const LINK_PREVIEW_CONCURRENCY = 6
+
 // Воркер очереди link-preview: тянет OG-мета по ссылке, пишет в Message.linkPreview и
 // рассылает message:updated в комнату чата (карточка появляется у всех участников).
-@Processor(QUEUES.LINK_PREVIEW)
+@Processor(QUEUES.LINK_PREVIEW, { concurrency: LINK_PREVIEW_CONCURRENCY })
 export class LinkPreviewProcessor extends WorkerHost {
   private readonly logger = new Logger(LinkPreviewProcessor.name)
 
@@ -39,13 +44,20 @@ export class LinkPreviewProcessor extends WorkerHost {
 
   async process(job: Job<LinkPreviewJob>): Promise<void> {
     const { messageId, chatId, url } = job.data
-    const preview = await this.links.fetch(url)
-    // Пусто (нераспознано/недоступно/SSRF-блок) или без заголовка и картинки — карточку не рисуем.
-    if (!preview || (!preview.title && !preview.image)) return
+    const fetched = await this.links.fetch(url)
+    // Пусто (нераспознано/недоступно/SSRF-блок) или без заголовка — карточку не рисуем.
+    if (!fetched?.title) return
+    // Картинку OG не сохраняем (F-F29): это адрес на чужом сайте, и клиенты грузили его
+    // напрямую — каждый читатель чата отдавал свой IP (и время прочтения) владельцу ссылки.
+    // Показывать её можно будет, когда появится копия в своём хранилище; до тех пор карточка
+    // — заголовок, описание и сайт. Поле остаётся в форме превью: клиенты его ждут.
+    const preview = { ...fetched, image: null }
 
     // Сообщение могли удалить, пока тянули превью — обновляем только существующее и не удалённое.
+    // И только пока ссылка ещё в тексте: правка, заменившая её, ставит свой job, а этот,
+    // закончив позже, повесил бы под новым текстом карточку старой ссылки.
     const updated = await this.prisma.message.updateMany({
-      where: { id: messageId, deletedAt: null },
+      where: { id: messageId, deletedAt: null, content: { contains: url } },
       data: { linkPreview: preview as unknown as Prisma.InputJsonValue },
     })
     if (updated.count === 0) return

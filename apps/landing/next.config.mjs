@@ -34,26 +34,72 @@ const APP_URL = normalizeOrigin(process.env.NEXT_PUBLIC_APP_URL, 'http://localho
  * `PUBLIC_PATHS` в `apps/web/src/middleware.ts`. Это единственное место, где лендинг вообще
  * знает о существовании путей платформы, и знание здесь декларативное — не импорт кода.
  *
- * `/r` и `/verify` критичны: их печатают на бумаге (QR над дверью, код на бланке справки).
+ * Сегменты нужны все, а не только публичные: ссылки на закрытые разделы тоже живут вне
+ * платформы — в письмах (`/settings` в подвале уведомлений), в закладках и на бумаге.
+ * Ссылка на закрытый раздел уводит на платформу, а там middleware сам отправит на вход.
+ *
+ * `/r`, `/c` и `/verify` критичны: их печатают на бумаге (QR над дверью, QR-наклейка на
+ * экземпляре книги, код на бланке справки).
+ *
+ * Группы маршрутов (`(auth)`, `(student)`) сегмента в адресе не дают — здесь их дочерние
+ * разделы. Новый корневой раздел платформы добавляется и сюда (docs/LANDING.md §2).
  */
 const PLATFORM_SEGMENTS = [
+  // Вход и восстановление доступа: (auth)
   'login',
   'register',
+  'forgot-password',
+  'reset-password',
   'setup-2fa',
+  // Публичные страницы без аккаунта
   'offline',
   'employer',
   // Заявка вуза на тестирование: форма живёт на платформе, а лендинг только ведёт к ней.
   'demo',
   'verify',
+  'legal',
   'r',
+  'c',
   'qr',
   'join-chat',
+  // Кабинеты ролей
   'dean',
   'teacher',
   'starosta',
   'university-admin',
   'platform-admin',
   'moderator',
+  'library',
+  'security',
+  // Разделы студента: (student). Корень `/` остаётся за лендингом.
+  'academic',
+  'applications',
+  'appointments',
+  'assignments',
+  'attendance',
+  'books',
+  'calendar',
+  'career',
+  'chats',
+  'checkin',
+  'consultations',
+  'courses',
+  'documents',
+  'events',
+  'exams',
+  'grades',
+  'my-books',
+  'notifications',
+  'portfolio',
+  'posts',
+  'profile',
+  'scan',
+  'schedule',
+  'settings',
+  'student-id',
+  'study-plan',
+  'tasks',
+  'verify-id',
 ]
 
 /** Разработка или прод: от этого зависят послабления в CSP (см. headers ниже). */

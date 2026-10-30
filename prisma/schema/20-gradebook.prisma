@@ -20,6 +20,7 @@ model GradeColumn {
   grades    Grade[]
 
   @@index([courseId])
+  @@index([createdById])
   @@map("grade_columns")
 }
 

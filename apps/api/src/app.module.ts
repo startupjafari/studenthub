@@ -1,12 +1,13 @@
 import { Module } from '@nestjs/common'
 import { ConfigModule, ConfigService } from '@nestjs/config'
 import { APP_GUARD } from '@nestjs/core'
-import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler'
+import { ThrottlerModule } from '@nestjs/throttler'
 import { ThrottlerStorageRedisService } from '@nest-lab/throttler-storage-redis'
 import type Redis from 'ioredis'
 import { SentryModule } from '@sentry/nestjs/setup'
 import { validateEnv, type EnvVars } from './config/env.schema'
 import { CommonModule } from './common/common.module'
+import { UserThrottlerGuard } from './common/guards/user-throttler.guard'
 import { PrismaModule } from './common/prisma/prisma.module'
 import { REDIS_CLIENT } from './common/redis/redis.constants'
 import { ResilientThrottlerStorage } from './common/security/resilient-throttler.storage'
@@ -30,6 +31,9 @@ import { FacultiesModule } from './modules/faculties/faculties.module'
 import { SpecialtiesModule } from './modules/specialties/specialties.module'
 import { GroupsModule } from './modules/groups/groups.module'
 import { RoomsModule } from './modules/rooms/rooms.module'
+import { CamerasModule } from './modules/cameras/cameras.module'
+import { LibraryModule } from './modules/library/library.module'
+import { SecurityJournalModule } from './modules/security-journal/security-journal.module'
 import { SchedulesModule } from './modules/schedules/schedules.module'
 import { CoursesModule } from './modules/courses/courses.module'
 import { AssignmentsModule } from './modules/assignments/assignments.module'
@@ -47,6 +51,7 @@ import { StudentIdModule } from './modules/student-id/student-id.module'
 // Заявки-услуги (переработка «Заявок в деканат», §3.2).
 import { ApplicationServicesModule } from './modules/application-services/application-services.module'
 import { PostsModule } from './modules/posts/posts.module'
+import { StoriesModule } from './modules/stories/stories.module'
 import { ChatsModule } from './modules/chats/chats.module'
 import { EventsModule } from './modules/events/events.module'
 import { ComplaintsModule } from './modules/complaints/complaints.module'
@@ -62,11 +67,14 @@ import { PushModule } from './modules/push/push.module'
 import { CleanupModule } from './modules/cleanup/cleanup.module'
 import { HealthModule } from './modules/health/health.module'
 import { MeModule } from './modules/me/me.module'
+import { DataExportModule } from './modules/data-export/data-export.module'
 import { ReleasesModule } from './modules/releases/releases.module'
 import { ClientVersionModule } from './modules/client-version/client-version.module'
 import { PlatformModule } from './modules/platform/platform.module'
 // Вход в админский мини-апп Telegram (docs/PROJECT.md §8.3).
 import { MiniModule } from './modules/mini/mini.module'
+// Единая медиа-система: варианты изображений, постеры и HLS (docs/PROJECT.md «Медиа»).
+import { MediaModule } from './modules/media/media.module'
 import { AppController } from './app.controller'
 
 @Module({
@@ -130,6 +138,9 @@ import { AppController } from './app.controller'
     SpecialtiesModule,
     GroupsModule,
     RoomsModule,
+    CamerasModule,
+    LibraryModule,
+    SecurityJournalModule,
     SchedulesModule,
     CoursesModule,
     AssignmentsModule,
@@ -146,6 +157,7 @@ import { AppController } from './app.controller'
     StudentIdModule,
     ApplicationServicesModule,
     PostsModule,
+    StoriesModule,
     ChatsModule,
     EventsModule,
     ComplaintsModule,
@@ -161,12 +173,17 @@ import { AppController } from './app.controller'
     CleanupModule,
     HealthModule,
     MeModule,
+    DataExportModule,
     ReleasesModule,
     ClientVersionModule,
     PlatformModule,
     MiniModule,
+    // Обработчики очередей медиа — в процессе API, только пока отдельного воркера нет
+    // (MEDIA_PROCESSING=inline). Читается из process.env: состав модулей фиксируется до
+    // поднятия ConfigModule; само значение валидирует схема окружения на старте.
+    MediaModule.register({ http: true, processors: process.env.MEDIA_PROCESSING !== 'worker' }),
   ],
   controllers: [AppController],
-  providers: [{ provide: APP_GUARD, useClass: ThrottlerGuard }],
+  providers: [{ provide: APP_GUARD, useClass: UserThrottlerGuard }],
 })
 export class AppModule {}

@@ -65,6 +65,18 @@ describe('uploadDirect', () => {
     expect(confirm).not.toHaveBeenCalled()
   })
 
+  it('сбой хранилища приходит кодом из реестра ошибок, а не сырым ERR_NETWORK', async () => {
+    put.mockRejectedValue(Object.assign(new Error('Network Error'), { code: 'ERR_NETWORK' }))
+
+    await expect(
+      uploadDirect({
+        file: fileOf(THRESHOLD * 2),
+        presign: async () => ({ key: 'k', url: 'u', expiresAt: 'e' }),
+        confirm: vi.fn(),
+      }),
+    ).rejects.toMatchObject({ code: 'INTERNAL_ERROR' })
+  })
+
   it('передаёт Content-Type файла, а без типа — octet-stream', async () => {
     await uploadDirect({
       file: fileOf(THRESHOLD * 2, 'noext', ''),

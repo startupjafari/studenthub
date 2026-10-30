@@ -6,11 +6,13 @@ import { useRouter } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { Role } from '@studenthub/shared-types'
+import { Role, isRestrictedRole } from '@studenthub/shared-types'
+import { canFileComplaint } from '@studenthub/shared-schemas'
 import {
   ArrowLeft,
   Check,
   Clock,
+  Flag,
   Loader2,
   Lock,
   MessageSquarePlus,
@@ -25,6 +27,7 @@ import {
   Card,
   CardContent,
   Skeleton,
+  useConfirm,
 } from '../../../shared/ui'
 import { BRAND_GRADIENT } from '../../../shared/config'
 import { fetchMe, fetchUserById, fetchUserPresence, userKeys } from '../../../entities/user'
@@ -37,6 +40,9 @@ import {
   friendKeys,
 } from '../../../entities/friendship'
 import { useRealtimeEvent } from '../../../shared/realtime'
+import { useAppSelector } from '../../../shared/store'
+import { ReportModal } from '../../../features/report-content'
+import { contentModeration } from '../lib/content-moderation'
 
 // Путь к чатам по роли текущего пользователя (кнопка «Написать»). Источник истины —
 // widgets/app-shell/model/nav.ts; дублируем минимально, т.к. FSD запрещает импорт widget→widget.
@@ -60,6 +66,9 @@ import { ProfileTabs, type ProfileTabId } from './profile-tabs'
 import { PostFromUrl } from '../../feed-list'
 import { ShareProfileButton } from './share-profile-button'
 
+/** Как часто перезапрашивать «в сети» открытого профиля, если живого события нет. */
+const PRESENCE_REFRESH_MS = 60_000
+
 function errCode(e: unknown): string {
   return (e as { code?: string }).code ?? 'INTERNAL_ERROR'
 }
@@ -69,6 +78,7 @@ export function PublicUserProfile({ userId }: { userId: string }) {
   const tErr = useTranslations('Errors')
   const tCommon = useTranslations('Common')
   const router = useRouter()
+  const auth = useAppSelector((s) => s.auth)
 
   const q = useQuery({
     queryKey: userKeys.detail(userId),
@@ -76,13 +86,17 @@ export function PublicUserProfile({ userId }: { userId: string }) {
     retry: false,
   })
 
-  // Присутствие: снапшот через REST + живые апдейты по WS (событие глобальное).
+  // Присутствие: снапшот через REST + живые апдейты по WS. Событие больше не вещается на весь
+  // вуз — его получают собеседники и открытые чаты человека (F-F12), — поэтому чужой профиль
+  // без общего диалога освежаем редким опросом, пока вкладка видна.
   const presenceQ = useQuery({
     queryKey: userKeys.presence(userId),
     queryFn: () => fetchUserPresence(userId),
+    refetchInterval: PRESENCE_REFRESH_MS,
   })
   const [online, setOnline] = useState(false)
   const [tab, setTab] = useState<ProfileTabId>('profile')
+  const [reporting, setReporting] = useState(false)
   useEffect(() => {
     if (presenceQ.data) setOnline(presenceQ.data.online)
   }, [presenceQ.data])
@@ -131,6 +145,16 @@ export function PublicUserProfile({ userId }: { userId: string }) {
   }
 
   const u = q.data
+  // Пункты «Удалить (модерация)» во вкладках: роль и scope смотрящего — из сессии (как в JWT).
+  const moderation = contentModeration(
+    {
+      id: auth.user?.id ?? null,
+      role: auth.role,
+      universityId: auth.universityId,
+      facultyId: auth.facultyId,
+    },
+    u,
+  )
 
   return (
     // flex-1 — как у своего профиля: пустая вкладка тянется до низа экрана.
@@ -169,9 +193,26 @@ export function PublicUserProfile({ userId }: { userId: string }) {
               до full (users.service: resolveAccessWithFriendship). Скрывать кнопку именно там,
               где она нужна, значило запереть связь в замкнутом круге — профиль закрыт, потому
               что вы не друзья, а подружиться нельзя, потому что профиль закрыт.
-              Ограничений по ролям нет ни здесь, ни на бэке: заявку шлёт и принимает любая роль. */}
-          {me.data && me.data.id !== u.id && <FriendButton userId={u.id} />}
+              Исключение одно — охрана и библиотекарь: друзей у этих ролей нет (§2.1), заявку
+              им не принять, и бэкенд её не примет. */}
+          {me.data && me.data.id !== u.id && !isRestrictedRole(u.role) && (
+            <FriendButton userId={u.id} />
+          )}
           <ShareProfileButton userId={u.id} name={fullNameOf(u)} className="shadow-md" />
+          {/* Жалоба на человека — тем, чью жалобу сервер примет (COMPLAINT_REPORTER_ROLES). */}
+          {auth.user?.id !== u.id && canFileComplaint(auth.role) && (
+            <Button
+              variant="secondary"
+              size="sm"
+              icon
+              onClick={() => setReporting(true)}
+              aria-label={t('report')}
+              title={t('report')}
+              className="shadow-md"
+            >
+              <Flag className="size-4" aria-hidden />
+            </Button>
+          )}
         </div>
         <div className="relative h-36 w-full overflow-hidden sm:h-44">
           {u.coverUrl ? (
@@ -222,7 +263,13 @@ export function PublicUserProfile({ userId }: { userId: string }) {
           </CardContent>
         </Card>
       ) : (
-        <ProfileTabs userId={u.id} isOwner={false} tab={tab} onTabChange={setTab}>
+        <ProfileTabs
+          userId={u.id}
+          isOwner={false}
+          moderation={moderation}
+          tab={tab}
+          onTabChange={setTab}
+        >
           <ProfileBody data={u} />
         </ProfileTabs>
       )}
@@ -232,6 +279,15 @@ export function PublicUserProfile({ userId }: { userId: string }) {
       <Suspense fallback={null}>
         <PostFromUrl onOpen={() => setTab('posts')} />
       </Suspense>
+
+      {reporting && (
+        <ReportModal
+          targetType="USER"
+          targetId={u.id}
+          preview={fullNameOf(u)}
+          onClose={() => setReporting(false)}
+        />
+      )}
     </div>
   )
 }
@@ -241,6 +297,7 @@ function FriendButton({ userId }: { userId: string }) {
   const t = useTranslations('Friends')
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
+  const confirm = useConfirm()
   const statusQ = useQuery({
     queryKey: friendKeys.status(userId),
     queryFn: () => fetchFriendshipStatus(userId),
@@ -296,13 +353,28 @@ function FriendButton({ userId }: { userId: string }) {
   }
   const label = status === 'PENDING_OUTGOING' ? t('cancelRequest') : t('friendsLabel')
   const Icon = status === 'PENDING_OUTGOING' ? Clock : Check
+  // «В друзьях» — это состояние, а не команда: нажатие по нему удаляет дружбу, поэтому
+  // сначала спрашиваем. Свою исходящую заявку отменить можно и сразу — её легко повторить.
+  async function onRemove(id: string): Promise<void> {
+    if (
+      status === 'ACCEPTED' &&
+      !(await confirm({
+        title: t('removeConfirm'),
+        description: t('removeConfirmHint'),
+        confirmLabel: t('remove'),
+        destructive: true,
+      }))
+    )
+      return
+    removeMut.mutate(id)
+  }
   return (
     <Button
       size="sm"
       variant="secondary"
       className="shadow-md"
       loading={pending}
-      onClick={() => friendshipId && removeMut.mutate(friendshipId)}
+      onClick={() => friendshipId && void onRemove(friendshipId)}
     >
       <Icon className="size-4" aria-hidden />
       {label}

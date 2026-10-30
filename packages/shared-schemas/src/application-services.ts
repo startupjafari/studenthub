@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { OffsetPaginationSchema } from './pagination.js'
+import { OffsetPaginationSchema, queryBoolean } from './pagination.js'
 
 // Контракт домена «Услуги университета» (переработка «Заявок»). Единый источник истины для
 // state-machine, формы и фильтров — и для бэкенда (guard/сервис), и для фронта. Значения —
@@ -60,13 +60,15 @@ export type ApplicationServiceStatus = z.infer<typeof ApplicationServiceStatusSc
 
 // Единый граф допустимых переходов (SSOT). Бэкенд — финальный источник истины: любой переход
 // проверяется здесь, даже если фронт скрыл кнопку. Business-action → целевой статус решает сервис.
+// CANCELLED — отзыв студентом, «до начала подготовки» (§9): в том числе пока заявку
+// проверяют (IN_REVIEW) и после повторной отправки (RESUBMITTED).
 export const APPLICATION_TRANSITIONS: Record<ApplicationServiceStatus, ApplicationServiceStatus[]> =
   {
     DRAFT: ['SUBMITTED', 'CANCELLED'],
     SUBMITTED: ['IN_REVIEW', 'CANCELLED', 'REJECTED'],
-    IN_REVIEW: ['NEEDS_CORRECTION', 'IN_PREPARATION', 'REJECTED'],
+    IN_REVIEW: ['NEEDS_CORRECTION', 'IN_PREPARATION', 'REJECTED', 'CANCELLED'],
     NEEDS_CORRECTION: ['RESUBMITTED', 'CANCELLED'],
-    RESUBMITTED: ['IN_REVIEW'],
+    RESUBMITTED: ['IN_REVIEW', 'CANCELLED'],
     IN_PREPARATION: ['READY', 'READY_FOR_PICKUP', 'REJECTED'],
     READY: ['DELIVERED', 'READY_FOR_PICKUP'],
     READY_FOR_PICKUP: ['ISSUED', 'DELIVERED'],
@@ -84,15 +86,6 @@ export const TERMINAL_STATUSES: ApplicationServiceStatus[] = [
   'CANCELLED',
 ]
 
-// До этих статусов заявку редактирует/отзывает студент; после — данные фиксируются.
-export const STUDENT_CANCELLABLE_STATUSES: ApplicationServiceStatus[] = [
-  'DRAFT',
-  'SUBMITTED',
-  'IN_REVIEW',
-  'NEEDS_CORRECTION',
-  'RESUBMITTED',
-]
-
 export function canTransition(
   from: ApplicationServiceStatus,
   to: ApplicationServiceStatus,
@@ -100,16 +93,40 @@ export function canTransition(
   return APPLICATION_TRANSITIONS[from].includes(to)
 }
 
+// Статусы, из которых студент может отозвать заявку. Выводятся из графа, а не перечисляются
+// отдельно: раньше это был самостоятельный список, он разошёлся с графом, и кнопка
+// «Отозвать» в IN_REVIEW/RESUBMITTED упиралась в «Недопустимый переход».
+export const STUDENT_CANCELLABLE_STATUSES: ApplicationServiceStatus[] = APPLICATION_STATUSES.filter(
+  (status) => canTransition(status, 'CANCELLED'),
+)
+
 // ── Тело запросов ────────────────────────────────────────────────────────────
 // Создание черновика: только выбор услуги; остальное заполняется правкой черновика (§8, §30).
 export const CreateDraftSchema = z.object({ serviceId: z.string().min(1) }).strict()
 export type CreateDraftInput = z.infer<typeof CreateDraftSchema>
 
+// Ответы анкеты услуги: ключ — код поля, значение — примитив (строка, число, флажок).
+// Потолки — грубая граница, чтобы в заявку нельзя было положить произвольный JSON размером
+// с тело запроса. Тип значения, правила поля и состав ключей сервер сверяет с анкетой услуги.
+export const FORM_DATA_MAX_FIELDS = 100
+export const FORM_DATA_MAX_VALUE_LENGTH = 5000
+export const FormDataValueSchema = z.union([
+  z.string().max(FORM_DATA_MAX_VALUE_LENGTH),
+  z.number().finite(),
+  z.boolean(),
+  z.null(),
+])
+export const FormDataSchema = z
+  .record(z.string().max(60), FormDataValueSchema)
+  .refine((data) => Object.keys(data).length <= FORM_DATA_MAX_FIELDS, {
+    message: `Не больше ${FORM_DATA_MAX_FIELDS} полей`,
+  })
+
 // Правка черновика: способ получения + ответы динамической формы (валидация полей — по услуге на бэке).
 export const UpdateDraftSchema = z
   .object({
     deliveryType: DeliveryTypeSchema.optional(),
-    formData: z.record(z.string(), z.unknown()).optional(),
+    formData: FormDataSchema.optional(),
   })
   .strict()
 export type UpdateDraftInput = z.infer<typeof UpdateDraftSchema>
@@ -188,6 +205,23 @@ export const MarkReadySchema = z
   .strict()
 export type MarkReadyInput = z.infer<typeof MarkReadySchema>
 
+// Выдача оригинала. Код получения необязателен: если клиент его передал, сервер сверяет его
+// с кодом заявки (студент показывает код из карточки). `.default({})` — клиенты, которые кода
+// не спрашивают, шлют запрос вовсе без тела.
+export const IssueApplicationSchema = z
+  .object({ pickupCode: z.string().trim().min(1).max(40).optional() })
+  .strict()
+  .default({})
+export type IssueApplicationInput = z.infer<typeof IssueApplicationSchema>
+
+// Ссылка на страницу документа заявки (GET /applications/:id/documents/:docId/url).
+// `fileId` — страница из `documents[].files` карточки заявки; без него — первая страница.
+// Через схему, а не голым @Query: повторённый параметр приходил массивом и ронял запрос в 500.
+export const ApplicationDocumentUrlQuerySchema = z
+  .object({ fileId: z.string().min(1).max(64).optional() })
+  .strict()
+export type ApplicationDocumentUrlQueryInput = z.infer<typeof ApplicationDocumentUrlQuerySchema>
+
 // Статусы документа заявки (для фронта).
 export const APPLICATION_DOCUMENT_STATUSES = [
   'PENDING',
@@ -209,9 +243,136 @@ export const ApplicationQuerySchema = OffsetPaginationSchema.extend({
   facultyId: z.string().min(1).optional(),
   assignedToId: z.string().min(1).optional(),
   search: z.string().max(120).optional(),
-  overdue: z.coerce.boolean().optional(),
-  dueToday: z.coerce.boolean().optional(),
+  overdue: queryBoolean.optional(),
+  dueToday: queryBoolean.optional(),
   sortBy: ApplicationSortSchema.default('createdAt'),
   sortOrder: z.enum(['asc', 'desc']).default('desc'),
 }).strict()
 export type ApplicationQueryInput = z.infer<typeof ApplicationQuerySchema>
+
+// ── Управление каталогом услуг (§3.2: «настраиваемый, не enum») ──────────────
+// Админ вуза ведёт услуги своего вуза, админ платформы — глобальные шаблоны. Шаблон вуз не
+// правит, а «настраивает»: получает копию с тем же кодом, и она заменяет шаблон для его
+// студентов. Требования и поля формы сохраняются целиком, по `code`: пропавшие из списка
+// выключаются, а не удаляются — к ним уже могут быть привязаны документы поданных заявок.
+
+// Код — стабильный идентификатор в рамках услуги/вуза: латиница, цифры и дефис, как у шаблонов.
+export const CatalogCodeSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .regex(/^[a-z0-9][a-z0-9-]{1,59}$/, 'Латиница, цифры и дефис, 2–60 символов')
+
+const LocalizedTitle = z.string().trim().min(1).max(200)
+// Пустая строка из формы и null равнозначны: сервер сохраняет их как null.
+const OptionalText = (max: number) => z.string().trim().max(max).nullish()
+
+export const ServiceRequirementInputSchema = z
+  .object({
+    code: CatalogCodeSchema,
+    // Тип из каталога «Документов» — по нему студент выбирает документ из своего хранилища.
+    documentType: OptionalText(60),
+    titleRu: LocalizedTitle,
+    titleKk: LocalizedTitle,
+    titleEn: LocalizedTitle,
+    description: OptionalText(500),
+    required: z.boolean().default(true),
+    allowStorage: z.boolean().default(true),
+    allowUpload: z.boolean().default(true),
+    maxFiles: z.number().int().min(1).max(10).default(1),
+  })
+  .strict()
+export type ServiceRequirementInput = z.infer<typeof ServiceRequirementInputSchema>
+
+export const ServiceFormFieldOptionSchema = z
+  .object({
+    value: z.string().trim().min(1).max(60),
+    labelRu: z.string().trim().min(1).max(120),
+    labelKk: z.string().trim().min(1).max(120),
+    labelEn: z.string().trim().min(1).max(120),
+  })
+  .strict()
+export type ServiceFormFieldOptionInput = z.infer<typeof ServiceFormFieldOptionSchema>
+
+const CHOICE_FIELD_TYPES: FormFieldType[] = ['SELECT', 'RADIO']
+
+export const ServiceFormFieldInputSchema = z
+  .object({
+    code: CatalogCodeSchema,
+    type: FormFieldTypeSchema,
+    labelRu: LocalizedTitle,
+    labelKk: LocalizedTitle,
+    labelEn: LocalizedTitle,
+    placeholderRu: OptionalText(200),
+    placeholderKk: OptionalText(200),
+    placeholderEn: OptionalText(200),
+    required: z.boolean().default(false),
+    options: z.array(ServiceFormFieldOptionSchema).max(30).nullish(),
+  })
+  .strict()
+  // Поле выбора без вариантов студент заполнить не сможет, а сервер отклонит любой ответ.
+  .refine((f) => !CHOICE_FIELD_TYPES.includes(f.type) || (f.options?.length ?? 0) > 0, {
+    message: 'У поля выбора нужен хотя бы один вариант',
+    path: ['options'],
+  })
+export type ServiceFormFieldInput = z.infer<typeof ServiceFormFieldInputSchema>
+
+function uniqueCodes(items: { code: string }[]): boolean {
+  return new Set(items.map((i) => i.code)).size === items.length
+}
+
+export const UpsertApplicationServiceSchema = z
+  .object({
+    categoryId: z.string().min(1),
+    code: CatalogCodeSchema,
+    nameRu: LocalizedTitle,
+    nameKk: LocalizedTitle,
+    nameEn: LocalizedTitle,
+    descriptionRu: OptionalText(2000),
+    descriptionKk: OptionalText(2000),
+    descriptionEn: OptionalText(2000),
+    instructionsRu: OptionalText(4000),
+    instructionsKk: OptionalText(4000),
+    instructionsEn: OptionalText(4000),
+    // До 90 дней: SLA дольше — уже не срок обработки, а отсутствие срока.
+    slaHours: z
+      .number()
+      .int()
+      .min(1)
+      .max(24 * 90),
+    deliveryModes: z.array(DeliveryModeSchema).min(1).max(2),
+    requiresPickup: z.boolean().default(false),
+    // true — заявку ведёт деканат факультета студента; false — вузовский уровень.
+    facultyScoped: z.boolean().default(true),
+    active: z.boolean().default(true),
+    sortOrder: z.number().int().min(0).max(1000).default(0),
+    requirements: z.array(ServiceRequirementInputSchema).max(30).default([]),
+    formFields: z.array(ServiceFormFieldInputSchema).max(40).default([]),
+  })
+  .strict()
+  .refine((s) => new Set(s.deliveryModes).size === s.deliveryModes.length, {
+    message: 'Способ выдачи указан дважды',
+    path: ['deliveryModes'],
+  })
+  .refine((s) => uniqueCodes(s.requirements), {
+    message: 'Коды документов должны быть разными',
+    path: ['requirements'],
+  })
+  .refine((s) => uniqueCodes(s.formFields), {
+    message: 'Коды полей должны быть разными',
+    path: ['formFields'],
+  })
+export type UpsertApplicationServiceInput = z.infer<typeof UpsertApplicationServiceSchema>
+
+export const ManagedServicesQuerySchema = OffsetPaginationSchema.extend({
+  search: z.string().trim().max(120).optional(),
+  categoryId: z.string().min(1).optional(),
+}).strict()
+export type ManagedServicesQueryInput = z.infer<typeof ManagedServicesQuerySchema>
+
+// Причина отзыва справки необязательна, но если её указали — она попадает в событие заявки и
+// остаётся в истории: «почему отозвали» спрашивают чаще, чем «когда».
+export const RevokeCertificateSchema = z.object({
+  reason: z.string().trim().min(1).max(500).optional(),
+})
+export type RevokeCertificateInput = z.infer<typeof RevokeCertificateSchema>

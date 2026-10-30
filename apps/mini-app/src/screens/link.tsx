@@ -104,6 +104,8 @@ function message(cause: unknown): string {
       return t('linkErrRateLimit')
     case 'NO_TELEGRAM':
       return t('linkErrNoTelegram')
+    case 'INIT_DATA_STALE':
+      return t('linkErrStale')
     default:
       return t('linkErrUnknown')
   }

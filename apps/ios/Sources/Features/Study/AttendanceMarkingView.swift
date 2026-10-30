@@ -7,6 +7,8 @@ import SwiftUI
 /// тридцать человек по одному.
 struct AttendanceMarkingView: View {
     let pairID: String
+    /// День занятия — тот, что выбран в расписании.
+    var date = Date()
 
     @State private var model: AttendanceMarkingModel?
 
@@ -83,7 +85,7 @@ struct AttendanceMarkingView: View {
         }
         .task {
             if model == nil {
-                model = AttendanceMarkingModel(pairID: pairID)
+                model = AttendanceMarkingModel(pairID: pairID, date: date)
             }
             await model?.load()
         }

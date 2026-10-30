@@ -11,6 +11,8 @@
 //   • SEED_PASSWORD задан — берём его (и локально, и в проде);
 //   • не задан, но сид идёт в удалённую базу (SEED_ALLOW_REMOTE=1) или NODE_ENV=production
 //     — генерируем случайный и печатаем ОДИН раз;
+//   • то же, но в GitHub Actions — отказ: лог прогона публичный и хранится до 90 дней,
+//     напечатанный туда пароль известен всем. Там пароль приходит только секретом;
 //   • не задан локально — прежний `Admin1234!`, чтобы вход из документации продолжал
 //     работать без лишних телодвижений.
 //
@@ -30,6 +32,24 @@ function generatePassword() {
 }
 
 /**
+ * Отказ генерировать пароль там, где его единственная копия ушла бы в публичный лог.
+ *
+ * Сгенерированный пароль печатается, а в GitHub Actions печать — это лог прогона: в
+ * публичном репозитории его читает кто угодно, и пароль админа лежит там до 90 дней.
+ * Маскировать бессмысленно — тогда его не увидит и тот, кто запускал.
+ *
+ * @param {string} secretName переменная, через которую пароль надо передать
+ */
+export function assertCanPrintPassword(secretName) {
+  if (process.env.GITHUB_ACTIONS === 'true') {
+    throw new Error(
+      `${secretName} не задан, а сгенерированный пароль пришлось бы напечатать в лог ` +
+        `GitHub Actions. Задайте секрет ${secretName} и перезапустите прогон.`,
+    )
+  }
+}
+
+/**
  * Разрешает пароль сид-аккаунтов и сообщает, показывать ли его в итоговой сводке.
  *
  * @returns {{ password: string, generated: boolean, fromEnv: boolean }}
@@ -41,6 +61,7 @@ export function resolveSeedPassword() {
   }
   const remote = process.env.SEED_ALLOW_REMOTE === '1'
   if (remote || process.env.NODE_ENV === 'production') {
+    assertCanPrintPassword('SEED_PASSWORD')
     return { password: generatePassword(), generated: true, fromEnv: false }
   }
   return { password: DEV_PASSWORD, generated: false, fromEnv: false }

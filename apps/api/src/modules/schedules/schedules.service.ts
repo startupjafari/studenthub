@@ -1,6 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common'
+import { Injectable } from '@nestjs/common'
 import { Prisma, ScheduleChangeType, WeekType } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
+import type { NotificationMessageKey } from '@studenthub/shared-config'
 import type {
   CreatePairInput,
   CreateScheduleChangeInput,
@@ -11,8 +12,11 @@ import type {
   UpdateScheduleInput,
 } from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
+import { advisoryXactLock } from '../../common/prisma/advisory-lock'
 import { AuditService } from '../../common/audit/audit.service'
+import { localDateString } from '../../common/time/local-label'
 import { AppException } from '../../common/exceptions/app.exception'
+import { Paginated } from '../../common/http/paginated'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
 import { RealtimeGateway } from '../../common/realtime'
@@ -24,7 +28,26 @@ import { RoomService } from '../rooms/rooms.service'
 // Потолки на выборки (BACKEND_RULES §7.2). Пар в дне у группы/преподавателя/помещения
 // единицы, студентов в группе — десятки; лимит фиксируем в запросе.
 const PAIR_CONFLICT_LIMIT = 500
+// Страница выборки расписания и изменений: у факультета из 30 групп пар за неделю больше,
+// и раньше ответ молча обрезался на 500 — у старших групп пропадали пятница и суббота.
+const SCHEDULE_PAGE_LIMIT = 500
 const GROUP_MEMBERS_LIMIT = 500
+// Активация версии сверяет все её пары разом: кандидатов — пары активных сеток других групп
+// у тех же преподавателей и аудиторий, это сотни, а не тысячи.
+const ACTIVATION_CONFLICT_LIMIT = 5000
+// Подробностей конфликта в ответе — сколько дочитают глазами; остальное ясно из первых.
+const CONFLICT_DETAILS_LIMIT = 20
+// Замен у преподавателя на один день — единицы.
+const SUBSTITUTION_LIMIT = 100
+// Разовых изменений одной пары на одну дату — единицы (исправления замены поверх замены).
+const CHANGES_PER_PAIR_DATE_LIMIT = 20
+// Будущих изменений, которые переносят чужие пары к тем же группе, преподавателям и
+// аудиториям в те же дни недели, — десятки на семестр; на версию целиком — сотни.
+const DATED_CONFLICT_LIMIT = 500
+
+const DAY_SHORT = ['', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'вс']
+// Все дни недели по ISO — активация версии проверяет сетку целиком.
+const ALL_DAYS = [1, 2, 3, 4, 5, 6, 7]
 
 const PAIR_SELECT = {
   id: true,
@@ -40,6 +63,22 @@ const PAIR_SELECT = {
 } satisfies Prisma.PairSelect
 
 type PairRow = Prisma.PairGetPayload<{ select: typeof PAIR_SELECT }>
+
+// Отметки посещаемости держат пару (C-F11): удалить пару или версию расписания с отметками
+// нельзя — вместе с ними пропала бы история посещаемости за семестр. Проверяем заранее, чтобы
+// ответить понятным CONFLICT; связь Attendance.pair = Restrict страхует от гонки (P2003).
+const PAIR_HAS_ATTENDANCE =
+  'Нельзя удалить пару: по ней уже отмечена посещаемость. Перенесите пару — измените день или время'
+const SCHEDULE_HAS_ATTENDANCE =
+  'Нельзя удалить версию расписания: по её парам уже отмечена посещаемость. Сделайте версию неактивной'
+
+function attendanceConflict(message: string): AppException {
+  return new AppException('CONFLICT', message, [{ field: 'attendance', message }])
+}
+
+function isForeignKeyViolation(error: unknown): boolean {
+  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003'
+}
 
 const SCHEDULE_SELECT = {
   id: true,
@@ -60,8 +99,20 @@ const CHANGE_SELECT = {
   createdAt: true,
   newRoom: { select: { id: true, name: true } },
   newTeacher: { select: { id: true, firstName: true, lastName: true } },
+  // Полные данные пары (scheduleId/weekType/teacher/room добавлены для C-F12): заменяющий
+  // не видит эту пару в своей выборке GET /schedule, и клиент строит её из изменения.
   pair: {
-    select: { groupId: true, subject: true, dayOfWeek: true, startTime: true, endTime: true },
+    select: {
+      scheduleId: true,
+      groupId: true,
+      subject: true,
+      dayOfWeek: true,
+      startTime: true,
+      endTime: true,
+      weekType: true,
+      teacher: { select: { id: true, firstName: true, lastName: true } },
+      room: { select: { id: true, name: true } },
+    },
   },
 } satisfies Prisma.ScheduleChangeSelect
 
@@ -98,8 +149,46 @@ interface PairSlot {
   roomId: string | null
 }
 
-function isPlatform(role: Role): boolean {
-  return role === Role.PLATFORM_ADMIN || role === Role.PLATFORM_MODERATOR
+// Шаблонный слот, который сверяем с фактической сеткой будущих дат (BUG-326). `groupId` —
+// null, когда занятость группы не проверяем (активация: чужие группы её не занимают).
+interface TemplateSlot {
+  label: string
+  groupId: string | null
+  dayOfWeek: number
+  startTime: string
+  endTime: string
+  weekType: WeekType
+  teacherId: string | null
+  roomId: string | null
+}
+
+// Календарная дата "YYYY-MM-DD" → значение колонки @db.Date (полночь UTC).
+// Расписание по матрице доступа (docs/PROJECT.md §2.2) из платформенных ролей видит только
+// админ платформы — все вузы. Модератору платформы оно закрыто: его зона — контент и жалобы.
+// Раньше scope держался на общем isPlatformRole, и модератор читал расписание всех вузов.
+function seesAllSchedules(role: Role): boolean {
+  return role === Role.PLATFORM_ADMIN
+}
+
+/**
+ * Группы, где преподаватель ведёт занятия: дисциплина группы или пара действующего
+ * расписания — то же основание, что у составов групп (groups) и материалов.
+ */
+function taughtBy(teacherId: string): Prisma.GroupWhereInput[] {
+  return [
+    { courses: { some: { teacherId } } },
+    { pairs: { some: { teacherId, schedule: { is: { isActive: true } } } } },
+  ]
+}
+
+function assertCanReadSchedule(viewer: JwtPayload): void {
+  if (viewer.role === Role.PLATFORM_MODERATOR) {
+    throw new AppException('FORBIDDEN', 'Расписание недоступно модератору платформы')
+  }
+}
+
+function dateOnly(date: string): Date {
+  return new Date(`${date}T00:00:00.000Z`)
 }
 
 // Пересечение по чётности недели: BOTH пересекается с любым; иначе — только с равным.
@@ -127,17 +216,96 @@ function mapPair(p: PairRow): PairDto {
   }
 }
 
-const CHANGE_TYPE_LABEL: Record<ScheduleChangeType, string> = {
-  MOVED: 'перенос занятия',
-  ROOM_CHANGED: 'смена аудитории',
-  CANCELLED: 'отмена занятия',
-  SUBSTITUTED: 'замена преподавателя',
+// Текст уведомления — своя словарная статья на тип изменения (shared-config): раньше в
+// параметр `{change}` уходила готовая русская строка, и kk/en получали её по-русски.
+const CHANGE_BODY_KEY: Record<ScheduleChangeType, NotificationMessageKey> = {
+  MOVED: 'schedule.moved.body',
+  ROOM_CHANGED: 'schedule.roomChanged.body',
+  CANCELLED: 'schedule.cancelled.body',
+  SUBSTITUTED: 'schedule.substituted.body',
 }
+
+// Деканат убрал ошибочное изменение (C-F16).
+const CHANGE_REVOKED_BODY_KEY: Record<ScheduleChangeType, NotificationMessageKey> = {
+  MOVED: 'schedule.movedRevoked.body',
+  ROOM_CHANGED: 'schedule.roomChangedRevoked.body',
+  CANCELLED: 'schedule.cancelledRevoked.body',
+  SUBSTITUTED: 'schedule.substitutedRevoked.body',
+}
+
+/** День недели календарной даты YYYY-MM-DD по ISO (1 — понедельник). Дата уже местная. */
+function isoDayOfWeek(date: string): number {
+  const day = new Date(`${date}T00:00:00Z`).getUTCDay()
+  return day === 0 ? 7 : day
+}
+
+/**
+ * Чётность ISO-недели календарной даты YYYY-MM-DD — та же формула, что у веба, iOS и Android
+ * (`isoWeekParity`): неделя с понедельника, первая — та, где первый четверг года.
+ */
+function isoWeekParity(date: string): WeekType {
+  const d = new Date(`${date}T00:00:00Z`)
+  // Четверг той же недели: его год — год ISO-недели.
+  d.setUTCDate(d.getUTCDate() + 3 - ((d.getUTCDay() + 6) % 7))
+  const week = 1 + Math.floor((d.getTime() - Date.UTC(d.getUTCFullYear(), 0, 1)) / (7 * 86_400_000))
+  return week % 2 === 1 ? WeekType.ODD : WeekType.EVEN
+}
+
+/** Пара с такой чётностью проводится в неделю с чётностью `parity`. */
+function heldInWeek(weekType: WeekType, parity: WeekType): boolean {
+  return weekType === WeekType.BOTH || weekType === parity
+}
+
+// Изменение пары на дату — то, что нужно для расчёта её фактического слота.
+interface DatedChange {
+  type: ScheduleChangeType
+  newStartTime: string | null
+  newEndTime: string | null
+  newTeacherId: string | null
+  newRoomId: string | null
+}
+
+// Фактический слот пары в конкретную дату: шаблон с наложенными разовыми изменениями.
+interface EffectiveSlot {
+  startTime: string
+  endTime: string
+  teacherId: string | null
+  roomId: string | null
+}
+
+/**
+ * Слот пары в дату с учётом её изменений на эту дату (по порядку создания: позднее
+ * перекрывает раннее). Отменённое занятие места не занимает — `null`. Правила те же, что у
+ * посещаемости (MOVED — новое время, отмена — занятия нет) и у замен (решает последняя).
+ * Перенос может сменить и аудиторию (`MOVED` + `newRoomId`, схема 03-schedule.prisma): её
+ * занятость считаем по новой — там, где пара фактически пройдёт.
+ */
+function effectiveSlot(base: EffectiveSlot, changes: DatedChange[]): EffectiveSlot | null {
+  if (changes.some((c) => c.type === ScheduleChangeType.CANCELLED)) return null
+  const slot = { ...base }
+  for (const c of changes) {
+    if (c.type === ScheduleChangeType.MOVED && c.newStartTime && c.newEndTime) {
+      slot.startTime = c.newStartTime
+      slot.endTime = c.newEndTime
+    }
+    if (c.type === ScheduleChangeType.SUBSTITUTED && c.newTeacherId) slot.teacherId = c.newTeacherId
+    const changesRoom =
+      c.type === ScheduleChangeType.ROOM_CHANGED || c.type === ScheduleChangeType.MOVED
+    if (changesRoom && c.newRoomId) slot.roomId = c.newRoomId
+  }
+  return slot
+}
+
+const DATED_CHANGE_SELECT = {
+  type: true,
+  newStartTime: true,
+  newEndTime: true,
+  newTeacherId: true,
+  newRoomId: true,
+} satisfies Prisma.ScheduleChangeSelect
 
 @Injectable()
 export class SchedulesService {
-  private readonly logger = new Logger(SchedulesService.name)
-
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
@@ -150,22 +318,64 @@ export class SchedulesService {
 
   /**
    * Активное расписание по scope смотрящего: студент/староста → своя группа,
-   * преподаватель → свои пары, декан → факультет, админ/модератор вуза → вуз, платформа → всё.
+   * преподаватель → свои пары, декан → факультет, админ/модератор вуза → вуз, админ платформы →
+   * всё; модератору платформы — FORBIDDEN (§2.2).
    * Возвращает пары + таймзону вуза (время «настенное» в этой зоне, docs/FRONTEND_RULES.md §9).
    */
   async getSchedule(
     viewer: JwtPayload,
     query: ScheduleQueryInput,
-  ): Promise<{ timezone: string | null; pairs: PairDto[] }> {
+  ): Promise<{ timezone: string | null; pairs: PairDto[]; nextCursor?: string | null }> {
+    assertCanReadSchedule(viewer)
     const where = this.buildReadWhere(viewer, query)
-    const pairs = await this.prisma.pair.findMany({
+    // Страница + признак продолжения (`nextCursor`): ответ остаётся объектом, и клиенты,
+    // которые о курсоре не знают, получают первую страницу, как раньше.
+    const rows = await this.prisma.pair.findMany({
       where,
       select: PAIR_SELECT,
-      orderBy: [{ dayOfWeek: 'asc' }, { startTime: 'asc' }],
-      take: 500,
+      orderBy: [{ dayOfWeek: 'asc' }, { startTime: 'asc' }, { id: 'asc' }],
+      take: SCHEDULE_PAGE_LIMIT + 1,
+      ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
     })
+    const pairs = rows.slice(0, SCHEDULE_PAGE_LIMIT)
+    const nextCursor = rows.length > SCHEDULE_PAGE_LIMIT ? (pairs.at(-1)?.id ?? null) : null
     const timezone = await this.resolveViewerTimezone(viewer, query.groupId)
-    return { timezone, pairs: pairs.map(mapPair) }
+    return { timezone, pairs: pairs.map(mapPair), nextCursor }
+  }
+
+  /**
+   * Чужие пары, которые преподаватель ведёт на дату по замене (C-F12).
+   *
+   * В недельную выборку `getSchedule` они не входят — это шаблон без дат, и пара на каждой
+   * неделе показывалась бы как его. Поэтому их отдаёт отдельный вызов на конкретный день
+   * («Сегодня»). Решает ПОСЛЕДНЯЯ замена пары на эту дату: деканат исправляет ошибочную замену
+   * новой, и прежний заменяющий занятие больше не ведёт.
+   */
+  async substitutionPairs(viewer: JwtPayload, date: string): Promise<PairDto[]> {
+    if (viewer.role !== Role.TEACHER) return []
+    const day = dateOnly(date)
+    const substitutions = await this.prisma.scheduleChange.findMany({
+      where: {
+        date: day,
+        type: ScheduleChangeType.SUBSTITUTED,
+        pair: {
+          is: {
+            schedule: { is: { isActive: true } },
+            changes: {
+              some: { date: day, type: ScheduleChangeType.SUBSTITUTED, newTeacherId: viewer.sub },
+            },
+          },
+        },
+      },
+      select: { pairId: true, newTeacherId: true, pair: { select: PAIR_SELECT } },
+      orderBy: { createdAt: 'asc' },
+      take: SUBSTITUTION_LIMIT,
+    })
+    const latest = new Map<string, (typeof substitutions)[number]>()
+    for (const s of substitutions) latest.set(s.pairId, s)
+    return [...latest.values()]
+      .filter((s) => s.newTeacherId === viewer.sub && s.pair.teacher?.id !== viewer.sub)
+      .map((s) => mapPair(s.pair))
   }
 
   private buildReadWhere(viewer: JwtPayload, q: ScheduleQueryInput): Prisma.PairWhereInput {
@@ -181,7 +391,7 @@ export class SchedulesService {
       where.group = { is: { facultyId: viewer.facultyId ?? '__none__' } }
       if (q.groupId) where.groupId = q.groupId
       if (q.teacherId) where.teacherId = q.teacherId
-    } else if (isPlatform(viewer.role)) {
+    } else if (seesAllSchedules(viewer.role)) {
       if (q.groupId) where.groupId = q.groupId
       if (q.teacherId) where.teacherId = q.teacherId
     } else {
@@ -205,6 +415,7 @@ export class SchedulesService {
   // ── Контейнеры расписания (Schedule) ───────────────────────────────────────
 
   async listSchedules(viewer: JwtPayload, groupId?: string) {
+    assertCanReadSchedule(viewer)
     const where = this.scheduleScopeWhere(viewer, groupId)
     return this.prisma.schedule.findMany({
       where,
@@ -215,6 +426,7 @@ export class SchedulesService {
   }
 
   async getScheduleById(viewer: JwtPayload, id: string) {
+    assertCanReadSchedule(viewer)
     const schedule = await this.prisma.schedule.findUnique({
       where: { id },
       select: SCHEDULE_SELECT,
@@ -224,6 +436,7 @@ export class SchedulesService {
     }
     const gctx = await this.resolveGroupContext(schedule.groupId)
     this.assertReadScopeForGroup(viewer, gctx)
+    if (viewer.role === Role.TEACHER) await this.assertTeacherSeesGroup(viewer.sub, gctx.groupId)
     const pairs = await this.prisma.pair.findMany({
       where: { scheduleId: id },
       select: PAIR_SELECT,
@@ -240,6 +453,9 @@ export class SchedulesService {
     const schedule = await this.prisma.$transaction(async (tx) => {
       if (makeActive) {
         // Единственность активного расписания на группу (комментарий в схеме 03-schedule.prisma).
+        // Уникального индекса нет — две параллельные «создать активную» без лока гасили
+        // только прежнюю версию и обе оставались активными.
+        await this.lockActiveSchedule(tx, input.groupId)
         await tx.schedule.updateMany({
           where: { groupId: input.groupId, isActive: true },
           data: { isActive: false },
@@ -269,7 +485,7 @@ export class SchedulesService {
   ) {
     const existing = await this.prisma.schedule.findUnique({
       where: { id },
-      select: { id: true, groupId: true },
+      select: { id: true, groupId: true, isActive: true },
     })
     if (!existing) {
       throw new AppException('NOT_FOUND', 'Расписание не найдено')
@@ -277,6 +493,20 @@ export class SchedulesService {
     const gctx = await this.resolveGroupContext(existing.groupId)
     this.assertManageScopeForGroup(actor, gctx)
     const schedule = await this.prisma.$transaction(async (tx) => {
+      // Пары черновика проверялись на конфликты с сеткой, действовавшей на момент добавления;
+      // с тех пор другие группы могли занять тех же преподавателей и аудитории (C-F13).
+      // Проверка и включение — под локом всех дней вуза (C-F27): параллельно добавленная
+      // пара другой группы иначе проскочила бы между ними.
+      if (input.isActive === true) await this.lockActiveSchedule(tx, existing.groupId)
+      if (input.isActive === true && !existing.isActive) {
+        await this.lockSlotDays(tx, gctx.universityId, ALL_DAYS)
+        await this.assertActivationNoConflict(
+          tx,
+          existing.id,
+          existing.groupId,
+          localDateString(new Date(), gctx.timezone),
+        )
+      }
       if (input.isActive === true) {
         await tx.schedule.updateMany({
           where: { groupId: existing.groupId, isActive: true, id: { not: id } },
@@ -309,8 +539,19 @@ export class SchedulesService {
     }
     const gctx = await this.resolveGroupContext(existing.groupId)
     this.assertManageScopeForGroup(actor, gctx)
-    // Пары и их изменения удаляются каскадом (onDelete: Cascade в схеме).
-    await this.prisma.schedule.delete({ where: { id } })
+    // Пары и их изменения удаляются каскадом, а посещаемость — нет: версию с отметками
+    // не удаляем, а деактивируем (C-F11).
+    const marked = await this.prisma.attendance.findFirst({
+      where: { pair: { is: { scheduleId: id } } },
+      select: { id: true },
+    })
+    if (marked) throw attendanceConflict(SCHEDULE_HAS_ATTENDANCE)
+    try {
+      await this.prisma.schedule.delete({ where: { id } })
+    } catch (error) {
+      if (isForeignKeyViolation(error)) throw attendanceConflict(SCHEDULE_HAS_ATTENDANCE)
+      throw error
+    }
     await this.audit.record({
       userId: actor.sub,
       action: 'schedule_deleted',
@@ -339,13 +580,14 @@ export class SchedulesService {
     if (actor.role === Role.TEACHER) {
       // Преподаватель создаёт только СВОИ пары (назначает себя), в своём вузе.
       this.assertTeacherPairScope(actor, gctx, teacherId)
+      await this.assertTeachesGroup(actor.sub, schedule.groupId)
     } else {
       this.assertManageScopeForGroup(actor, gctx)
     }
 
     const roomId = input.roomId ?? null
     if (roomId) await this.rooms.assertRoomInUniversity(roomId, gctx.universityId)
-    if (teacherId) await this.assertTeacherInUniversity(teacherId, gctx.universityId)
+    if (teacherId) await this.assertAssignableTeacher(teacherId, gctx.universityId, 'teacherId')
 
     const slot: PairSlot = {
       scheduleId: schedule.id,
@@ -357,21 +599,25 @@ export class SchedulesService {
       teacherId,
       roomId,
     }
-    await this.assertNoConflict(slot)
-
-    const pair = await this.prisma.pair.create({
-      data: {
-        scheduleId: slot.scheduleId,
-        groupId: slot.groupId,
-        subject: input.subject,
-        teacherId,
-        roomId,
-        dayOfWeek: slot.dayOfWeek,
-        startTime: slot.startTime,
-        endTime: slot.endTime,
-        weekType: slot.weekType,
-      },
-      select: PAIR_SELECT,
+    // Проверка и запись — одна транзакция под локом дня (C-F27): раньше две параллельные
+    // правки видели свободный слот и обе занимали одну аудиторию.
+    const pair = await this.prisma.$transaction(async (tx) => {
+      await this.lockSlotDays(tx, gctx.universityId, [slot.dayOfWeek])
+      await this.assertNoConflict(tx, slot, localDateString(new Date(), gctx.timezone))
+      return tx.pair.create({
+        data: {
+          scheduleId: slot.scheduleId,
+          groupId: slot.groupId,
+          subject: input.subject,
+          teacherId,
+          roomId,
+          dayOfWeek: slot.dayOfWeek,
+          startTime: slot.startTime,
+          endTime: slot.endTime,
+          weekType: slot.weekType,
+        },
+        select: PAIR_SELECT,
+      })
     })
     await this.audit.record({
       userId: actor.sub,
@@ -402,6 +648,7 @@ export class SchedulesService {
         weekType: true,
         teacherId: true,
         roomId: true,
+        schedule: { select: { isActive: true } },
       },
     })
     if (!existing) {
@@ -415,6 +662,9 @@ export class SchedulesService {
       if (nextTeacherId !== actor.sub) {
         throw new AppException('WRONG_SCOPE', 'Нельзя переназначить пару другому преподавателю')
       }
+      // То же правило, что при создании (C-F27): переносить пары он может только в группах,
+      // где ведёт дисциплину; остальные пары переставляет деканат.
+      await this.assertTeachesGroup(actor.sub, existing.groupId)
     } else {
       this.assertManageScopeForGroup(actor, gctx)
     }
@@ -432,34 +682,42 @@ export class SchedulesService {
       throw new AppException('BAD_REQUEST', 'Время начала должно быть раньше времени окончания')
     }
     if (roomId) await this.rooms.assertRoomInUniversity(roomId, gctx.universityId)
-    if (teacherId) await this.assertTeacherInUniversity(teacherId, gctx.universityId)
+    // Нового преподавателя сверяем с правилами назначения; прежний уже стоит в сетке, и его
+    // блокировка не должна мешать деканату перенести пару (а снять его — можно).
+    if (teacherId && teacherId !== existing.teacherId) {
+      await this.assertAssignableTeacher(teacherId, gctx.universityId, 'teacherId')
+    }
 
-    await this.assertNoConflict(
-      {
-        scheduleId: existing.scheduleId,
-        groupId: existing.groupId,
-        dayOfWeek,
-        startTime,
-        endTime,
-        weekType,
-        teacherId,
-        roomId,
-      },
-      id,
-    )
-
-    const pair = await this.prisma.pair.update({
-      where: { id },
-      data: {
-        subject: input.subject,
-        teacherId,
-        roomId,
-        dayOfWeek,
-        startTime,
-        endTime,
-        weekType,
-      },
-      select: PAIR_SELECT,
+    const pair = await this.prisma.$transaction(async (tx) => {
+      await this.lockSlotDays(tx, gctx.universityId, [dayOfWeek])
+      await this.assertNoConflict(
+        tx,
+        {
+          scheduleId: existing.scheduleId,
+          groupId: existing.groupId,
+          dayOfWeek,
+          startTime,
+          endTime,
+          weekType,
+          teacherId,
+          roomId,
+        },
+        localDateString(new Date(), gctx.timezone),
+        id,
+      )
+      return tx.pair.update({
+        where: { id },
+        data: {
+          subject: input.subject,
+          teacherId,
+          roomId,
+          dayOfWeek,
+          startTime,
+          endTime,
+          weekType,
+        },
+        select: PAIR_SELECT,
+      })
     })
     await this.audit.record({
       userId: actor.sub,
@@ -468,13 +726,27 @@ export class SchedulesService {
       entityId: id,
       ...ctx,
     })
+    // Правка пары действующей сетки — живое обновление группе и обоим преподавателям
+    // (C-F16): раньше сетка у них менялась только после перезагрузки.
+    if (existing.schedule.isActive) {
+      this.broadcastScheduleChange(existing.groupId, [existing.teacherId, teacherId], id, {
+        change: null,
+        groupId: existing.groupId,
+        pairId: id,
+      })
+    }
     return mapPair(pair)
   }
 
   async removePair(actor: JwtPayload, id: string, ctx: RequestContext): Promise<void> {
     const existing = await this.prisma.pair.findUnique({
       where: { id },
-      select: { id: true, groupId: true, teacherId: true },
+      select: {
+        id: true,
+        groupId: true,
+        teacherId: true,
+        schedule: { select: { isActive: true } },
+      },
     })
     if (!existing) {
       throw new AppException('NOT_FOUND', 'Пара не найдена')
@@ -485,7 +757,18 @@ export class SchedulesService {
     } else {
       this.assertManageScopeForGroup(actor, gctx)
     }
-    await this.prisma.pair.delete({ where: { id } })
+    // Пару с отметками посещаемости не удаляем (C-F11): её переносят правкой (PATCH).
+    const marked = await this.prisma.attendance.findFirst({
+      where: { pairId: id },
+      select: { id: true },
+    })
+    if (marked) throw attendanceConflict(PAIR_HAS_ATTENDANCE)
+    try {
+      await this.prisma.pair.delete({ where: { id } })
+    } catch (error) {
+      if (isForeignKeyViolation(error)) throw attendanceConflict(PAIR_HAS_ATTENDANCE)
+      throw error
+    }
     await this.audit.record({
       userId: actor.sub,
       action: 'pair_deleted',
@@ -493,25 +776,48 @@ export class SchedulesService {
       entityId: id,
       ...ctx,
     })
+    if (existing.schedule.isActive) {
+      this.broadcastScheduleChange(existing.groupId, [existing.teacherId], id, {
+        change: null,
+        groupId: existing.groupId,
+        pairId: id,
+        removed: true,
+      })
+    }
   }
 
   /**
    * Детектор конфликтов (§6.4): в одном слоте (день + пересечение времени + пересечение чётности)
-   * аудитория, преподаватель и группа не могут быть заняты дважды. Проверяем среди пар активных
-   * расписаний и того же контейнера (архивные неактивные расписания не учитываем).
+   * аудитория, преподаватель и группа не могут быть заняты дважды. Проверяем среди пар того же
+   * контейнера и действующих расписаний ДРУГИХ групп (архивные неактивные не учитываем).
+   *
+   * Действующая версия своей группы для черновика — не помеха: при активации черновика она
+   * гаснет (как и в `assertActivationNoConflict`), а раньше новую версию нельзя было собрать
+   * в тех же слотах, что и текущую (C-F27). Для действующей версии это тот же контейнер.
+   * Затем — те же пары по фактической сетке будущих дат (`assertNoDatedConflict`): перенос
+   * или смена аудитории на дату могли поставить чужое занятие ровно в этот слот.
+   * Вызывать в транзакции под `lockSlotDays` — иначе проверка и запись разойдутся.
    */
-  private async assertNoConflict(slot: PairSlot, excludePairId?: string): Promise<void> {
+  private async assertNoConflict(
+    tx: Prisma.TransactionClient,
+    slot: PairSlot,
+    today: string,
+    excludePairId?: string,
+  ): Promise<void> {
     const orResource: Prisma.PairWhereInput[] = [{ groupId: slot.groupId }]
     if (slot.teacherId) orResource.push({ teacherId: slot.teacherId })
     if (slot.roomId) orResource.push({ roomId: slot.roomId })
 
-    const candidates = await this.prisma.pair.findMany({
-      where: {
-        ...(excludePairId ? { id: { not: excludePairId } } : {}),
-        dayOfWeek: slot.dayOfWeek,
-        schedule: { is: { OR: [{ isActive: true }, { id: slot.scheduleId }] } },
-        OR: orResource,
+    const others: Prisma.PairWhereInput = {
+      ...(excludePairId ? { id: { not: excludePairId } } : {}),
+      schedule: {
+        is: {
+          OR: [{ isActive: true, groupId: { not: slot.groupId } }, { id: slot.scheduleId }],
+        },
       },
+    }
+    const candidates = await tx.pair.findMany({
+      where: { ...others, dayOfWeek: slot.dayOfWeek, OR: orResource },
       take: PAIR_CONFLICT_LIMIT,
       select: {
         id: true,
@@ -543,14 +849,243 @@ export class SchedulesService {
     if (conflicts.length > 0) {
       throw new AppException('CONFLICT', 'Конфликт в расписании', conflicts)
     }
+    await this.assertNoDatedConflict(tx, [{ ...slot, label: '' }], others, today)
+  }
+
+  /**
+   * Перед активацией версии — её пары против активных расписаний ДРУГИХ групп (C-F13).
+   * Действующая версия своей группы при активации гаснет, поэтому с ней конфликт не считаем;
+   * пары версии между собой проверены при добавлении (тот же контейнер). Один запрос на всю
+   * версию: кандидаты — пары тех же дней у тех же преподавателей и аудиторий.
+   */
+  private async assertActivationNoConflict(
+    tx: Prisma.TransactionClient,
+    scheduleId: string,
+    groupId: string,
+    today: string,
+  ): Promise<void> {
+    const pairs = await tx.pair.findMany({
+      where: { scheduleId },
+      select: {
+        subject: true,
+        dayOfWeek: true,
+        startTime: true,
+        endTime: true,
+        weekType: true,
+        teacherId: true,
+        roomId: true,
+      },
+      take: 500,
+    })
+    const teacherIds = [...new Set(pairs.map((p) => p.teacherId).filter((v): v is string => !!v))]
+    const roomIds = [...new Set(pairs.map((p) => p.roomId).filter((v): v is string => !!v))]
+    if (teacherIds.length === 0 && roomIds.length === 0) return
+
+    const orResource: Prisma.PairWhereInput[] = []
+    if (teacherIds.length > 0) orResource.push({ teacherId: { in: teacherIds } })
+    if (roomIds.length > 0) orResource.push({ roomId: { in: roomIds } })
+    const others: Prisma.PairWhereInput = {
+      groupId: { not: groupId },
+      schedule: { is: { isActive: true } },
+    }
+    const candidates = await tx.pair.findMany({
+      where: {
+        ...others,
+        dayOfWeek: { in: [...new Set(pairs.map((p) => p.dayOfWeek))] },
+        OR: orResource,
+      },
+      take: ACTIVATION_CONFLICT_LIMIT,
+      select: {
+        subject: true,
+        dayOfWeek: true,
+        startTime: true,
+        endTime: true,
+        weekType: true,
+        teacherId: true,
+        roomId: true,
+      },
+    })
+
+    const conflicts: { field: string; message: string }[] = []
+    for (const p of pairs) {
+      const own = `${p.subject} (${DAY_SHORT[p.dayOfWeek] ?? ''} ${p.startTime}–${p.endTime})`
+      for (const c of candidates) {
+        if (c.dayOfWeek !== p.dayOfWeek) continue
+        if (!weekTypesOverlap(p.weekType, c.weekType)) continue
+        if (!timeOverlap(p.startTime, p.endTime, c.startTime, c.endTime)) continue
+        const at = `${c.subject} (${c.startTime}–${c.endTime})`
+        if (p.teacherId && c.teacherId === p.teacherId) {
+          conflicts.push({ field: 'teacherId', message: `${own}: преподаватель уже занят — ${at}` })
+        }
+        if (p.roomId && c.roomId === p.roomId) {
+          conflicts.push({ field: 'roomId', message: `${own}: аудитория уже занята — ${at}` })
+        }
+      }
+    }
+    if (conflicts.length > 0) {
+      throw new AppException(
+        'CONFLICT',
+        'Конфликт в расписании',
+        conflicts.slice(0, CONFLICT_DETAILS_LIMIT),
+      )
+    }
+    // Своя группа в чужих сетках не стоит — её занятость при активации не проверяем.
+    const slots = pairs.map((p) => ({
+      ...p,
+      label: `${p.subject} (${DAY_SHORT[p.dayOfWeek] ?? ''} ${p.startTime}–${p.endTime}): `,
+      groupId: null,
+    }))
+    await this.assertNoDatedConflict(tx, slots, others, today)
+  }
+
+  /**
+   * Шаблонные слоты против фактической сетки будущих дат (BUG-326). Разовое изменение
+   * переносит чужую пару на другое время, в другую аудиторию или к другому преподавателю,
+   * и проверка по одним шаблонам пропускала, например, новую пару в аудитории, куда на
+   * ближайший понедельник уже перенесено чужое занятие. Кандидаты — изменения с сегодняшней
+   * даты вуза в те же дни недели, затрагивающие ту же группу, преподавателей или аудитории;
+   * по каждой такой дате пара берётся со всеми своими изменениями (`effectiveSlot`), а
+   * шаблонный слот — только если он в эту дату проводится (чётность ISO-недели).
+   * `others` — какие пары считаются чужими (те же условия, что у шаблонной проверки).
+   */
+  private async assertNoDatedConflict(
+    tx: Prisma.TransactionClient,
+    slots: TemplateSlot[],
+    others: Prisma.PairWhereInput,
+    today: string,
+  ): Promise<void> {
+    const ids = (pick: (s: TemplateSlot) => string | null): string[] => [
+      ...new Set(slots.map(pick).filter((v): v is string => !!v)),
+    ]
+    const groupIds = ids((s) => s.groupId)
+    const teacherIds = ids((s) => s.teacherId)
+    const roomIds = ids((s) => s.roomId)
+    const touches: Prisma.ScheduleChangeWhereInput[] = []
+    if (groupIds.length > 0) touches.push({ pair: { is: { groupId: { in: groupIds } } } })
+    if (teacherIds.length > 0) {
+      touches.push(
+        { newTeacherId: { in: teacherIds } },
+        { pair: { is: { teacherId: { in: teacherIds } } } },
+      )
+    }
+    if (roomIds.length > 0) {
+      touches.push({ newRoomId: { in: roomIds } }, { pair: { is: { roomId: { in: roomIds } } } })
+    }
+    if (touches.length === 0) return
+
+    const days = [...new Set(slots.map((s) => s.dayOfWeek))]
+    const dated = await tx.scheduleChange.findMany({
+      where: {
+        date: { gte: dateOnly(today) },
+        type: { not: ScheduleChangeType.CANCELLED },
+        pair: { is: { ...others, dayOfWeek: { in: days } } },
+        OR: touches,
+      },
+      select: { pairId: true, date: true },
+      orderBy: { date: 'asc' },
+      take: DATED_CONFLICT_LIMIT,
+    })
+    if (dated.length === 0) return
+
+    const ymdOf = (d: Date): string => d.toISOString().slice(0, 10)
+    const dates = [...new Set(dated.map((c) => ymdOf(c.date)))]
+    const pairIds = [...new Set(dated.map((c) => c.pairId))]
+    const pairs = await tx.pair.findMany({
+      where: { id: { in: pairIds } },
+      select: {
+        id: true,
+        subject: true,
+        dayOfWeek: true,
+        startTime: true,
+        endTime: true,
+        weekType: true,
+        groupId: true,
+        teacherId: true,
+        roomId: true,
+        changes: {
+          where: { date: { in: dates.map(dateOnly) } },
+          select: { ...DATED_CHANGE_SELECT, date: true },
+          orderBy: { createdAt: 'asc' },
+          take: CHANGES_PER_PAIR_DATE_LIMIT * dates.length,
+        },
+      },
+      take: pairIds.length,
+    })
+    const pairById = new Map(pairs.map((p) => [p.id, p]))
+
+    const conflicts: { field: string; message: string }[] = []
+    const seen = new Set<string>()
+    for (const { pairId, date } of dated) {
+      const ymd = ymdOf(date)
+      const c = pairById.get(pairId)
+      if (!c || seen.has(`${pairId}|${ymd}`)) continue
+      seen.add(`${pairId}|${ymd}`)
+      const parity = isoWeekParity(ymd)
+      if (!heldInWeek(c.weekType, parity)) continue
+      const other = effectiveSlot(
+        c,
+        c.changes.filter((ch) => ymdOf(ch.date) === ymd),
+      )
+      if (!other) continue
+      const when = `${ymd.slice(8, 10)}.${ymd.slice(5, 7)} ${other.startTime}–${other.endTime}`
+      const at = `${c.subject} (${when})`
+      for (const s of slots) {
+        if (s.dayOfWeek !== c.dayOfWeek || !heldInWeek(s.weekType, parity)) continue
+        if (!timeOverlap(s.startTime, s.endTime, other.startTime, other.endTime)) continue
+        if (s.groupId && c.groupId === s.groupId) {
+          conflicts.push({ field: 'groupId', message: `${s.label}Группа уже занята: ${at}` })
+        }
+        if (s.teacherId && other.teacherId === s.teacherId) {
+          const message = `${s.label}Преподаватель уже занят: ${at}`
+          conflicts.push({ field: 'teacherId', message })
+        }
+        if (s.roomId && other.roomId === s.roomId) {
+          conflicts.push({ field: 'roomId', message: `${s.label}Аудитория уже занята: ${at}` })
+        }
+      }
+    }
+    if (conflicts.length > 0) {
+      throw new AppException(
+        'CONFLICT',
+        'Конфликт в расписании',
+        conflicts.slice(0, CONFLICT_DETAILS_LIMIT),
+      )
+    }
   }
 
   // ── Разовые изменения (ScheduleChange) + WS + уведомление (задача 6.5) ──────
 
+  /**
+   * Разовое изменение пары на дату (C-F16 — проверки).
+   *
+   * Дата должна быть днём этой пары — и днём недели, и неделей её чётности: изменение на
+   * вторник для пары по понедельникам или на чётную неделю для пары нечётных никто не
+   * увидит, а уведомление о нём уйдёт всей группе. Отменённое занятие не переносят и не
+   * заменяют, и вторая отмена на ту же дату — дубль (уведомление ушло бы дважды): сначала
+   * убирают отмену (`removeChange`). Перенос, смена аудитории и замена проверяются на
+   * занятость преподавателя, аудитории и группы в фактической сетке этой даты.
+   *
+   * Чётность — по ISO-неделе, как у всех клиентов; конфликты считаются по сетке этой даты
+   * (пара другой чётности в эту дату не проводится и места не занимает). Проверка и запись —
+   * в транзакции под локом дня недели вуза (`lockSlotDays`, общий с правкой шаблона): два
+   * параллельных изменения или изменение и новая пара не займут одну аудиторию.
+   */
   async createChange(actor: JwtPayload, input: CreateScheduleChangeInput, ctx: RequestContext) {
     const pair = await this.prisma.pair.findUnique({
       where: { id: input.pairId },
-      select: { id: true, groupId: true, subject: true, teacherId: true },
+      select: {
+        id: true,
+        scheduleId: true,
+        groupId: true,
+        subject: true,
+        teacherId: true,
+        roomId: true,
+        dayOfWeek: true,
+        startTime: true,
+        endTime: true,
+        weekType: true,
+        schedule: { select: { isActive: true } },
+      },
     })
     if (!pair) {
       throw new AppException('NOT_FOUND', 'Пара не найдена')
@@ -558,24 +1093,79 @@ export class SchedulesService {
     const gctx = await this.resolveGroupContext(pair.groupId)
     this.assertManageScopeForGroup(actor, gctx)
 
-    const newRoomId = input.newRoomId ?? null
-    const newTeacherId = input.newTeacherId ?? null
-    if (newRoomId) await this.rooms.assertRoomInUniversity(newRoomId, gctx.universityId)
-    if (newTeacherId) await this.assertTeacherInUniversity(newTeacherId, gctx.universityId)
+    // Черновая или архивная версия группе не показывается: изменение её пары никто не
+    // увидит, а уведомление ушло бы всей группе.
+    if (!pair.schedule.isActive) {
+      throw new AppException('VALIDATION_ERROR', 'Пара не из действующего расписания', [
+        { field: 'pairId', message: 'Разовые изменения — только для действующей версии' },
+      ])
+    }
 
-    const change = await this.prisma.scheduleChange.create({
-      data: {
-        pairId: pair.id,
-        type: input.type as ScheduleChangeType,
-        date: new Date(`${input.date}T00:00:00.000Z`),
-        newRoomId,
-        newTeacherId,
-        newStartTime: input.newStartTime,
-        newEndTime: input.newEndTime,
-        note: input.note,
-        createdById: actor.sub,
-      },
-      select: CHANGE_SELECT,
+    if (isoDayOfWeek(input.date) !== pair.dayOfWeek) {
+      throw new AppException('VALIDATION_ERROR', 'В этот день пары нет', [
+        { field: 'date', message: 'День недели не совпадает с днём пары' },
+      ])
+    }
+    if (!heldInWeek(pair.weekType, isoWeekParity(input.date))) {
+      throw new AppException('VALIDATION_ERROR', 'В эту неделю пары нет', [
+        { field: 'date', message: 'Пара идёт по неделям другой чётности' },
+      ])
+    }
+
+    // Берём только поля своего типа (схема 03-schedule.prisma): форма присылала значения,
+    // выбранные для прежнего типа, — «смена аудитории» уходила с заменяющим, тот получал пуш
+    // и вставал преподавателем пары без проверки его занятости.
+    const type = input.type as ScheduleChangeType
+    const moved = type === ScheduleChangeType.MOVED
+    const newRoomId =
+      moved || type === ScheduleChangeType.ROOM_CHANGED ? (input.newRoomId ?? null) : null
+    const newTeacherId =
+      type === ScheduleChangeType.SUBSTITUTED ? (input.newTeacherId ?? null) : null
+    const newStartTime = moved ? (input.newStartTime ?? null) : null
+    const newEndTime = moved ? (input.newEndTime ?? null) : null
+    if (newRoomId) await this.rooms.assertRoomInUniversity(newRoomId, gctx.universityId)
+    if (newTeacherId) {
+      await this.assertAssignableTeacher(newTeacherId, gctx.universityId, 'newTeacherId')
+    }
+
+    const day = dateOnly(input.date)
+    const change = await this.prisma.$transaction(async (tx) => {
+      // Тот же лок дня недели вуза, что у правки шаблона (BUG-326): иначе параллельные
+      // POST /pairs и POST /schedule/changes не ждали друг друга и занимали один слот.
+      await this.lockSlotDays(tx, gctx.universityId, [pair.dayOfWeek])
+      const own = await tx.scheduleChange.findMany({
+        where: { pairId: pair.id, date: day },
+        select: DATED_CHANGE_SELECT,
+        orderBy: { createdAt: 'asc' },
+        take: CHANGES_PER_PAIR_DATE_LIMIT,
+      })
+      if (own.some((c) => c.type === ScheduleChangeType.CANCELLED)) {
+        throw new AppException(
+          'CONFLICT',
+          type === ScheduleChangeType.CANCELLED
+            ? 'Занятие на эту дату уже отменено'
+            : 'Занятие на эту дату отменено — сначала уберите отмену',
+          [{ field: 'date', message: 'Занятие отменено' }],
+        )
+      }
+      if (type !== ScheduleChangeType.CANCELLED) {
+        const next: DatedChange = { type, newStartTime, newEndTime, newTeacherId, newRoomId }
+        await this.assertNoConflictOnDate(tx, pair, day, [...own, next], type)
+      }
+      return tx.scheduleChange.create({
+        data: {
+          pairId: pair.id,
+          type,
+          date: day,
+          newRoomId,
+          newTeacherId,
+          newStartTime,
+          newEndTime,
+          note: input.note,
+          createdById: actor.sub,
+        },
+        select: CHANGE_SELECT,
+      })
     })
 
     await this.audit.record({
@@ -587,39 +1177,287 @@ export class SchedulesService {
       ...ctx,
     })
 
-    // §10: сначала БД (выше), затем трансляция. WS-событие живого обновления сетки — в комнату группы.
-    this.realtime.emitToRoom(`group:${pair.groupId}`, 'schedule:changed', {
-      change,
-      groupId: pair.groupId,
-    })
-    // Параллельно — единый конверт (PR-8/#12); старое событие выше не трогаем.
-    this.realtime.emitEventToRoom(`group:${pair.groupId}`, 'schedule.lesson.updated', change.id, {
+    // §10: сначала БД (выше), затем трансляция. Группе — в её комнату; преподаватели в
+    // комнате группы не состоят (C-F12): основной и заменяющий получают событие лично,
+    // иначе их «Сегодня» не узнавало о замене до перезагрузки.
+    this.broadcastScheduleChange(pair.groupId, [pair.teacherId, newTeacherId], change.id, {
       change,
       groupId: pair.groupId,
     })
 
     // Уведомление участникам группы (+ преподавателям пары/замены) через очередь `notifications`.
-    await this.enqueueChangeNotification(pair, change.id, input)
+    // О прошедшей дате — как и при удалении изменения — не пишем: правка задним числом
+    // поправляет историю, а не зовёт группу на занятие.
+    if (input.date >= localDateString(new Date(), gctx.timezone)) {
+      await this.enqueueChangeNotification(pair, change.id, {
+        date: input.date,
+        bodyKey: CHANGE_BODY_KEY[type],
+        newTeacherId,
+        dedupeKey: `schedule-changed:${change.id}`,
+      })
+    }
 
     return change
   }
 
+  /**
+   * Убрать ошибочное разовое изменение (C-F16). Раньше отмену занятия, заведённую по
+   * ошибке, деканат исправить не мог: студенты получили пуш и видели «отменено». Исправление
+   * изменения — это удаление и новое изменение.
+   *
+   * Группа и преподаватели получают живое обновление; уведомление «изменение отменено» —
+   * только если дата ещё не прошла по часам вуза: о вчерашней ошибке писать незачем.
+   *
+   * Без изменения пара на эту дату возвращается в свой слот (время, аудитория,
+   * преподаватель), а его могли уже занять: в освободившуюся аудиторию ставят другую группу.
+   * Поэтому для предстоящей даты восстановленный слот проверяется на конфликты (BUG-325) —
+   * под тем же локом дня недели вуза, что и создание изменений и правка шаблона.
+   */
+  async removeChange(actor: JwtPayload, id: string, ctx: RequestContext): Promise<void> {
+    const change = await this.prisma.scheduleChange.findUnique({
+      where: { id },
+      select: CHANGE_SELECT,
+    })
+    if (!change) {
+      throw new AppException('NOT_FOUND', 'Изменение не найдено')
+    }
+    const gctx = await this.resolveGroupContext(change.pair.groupId)
+    this.assertManageScopeForGroup(actor, gctx)
+
+    const date = change.date.toISOString().slice(0, 10)
+    const upcoming = date >= localDateString(new Date(), gctx.timezone)
+    await this.prisma.$transaction(async (tx) => {
+      await this.lockSlotDays(tx, gctx.universityId, [change.pair.dayOfWeek])
+      if (upcoming) {
+        const rest = await tx.scheduleChange.findMany({
+          where: { pairId: change.pairId, date: change.date, id: { not: id } },
+          select: DATED_CHANGE_SELECT,
+          orderBy: { createdAt: 'asc' },
+          take: CHANGES_PER_PAIR_DATE_LIMIT,
+        })
+        const base = change.pair
+        const restored = {
+          id: change.pairId,
+          scheduleId: base.scheduleId,
+          groupId: base.groupId,
+          teacherId: base.teacher?.id ?? null,
+          roomId: base.room?.id ?? null,
+          dayOfWeek: base.dayOfWeek,
+          startTime: base.startTime,
+          endTime: base.endTime,
+          weekType: base.weekType,
+        }
+        await this.assertNoConflictOnDate(tx, restored, change.date, rest, null)
+      }
+      // deleteMany: параллельное удаление того же изменения — NOT_FOUND, а не 500.
+      const { count } = await tx.scheduleChange.deleteMany({ where: { id } })
+      if (count === 0) {
+        throw new AppException('NOT_FOUND', 'Изменение не найдено')
+      }
+    })
+    await this.audit.record({
+      userId: actor.sub,
+      action: 'schedule_change_deleted',
+      entity: 'ScheduleChange',
+      entityId: id,
+      metadata: { pairId: change.pairId, groupId: change.pair.groupId, type: change.type, date },
+      ...ctx,
+    })
+
+    const { pair } = change
+    const teacherId = pair.teacher?.id ?? null
+    const newTeacherId = change.newTeacher?.id ?? null
+    // Клиенты по событию перечитывают изменения; `removed` — чтобы отличить удаление.
+    this.broadcastScheduleChange(pair.groupId, [teacherId, newTeacherId], id, {
+      change,
+      groupId: pair.groupId,
+      removed: true,
+    })
+
+    if (upcoming) {
+      await this.enqueueChangeNotification(
+        { id: change.pairId, groupId: pair.groupId, subject: pair.subject, teacherId },
+        id,
+        {
+          date,
+          bodyKey: CHANGE_REVOKED_BODY_KEY[change.type],
+          newTeacherId,
+          dedupeKey: `schedule-change-removed:${id}`,
+        },
+      )
+    }
+  }
+
+  /**
+   * Занятость ресурсов в конкретную дату (C-F16): фактический слот пары после изменения
+   * против фактических слотов остальных пар этого дня — с их собственными изменениями на
+   * дату (отменённые не мешают, перенесённые — по новому времени, замена — по заменяющему).
+   * Кандидаты — пары действующих сеток (и той же версии) того же дня недели, где совпадает
+   * группа, преподаватель или аудитория — по шаблону или по изменению на эту дату.
+   * `type` — тип нового изменения (по нему подсвечивается поле формы); `null` — слот
+   * восстанавливается удалением изменения.
+   */
+  private async assertNoConflictOnDate(
+    tx: Prisma.TransactionClient,
+    pair: {
+      id: string
+      scheduleId: string
+      groupId: string
+      teacherId: string | null
+      roomId: string | null
+      dayOfWeek: number
+      startTime: string
+      endTime: string
+      weekType: WeekType
+    },
+    day: Date,
+    changes: DatedChange[],
+    type: ScheduleChangeType | null,
+  ): Promise<void> {
+    const slot = effectiveSlot(pair, changes)
+    if (!slot) return
+    // Чётность самой даты, а не пересечение чётностей шаблонов: пара EVEN в нечётную неделю
+    // не проводится и группу, преподавателя или аудиторию не занимает.
+    const parity = isoWeekParity(day.toISOString().slice(0, 10))
+    const orResource: Prisma.PairWhereInput[] = [{ groupId: pair.groupId }]
+    if (slot.teacherId) {
+      orResource.push(
+        { teacherId: slot.teacherId },
+        { changes: { some: { date: day, newTeacherId: slot.teacherId } } },
+      )
+    }
+    if (slot.roomId) {
+      orResource.push(
+        { roomId: slot.roomId },
+        { changes: { some: { date: day, newRoomId: slot.roomId } } },
+      )
+    }
+    const candidates = await tx.pair.findMany({
+      where: {
+        id: { not: pair.id },
+        dayOfWeek: pair.dayOfWeek,
+        schedule: { is: { OR: [{ isActive: true }, { id: pair.scheduleId }] } },
+        OR: orResource,
+      },
+      take: PAIR_CONFLICT_LIMIT,
+      select: {
+        subject: true,
+        startTime: true,
+        endTime: true,
+        weekType: true,
+        groupId: true,
+        teacherId: true,
+        roomId: true,
+        changes: {
+          where: { date: day },
+          select: DATED_CHANGE_SELECT,
+          orderBy: { createdAt: 'asc' },
+          take: CHANGES_PER_PAIR_DATE_LIMIT,
+        },
+      },
+    })
+
+    const conflicts: { field: string; message: string }[] = []
+    for (const c of candidates) {
+      if (!heldInWeek(c.weekType, parity)) continue
+      const other = effectiveSlot(c, c.changes)
+      if (!other) continue
+      if (!timeOverlap(slot.startTime, slot.endTime, other.startTime, other.endTime)) continue
+      const at = `${c.subject} (${other.startTime}–${other.endTime})`
+      if (c.groupId === pair.groupId) {
+        conflicts.push({ field: 'groupId', message: `Группа уже занята: ${at}` })
+      }
+      if (slot.teacherId && other.teacherId === slot.teacherId) {
+        conflicts.push({
+          field: type === ScheduleChangeType.SUBSTITUTED ? 'newTeacherId' : 'teacherId',
+          message: `Преподаватель уже занят: ${at}`,
+        })
+      }
+      if (slot.roomId && other.roomId === slot.roomId) {
+        conflicts.push({
+          field: type === ScheduleChangeType.ROOM_CHANGED ? 'newRoomId' : 'roomId',
+          message: `Аудитория уже занята: ${at}`,
+        })
+      }
+    }
+    if (conflicts.length > 0) {
+      throw new AppException(
+        'CONFLICT',
+        'Конфликт в расписании',
+        conflicts.slice(0, CONFLICT_DETAILS_LIMIT),
+      )
+    }
+  }
+
+  /**
+   * Живое обновление сетки: `schedule:changed` + конверт `schedule.lesson.updated` в комнату
+   * группы и в личные комнаты преподавателей — они в комнату группы не входят.
+   */
+  private broadcastScheduleChange(
+    groupId: string,
+    teacherIds: (string | null)[],
+    entityId: string,
+    payload: Record<string, unknown>,
+  ): void {
+    this.realtime.emitToRoom(`group:${groupId}`, 'schedule:changed', payload)
+    // Параллельно — единый конверт (PR-8/#12); старое событие выше не трогаем.
+    this.realtime.emitEventToRoom(`group:${groupId}`, 'schedule.lesson.updated', entityId, payload)
+    for (const teacherId of new Set(teacherIds)) {
+      if (!teacherId) continue
+      this.realtime.emitToUser(teacherId, 'schedule:changed', payload)
+      this.realtime.emitEventToUser(teacherId, 'schedule.lesson.updated', entityId, payload)
+    }
+  }
+
   async listChanges(viewer: JwtPayload, query: ScheduleChangeQueryInput) {
-    const pairWhere = this.changePairScope(viewer, query)
-    const from = new Date(`${query.from}T00:00:00.000Z`)
-    const to = new Date(`${query.to}T00:00:00.000Z`)
+    assertCanReadSchedule(viewer)
     return this.prisma.scheduleChange.findMany({
-      where: { date: { gte: from, lte: to }, pair: { is: pairWhere } },
+      where: this.changesWhere(viewer, query),
       select: CHANGE_SELECT,
       orderBy: [{ date: 'asc' }, { createdAt: 'asc' }],
-      take: 500,
+      take: SCHEDULE_PAGE_LIMIT,
     })
+  }
+
+  /**
+   * Страница изменений (`limit`/`cursor`, BUG-342): без них `listChanges` отдаёт первые 500
+   * массивом и молча обрезает остальное — веб забирает период страницами до конца.
+   */
+  async listChangesPage(
+    viewer: JwtPayload,
+    query: ScheduleChangeQueryInput,
+  ): Promise<Paginated<Prisma.ScheduleChangeGetPayload<{ select: typeof CHANGE_SELECT }>>> {
+    assertCanReadSchedule(viewer)
+    const limit = query.limit ?? SCHEDULE_PAGE_LIMIT
+    const rows = await this.prisma.scheduleChange.findMany({
+      where: this.changesWhere(viewer, query),
+      select: CHANGE_SELECT,
+      orderBy: [{ date: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+      take: limit + 1,
+      ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
+    })
+    const items = rows.slice(0, limit)
+    const hasNext = rows.length > limit
+    return new Paginated(items, { hasNext, ...(hasNext ? { cursor: items.at(-1)?.id } : {}) })
+  }
+
+  private changesWhere(
+    viewer: JwtPayload,
+    query: ScheduleChangeQueryInput,
+  ): Prisma.ScheduleChangeWhereInput {
+    const range = { gte: dateOnly(query.from), lte: dateOnly(query.to) }
+    return { date: range, pair: { is: this.changePairScope(viewer, query, range) } }
   }
 
   private async enqueueChangeNotification(
     pair: { id: string; groupId: string; subject: string; teacherId: string | null },
     changeId: string,
-    input: CreateScheduleChangeInput,
+    notice: {
+      date: string
+      bodyKey: NotificationMessageKey
+      newTeacherId: string | null
+      dedupeKey: string
+    },
   ): Promise<void> {
     const members = await this.prisma.user.findMany({
       where: { groupId: pair.groupId, deletedAt: null },
@@ -628,10 +1466,9 @@ export class SchedulesService {
     })
     const recipientIds = new Set(members.map((m) => m.id))
     if (pair.teacherId) recipientIds.add(pair.teacherId)
-    if (input.newTeacherId) recipientIds.add(input.newTeacherId)
+    if (notice.newTeacherId) recipientIds.add(notice.newTeacherId)
     if (recipientIds.size === 0) return
 
-    const label = CHANGE_TYPE_LABEL[input.type as ScheduleChangeType]
     await this.queue.enqueue(
       QUEUES.NOTIFICATIONS,
       NOTIFICATION_JOBS.SCHEDULE_CHANGED,
@@ -639,13 +1476,13 @@ export class SchedulesService {
         recipientIds: [...recipientIds],
         type: 'SCHEDULE_CHANGE',
         titleKey: 'schedule.changed.title',
-        bodyKey: 'schedule.changed.body',
-        params: { subject: pair.subject, change: label, date: input.date },
-        data: { pairId: pair.id, changeId, groupId: pair.groupId, date: input.date },
+        bodyKey: notice.bodyKey,
+        params: { subject: pair.subject, date: notice.date },
+        data: { pairId: pair.id, changeId, groupId: pair.groupId, date: notice.date },
         // Идемпотентность: одно уведомление на изменение (docs/BACKEND_RULES.md §9.2).
-        dedupeKey: `schedule-changed:${changeId}`,
+        dedupeKey: notice.dedupeKey,
       },
-      { jobId: `schedule-changed:${changeId}` },
+      { jobId: notice.dedupeKey },
     )
   }
 
@@ -684,7 +1521,7 @@ export class SchedulesService {
       })
       return uni?.timezone ?? null
     }
-    if (groupId && isPlatform(viewer.role)) {
+    if (groupId && seesAllSchedules(viewer.role)) {
       const group = await this.prisma.group.findUnique({
         where: { id: groupId },
         select: { faculty: { select: { university: { select: { timezone: true } } } } },
@@ -694,10 +1531,20 @@ export class SchedulesService {
     return null
   }
 
-  private async assertTeacherInUniversity(userId: string, universityId: string): Promise<void> {
+  /**
+   * Кого можно поставить преподавателем пары или заменяющим (C-F27): действующего
+   * преподавателя или декана своего вуза. Раньше сверялся только вуз, и в сетку попадали
+   * студент или заблокированный — пара уходила в «Сегодня» тому, кто её не ведёт.
+   * `field` — поле формы, которое подсветит клиент (`teacherId` / `newTeacherId`).
+   */
+  private async assertAssignableTeacher(
+    userId: string,
+    universityId: string,
+    field: 'teacherId' | 'newTeacherId',
+  ): Promise<void> {
     const user = await this.prisma.user.findFirst({
       where: { id: userId, deletedAt: null },
-      select: { universityId: true },
+      select: { universityId: true, role: true, isBlocked: true },
     })
     if (!user) {
       throw new AppException('NOT_FOUND', 'Преподаватель не найден')
@@ -705,6 +1552,41 @@ export class SchedulesService {
     if (user.universityId !== universityId) {
       throw new AppException('WRONG_SCOPE', 'Преподаватель другого университета')
     }
+    // То же правило, что у дисциплины (courses.service): преподаватель или декан.
+    if (user.role !== Role.TEACHER && user.role !== Role.DEAN) {
+      const message = 'Назначить можно только преподавателя или декана'
+      throw new AppException('VALIDATION_ERROR', message, [{ field, message }])
+    }
+    if (user.isBlocked) {
+      const message = 'Преподаватель заблокирован'
+      throw new AppException('VALIDATION_ERROR', message, [{ field, message }])
+    }
+  }
+
+  /**
+   * Транзакционный advisory-лок дней недели вуза (C-F27): проверка конфликтов и запись пары
+   * идут под ним, иначе две параллельные правки видели свободный слот и обе его занимали.
+   * Аудитории и преподаватели принадлежат вузу, так что вуз + день — наименьшая область,
+   * где возможно пересечение. Несколько дней берём по возрастанию — встречные транзакции
+   * не ждут друг друга по кругу.
+   */
+  private async lockSlotDays(
+    tx: Prisma.TransactionClient,
+    universityId: string,
+    days: number[],
+  ): Promise<void> {
+    for (const day of [...new Set(days)].sort((a, b) => a - b)) {
+      await advisoryXactLock(tx, `schedule-slot:${universityId}:${day}`)
+    }
+  }
+
+  /**
+   * Лок «активной версии» группы: создание активной версии и активация существующей гасят
+   * прежнюю под ним, иначе параллельные запросы оставляли группе две активные сетки.
+   * Берётся до `lockSlotDays` — порядок локов везде один.
+   */
+  private async lockActiveSchedule(tx: Prisma.TransactionClient, groupId: string): Promise<void> {
+    await advisoryXactLock(tx, `schedule-active:${groupId}`)
   }
 
   // Управление (create/update/delete): платформа, админ своего вуза или декан своего факультета.
@@ -724,8 +1606,24 @@ export class SchedulesService {
     }
   }
 
+  /**
+   * Пара даёт преподавателю права «своего занятия»: ростер группы, посещаемость, QR-отметку и
+   * предметный чат. Поэтому ставить себе пары он может только в группах, где ведёт дисциплину;
+   * иначе любой преподаватель вуза назначал себя в чужую группу и проставлял ей прогулы.
+   * Остальные пары расставляет деканат.
+   */
+  private async assertTeachesGroup(teacherId: string, groupId: string): Promise<void> {
+    const course = await this.prisma.course.findFirst({
+      where: { teacherId, groupId },
+      select: { id: true },
+    })
+    if (!course) {
+      throw new AppException('WRONG_SCOPE', 'Вы не ведёте дисциплин в этой группе')
+    }
+  }
+
   private assertManageScopeForGroup(actor: JwtPayload, gctx: GroupContext): void {
-    if (isPlatform(actor.role)) return
+    if (seesAllSchedules(actor.role)) return
     if (actor.role === Role.DEAN) {
       if (actor.facultyId === gctx.facultyId) return
       throw new AppException('WRONG_SCOPE', 'Ресурс другого факультета')
@@ -738,7 +1636,7 @@ export class SchedulesService {
 
   // Чтение конкретного контейнера: платформа/вуз-роли — свой вуз; декан — свой факультет; студент/староста — своя группа.
   private assertReadScopeForGroup(viewer: JwtPayload, gctx: GroupContext): void {
-    if (isPlatform(viewer.role)) return
+    if (seesAllSchedules(viewer.role)) return
     if (viewer.role === Role.STUDENT || viewer.role === Role.STAROSTA) {
       if (viewer.groupId === gctx.groupId) return
       throw new AppException('WRONG_SCOPE', 'Доступна только своя группа')
@@ -752,7 +1650,7 @@ export class SchedulesService {
   }
 
   private scheduleScopeWhere(viewer: JwtPayload, groupId?: string): Prisma.ScheduleWhereInput {
-    if (isPlatform(viewer.role)) {
+    if (seesAllSchedules(viewer.role)) {
       return groupId ? { groupId } : {}
     }
     if (viewer.role === Role.STUDENT || viewer.role === Role.STAROSTA) {
@@ -764,29 +1662,64 @@ export class SchedulesService {
       }
       return groupId ? { ...base, groupId } : base
     }
-    // UNIVERSITY_ADMIN / UNIVERSITY_MODERATOR / TEACHER — свой вуз.
+    // UNIVERSITY_ADMIN / UNIVERSITY_MODERATOR — свой вуз; TEACHER — только группы, где ведёт
+    // занятия (§2.2 «Расписание — чтение: ✅ свои»): раньше он листал сетки всего вуза.
+    const universityWhere = { faculty: { is: { universityId: viewer.universityId ?? '__none__' } } }
     const base: Prisma.ScheduleWhereInput = {
-      group: { is: { faculty: { is: { universityId: viewer.universityId ?? '__none__' } } } },
+      group: {
+        is:
+          viewer.role === Role.TEACHER
+            ? { ...universityWhere, OR: taughtBy(viewer.sub) }
+            : universityWhere,
+      },
     }
     return groupId ? { ...base, groupId } : base
+  }
+
+  /** Версию расписания группы преподаватель читает, только если ведёт в ней занятия. */
+  private async assertTeacherSeesGroup(teacherId: string, groupId: string): Promise<void> {
+    const taught = await this.prisma.group.findFirst({
+      where: { id: groupId, OR: taughtBy(teacherId) },
+      select: { id: true },
+    })
+    if (!taught) {
+      throw new AppException('WRONG_SCOPE', 'Вы не ведёте занятий в этой группе')
+    }
   }
 
   private changePairScope(
     viewer: JwtPayload,
     query: ScheduleChangeQueryInput,
+    range: Prisma.DateTimeFilter,
   ): Prisma.PairWhereInput {
     if (viewer.role === Role.STUDENT || viewer.role === Role.STAROSTA) {
       return { groupId: viewer.groupId ?? '__none__' }
     }
     if (viewer.role === Role.TEACHER) {
-      const where: Prisma.PairWhereInput = { teacherId: viewer.sub }
+      // Свои пары + чужие, где он заменяющий в этом периоде (C-F12). По таким парам отдаём все
+      // изменения периода, а не только замену на него: отмена той же пары или новая замена
+      // другим преподавателем тоже его касаются — клиент берёт последнюю.
+      const where: Prisma.PairWhereInput = {
+        OR: [
+          { teacherId: viewer.sub },
+          {
+            changes: {
+              some: {
+                type: ScheduleChangeType.SUBSTITUTED,
+                newTeacherId: viewer.sub,
+                date: range,
+              },
+            },
+          },
+        ],
+      }
       if (query.groupId) where.groupId = query.groupId
       return where
     }
     const where: Prisma.PairWhereInput = {}
     if (viewer.role === Role.DEAN) {
       where.group = { is: { facultyId: viewer.facultyId ?? '__none__' } }
-    } else if (!isPlatform(viewer.role)) {
+    } else if (!seesAllSchedules(viewer.role)) {
       where.group = { is: { faculty: { is: { universityId: viewer.universityId ?? '__none__' } } } }
     }
     if (query.groupId) where.groupId = query.groupId

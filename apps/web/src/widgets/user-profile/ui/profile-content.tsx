@@ -9,6 +9,7 @@ import {
   BookOpen,
   Briefcase,
   CalendarDays,
+  ChevronDown,
   Code2,
   Copy,
   FileText,
@@ -24,17 +25,19 @@ import {
   UserRound,
   type LucideIcon,
 } from 'lucide-react'
-import type { ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Role } from '@studenthub/shared-types'
-import type { ProfileFieldKey } from '@studenthub/shared-schemas'
+import { websiteHref, type ProfileFieldKey } from '@studenthub/shared-schemas'
 import {
   Badge,
+  Button,
   Card,
   CardContent,
   CardHeader,
   CardTitle,
   CountryFlag,
   LanguageFlag,
+  MarkdownImage,
 } from '../../../shared/ui'
 import { countryCodeOf, languageFlagOf } from '../../../shared/config'
 import { cn } from '../../../shared/lib/utils'
@@ -88,7 +91,7 @@ export interface ProfileData {
 // Hover-анимация карточек профиля отключена по требованию — карточки статичны.
 export const CARD_LIFT = ''
 export const ENTER =
-  'animate-in fade-in-0 slide-in-from-bottom-2 duration-500 motion-reduce:animate-none'
+  'animate-in fade-in-0 slide-in-from-bottom-2 duration-(--motion-large) motion-reduce:animate-none'
 
 export function fullNameOf(u: ProfileData): string {
   return [u.lastName, u.firstName, u.middleName].filter(Boolean).join(' ')
@@ -327,7 +330,8 @@ function ContactsCard({ data }: { data: ProfileData }) {
       field: 'website',
       label: t('website'),
       value: website,
-      href: website ?? undefined,
+      // Ссылкой — только настоящий адрес сайта; `//host` и чужие схемы показываем текстом.
+      href: websiteHref(website) ?? undefined,
       copy: website ?? undefined,
     },
   ]
@@ -397,6 +401,12 @@ function ContactsCard({ data }: { data: ProfileData }) {
 }
 
 // ── Карточка чипов (навыки / интересы / языки) ──────────────────────────────
+// Свёрнутый список чипов — около четырёх рядов. Списки навыков и интересов бывают по 30
+// пунктов: целиком они вытягивали колонку на экран вниз, и карточки под ними уходили за край.
+// Режем по высоте, а не по числу: короткие «Jira» и длинные «Stakeholder Management»
+// занимают разное место, и «первые 10» давали то два ряда, то шесть.
+const CHIPS_COLLAPSED_PX = 136
+
 function ChipsCard({
   title,
   icon: Icon,
@@ -411,29 +421,87 @@ function ChipsCard({
   tone: 'primary' | 'accent' | 'muted'
 }) {
   const t = useTranslations('Profile')
+  const [expanded, setExpanded] = useState(false)
+  // Полная высота списка — замер, а не догадка: от неё зависят затухание, кнопка и цель
+  // анимации раскрытия. Наблюдаем внутренний блок: его высота меняется вместе с шириной
+  // колонки (другое число рядов), а внешний обрезан и сам не растёт.
+  const listRef = useRef<HTMLDivElement>(null)
+  const [fullHeight, setFullHeight] = useState(0)
+  useEffect(() => {
+    const el = listRef.current
+    if (!el) return
+    const measure = () => setFullHeight(el.offsetHeight)
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const ro = new ResizeObserver(measure)
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [items])
+  const overflows = fullHeight > CHIPS_COLLAPSED_PX + 1
+
   const chipTone =
     tone === 'primary'
       ? 'bg-primary/10 text-primary'
       : tone === 'accent'
         ? 'bg-info/10 text-info'
         : 'bg-muted text-foreground'
+  const collapsed = overflows && !expanded
   return (
     <Card className={cn(CARD_LIFT, ENTER)}>
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <Icon className="size-4 text-primary" aria-hidden />
           {title}
+          {items.length > 0 && (
+            <span className="text-sm font-normal text-muted-foreground tabular-nums">
+              {items.length}
+            </span>
+          )}
         </CardTitle>
       </CardHeader>
-      <CardContent className="flex flex-wrap gap-2">
+      <CardContent className="flex flex-col gap-3">
         {items.length === 0 ? (
           <span className="text-sm text-muted-foreground/60">{t('noData')}</span>
         ) : (
-          items.map((it) => (
-            <span key={it} className={cn('rounded-full px-3 py-1 text-sm font-medium', chipTone)}>
-              {renderItem ? renderItem(it) : it}
-            </span>
-          ))
+          // Раскрытие — плавный рост max-height до замеренной высоты (300 мс, раскрытие
+          // блока по §7), а не скачок. Свёрнутый список растворяется к нижнему краю (маска,
+          // а не наложенный градиент: фон карточки под ней знать не нужно).
+          <div
+            className={cn(
+              'overflow-hidden transition-[max-height] duration-(--motion-large) motion-reduce:transition-none',
+              collapsed && '[mask-image:linear-gradient(to_bottom,black_45%,transparent)]',
+            )}
+            style={
+              overflows ? { maxHeight: collapsed ? CHIPS_COLLAPSED_PX : fullHeight } : undefined
+            }
+          >
+            <div ref={listRef} className="flex flex-wrap gap-2">
+              {items.map((it) => (
+                <span
+                  key={it}
+                  className={cn('rounded-full px-3 py-1 text-sm font-medium', chipTone)}
+                >
+                  {renderItem ? renderItem(it) : it}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+        {overflows && (
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            aria-expanded={expanded}
+            className="w-full"
+            onClick={() => setExpanded((v) => !v)}
+          >
+            {expanded ? t('chipsCollapse') : t('chipsShowAll', { count: items.length })}
+            <ChevronDown
+              className={cn('size-4 transition-transform', expanded && 'rotate-180')}
+              aria-hidden
+            />
+          </Button>
         )}
       </CardContent>
     </Card>
@@ -454,7 +522,9 @@ function AboutCard({ bio, title }: { bio: string; title: string }) {
       <CardContent>
         {bio.trim() ? (
           <div className="text-sm leading-relaxed text-foreground [&_a]:text-primary [&_a]:underline [&_a]:underline-offset-2 [&_blockquote]:border-l-2 [&_blockquote]:border-primary [&_blockquote]:pl-3 [&_blockquote]:text-muted-foreground [&_code]:rounded [&_code]:bg-muted [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:text-xs [&_h1]:mb-2 [&_h1]:text-base [&_h1]:font-semibold [&_h2]:mb-2 [&_h2]:text-sm [&_h2]:font-semibold [&_li]:mb-1 [&_ol]:mb-2 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:mb-2 [&_p:last-child]:mb-0 [&_strong]:font-semibold [&_ul]:mb-2 [&_ul]:list-disc [&_ul]:pl-5">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{bio}</ReactMarkdown>
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ img: MarkdownImage }}>
+              {bio}
+            </ReactMarkdown>
           </div>
         ) : (
           <p className="text-sm text-muted-foreground/60">{t('noData')}</p>
@@ -499,7 +569,12 @@ function InfoCard({
             return (
               <div
                 key={f.key}
-                className="group -mx-2 flex items-start gap-2 rounded-lg px-2 py-0.5 transition-colors hover:bg-muted/60"
+                className={cn(
+                  'group -mx-2 flex items-start gap-2 rounded-lg px-2 py-0.5 transition-colors hover:bg-muted/60',
+                  // Многострочное поле (обязанности, зона ответственности) — на всю ширину:
+                  // в половине колонки список превращался в узкую ленту.
+                  f.type === 'textarea' && 'sm:col-span-2',
+                )}
               >
                 <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                   <dt className="text-xs text-muted-foreground">{fieldLabel(f.key)}</dt>
@@ -521,6 +596,10 @@ function InfoCard({
                       <CountryFlag code={countryCodeOf(String(v))!} />
                       {v}
                     </dd>
+                  ) : f.type === 'textarea' ? (
+                    // Переносы строк из поля ввода сохраняются: иначе пункты списка
+                    // слипались в один абзац.
+                    <dd className="whitespace-pre-line break-words text-sm leading-relaxed">{v}</dd>
                   ) : (
                     <dd className="break-words text-sm font-medium">{v}</dd>
                   )}

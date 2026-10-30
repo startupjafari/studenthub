@@ -20,7 +20,11 @@ import {
   requestDocReplacementRequest,
   fetchApplicationDocumentUrl,
   fetchApplicationResultUrl,
+  fetchApplicationAssignees,
+  assignApplicationRequest,
+  revokeCertificateRequest,
   pickLocale,
+  CERTIFICATE_RESULT_TYPE,
   type ApplicationDetail,
   type ApplicationDocumentItem,
 } from '../../../entities/application-service'
@@ -32,12 +36,23 @@ import {
   Stepper,
   EmptyState,
   PromptDialog,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
 } from '../../../shared/ui'
+import { toApiError } from '../../../shared/lib'
+import { TERMINAL_STATUSES } from '@studenthub/shared-schemas'
 import { ResultModal } from './result-modal'
+import { FormAnswers } from './form-answers'
+import { useActionError } from '../lib/use-action-error'
+import { eventComment } from '../lib/requirement-titles'
 
 // Состояние текстового промпта для действий сотрудника.
 interface Prompt {
   title: string
+  placeholder?: string
   multiline?: boolean
   required?: boolean
   run: (value: string) => void
@@ -111,9 +126,12 @@ export function StaffWorkspaceModal({ id, onClose }: { id: string; onClose: () =
             {app.dueAt && (
               <Row label={t('expectedReady')} value={new Date(app.dueAt).toLocaleString(locale)} />
             )}
-            <Row label={t('assignee')} value={app.assignedToId ? '✓' : t('unassigned')} />
-            {app.pickupCode && <Row label={t('pickupCodeLabel')} value={app.pickupCode} />}
+            <AssigneeRow app={app} onChanged={() => void q.refetch()} />
           </Card>
+
+          {/* Ответы анкеты — на всех этапах: по ним решают «подготовить или отклонить», а
+              при подготовке берут, например, организацию для справки. */}
+          <FormAnswers fields={app.service.formFields ?? []} formData={app.formData} />
 
           {/* Шаг «Проверка» — документы заявки */}
           {viewStep === 0 && app.documents.length > 0 && (
@@ -122,19 +140,23 @@ export function StaffWorkspaceModal({ id, onClose }: { id: string; onClose: () =
               <StaffDocumentReview
                 appId={app.id}
                 documents={app.documents}
-                canReview={app.status === 'IN_REVIEW'}
+                // В исправлении проверка продолжается: можно пометить к замене ещё документ,
+                // а не отправлять каждый отдельным кругом.
+                canReview={app.status === 'IN_REVIEW' || app.status === 'NEEDS_CORRECTION'}
                 onChanged={() => void q.refetch()}
               />
             </Card>
           )}
 
-          {/* Шаги «Подготовка»/«Выдача» — результат заявки */}
-          {viewStep >= 1 && app.results.length > 0 && (
+          {/* Шаги «Подготовка»/«Выдача» — результат заявки. У отклонённой — тоже: справку,
+              выданную до отказа, должно быть видно и можно отозвать. */}
+          {(viewStep >= 1 || app.status === 'REJECTED') && app.results.length > 0 && (
             <Card className="flex flex-col gap-2 p-4">
               <h3 className="text-sm font-semibold">{t('resultTitle')}</h3>
               {app.results.map((r) => (
                 <ResultRow key={r.id} appId={app.id} result={r} />
               ))}
+              <RevokeCertificate app={app} onDone={() => void q.refetch()} />
             </Card>
           )}
 
@@ -151,6 +173,7 @@ export function StaffWorkspaceModal({ id, onClose }: { id: string; onClose: () =
                   : e.toStatus
                     ? t(`status2_${e.toStatus}`)
                     : e.action
+                const comment = eventComment(e, app, locale)
                 return (
                   <li key={e.id} className="flex gap-3 text-sm">
                     <span className="mt-1 size-2 shrink-0 rounded-full bg-primary" aria-hidden />
@@ -159,9 +182,7 @@ export function StaffWorkspaceModal({ id, onClose }: { id: string; onClose: () =
                       <span className="text-xs text-muted-foreground">
                         {new Date(e.createdAt).toLocaleString(locale)}
                       </span>
-                      {e.comment && (
-                        <span className="text-xs text-muted-foreground">{e.comment}</span>
-                      )}
+                      {comment && <span className="text-xs text-muted-foreground">{comment}</span>}
                     </div>
                   </li>
                 )
@@ -182,7 +203,7 @@ function StaffActions({ app, onDone }: { app: ApplicationDetail; onDone: () => v
     void qc.invalidateQueries({ queryKey: applicationKeys.all })
     onDone()
   }
-  const err = () => toast.error(t('loadError'))
+  const err = useActionError()
 
   const takeMut = useMutation({
     mutationFn: () => takeApplication(app.id),
@@ -210,7 +231,7 @@ function StaffActions({ app, onDone }: { app: ApplicationDetail; onDone: () => v
     onError: err,
   })
   const issueMut = useMutation({
-    mutationFn: () => issueApplicationRequest(app.id),
+    mutationFn: (pickupCode: string) => issueApplicationRequest(app.id, pickupCode),
     onSuccess: done,
     onError: err,
   })
@@ -227,6 +248,8 @@ function StaffActions({ app, onDone }: { app: ApplicationDetail; onDone: () => v
 
   const buttons: React.ReactNode[] = []
   const s = app.status
+  // Отозванная справка результатом не считается (сервер проверяет то же самое).
+  const hasActiveResult = app.results.some((r) => !r.revoked)
   if (s === 'SUBMITTED' || s === 'RESUBMITTED') {
     buttons.push(
       <Button
@@ -279,11 +302,25 @@ function StaffActions({ app, onDone }: { app: ApplicationDetail; onDone: () => v
         key="ready"
         className="w-full"
         onClick={() => {
+          // Электронную выдачу без результата сервер не примет: студенту пришло бы «готово»,
+          // а скачать нечего. Подсказываем до запроса, а не общей ошибкой после.
+          if (app.deliveryType !== 'PAPER' && !hasActiveResult) {
+            toast.error(t('readyNeedsResult'))
+            return
+          }
           if (app.deliveryType === 'ELECTRONIC') readyMut.mutate('')
           else setPrompt({ title: t('pickupTitle'), run: (loc) => readyMut.mutate(loc) })
         }}
       >
         {t('markReady')}
+      </Button>,
+    )
+  }
+  // Справку отозвали уже после «готово» — до передачи студенту её можно выпустить заново.
+  if ((s === 'READY' || s === 'READY_FOR_PICKUP') && !hasActiveResult && app.results.length > 0) {
+    buttons.push(
+      <Button key="result" variant="outline" className="w-full" onClick={() => setResultOpen(true)}>
+        {t('addResult')}
       </Button>,
     )
   }
@@ -293,7 +330,16 @@ function StaffActions({ app, onDone }: { app: ApplicationDetail; onDone: () => v
         key="issue"
         className="w-full"
         loading={issueMut.isPending}
-        onClick={() => issueMut.mutate()}
+        onClick={() =>
+          // Код получения называет студент, сервер сверяет: сотрудник его не видит, и
+          // оригинал не выдаётся без того, кто подавал заявку.
+          setPrompt({
+            title: t('issuePickupCodeTitle'),
+            placeholder: t('pickupCodeLabel'),
+            required: true,
+            run: (code) => issueMut.mutate(code.trim()),
+          })
+        }
       >
         {t('issue')}
       </Button>,
@@ -340,6 +386,7 @@ function StaffActions({ app, onDone }: { app: ApplicationDetail; onDone: () => v
       <PromptDialog
         open={!!prompt}
         title={prompt?.title ?? ''}
+        placeholder={prompt?.placeholder}
         multiline={prompt?.multiline}
         required={prompt?.required}
         submitLabel={t('promptSubmit')}
@@ -366,12 +413,13 @@ function StaffDocumentReview({
   onChanged: () => void
 }) {
   const t = useTranslations('Applications')
+  const locale = useLocale()
   const qc = useQueryClient()
   const done = () => {
     void qc.invalidateQueries({ queryKey: applicationKeys.detail(appId) })
     onChanged()
   }
-  const err = () => toast.error(t('loadError'))
+  const err = useActionError()
   const [replaceFor, setReplaceFor] = useState<string | null>(null)
   const acceptMut = useMutation({
     mutationFn: (docId: string) => acceptDocumentRequest(appId, docId),
@@ -384,11 +432,16 @@ function StaffDocumentReview({
     onSuccess: done,
     onError: err,
   })
+  // Каждая страница открывается своей ссылкой: раньше сервер отдавал только первую, и
+  // документ принимали, не видя оборота паспорта или приложения к диплому.
   const viewMut = useMutation({
-    mutationFn: (docId: string) => fetchApplicationDocumentUrl(appId, docId),
+    mutationFn: (v: { docId: string; fileId?: string }) =>
+      fetchApplicationDocumentUrl(appId, v.docId, v.fileId),
     onSuccess: (url) => window.open(url, '_blank', 'noopener'),
     onError: err,
   })
+  const viewing = (docId: string, fileId?: string) =>
+    viewMut.isPending && viewMut.variables?.docId === docId && viewMut.variables.fileId === fileId
 
   return (
     <div className="flex flex-col gap-2">
@@ -396,22 +449,40 @@ function StaffDocumentReview({
         <div key={d.id} className="flex flex-col gap-2 rounded-lg border border-border p-3">
           <div className="flex items-center gap-2">
             <span className="min-w-0 flex-1 truncate text-sm font-medium">
-              {d.snapshotTitle ?? d.requirement.titleRu}
+              {pickLocale(d.requirement as unknown as Record<string, unknown>, 'title', locale)}
             </span>
             <span className="text-xs text-muted-foreground">{t(`docStatus_${d.status}`)}</span>
           </div>
+          {/* Название самого документа из хранилища студента — под требованием, на которое он
+              приложен: требование подписано на языке интерфейса, документ — как его назвали. */}
+          {d.snapshotTitle && (
+            <span className="truncate text-xs text-muted-foreground">{d.snapshotTitle}</span>
+          )}
           <div className="flex flex-wrap gap-2">
-            {d.documentId && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => viewMut.mutate(d.id)}
-                loading={viewMut.isPending}
-              >
-                <Eye className="size-4" aria-hidden />
-                {t('viewDoc')}
-              </Button>
-            )}
+            {d.documentId && (d.files?.length ?? 0) > 1
+              ? d.files!.map((f, i) => (
+                  <Button
+                    key={f.id}
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => viewMut.mutate({ docId: d.id, fileId: f.id })}
+                    loading={viewing(d.id, f.id)}
+                  >
+                    <Eye className="size-4" aria-hidden />
+                    {t('viewDocPage', { page: i + 1 })}
+                  </Button>
+                ))
+              : d.documentId && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => viewMut.mutate({ docId: d.id, fileId: d.files?.[0]?.id })}
+                    loading={viewing(d.id, d.files?.[0]?.id)}
+                  >
+                    <Eye className="size-4" aria-hidden />
+                    {t('viewDoc')}
+                  </Button>
+                )}
             {canReview && d.status === 'PENDING' && (
               <>
                 <Button variant="outline" size="sm" onClick={() => acceptMut.mutate(d.id)}>
@@ -461,14 +532,16 @@ function ResultRow({
     documentId: string | null
     documentNumber: string | null
     note: string | null
+    revoked?: boolean
   }
 }) {
   const t = useTranslations('Applications')
+  const err = useActionError()
   const downloadMut = useMutation({
     mutationFn: () => fetchApplicationResultUrl(appId, result.id, true),
     // Ссылка presigned и одноразовая по сути — открываем её сразу, файл уходит вложением.
     onSuccess: (url) => window.open(url, '_blank', 'noopener'),
-    onError: () => toast.error(t('loadError')),
+    onError: err,
   })
   return (
     <div className="flex items-center gap-2 text-sm">
@@ -479,6 +552,9 @@ function ResultRow({
           </span>
         )}
         {result.note && <p className="text-muted-foreground">{result.note}</p>}
+        {result.revoked && (
+          <span className="text-xs font-medium text-destructive">{t('resultRevoked')}</span>
+        )}
       </div>
       {result.documentId && (
         <Button
@@ -492,6 +568,127 @@ function ResultRow({
         </Button>
       )}
     </div>
+  )
+}
+
+/**
+ * Ответственный за заявку. Список — только те, кто сам вправе её вести (сервер проверяет то
+ * же самое): админ и модератор вуза, декан факультета заявки. У закрытой заявки — только чтение.
+ */
+function AssigneeRow({ app, onChanged }: { app: ApplicationDetail; onChanged: () => void }) {
+  const t = useTranslations('Applications')
+  const tErr = useTranslations('Errors')
+  const qc = useQueryClient()
+  const closed = TERMINAL_STATUSES.includes(app.status)
+  const candidates = useQuery({
+    queryKey: applicationKeys.assignees(app.id),
+    queryFn: () => fetchApplicationAssignees(app.id),
+    enabled: !closed,
+  })
+  const assign = useMutation({
+    mutationFn: (userId: string) => assignApplicationRequest(app.id, userId),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: applicationKeys.all })
+      toast.success(t('assigned'))
+      onChanged()
+    },
+    onError: (error) => toast.error(tErr(toApiError(error).code)),
+  })
+
+  const people = candidates.data ?? []
+  const current = people.find((p) => p.id === app.assignedToId)
+  const fullName = (p: { firstName: string; lastName: string }) => `${p.lastName} ${p.firstName}`
+
+  if (closed || candidates.isError) {
+    return (
+      <Row
+        label={t('assignee')}
+        value={
+          current ? fullName(current) : app.assignedToId ? t('assignedSomeone') : t('unassigned')
+        }
+      />
+    )
+  }
+
+  return (
+    <div className="flex flex-col gap-1">
+      <span className="text-xs text-muted-foreground">{t('assignee')}</span>
+      <Select
+        value={app.assignedToId ?? undefined}
+        onValueChange={(userId) => assign.mutate(userId)}
+        disabled={assign.isPending || candidates.isLoading}
+      >
+        <SelectTrigger size="sm" className="w-full sm:w-72" aria-label={t('assignee')}>
+          <SelectValue placeholder={t('unassigned')} />
+        </SelectTrigger>
+        <SelectContent>
+          {/* Назначенный мог уйти из круга (заблокирован, сменил факультет) — показываем его,
+              чтобы селект не выглядел пустым при живом назначении. */}
+          {app.assignedToId && !current && (
+            <SelectItem value={app.assignedToId} disabled>
+              {t('assignedSomeone')}
+            </SelectItem>
+          )}
+          {people.map((p) => (
+            <SelectItem key={p.id} value={p.id}>
+              {fullName(p)}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  )
+}
+
+/**
+ * Отзыв выданной справки. Файл у студента остаётся (изъять его нельзя), но проверка по коду
+ * с этого момента отвечает «документ отозван». Кнопка видна, пока есть неотозванная справка,
+ * сформированная платформой: у загруженного файла или бумажного результата кода проверки нет,
+ * и отзывать там нечего (сервер ответил бы 404). «Уже отозвано» — тоже 404, его и показываем.
+ */
+function RevokeCertificate({ app, onDone }: { app: ApplicationDetail; onDone: () => void }) {
+  const t = useTranslations('Applications')
+  const tErr = useTranslations('Errors')
+  const [asking, setAsking] = useState(false)
+  const revoke = useMutation({
+    mutationFn: (reason: string) => revokeCertificateRequest(app.id, reason || undefined),
+    onSuccess: () => {
+      toast.success(t('certificateRevoked'))
+      onDone()
+    },
+    onError: (error) => {
+      const code = toApiError(error).code
+      toast.error(code === 'NOT_FOUND' ? t('certificateNothingToRevoke') : tErr(code))
+    },
+  })
+
+  if (!app.results.some((r) => r.type === CERTIFICATE_RESULT_TYPE && !r.revoked)) return null
+
+  return (
+    <>
+      <Button
+        variant="ghost"
+        size="sm"
+        className="self-start text-destructive"
+        loading={revoke.isPending}
+        onClick={() => setAsking(true)}
+      >
+        {t('revokeCertificate')}
+      </Button>
+      <PromptDialog
+        open={asking}
+        title={t('revokeCertificateTitle')}
+        placeholder={t('revokeCertificateReason')}
+        multiline
+        submitLabel={t('revokeCertificate')}
+        cancelLabel={t('promptCancel')}
+        onSubmit={(reason) => {
+          revoke.mutate(reason)
+          setAsking(false)
+        }}
+        onClose={() => setAsking(false)}
+      />
+    </>
   )
 }
 

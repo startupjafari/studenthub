@@ -1,12 +1,14 @@
 export {
   profileContentKeys,
   fetchProfileMedia,
+  fetchProfileCounts,
   uploadProfileMedia,
   uploadProfileMediaAuto,
   attachVideoCover,
   deleteProfileMedia,
   uploadArticleCover,
   fetchProfileArticles,
+  fetchProfileArticle,
   createProfileArticle,
   updateProfileArticle,
   deleteProfileArticle,
@@ -24,6 +26,8 @@ export {
   toggleArticleBookmark,
   type ProfileMedia,
   type ProfileArticle,
+  type ProfileArticleCard,
+  type ContentCommentsPage,
   type Album,
   type ContentComment,
 } from './api/profile-content-api'

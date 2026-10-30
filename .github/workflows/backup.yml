@@ -1,0 +1,167 @@
+name: backup
+
+# СХЕМА ПРОГОНА
+#
+#   каждую ночь ─► pg_dump прода в custom-формате
+#               ─► проверка читаемости (pg_restore --list)
+#               ─► выгрузка снимка и зеркала медиа в объектное хранилище
+#               ─► ВОССТАНОВЛЕНИЕ снимка в одноразовый Postgres и проверки на нём
+#               ─► молчим, если всё хорошо; пишем в Telegram, если нет
+#
+# ЗАЧЕМ ВОССТАНОВЛЕНИЕ ПРЯМО ЗДЕСЬ. Критерий готовности v1.0 требует не «бэкапы
+# настроены», а «бэкапы проверены восстановлением». Проверка, которую делают руками раз
+# в полгода, не делается никогда: её забывают ровно до того дня, когда она нужна. Поэтому
+# она идёт в том же прогоне, что и снятие, на свежем снимке и на чистой базе — и если
+# дамп нечитаем или в нём нет данных, об этом известно наутро, а не в день аварии.
+#
+# ПОЧЕМУ БЕЗ СЕКРЕТОВ ПРОГОН ПАДАЕТ. У уведомлений правило обратное («нет секретов — не
+# падаем»), и это правильно для них: некому написать — не повод краснеть. Здесь иначе.
+# Бэкап, который молча не снимается, хуже отсутствующего: на него рассчитывают. Красная
+# галочка каждую ночь — ровно то поведение, которое заставит задать переменные.
+#
+# ЧТО НУЖНО ЗАДАТЬ (Settings → Secrets and variables → Actions → Secrets):
+#
+#   BACKUP_DATABASE_URL  подключение к проду с правом читать всё (postgres://…)
+#   BACKUP_S3_ENDPOINT   адрес хранилища снимков, например https://s3.example.kz
+#   BACKUP_S3_BUCKET     бакет под снимки (создать заранее)
+#   BACKUP_S3_KEY        доступ к хранилищу снимков
+#   BACKUP_S3_SECRET
+#   MEDIA_S3_ENDPOINT    (опционально) адрес MinIO прода — для зеркала медиа
+#   MEDIA_S3_KEY         (опционально)
+#   MEDIA_S3_SECRET      (опционально)
+#
+# ХРАНИЛИЩЕ СНИМКОВ — ОТДЕЛЬНОЕ ОТ ПРОДА. Снимок в том же MinIO, что и рабочие файлы,
+# не бэкап: отказ или ошибка оператора уносит оба. Это не настройка прогона, а требование
+# к тому, что задаётся в секретах.
+
+on:
+  schedule:
+    # 21:17 UTC — 03:17 в Алматы: после ночной уборки cron'ов и до утреннего трафика.
+    # Минуты не круглые намеренно: в начале часа очередь GitHub забита, и прогон
+    # стартует с опозданием в десятки минут.
+    - cron: '17 21 * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: backup-production
+  cancel-in-progress: false
+
+jobs:
+  backup:
+    name: Снимок базы и проверка восстановлением
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    services:
+      # Одноразовая база для проверки восстановлением. Версия та же, что в проде
+      # (docker/prod/compose.yml): дамп, снятый 17-м, в 16-й не восстановится.
+      drill:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: drill
+          POSTGRES_PASSWORD: drill
+          POSTGRES_DB: drill
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U drill"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Проверить, что прогону есть куда ходить
+        env:
+          DB: ${{ secrets.BACKUP_DATABASE_URL }}
+          S3: ${{ secrets.BACKUP_S3_ENDPOINT }}
+          BUCKET: ${{ secrets.BACKUP_S3_BUCKET }}
+        run: |
+          # Через `if`, а не `[ -z "$X" ] && …`: шаг идёт под `bash -e`, и ложное
+          # условие в последней строке само уронило бы его с кодом 1 — проверка
+          # падала бы именно тогда, когда всё задано правильно.
+          missing=()
+          if [ -z "$DB" ]; then missing+=("BACKUP_DATABASE_URL"); fi
+          if [ -z "$S3" ]; then missing+=("BACKUP_S3_ENDPOINT"); fi
+          if [ -z "$BUCKET" ]; then missing+=("BACKUP_S3_BUCKET"); fi
+          if [ ${#missing[@]} -gt 0 ]; then
+            {
+              echo "## Бэкап не снят"
+              echo ""
+              echo "Не заданы секреты: ${missing[*]}"
+              echo ""
+              echo "Задать: Settings → Secrets and variables → Actions → Secrets."
+              echo "Что именно задавать — в шапке .github/workflows/backup.yml и в docs/RUNBOOK.md."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::Бэкап не настроен: нет секретов ${missing[*]}"
+            exit 1
+          fi
+
+      # persist-credentials: false — токен прогона не остаётся в .git/config
+      # рабочего каталога; здесь он не нужен вовсе, код берём только ради
+      # скриптов и локального экшена уведомления.
+      - name: Забрать код
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Поставить клиент Postgres 17 и mc
+        run: |
+          sudo install -d /usr/share/postgresql-common/pgdg
+          curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+            | sudo tee /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc > /dev/null
+          echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] \
+            https://apt.postgresql.org/pub/repos/apt noble-pgdg main" \
+            | sudo tee /etc/apt/sources.list.d/pgdg.list > /dev/null
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends postgresql-client-17 > /dev/null
+          curl -fsSL https://dl.min.io/client/mc/release/linux-amd64/mc -o /usr/local/bin/mc
+          chmod +x /usr/local/bin/mc
+          pg_dump --version
+
+      - name: Снять снимок и выгрузить в хранилище
+        env:
+          DATABASE_URL: ${{ secrets.BACKUP_DATABASE_URL }}
+          BACKUP_DIR: ${{ runner.temp }}/backups
+          BACKUP_S3_ENDPOINT: ${{ secrets.BACKUP_S3_ENDPOINT }}
+          BACKUP_S3_BUCKET: ${{ secrets.BACKUP_S3_BUCKET }}
+          BACKUP_S3_KEY: ${{ secrets.BACKUP_S3_KEY }}
+          BACKUP_S3_SECRET: ${{ secrets.BACKUP_S3_SECRET }}
+          MEDIA_S3_ENDPOINT: ${{ secrets.MEDIA_S3_ENDPOINT }}
+          MEDIA_S3_KEY: ${{ secrets.MEDIA_S3_KEY }}
+          MEDIA_S3_SECRET: ${{ secrets.MEDIA_S3_SECRET }}
+        run: ./scripts/backup-db.sh
+
+      - name: Восстановить снимок в одноразовую базу и проверить
+        env:
+          # Проверка идёт на сервисной базе прогона, прод здесь не при чём.
+          DATABASE_URL: postgres://drill:drill@localhost:5432/drill
+        run: ./scripts/restore-drill.sh "$BACKUP_DUMP"
+
+      - name: Записать итог в сводку прогона
+        if: always()
+        env:
+          BUCKET: ${{ secrets.BACKUP_S3_BUCKET }}
+        run: |
+          {
+            echo "## Бэкап ${{ job.status == 'success' && 'снят и проверен' || 'не удался' }}"
+            echo ""
+            # Шаг идёт при любом исходе: если снимок не дошёл до файла, переменной нет,
+            # и строку о файле просто не пишем — сводка о провале нужнее всего.
+            if [ -n "${BACKUP_DUMP:-}" ] && [ -f "${BACKUP_DUMP}" ]; then
+              echo "Файл: \`$(basename "$BACKUP_DUMP")\`, размер $(du -h "$BACKUP_DUMP" | cut -f1)"
+            fi
+            echo "Хранилище: \`${BUCKET}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Тишина при успехе: ночной прогон, о котором сообщают каждый раз, через неделю
+      # перестают читать — и пропускают то единственное сообщение, которое важно.
+      - name: Сообщить о провале
+        if: failure()
+        uses: ./.github/actions/notify-telegram
+        with:
+          token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          chat-id: ${{ secrets.TELEGRAM_CHAT_ID }}
+          text: |
+            Бэкап не снят или не прошёл проверку восстановлением.
+            Прогон: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}

@@ -113,6 +113,11 @@ async function deleteUniversity(prisma, universityId, log) {
   await run('universityDemoRequest', prisma.universityDemoRequest.deleteMany({ where: { universityId } })) // prettier-ignore
   await run('universityOnboarding', prisma.universityOnboarding.deleteMany({ where: { universityId } })) // prettier-ignore
   await run('invite', prisma.invite.deleteMany({ where: { universityId } }))
+  // Библиотека (Фаза 20): ключи на вуз — Restrict, порядок — от броней к книгам.
+  await run('reservation', prisma.reservation.deleteMany({ where: { universityId } }))
+  await run('loan', prisma.loan.deleteMany({ where: { universityId } }))
+  await run('bookCopy', prisma.bookCopy.deleteMany({ where: { universityId } }))
+  await run('book', prisma.book.deleteMany({ where: { universityId } }))
 
   await run('university', prisma.university.deleteMany({ where: { id: universityId } }))
   return counts

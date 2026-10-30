@@ -7,12 +7,13 @@ import { ArrowDown, Check, FileText, Loader2, Play, RotateCw, X } from 'lucide-r
 import {
   formatBytes,
   formatBytesProgress,
+  srcSetOf,
   useByteUnitLabel,
   useFileDownload,
 } from '../../../shared/lib'
 import { ProgressRing } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
-import { fetchAttachmentUrl } from '../api/chat-api'
+import { useAttachmentLinkSource } from './attachment-link-source'
 import { fileKind } from '../lib/file-kind'
 // Те же признаки вида, что у превью в списке чатов, — один источник на оба места.
 import { isViewable, isVoice } from '../lib/attachment-kind'
@@ -185,15 +186,18 @@ function frameProps(att: MessageAttachment): { className: string; style?: CSSPro
 // Для оптимистичных (ещё не отправленных) вложений с localUrl запрос не делаем.
 function useAttachmentUrl(att: MessageAttachment) {
   const hasLocal = !!att.localUrl
+  const source = useAttachmentLinkSource()
   const q = useQuery({
-    queryKey: ['chat-attachment', att.id],
-    queryFn: () => fetchAttachmentUrl(att.id),
+    queryKey: [source.scope, att.id],
+    queryFn: () => source.fetch(att.id),
     enabled: !hasLocal,
     staleTime: 10 * 60 * 1000,
     gcTime: 15 * 60 * 1000,
   })
   return {
-    url: att.localUrl ?? q.data,
+    url: att.localUrl ?? q.data?.url,
+    // Варианты медиа-системы: копии для srcset, постер видео. У локального файла их нет.
+    link: hasLocal ? undefined : q.data,
     isLoading: !hasLocal && q.isPending,
     isError: !hasLocal && q.isError,
     // Ссылка живёт 15 мин: и «не пришла», и «протухла» лечатся повторным запросом.
@@ -301,6 +305,29 @@ function MediaUploadOverlay({ progress, onCancel }: { progress?: number; onCance
   )
 }
 
+// LQIP-заглушка медиа-системы: размытый силуэт снимка, пока не пришли байты. Приходит в
+// списке сообщений, поэтому видна раньше даже запроса за ссылкой. Нет — заливка, как раньше.
+function Lqip({ src, className }: { src?: string | null; className?: string }) {
+  if (!src) return <span className={cn('absolute inset-0', MEDIA_TINT, className)} aria-hidden />
+  return (
+    <img
+      src={src}
+      alt=""
+      aria-hidden
+      draggable={false}
+      className={cn('absolute inset-0 size-full scale-110 object-cover blur-lg', className)}
+    />
+  )
+}
+
+// Ширина снимка в пузыре для `sizes`: браузер по ней выбирает копию (на ретине — вдвое шире).
+// На узком экране пузырь сам уже ширины кадра, отсюда 80vw.
+function bubbleSizes(att: MessageAttachment): string {
+  const frame = frameProps(att)
+  const width = typeof frame.style?.width === 'number' ? frame.style.width : 224
+  return `(max-width: 480px) 80vw, ${width}px`
+}
+
 function Single({
   att,
   mine,
@@ -323,7 +350,7 @@ function Single({
   const unit = useByteUnitLabel()
   // Длительность ролика: читаем у того же элемента, что уже тянет первый кадр.
   const [duration, setDuration] = useState<number | null>(null)
-  const { url, isLoading, isError, refetch } = useAttachmentUrl(att)
+  const { url, link, isLoading, isError, refetch } = useAttachmentUrl(att)
   // Упавшая отправка — это НЕ «грузится». Раньше здесь стоял просто `att.uploading`, и у
   // не ушедшего сообщения вложения навсегда замирали со спиннером на «0 / 312.8 МБ»:
   // сам он сдвинуться не мог, отменить из строки файла было нечем, повторить — тоже.
@@ -372,13 +399,22 @@ function Single({
     // Пока едет presigned-ссылка, место под снимок уже знает его форму (если размеры есть).
     // Заливка без пульсации: мигающий прямоугольник посреди переписки притягивал взгляд
     // сильнее самих сообщений, а держать место надо — иначе лента прыгает под руками.
+    // Есть LQIP — в этом месте сразу размытый силуэт снимка, а не пустая заливка.
     const frame = frameProps(att)
     return (
       <div
-        className={cn('rounded-lg', MEDIA_TINT, framed ? frame.className : 'h-10 w-40')}
+        className={cn(
+          'relative overflow-hidden rounded-lg',
+          MEDIA_TINT,
+          framed ? frame.className : 'h-10 w-40',
+        )}
         style={framed ? frame.style : undefined}
         aria-hidden
-      />
+      >
+        {framed && att.placeholder && (
+          <Lqip src={att.placeholder} className={blurred ? 'blur-xl' : undefined} />
+        )}
+      </div>
     )
   }
 
@@ -419,6 +455,10 @@ function Single({
       >
         <img
           src={url}
+          // Копия по ширине пузыря из медиа-системы; оригинал — только для просмотрщика и
+          // скачивания. GIF — всегда оригинал: копия была бы первым кадром.
+          srcSet={isGif ? undefined : srcSetOf(link?.sources, { url, width: att.width })}
+          sizes={isGif || !link?.sources.length ? undefined : bubbleSizes(att)}
           alt={t('attachment')}
           loading="lazy"
           decoding="async"
@@ -441,7 +481,7 @@ function Single({
           )}
           onClick={uploading ? undefined : blurred ? () => setRevealed(true) : onOpen}
         />
-        {!painted && <span className={cn('absolute inset-0 rounded-lg', MEDIA_TINT)} aria-hidden />}
+        {!painted && <Lqip src={att.placeholder} className="rounded-lg" />}
         {blurred && painted && (
           <button
             type="button"
@@ -466,33 +506,69 @@ function Single({
     // Контейнер, а не кнопка: поверх кадра лежат две кнопки — открыть ролик (весь кадр) и
     // скачать (плашка в углу: середину занимает воспроизведение), а кнопку в кнопку вложить
     // нельзя.
+    //
+    // Постер медиа-системы — картинка в десятки килобайт вместо `<video preload>`, который
+    // ради первого кадра тянул начало самого ролика (а на iOS по сотовой не грузил вовсе).
+    // Длительность тогда приходит с сервера. Постера нет (ролик ещё обрабатывается или
+    // старше медиа-системы) — кадр, как раньше, берёт сам `<video>`.
+    const poster = link?.poster ?? []
+    const sized = !!att.width && !!att.height
+    const frame = frameProps(att)
+    const shownDuration = att.durationMs ? att.durationMs / 1000 : duration
     return (
       <div
         className={cn(
           'relative block w-fit max-w-full overflow-hidden rounded-lg',
           // preload="metadata" на мобильной сети тянется долго (на iOS по сотовой может не
           // сработать вовсе) — подложку под кадр держим сами, без бесконечной пульсации.
-          !painted && cn(MEDIA_BOX, MEDIA_TINT),
+          sized ? frame.className : !painted && cn(MEDIA_BOX, MEDIA_TINT),
         )}
+        style={sized ? frame.style : undefined}
       >
-        <video
-          src={url}
-          preload="metadata"
-          muted
-          onLoadedMetadata={(e) => {
-            setPainted(true)
-            const d = e.currentTarget.duration
-            if (Number.isFinite(d)) setDuration(d)
-          }}
-          onError={() => setBroken(true)}
-          className={cn(
-            'max-h-64 max-w-full transition-opacity duration-200',
-            !painted && 'absolute inset-0 size-full object-cover opacity-0',
-            blurred && 'scale-105 blur-xl',
-          )}
-        />
+        {poster.length > 0 ? (
+          <img
+            src={poster[poster.length - 1]?.url}
+            srcSet={srcSetOf(poster)}
+            sizes={bubbleSizes(att)}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            width={att.width ?? undefined}
+            height={att.height ?? undefined}
+            ref={(el) => {
+              if (el?.complete && el.naturalWidth > 0) setPainted(true)
+            }}
+            onLoad={() => setPainted(true)}
+            onError={() => setBroken(true)}
+            className={cn(
+              'block transition-opacity duration-200',
+              sized ? 'size-full object-cover' : 'max-h-64 max-w-full',
+              !painted && 'opacity-0',
+              blurred && 'scale-105 blur-xl',
+            )}
+          />
+        ) : (
+          <video
+            src={url}
+            preload="metadata"
+            muted
+            onLoadedMetadata={(e) => {
+              setPainted(true)
+              const d = e.currentTarget.duration
+              if (Number.isFinite(d)) setDuration(d)
+            }}
+            onError={() => setBroken(true)}
+            className={cn(
+              'max-h-64 max-w-full transition-opacity duration-200',
+              sized && 'size-full object-cover',
+              !painted && 'absolute inset-0 size-full object-cover opacity-0',
+              blurred && 'scale-105 blur-xl',
+            )}
+          />
+        )}
+        {!painted && att.placeholder && <Lqip src={att.placeholder} />}
         {/* Длительность прячем под спойлером вместе с кадром: по ней узнаётся ролик. */}
-        {!blurred && !uploading && <DurationBadge seconds={duration} />}
+        {!blurred && !uploading && <DurationBadge seconds={shownDuration} />}
         {uploading ? (
           <MediaUploadOverlay progress={att.progress} onCancel={onCancel} />
         ) : blurred ? (
@@ -617,6 +693,9 @@ function Single({
   )
 }
 
+// Ширина ячейки альбома для `sizes`: сетка 260–300px на 2–3 колонки.
+const TILE_SIZES = '150px'
+
 // Ячейка альбома-сетки (Telegram-стиль): квадратный кроп через object-cover, поверх — play у видео
 // и оверлей загрузки у оптимистичных. Размер задаёт родитель через className (aspect/row-span).
 function GridTile({
@@ -638,7 +717,7 @@ function GridTile({
 }) {
   const t = useTranslations('Chats')
   const tCommon = useTranslations('Common')
-  const { url, isLoading, isError, refetch } = useAttachmentUrl(att)
+  const { url, link, isLoading, isError, refetch } = useAttachmentUrl(att)
   // См. пояснение в Single: упавшая отправка не «грузится».
   const uploading = !!att.uploading && !sendFailed
   const isVid = att.mime.startsWith('video/')
@@ -675,25 +754,45 @@ function GridTile({
           </span>
         </span>
       ) : isLoading || !url ? (
-        <span className={cn('absolute inset-0', MEDIA_TINT)} aria-hidden />
+        <Lqip src={att.placeholder} className={blurred ? 'blur-xl' : undefined} />
       ) : isVid ? (
         <>
-          <video
-            src={url}
-            preload="metadata"
-            muted
-            onLoadedMetadata={(e) => {
-              setPainted(true)
-              const d = e.currentTarget.duration
-              if (Number.isFinite(d)) setDuration(d)
-            }}
-            onError={() => setBroken(true)}
-            className={cn(
-              'absolute inset-0 size-full object-cover transition-[filter] duration-200',
-              blurred && 'scale-105 blur-xl',
-            )}
-          />
-          {!uploading && !blurred && <DurationBadge seconds={duration} />}
+          {link?.poster.length ? (
+            // Постер вместо `<video preload>`: см. пояснение в Single.
+            <img
+              src={link.poster[0]?.url}
+              srcSet={srcSetOf(link.poster)}
+              sizes={TILE_SIZES}
+              alt=""
+              loading="lazy"
+              decoding="async"
+              onLoad={() => setPainted(true)}
+              onError={() => setBroken(true)}
+              className={cn(
+                'absolute inset-0 size-full object-cover transition-[filter] duration-200',
+                blurred && 'scale-105 blur-xl',
+              )}
+            />
+          ) : (
+            <video
+              src={url}
+              preload="metadata"
+              muted
+              onLoadedMetadata={(e) => {
+                setPainted(true)
+                const d = e.currentTarget.duration
+                if (Number.isFinite(d)) setDuration(d)
+              }}
+              onError={() => setBroken(true)}
+              className={cn(
+                'absolute inset-0 size-full object-cover transition-[filter] duration-200',
+                blurred && 'scale-105 blur-xl',
+              )}
+            />
+          )}
+          {!uploading && !blurred && (
+            <DurationBadge seconds={att.durationMs ? att.durationMs / 1000 : duration} />
+          )}
           {!uploading && !blurred && (
             <span className="absolute inset-0 flex items-center justify-center bg-black/15">
               <span className="flex size-10 items-center justify-center rounded-full bg-black/50 text-white">
@@ -704,8 +803,16 @@ function GridTile({
         </>
       ) : (
         <>
+          {!painted && <Lqip src={att.placeholder} />}
           <img
             src={url}
+            // Ячейка ~150px: на ретине браузер возьмёт копию 320, а не многомегабайтный оригинал.
+            srcSet={
+              att.mime === 'image/gif'
+                ? undefined
+                : srcSetOf(link?.sources, { url, width: att.width })
+            }
+            sizes={link?.sources.length && att.mime !== 'image/gif' ? TILE_SIZES : undefined}
             alt=""
             loading="lazy"
             decoding="async"
@@ -720,7 +827,6 @@ function GridTile({
               blurred && 'scale-105 blur-xl',
             )}
           />
-          {!painted && <span className={cn('absolute inset-0', MEDIA_TINT)} aria-hidden />}
         </>
       )}
       {blurred && painted && (

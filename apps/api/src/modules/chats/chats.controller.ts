@@ -45,6 +45,7 @@ import { ChatMessagesQueryDto } from './dto/chat-messages-query.dto'
 import { ChatUpdatesQueryDto } from './dto/chat-updates-query.dto'
 import { ChatMediaQueryDto } from './dto/chat-media-query.dto'
 import { ChatMediaCalendarQueryDto } from './dto/chat-media-calendar-query.dto'
+import { ChatExportFileQueryDto } from './dto/chat-export-file-query.dto'
 import { ClearChatDto } from './dto/clear-chat.dto'
 import { ChatLinksQueryDto } from './dto/chat-links-query.dto'
 import { CreateChatPollDto } from './dto/create-chat-poll.dto'
@@ -55,8 +56,7 @@ import { MessageReactionDto } from './dto/message-reaction.dto'
 import { MessageForwardDto } from './dto/message-forward.dto'
 import { SharePostDto } from './dto/share-post.dto'
 import { SaveDraftDto } from './dto/save-draft.dto'
-import { ScheduleMessageDto } from './dto/schedule-message.dto'
-import { UpdateScheduledMessageDto } from './dto/update-scheduled-message.dto'
+import { JoinChatByInviteDto } from './dto/join-chat-by-invite.dto'
 
 // REST для чатов (docs/PROJECT.md §3.6, §8.3): список/создание/история/участники.
 // Real-time (сообщения, typing, статусы) — через ChatGateway (WS).
@@ -108,7 +108,7 @@ export class ChatsController {
 
   @Get('attachments/:fileId/url')
   @ApiOperation({ summary: 'Presigned URL к вложению сообщения (по членству в чате)' })
-  @ApiResponse({ status: 200, description: 'Временный URL' })
+  @ApiResponse({ status: 200, description: '{ url, expiresAt, …MediaInfo } — оригинал и варианты' })
   @ApiResponse({ status: 403, description: 'WRONG_SCOPE — не участник чата' })
   attachmentUrl(@CurrentUser() user: CurrentUserData, @Param('fileId') fileId: string) {
     return this.chats.getAttachmentUrl(user.sub, fileId)
@@ -347,7 +347,7 @@ export class ChatsController {
     @Param('id') id: string,
     @Body() dto: MessageForwardDto,
   ) {
-    return this.chats.forwardMessage(user.sub, id, dto.messageId)
+    return this.chats.forwardMessage(user, id, dto.messageId)
   }
 
   @Post(':id/share-post')
@@ -381,13 +381,12 @@ export class ChatsController {
   async exportChatFile(
     @CurrentUser() user: CurrentUserData,
     @Param('id') id: string,
-    @Query('format') format: string | undefined,
-    @Query('locale') locale: string | undefined,
+    @Query() query: ChatExportFileQueryDto,
     @Req() req: FastifyRequest,
     @Res() reply: FastifyReply,
   ) {
-    const ext = format === 'json' ? 'json' : 'txt'
-    const context = await this.exportContext(user.sub, this.branding.resolveLocale(locale))
+    const ext = query.format
+    const context = await this.exportContext(user.sub, this.branding.resolveLocale(query.locale))
     const body = await this.chats.exportFile(user.sub, id, {
       context,
       info: this.branding.infoRows(context),
@@ -454,47 +453,6 @@ export class ChatsController {
     return this.chats.setMuted(user.sub, id, null)
   }
 
-  @Get(':id/scheduled')
-  @ApiOperation({ summary: 'Мои отложенные сообщения в чате (чужие не видны)' })
-  @ApiResponse({ status: 200, description: 'Отложенные, ближайшие первыми' })
-  scheduled(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
-    return this.chats.listScheduled(user.sub, id)
-  }
-
-  @Post(':id/scheduled')
-  @ApiOperation({ summary: 'Отложить сообщение на будущее (только текст, без вложений)' })
-  @ApiResponse({ status: 201, description: 'Сообщение поставлено в очередь' })
-  @ApiResponse({ status: 400, description: 'BAD_REQUEST — время в прошлом или превышен лимит' })
-  schedule(
-    @CurrentUser() user: CurrentUserData,
-    @Param('id') id: string,
-    @Body() dto: ScheduleMessageDto,
-  ) {
-    return this.chats.scheduleMessage(user.sub, id, dto)
-  }
-
-  @Patch('scheduled/:scheduledId')
-  @ApiOperation({ summary: 'Изменить текст или время своего отложенного сообщения' })
-  @ApiResponse({ status: 200, description: 'Отложенное обновлено' })
-  updateScheduled(
-    @CurrentUser() user: CurrentUserData,
-    @Param('scheduledId') scheduledId: string,
-    @Body() dto: UpdateScheduledMessageDto,
-  ) {
-    return this.chats.updateScheduled(user.sub, scheduledId, dto)
-  }
-
-  @Delete('scheduled/:scheduledId')
-  @ApiOperation({ summary: 'Отменить своё отложенное сообщение' })
-  @ApiResponse({ status: 200, description: 'Отложенное отменено' })
-  async cancelScheduled(
-    @CurrentUser() user: CurrentUserData,
-    @Param('scheduledId') scheduledId: string,
-  ): Promise<null> {
-    await this.chats.cancelScheduled(user.sub, scheduledId)
-    return null
-  }
-
   @Post(':id/archive')
   @ApiOperation({ summary: 'Убрать чат в архив (у себя)' })
   @ApiResponse({ status: 201, description: 'Чат в архиве' })
@@ -527,7 +485,7 @@ export class ChatsController {
   @ApiOperation({ summary: 'Онлайн-статусы участников чата' })
   @ApiResponse({ status: 200, description: 'Список { userId, online }' })
   presence(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
-    return this.chats.getPresence(user.sub, id)
+    return this.chats.getPresence(user, id)
   }
 
   @Put(':id/draft')
@@ -558,14 +516,30 @@ export class ChatsController {
   }
 
   @Post(':id/join')
-  @ApiOperation({ summary: 'Присоединиться к группе по ссылке-приглашению' })
+  @ApiOperation({ summary: 'Присоединиться к группе по ссылке-приглашению (с кодом из ссылки)' })
   @ApiResponse({ status: 201, description: 'Присоединён (идемпотентно)' })
-  @ApiResponse({
-    status: 403,
-    description: 'WRONG_SCOPE — чат не является пользовательской группой',
-  })
-  join(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
-    return this.chats.joinByInvite(user.sub, id)
+  @ApiResponse({ status: 403, description: 'FORBIDDEN — заблокирован в чате или работодатель' })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND — приглашение недействительно' })
+  join(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: JoinChatByInviteDto,
+  ) {
+    return this.chats.joinByInvite(user, id, dto.code)
+  }
+
+  @Get(':id/invite')
+  @ApiOperation({ summary: 'Код ссылки-приглашения группы (только админ группы)' })
+  @ApiResponse({ status: 200, description: '{ code }' })
+  inviteCode(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
+    return this.chats.getInviteCode(user, id)
+  }
+
+  @Post(':id/invite/reset')
+  @ApiOperation({ summary: 'Сменить код ссылки-приглашения (прежняя ссылка перестаёт работать)' })
+  @ApiResponse({ status: 201, description: '{ code }' })
+  resetInvite(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
+    return this.chats.resetInviteCode(user, id)
   }
 
   @Post(':id/members')

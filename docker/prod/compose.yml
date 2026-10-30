@@ -1,0 +1,213 @@
+# StudentHub — прод-стек для самостоятельного хостинга (docker/README.md, docs/RUNBOOK.md).
+# Запуск: docker compose -f docker/prod/compose.yml up -d --build
+# Переменные: .env — инфраструктура и домены, .env.api — приложение (образцы рядом).
+# Миграции применяются отдельно до старта api, не автоматически (docs/RUNBOOK.md).
+
+name: studenthub-prod
+
+# Ротация логов docker: без неё json-file растёт до размера диска (README, «Решения»).
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: '10m'
+    max-file: '5'
+
+x-prod-healthcheck: &prod-healthcheck
+  interval: 10s
+  timeout: 5s
+  retries: 10
+  start_period: 30s
+
+# Живость приложений — TCP-коннект к своему PORT, а не /health (README, «Решения»).
+x-node-tcp-healthcheck: &node-tcp-healthcheck
+  <<: *prod-healthcheck
+  test:
+    [
+      'CMD',
+      'node',
+      '-e',
+      "require('net').connect(+process.env.PORT,'127.0.0.1').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))",
+    ]
+
+# api и worker — один образ: собирает его сервис api, worker берёт готовый.
+x-api: &api
+  image: studenthub-prod-api
+  restart: always
+  logging: *logging
+  env_file: [.env.api]
+  # Адреса стека выводятся из его устройства и доменов и перекрывают .env.api.
+  environment:
+    PORT: '3001'
+    REDIS_HOST: redis
+    REDIS_PASSWORD: ${REDIS_PASSWORD}
+    MINIO_ENDPOINT: minio
+    MINIO_USE_SSL: 'false'
+    # Адрес, на который api подписывает ссылки для браузера: `minio` снаружи не резолвится.
+    MINIO_PUBLIC_ENDPOINT: ${SH_FILES_DOMAIN}
+    MINIO_PUBLIC_PORT: '443'
+    MINIO_PUBLIC_USE_SSL: 'true'
+    CORS_ORIGIN: https://${SH_APP_DOMAIN}
+    APP_PUBLIC_URL: https://${SH_APP_DOMAIN}
+    # nginx в сети docker попадает в uniquelocal — иначе клиентом считался бы сам прокси.
+    TRUST_PROXY: loopback, linklocal, uniquelocal
+    # Медиа обрабатывает worker, api только ставит задачи.
+    MEDIA_PROCESSING: worker
+  depends_on:
+    postgres: { condition: service_healthy }
+    redis: { condition: service_healthy }
+    minio: { condition: service_healthy }
+
+services:
+  postgres:
+    extends: { file: ../shared/infra.yml, service: postgres }
+    restart: always
+    logging: *logging
+    # Только петля хоста: миграции и pg_dump с самой машины — CLI Prisma в образе api нет.
+    ports:
+      - '127.0.0.1:${POSTGRES_PORT:-5432}:5432'
+    healthcheck: *prod-healthcheck
+
+  redis:
+    extends: { file: ../shared/infra.yml, service: redis }
+    restart: always
+    logging: *logging
+    healthcheck:
+      <<: *prod-healthcheck
+      start_period: 15s
+
+  minio:
+    extends: { file: ../shared/infra.yml, service: minio }
+    restart: always
+    logging: *logging
+    environment:
+      # Браузер грузит файлы сюда по presigned-ссылке — CORS только для origin платформы.
+      MINIO_API_CORS_ALLOW_ORIGIN: https://${SH_APP_DOMAIN}
+    healthcheck:
+      <<: *prod-healthcheck
+      start_period: 15s
+
+  api:
+    <<: *api
+    build:
+      context: ../..
+      dockerfile: apps/api/Dockerfile
+    expose: ['3001']
+    healthcheck: *node-tcp-healthcheck
+
+  # Воркер медиа (варианты изображений, постеры, HLS): ffmpeg не делит CPU с HTTP.
+  # Порт не слушает, поэтому healthcheck нет.
+  worker:
+    <<: *api
+    command: ['node', 'dist/worker.js']
+
+  web:
+    build:
+      context: ../..
+      dockerfile: apps/web/Dockerfile
+      args:
+        # /api/* проксирует nginx, а не web: API_PROXY_TARGET не передаётся, адрес API —
+        # путь на домене платформы.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://${SH_APP_DOMAIN}/api/v1}
+        # Хранилище для браузера: из него CSP строит img-src/media-src, без него картинки
+        # своего MinIO в markdown показываются ссылками.
+        NEXT_PUBLIC_MINIO_URL: ${NEXT_PUBLIC_MINIO_URL:-https://${SH_FILES_DOMAIN}}
+        # Тот же ключ, что VAPID_PUBLIC_KEY в .env.api: без него веб не подписывается на push.
+        NEXT_PUBLIC_VAPID_PUBLIC_KEY: ${NEXT_PUBLIC_VAPID_PUBLIC_KEY:-}
+        # Sentry в браузере: пустой DSN — трекер выключен.
+        NEXT_PUBLIC_SENTRY_DSN: ${NEXT_PUBLIC_SENTRY_DSN:-}
+        NEXT_PUBLIC_SENTRY_ENVIRONMENT: ${NEXT_PUBLIC_SENTRY_ENVIRONMENT:-production}
+        NEXT_PUBLIC_SENTRY_RELEASE: ${NEXT_PUBLIC_SENTRY_RELEASE:-}
+        NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE: ${NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE:-}
+    restart: always
+    logging: *logging
+    depends_on:
+      api: { condition: service_healthy }
+    expose: ['3000']
+    healthcheck: *node-tcp-healthcheck
+
+  # Публичный сайт. От платформы не зависит, поэтому depends_on нет (README, «Решения»).
+  landing:
+    build:
+      context: ../..
+      dockerfile: apps/landing/Dockerfile
+      args:
+        NEXT_PUBLIC_APP_URL: ${NEXT_PUBLIC_APP_URL:-https://${SH_APP_DOMAIN}}
+        NEXT_PUBLIC_SITE_URL: ${NEXT_PUBLIC_SITE_URL:-https://${SH_DOMAIN}}
+        NEXT_PUBLIC_SALES_EMAIL: ${NEXT_PUBLIC_SALES_EMAIL}
+    restart: always
+    logging: *logging
+    expose: ['3000']
+    healthcheck: *node-tcp-healthcheck
+
+  # Мини-апп администраторов (Telegram): nginx со статикой, сам проксирует свой /api.
+  mini-app:
+    build:
+      context: ../..
+      dockerfile: apps/mini-app/Dockerfile
+    restart: always
+    logging: *logging
+    environment:
+      # Публичный адрес, не имя `api`: мини-апп резолвит цель внешним DNS (README, «Решения»).
+      API_TARGET: https://${SH_APP_DOMAIN}
+    expose: ['8080']
+    healthcheck:
+      <<: *prod-healthcheck
+      test: ['CMD-SHELL', 'wget -q -O /dev/null http://127.0.0.1:8080/ || exit 1']
+
+  nginx:
+    image: nginx:1.31-alpine
+    # Раз в 6 часов reload: обновлённый certbot'ом сертификат попадает в процесс только так.
+    # Запуск — через точку входа образа: шаблоны из templates/ она рендерит, только когда
+    # первым аргументом идёт `nginx`. Команда `sh -c …` мимо неё оставляла в conf.d стоковый
+    # default.conf — без 443, маршрутов и ACME.
+    command:
+      [
+        'sh',
+        '-c',
+        "while :; do sleep 6h & wait $${!}; nginx -s reload; done & exec /docker-entrypoint.sh nginx -g 'daemon off;'",
+      ]
+    restart: always
+    logging: *logging
+    environment:
+      # envsubst подставляет в шаблон только SH_* — переменные nginx ($host, $uri) не трогает.
+      NGINX_ENVSUBST_FILTER: '^SH_'
+      SH_DOMAIN: ${SH_DOMAIN}
+      SH_APP_DOMAIN: ${SH_APP_DOMAIN}
+      SH_FILES_DOMAIN: ${SH_FILES_DOMAIN}
+      SH_MINI_DOMAIN: ${SH_MINI_DOMAIN}
+    depends_on:
+      api: { condition: service_healthy }
+      web: { condition: service_healthy }
+      landing: { condition: service_healthy }
+      mini-app: { condition: service_healthy }
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/templates:/etc/nginx/templates:ro
+      - certbot_conf:/etc/letsencrypt:ro
+      - certbot_www:/var/www/certbot:ro
+
+  # Продление сертификата раз в 12 часов. Первый выпуск — разовая команда до старта nginx
+  # (docs/RUNBOOK.md): без сертификата nginx не стартует.
+  certbot:
+    image: certbot/certbot:v5.8.0
+    entrypoint:
+      [
+        'sh',
+        '-c',
+        'trap exit TERM; while :; do certbot renew --webroot --webroot-path /var/www/certbot --quiet; sleep 12h & wait $${!}; done',
+      ]
+    restart: always
+    logging: *logging
+    volumes:
+      - certbot_conf:/etc/letsencrypt
+      - certbot_www:/var/www/certbot
+
+volumes:
+  pg_data:
+  redis_data:
+  minio_data:
+  certbot_conf:
+  certbot_www:

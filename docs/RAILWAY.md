@@ -82,16 +82,28 @@ Branch). Ветка задаётся в интерфейсе Railway, а не в
    | `NEXT_PUBLIC_APP_URL` | `https://<web-домен>` |
    | `NEXT_PUBLIC_APP_NAME` | `StudentHub` |
    | `NEXT_PUBLIC_SENTRY_DSN` | DSN проекта Sentry (пусто = трекер выключен) |
+   | `NEXT_PUBLIC_MINIO_URL` | `https://<minio-домен>` — попадает в CSP |
+   | `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | тот же ключ, что `VAPID_PUBLIC_KEY` у api; без него нет push |
+   | `NEXT_PUBLIC_FEATURE_STORIES` | `1` включает сторисы (Ф14.1); пусто = раздела нет |
 
    Опционально там же: `NEXT_PUBLIC_SENTRY_ENVIRONMENT`, `NEXT_PUBLIC_SENTRY_RELEASE`
    (тот же `${{RAILWAY_GIT_COMMIT_SHA}}`, что и у api — версия сборки уже показывается
-   пользователю в настройках, `NEXT_PUBLIC_BUILD_ID`)
+   пользователю в настройках, `NEXT_PUBLIC_BUILD_ID`),
+   `NEXT_PUBLIC_SENTRY_TRACES_SAMPLE_RATE`
    и — для читаемых стектрейсов вместо минифицированных — `SENTRY_ORG`, `SENTRY_PROJECT`,
    `SENTRY_AUTH_TOKEN` (загрузка source maps на сборке; без токена шаг молча пропускается).
+   Последние три до сборки сейчас не доезжают: секрет в build-arg остаётся в истории
+   образа, поэтому в `apps/web/Dockerfile` они не объявлены. Чтобы включить выгрузку
+   source maps, нужен `--mount=type=secret` — отдельная задача, а не переменная в панели.
 
    > `NEXT_PUBLIC_*` инлайнятся во время **сборки** — Railway передаёт переменные
    > сервиса как build-args, поэтому менять их = пересобрать web. Это относится и к
    > `NEXT_PUBLIC_SENTRY_DSN`: добавили DSN → нужен ре-деплой, рестарта недостаточно.
+   >
+   > Build-arg доезжает до сборки, только если он объявлен в `apps/web/Dockerfile`
+   > (`ARG` + `ENV`). Незадекларированную переменную docker игнорирует молча: в панели
+   > она есть, в бандле — `undefined`. Заводите новую `NEXT_PUBLIC_*` — правьте и
+   > Dockerfile, иначе отладка уходит в «почему флаг не работает».
 
 4. **Generate Domain** — публичный URL web. Затем вернуться в `api` и выставить
    `CORS_ORIGIN` = этот URL.
@@ -186,13 +198,35 @@ Branch). Ветка задаётся в интерфейсе Railway, а не в
 
 ---
 
+## 3.3 Сервис `media-relay`
+
+Медиа-ретранслятор камер (MediaMTX, `docs/PROJECT.md` §3.10). Пошагово — в
+`docker/media-relay/README.md`; коротко:
+
+1. **+ New → GitHub Repo**, **Root Directory** = `docker/media-relay` (корневой
+   `.dockerignore` исключает `docker/`, поэтому контекст сборки — этот каталог).
+2. **Generate Domain** — HLS для браузеров; **TCP Proxy** на порт `1936` — RTMPS для агентов.
+3. Самоподписанный сертификат на имя хоста TCP-прокси → `RELAY_TLS_CERT`/`RELAY_TLS_KEY`
+   ретранслятора и `MEDIA_RELAY_CA_PEM` у `api`.
+4. `MTX_AUTHJWTJWKS` = `https://api.<домен>/api/v1/.well-known/media-jwks.json`,
+   `MTX_HLSALLOWORIGINS` = origin веба.
+5. У `api`: `MEDIA_JWT_PRIVATE_KEY`, `MEDIA_RELAY_HLS_URL`, `MEDIA_RELAY_PUBLISH_URL`,
+   `MEDIA_RELAY_CA_PEM`. Без них просмотр камер выключен.
+
+Ключ подписи ретранслятор читает один раз при старте: сменили `MEDIA_JWT_PRIVATE_KEY` —
+перезапустите `media-relay`. Миграции камер (`add_cameras`, `add_camera_view_sessions`)
+применяются как обычно (§5).
+
 ## 4. Объектное хранилище
 
 **Вариант А — MinIO как сервис Railway:**
-1. **+ New → Docker Image** → `quay.io/minio/minio` (на Docker Hub образ больше не
-   публикуется).
+1. **+ New → Docker Image** → `pgsty/minio:RELEASE.2026-08-04T00-00-00Z` — тот же образ, что
+   в `docker/shared/infra.yml`. Официальные `minio/minio` и `quay.io/minio/minio` больше не
+   раздаются (`docker/README.md`, «Решения»).
 2. **Settings → Deploy → Custom Start Command**: `server /data --console-address ":9001"`.
-3. **Variables**: `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD` (≥8 симв.).
+3. **Variables**: `MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD` (≥8 симв.), а также
+   `MINIO_API_STALE_UPLOADS_EXPIRY=24h` и `MINIO_API_STALE_UPLOADS_CLEANUP_INTERVAL=6h` —
+   уборка брошенных многочастных загрузок (см. «Том под крупные файлы»).
 4. **Settings → Volumes** — примонтировать том на `/data` (иначе файлы не переживут редеплой).
 5. В `api` указать `MINIO_ENDPOINT` = приватный домен этого сервиса
    (`<minio>.railway.internal`), `MINIO_PORT=9000`, `MINIO_USE_SSL=false`,
@@ -235,9 +269,26 @@ Branch). Ветка задаётся в интерфейсе Railway, а не в
 ### Том под крупные файлы
 
 Предел видео и документов — 500 МБ (`FILE_UPLOAD.MAX_BYTES`), и это прямо переводится в размер тома
-на `/data`. Незавершённые части тоже занимают место: их отменяет ночная задача
-`sweepIncompleteUploads` (старше суток), но лучше продублировать правилом на бакете —
-`AbortIncompleteMultipartUpload` работает и тогда, когда приложение лежит.
+на `/data`. Незавершённые части тоже занимают место, поэтому их убирают два независимых рубежа:
+
+| Рубеж | Что делает | Где задано |
+|---|---|---|
+| MinIO, `api stale_uploads_expiry=24h`, `stale_uploads_cleanup_interval=6h` | каждые 6 часов отменяет загрузки старше суток — работает, даже когда `api` лежит | env MinIO: `MINIO_API_STALE_UPLOADS_EXPIRY`, `MINIO_API_STALE_UPLOADS_CLEANUP_INTERVAL` (`docker/shared/infra.yml`, на Railway — Variables minio-сервиса) |
+| `api`, ночная задача `sweepIncompleteUploads` (04:30) | отменяет загрузки старше суток во всех девяти бакетах | `cleanup.service.ts` — основная гарантия: не зависит от настроек хранилища |
+
+Значения env равны встроенным в MinIO по умолчанию; прописаны явно, чтобы обновление образа
+или ручной `mc admin config set` не сдвинули срок незаметно (env имеет приоритет над
+`mc admin config`). Проверить действующие: `mc admin config get <alias> api`.
+
+**Правило бакета `AbortIncompleteMultipartUpload` в MinIO не работает.** Проверено 23.10.2026
+на `pgsty/minio:RELEASE.2026-08-04T00-00-00Z` и `minio/minio:RELEASE.2025-04-22T22-12-26Z`:
+`PutBucketLifecycle` с таким правилом отвечает `InvalidArgument` («The XML you provided was not
+well-formed…»), в том числе вместе с правилом `Expiration`, а правило из одного `Expiration`
+принимается. Поэтому `api` при старте его не ставит: `setBucketLifecycle` заменяет конфигурацию
+целиком, и попытка добавить такое правило к `stories-media` сломала бы и TTL сторис.
+
+Во **внешнем S3** (вариант Б) правило поддерживается — его стоит задать в настройках бакетов
+у провайдера (у R2 — Object lifecycle rules); ночная задача `api` работает и там.
 
 Трафик загрузки идёт в minio-сервис напрямую, **мимо `api`**. Лимиты тела запроса и таймауты
 маршрутов `api` к нему отношения не имеют — упереться можно только в том и в сеть.

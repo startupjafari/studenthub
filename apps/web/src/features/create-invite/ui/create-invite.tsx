@@ -5,12 +5,14 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useLocale, useTranslations } from 'next-intl'
 import { Plus, Trash2 } from 'lucide-react'
+import { Role, isHigherRole } from '@studenthub/shared-types'
 import {
   Badge,
   Button,
   Card,
   EmptyState,
   PageHeader,
+  SegmentedTabs,
   Table,
   TableBody,
   TableCell,
@@ -32,7 +34,7 @@ import {
   type InviteStatus,
 } from '../../../entities/invite'
 import { cn } from '../../../shared/lib/utils'
-import type { InviteSortValue } from '@studenthub/shared-schemas'
+import type { InviteListScopeValue, InviteSortValue } from '@studenthub/shared-schemas'
 import { INVITABLE_ROLES } from '../model/invitable-roles'
 import { BulkInvite } from './bulk-invite'
 import { CreateInviteModal } from './create-invite-modal'
@@ -78,13 +80,19 @@ export function CreateInvite() {
   const [createOpen, setCreateOpen] = useState(false)
   const [page, setPage] = useState(1)
   const [limit, setLimit] = useState<number>(PAGE_SIZES[0])
+  // «Мои / весь вуз» — только админу вуза: он отзывает приглашения любого сотрудника вуза
+  // (PROJECT §8.3 «Инвайты»), а в своём списке инвайта декана не найти.
+  const [scope, setScope] = useState<InviteListScopeValue>('mine')
 
   const me = useQuery({ queryKey: userKeys.me(), queryFn: fetchMe })
+  const canSeeUniversity = me.data?.role === Role.UNIVERSITY_ADMIN
+  const listScope: InviteListScopeValue = canSeeUniversity ? scope : 'mine'
   // Сортировка серверная: упорядочена вся выборка, а не открытая страница.
   const { sort, toggle } = useSortState()
   const query = {
     page,
     limit,
+    ...(listScope === 'university' ? { scope: listScope } : {}),
     ...(sort ? { sort: sort.key as InviteSortValue, order: sort.dir } : {}),
   }
   const invites = useQuery({
@@ -128,9 +136,28 @@ export function CreateInvite() {
     <div className="flex min-h-0 flex-1 flex-col gap-4">
       <PageHeader
         title={t('title')}
+        tabs={
+          canSeeUniversity ? (
+            <SegmentedTabs<InviteListScopeValue>
+              value={scope}
+              aria-label={t('scopeLabel')}
+              collapsible={false}
+              onChange={(next) => {
+                setScope(next)
+                setPage(1)
+              }}
+              items={[
+                { value: 'mine', label: t('scopeMine') },
+                { value: 'university', label: t('scopeUniversity') },
+              ]}
+            />
+          ) : undefined
+        }
         actions={
           <>
-            <BulkInvite />
+            {/* Платформа приглашает админов вуза, а у файла импорта нет колонки вуза:
+                каждая строка падала бы с «обязателен universityId». */}
+            {me.data && me.data.role !== Role.PLATFORM_ADMIN && <BulkInvite />}
             <Button type="button" size="md" onClick={() => setCreateOpen(true)}>
               <Plus className="size-4" aria-hidden />
               {t('create')}
@@ -187,6 +214,14 @@ export function CreateInvite() {
                 <TableRow key={inv.id} className="hover:bg-muted/40">
                   <TableCell className="font-medium">
                     <TableText value={tRoles(inv.role)} />
+                    {listScope === 'university' && inv.createdBy && (
+                      <TableText
+                        className="text-xs font-normal text-muted-foreground"
+                        value={t('issuedBy', {
+                          name: `${inv.createdBy.lastName} ${inv.createdBy.firstName}`,
+                        })}
+                      />
+                    )}
                   </TableCell>
                   <TableCell className={HIDE.email}>
                     {inv.email ? <TableText value={inv.email} /> : <TableEmpty />}
@@ -202,26 +237,29 @@ export function CreateInvite() {
                   </TableCell>
                   <TableCell>
                     {/* Отзывать можно только ещё живое приглашение: использованное,
-                        истёкшее и уже отозванное отзывать нечего. */}
-                    {inv.status === 'PENDING' && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        icon
-                        aria-label={t('revoke')}
-                        loading={revokeMut.isPending && revokeMut.variables === inv.id}
-                        onClick={() => {
-                          void confirm({ title: t('revokeConfirm'), destructive: true }).then(
-                            (ok) => {
-                              if (ok) revokeMut.mutate(inv.id)
-                            },
-                          )
-                        }}
-                        className="text-muted-foreground hover:text-destructive"
-                      >
-                        <Trash2 className="size-4" aria-hidden />
-                      </Button>
-                    )}
+                        истёкшее и уже отозванное отзывать нечего. В списке всего вуза —
+                        только роли ниже своей: приглашение админа вуза выдаёт платформа. */}
+                    {inv.status === 'PENDING' &&
+                      me.data &&
+                      isHigherRole(me.data.role, inv.role) && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          icon
+                          aria-label={t('revoke')}
+                          loading={revokeMut.isPending && revokeMut.variables === inv.id}
+                          onClick={() => {
+                            void confirm({ title: t('revokeConfirm'), destructive: true }).then(
+                              (ok) => {
+                                if (ok) revokeMut.mutate(inv.id)
+                              },
+                            )
+                          }}
+                          className="text-muted-foreground hover:text-destructive"
+                        >
+                          <Trash2 className="size-4" aria-hidden />
+                        </Button>
+                      )}
                   </TableCell>
                 </TableRow>
               ))}

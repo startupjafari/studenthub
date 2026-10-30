@@ -23,6 +23,13 @@ describe('validateEnv — необязательные переменные', ()
     expect(env.SENTRY_RELEASE).toBeUndefined()
   })
 
+  it('пустой MINIO_PUBLIC_ENDPOINT — ссылки на внутренний адрес, а не пустой хост', () => {
+    // Строка из apps/api/.env.example: пустая строка роняла клиент MinIO на старте.
+    expect(
+      validateEnv({ ...base, MINIO_PUBLIC_ENDPOINT: '' }).MINIO_PUBLIC_ENDPOINT,
+    ).toBeUndefined()
+  })
+
   it('пробелы вместо значения — тоже «не задано»', () => {
     expect(validateEnv({ ...base, SENTRY_DSN: '   ' }).SENTRY_DSN).toBeUndefined()
   })

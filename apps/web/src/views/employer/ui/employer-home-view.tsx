@@ -4,9 +4,27 @@ import type { ReactNode } from 'react'
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
-import { Building2, CheckCircle2, Clock, GraduationCap, ShieldAlert } from 'lucide-react'
+import {
+  Briefcase,
+  Building2,
+  CheckCircle2,
+  Clock,
+  Eye,
+  GraduationCap,
+  ShieldAlert,
+  UserCheck,
+  Users,
+} from 'lucide-react'
 import { isAccessActive } from '@studenthub/shared-schemas'
-import { companyKeys, fetchMyCompany, fetchMyCompanyAccess } from '../../../entities/company'
+import { careerEventKeys, fetchCompanyCareerAnalytics } from '../../../entities/career-event'
+import {
+  companyKeys,
+  fetchMyCompany,
+  fetchMyCompanyAccess,
+  isCompanyOwner,
+} from '../../../entities/company'
+import { fetchMe, userKeys } from '../../../entities/user'
+import { ResendVerificationButton } from '../../../features/resend-company-verification'
 import { Button, MetricTile, PageHeader, PageLoader, SeasonGreeting } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 
@@ -21,14 +39,25 @@ export function EmployerHomeView() {
 
   const company = useQuery({ queryKey: companyKeys.mine(), queryFn: fetchMyCompany })
   const access = useQuery({ queryKey: companyKeys.myAccess(), queryFn: fetchMyCompanyAccess })
+  // Почта нужна только для «отправить письмо ещё раз», пока адрес не подтверждён.
+  const unverified = company.data?.status === 'PENDING_EMAIL'
+  const me = useQuery({ queryKey: userKeys.me(), queryFn: fetchMe, enabled: unverified })
+  // Метрики подбора (D-F30): ручка была, экрана не было. Пока почта не подтверждена или
+  // компания заблокирована, считать нечего — запрос не шлём.
+  const active = company.data?.status === 'ACTIVE'
+  const metrics = useQuery({
+    queryKey: careerEventKeys.companyAnalytics(),
+    queryFn: fetchCompanyCareerAnalytics,
+    enabled: active,
+  })
 
   if (company.isLoading) return <PageLoader label={tCommon('loading')} />
+  const owner = isCompanyOwner(company.data)
 
   const rows = access.data ?? []
   const approved = rows.filter((a) => isAccessActive(a))
   const pending = rows.filter((a) => a.status === 'REQUESTED')
   const blocked = company.data?.status === 'BLOCKED'
-  const unverified = company.data?.status === 'PENDING_EMAIL'
 
   return (
     <div className="flex w-full flex-1 flex-col gap-4">
@@ -50,6 +79,7 @@ export function EmployerHomeView() {
           icon={<Clock className="size-5" aria-hidden />}
           title={t('unverifiedTitle')}
           text={t('unverifiedText')}
+          action={me.data?.email ? <ResendVerificationButton email={me.data.email} /> : undefined}
         />
       )}
 
@@ -72,16 +102,57 @@ export function EmployerHomeView() {
         />
       </div>
 
+      {active && (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <MetricTile
+            index={2}
+            icon={Briefcase}
+            value={metrics.data?.vacancies.PUBLISHED ?? 0}
+            label={t('metricsPublished')}
+            loading={metrics.isLoading}
+            href="/employer/vacancies"
+          />
+          <MetricTile
+            index={3}
+            icon={Eye}
+            value={metrics.data?.views ?? 0}
+            label={t('metricsViews')}
+            loading={metrics.isLoading}
+          />
+          <MetricTile
+            index={4}
+            icon={Users}
+            value={
+              metrics.data ? Object.values(metrics.data.funnel).reduce((sum, n) => sum + n, 0) : 0
+            }
+            label={t('metricsApplications')}
+            loading={metrics.isLoading}
+            href="/employer/candidates"
+          />
+          <MetricTile
+            index={5}
+            icon={UserCheck}
+            tone="text-success"
+            value={metrics.data?.funnel.HIRED ?? 0}
+            label={t('metricsHired')}
+            loading={metrics.isLoading}
+          />
+        </div>
+      )}
+
       {approved.length === 0 && !unverified && !blocked && (
         <Notice
           tone="muted"
           icon={<GraduationCap className="size-5" aria-hidden />}
           title={t('noAccessTitle')}
           text={t('noAccessText')}
+          // Заявку в вуз подаёт владелец; рекрутёру кнопка вела бы в 403.
           action={
-            <Button asChild size="sm">
-              <Link href="/employer/access">{t('requestAccess')}</Link>
-            </Button>
+            owner ? (
+              <Button asChild size="sm">
+                <Link href="/employer/access">{t('requestAccess')}</Link>
+              </Button>
+            ) : undefined
           }
         />
       )}
@@ -92,9 +163,11 @@ export function EmployerHomeView() {
         title={t('companyTitle')}
         text={t('companyText')}
         action={
-          <Button asChild variant="outline" size="sm">
-            <Link href="/employer/company">{t('editCompany')}</Link>
-          </Button>
+          owner ? (
+            <Button asChild variant="outline" size="sm">
+              <Link href="/employer/company">{t('editCompany')}</Link>
+            </Button>
+          ) : undefined
         }
       />
     </div>

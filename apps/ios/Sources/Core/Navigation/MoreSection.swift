@@ -14,7 +14,6 @@ enum MoreSection: String, CaseIterable, Identifiable, Hashable {
     case settings
     /// Староста.
     case classmates
-    case groupRequests
     /// Преподаватель.
     case subjects
     case groups
@@ -26,6 +25,8 @@ enum MoreSection: String, CaseIterable, Identifiable, Hashable {
     case materials
     case notifications
     case serviceCatalog
+    /// Библиотека вуза: студент и староста. Пункт за модулем — см. `modules(for:)`.
+    case library
 
     var id: String { rawValue }
 
@@ -37,11 +38,23 @@ enum MoreSection: String, CaseIterable, Identifiable, Hashable {
         case .student:
             return common
         case .starosta:
-            return common + [.classmates, .groupRequests]
+            return common + [.classmates]
         case .teacher:
             return common + [.subjects, .groups]
         default:
             // Роли вне MVP приложение не ведёт — им остаётся веб.
+            return []
+        }
+    }
+
+    /// Разделы за модулем вуза: роль даёт право, а пункт в списке появляется, только
+    /// когда вуз модуль включил. Диплинк в такой раздел роль пропускает — выключенный
+    /// модуль экран объяснит сам, а не браузер.
+    static func modules(for role: Role) -> [MoreSection] {
+        switch role {
+        case .student, .starosta:
+            return [.library]
+        default:
             return []
         }
     }
@@ -60,8 +73,6 @@ enum MoreSection: String, CaseIterable, Identifiable, Hashable {
             return String(localized: "more.settings", defaultValue: "Настройки")
         case .classmates:
             return String(localized: "more.classmates", defaultValue: "Одногруппники")
-        case .groupRequests:
-            return String(localized: "more.groupRequests", defaultValue: "Обращения группы")
         case .subjects:
             return String(localized: "more.subjects", defaultValue: "Дисциплины")
         case .groups:
@@ -78,6 +89,8 @@ enum MoreSection: String, CaseIterable, Identifiable, Hashable {
             return String(localized: "home.notifications", defaultValue: "Уведомления")
         case .serviceCatalog:
             return String(localized: "applications.catalog", defaultValue: "Каталог услуг")
+        case .library:
+            return String(localized: "library.title", defaultValue: "Библиотека")
         }
     }
 
@@ -89,7 +102,6 @@ enum MoreSection: String, CaseIterable, Identifiable, Hashable {
         case .documents: return "folder"
         case .settings: return "gearshape"
         case .classmates: return "person.3"
-        case .groupRequests: return "tray.full"
         case .subjects: return "book"
         case .groups: return "person.2"
         case .grades: return "graduationcap"
@@ -98,6 +110,7 @@ enum MoreSection: String, CaseIterable, Identifiable, Hashable {
         case .materials: return "folder"
         case .notifications: return "bell"
         case .serviceCatalog: return "square.grid.2x2"
+        case .library: return "books.vertical"
         }
     }
 }

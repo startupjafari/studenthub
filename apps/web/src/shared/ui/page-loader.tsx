@@ -20,7 +20,7 @@ export function PageLoader({ label, className }: PageLoaderProps) {
       role="status"
       aria-live="polite"
       className={cn(
-        'flex min-h-full flex-col items-center justify-center gap-3 animate-in fade-in-0 duration-300',
+        'flex min-h-full flex-col items-center justify-center gap-3 animate-in fade-in-0 duration-(--motion-page)',
         className,
       )}
     >

@@ -4,14 +4,23 @@ import { Role } from '@studenthub/shared-types'
 import { JwtStrategy } from './jwt.strategy'
 import type { EnvVars } from '../../../config/env.schema'
 import type { JwtPayload } from '../../../common/auth/jwt-payload.type'
+import type { SessionRevocationService } from '../../../common/redis/session-revocation.service'
+import type { UniversityAccessService } from '../../universities/university-access.service'
+import { AppException } from '../../../common/exceptions/app.exception'
 
-function make() {
+function make(revoked = false, denial: () => Promise<AppException | null> = async () => null) {
   const config = { get: jest.fn().mockReturnValue('x'.repeat(32)) }
-  return new JwtStrategy(config as unknown as ConfigService<EnvVars, true>)
+  const revocation = { isRevoked: jest.fn().mockResolvedValue(revoked) }
+  const universityAccess = { denial: jest.fn(denial) }
+  return new JwtStrategy(
+    config as unknown as ConfigService<EnvVars, true>,
+    revocation as unknown as SessionRevocationService,
+    universityAccess as unknown as UniversityAccessService,
+  )
 }
 
 describe('JwtStrategy.validate', () => {
-  it('обычный access-токен → возвращает payload', () => {
+  it('обычный access-токен → возвращает payload', async () => {
     const strat = make()
     const payload = {
       sub: 'u1',
@@ -23,7 +32,7 @@ describe('JwtStrategy.validate', () => {
       tfa: true,
     }
     // validate нормализует payload и проставляет tfa (для TwoFactorGuard).
-    expect(strat.validate(payload)).toEqual(payload)
+    await expect(strat.validate(payload)).resolves.toEqual(payload)
   })
 
   /**
@@ -36,7 +45,7 @@ describe('JwtStrategy.validate', () => {
    * Тип `Required<JwtPayload>` заставляет перечислить здесь КАЖДОЕ поле: добавили новое в
    * интерфейс — тест перестаёт компилироваться, пока его не внесли и сюда.
    */
-  it('ни одно поле payload не теряется при валидации', () => {
+  it('ни одно поле payload не теряется при валидации', async () => {
     const strat = make()
     const full: Required<JwtPayload> = {
       sub: 'u1',
@@ -50,12 +59,12 @@ describe('JwtStrategy.validate', () => {
     }
 
     // Сравниваем целиком: пропущенное поле видно в диффе по имени.
-    expect(strat.validate(full)).toEqual(full)
+    await expect(strat.validate(full)).resolves.toEqual(full)
   })
 
-  it('токен без tfa → tfa=false по умолчанию', () => {
+  it('токен без tfa → tfa=false по умолчанию', async () => {
     const strat = make()
-    const result = strat.validate({
+    const result = await strat.validate({
       sub: 'u1',
       role: Role.DEAN,
       universityId: 'uni',
@@ -65,9 +74,9 @@ describe('JwtStrategy.validate', () => {
     expect(result.tfa).toBe(false)
   })
 
-  it('challenge-токен 2FA (typ=TWO_FACTOR) → отвергается', () => {
+  it('challenge-токен 2FA (typ=TWO_FACTOR) → отвергается', async () => {
     const strat = make()
-    expect(() =>
+    await expect(
       strat.validate({
         sub: 'u1',
         role: Role.STUDENT,
@@ -76,6 +85,48 @@ describe('JwtStrategy.validate', () => {
         groupId: null,
         typ: 'TWO_FACTOR',
       }),
-    ).toThrow(UnauthorizedException)
+    ).rejects.toThrow(UnauthorizedException)
+  })
+
+  it('токен выдан до отзыва сессий (блокировка) → отвергается', async () => {
+    const strat = make(true)
+    await expect(
+      strat.validate({
+        sub: 'u1',
+        role: Role.STUDENT,
+        universityId: null,
+        facultyId: null,
+        groupId: null,
+        iat: 100,
+      }),
+    ).rejects.toThrow(UnauthorizedException)
+  })
+
+  it('вуз заблокирован после выдачи токена → отказ с кодом UNIVERSITY_BLOCKED', async () => {
+    const strat = make(false, async () => new AppException('UNIVERSITY_BLOCKED', 'Заблокирован'))
+    await expect(
+      strat.validate({
+        sub: 'u1',
+        role: Role.STUDENT,
+        universityId: 'uni',
+        facultyId: null,
+        groupId: null,
+      }),
+    ).rejects.toMatchObject({ code: 'UNIVERSITY_BLOCKED' })
+  })
+
+  it('статус вуза не прочитан (сбой БД) → запрос пропускается', async () => {
+    const strat = make(false, async () => {
+      throw new Error('db down')
+    })
+    await expect(
+      strat.validate({
+        sub: 'u1',
+        role: Role.STUDENT,
+        universityId: 'uni',
+        facultyId: null,
+        groupId: null,
+      }),
+    ).resolves.toMatchObject({ sub: 'u1' })
   })
 })

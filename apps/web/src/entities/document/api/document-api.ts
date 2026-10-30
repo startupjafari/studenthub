@@ -1,11 +1,21 @@
 import type { AxiosProgressEvent } from 'axios'
 import type {
   CreateDocumentInput,
+  DocumentJournalItem,
+  DocumentJournalQueryInput,
   DocumentListQueryInput,
   GrantDocumentAccessInput,
   UpdateDocumentInput,
 } from '@studenthub/shared-schemas'
-import { api, needsDirectUpload, uploadDirect, type PresignedTarget } from '../../../shared/api'
+import {
+  api,
+  getPaged,
+  needsDirectUpload,
+  uploadDirect,
+  type Paged,
+  type PresignedTarget,
+  type ResponseWithMeta,
+} from '../../../shared/api'
 
 export const documentKeys = {
   all: ['documents'] as const,
@@ -14,6 +24,8 @@ export const documentKeys = {
   detail: (id: string) => ['documents', 'detail', id] as const,
   events: (id: string) => ['documents', id, 'events'] as const,
   access: (id: string) => ['documents', id, 'access'] as const,
+  sharedWithMe: () => ['documents', 'shared-with-me'] as const,
+  journal: (q: Partial<DocumentJournalQueryInput>) => ['documents', 'journal', q] as const,
 }
 
 export interface DocumentFile {
@@ -61,6 +73,11 @@ export interface DocumentEvent {
   action: string
   metadata: Record<string, unknown> | null
   createdAt: string
+  // Кто и через что: сам владелец, грант (с типом), запрос, заявка, спец-режим, система.
+  via: 'OWNER' | 'GRANT' | 'REQUEST' | 'APPLICATION' | 'PLATFORM' | 'SYSTEM' | 'STAFF'
+  granteeType: string | null
+  // Имя пустое у сотрудника платформы в спец-режиме — он показывается ролью.
+  actor: { id: string; name: string; role: string | null }
 }
 
 export interface UploadedDocFile {
@@ -148,6 +165,25 @@ export async function reorderDocumentFiles(id: string, fileIds: string[]): Promi
   return data
 }
 
+// Замена страницы: загруженный файл встаёт на место `fileId` с тем же порядком, старый
+// сервер удаляет из хранилища.
+export async function replaceDocumentFile(
+  id: string,
+  fileId: string,
+  newFileId: string,
+): Promise<DocumentDto> {
+  const { data } = await api.post<DocumentDto>(`/documents/${id}/files/${fileId}/replace`, {
+    fileId: newFileId,
+  })
+  return data
+}
+
+// Удаление страницы (единственную сервер не удаляет — 400).
+export async function removeDocumentFile(id: string, fileId: string): Promise<DocumentDto> {
+  const { data } = await api.delete<DocumentDto>(`/documents/${id}/files/${fileId}`)
+  return data
+}
+
 /**
  * Presigned-ссылка на файл документа.
  *
@@ -214,10 +250,52 @@ export async function revokeDocumentAccess(
   return data
 }
 
+// ── Открытые мне (гранты на меня, мой факультет, мой вуз) ─────────────────────
+
+// Документ, открытый смотрящему по гранту. Только метаданные с маской номера; файлы
+// открываются той же ссылкой, что у владельца (`fetchDocumentFileUrl`) — сервер пускает
+// по гранту и пишет просмотр в журнал документа.
+export interface SharedDocument {
+  accessId: string
+  granteeType: string
+  reason: string
+  grantedAt: string
+  expiresAt: string | null
+  owner: { id: string; name: string }
+  document: {
+    id: string
+    category: string
+    type: string
+    title: string
+    numberMasked: string | null
+    issuedBy: string | null
+    issuedAt: string | null
+    expiresAt: string | null
+    status: string
+    files: DocumentFile[]
+    fileCount: number
+  }
+}
+
+export interface SharedDocumentsPage {
+  items: SharedDocument[]
+  cursor?: string
+  hasNext: boolean
+}
+
+export async function fetchSharedWithMe(cursor?: string): Promise<SharedDocumentsPage> {
+  const res = (await api.get<SharedDocument[]>('/documents/shared-with-me', {
+    params: { limit: 50, ...(cursor ? { cursor } : {}) },
+  })) as ResponseWithMeta & { data: SharedDocument[] }
+  return { items: res.data, cursor: res.meta?.cursor, hasNext: res.meta?.hasNext ?? false }
+}
+
 // ── Спец-режим платформенного админа (15.21) ──────────────────────────────────
 
-export async function fetchDocumentPlatform(id: string): Promise<DocumentDto> {
-  const { data } = await api.get<DocumentDto>(`/documents/${id}/platform`)
+// Причина уходит и с метаданными: карточка тоже раскрывает чужой документ, и обращение
+// без обоснования в журнале спец-доступа было бы «тихим».
+export async function fetchDocumentPlatform(id: string, reason: string): Promise<DocumentDto> {
+  const { data } = await api.post<DocumentDto>(`/documents/${id}/platform`, { reason })
   return data
 }
 
@@ -233,4 +311,13 @@ export async function platformDocumentFileUrls(
     { fileIds, reason },
   )
   return data.urls
+}
+
+// ── Журнал документов вуза (админ вуза) ───────────────────────────────────────
+
+// Метаданные действий без содержимого документа: тип и категория, без названия и номера.
+export async function fetchDocumentJournal(
+  params: Partial<DocumentJournalQueryInput> = {},
+): Promise<Paged<DocumentJournalItem>> {
+  return getPaged<DocumentJournalItem>('/document-journal', { page: 1, limit: 20, ...params })
 }

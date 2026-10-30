@@ -1,0 +1,41 @@
+# «Матрица» камеры 1: сюда веб-камера разработчика публикует видео с Windows (webcam.ps1),
+# отсюда его забирает регистратор. Отдельный контейнер нужен потому, что сам регистратор
+# сидит в изолированной сети кампуса и с хоста недоступен — как настоящий в сети вуза.
+#
+# Пароль публикации — MTX_AUTHINTERNALUSERS_0_PASS из compose.yml.
+
+logLevel: info
+
+authMethod: internal
+authInternalUsers:
+  # Публикует только webcam.ps1, с паролем.
+  - user: webcam
+    pass: overridden-by-env
+    ips: []
+    permissions:
+      - action: publish
+        path: ~^webcam/(main|sub)$
+  # Читает только регистратор — из подсети кампуса, без пароля: дальше видео уходит уже
+  # с авторизацией регистратора.
+  - user: any
+    pass:
+    ips: ['10.77.0.0/24']
+    permissions:
+      - action: read
+
+rtsp: true
+rtspTransports: [tcp]
+rtspAddress: :8554
+
+rtmp: false
+hls: false
+webrtc: false
+srt: false
+api: false
+metrics: false
+pprof: false
+playback: false
+
+paths:
+  webcam/main: {}
+  webcam/sub: {}

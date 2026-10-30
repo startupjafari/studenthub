@@ -2,7 +2,7 @@ import { expect, test, type Browser, type Page } from '@playwright/test'
 import { join } from 'node:path'
 import { signIn } from '../support/sign-in'
 import { trackTokenRotation } from '../support/token-rotation'
-import { discoverRoutes, type Audience, type AuditRoute } from './routes'
+import { discoverRoutes, resolveDynamic, type Audience, type AuditRoute } from './routes'
 import {
   FULL_PAGE_SHOTS,
   RELOAD_PER_VIEWPORT,
@@ -48,6 +48,8 @@ const ALL_ZONES: Audience[] = [
   'universityModerator',
   'platformAdmin',
   'platformModerator',
+  'securityGuard',
+  'librarian',
 ]
 
 function routesFor(zone: Audience): AuditRoute[] {
@@ -105,26 +107,6 @@ function toFindings(raw: RawFinding[], zone: string, route: string, viewport?: s
     ...(f.selector === undefined ? {} : { selector: f.selector }),
     ...(f.snippet === undefined ? {} : { snippet: f.snippet }),
   }))
-}
-
-/**
- * Достать значение динамического сегмента из самого приложения: открыть страницу-список и
- * взять первую подходящую ссылку. Не нашли — экран пропускается с честной причиной, а не
- * проверяется по выдуманному id (это проверило бы страницу «не найдено»).
- */
-async function resolveDynamic(page: Page, route: AuditRoute): Promise<string | null> {
-  if (route.discover === undefined) return null
-  const { from, linkPrefix } = route.discover
-  try {
-    await page.goto(from, { waitUntil: 'domcontentloaded' })
-    const href = await page
-      .locator(`a[href^="${linkPrefix}"]`)
-      .first()
-      .getAttribute('href', { timeout: 5_000 })
-    return href
-  } catch {
-    return null
-  }
 }
 
 async function auditRoute(

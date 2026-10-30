@@ -34,16 +34,19 @@ import {
 } from 'lucide-react'
 import {
   CHAT_FOLDER_LIMITS,
+  canFileComplaint,
   type ChatAction,
   type CreateChatPollInput,
 } from '@studenthub/shared-schemas'
 import { directoryKeys, fetchUserDirectory } from '../../../entities/user'
 import { useAppSelector } from '../../../shared/store'
-import { useRealtimeSocket, useRealtimeEvent } from '../../../shared/realtime'
+import { ReportModal } from '../../../features/report-content'
+import { useRealtimeSocket, useRealtimeEvent, SELF_RESYNC_META } from '../../../shared/realtime'
 import {
   chatKeys,
   exportChatFile,
   fetchChats,
+  fetchChatsHead,
   fetchSavedChat,
   createChatPoll,
   fetchMessages,
@@ -56,10 +59,7 @@ import {
   pinMessageRequest,
   searchMessages,
   sendMessageWithAttachments,
-  sendMessageWithUploaded,
-  presignChatAttachment,
-  startChatAttachmentMultipart,
-  chatAttachmentPartUrls,
+  sendMessageWithDirectUpload,
   setChatMutedRequest,
   setChatPinnedRequest,
   setChatArchivedRequest,
@@ -86,22 +86,27 @@ import {
   updateChatFolderRequest,
   deleteChatFolderRequest,
   useVoiceRecorder,
+  createRefreshCoalescer,
+  scheduleChatsUnreadRefresh,
   type ChatFolder,
   type ChatListItem,
   type ChatMemberInfo,
   type ChatMessage,
+  type ChatReadReceipt,
   type AttachmentSendOptions,
   type MessageAttachment,
   type MessageMenuAnchor,
 } from '../../../entities/chat'
-import {
-  needsDirectUpload,
-  needsMultipartUpload,
-  putPresigned,
-  uploadResumable,
-} from '../../../shared/api'
-import { firstUnreadIndex, unreadAfter } from '../lib/read-tracking'
+import { needsDirectUpload } from '../../../shared/api'
+import { firstUnreadIndex, unreadAfter, withReceipt } from '../lib/read-tracking'
 import { latestSeqOf, mergeUpdates } from '../lib/merge-updates'
+import {
+  mergeChatHead,
+  withEditedMessage,
+  withNewMessage,
+  withOthersRead,
+  withOwnRead,
+} from '../lib/list-refresh'
 import {
   applyAction,
   summarizeActors,
@@ -112,6 +117,13 @@ import {
 } from '../lib/chat-actions'
 import { useChatActionSender, useEndChatActionOnUnmount } from '../lib/use-chat-action'
 import { useChatActionLabel } from '../lib/use-chat-action-label'
+import {
+  createPresenceStore,
+  othersOnlineCount,
+  peerIdOf,
+  usePresence,
+  type PresenceStore,
+} from '../lib/presence-store'
 import { ChatDetailsPanel } from './chat-details-panel'
 import { ChatFoldersPanel } from './chat-folders-panel'
 import { MessageItem, type MessageActions, type MessageReadState } from './message-item'
@@ -160,6 +172,7 @@ import {
   senderName,
 } from '../lib/format'
 import { buildFolderTabs, filterChatsByTab, folderTabLabel } from '../lib/folders'
+import { canDeleteChat } from '../lib/chat-kind'
 
 // Сколько человек показывать в секции «Люди» единой строки поиска.
 const PEOPLE_IN_SEARCH = 20
@@ -184,6 +197,33 @@ interface UploadPayload {
   spoilerIndexes?: number[]
   asFiles?: boolean
   silent?: boolean
+}
+
+/** Чат-события, об отказе в которых человеку нужно сказать. Прочтение, «печатает» и вход в
+ * комнату не в счёт: их отказ ему нечем показать, тост был бы шумом. */
+const WS_ERROR_EVENTS = new Set(['message:send', 'message:edit', 'message:delete'])
+/** Коды, для которых есть текст в словаре `Errors`; прочие показываются общей ошибкой. */
+const WS_ERROR_CODES = new Set([
+  'BAD_REQUEST',
+  'FORBIDDEN',
+  'WRONG_SCOPE',
+  'NOT_FOUND',
+  'VALIDATION_ERROR',
+  'RATE_LIMIT',
+  'MAINTENANCE',
+  'UNIVERSITY_BLOCKED',
+  'INTERNAL_ERROR',
+])
+
+/**
+ * Запас границы догона на неизмеренное расхождение часов. Лишняя правка в дельте ничего не
+ * стоит — она просто применится ещё раз, — а потерянная висит у человека до перезагрузки.
+ */
+const SYNC_SKEW_MARGIN_MS = 2 * 60 * 1000
+
+/** «Сейчас» по часам сервера (своё время плюс измеренное расхождение) минус запас. */
+function serverNowIso(skewMs: number): string {
+  return new Date(Date.now() + skewMs - SYNC_SKEW_MARGIN_MS).toISOString()
 }
 
 /** Фото и видео уходят превью-плитками, всё остальное — строками файла. */
@@ -217,6 +257,15 @@ const PINNED_SCALE_MAX = 6
 const DAY_LABEL_H = 36
 /** Как часто уходит отметка о прочтении при прокрутке: последним дочитанным сообщением. */
 const READ_EMIT_MS = 800
+
+// Обновление списка чатов по событиям (F-F02). Событие в другом чате — почти сразу, но
+// пачка событий (сообщение + `chat:activity` + уведомление, альбом, поток в группе) — одним
+// запросом. В читаемом чате ждём, пока уйдёт отметка о прочтении (READ_EMIT_MS), — иначе
+// счётчик мигал бы; поток событий не откладывает обновление дольше потолка.
+const LIST_REFRESH_MS = 300
+const LIST_REFRESH_READING_MS = 1500
+const LIST_REFRESH_MAX_WAIT_MS = 5000
+const LIST_REFRESH_MIN_INTERVAL_MS = 1000
 
 // Скелетон ленты сообщений: форма будущих пузырей (FRONTEND_RULES §13 — загрузка показывается
 // скелетоном, а не спиннером), чередование «чужой/свой» и разная ширина.
@@ -269,6 +318,9 @@ export function ChatWindow() {
   chatActionsRef.current = chatActions
   const me = useAppSelector((s) => s.auth.user)
   const myId = me?.id
+  // «Пожаловаться» — тем, чью жалобу сервер примет (COMPLAINT_REPORTER_ROLES): травля в
+  // личке иначе не доходила до модерации ни из одного клиента.
+  const canReport = canFileComplaint(useAppSelector((s) => s.auth.role))
   const confirm = useConfirm()
   // #1: состояние оптимистичных сообщений по temp-id (`tmp:<nonce>`) + таймеры «не пришло эхо».
   const [sendState, setSendState] = useState<Record<string, 'pending' | 'failed'>>({})
@@ -295,7 +347,9 @@ export function ChatWindow() {
   const [activeId, setActiveId] = useState<string | null>(null)
   // Открытие конкретного чата извне через ?chat=<id> (например кнопка «Написать» из профиля).
   const searchParams = useSearchParams()
-  const requestedChatId = searchParams.get('chat')
+  // id из адреса подставляются в пути API (`/chats/${id}/messages`): `../` в параметре
+  // вёл бы запрос на другой эндпоинт. Чужой формат просто игнорируем.
+  const requestedChatId = safeParamId(searchParams.get('chat'))
   const appliedChatParam = useRef<string | null>(null)
   useEffect(() => {
     if (requestedChatId && requestedChatId !== appliedChatParam.current) {
@@ -308,8 +362,8 @@ export function ChatWindow() {
   }, [requestedChatId, qc])
   // Deeplink на конкретное сообщение (#10): /chats?c=<chatId>&m=<messageId> (кнопка «Копировать ссылку»).
   // Открываем чат c, затем после загрузки истории прыгаем к сообщению m (эффект — ниже, после messages).
-  const deepChatId = searchParams.get('c')
-  const deepMsgId = searchParams.get('m')
+  const deepChatId = safeParamId(searchParams.get('c'))
+  const deepMsgId = safeParamId(searchParams.get('m'))
   const appliedDeeplink = useRef<string | null>(null)
   // Черновики по чатам: локально (мгновенно) + синхронизация с сервером (#3, дебаунс).
   const draftsRef = useRef<Map<string, string>>(new Map())
@@ -326,9 +380,13 @@ export function ChatWindow() {
   const [actionsByChat, setActionsByChat] = useState<ActionsByChat>({})
   const [connected, setConnected] = useState(true)
   // Момент, до которого мы точно получали события, — граница для правок и удалений при догоне.
-  // Обновляется при обрыве связи; начальное значение покрывает случай connect без предшествующего
-  // disconnect (перехват лидерства мастер-вкладки).
-  const lastSyncAt = useRef(new Date().toISOString())
+  // Сервер сравнивает её со своими часами, поэтому она в серверном времени (§9.2c): после
+  // догона — `syncedAt` из ответа, при обрыве — свои часы с поправкой на расхождение,
+  // измеренное по тому же ответу, и с запасом на случай, когда его ещё не мерили.
+  // Начальное значение покрывает connect без предшествующего disconnect (перехват лидерства
+  // мастер-вкладки).
+  const clockSkewMs = useRef(0)
+  const lastSyncAt = useRef(serverNowIso(0))
   const [olderCursor, setOlderCursor] = useState<string | undefined>(undefined)
   const [canLoadOlder, setCanLoadOlder] = useState(false)
   const [loadingOlder, setLoadingOlder] = useState(false)
@@ -336,7 +394,31 @@ export function ChatWindow() {
   // когда снизу есть неподгруженные сообщения (Этап 1, двунаправленная пагинация).
   const [newerCursor, setNewerCursor] = useState<string | undefined>(undefined)
   const [canLoadNewer, setCanLoadNewer] = useState(false)
+  // Живое сообщение пришло, пока окно было «прыгнутым», и в кэш не легло (см. message:new).
+  const skippedLiveRef = useRef(false)
   const loadingNewerRef = useRef(false)
+  // Курсоры истории живут ПО ЧАТУ. Кэш сообщений у каждого чата свой и переживает
+  // переключение, а курсоры были одни на окно: A → B → A — и A догружал старые по курсору B,
+  // сервер не находил его в чате A, отвечал пустой страницей с hasNext=false, и история A
+  // дальше не листалась. Окно вокруг найденного сообщения тоже возвращалось как «низ».
+  type Pager = { older?: string; canOlder: boolean; newer?: string; canNewer: boolean }
+  const pagerByChatRef = useRef(new Map<string, Pager>())
+  const activeIdRef = useRef(activeId)
+  activeIdRef.current = activeId
+  function setPager(chatId: string, patch: Partial<Pager>): void {
+    const next: Pager = {
+      canOlder: false,
+      canNewer: false,
+      ...pagerByChatRef.current.get(chatId),
+      ...patch,
+    }
+    pagerByChatRef.current.set(chatId, next)
+    if (chatId !== activeIdRef.current) return
+    setOlderCursor(next.older)
+    setCanLoadOlder(next.canOlder)
+    setNewerCursor(next.newer)
+    setCanLoadNewer(next.canNewer)
+  }
   // Ф9+: ответ, вложения, поиск.
   const [replyTo, setReplyTo] = useState<ChatMessage | null>(null)
   // Процитированный фрагмент отвечаемого сообщения: заполняется, если в момент нажатия
@@ -371,7 +453,10 @@ export function ChatWindow() {
   // Время, до которого другие участники прочитали чат — для статусов ✓/✓✓ своих сообщений.
   const [readWatermark, setReadWatermark] = useState<string | null>(null)
   const [forwardMsg, setForwardMsg] = useState<ChatMessage | null>(null)
-  const [presence, setPresence] = useState<Record<string, boolean>>({})
+  const [reportMsg, setReportMsg] = useState<ChatMessage | null>(null)
+  // Присутствие участников открытого чата — вне состояния окна: событие о человеке не
+  // перерисовывает ленту, а о постороннем для чата — вообще ничего (F-F12).
+  const [presenceStore] = useState(createPresenceStore)
   // Telegram-стиль: контекстное меню сообщения и режим правки.
   const [menu, setMenu] = useState<{
     message: ChatMessage
@@ -384,6 +469,8 @@ export function ChatWindow() {
     anchor?: MessageMenuAnchor
   } | null>(null)
   const [editing, setEditing] = useState<ChatMessage | null>(null)
+  // Отправленная правка до подтверждения: при отказе сервера текст возвращается в поле ввода.
+  const pendingEditRef = useRef<{ message: ChatMessage; content: string } | null>(null)
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false)
   // Поиск внутри активного чата (Telegram-стиль §3): режим в шапке + навигация по совпадениям.
   const [chatSearchOpen, setChatSearchOpen] = useState(false)
@@ -483,24 +570,44 @@ export function ChatWindow() {
   const loadingOlderRef = useRef(false)
   // Был ли пользователь у нижнего края при прошлом событии скролла (для отметки прочтения по факту).
   const wasAtBottomRef = useRef(true)
+  // Кадр и таймер доводки первичного скролла — гасятся при смене чата.
+  const openRafRef = useRef<number | null>(null)
+  const openTimeoutRef = useRef<number | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const composerRef = useRef<RichTextHandle>(null)
   // Автодополнение @-упоминаний: активный запрос после @ (null — попап скрыт).
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
 
-  const chats = useQuery({ queryKey: chatKeys.list(), queryFn: fetchChats })
+  // Когда начался последний полный перезапрос списка: точечное обновление первой страницей
+  // не должно затирать более свежий полный ответ (см. refreshListHead).
+  const fullListFetchAtRef = useRef(0)
+  const chats = useQuery({
+    queryKey: chatKeys.list(),
+    queryFn: () => {
+      fullListFetchAtRef.current = Date.now()
+      return fetchChats()
+    },
+  })
   // Держим свежий список в ref — чтобы снять снимок непрочитанных РОВНО при открытии чата (до инвалидации).
   chatsRef.current = chats.data
 
   const messages = useQuery({
     queryKey: chatKeys.messages(activeId ?? ''),
+    // После реконнекта лента догоняется по seq (catchUp ниже), а не перезапросом первой
+    // страницы: тот сбрасывал подгруженную вверх историю и позицию чтения (F-F13). То же
+    // делал и собственный рефетч React Query на возврат сети — он тоже выключен.
+    meta: SELF_RESYNC_META,
+    refetchOnReconnect: false,
     queryFn: async () => {
-      const page = await fetchMessages(activeId as string, { limit: 30 })
-      setOlderCursor(page.cursor)
-      setCanLoadOlder(page.hasNext)
+      const chatId = activeId as string
+      const page = await fetchMessages(chatId, { limit: 30 })
       // Первичная загрузка — у низа истории: более новых нет.
-      setNewerCursor(undefined)
-      setCanLoadNewer(false)
+      setPager(chatId, {
+        older: page.cursor,
+        canOlder: page.hasNext,
+        newer: undefined,
+        canNewer: false,
+      })
       // API отдаёт новые первыми — разворачиваем в хронологический порядок.
       return [...page.items].reverse()
     },
@@ -811,7 +918,11 @@ export function ChatWindow() {
       if (ctx?.prev) qc.setQueryData(chatKeys.list(), ctx.prev)
       toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR'))
     },
-    onSettled: () => void qc.invalidateQueries({ queryKey: chatKeys.list() }),
+    // Заглушённые чаты в бейдж навигации не идут (F-F14) — он меняется вместе с флагом.
+    onSettled: () => {
+      void qc.invalidateQueries({ queryKey: chatKeys.list() })
+      void qc.invalidateQueries({ queryKey: chatKeys.unread() })
+    },
   })
 
   // Закрепление чата «у себя» (Telegram-стиль): оптимистично ставим флаг и поднимаем закреплённые наверх.
@@ -899,11 +1010,13 @@ export function ChatWindow() {
     },
   })
 
+  // Очищенное «у себя» непрочитанным больше не считается — бейдж тоже обновляем.
   const clearChat = useMutation({
     mutationFn: (chatId: string) => clearChatRequest(chatId),
     onSuccess: (_d, chatId) => {
       void qc.invalidateQueries({ queryKey: chatKeys.messages(chatId) })
       void qc.invalidateQueries({ queryKey: chatKeys.list() })
+      void qc.invalidateQueries({ queryKey: chatKeys.unread() })
       toast.success(t('historyCleared'))
     },
     onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
@@ -926,6 +1039,7 @@ export function ChatWindow() {
       if (!activeId) return
       void qc.invalidateQueries({ queryKey: chatKeys.messages(activeId) })
       void qc.invalidateQueries({ queryKey: chatKeys.list() })
+      void qc.invalidateQueries({ queryKey: chatKeys.unread() })
       void qc.invalidateQueries({ queryKey: ['chats', activeId, 'media-calendar'] })
       toast.success(t('historyCleared'))
     },
@@ -958,6 +1072,7 @@ export function ChatWindow() {
     mutationFn: (chatId: string) => deleteChatRequest(chatId),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: chatKeys.list() })
+      void qc.invalidateQueries({ queryKey: chatKeys.unread() })
       setActiveId(null)
       toast.success(t('chatDeleted'))
     },
@@ -991,11 +1106,11 @@ export function ChatWindow() {
     queryFn: () => fetchReadReceipts(activeId as string),
     enabled: !!activeId,
   })
+  // Смена чата или свежий снимок — карта заменяется целиком: участники другого чата в ней
+  // не задерживаются.
   useEffect(() => {
-    if (presenceQuery.data) {
-      setPresence(Object.fromEntries(presenceQuery.data.map((p) => [p.userId, p.online])))
-    }
-  }, [presenceQuery.data])
+    presenceStore.reset(presenceQuery.data)
+  }, [activeId, presenceQuery.data, presenceStore])
 
   // Инициализация watermark прочтения при смене активного чата (из списка чатов).
   useEffect(() => {
@@ -1042,6 +1157,10 @@ export function ChatWindow() {
         chatId: string
         content?: string
         replyToId?: string
+        // Цитата и «без звука» — тоже часть сообщения: повтор без них уходил обычным ответом
+        // и будил получателей.
+        replyQuote?: string
+        silent?: boolean
         files: File[]
         spoilerIndexes?: number[]
         asFiles?: boolean
@@ -1127,74 +1246,9 @@ export function ChatWindow() {
     files: File[],
     signal: AbortSignal,
   ): Promise<ChatMessage> {
-    const total = files.reduce((sum, f) => sum + f.size, 0)
-    const sent = new Map<number, number>()
-    const report = (): void => {
-      let done = 0
-      for (const value of sent.values()) done += value
-      setUploadProgress(chatId, tempId, total > 0 ? Math.min(1, done / total) : 0)
-    }
-
-    const attachments: {
-      key: string
-      uploadId?: string
-      name?: string
-      spoiler?: boolean
-      parts?: { part: number; etag: string }[]
-    }[] = []
-
-    // Последовательно, а не параллельно: внутри многочастной загрузки и так три части в
-    // работе, и запускать пять таких одновременно значит забить канал и замедлить всё.
-    for (const [i, file] of files.entries()) {
-      const spoiler = fields.spoilerIndexes?.includes(i)
-      const onProgress = (f: number): void => {
-        sent.set(i, f * file.size)
-        report()
-      }
-
-      if (needsMultipartUpload(file.size)) {
-        const parts: { part: number; etag: string }[] = []
-        const target = await uploadResumable<{ key: string; uploadId: string }>({
-          file,
-          bucket: 'CHAT',
-          start: (mime, size) => startChatAttachmentMultipart(chatId, mime, size),
-          urls: (range) => chatAttachmentPartUrls(chatId, range),
-          // Сборку делает сервер на отправке сообщения — она же привязывает файл к пузырю.
-          // Отдельным шагом объект собрался бы раньше сообщения и остался сиротой, если бы
-          // отправка не дошла.
-          complete: async (input) => {
-            parts.push(...input.parts)
-            return { key: input.key, uploadId: input.uploadId }
-          },
-          onProgress,
-          signal,
-        })
-        attachments.push({
-          key: target.key,
-          uploadId: target.uploadId,
-          name: file.name,
-          spoiler,
-          parts,
-        })
-      } else {
-        const presigned = await presignChatAttachment(
-          chatId,
-          file.type || 'application/octet-stream',
-        )
-        await putPresigned(presigned.url, file, onProgress, signal)
-        attachments.push({ key: presigned.key, name: file.name, spoiler })
-      }
-      sent.set(i, file.size)
-      report()
-    }
-
-    return sendMessageWithUploaded(chatId, {
-      content: fields.content,
-      replyToId: fields.replyToId,
-      replyQuote: fields.replyQuote,
-      silent: fields.silent,
-      asFiles: fields.asFiles,
-      attachments,
+    return sendMessageWithDirectUpload(chatId, fields, files, {
+      onProgress: (fraction) => setUploadProgress(chatId, tempId, fraction),
+      signal,
     })
   }
 
@@ -1231,6 +1285,10 @@ export function ChatWindow() {
       if (oversize) {
         throw new OversizeAttachmentError(oversize)
       }
+      // Сигнатура пузыря — по байтам, которые уйдут на сервер: эхо придёт с размерами уже
+      // сжатых файлов, и по исходным сверка промахивалась — пузыри доставались чужим эхо.
+      const waiting = pendingMedia.current.find((p) => p.tempId === tempId)
+      if (waiting) waiting.sig = mediaSig(payloadFiles)
       // Крупные вложения через API не проходят: тело multipart-запроса целиком ложится в
       // память процесса. Хоть один такой файл — и всё сообщение уходит прямым путём, потому
       // что сообщение создаётся одним запросом, и делить его между двумя путями некуда.
@@ -1377,6 +1435,8 @@ export function ChatWindow() {
       chatId,
       content: payload.content,
       replyToId: payload.replyToId,
+      replyQuote: payload.replyQuote,
+      silent: payload.silent,
       files: payload.files,
       spoilerIndexes: payload.spoilerIndexes,
       asFiles: payload.asFiles,
@@ -1464,7 +1524,10 @@ export function ChatWindow() {
         return
       }
       try {
+        const requestedAt = Date.now()
         const delta = await fetchChatUpdates(chatId, since, lastSyncAt.current)
+        // Расхождение часов: серверный момент выборки против середины запроса по своим.
+        clockSkewMs.current = new Date(delta.syncedAt).getTime() - (requestedAt + Date.now()) / 2
         if (delta.overflow) {
           void qc.invalidateQueries({ queryKey: chatKeys.messages(chatId) })
         } else {
@@ -1472,24 +1535,28 @@ export function ChatWindow() {
             mergeUpdates(old, delta),
           )
         }
-        lastSyncAt.current = new Date().toISOString()
+        // Плашку закреплённых дельта не обновляет: снятый или удалённый за время обрыва
+        // закреп висел бы в ней до следующего события закрепления.
+        void qc.invalidateQueries({ queryKey: chatKeys.pinned(chatId) })
+        lastSyncAt.current = delta.syncedAt
       } catch {
         void qc.invalidateQueries({ queryKey: chatKeys.messages(chatId) })
       }
     }
 
+    // Список чатов здесь не перезапрашиваем: его обновит общий ресинк реконнекта — с
+    // разбросом во времени, а не всеми клиентами в одну секунду после деплоя (F-F13).
     const onConnect = (): void => {
       setConnected(true)
       if (activeId) {
         socket.emit('chat:join', { chatId: activeId })
         void catchUp(activeId)
       }
-      void qc.invalidateQueries({ queryKey: chatKeys.list() })
     }
     const onDisconnect = (): void => {
       setConnected(false)
       // До этого момента события приходили — с него и запрашиваем правки при догоне.
-      lastSyncAt.current = new Date().toISOString()
+      lastSyncAt.current = serverNowIso(clockSkewMs.current)
     }
     socket.on('connect', onConnect)
     socket.on('disconnect', onDisconnect)
@@ -1530,7 +1597,8 @@ export function ChatWindow() {
             delete next[taken.tempId]
             return next
           })
-          void qc.invalidateQueries({ queryKey: chatKeys.list() })
+          patchChatList((list) => withNewMessage(list, message))
+          refreshChatList(chatId)
           return
         }
       }
@@ -1546,24 +1614,41 @@ export function ChatWindow() {
               return copy
             }
           }
+          // «Прыгнутое» окно (§9.4): ниже загруженного ещё есть сообщения, и хвост кэша — не
+          // низ чата. Живое сообщение в хвосте встало бы после разрыва, а отметка прочтения
+          // по нему погасила бы всё непросмотренное между. Его подгрузит прокрутка вниз.
+          if (canLoadNewer) {
+            skippedLiveRef.current = true
+            return listOld
+          }
           return listOld.some((m) => m.id === message.id) ? listOld : [...listOld, message]
         })
       }
-      void qc.invalidateQueries({ queryKey: chatKeys.list() })
+      // Сообщение в руках — превью и порядок строки сразу; счётчик принесёт сервер.
+      patchChatList((list) => withNewMessage(list, message))
+      refreshChatList(chatId)
     },
   )
-  // Сообщения в НЕактивные чаты приходят в комнату chat:{id}, куда мы не входим; но их уведомление
-  // прилетает в комнату user:{id} — по нему обновляем список чатов в реальном времени (превью, счётчик, порядок).
-  useRealtimeEvent('notification:new', () => {
-    void qc.invalidateQueries({ queryKey: chatKeys.list() })
-  })
+  // Список чатов живёт на `chat:activity`: его получает каждый участник на каждое сообщение.
+  // Уведомление о сообщении (MESSAGE) приходит следом о том же самом — второй перезапрос
+  // ничего бы не добавил. Остальные уведомления о чатах (запрос на переписку и т. п.) —
+  // склеенно, по их чату; уведомления не о чатах список не трогают.
+  useRealtimeEvent<{ notification?: { type?: string; data?: Record<string, unknown> | null } }>(
+    'notification:new',
+    (p) => {
+      const n = p?.notification
+      const chatId = n?.data?.chatId
+      if (!n || n.type === 'MESSAGE' || typeof chatId !== 'string') return
+      refreshChatList(chatId)
+    },
+  )
   // Тихий сигнал активности в чате (в т.ч. по заглушённым чатам): держим список живым без уведомления.
   // Опрос обновился (кто-то проголосовал) — инвалидируем его результаты (§39, live).
   useRealtimeEvent('poll:updated', (p: { pollId: string }) => {
     void qc.invalidateQueries({ queryKey: chatKeys.poll(p.pollId) })
   })
-  useRealtimeEvent('chat:activity', () => {
-    void qc.invalidateQueries({ queryKey: chatKeys.list() })
+  useRealtimeEvent<{ chatId?: string }>('chat:activity', (p) => {
+    refreshChatList(p?.chatId)
   })
   // Блокировка изменилась (я/меня) — обновляем список: флаги blocked/blockedBy определяют поле ввода
   // и баннер у обоих участников в реальном времени.
@@ -1599,9 +1684,11 @@ export function ChatWindow() {
   useRealtimeEvent<{ message: ChatMessage; chatId: string }>(
     'message:updated',
     ({ message, chatId }) => {
+      if (pendingEditRef.current?.message.id === message.id) pendingEditRef.current = null
       upsert(message, chatId)
-      // Правка последнего сообщения меняет превью в списке.
-      void qc.invalidateQueries({ queryKey: chatKeys.list() })
+      // Правка последнего сообщения (и подтянувшееся превью ссылки) — в превью строки на месте.
+      // Перезапрос не нужен: о правке последнего сервер и так шлёт `chat:activity`.
+      patchChatList((list) => withEditedMessage(list, message))
     },
   )
   useRealtimeEvent<{ message: ChatMessage; chatId: string }>(
@@ -1616,10 +1703,11 @@ export function ChatWindow() {
     'message:reaction',
     ({ message, chatId }) => upsert(message, chatId),
   )
+  // Посторонних для открытого чата хранилище отбрасывает само.
   useRealtimeEvent<{ userId: string; online: boolean }>(
     'presence:changed',
     ({ userId, online }) => {
-      setPresence((prev) => (prev[userId] === online ? prev : { ...prev, [userId]: online }))
+      presenceStore.apply(userId, online)
     },
   )
   // Прочтение другим участником — двигаем watermark активного чата вперёд (статус ✓✓ у своих сообщений)
@@ -1630,35 +1718,154 @@ export function ChatWindow() {
       if (userId === myId) return
       if (chatId === activeId) {
         setReadWatermark((prev) => (!prev || readAt > prev ? readAt : prev))
-        // #6: обновляем «кто прочитал» для счётчика у своих сообщений.
-        void qc.invalidateQueries({ queryKey: chatKeys.reads(chatId) })
+        // #6: «кто прочитал» для счётчика у своих сообщений — правим на месте из события.
+        // Перезапрос на каждое прочтение в большой группе давал N×M запросов (F-F22).
+        qc.setQueryData<ChatReadReceipt[]>(chatKeys.reads(chatId), (old) =>
+          old ? withReceipt(old, userId, readAt) : old,
+        )
       }
-      void qc.invalidateQueries({ queryKey: chatKeys.list() })
+      // Галочки в превью — из самого события: в большой группе прочтения идут потоком, и
+      // перезапрос списка на каждое забивал сеть и перерисовывал боковую колонку.
+      patchChatList((list) => withOthersRead(list, chatId, readAt))
     },
   )
+
+  /** Поправить закэшированный список на месте (без запроса). */
+  function patchChatList(patch: (list: ChatListItem[]) => ChatListItem[]): void {
+    qc.setQueryData<ChatListItem[]>(chatKeys.list(), (old) => (old ? patch(old) : old))
+  }
+
+  // Чаты, о которых пришли события с прошлого обновления списка. Нет какого-то в свежей
+  // первой странице — значит, событие не подняло его наверх, и нужен полный перезапрос.
+  const listPendingRef = useRef(new Set<string>())
+  const listNeedsFullRef = useRef(false)
+
+  /**
+   * Обновление списка по событиям (F-F02): одна свежая первая страница поверх кэша вместо
+   * перекачки всех страниц. Полный перезапрос остаётся фолбэком — кэша ещё нет, чат события
+   * не в первой странице, страница не пришла.
+   */
+  async function refreshListHead(): Promise<void> {
+    const key = chatKeys.list()
+    const pending = [...listPendingRef.current]
+    const needsFull = listNeedsFullRef.current
+    listPendingRef.current.clear()
+    listNeedsFullRef.current = false
+    if (needsFull || !qc.getQueryData<ChatListItem[]>(key)) {
+      await qc.invalidateQueries({ queryKey: key })
+      return
+    }
+    const startedAt = Date.now()
+    let head: Awaited<ReturnType<typeof fetchChatsHead>>
+    try {
+      head = await fetchChatsHead()
+    } catch {
+      await qc.invalidateQueries({ queryKey: key })
+      return
+    }
+    // Полный перезапрос, начатый после нашего, свежее страницы — список обновит он.
+    if (fullListFetchAtRef.current >= startedAt) return
+    // Начатый раньше ещё идёт и затрёт слияние старыми данными — перезапускаем его.
+    if (qc.getQueryState(key)?.fetchStatus === 'fetching') {
+      await qc.invalidateQueries({ queryKey: key })
+      return
+    }
+    const inHead = new Set(head.items.map((c) => c.id))
+    const merged =
+      head.complete || pending.every((id) => inHead.has(id))
+        ? mergeChatHead(qc.getQueryData<ChatListItem[]>(key) ?? [], head.items, head.complete)
+        : null
+    if (merged) qc.setQueryData<ChatListItem[]>(key, merged)
+    else await qc.invalidateQueries({ queryKey: key })
+  }
+  const refreshListHeadRef = useRef(refreshListHead)
+  refreshListHeadRef.current = refreshListHead
+  const [listRefresher] = useState(() =>
+    createRefreshCoalescer(() => refreshListHeadRef.current(), {
+      minIntervalMs: LIST_REFRESH_MIN_INTERVAL_MS,
+      maxWaitMs: LIST_REFRESH_MAX_WAIT_MS,
+    }),
+  )
+  useEffect(() => () => listRefresher.cancel(), [listRefresher])
+
+  /**
+   * Обновить список чатов по событию в чате `chatId` — склеенно с остальными событиями.
+   *
+   * Событие в чате, который человек сейчас читает, — когда события затихнут: сервер ещё
+   * считает новое сообщение непрочитанным (отметка уйдёт через ~1 с), и немедленный
+   * перезапрос перетирал локальный 0 — счётчик мигал 0 → 1 → 0. Остальные чаты — почти сразу.
+   */
+  function refreshChatList(chatId?: string): void {
+    if (chatId) listPendingRef.current.add(chatId)
+    else listNeedsFullRef.current = true
+    const reading =
+      !!chatId &&
+      chatId === activeId &&
+      typeof document !== 'undefined' &&
+      !document.hidden &&
+      peekChatIdRef.current !== chatId
+    if (reading) listRefresher.settle(LIST_REFRESH_READING_MS)
+    else listRefresher.soon(LIST_REFRESH_MS)
+  }
   // Своё прочтение с другого устройства (или подтверждение этого): сервер шлёт его в личную
-  // комнату. Счётчик в списке и сводка в навигации берутся с сервера — там отметка уже
-  // сохранена. Список перезапрашиваем с задержкой: при быстром чтении отметки идут одна за
-  // другой, и дёргать список на каждую незачем.
-  const listRefreshRef = useRef<number | null>(null)
-  useRealtimeEvent<{ chatId: string; readAt: string }>('chat:read', () => {
-    void qc.invalidateQueries({ queryKey: chatKeys.unread() })
-    if (listRefreshRef.current) window.clearTimeout(listRefreshRef.current)
-    listRefreshRef.current = window.setTimeout(() => {
-      listRefreshRef.current = null
-      void qc.invalidateQueries({ queryKey: chatKeys.list() })
-    }, 1500)
+  // комнату. Дочитано до последнего сообщения — счётчик строки гасим на месте; иначе остаток
+  // знает только сервер, и список перезапрашивается, когда отметки затихнут.
+  useRealtimeEvent<{ chatId: string; readAt: string }>('chat:read', ({ chatId, readAt }) => {
+    scheduleChatsUnreadRefresh(qc, true)
+    const list = qc.getQueryData<ChatListItem[]>(chatKeys.list())
+    const next = list ? withOwnRead(list, chatId, readAt) : null
+    if (next) {
+      if (next !== list) qc.setQueryData<ChatListItem[]>(chatKeys.list(), next)
+      return
+    }
+    listPendingRef.current.add(chatId)
+    listRefresher.settle(LIST_REFRESH_READING_MS)
+  })
+  // Отказы чат-событий сокета (§9.1): сервер отвечает на них событием `error` с кодом, и
+  // без подписки правка после окна, удаление чужого, RATE_LIMIT и MAINTENANCE проходили для
+  // интерфейса как выполненные (FRONTEND_RULES §5.4).
+  useRealtimeEvent<{ event?: string; code?: string }>('error', (payload) => {
+    const event = payload?.event
+    if (!event || !WS_ERROR_EVENTS.has(event)) return
+    const code = payload.code && WS_ERROR_CODES.has(payload.code) ? payload.code : 'INTERNAL_ERROR'
+    if (event === 'message:send') {
+      // Какому пузырю отказали, событие не говорит: «отправляется» гасим у всех — их можно
+      // повторить, а молча висящий пузырь превратился бы в «ошибку» только через 12 секунд.
+      setSendState((s) => {
+        const next = { ...s }
+        for (const key of Object.keys(next)) if (next[key] === 'pending') next[key] = 'failed'
+        return next
+      })
+    }
+    if (event === 'message:edit' && pendingEditRef.current) {
+      // Текст правки не теряем: возвращаем его в поле ввода в режиме правки.
+      const { message, content } = pendingEditRef.current
+      pendingEditRef.current = null
+      setEditing(message)
+      setText(content)
+    }
+    toast.error(tErr(code))
   })
   useRealtimeEvent<{ messageId: string; chatId: string }>(
     'message:deleted',
     ({ messageId, chatId }) => {
       if (chatId === activeId) {
+        // Ответы на удалённое теряют и его текст в цитате — так же их отдаст и сервер.
+        const deletedAt = new Date().toISOString()
         qc.setQueryData<ChatMessage[]>(chatKeys.messages(chatId), (old) =>
-          (old ?? []).filter((m) => m.id !== messageId),
+          (old ?? [])
+            .filter((m) => m.id !== messageId)
+            .map((m) =>
+              m.replyTo?.id === messageId
+                ? { ...m, replyQuote: null, replyTo: { ...m.replyTo, content: '', deletedAt } }
+                : m,
+            ),
         )
       }
-      // Удаление последнего сообщения меняет превью списка.
-      void qc.invalidateQueries({ queryKey: chatKeys.list() })
+      // Удалённое могло быть закреплённым — иначе оно висело бы в плашке у остальных.
+      void qc.invalidateQueries({ queryKey: chatKeys.pinned(chatId) })
+      // Удаление последнего сообщения меняет превью списка, непрочитанного — счётчик.
+      refreshChatList(chatId)
     },
   )
   // Только `chat:action`: сервер шлёт рядом и старые typing:started/typing:stopped, но они
@@ -1713,10 +1920,39 @@ export function ChatWindow() {
   // Новый чат — прочтение начинается заново: плашку «Непрочитанные» и отметку «прочитано до»
   // ставит первичный скролл, когда лента загрузится. Недоотправленную отметку прошлого чата
   // отправляем сразу, а не теряем при переключении.
+  // Курсоры истории этого чата: сохранённые — как были; кэш без сохранённых (чат открыт в
+  // этой вкладке впервые после перезагрузки страницы) — старее самого старого загруженного.
+  useEffect(() => {
+    if (!activeId) return
+    const saved = pagerByChatRef.current.get(activeId)
+    if (saved) {
+      setOlderCursor(saved.older)
+      setCanLoadOlder(saved.canOlder)
+      setNewerCursor(saved.newer)
+      setCanLoadNewer(saved.canNewer)
+      return
+    }
+    const cached = qc.getQueryData<ChatMessage[]>(chatKeys.messages(activeId))
+    setOlderCursor(cached?.[0]?.id)
+    setCanLoadOlder(!!cached?.length)
+    setNewerCursor(undefined)
+    setCanLoadNewer(false)
+    // qc стабилен; эффект — ровно на смену чата.
+  }, [activeId])
+
   useEffect(() => {
     setUnreadDividerId(null)
     readUpToRef.current = null
     setReadUpTo(null)
+    // Лента перемонтирована (key={activeId}) и стоит наверху: первичный скролл нужен заново,
+    // в том числе при повторном открытии ТОГО ЖЕ чата (на телефоне «назад» и снова в чат —
+    // раньше он открывался в самом верху истории).
+    scrolledForRef.current = null
+    // Отложенная доводка прошлого чата не должна сработать по индексам нового.
+    if (openRafRef.current !== null) cancelAnimationFrame(openRafRef.current)
+    if (openTimeoutRef.current !== null) window.clearTimeout(openTimeoutRef.current)
+    openRafRef.current = null
+    openTimeoutRef.current = null
     return () => flushRead()
     // flushRead читает refs — актуальный на момент ухода из чата, пересоздавать эффект незачем.
   }, [activeId])
@@ -1759,9 +1995,16 @@ export function ChatWindow() {
       setUnreadDividerId(firstUnread === null ? null : (list[firstUnread]?.id ?? null))
       // Всё, что выше первого непрочитанного, уже прочитано; пустая строка — «ничего», если
       // непрочитанным оказалось всё загруженное.
+      //
+      // Непрочитанных по списку нет — всё до ПОСЛЕДНЕГО считаем прочитанным, а само последнее
+      // отправим по факту показа. Раньше прочитанным сразу считалось и оно: отметка не уходила
+      // вовсе, и если список ошибался (открыли по ссылке, пока он не загрузился; последним
+      // было своё сообщение), сервер так и считал чат непрочитанным.
       readUpToRef.current =
         firstUnread === null
-          ? (last?.createdAt ?? null)
+          ? list.length > 1
+            ? (list[list.length - 2]?.createdAt ?? '')
+            : ''
           : firstUnread > 0
             ? (list[firstUnread - 1]?.createdAt ?? '')
             : ''
@@ -1770,12 +2013,16 @@ export function ChatWindow() {
         if (firstUnread === null) toBottom('auto')
         else virtualizerRef.current?.scrollToIndex(firstUnread, { align: 'start' })
       }
-      requestAnimationFrame(() => {
+      openRafRef.current = requestAnimationFrame(() => {
+        openRafRef.current = null
         position()
         // Второй проход — после того как virtua измерила строки: первая раскладка идёт по
         // оценке высот. Прочтение отмечаем уже по настоящему кадру.
-        window.setTimeout(() => {
+        openTimeoutRef.current = window.setTimeout(() => {
+          openTimeoutRef.current = null
           position()
+          // Открыт в самом низу — держимся низа, пока догружаются снимки и карточки.
+          wasAtBottomRef.current = firstUnread === null
           markVisibleReadRef.current()
         }, 120)
       })
@@ -1801,6 +2048,27 @@ export function ChatWindow() {
     const el = messagesScrollRef.current
     if (el) el.scrollTop = el.scrollHeight
   }, [composerH])
+
+  // Догрузились снимок, видео, превью ссылки или карточка — строка выросла уже после
+  // первичного скролла, и последнее сообщение уезжало под панель ввода. Стоявшего внизу
+  // держим внизу. Новое сообщение сюда не относится: его доводит эффект выше, плавно, —
+  // поэтому рост из-за смены последнего сообщения пропускаем.
+  const isLoadingMessages = messages.isLoading
+  useEffect(() => {
+    const el = messagesScrollRef.current
+    const content = el?.firstElementChild
+    if (!el || !content || typeof ResizeObserver === 'undefined') return
+    let seenLastId = lastMsgIdRef.current
+    const ro = new ResizeObserver(() => {
+      if (seenLastId !== lastMsgIdRef.current) {
+        seenLastId = lastMsgIdRef.current
+        return
+      }
+      if (wasAtBottomRef.current && !loadingOlderRef.current) el.scrollTop = el.scrollHeight
+    })
+    ro.observe(content)
+    return () => ro.disconnect()
+  }, [activeId, isLoadingMessages])
 
   // Пометка дня (§6). Она живёт в потоке ленты, перед первым сообщением дня, и
   // прокручивается вместе с ним. Прилипший заголовок наверху — её подмена на время,
@@ -1893,13 +2161,17 @@ export function ChatWindow() {
     if (canLoadNewer && id) {
       // В «прыгнутом» окне последнее загруженное ≠ реальный низ — перезагружаем новейшие
       // (эффект первичного скролла проскроллит к низу, т.к. scrolledForRef сброшен).
-      setNewerCursor(undefined)
-      setCanLoadNewer(false)
+      setPager(id, { newer: undefined, canNewer: false })
       scrolledForRef.current = null
       void qc.invalidateQueries({ queryKey: chatKeys.messages(id) })
     } else {
       const len = messages.data?.length ?? 0
-      if (len > 0) virtualizerRef.current?.scrollToIndex(len - 1, { align: 'end', smooth: true })
+      const el = messagesScrollRef.current
+      // Плавно — только последний экран-другой. Издалека плавная прокрутка через
+      // неизмеренные строки шла долго и часто не доезжала: высоты по пути уточнялись.
+      const far = !!el && el.scrollHeight - el.scrollTop - el.clientHeight > el.clientHeight * 2
+      if (len > 0) virtualizerRef.current?.scrollToIndex(len - 1, { align: 'end', smooth: !far })
+      wasAtBottomRef.current = true
     }
     setShowScrollDown(false)
   }
@@ -1922,9 +2194,20 @@ export function ChatWindow() {
     setSelectMode(false)
     setSelectedIds(new Set())
   }
+  /** Выбранные сообщения в порядке ленты, а не в порядке кликов. */
+  function selectedInOrder(): ChatMessage[] {
+    return (messages.data ?? []).filter((m) => selectedIds.has(m.id))
+  }
+  // Удалить можно только свои: чужие сервер отклоняет, и раньше они молча оставались.
+  const ownSelectedCount = useMemo(
+    () => (messages.data ?? []).filter((m) => selectedIds.has(m.id) && m.senderId === myId).length,
+    [messages.data, selectedIds, myId],
+  )
   function bulkDelete(): void {
     if (!socket) return
-    selectedIds.forEach((id) => socket.emit('message:delete', { messageId: id }))
+    const own = selectedInOrder().filter((m) => m.senderId === myId)
+    own.forEach((m) => socket.emit('message:delete', { messageId: m.id }))
+    if (own.length < selectedIds.size) toast.info(t('deleteOthersSkipped'))
     exitSelect()
   }
   function bulkCopy(): void {
@@ -1983,7 +2266,11 @@ export function ChatWindow() {
     if (!chatId || !data?.length || !vh) return
     if (typeof document !== 'undefined' && document.hidden) return
     if (peekChatIdRef.current === chatId) return
-    const bottom = Math.max(0, vh.scrollOffset + vh.viewportSize - composerH)
+    // viewportSize у virtua — высота БЕЗ отступов контейнера (contentRect), а нижний отступ
+    // ленты и есть место под панелью ввода. Вычитать composerH ещё раз значило поднять
+    // границу на высоту панели: короткое последнее сообщение так и не считалось прочитанным,
+    // а бейдж в навигации висел.
+    const bottom = Math.max(0, vh.scrollOffset + vh.viewportSize)
     let idx = Math.min(Math.max(vh.findItemIndex(bottom), 0), data.length - 1)
     // Своё недоотправленное сообщение (временный id) сервер не знает — берём ближайшее
     // настоящее выше него.
@@ -2114,6 +2401,8 @@ export function ChatWindow() {
       void uploadFiles(m.id, media.chatId, {
         content: media.content,
         replyToId: media.replyToId,
+        replyQuote: media.replyQuote,
+        silent: media.silent,
         files: media.files,
         spoilerIndexes: media.spoilerIndexes,
         asFiles: media.asFiles,
@@ -2131,7 +2420,10 @@ export function ChatWindow() {
     if (!activeId) return
     // Режим правки: редактируем существующее сообщение (сервер эхом пришлёт message:updated).
     if (editing) {
-      if (content && socket) socket.emit('message:edit', { messageId: editing.id, content })
+      if (content && socket) {
+        pendingEditRef.current = { message: editing, content }
+        socket.emit('message:edit', { messageId: editing.id, content })
+      }
       setEditing(null)
       setText('')
       composerRef.current?.focus()
@@ -2527,8 +2819,7 @@ export function ChatWindow() {
         ...older,
         ...(old ?? []),
       ])
-      setOlderCursor(page.cursor)
-      setCanLoadOlder(page.hasNext)
+      setPager(activeId, { older: page.cursor, canOlder: page.hasNext })
     } finally {
       setLoadingOlder(false)
     }
@@ -2553,8 +2844,24 @@ export function ChatWindow() {
       // Догрузка вниз — не «новое входящее»: не даём эффекту автоскролла увести к низу.
       const updated = qc.getQueryData<ChatMessage[]>(chatKeys.messages(activeId))
       lastMsgIdRef.current = updated?.[updated.length - 1]?.id ?? lastMsgIdRef.current
-      setNewerCursor(page.prevCursor)
-      setCanLoadNewer(page.hasPrev)
+      setPager(activeId, { newer: page.prevCursor, canNewer: page.hasPrev })
+      // Дошли до низа, а живые сообщения, пропущенные в «прыгнутом» окне, могли прийти уже
+      // после того, как сервер собрал эту страницу, — добираем их одним запросом от хвоста.
+      const tailId = updated?.[updated.length - 1]?.id
+      if (!page.hasPrev && skippedLiveRef.current && tailId) {
+        skippedLiveRef.current = false
+        const rest = await fetchMessages(activeId, {
+          limit: 30,
+          cursor: tailId,
+          direction: 'newer',
+        })
+        const fresh = [...rest.items].reverse()
+        qc.setQueryData<ChatMessage[]>(chatKeys.messages(activeId), (old) => {
+          const prev = old ?? []
+          const seen = new Set(prev.map((m) => m.id))
+          return [...prev, ...fresh.filter((m) => !seen.has(m.id))]
+        })
+      }
     } finally {
       loadingNewerRef.current = false
     }
@@ -2569,10 +2876,12 @@ export function ChatWindow() {
     if (!activeId) return win
     qc.setQueryData<ChatMessage[]>(chatKeys.messages(activeId), win)
     lastMsgIdRef.current = win[win.length - 1]?.id ?? null
-    setOlderCursor(page.cursor)
-    setCanLoadOlder(page.hasNext)
-    setNewerCursor(page.prevCursor)
-    setCanLoadNewer(page.hasPrev)
+    setPager(activeId, {
+      older: page.cursor,
+      canOlder: page.hasNext,
+      newer: page.prevCursor,
+      canNewer: page.hasPrev,
+    })
     return win
   }
 
@@ -2685,6 +2994,27 @@ export function ChatWindow() {
       )?.firstName
     : undefined
   const activeChat = chats.data?.find((c) => c.id === activeId)
+  // Открытый чат пропал из списка — исключили, забанили, группу удалили, запрос отклонили
+  // или скрыли на другом устройстве. Сервер шлёт об этом только `chat:activity`, и окно
+  // оставалось открытым над чатом, где ничего уже нельзя. Закрываем, но только чат, который
+  // в списке уже был: только что созданный появляется в нём не сразу.
+  const seenInListRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!activeId) {
+      seenInListRef.current = null
+      return
+    }
+    if (activeChat) {
+      seenInListRef.current = activeId
+      return
+    }
+    if (chats.isSuccess && seenInListRef.current === activeId) {
+      seenInListRef.current = null
+      setActiveId(null)
+      setDetailsOpen(false)
+      toast.info(t('chatUnavailable'))
+    }
+  }, [activeId, activeChat, chats.isSuccess, t])
   const activeIsGroup = activeChat != null && activeChat.type !== 'PRIVATE'
   // Роли участников для бейджей у сообщений (§21): только «заметные» роли + админ группы, не студенты.
   const roleByUser = useMemo(() => {
@@ -2754,10 +3084,14 @@ export function ChatWindow() {
   const isPrivate = activeChat?.type === 'PRIVATE'
   // Имя показываем только в групповом чате: в личном собеседник и так один.
   const actionLabel = actionLabelOf(actionSummary, { name: actorName, withName: !isPrivate })
-  const memberIds = Object.keys(presence)
-  const otherId = memberIds.find((id) => id !== myId)
-  const otherOnline = isPrivate && otherId ? presence[otherId] === true : false
-  const onlineOthers = memberIds.filter((id) => id !== myId && presence[id]).length
+  // Из присутствия окно берёт только то, что рисует само; число «в сети» группы читает
+  // подпись в шапке (MembersOnlineLabel) — его изменения окно не перерисовывают.
+  const otherId = usePresence(presenceStore, (m) => peerIdOf(m, myId))
+  const otherOnline = usePresence(presenceStore, (m) => {
+    const peer = isPrivate ? peerIdOf(m, myId) : undefined
+    return peer !== undefined && m.get(peer) === true
+  })
+  const anyOthersOnline = usePresence(presenceStore, (m) => othersOnlineCount(m, myId) > 0)
   // Личная блокировка: скрываем поле ввода (нельзя писать — я заблокировал или меня заблокировали).
   const blockedActive = isPrivate && !!activeChat && (activeChat.blocked || activeChat.blockedBy)
   // Запрос на переписку ушёл и ждёт ответа — поле ввода закрывает плашка. Уходит запрос
@@ -3115,7 +3449,7 @@ export function ChatWindow() {
           </div>
         )}
         {!activeId ? (
-          <div className="flex flex-1 items-center justify-center p-6 duration-300 animate-in fade-in zoom-in-95">
+          <div className="flex flex-1 items-center justify-center p-6 duration-(--motion-page) animate-in fade-in zoom-in-95">
             <span className="rounded-full border border-border bg-muted/40 px-4 py-2 text-center text-sm text-muted-foreground">
               {t('selectChatPrompt')}
             </span>
@@ -3124,7 +3458,7 @@ export function ChatWindow() {
           // key={activeId} — контент разговора заново проигрывает анимацию при открытии/смене чата.
           <div
             key={activeId}
-            className="flex min-h-0 flex-1 flex-col duration-300 animate-in fade-in slide-in-from-right-4"
+            className="flex min-h-0 flex-1 flex-col duration-(--motion-page) animate-in fade-in slide-in-from-right-4"
           >
             {/* Панель множественного выбора (Telegram-стиль): счётчик + копировать/переслать/удалить. */}
             {selectMode && (
@@ -3153,7 +3487,7 @@ export function ChatWindow() {
                   type="button"
                   aria-label={t('forward')}
                   disabled={selectedIds.size === 0}
-                  onClick={() => setForwardIds([...selectedIds])}
+                  onClick={() => setForwardIds(selectedInOrder().map((m) => m.id))}
                   className={cn(HEADER_ICON_BTN, 'disabled:opacity-40')}
                 >
                   <Forward className="size-5" aria-hidden />
@@ -3161,10 +3495,10 @@ export function ChatWindow() {
                 <button
                   type="button"
                   aria-label={t('delete')}
-                  disabled={selectedIds.size === 0}
+                  disabled={ownSelectedCount === 0}
                   onClick={() => {
                     void confirm({
-                      title: t('deleteSelectedConfirm', { count: selectedIds.size }),
+                      title: t('deleteSelectedConfirm', { count: ownSelectedCount }),
                       destructive: true,
                     }).then((ok) => {
                       if (ok) bulkDelete()
@@ -3402,7 +3736,7 @@ export function ChatWindow() {
                         t('offlineStatus')
                       )
                     ) : (
-                      t('membersOnline', { count: onlineOthers })
+                      <MembersOnlineLabel store={presenceStore} myId={myId} />
                     )}
                   </span>
                 </div>
@@ -3550,11 +3884,12 @@ export function ChatWindow() {
                             <span className="flex-1 text-left">{t('clearHistory')}</span>
                           </button>
                         )}
-                        {/* Красные пункты — в самом конце, за линией. «Удалить чат» есть
-                            всегда, когда есть чат, поэтому линия зависит только от него. */}
-                        {activeChat && <MenuSeparator />}
+                        {/* Красные пункты — в самом конце, за линией. «Удалить чат» есть у
+                            личного чата и группы (у официальных и «Сохранённых» его нет, F-F17),
+                            а блокировка бывает только в личном — линия зависит от «Удалить». */}
+                        {activeChat && canDeleteChat(activeChat.type) && <MenuSeparator />}
                         {!activeChat?.blocked && headerBlockItem}
-                        {activeChat && (
+                        {activeChat && canDeleteChat(activeChat.type) && (
                           <button
                             type="button"
                             onClick={() => {
@@ -3717,7 +4052,7 @@ export function ChatWindow() {
                         new Date(prevMsg.createdAt).toDateString() !==
                           new Date(m.createdAt).toDateString()
                       // Статус доставки своего сообщения (#51) считаем здесь — единый источник
-                      // readWatermark/onlineOthers/sendState; в MessageItem уходит примитивом.
+                      // readWatermark/anyOthersOnline/sendState; в MessageItem уходит примитивом.
                       let readState: MessageReadState = 'sent'
                       let readCount = 0
                       if (mine) {
@@ -3731,7 +4066,7 @@ export function ChatWindow() {
                           if (read) {
                             readState = 'read'
                             readCount = activeIsGroup ? readByCount(m.createdAt) : 0
-                          } else if (onlineOthers > 0) readState = 'delivered'
+                          } else if (anyOthersOnline) readState = 'delivered'
                         }
                       }
                       return (
@@ -3969,7 +4304,7 @@ export function ChatWindow() {
       {isWide ? (
         <aside
           className={cn(
-            'hidden shrink-0 overflow-hidden transition-[width] duration-300 ease-out xl:block',
+            'hidden shrink-0 overflow-hidden transition-[width] duration-(--motion-panel) xl:block',
             detailsOpen && activeChat ? 'w-[22rem] border-l border-border' : 'w-0',
           )}
           aria-hidden={!(detailsOpen && activeChat)}
@@ -4028,7 +4363,20 @@ export function ChatWindow() {
             onForward: () => setForwardMsg(menu.message),
             onDelete: () => deleteMessage(menu.message),
             onSelect: () => enterSelect(menu.message),
+            onReport:
+              canReport && !menu.message.systemType && !menu.message.id.startsWith('tmp:')
+                ? () => setReportMsg(menu.message)
+                : undefined,
           }}
+        />
+      )}
+
+      {reportMsg && (
+        <ReportModal
+          targetType="MESSAGE"
+          targetId={reportMsg.id}
+          preview={reportMsg.content || undefined}
+          onClose={() => setReportMsg(null)}
         />
       )}
 
@@ -4187,4 +4535,16 @@ export function ChatWindow() {
       )}
     </div>
   )
+}
+
+// Идентификаторы сущностей — uuid и токены сида: буквы, цифры, дефис и подчёркивание.
+/** «N в сети» в шапке группы: перерисовывается сама, не трогая окно (F-F12). */
+function MembersOnlineLabel({ store, myId }: { store: PresenceStore; myId?: string }) {
+  const t = useTranslations('Chats')
+  const count = usePresence(store, (m) => othersOnlineCount(m, myId))
+  return <>{t('membersOnline', { count })}</>
+}
+
+function safeParamId(value: string | null): string | null {
+  return value && /^[A-Za-z0-9_-]{1,64}$/.test(value) ? value : null
 }

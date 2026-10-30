@@ -1,0 +1,209 @@
+// Домен «Библиотека» (Фаза 20, docs/PROJECT.md §3.11): бумажный формуляр библиотеки вуза.
+//
+// 1. LibrarySettings — выключатель модуля и правила выдачи на вуз. По умолчанию модуль
+//    ВЫКЛЮЧЕН: вуз включает его сам, как камеры.
+// 2. Book — карточка каталога (название, авторы, ISBN). BookCopy — конкретный экземпляр на
+//    полке: инвентарный номер и короткий код для QR-наклейки (BACKEND_RULES §13.2 — не id,
+//    чтобы распечатку можно было перевыпустить).
+// 3. Loan — выдача экземпляра читателю: кто выдал, до какого срока, кто принял. Рядом —
+//    снимок читателя на момент выдачи: история не должна рассыпаться после отчисления.
+//    «Просрочена» не хранится — это открытая выдача с прошедшим сроком.
+// 4. Reservation — бронь на книгу (не на экземпляр): очередь читателей; вернули экземпляр —
+//    он откладывается первому в очереди.
+// 5. LibraryIdAccessLog — каждый просмотр удостоверения читателя библиотекарем по открытой
+//    выдаче (как журнал просмотров камер).
+
+model LibrarySettings {
+  universityId          String   @id @map("university_id")
+  enabled               Boolean  @default(false)
+  // Правила выдачи (docs/IMPLEMENTATION_PLAN.md, Фаза 20.0) — меняет админ вуза.
+  defaultLoanDays       Int      @default(14) @map("default_loan_days")
+  maxLoanDays           Int      @default(120) @map("max_loan_days")
+  maxActiveLoans        Int      @default(5) @map("max_active_loans")
+  maxActiveReservations Int      @default(3) @map("max_active_reservations")
+  reservationHoldDays   Int      @default(3) @map("reservation_hold_days")
+  maxRenewals           Int      @default(1) @map("max_renewals")
+  updatedById           String?  @map("updated_by_id")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+
+  university University @relation(fields: [universityId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  updatedBy  User?      @relation("LibrarySettingsUpdatedBy", fields: [updatedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([updatedById])
+  @@map("library_settings")
+}
+
+model Book {
+  id           String    @id @default(uuid())
+  universityId String    @map("university_id")
+  title        String
+  // Авторы одной строкой, как на титуле: «Толстой Л. Н.» или «Иванов А. А., Петров Б. Б.».
+  authors      String    @default("")
+  isbn         String?
+  publisher    String?
+  year         Int?
+  // Раздел каталога (рубрика): «Художественная литература», «Математика» …
+  section      String?
+  description  String?
+  coverFileId  String?   @map("cover_file_id")
+  // Книгу с историей выдач не удаляют, а убирают из каталога: история должна остаться.
+  archivedAt   DateTime? @map("archived_at")
+  createdById  String?   @map("created_by_id")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  university   University    @relation(fields: [universityId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  cover        File?         @relation("BookCover", fields: [coverFileId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  createdBy    User?         @relation("BookCreatedBy", fields: [createdById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  copies       BookCopy[]
+  reservations Reservation[]
+
+  @@index([universityId, archivedAt, title])
+  @@index([universityId, isbn])
+  @@index([coverFileId])
+  @@index([createdById])
+  @@map("books")
+}
+
+model BookCopy {
+  id              String         @id @default(uuid())
+  bookId          String         @map("book_id")
+  // Дублирует вуз книги: уникальность инвентарного номера и scope без join.
+  universityId    String         @map("university_id")
+  inventoryNumber String         @map("inventory_number")
+  // Код на QR-наклейке экземпляра (BACKEND_RULES §13.2). Перевыпуск обесценивает старую
+  // распечатку.
+  code            String         @unique
+  status          BookCopyStatus @default(AVAILABLE)
+  condition       BookCondition  @default(GOOD)
+  note            String?
+  // Последняя отметка инвентаризации сканом (20.12): кого давно не видели на полке.
+  inventoriedAt   DateTime?      @map("inventoried_at")
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+
+  book         Book          @relation(fields: [bookId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  university   University    @relation(fields: [universityId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  loans        Loan[]
+  reservations Reservation[]
+
+  @@unique([universityId, inventoryNumber])
+  @@index([bookId, status])
+  @@index([universityId, status])
+  @@map("book_copies")
+}
+
+model Loan {
+  id              String         @id @default(uuid())
+  universityId    String         @map("university_id")
+  copyId          String         @map("copy_id")
+  readerId        String?        @map("reader_id")
+  issuedById      String?        @map("issued_by_id")
+  issuedAt        DateTime       @default(now()) @map("issued_at")
+  dueAt           DateTime       @map("due_at")
+  renewals        Int            @default(0)
+  status          LoanStatus     @default(OPEN)
+  returnedAt      DateTime?      @map("returned_at")
+  returnedToId    String?        @map("returned_to_id")
+  returnCondition BookCondition? @map("return_condition")
+  // Отмена ошибочной выдачи (выдачи не правятся задним числом — только отменяются).
+  cancelledAt     DateTime?      @map("cancelled_at")
+  cancelledById   String?        @map("cancelled_by_id")
+  cancelReason    String?        @map("cancel_reason")
+  // Читатель нажал «Это не я» в уведомлении о выдаче.
+  disputedAt      DateTime?      @map("disputed_at")
+  // Утерянная книга — долг читателя, пока библиотекарь не отметит, что его погасили (книгу
+  // заменили или возместили). До отметки выдача LOST держит справку и закрывает выдачу и
+  // брони, как просрочка.
+  lostSettledAt   DateTime?      @map("lost_settled_at")
+  lostSettledById String?        @map("lost_settled_by_id")
+  // Снимок читателя и книги на момент выдачи.
+  readerName      String         @map("reader_name")
+  readerGroup     String?        @map("reader_group")
+  readerCard      String?        @map("reader_card")
+  bookTitle       String         @map("book_title")
+  inventoryNumber String         @map("inventory_number")
+  // Напоминания (20.7): каждое уходит один раз.
+  dueSoonSentAt   DateTime?      @map("due_soon_sent_at")
+  dueTodaySentAt  DateTime?      @map("due_today_sent_at")
+  overdueSentAt   DateTime?      @map("overdue_sent_at")
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+
+  university    University           @relation(fields: [universityId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  copy          BookCopy             @relation(fields: [copyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  reader        User?                @relation("LoanReader", fields: [readerId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  issuedBy      User?                @relation("LoanIssuedBy", fields: [issuedById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  returnedTo    User?                @relation("LoanReturnedTo", fields: [returnedToId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  cancelledBy   User?                @relation("LoanCancelledBy", fields: [cancelledById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  lostSettledBy User?                @relation("LoanLostSettledBy", fields: [lostSettledById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  idAccesses    LibraryIdAccessLog[]
+  reservation   Reservation?         @relation("ReservationFulfilledBy")
+
+  @@index([universityId, status, dueAt])
+  @@index([readerId, status])
+  @@index([copyId, issuedAt])
+  @@index([issuedById])
+  @@index([returnedToId])
+  @@index([cancelledById])
+  @@index([lostSettledById])
+  @@map("loans")
+}
+
+model Reservation {
+  id              String            @id @default(uuid())
+  universityId    String            @map("university_id")
+  bookId          String            @map("book_id")
+  readerId        String            @map("reader_id")
+  status          ReservationStatus @default(QUEUED)
+  // Отложенный экземпляр: есть только у брони в статусе READY.
+  copyId          String?           @map("copy_id")
+  readyAt         DateTime?         @map("ready_at")
+  holdUntil       DateTime?         @map("hold_until")
+  // Очередь приняла уведомление «бронь готова». Пусто у готовой брони — уведомление не
+  // ушло (Redis лежал): cron `expireLibraryHolds` догоняет, иначе читатель не узнал бы о
+  // брони, и она истекла бы впустую.
+  readyNotifiedAt DateTime?         @map("ready_notified_at")
+  loanId          String?           @unique @map("loan_id")
+  closedAt        DateTime?         @map("closed_at")
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
+
+  university University @relation(fields: [universityId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  book       Book       @relation(fields: [bookId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  reader     User       @relation("ReservationReader", fields: [readerId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  copy       BookCopy?  @relation(fields: [copyId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  loan       Loan?      @relation("ReservationFulfilledBy", fields: [loanId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([bookId, status, createdAt])
+  @@index([readerId, status])
+  @@index([universityId, status, holdUntil])
+  @@index([copyId])
+  @@map("reservations")
+}
+
+// Журнал просмотров удостоверения читателя библиотекарем (20.6). Переживает удаление
+// выдачи и людей: связи обнуляются, имена на момент просмотра лежат рядом.
+model LibraryIdAccessLog {
+  id            String   @id @default(uuid())
+  universityId  String   @map("university_id")
+  loanId        String?  @map("loan_id")
+  librarianId   String?  @map("librarian_id")
+  librarianName String   @map("librarian_name")
+  readerId      String?  @map("reader_id")
+  readerName    String   @map("reader_name")
+  ip            String?
+  userAgent     String?  @map("user_agent")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  university University @relation(fields: [universityId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  loan       Loan?      @relation(fields: [loanId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  librarian  User?      @relation("LibraryIdAccessLibrarian", fields: [librarianId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  reader     User?      @relation("LibraryIdAccessReader", fields: [readerId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([universityId, createdAt])
+  @@index([loanId])
+  @@index([librarianId])
+  @@index([readerId])
+  @@map("library_id_access_logs")
+}

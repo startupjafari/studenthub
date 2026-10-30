@@ -14,6 +14,7 @@ import { createGroupRequest, groupKeys } from '../../../entities/group'
 import { createRoomRequest, roomKeys } from '../../../entities/room'
 import { courseKeys, createSubjectRequest, createTermRequest } from '../../../entities/course'
 import { createInviteRequest, inviteKeys, type CreatedInvite } from '../../../entities/invite'
+import { useKatoNames } from '../../../entities/kato'
 import { onboardingKeys, type OnboardingState, type OnboardingStepState } from '../../../entities/onboarding' // prettier-ignore
 import {
   Button,
@@ -38,6 +39,19 @@ interface Props {
   confirming: boolean
   onLaunch: () => void
   launching: boolean
+}
+
+/**
+ * Отказ сервера в шаге — текстом из словаря по коду: сообщение сервера русское и в kk/en.
+ * Занятое название (CONFLICT) — самый частый отказ быстрого ввода, у него свой текст.
+ */
+function useStepError(): (e: unknown) => void {
+  const t = useTranslations('Setup')
+  const tErr = useTranslations('Errors')
+  return (e) => {
+    const code = toApiError(e).code
+    toast.error(code === 'CONFLICT' ? t('nameTaken') : tErr(code))
+  }
 }
 
 /** Содержимое раскрытого шага: у каждого своё, общего здесь только оболочка. */
@@ -76,13 +90,16 @@ export function StepBody(props: Props) {
  */
 function ProfileStep({ step, state, onConfirmProfile, confirming }: Props) {
   const t = useTranslations('Setup')
+  // Город вуза — код КАТО («751110000»), у зарубежного вуза — текст. Код показываем
+  // названием из справочника, текст — как есть.
+  const { nameOf: cityName } = useKatoNames([state.university.city])
 
   return (
     <div className="flex flex-col gap-3">
       <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
         <Fact label={t('profileName')} value={state.university.name} />
         <Fact label={t('profileShortName')} value={state.university.shortName} />
-        <Fact label={t('profileCity')} value={state.university.city} />
+        <Fact label={t('profileCity')} value={cityName(state.university.city)} />
         <Fact label={t('profileTimezone')} value={state.university.timezone} />
       </dl>
       <p className="text-xs text-muted-foreground">{t('profileFix')}</p>
@@ -118,6 +135,7 @@ type SimpleKind = 'specialties' | 'rooms' | 'subjects'
 function SimpleListStep({ state, kind }: Props & { kind: SimpleKind }) {
   const t = useTranslations('Setup')
   const qc = useQueryClient()
+  const showError = useStepError()
   const universityId = state.university.id
 
   const mut = useMutation({
@@ -127,7 +145,7 @@ function SimpleListStep({ state, kind }: Props & { kind: SimpleKind }) {
       return createSubjectRequest({ universityId, name })
     },
     onSuccess: () => refresh(qc, kind),
-    onError: (e: unknown) => toast.error(String((e as { message?: string }).message ?? '')),
+    onError: showError,
   })
 
   return (
@@ -144,11 +162,12 @@ function SimpleListStep({ state, kind }: Props & { kind: SimpleKind }) {
 function FacultiesStep({ state }: Props) {
   const t = useTranslations('Setup')
   const qc = useQueryClient()
+  const showError = useStepError()
 
   const mut = useMutation({
     mutationFn: (name: string) => createFacultyRequest({ name, universityId: state.university.id }),
     onSuccess: () => refresh(qc, 'faculties'),
-    onError: (e: unknown) => toast.error(String((e as { message?: string }).message ?? '')),
+    onError: showError,
   })
 
   return (
@@ -170,6 +189,7 @@ function FacultiesStep({ state }: Props) {
 function GroupsStep() {
   const t = useTranslations('Setup')
   const qc = useQueryClient()
+  const showError = useStepError()
 
   const faculties = useQuery({ queryKey: facultyKeys.list(), queryFn: () => fetchFaculties() })
   const list = faculties.data ?? []
@@ -179,7 +199,7 @@ function GroupsStep() {
   const mut = useMutation({
     mutationFn: (name: string) => createGroupRequest({ name, facultyId: selected }),
     onSuccess: () => refresh(qc, 'groups'),
-    onError: (e: unknown) => toast.error(String((e as { message?: string }).message ?? '')),
+    onError: showError,
   })
 
   if (!faculties.isLoading && list.length === 0) {

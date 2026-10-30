@@ -39,10 +39,12 @@ struct QRApproveView: View {
         switch model.state {
         case .scanning:
             scanning
-        case .confirming:
-            confirmation
+        case .previewing:
+            waiting(String(localized: "auth.qrPreviewing", defaultValue: "Проверяем код…"))
+        case .confirming(_, let preview):
+            confirmation(preview)
         case .approving:
-            waiting
+            waiting(String(localized: "auth.qrApproving", defaultValue: "Подтверждаем…"))
         case .approved:
             outcome(
                 icon: "checkmark.circle.fill",
@@ -75,7 +77,7 @@ struct QRApproveView: View {
     private var scanning: some View {
         VStack(spacing: Spacing.xl) {
             QRScannerView(
-                onScan: { payload in model.scanned(payload) },
+                onScan: { payload in Task { await model.scanned(payload) } },
                 onUnavailable: { model.cameraUnavailable() }
             )
             .frame(maxWidth: .infinity)
@@ -100,7 +102,7 @@ struct QRApproveView: View {
         }
     }
 
-    private var confirmation: some View {
+    private func confirmation(_ preview: QRLoginPreview) -> some View {
         VStack(spacing: Spacing.xl) {
             Image(systemName: "desktopcomputer")
                 .font(.system(size: 36))
@@ -114,6 +116,8 @@ struct QRApproveView: View {
             .font(Typography.sectionTitle)
             .foregroundStyle(Palette.foreground)
             .multilineTextAlignment(.center)
+
+            requester(preview.requester)
 
             // Предупреждение — главная часть экрана, а не украшение: единственное,
             // что отделяет подтверждение своего входа от чужого, — внимание человека.
@@ -150,10 +154,37 @@ struct QRApproveView: View {
         }
     }
 
-    private var waiting: some View {
+    /// Кто просит вход: браузер и система компьютера, сеть. Человек сверяет это со
+    /// своим компьютером — чужой QR выдаёт себя незнакомым браузером или адресом.
+    private func requester(_ requester: QRLoginPreview.Requester) -> some View {
+        let device = [requester.browser, requester.os]
+            .compactMap { $0 }
+            .filter { !$0.isEmpty }
+            .joined(separator: " · ")
+        return VStack(alignment: .leading, spacing: Spacing.xs) {
+            Text(String(localized: "auth.qrRequester", defaultValue: "Кто просит вход"))
+                .font(Typography.meta)
+                .foregroundStyle(Palette.mutedForeground)
+            Text(device.isEmpty
+                ? String(localized: "auth.qrUnknownDevice", defaultValue: "Неизвестное устройство")
+                : device)
+                .font(Typography.body)
+                .foregroundStyle(Palette.foreground)
+            if let ip = requester.ip, !ip.isEmpty {
+                Text(verbatim: ip)
+                    .font(Typography.tabular(Typography.meta))
+                    .foregroundStyle(Palette.mutedForeground)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(Spacing.lg)
+        .background(Palette.card, in: RoundedRectangle(cornerRadius: Radius.xl))
+    }
+
+    private func waiting(_ text: String) -> some View {
         VStack(spacing: Spacing.lg) {
             ProgressView()
-            Text(String(localized: "auth.qrApproving", defaultValue: "Подтверждаем…"))
+            Text(text)
                 .font(Typography.meta)
                 .foregroundStyle(Palette.mutedForeground)
         }
@@ -177,7 +208,7 @@ struct QRApproveView: View {
             .buttonStyle(PrimaryButtonStyle())
 
             #if DEBUG
-                ManualTicketEntry { payload in model.scanned(payload) }
+                ManualTicketEntry { payload in Task { await model.scanned(payload) } }
             #endif
         }
     }

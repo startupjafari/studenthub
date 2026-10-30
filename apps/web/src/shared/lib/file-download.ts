@@ -75,13 +75,28 @@ function subscribe(key: string, notify: () => void): () => void {
   }
 }
 
-/** Самое старое готовое — вон, пока скачанное не влезет в потолок памяти. */
-function trimCache(): void {
+/** Поднять файл в конец очереди вытеснения: им только что пользовались. */
+function touch(key: string): void {
+  const entry = entries.get(key)
+  if (!entry) return
+  entries.delete(key)
+  entries.set(key, entry)
+}
+
+/**
+ * Давно не тронутое готовое — вон, пока скачанное не влезет в потолок памяти.
+ *
+ * `keep` — только что скачанный файл: его не вытесняем никогда, даже если он один больше
+ * потолка (файл чата бывает до 500 МБ). Иначе файл скачивался и тут же выбрасывался, и
+ * сохранить его было нельзя. Порядок — по давности использования (`touch`), а не по
+ * первому появлению ключа.
+ */
+function trimCache(keep: string): void {
   let total = 0
   for (const entry of entries.values()) if (entry.status === 'ready') total += entry.size
-  for (const [key, entry] of entries) {
+  for (const [key, entry] of [...entries]) {
     if (total <= CACHE_LIMIT) break
-    if (entry.status !== 'ready') continue
+    if (entry.status !== 'ready' || key === keep) continue
     total -= entry.size
     set(key, { status: 'idle' })
   }
@@ -126,7 +141,8 @@ async function start(key: string, source: DownloadSource): Promise<void> {
     // начатое заново за время последнего чтения.
     if (entries.get(key)?.status !== 'loading') return
     set(key, { status: 'ready', size: blob.size, blob, name: source.name })
-    trimCache()
+    touch(key)
+    trimCache(key)
   } catch (err) {
     if ((err as Error).name === 'AbortError') {
       set(key, { status: 'idle' })
@@ -177,7 +193,9 @@ export async function saveBlob(blob: Blob, name: string): Promise<void> {
 
 function save(key: string): void {
   const entry = entries.get(key)
-  if (entry?.status === 'ready') void saveBlob(entry.blob, entry.name)
+  if (entry?.status !== 'ready') return
+  touch(key)
+  void saveBlob(entry.blob, entry.name)
 }
 
 /** Ключ файла по подписанной ссылке: путь объекта без подписи — он не меняется. */

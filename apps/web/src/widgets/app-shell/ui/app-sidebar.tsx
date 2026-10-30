@@ -4,16 +4,17 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
-import { Bell, LogOut, Search, UserRound } from 'lucide-react'
+import { Bell, LogOut, ScanQrCode, Search, UserRound } from 'lucide-react'
 import { Avatar, AvatarFallback, AvatarImage, Skeleton } from '../../../shared/ui'
 import { fetchMe, userKeys } from '../../../entities/user'
 import { useChatsUnread } from '../../../entities/chat'
+import { canSearch } from '../../../entities/search'
 import { endSession } from '../../../shared/session'
 import { cn } from '../../../shared/lib/utils'
 import { NotificationsPanel } from '../../../views/notifications'
 import { ROLE_HOME } from '../../../shared/config'
 import { ProductSwitcher } from './product-switcher'
-import { careerHomeFor } from '../model/nav'
+import { careerHomeFor, hasCareerProduct, hasChats } from '../model/nav'
 import type { NavItem } from '../model/nav'
 
 function isActive(item: NavItem, pathname: string): boolean {
@@ -69,10 +70,12 @@ export function AppSidebar({
 }) {
   const pathname = usePathname()
   const tNav = useTranslations('Nav')
-  const chatsUnread = useChatsUnread()
   const tRoles = useTranslations('Roles')
   const tShell = useTranslations('Dashboard')
   const me = useQuery({ queryKey: userKeys.me(), queryFn: fetchMe })
+  // Пока роль неизвестна, бейдж не запрашиваем: охране чатов не положено, и её запрос
+  // ушёл бы в 403 на каждом экране.
+  const chatsUnread = useChatsUnread(me.data ? hasChats(me.data.role) : false)
 
   async function logout() {
     await endSession()
@@ -99,19 +102,22 @@ export function AppSidebar({
                 по наведению. Отдельного пункта в навигации у Карьеры нет. */}
             <ProductSwitcher
               homeHref={me.data ? ROLE_HOME[me.data.role] : '/'}
-              careerHref={careerHomeFor(me.data?.role)}
+              careerHref={hasCareerProduct(me.data?.role) ? careerHomeFor(me.data?.role) : null}
             />
-            {/* Поиск (Command Palette) — Ctrl/Cmd+K или клик. */}
-            <button
-              type="button"
-              onClick={() => window.dispatchEvent(new Event('open-command-palette'))}
-              aria-label={tNav('search')}
-              title={tNav('search')}
-              className="ml-auto flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-90"
-            >
-              <Search className="size-5" aria-hidden />
-            </button>
-            {/* Колокол уведомлений справа от логотипа — открывает оверлей списка. */}
+            {/* Поиск (Command Palette) — Ctrl/Cmd+K или клик. У охраны поиска нет. */}
+            {canSearch(me.data?.role) && (
+              <button
+                type="button"
+                onClick={() => window.dispatchEvent(new Event('open-command-palette'))}
+                aria-label={tNav('search')}
+                title={tNav('search')}
+                className="ml-auto flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-90"
+              >
+                <Search className="size-5" aria-hidden />
+              </button>
+            )}
+            {/* Колокол уведомлений справа от логотипа — открывает оверлей списка. Без поиска
+                (охрана) к правому краю его прижимает сам колокол. */}
             <button
               type="button"
               onClick={() => onToggleNotif?.()}
@@ -120,6 +126,7 @@ export function AppSidebar({
               aria-pressed={notifOpen}
               className={cn(
                 'flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-lg transition-colors active:scale-90',
+                !canSearch(me.data?.role) && 'ml-auto',
                 notifOpen
                   ? 'bg-primary/10 text-primary'
                   : 'text-muted-foreground hover:bg-muted hover:text-foreground',
@@ -216,6 +223,21 @@ export function AppSidebar({
               </div>
             </Link>
           )}
+          {/* Единый сканер QR StudentHub: вход на другом устройстве, студенческий, отметка. */}
+          <Link
+            href="/scan"
+            aria-label={tNav('scan')}
+            title={tNav('scan')}
+            aria-current={pathname === '/scan' ? 'page' : undefined}
+            className={cn(
+              'flex size-8 shrink-0 cursor-pointer items-center justify-center rounded-lg transition-colors',
+              pathname === '/scan'
+                ? 'bg-primary/10 text-primary'
+                : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+            )}
+          >
+            <ScanQrCode className="size-4" aria-hidden />
+          </Link>
           <button
             type="button"
             onClick={logout}

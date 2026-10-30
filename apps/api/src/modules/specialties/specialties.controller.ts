@@ -6,6 +6,7 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  Patch,
   Post,
   Req,
 } from '@nestjs/common'
@@ -18,6 +19,7 @@ import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
 import { SpecialtiesService } from './specialties.service'
 import { CreateSpecialtyDto } from './dto/create-specialty.dto'
+import { UpdateSpecialtyDto } from './dto/update-specialty.dto'
 
 @ApiTags('Специальности')
 @Controller('specialties')
@@ -39,6 +41,18 @@ export class SpecialtiesController {
     @Req() req: FastifyRequest,
   ) {
     return this.specialties.create(user, dto, this.ctx(req))
+  }
+
+  @Patch(':id')
+  @Roles(Role.UNIVERSITY_ADMIN)
+  @ApiOperation({ summary: 'Переименовать специальность (админ вуза, только своего вуза)' })
+  update(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: UpdateSpecialtyDto,
+    @Req() req: FastifyRequest,
+  ) {
+    return this.specialties.update(user, id, dto, this.ctx(req))
   }
 
   @Delete(':id')

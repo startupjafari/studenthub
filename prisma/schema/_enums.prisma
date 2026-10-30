@@ -13,6 +13,13 @@ enum Role {
   // Работодатель (Фаза 18). Единственная роль вне вуза: скоуп у неё не universityId,
   // а компания, и доступ к студентам считается по CompanyUniversityAccess.
   EMPLOYER
+  // Охрана одного вуза: сканер QR, проверка студенческого, помещения, камеры. Выдаёт
+  // UNIVERSITY_ADMIN, 2FA обязательна, всё вне явного списка маршрутов закрыто
+  // (docs/PROJECT.md §2).
+  SECURITY_GUARD
+  // Библиотекарь одного вуза (Фаза 20): каталог, выдача и возврат книг. Выдаёт
+  // UNIVERSITY_ADMIN, 2FA обязательна, всё вне явного списка маршрутов закрыто — как у охраны.
+  LIBRARIAN
 }
 
 enum UniversityStatus {
@@ -65,6 +72,17 @@ enum PostAudience {
   SUBJECT
   TEACHERS
   PERSONAL
+}
+
+// Аудитория сторис (docs/PROJECT.md §3.4). Отдельный enum, а не PostAudience: у сторис
+// нет ни личной (PERSONAL), ни предметной (SUBJECT) аудитории — формат публичный и
+// короткоживущий, адресное сообщение одному человеку — это чат, а не сторис.
+enum StoryAudience {
+  ALL
+  UNIVERSITY
+  FACULTY
+  GROUP
+  TEACHERS
 }
 
 enum ChatType {
@@ -176,8 +194,98 @@ enum KatoKind {
   OTHER
 }
 
-// Платформа устройства для пушей (план iOS, Задача Б1). Android добавится сюда же,
-// когда появится его сборка: транспорт у него другой, а таблица та же.
+// Платформа устройства для пушей. По ней выбирается транспорт: IOS — APNs (план
+// iOS, Задача Б1), ANDROID — FCM (план Android, Задача АБ1). Таблица у них общая.
 enum DevicePlatform {
   IOS
+  ANDROID
+}
+
+// Обработка медиа файла (единая медиа-система): варианты изображений, постер и HLS видео
+// готовит воркер, HTTP-запрос не ждёт. NONE — файл не медиа или обработка ему не положена
+// (документ, «отправить без сжатия»); клиент тогда показывает оригинал, как раньше.
+enum MediaStatus {
+  NONE
+  PENDING
+  PROCESSING
+  READY
+  FAILED
+}
+
+// Вид производного объекта медиа (`FileVariant`).
+enum MediaVariantKind {
+  // Уменьшенная WebP-копия изображения — элемент srcset.
+  IMAGE
+  // Кадр видео в WebP — постер плеера и превью в сетках.
+  POSTER
+  // Рендишн HLS: ключ указывает на его плейлист, сегменты лежат рядом.
+  HLS
+}
+
+// Состояние камеры по последнему отчёту агента (docs/PROJECT.md §3.10). UNKNOWN — агент о
+// камере ещё не сообщал; AUTH_FAILED — камера отвечает, но логин или пароль неверны:
+// админу надо поправить учётные данные, а не искать камеру в сети.
+enum CameraStatus {
+  UNKNOWN
+  ONLINE
+  OFFLINE
+  AUTH_FAILED
+}
+
+// ── Библиотека (Фаза 20) ─────────────────────────────────────────────────────────────
+
+// Экземпляр книги. RESERVED — отложен под готовую бронь; LOST и WRITTEN_OFF из оборота
+// выведены, но история выдач у них остаётся.
+enum BookCopyStatus {
+  AVAILABLE
+  RESERVED
+  ON_LOAN
+  LOST
+  WRITTEN_OFF
+}
+
+// Состояние экземпляра: отмечается при заведении и при возврате.
+enum BookCondition {
+  GOOD
+  WORN
+  DAMAGED
+}
+
+// Выдача. «Просрочена» не хранится — это OPEN с прошедшим dueAt. CANCELLED — ошибочная
+// выдача, отменённая библиотекарем (выдачи не правятся задним числом).
+enum LoanStatus {
+  OPEN
+  RETURNED
+  LOST
+  CANCELLED
+}
+
+// Бронь на книгу: QUEUED → READY (экземпляр отложен) → FULFILLED (выдан по брони).
+enum ReservationStatus {
+  QUEUED
+  READY
+  FULFILLED
+  CANCELLED
+  EXPIRED
+}
+
+// Документ посетителя (журнал охраны): хранится только тип и четыре последние цифры.
+enum VisitorDocumentType {
+  ID_CARD
+  PASSPORT
+  DRIVER_LICENSE
+  OTHER
+}
+
+// Почему студента не пропустили на входе.
+enum PassDenyReason {
+  // Учебный статус «отчислен», «выпускник», «переведён».
+  STATUS
+  // Аккаунт заблокирован или удалён.
+  BLOCKED
+  OTHER_UNIVERSITY
+  INVALID_QR
+  EXPIRED_QR
+  // Код уже проверил другой сотрудник: скриншот чужого QR.
+  REUSED_QR
 }

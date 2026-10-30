@@ -1,5 +1,6 @@
 import { describe, expect, it, beforeEach } from 'vitest'
-import { locale, resetLocale, t } from './index'
+import { errorText, locale, resetLocale, t } from './index'
+import { ApiError } from '../api/client'
 
 function telegramLanguage(code: string | undefined): void {
   ;(window as unknown as { Telegram: unknown }).Telegram = {
@@ -44,5 +45,20 @@ describe('подстановки', () => {
   // Порядок слов в трёх языках разный, поэтому подстановка именованная, а не по позиции.
   it('оставляет неизвестную подстановку как есть, а не роняет строку', () => {
     expect(t('complaintReporter', {})).toContain('{name}')
+  })
+})
+
+// Русский `message` сервера в kk и en торчал бы чужим языком: отказ называется по коду.
+describe('текст отказа', () => {
+  beforeEach(() => resetLocale('en'))
+
+  it('знакомый код — своими словами на языке интерфейса', () => {
+    const error = new ApiError('INVALID_2FA_CODE', 'Неверный код подтверждения', 401)
+    expect(errorText(error, 'peopleActionError')).toBe('Wrong confirmation code')
+  })
+
+  it('незнакомый код — запасная строка действия, а не текст сервера', () => {
+    const error = new ApiError('VALIDATION_ERROR', 'Некорректные данные', 422)
+    expect(errorText(error, 'peopleActionError')).toBe('Could not change access')
   })
 })

@@ -8,7 +8,8 @@ import { CornerDownLeft, Search, X } from 'lucide-react'
 import { useAppSelector } from '../../../shared/store'
 import { Skeleton } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
-import { useSearchItems, type SearchItem } from '../../../entities/search'
+import { canSearch, useSearchItems, type SearchItem } from '../../../entities/search'
+import { isNavKeyDisabled, usePlatformState } from '../../../entities/platform'
 import { quickActionsFor } from '../model/quick-actions'
 
 // Ширины строк скелетона: разной длины, иначе блок читается как таблица, а не как
@@ -23,6 +24,7 @@ export function CommandPalette() {
   const t = useTranslations('Command')
   const tNav = useTranslations('Nav')
   const router = useRouter()
+  const { disabledSections } = usePlatformState()
 
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -62,19 +64,22 @@ export function CommandPalette() {
     active: searchActive,
     searching,
     hasResults,
-  } = useSearchItems(open ? query : '')
+  } = useSearchItems(open && canSearch(role) ? query : '')
 
   const items: SearchItem[] = useMemo(() => {
     if (searchActive) return results
-    // Быстрые действия по роли — то, что показывается до ввода запроса.
-    return quickActionsFor(role).map((qa) => ({
-      id: `qa-${qa.navKey}`,
-      label: tNav(qa.navKey),
-      href: qa.href,
-      icon: qa.icon,
-      section: t('actions'),
-    }))
-  }, [searchActive, results, role, t, tNav])
+    // Быстрые действия по роли — то, что показывается до ввода запроса. Погашенный
+    // платформой раздел не предлагаем, как и в навигации.
+    return quickActionsFor(role)
+      .filter((qa) => !isNavKeyDisabled(qa.navKey, disabledSections))
+      .map((qa) => ({
+        id: `qa-${qa.navKey}`,
+        label: tNav(qa.navKey),
+        href: qa.href,
+        icon: qa.icon,
+        section: t('actions'),
+      }))
+  }, [searchActive, results, role, t, tNav, disabledSections])
 
   useEffect(() => {
     setActive(0)

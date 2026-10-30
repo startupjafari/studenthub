@@ -11,8 +11,14 @@ export interface NowInTz {
   date: string
 }
 
-export function nowInTz(timezone: string | null): NowInTz {
-  const d = new Date()
+// `at` — момент, который переводим (по умолчанию — сейчас); его передаёт `useNowInTz`.
+export function nowInTz(timezone: string | null, at: Date = new Date()): NowInTz {
+  return wallClockInTz(at, timezone)
+}
+
+// Настенные дата и время произвольного момента в таймзоне вуза: срок задания или начало
+// события «в какой день» — по календарю вуза, а не по UTC-префиксу ISO-строки.
+export function wallClockInTz(d: Date, timezone: string | null): NowInTz {
   if (!timezone) return localNow(d)
   try {
     const parts = new Intl.DateTimeFormat('en-CA', {
@@ -47,12 +53,28 @@ function localNow(d: Date): NowInTz {
   }
 }
 
-// Чётность ISO-недели (для выбора пар ODD/EVEN) — как в schedule-grid.
-export function isoWeekParity(d = new Date()): 'ODD' | 'EVEN' {
+// Номер ISO-недели (ISO 8601: недели с понедельника, первая — та, где первый четверг года)
+// по календарной дате d (её локальные год/месяц/день; время суток не важно).
+export function isoWeek(d: Date): number {
   const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()))
-  const dayNum = (date.getUTCDay() + 6) % 7
-  date.setUTCDate(date.getUTCDate() - dayNum + 3)
-  const firstThursday = new Date(Date.UTC(date.getUTCFullYear(), 0, 4))
-  const week = 1 + Math.round(((date.getTime() - firstThursday.getTime()) / 86400000 - 3) / 7)
-  return week % 2 === 1 ? 'ODD' : 'EVEN'
+  // Четверг той же недели: его год — это год ISO-недели (29.12.2025 — уже 1-я неделя 2026-го).
+  date.setUTCDate(date.getUTCDate() + 3 - ((date.getUTCDay() + 6) % 7))
+  // Четверг N-й недели — всегда (7N−6)…7N-й день своего года, поэтому номер — целое деление
+  // от 1 января. Прежняя формула отсчитывала от 4 января без поправки на его день недели и в
+  // годах, где 4 января не четверг, давала неделю на единицу меньше — чётность переворачивалась.
+  const yearStart = Date.UTC(date.getUTCFullYear(), 0, 1)
+  return 1 + Math.floor((date.getTime() - yearStart) / (7 * 86_400_000))
+}
+
+// Чётность ISO-недели (для выбора пар ODD/EVEN). Единственная реализация на весь веб:
+// сетка расписания, «Сегодня», главная, курсы, календарь и посещаемость обязаны показывать
+// одну и ту же неделю.
+export function isoWeekParity(d = new Date()): 'ODD' | 'EVEN' {
+  return isoWeek(d) % 2 === 1 ? 'ODD' : 'EVEN'
+}
+
+// Чётность недели календарной даты вуза "YYYY-MM-DD" (`NowInTz.date`), а не дня браузера:
+// с 00:00 до 05:00 понедельника по Алматы браузер в UTC ещё в прошлой неделе.
+export function isoWeekParityOf(date: string): 'ODD' | 'EVEN' {
+  return isoWeekParity(new Date(`${date}T12:00:00`))
 }

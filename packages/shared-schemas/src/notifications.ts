@@ -1,9 +1,9 @@
 import { z } from 'zod'
-import { CursorPaginationSchema } from './pagination.js'
+import { CursorPaginationSchema, queryBoolean } from './pagination.js'
 
 // Список уведомлений: cursor-пагинация + опциональный фильтр «только непрочитанные».
 export const NotificationListQuerySchema = CursorPaginationSchema.extend({
-  unreadOnly: z.coerce.boolean().optional(),
+  unreadOnly: queryBoolean.optional(),
 })
 export type NotificationListQueryInput = z.infer<typeof NotificationListQuerySchema>
 
@@ -23,15 +23,15 @@ export const UpdateNotificationSettingsSchema = z
   .strict()
 export type UpdateNotificationSettingsInput = z.infer<typeof UpdateNotificationSettingsSchema>
 
-// Регистрация устройства для пушей (план iOS, Задача Б1).
+// Регистрация устройства для пушей (план iOS, Задача Б1; Android — план Android, АБ1).
 //
 // Платформа приходит от клиента, а не выводится по User-Agent: нативное приложение
 // и так знает, где оно работает, а гадать по заголовку — способ однажды отправить
-// APNs-пуш в браузер.
+// APNs-пуш в браузер или на Android.
 export const RegisterDeviceSchema = z
   .object({
     token: z.string().min(16).max(400),
-    platform: z.enum(['IOS']),
+    platform: z.enum(['IOS', 'ANDROID']),
     appVersion: z.string().max(64).optional(),
   })
   .strict()

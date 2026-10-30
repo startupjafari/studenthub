@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { io, type Socket } from 'socket.io-client'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQueryClient, type Query, type QueryClient } from '@tanstack/react-query'
 import { REALTIME_CHANNEL, type RealtimeEnvelope } from '@studenthub/shared-schemas'
 import { refreshAccessToken } from '../api/instance'
 import { useAppSelector } from '../store/hooks'
@@ -28,6 +28,54 @@ const TAB_ID = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)
 // ротирует refresh-cookie, а реюз-детектор гасит всю сессию.
 const AUTH_RETRY_MS = 5_000
 const AUTH_RETRY_MAX = 3
+
+/**
+ * Разброс ресинка после реконнекта (F-F13). Обрыв у всех сразу — деплой или рестарт API, — и
+ * без разброса каждый клиент в ту же секунду перезапрашивал всё, что у него на экране.
+ */
+const RESYNC_JITTER_MS = 3_000
+
+/**
+ * Пометка запроса, который после реконнекта догоняет себя сам: `useQuery({ meta: SELF_RESYNC_META })`.
+ *
+ * Общий ресинк перезапрашивал всё подряд, и лента открытого чата приходила заново первой
+ * страницей: подгруженная вверх история и позиция чтения терялись, а аккуратный догон по
+ * seq работал вхолостую. Такой запрос, пока он на экране, ресинк не трогает — догоняет его
+ * владелец; закрытый только помечается устаревшим, чтобы при открытии перезагрузиться.
+ */
+export const SELF_RESYNC_META = { reconnectResync: 'self' } as const
+
+function resyncsItself(query: Query): boolean {
+  return query.meta?.reconnectResync === SELF_RESYNC_META.reconnectResync
+}
+
+/**
+ * Пометка запроса, который ресинк не трогает вовсе: `useQuery({ meta: NO_RESYNC_META })`.
+ *
+ * Для разовых действий, оформленных чтением: проверка студенческого гасит одноразовый
+ * QR-токен, и повтор после моргнувшей связи получал «код уже проверен» — охрана видела
+ * «Проход запрещён», а в журнале проходов появлялась лишняя строка отказа.
+ */
+export const NO_RESYNC_META = { reconnectResync: 'never' } as const
+
+function skipsResync(query: Query): boolean {
+  return query.meta?.reconnectResync === NO_RESYNC_META.reconnectResync
+}
+
+/**
+ * Ресинк после реконнекта: пока связи не было, события (schedule:changed, notification:new,
+ * изменения заявок и т.п.) никто не переприсылает. Активные запросы перезапрашиваются, кроме
+ * догоняющих себя сами; неактивные помечаются устаревшими.
+ */
+function resyncAfterReconnect(qc: QueryClient): void {
+  void qc.invalidateQueries({
+    predicate: (query) => !resyncsItself(query) && !skipsResync(query),
+  })
+  void qc.invalidateQueries({
+    predicate: (query) => resyncsItself(query) && query.getObserversCount() === 0,
+    refetchType: 'none',
+  })
+}
 
 // Origin WS-сервера. Сокет всегда идёт ПРЯМО на api (авторизация токеном, не cookie),
 // даже когда HTTP проксируется через web (единый origin) — поэтому берём отдельный
@@ -65,13 +113,14 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
   // Актуальный токен для первичного handshake создаваемого сокета (без пересоздания при ротации).
   const tokenRef = useRef(accessToken)
   tokenRef.current = accessToken
-  // Реконнект-ресинк: пока связи не было, клиент мог пропустить события (schedule:changed,
-  // notification:new, изменения заявок и т.п.) — их никто не переприсылает. На ПОВТОРНОМ connect
-  // инвалидируем весь react-query кэш, чтобы все подписанные экраны разом подтянули актуальное
-  // состояние. Первый connect вкладки пропускаем (данные только что загружены). Флаг живёт на
-  // уровне вкладки, а не сокета: перехват лидерства создаёт новый сокет, но пропуск событий в
-  // окне перевыборов реален — ресинк там нужен.
+  // Реконнект-ресинк (resyncAfterReconnect): на ПОВТОРНОМ connect подписанные экраны
+  // подтягивают пропущенное — с разбросом во времени и без запросов, догоняющих себя сами.
+  // Первый connect вкладки пропускаем (данные только что загружены). Флаг живёт на уровне
+  // вкладки, а не сокета: перехват лидерства создаёт новый сокет, но пропуск событий в окне
+  // перевыборов реален — ресинк там нужен.
   const hasConnectedOnceRef = useRef(false)
+  // Назначенный ресинк: серия реконнектов до его запуска покрывается одним.
+  const resyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Соединение создаём/рвём только по ФАКТУ наличия токена (login ↔ logout), а не на каждую
   // его смену: тихая ротация access-токена каждые ~15 мин иначе роняла бы сокет (мигание
@@ -95,7 +144,11 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
         hasConnectedOnceRef.current = true
         return
       }
-      void queryClientRef.current.invalidateQueries()
+      if (resyncTimerRef.current) return
+      resyncTimerRef.current = setTimeout(() => {
+        resyncTimerRef.current = null
+        resyncAfterReconnect(queryClientRef.current)
+      }, Math.random() * RESYNC_JITTER_MS)
     }
 
     const applyRole = (isLeader: boolean): void => {
@@ -118,7 +171,8 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
       const socket = io(wsOrigin(), {
         auth: { token: tokenRef.current },
         transports: ['websocket'],
-        // Переподключение при обрыве связи; сервер восстановит комнаты в handleConnection.
+        // Переподключение при обрыве связи. Личную комнату user:{id} сервер выдаёт сам в
+        // handleConnection, а комнаты чатов — нет: в них заново входит клиент (realtime-client).
         reconnection: true,
       })
       socketRef.current = socket
@@ -184,6 +238,8 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
       election.destroy()
       releaseRole?.()
       bus?.close()
+      if (resyncTimerRef.current) clearTimeout(resyncTimerRef.current)
+      resyncTimerRef.current = null
       setClient(null)
     }
   }, [hasToken, channelKey])

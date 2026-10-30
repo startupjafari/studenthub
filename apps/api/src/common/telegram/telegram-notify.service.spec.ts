@@ -1,4 +1,5 @@
-import { TelegramNotifyService, isQuiet } from './telegram-notify.service'
+import { Logger } from '@nestjs/common'
+import { TelegramNotifyService, isQuiet, platformHour } from './telegram-notify.service'
 import type { PrismaService } from '../prisma/prisma.service'
 import type { ConfigService } from '@nestjs/config'
 import type { EnvVars } from '../../config/env.schema'
@@ -25,6 +26,7 @@ function setup(
     // Ротацию дежурства уведомления не трогают — заглушка нужна лишь для полноты токена.
     rotateDuty: jest.fn().mockResolvedValue(null),
     duty: jest.fn(async () => ({ dutyUserId: null, rotation: [] })),
+    nextOnDuty: jest.fn().mockResolvedValue(null),
   }
   const service = new TelegramNotifyService(
     prisma as unknown as PrismaService,
@@ -114,8 +116,25 @@ describe('TelegramNotifyService', () => {
   })
 })
 
+describe('platformHour', () => {
+  // Процесс API живёт в UTC, команда — в Алматы (UTC+5).
+  it('считает час по поясу платформы, а не сервера', () => {
+    expect(platformHour(new Date('2026-09-21T17:00:00Z'))).toBe(22)
+    expect(platformHour(new Date('2026-09-21T04:05:00Z'))).toBe(9)
+  })
+
+  it('полночь — это 0, а не 24', () => {
+    expect(platformHour(new Date('2026-09-21T19:00:00Z'))).toBe(0)
+  })
+
+  it('пояс можно задать явно', () => {
+    expect(platformHour(new Date('2026-09-21T17:00:00Z'), 'UTC')).toBe(17)
+  })
+})
+
 describe('isQuiet', () => {
-  const at = (hour: number) => new Date(2026, 8, 21, hour, 0, 0)
+  // Момент по часам команды: «23 часа» — это 23:00 в Алматы, где бы ни работал сервер.
+  const at = (hour: number) => new Date(`2026-09-21T${String(hour).padStart(2, '0')}:00:00+05:00`)
 
   it('без настроек тишины нет', () => {
     expect(isQuiet(null, null, at(3))).toBe(false)
@@ -137,6 +156,12 @@ describe('isQuiet', () => {
   it('одинаковые границы — тишина круглые сутки', () => {
     expect(isQuiet(8, 8, at(15))).toBe(true)
   })
+
+  // По UTC «тишина 22–8» глушила с 03:00 до 13:00 по Алматы: будила ночью, молчала утром.
+  it('тишина 22–8 — это ночь по Алматы, а не по UTC', () => {
+    expect(isQuiet(22, 8, new Date('2026-09-21T20:00:00Z'))).toBe(true) // 01:00 в Алматы
+    expect(isQuiet(22, 8, new Date('2026-09-21T05:00:00Z'))).toBe(false) // 10:00 в Алматы
+  })
 })
 
 describe('TelegramNotifyService — политика уведомлений', () => {
@@ -146,7 +171,12 @@ describe('TelegramNotifyService — политика уведомлений', ()
       quietTo: 23,
     })
 
-    await service.notifyStaff('complaint', 'Срочная жалоба', undefined, new Date(2026, 8, 21, 3))
+    await service.notifyStaff(
+      'complaint',
+      'Срочная жалоба',
+      undefined,
+      new Date('2026-09-21T03:00:00+05:00'),
+    )
 
     expect(fetchMock).not.toHaveBeenCalled()
   })
@@ -172,6 +202,61 @@ describe('TelegramNotifyService — политика уведомлений', ()
     expect(prisma.telegramAccount.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: expect.objectContaining({ userId: 'staff-7' }) }),
     )
+  })
+
+  // Дежурный отвязал Telegram, заблокирован или удалён: «только дежурному» без запасного
+  // адресата означало бы «никому», и жалоба терялась бы молча.
+  it('если дежурному не дойти — пишет всей команде и предупреждает в логе', async () => {
+    const { service, prisma, fetchMock } = setup({ TELEGRAM_BOT_TOKEN: 'tok' }, [], {
+      dutyUserId: 'staff-7',
+    })
+    prisma.telegramAccount.findMany
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([{ telegramId: 222n }, { telegramId: 333n }])
+    const warn = jest.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
+
+    await service.notifyStaff('complaint', 'Срочная жалоба')
+
+    expect(prisma.telegramAccount.findMany).toHaveBeenCalledTimes(2)
+    const fallback = prisma.telegramAccount.findMany.mock.calls[1]?.[0] as {
+      where: Record<string, unknown>
+    }
+    expect(fallback.where).not.toHaveProperty('userId')
+    expect(fallback.where).toMatchObject({
+      revokedAt: null,
+      user: { isBlocked: false, deletedAt: null },
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('staff-7'))
+    warn.mockRestore()
+  })
+
+  it('дежурный доступен — команду не трогает', async () => {
+    const { service, prisma, fetchMock } = setup({ TELEGRAM_BOT_TOKEN: 'tok' }, [], {
+      dutyUserId: 'staff-7',
+    })
+    prisma.telegramAccount.findMany.mockResolvedValueOnce([{ telegramId: 111n }])
+
+    await service.notifyStaff('complaint', 'Срочная жалоба')
+
+    expect(prisma.telegramAccount.findMany).toHaveBeenCalledTimes(1)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  // Роль удалённому сохраняется — без условия по deletedAt привязка, пережившая удаление,
+  // получала бы уведомления о жалобах и обращениях.
+  it('удалённым и заблокированным не пишет', async () => {
+    const { service, prisma } = setup({ TELEGRAM_BOT_TOKEN: 'tok' })
+
+    await service.notifyStaff('complaint', 'Срочная жалоба')
+    await service.notifyStaff('ticket', 'Эскалация', undefined, new Date(), true)
+
+    for (const [args] of prisma.telegramAccount.findMany.mock.calls) {
+      expect(args).toMatchObject({
+        where: { revokedAt: null, user: { isBlocked: false, deletedAt: null } },
+      })
+    }
+    expect(prisma.telegramAccount.findMany).toHaveBeenCalledTimes(2)
   })
 
   // Настройки — не условие доступа: их недоступность не должна глушить уведомления.

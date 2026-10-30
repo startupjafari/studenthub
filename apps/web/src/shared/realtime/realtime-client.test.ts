@@ -77,7 +77,7 @@ describe('createLeaderClient', () => {
     })
 
     socket.fire('disconnect')
-    expect(hub.sent).toContainEqual({ kind: 'conn', connected: false })
+    expect(hub.sent).toContainEqual({ kind: 'conn', connected: false, leader: 'tab-a' })
 
     leader.dispose()
   })
@@ -107,8 +107,18 @@ describe('createLeaderClient', () => {
 
     hub.openPort().post({ kind: 'hello', from: 'tab-b' })
 
-    expect(hub.sent).toContainEqual({ kind: 'conn', connected: true })
+    expect(hub.sent).toContainEqual({ kind: 'conn', connected: true, leader: 'tab-a' })
     leader.dispose()
+  })
+
+  it('уходя, сообщает ведомым, что связи больше нет', () => {
+    const hub = createBusHub()
+    const socket = createSocketStub()
+    const leader = createLeaderClient(socket as unknown as Socket, hub.openPort(), 'tab-a')
+
+    leader.dispose()
+
+    expect(hub.sent).toContainEqual({ kind: 'conn', connected: false, leader: 'tab-a' })
   })
 
   describe('рефкаунт комнат', () => {
@@ -169,6 +179,23 @@ describe('createLeaderClient', () => {
       expect(socket.emit).toHaveBeenCalledExactlyOnceWith('chat:leave', { chatId: 'c2' })
       leader.dispose()
     })
+
+    it('после переподключения входит заново во все удерживаемые комнаты', () => {
+      const hub = createBusHub()
+      const socket = createSocketStub()
+      const leader = createLeaderClient(socket as unknown as Socket, hub.openPort(), 'tab-a')
+      leader.emit('chat:join', { chatId: 'c1' })
+      leader.emit('chat:join', { chatId: 'c2' })
+      leader.emit('chat:leave', { chatId: 'c2' })
+      socket.emit.mockClear()
+
+      // Новый сокет на сервере о комнатах не знает; повторный join той же вкладки рефкаунт
+      // глушит, поэтому вход заново — забота клиента при connect.
+      socket.fire('connect')
+
+      expect(socket.emit).toHaveBeenCalledExactlyOnceWith('chat:join', { chatId: 'c1' })
+      leader.dispose()
+    })
   })
 })
 
@@ -212,6 +239,28 @@ describe('createFollowerClient', () => {
     leaderBus.post({ kind: 'conn', connected: false })
     expect(follower.connected).toBe(false)
     expect(onDisconnect).toHaveBeenCalledTimes(1)
+
+    follower.dispose()
+  })
+
+  it('смена лидера — новое соединение, даже если связь будто бы и не пропадала', () => {
+    // Лидер закрылся, не успев сказать «связи нет»; новый начинает с пустой картой комнат —
+    // ведомой нужно войти в свои комнаты заново и догнать пропущенное (на её «connect»).
+    const hub = createBusHub()
+    const bus = hub.openPort()
+    const follower = createFollowerClient(hub.openPort(), 'tab-c')
+    const onConnect = vi.fn()
+    follower.on('connect', onConnect)
+
+    bus.post({ kind: 'conn', connected: true, leader: 'tab-a' })
+    expect(onConnect).toHaveBeenCalledTimes(1)
+
+    bus.post({ kind: 'conn', connected: true, leader: 'tab-a' })
+    expect(onConnect).toHaveBeenCalledTimes(1)
+
+    bus.post({ kind: 'conn', connected: true, leader: 'tab-b' })
+    expect(onConnect).toHaveBeenCalledTimes(2)
+    expect(follower.connected).toBe(true)
 
     follower.dispose()
   })

@@ -1,4 +1,4 @@
-import type { CreateSpecialtyInput } from '@studenthub/shared-schemas'
+import type { CreateSpecialtyInput, UpdateSpecialtyInput } from '@studenthub/shared-schemas'
 import { api } from '../../../shared/api'
 
 export interface Specialty {
@@ -19,6 +19,14 @@ export async function fetchSpecialties(): Promise<Specialty[]> {
 
 export async function createSpecialtyRequest(input: CreateSpecialtyInput): Promise<Specialty> {
   const { data } = await api.post<Specialty>('/specialties', input)
+  return data
+}
+
+export async function updateSpecialtyRequest(
+  id: string,
+  input: UpdateSpecialtyInput,
+): Promise<Specialty> {
+  const { data } = await api.patch<Specialty>(`/specialties/${id}`, input)
   return data
 }
 

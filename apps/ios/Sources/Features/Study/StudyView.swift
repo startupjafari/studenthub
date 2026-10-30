@@ -9,22 +9,27 @@ import SwiftUI
 struct StudyView: View {
     let role: Role
 
+    private var isTeacher: Bool { role == .teacher }
+
     var body: some View {
         List {
             Section {
-                NavigationLink(value: AppRoute.section(.grades)) {
-                    Label(
-                        role == .teacher
-                            ? String(localized: "study.gradebook", defaultValue: "Журнал")
-                            : String(localized: "study.grades", defaultValue: "Оценки"),
-                        systemImage: "graduationcap"
-                    )
-                }
-                NavigationLink(value: AppRoute.section(.attendance)) {
-                    Label(
-                        String(localized: "study.attendance", defaultValue: "Посещаемость"),
-                        systemImage: "checkmark.circle"
-                    )
+                // Оценки и посещаемость здесь — свои, студенческие (`/gradebook/me`,
+                // `/attendance/me`): преподавателю они отвечают 403. Отметка у него —
+                // с пары в расписании, журнал — в вебе.
+                if !isTeacher {
+                    NavigationLink(value: AppRoute.section(.grades)) {
+                        Label(
+                            String(localized: "study.grades", defaultValue: "Оценки"),
+                            systemImage: "graduationcap"
+                        )
+                    }
+                    NavigationLink(value: AppRoute.section(.attendance)) {
+                        Label(
+                            String(localized: "study.attendance", defaultValue: "Посещаемость"),
+                            systemImage: "checkmark.circle"
+                        )
+                    }
                 }
                 NavigationLink(value: AppRoute.section(.assignments)) {
                     Label(
@@ -37,6 +42,13 @@ struct StudyView: View {
                         String(localized: "study.materials", defaultValue: "Материалы"),
                         systemImage: "folder"
                     )
+                }
+            } footer: {
+                if isTeacher {
+                    Text(String(
+                        localized: "study.teacherHint",
+                        defaultValue: "Посещаемость отмечается с пары в расписании, журнал оценок — в веб-версии."
+                    ))
                 }
             }
             .listRowBackground(Palette.card)
@@ -70,12 +82,14 @@ struct GradesView: View {
                                 Text(column.title)
                                     .font(Typography.body)
                                     .foregroundStyle(Palette.foreground)
-                                Text(verbatim: column.kind)
-                                    .font(Typography.meta)
-                                    .foregroundStyle(Palette.mutedForeground)
+                                if let kind = GradeFormat.kindTitle(column.kind) {
+                                    Text(kind)
+                                        .font(Typography.meta)
+                                        .foregroundStyle(Palette.mutedForeground)
+                                }
                             }
                             Spacer()
-                            Text(verbatim: column.score.map { "\(Int($0)) / \(column.maxScore)" }
+                            Text(verbatim: column.score.map { GradeFormat.score($0, max: column.maxScore) }
                                 ?? String(localized: "study.noScore", defaultValue: "—"))
                                 .font(Typography.tabular(Typography.body))
                                 .foregroundStyle(column.score == nil ? Palette.mutedForeground : Palette.foreground)
@@ -127,7 +141,7 @@ struct AttendanceView: View {
                         Text(String(localized: "study.attendanceRate", defaultValue: "Посещаемость"))
                             .font(Typography.body)
                         Spacer()
-                        Text(verbatim: summary.rate.map { "\(Int($0 * 100))%" } ?? "—")
+                        Text(verbatim: summary.total == 0 ? "—" : "\(summary.rate)%")
                             .font(Typography.tabular(Typography.metric))
                             .foregroundStyle(Palette.primary)
                     }
@@ -136,7 +150,7 @@ struct AttendanceView: View {
                             Text(AttendanceStatus.title(status))
                                 .font(Typography.body)
                             Spacer()
-                            Text(verbatim: String(summary.counts[status] ?? 0))
+                            Text(verbatim: String(summary.count(status)))
                                 .font(Typography.tabular(Typography.body))
                                 .foregroundStyle(Palette.mutedForeground)
                         }
@@ -172,6 +186,28 @@ struct AttendanceView: View {
         .navigationTitle(Text(String(localized: "study.attendance", defaultValue: "Посещаемость")))
         .refreshable { await model.refresh() }
         .task { await model.refresh() }
+    }
+}
+
+/// Как показать точку журнала: балл бывает дробным, тип приходит кодом из
+/// `GRADE_COLUMN_KINDS`.
+enum GradeFormat {
+    /// «8,5 / 10» или «8,5», если у точки нет максимума. Дробь не обрезаем: 8,5 — не 8.
+    static func score(_ score: Double, max: Int?, locale: Locale = .current) -> String {
+        let shown = score.formatted(.number.precision(.fractionLength(0...2)).locale(locale))
+        guard let max else { return shown }
+        return "\(shown) / \(max)"
+    }
+
+    /// Название типа точки — как в вебе (`Gradebook.kind_*`). Незнакомый тип — без подписи.
+    static func kindTitle(_ kind: String) -> String? {
+        switch kind {
+        case "LAB": return String(localized: "study.kindLab", defaultValue: "Лабораторная")
+        case "CONTROL": return String(localized: "study.kindControl", defaultValue: "Контрольная")
+        case "EXAM": return String(localized: "study.kindExam", defaultValue: "Экзамен")
+        case "OTHER": return String(localized: "study.kindOther", defaultValue: "Другое")
+        default: return nil
+        }
     }
 }
 

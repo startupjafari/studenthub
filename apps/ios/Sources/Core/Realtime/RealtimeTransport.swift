@@ -33,6 +33,9 @@ actor SocketIORealtimeTransport: RealtimeTransport {
     private let continuation: AsyncStream<RealtimeEvent>.Continuation
     private let manager: SocketManager
     private let socket: SocketIOClient
+    /// Обработчики вешаются один раз на жизнь сокета. Повторная подписка при каждом
+    /// входе удваивала бы каждое событие — по сообщению на каждый прошлый вход.
+    private var subscribed = false
 
     init(baseURL: URL = AppConfiguration.apiBaseURL) {
         (events, continuation) = AsyncStream<RealtimeEvent>.makeStream()
@@ -85,7 +88,8 @@ actor SocketIORealtimeTransport: RealtimeTransport {
     // MARK: - Подписка
 
     private func subscribe() {
-        guard socket.status == .notConnected || socket.status == .disconnected else { return }
+        guard !subscribed else { return }
+        subscribed = true
 
         socket.on(clientEvent: .connect) { [continuation] _, _ in
             continuation.yield(.connected)

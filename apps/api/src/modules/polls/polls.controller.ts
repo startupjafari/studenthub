@@ -8,15 +8,21 @@ import {
   Param,
   Patch,
   Post,
+  Query,
+  Req,
 } from '@nestjs/common'
 import { ApiBearerAuth, ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger'
+import type { FastifyRequest } from 'fastify'
 import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
+import type { RequestContext } from '../auth/auth.service'
 import { PollsService } from './polls.service'
 import { CreatePollDto } from './dto/create-poll.dto'
 import { UpdatePollDto } from './dto/update-poll.dto'
 import { VotePollDto } from './dto/vote-poll.dto'
 import { PollCommentDto } from './dto/poll-comment.dto'
+import { PollsListQueryDto } from './dto/polls-list-query.dto'
+import { PollCommentsQueryDto } from './dto/poll-comments-query.dto'
 
 // Опросы профиля: создание, голосование, результаты (docs/PROJECT.md §3.7).
 @ApiTags('Опросы')
@@ -33,9 +39,16 @@ export class PollsController {
   }
 
   @Get('by-user/:userId')
-  @ApiOperation({ summary: 'Опросы пользователя (по видимости смотрящего)' })
-  listByUser(@CurrentUser() user: CurrentUserData, @Param('userId') userId: string) {
-    return this.polls.listByUser(user, userId)
+  @ApiOperation({
+    summary:
+      'Опросы пользователя (по видимости смотрящего). Без limit/cursor — массив (до 100), с ними — страница',
+  })
+  listByUser(
+    @CurrentUser() user: CurrentUserData,
+    @Param('userId') userId: string,
+    @Query() query: PollsListQueryDto,
+  ) {
+    return this.polls.listByUser(user, userId, query)
   }
 
   @Get(':id')
@@ -68,15 +81,29 @@ export class PollsController {
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Удалить свой опрос' })
-  async remove(@CurrentUser() user: CurrentUserData, @Param('id') id: string): Promise<void> {
-    await this.polls.remove(user, id)
+  @ApiOperation({ summary: 'Удалить опрос (свой; чужой — модератор scope, роль выше автора)' })
+  @ApiResponse({ status: 204, description: 'Удалено' })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN / WRONG_SCOPE' })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND' })
+  async remove(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Req() req: FastifyRequest,
+  ): Promise<void> {
+    await this.polls.remove(user, id, this.ctx(req))
   }
 
   @Get(':id/comments')
-  @ApiOperation({ summary: 'Комментарии опроса' })
-  listComments(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
-    return this.polls.listComments(user, id)
+  @ApiOperation({
+    summary:
+      'Комментарии опроса. Без limit/cursor — последние 200 массивом по порядку, с ними — страница, свежие сверху',
+  })
+  listComments(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Query() query: PollCommentsQueryDto,
+  ) {
+    return this.polls.listComments(user, id, query)
   }
 
   @Post(':id/comments')
@@ -91,12 +118,20 @@ export class PollsController {
 
   @Delete(':id/comments/:commentId')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @ApiOperation({ summary: 'Удалить комментарий (автор или владелец опроса)' })
+  @ApiOperation({ summary: 'Удалить комментарий (автор, владелец опроса или модератор scope)' })
+  @ApiResponse({ status: 204, description: 'Удалено' })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN / WRONG_SCOPE' })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND' })
   async deleteComment(
     @CurrentUser() user: CurrentUserData,
     @Param('id') id: string,
     @Param('commentId') commentId: string,
+    @Req() req: FastifyRequest,
   ): Promise<void> {
-    await this.polls.deleteComment(user, id, commentId)
+    await this.polls.deleteComment(user, id, commentId, this.ctx(req))
+  }
+
+  private ctx(req: FastifyRequest): RequestContext {
+    return { ip: req.ip, userAgent: req.headers['user-agent'] }
   }
 }

@@ -4,7 +4,6 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { useTranslations } from 'next-intl'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { toast } from 'sonner'
 import { Check, FileText, Eye, RefreshCw, X, AlertTriangle } from 'lucide-react'
 import {
   attachApplicationDocument,
@@ -18,6 +17,7 @@ import {
 import { fetchDocuments } from '../../../entities/document'
 import { Button, Card } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
+import { useActionError } from '../lib/use-action-error'
 
 // Инлайн-пикер документа из личного хранилища, отфильтрованный по типу требования.
 function StorageDocPicker({
@@ -90,6 +90,7 @@ export function DocumentChecklist({
   const t = useTranslations('Applications')
   const qc = useQueryClient()
   const [picking, setPicking] = useState<string | null>(null)
+  const err = useActionError()
   const byReq = new Map(documents.map((d) => [d.requirementId, d]))
 
   const attachMut = useMutation({
@@ -100,7 +101,7 @@ export function DocumentChecklist({
       void qc.invalidateQueries({ queryKey: applicationKeys.detail(appId) })
       onChanged()
     },
-    onError: () => toast.error(t('loadError')),
+    onError: err,
   })
   const removeMut = useMutation({
     mutationFn: (requirementId: string) => removeApplicationDocument(appId, requirementId),
@@ -108,12 +109,12 @@ export function DocumentChecklist({
       void qc.invalidateQueries({ queryKey: applicationKeys.detail(appId) })
       onChanged()
     },
-    onError: () => toast.error(t('loadError')),
+    onError: err,
   })
   const viewMut = useMutation({
     mutationFn: (docId: string) => fetchApplicationDocumentUrl(appId, docId),
     onSuccess: (url) => window.open(url, '_blank', 'noopener'),
-    onError: () => toast.error(t('loadError')),
+    onError: err,
   })
 
   const DOC_TONE: Record<string, string> = {
@@ -211,7 +212,9 @@ export function DocumentChecklist({
                         t('attachFromStorage')
                       )}
                     </Button>
-                    {attached && !needsReplace && (
+                    {/* Принятый сотрудником документ из комплекта не убирается (сервер
+                        отвечает 400) — только заменяется: новый снова уйдёт на проверку. */}
+                    {attached && !needsReplace && attached.status !== 'ACCEPTED' && (
                       <Button
                         variant="ghost"
                         size="sm"

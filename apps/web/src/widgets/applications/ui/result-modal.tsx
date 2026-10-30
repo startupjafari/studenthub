@@ -5,9 +5,9 @@ import { useLocale, useTranslations } from 'next-intl'
 import { useMutation } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { FileBadge, Loader2, Paperclip, X } from 'lucide-react'
-import { DOCUMENT_TYPES } from '@studenthub/shared-config'
 import type { ApplicationResultType } from '@studenthub/shared-schemas'
 import { uploadDocumentFile } from '../../../entities/document'
+import { useDocumentTypeCatalog } from '../../../entities/document-type'
 import { addResultRequest, issueCertificateRequest } from '../../../entities/application-service'
 import {
   Button,
@@ -29,9 +29,6 @@ const RESULT_TYPES: ApplicationResultType[] = [
   'INFORMATION',
   'OTHER',
 ]
-// Выдать можно только то, что каталог относит к «Выданным университетом»: справка,
-// транскрипт, договор — но не паспорт студента. Тот же список проверяет сервер.
-const ISSUED_TYPES = DOCUMENT_TYPES.filter((d) => d.category === 'ISSUED_BY_UNIVERSITY')
 
 function errCode(e: unknown): string {
   return (e as { code?: string }).code ?? 'INTERNAL_ERROR'
@@ -53,12 +50,16 @@ export function ResultModal({
   onDone: () => void
 }) {
   const t = useTranslations('Applications')
-  const tDoc = useTranslations('Documents')
   const tCommon = useTranslations('Common')
   const tErr = useTranslations('Errors')
   // Язык бланка справки: подписи в документе переводит сервер.
   const locale = useLocale()
   const fileRef = useRef<HTMLInputElement>(null)
+  // Выдать можно только то, что каталог вуза относит к «Выданным университетом»: справка,
+  // транскрипт, договор — но не паспорт студента. Выключенные вузом типы не предлагаем,
+  // собственные — предлагаем: тот же каталог проверяет сервер.
+  const catalog = useDocumentTypeCatalog()
+  const issuedTypes = catalog.types.filter((d) => d.category === 'ISSUED_BY_UNIVERSITY')
 
   const [type, setType] = useState<ApplicationResultType>('ELECTRONIC_DOCUMENT')
   const [documentType, setDocumentType] = useState('')
@@ -109,7 +110,10 @@ export function ResultModal({
       onDone()
       onClose()
     },
-    onError: (e) => toast.error(tErr(errCode(e))),
+    onError: (e) => {
+      const code = errCode(e)
+      toast.error(code === 'CONFLICT' ? t('certificateAlreadyIssued') : tErr(code))
+    },
   })
 
   const saveMut = useMutation({
@@ -228,9 +232,9 @@ export function ResultModal({
                     <SelectValue placeholder={tCommon('dictPlaceholder')} />
                   </SelectTrigger>
                   <SelectContent>
-                    {ISSUED_TYPES.map((d) => (
-                      <SelectItem key={d.id} value={d.id}>
-                        {tDoc(`docType_${d.id}`)}
+                    {issuedTypes.map((d) => (
+                      <SelectItem key={d.typeId} value={d.typeId}>
+                        {catalog.labelOf(d.typeId)}
                       </SelectItem>
                     ))}
                   </SelectContent>

@@ -20,6 +20,7 @@ export {
 } from './use-media-gestures'
 export { useScrollRow, type ScrollRowController } from './use-scroll-row'
 export { useCountUp } from './use-count-up'
+export { MOTION, staggerDelay } from './motion'
 export {
   createSpring,
   projectMomentum,
@@ -28,8 +29,10 @@ export {
   prefersReducedMotion,
   type SpringHandle,
 } from './spring'
-export { nowInTz, isoWeekParity, type NowInTz } from './tz-date'
+export { nowInTz, wallClockInTz, isoWeekParity, isoWeekParityOf, type NowInTz } from './tz-date'
+export { useNowInTz } from './use-now-in-tz'
 export { safeNextPath } from './safe-next'
+export { isTrustedImageUrl } from './trusted-image'
 export { identityColor, identityInitials, IDENTITY_COLORS } from './identity-color'
 export { relativeTime } from './relative-time'
 export {
@@ -77,3 +80,6 @@ export {
   type DownloadSource,
   type FileDownload,
 } from './file-download'
+export { srcSetOf, pickSource } from './media-source'
+export { useHls, type HlsLevel, type HlsQuality } from './use-hls'
+export { plainPreview } from './plain-text'

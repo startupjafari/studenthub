@@ -34,6 +34,11 @@ model Chat {
   // Ответ адресата = принятие: писать в чат, который не принял, он иначе не может.
   requestPendingForId String? @map("request_pending_for_id")
 
+  // Код ссылки-приглашения в пользовательскую группу. Ссылкой раньше был сам id чата: его
+  // знал каждый бывший участник, и исключённый возвращался сразу. Код меняет админ группы,
+  // он же сменяется сам при исключении и бане. NULL — ссылка ещё не выдавалась.
+  inviteCode String? @unique @map("invite_code")
+
   // Закрытие обращения в поддержку платформы (SUPPORT_PLATFORM). NULL — обращение открыто.
   // Отметкой времени, а не флагом: «когда закрыли» отвечает и на вопрос «сколько ждал
   // человек», а флаг не отвечает ни на один вопрос сверх «закрыто ли».
@@ -165,6 +170,9 @@ model Message {
   // Закрепление сообщения в чате (Ф9+): кто и когда закрепил.
   pinnedAt        DateTime? @map("pinned_at")
   pinnedById      String?   @map("pinned_by_id")
+  // Когда закреп сняли. Снятие обнуляет pinnedAt и следа иначе не оставляет: догон после
+  // обрыва (GET /chats/:id/updates) по этому времени узнаёт, что закреп больше не действует.
+  unpinnedAt      DateTime? @map("unpinned_at")
   // Расшаренный пост (Ф9+ share-to-chat): превью-карточка поста в сообщении.
   sharedPostId    String?   @map("shared_post_id")
   // Инлайн-превью первой ссылки (Ф9+): OG-мета {url,title,description,image,siteName}.
@@ -340,5 +348,6 @@ model ScheduledMessage {
   @@index([scheduledAt])
   // Список своих отложенных в конкретном чате.
   @@index([chatId, senderId])
+  @@index([senderId])
   @@map("scheduled_messages")
 }

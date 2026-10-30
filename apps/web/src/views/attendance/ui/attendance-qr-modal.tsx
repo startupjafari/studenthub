@@ -25,6 +25,8 @@ export function AttendanceQrModal({ pairId, date, onClose }: Props) {
     queryFn: () => fetchAttendanceQr(pairId, date),
     // Обновляем токен чуть раньше истечения (TTL 90с) и подтягиваем новые самоотметки в ростер.
     refetchInterval: 60_000,
+    // Отказ сервера (не та дата, вне окна занятия) повтором не лечится — показываем сразу.
+    retry: false,
   })
 
   // Локальный обратный отсчёт до истечения текущего токена.
@@ -52,7 +54,14 @@ export function AttendanceQrModal({ pairId, date, onClose }: Props) {
       <div className="mx-auto flex w-full max-w-64 flex-col items-center gap-4">
         <p className="text-center text-sm text-balance text-muted-foreground">{t('qrHint')}</p>
 
-        {q.isLoading || !q.data ? (
+        {/* Сервер выдаёт QR только на идущее сегодня занятие (C-F15): на другую дату, на
+            отменённую пару или вне окна вокруг неё — отказ. Без этой ветки окно вечно
+            показывало скелет. */}
+        {q.isError && !q.data ? (
+          <p className="rounded-xl bg-muted p-4 text-center text-sm text-balance text-muted-foreground">
+            {t('qrUnavailable')}
+          </p>
+        ) : q.isLoading || !q.data ? (
           <Skeleton className="aspect-square w-full rounded-xl" />
         ) : (
           <img

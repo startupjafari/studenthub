@@ -1,4 +1,5 @@
 import createNextIntlPlugin from 'next-intl/plugin'
+import withBundleAnalyzer from '@next/bundle-analyzer'
 import withPWAInit from '@ducanh2912/next-pwa'
 import { withSentryConfig } from '@sentry/nextjs'
 
@@ -147,6 +148,9 @@ function securityHeaders() {
   const api = origin(process.env.NEXT_PUBLIC_API_URL)
   const ws = origin(process.env.NEXT_PUBLIC_WS_URL)
   const minio = origin(process.env.NEXT_PUBLIC_MINIO_URL)
+  // Ретранслятор камер (docs/PROJECT.md §3.10): плеер берёт с него LL-HLS. На проде он за
+  // HTTPS и проходит по `https:` ниже; явный origin нужен стенду, где он на http.
+  const mediaRelay = origin(process.env.NEXT_PUBLIC_MEDIA_RELAY_URL)
   const wsScheme = ws ? ws.replace(/^http/, 'ws') : null
 
   const uniq = (list) => [...new Set(list.filter(Boolean))].join(' ')
@@ -166,8 +170,8 @@ function securityHeaders() {
     // есть от XSS защищают не эти директивы, а object-src/base-uri/form-action ниже.
     // Явные origin'ы оставлены документацией: по ним видно, куда ходит приложение.
     uniq(['img-src', "'self'", 'data:', 'blob:', 'https:', minio, api]),
-    uniq(['media-src', "'self'", 'blob:', 'https:', minio, api]),
-    uniq(['connect-src', "'self'", 'https:', 'wss:', api, ws, wsScheme, minio]),
+    uniq(['media-src', "'self'", 'blob:', 'https:', minio, api, mediaRelay]),
+    uniq(['connect-src', "'self'", 'https:', 'wss:', api, ws, wsScheme, minio, mediaRelay]),
     "font-src 'self' data:",
     "worker-src 'self' blob:",
     "object-src 'none'",
@@ -186,7 +190,7 @@ function securityHeaders() {
     // Камера нужна сканеру QR (вход по QR, отметка посещаемости) — на своём origin.
     { key: 'Permissions-Policy', value: 'camera=(self), microphone=(self), geolocation=()' },
     // HSTS: браузер сам переписывает http:// на https:// и не даёт кликнуть «продолжить»
-    // мимо предупреждения о сертификате. Заголовок есть в docker/nginx/nginx.conf, но в
+    // мимо предупреждения о сертификате. Заголовок есть в docker/prod/nginx/templates, но в
     // деплое на Railway nginx в цепочке нет — Next отдаёт страницы сам, и полагаться на
     // чужой edge в вопросе, уйдут ли auth-cookie по открытому каналу, не стоит.
     //
@@ -256,10 +260,16 @@ const nextConfig = {
   },
 }
 
+// Анализ состава бандла (Ф13.6): `ANALYZE=1 pnpm --filter web build` открывает отчёт
+// в браузере и кладёт html рядом со сборкой. Без переменной обёртка — пустышка, поэтому
+// на обычную сборку (и на прод) она не влияет вовсе. Размеры маршрутов next build печатает
+// и так; анализатор отвечает на другой вопрос — ЧТО внутри общего чанка.
+const withAnalyzer = withBundleAnalyzer({ enabled: process.env.ANALYZE === '1' })
+
 // Sentry (Ф13.8) — самый внешний слой: ему нужен уже собранный webpack-конфиг, чтобы
 // подложить плагин загрузки source maps. Без SENTRY_AUTH_TOKEN загрузка карт молча
 // пропускается, сборка не падает — так собирается dev и CI без секретов.
-export default withSentryConfig(withPWA(withNextIntl(nextConfig)), {
+export default withSentryConfig(withAnalyzer(withPWA(withNextIntl(nextConfig))), {
   org: process.env.SENTRY_ORG,
   project: process.env.SENTRY_PROJECT,
   authToken: process.env.SENTRY_AUTH_TOKEN,

@@ -9,13 +9,15 @@
 
 import { facultiesFor } from '../data/faculties.mjs'
 import { universityProfile } from '../data/universities.mjs'
+import { academicCalendar, enrollmentYears } from '../lib/calendar.mjs'
 import { id, universityId } from '../lib/ids.mjs'
 
 // Студентов в группе. 25 — типичный размер академической группы; от него считаются
 // и число групп, и нагрузка преподавателей.
 const GROUP_SIZE = 25
-// Годы набора: 4 курса бакалавриата.
-const ENROLLMENT_YEARS = [2022, 2023, 2024, 2025]
+// Годы набора: 4 курса бакалавриата текущего учебного года (а не зашитые 2022–2025:
+// через год такой вуз остался бы без первого курса).
+const ENROLLMENT_YEARS = enrollmentYears()
 
 // Неучебные помещения (Ф16): по QR-коду студент видит часы работы, а не пару.
 const SERVICE_ROOMS = [
@@ -125,25 +127,29 @@ export async function seedStructure(prisma, writer, { index, random, config }) {
 
   // ── Семестры: прошлый (закрыт) и текущий (активен) ──────────────────────────
   // Два, а не один: без закрытого семестра не проверить транскрипт и историю оценок.
-  const year = new Date().getUTCFullYear()
+  // Какие это семестры — решает календарь от даты прогона (lib/calendar.mjs).
+  //
+  // Текущий обновляется первым: при повторном прогоне в другом полугодии прошлый семестр
+  // получает имя, которое до этого носил текущий, а имя уникально в пределах вуза.
+  const calendar = academicCalendar()
   const terms = [
-    { suffix: 'prev', name: `Весна ${year}`, number: 4, from: `${year}-01-20`, to: `${year}-06-10`, active: false }, // prettier-ignore
-    { suffix: 'cur', name: `Осень ${year}`, number: 5, from: `${year}-09-01`, to: `${year}-12-31`, active: true }, // prettier-ignore
+    { suffix: 'cur', ...calendar.cur, number: 5, active: true },
+    { suffix: 'prev', ...calendar.prev, number: 4, active: false },
   ]
   const termIds = {}
   for (const term of terms) {
     const termId = id(index, 'term', term.suffix)
     termIds[term.suffix] = termId
+    const dates = { startsOn: new Date(term.from), endsOn: new Date(term.to) }
     await prisma.term.upsert({
       where: { id: termId },
-      update: { name: term.name, isActive: term.active },
+      update: { name: term.name, ...dates, isActive: term.active },
       create: {
         id: termId,
         universityId: uniId,
         name: term.name,
         number: term.number,
-        startsOn: new Date(term.from),
-        endsOn: new Date(term.to),
+        ...dates,
         isActive: term.active,
       },
     })
@@ -238,7 +244,7 @@ export async function seedStructure(prisma, writer, { index, random, config }) {
   // буфер нужно дописать: иначе FK на группы и дисциплины ещё не выполнимы.
   await writer.flush()
 
-  return { uniId, profile, plan, faculties, rooms, termIds }
+  return { uniId, profile, plan, faculties, rooms, termIds, calendar }
 }
 
 export { GROUP_SIZE, ENROLLMENT_YEARS }
