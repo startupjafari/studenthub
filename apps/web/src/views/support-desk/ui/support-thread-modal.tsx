@@ -210,7 +210,7 @@ export function SupportThreadModal({ ticketId, onClose, onOpen }: SupportThreadM
     new Date(iso).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })
 
   return (
-    <Modal onClose={onClose} title={title} size="2xl" height="stable">
+    <Modal onClose={onClose} title={title} size="3xl" height="tall">
       {thread.isLoading ? (
         <Skeleton className="h-64 w-full rounded-xl" />
       ) : thread.isError || !data || !ticket ? (
@@ -378,43 +378,6 @@ export function SupportThreadModal({ ticketId, onClose, onOpen }: SupportThreadM
             />
           )}
 
-          {complaintOpen && (
-            <div className="flex flex-col gap-2 rounded-xl border border-border p-3">
-              <span className="text-sm font-medium">{t('complaintTarget')}</span>
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="min-w-0 flex-1">
-                  <UserPicker
-                    value={complaintTarget}
-                    onSelect={setComplaintTarget}
-                    placeholder={t('complaintTargetPlaceholder')}
-                  />
-                </div>
-                <Button
-                  variant="ghost"
-                  onClick={() => {
-                    setComplaintOpen(false)
-                    setComplaintTarget(null)
-                  }}
-                >
-                  {t('cancel')}
-                </Button>
-                <Button
-                  disabled={!complaintTarget}
-                  loading={fileComplaint.isPending}
-                  onClick={async () => {
-                    if (!complaintTarget) return
-                    const name = `${complaintTarget.lastName} ${complaintTarget.firstName}`
-                    if (await confirm({ title: t('confirmComplaint', { name }) })) {
-                      fileComplaint.mutate(complaintTarget)
-                    }
-                  }}
-                >
-                  {t('complaintSubmit')}
-                </Button>
-              </div>
-            </div>
-          )}
-
           {/* Подвал: слева редкие действия в меню «Ещё», справа — одно главное по ситуации:
               взять свободное обращение или закрыть своё. Раньше пять действий одного веса
               стояли в ряд, и «Позвать администратора» было в одном ряду с «Закрыть». */}
@@ -494,6 +457,54 @@ export function SupportThreadModal({ ticketId, onClose, onOpen }: SupportThreadM
             )}
           </footer>
         </div>
+      )}
+      {/* Жалоба — отдельным окном поверх обращения: встроенная панель сжимала переписку и
+          смешивала свои кнопки с подвалом обращения. */}
+      {complaintOpen && (
+        <Modal
+          onClose={() => {
+            setComplaintOpen(false)
+            setComplaintTarget(null)
+          }}
+          title={t('fileComplaint')}
+          size="md"
+        >
+          <div className="flex flex-col gap-4">
+            <p className="text-sm text-muted-foreground">{t('complaintHint')}</p>
+            <div className="flex flex-col gap-1.5">
+              <span className="text-sm font-medium">{t('complaintTarget')}</span>
+              <UserPicker
+                value={complaintTarget}
+                onSelect={setComplaintTarget}
+                placeholder={t('complaintTargetPlaceholder')}
+              />
+            </div>
+            <footer className="flex items-center justify-end gap-2 border-t border-border pt-4">
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setComplaintOpen(false)
+                  setComplaintTarget(null)
+                }}
+              >
+                {t('cancel')}
+              </Button>
+              <Button
+                disabled={!complaintTarget}
+                loading={fileComplaint.isPending}
+                onClick={async () => {
+                  if (!complaintTarget) return
+                  const name = `${complaintTarget.lastName} ${complaintTarget.firstName}`
+                  if (await confirm({ title: t('confirmComplaint', { name }) })) {
+                    fileComplaint.mutate(complaintTarget)
+                  }
+                }}
+              >
+                {t('complaintSubmit')}
+              </Button>
+            </footer>
+          </div>
+        </Modal>
       )}
     </Modal>
   )

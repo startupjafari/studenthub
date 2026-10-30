@@ -5373,7 +5373,8 @@
     "topicNone": "Not set",
     "setTopic": "Set topic",
     "editTopics": "Edit",
-    "topicsHint": "Support sets topics — the queue filter and summary rely on them. Up to three."
+    "topicsHint": "Support sets topics — the queue filter and summary rely on them. Up to three.",
+    "complaintHint": "The complaint goes to the moderation queue on behalf of the ticket author; their first message becomes its text."
   },
   "LibraryReader": {
     "title": "Library",
