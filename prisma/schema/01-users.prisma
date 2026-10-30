@@ -171,9 +171,10 @@ model User {
   chatFolders       ChatFolder[]
 
   // События (Ф10): организованные события и участия.
-  eventsOrganized     Event[]            @relation("EventOrganizer")
-  eventParticipations EventParticipant[]
-  eventComments       EventComment[]     @relation("EventCommentAuthor")
+  eventsOrganized       Event[]                @relation("EventOrganizer")
+  eventParticipations   EventParticipant[]
+  eventComments         EventComment[]         @relation("EventCommentAuthor")
+  eventCommentReactions EventCommentReaction[]
 
   // Жалобы (Ф11): поданные и разрешённые пользователем.
   complaintsReported  Complaint[] @relation("ComplaintReporter")
