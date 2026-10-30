@@ -2640,7 +2640,22 @@
     "applyToDuplicates": "Осы нысанаға түскен барлық шағымға қолдану",
     "reopen": "Кезекке қайтару",
     "reopened": "Шағым қайтадан кезекте. Қабылданған шаралар болдырылмады.",
-    "kpiOverdueAtLeast": "{n}+"
+    "kpiOverdueAtLeast": "{n}+",
+    "decisionTitle": "Шешім",
+    "decisionDISMISS": "Шағымды қабылдамау",
+    "decisionDISMISSHint": "Бұзушылық жоқ — шара қолданылмайды",
+    "decisionWARN_USER": "Авторға ескерту",
+    "decisionWARN_USERHint": "Хабарландыру келеді, жазба модерация тарихында қалады",
+    "decisionDELETE_CONTENT": "Контентті жою",
+    "decisionDELETE_CONTENTHint": "Барлығында жоғалады, қайтару мүмкін емес",
+    "decisionBLOCK_USER": "Авторды бұғаттау",
+    "decisionBLOCK_USERHint": "Платформаға кіру жабылады, барлық сессиялар аяқталады",
+    "applyDecision": "Шешімді қолдану",
+    "chatReportedMessage": "Шағым түскен хабарлама",
+    "chatDeletedByAuthor": "авторы жойған",
+    "chatMessageDeleted": "Хабарлама жойылды",
+    "chatReporterTag": "шағым авторы",
+    "chatAuditHint": "Хат алмасуды ашу аудит журналына жазылады"
   },
   "Users": {
     "title": "Пайдаланушылар",
