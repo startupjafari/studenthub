@@ -263,7 +263,6 @@
     "approveConfirm": "Create university and send access",
     "approveExplain": "We will create the university and send an administrator invitation to {email}. The university starts inactive — it goes live once its own team fills in the structure.",
     "approved": "Request approved",
-    "reissueExplain": "The invite email did not arrive or expired? Issue the invite again: the old link stops working and the email is sent again.",
     "reissueInvite": "Issue invite again",
     "reissueConfirmTitle": "Issue the invite again?",
     "reissueConfirmDesc": "The previous link will stop working. A new email goes to {email}.",
