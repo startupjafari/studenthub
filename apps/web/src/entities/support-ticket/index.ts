@@ -12,6 +12,7 @@ export {
   closeSupportRequest,
   type SupportTicket,
   type SupportMessage,
+  type SupportReplyPreview,
   type SupportThread,
   type SupportPerson,
 } from './api/support-ticket-api'

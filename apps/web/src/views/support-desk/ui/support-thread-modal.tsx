@@ -1,18 +1,11 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { useForm } from 'react-hook-form'
-import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { Flag, GitMerge, MoreHorizontal, Send, ShieldAlert, Undo2, UserRound } from 'lucide-react'
-import {
-  SUPPORT_TAGS,
-  SupportReplySchema,
-  type SupportReplyInput,
-  type SupportTag,
-} from '@studenthub/shared-schemas'
+import { Flag, GitMerge, MoreHorizontal, Pencil, ShieldAlert, Undo2, UserRound } from 'lucide-react'
+import { SUPPORT_TAGS, type SupportTag } from '@studenthub/shared-schemas'
 import {
   assignSupportRequest,
   closeSupportRequest,
@@ -20,18 +13,18 @@ import {
   fetchSupportEarlierMessages,
   fetchSupportThread,
   mergeSupportRequest,
-  replySupportRequest,
   setSupportTagsRequest,
   supportKeys,
   type SupportMessage,
 } from '../../../entities/support-ticket'
 import { ProfileLink, UserPicker, type PickedUser } from '../../../entities/user'
 import { complaintKeys, createComplaintFromSupportRequest } from '../../../entities/complaint'
-import { MessageAttachments } from '../../../entities/chat'
+import { toggleReactionRequest } from '../../../entities/chat'
 import {
   Badge,
   Button,
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
@@ -40,13 +33,12 @@ import {
   EmptyState,
   Modal,
   Skeleton,
-  Textarea,
   useConfirm,
 } from '../../../shared/ui'
 import { toApiError } from '../../../shared/lib'
-import { cn } from '../../../shared/lib/utils'
 import { useAppSelector } from '../../../shared/store'
 import { tagLabels } from './tag-label'
+import { SupportBubble, SupportComposer } from './support-thread-parts'
 
 // Тегов у обращения не больше трёх: набор, означающий всё, не означает ничего (сервер так же).
 const MAX_TAGS = 3
@@ -59,9 +51,9 @@ interface SupportThreadModalProps {
 }
 
 /**
- * Обращение целиком: переписка, ответ, «взять себе», теги, склейка с соседним обращением
- * того же человека, эскалация администраторам и закрытие. То же, что в мини-аппе, кроме
- * голосового ответа: с компьютера отвечают текстом.
+ * Обращение целиком: переписка как в чате (вложения, голосовые, ответы, реакции), «взять
+ * себе», темы, склейка с соседним обращением того же человека, эскалация администраторам и
+ * закрытие.
  */
 export function SupportThreadModal({ ticketId, onClose, onOpen }: SupportThreadModalProps) {
   const t = useTranslations('SupportDesk')
@@ -111,13 +103,14 @@ export function SupportThreadModal({ ticketId, onClose, onOpen }: SupportThreadM
     onError: (e: unknown) => toast.error(tErr(toApiError(e).code)),
   })
 
-  const form = useForm<SupportReplyInput>({ resolver: zodResolver(SupportReplySchema) })
-  const reply = useMutation({
-    mutationFn: (values: SupportReplyInput) => replySupportRequest(ticketId, values.text),
-    onSuccess: async () => {
-      form.reset({ text: '' })
-      await refresh()
-    },
+  // Ответ на конкретное сообщение — как в чате. Привязан к обращению: после склейки окно
+  // открывает другое, и цитата отсюда там не нужна.
+  const [replyTo, setReplyTo] = useState<{ ticketId: string; message: SupportMessage } | null>(null)
+  // Реакции — чатовой ручкой: сотрудник участник обращения, право то же, что в чате.
+  const react = useMutation({
+    mutationFn: ({ messageId, emoji }: { messageId: string; emoji: string }) =>
+      toggleReactionRequest(messageId, emoji),
+    onSuccess: refresh,
     onError,
   })
   const assign = useMutation({
@@ -202,6 +195,15 @@ export function SupportThreadModal({ ticketId, onClose, onOpen }: SupportThreadM
     if (list && newestId) list.scrollTop = list.scrollHeight
   }, [newestId])
 
+  function jumpTo(messageId: string): void {
+    const el = document.getElementById(`support-msg-${messageId}`)
+    if (!el) return
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    // Подсветка, чтобы глаз нашёл оригинал среди соседей, — как переход к цитате в чате.
+    el.dataset.flash = 'true'
+    window.setTimeout(() => delete el.dataset.flash, 1200)
+  }
+
   const dayOf = (iso: string): string =>
     new Date(iso).toLocaleDateString(locale, { day: 'numeric', month: 'long' })
   const timeOf = (iso: string): string =>
@@ -263,28 +265,50 @@ export function SupportThreadModal({ ticketId, onClose, onOpen }: SupportThreadM
                 )}
               </dd>
 
+              {/* Темы ставит команда, а не автор — он пишет только текст. По ним работают
+                  фильтр очереди и сводка «о чём спрашивают». Поэтому показываем выбранные, а
+                  правка — отдельным действием, а не палитрой всех семи переключателей. */}
               <dt className="text-xs text-muted-foreground">{t('topic')}</dt>
-              <dd className="flex flex-wrap gap-1.5" role="group" aria-label={t('tags')}>
-                {SUPPORT_TAGS.map((tag) => {
-                  const active = ticket.tags.includes(tag)
-                  return (
-                    <button
-                      key={tag}
-                      type="button"
-                      aria-pressed={active}
-                      disabled={tags.isPending}
-                      onClick={() => toggleTag(tag)}
-                      className={cn(
-                        'rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors',
-                        active
-                          ? 'border-primary bg-primary/10 text-primary'
-                          : 'border-border text-muted-foreground hover:border-ring/50 hover:text-foreground',
-                      )}
-                    >
+              <dd className="flex flex-wrap items-center gap-1.5">
+                {ticket.tags.length === 0 ? (
+                  <span className="text-sm text-muted-foreground">{t('topicNone')}</span>
+                ) : (
+                  ticket.tags.map((tag) => (
+                    <Badge key={tag} variant="outline">
                       {labels[tag]}
-                    </button>
-                  )
-                })}
+                    </Badge>
+                  ))
+                )}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-xs text-muted-foreground"
+                      disabled={tags.isPending}
+                    >
+                      <Pencil className="size-3.5" aria-hidden />
+                      {ticket.tags.length === 0 ? t('setTopic') : t('editTopics')}
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-64">
+                    <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                      {t('topicsHint')}
+                    </DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    {SUPPORT_TAGS.map((tag) => (
+                      <DropdownMenuCheckboxItem
+                        key={tag}
+                        checked={ticket.tags.includes(tag)}
+                        // Меню не закрываем: темы выбирают по одной, до трёх.
+                        onSelect={(e) => e.preventDefault()}
+                        onCheckedChange={() => toggleTag(tag)}
+                      >
+                        {labels[tag]}
+                      </DropdownMenuCheckboxItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </dd>
             </dl>
           </section>
@@ -322,51 +346,16 @@ export function SupportThreadModal({ ticketId, onClose, onOpen }: SupportThreadM
                       {day}
                     </span>
                   )}
-                  <div
-                    className={cn(
-                      'flex max-w-[80%] flex-col gap-0.5',
-                      fromAuthor ? 'items-start self-start' : 'items-end self-end',
-                      firstOfRun && !newDay && 'mt-1.5',
-                    )}
-                  >
-                    {firstOfRun && (
-                      <span className="px-1 text-xs font-medium text-muted-foreground">
-                        {m.sender.lastName} {m.sender.firstName}
-                      </span>
-                    )}
-                    <div
-                      className={cn(
-                        'flex flex-col gap-1 rounded-2xl px-3 py-1.5 text-sm',
-                        fromAuthor ? 'bg-muted' : 'bg-primary/15',
-                      )}
-                    >
-                      {/* Вложения — тем же видом, что в чате: обращение и есть чат, а сотрудник
-                          в нём участник, так что ссылки на файлы выдаёт обычная проверка
-                          членства. Из «Чатов» обращения сотрудникам больше не попадают —
-                          смотреть скриншоты больше негде, кроме как здесь. */}
-                      {m.media && m.media.length > 0 && (
-                        <MessageAttachments
-                          media={m.media}
-                          // Пузыри здесь светлые, а не сплошные синие, как свои в чате:
-                          // подписи вложений нужны обычного цвета.
-                          mine={false}
-                          viewerMeta={{
-                            senderName: `${m.sender.lastName} ${m.sender.firstName}`,
-                            createdAt: m.createdAt,
-                            mine: !fromAuthor,
-                            caption: m.content ?? undefined,
-                          }}
-                        />
-                      )}
-                      {m.content && <p className="whitespace-pre-wrap break-words">{m.content}</p>}
-                      <time
-                        dateTime={m.createdAt}
-                        className="self-end text-[11px] tabular-nums text-muted-foreground"
-                      >
-                        {timeOf(m.createdAt)}
-                      </time>
-                    </div>
-                  </div>
+                  <SupportBubble
+                    message={m}
+                    fromAuthor={fromAuthor}
+                    firstOfRun={firstOfRun}
+                    myId={myId}
+                    time={timeOf(m.createdAt)}
+                    onReply={() => setReplyTo({ ticketId, message: m })}
+                    onReact={(emoji) => react.mutate({ messageId: m.id, emoji })}
+                    onJumpTo={jumpTo}
+                  />
                 </li>
               )
             })}
@@ -377,34 +366,16 @@ export function SupportThreadModal({ ticketId, onClose, onOpen }: SupportThreadM
               {t('takenByOtherHint')}
             </p>
           ) : (
-            <form
-              onSubmit={form.handleSubmit((values) => reply.mutate(values))}
-              className="flex flex-col gap-1.5"
-            >
-              {/* Закрытое обращение отвечать не мешает, но об этом говорим заранее, а не
-                  подсказкой в пустом поле, которая пропадает с первой буквой. */}
-              {closedTicket && <p className="text-xs text-muted-foreground">{t('replyReopens')}</p>}
-              <div className="flex items-end gap-2">
-                <Textarea
-                  rows={2}
-                  className="field-sizing-content max-h-40 flex-1 resize-none"
-                  placeholder={t('replyPlaceholder')}
-                  aria-label={t('replyPlaceholder')}
-                  aria-invalid={!!form.formState.errors.text}
-                  onKeyDown={(e) => {
-                    // Enter отправляет, Shift+Enter — перенос строки, как в чате.
-                    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-                      e.preventDefault()
-                      void form.handleSubmit((values) => reply.mutate(values))()
-                    }
-                  }}
-                  {...form.register('text')}
-                />
-                <Button type="submit" icon aria-label={t('send')} loading={reply.isPending}>
-                  <Send className="size-4" aria-hidden />
-                </Button>
-              </div>
-            </form>
+            <SupportComposer
+              ticketId={ticketId}
+              closedTicket={closedTicket}
+              replyTo={replyTo?.ticketId === ticketId ? replyTo.message : null}
+              onCancelReply={() => setReplyTo(null)}
+              onSent={() => {
+                setReplyTo(null)
+                void refresh()
+              }}
+            />
           )}
 
           {complaintOpen && (

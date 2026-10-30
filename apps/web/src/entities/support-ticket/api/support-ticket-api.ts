@@ -37,6 +37,23 @@ export interface SupportMessage {
   sender: SupportPerson
   /** Вложения — в форме вложения сообщения чата: обращение и есть чат, показываются они тем же видом. */
   media?: SupportAttachment[]
+  /** Реакции и цитата ответа — тоже как у сообщения чата (переписку отдаёт домен чатов). */
+  reactions?: SupportReaction[]
+  replyTo?: SupportReplyPreview | null
+}
+
+export interface SupportReaction {
+  emoji: string
+  userId: string
+  user: { id: string; firstName: string; lastName: string; avatarUrl: string | null }
+}
+
+/** Сообщение, на которое ответили. У удалённого оригинала текст пустой и есть `deletedAt`. */
+export interface SupportReplyPreview {
+  id: string
+  content: string
+  deletedAt?: string | null
+  sender: { id: string; firstName: string; lastName: string }
 }
 
 export interface SupportAttachment {

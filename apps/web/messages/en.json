@@ -5367,7 +5367,13 @@
     "topic": "Topic",
     "more": "More",
     "cancel": "Cancel",
-    "confirmMerge": "Merge tickets? This conversation becomes part of the selected one."
+    "confirmMerge": "Merge tickets? This conversation becomes part of the selected one.",
+    "react": "React",
+    "replyDeleted": "Message deleted",
+    "topicNone": "Not set",
+    "setTopic": "Set topic",
+    "editTopics": "Edit",
+    "topicsHint": "Support sets topics — the queue filter and summary rely on them. Up to three."
   },
   "LibraryReader": {
     "title": "Library",
