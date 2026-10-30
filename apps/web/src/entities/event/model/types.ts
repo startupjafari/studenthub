@@ -4,6 +4,7 @@ import type {
   MeetingProviderValue,
   PostAudienceValue,
 } from '@studenthub/shared-schemas'
+import type { Role } from '@studenthub/shared-types'
 export type { EventMeeting, MeetingProviderValue, PostAudienceValue }
 
 /**
@@ -51,7 +52,13 @@ export interface EventItem {
 export interface EventParticipant {
   userId: string
   createdAt: string
-  user: EventOrganizer
+  /** Поля сверх ФИО необязательны: их нет в ответах сервера до расширения списка. */
+  user: EventOrganizer & {
+    avatarThumbUrl?: string | null
+    role?: Role
+    group?: { name: string } | null
+    faculty?: { name: string } | null
+  }
 }
 
 /** Страница участников по порядку регистрации; `cursor` — по нему просят следующую. */
