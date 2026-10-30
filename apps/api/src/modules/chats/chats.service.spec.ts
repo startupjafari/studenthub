@@ -1720,6 +1720,23 @@ describe('ChatsService.listChats — курсор', () => {
     ])
     expect(page.meta).toMatchObject({ cursor: `${updatedAt.getTime()}_c9`, hasNext: true })
   })
+  it('сотруднику платформы обращения в поддержку в списке не отдаются', async () => {
+    const { service, prisma } = setup()
+    prisma.chat.findMany.mockResolvedValue([])
+    prisma.$queryRaw.mockResolvedValue([])
+    Object.assign(prisma.chatMember, { groupBy: jest.fn().mockResolvedValue([]) })
+    Object.assign(prisma.message, { groupBy: jest.fn().mockResolvedValue([]) })
+    const cursor = `${Date.now()}_c1`
+
+    await service.listChats({ ...user('staff'), role: Role.PLATFORM_ADMIN }, { limit: 20, cursor })
+    await service.listChats(user('u1'), { limit: 20, cursor })
+
+    expect(prisma.chat.findMany.mock.calls[0]?.[0].where.type).toEqual({
+      not: 'SUPPORT_PLATFORM',
+    })
+    // Автор обращения видит его обычным чатом.
+    expect(prisma.chat.findMany.mock.calls[1]?.[0].where.type).toBeUndefined()
+  })
 })
 
 describe('ChatsService.deleteOrLeaveChat', () => {
@@ -1838,6 +1855,19 @@ describe('ChatsService.getUnreadSummary', () => {
     Object.assign(prisma.message, { groupBy })
     return groupBy
   }
+
+  it('обращения в поддержку у сотрудника платформы в бейдж не идут, у остальных — как раньше', async () => {
+    const { service, prisma } = setup()
+    prisma.chatMember.findMany.mockResolvedValue([])
+
+    await service.getUnreadSummary({ ...user('staff'), role: Role.PLATFORM_ADMIN })
+    await service.getUnreadSummary(user('u1'))
+
+    expect(prisma.chatMember.findMany.mock.calls[0]?.[0].where.chat).toEqual({
+      type: { not: 'SUPPORT_PLATFORM' },
+    })
+    expect(prisma.chatMember.findMany.mock.calls[1]?.[0].where.chat).toEqual({})
+  })
 
   it('заглушённые чаты в бейдж не идут — их число отдельно', async () => {
     const { service, prisma } = setup()

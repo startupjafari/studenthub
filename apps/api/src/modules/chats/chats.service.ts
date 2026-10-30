@@ -27,6 +27,7 @@ import { buildPublicObjectUrl } from '../../common/minio/public-url'
 import { AppException } from '../../common/exceptions/app.exception'
 import { Paginated } from '../../common/http/paginated'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
+import { isPlatformRole } from '../../common/auth/group-scope'
 import { LINK_PREVIEW_JOBS, NOTIFICATION_JOBS, QUEUES, QueueService } from '../../common/queue'
 import { RealtimeGateway } from '../../common/realtime'
 import { FileService } from '../files/file.service'
@@ -218,6 +219,17 @@ function unreadBranch(
 
 // Потолок разбора членств для сводного счётчика непрочитанного (см. getUnreadSummary).
 const UNREAD_SCAN_LIMIT = 500
+
+/**
+ * Чаты, которых нет в списке смотрящего. Обращения в поддержку платформы сотрудник платформы
+ * разбирает в «Поддержке», а не в «Чатах»: в каждое обращение команду добавляют целиком, и
+ * сотня веток «Поддержка StudentHub» заслоняла его собственную переписку и раздувала бейдж
+ * непрочитанных. Участником обращения он при этом остаётся — переписка и вложения открываются
+ * из очереди поддержки по членству, как и раньше. У автора обращение — обычный чат в списке.
+ */
+function listWhereFor(viewer: JwtPayload): Prisma.ChatWhereInput {
+  return isPlatformRole(viewer.role) ? { type: { not: ChatType.SUPPORT_PLATFORM } } : {}
+}
 
 /** Сводка непрочитанного для бейджа: без заглушённых чатов, они — отдельно в `muted`. */
 interface UnreadSummary {
@@ -660,6 +672,7 @@ export class ChatsService implements OnModuleInit {
       // Забаненные (bannedAt != null) и скрытые «у себя» (hiddenAt != null) чаты в списке не показываем.
       where: {
         members: { some: { userId: viewer.sub, bannedAt: null, hiddenAt: null } },
+        ...listWhereFor(viewer),
         // Граница страницы — пара (updatedAt, id), запомненная в курсоре. Курсор Prisma по id
         // брал updatedAt чата-курсора на момент СЛЕДУЮЩЕГО запроса: стоило в нём появиться
         // сообщению, он уезжал наверх, и вторая страница начиналась с начала списка — дубли.
@@ -910,7 +923,13 @@ export class ChatsService implements OnModuleInit {
     const members = await this.prisma.chatMember.findMany({
       // Архив ради того и нужен, чтобы эти чаты перестали требовать внимания — в бейдж
       // они не идут.
-      where: { userId: viewer.sub, bannedAt: null, hiddenAt: null, archivedAt: null },
+      where: {
+        userId: viewer.sub,
+        bannedAt: null,
+        hiddenAt: null,
+        archivedAt: null,
+        chat: listWhereFor(viewer),
+      },
       select: {
         chatId: true,
         lastReadAt: true,
