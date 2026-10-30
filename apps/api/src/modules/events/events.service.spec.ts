@@ -687,6 +687,28 @@ describe('EventsService — комментарии (§3.5)', () => {
     expect(view).toMatchObject({ canDelete: true, replyTo: null })
   })
 
+  it('спойлер ставится только на файлы этого комментария, «без сжатия» — на все', async () => {
+    const { service, prisma } = setup()
+    prisma.event.findFirst.mockResolvedValue({ organizerId: 'org', universityId: null })
+    prisma.file.updateMany.mockResolvedValueOnce({ count: 2 })
+    prisma.eventComment.findUniqueOrThrow.mockResolvedValue(created())
+
+    await service.addComment(user(Role.STUDENT, { sub: 'u1' }), 'e1', {
+      mediaIds: ['f1', 'f2'],
+      spoilerIds: ['f2', 'чужой'],
+      asDocument: true,
+    })
+
+    expect(prisma.file.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ['f2'] }, eventCommentId: 'c-new' },
+      data: { spoiler: true },
+    })
+    expect(prisma.file.updateMany).toHaveBeenCalledWith({
+      where: { eventCommentId: 'c-new' },
+      data: { asDocument: true },
+    })
+  })
+
   it('чужое или уже прикреплённое вложение — отказ, комментарий не остаётся', async () => {
     const { service, prisma } = setup()
     prisma.event.findFirst.mockResolvedValue({ organizerId: 'org', universityId: null })

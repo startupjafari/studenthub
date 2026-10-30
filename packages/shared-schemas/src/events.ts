@@ -143,6 +143,10 @@ export const CreateEventCommentSchema = z
   .object({
     content: z.string().trim().max(2000).optional(),
     mediaIds: z.array(z.string().min(1)).max(10).optional(),
+    // Флаги отправителя из диалога вложений, как в чате: какие из `mediaIds` под спойлером
+    // и «без сжатия» — снимки показываются строками файлов, а не превью.
+    spoilerIds: z.array(z.string().min(1)).max(10).optional(),
+    asDocument: z.boolean().optional(),
     replyToId: z.string().min(1).optional(),
   })
   .strict()

@@ -648,6 +648,20 @@ export class EventsService {
         if (linked.count !== mediaIds.length) {
           throw new AppException('BAD_REQUEST', 'Вложение не найдено или уже прикреплено')
         }
+        // Флаги ставятся только на файлы этого комментария: чужой id в spoilerIds ничего не задел.
+        const spoilerIds = (input.spoilerIds ?? []).filter((fileId) => mediaIds.includes(fileId))
+        if (spoilerIds.length > 0) {
+          await tx.file.updateMany({
+            where: { id: { in: spoilerIds }, eventCommentId: created.id },
+            data: { spoiler: true },
+          })
+        }
+        if (input.asDocument) {
+          await tx.file.updateMany({
+            where: { eventCommentId: created.id },
+            data: { asDocument: true },
+          })
+        }
       }
       return tx.eventComment.findUniqueOrThrow({
         where: { id: created.id },
