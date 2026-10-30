@@ -489,13 +489,14 @@ export function SupportThreadModal({ ticketId, onClose, onOpen }: SupportThreadM
             setComplaintTarget(null)
           }}
           title={t('fileComplaint')}
-          size="md"
+          size="lg"
         >
           <div className="flex flex-col gap-4">
             <p className="text-sm text-muted-foreground">{t('complaintHint')}</p>
             <div className="flex flex-col gap-1.5">
               <span className="text-sm font-medium">{t('complaintTarget')}</span>
               <UserPicker
+                inline
                 value={complaintTarget}
                 onSelect={setComplaintTarget}
                 placeholder={t('complaintTargetPlaceholder')}

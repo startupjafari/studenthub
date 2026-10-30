@@ -7,13 +7,16 @@ import { Search, X } from 'lucide-react'
 import { Role } from '@studenthub/shared-types'
 import { useAppSelector } from '../../../shared/store'
 import { adminUserKeys, directoryKeys, fetchUserDirectory, fetchUsers } from '../api/user-api'
-import { Input } from '../../../shared/ui'
+import { Avatar, AvatarFallback, AvatarImage, Input } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 
 export interface PickedUser {
   id: string
   firstName: string
   lastName: string
+  /** Для показа выбранного: аватар и подпись, по которой его отличают от однофамильцев. */
+  avatarThumbUrl?: string | null
+  caption?: string
 }
 
 interface UserPickerProps {
@@ -22,6 +25,11 @@ interface UserPickerProps {
   // Одна роль или несколько: преподавателем пары можно поставить и декана (C-F27).
   roleFilter?: Role | readonly Role[]
   placeholder?: string
+  /**
+   * Результаты под полем, в потоке, а не всплывающим списком поверх. Нужно внутри окна:
+   * всплывающий список упирается в его край и прокручивает окно вместо себя.
+   */
+  inline?: boolean
 }
 
 const ADMIN_ROLES: Role[] = [
@@ -37,8 +45,15 @@ const ADMIN_ROLES: Role[] = [
 // а без запроса — круг общения (друзья и одногруппники). Раньше не-админам показывались
 // только участники своей группы, и позвать в чат-группу однокурсника с другого потока было
 // нельзя, хотя написать ему лично — можно.
-export function UserPicker({ value, onSelect, roleFilter, placeholder }: UserPickerProps) {
+export function UserPicker({
+  value,
+  onSelect,
+  roleFilter,
+  placeholder,
+  inline = false,
+}: UserPickerProps) {
   const t = useTranslations('People')
+  const tRoles = useTranslations('Roles')
   const viewerRole = useAppSelector((s) => s.auth.role)
   const canAdminSearch = viewerRole !== null && ADMIN_ROLES.includes(viewerRole)
 
@@ -91,16 +106,30 @@ export function UserPicker({ value, onSelect, roleFilter, placeholder }: UserPic
 
   // Фильтр по роли справочник не принимает (он не про подбор преподавателя, а про людей
   // вокруг) — отсеиваем на клиенте по роли, которая и так есть в каждой карточке.
+  // Подпись строки — то, чем отличаются однофамильцы: роль и почта у админского поиска,
+  // роль и группа (или факультет) у справочника. Одних ФИО в длинном списке не хватало.
   const results: PickedUser[] = canAdminSearch
-    ? (adminQuery.data ?? [])
-    : (directoryQuery.data?.items ?? []).filter((u) => roles.length === 0 || roles.includes(u.role))
+    ? (adminQuery.data ?? []).map((u) => ({
+        id: u.id,
+        firstName: u.firstName,
+        lastName: u.lastName,
+        avatarThumbUrl: u.avatarThumbUrl,
+        caption: `${tRoles(u.role)} · ${u.email}`,
+      }))
+    : (directoryQuery.data?.items ?? [])
+        .filter((u) => roles.length === 0 || roles.includes(u.role))
+        .map((u) => ({
+          id: u.id,
+          firstName: u.firstName,
+          lastName: u.lastName,
+          avatarThumbUrl: u.avatarThumbUrl,
+          caption: [tRoles(u.role), u.groupName ?? u.facultyName].filter(Boolean).join(' · '),
+        }))
 
   if (value) {
     return (
       <div className="flex items-center justify-between gap-2 rounded-xl border border-input px-3 py-2 text-sm">
-        <span>
-          {value.lastName} {value.firstName}
-        </span>
+        <PersonRow person={value} />
         <button
           type="button"
           aria-label={t('clear')}
@@ -132,7 +161,12 @@ export function UserPicker({ value, onSelect, roleFilter, placeholder }: UserPic
         />
       </div>
       {open && (
-        <div className="absolute z-50 mt-1 max-h-60 w-full overflow-y-auto rounded-xl border border-border bg-background shadow-sm">
+        <div
+          className={cn(
+            'w-full overflow-y-auto rounded-xl border border-border bg-popover p-1',
+            inline ? 'mt-2 max-h-72' : 'absolute z-50 mt-1 max-h-60 shadow-lg',
+          )}
+        >
           {canAdminSearch && search.trim().length < 2 ? (
             <p className="px-3 py-2 text-xs text-muted-foreground">{t('typeToSearch')}</p>
           ) : results.length === 0 ? (
@@ -143,20 +177,40 @@ export function UserPicker({ value, onSelect, roleFilter, placeholder }: UserPic
                 key={u.id}
                 type="button"
                 onClick={() => {
-                  onSelect({ id: u.id, firstName: u.firstName, lastName: u.lastName })
+                  onSelect(u)
                   setOpen(false)
                   setSearch('')
                 }}
-                className={cn(
-                  'block w-full cursor-pointer px-3 py-2 text-left text-sm transition-colors hover:bg-muted',
-                )}
+                className="flex w-full cursor-pointer items-center rounded-lg px-2 py-1.5 text-left text-sm transition-colors hover:bg-muted"
               >
-                {u.lastName} {u.firstName}
+                <PersonRow person={u} />
               </button>
             ))
           )}
         </div>
       )}
     </div>
+  )
+}
+
+/** Человек строкой: аватар, ФИО и подпись (роль и чем отличается от однофамильцев). */
+function PersonRow({ person }: { person: PickedUser }) {
+  return (
+    <span className="flex min-w-0 items-center gap-2.5">
+      <Avatar className="size-8 shrink-0">
+        {person.avatarThumbUrl && <AvatarImage src={person.avatarThumbUrl} alt="" />}
+        <AvatarFallback className="text-xs">
+          {`${person.firstName[0] ?? ''}${person.lastName[0] ?? ''}`.toUpperCase()}
+        </AvatarFallback>
+      </Avatar>
+      <span className="flex min-w-0 flex-col">
+        <span className="truncate font-medium">
+          {person.lastName} {person.firstName}
+        </span>
+        {person.caption && (
+          <span className="truncate text-xs text-muted-foreground">{person.caption}</span>
+        )}
+      </span>
+    </span>
   )
 }
