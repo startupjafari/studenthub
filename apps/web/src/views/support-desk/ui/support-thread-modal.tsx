@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
@@ -19,7 +20,11 @@ import {
 } from '../../../entities/support-ticket'
 import { ProfileLink, UserPicker, type PickedUser } from '../../../entities/user'
 import { complaintKeys, createComplaintFromSupportRequest } from '../../../entities/complaint'
-import { toggleReactionRequest } from '../../../entities/chat'
+import {
+  MessageContextMenu,
+  toggleReactionRequest,
+  type MessageMenuAnchor,
+} from '../../../entities/chat'
 import {
   Avatar,
   AvatarFallback,
@@ -62,6 +67,7 @@ export function SupportThreadModal({ ticketId, onClose, onOpen }: SupportThreadM
   const t = useTranslations('SupportDesk')
   const tErr = useTranslations('Errors')
   const tRoles = useTranslations('Roles')
+  const tChat = useTranslations('Chats')
   const locale = useLocale()
   const qc = useQueryClient()
   const confirm = useConfirm()
@@ -110,6 +116,13 @@ export function SupportThreadModal({ ticketId, onClose, onOpen }: SupportThreadM
   // Ответ на конкретное сообщение — как в чате. Привязан к обращению: после склейки окно
   // открывает другое, и цитата отсюда там не нужна.
   const [replyTo, setReplyTo] = useState<{ ticketId: string; message: SupportMessage } | null>(null)
+  // Меню сообщения по правому клику — то же, что в чате; пункты — те, что бывают в обращении.
+  const [menu, setMenu] = useState<{
+    message: SupportMessage
+    x: number
+    y: number
+    anchor?: MessageMenuAnchor
+  } | null>(null)
   // Реакции — чатовой ручкой: сотрудник участник обращения, право то же, что в чате.
   const react = useMutation({
     mutationFn: ({ messageId, emoji }: { messageId: string; emoji: string }) =>
@@ -378,6 +391,7 @@ export function SupportThreadModal({ ticketId, onClose, onOpen }: SupportThreadM
                     onReply={() => setReplyTo({ ticketId, message: m })}
                     onReact={(emoji) => react.mutate({ messageId: m.id, emoji })}
                     onJumpTo={jumpTo}
+                    onOpenMenu={(x, y, anchor) => setMenu({ message: m, x, y, anchor })}
                   />
                 </li>
               )
@@ -480,6 +494,33 @@ export function SupportThreadModal({ ticketId, onClose, onOpen }: SupportThreadM
           </footer>
         </div>
       )}
+      {/* Меню — порталом в body и выше окна: внутри окна его сдвиг (translate) и
+          overflow-hidden ломали бы позицию и обрезали меню. Radix запрещает нажатия вне
+          диалога — слою возвращаем их явно; закрывать окно такие нажатия не будут (Modal). */}
+      {menu &&
+        createPortal(
+          <div className="relative z-[110]" style={{ pointerEvents: 'auto' }}>
+            <MessageContextMenu
+              message={menu.message}
+              mine={menu.message.sender.id === myId}
+              // Сообщения обращения сотрудник не удаляет: переписка — материал разбора.
+              canDelete={false}
+              x={menu.x}
+              y={menu.y}
+              anchor={menu.anchor}
+              onClose={() => setMenu(null)}
+              actions={{
+                onReact: (emoji) => react.mutate({ messageId: menu.message.id, emoji }),
+                onReply: () => setReplyTo({ ticketId, message: menu.message }),
+                onCopy: () => {
+                  void navigator.clipboard?.writeText(menu.message.content ?? '')
+                  toast.success(tChat('copied'))
+                },
+              }}
+            />
+          </div>,
+          document.body,
+        )}
       {/* Жалоба — отдельным окном поверх обращения: встроенная панель сжимала переписку и
           смешивала свои кнопки с подвалом обращения. */}
       {complaintOpen && (

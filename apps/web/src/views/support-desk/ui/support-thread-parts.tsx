@@ -37,10 +37,12 @@ import {
   sendMessageWithDirectUpload,
   useVoiceRecorder,
   type AttachmentSendOptions,
+  type MessageMenuAnchor,
 } from '../../../entities/chat'
 import { needsDirectUpload } from '../../../shared/api'
 import {
   Button,
+  captureAnchor,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -69,6 +71,7 @@ export function SupportBubble({
   onReply,
   onReact,
   onJumpTo,
+  onOpenMenu,
   time,
 }: {
   message: SupportMessage
@@ -78,6 +81,8 @@ export function SupportBubble({
   onReply: () => void
   onReact: (emoji: string) => void
   onJumpTo: (messageId: string) => void
+  /** Правый клик (на телефоне — долгое нажатие): меню сообщения, как в чате. */
+  onOpenMenu: (x: number, y: number, anchor?: MessageMenuAnchor) => void
   time: string
 }) {
   const t = useTranslations('SupportDesk')
@@ -94,6 +99,13 @@ export function SupportBubble({
         'max-w-[85%]',
         firstOfRun && 'mt-1.5 first:mt-0',
       )}
+      onContextMenu={(e) => {
+        e.preventDefault()
+        // Долгое нажатие на тач-экране приходит тем же событием: меню тогда вырастает из
+        // самого пузыря, как в чате. Мышью — у точки клика.
+        const touch = (e.nativeEvent as PointerEvent).pointerType === 'touch'
+        onOpenMenu(e.clientX, e.clientY, touch ? captureAnchor(e.currentTarget) : undefined)
+      }}
     >
       <div
         className={cn('flex min-w-0 flex-col gap-0.5', fromAuthor ? 'items-start' : 'items-end')}
