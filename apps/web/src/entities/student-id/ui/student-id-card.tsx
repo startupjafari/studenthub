@@ -5,7 +5,7 @@ import { useLocale, useTranslations } from 'next-intl'
 import { BadgeCheck, GraduationCap } from 'lucide-react'
 import { Avatar, AvatarFallback, AvatarImage, Badge } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
-import type { StudentIdCard as Card } from '../../../entities/student-id'
+import type { StudentIdCard as Card } from '../model/types'
 
 // Справочные поля профиля хранятся кодами (`BACHELOR`, `FULL_TIME`, `GRANT`), но вуз мог
 // заполнить их и готовой строкой на своём языке. Поэтому не собираем ключ из значения

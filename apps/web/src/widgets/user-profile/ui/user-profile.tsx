@@ -7,7 +7,7 @@ import Image from 'next/image'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useTranslations } from 'next-intl'
-import { isRestrictedRole } from '@studenthub/shared-types'
+import { Role, isRestrictedRole } from '@studenthub/shared-types'
 import {
   BarChart3,
   Camera,
@@ -39,6 +39,7 @@ import { BRAND_GRADIENT } from '../../../shared/config'
 import { useSheetDragClose } from '../../../shared/lib'
 import { syncSessionUser } from '../../../shared/session'
 import { AccountSettingsPanels } from '../../account-settings'
+import { StudentIdButton } from '../../../features/show-student-id'
 import { FILE_UPLOAD } from '@studenthub/shared-config'
 import {
   fetchMe,
@@ -350,6 +351,10 @@ function ProfileHeader({
     <Card className={`relative overflow-hidden p-0 ${ENTER}`}>
       {/* Действия — над обложкой справа (Telegram/VK-стиль): поделиться + редактировать/сохранить. */}
       <div className="absolute top-3 right-3 z-20 flex items-center gap-2 sm:top-4 sm:right-4">
+        {/* Цифровой студенческий живёт в профиле, а не в меню: показывают его с телефона. */}
+        {!editing && (me.role === Role.STUDENT || me.role === Role.STAROSTA) && (
+          <StudentIdButton className="shadow-md" />
+        )}
         {social && (
           <ShareProfileButton userId={me.id} name={fullNameOf(me)} className="shadow-md" />
         )}
