@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { Flag, GitMerge, MoreHorizontal, Pencil, ShieldAlert, Undo2, UserRound } from 'lucide-react'
+import { Flag, GitMerge, Pencil, ShieldAlert, Undo2 } from 'lucide-react'
 import { SUPPORT_TAGS, type SupportTag } from '@studenthub/shared-schemas'
 import {
   assignSupportRequest,
@@ -21,6 +21,9 @@ import { ProfileLink, UserPicker, type PickedUser } from '../../../entities/user
 import { complaintKeys, createComplaintFromSupportRequest } from '../../../entities/complaint'
 import { toggleReactionRequest } from '../../../entities/chat'
 import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
   Badge,
   Button,
   DropdownMenu,
@@ -58,6 +61,8 @@ interface SupportThreadModalProps {
 export function SupportThreadModal({ ticketId, onClose, onOpen }: SupportThreadModalProps) {
   const t = useTranslations('SupportDesk')
   const tErr = useTranslations('Errors')
+  const tRoles = useTranslations('Roles')
+  const tCommon = useTranslations('Common')
   const locale = useLocale()
   const qc = useQueryClient()
   const confirm = useConfirm()
@@ -220,32 +225,51 @@ export function SupportThreadModal({ ticketId, onClose, onOpen }: SupportThreadM
           {/* Сводка: что за обращение и кто за него отвечает. Подписанные пары вместо строки
               без разделителей — «Профиль автора» и «Разбирает» читались одним предложением. */}
           <section className="flex flex-col gap-3 rounded-xl border border-border p-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant={closedTicket ? 'secondary' : 'info'}>
-                {closedTicket ? t('statusClosed') : t('statusOpen')}
-              </Badge>
-              <span className="text-xs text-muted-foreground">
-                {t('createdAt', {
-                  date: new Date(ticket.createdAt).toLocaleString(locale, {
-                    day: 'numeric',
-                    month: 'long',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  }),
-                })}
-              </span>
-              {data.mergedCount > 0 && (
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant={closedTicket ? 'secondary' : 'info'}>
+                  {closedTicket ? t('statusClosed') : t('statusOpen')}
+                </Badge>
                 <span className="text-xs text-muted-foreground">
-                  · {t('mergedCount', { count: data.mergedCount })}
+                  {t('createdAt', {
+                    date: new Date(ticket.createdAt).toLocaleString(locale, {
+                      day: 'numeric',
+                      month: 'long',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    }),
+                  })}
                 </span>
-              )}
+                {data.mergedCount > 0 && (
+                  <span className="text-xs text-muted-foreground">
+                    · {t('mergedCount', { count: data.mergedCount })}
+                  </span>
+                )}
+              </div>
+              {/* Кто пишет: аватар, роль и вуз — студенту и админу вуза отвечают по-разному.
+                  Карточка целиком ведёт в профиль. */}
               {author && (
                 <ProfileLink
                   userId={author.id}
-                  className="ml-auto flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                  title={t('openProfile')}
+                  className="flex min-w-0 items-center gap-2.5 rounded-lg p-1 pr-2 transition-colors hover:bg-muted"
                 >
-                  <UserRound className="size-3.5" aria-hidden />
-                  {t('openProfile')}
+                  <Avatar className="size-9">
+                    {author.avatarThumbUrl && <AvatarImage src={author.avatarThumbUrl} alt="" />}
+                    <AvatarFallback className="text-xs">
+                      {`${author.firstName[0] ?? ''}${author.lastName[0] ?? ''}`.toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
+                  <span className="flex min-w-0 flex-col">
+                    <span className="truncate text-sm font-medium">
+                      {author.lastName} {author.firstName}
+                    </span>
+                    <span className="truncate text-xs text-muted-foreground">
+                      {[author.role ? tRoles(author.role) : null, author.university]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </span>
+                  </span>
                 </ProfileLink>
               )}
             </div>
@@ -378,67 +402,67 @@ export function SupportThreadModal({ ticketId, onClose, onOpen }: SupportThreadM
             />
           )}
 
-          {/* Подвал: слева редкие действия в меню «Ещё», справа — одно главное по ситуации:
-              взять свободное обращение или закрыть своё. Раньше пять действий одного веса
-              стояли в ряд, и «Позвать администратора» было в одном ряду с «Закрыть». */}
-          <footer className="flex items-center gap-2 border-t border-border pt-3">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" className="mr-auto">
-                  <MoreHorizontal className="size-4" aria-hidden />
-                  {t('more')}
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start" side="top" className="w-64">
-                {mine && (
-                  <DropdownMenuItem
-                    disabled={assign.isPending}
-                    onSelect={() => assign.mutate(false)}
-                  >
-                    <Undo2 className="size-4" aria-hidden />
-                    {t('release')}
-                  </DropdownMenuItem>
-                )}
-                {author && (
-                  <DropdownMenuItem onSelect={() => setComplaintOpen(true)}>
-                    <Flag className="size-4" aria-hidden />
-                    {t('fileComplaint')}
-                  </DropdownMenuItem>
-                )}
-                <DropdownMenuItem
-                  disabled={escalate.isPending}
-                  onSelect={async () => {
-                    if (await confirm({ title: t('confirmEscalate') })) escalate.mutate()
-                  }}
-                >
-                  <ShieldAlert className="size-4" aria-hidden />
-                  {t('escalate')}
-                </DropdownMenuItem>
-                {/* Склейка — только когда у автора есть другие обращения. */}
-                {data.siblings.length > 0 && (
-                  <>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
-                      {t('mergeWith')}
-                    </DropdownMenuLabel>
-                    {data.siblings.map((sibling) => (
-                      <DropdownMenuItem
-                        key={sibling.id}
-                        disabled={merge.isPending}
-                        onSelect={async () => {
-                          if (await confirm({ title: t('confirmMerge') })) merge.mutate(sibling.id)
-                        }}
-                      >
-                        <GitMerge className="size-4" aria-hidden />
-                        {new Date(sibling.createdAt).toLocaleDateString(locale)}
-                        {sibling.closed ? ` · ${t('statusClosed')}` : ''}
-                      </DropdownMenuItem>
-                    ))}
-                  </>
-                )}
-              </DropdownMenuContent>
-            </DropdownMenu>
+          {/* Подвал: слева выход из окна, справа действия по обращению — от вспомогательных к
+              главному. Главное одно и последнее: взять свободное или закрыть своё. */}
+          <footer className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
+            <Button variant="ghost" className="mr-auto" onClick={onClose}>
+              {tCommon('close')}
+            </Button>
 
+            {/* Склейка — только когда у автора есть другие обращения: её цель надо выбрать. */}
+            {data.siblings.length > 0 && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" disabled={merge.isPending}>
+                    <GitMerge className="size-4" aria-hidden />
+                    {t('merge')}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" side="top" className="w-64">
+                  <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                    {t('mergeWith')}
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  {data.siblings.map((sibling) => (
+                    <DropdownMenuItem
+                      key={sibling.id}
+                      onSelect={async () => {
+                        if (await confirm({ title: t('confirmMerge') })) merge.mutate(sibling.id)
+                      }}
+                    >
+                      {new Date(sibling.createdAt).toLocaleDateString(locale)}
+                      {sibling.closed ? ` · ${t('statusClosed')}` : ''}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+            <Button
+              variant="outline"
+              loading={escalate.isPending}
+              onClick={async () => {
+                if (await confirm({ title: t('confirmEscalate') })) escalate.mutate()
+              }}
+            >
+              <ShieldAlert className="size-4" aria-hidden />
+              {t('escalate')}
+            </Button>
+            {author && (
+              <Button variant="outline" onClick={() => setComplaintOpen(true)}>
+                <Flag className="size-4" aria-hidden />
+                {t('fileComplaint')}
+              </Button>
+            )}
+            {mine && (
+              <Button
+                variant="outline"
+                loading={assign.isPending}
+                onClick={() => assign.mutate(false)}
+              >
+                <Undo2 className="size-4" aria-hidden />
+                {t('release')}
+              </Button>
+            )}
             {!ticket.assigneeId && (
               <Button loading={assign.isPending} onClick={() => assign.mutate(true)}>
                 {t('take')}

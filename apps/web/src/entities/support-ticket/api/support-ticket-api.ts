@@ -1,3 +1,4 @@
+import type { Role } from '@studenthub/shared-types'
 import type { SupportQueueQueryInput, SupportTag } from '@studenthub/shared-schemas'
 import {
   api,
@@ -14,6 +15,11 @@ export interface SupportPerson {
   id: string
   firstName: string
   lastName: string
+  /** У автора обращения и разбирающего — для шапки обращения; у отправителя сообщения нет. */
+  role?: Role
+  avatarThumbUrl?: string | null
+  /** Короткое название вуза автора; у платформенных ролей — null. */
+  university?: string | null
 }
 
 export interface SupportTicket {
