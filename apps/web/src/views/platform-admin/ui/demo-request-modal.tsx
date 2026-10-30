@@ -90,6 +90,8 @@ export function DemoRequestModal({ request, onClose, onDecided }: Props) {
   const tCommon = useTranslations('Common')
   const locale = useLocale()
   const [mode, setMode] = useState<'view' | 'approve' | 'reject'>('view')
+  // Ссылка нового приглашения: сервер отдаёт её один раз, дальше хранит только хэш.
+  const [inviteLink, setInviteLink] = useState<string | null>(null)
   // Город заявки обычно текст с публичной формы, но может оказаться и кодом КАТО —
   // код показываем названием, текст как есть.
   const { nameOf: cityName } = useKatoNames([request.city])
@@ -138,11 +140,11 @@ export function DemoRequestModal({ request, onClose, onDecided }: Props) {
           </section>
         )}
 
-        {decided && (
+        {/* Одобрение и так видно по статусу в шапке, а у отказа есть что показать: причину
+            и заметку. */}
+        {request.status === 'REJECTED' && (
           <section className="flex flex-col gap-1 rounded-xl border border-border bg-muted/40 p-3">
-            <h4 className="text-sm font-medium">
-              {request.status === 'APPROVED' ? t('approved') : t('rejected')}
-            </h4>
+            <h4 className="text-sm font-medium">{t('rejected')}</h4>
             {request.rejectionReason && (
               <p className="text-sm text-muted-foreground">
                 {t(`reason${request.rejectionReason}`)}
@@ -154,7 +156,7 @@ export function DemoRequestModal({ request, onClose, onDecided }: Props) {
           </section>
         )}
 
-        {request.status === 'APPROVED' && mode === 'view' && <ReissueInvite request={request} />}
+        {inviteLink && <InviteLink link={inviteLink} />}
 
         {mode === 'approve' && (
           <ApproveForm request={request} onBack={() => setMode('view')} onDecided={onDecided} />
@@ -165,7 +167,7 @@ export function DemoRequestModal({ request, onClose, onDecided }: Props) {
 
         {/* Подвал: слева выход без решения, справа сами решения — как в разборе жалобы.
             У решённой заявки решений нет: кнопка «одобрить» на одобренной обещает
-            действие, которого не будет. */}
+            действие, которого не будет. У одобренной справа — повтор приглашения. */}
         {mode === 'view' && (
           <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-4">
             <Button type="button" variant="outline" onClick={onClose}>
@@ -181,6 +183,9 @@ export function DemoRequestModal({ request, onClose, onDecided }: Props) {
                 </Button>
               </div>
             )}
+            {request.status === 'APPROVED' && !inviteLink && (
+              <ReissueInviteButton request={request} onIssued={setInviteLink} />
+            )}
           </footer>
         )}
       </div>
@@ -191,20 +196,25 @@ export function DemoRequestModal({ request, onClose, onDecided }: Props) {
 /**
  * Приглашение админу вуза заново. Письмо могло не дойти, а ссылку на одобрении никто не
  * видел: сервер хранит только хэш токена. Повтор выписывает новое приглашение, старая
- * ссылка перестаёт работать, письмо уходит снова, а ссылка показывается здесь один раз —
- * её можно передать руками.
+ * ссылка перестаёт работать, письмо уходит снова, а ссылка показывается в окне один раз —
+ * её можно передать руками. Что произойдёт, объясняет подтверждение.
  */
-function ReissueInvite({ request }: { request: DemoRequest }) {
+function ReissueInviteButton({
+  request,
+  onIssued,
+}: {
+  request: DemoRequest
+  onIssued: (link: string) => void
+}) {
   const t = useTranslations('DemoAdmin')
   const tErr = useTranslations('Errors')
   const confirm = useConfirm()
-  const [link, setLink] = useState<string | null>(null)
 
   const mut = useMutation({
     mutationFn: () => reissueDemoInvite(request.id),
     // Окно не закрываем: ссылка показывается здесь один раз, её ещё нужно скопировать.
     onSuccess: ({ inviteUrl }) => {
-      setLink(inviteUrl)
+      onIssued(inviteUrl)
       toast.success(t('reissued'))
     },
     onError: (e: unknown) => toast.error(tErr(toApiError(e).code)),
@@ -220,39 +230,34 @@ function ReissueInvite({ request }: { request: DemoRequest }) {
   }
 
   return (
-    <section className="flex flex-col gap-2 rounded-xl border border-border p-3">
-      <p className="text-sm text-muted-foreground">{t('reissueExplain')}</p>
-      {link ? (
-        <div className="flex flex-col gap-2 sm:flex-row">
-          <code className="flex h-10 min-w-0 flex-1 items-center truncate rounded-xl border border-border bg-background px-3.5 text-sm">
-            {link}
-          </code>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => {
-              void navigator.clipboard.writeText(link)
-              toast.success(t('linkCopied'))
-            }}
-          >
-            <Copy className="size-4" aria-hidden />
-            {t('copyLink')}
-          </Button>
-        </div>
-      ) : (
-        <div>
-          <Button
-            type="button"
-            variant="outline"
-            loading={mut.isPending}
-            onClick={() => void reissue()}
-          >
-            <Link2 className="size-4" aria-hidden />
-            {t('reissueInvite')}
-          </Button>
-        </div>
-      )}
-    </section>
+    <Button type="button" variant="outline" loading={mut.isPending} onClick={() => void reissue()}>
+      <Link2 className="size-4" aria-hidden />
+      {t('reissueInvite')}
+    </Button>
+  )
+}
+
+/** Только что выписанная ссылка приглашения с копированием. */
+function InviteLink({ link }: { link: string }) {
+  const t = useTranslations('DemoAdmin')
+
+  return (
+    <div className="flex flex-col gap-2 sm:flex-row">
+      <code className="flex h-10 min-w-0 flex-1 items-center truncate rounded-xl border border-border bg-background px-3.5 text-sm">
+        {link}
+      </code>
+      <Button
+        type="button"
+        variant="outline"
+        onClick={() => {
+          void navigator.clipboard.writeText(link)
+          toast.success(t('linkCopied'))
+        }}
+      >
+        <Copy className="size-4" aria-hidden />
+        {t('copyLink')}
+      </Button>
+    </div>
   )
 }
 
