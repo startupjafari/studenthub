@@ -649,6 +649,45 @@ describe('SupportService — теги', () => {
     })
   })
 
+  it('у автора — роль, аватар и короткое название вуза для шапки обращения', async () => {
+    const { service, prisma } = setup()
+    prisma.chat.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([
+      {
+        id: 't1',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        supportClosedAt: null,
+        supportAssigneeId: null,
+        supportFirstReplyAt: null,
+        supportTags: [],
+        members: [
+          {
+            user: {
+              id: 'u1',
+              firstName: 'А',
+              lastName: 'Б',
+              role: Role.TEACHER,
+              avatarThumbUrl: 'https://cdn/a.webp',
+              university: { name: 'Университет «Алатау»', shortName: 'АУ' },
+            },
+          },
+        ],
+      },
+    ])
+    prisma.$queryRaw.mockResolvedValue([])
+
+    const page = await service.queue(staff, { status: 'open', assignee: 'any', page: 1, limit: 30 })
+
+    expect(page.items[0]).toMatchObject({
+      author: {
+        id: 'u1',
+        role: Role.TEACHER,
+        avatarThumbUrl: 'https://cdn/a.webp',
+        university: 'АУ',
+      },
+    })
+  })
+
   // BUG-182: вся команда платформы состоит в каждом обращении — строка очереди не тянет её
   // целиком, а разбирающего читает одним запросом на страницу.
   it('из участников берёт только автора, разбирающего — отдельным запросом', async () => {

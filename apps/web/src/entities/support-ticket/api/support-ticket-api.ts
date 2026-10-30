@@ -1,5 +1,12 @@
+import type { Role } from '@studenthub/shared-types'
 import type { SupportQueueQueryInput, SupportTag } from '@studenthub/shared-schemas'
-import { api, getPaged, type Paged, type ResponseWithMeta } from '../../../shared/api'
+import {
+  api,
+  getPaged,
+  type MediaStatus,
+  type Paged,
+  type ResponseWithMeta,
+} from '../../../shared/api'
 
 // Обращения в поддержку платформы — рабочее место команды платформы (админ и модератор
 // платформы). Типы повторяют ответ `/support`; тот же контракт читает мини-апп.
@@ -8,6 +15,11 @@ export interface SupportPerson {
   id: string
   firstName: string
   lastName: string
+  /** У автора обращения и разбирающего — для шапки обращения; у отправителя сообщения нет. */
+  role?: Role
+  avatarThumbUrl?: string | null
+  /** Короткое название вуза автора; у платформенных ролей — null. */
+  university?: string | null
 }
 
 export interface SupportTicket {
@@ -29,7 +41,39 @@ export interface SupportMessage {
   content: string | null
   createdAt: string
   sender: SupportPerson
-  media?: { id: string; name: string | null }[]
+  /** Вложения — в форме вложения сообщения чата: обращение и есть чат, показываются они тем же видом. */
+  media?: SupportAttachment[]
+  /** Реакции и цитата ответа — тоже как у сообщения чата (переписку отдаёт домен чатов). */
+  reactions?: SupportReaction[]
+  replyTo?: SupportReplyPreview | null
+}
+
+export interface SupportReaction {
+  emoji: string
+  userId: string
+  user: { id: string; firstName: string; lastName: string; avatarUrl: string | null }
+}
+
+/** Сообщение, на которое ответили. У удалённого оригинала текст пустой и есть `deletedAt`. */
+export interface SupportReplyPreview {
+  id: string
+  content: string
+  deletedAt?: string | null
+  sender: { id: string; firstName: string; lastName: string }
+}
+
+export interface SupportAttachment {
+  id: string
+  mime: string
+  size: number
+  name?: string | null
+  spoiler?: boolean
+  asDocument?: boolean
+  width?: number | null
+  height?: number | null
+  placeholder?: string | null
+  mediaStatus?: MediaStatus
+  durationMs?: number | null
 }
 
 /** Обращение с перепиской (свежие сверху), числом склеенных веток и соседними обращениями. */

@@ -32,6 +32,10 @@ const TICKET_USER_SELECT = {
   firstName: true,
   lastName: true,
   role: true,
+  // Аватар, роль и вуз автора — в шапке обращения: «кто пишет» сотрудник видит сразу, не
+  // открывая профиль. Студенту и админу вуза отвечают по-разному.
+  avatarThumbUrl: true,
+  university: { select: { name: true, shortName: true } },
 } satisfies Prisma.UserSelect
 
 type TicketUser = Prisma.UserGetPayload<{ select: typeof TICKET_USER_SELECT }>
@@ -906,6 +910,9 @@ function toTicket(
       id: author.id,
       firstName: author.firstName,
       lastName: author.lastName,
+      role: author.role,
+      avatarThumbUrl: author.avatarThumbUrl,
+      university: author.university?.shortName || author.university?.name || null,
     },
     lastMessage: last && {
       text: last.content,

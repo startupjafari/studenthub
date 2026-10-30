@@ -1,18 +1,12 @@
 'use client'
 
-import { useState } from 'react'
-import { useForm } from 'react-hook-form'
-import { zodResolver } from '@hookform/resolvers/zod'
+import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { Paperclip, Send } from 'lucide-react'
-import {
-  SUPPORT_TAGS,
-  SupportReplySchema,
-  type SupportReplyInput,
-  type SupportTag,
-} from '@studenthub/shared-schemas'
+import { Flag, GitMerge, Pencil, ShieldAlert, Undo2 } from 'lucide-react'
+import { SUPPORT_TAGS, type SupportTag } from '@studenthub/shared-schemas'
 import {
   assignSupportRequest,
   closeSupportRequest,
@@ -20,7 +14,6 @@ import {
   fetchSupportEarlierMessages,
   fetchSupportThread,
   mergeSupportRequest,
-  replySupportRequest,
   setSupportTagsRequest,
   supportKeys,
   type SupportMessage,
@@ -28,18 +21,32 @@ import {
 import { ProfileLink, UserPicker, type PickedUser } from '../../../entities/user'
 import { complaintKeys, createComplaintFromSupportRequest } from '../../../entities/complaint'
 import {
+  MessageContextMenu,
+  toggleReactionRequest,
+  type MessageMenuAnchor,
+} from '../../../entities/chat'
+import {
+  Avatar,
+  AvatarFallback,
+  AvatarImage,
   Badge,
   Button,
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
   EmptyState,
   Modal,
   Skeleton,
-  Textarea,
   useConfirm,
 } from '../../../shared/ui'
 import { toApiError } from '../../../shared/lib'
-import { cn } from '../../../shared/lib/utils'
 import { useAppSelector } from '../../../shared/store'
 import { tagLabels } from './tag-label'
+import { SupportBubble, SupportComposer } from './support-thread-parts'
 
 // Тегов у обращения не больше трёх: набор, означающий всё, не означает ничего (сервер так же).
 const MAX_TAGS = 3
@@ -52,19 +59,20 @@ interface SupportThreadModalProps {
 }
 
 /**
- * Обращение целиком: переписка, ответ, «взять себе», теги, склейка с соседним обращением
- * того же человека, эскалация администраторам и закрытие. То же, что в мини-аппе, кроме
- * голосового ответа: с компьютера отвечают текстом.
+ * Обращение целиком: переписка как в чате (вложения, голосовые, ответы, реакции), «взять
+ * себе», темы, склейка с соседним обращением того же человека, эскалация администраторам и
+ * закрытие.
  */
 export function SupportThreadModal({ ticketId, onClose, onOpen }: SupportThreadModalProps) {
   const t = useTranslations('SupportDesk')
   const tErr = useTranslations('Errors')
+  const tRoles = useTranslations('Roles')
+  const tChat = useTranslations('Chats')
   const locale = useLocale()
   const qc = useQueryClient()
   const confirm = useConfirm()
   const myId = useAppSelector((s) => s.auth.user?.id)
   const labels = tagLabels(t)
-  const [mergeInto, setMergeInto] = useState<string | null>(null)
   // Жалоба из обращения: люди жалуются на других через поддержку, и передать это модерации
   // в вебе было нечем — только из мини-аппа. null — панель закрыта.
   const [complaintTarget, setComplaintTarget] = useState<PickedUser | null>(null)
@@ -105,13 +113,21 @@ export function SupportThreadModal({ ticketId, onClose, onOpen }: SupportThreadM
     onError: (e: unknown) => toast.error(tErr(toApiError(e).code)),
   })
 
-  const form = useForm<SupportReplyInput>({ resolver: zodResolver(SupportReplySchema) })
-  const reply = useMutation({
-    mutationFn: (values: SupportReplyInput) => replySupportRequest(ticketId, values.text),
-    onSuccess: async () => {
-      form.reset({ text: '' })
-      await refresh()
-    },
+  // Ответ на конкретное сообщение — как в чате. Привязан к обращению: после склейки окно
+  // открывает другое, и цитата отсюда там не нужна.
+  const [replyTo, setReplyTo] = useState<{ ticketId: string; message: SupportMessage } | null>(null)
+  // Меню сообщения по правому клику — то же, что в чате; пункты — те, что бывают в обращении.
+  const [menu, setMenu] = useState<{
+    message: SupportMessage
+    x: number
+    y: number
+    anchor?: MessageMenuAnchor
+  } | null>(null)
+  // Реакции — чатовой ручкой: сотрудник участник обращения, право то же, что в чате.
+  const react = useMutation({
+    mutationFn: ({ messageId, emoji }: { messageId: string; emoji: string }) =>
+      toggleReactionRequest(messageId, emoji),
+    onSuccess: refresh,
     onError,
   })
   const assign = useMutation({
@@ -187,63 +203,160 @@ export function SupportThreadModal({ ticketId, onClose, onOpen }: SupportThreadM
     tags.mutate(has ? ticket.tags.filter((x) => x !== tag) : [...ticket.tags, tag])
   }
 
+  // Переписка прокручивается к свежему сообщению: обращение открывают, чтобы ответить на него.
+  // Догрузка ранних самое свежее не меняет — читатель остаётся там, где был.
+  const listRef = useRef<HTMLOListElement>(null)
+  const newestId = messages.at(-1)?.id
+  useEffect(() => {
+    const list = listRef.current
+    if (list && newestId) list.scrollTop = list.scrollHeight
+  }, [newestId])
+
+  function jumpTo(messageId: string): void {
+    const el = document.getElementById(`support-msg-${messageId}`)
+    if (!el) return
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    // Подсветка, чтобы глаз нашёл оригинал среди соседей, — как переход к цитате в чате.
+    el.dataset.flash = 'true'
+    window.setTimeout(() => delete el.dataset.flash, 1200)
+  }
+
+  const dayOf = (iso: string): string =>
+    new Date(iso).toLocaleDateString(locale, { day: 'numeric', month: 'long' })
+  const timeOf = (iso: string): string =>
+    new Date(iso).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })
+
   return (
-    <Modal onClose={onClose} title={title} size="2xl" height="stable">
+    <Modal onClose={onClose} title={title} size="3xl" height="tall">
       {thread.isLoading ? (
         <Skeleton className="h-64 w-full rounded-xl" />
       ) : thread.isError || !data || !ticket ? (
         <EmptyState title={tErr(toApiError(thread.error).code)} />
       ) : (
         <div className="flex min-h-0 flex-1 flex-col gap-4">
-          <div className="flex flex-wrap items-center gap-2 text-sm">
-            <Badge variant={closedTicket ? 'secondary' : 'info'}>
-              {closedTicket ? t('statusClosed') : t('statusOpen')}
-            </Badge>
-            {author && (
-              <ProfileLink userId={author.id} className="text-primary hover:underline">
-                {t('openProfile')}
-              </ProfileLink>
-            )}
-            <span className="text-muted-foreground">
-              {ticket.assignee
-                ? t('handledBy', {
-                    name: `${ticket.assignee.lastName} ${ticket.assignee.firstName}`,
-                  })
-                : t('free')}
-            </span>
-            {data.mergedCount > 0 && (
-              <span className="text-muted-foreground">
-                {t('mergedCount', { count: data.mergedCount })}
-              </span>
-            )}
-          </div>
-
-          <div className="flex flex-wrap gap-1.5" role="group" aria-label={t('tags')}>
-            {SUPPORT_TAGS.map((tag) => {
-              const active = ticket.tags.includes(tag)
-              return (
-                <button
-                  key={tag}
-                  type="button"
-                  aria-pressed={active}
-                  disabled={tags.isPending}
-                  onClick={() => toggleTag(tag)}
-                  className={cn(
-                    'rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
-                    active
-                      ? 'border-primary bg-primary/10 text-primary'
-                      : 'border-border text-muted-foreground hover:border-ring/50',
-                  )}
+          {/* Сводка: что за обращение и кто за него отвечает. Подписанные пары вместо строки
+              без разделителей — «Профиль автора» и «Разбирает» читались одним предложением. */}
+          <section className="flex flex-col gap-3 rounded-xl border border-border p-3">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant={closedTicket ? 'secondary' : 'info'}>
+                  {closedTicket ? t('statusClosed') : t('statusOpen')}
+                </Badge>
+                <span className="text-xs text-muted-foreground">
+                  {t('createdAt', {
+                    date: new Date(ticket.createdAt).toLocaleString(locale, {
+                      day: 'numeric',
+                      month: 'long',
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    }),
+                  })}
+                </span>
+                {data.mergedCount > 0 && (
+                  <span className="text-xs text-muted-foreground">
+                    · {t('mergedCount', { count: data.mergedCount })}
+                  </span>
+                )}
+              </div>
+              {/* Кто пишет: аватар, роль и вуз — студенту и админу вуза отвечают по-разному.
+                  Карточка целиком ведёт в профиль. */}
+              {author && (
+                <ProfileLink
+                  userId={author.id}
+                  title={t('openProfile')}
+                  className="flex min-w-0 items-center gap-2.5 rounded-lg p-1 pr-2 transition-colors hover:bg-muted"
                 >
-                  {labels[tag]}
-                </button>
-              )
-            })}
-          </div>
+                  <Avatar className="size-9">
+                    {author.avatarThumbUrl && <AvatarImage src={author.avatarThumbUrl} alt="" />}
+                    <AvatarFallback className="text-xs">
+                      {`${author.firstName[0] ?? ''}${author.lastName[0] ?? ''}`.toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
+                  <span className="flex min-w-0 flex-col">
+                    <span className="truncate text-sm font-medium">
+                      {author.lastName} {author.firstName}
+                    </span>
+                    <span className="truncate text-xs text-muted-foreground">
+                      {[author.role ? tRoles(author.role) : null, author.university]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </span>
+                  </span>
+                </ProfileLink>
+              )}
+            </div>
 
-          <ol className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto rounded-xl border border-border p-3">
+            <dl className="grid gap-3 sm:grid-cols-[auto_1fr] sm:items-center sm:gap-x-6">
+              <dt className="text-xs text-muted-foreground">{t('colAssignee')}</dt>
+              <dd className="flex flex-wrap items-center gap-2 text-sm">
+                {ticket.assignee ? (
+                  <span className="font-medium">
+                    {ticket.assignee.lastName} {ticket.assignee.firstName}
+                    {mine && (
+                      <span className="font-normal text-muted-foreground"> · {t('you')}</span>
+                    )}
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">{t('nobody')}</span>
+                )}
+              </dd>
+
+              {/* Темы ставит команда, а не автор — он пишет только текст. По ним работают
+                  фильтр очереди и сводка «о чём спрашивают». Поэтому показываем выбранные, а
+                  правка — отдельным действием, а не палитрой всех семи переключателей. */}
+              <dt className="text-xs text-muted-foreground">{t('topic')}</dt>
+              <dd className="flex flex-wrap items-center gap-1.5">
+                {ticket.tags.length === 0 ? (
+                  <span className="text-sm text-muted-foreground">{t('topicNone')}</span>
+                ) : (
+                  ticket.tags.map((tag) => (
+                    <Badge key={tag} variant="outline">
+                      {labels[tag]}
+                    </Badge>
+                  ))
+                )}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-xs text-muted-foreground"
+                      disabled={tags.isPending}
+                    >
+                      <Pencil className="size-3.5" aria-hidden />
+                      {ticket.tags.length === 0 ? t('setTopic') : t('editTopics')}
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-64">
+                    <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                      {t('topicsHint')}
+                    </DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    {SUPPORT_TAGS.map((tag) => (
+                      <DropdownMenuCheckboxItem
+                        key={tag}
+                        checked={ticket.tags.includes(tag)}
+                        // Меню не закрываем: темы выбирают по одной, до трёх.
+                        onSelect={(e) => e.preventDefault()}
+                        onCheckedChange={() => toggleTag(tag)}
+                      >
+                        {labels[tag]}
+                      </DropdownMenuCheckboxItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </dd>
+            </dl>
+          </section>
+
+          {/* Переписка как в чате: автор слева, команда справа, разделители по дням, имя —
+              только у первого сообщения серии. */}
+          <ol
+            ref={listRef}
+            className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto rounded-xl bg-muted/30 p-3"
+          >
             {earlierCursor && (
-              <li className="self-center">
+              <li className="self-center pb-2">
                 <Button
                   type="button"
                   variant="link"
@@ -256,174 +369,206 @@ export function SupportThreadModal({ ticketId, onClose, onOpen }: SupportThreadM
                 </Button>
               </li>
             )}
-            {messages.map((m) => {
+            {messages.map((m, i) => {
+              const prev = messages[i - 1]
+              const day = dayOf(m.createdAt)
+              const newDay = !prev || dayOf(prev.createdAt) !== day
+              const firstOfRun = newDay || prev?.sender.id !== m.sender.id
               const fromAuthor = m.sender.id === author?.id
               return (
-                <li
-                  key={m.id}
-                  className={cn(
-                    'flex max-w-[85%] flex-col gap-0.5 rounded-xl px-3 py-2 text-sm',
-                    fromAuthor ? 'self-start bg-muted' : 'self-end bg-primary/10',
-                  )}
-                >
-                  <span className="text-xs text-muted-foreground">
-                    {m.sender.lastName} {m.sender.firstName} ·{' '}
-                    {new Date(m.createdAt).toLocaleString(locale, {
-                      day: '2-digit',
-                      month: 'short',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
-                  </span>
-                  {m.content && <p className="whitespace-pre-line">{m.content}</p>}
-                  {/* Вложения скачиваются в чате автора; здесь важно знать, что они есть. */}
-                  {(m.media?.length ?? 0) > 0 && (
-                    <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                      <Paperclip className="size-3" aria-hidden />
-                      {t('attachments', { count: m.media?.length ?? 0 })}
+                <li key={m.id} className="contents">
+                  {newDay && (
+                    <span className="my-1.5 self-center rounded-full bg-muted px-2.5 py-0.5 text-[11px] text-muted-foreground">
+                      {day}
                     </span>
                   )}
+                  <SupportBubble
+                    message={m}
+                    fromAuthor={fromAuthor}
+                    firstOfRun={firstOfRun}
+                    myId={myId}
+                    time={timeOf(m.createdAt)}
+                    onReply={() => setReplyTo({ ticketId, message: m })}
+                    onReact={(emoji) => react.mutate({ messageId: m.id, emoji })}
+                    onJumpTo={jumpTo}
+                    onOpenMenu={(x, y, anchor) => setMenu({ message: m, x, y, anchor })}
+                  />
                 </li>
               )
             })}
           </ol>
 
           {takenByOther ? (
-            <p className="text-sm text-muted-foreground">{t('takenByOtherHint')}</p>
+            <p className="rounded-lg bg-muted/60 px-3 py-2 text-sm text-muted-foreground">
+              {t('takenByOtherHint')}
+            </p>
           ) : (
-            <form
-              onSubmit={form.handleSubmit((values) => reply.mutate(values))}
-              className="flex items-end gap-2"
-            >
-              <Textarea
-                rows={2}
-                className="flex-1"
-                placeholder={closedTicket ? t('replyReopens') : t('replyPlaceholder')}
-                aria-label={t('replyPlaceholder')}
-                aria-invalid={!!form.formState.errors.text}
-                {...form.register('text')}
-              />
-              <Button type="submit" icon aria-label={t('send')} loading={reply.isPending}>
-                <Send className="size-4" aria-hidden />
-              </Button>
-            </form>
+            <SupportComposer
+              ticketId={ticketId}
+              closedTicket={closedTicket}
+              replyTo={replyTo?.ticketId === ticketId ? replyTo.message : null}
+              onCancelReply={() => setReplyTo(null)}
+              onSent={() => {
+                setReplyTo(null)
+                void refresh()
+              }}
+            />
           )}
 
-          {complaintOpen && (
-            <div className="flex flex-col gap-2 rounded-xl border border-border p-3">
-              <span className="text-sm font-medium">{t('complaintTarget')}</span>
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="min-w-0 flex-1">
-                  <UserPicker
-                    value={complaintTarget}
-                    onSelect={setComplaintTarget}
-                    placeholder={t('complaintTargetPlaceholder')}
-                  />
-                </div>
-                <Button
-                  size="sm"
-                  disabled={!complaintTarget}
-                  loading={fileComplaint.isPending}
-                  onClick={async () => {
-                    if (!complaintTarget) return
-                    const name = `${complaintTarget.lastName} ${complaintTarget.firstName}`
-                    if (await confirm({ title: t('confirmComplaint', { name }) })) {
-                      fileComplaint.mutate(complaintTarget)
-                    }
-                  }}
-                >
-                  {t('complaintSubmit')}
-                </Button>
-              </div>
-            </div>
-          )}
-
-          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
-            <div className="flex flex-wrap gap-2">
-              {!ticket.assigneeId && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  loading={assign.isPending}
-                  onClick={() => assign.mutate(true)}
-                >
-                  {t('take')}
-                </Button>
-              )}
-              {mine && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  loading={assign.isPending}
-                  onClick={() => assign.mutate(false)}
-                >
-                  {t('release')}
-                </Button>
-              )}
-              {data.siblings.length > 0 && (
-                <span className="flex items-center gap-1">
-                  <select
-                    aria-label={t('mergeWith')}
-                    value={mergeInto ?? ''}
-                    onChange={(e) => setMergeInto(e.target.value || null)}
-                    className="h-8 rounded-lg border border-input bg-transparent px-2 text-sm"
-                  >
-                    <option value="">{t('mergeWith')}</option>
-                    {data.siblings.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {new Date(s.createdAt).toLocaleDateString(locale)}
-                        {s.closed ? ` · ${t('statusClosed')}` : ''}
-                      </option>
-                    ))}
-                  </select>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={!mergeInto}
-                    loading={merge.isPending}
-                    onClick={() => mergeInto && merge.mutate(mergeInto)}
-                  >
-                    {t('merge')}
-                  </Button>
-                </span>
-              )}
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {author && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  aria-expanded={complaintOpen}
-                  onClick={() => setComplaintOpen((open) => !open)}
-                >
-                  {t('fileComplaint')}
-                </Button>
-              )}
+          {/* Подвал: слева «Закрыть обращение», справа остальные действия по нему. Окно
+              закрывается крестиком в шапке — отдельная «Закрыть» путалась с закрытием
+              обращения. */}
+          <footer className="flex flex-wrap items-center justify-end gap-2 border-t border-border pt-3">
+            {!closedTicket && !takenByOther && (
               <Button
-                variant="ghost"
-                size="sm"
-                loading={escalate.isPending}
+                className="mr-auto"
+                variant={ticket.assigneeId ? 'default' : 'outline'}
+                loading={close.isPending}
                 onClick={async () => {
-                  if (await confirm({ title: t('confirmEscalate') })) escalate.mutate()
+                  if (await confirm({ title: t('confirmClose') })) close.mutate()
                 }}
               >
-                {t('escalate')}
+                {t('close')}
               </Button>
-              {!closedTicket && !takenByOther && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  loading={close.isPending}
-                  onClick={async () => {
-                    if (await confirm({ title: t('confirmClose') })) close.mutate()
-                  }}
-                >
-                  {t('close')}
-                </Button>
-              )}
-            </div>
-          </div>
+            )}
+
+            {/* Склейка — только когда у автора есть другие обращения: её цель надо выбрать. */}
+            {data.siblings.length > 0 && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" disabled={merge.isPending}>
+                    <GitMerge className="size-4" aria-hidden />
+                    {t('merge')}
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" side="top" className="w-64">
+                  <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                    {t('mergeWith')}
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  {data.siblings.map((sibling) => (
+                    <DropdownMenuItem
+                      key={sibling.id}
+                      onSelect={async () => {
+                        if (await confirm({ title: t('confirmMerge') })) merge.mutate(sibling.id)
+                      }}
+                    >
+                      {new Date(sibling.createdAt).toLocaleDateString(locale)}
+                      {sibling.closed ? ` · ${t('statusClosed')}` : ''}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+            <Button
+              variant="outline"
+              loading={escalate.isPending}
+              onClick={async () => {
+                if (await confirm({ title: t('confirmEscalate') })) escalate.mutate()
+              }}
+            >
+              <ShieldAlert className="size-4" aria-hidden />
+              {t('escalate')}
+            </Button>
+            {author && (
+              <Button variant="outline" onClick={() => setComplaintOpen(true)}>
+                <Flag className="size-4" aria-hidden />
+                {t('fileComplaint')}
+              </Button>
+            )}
+            {mine && (
+              <Button
+                variant="outline"
+                loading={assign.isPending}
+                onClick={() => assign.mutate(false)}
+              >
+                <Undo2 className="size-4" aria-hidden />
+                {t('release')}
+              </Button>
+            )}
+            {!ticket.assigneeId && (
+              <Button loading={assign.isPending} onClick={() => assign.mutate(true)}>
+                {t('take')}
+              </Button>
+            )}
+          </footer>
         </div>
+      )}
+      {/* Меню — порталом в body и выше окна: внутри окна его сдвиг (translate) и
+          overflow-hidden ломали бы позицию и обрезали меню. Radix запрещает нажатия вне
+          диалога — слою возвращаем их явно; закрывать окно такие нажатия не будут (Modal). */}
+      {menu &&
+        createPortal(
+          <div className="relative z-[110]" style={{ pointerEvents: 'auto' }}>
+            <MessageContextMenu
+              message={menu.message}
+              mine={menu.message.sender.id === myId}
+              // Сообщения обращения сотрудник не удаляет: переписка — материал разбора.
+              canDelete={false}
+              x={menu.x}
+              y={menu.y}
+              anchor={menu.anchor}
+              onClose={() => setMenu(null)}
+              actions={{
+                onReact: (emoji) => react.mutate({ messageId: menu.message.id, emoji }),
+                onReply: () => setReplyTo({ ticketId, message: menu.message }),
+                onCopy: () => {
+                  void navigator.clipboard?.writeText(menu.message.content ?? '')
+                  toast.success(tChat('copied'))
+                },
+              }}
+            />
+          </div>,
+          document.body,
+        )}
+      {/* Жалоба — отдельным окном поверх обращения: встроенная панель сжимала переписку и
+          смешивала свои кнопки с подвалом обращения. */}
+      {complaintOpen && (
+        <Modal
+          onClose={() => {
+            setComplaintOpen(false)
+            setComplaintTarget(null)
+          }}
+          title={t('fileComplaint')}
+          size="lg"
+        >
+          <div className="flex flex-col gap-4">
+            <p className="text-sm text-muted-foreground">{t('complaintHint')}</p>
+            <div className="flex flex-col gap-1.5">
+              <span className="text-sm font-medium">{t('complaintTarget')}</span>
+              <UserPicker
+                inline
+                value={complaintTarget}
+                onSelect={setComplaintTarget}
+                placeholder={t('complaintTargetPlaceholder')}
+              />
+            </div>
+            <footer className="flex items-center justify-end gap-2 border-t border-border pt-4">
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setComplaintOpen(false)
+                  setComplaintTarget(null)
+                }}
+              >
+                {t('cancel')}
+              </Button>
+              <Button
+                disabled={!complaintTarget}
+                loading={fileComplaint.isPending}
+                onClick={async () => {
+                  if (!complaintTarget) return
+                  const name = `${complaintTarget.lastName} ${complaintTarget.firstName}`
+                  if (await confirm({ title: t('confirmComplaint', { name }) })) {
+                    fileComplaint.mutate(complaintTarget)
+                  }
+                }}
+              >
+                {t('complaintSubmit')}
+              </Button>
+            </footer>
+          </div>
+        </Modal>
       )}
     </Modal>
   )
