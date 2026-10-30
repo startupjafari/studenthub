@@ -1,12 +1,12 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { Send } from 'lucide-react'
+import { Flag, GitMerge, MoreHorizontal, Send, ShieldAlert, Undo2, UserRound } from 'lucide-react'
 import {
   SUPPORT_TAGS,
   SupportReplySchema,
@@ -31,6 +31,12 @@ import { MessageAttachments } from '../../../entities/chat'
 import {
   Badge,
   Button,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
   EmptyState,
   Modal,
   Skeleton,
@@ -65,7 +71,6 @@ export function SupportThreadModal({ ticketId, onClose, onOpen }: SupportThreadM
   const confirm = useConfirm()
   const myId = useAppSelector((s) => s.auth.user?.id)
   const labels = tagLabels(t)
-  const [mergeInto, setMergeInto] = useState<string | null>(null)
   // Жалоба из обращения: люди жалуются на других через поддержку, и передать это модерации
   // в вебе было нечем — только из мини-аппа. null — панель закрыта.
   const [complaintTarget, setComplaintTarget] = useState<PickedUser | null>(null)
@@ -188,6 +193,20 @@ export function SupportThreadModal({ ticketId, onClose, onOpen }: SupportThreadM
     tags.mutate(has ? ticket.tags.filter((x) => x !== tag) : [...ticket.tags, tag])
   }
 
+  // Переписка прокручивается к свежему сообщению: обращение открывают, чтобы ответить на него.
+  // Догрузка ранних самое свежее не меняет — читатель остаётся там, где был.
+  const listRef = useRef<HTMLOListElement>(null)
+  const newestId = messages.at(-1)?.id
+  useEffect(() => {
+    const list = listRef.current
+    if (list && newestId) list.scrollTop = list.scrollHeight
+  }, [newestId])
+
+  const dayOf = (iso: string): string =>
+    new Date(iso).toLocaleDateString(locale, { day: 'numeric', month: 'long' })
+  const timeOf = (iso: string): string =>
+    new Date(iso).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })
+
   return (
     <Modal onClose={onClose} title={title} size="2xl" height="stable">
       {thread.isLoading ? (
@@ -196,55 +215,88 @@ export function SupportThreadModal({ ticketId, onClose, onOpen }: SupportThreadM
         <EmptyState title={tErr(toApiError(thread.error).code)} />
       ) : (
         <div className="flex min-h-0 flex-1 flex-col gap-4">
-          <div className="flex flex-wrap items-center gap-2 text-sm">
-            <Badge variant={closedTicket ? 'secondary' : 'info'}>
-              {closedTicket ? t('statusClosed') : t('statusOpen')}
-            </Badge>
-            {author && (
-              <ProfileLink userId={author.id} className="text-primary hover:underline">
-                {t('openProfile')}
-              </ProfileLink>
-            )}
-            <span className="text-muted-foreground">
-              {ticket.assignee
-                ? t('handledBy', {
-                    name: `${ticket.assignee.lastName} ${ticket.assignee.firstName}`,
-                  })
-                : t('free')}
-            </span>
-            {data.mergedCount > 0 && (
-              <span className="text-muted-foreground">
-                {t('mergedCount', { count: data.mergedCount })}
+          {/* Сводка: что за обращение и кто за него отвечает. Подписанные пары вместо строки
+              без разделителей — «Профиль автора» и «Разбирает» читались одним предложением. */}
+          <section className="flex flex-col gap-3 rounded-xl border border-border p-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant={closedTicket ? 'secondary' : 'info'}>
+                {closedTicket ? t('statusClosed') : t('statusOpen')}
+              </Badge>
+              <span className="text-xs text-muted-foreground">
+                {t('createdAt', {
+                  date: new Date(ticket.createdAt).toLocaleString(locale, {
+                    day: 'numeric',
+                    month: 'long',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  }),
+                })}
               </span>
-            )}
-          </div>
-
-          <div className="flex flex-wrap gap-1.5" role="group" aria-label={t('tags')}>
-            {SUPPORT_TAGS.map((tag) => {
-              const active = ticket.tags.includes(tag)
-              return (
-                <button
-                  key={tag}
-                  type="button"
-                  aria-pressed={active}
-                  disabled={tags.isPending}
-                  onClick={() => toggleTag(tag)}
-                  className={cn(
-                    'rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
-                    active
-                      ? 'border-primary bg-primary/10 text-primary'
-                      : 'border-border text-muted-foreground hover:border-ring/50',
-                  )}
+              {data.mergedCount > 0 && (
+                <span className="text-xs text-muted-foreground">
+                  · {t('mergedCount', { count: data.mergedCount })}
+                </span>
+              )}
+              {author && (
+                <ProfileLink
+                  userId={author.id}
+                  className="ml-auto flex items-center gap-1 text-xs font-medium text-primary hover:underline"
                 >
-                  {labels[tag]}
-                </button>
-              )
-            })}
-          </div>
+                  <UserRound className="size-3.5" aria-hidden />
+                  {t('openProfile')}
+                </ProfileLink>
+              )}
+            </div>
 
-          <ol className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto rounded-xl border border-border p-3">
+            <dl className="grid gap-3 sm:grid-cols-[auto_1fr] sm:items-center sm:gap-x-6">
+              <dt className="text-xs text-muted-foreground">{t('colAssignee')}</dt>
+              <dd className="flex flex-wrap items-center gap-2 text-sm">
+                {ticket.assignee ? (
+                  <span className="font-medium">
+                    {ticket.assignee.lastName} {ticket.assignee.firstName}
+                    {mine && (
+                      <span className="font-normal text-muted-foreground"> · {t('you')}</span>
+                    )}
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">{t('nobody')}</span>
+                )}
+              </dd>
+
+              <dt className="text-xs text-muted-foreground">{t('topic')}</dt>
+              <dd className="flex flex-wrap gap-1.5" role="group" aria-label={t('tags')}>
+                {SUPPORT_TAGS.map((tag) => {
+                  const active = ticket.tags.includes(tag)
+                  return (
+                    <button
+                      key={tag}
+                      type="button"
+                      aria-pressed={active}
+                      disabled={tags.isPending}
+                      onClick={() => toggleTag(tag)}
+                      className={cn(
+                        'rounded-full border px-2.5 py-0.5 text-xs font-medium transition-colors',
+                        active
+                          ? 'border-primary bg-primary/10 text-primary'
+                          : 'border-border text-muted-foreground hover:border-ring/50 hover:text-foreground',
+                      )}
+                    >
+                      {labels[tag]}
+                    </button>
+                  )
+                })}
+              </dd>
+            </dl>
+          </section>
+
+          {/* Переписка как в чате: автор слева, команда справа, разделители по дням, имя —
+              только у первого сообщения серии. */}
+          <ol
+            ref={listRef}
+            className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto rounded-xl bg-muted/30 p-3"
+          >
             {earlierCursor && (
-              <li className="self-center">
+              <li className="self-center pb-2">
                 <Button
                   type="button"
                   variant="link"
@@ -257,67 +309,101 @@ export function SupportThreadModal({ ticketId, onClose, onOpen }: SupportThreadM
                 </Button>
               </li>
             )}
-            {messages.map((m) => {
+            {messages.map((m, i) => {
+              const prev = messages[i - 1]
+              const day = dayOf(m.createdAt)
+              const newDay = !prev || dayOf(prev.createdAt) !== day
+              const firstOfRun = newDay || prev?.sender.id !== m.sender.id
               const fromAuthor = m.sender.id === author?.id
               return (
-                <li
-                  key={m.id}
-                  className={cn(
-                    'flex max-w-[85%] flex-col gap-0.5 rounded-xl px-3 py-2 text-sm',
-                    fromAuthor ? 'self-start bg-muted' : 'self-end bg-primary/10',
+                <li key={m.id} className="contents">
+                  {newDay && (
+                    <span className="my-1.5 self-center rounded-full bg-muted px-2.5 py-0.5 text-[11px] text-muted-foreground">
+                      {day}
+                    </span>
                   )}
-                >
-                  <span className="text-xs text-muted-foreground">
-                    {m.sender.lastName} {m.sender.firstName} ·{' '}
-                    {new Date(m.createdAt).toLocaleString(locale, {
-                      day: '2-digit',
-                      month: 'short',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
-                  </span>
-                  {/* Вложения — тем же видом, что в чате: обращение и есть чат, а сотрудник в нём
-                      участник, так что ссылки на файлы выдаёт обычная проверка членства. Из
-                      «Чатов» обращения сотрудникам больше не попадают — смотреть скриншоты
-                      больше негде, кроме как здесь. */}
-                  {m.media && m.media.length > 0 && (
-                    <MessageAttachments
-                      media={m.media}
-                      // Пузыри здесь светлые, а не сплошные синие, как свои в чате: подписи
-                      // вложений нужны обычного цвета.
-                      mine={false}
-                      viewerMeta={{
-                        senderName: `${m.sender.lastName} ${m.sender.firstName}`,
-                        createdAt: m.createdAt,
-                        mine: !fromAuthor,
-                        caption: m.content ?? undefined,
-                      }}
-                    />
-                  )}
-                  {m.content && <p className="whitespace-pre-line">{m.content}</p>}
+                  <div
+                    className={cn(
+                      'flex max-w-[80%] flex-col gap-0.5',
+                      fromAuthor ? 'items-start self-start' : 'items-end self-end',
+                      firstOfRun && !newDay && 'mt-1.5',
+                    )}
+                  >
+                    {firstOfRun && (
+                      <span className="px-1 text-xs font-medium text-muted-foreground">
+                        {m.sender.lastName} {m.sender.firstName}
+                      </span>
+                    )}
+                    <div
+                      className={cn(
+                        'flex flex-col gap-1 rounded-2xl px-3 py-1.5 text-sm',
+                        fromAuthor ? 'bg-muted' : 'bg-primary/15',
+                      )}
+                    >
+                      {/* Вложения — тем же видом, что в чате: обращение и есть чат, а сотрудник
+                          в нём участник, так что ссылки на файлы выдаёт обычная проверка
+                          членства. Из «Чатов» обращения сотрудникам больше не попадают —
+                          смотреть скриншоты больше негде, кроме как здесь. */}
+                      {m.media && m.media.length > 0 && (
+                        <MessageAttachments
+                          media={m.media}
+                          // Пузыри здесь светлые, а не сплошные синие, как свои в чате:
+                          // подписи вложений нужны обычного цвета.
+                          mine={false}
+                          viewerMeta={{
+                            senderName: `${m.sender.lastName} ${m.sender.firstName}`,
+                            createdAt: m.createdAt,
+                            mine: !fromAuthor,
+                            caption: m.content ?? undefined,
+                          }}
+                        />
+                      )}
+                      {m.content && <p className="whitespace-pre-wrap break-words">{m.content}</p>}
+                      <time
+                        dateTime={m.createdAt}
+                        className="self-end text-[11px] tabular-nums text-muted-foreground"
+                      >
+                        {timeOf(m.createdAt)}
+                      </time>
+                    </div>
+                  </div>
                 </li>
               )
             })}
           </ol>
 
           {takenByOther ? (
-            <p className="text-sm text-muted-foreground">{t('takenByOtherHint')}</p>
+            <p className="rounded-lg bg-muted/60 px-3 py-2 text-sm text-muted-foreground">
+              {t('takenByOtherHint')}
+            </p>
           ) : (
             <form
               onSubmit={form.handleSubmit((values) => reply.mutate(values))}
-              className="flex items-end gap-2"
+              className="flex flex-col gap-1.5"
             >
-              <Textarea
-                rows={2}
-                className="flex-1"
-                placeholder={closedTicket ? t('replyReopens') : t('replyPlaceholder')}
-                aria-label={t('replyPlaceholder')}
-                aria-invalid={!!form.formState.errors.text}
-                {...form.register('text')}
-              />
-              <Button type="submit" icon aria-label={t('send')} loading={reply.isPending}>
-                <Send className="size-4" aria-hidden />
-              </Button>
+              {/* Закрытое обращение отвечать не мешает, но об этом говорим заранее, а не
+                  подсказкой в пустом поле, которая пропадает с первой буквой. */}
+              {closedTicket && <p className="text-xs text-muted-foreground">{t('replyReopens')}</p>}
+              <div className="flex items-end gap-2">
+                <Textarea
+                  rows={2}
+                  className="field-sizing-content max-h-40 flex-1 resize-none"
+                  placeholder={t('replyPlaceholder')}
+                  aria-label={t('replyPlaceholder')}
+                  aria-invalid={!!form.formState.errors.text}
+                  onKeyDown={(e) => {
+                    // Enter отправляет, Shift+Enter — перенос строки, как в чате.
+                    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                      e.preventDefault()
+                      void form.handleSubmit((values) => reply.mutate(values))()
+                    }
+                  }}
+                  {...form.register('text')}
+                />
+                <Button type="submit" icon aria-label={t('send')} loading={reply.isPending}>
+                  <Send className="size-4" aria-hidden />
+                </Button>
+              </div>
             </form>
           )}
 
@@ -333,7 +419,15 @@ export function SupportThreadModal({ ticketId, onClose, onOpen }: SupportThreadM
                   />
                 </div>
                 <Button
-                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setComplaintOpen(false)
+                    setComplaintTarget(null)
+                  }}
+                >
+                  {t('cancel')}
+                </Button>
+                <Button
                   disabled={!complaintTarget}
                   loading={fileComplaint.isPending}
                   onClick={async () => {
@@ -350,91 +444,84 @@ export function SupportThreadModal({ ticketId, onClose, onOpen }: SupportThreadM
             </div>
           )}
 
-          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
-            <div className="flex flex-wrap gap-2">
-              {!ticket.assigneeId && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  loading={assign.isPending}
-                  onClick={() => assign.mutate(true)}
-                >
-                  {t('take')}
+          {/* Подвал: слева редкие действия в меню «Ещё», справа — одно главное по ситуации:
+              взять свободное обращение или закрыть своё. Раньше пять действий одного веса
+              стояли в ряд, и «Позвать администратора» было в одном ряду с «Закрыть». */}
+          <footer className="flex items-center gap-2 border-t border-border pt-3">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" className="mr-auto">
+                  <MoreHorizontal className="size-4" aria-hidden />
+                  {t('more')}
                 </Button>
-              )}
-              {mine && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  loading={assign.isPending}
-                  onClick={() => assign.mutate(false)}
-                >
-                  {t('release')}
-                </Button>
-              )}
-              {data.siblings.length > 0 && (
-                <span className="flex items-center gap-1">
-                  <select
-                    aria-label={t('mergeWith')}
-                    value={mergeInto ?? ''}
-                    onChange={(e) => setMergeInto(e.target.value || null)}
-                    className="h-8 rounded-lg border border-input bg-transparent px-2 text-sm"
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" side="top" className="w-64">
+                {mine && (
+                  <DropdownMenuItem
+                    disabled={assign.isPending}
+                    onSelect={() => assign.mutate(false)}
                   >
-                    <option value="">{t('mergeWith')}</option>
-                    {data.siblings.map((s) => (
-                      <option key={s.id} value={s.id}>
-                        {new Date(s.createdAt).toLocaleDateString(locale)}
-                        {s.closed ? ` · ${t('statusClosed')}` : ''}
-                      </option>
-                    ))}
-                  </select>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={!mergeInto}
-                    loading={merge.isPending}
-                    onClick={() => mergeInto && merge.mutate(mergeInto)}
-                  >
-                    {t('merge')}
-                  </Button>
-                </span>
-              )}
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {author && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  aria-expanded={complaintOpen}
-                  onClick={() => setComplaintOpen((open) => !open)}
-                >
-                  {t('fileComplaint')}
-                </Button>
-              )}
-              <Button
-                variant="ghost"
-                size="sm"
-                loading={escalate.isPending}
-                onClick={async () => {
-                  if (await confirm({ title: t('confirmEscalate') })) escalate.mutate()
-                }}
-              >
-                {t('escalate')}
-              </Button>
-              {!closedTicket && !takenByOther && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  loading={close.isPending}
-                  onClick={async () => {
-                    if (await confirm({ title: t('confirmClose') })) close.mutate()
+                    <Undo2 className="size-4" aria-hidden />
+                    {t('release')}
+                  </DropdownMenuItem>
+                )}
+                {author && (
+                  <DropdownMenuItem onSelect={() => setComplaintOpen(true)}>
+                    <Flag className="size-4" aria-hidden />
+                    {t('fileComplaint')}
+                  </DropdownMenuItem>
+                )}
+                <DropdownMenuItem
+                  disabled={escalate.isPending}
+                  onSelect={async () => {
+                    if (await confirm({ title: t('confirmEscalate') })) escalate.mutate()
                   }}
                 >
-                  {t('close')}
-                </Button>
-              )}
-            </div>
-          </div>
+                  <ShieldAlert className="size-4" aria-hidden />
+                  {t('escalate')}
+                </DropdownMenuItem>
+                {/* Склейка — только когда у автора есть другие обращения. */}
+                {data.siblings.length > 0 && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+                      {t('mergeWith')}
+                    </DropdownMenuLabel>
+                    {data.siblings.map((sibling) => (
+                      <DropdownMenuItem
+                        key={sibling.id}
+                        disabled={merge.isPending}
+                        onSelect={async () => {
+                          if (await confirm({ title: t('confirmMerge') })) merge.mutate(sibling.id)
+                        }}
+                      >
+                        <GitMerge className="size-4" aria-hidden />
+                        {new Date(sibling.createdAt).toLocaleDateString(locale)}
+                        {sibling.closed ? ` · ${t('statusClosed')}` : ''}
+                      </DropdownMenuItem>
+                    ))}
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            {!ticket.assigneeId && (
+              <Button loading={assign.isPending} onClick={() => assign.mutate(true)}>
+                {t('take')}
+              </Button>
+            )}
+            {!closedTicket && !takenByOther && (
+              <Button
+                variant={ticket.assigneeId ? 'default' : 'outline'}
+                loading={close.isPending}
+                onClick={async () => {
+                  if (await confirm({ title: t('confirmClose') })) close.mutate()
+                }}
+              >
+                {t('close')}
+              </Button>
+            )}
+          </footer>
         </div>
       )}
     </Modal>
