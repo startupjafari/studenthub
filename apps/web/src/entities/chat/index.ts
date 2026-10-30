@@ -64,6 +64,7 @@ export {
   type ChatMediaPage,
   type ChatLinksPage,
 } from './api/chat-api'
+export { sendMessageWithDirectUpload, type DirectSendFields } from './api/send-direct'
 export {
   type ChatTypeValue,
   type ChatMessage,
