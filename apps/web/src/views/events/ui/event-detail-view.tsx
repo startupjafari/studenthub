@@ -1,26 +1,19 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { useForm } from 'react-hook-form'
-import { zodResolver } from '@hookform/resolvers/zod'
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useFormatter, useTranslations } from 'next-intl'
-import { CalendarClock, Check, MapPin, Pencil, Send, Trash2, Users, Video } from 'lucide-react'
+import { CalendarClock, Check, MapPin, Pencil, Users, Video } from 'lucide-react'
 import { Role } from '@studenthub/shared-types'
-import { CreateEventCommentSchema, type CreateEventCommentInput } from '@studenthub/shared-schemas'
 import {
-  addEventCommentRequest,
   cancelEventRequest,
-  deleteEventCommentRequest,
   eventKeys,
   fetchEvent,
-  fetchEventComments,
   fetchEventParticipantsPage,
   registerEventRequest,
   MEETING_PROVIDER_NAME,
-  type EventCommentsPage,
   type EventItem,
   type EventParticipantsPage,
 } from '../../../entities/event'
@@ -35,14 +28,12 @@ import {
   Button,
   Card,
   EmptyState,
-  FieldError,
   PageHeader,
   Skeleton,
-  Textarea,
-  useConfirm,
 } from '../../../shared/ui'
 import { cn, toApiError } from '../../../shared/lib'
 import { useAppSelector } from '../../../shared/store'
+import { EventDiscussion } from './event-discussion'
 
 // Запасной расчёт прав по роли — только для ответа без серверных флагов `canManage` /
 // `canDelete` (E-F16): роль не знает scope, и декан видел бы кнопки у чужих событий.
@@ -115,7 +106,7 @@ export function EventDetailView({ eventId }: { eventId: string }) {
           <div className="flex min-w-0 flex-col gap-4 lg:min-h-0">
             <EventInfo event={event.data} />
             {/* canModerate — запасной расчёт для ответа без `canDelete` у комментариев. */}
-            <Comments
+            <EventDiscussion
               eventId={eventId}
               canModerate={canManage || (role !== null && MODERATOR_ROLES.includes(role))}
             />
@@ -316,179 +307,6 @@ function Participants({ eventId, total }: { eventId: string; total: number }) {
           )}
         </ul>
       )}
-    </Card>
-  )
-}
-
-function Comments({ eventId, canModerate }: { eventId: string; canModerate: boolean }) {
-  const t = useTranslations('Events')
-  const tErr = useTranslations('Errors')
-  const fmt = useFormatter()
-  const qc = useQueryClient()
-  const confirm = useConfirm()
-  const myId = useAppSelector((s) => s.auth.user?.id)
-  // Страницы — свежие сверху; «Показать предыдущие» догружает более ранние (E-F12).
-  const comments = useInfiniteQuery({
-    queryKey: eventKeys.comments(eventId),
-    queryFn: ({ pageParam }: { pageParam: string | undefined }) =>
-      fetchEventComments(eventId, pageParam),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (last: EventCommentsPage) => (last.hasNext ? last.cursor : undefined),
-  })
-  const form = useForm<CreateEventCommentInput>({
-    resolver: zodResolver(CreateEventCommentSchema),
-  })
-
-  // После записи — перезапрос загруженных страниц: TanStack перечитывает их по порядку
-  // от первой с новыми курсорами, так что сдвиг страниц из-за нового комментария не теряет
-  // и не дублирует строки.
-  const add = useMutation({
-    mutationFn: (values: CreateEventCommentInput) =>
-      addEventCommentRequest(eventId, values.content),
-    onSuccess: async () => {
-      form.reset({ content: '' })
-      await qc.invalidateQueries({ queryKey: eventKeys.comments(eventId) })
-    },
-    onError: (e) => toast.error(tErr(toApiError(e).code)),
-  })
-  const remove = useMutation({
-    mutationFn: (commentId: string) => deleteEventCommentRequest(eventId, commentId),
-    onSuccess: () => void qc.invalidateQueries({ queryKey: eventKeys.comments(eventId) }),
-    onError: (e) => toast.error(tErr(toApiError(e).code)),
-  })
-
-  const pages = comments.data?.pages ?? []
-  // На экране — по порядку написания: самые старые сверху, свежие у поля ввода.
-  const items = pages.flatMap((p) => p.items).reverse()
-  // Счётчик — со всего обсуждения, а не с догруженных страниц.
-  const total = pages[0]?.total ?? items.length
-
-  // Обсуждение прокручивается внутри карточки, свежее — внизу, у поля ввода. Прокручиваем
-  // к нему при загрузке и при новом комментарии; догрузка ранних самый свежий не меняет —
-  // и читатель остаётся там, где был.
-  const listRef = useRef<HTMLDivElement>(null)
-  const newestId = items.at(-1)?.id
-  useEffect(() => {
-    const list = listRef.current
-    if (list && newestId) list.scrollTop = list.scrollHeight
-  }, [newestId])
-
-  return (
-    <Card className="flex flex-col gap-3 p-4 lg:min-h-72 lg:flex-1">
-      <h2 className="flex items-baseline gap-2 text-sm font-semibold">
-        {t('comments')}
-        {total > 0 && (
-          <span className="text-xs font-normal text-muted-foreground tabular-nums">{total}</span>
-        )}
-      </h2>
-      <div ref={listRef} className="lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
-        {comments.isLoading ? (
-          <Skeleton className="h-20 w-full rounded-lg" />
-        ) : comments.isError ? (
-          <p className="text-sm text-muted-foreground">{tErr(toApiError(comments.error).code)}</p>
-        ) : items.length === 0 ? (
-          <p className="text-sm text-muted-foreground">{t('noComments')}</p>
-        ) : (
-          <ul className="flex flex-col gap-3">
-            {comments.hasNextPage && (
-              <li>
-                <Button
-                  type="button"
-                  variant="link"
-                  size="sm"
-                  className="h-auto px-0"
-                  loading={comments.isFetchingNextPage}
-                  onClick={() => void comments.fetchNextPage()}
-                >
-                  {t('showEarlierComments')}
-                </Button>
-              </li>
-            )}
-            {items.map((c) => {
-              const own = c.author.id === myId
-              const canDelete = c.canDelete ?? (own || canModerate)
-              return (
-                <li key={c.id} className="flex gap-2.5">
-                  <Avatar className="size-8">
-                    {c.author.avatarThumbUrl && (
-                      <AvatarImage src={c.author.avatarThumbUrl} alt="" />
-                    )}
-                    <AvatarFallback className="text-xs">
-                      {`${c.author.firstName[0] ?? ''}${c.author.lastName[0] ?? ''}`.toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                    <div className="flex items-baseline gap-2">
-                      <ProfileLink
-                        userId={c.author.id}
-                        className="text-sm font-medium hover:underline"
-                      >
-                        {c.author.lastName} {c.author.firstName}
-                      </ProfileLink>
-                      <span className="text-xs text-muted-foreground">
-                        {fmt.dateTime(new Date(c.createdAt), {
-                          day: 'numeric',
-                          month: 'short',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
-                      </span>
-                      {canDelete && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          icon
-                          aria-label={own ? t('deleteComment') : t('deleteCommentModeration')}
-                          title={own ? t('deleteComment') : t('deleteCommentModeration')}
-                          loading={remove.isPending && remove.variables === c.id}
-                          onClick={() => {
-                            // Свой — сразу; чужой — решение модерации: с подтверждением, оно в аудите.
-                            if (own) {
-                              remove.mutate(c.id)
-                              return
-                            }
-                            void confirm({
-                              title: t('deleteCommentConfirm'),
-                              description: t('moderationDeleteHint'),
-                              confirmLabel: t('deleteCommentModeration'),
-                              destructive: true,
-                            }).then((ok) => {
-                              if (ok) remove.mutate(c.id)
-                            })
-                          }}
-                          className="ml-auto size-7 text-muted-foreground hover:text-destructive"
-                        >
-                          <Trash2 className="size-3.5" aria-hidden />
-                        </Button>
-                      )}
-                    </div>
-                    <p className="text-sm break-words whitespace-pre-line">{c.content}</p>
-                  </div>
-                </li>
-              )
-            })}
-          </ul>
-        )}
-      </div>
-
-      <form
-        onSubmit={form.handleSubmit((values) => add.mutate(values))}
-        className="flex items-end gap-2 border-t border-border pt-3"
-      >
-        <div className="flex flex-1 flex-col gap-1">
-          <Textarea
-            rows={2}
-            placeholder={t('commentPlaceholder')}
-            aria-label={t('commentPlaceholder')}
-            aria-invalid={!!form.formState.errors.content}
-            {...form.register('content')}
-          />
-          <FieldError>{form.formState.errors.content ? t('commentInvalid') : null}</FieldError>
-        </div>
-        <Button type="submit" icon aria-label={t('sendComment')} loading={add.isPending}>
-          <Send className="size-4" aria-hidden />
-        </Button>
-      </form>
     </Card>
   )
 }
