@@ -6,7 +6,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { Paperclip, Send } from 'lucide-react'
+import { Send } from 'lucide-react'
 import {
   SUPPORT_TAGS,
   SupportReplySchema,
@@ -27,6 +27,7 @@ import {
 } from '../../../entities/support-ticket'
 import { ProfileLink, UserPicker, type PickedUser } from '../../../entities/user'
 import { complaintKeys, createComplaintFromSupportRequest } from '../../../entities/complaint'
+import { MessageAttachments } from '../../../entities/chat'
 import {
   Badge,
   Button,
@@ -275,14 +276,25 @@ export function SupportThreadModal({ ticketId, onClose, onOpen }: SupportThreadM
                       minute: '2-digit',
                     })}
                   </span>
-                  {m.content && <p className="whitespace-pre-line">{m.content}</p>}
-                  {/* Вложения скачиваются в чате автора; здесь важно знать, что они есть. */}
-                  {(m.media?.length ?? 0) > 0 && (
-                    <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                      <Paperclip className="size-3" aria-hidden />
-                      {t('attachments', { count: m.media?.length ?? 0 })}
-                    </span>
+                  {/* Вложения — тем же видом, что в чате: обращение и есть чат, а сотрудник в нём
+                      участник, так что ссылки на файлы выдаёт обычная проверка членства. Из
+                      «Чатов» обращения сотрудникам больше не попадают — смотреть скриншоты
+                      больше негде, кроме как здесь. */}
+                  {m.media && m.media.length > 0 && (
+                    <MessageAttachments
+                      media={m.media}
+                      // Пузыри здесь светлые, а не сплошные синие, как свои в чате: подписи
+                      // вложений нужны обычного цвета.
+                      mine={false}
+                      viewerMeta={{
+                        senderName: `${m.sender.lastName} ${m.sender.firstName}`,
+                        createdAt: m.createdAt,
+                        mine: !fromAuthor,
+                        caption: m.content ?? undefined,
+                      }}
+                    />
                   )}
+                  {m.content && <p className="whitespace-pre-line">{m.content}</p>}
                 </li>
               )
             })}
