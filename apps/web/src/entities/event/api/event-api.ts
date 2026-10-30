@@ -1,12 +1,21 @@
 import type {
+  CreateEventCommentInput,
   CreateEventInput,
   EventListQueryInput,
   EventMeeting,
   UpdateEventInput,
 } from '@studenthub/shared-schemas'
-import { api, getPaged, type Paged, type ResponseWithMeta } from '../../../shared/api'
+import {
+  api,
+  getPaged,
+  toMediaLink,
+  type MediaLink,
+  type Paged,
+  type ResponseWithMeta,
+} from '../../../shared/api'
 import type {
   EventComment,
+  EventCommentReaction,
   EventCommentsPage,
   EventItem,
   EventParticipant,
@@ -125,9 +134,36 @@ export async function fetchEventComments(id: string, cursor?: string): Promise<E
   }
 }
 
-export async function addEventCommentRequest(id: string, content: string): Promise<EventComment> {
-  const { data } = await api.post<EventComment>(`/events/${id}/comments`, { content })
+export async function addEventCommentRequest(
+  id: string,
+  input: CreateEventCommentInput,
+): Promise<EventComment> {
+  const { data } = await api.post<EventComment>(`/events/${id}/comments`, input)
   return data
+}
+
+/** Ссылка на вложение комментария — та же форма, что у вложения сообщения чата. */
+export async function fetchEventCommentAttachmentLink(
+  id: string,
+  fileId: string,
+): Promise<MediaLink> {
+  const { data } = await api.get<MediaLink | string>(
+    `/events/${id}/comments/attachments/${fileId}/url`,
+  )
+  return toMediaLink(data)
+}
+
+/** Поставить или снять реакцию; сервер отвечает реакциями комментария целиком. */
+export async function toggleEventCommentReactionRequest(
+  id: string,
+  commentId: string,
+  emoji: string,
+): Promise<EventCommentReaction[]> {
+  const { data } = await api.post<{ reactions: EventCommentReaction[] }>(
+    `/events/${id}/comments/${commentId}/reactions`,
+    { emoji },
+  )
+  return data.reactions
 }
 
 export async function deleteEventCommentRequest(id: string, commentId: string): Promise<void> {

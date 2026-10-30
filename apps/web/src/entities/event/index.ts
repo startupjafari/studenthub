@@ -14,6 +14,8 @@ export {
   fetchEventComments,
   addEventCommentRequest,
   deleteEventCommentRequest,
+  fetchEventCommentAttachmentLink,
+  toggleEventCommentReactionRequest,
 } from './api/event-api'
 export {
   MEETING_PROVIDER_NAME,
@@ -26,4 +28,7 @@ export {
   type EventParticipant,
   type EventParticipantsPage,
   type EventComment,
+  type EventCommentAttachment,
+  type EventCommentReaction,
+  type EventCommentReply,
 } from './model/types'

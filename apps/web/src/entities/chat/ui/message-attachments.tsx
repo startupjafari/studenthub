@@ -13,7 +13,7 @@ import {
 } from '../../../shared/lib'
 import { ProgressRing } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
-import { fetchAttachmentLink } from '../api/chat-api'
+import { useAttachmentLinkSource } from './attachment-link-source'
 import { fileKind } from '../lib/file-kind'
 // Те же признаки вида, что у превью в списке чатов, — один источник на оба места.
 import { isViewable, isVoice } from '../lib/attachment-kind'
@@ -186,9 +186,10 @@ function frameProps(att: MessageAttachment): { className: string; style?: CSSPro
 // Для оптимистичных (ещё не отправленных) вложений с localUrl запрос не делаем.
 function useAttachmentUrl(att: MessageAttachment) {
   const hasLocal = !!att.localUrl
+  const source = useAttachmentLinkSource()
   const q = useQuery({
-    queryKey: ['chat-attachment', att.id],
-    queryFn: () => fetchAttachmentLink(att.id),
+    queryKey: [source.scope, att.id],
+    queryFn: () => source.fetch(att.id),
     enabled: !hasLocal,
     staleTime: 10 * 60 * 1000,
     gcTime: 15 * 60 * 1000,

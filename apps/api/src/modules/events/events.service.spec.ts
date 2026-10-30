@@ -3,6 +3,9 @@ import { EventsService } from './events.service'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { AuditService } from '../../common/audit/audit.service'
 import type { QueueService } from '../../common/queue'
+import type { FileService } from '../files/file.service'
+import type { MediaService } from '../media/media.service'
+import type { ConfigService } from '@nestjs/config'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import { AppException } from '../../common/exceptions/app.exception'
 import { Paginated } from '../../common/http/paginated'
@@ -34,21 +37,43 @@ function setup() {
       create: jest.fn().mockResolvedValue({ id: 'c-new' }),
       update: jest.fn(),
       count: jest.fn().mockResolvedValue(0),
+      findUniqueOrThrow: jest.fn(),
+    },
+    eventCommentReaction: {
+      findMany: jest.fn().mockResolvedValue([]),
+      create: jest.fn(),
+      deleteMany: jest.fn(),
+    },
+    file: {
+      findFirst: jest.fn(),
+      updateMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
     university: { findUnique: jest.fn().mockResolvedValue(null) },
     faculty: { findUnique: jest.fn() },
     group: { findUnique: jest.fn() },
-    $transaction: jest.fn((ops: unknown) => Promise.all(ops as Promise<unknown>[])),
+    $executeRaw: jest.fn(),
+    // Массив операций — как раньше; функция — интерактивная транзакция поверх того же мока.
+    $transaction: jest.fn((arg: unknown): Promise<unknown> =>
+      typeof arg === 'function'
+        ? (arg as (tx: unknown) => Promise<unknown>)(prisma)
+        : Promise.all(arg as Promise<unknown>[]),
+    ),
   }
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   // true — job поставлен: по нему remindDue решает, ставить ли отметку reminderSentAt.
   const queue = { enqueue: jest.fn().mockResolvedValue(true) }
+  const files = { getPresignedUrl: jest.fn().mockResolvedValue('https://minio/signed') }
+  const media = { describeOne: jest.fn().mockResolvedValue({ status: 'READY' }) }
+  const config = { get: jest.fn().mockReturnValue('posts-media') }
   const service = new EventsService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
     queue as unknown as QueueService,
+    files as unknown as FileService,
+    media as unknown as MediaService,
+    config as unknown as ConfigService<never, true>,
   )
-  return { service, prisma, queue, audit }
+  return { service, prisma, queue, audit, files }
 }
 
 const user = (role: Role, scope: Partial<JwtPayload> = {}): JwtPayload => ({
@@ -623,6 +648,168 @@ describe('EventsService — комментарии (§3.5)', () => {
       code: 'NOT_FOUND',
     })
     expect(prisma.eventComment.create).not.toHaveBeenCalled()
+  })
+
+  const author = { id: 'u1', role: Role.STUDENT, universityId: null, facultyId: null }
+  const created = (over: Record<string, unknown> = {}) => ({
+    id: 'c-new',
+    content: '',
+    author,
+    media: [{ id: 'f1', mime: 'image/jpeg' }],
+    reactions: [],
+    replyTo: null,
+    ...over,
+  })
+
+  it('вложения привязываются только свои и ничьи, в бакете постов', async () => {
+    const { service, prisma } = setup()
+    prisma.event.findFirst.mockResolvedValue({ organizerId: 'org', universityId: null })
+    prisma.file.updateMany.mockResolvedValue({ count: 2 })
+    prisma.eventComment.findUniqueOrThrow.mockResolvedValue(created())
+
+    const view = await service.addComment(user(Role.STUDENT, { sub: 'u1' }), 'e1', {
+      mediaIds: ['f1', 'f2', 'f1'],
+    })
+
+    expect(prisma.eventComment.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ content: '', replyToId: null }) }),
+    )
+    expect(prisma.file.updateMany).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        id: { in: ['f1', 'f2'] },
+        ownerId: 'u1',
+        bucket: 'posts-media',
+        eventCommentId: null,
+        postId: null,
+      }),
+      data: { eventCommentId: 'c-new' },
+    })
+    expect(view).toMatchObject({ canDelete: true, replyTo: null })
+  })
+
+  it('спойлер ставится только на файлы этого комментария, «без сжатия» — на все', async () => {
+    const { service, prisma } = setup()
+    prisma.event.findFirst.mockResolvedValue({ organizerId: 'org', universityId: null })
+    prisma.file.updateMany.mockResolvedValueOnce({ count: 2 })
+    prisma.eventComment.findUniqueOrThrow.mockResolvedValue(created())
+
+    await service.addComment(user(Role.STUDENT, { sub: 'u1' }), 'e1', {
+      mediaIds: ['f1', 'f2'],
+      spoilerIds: ['f2', 'чужой'],
+      asDocument: true,
+    })
+
+    expect(prisma.file.updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ['f2'] }, eventCommentId: 'c-new' },
+      data: { spoiler: true },
+    })
+    expect(prisma.file.updateMany).toHaveBeenCalledWith({
+      where: { eventCommentId: 'c-new' },
+      data: { asDocument: true },
+    })
+  })
+
+  it('чужое или уже прикреплённое вложение — отказ, комментарий не остаётся', async () => {
+    const { service, prisma } = setup()
+    prisma.event.findFirst.mockResolvedValue({ organizerId: 'org', universityId: null })
+    prisma.file.updateMany.mockResolvedValue({ count: 1 })
+
+    await expect(
+      service.addComment(user(Role.STUDENT, { sub: 'u1' }), 'e1', { mediaIds: ['f1', 'f2'] }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    // Отказ брошен внутри транзакции — create откатится вместе с ней.
+    expect(prisma.eventComment.findUniqueOrThrow).not.toHaveBeenCalled()
+  })
+
+  it('ответ — только на живой комментарий того же события', async () => {
+    const { service, prisma } = setup()
+    prisma.event.findFirst.mockResolvedValue({ organizerId: 'org', universityId: null })
+    prisma.eventComment.findFirst.mockResolvedValue(null)
+
+    await expect(
+      service.addComment(user(Role.STUDENT), 'e1', { content: 'Да', replyToId: 'c-other' }),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    expect(prisma.eventComment.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'c-other', eventId: 'e1', deletedAt: null } }),
+    )
+    expect(prisma.eventComment.create).not.toHaveBeenCalled()
+  })
+
+  it('цитата удалённого оригинала — без текста', async () => {
+    const { service, prisma } = setup()
+    prisma.event.findFirst.mockResolvedValue({ organizerId: 'org', universityId: null })
+    prisma.eventComment.findFirst.mockResolvedValue({ id: 'c-old' })
+    prisma.eventComment.findUniqueOrThrow.mockResolvedValue(
+      created({
+        content: 'Ответ',
+        replyTo: {
+          id: 'c-old',
+          content: 'секрет',
+          deletedAt: new Date(),
+          author: { id: 'a', firstName: 'А', lastName: 'Б' },
+          _count: { media: 2 },
+        },
+      }),
+    )
+
+    const view = await service.addComment(user(Role.STUDENT), 'e1', {
+      content: 'Ответ',
+      replyToId: 'c-old',
+    })
+
+    expect(view.replyTo).toEqual({
+      id: 'c-old',
+      author: { id: 'a', firstName: 'А', lastName: 'Б' },
+      content: '',
+      mediaCount: 0,
+      deleted: true,
+    })
+  })
+
+  it('реакция: тот же эмодзи снимается, другой заменяет прежний', async () => {
+    const { service, prisma } = setup()
+    prisma.event.findFirst.mockResolvedValue({ id: 'e1' })
+    prisma.eventComment.findFirst.mockResolvedValue({ id: 'c1' })
+
+    prisma.eventCommentReaction.findMany.mockResolvedValueOnce([{ id: 'r1', emoji: '👍' }])
+    await service.toggleCommentReaction(user(Role.STUDENT), 'e1', 'c1', '👍')
+    expect(prisma.eventCommentReaction.deleteMany).toHaveBeenCalledWith({ where: { id: 'r1' } })
+    expect(prisma.eventCommentReaction.create).not.toHaveBeenCalled()
+
+    prisma.eventCommentReaction.findMany.mockResolvedValueOnce([{ id: 'r1', emoji: '👍' }])
+    await service.toggleCommentReaction(user(Role.STUDENT), 'e1', 'c1', '🔥')
+    expect(prisma.eventCommentReaction.deleteMany).toHaveBeenLastCalledWith({
+      where: { id: { in: ['r1'] } },
+    })
+    expect(prisma.eventCommentReaction.create).toHaveBeenCalledWith({
+      data: { commentId: 'c1', userId: 'u1', emoji: '🔥' },
+    })
+  })
+
+  it('реакция не из набора — отказ', async () => {
+    const { service, prisma } = setup()
+    prisma.event.findFirst.mockResolvedValue({ id: 'e1' })
+    prisma.eventComment.findFirst.mockResolvedValue({ id: 'c1' })
+
+    await expect(
+      service.toggleCommentReaction(user(Role.STUDENT), 'e1', 'c1', 'привет'),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+  })
+
+  it('ссылка на вложение — только у живого комментария этого события', async () => {
+    const { service, prisma, files } = setup()
+    prisma.event.findFirst.mockResolvedValue({ id: 'e1' })
+    prisma.file.findFirst.mockResolvedValue(null)
+
+    await expect(
+      service.commentAttachmentUrl(user(Role.STUDENT), 'e1', 'f1'),
+    ).rejects.toMatchObject({ code: 'NOT_FOUND' })
+    expect(prisma.file.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'f1', eventComment: { eventId: 'e1', deletedAt: null } },
+      }),
+    )
+    expect(files.getPresignedUrl).not.toHaveBeenCalled()
   })
 
   it('отдаёт последние комментарии по порядку написания', async () => {

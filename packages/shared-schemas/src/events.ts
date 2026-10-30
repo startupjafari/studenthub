@@ -135,8 +135,27 @@ export const EventMeetingSchema = z.object({
 })
 export type EventMeeting = z.infer<typeof EventMeetingSchema>
 
-// Комментарий к событию (§3.5): вопрос организатору, уточнение, обсуждение. Только текст.
+// Комментарий к событию (§3.5): вопрос организатору, уточнение, обсуждение. Устроен как
+// сообщение чата: текст, вложения (`mediaIds` — свои загруженные в бакет постов файлы, до 10:
+// фото, видео, документы, голосовые) и ответ на другой комментарий того же события. Текст
+// может быть пустым, только если есть вложения, — как подпись к фото.
 export const CreateEventCommentSchema = z
-  .object({ content: z.string().trim().min(1).max(2000) })
+  .object({
+    content: z.string().trim().max(2000).optional(),
+    mediaIds: z.array(z.string().min(1)).max(10).optional(),
+    // Флаги отправителя из диалога вложений, как в чате: какие из `mediaIds` под спойлером
+    // и «без сжатия» — снимки показываются строками файлов, а не превью.
+    spoilerIds: z.array(z.string().min(1)).max(10).optional(),
+    asDocument: z.boolean().optional(),
+    replyToId: z.string().min(1).optional(),
+  })
   .strict()
+  .refine((v) => (v.content?.length ?? 0) > 0 || (v.mediaIds?.length ?? 0) > 0, {
+    message: 'Нужен текст или вложение',
+    path: ['content'],
+  })
 export type CreateEventCommentInput = z.infer<typeof CreateEventCommentSchema>
+
+// Реакция на комментарий — тоггл, набор эмодзи тот же, что у сообщений чата.
+export const EventCommentReactionSchema = z.object({ emoji: z.string().min(1).max(16) }).strict()
+export type EventCommentReactionInput = z.infer<typeof EventCommentReactionSchema>

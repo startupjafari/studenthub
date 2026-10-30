@@ -74,13 +74,14 @@ const FILE_SELECT = {
 // медиа сториса и не обложка альбома (эти две связи объявлены со стороны Story/Album).
 // Новая связь File с сущностью обязана попасть сюда, иначе общий `DELETE /files/:id`
 // снова начнёт снимать вложения мимо модуля-владельца.
-const DETACHED_WHERE = {
+export const DETACHED_WHERE = {
   postId: null,
   messageId: null,
   materialId: null,
   albumId: null,
   documentId: null,
   submissionId: null,
+  eventCommentId: null,
   stories: { none: {} },
   albumsCovered: { none: {} },
   bookCovers: { none: {} },
@@ -93,6 +94,7 @@ const ATTACHMENT_SELECT = {
   albumId: true,
   documentId: true,
   submissionId: true,
+  eventCommentId: true,
   _count: { select: { stories: true, albumsCovered: true, bookCovers: true } },
 } satisfies Prisma.FileSelect
 
@@ -105,6 +107,7 @@ function isAttached(file: Prisma.FileGetPayload<{ select: typeof ATTACHMENT_SELE
     file.albumId !== null ||
     file.documentId !== null ||
     file.submissionId !== null ||
+    file.eventCommentId !== null ||
     file._count.stories > 0 ||
     file._count.albumsCovered > 0 ||
     file._count.bookCovers > 0
