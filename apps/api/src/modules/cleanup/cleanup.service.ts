@@ -149,7 +149,8 @@ const DETACHED_FILES_MAX_BATCHES = 200
 
 // Ни одной связи, кроме поста: медиа удалённого поста уходит, только если на файл не
 // ссылается ничто другое (сторис, альбом, сообщение, обложка книги).
-const NO_OWNER_BUT_POST_WHERE = {
+// Связи, общие для бакета постов: медиа поста и вложение комментария к событию живут там же.
+const NO_OWNER_BUT_POSTS_BUCKET_WHERE = {
   messageId: null,
   materialId: null,
   albumId: null,
@@ -158,6 +159,16 @@ const NO_OWNER_BUT_POST_WHERE = {
   stories: { none: {} },
   albumsCovered: { none: {} },
   bookCovers: { none: {} },
+} satisfies Prisma.FileWhereInput
+
+const NO_OWNER_BUT_POST_WHERE = {
+  eventCommentId: null,
+  ...NO_OWNER_BUT_POSTS_BUCKET_WHERE,
+} satisfies Prisma.FileWhereInput
+
+const NO_OWNER_BUT_EVENT_COMMENT_WHERE = {
+  postId: null,
+  ...NO_OWNER_BUT_POSTS_BUCKET_WHERE,
 } satisfies Prisma.FileWhereInput
 
 // Ни одной связи с сущностью-владельцем — та же проверка, что у FileService.deleteDetached.
@@ -623,6 +634,14 @@ export class CleanupService {
         bucket: this.config.get('MINIO_BUCKET_POSTS', { infer: true }),
         post: { deletedAt: { lt: new Date(now - DELETED_POST_MEDIA_RETENTION_DAYS * DAY_MS) } },
         ...NO_OWNER_BUT_POST_WHERE,
+      },
+      // Вложения удалённых комментариев к событиям — тот же срок, что у медиа удалённых постов.
+      {
+        bucket: this.config.get('MINIO_BUCKET_POSTS', { infer: true }),
+        eventComment: {
+          deletedAt: { lt: new Date(now - DELETED_POST_MEDIA_RETENTION_DAYS * DAY_MS) },
+        },
+        ...NO_OWNER_BUT_EVENT_COMMENT_WHERE,
       },
       {
         bucket: documentsBucket,

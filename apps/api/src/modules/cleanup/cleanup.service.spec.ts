@@ -473,6 +473,27 @@ describe('CleanupService', () => {
       expect(deleted.post.deletedAt.lt.getTime()).toBeLessThanOrEqual(Date.now() - month)
     })
 
+    it('снимает вложения комментариев к событиям, удалённых больше 30 дней назад', async () => {
+      const { service, prisma } = makeService()
+      prisma.file.findMany.mockResolvedValue([])
+      const before = Date.now()
+
+      await service.cleanDetachedFiles()
+
+      const wheres = prisma.file.findMany.mock.calls.map(
+        (c: [{ where: Record<string, unknown> }]) => c[0].where,
+      )
+      const deleted = wheres.find((w) => 'eventComment' in w) as Record<string, unknown> & {
+        eventComment: { deletedAt: { lt: Date } }
+      }
+      expect(deleted).toMatchObject({ bucket: 'MINIO_BUCKET_POSTS', postId: null, messageId: null })
+      expect(deleted).not.toHaveProperty('eventCommentId')
+      const month = 30 * 24 * 60 * 60 * 1000
+      expect(deleted.eventComment.deletedAt.lt.getTime()).toBeGreaterThanOrEqual(before - month)
+      // Медиа удалённого поста не снимается, пока файл прикреплён к живому комментарию.
+      expect(wheres.find((w) => 'post' in w)).toMatchObject({ eventCommentId: null })
+    })
+
     // D-F21: сканы удалённых документов и брошенных в мастере загрузок жили вечно.
     it('снимает сканы документов, удалённых больше 30 дней назад', async () => {
       const { service, prisma } = makeService()

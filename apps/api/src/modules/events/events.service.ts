@@ -1,7 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common'
+import { ConfigService } from '@nestjs/config'
 import { PostAudience, Prisma } from '@prisma/client'
 import { Role, isHigherRole } from '@studenthub/shared-types'
-import type { NotificationMessageKey } from '@studenthub/shared-config'
+import { CHAT_REACTION_EMOJIS, type NotificationMessageKey } from '@studenthub/shared-config'
 import {
   DEFAULT_PAGE_LIMIT,
   isPageRequested,
@@ -31,6 +32,12 @@ import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
 import { NOTIFICATION_JOBS, QUEUES, QueueService } from '../../common/queue'
 import { localDateTimeLabel } from '../../common/time/local-label'
+import { advisoryXactLock } from '../../common/prisma/advisory-lock'
+import { signingWindow } from '../../common/minio/stable-sign'
+import { DETACHED_WHERE, FileService } from '../files/file.service'
+import { MediaService } from '../media/media.service'
+import { MEDIA_FILE_SELECT, MEDIA_PREVIEW_SELECT, type MediaInfo } from '../media/media.types'
+import type { EnvVars } from '../../config/env.schema'
 
 // Аудитории событий по роли (docs/PROJECT.md §2.2: студент — ограниченно, только своя группа).
 const ALLOWED_AUDIENCES: Record<Role, PostAudience[]> = {
@@ -134,11 +141,54 @@ const PARTICIPANTS_LEGACY_LIMIT = 1000
 // Потолок обсуждения под событием в одном ответе (BACKEND_RULES §5.3: findMany без take нельзя).
 const COMMENTS_LIMIT = 100
 
+// Реакций под комментарием отдаём не больше этого: обсуждение видит вся аудитория события,
+// а вложенная выборка тоже обязана иметь потолок.
+const COMMENT_REACTIONS_LIMIT = 500
+// Своих реакций у человека на комментарий — одна, но читаем с запасом (как в чате).
+const COMMENT_OWN_REACTIONS_LIMIT = 10
+
+// Вложение комментария — та же форма, что у вложения сообщения чата: клиент рисует его тем же
+// компонентом. Байты — по отдельной ссылке (commentAttachmentUrl), как в чате.
+const COMMENT_MEDIA_SELECT = {
+  id: true,
+  mime: true,
+  size: true,
+  name: true,
+  spoiler: true,
+  asDocument: true,
+  width: true,
+  height: true,
+  ...MEDIA_PREVIEW_SELECT,
+} satisfies Prisma.FileSelect
+
+const COMMENT_REACTION_SELECT = {
+  emoji: true,
+  userId: true,
+  user: { select: { id: true, firstName: true, lastName: true, avatarUrl: true } },
+} satisfies Prisma.EventCommentReactionSelect
+
 const COMMENT_SELECT = {
   id: true,
   content: true,
   createdAt: true,
+  replyToId: true,
   author: { select: { id: true, firstName: true, lastName: true, avatarThumbUrl: true } },
+  media: { select: COMMENT_MEDIA_SELECT, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] },
+  // deletedAt — чтобы цитату удалённого оригинала свести к «комментарий удалён» (replyView).
+  replyTo: {
+    select: {
+      id: true,
+      content: true,
+      deletedAt: true,
+      author: { select: { id: true, firstName: true, lastName: true } },
+      _count: { select: { media: true } },
+    },
+  },
+  reactions: {
+    select: COMMENT_REACTION_SELECT,
+    orderBy: { createdAt: 'asc' },
+    take: COMMENT_REACTIONS_LIMIT,
+  },
 } satisfies Prisma.EventCommentSelect
 
 // Для списка — плюс роль и scope автора: по ним считается `canDelete` (правило модерации).
@@ -183,6 +233,9 @@ export class EventsService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly queue: QueueService,
+    private readonly files: FileService,
+    private readonly media: MediaService,
+    private readonly config: ConfigService<EnvVars, true>,
   ) {}
 
   // ── Видимость (по аналогии с постами, задача 10.2) ─────────────────────────
@@ -552,12 +605,132 @@ export class EventsService {
     })
   }
 
+  /**
+   * Новый комментарий — как сообщение чата: текст, вложения и ответ. Вложения клиент заранее
+   * грузит в бакет постов (`/files/*`), а здесь они привязываются к комментарию в той же
+   * транзакции: только свои и ещё ничьи — чужой файл или уже прикреплённый не пройдёт.
+   */
   async addComment(viewer: JwtPayload, id: string, input: CreateEventCommentInput) {
-    await this.assertVisible(viewer, id)
-    return this.prisma.eventComment.create({
-      data: { eventId: id, authorId: viewer.sub, content: input.content },
-      select: COMMENT_SELECT,
+    const event = await this.prisma.event.findFirst({
+      where: { id, ...eventAccessWhere(viewer) },
+      select: { organizerId: true, universityId: true, facultyId: true },
     })
+    if (!event) throw new AppException('NOT_FOUND', 'Событие не найдено')
+    if (input.replyToId) {
+      // Ответить можно только на живой комментарий этого же события.
+      const target = await this.prisma.eventComment.findFirst({
+        where: { id: input.replyToId, eventId: id, deletedAt: null },
+        select: { id: true },
+      })
+      if (!target) throw new AppException('NOT_FOUND', 'Комментарий для ответа не найден')
+    }
+    const mediaIds = [...new Set(input.mediaIds ?? [])]
+    const row = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.eventComment.create({
+        data: {
+          eventId: id,
+          authorId: viewer.sub,
+          content: input.content ?? '',
+          replyToId: input.replyToId ?? null,
+        },
+        select: { id: true },
+      })
+      if (mediaIds.length > 0) {
+        const linked = await tx.file.updateMany({
+          where: {
+            id: { in: mediaIds },
+            ownerId: viewer.sub,
+            bucket: this.config.get('MINIO_BUCKET_POSTS', { infer: true }),
+            ...DETACHED_WHERE,
+          },
+          data: { eventCommentId: created.id },
+        })
+        if (linked.count !== mediaIds.length) {
+          throw new AppException('BAD_REQUEST', 'Вложение не найдено или уже прикреплено')
+        }
+      }
+      return tx.eventComment.findUniqueOrThrow({
+        where: { id: created.id },
+        select: COMMENT_LIST_SELECT,
+      })
+    })
+    return toCommentView(viewer, event, row)
+  }
+
+  /**
+   * Ссылка на вложение комментария — та же форма, что у вложения сообщения чата
+   * (`{ url, expiresAt, ...MediaInfo }`). Право то же, что у самого обсуждения: событие видно
+   * зрителю, комментарий не удалён.
+   */
+  async commentAttachmentUrl(
+    viewer: JwtPayload,
+    id: string,
+    fileId: string,
+  ): Promise<MediaInfo & { url: string; expiresAt: string }> {
+    await this.assertVisible(viewer, id)
+    const file = await this.prisma.file.findFirst({
+      where: { id: fileId, eventComment: { eventId: id, deletedAt: null } },
+      select: MEDIA_FILE_SELECT,
+    })
+    if (!file) throw new AppException('NOT_FOUND', 'Вложение не найдено')
+    // Срок — конец окна подписи (common/minio/stable-sign), как у вложений чата.
+    const now = Date.now()
+    const [url, info] = await Promise.all([
+      this.files.getPresignedUrl(fileId),
+      this.media.describeOne(file, now),
+    ])
+    return { ...info, url, expiresAt: signingWindow(now).expiresAt.toISOString() }
+  }
+
+  /**
+   * Реакция на комментарий — по правилам чата: повтор того же эмодзи снимает реакцию,
+   * другой заменяет прежнюю (одна на человека), ставить можно только эмодзи из набора.
+   * Возвращает реакции комментария целиком — клиенту не нужно перечитывать список.
+   */
+  async toggleCommentReaction(
+    viewer: JwtPayload,
+    id: string,
+    commentId: string,
+    emoji: string,
+  ): Promise<{ reactions: unknown[] }> {
+    await this.assertVisible(viewer, id)
+    const comment = await this.prisma.eventComment.findFirst({
+      where: { id: commentId, eventId: id, deletedAt: null },
+      select: { id: true },
+    })
+    if (!comment) throw new AppException('NOT_FOUND', 'Комментарий не найден')
+    // Под локом на (комментарий, человек): двойной клик иначе гнал два create в unique.
+    await this.prisma.$transaction(async (tx) => {
+      await advisoryXactLock(tx, `event-comment-reaction:${commentId}:${viewer.sub}`)
+      const existing = await tx.eventCommentReaction.findMany({
+        where: { commentId, userId: viewer.sub },
+        select: { id: true, emoji: true },
+        take: COMMENT_OWN_REACTIONS_LIMIT,
+      })
+      const same = existing.find((r) => r.emoji === emoji)
+      if (same) {
+        await tx.eventCommentReaction.deleteMany({ where: { id: same.id } })
+        return
+      }
+      if (!(CHAT_REACTION_EMOJIS as readonly string[]).includes(emoji)) {
+        throw new AppException('BAD_REQUEST', 'Такой реакции нет')
+      }
+      if (existing.length > 0) {
+        await tx.eventCommentReaction.deleteMany({
+          where: { id: { in: existing.map((r) => r.id) } },
+        })
+      }
+      await tx.eventCommentReaction.create({
+        data: { commentId, userId: viewer.sub, emoji },
+      })
+    })
+    const reactions = await this.prisma.eventCommentReaction.findMany({
+      where: { commentId },
+      select: COMMENT_REACTION_SELECT,
+      orderBy: { createdAt: 'asc' },
+      take: COMMENT_REACTIONS_LIMIT,
+    })
+    return { reactions }
   }
 
   /**
@@ -949,7 +1122,35 @@ function toCommentView(viewer: JwtPayload, event: EventScope, row: CommentListRo
   const canDelete =
     author.id === viewer.sub ||
     canModerateEventComment(viewer, event, { role: role as Role, universityId, facultyId })
-  return { ...row, author, canDelete }
+  return {
+    ...row,
+    author,
+    media: row.media ?? [],
+    reactions: row.reactions ?? [],
+    replyTo: replyView(row.replyTo),
+    canDelete,
+  }
+}
+
+// Длина цитаты в ответе: клиент рисует одну строку, весь текст оригинала ему не нужен.
+const REPLY_QUOTE_LENGTH = 200
+
+/**
+ * Цитата оригинала в ответе. Удалённый оригинал — только «удалён» и автор: его текст после
+ * удаления никому показываться не должен, в том числе через ответы.
+ */
+function replyView(reply: CommentListRow['replyTo'] | undefined) {
+  if (!reply) return null
+  if (reply.deletedAt) {
+    return { id: reply.id, author: reply.author, content: '', mediaCount: 0, deleted: true }
+  }
+  return {
+    id: reply.id,
+    author: reply.author,
+    content: reply.content.slice(0, REPLY_QUOTE_LENGTH),
+    mediaCount: reply._count.media,
+    deleted: false,
+  }
 }
 
 /**

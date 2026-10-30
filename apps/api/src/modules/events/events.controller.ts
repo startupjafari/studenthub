@@ -23,6 +23,7 @@ import { CreateEventDto } from './dto/create-event.dto'
 import { UpdateEventDto } from './dto/update-event.dto'
 import { EventListQueryDto } from './dto/event-list-query.dto'
 import { CreateEventCommentDto } from './dto/create-event-comment.dto'
+import { EventCommentReactionDto } from './dto/event-comment-reaction.dto'
 import { EventParticipantsQueryDto } from './dto/event-participants-query.dto'
 import { EventCommentsQueryDto } from './dto/event-comments-query.dto'
 
@@ -153,8 +154,12 @@ export class EventsController {
   }
 
   @Post(':id/comments')
-  @ApiOperation({ summary: 'Прокомментировать событие' })
+  @ApiOperation({
+    summary: 'Прокомментировать событие: текст, вложения (mediaIds из бакета постов), ответ',
+  })
   @ApiResponse({ status: 201, description: 'Комментарий создан' })
+  @ApiResponse({ status: 400, description: 'BAD_REQUEST — вложение чужое или уже прикреплено' })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND — событие или комментарий для ответа' })
   @ApiResponse({ status: 422, description: 'VALIDATION_ERROR' })
   addComment(
     @CurrentUser() user: CurrentUserData,
@@ -162,6 +167,33 @@ export class EventsController {
     @Body() dto: CreateEventCommentDto,
   ) {
     return this.events.addComment(user, id, dto)
+  }
+
+  @Get(':id/comments/attachments/:fileId/url')
+  @ApiOperation({ summary: 'Ссылка на вложение комментария (как у вложения сообщения чата)' })
+  @ApiResponse({ status: 200, description: '{ url, expiresAt, ...MediaInfo }' })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND — событие не видно или вложения нет' })
+  commentAttachmentUrl(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Param('fileId') fileId: string,
+  ) {
+    return this.events.commentAttachmentUrl(user, id, fileId)
+  }
+
+  @Post(':id/comments/:commentId/reactions')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Поставить или снять реакцию на комментарий (одна на человека)' })
+  @ApiResponse({ status: 200, description: '{ reactions } — реакции комментария целиком' })
+  @ApiResponse({ status: 400, description: 'BAD_REQUEST — эмодзи не из набора реакций' })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND — событие или комментарий' })
+  reactToComment(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Param('commentId') commentId: string,
+    @Body() dto: EventCommentReactionDto,
+  ) {
+    return this.events.toggleCommentReaction(user, id, commentId, dto.emoji)
   }
 
   @Delete(':id/comments/:commentId')
