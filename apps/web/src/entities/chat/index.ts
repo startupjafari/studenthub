@@ -102,6 +102,7 @@ export {
   MessageContextMenu,
   type MessageMenuActions,
   type MessageMenuAnchor,
+  type MessageMenuTarget,
 } from './ui/message-context-menu'
 export { useVoiceRecorder, type VoiceRecorderController } from './lib/use-voice-recorder'
 export { fileKind, type FileKind } from './lib/file-kind'
