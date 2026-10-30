@@ -34,6 +34,13 @@ const HEIGHT = {
   tall: 'h-[min(90vh,56rem)]',
 } as const
 
+/** Открыт ли поверх окна оверлей приложения вне диалогов (меню сообщения и т. п.). */
+function overlayAbove(): boolean {
+  return Array.from(document.querySelectorAll('[data-overlay]')).some(
+    (el) => !el.closest('[role="dialog"]'),
+  )
+}
+
 export interface ModalProps {
   onClose: () => void
   /** Заголовок в шапке окна. Если не задан — sr-only (для a11y), в шапке только крестик. */
@@ -100,6 +107,15 @@ export function Modal({
         <DialogPrimitive.Overlay className="fixed inset-0 z-[100] bg-overlay/50 backdrop-blur-sm data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:duration-(--motion-modal) data-[state=open]:fade-in-0" />
         <DialogPrimitive.Content
           aria-describedby={undefined}
+          // Меню сообщения и другие оверлеи приложения (`data-overlay`) открываются поверх
+          // окна порталом в body — для Radix это «снаружи». Нажатие в них и Escape, который
+          // они гасят сами, не должны закрывать окно под ними.
+          onInteractOutside={(e) => {
+            if ((e.target as Element | null)?.closest?.('[data-overlay]')) e.preventDefault()
+          }}
+          onEscapeKeyDown={(e) => {
+            if (overlayAbove()) e.preventDefault()
+          }}
           className={cn(
             'fixed top-1/2 left-1/2 z-[100] flex max-h-[90vh] w-[calc(100%-2rem)] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-2xl border border-border bg-card data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:duration-(--motion-modal) data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95',
             SIZE[size],
