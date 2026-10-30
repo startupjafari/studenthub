@@ -1,10 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useLocale, useTranslations } from 'next-intl'
 import type { ReactNode } from 'react'
+import { Flag, MessagesSquare } from 'lucide-react'
 import { Role } from '@studenthub/shared-types'
 import {
   complaintKeys,
@@ -14,6 +15,7 @@ import {
   resolveComplaintRequest,
   takeComplaintRequest,
   type Complaint,
+  type ComplaintChatMessage,
   complaintPriority,
   PRIORITY_STYLE,
   STATUS_STYLE,
@@ -26,7 +28,11 @@ import {
   Input,
   Label,
   Modal,
-  SegmentedTabs,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
   useConfirm,
 } from '../../../shared/ui'
 import { toApiError } from '../../../shared/lib'
@@ -44,12 +50,34 @@ const BLOCK_TERMS = [
 ] as const
 type BlockTerm = (typeof BLOCK_TERMS)[number]['days']
 
+/**
+ * Меры по жалобе — от мягкой к жёсткой. Порядок и есть иерархия: модератор идёт сверху вниз
+ * и останавливается на первой достаточной. Жёсткие отмечены тоном — красным.
+ */
+const DECISIONS: { action: Decision; severe: boolean }[] = [
+  { action: 'DISMISS', severe: false },
+  { action: 'WARN_USER', severe: false },
+  { action: 'DELETE_CONTENT', severe: true },
+  { action: 'BLOCK_USER', severe: true },
+]
+
 /** Пара «подпись — значение» списка деталей. Все пары одной сетки, поэтому колонки ровные. */
-function Field({ label, children }: { label: string; children: ReactNode }) {
+function Field({
+  label,
+  wide = false,
+  children,
+}: {
+  label: string
+  /** Во всю ширину и с переносом строк — для длинного текста вроде решения. */
+  wide?: boolean
+  children: ReactNode
+}) {
   return (
-    <div className="flex min-w-0 flex-col gap-0.5">
+    <div className={cn('flex min-w-0 flex-col gap-0.5', wide && 'col-span-2')}>
       <dt className="text-xs text-muted-foreground">{label}</dt>
-      <dd className="truncate text-sm">{children}</dd>
+      <dd className={cn('text-sm', wide ? 'whitespace-pre-wrap break-words' : 'truncate')}>
+        {children}
+      </dd>
     </div>
   )
 }
@@ -82,6 +110,9 @@ export function ComplaintDetailModal({
   const [showChat, setShowChat] = useState(false)
   const [applyToDuplicates, setApplyToDuplicates] = useState(false)
   const [blockDays, setBlockDays] = useState<BlockTerm>(0)
+  // Решение выбирают карточкой, применяют одной кнопкой: раньше пять кнопок одного веса
+  // стояли в ряд, и «Заблокировать» было в одном клике от «Отклонить».
+  const [decision, setDecision] = useState<Decision | null>(null)
   // Карточка целиком — с текстом обжалованного: строка очереди его не несёт. Она же — свежее
   // состояние: строка, по которой окно открыли, после «Взять» устаревает, и кнопка оставалась.
   const detail = useQuery({
@@ -219,7 +250,6 @@ export function ComplaintDetailModal({
               либо две ячейки, либо четыре. */}
           {!isOpen && (
             <>
-              <Field label={t('resolution')}>{current.resolution ?? '—'}</Field>
               <Field label={t('resolvedBy')}>
                 {current.resolvedBy ? (
                   <ProfileLink
@@ -231,6 +261,9 @@ export function ComplaintDetailModal({
                 ) : (
                   '—'
                 )}
+              </Field>
+              <Field label={t('resolution')} wide>
+                {current.resolution ?? '—'}
               </Field>
             </>
           )}
@@ -271,14 +304,20 @@ export function ComplaintDetailModal({
         {complaint.targetType === 'MESSAGE' && (
           <section className="flex flex-col gap-2 rounded-xl border border-border p-3">
             <div className="flex items-center justify-between gap-3">
-              <h4 className="text-sm font-medium">{t('chatTitle')}</h4>
+              <div className="flex min-w-0 flex-col">
+                <h4 className="text-sm font-medium">{t('chatTitle')}</h4>
+                {canReadChat && !showChat && (
+                  <p className="text-xs text-muted-foreground">{t('chatAuditHint')}</p>
+                )}
+              </div>
               {canReadChat && (
                 <Button
                   type="button"
-                  variant="ghost"
+                  variant="outline"
                   size="sm"
                   onClick={() => setShowChat((v) => !v)}
                 >
+                  <MessagesSquare className="size-4" aria-hidden />
                   {showChat ? t('hideChat') : t('showChat')}
                 </Button>
               )}
@@ -297,25 +336,66 @@ export function ComplaintDetailModal({
               ) : (messages.data ?? []).length === 0 ? (
                 <p className="text-xs text-muted-foreground">{t('chatEmpty')}</p>
               ) : (
-                <ul className="flex max-h-60 flex-col gap-1.5 overflow-y-auto">
-                  {(messages.data ?? []).map((m) => (
-                    <li key={m.id} className="text-sm">
-                      <ProfileLink userId={m.senderId} className="font-medium hover:underline">
-                        {m.sender.lastName} {m.sender.firstName}
-                      </ProfileLink>
-                      :{' '}
-                      <span className={cn(m.deletedAt && 'text-muted-foreground line-through')}>
-                        {m.content}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
+                <ChatTranscript
+                  messages={messages.data ?? []}
+                  targetId={complaint.targetId}
+                  reporterId={complaint.reporter.id}
+                />
               ))}
           </section>
         )}
 
-        {isOpen && (
+        {isOpen && !takenByOther && (
           <section className="flex flex-col gap-3">
+            <h4 id="complaint-decision" className="text-sm font-medium">
+              {t('decisionTitle')}
+            </h4>
+            <div
+              role="radiogroup"
+              aria-labelledby="complaint-decision"
+              className="grid gap-2 sm:grid-cols-2"
+            >
+              {DECISIONS.filter(
+                // Снимать нечего, когда жалоба на самого человека.
+                (d) => !(d.action === 'DELETE_CONTENT' && complaint.targetType === 'USER'),
+              ).map((d) => {
+                const checked = decision === d.action
+                return (
+                  <label
+                    key={d.action}
+                    className={cn(
+                      'flex cursor-pointer gap-2.5 rounded-xl border p-3 transition-colors',
+                      'has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring',
+                      checked
+                        ? d.severe
+                          ? 'border-destructive bg-destructive/10'
+                          : 'border-primary bg-primary/10'
+                        : 'border-border hover:bg-muted/50',
+                    )}
+                  >
+                    <input
+                      type="radio"
+                      name="complaint-decision"
+                      className={cn(
+                        'mt-0.5 size-4 shrink-0',
+                        d.severe ? 'accent-destructive' : 'accent-primary',
+                      )}
+                      checked={checked}
+                      onChange={() => setDecision(d.action)}
+                    />
+                    <span className="flex min-w-0 flex-col gap-0.5">
+                      <span className={cn('text-sm font-medium', d.severe && 'text-destructive')}>
+                        {t(`decision${d.action}`)}
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {t(`decision${d.action}Hint`)}
+                      </span>
+                    </span>
+                  </label>
+                )
+              })}
+            </div>
+
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="complaint-comment">{t('commentLabel')}</Label>
               <Input
@@ -334,32 +414,22 @@ export function ComplaintDetailModal({
               />
               {t('applyToDuplicates')}
             </label>
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="text-sm text-muted-foreground">{t('blockTerm')}</span>
-              <SegmentedTabs<`${BlockTerm}`>
-                aria-label={t('blockTerm')}
-                compact
-                value={`${blockDays}`}
-                onChange={(v) => setBlockDays(Number(v) as BlockTerm)}
-                items={BLOCK_TERMS.map((term) => ({
-                  value: `${term.days}` as `${BlockTerm}`,
-                  label: t(term.key),
-                }))}
-              />
-            </div>
           </section>
         )}
 
-        {/* Подвал: слева выход без решения, справа — сами решения, от мягкого к жёсткому. */}
-        <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-4">
-          <Button type="button" variant="outline" onClick={onClose}>
+        {/* Подвал: слева выход без решения, справа — одна главная кнопка (выбранная мера) и
+            рядом вторичное «Взять в разбор». */}
+        {/* Один ряд: «Закрыть» прижата влево (mr-auto), действия идут за ней в той же строке.
+            Переносится только на узком экране — на ПК группа справа не уезжает под «Закрыть». */}
+        <footer className="flex flex-wrap items-center gap-2 border-t border-border pt-4 sm:flex-nowrap">
+          <Button type="button" variant="ghost" className="mr-auto" onClick={onClose}>
             {tCommon('close')}
           </Button>
           {isOpen && takenByOther && (
             <p className="text-sm text-muted-foreground">{t('takenByOtherHint')}</p>
           )}
           {isOpen && !takenByOther && (
-            <div className="flex flex-wrap justify-end gap-2">
+            <>
               {reviewer === null && (
                 <Button
                   type="button"
@@ -370,40 +440,45 @@ export function ComplaintDetailModal({
                   {t('take')}
                 </Button>
               )}
-              <Button
-                type="button"
-                loading={resolveMut.isPending && resolveMut.variables === 'DISMISS'}
-                onClick={() => void decide('DISMISS')}
-              >
-                {t('dismiss')}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                loading={resolveMut.isPending && resolveMut.variables === 'WARN_USER'}
-                onClick={() => void decide('WARN_USER')}
-              >
-                {t('warnUser')}
-              </Button>
-              {complaint.targetType !== 'USER' && (
-                <Button
-                  type="button"
-                  variant="destructive"
-                  loading={resolveMut.isPending && resolveMut.variables === 'DELETE_CONTENT'}
-                  onClick={() => void decide('DELETE_CONTENT')}
+              {/* Срок — прямо у кнопки блокировки: его выбирают вместе с ней, у остальных
+                  мер срока нет. */}
+              {decision === 'BLOCK_USER' && (
+                <Select
+                  value={`${blockDays}`}
+                  onValueChange={(v) => setBlockDays(Number(v) as BlockTerm)}
                 >
-                  {t('deleteContent')}
-                </Button>
+                  <SelectTrigger aria-label={t('blockTerm')} className="w-32 shrink-0">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {BLOCK_TERMS.map((term) => (
+                      <SelectItem key={term.days} value={`${term.days}`}>
+                        {t(term.key)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               )}
               <Button
                 type="button"
-                variant="destructive"
-                loading={resolveMut.isPending && resolveMut.variables === 'BLOCK_USER'}
-                onClick={() => void decide('BLOCK_USER')}
+                variant={
+                  decision && DECISIONS.find((d) => d.action === decision)?.severe
+                    ? 'destructive'
+                    : 'default'
+                }
+                disabled={decision === null}
+                loading={resolveMut.isPending}
+                onClick={() => {
+                  if (decision) void decide(decision)
+                }}
               >
-                {blockDays === 0 ? t('blockUser') : t('blockUserFor', { days: blockDays })}
+                {decision === null
+                  ? t('applyDecision')
+                  : decision === 'BLOCK_USER'
+                    ? t('blockUser')
+                    : t(`decision${decision}`)}
               </Button>
-            </div>
+            </>
           )}
           {!isOpen && (
             <Button
@@ -418,5 +493,114 @@ export function ComplaintDetailModal({
         </footer>
       </div>
     </Modal>
+  )
+}
+
+/**
+ * Переписка вокруг обжалованного сообщения — как чат: автор жалобы справа, собеседники слева,
+ * разделители по дням и время у каждого сообщения. Обжалованное подсвечено, и окно сразу
+ * прокручено к нему: ради него переписку и открыли.
+ */
+function ChatTranscript({
+  messages,
+  targetId,
+  reporterId,
+}: {
+  messages: ComplaintChatMessage[]
+  targetId: string
+  reporterId: string
+}) {
+  const t = useTranslations('Moderation')
+  const locale = useLocale()
+  const listRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    const list = listRef.current
+    const target = list?.querySelector<HTMLElement>('[data-target="true"]')
+    if (!list || !target) return
+    list.scrollTop = target.offsetTop - list.clientHeight / 2 + target.clientHeight / 2
+  }, [messages])
+
+  const dayOf = (iso: string): string =>
+    new Date(iso).toLocaleDateString(locale, { day: 'numeric', month: 'long' })
+  const timeOf = (iso: string): string =>
+    new Date(iso).toLocaleTimeString(locale, { hour: '2-digit', minute: '2-digit' })
+
+  return (
+    <div
+      ref={listRef}
+      className="relative flex max-h-96 flex-col gap-1 overflow-y-auto rounded-lg bg-muted/30 p-3"
+    >
+      {messages.map((m, i) => {
+        const prev = messages[i - 1]
+        const day = dayOf(m.createdAt)
+        const newDay = !prev || dayOf(prev.createdAt) !== day
+        const firstOfRun = newDay || prev?.senderId !== m.senderId
+        const mine = m.senderId === reporterId
+        const target = m.id === targetId
+        // Удалённые вокруг приходят без текста; обжалованное — с текстом, даже если автор
+        // успел его удалить: это и есть предмет жалобы.
+        const removed = !!m.deletedAt && !target
+        return (
+          <div key={m.id} className="contents">
+            {newDay && (
+              <div className="my-1.5 self-center rounded-full bg-muted px-2.5 py-0.5 text-[11px] text-muted-foreground">
+                {day}
+              </div>
+            )}
+            <div
+              data-target={target}
+              className={cn(
+                'flex max-w-[80%] flex-col gap-0.5',
+                mine ? 'items-end self-end' : 'items-start self-start',
+                firstOfRun && !newDay && 'mt-1.5',
+              )}
+            >
+              {firstOfRun && (
+                <ProfileLink
+                  userId={m.senderId}
+                  className="px-1 text-xs font-medium text-muted-foreground hover:text-foreground hover:underline"
+                >
+                  {m.sender.lastName} {m.sender.firstName}
+                  {mine && <span className="font-normal"> · {t('chatReporterTag')}</span>}
+                </ProfileLink>
+              )}
+              <div
+                className={cn(
+                  'flex flex-col gap-0.5 rounded-2xl px-3 py-1.5 text-sm',
+                  target
+                    ? 'bg-destructive/10 ring-2 ring-destructive/60'
+                    : mine
+                      ? 'bg-primary/15'
+                      : 'bg-muted',
+                )}
+              >
+                {target && (
+                  <span className="flex items-center gap-1 text-[11px] font-semibold text-destructive">
+                    <Flag className="size-3" aria-hidden />
+                    {t('chatReportedMessage')}
+                    {m.deletedAt && ` · ${t('chatDeletedByAuthor')}`}
+                  </span>
+                )}
+                <p
+                  className={cn(
+                    'whitespace-pre-wrap break-words',
+                    removed && 'italic text-muted-foreground',
+                  )}
+                >
+                  {removed ? t('chatMessageDeleted') : m.content}
+                </p>
+                <time
+                  dateTime={m.createdAt}
+                  className="self-end text-[11px] tabular-nums text-muted-foreground"
+                >
+                  {timeOf(m.createdAt)}
+                </time>
+              </div>
+            </div>
+          </div>
+        )
+      })}
+    </div>
   )
 }
