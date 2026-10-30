@@ -28,10 +28,13 @@ import { Button, Modal } from '../../../shared/ui'
 export function JoinMeetingButton({
   eventId,
   provider,
+  size = 'sm',
   className,
 }: {
   eventId: string
   provider: MeetingProviderValue
+  /** В шапке страницы — `md`, в один рост с соседними кнопками; в карточках — `sm`. */
+  size?: 'sm' | 'md'
   className?: string
 }) {
   const t = useTranslations('Events')
@@ -51,7 +54,7 @@ export function JoinMeetingButton({
       <Button
         type="button"
         variant="outline"
-        size="sm"
+        size={size}
         className={className}
         loading={open.isPending}
         onClick={() => open.mutate()}

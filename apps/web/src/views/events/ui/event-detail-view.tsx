@@ -41,7 +41,7 @@ import {
   Textarea,
   useConfirm,
 } from '../../../shared/ui'
-import { toApiError } from '../../../shared/lib'
+import { cn, toApiError } from '../../../shared/lib'
 import { useAppSelector } from '../../../shared/store'
 
 // Запасной расчёт прав по роли — только для ответа без серверных флагов `canManage` /
@@ -82,12 +82,16 @@ export function EventDetailView({ eventId }: { eventId: string }) {
         onBack={() => router.back()}
         backLabel={t('back')}
         actions={
-          event.data &&
-          canManage && (
-            <Button variant="outline" size="md" onClick={() => setEditing(true)}>
-              <Pencil className="size-4" aria-hidden />
-              {t('edit')}
-            </Button>
+          event.data && (
+            <>
+              <EventActions event={event.data} />
+              {canManage && (
+                <Button variant="outline" size="md" onClick={() => setEditing(true)}>
+                  <Pencil className="size-4" aria-hidden />
+                  {t('edit')}
+                </Button>
+              )}
+            </>
           )
         }
       />
@@ -101,7 +105,13 @@ export function EventDetailView({ eventId }: { eventId: string }) {
           description={t('notFoundHint')}
         />
       ) : (
-        <div className="grid gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1fr)_20rem] lg:grid-rows-[minmax(0,1fr)]">
+        // Колонка участников — только тем, кто их видит: иначе справа пустовала бы полоса.
+        <div
+          className={cn(
+            'grid gap-4 lg:min-h-0 lg:flex-1 lg:grid-rows-[minmax(0,1fr)]',
+            canManage && 'lg:grid-cols-[minmax(0,1fr)_20rem]',
+          )}
+        >
           <div className="flex min-w-0 flex-col gap-4 lg:min-h-0">
             <EventInfo event={event.data} />
             {/* canModerate — запасной расчёт для ответа без `canDelete` у комментариев. */}
@@ -121,19 +131,22 @@ export function EventDetailView({ eventId }: { eventId: string }) {
   )
 }
 
-function EventInfo({ event }: { event: EventItem }) {
+/**
+ * Завершилось — по концу, а не по началу: к идущему событию ещё подключаются, и сервер
+ * принимает регистрацию до его конца.
+ */
+function isPast(event: EventItem): boolean {
+  const start = new Date(event.startsAt).getTime()
+  const end = event.endsAt ? new Date(event.endsAt).getTime() : start + DEFAULT_DURATION_MS
+  return end < Date.now()
+}
+
+/** Участие и вход во встречу — в шапке страницы, рядом с «Изменить». */
+function EventActions({ event }: { event: EventItem }) {
   const t = useTranslations('Events')
   const tErr = useTranslations('Errors')
-  const fmt = useFormatter()
   const qc = useQueryClient()
   const myId = useAppSelector((s) => s.auth.user?.id)
-  const start = new Date(event.startsAt)
-  // Завершилось — по концу, а не по началу: к идущему событию ещё подключаются, и сервер
-  // принимает регистрацию до его конца.
-  const end = event.endsAt
-    ? new Date(event.endsAt)
-    : new Date(start.getTime() + DEFAULT_DURATION_MS)
-  const past = end.getTime() < Date.now()
 
   const registerMut = useMutation({
     mutationFn: () =>
@@ -141,6 +154,31 @@ function EventInfo({ event }: { event: EventItem }) {
     onSuccess: () => void qc.invalidateQueries({ queryKey: eventKeys.all }),
     onError: (e) => toast.error(tErr(toApiError(e).code)),
   })
+
+  if (isPast(event)) return null
+  return (
+    <>
+      {/* Ссылку сервер отдаёт участникам и организатору — остальным кнопку не показываем.
+          Организатору регистрация не нужна: встречу ведёт он. */}
+      {(event.isRegistered || event.organizerId === myId) && event.meetingProvider && (
+        <JoinMeetingButton eventId={event.id} provider={event.meetingProvider} size="md" />
+      )}
+      <Button
+        variant={event.isRegistered ? 'outline' : 'default'}
+        size="md"
+        loading={registerMut.isPending}
+        onClick={() => registerMut.mutate()}
+      >
+        {event.isRegistered ? t('cancelRegistration') : t('register')}
+      </Button>
+    </>
+  )
+}
+
+function EventInfo({ event }: { event: EventItem }) {
+  const t = useTranslations('Events')
+  const fmt = useFormatter()
+  const start = new Date(event.startsAt)
 
   const when = fmt.dateTimeRange(start, event.endsAt ? new Date(event.endsAt) : start, {
     weekday: 'short',
@@ -196,24 +234,7 @@ function EventInfo({ event }: { event: EventItem }) {
 
       {event.description && <p className="text-sm whitespace-pre-line">{event.description}</p>}
 
-      {past ? (
-        <p className="text-sm text-muted-foreground">{t('finished')}</p>
-      ) : (
-        <div className="flex flex-wrap gap-2">
-          <Button
-            variant={event.isRegistered ? 'outline' : 'default'}
-            loading={registerMut.isPending}
-            onClick={() => registerMut.mutate()}
-          >
-            {event.isRegistered ? t('cancelRegistration') : t('register')}
-          </Button>
-          {/* Ссылку сервер отдаёт участникам и организатору — остальным кнопку не показываем.
-              Организатору регистрация не нужна: встречу ведёт он. */}
-          {(event.isRegistered || event.organizerId === myId) && event.meetingProvider && (
-            <JoinMeetingButton eventId={event.id} provider={event.meetingProvider} />
-          )}
-        </div>
-      )}
+      {isPast(event) && <p className="text-sm text-muted-foreground">{t('finished')}</p>}
     </Card>
   )
 }
