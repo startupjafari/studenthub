@@ -1,3 +1,4 @@
+import type { Readable } from 'node:stream'
 import { Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
 import { UpdateAcademicRecordSchema } from '@studenthub/shared-schemas'
@@ -1898,6 +1899,12 @@ describe('UserService.updateUsername', () => {
   })
 })
 
+async function readAll(stream: Readable): Promise<string> {
+  let out = ''
+  for await (const chunk of stream) out += String(chunk)
+  return out
+}
+
 describe('UserService — выгрузка списка', () => {
   const admin: JwtPayload = {
     sub: 'adm-1',
@@ -1920,13 +1927,37 @@ describe('UserService — выгрузка списка', () => {
     }
   }
 
-  it('отказывает, когда строк больше предела, вместо тихого обрезания', async () => {
+  it('XLSX больше предела — отказ EXPORT_TOO_LARGE вместо тихого обрезания', async () => {
     const { service, prisma } = setup()
     prisma.user.count.mockResolvedValue(5001)
 
-    await expect(service.exportList(admin, query, 'ru', 'xlsx')).rejects.toThrow(AppException)
+    await expect(service.exportList(admin, query, 'ru', 'xlsx')).rejects.toMatchObject({
+      code: 'EXPORT_TOO_LARGE',
+    })
     // Данные при этом не читаются: отказ до выборки, а не после.
     expect(prisma.user.findMany).not.toHaveBeenCalled()
+  })
+
+  it('CSV больше предела XLSX отдаётся целиком, страницами по курсору', async () => {
+    const { service, prisma } = setup()
+    prisma.user.count.mockResolvedValue(501)
+    prisma.user.findFirst.mockResolvedValue({
+      firstName: 'Асан',
+      lastName: 'Асанов',
+      university: { timezone: 'Asia/Almaty' },
+    })
+    const full = Array.from({ length: 500 }, (_, i) => row(`u-${i}`))
+    prisma.user.findMany.mockResolvedValueOnce(full).mockResolvedValueOnce([row('u-500')])
+
+    const { body } = await service.exportList(admin, query, 'ru', 'csv')
+    const csv = await readAll(body as Readable)
+
+    // Шапка и все 501 строка: файл не обрывается на первой странице.
+    expect(csv.split('\r\n')).toHaveLength(502)
+    // Вторая страница продолжает первую от последнего id, а не через OFFSET.
+    expect(prisma.user.findMany).toHaveBeenLastCalledWith(
+      expect.objectContaining({ cursor: { id: 'u-499' }, skip: 1 }),
+    )
   })
 
   it('собирает книгу и записывает выгрузку в журнал', async () => {
@@ -1956,7 +1987,7 @@ describe('UserService — выгрузка списка', () => {
     )
   })
 
-  it('CSV отдаётся строкой с BOM — иначе Excel ломает кириллицу', async () => {
+  it('CSV начинается с BOM — иначе Excel ломает кириллицу', async () => {
     const { service, prisma } = setup()
     prisma.user.count.mockResolvedValue(1)
     prisma.user.findFirst.mockResolvedValue({
@@ -1968,8 +1999,7 @@ describe('UserService — выгрузка списка', () => {
 
     const { body } = await service.exportList(admin, query, 'ru', 'csv')
 
-    expect(typeof body).toBe('string')
-    expect((body as string).charCodeAt(0)).toBe(0xfeff)
+    expect((await readAll(body as Readable)).charCodeAt(0)).toBe(0xfeff)
   })
 })
 

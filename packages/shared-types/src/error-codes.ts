@@ -41,6 +41,10 @@ export const ErrorCode = {
   // обновление сессии закрыты до перехода по ссылке из письма. Отдельно от FORBIDDEN:
   // клиент предлагает отправить письмо ещё раз, а не говорит «недостаточно прав».
   EMAIL_NOT_VERIFIED: 'EMAIL_NOT_VERIFIED',
+  // Выборка больше предела выгрузки в XLSX (книгу SheetJS собирает в памяти целиком).
+  // Отдельно от BAD_REQUEST: клиент предлагает выгрузить ту же выборку в CSV — его сервер
+  // отдаёт потоком и без предела.
+  EXPORT_TOO_LARGE: 'EXPORT_TOO_LARGE',
 } as const
 
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode]
@@ -79,6 +83,9 @@ export const ERROR_CODE_STATUS: Record<ErrorCode, number> = {
   UNIVERSITY_BLOCKED: 403,
   // 403 — пароль верный, но вход откроется только после подтверждения адреса.
   EMAIL_NOT_VERIFIED: 403,
+  // 400 — запрос корректен, но в этом формате невыполним; 413 тут неверен: он про тело
+  // запроса, а не про ответ.
+  EXPORT_TOO_LARGE: 400,
 }
 
 /** Код по умолчанию для HTTP-статуса (для стандартных Nest-исключений без явного кода). */

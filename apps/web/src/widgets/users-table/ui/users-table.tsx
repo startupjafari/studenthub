@@ -197,10 +197,26 @@ export function UsersTable({ title, subtitle, role, showRoleFilter = false }: Us
   // выгрузки и единое имя файла. Клиентская сборка брала первую страницу ответа и молча
   // обрывала выгрузку на 200 строках — в файле это никак не было видно.
   const exportMut = useMutation({
-    mutationFn: () => exportUsers(filters, locale),
+    mutationFn: (format: 'xlsx' | 'csv') => exportUsers(filters, locale, format),
     onSuccess: saveFile,
-    onError: (e) => toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR')),
+    onError: (e) => {
+      const code = (e as { code?: string }).code ?? 'INTERNAL_ERROR'
+      // Для книги Excel строк слишком много — ту же выборку можно взять CSV-файлом: его
+      // сервер отдаёт потоком и без предела. Предлагаем прямо из тоста, искать незачем.
+      toast.error(tErr(code), {
+        id: 'users-export',
+        ...(code === 'EXPORT_TOO_LARGE'
+          ? {
+              duration: 15_000,
+              action: { label: t('exportCsv'), onClick: () => runExport('csv') },
+            }
+          : {}),
+      })
+    },
   })
+  function runExport(format: 'xlsx' | 'csv'): void {
+    exportMut.mutate(format)
+  }
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-6">
@@ -240,7 +256,7 @@ export function UsersTable({ title, subtitle, role, showRoleFilter = false }: Us
             <Button
               type="button"
               size="md"
-              onClick={() => exportMut.mutate()}
+              onClick={() => runExport('xlsx')}
               loading={exportMut.isPending}
               disabled={total === 0}
             >

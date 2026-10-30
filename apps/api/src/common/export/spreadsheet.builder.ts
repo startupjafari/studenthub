@@ -97,6 +97,11 @@ function neutralizeFormula(value: string | number | boolean | null): string {
   return FORMULA_START.test(value) ? `'${value}` : value
 }
 
+// BOM задаём escape-последовательностью: «невидимка» в исходнике не читается глазами
+// и ломает линтер (no-irregular-whitespace).
+export const CSV_BOM = '\uFEFF'
+export const CSV_EOL = '\r\n'
+
 /**
  * CSV: только данные, без строк происхождения.
  *
@@ -107,13 +112,23 @@ function neutralizeFormula(value: string | number | boolean | null): string {
  * «ÐŸÑ€Ð¸Ð²ÐµÑ‚».
  */
 export function buildCsv<Row>(input: Pick<SpreadsheetInput<Row>, 'columns' | 'rows'>): string {
-  const escape = (value: string | number | boolean | null): string =>
-    `"${neutralizeFormula(value).replace(/"/g, '""')}"`
-  const lines = [
-    input.columns.map((c) => escape(c.header)).join(','),
-    ...input.rows.map((row) => input.columns.map((c) => escape(c.value(row))).join(',')),
-  ]
-  // BOM задаём escape-последовательностью: «невидимка» в исходнике не читается глазами
-  // и ломает линтер (no-irregular-whitespace).
-  return `\uFEFF${lines.join('\r\n')}`
+  const lines = [csvHeader(input.columns), ...input.rows.map((row) => csvRow(input.columns, row))]
+  return `${CSV_BOM}${lines.join(CSV_EOL)}`
+}
+
+/**
+ * Части того же CSV для потоковой выдачи: файл без предела по строкам собирается
+ * страницами, а не в памяти. Формат обязан совпадать с `buildCsv` байт в байт — поэтому
+ * и он собран из них.
+ */
+export function csvHeader<Row>(columns: SpreadsheetColumn<Row>[]): string {
+  return columns.map((c) => csvCell(c.header)).join(',')
+}
+
+export function csvRow<Row>(columns: SpreadsheetColumn<Row>[], row: Row): string {
+  return columns.map((c) => csvCell(c.value(row))).join(',')
+}
+
+function csvCell(value: string | number | boolean | null): string {
+  return `"${neutralizeFormula(value).replace(/"/g, '""')}"`
 }
