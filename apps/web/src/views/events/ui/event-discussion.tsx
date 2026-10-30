@@ -41,6 +41,7 @@ import {
   AttachmentLinkProvider,
   MessageAttachments,
   MessageContent,
+  MessageContextMenu,
   ReactionBar,
   VoiceWaveform,
   compressImages,
@@ -48,6 +49,7 @@ import {
   useVoiceRecorder,
   type AttachmentLinkSource,
   type AttachmentSendOptions,
+  type MessageMenuAnchor,
 } from '../../../entities/chat'
 import { ProfileLink } from '../../../entities/user'
 import { uploadToBucket } from '../../../shared/api'
@@ -56,6 +58,7 @@ import {
   AvatarFallback,
   AvatarImage,
   Button,
+  captureAnchor,
   Card,
   DropdownMenu,
   DropdownMenuContent,
@@ -96,10 +99,18 @@ export function EventDiscussion({
 }) {
   const t = useTranslations('Events')
   const tErr = useTranslations('Errors')
+  const tChat = useTranslations('Chats')
   const qc = useQueryClient()
   const confirm = useConfirm()
   const myId = useAppSelector((s) => s.auth.user?.id)
   const [replyTo, setReplyTo] = useState<EventComment | null>(null)
+  // Меню комментария по правому клику — то же, что в чате; пункты — те, что бывают здесь.
+  const [menu, setMenu] = useState<{
+    comment: EventComment
+    x: number
+    y: number
+    anchor?: MessageMenuAnchor
+  } | null>(null)
 
   // Страницы — свежие сверху; «Показать предыдущие» догружает более ранние (E-F12).
   const comments = useInfiniteQuery({
@@ -238,6 +249,7 @@ export function EventDiscussion({
                     onReact={(emoji) => react.mutate({ commentId: c.id, emoji })}
                     onDelete={() => deleteComment(c, own)}
                     onJumpTo={jumpTo}
+                    onOpenMenu={(x, y, anchor) => setMenu({ comment: c, x, y, anchor })}
                   />
                 )
               })}
@@ -245,6 +257,27 @@ export function EventDiscussion({
           )}
         </div>
       </AttachmentLinkProvider>
+
+      {menu && (
+        <MessageContextMenu
+          message={menu.comment}
+          mine={menu.comment.author.id === myId}
+          canDelete={menu.comment.canDelete ?? (menu.comment.author.id === myId || canModerate)}
+          x={menu.x}
+          y={menu.y}
+          anchor={menu.anchor}
+          onClose={() => setMenu(null)}
+          actions={{
+            onReact: (emoji) => react.mutate({ commentId: menu.comment.id, emoji }),
+            onReply: () => setReplyTo(menu.comment),
+            onCopy: () => {
+              void navigator.clipboard?.writeText(menu.comment.content)
+              toast.success(tChat('copied'))
+            },
+            onDelete: () => deleteComment(menu.comment, menu.comment.author.id === myId),
+          }}
+        />
+      )}
 
       <CommentComposer
         eventId={eventId}
@@ -275,6 +308,7 @@ function CommentBubble({
   onReact,
   onDelete,
   onJumpTo,
+  onOpenMenu,
 }: {
   comment: EventComment
   mine: boolean
@@ -286,6 +320,8 @@ function CommentBubble({
   onReact: (emoji: string) => void
   onDelete: () => void
   onJumpTo: (commentId: string) => void
+  /** Правый клик (на телефоне — долгое нажатие): меню сообщения, как в чате. */
+  onOpenMenu: (x: number, y: number, anchor?: MessageMenuAnchor) => void
 }) {
   const t = useTranslations('Events')
   const tChat = useTranslations('Chats')
@@ -297,6 +333,13 @@ function CommentBubble({
   return (
     <li
       id={`event-comment-${c.id}`}
+      onContextMenu={(e) => {
+        e.preventDefault()
+        // Долгое нажатие на тач-экране приходит тем же событием: меню тогда вырастает из
+        // самого пузыря, как в чате. Мышью — у точки клика.
+        const touch = (e.nativeEvent as PointerEvent).pointerType === 'touch'
+        onOpenMenu(e.clientX, e.clientY, touch ? captureAnchor(e.currentTarget) : undefined)
+      }}
       className={cn(
         'group flex items-start gap-2 rounded-xl transition-colors data-[flash=true]:bg-primary/10',
         mine && 'flex-row-reverse',
