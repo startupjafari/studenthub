@@ -1597,6 +1597,7 @@
     "USERNAME_TAKEN": "This username is already taken",
     "UNIVERSITY_BLOCKED": "The university is blocked on the platform. Please contact your university administration",
     "EMAIL_NOT_VERIFIED": "Confirm your company email: the link was sent to you after sign-up",
+    "EXPORT_TOO_LARGE": "Too many rows for Excel — over 5,000. Narrow the filter or download CSV",
     "MAINTENANCE": "Maintenance is in progress. Please try again a little later",
     "LOGIN_LOCKED": "Too many failed sign-in attempts. Sign-in to this account is temporarily locked — wait a few minutes",
     "retryHint": "Could not load the data. Refresh the page or try again later."
@@ -2649,6 +2650,7 @@
     "searchPlaceholder": "Search by name or email",
     "allRoles": "All roles",
     "export": "Export",
+    "exportCsv": "Download CSV",
     "empty": "No users",
     "updated": "Updated",
     "colName": "Name",
