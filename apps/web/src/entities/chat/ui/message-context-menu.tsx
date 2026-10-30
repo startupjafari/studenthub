@@ -29,19 +29,28 @@ import { cn } from '../../../shared/lib/utils'
 import { useBodyScrollLock, useScrollRow, useDismissAnimation } from '../../../shared/lib'
 import type { ChatMessage } from '../model/types'
 
+/**
+ * Действия меню. Обязательны реакция, ответ и копирование — они есть у любой переписки.
+ * Остальное — по месту: меню чата отдаёт всё, а переписки «как в чате» вне него (обсуждение
+ * события, обращение в поддержку) — только то, что там бывает. Нет обработчика — нет пункта.
+ */
 export interface MessageMenuActions {
   onReact: (emoji: string) => void
   onReply: () => void
-  onEdit: () => void
-  onPin: () => void
   onCopy: () => void
-  onCopyLink: () => void
-  onForward: () => void
-  onDelete: () => void
-  onSelect: () => void
+  onEdit?: () => void
+  onPin?: () => void
+  onCopyLink?: () => void
+  onForward?: () => void
+  onDelete?: () => void
+  onSelect?: () => void
   /** Пожаловаться на чужое сообщение. Нет — пункта нет (роль жалоб не подаёт). */
   onReport?: () => void
 }
+
+/** Что меню знает о сообщении: время (окно правки), закреп и пересылку — если они бывают. */
+export type MessageMenuTarget = Pick<ChatMessage, 'createdAt'> &
+  Partial<Pick<ChatMessage, 'pinnedAt' | 'forwardedFromId'>>
 
 /** Пузырь, из которого выросло меню (долгое нажатие на телефоне). */
 export type MessageMenuAnchor = MenuAnchor
@@ -138,9 +147,12 @@ export function MessageContextMenu({
   anchor,
   onClose,
   actions,
+  canDelete = mine,
 }: {
-  message: ChatMessage
+  message: MessageMenuTarget
   mine: boolean
+  /** Удалить можно не только своё: организатор события снимает чужие комментарии. */
+  canDelete?: boolean
   x: number
   y: number
   /** Пузырь под пальцем — есть только у долгого нажатия (тач). */
@@ -193,33 +205,28 @@ export function MessageContextMenu({
     mine &&
     !message.forwardedFromId &&
     Date.now() - new Date(message.createdAt).getTime() < MESSAGE_EDIT_WINDOW_MS
+  const optional = (
+    key: string,
+    label: string,
+    icon: LucideIcon,
+    onClick: (() => void) | undefined,
+    danger = false,
+  ): ActionDef[] => (onClick ? [{ key, label, icon, onClick, danger }] : [])
   const items: ActionDef[] = [
     { key: 'reply', label: t('reply'), icon: Reply, onClick: actions.onReply },
-    ...(canEdit ? [{ key: 'edit', label: t('edit'), icon: Pencil, onClick: actions.onEdit }] : []),
-    {
-      key: 'pin',
-      label: message.pinnedAt ? t('unpin') : t('pin'),
-      icon: message.pinnedAt ? PinOff : Pin,
-      onClick: actions.onPin,
-    },
+    ...(canEdit ? optional('edit', t('edit'), Pencil, actions.onEdit) : []),
+    ...optional(
+      'pin',
+      message.pinnedAt ? t('unpin') : t('pin'),
+      message.pinnedAt ? PinOff : Pin,
+      actions.onPin,
+    ),
     { key: 'copy', label: t('copyText'), icon: Copy, onClick: actions.onCopy },
-    { key: 'link', label: t('copyLink'), icon: Link2, onClick: actions.onCopyLink },
-    { key: 'forward', label: t('forward'), icon: Forward, onClick: actions.onForward },
-    { key: 'select', label: t('select'), icon: CheckCheck, onClick: actions.onSelect },
-    ...(!mine && actions.onReport
-      ? [{ key: 'report', label: t('report'), icon: Flag, onClick: actions.onReport, danger: true }]
-      : []),
-    ...(mine
-      ? [
-          {
-            key: 'delete',
-            label: t('delete'),
-            icon: Trash2,
-            onClick: actions.onDelete,
-            danger: true,
-          },
-        ]
-      : []),
+    ...optional('link', t('copyLink'), Link2, actions.onCopyLink),
+    ...optional('forward', t('forward'), Forward, actions.onForward),
+    ...optional('select', t('select'), CheckCheck, actions.onSelect),
+    ...(!mine ? optional('report', t('report'), Flag, actions.onReport, true) : []),
+    ...(canDelete ? optional('delete', t('delete'), Trash2, actions.onDelete, true) : []),
   ]
 
   const actionsList = (variant: 'menu' | 'card'): React.ReactNode => {
