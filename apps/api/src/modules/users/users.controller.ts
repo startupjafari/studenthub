@@ -249,7 +249,8 @@ export class UsersController {
 
   /**
    * Выгрузка списка в файл (задача 12.8). Фильтры — те же, что у `GET /users`, плюс
-   * `format` (xlsx по умолчанию) и `locale` для подписей.
+   * `format` (xlsx по умолчанию) и `locale` для подписей. CSV уходит потоком, без
+   * Content-Length.
    *
    * Объявлен ДО `@Get(':id')`: параметрический маршрут перехватил бы /users/export.
    */
@@ -261,12 +262,16 @@ export class UsersController {
     Role.UNIVERSITY_MODERATOR,
     Role.DEAN,
   )
-  // Книга до 5000 строк собирается синхронно, в event loop: несколько выгрузок подряд держали
-  // процесс. Пять в минуту с пользователя хватает человеку и не хватает на такой залп.
+  // Книга до 5000 строк собирается синхронно, в event loop, а CSV без предела читает базу
+  // десятками тысяч строк: несколько выгрузок подряд держали бы процесс. Пять в минуту с
+  // пользователя хватает человеку и не хватает на такой залп.
   @Throttle({ default: { limit: 5, ttl: 60_000 } })
   @ApiOperation({ summary: 'Выгрузить список пользователей (XLSX/CSV, по scope и фильтрам)' })
   @ApiResponse({ status: 200, description: 'Файл выгрузки' })
-  @ApiResponse({ status: 400, description: 'BAD_REQUEST — строк больше предела выгрузки' })
+  @ApiResponse({
+    status: 400,
+    description: 'EXPORT_TOO_LARGE — в XLSX больше 5000 строк (CSV отдаётся потоком без предела)',
+  })
   @ApiResponse({ status: 429, description: 'RATE_LIMIT — больше 5 выгрузок в минуту' })
   async export(
     @CurrentUser() user: CurrentUserData,

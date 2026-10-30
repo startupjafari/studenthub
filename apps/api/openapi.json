@@ -1507,7 +1507,7 @@
             "description": "Файл выгрузки"
           },
           "400": {
-            "description": "BAD_REQUEST — строк больше предела выгрузки"
+            "description": "EXPORT_TOO_LARGE — в XLSX больше 5000 строк (CSV отдаётся потоком без предела)"
           },
           "429": {
             "description": "RATE_LIMIT — больше 5 выгрузок в минуту"

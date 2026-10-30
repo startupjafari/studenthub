@@ -1,3 +1,4 @@
+import { Readable } from 'node:stream'
 import { forwardRef, Inject, Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { Prisma } from '@prisma/client'
@@ -26,8 +27,11 @@ import { ExportBrandingService } from '../../common/export/export-branding.servi
 import { ExportRegistryService } from '../../common/export/export-registry.service'
 import type { ExportContext, ExportLocale } from '../../common/export/export-branding.types'
 import {
-  buildCsv,
+  CSV_BOM,
+  CSV_EOL,
   buildWorkbook,
+  csvHeader,
+  csvRow,
   type SpreadsheetColumn,
 } from '../../common/export/spreadsheet.builder'
 import { AppException } from '../../common/exceptions/app.exception'
@@ -565,6 +569,10 @@ export class UserService {
    * Выборка — ровно та же, что у таблицы на экране (`listWhere`), включая scope: декан
    * выгружает свой факультет и ничего кроме. Раньше файл собирал браузер по первой
    * странице ответа, то есть выгрузка молча обрывалась на 200 строках.
+   *
+   * XLSX SheetJS собирает в памяти целиком, поэтому у него потолок. CSV уходит потоком
+   * постранично: память от размера выборки не зависит, и вся платформа выгружается
+   * одним файлом.
    */
   async exportList(
     viewer: JwtPayload,
@@ -572,39 +580,17 @@ export class UserService {
     locale: ExportLocale,
     format: 'xlsx' | 'csv',
     request: { ip?: string; userAgent?: string } = {},
-  ): Promise<{ body: Buffer | string; filename: string }> {
+  ): Promise<{ body: Buffer | Readable; filename: string }> {
     const where = this.listWhere(viewer, query)
     const total = await this.prisma.user.count({ where })
-    if (total > EXPORT_MAX_ROWS) {
+    if (format === 'xlsx' && total > EXPORT_MAX_ROWS) {
       // Честный отказ вместо тихого обрезания: неполный файл, который выглядит полным,
-      // опаснее отсутствия файла — по нему принимают решения.
+      // опаснее отсутствия файла — по нему принимают решения. Свой код, а не BAD_REQUEST:
+      // клиент по нему предлагает ту же выборку в CSV.
       throw new AppException(
-        'BAD_REQUEST',
-        `В выгрузку попало ${total} строк, предел — ${EXPORT_MAX_ROWS}. Сузьте фильтр.`,
+        'EXPORT_TOO_LARGE',
+        `В выгрузку попало ${total} строк, предел XLSX — ${EXPORT_MAX_ROWS}. Сузьте фильтр или выгрузите CSV.`,
       )
-    }
-
-    const rows: ExportUserRow[] = []
-    // Страницами, а не одним findMany: выборка без потолка запрещена (§7.2), а держать в
-    // памяти книгу целиком и так придётся — SheetJS иначе не умеет.
-    while (rows.length < total) {
-      const page = await this.prisma.user.findMany({
-        where,
-        select: {
-          id: true,
-          email: true,
-          firstName: true,
-          lastName: true,
-          role: true,
-          isBlocked: true,
-          createdAt: true,
-        },
-        orderBy: userListOrderBy(query),
-        skip: rows.length,
-        take: EXPORT_PAGE_SIZE,
-      })
-      if (page.length === 0) break
-      rows.push(...page)
     }
 
     const context: ExportContext = {
@@ -623,19 +609,28 @@ export class UserService {
         search: query.search,
       },
     }
-    const labels = this.branding.labels(locale)
     const columns = exportColumns(locale, context.timezone)
+    const pages = this.exportPages(where, userListOrderBy(query))
 
-    const body =
-      format === 'xlsx'
-        ? buildWorkbook({
-            columns,
-            rows,
-            labels,
-            info: this.branding.infoRows(context),
-            meta: this.branding.sheetMetadata(context),
-          })
-        : buildCsv({ columns, rows })
+    let body: Buffer | Readable
+    let rowCount: number
+    if (format === 'xlsx') {
+      const rows: ExportUserRow[] = []
+      for await (const page of pages) rows.push(...page)
+      body = buildWorkbook({
+        columns,
+        rows,
+        labels: this.branding.labels(locale),
+        info: this.branding.infoRows(context),
+        meta: this.branding.sheetMetadata(context),
+      })
+      rowCount = rows.length
+    } else {
+      // Поток ещё не прочитан, поэтому в журнал идёт число из count: выгрузка может
+      // разойтись с ним на строки, зарегистрированные за время скачивания.
+      body = Readable.from(csvChunks(columns, pages))
+      rowCount = total
+    }
 
     // Выгрузка персональных данных — событие для двух журналов сразу. AuditLog ставит его
     // в общую ленту действий пользователя, реестр выгрузок — в перечень выданных файлов с
@@ -644,11 +639,43 @@ export class UserService {
       userId: viewer.sub,
       action: 'users_export',
       entity: 'User',
-      metadata: { format, rows: rows.length, filters: context.params },
+      metadata: { format, rows: rowCount, filters: context.params },
     })
-    await this.exports.register({ context, format, rows: rows.length, ...request })
+    await this.exports.register({ context, format, rows: rowCount, ...request })
 
     return { body, filename: this.branding.filename(context, format) }
+  }
+
+  /**
+   * Строки выгрузки страницами. Курсор, а не skip: на десятках тысяч строк OFFSET заново
+   * пробегает всё пропущенное на каждой странице. Порядок списка всегда кончается на `id`,
+   * так что курсор однозначен.
+   */
+  private async *exportPages(
+    where: Prisma.UserWhereInput,
+    orderBy: Prisma.UserOrderByWithRelationInput[],
+  ): AsyncGenerator<ExportUserRow[]> {
+    let cursor: string | undefined
+    for (;;) {
+      const page = await this.prisma.user.findMany({
+        where,
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          role: true,
+          isBlocked: true,
+          createdAt: true,
+        },
+        orderBy,
+        take: EXPORT_PAGE_SIZE,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      })
+      if (page.length > 0) yield page
+      if (page.length < EXPORT_PAGE_SIZE) return
+      cursor = page[page.length - 1]!.id
+    }
   }
 
   /**
@@ -2699,9 +2726,9 @@ export class UserService {
 }
 
 /**
- * Потолок одной выгрузки. Пять тысяч строк — это книга примерно на мегабайт, которую
+ * Потолок выгрузки в XLSX. Пять тысяч строк — это книга примерно на мегабайт, которую
  * SheetJS собирает в памяти целиком; выше начинается риск для процесса, а не польза для
- * деканата. Больше — повод сузить фильтр или просить постраничную выдачу.
+ * деканата. Больше — повод сузить фильтр или выгрузить CSV: тот идёт потоком.
  */
 const EXPORT_MAX_ROWS = 5000
 const EXPORT_PAGE_SIZE = 500
@@ -2752,6 +2779,17 @@ const EXPORT_HEADERS: Record<ExportLocale, Record<keyof ExportUserRow, string>> 
     isBlocked: 'Blocked',
     createdAt: 'Registered at',
   },
+}
+
+/** CSV потоком: шапка, затем страница за страницей — тот же формат, что у `buildCsv`. */
+async function* csvChunks(
+  columns: SpreadsheetColumn<ExportUserRow>[],
+  pages: AsyncIterable<ExportUserRow[]>,
+): AsyncGenerator<string> {
+  yield `${CSV_BOM}${csvHeader(columns)}`
+  for await (const page of pages) {
+    yield page.map((row) => `${CSV_EOL}${csvRow(columns, row)}`).join('')
+  }
 }
 
 function exportColumns(locale: ExportLocale, timezone: string): SpreadsheetColumn<ExportUserRow>[] {
