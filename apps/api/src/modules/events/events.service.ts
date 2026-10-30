@@ -78,6 +78,20 @@ const JOIN_AFTER_MIN = 30
 const DEFAULT_DURATION_MIN = 120
 
 const ORGANIZER_SELECT = { select: { id: true, firstName: true, lastName: true } }
+// Участник в списке организатора — строка с аватаркой и подписью «роль · группа»: по одной
+// фамилии в списке на сотню человек своих не узнать. Список видят только организатор и
+// админы scope, а роль с группой и так видны им в справочнике вуза.
+const PARTICIPANT_USER_SELECT = {
+  select: {
+    id: true,
+    firstName: true,
+    lastName: true,
+    avatarThumbUrl: true,
+    role: true,
+    group: { select: { name: true } },
+    faculty: { select: { name: true } },
+  },
+}
 
 const EVENT_SELECT = {
   id: true,
@@ -441,7 +455,7 @@ export class EventsService {
     if (!isPageRequested(query)) {
       return this.prisma.eventParticipant.findMany({
         where: { eventId: id },
-        select: { userId: true, createdAt: true, user: ORGANIZER_SELECT },
+        select: { userId: true, createdAt: true, user: PARTICIPANT_USER_SELECT },
         orderBy: { createdAt: 'asc' },
         take: PARTICIPANTS_LEGACY_LIMIT,
       })
@@ -458,7 +472,7 @@ export class EventsService {
     if (query.cursor && !after) return new Paginated([], { hasNext: false })
     const rows = await this.prisma.eventParticipant.findMany({
       where: { eventId: id, ...(after ? newerThan(after) : {}) },
-      select: { id: true, userId: true, createdAt: true, user: ORGANIZER_SELECT },
+      select: { id: true, userId: true, createdAt: true, user: PARTICIPANT_USER_SELECT },
       // id — второй ключ: регистрации в одну миллисекунду иначе шли бы в случайном порядке
       // и терялись бы на стыке страниц.
       orderBy: OLDEST_FIRST,
