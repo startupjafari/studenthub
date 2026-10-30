@@ -28,7 +28,11 @@ import {
   Input,
   Label,
   Modal,
-  SegmentedTabs,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
   useConfirm,
 } from '../../../shared/ui'
 import { toApiError } from '../../../shared/lib'
@@ -392,23 +396,6 @@ export function ComplaintDetailModal({
               })}
             </div>
 
-            {/* Срок нужен только блокировке — у остальных мер его просто нет. */}
-            {decision === 'BLOCK_USER' && (
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-sm text-muted-foreground">{t('blockTerm')}</span>
-                <SegmentedTabs<`${BlockTerm}`>
-                  aria-label={t('blockTerm')}
-                  compact
-                  value={`${blockDays}`}
-                  onChange={(v) => setBlockDays(Number(v) as BlockTerm)}
-                  items={BLOCK_TERMS.map((term) => ({
-                    value: `${term.days}` as `${BlockTerm}`,
-                    label: t(term.key),
-                  }))}
-                />
-              </div>
-            )}
-
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="complaint-comment">{t('commentLabel')}</Label>
               <Input
@@ -451,6 +438,25 @@ export function ComplaintDetailModal({
                   {t('take')}
                 </Button>
               )}
+              {/* Срок — прямо у кнопки блокировки: его выбирают вместе с ней, у остальных
+                  мер срока нет. */}
+              {decision === 'BLOCK_USER' && (
+                <Select
+                  value={`${blockDays}`}
+                  onValueChange={(v) => setBlockDays(Number(v) as BlockTerm)}
+                >
+                  <SelectTrigger aria-label={t('blockTerm')} className="w-36">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {BLOCK_TERMS.map((term) => (
+                      <SelectItem key={term.days} value={`${term.days}`}>
+                        {t(term.key)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
               <Button
                 type="button"
                 variant={
@@ -467,9 +473,7 @@ export function ComplaintDetailModal({
                 {decision === null
                   ? t('applyDecision')
                   : decision === 'BLOCK_USER'
-                    ? blockDays === 0
-                      ? t('blockUser')
-                      : t('blockUserFor', { days: blockDays })
+                    ? t('blockUser')
                     : t(`decision${decision}`)}
               </Button>
             </div>
