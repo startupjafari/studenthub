@@ -419,15 +419,17 @@ export function ComplaintDetailModal({
 
         {/* Подвал: слева выход без решения, справа — одна главная кнопка (выбранная мера) и
             рядом вторичное «Взять в разбор». */}
-        <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-4">
-          <Button type="button" variant="ghost" onClick={onClose}>
+        {/* Один ряд: «Закрыть» прижата влево (mr-auto), действия идут за ней в той же строке.
+            Переносится только на узком экране — на ПК группа справа не уезжает под «Закрыть». */}
+        <footer className="flex flex-wrap items-center gap-2 border-t border-border pt-4 sm:flex-nowrap">
+          <Button type="button" variant="ghost" className="mr-auto" onClick={onClose}>
             {tCommon('close')}
           </Button>
           {isOpen && takenByOther && (
             <p className="text-sm text-muted-foreground">{t('takenByOtherHint')}</p>
           )}
           {isOpen && !takenByOther && (
-            <div className="flex flex-wrap justify-end gap-2">
+            <>
               {reviewer === null && (
                 <Button
                   type="button"
@@ -445,7 +447,7 @@ export function ComplaintDetailModal({
                   value={`${blockDays}`}
                   onValueChange={(v) => setBlockDays(Number(v) as BlockTerm)}
                 >
-                  <SelectTrigger aria-label={t('blockTerm')} className="w-36">
+                  <SelectTrigger aria-label={t('blockTerm')} className="w-32 shrink-0">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -476,7 +478,7 @@ export function ComplaintDetailModal({
                     ? t('blockUser')
                     : t(`decision${decision}`)}
               </Button>
-            </div>
+            </>
           )}
           {!isOpen && (
             <Button
