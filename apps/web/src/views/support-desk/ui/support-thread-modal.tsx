@@ -62,7 +62,6 @@ export function SupportThreadModal({ ticketId, onClose, onOpen }: SupportThreadM
   const t = useTranslations('SupportDesk')
   const tErr = useTranslations('Errors')
   const tRoles = useTranslations('Roles')
-  const tCommon = useTranslations('Common')
   const locale = useLocale()
   const qc = useQueryClient()
   const confirm = useConfirm()
@@ -402,12 +401,22 @@ export function SupportThreadModal({ ticketId, onClose, onOpen }: SupportThreadM
             />
           )}
 
-          {/* Подвал: слева выход из окна, справа действия по обращению — от вспомогательных к
-              главному. Главное одно и последнее: взять свободное или закрыть своё. */}
-          <footer className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
-            <Button variant="ghost" className="mr-auto" onClick={onClose}>
-              {tCommon('close')}
-            </Button>
+          {/* Подвал: слева «Закрыть обращение», справа остальные действия по нему. Окно
+              закрывается крестиком в шапке — отдельная «Закрыть» путалась с закрытием
+              обращения. */}
+          <footer className="flex flex-wrap items-center justify-end gap-2 border-t border-border pt-3">
+            {!closedTicket && !takenByOther && (
+              <Button
+                className="mr-auto"
+                variant={ticket.assigneeId ? 'default' : 'outline'}
+                loading={close.isPending}
+                onClick={async () => {
+                  if (await confirm({ title: t('confirmClose') })) close.mutate()
+                }}
+              >
+                {t('close')}
+              </Button>
+            )}
 
             {/* Склейка — только когда у автора есть другие обращения: её цель надо выбрать. */}
             {data.siblings.length > 0 && (
@@ -466,17 +475,6 @@ export function SupportThreadModal({ ticketId, onClose, onOpen }: SupportThreadM
             {!ticket.assigneeId && (
               <Button loading={assign.isPending} onClick={() => assign.mutate(true)}>
                 {t('take')}
-              </Button>
-            )}
-            {!closedTicket && !takenByOther && (
-              <Button
-                variant={ticket.assigneeId ? 'default' : 'outline'}
-                loading={close.isPending}
-                onClick={async () => {
-                  if (await confirm({ title: t('confirmClose') })) close.mutate()
-                }}
-              >
-                {t('close')}
               </Button>
             )}
           </footer>
