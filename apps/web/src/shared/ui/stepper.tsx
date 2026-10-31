@@ -16,22 +16,98 @@ export interface StepperStep {
 // Занимает всю ширину контейнера: тянутся соединительные линии, а сами шаги остаются
 // по размеру подписи. Раньше линия была фиксированной (`w-5`), и на широкой панели
 // вся лесенка жалась к левому краю.
+//
+// `layout="centered"` — для короткой лесенки (3–4 шага) в окне: шаги равной ширины, кружок
+// по центру колонки, подпись под ним. Первый и последний шаги стоят на одинаковом
+// расстоянии от краёв, а не прижаты к ним, как в строчном варианте.
 export function Stepper({
   steps,
   current,
   done,
   onStepClick,
+  layout = 'inline',
   className,
 }: {
   steps: StepperStep[]
   current: number
   done?: number
   onStepClick?: (index: number) => void
+  layout?: 'inline' | 'centered'
   className?: string
 }) {
   const doneCount = done ?? current
   // Лесенка шагов в длинном сценарии не влезает в телефон: ряд тянется, у краёв затухает.
   const row = useScrollRow<HTMLOListElement>()
+
+  if (layout === 'centered') {
+    return (
+      <ol className={cn('flex', className)}>
+        {steps.map((s, i) => {
+          const isDone = i < doneCount
+          const isActive = i === current
+          const clickable = !!onStepClick && i <= doneCount
+          return (
+            <li key={s.id} className="flex min-w-0 flex-1">
+              <button
+                type="button"
+                disabled={!clickable}
+                aria-current={isActive ? 'step' : undefined}
+                onClick={() => clickable && onStepClick?.(i)}
+                className={cn(
+                  'group flex w-full min-w-0 flex-col items-center gap-1.5',
+                  clickable ? 'cursor-pointer' : 'cursor-default',
+                )}
+              >
+                <span className="flex w-full items-center gap-2">
+                  {/* Линия к соседу: у крайних шагов наружу её нет, но место держим — иначе
+                      кружок съехал бы от центра колонки. */}
+                  <span
+                    className={cn(
+                      'h-px flex-1',
+                      i === 0 ? 'invisible' : i <= doneCount ? 'bg-primary/40' : 'bg-border',
+                    )}
+                    aria-hidden
+                  />
+                  <span
+                    className={cn(
+                      'flex size-7 shrink-0 items-center justify-center rounded-full text-xs font-semibold transition-shadow',
+                      isActive
+                        ? 'bg-primary text-primary-foreground'
+                        : isDone
+                          ? 'bg-primary/15 text-primary'
+                          : 'bg-muted text-muted-foreground',
+                      clickable && !isActive && 'group-hover:ring-2 group-hover:ring-primary/30',
+                    )}
+                  >
+                    {isDone && !isActive ? <Check className="size-3.5" aria-hidden /> : i + 1}
+                  </span>
+                  <span
+                    className={cn(
+                      'h-px flex-1',
+                      i === steps.length - 1
+                        ? 'invisible'
+                        : i < doneCount
+                          ? 'bg-primary/40'
+                          : 'bg-border',
+                    )}
+                    aria-hidden
+                  />
+                </span>
+                <span
+                  className={cn(
+                    'max-w-full px-1 text-center text-xs font-medium break-words sm:text-sm',
+                    isActive ? 'text-foreground' : 'text-muted-foreground',
+                  )}
+                >
+                  {s.label}
+                </span>
+              </button>
+            </li>
+          )
+        })}
+      </ol>
+    )
+  }
 
   return (
     <ol
