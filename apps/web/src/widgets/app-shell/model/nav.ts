@@ -32,7 +32,6 @@ import {
   MessagesSquare,
   Milestone,
   Newspaper,
-  ScanLine,
   ScrollText,
   Search,
   Send,
@@ -142,7 +141,6 @@ export const UNIVERSITY_ADMIN_NAV: NavItem[] = [
     icon: FileText,
     group: 'services',
   },
-  { key: 'verifyId', href: '/verify-id', icon: ScanLine, group: 'services' },
   // Каталог услуг вуза: что студент может заказать и что для этого приложить (§3.2).
   { key: 'serviceCatalog', href: '/university-admin/services', icon: ClipboardList, group: 'services' }, // prettier-ignore
   { key: 'documentTypes', href: '/university-admin/document-types', icon: FileCog, group: 'services' }, // prettier-ignore
@@ -182,7 +180,6 @@ export const DEAN_NAV: NavItem[] = [
   { key: 'teachers', href: '/dean/teachers', icon: BookOpen, group: 'people' },
   { key: 'starostas', href: '/dean/starostas', icon: UserCog, group: 'people' },
   { key: 'invites', href: '/dean/invites', icon: Send, group: 'people' },
-  { key: 'verifyId', href: '/verify-id', icon: ScanLine, group: 'people' },
 
   // Учебный процесс и его показатели.
   { key: 'courses', href: '/dean/courses', icon: BookOpen, group: 'study' },
@@ -217,7 +214,6 @@ export const TEACHER_NAV: NavItem[] = [
 
   // Приём студентов. «Документы» подставляет withCommon — в эту же группу.
   { key: 'consultations', href: '/teacher/consultations', icon: Handshake, group: 'services' },
-  { key: 'verifyId', href: '/verify-id', icon: ScanLine, group: 'services' },
 
   { key: 'posts', href: '/teacher/posts', icon: Newspaper, group: 'communication' },
   { key: 'chats', href: '/teacher/chats', icon: MessagesSquare, group: 'communication' },
