@@ -125,7 +125,9 @@ export function StaffWorkspaceModal({ id, onClose }: { id: string; onClose: () =
               onStepClick={(i) => i <= activeStep && setSelected(i)}
             />
 
-            <div className="grid items-start gap-4 md:grid-cols-5">
+            {/* Колонки тянутся на высоту ряда: история занимает всю высоту рядом со
+                сведениями, а не обрывается карточкой посреди пустого места. */}
+            <div className="grid gap-4 md:grid-cols-5">
               <div className="flex min-w-0 flex-col gap-4 md:col-span-3">
                 <Card className="flex flex-col gap-4 p-4">
                   <h3 className="text-sm font-semibold">{t('infoTitle')}</h3>
