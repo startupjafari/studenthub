@@ -87,15 +87,16 @@ export function StaffWorkspaceModal({ id, onClose }: { id: string; onClose: () =
     { id: 'issue', label: t('dStepIssue') },
   ]
 
-  // Окно собрано сверху вниз по важности: что за заявка и в каком она статусе (шапка) → на
-  // каком этапе → сведения → ответы и документы → история. Действия — в нижней полосе вне
-  // прокрутки: они всегда в одном месте, сколько бы ни было содержимого.
+  // Окно собрано по важности: что за заявка и в каком она статусе (шапка) → на каком этапе
+  // (степпер во всю ширину) → слева то, по чему решают (сведения, ответы, документы), справа
+  // история. На телефоне колонки встают друг под друга, история последней. Действия — в
+  // нижней полосе вне прокрутки, как в остальных окнах: «Закрыть» слева, решения справа.
   return (
     <Modal
       onClose={onClose}
       title={serviceName ?? t('title')}
       headerAction={app && <ApplicationStatusBadge status={app.status} />}
-      size="2xl"
+      size="3xl"
       bodyClassName="overflow-hidden p-0"
     >
       {q.isLoading ? (
@@ -124,71 +125,75 @@ export function StaffWorkspaceModal({ id, onClose }: { id: string; onClose: () =
               onStepClick={(i) => i <= activeStep && setSelected(i)}
             />
 
-            <Card className="flex flex-col gap-4 p-4">
-              <h3 className="text-sm font-semibold">{t('infoTitle')}</h3>
-              {/* Сетка 2×N: пары «кто / как», «когда подано / к какому сроку». На телефоне —
-                  одна колонка. */}
-              <dl className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
-                <Row label={t('numberLabel')} value={app.number} />
-                {app.submittedAt && (
-                  <Row
-                    label={t('submittedAtLabel')}
-                    value={formatDateTime(app.submittedAt, locale)}
-                  />
-                )}
-                {app.student && (
-                  <Row
-                    label={t('studentLabel')}
-                    value={`${app.student.lastName} ${app.student.firstName}`}
-                  />
-                )}
-                {app.deliveryType && (
-                  <Row label={t('deliveryTitle')} value={t(`delivery_${app.deliveryType}`)} />
-                )}
-                {app.dueAt && (
-                  <Row label={t('expectedReady')} value={formatDateTime(app.dueAt, locale)} />
-                )}
-                <AssigneeRow app={app} onChanged={() => void q.refetch()} />
-              </dl>
-            </Card>
+            <div className="grid items-start gap-4 md:grid-cols-5">
+              <div className="flex min-w-0 flex-col gap-4 md:col-span-3">
+                <Card className="flex flex-col gap-4 p-4">
+                  <h3 className="text-sm font-semibold">{t('infoTitle')}</h3>
+                  {/* Сетка 2×N: пары «кто / как», «когда подано / к какому сроку».
+                      На телефоне — одна колонка. */}
+                  <dl className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
+                    <Row label={t('numberLabel')} value={app.number} />
+                    {app.submittedAt && (
+                      <Row
+                        label={t('submittedAtLabel')}
+                        value={formatDateTime(app.submittedAt, locale)}
+                      />
+                    )}
+                    {app.student && (
+                      <Row
+                        label={t('studentLabel')}
+                        value={`${app.student.lastName} ${app.student.firstName}`}
+                      />
+                    )}
+                    {app.deliveryType && (
+                      <Row label={t('deliveryTitle')} value={t(`delivery_${app.deliveryType}`)} />
+                    )}
+                    {app.dueAt && (
+                      <Row label={t('expectedReady')} value={formatDateTime(app.dueAt, locale)} />
+                    )}
+                    <AssigneeRow app={app} onChanged={() => void q.refetch()} />
+                  </dl>
+                </Card>
 
-            {/* Ответы анкеты — на всех этапах: по ним решают «подготовить или отклонить», а
+                {/* Ответы анкеты — на всех этапах: по ним решают «подготовить или отклонить», а
                 при подготовке берут, например, организацию для справки. */}
-            <FormAnswers fields={app.service.formFields ?? []} formData={app.formData} />
+                <FormAnswers fields={app.service.formFields ?? []} formData={app.formData} />
 
-            {/* Шаг «Проверка» — документы заявки */}
-            {viewStep === 0 && app.documents.length > 0 && (
-              <Card className="flex flex-col gap-3 p-4">
-                <h3 className="text-sm font-semibold">{t('documentsTitle')}</h3>
-                <StaffDocumentReview
-                  appId={app.id}
-                  documents={app.documents}
-                  // В исправлении проверка продолжается: можно пометить к замене ещё документ,
-                  // а не отправлять каждый отдельным кругом.
-                  canReview={app.status === 'IN_REVIEW' || app.status === 'NEEDS_CORRECTION'}
-                  onChanged={() => void q.refetch()}
-                />
-              </Card>
-            )}
+                {/* Шаг «Проверка» — документы заявки */}
+                {viewStep === 0 && app.documents.length > 0 && (
+                  <Card className="flex flex-col gap-3 p-4">
+                    <h3 className="text-sm font-semibold">{t('documentsTitle')}</h3>
+                    <StaffDocumentReview
+                      appId={app.id}
+                      documents={app.documents}
+                      // В исправлении проверка продолжается: можно пометить к замене ещё документ,
+                      // а не отправлять каждый отдельным кругом.
+                      canReview={app.status === 'IN_REVIEW' || app.status === 'NEEDS_CORRECTION'}
+                      onChanged={() => void q.refetch()}
+                    />
+                  </Card>
+                )}
 
-            {/* Шаги «Подготовка»/«Выдача» — результат заявки. У отклонённой — тоже: справку,
+                {/* Шаги «Подготовка»/«Выдача» — результат заявки. У отклонённой — тоже: справку,
                 выданную до отказа, должно быть видно и можно отозвать. */}
-            {(viewStep >= 1 || app.status === 'REJECTED') && app.results.length > 0 && (
-              <Card className="flex flex-col gap-2 p-4">
-                <h3 className="text-sm font-semibold">{t('resultTitle')}</h3>
-                {app.results.map((r) => (
-                  <ResultRow key={r.id} appId={app.id} result={r} />
-                ))}
-                <RevokeCertificate app={app} onDone={() => void q.refetch()} />
-              </Card>
-            )}
+                {(viewStep >= 1 || app.status === 'REJECTED') && app.results.length > 0 && (
+                  <Card className="flex flex-col gap-2 p-4">
+                    <h3 className="text-sm font-semibold">{t('resultTitle')}</h3>
+                    {app.results.map((r) => (
+                      <ResultRow key={r.id} appId={app.id} result={r} />
+                    ))}
+                    <RevokeCertificate app={app} onDone={() => void q.refetch()} />
+                  </Card>
+                )}
+              </div>
 
-            <Timeline app={app} />
+              <Timeline app={app} className="min-w-0 md:col-span-2" />
+            </div>
           </div>
 
           {/* Действия относятся к заявке, а не к просматриваемому этапу: полоса не пропадает,
               когда сотрудник листает пройденные шаги, и кнопки не прыгают по окну. */}
-          <StaffActions app={app} onDone={() => void q.refetch()} />
+          <StaffActions app={app} onClose={onClose} onDone={() => void q.refetch()} />
         </div>
       )}
     </Modal>
@@ -202,7 +207,7 @@ function formatDateTime(iso: string, locale: string): string {
 
 // История заявки — по времени, от первого события к последнему. Порядок с сервера не
 // гарантирован: назначение ответственного приходило раньше создания черновика.
-function Timeline({ app }: { app: ApplicationDetail }) {
+function Timeline({ app, className }: { app: ApplicationDetail; className?: string }) {
   const t = useTranslations('Applications')
   const locale = useLocale()
   const events = [...app.events].sort(
@@ -211,7 +216,7 @@ function Timeline({ app }: { app: ApplicationDetail }) {
   if (events.length === 0) return null
 
   return (
-    <Card className="flex flex-col gap-4 p-4">
+    <Card className={cn('flex flex-col gap-4 p-4', className)}>
       <h3 className="text-sm font-semibold">{t('timelineTitle')}</h3>
       <ol className="flex flex-col">
         {events.map((e, i) => {
@@ -233,15 +238,12 @@ function Timeline({ app }: { app: ApplicationDetail }) {
                 {!last && <span className="mt-1 w-px flex-1 bg-border" />}
               </div>
               <div className={cn('flex min-w-0 flex-1 flex-col gap-0.5', !last && 'pb-4')}>
-                <div className="flex flex-col gap-x-3 gap-y-0.5 sm:flex-row sm:items-baseline sm:justify-between">
-                  <span className="font-medium">{label}</span>
-                  <time
-                    dateTime={e.createdAt}
-                    className="shrink-0 text-xs text-muted-foreground tabular-nums"
-                  >
-                    {formatDateTime(e.createdAt, locale)}
-                  </time>
-                </div>
+                {/* Событие и время — друг под другом: колонка истории узкая, в строку
+                    длинное событие и дата не помещаются. */}
+                <span className="font-medium">{label}</span>
+                <time dateTime={e.createdAt} className="text-xs text-muted-foreground tabular-nums">
+                  {formatDateTime(e.createdAt, locale)}
+                </time>
                 {comment && (
                   <span className="text-xs whitespace-pre-line text-muted-foreground">
                     {comment}
@@ -257,7 +259,16 @@ function Timeline({ app }: { app: ApplicationDetail }) {
 }
 
 // Действия сотрудника по state-machine (кнопки только для допустимых из текущего статуса).
-function StaffActions({ app, onDone }: { app: ApplicationDetail; onDone: () => void }) {
+function StaffActions({
+  app,
+  onClose,
+  onDone,
+}: {
+  app: ApplicationDetail
+  onClose: () => void
+  onDone: () => void
+}) {
+  const tCommon = useTranslations('Common')
   const t = useTranslations('Applications')
   const qc = useQueryClient()
   const done = () => {
@@ -307,26 +318,24 @@ function StaffActions({ app, onDone }: { app: ApplicationDetail; onDone: () => v
   // номер и примечание. Для этого отдельная форма, а не PromptDialog.
   const [resultOpen, setResultOpen] = useState(false)
 
-  // Три группы кнопок с постоянными местами: отказ — слева, вспомогательные и основное
-  // действие — справа, основное крайним. На телефоне порядок обратный: основное сверху,
-  // под большим пальцем, отказ — внизу, подальше от случайного нажатия.
+  // Полоса как в остальных окнах (заявка вуза, услуга, вакансия): «Закрыть» слева, решения
+  // справа в постоянном порядке — отказ, вспомогательное, основное крайним справа.
   let primary: React.ReactNode = null
   const secondary: React.ReactNode[] = []
   let danger: React.ReactNode = null
-  const btn = 'w-full sm:w-auto'
   const s = app.status
   // Отозванная справка результатом не считается (сервер проверяет то же самое).
   const hasActiveResult = app.results.some((r) => !r.revoked)
   if (s === 'SUBMITTED' || s === 'RESUBMITTED') {
     primary = (
-      <Button className={btn} loading={takeMut.isPending} onClick={() => takeMut.mutate()}>
+      <Button loading={takeMut.isPending} onClick={() => takeMut.mutate()}>
         {t('take')}
       </Button>
     )
   }
   if (s === 'IN_REVIEW') {
     primary = (
-      <Button className={btn} loading={startMut.isPending} onClick={() => startMut.mutate()}>
+      <Button loading={startMut.isPending} onClick={() => startMut.mutate()}>
         {t('startPreparation')}
       </Button>
     )
@@ -334,7 +343,7 @@ function StaffActions({ app, onDone }: { app: ApplicationDetail; onDone: () => v
       <Button
         key="corr"
         variant="outline"
-        className={btn}
+
         onClick={() =>
           setPrompt({
             title: t('requestCorrection'),
@@ -350,13 +359,12 @@ function StaffActions({ app, onDone }: { app: ApplicationDetail; onDone: () => v
   }
   if (s === 'IN_PREPARATION') {
     secondary.push(
-      <Button key="result" variant="outline" className={btn} onClick={() => setResultOpen(true)}>
+      <Button key="result" variant="outline" onClick={() => setResultOpen(true)}>
         {t('addResult')}
       </Button>,
     )
     primary = (
       <Button
-        className={btn}
         onClick={() => {
           // Электронную выдачу без результата сервер не примет: студенту пришло бы «готово»,
           // а скачать нечего. Подсказываем до запроса, а не общей ошибкой после.
@@ -375,7 +383,7 @@ function StaffActions({ app, onDone }: { app: ApplicationDetail; onDone: () => v
   // Справку отозвали уже после «готово» — до передачи студенту её можно выпустить заново.
   if ((s === 'READY' || s === 'READY_FOR_PICKUP') && !hasActiveResult && app.results.length > 0) {
     secondary.push(
-      <Button key="result" variant="outline" className={btn} onClick={() => setResultOpen(true)}>
+      <Button key="result" variant="outline" onClick={() => setResultOpen(true)}>
         {t('addResult')}
       </Button>,
     )
@@ -383,7 +391,6 @@ function StaffActions({ app, onDone }: { app: ApplicationDetail; onDone: () => v
   if (s === 'READY_FOR_PICKUP') {
     primary = (
       <Button
-        className={btn}
         loading={issueMut.isPending}
         onClick={() =>
           // Код получения называет студент, сервер сверяет: сотрудник его не видит, и
@@ -402,7 +409,7 @@ function StaffActions({ app, onDone }: { app: ApplicationDetail; onDone: () => v
   }
   if (s === 'READY') {
     primary = (
-      <Button className={btn} loading={deliverMut.isPending} onClick={() => deliverMut.mutate()}>
+      <Button loading={deliverMut.isPending} onClick={() => deliverMut.mutate()}>
         {t('deliver')}
       </Button>
     )
@@ -410,8 +417,7 @@ function StaffActions({ app, onDone }: { app: ApplicationDetail; onDone: () => v
   if (s === 'SUBMITTED' || s === 'IN_REVIEW' || s === 'IN_PREPARATION') {
     danger = (
       <Button
-        variant="ghost"
-        className={cn(btn, 'text-destructive hover:text-destructive sm:mr-auto')}
+        variant="destructive"
         onClick={() =>
           setPrompt({
             title: t('rejectApp'),
@@ -425,21 +431,22 @@ function StaffActions({ app, onDone }: { app: ApplicationDetail; onDone: () => v
       </Button>
     )
   }
-  // Ход за студентом: кнопок нет, но полоса остаётся с пояснением — иначе окно без действий
-  // выглядит сломанным, а не ждущим.
+  // Ход за студентом: решений нет, но справа пояснение — иначе окно выглядит сломанным,
+  // а не ждущим.
   const waiting = s === 'NEEDS_CORRECTION' ? t('waitingCorrection') : null
-  const hasButtons = !!primary || !!danger || secondary.length > 0
-  if (!hasButtons && !waiting && !prompt && !resultOpen) return null
   return (
     <>
-      {(hasButtons || waiting) && (
-        <div className="flex flex-col-reverse gap-2 border-t border-border px-5 py-3 sm:flex-row sm:items-center sm:justify-end">
-          {waiting && <p className="text-sm text-muted-foreground sm:mr-auto">{waiting}</p>}
+      <footer className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-border px-5 py-4">
+        <Button variant="outline" onClick={onClose}>
+          {tCommon('close')}
+        </Button>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {waiting && <p className="text-sm text-muted-foreground">{waiting}</p>}
           {danger}
           {secondary}
           {primary}
         </div>
-      )}
+      </footer>
       {resultOpen && (
         <ResultModal appId={app.id} onClose={() => setResultOpen(false)} onDone={done} />
       )}
