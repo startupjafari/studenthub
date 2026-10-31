@@ -1,10 +1,11 @@
 'use client'
 
+import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
-import { Bell, LogOut, ScanQrCode, Search, UserRound } from 'lucide-react'
+import { Bell, ChevronDown, LogOut, ScanQrCode, Search, UserRound } from 'lucide-react'
 import { Avatar, AvatarFallback, AvatarImage, Skeleton } from '../../../shared/ui'
 import { fetchMe, userKeys } from '../../../entities/user'
 import { useChatsUnread } from '../../../entities/chat'
@@ -14,14 +15,14 @@ import { cn } from '../../../shared/lib/utils'
 import { NotificationsPanel } from '../../../views/notifications'
 import { ROLE_HOME } from '../../../shared/config'
 import { ProductSwitcher } from './product-switcher'
-import { careerHomeFor, hasCareerProduct, hasChats } from '../model/nav'
+import {
+  careerHomeFor,
+  hasCareerProduct,
+  hasChats,
+  isNavHrefActive,
+  isNavItemActive,
+} from '../model/nav'
 import type { NavItem } from '../model/nav'
-
-function isActive(item: NavItem, pathname: string): boolean {
-  if (item.href === '/') return pathname === '/'
-  if (item.exact) return pathname === item.href
-  return pathname === item.href || pathname.startsWith(`${item.href}/`)
-}
 
 // Разбивает навигацию на секции по item.group. Секции — в порядке первого появления группы,
 // элементы одной группы собираются вместе (даже если разнесены в списке — напр. «Документы»,
@@ -46,6 +47,69 @@ function toSections(nav: NavItem[]): { group?: string; items: NavItem[] }[] {
     group: key === UNGROUPED ? undefined : key,
     items: byGroup.get(key)!,
   }))
+}
+
+/**
+ * Раздел со своими страницами: строка раздела раскрывает список страниц под собой. Пока
+ * открыта одна из страниц, раздел раскрыт сам — человек видит, где он и что рядом. Свернуть
+ * можно и тогда: это его сайдбар, а не навязанное состояние.
+ */
+function NavSection({ item, pathname }: { item: NavItem; pathname: string }) {
+  const tNav = useTranslations('Nav')
+  const active = isNavItemActive(item, pathname)
+  const [open, setOpen] = useState(active)
+  // Перешли в раздел откуда-то ещё (палитра, ссылка на странице) — раскрываем его.
+  useEffect(() => {
+    if (active) setOpen(true)
+  }, [active])
+  const Icon = item.icon
+  const listId = `nav-section-${item.key}`
+
+  return (
+    <div className="flex flex-col gap-1">
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-controls={listId}
+        onClick={() => setOpen((o) => !o)}
+        className={cn(
+          'flex w-full cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors hover:bg-muted',
+          active ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
+        )}
+      >
+        <Icon className="size-5 shrink-0" aria-hidden />
+        <span className="min-w-0 flex-1 truncate text-left">{tNav(item.key)}</span>
+        <ChevronDown
+          className={cn('size-4 shrink-0 transition-transform duration-200', open && 'rotate-180')}
+          aria-hidden
+        />
+      </button>
+      {/* Линия слева — под центром иконки раздела: страницы читаются как его ветка. */}
+      {open && (
+        <ul id={listId} className="ml-5 flex flex-col gap-0.5 border-l border-border pl-3">
+          {item.children?.map((child) => {
+            const childActive = isNavHrefActive(child.href, pathname, child.exact)
+            return (
+              <li key={child.href}>
+                <Link
+                  href={child.href}
+                  aria-current={childActive ? 'page' : undefined}
+                  className={cn(
+                    'flex rounded-lg px-3 py-2 text-sm font-medium transition-colors',
+                    childActive
+                      ? 'bg-primary/10 text-primary'
+                      : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+                  )}
+                >
+                  <span className="min-w-0 truncate">{tNav(child.key)}</span>
+                </Link>
+              </li>
+            )
+          })}
+        </ul>
+      )}
+    </div>
+  )
 }
 
 function initials(first?: string, last?: string): string {
@@ -144,8 +208,11 @@ export function AppSidebar({
                   </p>
                 )}
                 {section.items.map((item) => {
+                  if (item.children) {
+                    return <NavSection key={item.key} item={item} pathname={pathname} />
+                  }
                   const Icon = item.icon
-                  const active = isActive(item, pathname)
+                  const active = isNavItemActive(item, pathname)
                   return (
                     <Link
                       key={item.key}

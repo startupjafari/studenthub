@@ -16,6 +16,8 @@ import {
   careerNavFor,
   hasChats,
   isCareerPath,
+  isNavHrefActive,
+  isNavItemActive,
   type NavItem,
   type NavVariant,
 } from '../model/nav'
@@ -35,12 +37,6 @@ import { ConsentGate } from '../../../features/accept-consent'
 // Ширины строк скелетона поиска: разной длины, иначе блок читается как таблица, а не как
 // список названий. Значения же и служат ключами — индекс в key запрещён (§15).
 const SEARCH_SKELETON_WIDTHS = ['52%', '38%', '61%']
-
-function isActive(item: NavItem, pathname: string): boolean {
-  if (item.href === '/') return pathname === '/'
-  if (item.exact) return pathname === item.href
-  return pathname === item.href || pathname.startsWith(`${item.href}/`)
-}
 
 // Мобильная нижняя навигация (десктоп — сайдбар). 5 ячеек: первые 4 раздела роли + «Ещё».
 // «Ещё» не открывает нижний лист во всю ширину: над навигацией всплывает второй остров того
@@ -315,8 +311,44 @@ function BottomNav({
             {/* Разделы роли, не влезшие в основные вкладки. */}
             {overflow.map((item) => {
               const Icon = item.icon
-              const active = isActive(item, pathname)
+              const active = isNavItemActive(item, pathname)
               const badgeCount = item.key === 'chats' ? chatsUnread : 0
+              // Раздел со страницами: подпись раздела и под ней его страницы. Сворачивать
+              // их здесь незачем — меню и так открыто ради выбора, лишнее касание мешает.
+              if (item.children) {
+                return (
+                  <div key={item.key} role="group" aria-label={tNav(item.key)}>
+                    <div
+                      className={cn(
+                        menuRow,
+                        'cursor-default hover:bg-transparent active:bg-transparent',
+                        active && 'text-primary',
+                      )}
+                    >
+                      <Icon className="size-5 shrink-0 opacity-80" aria-hidden />
+                      <span className="min-w-0 truncate">{tNav(item.key)}</span>
+                    </div>
+                    {item.children.map((child) => {
+                      const childActive = isNavHrefActive(child.href, pathname, child.exact)
+                      return (
+                        <Link
+                          key={child.href}
+                          href={child.href}
+                          onClick={() => setMoreOpen(false)}
+                          aria-current={childActive ? 'page' : undefined}
+                          className={cn(
+                            menuRow,
+                            'pl-11',
+                            childActive && 'bg-primary/10 text-primary',
+                          )}
+                        >
+                          <span className="min-w-0 truncate">{tNav(child.key)}</span>
+                        </Link>
+                      )
+                    })}
+                  </div>
+                )
+              }
               return (
                 <Link
                   key={item.key}
@@ -398,7 +430,7 @@ function BottomNav({
           ) : (
             <div className="material-island pointer-events-auto flex min-w-0 flex-1 items-stretch gap-0.5 rounded-full border border-border/60 p-1 shadow-lg">
               {nav.slice(0, 4).map((item) => {
-                const active = isActive(item, pathname)
+                const active = isNavItemActive(item, pathname)
                 const Icon = item.icon
                 const badgeCount = item.key === 'chats' ? chatsUnread : 0
                 return (

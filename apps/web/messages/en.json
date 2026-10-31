@@ -68,6 +68,8 @@
     "libraryCatalog": "Catalogue",
     "libraryInventory": "Inventory",
     "libraryReports": "Reports",
+    "libraryJournal": "Log",
+    "myBooks": "My books",
     "library": "Library",
     "securityRooms": "Rooms",
     "settings": "Settings",
