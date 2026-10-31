@@ -22,7 +22,6 @@ import {
   TableText,
 } from '../../../shared/ui'
 import { fetchIdAccess, libraryKeys } from '../../../entities/library'
-import { LibraryAdminTabs } from './library-admin-tabs'
 
 // Журнал просмотров удостоверений (Фаза 20.6, docs/PROJECT.md §3.11): кто из библиотекарей,
 // чью карточку, по какой выдаче, когда и с какого адреса открывал. Как журнал камер — для
@@ -73,7 +72,6 @@ export function IdAccessView() {
       <PageHeader
         title={t('journalTitle')}
         subtitle={t('journalSubtitle')}
-        tabs={<LibraryAdminTabs />}
         actions={
           <div className="relative w-full sm:w-64">
             <Search

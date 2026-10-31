@@ -24,7 +24,6 @@ import {
   useConfirm,
 } from '../../../shared/ui'
 import { toApiError } from '../../../shared/lib'
-import { LibraryAdminTabs } from './library-admin-tabs'
 import {
   fetchLibrarySettings,
   libraryKeys,
@@ -118,7 +117,6 @@ export function LibrarySettingsView() {
       <PageHeader
         title={t('title')}
         subtitle={t('subtitle')}
-        tabs={<LibraryAdminTabs />}
         actions={
           settings.isPending ? (
             <Skeleton className="h-9 w-40" />
