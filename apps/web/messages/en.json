@@ -1947,6 +1947,7 @@
     "accept": "Accept",
     "assigned": "Assignee set",
     "assignedSomeone": "Assigned to a staff member",
+    "waitingCorrection": "Waiting for the student to send corrected documents",
     "revokeCertificate": "Revoke certificate",
     "revokeCertificateTitle": "Revoke the issued certificate?",
     "revokeCertificateReason": "Reason — optional. The student keeps the file, but the code check will show “revoked”.",
