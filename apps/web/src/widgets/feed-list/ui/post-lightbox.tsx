@@ -18,6 +18,7 @@ import {
   CornerDownRight,
   Eye,
   Heart,
+  Loader2,
   MessageCircle,
   Pin,
   Repeat2,
@@ -58,6 +59,7 @@ import {
   Avatar,
   AvatarFallback,
   AvatarImage,
+  Button,
   Markdown,
   Skeleton,
   useConfirm,
@@ -78,6 +80,7 @@ import { RepostBanner, RepostUnavailable } from './repost-banner'
 import { useRepostSource } from '../lib/use-repost-source'
 import { useMediaZoom } from '../lib/use-media-zoom'
 import { MentionSuggest, applyMention, mentionQuery } from './mention-suggest'
+import { CommentText } from './comment-text'
 
 // Быстрый набор эмодзи для комментариев (как в чате).
 const EMOJI_SET = [
@@ -116,6 +119,11 @@ const LIGHTBOX_SIZES = '(max-width: 768px) 100vw, 70vw'
  * нужен на минуты, а не между сессиями.
  */
 const drafts = new Map<string, string>()
+
+// Комментарий длиннее — свёрнут до нескольких строк под «Читать далее».
+const LONG_COMMENT_CHARS = 420
+// Ряды скелетона, пока грузится обсуждение: место под список держится заранее.
+const COMMENT_SKELETON_ROWS = 3
 
 const MODERATOR_ROLES: Role[] = [
   Role.PLATFORM_ADMIN,
@@ -367,6 +375,7 @@ function PostView({
 }) {
   const t = useTranslations('Feed')
   const tErr = useTranslations('Errors')
+  const tCommon = useTranslations('Common')
   const locale = useLocale()
   const qc = useQueryClient()
   const confirm = useConfirm()
@@ -420,6 +429,8 @@ function PostView({
   // в перезапрошенном списке. Иначе реплика появлялась где-то за краем панели, и было
   // непонятно, ушла ли она вообще.
   const [scrollToId, setScrollToId] = useState<string | null>(null)
+  // Только что отправленная реплика проявляется, а не возникает рывком (см. CommentRow).
+  const [freshId, setFreshId] = useState<string | null>(null)
 
   // Закрытие пикера эмодзи по клику вне его области и по Esc (без закрытия при отводе мыши).
   // Меню поста закрывается само — оно живёт внутри PostTileMenu.
@@ -596,6 +607,7 @@ function PostView({
       )
       patchCommentCount(qc, post.id, 1)
       setScrollToId(created.id)
+      setFreshId(created.id)
       setText('')
       cancelReply()
     },
@@ -935,7 +947,32 @@ function PostView({
             {/* Пустой список ничего не подписывает: счётчик уже под лайками. Более ранние
                 комментарии — там, где они встали бы по выбранному порядку. */}
             {comments.isLoading ? (
-              <p className="text-xs text-muted-foreground">{t('loadingComments')}</p>
+              <ul className="flex flex-col gap-4" aria-label={t('loadingComments')} aria-busy>
+                {Array.from({ length: COMMENT_SKELETON_ROWS }, (_, i) => (
+                  <li key={i} className="flex gap-3">
+                    <Skeleton className="size-8 shrink-0 rounded-full" />
+                    <div className="flex flex-1 flex-col gap-1.5 pt-0.5">
+                      <Skeleton className="h-3.5 w-2/5" />
+                      <Skeleton className="h-3.5 w-4/5" />
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            ) : comments.isError ? (
+              // Сбой загрузки — понятной фразой и повтором, без кода ошибки.
+              <div className="flex flex-col items-start gap-2 rounded-xl bg-muted/50 p-3 text-sm">
+                <p className="text-muted-foreground">{t('commentsError')}</p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => void comments.refetch()}
+                >
+                  {tCommon('retry')}
+                </Button>
+              </div>
+            ) : roots.length === 0 ? (
+              <p className="py-2 text-sm text-muted-foreground">{t('commentsEmpty')}</p>
             ) : (
               <>
                 {!newestFirst && earlierButton}
@@ -955,6 +992,7 @@ function PostView({
                             isPostAuthor={c.author.id === post.author.id}
                             canDelete={canDeleteComment(c)}
                             canReport={c.author.id !== myId && canReportComments}
+                            fresh={c.id === freshId}
                             onReply={() => startReply(c.id, c.author)}
                             onDelete={() => removeComment(c)}
                           />
@@ -973,27 +1011,32 @@ function PostView({
                                   ? t('hideReplies')
                                   : t('viewReplies', { count: replies.length })}
                               </button>
-                              {open &&
-                                replies.map((r) => (
-                                  <CommentRow
-                                    key={r.id}
-                                    id={r.id}
-                                    author={r.author}
-                                    content={r.content}
-                                    createdAt={r.createdAt}
-                                    locale={locale}
-                                    // Ответ всегда адресован автору корня ветки: вложенность на
-                                    // сервере одноуровневая, и без подписи «кому» ветка
-                                    // читается как разговор со стеной.
-                                    replyTo={c.author}
-                                    isPostAuthor={r.author.id === post.author.id}
-                                    small
-                                    canDelete={canDeleteComment(r)}
-                                    canReport={r.author.id !== myId && canReportComments}
-                                    onReply={() => startReply(c.id, r.author)}
-                                    onDelete={() => removeComment(r)}
-                                  />
-                                ))}
+                              {open && (
+                                // Ветка раскрывается коротким проявлением, а не скачком.
+                                <div className="flex flex-col gap-3 animate-in fade-in-0 slide-in-from-top-1 duration-150 motion-reduce:animate-none">
+                                  {replies.map((r) => (
+                                    <CommentRow
+                                      key={r.id}
+                                      id={r.id}
+                                      author={r.author}
+                                      content={r.content}
+                                      createdAt={r.createdAt}
+                                      locale={locale}
+                                      // Ответ всегда адресован автору корня ветки: вложенность на
+                                      // сервере одноуровневая, и без подписи «кому» ветка
+                                      // читается как разговор со стеной.
+                                      replyTo={c.author}
+                                      isPostAuthor={r.author.id === post.author.id}
+                                      small
+                                      canDelete={canDeleteComment(r)}
+                                      canReport={r.author.id !== myId && canReportComments}
+                                      fresh={r.id === freshId}
+                                      onReply={() => startReply(c.id, r.author)}
+                                      onDelete={() => removeComment(r)}
+                                    />
+                                  ))}
+                                </div>
+                              )}
                             </div>
                           )}
                         </li>
@@ -1152,8 +1195,15 @@ function PostView({
                 type="button"
                 onClick={send}
                 disabled={text.trim().length === 0 || addMut.isPending}
-                className="flex h-8 shrink-0 items-center self-end text-sm font-semibold text-primary transition-opacity hover:opacity-70 disabled:opacity-40"
+                aria-busy={addMut.isPending}
+                className="flex h-8 shrink-0 items-center gap-1.5 self-end rounded-md px-1 text-sm font-semibold text-primary transition-opacity duration-150 hover:opacity-70 focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none disabled:opacity-40"
               >
+                {addMut.isPending && (
+                  <Loader2
+                    className="size-3.5 animate-spin motion-reduce:animate-none"
+                    aria-hidden
+                  />
+                )}
                 {t('publish')}
               </button>
             </div>
@@ -1213,6 +1263,7 @@ function CommentRow({
   onReply,
   onDelete,
   small = false,
+  fresh = false,
 }: {
   id: string
   author: PostAuthor
@@ -1227,16 +1278,26 @@ function CommentRow({
   onReply?: () => void
   onDelete?: () => void
   small?: boolean
+  /** Только что отправлен — проявляется плавно. */
+  fresh?: boolean
 }) {
   const t = useTranslations('Feed')
   const [reporting, setReporting] = useState(false)
+  // Длинная реплика свёрнута до шести строк: иначе одна простыня уводила остальные
+  // комментарии за край панели.
+  const long = content.length > LONG_COMMENT_CHARS || content.split('\n').length > 8
+  const [expanded, setExpanded] = useState(false)
 
   return (
     <div
       data-comment-id={id}
       // На телефоне поле ввода прилипает к низу скролла — отступ, чтобы прокрутка к
       // новой реплике не прятала её под ним.
-      className="group flex gap-3 max-md:scroll-mb-20"
+      className={cn(
+        'group flex gap-3 max-md:scroll-mb-20',
+        fresh &&
+          'animate-in fade-in-0 slide-in-from-bottom-1 duration-200 motion-reduce:animate-none',
+      )}
     >
       <ProfileLink userId={author.id} className="shrink-0">
         <Avatar className={small ? 'size-6' : 'size-8'}>
@@ -1245,7 +1306,12 @@ function CommentRow({
         </Avatar>
       </ProfileLink>
       <div className="min-w-0 flex-1">
-        <p className="text-sm leading-snug break-words whitespace-pre-wrap">
+        <p
+          className={cn(
+            'text-sm leading-snug break-words whitespace-pre-wrap [overflow-wrap:anywhere]',
+            long && !expanded && 'line-clamp-6',
+          )}
+        >
           <ProfileLink userId={author.id} className="font-semibold hover:opacity-70">
             {author.lastName} {author.firstName}
           </ProfileLink>
@@ -1261,8 +1327,18 @@ function CommentRow({
               @{replyTo.firstName} {replyTo.lastName}{' '}
             </span>
           )}
-          {content}
+          <CommentText text={content} />
         </p>
+        {long && (
+          <button
+            type="button"
+            aria-expanded={expanded}
+            onClick={() => setExpanded((v) => !v)}
+            className="mt-0.5 cursor-pointer text-xs font-semibold text-muted-foreground hover:text-foreground"
+          >
+            {expanded ? t('showLess') : t('showMore')}
+          </button>
+        )}
         <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
           <span>{relativeTime(createdAt, locale)}</span>
           {onReply && (

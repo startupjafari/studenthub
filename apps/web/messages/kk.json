@@ -2090,7 +2090,9 @@
     "filterModeration": "Модерация",
     "bookmark": "Таңдаулыға",
     "audienceFRIENDS": "Тек достар",
-    "audienceSELECTED": "Таңдалғандар"
+    "audienceSELECTED": "Таңдалғандар",
+    "commentsError": "Пікірлерді жүктеу мүмкін болмады",
+    "commentsEmpty": "Әзірге пікір жоқ — бірінші болып жазыңыз"
   },
   "Stories": {
     "toolEvent": "Іс-шара",
