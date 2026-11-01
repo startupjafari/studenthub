@@ -12,7 +12,12 @@ import {
   type ChatMessage,
 } from '../../../entities/chat'
 import { ProfileLink } from '../../../entities/user'
-import { ChatSharedPost, ChatSharedProfile, parseProfileShare } from './shared-cards'
+import {
+  ChatSharedPost,
+  ChatSharedProfile,
+  ChatSharedStory,
+  parseProfileShare,
+} from './shared-cards'
 import { Avatar, AvatarFallback } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 
@@ -130,7 +135,8 @@ function MessageItemInner({
       })
     : null
   // Пересланный профиль приходит текстом «Имя + ссылка» — узнаём и рисуем карточкой.
-  const profileShare = m.sharedPost || m.poll ? null : parseProfileShare(m.content)
+  const storyCard = !!m.sharedStory || !!m.sharedStoryReply
+  const profileShare = m.sharedPost || m.poll || storyCard ? null : parseProfileShare(m.content)
 
   return (
     <div>
@@ -352,6 +358,11 @@ function MessageItemInner({
                 <ChatSharedPost post={m.sharedPost} mine={mine} />
               </div>
             )}
+            {storyCard && (
+              <div className={cn(m.media.length > 0 && 'mt-1')}>
+                <ChatSharedStory story={m.sharedStory} reply={!!m.sharedStoryReply} mine={mine} />
+              </div>
+            )}
             {m.poll ? (
               <ChatPollView poll={m.poll} mine={mine} viewerId={myId} />
             ) : profileShare ? (
@@ -368,7 +379,12 @@ function MessageItemInner({
                 // select-text точечно снимает select-none со строки: он там ради тач-жестов
                 // (свайп-ответ, long-press), а выделять нужно именно текст — из него делается
                 // цитата при ответе.
-                <div className={cn('select-text', (m.media.length > 0 || m.sharedPost) && 'mt-1')}>
+                <div
+                  className={cn(
+                    'select-text',
+                    (m.media.length > 0 || m.sharedPost || storyCard) && 'mt-1',
+                  )}
+                >
                   <MessageContent content={m.content} highlight={highlightTerm} />
                 </div>
               )

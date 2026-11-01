@@ -19,12 +19,17 @@ import {
   ChevronRight,
   ExternalLink,
   Eye,
+  EyeOff,
   Flag,
+  Heart,
   ImageOff,
+  Link2,
   Loader2,
   MoreHorizontal,
   Pause,
   Play,
+  Send,
+  Share2,
   Trash2,
   UserRound,
   Volume2,
@@ -59,7 +64,10 @@ import {
   addStoryReactionRequest,
   deleteStoryRequest,
   markStoryViewed,
+  muteStoryAuthorRequest,
   removeStoryReactionRequest,
+  replyToStoryRequest,
+  unmuteStoryAuthorRequest,
   storyBackgroundClass,
   storyKeys,
   voteStoryRequest,
@@ -69,6 +77,7 @@ import {
 import { useAppSelector } from '../../../shared/store'
 import { ReportModal } from '../../../features/report-content'
 import { StoryViewersSheet } from './story-viewers-sheet'
+import { ShareStorySheet } from './share-story-sheet'
 
 // Сколько держится кадр без своего таймера (текст и фото). У видео длительность своя.
 const FRAME_MS = 6000
@@ -145,6 +154,12 @@ function warmStory(card: StoryCard | undefined): void {
 // полноценный пикер в формате, который смотрят секундами, никто не открывает. Это и есть
 // белый список сервера (STORY_REACTION_EMOJIS): другую реакцию он отклонит.
 const QUICK_REACTIONS = STORY_REACTION_EMOJIS
+// «Нравится» — та же реакция ❤️, но отдельной кнопкой у поля ответа (как в Instagram). Одна
+// модель: сердце и ❤️ в ряду реакций — одно и то же состояние, поэтому в ряду его нет.
+const LIKE = '❤️'
+const EXTRA_REACTIONS = QUICK_REACTIONS.filter((e) => e !== LIKE)
+// Длина ответа — как в схеме сервера (StoryReplySchema).
+const REPLY_MAX = 1000
 
 /**
  * Просмотр сторис: кадры одного автора идут подряд, по концу кольца — следующий автор.
@@ -186,6 +201,10 @@ export function StoryViewer({
   const [menuOpen, setMenuOpen] = useState(false)
   const [viewersOpen, setViewersOpen] = useState(false)
   const [tabHidden, setTabHidden] = useState(false)
+  // Поле ответа в фокусе и окно «Поделиться» — сторис стоит, пока человек пишет и выбирает.
+  const [replying, setReplying] = useState(false)
+  const [replyText, setReplyText] = useState('')
+  const [shareOpen, setShareOpen] = useState(false)
   // Жалоба на сторис (§3.4) — тем, чью жалобу сервер примет; кадр на это время стоит.
   const [reporting, setReporting] = useState<StoryCard | null>(null)
   const [muted, setMuted] = useState(readMuted)
@@ -207,7 +226,15 @@ export function StoryViewer({
   const raw = ring?.stories[storyIndex]
   const story = raw ? (patched[raw.id] ?? raw) : undefined
   const reportOpen = reporting !== null
-  const paused = holding || manualPause || menuOpen || viewersOpen || reportOpen || tabHidden
+  const paused =
+    holding ||
+    manualPause ||
+    menuOpen ||
+    viewersOpen ||
+    reportOpen ||
+    tabHidden ||
+    replying ||
+    shareOpen
 
   // Закрытие обновляет кольца — и ленты, и профиля: пока шёл просмотр, сторисы стали
   // просмотренными.
@@ -334,7 +361,7 @@ export function StoryViewer({
   // Клавиатура: стрелки — листание, пробел — пауза. Esc закрывает Radix. Пока открыто меню
   // или окно поверх и пока фокус в поле ввода, клавиши принадлежат им.
   useEffect(() => {
-    if (reportOpen || viewersOpen || menuOpen) return
+    if (reportOpen || viewersOpen || menuOpen || shareOpen) return
     function onKey(e: KeyboardEvent): void {
       if (isTyping(e.target)) return
       if (e.key === 'ArrowRight') goNext()
@@ -346,7 +373,7 @@ export function StoryViewer({
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [goNext, goPrev, menuOpen, reportOpen, viewersOpen])
+  }, [goNext, goPrev, menuOpen, reportOpen, shareOpen, viewersOpen])
 
   // Жесты на кадре. Тап по краю листает (кнопки-зоны ниже), удержание ставит паузу, свайп
   // в сторону — к соседнему автору, вниз — закрыть. После удержания и свайпа тап по зоне
@@ -427,6 +454,53 @@ export function StoryViewer({
       else await addStoryReactionRequest(card.id, emoji)
     } catch (e) {
       setPatched((prev) => ({ ...prev, [card.id]: card }))
+      showError(e)
+    }
+  }
+
+  // Ответ уходит в личный чат с автором. Текст при ошибке остаётся в поле — повторить
+  // можно тем же Enter; повторная отправка во время запроса заблокирована.
+  const reply = useMutation({
+    mutationFn: ({ id, text }: { id: string; text: string }) => replyToStoryRequest(id, text),
+    onSuccess: () => {
+      setReplyText('')
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+      toast.success(t('replySent'))
+    },
+    onError: showError,
+  })
+
+  function sendReply(card: StoryCard): void {
+    const text = replyText.trim()
+    if (!text || reply.isPending) return
+    reply.mutate({ id: card.id, text })
+  }
+
+  async function copyLink(card: StoryCard): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}/stories/${card.id}`)
+      toast.success(t('linkCopied'))
+    } catch {
+      toast.error(tErr('INTERNAL_ERROR'))
+    }
+  }
+
+  // «Скрыть сторис автора»: убираем его из ленты и сразу листаем дальше; в тосте — отмена.
+  async function hideAuthor(card: StoryCard): Promise<void> {
+    const name = `${card.author.firstName} ${card.author.lastName}`
+    try {
+      await muteStoryAuthorRequest(card.author.id)
+      toast.success(t('authorHidden', { name }), {
+        action: {
+          label: t('undo'),
+          onClick: () =>
+            void unmuteStoryAuthorRequest(card.author.id)
+              .then(() => qc.invalidateQueries({ queryKey: storyKeys.all }))
+              .catch(showError),
+        },
+      })
+      goNextRing()
+    } catch (e) {
       showError(e)
     }
   }
@@ -557,6 +631,16 @@ export function StoryViewer({
                 <DropdownMenuItem onSelect={() => openProfile(story.author.id)}>
                   <UserRound className="size-4" aria-hidden />
                   {t('openProfile')}
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuItem onSelect={() => void copyLink(story)}>
+                <Link2 className="size-4" aria-hidden />
+                {t('copyLink')}
+              </DropdownMenuItem>
+              {!mine && (
+                <DropdownMenuItem onSelect={() => void hideAuthor(story)}>
+                  <EyeOff className="size-4" aria-hidden />
+                  {t('hideAuthor', { name: story.author.firstName })}
                 </DropdownMenuItem>
               )}
               {/* Опасные действия — последними и за линией (правило для всех меню). */}
@@ -723,7 +807,7 @@ export function StoryViewer({
         )}
       </div>
 
-      <footer className="absolute inset-x-0 bottom-0 z-20 flex flex-col gap-2 bg-gradient-to-t from-black/70 to-transparent px-3 pt-8 pb-[max(0.75rem,env(safe-area-inset-bottom))] text-white">
+      <footer className="absolute inset-x-0 bottom-[var(--kb-inset,0px)] z-20 flex flex-col gap-2 bg-gradient-to-t from-black/70 to-transparent px-3 pt-8 pb-[max(0.75rem,env(safe-area-inset-bottom))] text-white">
         {story.linkUrl && (
           <a
             href={story.linkUrl}
@@ -735,39 +819,133 @@ export function StoryViewer({
             {story.linkLabel ?? t('openLink')}
           </a>
         )}
-        <div className="flex items-center gap-1.5">
-          {QUICK_REACTIONS.map((emoji) => {
-            const chosen = story.reactions.some((r) => r.emoji === emoji && r.mine)
-            const count = story.reactions.find((r) => r.emoji === emoji)?.count ?? 0
-            return (
-              <button
-                key={emoji}
-                type="button"
-                aria-pressed={chosen}
-                aria-label={emoji}
-                onClick={() => void toggleReaction(story, emoji)}
-                className={cn(
-                  'flex h-10 min-w-10 items-center justify-center gap-1 rounded-full px-2 text-base transition-[background-color,transform] duration-150 active:scale-90 motion-reduce:transition-none',
-                  chosen ? 'scale-105 bg-white/30' : 'bg-white/10 hover:bg-white/20',
-                )}
+        {mine ? (
+          // Своя сторис: сводка реакций и просмотры. Реагировать на своё незачем.
+          <div className="flex items-center gap-1.5">
+            {story.reactions.map((r) => (
+              <span
+                key={r.emoji}
+                className="flex h-9 items-center gap-1 rounded-full bg-white/10 px-2.5 text-sm"
               >
-                <span aria-hidden>{emoji}</span>
-                {count > 0 && <span className="text-xs tabular-nums">{count}</span>}
+                <span aria-hidden>{r.emoji}</span>
+                <span className="text-xs tabular-nums">{r.count}</span>
+              </span>
+            ))}
+            <span className="flex-1" />
+            {story.viewsCount !== null && (
+              <button
+                type="button"
+                onClick={() => setViewersOpen(true)}
+                aria-label={t('viewersWithCount', { count: story.viewsCount })}
+                className="flex h-10 items-center gap-1.5 rounded-full bg-white/10 px-3 text-sm transition-colors duration-150 hover:bg-white/20"
+              >
+                <Eye className="size-4" aria-hidden />
+                <span className="tabular-nums">{story.viewsCount}</span>
               </button>
-            )
-          })}
-          {story.viewsCount !== null && (
-            <button
+            )}
+            <Button
               type="button"
-              onClick={() => setViewersOpen(true)}
-              aria-label={t('viewersWithCount', { count: story.viewsCount })}
-              className="ml-auto flex h-10 items-center gap-1.5 rounded-full bg-white/10 px-3 text-sm transition-colors duration-150 hover:bg-white/20"
+              variant="ghost"
+              icon
+              aria-label={t('share')}
+              className={iconButton}
+              onClick={() => setShareOpen(true)}
             >
-              <Eye className="size-4" aria-hidden />
-              <span className="tabular-nums">{story.viewsCount}</span>
-            </button>
-          )}
-        </div>
+              <Share2 className="size-5" aria-hidden />
+            </Button>
+          </div>
+        ) : (
+          <>
+            {/* Быстрые реакции — один тап; выбранная подсвечена, повторный тап снимает. */}
+            <div className="flex items-center gap-1.5">
+              {EXTRA_REACTIONS.map((emoji) => {
+                const chosen = story.reactions.some((r) => r.emoji === emoji && r.mine)
+                const count = story.reactions.find((r) => r.emoji === emoji)?.count ?? 0
+                return (
+                  <button
+                    key={emoji}
+                    type="button"
+                    aria-pressed={chosen}
+                    aria-label={emoji}
+                    onClick={() => void toggleReaction(story, emoji)}
+                    className={cn(
+                      'flex h-10 min-w-10 items-center justify-center gap-1 rounded-full px-2 text-base transition-[background-color,transform] duration-150 active:scale-90 motion-reduce:transition-none',
+                      chosen ? 'scale-105 bg-white/30' : 'bg-white/10 hover:bg-white/20',
+                    )}
+                  >
+                    <span aria-hidden>{emoji}</span>
+                    {count > 0 && <span className="text-xs tabular-nums">{count}</span>}
+                  </button>
+                )
+              })}
+            </div>
+            {/* Ответ автору — в личный чат. Пока поле в фокусе, сторис стоит на паузе. */}
+            <form
+              className="flex items-center gap-2"
+              onSubmit={(e) => {
+                e.preventDefault()
+                sendReply(story)
+              }}
+            >
+              <input
+                value={replyText}
+                onChange={(e) => setReplyText(e.target.value)}
+                onFocus={() => setReplying(true)}
+                onBlur={() => setReplying(false)}
+                maxLength={REPLY_MAX}
+                enterKeyHint="send"
+                placeholder={t('replyTo', { name: story.author.firstName })}
+                aria-label={t('replyTo', { name: story.author.firstName })}
+                className="h-11 min-w-0 flex-1 rounded-full border border-white/30 bg-black/30 px-4 text-base text-white transition-colors duration-150 placeholder:text-white/60 focus:border-white/70 focus:outline-none sm:text-sm"
+              />
+              {replyText.trim() ? (
+                <Button
+                  type="submit"
+                  icon
+                  aria-label={t('sendReply')}
+                  loading={reply.isPending}
+                  className="size-11 rounded-full"
+                >
+                  <Send className="size-4" aria-hidden />
+                </Button>
+              ) : (
+                <>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    icon
+                    aria-label={t('like')}
+                    aria-pressed={story.reactions.some((r) => r.emoji === LIKE && r.mine)}
+                    className={cn(
+                      iconButton,
+                      'size-11 transition-transform duration-150 active:scale-90 motion-reduce:transition-none',
+                    )}
+                    onClick={() => void toggleReaction(story, LIKE)}
+                  >
+                    <Heart
+                      className={cn(
+                        'size-6',
+                        story.reactions.some((r) => r.emoji === LIKE && r.mine) &&
+                          'fill-destructive text-destructive',
+                      )}
+                      aria-hidden
+                    />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    icon
+                    aria-label={t('share')}
+                    className={cn(iconButton, 'size-11')}
+                    onClick={() => setShareOpen(true)}
+                  >
+                    <Share2 className="size-5" aria-hidden />
+                  </Button>
+                </>
+              )}
+            </form>
+          </>
+        )}
       </footer>
     </div>
   )
@@ -838,6 +1016,7 @@ export function StoryViewer({
           {viewersOpen && (
             <StoryViewersSheet storyId={story.id} onClose={() => setViewersOpen(false)} />
           )}
+          {shareOpen && <ShareStorySheet storyId={story.id} onClose={() => setShareOpen(false)} />}
           {reporting && (
             <ReportModal
               targetType="STORY"

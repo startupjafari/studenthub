@@ -14,10 +14,23 @@ vi.mock('../../../shared/store', () => ({
 }))
 vi.mock('../../../entities/story/api/story-api', async (orig) => {
   const actual = await orig<typeof import('../../../entities/story/api/story-api')>()
-  return { ...actual, markStoryViewed: vi.fn().mockResolvedValue(undefined) }
+  return {
+    ...actual,
+    markStoryViewed: vi.fn().mockResolvedValue(undefined),
+    replyToStoryRequest: vi.fn().mockResolvedValue({ chatId: 'c1' }),
+    addStoryReactionRequest: vi.fn().mockResolvedValue(undefined),
+    muteStoryAuthorRequest: vi.fn().mockResolvedValue(undefined),
+  }
 })
 
-import { markStoryViewed, type StoryCard, type StoryRing } from '../../../entities/story'
+import {
+  addStoryReactionRequest,
+  markStoryViewed,
+  muteStoryAuthorRequest,
+  replyToStoryRequest,
+  type StoryCard,
+  type StoryRing,
+} from '../../../entities/story'
 import { ConfirmProvider } from '../../../shared/ui'
 import { StoryViewer } from './story-viewer'
 
@@ -119,5 +132,37 @@ describe('StoryViewer', () => {
     expect(await screen.findByRole('menuitem', { name: /Открыть профиль/ })).toBeInTheDocument()
     expect(screen.getByRole('menuitem', { name: /Пожаловаться/ })).toBeInTheDocument()
     expect(screen.queryByRole('menuitem', { name: /Удалить/ })).not.toBeInTheDocument()
+  })
+
+  it('ответ автору: Enter отправляет в чат, поле очищается', async () => {
+    const { user } = setup([ring('anna', [card('a1', 'anna')])])
+    const input = screen.getByRole('textbox', { name: 'Ответить anna…' })
+    await user.type(input, 'Классно!{Enter}')
+    await waitFor(() => expect(replyToStoryRequest).toHaveBeenCalledWith('a1', 'Классно!'))
+    await waitFor(() => expect(input).toHaveValue(''))
+  })
+
+  it('«Нравится» — это реакция ❤️; на своей сторис поля ответа нет', async () => {
+    const { user } = setup([ring('anna', [card('a1', 'anna')])])
+    await user.click(screen.getByRole('button', { name: 'Нравится' }))
+    expect(addStoryReactionRequest).toHaveBeenCalledWith('a1', '❤️')
+    expect(screen.getByRole('button', { name: 'Нравится' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('своя сторис: без поля ответа и без «Нравится»', () => {
+    setup([ring('me', [card('m1', 'me', { viewsCount: 0 })])])
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Нравится' })).not.toBeInTheDocument()
+  })
+
+  it('«Скрыть сторис» скрывает автора и листает к следующему', async () => {
+    const { user } = setup([
+      ring('anna', [card('a1', 'anna')]),
+      ring('boris', [card('b1', 'boris')]),
+    ])
+    await user.click(screen.getByRole('button', { name: 'Действия со сторис' }))
+    await user.click(await screen.findByRole('menuitem', { name: /Скрыть сторис/ }))
+    await waitFor(() => expect(muteStoryAuthorRequest).toHaveBeenCalledWith('anna'))
+    expect(await screen.findByText('Текст b1')).toBeInTheDocument()
   })
 })

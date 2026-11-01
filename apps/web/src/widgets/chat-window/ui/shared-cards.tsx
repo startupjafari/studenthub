@@ -3,8 +3,17 @@
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
-import { ChevronRight, Heart, Images, MessageCircle, Play, UserRound } from 'lucide-react'
-import type { SharedPostPreview } from '../../../entities/chat'
+import {
+  ChevronRight,
+  Heart,
+  ImageIcon,
+  Images,
+  MessageCircle,
+  Play,
+  UserRound,
+} from 'lucide-react'
+import type { SharedPostPreview, SharedStoryPreview } from '../../../entities/chat'
+import { storyBackgroundClass, type StoryBackgroundValue } from '../../../entities/story'
 import { fetchPostMediaLink, postKeys } from '../../../entities/post'
 import { fetchUserById, userKeys } from '../../../entities/user'
 import { Avatar, AvatarFallback, AvatarImage, Markdown } from '../../../shared/ui'
@@ -79,6 +88,81 @@ export function ChatSharedPost({ post, mine }: { post: SharedPostPreview; mine: 
           </span>
         </div>
       </div>
+    </Link>
+  )
+}
+
+/**
+ * Сторис в чате: ответ на неё или пересылка. Миниатюра 9:16 — фон и текст сторис либо
+ * значок фото/видео: подписанной ссылки на файл сторис в переписке нет намеренно, сторис
+ * открывается по `/stories/:id`, где сервер ещё раз проверяет аудиторию. Истёкшая или
+ * удалённая — строкой «сторис недоступна», а ответ так и остаётся подписан ответом.
+ */
+export function ChatSharedStory({
+  story,
+  reply,
+  mine,
+}: {
+  story: SharedStoryPreview | null | undefined
+  reply: boolean
+  mine: boolean
+}) {
+  const t = useTranslations('Chats')
+  const label = reply ? t('storyReplyLabel') : t('storySharedLabel')
+
+  if (!story || new Date(story.expiresAt).getTime() <= Date.now()) {
+    return (
+      <div className="rounded-xl border border-border bg-card px-3 py-2 text-xs text-muted-foreground">
+        {label} · {t('storyUnavailable')}
+      </div>
+    )
+  }
+
+  const name = `${story.author.lastName} ${story.author.firstName}`.trim()
+  const video = story.file?.mime.startsWith('video/') ?? false
+
+  return (
+    <Link
+      href={`/stories/${story.id}`}
+      className={cn(
+        'group flex w-full max-w-[16rem] items-center gap-3 rounded-2xl border bg-card p-2 text-foreground transition-colors',
+        mine ? 'border-white/15' : 'border-border',
+        'hover:border-ring/50',
+      )}
+    >
+      <span
+        className={cn(
+          'flex aspect-[9/16] w-14 shrink-0 items-center justify-center overflow-hidden rounded-lg text-white',
+          story.file
+            ? 'bg-muted text-muted-foreground'
+            : storyBackgroundClass(story.background as StoryBackgroundValue | null),
+        )}
+      >
+        {story.file ? (
+          video ? (
+            <Play className="size-5" aria-hidden />
+          ) : (
+            <ImageIcon className="size-5" aria-hidden />
+          )
+        ) : (
+          story.text && (
+            <span className="line-clamp-5 px-1 text-center text-[8px] leading-tight">
+              {story.text}
+            </span>
+          )
+        )}
+      </span>
+      <span className="flex min-w-0 flex-col gap-0.5">
+        <span className="text-[11px] text-muted-foreground">{label}</span>
+        <span className="truncate text-xs font-semibold">{name}</span>
+        {story.file && story.text && (
+          <span className="line-clamp-2 text-xs text-muted-foreground">{story.text}</span>
+        )}
+        <span className="inline-flex items-center gap-0.5 text-xs font-medium text-primary">
+          {t('storyOpen')}
+          <ChevronRight className="size-3.5" aria-hidden />
+        </span>
+      </span>
     </Link>
   )
 }

@@ -48,6 +48,9 @@ const ALLOWED_AUDIENCES: Record<Role, StoryAudience[]> = {
 // Потолок выдачи ленты колец. Это не пагинация, а предохранитель (BACKEND_RULES §5.3):
 // живых сторис за сутки в одном вузе столько не бывает, но findMany без take запрещён.
 const FEED_TAKE = 200
+// Потолки служебных выборок на запрос: блокировки и скрытые авторы смотрящего.
+const BLOCKS_TAKE = 1000
+const MUTES_TAKE = 1000
 
 // Размер батча удаления в кроне (как BATCH_SIZE в CleanupService).
 const CLEANUP_BATCH = 500
@@ -205,13 +208,35 @@ export class StoriesService {
     return { expiresAt: { gt: new Date() }, OR: or }
   }
 
+  /**
+   * Авторы, чьи сторисы смотрящему не показываются: блокировка в любую сторону. Сторисы
+   * раньше блокировок не знали вовсе — заблокированный продолжал видеть сторис того, кто
+   * его заблокировал. Список читается раз на запрос; в `where` уходит `notIn`, потому что
+   * у UserBlock нет отношений, по которым Prisma построила бы фильтр.
+   */
+  private async blockedAuthorIds(viewerId: string): Promise<string[]> {
+    const rows = await this.prisma.userBlock.findMany({
+      where: { OR: [{ blockerId: viewerId }, { blockedId: viewerId }] },
+      select: { blockerId: true, blockedId: true },
+      take: BLOCKS_TAKE,
+    })
+    return rows.map((r) => (r.blockerId === viewerId ? r.blockedId : r.blockerId))
+  }
+
+  /** Видимость по аудитории плюс блокировки (см. visibilityWhere и blockedAuthorIds). */
+  private async visibleWhere(viewer: JwtPayload): Promise<Prisma.StoryWhereInput> {
+    const blocked = await this.blockedAuthorIds(viewer.sub)
+    const base = this.visibilityWhere(viewer)
+    return blocked.length > 0 ? { AND: [base, { authorId: { notIn: blocked } }] } : base
+  }
+
   private async findVisibleOrThrow<S extends Prisma.StorySelect>(
     viewer: JwtPayload,
     id: string,
     select: S,
   ): Promise<Prisma.StoryGetPayload<{ select: S }>> {
     const story = await this.prisma.story.findFirst({
-      where: { id, ...this.visibilityWhere(viewer) },
+      where: { AND: [{ id }, await this.visibleWhere(viewer)] },
       select,
     })
     if (!story) {
@@ -221,19 +246,27 @@ export class StoriesService {
   }
 
   /**
-   * Бросает NOT_FOUND, если сторис не видна зрителю. Нужна жалобам: пожаловаться можно только
-   * на то, что видишь, иначе жалоба подтверждает существование чужой сторис по id.
+   * Бросает NOT_FOUND, если сторис не видна зрителю; видна — возвращает автора. Нужна
+   * жалобам (пожаловаться можно только на то, что видишь, иначе жалоба подтверждает
+   * существование чужой сторис по id) и чатам — перед ответом на сторис и пересылкой.
    */
-  async assertVisibleToViewer(viewer: JwtPayload, id: string): Promise<void> {
-    await this.findVisibleOrThrow(viewer, id, { id: true })
+  async assertVisibleToViewer(viewer: JwtPayload, id: string): Promise<{ authorId: string }> {
+    return this.findVisibleOrThrow(viewer, id, { authorId: true })
   }
 
   // ── Лента колец ─────────────────────────────────────────────────────────────
 
   async feed(viewer: JwtPayload, query: StoriesFeedQueryInput): Promise<StoryRing[]> {
-    const where: Prisma.StoryWhereInput = query.authorId
-      ? { AND: [{ authorId: query.authorId }, this.visibilityWhere(viewer)] }
-      : this.visibilityWhere(viewer)
+    const visible = await this.visibleWhere(viewer)
+    // Скрытые авторы уходят только из ленты колец: в их профиле сторисы остаются видны —
+    // скрытие убирает шум из ленты, а не закрывает доступ.
+    let where: Prisma.StoryWhereInput = visible
+    if (query.authorId) {
+      where = { AND: [{ authorId: query.authorId }, visible] }
+    } else {
+      const muted = await this.mutedAuthorIds(viewer.sub)
+      if (muted.length > 0) where = { AND: [visible, { authorId: { notIn: muted } }] }
+    }
     const rows = await this.prisma.story.findMany({
       where,
       select: STORY_SELECT,
@@ -516,6 +549,67 @@ export class StoriesService {
   }
 
   /** Список зрителей — только автору сторис (§14.7): кто смотрел, видит лишь он. */
+  // ── Для чатов: ответ на сторис и пересылка ─────────────────────────────────
+
+  /**
+   * Видна ли сторис другому человеку — получателю пересылки. Права берутся из его записи,
+   * а не из токена отправителя: иначе пересылка открывала бы сторис вне её аудитории.
+   */
+  async isVisibleToUser(userId: string, id: string): Promise<boolean> {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, deletedAt: null, isBlocked: false },
+      select: { id: true, role: true, universityId: true, facultyId: true, groupId: true },
+    })
+    if (!user) return false
+    const viewer: JwtPayload = {
+      sub: user.id,
+      role: user.role as Role,
+      universityId: user.universityId,
+      facultyId: user.facultyId,
+      groupId: user.groupId,
+    }
+    const story = await this.prisma.story.findFirst({
+      where: { AND: [{ id }, await this.visibleWhere(viewer)] },
+      select: { id: true },
+    })
+    return story !== null
+  }
+
+  // ── Скрытие сторис пользователя ─────────────────────────────────────────────
+
+  private async mutedAuthorIds(viewerId: string): Promise<string[]> {
+    const rows = await this.prisma.storyMute.findMany({
+      where: { userId: viewerId },
+      select: { mutedUserId: true },
+      take: MUTES_TAKE,
+    })
+    return rows.map((r) => r.mutedUserId)
+  }
+
+  /** Скрыть сторис автора из ленты колец. Повтор — та же строка, ответ тот же. */
+  async mute(viewer: JwtPayload, authorId: string): Promise<void> {
+    if (authorId === viewer.sub) {
+      throw new AppException('BAD_REQUEST', 'Свои сторисы скрыть нельзя')
+    }
+    const author = await this.prisma.user.findFirst({
+      where: { id: authorId, deletedAt: null },
+      select: { id: true },
+    })
+    if (!author) throw new AppException('NOT_FOUND', 'Пользователь не найден')
+    await this.prisma.storyMute.upsert({
+      where: { userId_mutedUserId: { userId: viewer.sub, mutedUserId: authorId } },
+      create: { userId: viewer.sub, mutedUserId: authorId },
+      update: {},
+    })
+  }
+
+  /** Вернуть сторис автора в ленту. Нечего возвращать — тоже успех. */
+  async unmute(viewer: JwtPayload, authorId: string): Promise<void> {
+    await this.prisma.storyMute.deleteMany({
+      where: { userId: viewer.sub, mutedUserId: authorId },
+    })
+  }
+
   async viewers(actor: JwtPayload, id: string, query: StoryViewersQueryInput) {
     const story = await this.findVisibleOrThrow(actor, id, { id: true, authorId: true })
     if (story.authorId !== actor.sub) {
@@ -530,10 +624,22 @@ export class StoriesService {
     })
     const hasNext = rows.length > query.limit
     const page = hasNext ? rows.slice(0, query.limit) : rows
-    return new Paginated(page, {
-      cursor: hasNext ? page[page.length - 1]?.id : undefined,
-      hasNext,
-    })
+    // Реакции зрителей страницы — одним запросом: автор видит, кто как отреагировал.
+    const reactions = page.length
+      ? await this.prisma.storyReaction.findMany({
+          where: { storyId: id, userId: { in: page.map((r) => r.user.id) } },
+          select: { userId: true, emoji: true },
+          orderBy: { createdAt: 'asc' },
+          // Не больше одной реакции каждого эмодзи от зрителя (уникальный индекс).
+          take: page.length * STORY_REACTION_EMOJIS.length,
+        })
+      : []
+    const byUser = new Map<string, string[]>()
+    for (const r of reactions) byUser.set(r.userId, [...(byUser.get(r.userId) ?? []), r.emoji])
+    return new Paginated(
+      page.map((r) => ({ ...r, reactions: byUser.get(r.user.id) ?? [] })),
+      { cursor: hasNext ? page[page.length - 1]?.id : undefined, hasNext },
+    )
   }
 
   // ── Удаление ────────────────────────────────────────────────────────────────

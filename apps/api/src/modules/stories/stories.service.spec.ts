@@ -50,6 +50,14 @@ function setup() {
     },
     faculty: { findUnique: jest.fn() },
     group: { findUnique: jest.fn() },
+    // Блокировки и скрытые авторы смотрящего: по умолчанию их нет.
+    userBlock: { findMany: jest.fn().mockResolvedValue([]) },
+    storyMute: {
+      findMany: jest.fn().mockResolvedValue([]),
+      upsert: jest.fn().mockResolvedValue({}),
+      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
+    user: { findFirst: jest.fn() },
     $transaction: jest.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
   }
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
@@ -158,6 +166,70 @@ describe('StoriesService.feed — видимость', () => {
     const args = prisma.story.findMany.mock.calls[0][0]
     expect(args.take).toBe(200)
     expect(args.orderBy[0]).toEqual({ createdAt: 'desc' })
+  })
+})
+
+describe('StoriesService — блокировки и скрытые авторы', () => {
+  it('сторисы заблокированных в любую сторону не видны: их авторы исключены', async () => {
+    const { service, prisma } = setup()
+    prisma.userBlock.findMany.mockResolvedValue([
+      { blockerId: 's1', blockedId: 'x' },
+      { blockerId: 'y', blockedId: 's1' },
+    ])
+    await service.feed(viewer(Role.STUDENT, { sub: 's1' }), {})
+    const where = prisma.story.findMany.mock.calls[0][0].where
+    expect(where.AND[1]).toEqual({ authorId: { notIn: ['x', 'y'] } })
+  })
+
+  it('сторис заблокировавшего не открывается и по id — NOT_FOUND', async () => {
+    const { service, prisma } = setup()
+    prisma.userBlock.findMany.mockResolvedValue([{ blockerId: 'author', blockedId: 's1' }])
+    prisma.story.findFirst.mockResolvedValue(null)
+    const err = await service.getById(viewer(Role.STUDENT, { sub: 's1' }), 'st-1').catch((e) => e)
+    expect(err.code).toBe('NOT_FOUND')
+    const where = prisma.story.findFirst.mock.calls[0][0].where
+    expect(JSON.stringify(where)).toContain('"notIn":["author"]')
+  })
+
+  it('скрытые авторы уходят из ленты, но не из профиля автора', async () => {
+    const { service, prisma } = setup()
+    prisma.storyMute.findMany.mockResolvedValue([{ mutedUserId: 'm-1' }])
+    await service.feed(viewer(Role.STUDENT, { sub: 's1' }), {})
+    expect(prisma.story.findMany.mock.calls[0][0].where.AND[1]).toEqual({
+      authorId: { notIn: ['m-1'] },
+    })
+    prisma.storyMute.findMany.mockClear()
+    await service.feed(viewer(Role.STUDENT, { sub: 's1' }), { authorId: 'm-1' })
+    expect(prisma.storyMute.findMany).not.toHaveBeenCalled()
+  })
+
+  it('скрыть свои сторисы нельзя; чужие — идемпотентно', async () => {
+    const { service, prisma } = setup()
+    const err = await service.mute(viewer(Role.STUDENT, { sub: 's1' }), 's1').catch((e) => e)
+    expect(err.code).toBe('BAD_REQUEST')
+    prisma.user.findFirst.mockResolvedValue({ id: 'a-1' })
+    await service.mute(viewer(Role.STUDENT, { sub: 's1' }), 'a-1')
+    expect(prisma.storyMute.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { userId_mutedUserId: { userId: 's1', mutedUserId: 'a-1' } },
+        update: {},
+      }),
+    )
+  })
+
+  it('видимость для получателя пересылки берётся из его записи, а не из токена', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findFirst.mockResolvedValue({
+      id: 'r-1',
+      role: Role.STUDENT,
+      universityId: 'uni-2',
+      facultyId: null,
+      groupId: 'grp-2',
+    })
+    prisma.story.findFirst.mockResolvedValue(null)
+    await expect(service.isVisibleToUser('r-1', 'st-1')).resolves.toBe(false)
+    const where = JSON.stringify(prisma.story.findFirst.mock.calls[0][0].where)
+    expect(where).toContain('"groupId":"grp-2"')
   })
 })
 
@@ -474,6 +546,22 @@ describe('StoriesService.viewers', () => {
     expect(args.take).toBe(21)
     expect(args.cursor).toEqual({ id: 'v-10' })
     expect(args.skip).toBe(1)
+  })
+
+  it('у зрителя в списке — его реакции на эту сторис', async () => {
+    const { service, prisma } = setup()
+    prisma.story.findFirst.mockResolvedValue({ id: 's1', authorId: 'u-1' })
+    prisma.storyView.findMany.mockResolvedValue([
+      { id: 'v-1', createdAt: new Date(), user: { id: 'w-1' } },
+      { id: 'v-2', createdAt: new Date(), user: { id: 'w-2' } },
+    ])
+    prisma.storyReaction.findMany.mockResolvedValue([
+      { userId: 'w-1', emoji: '🔥' },
+      { userId: 'w-1', emoji: '❤️' },
+    ])
+    const res = await service.viewers(viewer(Role.STUDENT, { sub: 'u-1' }), 's1', { limit: 20 })
+    expect(res.items[0]).toMatchObject({ reactions: ['🔥', '❤️'] })
+    expect(res.items[1]).toMatchObject({ reactions: [] })
   })
 })
 

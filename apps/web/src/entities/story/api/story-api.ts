@@ -14,6 +14,7 @@ export const storyKeys = {
   all: ['stories'] as const,
   feed: () => ['stories', 'feed'] as const,
   author: (userId: string) => ['stories', 'author', userId] as const,
+  detail: (id: string) => ['stories', 'detail', id] as const,
   viewers: (id: string) => ['stories', id, 'viewers'] as const,
 }
 
@@ -26,6 +27,39 @@ export async function fetchStories(authorId?: string): Promise<StoryRing[]> {
     params: authorId ? { authorId } : undefined,
   })
   return data
+}
+
+/** Одна сторис по id — для ссылки `/stories/:id`. Сервер проверяет аудиторию и блокировки. */
+export async function fetchStory(id: string): Promise<StoryCard> {
+  const { data } = await api.get<StoryCard>(`/stories/${id}`)
+  return data
+}
+
+/**
+ * Ответ на сторис — личным сообщением автору с карточкой сторис. Чат с автором сервер
+ * находит или создаёт сам, по обычным правилам переписки.
+ */
+export async function replyToStoryRequest(
+  storyId: string,
+  content: string,
+): Promise<{ chatId: string }> {
+  const { data } = await api.post<{ chatId: string }>('/chats/story-reply', { storyId, content })
+  return data
+}
+
+/** Переслать сторис в личный чат: сервер проверит, что получатель сам её видит. */
+export async function shareStoryRequest(chatId: string, storyId: string): Promise<void> {
+  await api.post(`/chats/${chatId}/share-story`, { storyId })
+}
+
+/** Скрыть сторис автора из ленты колец (профиль их по-прежнему показывает). */
+export async function muteStoryAuthorRequest(userId: string): Promise<void> {
+  await api.post(`/stories/mutes/${userId}`)
+}
+
+/** Вернуть сторис автора в ленту колец. */
+export async function unmuteStoryAuthorRequest(userId: string): Promise<void> {
+  await api.delete(`/stories/mutes/${userId}`)
 }
 
 export async function createStoryRequest(input: CreateStoryInput): Promise<StoryCard> {
