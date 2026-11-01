@@ -47,10 +47,11 @@ export function StoryHighlightsRow({ ownerId }: { ownerId: string }) {
   if (highlights.length === 0) return null
 
   return (
-    <section aria-label={t('highlightsTitle')} className="px-4 pb-4 sm:px-6">
-      <ul className="-mx-1 flex gap-3 overflow-x-auto px-1 pt-1 pb-1 [scrollbar-width:none]">
+    // Отступы и место в шапке задаёт профиль: ряд стоит справа от ФИО, а на телефоне — под ним.
+    <section aria-label={t('highlightsTitle')}>
+      <ul className="-mx-1 flex gap-3 overflow-x-auto px-1 py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {highlights.map((h) => (
-          <li key={h.id} className="w-[4.5rem] shrink-0">
+          <li key={h.id} className="w-[4.75rem] shrink-0">
             <button
               type="button"
               onClick={() => setOpenId(h.id)}
@@ -62,8 +63,8 @@ export function StoryHighlightsRow({ ownerId }: { ownerId: string }) {
                   media={h.cover?.media ?? null}
                   text={h.cover?.text ?? null}
                   background={h.cover?.background ?? null}
-                  sizes="64px"
-                  className="size-16 rounded-full"
+                  sizes="72px"
+                  className="size-[4.25rem] rounded-full"
                 />
               </span>
               <span className="w-full text-center text-xs leading-tight break-words">

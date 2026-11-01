@@ -79,6 +79,7 @@ import {
   updateStoryHighlightRequest,
   unmuteStoryAuthorRequest,
   StoryElementsLayer,
+  StoryThumb,
   storyBackgroundClass,
   storyKeys,
   voteStoryRequest,
@@ -96,7 +97,7 @@ import { ShareStorySheet } from './share-story-sheet'
 // Сколько держится кадр без своего таймера (текст и фото). У видео длительность своя.
 const FRAME_MS = 6000
 // Ширина кадра сторис для srcset: на телефоне во весь экран, на десктопе — колонка ~420px.
-const STORY_SIZES = '(max-width: 640px) 100vw, 420px'
+const STORY_SIZES = '(max-width: 640px) 100vw, 480px'
 // Жесты на кадре: удержание дольше этого — пауза, а не тап; сдвиг больше — свайп.
 const HOLD_MS = 220
 const SWIPE_X_PX = 60
@@ -108,21 +109,28 @@ const MUTED_KEY = 'sh.stories.muted'
 // колец видно с каждой стороны, во сколько раз превью меньше кадра и зазор между ними.
 const PREVIEW_RADIUS = 2
 const PREVIEW_SCALE = 0.42
-// Ширина кадра — та же, что у `sm:w-[26rem]` ниже (26rem = 416px); зазор между карточками.
-const FRAME_PX = 416
+// Ширина кадра на десктопе: до 30rem, но кадр 9:16 целиком помещается по высоте экрана
+// (с полями 1.5rem). Одна CSS-переменная — от неё считаются и превью, и стрелки, поэтому
+// геометрия ленты не расходится при любом размере окна.
+const FRAME_W = 'min(30rem, calc((100dvh - 3rem) * 9 / 16))'
 const GAP_PX = 24
 // Зазор между кадром и первым превью шире: в нём стоят стрелки листания. При общем зазоре
 // стрелка ложилась на превью соседа, и клик по ней выглядел как клик по чужому кольцу.
 const ARROW_GAP_PX = 72
 // Центр стрелки — посередине этого зазора, от центра экрана.
-const ARROW_X = FRAME_PX / 2 + ARROW_GAP_PX / 2
+const ARROW_X = `(var(--frame-w) / 2 + ${ARROW_GAP_PX / 2}px)`
 
-/** Сдвиг карточки кольца от центра экрана: активная — в центре, соседние — рядом с ней. */
-function slotX(offset: number): number {
-  if (offset === 0) return 0
-  const preview = FRAME_PX * PREVIEW_SCALE
-  const first = FRAME_PX / 2 + ARROW_GAP_PX + preview / 2
-  return Math.sign(offset) * (first + (Math.abs(offset) - 1) * (preview + GAP_PX))
+/**
+ * Сдвиг карточки кольца от центра экрана (CSS-выражение): активная — в центре, соседние —
+ * рядом. Первое превью отстоит на полкадра, зазор стрелок и полпревью; каждое следующее —
+ * ещё на превью и обычный зазор.
+ */
+function slotX(offset: number): string {
+  if (offset === 0) return '0px'
+  const n = Math.abs(offset) - 1
+  const frames = 0.5 + PREVIEW_SCALE / 2 + n * PREVIEW_SCALE
+  const px = ARROW_GAP_PX + n * GAP_PX
+  return `calc(${Math.sign(offset)} * (var(--frame-w) * ${frames} + ${px}px))`
 }
 
 /** С какого кадра открывать автора: с первого непросмотренного, как в Instagram. */
@@ -1187,6 +1195,7 @@ export function StoryViewer({
         <DialogPrimitive.Content
           aria-describedby={undefined}
           className="fixed inset-0 z-50 overflow-hidden bg-black/95 outline-none"
+          style={{ '--frame-w': FRAME_W } as CSSProperties}
         >
           <DialogPrimitive.Title className="sr-only">
             {highlight
@@ -1199,14 +1208,14 @@ export function StoryViewer({
               <div
                 key={r.author.id}
                 className={cn(
-                  'absolute sm:inset-auto sm:top-1/2 sm:left-1/2 sm:h-[min(90dvh,46rem)] sm:w-[26rem]',
+                  'absolute sm:inset-auto sm:top-1/2 sm:left-1/2 sm:h-[calc(var(--frame-w)*16/9)] sm:w-(--frame-w)',
                   'sm:[transform:translate(-50%,-50%)_translateX(var(--story-x))_scale(var(--story-s))]',
                   'sm:transition-[transform,opacity] sm:duration-200 sm:ease-out motion-reduce:transition-none',
                   active ? 'inset-0 z-10' : 'hidden sm:block sm:opacity-60 sm:hover:opacity-90',
                 )}
                 style={
                   {
-                    '--story-x': `${slotX(offset)}px`,
+                    '--story-x': slotX(offset),
                     '--story-s': active ? 1 : PREVIEW_SCALE,
                   } as CSSProperties
                 }
@@ -1222,7 +1231,7 @@ export function StoryViewer({
               (`active:translate-y-px`), и он затирал центровку — стрелка прыгала вниз. */}
           <div
             className="absolute top-1/2 z-20 hidden -translate-x-1/2 -translate-y-1/2 sm:block"
-            style={{ left: `calc(50% - ${ARROW_X}px)` }}
+            style={{ left: `calc(50% - ${ARROW_X})` }}
           >
             <Button
               type="button"
@@ -1239,7 +1248,7 @@ export function StoryViewer({
           </div>
           <div
             className="absolute top-1/2 z-20 hidden -translate-x-1/2 -translate-y-1/2 sm:block"
-            style={{ left: `calc(50% + ${ARROW_X}px)` }}
+            style={{ left: `calc(50% + ${ARROW_X})` }}
           >
             <Button
               type="button"
@@ -1297,9 +1306,6 @@ function RingPreview({ ring, onOpen }: { ring: StoryRing; onOpen: () => void }) 
   const t = useTranslations('Stories')
   const card = ring.stories.find((s) => !s.seen) ?? ring.stories[0]
   if (!card) return null
-  const media = card.media
-  const isVideo = media?.mime.startsWith('video/') ?? false
-  const poster = isVideo && media ? pickSource(media.poster, 640)?.url : undefined
   const name = `${ring.author.firstName} ${ring.author.lastName}`
 
   return (
@@ -1309,21 +1315,14 @@ function RingPreview({ ring, onOpen }: { ring: StoryRing; onOpen: () => void }) 
       aria-label={t('openStoryOf', { name })}
       className="relative block size-full cursor-pointer overflow-hidden rounded-2xl outline-none focus-visible:ring-8 focus-visible:ring-white/50"
     >
-      {media && !isVideo ? (
-        <MediaImage
-          src={media.url}
-          media={media}
-          alt=""
-          fit="cover"
-          sizes="180px"
-          className="size-full"
-        />
-      ) : poster ? (
-        // Постер видео — уже уменьшенная копия с сервера, отдельной заглушки у него нет.
-        <MediaImage src={poster} alt="" fit="cover" sizes="180px" className="size-full" />
-      ) : (
-        <div className={cn('size-full', storyBackgroundClass(card.background))} />
-      )}
+      {/* Фото, постер или первый кадр видео; текст кадра под затемнением не нужен. */}
+      <StoryThumb
+        media={card.media}
+        text={null}
+        background={card.background}
+        sizes="200px"
+        className="size-full"
+      />
       <span className="absolute inset-0 bg-black/50" aria-hidden />
       <span className="absolute inset-0 flex flex-col items-center justify-center gap-5 px-6 text-white">
         <span

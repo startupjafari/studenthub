@@ -275,9 +275,14 @@ export function PublicUserProfile({
             </div>
           </div>
           <ProfileIdentity data={u} />
+          {/* «Актуальное» — справа от ФИО на широком экране, под ним на телефоне. Закрытый
+              профиль его не показывает, как и остальной контент. */}
+          {u.access !== 'limited' && renderHighlights && (
+            <div className="min-w-0 sm:max-w-[45%] sm:shrink-0 sm:self-end">
+              {renderHighlights(u.id)}
+            </div>
+          )}
         </div>
-        {/* Закрытый профиль «Актуальное» не показывает, как и остальной контент. */}
-        {u.access !== 'limited' && renderHighlights?.(u.id)}
         {storiesOpen && storyRing && renderStoryViewer?.(storyRing, () => setStoriesOpen(false))}
       </Card>
 

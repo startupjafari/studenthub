@@ -531,8 +531,13 @@ function ProfileHeader({
         </div>
 
         <ProfileIdentity data={me} />
+        {/* «Актуальное» — справа от ФИО на широком экране, под ним на телефоне. */}
+        {renderHighlights && (
+          <div className="min-w-0 sm:max-w-[45%] sm:shrink-0 sm:self-end">
+            {renderHighlights(me.id)}
+          </div>
+        )}
       </div>
-      {renderHighlights?.(me.id)}
 
       {cropFile && (
         <ImageCropModal
