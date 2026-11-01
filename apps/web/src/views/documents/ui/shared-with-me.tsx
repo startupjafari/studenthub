@@ -22,7 +22,6 @@ import {
   Table,
   TableBody,
   TableCell,
-  TableEmpty,
   TableHead,
   TableHeader,
   TableRow,
@@ -158,7 +157,8 @@ export function SharedWithMe() {
                 <TableCell
                   className={cn(HIDE.until, 'whitespace-nowrap text-muted-foreground tabular-nums')}
                 >
-                  {fmt(row.expiresAt) ?? <TableEmpty />}
+                  {/* Без срока — это бессрочный доступ, а не пропущенное значение. */}
+                  {fmt(row.expiresAt) ?? t('grantForever')}
                 </TableCell>
                 <TableCell className="text-right">
                   <Button
