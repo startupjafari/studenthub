@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
+import { useRouter } from 'next/navigation'
 import { useFormatter, useTranslations } from 'next-intl'
 import { ArrowLeft, BadgeCheck, Printer, TriangleAlert } from 'lucide-react'
 import type { LibraryClearance } from '@studenthub/shared-schemas'
@@ -15,6 +16,7 @@ import { LoanDueBadge, fetchClearance, isLostDebt, libraryKeys } from '../../../
 export function ClearanceView() {
   const t = useTranslations('LibraryReader')
   const format = useFormatter()
+  const router = useRouter()
   const clearance = useQuery({
     queryKey: libraryKeys.clearance(),
     queryFn: fetchClearance,
@@ -51,19 +53,19 @@ export function ClearanceView() {
 
   return (
     <div className="flex w-full flex-col gap-6">
+      {/* Назад — стрелкой слева, как на остальных экранах с возвратом; справа только печать. */}
       <PageHeader
         title={t('clearanceTitle')}
         subtitle={t('clearanceSubtitle')}
+        onBack={() => router.push('/my-books')}
+        backLabel={t('tabMine')}
         actions={
-          <>
-            {back}
-            {c.clear && (
-              <Button type="button" size="md" onClick={() => window.print()}>
-                <Printer className="size-4" aria-hidden />
-                {t('print')}
-              </Button>
-            )}
-          </>
+          c.clear && (
+            <Button type="button" size="md" onClick={() => window.print()}>
+              <Printer className="size-4" aria-hidden />
+              {t('print')}
+            </Button>
+          )
         }
       />
       {c.clear ? (

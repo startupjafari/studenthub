@@ -207,6 +207,7 @@ export function BookDetailView({ bookId, basePath }: { bookId: string; basePath:
           title={data.title}
           subtitle={data.authors || undefined}
           onBack={() => router.push(basePath)}
+          backLabel={t('backToCatalog')}
           actions={
             <>
               <Button type="button" variant="outline" size="md" onClick={() => setEditing(true)}>
