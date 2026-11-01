@@ -41,6 +41,8 @@ import {
 } from '../../../entities/friendship'
 import { useRealtimeEvent } from '../../../shared/realtime'
 import { useAppSelector } from '../../../shared/store'
+import { useAuthorStories } from '../../../entities/story'
+import { StoryAvatarRing, type RenderStoryViewer } from './story-avatar-ring'
 import { ReportModal } from '../../../features/report-content'
 import { contentModeration } from '../lib/content-moderation'
 
@@ -73,8 +75,20 @@ function errCode(e: unknown): string {
   return (e as { code?: string }).code ?? 'INTERNAL_ERROR'
 }
 
-export function PublicUserProfile({ userId }: { userId: string }) {
+export function PublicUserProfile({
+  userId,
+  renderStoryViewer,
+}: {
+  userId: string
+  /** Окно сторис — из слоя выше (views/profile): кольцо вокруг аватара открывает его. */
+  renderStoryViewer?: RenderStoryViewer
+}) {
   const t = useTranslations('Profile')
+  const tStories = useTranslations('Stories')
+  // Живые сторис человека — кольцом вокруг аватара, как в Instagram. Сервер отдаёт только
+  // то, что смотрящему положено видеть по аудитории сторис.
+  const storyRing = useAuthorStories(userId)
+  const [storiesOpen, setStoriesOpen] = useState(false)
   const tErr = useTranslations('Errors')
   const tCommon = useTranslations('Common')
   const router = useRouter()
@@ -234,15 +248,25 @@ export function PublicUserProfile({ userId }: { userId: string }) {
               {/* Avatar из системы: заглушка появляется и без ссылки, и когда картинка
                   не загрузилась (протухшая ссылка, недоступный MinIO). Голый <Image>
                   во втором случае показывал иконку «битая картинка» на месте лица. */}
-              <Avatar className="size-full border-4 border-background">
-                <AvatarImage
-                  src={u.avatarThumbUrl ?? u.avatarUrl ?? undefined}
-                  alt={fullNameOf(u)}
+              <StoryAvatarRing ring={renderStoryViewer ? storyRing : null}>
+                <Avatar className="size-full border-4 border-background">
+                  <AvatarImage
+                    src={u.avatarThumbUrl ?? u.avatarUrl ?? undefined}
+                    alt={fullNameOf(u)}
+                  />
+                  <AvatarFallback className="bg-primary text-3xl font-semibold text-primary-foreground">
+                    {initialsOf(u) || '#'}
+                  </AvatarFallback>
+                </Avatar>
+              </StoryAvatarRing>
+              {storyRing && renderStoryViewer && (
+                <button
+                  type="button"
+                  onClick={() => setStoriesOpen(true)}
+                  aria-label={tStories('openStoryOf', { name: fullNameOf(u) })}
+                  className="absolute inset-0 cursor-pointer rounded-full outline-none focus-visible:ring-4 focus-visible:ring-ring/30"
                 />
-                <AvatarFallback className="bg-primary text-3xl font-semibold text-primary-foreground">
-                  {initialsOf(u) || '#'}
-                </AvatarFallback>
-              </Avatar>
+              )}
               <span className="absolute left-[85%] top-[15%] z-10 -translate-x-1/2 -translate-y-1/2">
                 <StatusDot online={online} />
               </span>
@@ -250,6 +274,7 @@ export function PublicUserProfile({ userId }: { userId: string }) {
           </div>
           <ProfileIdentity data={u} />
         </div>
+        {storiesOpen && storyRing && renderStoryViewer?.(storyRing, () => setStoriesOpen(false))}
       </Card>
 
       {u.access === 'limited' ? (

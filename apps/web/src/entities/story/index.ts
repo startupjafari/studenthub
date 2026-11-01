@@ -11,6 +11,7 @@ export {
   uploadStoryMedia,
   type StoryViewersPage,
 } from './api/story-api'
+export { useAuthorStories } from './model/use-author-stories'
 export {
   STORY_AUDIENCES_BY_ROLE,
   STORY_GROUP_PICKER_ROLES,
