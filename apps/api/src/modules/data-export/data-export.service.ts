@@ -902,97 +902,112 @@ export class DataExportService {
     userId: string,
     take: number,
   ): Promise<Record<string, ExportSection>> {
-    const [blocks, storyMutes, storyHighlights, accessGranted, documentEvents, exports] =
-      await Promise.all([
-        this.prisma.userBlock.findMany({
-          where: { blockerId: userId },
-          select: { blockedId: true, createdAt: true },
-          orderBy: { createdAt: 'desc' },
-          take,
-        }),
-        // Чьи сторис человек скрыл из ленты — его настройка, как и чёрный список.
-        this.prisma.storyMute.findMany({
-          where: { userId },
-          select: { mutedUserId: true, createdAt: true },
-          orderBy: { createdAt: 'desc' },
-          take,
-        }),
-        // «Актуальное»: подборки и снимки сторис в них. Как у сторис, вместо id копии медиа —
-        // признак `hasMedia`: сам файл лежит в разделе `files`.
-        this.prisma.storyHighlight.findMany({
-          where: { ownerId: userId },
-          select: {
-            id: true,
-            title: true,
-            createdAt: true,
-            items: {
-              select: {
-                audience: true,
-                text: true,
-                background: true,
-                linkUrl: true,
-                linkLabel: true,
-                storyCreatedAt: true,
-                fileId: true,
-              },
-              orderBy: { position: 'asc' },
-              take: STORY_HIGHLIGHT_ITEMS_MAX,
+    const [
+      blocks,
+      storyMutes,
+      storyHighlights,
+      eventCommentReactions,
+      accessGranted,
+      documentEvents,
+      exports,
+    ] = await Promise.all([
+      this.prisma.userBlock.findMany({
+        where: { blockerId: userId },
+        select: { blockedId: true, createdAt: true },
+        orderBy: { createdAt: 'desc' },
+        take,
+      }),
+      // Чьи сторис человек скрыл из ленты — его настройка, как и чёрный список.
+      this.prisma.storyMute.findMany({
+        where: { userId },
+        select: { mutedUserId: true, createdAt: true },
+        orderBy: { createdAt: 'desc' },
+        take,
+      }),
+      // «Актуальное»: подборки и снимки сторис в них. Как у сторис, вместо id копии медиа —
+      // признак `hasMedia`: сам файл лежит в разделе `files`.
+      this.prisma.storyHighlight.findMany({
+        where: { ownerId: userId },
+        select: {
+          id: true,
+          title: true,
+          createdAt: true,
+          items: {
+            select: {
+              audience: true,
+              text: true,
+              background: true,
+              linkUrl: true,
+              linkLabel: true,
+              storyCreatedAt: true,
+              fileId: true,
             },
+            orderBy: { position: 'asc' },
+            take: STORY_HIGHLIGHT_ITEMS_MAX,
           },
-          orderBy: { position: 'asc' },
-          take,
-        }),
-        this.prisma.documentAccess.findMany({
-          where: { grantedById: userId },
-          select: {
-            documentId: true,
-            granteeType: true,
-            granteeId: true,
-            reason: true,
-            grantedAt: true,
-            expiresAt: true,
-            revokedAt: true,
-          },
-          orderBy: { grantedAt: 'desc' },
-          take,
-        }),
-        // Журнал своих документов: и свои действия, и чужие над своими документами (кто из
-        // сотрудников смотрел, принимал, отклонял). Кто именно — данные сотрудника, как и в
-        // просмотрах удостоверения библиотекарем: остаётся признак «сам или нет».
-        this.prisma.documentEvent.findMany({
-          where: { OR: [{ actorId: userId }, { document: { ownerId: userId } }] },
-          select: {
-            documentId: true,
-            requestId: true,
-            actorId: true,
-            action: true,
-            createdAt: true,
-          },
-          orderBy: { createdAt: 'desc' },
-          take,
-        }),
-        // Свои выгрузки. Без `params`: там условия выборки — у выгрузки списка пользователей
-        // это поисковая строка с чужими именами и адресами.
-        this.prisma.documentExport.findMany({
-          where: { userId },
-          select: {
-            shortId: true,
-            kind: true,
-            format: true,
-            rows: true,
-            documentNumber: true,
-            ip: true,
-            userAgent: true,
-            createdAt: true,
-            revokedAt: true,
-          },
-          orderBy: { createdAt: 'desc' },
-          take,
-        }),
-      ])
+        },
+        orderBy: { position: 'asc' },
+        take,
+      }),
+      // Свои реакции в обсуждениях событий — как реакции на сторис: данные о человеке.
+      this.prisma.eventCommentReaction.findMany({
+        where: { userId },
+        select: { commentId: true, emoji: true, createdAt: true },
+        orderBy: { createdAt: 'desc' },
+        take,
+      }),
+      this.prisma.documentAccess.findMany({
+        where: { grantedById: userId },
+        select: {
+          documentId: true,
+          granteeType: true,
+          granteeId: true,
+          reason: true,
+          grantedAt: true,
+          expiresAt: true,
+          revokedAt: true,
+        },
+        orderBy: { grantedAt: 'desc' },
+        take,
+      }),
+      // Журнал своих документов: и свои действия, и чужие над своими документами (кто из
+      // сотрудников смотрел, принимал, отклонял). Кто именно — данные сотрудника, как и в
+      // просмотрах удостоверения библиотекарем: остаётся признак «сам или нет».
+      this.prisma.documentEvent.findMany({
+        where: { OR: [{ actorId: userId }, { document: { ownerId: userId } }] },
+        select: {
+          documentId: true,
+          requestId: true,
+          actorId: true,
+          action: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: 'desc' },
+        take,
+      }),
+      // Свои выгрузки. Без `params`: там условия выборки — у выгрузки списка пользователей
+      // это поисковая строка с чужими именами и адресами.
+      this.prisma.documentExport.findMany({
+        where: { userId },
+        select: {
+          shortId: true,
+          kind: true,
+          format: true,
+          rows: true,
+          documentNumber: true,
+          ip: true,
+          userAgent: true,
+          createdAt: true,
+          revokedAt: true,
+        },
+        orderBy: { createdAt: 'desc' },
+        take,
+      }),
+    ])
     return {
       blocks: section(blocks, SECTION_LIMIT),
       storyMutes: section(storyMutes, SECTION_LIMIT),
+      eventCommentReactions: section(eventCommentReactions, SECTION_LIMIT),
       storyHighlights: section(
         storyHighlights.map(({ items, ...highlight }) => ({
           ...highlight,
@@ -1263,6 +1278,7 @@ export const USER_RELATIONS: Readonly<Record<string, { section: string } | { exc
     'Event.organizerId': { section: 'eventsOrganized' },
     'EventParticipant.userId': { section: 'events' },
     'EventComment.authorId': { section: 'eventComments' },
+    'EventCommentReaction.userId': { section: 'eventCommentReactions' },
     'File.ownerId': { section: 'files' },
     'Notification.userId': { section: 'notifications' },
     'NotificationSettings.userId': { section: 'notificationSettings' },
