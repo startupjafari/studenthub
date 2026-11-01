@@ -12,6 +12,10 @@ const auth = { user: { id: 'me' }, role: 'STUDENT' }
 vi.mock('../../../shared/store', () => ({
   useAppSelector: (pick: (s: { auth: typeof auth }) => unknown) => pick({ auth }),
 }))
+vi.mock('../../../entities/event/api/event-api', async (orig) => {
+  const actual = await orig<typeof import('../../../entities/event/api/event-api')>()
+  return { ...actual, registerEventRequest: vi.fn().mockResolvedValue(undefined) }
+})
 vi.mock('../../../entities/story/api/story-api', async (orig) => {
   const actual = await orig<typeof import('../../../entities/story/api/story-api')>()
   return {
@@ -31,6 +35,7 @@ import {
   type StoryCard,
   type StoryRing,
 } from '../../../entities/story'
+import { registerEventRequest } from '../../../entities/event'
 import { ConfirmProvider } from '../../../shared/ui'
 import { StoryViewer } from './story-viewer'
 
@@ -164,5 +169,40 @@ describe('StoryViewer', () => {
     await user.click(await screen.findByRole('menuitem', { name: /Скрыть сторис/ }))
     await waitFor(() => expect(muteStoryAuthorRequest).toHaveBeenCalledWith('anna'))
     expect(await screen.findByText('Текст b1')).toBeInTheDocument()
+  })
+
+  it('у официального аккаунта — значок рядом с именем', () => {
+    const official = card('o1', 'rector')
+    official.author = { ...official.author, role: 'UNIVERSITY_ADMIN' } as never
+    setup([ring('rector', [official])])
+    expect(screen.getByText(ru.Stories.officialAccount)).toBeInTheDocument()
+  })
+
+  it('«Участвовать» на стикере события регистрирует и сразу показывает «Вы участвуете»', async () => {
+    const withEvent = card('a1', 'anna', {
+      elements: [
+        {
+          type: 'event',
+          x: 0.5,
+          y: 0.5,
+          scale: 1,
+          rotation: 0,
+          eventId: 'e-1',
+          event: {
+            id: 'e-1',
+            title: 'Хакатон',
+            startsAt: new Date(Date.now() + 86_400_000).toISOString(),
+            endsAt: null,
+            location: null,
+            isOnline: true,
+            isRegistered: false,
+          },
+        },
+      ],
+    } as never)
+    const { user } = setup([ring('anna', [withEvent])])
+    await user.click(screen.getByRole('button', { name: ru.Stories.eventJoin }))
+    await waitFor(() => expect(registerEventRequest).toHaveBeenCalledWith('e-1'))
+    expect(await screen.findByText(ru.Stories.eventJoined)).toBeInTheDocument()
   })
 })

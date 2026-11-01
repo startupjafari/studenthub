@@ -10,11 +10,14 @@ import { useTranslations } from 'next-intl'
 import {
   AtSign,
   BarChart3,
+  CalendarDays,
+  Clock,
   Crop,
   ImagePlus,
   Link2,
   Loader2,
   Maximize,
+  Newspaper,
   Plus,
   Smile,
   Type,
@@ -23,6 +26,7 @@ import {
 import {
   CreateStorySchema,
   STORY_BACKGROUNDS,
+  STORY_CARDS_MAX,
   STORY_ELEMENTS_MAX,
   STORY_IMAGE_MIMES,
   STORY_MEDIA_DEFAULTS,
@@ -60,12 +64,17 @@ import {
   SelectValue,
 } from '../../../shared/ui'
 import {
+  isCard,
   newEmojiElement,
+  newEventElement,
   newMentionElement,
+  newPostElement,
+  newScheduleElement,
   newTextElement,
   toStoryElements,
   type EditorElement,
 } from '../model/editor-element'
+import { CardPicker, type CardKind, type PickedCard } from './card-picker'
 import { StoryCanvas, type CanvasMedia } from './story-canvas'
 import { ElementInspector } from './element-inspector'
 import { MentionPicker } from './mention-picker'
@@ -125,6 +134,7 @@ export function CreateStoryForm({ onCreated }: { onCreated?: () => void } = {}) 
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [emojiOpen, setEmojiOpen] = useState(false)
   const [mentionOpen, setMentionOpen] = useState(false)
+  const [cardKind, setCardKind] = useState<CardKind | null>(null)
   // Фото выбрано — сначала спрашиваем, как его разместить; кадрирование — отдельным окном.
   const [pendingImage, setPendingImage] = useState<File | null>(null)
   const [cropFile, setCropFile] = useState<File | null>(null)
@@ -156,6 +166,7 @@ export function CreateStoryForm({ onCreated }: { onCreated?: () => void } = {}) 
 
   const selected = elements.find((e) => e.id === selectedId) ?? null
   const full = elements.length >= STORY_ELEMENTS_MAX
+  const cardsFull = elements.filter(isCard).length >= STORY_CARDS_MAX
   const mentionCount = new Set(elements.flatMap((e) => (e.type === 'mention' ? [e.userId] : [])))
     .size
 
@@ -172,6 +183,13 @@ export function CreateStoryForm({ onCreated }: { onCreated?: () => void } = {}) 
     if (full) return
     setElements([...elements, element])
     setSelectedId(element.id)
+  }
+
+  function addCard(card: PickedCard): void {
+    if (card.kind === 'event') addElement(newEventElement(card.event))
+    else if (card.kind === 'post') addElement(newPostElement(card.post))
+    else addElement(newScheduleElement(card.pair, card.date))
+    setCardKind(null)
   }
 
   function patchElement(id: string, patch: Partial<EditorElement>): void {
@@ -384,6 +402,26 @@ export function CreateStoryForm({ onCreated }: { onCreated?: () => void } = {}) 
               <AtSign className="size-4" aria-hidden />
               {t('toolMention')}
             </Button>
+            {(
+              [
+                ['event', CalendarDays, 'toolEvent'],
+                ['post', Newspaper, 'toolPost'],
+                ['schedule', Clock, 'toolPair'],
+              ] as const
+            ).map(([kind, Icon, label]) => (
+              <Button
+                key={kind}
+                type="button"
+                variant="outline"
+                size="md"
+                className={tool}
+                disabled={full || cardsFull}
+                onClick={() => setCardKind(kind)}
+              >
+                <Icon className="size-4" aria-hidden />
+                {t(label)}
+              </Button>
+            ))}
             <Button
               type="button"
               variant={linkOpen ? 'secondary' : 'outline'}
@@ -628,6 +666,10 @@ export function CreateStoryForm({ onCreated }: { onCreated?: () => void } = {}) 
             }}
           />
         </Modal>
+      )}
+
+      {cardKind && (
+        <CardPicker kind={cardKind} onPick={addCard} onClose={() => setCardKind(null)} />
       )}
 
       {mentionOpen && (

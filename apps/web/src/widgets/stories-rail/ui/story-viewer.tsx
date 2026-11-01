@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type ReactNode,
   type PointerEvent as ReactPointerEvent,
 } from 'react'
 import { useRouter } from 'next/navigation'
@@ -15,6 +16,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import {
+  BadgeCheck,
   ChevronLeft,
   ChevronRight,
   ExternalLink,
@@ -37,6 +39,8 @@ import {
   X,
 } from 'lucide-react'
 import { STORY_REACTION_EMOJIS, canFileComplaint } from '@studenthub/shared-schemas'
+import { Role } from '@studenthub/shared-types'
+import { registerEventRequest } from '../../../entities/event'
 import {
   pickSource,
   relativeTime,
@@ -73,6 +77,7 @@ import {
   storyKeys,
   voteStoryRequest,
   type StoryCard,
+  type StoryElement,
   type StoryRing,
 } from '../../../entities/story'
 import { useAppSelector } from '../../../shared/store'
@@ -159,6 +164,14 @@ const QUICK_REACTIONS = STORY_REACTION_EMOJIS
 // модель: сердце и ❤️ в ряду реакций — одно и то же состояние, поэтому в ряду его нет.
 const LIKE = '❤️'
 const EXTRA_REACTIONS = QUICK_REACTIONS.filter((e) => e !== LIKE)
+// Официальные аккаунты — роли, которые публикуют от имени вуза, факультета и платформы:
+// у их сторис значок рядом с именем, чтобы объявление отличалось от личной сторис.
+const OFFICIAL_ROLES: ReadonlySet<string> = new Set([
+  Role.PLATFORM_ADMIN,
+  Role.UNIVERSITY_ADMIN,
+  Role.UNIVERSITY_MODERATOR,
+  Role.DEAN,
+])
 // Длина ответа — как в схеме сервера (StoryReplySchema).
 const REPLY_MAX = 1000
 
@@ -206,6 +219,8 @@ export function StoryViewer({
   const [replying, setReplying] = useState(false)
   const [replyText, setReplyText] = useState('')
   const [shareOpen, setShareOpen] = useState(false)
+  // Регистрация на событие со стикера идёт — кнопка ждёт ответа, повтор не уходит.
+  const [joining, setJoining] = useState<string | null>(null)
   // Жалоба на сторис (§3.4) — тем, чью жалобу сервер примет; кадр на это время стоит.
   const [reporting, setReporting] = useState<StoryCard | null>(null)
   const [muted, setMuted] = useState(readMuted)
@@ -518,6 +533,86 @@ export function StoryViewer({
     router.push(authorId === myId ? '/profile' : `/profile/${authorId}`)
   }
 
+  function go(href: string): void {
+    close()
+    router.push(href)
+  }
+
+  // «Участвовать» со стикера события — та же регистрация, что на странице события. После
+  // ответа карточка сразу показывает «Вы участвуете», не дожидаясь новой выдачи ленты.
+  async function joinEvent(card: StoryCard, eventId: string): Promise<void> {
+    setJoining(eventId)
+    try {
+      await registerEventRequest(eventId)
+      setPatched((prev) => ({
+        ...prev,
+        [card.id]: {
+          ...card,
+          elements: card.elements.map((e) =>
+            e.type === 'event' && e.eventId === eventId && e.event
+              ? { ...e, event: { ...e.event, isRegistered: true } }
+              : e,
+          ),
+        },
+      }))
+      toast.success(t('eventJoinedToast'))
+    } catch (e) {
+      showError(e)
+    } finally {
+      setJoining(null)
+    }
+  }
+
+  // Кнопки карточек-стикеров. У пары кнопки нет: её расписание у каждой роли своё.
+  function cardActions(card: StoryCard, element: StoryElement): ReactNode {
+    const chip =
+      'rounded-full px-[0.8em] py-[0.35em] text-[0.85em] font-semibold transition-colors duration-150'
+    if (element.type === 'event' && element.event) {
+      const event = element.event
+      const ended = new Date(event.endsAt ?? event.startsAt).getTime() < Date.now()
+      return (
+        <span className="mt-[0.2em] flex flex-wrap gap-[0.4em]">
+          <button
+            type="button"
+            className={cn(chip, 'bg-black/10 hover:bg-black/15')}
+            onClick={() => go(`/events/${event.id}`)}
+          >
+            {t('eventDetails')}
+          </button>
+          {event.isRegistered ? (
+            <span className={cn(chip, 'bg-success/15 text-success')}>{t('eventJoined')}</span>
+          ) : (
+            !ended && (
+              <button
+                type="button"
+                disabled={joining === event.id}
+                className={cn(chip, 'bg-primary text-primary-foreground hover:bg-primary/90')}
+                onClick={() => void joinEvent(card, event.id)}
+              >
+                {t('eventJoin')}
+              </button>
+            )
+          )}
+        </span>
+      )
+    }
+    if (element.type === 'post' && element.post) {
+      const post = element.post
+      return (
+        <span className="mt-[0.2em] flex">
+          <button
+            type="button"
+            className={cn(chip, 'bg-black/10 hover:bg-black/15')}
+            onClick={() => go(`/profile/${post.authorId}?post=${post.id}`)}
+          >
+            {t('postOpen')}
+          </button>
+        </span>
+      )
+    }
+    return null
+  }
+
   function toggleMute(): void {
     setMuted((m) => {
       writeMuted(!m)
@@ -573,6 +668,12 @@ export function StoryViewer({
               </AvatarFallback>
             </Avatar>
             <span className="min-w-0 truncate text-sm font-semibold">{authorName}</span>
+            {OFFICIAL_ROLES.has(story.author.role) && (
+              <span className="flex shrink-0 items-center" title={t('officialAccount')}>
+                <BadgeCheck className="size-4 text-primary" aria-hidden />
+                <span className="sr-only">{t('officialAccount')}</span>
+              </span>
+            )}
             <time dateTime={story.createdAt} className="shrink-0 text-xs text-white/70">
               {relativeTime(story.createdAt, locale)}
             </time>
@@ -774,6 +875,7 @@ export function StoryViewer({
           elements={story.elements ?? []}
           onMention={openProfile}
           mentionLabel={(name) => t('openProfileOf', { name })}
+          cardActions={(element) => cardActions(story, element)}
         />
 
         {story.poll && (

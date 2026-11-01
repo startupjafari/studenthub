@@ -30,6 +30,9 @@ export {
 } from './model/backgrounds'
 export type {
   StoryElement,
+  StoryEventCard,
+  StoryPairCard,
+  StoryPostCard,
   StoryAudienceValue,
   StoryAuthor,
   StoryBackgroundValue,
@@ -41,5 +44,10 @@ export type {
   StoryRing,
   StoryViewer,
 } from './model/types'
-export { StoryElementBody, StoryElementsLayer, storyElementPlacement } from './ui/story-element'
+export {
+  StoryElementBody,
+  StoryElementsLayer,
+  storyElementPlacement,
+  type AnyStoryElement,
+} from './ui/story-element'
 export { fitImageToStory } from './lib/fit-image'

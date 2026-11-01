@@ -57,9 +57,49 @@ export interface StoryReaction {
  * кадра 0..1 (центр элемента), поэтому одинаково ложится на любой размер. У отметки
  * сервер подставляет имя; удалённых и заблокированных в выдаче нет.
  */
+type ElementOf<T extends StoryElementInput['type']> = Extract<StoryElementInput, { type: T }>
+
+/** Событие на стикере — то, что видно зрителю, и его собственная регистрация. */
+export interface StoryEventCard {
+  id: string
+  title: string
+  startsAt: string
+  endsAt: string | null
+  location: string | null
+  isOnline: boolean
+  isRegistered: boolean
+}
+
+/** Публикация на стикере: автор, заголовок и начало текста. */
+export interface StoryPostCard {
+  id: string
+  authorId: string
+  authorName: string
+  title: string | null
+  excerpt: string
+}
+
+/** Пара на стикере: без преподавателя — сторис видят и те, кому его расписание ни к чему. */
+export interface StoryPairCard {
+  id: string
+  subject: string
+  startTime: string
+  endTime: string
+  room: string | null
+  group: string
+}
+
+/**
+ * Карточки (событие, пост, пара) сервер собирает по правам зрителя: невидимое или
+ * удалённое приходит как `null` — показываем «недоступно».
+ */
 export type StoryElement =
-  | Exclude<StoryElementInput, { type: 'mention' }>
-  | (Extract<StoryElementInput, { type: 'mention' }> & { name: string })
+  | ElementOf<'text'>
+  | ElementOf<'emoji'>
+  | (ElementOf<'mention'> & { name: string })
+  | (ElementOf<'event'> & { event: StoryEventCard | null })
+  | (ElementOf<'post'> & { post: StoryPostCard | null })
+  | (ElementOf<'schedule'> & { pair: StoryPairCard | null })
 
 export interface StoryCard {
   id: string
