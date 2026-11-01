@@ -2,9 +2,9 @@
 
 import { useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
-import { Controller, useForm } from 'react-hook-form'
+import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useTranslations } from 'next-intl'
 import {
@@ -34,35 +34,16 @@ import {
   STORY_VIDEO_MIMES,
   type CreateStoryInput,
 } from '@studenthub/shared-schemas'
-import { useAppSelector } from '../../../shared/store'
 import { OPTIONAL_TEXT, useFormAlert } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 import {
-  STORY_AUDIENCES_BY_ROLE,
   STORY_BACKGROUND_CLASS,
-  STORY_FACULTY_PICKER_ROLES,
-  STORY_GROUP_PICKER_ROLES,
   createStoryRequest,
   fitImageToStory,
   storyKeys,
   uploadStoryMedia,
 } from '../../../entities/story'
-import { GroupSelect } from '../../../entities/group'
-import { fetchFaculties, facultyKeys } from '../../../entities/faculty'
-import {
-  Button,
-  EmojiPicker,
-  FieldError,
-  FormAlert,
-  Input,
-  Label,
-  Modal,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '../../../shared/ui'
+import { Button, EmojiPicker, FieldError, FormAlert, Input, Label, Modal } from '../../../shared/ui'
 import {
   isCard,
   newEmojiElement,
@@ -78,6 +59,8 @@ import { CardPicker, type CardKind, type PickedCard } from './card-picker'
 import { StoryCanvas, type CanvasMedia } from './story-canvas'
 import { ElementInspector } from './element-inspector'
 import { MentionPicker } from './mention-picker'
+import { StoryAudienceFields, useStoryAudiences, type StoryAudienceState } from './audience-fields'
+import type { StoryRecipient } from './recipients-picker'
 
 // Окно кадрирования тяжёлое (жесты, canvas) — грузится, только когда фото выбрано.
 const ImageCropModal = dynamic(
@@ -123,10 +106,8 @@ function videoDuration(file: File): Promise<number> {
  */
 export function CreateStoryForm({ onCreated }: { onCreated?: () => void } = {}) {
   const t = useTranslations('Stories')
-  const tFeed = useTranslations('Feed')
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
-  const role = useAppSelector((s) => s.auth.role)
   const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
   const [media, setMedia] = useState<PickedMedia | null>(null)
   const [uploading, setUploading] = useState(false)
@@ -143,7 +124,9 @@ export function CreateStoryForm({ onCreated }: { onCreated?: () => void } = {}) 
   const [linkOpen, setLinkOpen] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
-  const audiences = role ? (STORY_AUDIENCES_BY_ROLE[role] ?? []) : []
+  const audiences = useStoryAudiences()
+  // Имена получателей «выбранных» — для чипов; в форму уходят только их id.
+  const [recipients, setRecipients] = useState<StoryRecipient[]>([])
 
   const form = useForm<CreateStoryInput>({
     resolver: zodResolver(CreateStorySchema),
@@ -153,16 +136,20 @@ export function CreateStoryForm({ onCreated }: { onCreated?: () => void } = {}) 
   const background = form.watch('background')
   const poll = form.watch('poll')
 
-  const showGroupPicker =
-    audience === 'GROUP' && role !== null && STORY_GROUP_PICKER_ROLES.includes(role)
-  const showFacultyPicker =
-    audience === 'FACULTY' && role !== null && STORY_FACULTY_PICKER_ROLES.includes(role)
-
-  const faculties = useQuery({
-    queryKey: facultyKeys.list(),
-    queryFn: () => fetchFaculties(),
-    enabled: showFacultyPicker,
-  })
+  function setAudience(next: StoryAudienceState): void {
+    const opts = { shouldValidate: form.formState.isSubmitted }
+    form.setValue('audience', next.audience, opts)
+    form.setValue('groupId', next.groupId, opts)
+    form.setValue('facultyId', next.facultyId, opts)
+    form.setValue(
+      'userIds',
+      next.audience === 'SELECTED' && next.recipients.length > 0
+        ? next.recipients.map((r) => r.id)
+        : undefined,
+      opts,
+    )
+    setRecipients(next.recipients)
+  }
 
   const selected = elements.find((e) => e.id === selectedId) ?? null
   const full = elements.length >= STORY_ELEMENTS_MAX
@@ -211,6 +198,7 @@ export function CreateStoryForm({ onCreated }: { onCreated?: () => void } = {}) 
       setLinkOpen(false)
       setElementsState([])
       setSelectedId(null)
+      setRecipients([])
       form.reset({ audience: audiences[0] })
       toast.success(t('published'))
       onCreated?.()
@@ -543,67 +531,16 @@ export function CreateStoryForm({ onCreated }: { onCreated?: () => void } = {}) 
       </div>
 
       <div className="flex flex-wrap items-center justify-end gap-2">
-        <Controller
-          control={form.control}
-          name="audience"
-          render={({ field }) => (
-            <Select value={field.value} onValueChange={field.onChange}>
-              <SelectTrigger size="md" aria-label={tFeed('audience')} className="w-full sm:w-44">
-                <SelectValue placeholder={tFeed('audience')} />
-              </SelectTrigger>
-              <SelectContent>
-                {audiences.map((a) => (
-                  <SelectItem key={a} value={a}>
-                    {tFeed(`audience${a}`)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
+        <StoryAudienceFields
+          value={{
+            audience,
+            groupId: form.watch('groupId'),
+            facultyId: form.watch('facultyId'),
+            recipients,
+          }}
+          onChange={setAudience}
+          recipientsError={form.formState.errors.userIds ? t('recipientsNeed') : undefined}
         />
-
-        {showGroupPicker && (
-          // Поиск по группам на сервере, а не первые 100 по алфавиту.
-          <div className="w-full sm:w-44">
-            <Controller
-              control={form.control}
-              name="groupId"
-              render={({ field }) => (
-                <GroupSelect
-                  value={field.value ?? null}
-                  onChange={(v) => field.onChange(v ?? undefined)}
-                  placeholder={tFeed('audienceGROUP')}
-                  size="md"
-                />
-              )}
-            />
-          </div>
-        )}
-
-        {showFacultyPicker && (
-          <Controller
-            control={form.control}
-            name="facultyId"
-            render={({ field }) => (
-              <Select value={field.value ?? ''} onValueChange={field.onChange}>
-                <SelectTrigger
-                  size="md"
-                  aria-label={tFeed('audienceFACULTY')}
-                  className="w-full sm:w-44"
-                >
-                  <SelectValue placeholder={tFeed('audienceFACULTY')} />
-                </SelectTrigger>
-                <SelectContent>
-                  {(faculties.data ?? []).map((f) => (
-                    <SelectItem key={f.id} value={f.id}>
-                      {f.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-          />
-        )}
 
         <Button type="submit" size="md" loading={mutation.isPending} disabled={uploading}>
           <Plus className="size-4" aria-hidden />
