@@ -1,7 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import { useInfiniteQuery } from '@tanstack/react-query'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
+import type { SharedWithMeSort } from '@studenthub/shared-schemas'
 import { toast } from 'sonner'
 import { useLocale, useTranslations } from 'next-intl'
 import { Eye, FileText, Inbox, Paperclip } from 'lucide-react'
@@ -12,7 +13,6 @@ import {
   fetchSharedWithMe,
   isViewableMedia,
   type SharedDocument,
-  type SharedDocumentsPage,
 } from '../../../entities/document'
 import { useDocumentTypeCatalog } from '../../../entities/document-type'
 import {
@@ -24,9 +24,11 @@ import {
   TableCell,
   TableHead,
   TableHeader,
+  TablePagination,
   TableRow,
   TableSkeletonRows,
   TableText,
+  usePagedSort,
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { DocModal } from './doc-modal'
@@ -39,6 +41,8 @@ const HIDE = {
   until: 'hidden md:table-cell',
 } as const
 const SKELETON_COLS = [undefined, undefined, HIDE.reason, HIDE.until, undefined]
+// Размер страницы — как у журнала документов; предел серверной схемы — 100.
+const PAGE_SIZES = [20, 50, 100] as const
 
 function errCode(e: unknown): string {
   return (e as { code?: string }).code ?? 'INTERNAL_ERROR'
@@ -56,13 +60,16 @@ export function SharedWithMe() {
   // получателю была доступна только первая.
   const [pagesOf, setPagesOf] = useState<SharedDocument | null>(null)
 
-  const q = useInfiniteQuery({
-    queryKey: documentKeys.sharedWithMe(),
-    queryFn: ({ pageParam }: { pageParam: string | undefined }) => fetchSharedWithMe(pageParam),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (last: SharedDocumentsPage) => (last.hasNext ? last.cursor : undefined),
+  // Страница и порядок — на сервере: упорядочены все открытые мне документы, а не
+  // загруженная часть. Прежняя страница остаётся на экране, пока грузится следующая.
+  const paged = usePagedSort<SharedWithMeSort>(PAGE_SIZES[0])
+  const q = useQuery({
+    queryKey: documentKeys.sharedWithMe(paged.query),
+    queryFn: () => fetchSharedWithMe(paged.query),
+    placeholderData: keepPreviousData,
   })
-  const rows = q.data?.pages.flatMap((p) => p.items) ?? []
+  const rows = q.data?.items ?? []
+  const total = q.data?.total ?? 0
 
   const fmt = (iso: string | null): string | null =>
     iso ? new Date(iso).toLocaleDateString(locale) : null
@@ -96,7 +103,7 @@ export function SharedWithMe() {
   }
 
   if (q.isError) return <EmptyState title={tErr('INTERNAL_ERROR')} />
-  if (!q.isLoading && rows.length === 0) {
+  if (!q.isLoading && total === 0) {
     return (
       <EmptyState
         icon={<Inbox className="size-6" aria-hidden />}
@@ -112,10 +119,28 @@ export function SharedWithMe() {
         <Table fixed scrollBody fill cols={COLS}>
           <TableHeader>
             <TableRow>
-              <TableHead>{t('fieldTitle')}</TableHead>
-              <TableHead>{t('sharedOwner')}</TableHead>
-              <TableHead className={HIDE.reason}>{t('grantReason')}</TableHead>
-              <TableHead className={HIDE.until}>{t('grantUntil')}</TableHead>
+              <TableHead sortKey="title" sort={paged.sort} onSort={paged.toggle}>
+                {t('fieldTitle')}
+              </TableHead>
+              <TableHead sortKey="owner" sort={paged.sort} onSort={paged.toggle}>
+                {t('sharedOwner')}
+              </TableHead>
+              <TableHead
+                sortKey="reason"
+                sort={paged.sort}
+                onSort={paged.toggle}
+                className={HIDE.reason}
+              >
+                {t('grantReason')}
+              </TableHead>
+              <TableHead
+                sortKey="expiresAt"
+                sort={paged.sort}
+                onSort={paged.toggle}
+                className={HIDE.until}
+              >
+                {t('grantUntil')}
+              </TableHead>
               <TableHead>
                 <span className="sr-only">{t('actions')}</span>
               </TableHead>
@@ -175,18 +200,15 @@ export function SharedWithMe() {
             ))}
           </TableBody>
         </Table>
+        <TablePagination
+          page={paged.page}
+          total={total}
+          limit={paged.limit}
+          onPageChange={paged.setPage}
+          limitOptions={PAGE_SIZES}
+          onLimitChange={paged.setLimit}
+        />
       </Card>
-      {q.hasNextPage && (
-        <Button
-          type="button"
-          variant="ghost"
-          className="self-center"
-          loading={q.isFetchingNextPage}
-          onClick={() => void q.fetchNextPage()}
-        >
-          {t('showMore')}
-        </Button>
-      )}
 
       {pagesOf && (
         <DocModal title={pagesOf.document.title} onClose={() => setPagesOf(null)}>

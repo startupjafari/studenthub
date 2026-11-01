@@ -1,6 +1,7 @@
 export {
   documentKeys,
   fetchDocuments,
+  fetchDocumentsPage,
   fetchDocumentOverview,
   fetchDocument,
   fetchDocumentEvents,
@@ -23,7 +24,6 @@ export {
   fetchSharedWithMe,
   fetchDocumentJournal,
   type SharedDocument,
-  type SharedDocumentsPage,
   type DocumentDto,
   type DocumentFile,
   type DocumentOverview,

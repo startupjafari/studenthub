@@ -1,14 +1,18 @@
 import type {
+  AuthoredRequestsQueryInput,
   CreateDocumentRequestInput,
   GroupRequestProgress,
   ReviewSubmissionItemInput,
   SaveSubmissionInput,
 } from '@studenthub/shared-schemas'
-import { api, type ResponseWithMeta } from '../../../shared/api'
+import { api, getPaged, type Paged, type ResponseWithMeta } from '../../../shared/api'
 
 export const documentRequestKeys = {
   all: ['document-requests'] as const,
   authored: () => ['document-requests', 'authored'] as const,
+  // Страница таблицы — под ключом `authored`: сброс списка после действий сбрасывает и её.
+  authoredPage: (q: Partial<AuthoredRequestsQueryInput>) =>
+    ['document-requests', 'authored', 'page', q] as const,
   manage: (id: string) => ['document-requests', 'manage', id] as const,
   submission: (id: string) => ['document-requests', 'submission', id] as const,
   mine: () => ['document-requests', 'mine'] as const,
@@ -152,6 +156,12 @@ export async function createDocumentRequest(
 export async function fetchAuthoredRequests(): Promise<StaffRequestSummary[]> {
   const { data } = await api.get<StaffRequestSummary[]>('/document-requests/authored')
   return data
+}
+// Страница таблицы запросов: порядок и номер страницы считает сервер, всего — `meta.total`.
+export async function fetchAuthoredRequestsPage(
+  params: Partial<AuthoredRequestsQueryInput> & { page: number; limit: number },
+): Promise<Paged<StaffRequestSummary>> {
+  return getPaged<StaffRequestSummary>('/document-requests/authored', params)
 }
 export async function fetchRequestManage(id: string): Promise<StaffRequestDetail> {
   const { data } = await api.get<StaffRequestDetail>(`/document-requests/manage/${id}`)
