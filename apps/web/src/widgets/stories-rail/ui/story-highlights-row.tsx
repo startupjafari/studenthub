@@ -5,7 +5,6 @@ import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { toApiError } from '../../../shared/lib'
-import { Skeleton } from '../../../shared/ui'
 import {
   StoryThumb,
   fetchStoryHighlight,
@@ -43,15 +42,7 @@ export function StoryHighlightsRow({ ownerId }: { ownerId: string }) {
     setOpenId(null)
   }, [failure, tErr])
 
-  if (list.isLoading) {
-    return (
-      <div className="flex gap-4 px-4 pb-4 sm:px-6" aria-hidden>
-        {[0, 1, 2].map((i) => (
-          <Skeleton key={i} className="size-16 rounded-full" />
-        ))}
-      </div>
-    )
-  }
+  // Пока грузится — ничего: у большинства подборок нет, и заглушка мигала бы впустую.
   const highlights = list.data ?? []
   if (highlights.length === 0) return null
 
