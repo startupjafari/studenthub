@@ -46,6 +46,67 @@ export type StoryPollInput = z.infer<typeof StoryPollSchema>
  * Создание сторис. Скоуп-цель (facultyId/groupId) проверяется сервисом по роли и
  * аудитории: значения из тела запроса — лишь пожелание, scope берётся из JWT автора.
  */
+// ── Медиа сторис ───────────────────────────────────────────────────────────────
+// Форматы, которые сторис принимает. Размер и длительность — настройки сервера
+// (STORY_IMAGE_MAX_MB, STORY_VIDEO_MAX_MB, STORY_VIDEO_MAX_SECONDS); клиент проверяет то же
+// заранее, чтобы не грузить файл, который всё равно не пройдёт.
+export const STORY_IMAGE_MIMES = ['image/jpeg', 'image/png', 'image/webp'] as const
+export const STORY_VIDEO_MIMES = ['video/mp4', 'video/webm'] as const
+export const STORY_MEDIA_DEFAULTS = { imageMaxMb: 10, videoMaxMb: 100, videoMaxSeconds: 60 }
+
+// ── Элементы кадра из редактора ───────────────────────────────────────────────
+// Архитектура стикеров: дискриминированное объединение по `type`. Новый вид стикера —
+// новая ветка объединения и её отрисовка; старые клиенты незнакомый тип пропускают.
+export const STORY_ELEMENTS_MAX = 20
+export const STORY_MENTIONS_MAX = 10
+export const STORY_ELEMENT_TEXT_MAX = 200
+export const STORY_FONTS = ['sans', 'serif', 'mono'] as const
+export const STORY_TEXT_COLORS = [
+  '#ffffff',
+  '#0f1115',
+  '#2b72e5',
+  '#facc15',
+  '#ef4444',
+  '#22c55e',
+] as const
+export const STORY_TEXT_ALIGNS = ['left', 'center', 'right'] as const
+export const STORY_TEXT_BACKGROUNDS = ['none', 'solid', 'soft'] as const
+
+// Положение на кадре: доли ширины и высоты (0..1) — центр элемента; масштаб и поворот.
+const storyPlacement = {
+  x: z.number().min(0).max(1),
+  y: z.number().min(0).max(1),
+  scale: z.number().min(0.4).max(3),
+  rotation: z.number().min(-180).max(180),
+}
+
+export const StoryTextElementSchema = z
+  .object({
+    type: z.literal('text'),
+    ...storyPlacement,
+    text: z.string().trim().min(1).max(STORY_ELEMENT_TEXT_MAX),
+    color: z.enum(STORY_TEXT_COLORS),
+    font: z.enum(STORY_FONTS),
+    align: z.enum(STORY_TEXT_ALIGNS),
+    background: z.enum(STORY_TEXT_BACKGROUNDS),
+  })
+  .strict()
+
+export const StoryEmojiElementSchema = z
+  .object({ type: z.literal('emoji'), ...storyPlacement, emoji: z.string().min(1).max(16) })
+  .strict()
+
+export const StoryMentionElementSchema = z
+  .object({ type: z.literal('mention'), ...storyPlacement, userId: z.string().min(1) })
+  .strict()
+
+export const StoryElementSchema = z.discriminatedUnion('type', [
+  StoryTextElementSchema,
+  StoryEmojiElementSchema,
+  StoryMentionElementSchema,
+])
+export type StoryElementInput = z.infer<typeof StoryElementSchema>
+
 export const CreateStorySchema = z
   .object({
     audience: StoryAudienceSchema,
@@ -64,9 +125,17 @@ export const CreateStorySchema = z
       .optional(),
     linkLabel: z.string().trim().min(1).max(60).optional(),
     poll: StoryPollSchema.optional(),
+    elements: z.array(StoryElementSchema).max(STORY_ELEMENTS_MAX).optional(),
   })
   .strict()
-  .refine((data) => Boolean(data.fileId) || Boolean(data.text), {
+  .refine(
+    (data) =>
+      new Set(data.elements?.filter((e) => e.type === 'mention').map((e) => e.userId)).size <=
+      STORY_MENTIONS_MAX,
+    { message: 'Слишком много упоминаний', path: ['elements'] },
+  )
+  // Содержимое — медиа, подпись или хотя бы один элемент редактора (текст на фоне).
+  .refine((data) => Boolean(data.fileId) || Boolean(data.text) || Boolean(data.elements?.length), {
     message: 'Сторис должна содержать медиа или текст',
     path: ['text'],
   })

@@ -131,6 +131,15 @@ export const envSchema = z.object({
     .transform((v) => v === 'true'),
 
   /**
+   * Лимиты медиа сторис. Формат проверяется по списку shared-schemas (STORY_IMAGE_MIMES,
+   * STORY_VIDEO_MIMES), размер и длительность — здесь: их подбирают под хранилище и сеть
+   * конкретного стенда. Длительность сверяется, когда обработка видео её уже узнала.
+   */
+  STORY_IMAGE_MAX_MB: z.coerce.number().int().positive().max(50).default(10),
+  STORY_VIDEO_MAX_MB: z.coerce.number().int().positive().max(500).default(100),
+  STORY_VIDEO_MAX_SECONDS: z.coerce.number().int().positive().max(600).default(60),
+
+  /**
    * Удалять неподтверждённых работодателей (крон purgeUnverifiedEmployers): компании в
    * PENDING_EMAIL старше 30 дней и аккаунты их участников. Это удаление пользовательских
    * данных, поэтому по умолчанию выключено — включается осознанно, после решения владельца.

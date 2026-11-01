@@ -129,6 +129,8 @@ const RU = {
   'comments.poll.body': '{name} комментирует ваш опрос',
   'comments.mention.title': 'Вас упомянули',
   'comments.mention.body': '{name} упоминает вас в комментарии',
+  'stories.mention.title': 'Вас отметили в сторис',
+  'stories.mention.body': '{name} отмечает вас в сторис',
 
   'consultations.cancelled.title': 'Консультация отменена',
   'consultations.booked.title': 'Новая запись на консультацию',
@@ -283,6 +285,8 @@ const KK: Record<NotificationMessageKey, string> = {
   'comments.poll.body': '{name} сауалнамаңызға пікір қалдырды',
   'comments.mention.title': 'Сізді атап өтті',
   'comments.mention.body': '{name} пікірде сізді атап өтті',
+  'stories.mention.title': 'Сізді стористе белгіледі',
+  'stories.mention.body': '{name} сізді стористе белгіледі',
 
   'consultations.cancelled.title': 'Консультация болдырылмады',
   'consultations.booked.title': 'Консультацияға жаңа жазылу',
@@ -427,6 +431,8 @@ const EN: Record<NotificationMessageKey, string> = {
   'comments.poll.body': '{name} commented on your poll',
   'comments.mention.title': 'You were mentioned',
   'comments.mention.body': '{name} mentioned you in a comment',
+  'stories.mention.title': 'You were tagged in a story',
+  'stories.mention.body': '{name} tagged you in a story',
 
   'consultations.cancelled.title': 'Consultation cancelled',
   'consultations.booked.title': 'New consultation booking',

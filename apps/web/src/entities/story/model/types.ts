@@ -1,6 +1,10 @@
 // Типы сторис — зеркало ответов API (docs/PROJECT.md §3.4, Ф14.1).
 import type { MediaInfo } from '../../../shared/api'
-import type { StoryAudienceValue, StoryBackgroundValue } from '@studenthub/shared-schemas'
+import type {
+  StoryAudienceValue,
+  StoryBackgroundValue,
+  StoryElementInput,
+} from '@studenthub/shared-schemas'
 import type { Role } from '@studenthub/shared-types'
 
 export type { StoryAudienceValue, StoryBackgroundValue }
@@ -48,6 +52,15 @@ export interface StoryReaction {
   mine: boolean
 }
 
+/**
+ * Элемент поверх кадра из редактора (текст, эмодзи, отметка человека). Позиция — доли
+ * кадра 0..1 (центр элемента), поэтому одинаково ложится на любой размер. У отметки
+ * сервер подставляет имя; удалённых и заблокированных в выдаче нет.
+ */
+export type StoryElement =
+  | Exclude<StoryElementInput, { type: 'mention' }>
+  | (Extract<StoryElementInput, { type: 'mention' }> & { name: string })
+
 export interface StoryCard {
   id: string
   audience: StoryAudienceValue
@@ -55,6 +68,8 @@ export interface StoryCard {
   background: StoryBackgroundValue | null
   linkUrl: string | null
   linkLabel: string | null
+  /** Тексты, эмодзи и отметки поверх кадра. У старых сторис — пусто. */
+  elements: StoryElement[]
   createdAt: string
   expiresAt: string
   author: StoryAuthor

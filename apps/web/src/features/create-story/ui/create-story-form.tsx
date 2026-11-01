@@ -1,16 +1,33 @@
 'use client'
 
 import { useRef, useState } from 'react'
+import dynamic from 'next/dynamic'
 import { Controller, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useTranslations } from 'next-intl'
-import { BarChart3, ImagePlus, Link2, Loader2, Plus, X } from 'lucide-react'
+import {
+  AtSign,
+  BarChart3,
+  Crop,
+  ImagePlus,
+  Link2,
+  Loader2,
+  Maximize,
+  Plus,
+  Smile,
+  Type,
+  X,
+} from 'lucide-react'
 import {
   CreateStorySchema,
   STORY_BACKGROUNDS,
-  STORY_TEXT_MAX,
+  STORY_ELEMENTS_MAX,
+  STORY_IMAGE_MIMES,
+  STORY_MEDIA_DEFAULTS,
+  STORY_MENTIONS_MAX,
+  STORY_VIDEO_MIMES,
   type CreateStoryInput,
 } from '@studenthub/shared-schemas'
 import { useAppSelector } from '../../../shared/store'
@@ -22,6 +39,7 @@ import {
   STORY_FACULTY_PICKER_ROLES,
   STORY_GROUP_PICKER_ROLES,
   createStoryRequest,
+  fitImageToStory,
   storyKeys,
   uploadStoryMedia,
 } from '../../../entities/story'
@@ -29,35 +47,70 @@ import { GroupSelect } from '../../../entities/group'
 import { fetchFaculties, facultyKeys } from '../../../entities/faculty'
 import {
   Button,
+  EmojiPicker,
   FieldError,
   FormAlert,
   Input,
   Label,
+  Modal,
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-  Textarea,
 } from '../../../shared/ui'
+import {
+  newEmojiElement,
+  newMentionElement,
+  newTextElement,
+  toStoryElements,
+  type EditorElement,
+} from '../model/editor-element'
+import { StoryCanvas, type CanvasMedia } from './story-canvas'
+import { ElementInspector } from './element-inspector'
+import { MentionPicker } from './mention-picker'
+
+// Окно кадрирования тяжёлое (жесты, canvas) — грузится, только когда фото выбрано.
+const ImageCropModal = dynamic(
+  () => import('../../../shared/ui/image-crop-modal').then((m) => m.ImageCropModal),
+  { ssr: false },
+)
 
 const MAX_POLL_OPTIONS = 4
 const MIN_POLL_OPTIONS = 2
+const MB = 1024 * 1024
+// Кадр сторис: 9:16, ширина итогового снимка — как у телефона в портрете.
+const STORY_ASPECT = 9 / 16
+const STORY_OUTPUT_WIDTH = 1080
+const MEDIA_ACCEPT = [...STORY_IMAGE_MIMES, ...STORY_VIDEO_MIMES].join(',')
 
-interface PickedMedia {
+interface PickedMedia extends CanvasMedia {
   id: string
-  /** Локальный object-URL для превью: подписанную ссылку сервер отдаст уже в ленте. */
-  url: string
-  isVideo: boolean
+}
+
+/** Длительность видео в секундах по метаданным; не удалось прочитать — 0 (решит сервер). */
+function videoDuration(file: File): Promise<number> {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file)
+    const video = document.createElement('video')
+    const done = (seconds: number): void => {
+      URL.revokeObjectURL(url)
+      resolve(seconds)
+    }
+    video.preload = 'metadata'
+    video.onloadedmetadata = () => done(Number.isFinite(video.duration) ? video.duration : 0)
+    video.onerror = () => done(0)
+    video.src = url
+  })
 }
 
 /**
- * Форма публикации сторис.
+ * Редактор сторис.
  *
- * Собрана как кадр, а не как анкета: слева превью будущей сторис (фон или медиа с
- * текстом поверх), справа — чем его наполнить. Ссылка и опрос открываются кнопками и
- * по умолчанию свёрнуты: их добавляют к одной сторис из десяти, а поля под них
- * занимали бы высоту всегда.
+ * Слева — кадр 9:16, каким его увидят: фон или медиа и элементы поверх (текст, эмодзи,
+ * отметки), их двигают прямо на кадре. Справа — инструменты и свойства выбранного
+ * элемента. Фото перед загрузкой либо кадрируется под 9:16, либо ставится целиком с
+ * размытым фоном. Ссылка и опрос открываются кнопками и по умолчанию свёрнуты.
  */
 export function CreateStoryForm({ onCreated }: { onCreated?: () => void } = {}) {
   const t = useTranslations('Stories')
@@ -68,9 +121,15 @@ export function CreateStoryForm({ onCreated }: { onCreated?: () => void } = {}) 
   const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
   const [media, setMedia] = useState<PickedMedia | null>(null)
   const [uploading, setUploading] = useState(false)
+  const [elements, setElementsState] = useState<EditorElement[]>([])
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [emojiOpen, setEmojiOpen] = useState(false)
+  const [mentionOpen, setMentionOpen] = useState(false)
+  // Фото выбрано — сначала спрашиваем, как его разместить; кадрирование — отдельным окном.
+  const [pendingImage, setPendingImage] = useState<File | null>(null)
+  const [cropFile, setCropFile] = useState<File | null>(null)
   // Блок ссылки открыт — отдельное состояние, а не «linkUrl !== undefined»: пустое поле
-  // уходит в форму как undefined (OPTIONAL_TEXT), и блок закрывался бы на стёртом адресе,
-  // а кнопка, ставившая '' вместо undefined, не могла его закрыть.
+  // уходит в форму как undefined (OPTIONAL_TEXT), и блок закрывался бы на стёртом адресе.
   const [linkOpen, setLinkOpen] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
@@ -78,12 +137,11 @@ export function CreateStoryForm({ onCreated }: { onCreated?: () => void } = {}) 
 
   const form = useForm<CreateStoryInput>({
     resolver: zodResolver(CreateStorySchema),
-    defaultValues: { audience: audiences[0], text: '' },
+    defaultValues: { audience: audiences[0] },
   })
   const audience = form.watch('audience')
   const background = form.watch('background')
   const poll = form.watch('poll')
-  const text = form.watch('text') ?? ''
 
   const showGroupPicker =
     audience === 'GROUP' && role !== null && STORY_GROUP_PICKER_ROLES.includes(role)
@@ -96,6 +154,35 @@ export function CreateStoryForm({ onCreated }: { onCreated?: () => void } = {}) 
     enabled: showFacultyPicker,
   })
 
+  const selected = elements.find((e) => e.id === selectedId) ?? null
+  const full = elements.length >= STORY_ELEMENTS_MAX
+  const mentionCount = new Set(elements.flatMap((e) => (e.type === 'mention' ? [e.userId] : [])))
+    .size
+
+  // Элементы живут в состоянии редактора, а в форму уходят готовыми к запросу: схема
+  // проверяет их вместе с остальным (содержимое, число отметок).
+  function setElements(next: EditorElement[]): void {
+    setElementsState(next)
+    form.setValue('elements', next.length > 0 ? toStoryElements(next) : undefined, {
+      shouldValidate: form.formState.isSubmitted,
+    })
+  }
+
+  function addElement(element: EditorElement): void {
+    if (full) return
+    setElements([...elements, element])
+    setSelectedId(element.id)
+  }
+
+  function patchElement(id: string, patch: Partial<EditorElement>): void {
+    setElements(elements.map((e) => (e.id === id ? ({ ...e, ...patch } as EditorElement) : e)))
+  }
+
+  function removeElement(id: string): void {
+    setElements(elements.filter((e) => e.id !== id))
+    if (selectedId === id) setSelectedId(null)
+  }
+
   const mutation = useMutation({
     mutationFn: (input: CreateStoryInput) => createStoryRequest(input),
     onMutate: () => resetApiError(),
@@ -104,16 +191,16 @@ export function CreateStoryForm({ onCreated }: { onCreated?: () => void } = {}) 
       if (media) URL.revokeObjectURL(media.url)
       setMedia(null)
       setLinkOpen(false)
-      form.reset({ audience: audiences[0], text: '' })
+      setElementsState([])
+      setSelectedId(null)
+      form.reset({ audience: audiences[0] })
       toast.success(t('published'))
       onCreated?.()
     },
     onError: (e) => showApiError(e),
   })
 
-  async function handleFile(files: FileList | null): Promise<void> {
-    const file = files?.[0]
-    if (!file) return
+  async function upload(file: File): Promise<void> {
     setUploading(true)
     try {
       const uploaded = await uploadStoryMedia(file)
@@ -130,7 +217,45 @@ export function CreateStoryForm({ onCreated }: { onCreated?: () => void } = {}) 
       toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR'))
     } finally {
       setUploading(false)
-      if (fileRef.current) fileRef.current.value = ''
+    }
+  }
+
+  // Формат, размер и длительность проверяются до загрузки — сервер проверит то же, но
+  // гнать по сети файл, который всё равно не пройдёт, незачем.
+  async function pickFile(file: File | undefined): Promise<void> {
+    if (fileRef.current) fileRef.current.value = ''
+    if (!file) return
+    const isImage = (STORY_IMAGE_MIMES as readonly string[]).includes(file.type)
+    const isVideo = (STORY_VIDEO_MIMES as readonly string[]).includes(file.type)
+    if (!isImage && !isVideo) {
+      toast.error(t('badFormat'))
+      return
+    }
+    const maxMb = isImage ? STORY_MEDIA_DEFAULTS.imageMaxMb : STORY_MEDIA_DEFAULTS.videoMaxMb
+    if (file.size > maxMb * MB) {
+      toast.error(t('tooLarge', { mb: maxMb }))
+      return
+    }
+    if (isVideo) {
+      const seconds = await videoDuration(file)
+      if (seconds > STORY_MEDIA_DEFAULTS.videoMaxSeconds) {
+        toast.error(t('tooLong', { s: STORY_MEDIA_DEFAULTS.videoMaxSeconds }))
+        return
+      }
+      await upload(file)
+      return
+    }
+    setPendingImage(file)
+  }
+
+  async function placeWhole(file: File): Promise<void> {
+    setPendingImage(null)
+    setUploading(true)
+    try {
+      await upload(await fitImageToStory(file))
+    } catch {
+      setUploading(false)
+      toast.error(tErr('INTERNAL_ERROR'))
     }
   }
 
@@ -172,6 +297,10 @@ export function CreateStoryForm({ onCreated }: { onCreated?: () => void } = {}) 
 
   if (audiences.length === 0) return null
 
+  const tool = 'shrink-0'
+  const contentError = form.formState.errors.text
+  const elementsError = form.formState.errors.elements
+
   return (
     <form
       className="flex flex-col gap-4"
@@ -179,69 +308,39 @@ export function CreateStoryForm({ onCreated }: { onCreated?: () => void } = {}) 
     >
       <FormAlert error={apiError} />
 
-      <div className="flex flex-col gap-4 sm:flex-row">
-        {/* Превью кадра: 9:16, как и сам формат. */}
-        <div
-          className={cn(
-            'relative flex aspect-[9/16] w-full max-w-[12rem] shrink-0 items-center justify-center overflow-hidden rounded-2xl text-white',
-            !media && STORY_BACKGROUND_CLASS[background ?? 'graphite'],
-            media && 'bg-black',
-          )}
-        >
-          {media ? (
-            media.isVideo ? (
-              <video src={media.url} className="size-full object-cover" muted playsInline />
-            ) : (
-              // Локальный object-URL: оптимизировать blob next/image не может.
-              <img src={media.url} alt="" className="size-full object-cover" />
-            )
-          ) : null}
-          {text.trim() !== '' && (
-            <p className="absolute inset-x-3 bottom-4 text-center text-sm font-medium break-words drop-shadow-lg">
-              {text}
-            </p>
-          )}
-          {media && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              icon
-              aria-label={t('removeMedia')}
-              className="absolute top-2 right-2 bg-black/50 text-white hover:bg-black/70"
-              onClick={dropMedia}
-            >
-              <X className="size-4" aria-hidden />
-            </Button>
-          )}
+      <div className="flex flex-col items-center gap-4 sm:flex-row sm:items-start">
+        <div className="flex w-full max-w-[18rem] flex-col gap-1">
+          <StoryCanvas
+            media={media}
+            background={background}
+            elements={elements}
+            selectedId={selectedId}
+            uploading={uploading}
+            onSelect={setSelectedId}
+            onMove={(id, x, y) => patchElement(id, { x, y })}
+            onRemove={removeElement}
+            onRemoveMedia={dropMedia}
+            onDropFile={(file) => void pickFile(file)}
+          />
+          <FieldError>
+            {contentError ? t('needContent') : elementsError ? t('elementsInvalid') : null}
+          </FieldError>
         </div>
 
-        <div className="flex min-w-0 flex-1 flex-col gap-3">
-          <div>
-            {/* Подпись необязательна, если есть медиа (§3.4 «медиа ИЛИ текст»): пустое поле —
-                undefined, а не '' — иначе схема (min 1) не пускала фото без подписи. */}
-            <Textarea
-              {...form.register('text', OPTIONAL_TEXT)}
-              rows={3}
-              maxLength={STORY_TEXT_MAX}
-              placeholder={t('textPlaceholder')}
-              aria-label={t('textPlaceholder')}
-            />
-            <FieldError>{form.formState.errors.text && t('needContent')}</FieldError>
-          </div>
-
+        <div className="flex w-full min-w-0 flex-1 flex-col gap-3">
           <div className="flex flex-wrap items-center gap-2">
             <input
               ref={fileRef}
               type="file"
-              accept="image/*,video/*"
+              accept={MEDIA_ACCEPT}
               className="hidden"
-              onChange={(e) => void handleFile(e.target.files)}
+              onChange={(e) => void pickFile(e.target.files?.[0])}
             />
             <Button
               type="button"
               variant="outline"
               size="md"
+              className={tool}
               disabled={uploading}
               onClick={() => fileRef.current?.click()}
             >
@@ -254,8 +353,42 @@ export function CreateStoryForm({ onCreated }: { onCreated?: () => void } = {}) 
             </Button>
             <Button
               type="button"
+              variant="outline"
+              size="md"
+              className={tool}
+              disabled={full}
+              onClick={() => addElement(newTextElement(t('textDefault')))}
+            >
+              <Type className="size-4" aria-hidden />
+              {t('toolText')}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="md"
+              className={tool}
+              disabled={full}
+              onClick={() => setEmojiOpen(true)}
+            >
+              <Smile className="size-4" aria-hidden />
+              {t('toolEmoji')}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="md"
+              className={tool}
+              disabled={full || mentionCount >= STORY_MENTIONS_MAX}
+              onClick={() => setMentionOpen(true)}
+            >
+              <AtSign className="size-4" aria-hidden />
+              {t('toolMention')}
+            </Button>
+            <Button
+              type="button"
               variant={linkOpen ? 'secondary' : 'outline'}
               size="md"
+              className={tool}
               aria-pressed={linkOpen}
               onClick={toggleLink}
             >
@@ -266,6 +399,8 @@ export function CreateStoryForm({ onCreated }: { onCreated?: () => void } = {}) 
               type="button"
               variant={poll ? 'secondary' : 'outline'}
               size="md"
+              className={tool}
+              aria-pressed={!!poll}
               onClick={togglePoll}
             >
               <BarChart3 className="size-4" aria-hidden />
@@ -273,7 +408,7 @@ export function CreateStoryForm({ onCreated }: { onCreated?: () => void } = {}) 
             </Button>
           </div>
 
-          {/* Фон выбирается только у текстовой сторис — поверх фото он не виден. */}
+          {/* Фон выбирается только у сторис без медиа — поверх фото он не виден. */}
           {!media && (
             <div className="flex flex-wrap items-center gap-2">
               <Label className="text-xs text-muted-foreground">{t('background')}</Label>
@@ -292,6 +427,18 @@ export function CreateStoryForm({ onCreated }: { onCreated?: () => void } = {}) 
                 />
               ))}
             </div>
+          )}
+
+          {selected ? (
+            <ElementInspector
+              element={selected}
+              onChange={(patch) => patchElement(selected.id, patch)}
+              onRemove={() => removeElement(selected.id)}
+            />
+          ) : (
+            elements.length > 0 && (
+              <p className="text-xs text-muted-foreground">{t('selectElementHint')}</p>
+            )
           )}
 
           {linkOpen && (
@@ -323,6 +470,7 @@ export function CreateStoryForm({ onCreated }: { onCreated?: () => void } = {}) 
                 aria-label={t('pollQuestion')}
               />
               {poll.options.map((option, index) => (
+                // Варианты опроса — строки без id, порядок меняется только удалением.
                 <div key={index} className="flex items-center gap-2">
                   <Input
                     value={option}
@@ -424,6 +572,73 @@ export function CreateStoryForm({ onCreated }: { onCreated?: () => void } = {}) 
           {t('publish')}
         </Button>
       </div>
+
+      {pendingImage && (
+        <Modal onClose={() => setPendingImage(null)} title={t('fitTitle')} size="md">
+          <div className="grid gap-2 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => {
+                setCropFile(pendingImage)
+                setPendingImage(null)
+              }}
+              className="flex flex-col items-start gap-1 rounded-xl border border-border p-3 text-left transition-colors duration-150 hover:border-ring/60 hover:bg-muted"
+            >
+              <Crop className="size-5 text-primary" aria-hidden />
+              <span className="text-sm font-semibold">{t('fitCrop')}</span>
+              <span className="text-xs text-muted-foreground">{t('fitCropHint')}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => void placeWhole(pendingImage)}
+              className="flex flex-col items-start gap-1 rounded-xl border border-border p-3 text-left transition-colors duration-150 hover:border-ring/60 hover:bg-muted"
+            >
+              <Maximize className="size-5 text-primary" aria-hidden />
+              <span className="text-sm font-semibold">{t('fitWhole')}</span>
+              <span className="text-xs text-muted-foreground">{t('fitWholeHint')}</span>
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {cropFile && (
+        <ImageCropModal
+          file={cropFile}
+          saving={uploading}
+          onCancel={() => setCropFile(null)}
+          onSave={(cropped) => {
+            setCropFile(null)
+            void upload(cropped)
+          }}
+          title={t('cropTitle')}
+          confirmLabel={t('cropConfirm')}
+          shape="square"
+          aspect={STORY_ASPECT}
+          outputWidth={STORY_OUTPUT_WIDTH}
+        />
+      )}
+
+      {emojiOpen && (
+        <Modal onClose={() => setEmojiOpen(false)} title={t('toolEmoji')} size="md">
+          <EmojiPicker
+            size="lg"
+            onPick={(emoji) => {
+              addElement(newEmojiElement(emoji))
+              setEmojiOpen(false)
+            }}
+          />
+        </Modal>
+      )}
+
+      {mentionOpen && (
+        <MentionPicker
+          onClose={() => setMentionOpen(false)}
+          onPick={(userId, name) => {
+            addElement(newMentionElement(userId, name))
+            setMentionOpen(false)
+          }}
+        />
+      )}
     </form>
   )
 }

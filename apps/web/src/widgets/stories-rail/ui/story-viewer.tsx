@@ -68,6 +68,7 @@ import {
   removeStoryReactionRequest,
   replyToStoryRequest,
   unmuteStoryAuthorRequest,
+  StoryElementsLayer,
   storyBackgroundClass,
   storyKeys,
   voteStoryRequest,
@@ -765,6 +766,14 @@ export function StoryViewer({
           aria-label={tCommon('next')}
           className="absolute inset-y-0 right-0 w-2/3 cursor-default focus-visible:outline-none"
           onClick={tap(goNext)}
+        />
+
+        {/* Тексты, эмодзи и отметки из редактора — поверх зон листания: слой прозрачен для
+            указателя, кликабельны только отметки людей (ведут в профиль). */}
+        <StoryElementsLayer
+          elements={story.elements ?? []}
+          onMention={openProfile}
+          mentionLabel={(name) => t('openProfileOf', { name })}
         />
 
         {story.poll && (

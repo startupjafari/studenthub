@@ -54,6 +54,10 @@ model Story {
   /// Подпись к ссылке; NULL — клиент показывает домен.
   linkLabel String? @map("link_label")
 
+  /// Элементы поверх кадра из редактора: тексты, эмодзи, упоминания (StoryElementSchema
+  /// в shared-schemas). Позиции — доли кадра 0..1, поэтому раскладка не зависит от экрана.
+  /// Упоминание хранит только userId: имя подставляется при выдаче, удалённый — пропадает.
+  elements  Json?
   /// Момент, после которого сторис невидима и подлежит удалению (createdAt + 24 ч).
   expiresAt DateTime @map("expires_at")
   createdAt DateTime @default(now()) @map("created_at")
