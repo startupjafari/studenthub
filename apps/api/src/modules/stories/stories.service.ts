@@ -22,6 +22,9 @@ import { AppException } from '../../common/exceptions/app.exception'
 import { Paginated } from '../../common/http/paginated'
 import { NOTIFICATION_JOBS, QUEUES, QueueService } from '../../common/queue'
 import { FileService } from '../files/file.service'
+import { EventsService } from '../events/events.service'
+import { PostsService } from '../posts/posts.service'
+import { SchedulesService } from '../schedules/schedules.service'
 import { MediaService } from '../media/media.service'
 import { MEDIA_FILE_SELECT, type MediaInfo } from '../media/media.types'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
@@ -110,9 +113,43 @@ type StoryRow = Prisma.StoryGetPayload<{ select: typeof STORY_SELECT }>
  * Элемент кадра в выдаче. У упоминания — имя: хранится только userId, имя берётся при
  * выдаче (переименование видно сразу), удалённый или заблокированный человек пропадает.
  */
+type ElementOf<T extends StoryElementInput['type']> = Extract<StoryElementInput, { type: T }>
+type EventCard =
+  Awaited<ReturnType<EventsService['storySummaries']>> extends Map<string, infer V> ? V : never
+type PostCard =
+  Awaited<ReturnType<PostsService['storySummaries']>> extends Map<string, infer V> ? V : never
+type PairCard =
+  Awaited<ReturnType<SchedulesService['storyPairSummaries']>> extends Map<string, infer V>
+    ? V
+    : never
+
+/**
+ * Карточки-стикеры (событие, пост, пара) приходят с данными записи — или с `null`, если
+ * зрителю она не видна или удалена: клиент пишет «недоступно», ничего не раскрывая.
+ */
 export type StoryElementView =
-  | Exclude<StoryElementInput, { type: 'mention' }>
-  | (Extract<StoryElementInput, { type: 'mention' }> & { name: string })
+  | ElementOf<'text'>
+  | ElementOf<'emoji'>
+  | (ElementOf<'mention'> & { name: string })
+  | (ElementOf<'event'> & { event: EventCard | null })
+  | (ElementOf<'post'> & { post: PostCard | null })
+  | (ElementOf<'schedule'> & { pair: PairCard | null })
+
+/** Ид, на которые ссылаются карточки одного типа, без повторов. */
+function cardIds(
+  elements: readonly StoryElementInput[],
+  type: 'event' | 'post' | 'schedule',
+): string[] {
+  return [
+    ...new Set(
+      elements.flatMap((e) =>
+        e.type === type
+          ? [e.type === 'event' ? e.eventId : e.type === 'post' ? e.postId : e.pairId]
+          : [],
+      ),
+    ),
+  ]
+}
 
 /** Элементы из JSON-колонки: то, что не проходит схему (старый клиент, ручная правка), отбрасывается. */
 function parseElements(raw: Prisma.JsonValue | null): StoryElementInput[] {
@@ -227,6 +264,9 @@ export class StoriesService {
     private readonly files: FileService,
     private readonly media: MediaService,
     private readonly queue: QueueService,
+    private readonly events: EventsService,
+    private readonly posts: PostsService,
+    private readonly schedules: SchedulesService,
   ) {}
 
   /** Медиа сторис для клиента: файл, ссылка на оригинал и описание вариантов. */
@@ -368,8 +408,12 @@ export class StoriesService {
     const pollIds = rows.flatMap((row) => (row.poll ? [row.poll.id] : []))
     const fileIds = rows.flatMap((row) => (row.file ? [row.file.id] : []))
     const elementsByStory = new Map(rows.map((row) => [row.id, parseElements(row.elements)]))
-    const names = await this.mentionNames(viewer, [
-      ...new Set([...elementsByStory.values()].flatMap(mentionIds)),
+    const allElements = [...elementsByStory.values()].flat()
+    const [names, eventCards, postCards, pairCards] = await Promise.all([
+      this.mentionNames(viewer, [...new Set(mentionIds(allElements))]),
+      this.events.storySummaries(viewer, cardIds(allElements, 'event')),
+      this.posts.storySummaries(viewer, cardIds(allElements, 'post')),
+      this.schedules.storyPairSummaries(cardIds(allElements, 'schedule')),
     ])
 
     const [seen, viewCounts, reactionCounts, myReactions, voteCounts, myVotes, urls, described] =
@@ -446,9 +490,20 @@ export class StoriesService {
         linkUrl: row.linkUrl,
         linkLabel: row.linkLabel,
         elements: (elementsByStory.get(row.id) ?? []).flatMap((e): StoryElementView[] => {
-          if (e.type !== 'mention') return [e]
-          const name = names.get(e.userId)
-          return name ? [{ ...e, name }] : []
+          switch (e.type) {
+            case 'mention': {
+              const name = names.get(e.userId)
+              return name ? [{ ...e, name }] : []
+            }
+            case 'event':
+              return [{ ...e, event: eventCards.get(e.eventId) ?? null }]
+            case 'post':
+              return [{ ...e, post: postCards.get(e.postId) ?? null }]
+            case 'schedule':
+              return [{ ...e, pair: pairCards.get(e.pairId) ?? null }]
+            default:
+              return [e]
+          }
         }),
         createdAt: row.createdAt,
         expiresAt: row.expiresAt,
@@ -534,6 +589,7 @@ export class StoriesService {
     const elements = input.elements ?? []
     const mentioned = mentionIds(elements).filter((id) => id !== actor.sub)
     await this.assertMentionable(actor, audience, target, mentioned)
+    await this.assertCardsUsable(actor, elements)
     const expiresAt = new Date(Date.now() + STORY_TTL_HOURS * 60 * 60 * 1000)
 
     const created = await this.prisma.$transaction(async (tx) => {
@@ -638,15 +694,27 @@ export class StoriesService {
     if (!story.poll.options.some((option) => option.id === input.optionId)) {
       throw new AppException('BAD_REQUEST', 'Вариант не принадлежит этому опросу')
     }
-    await this.prisma.storyPollVote.upsert({
-      where: { pollId_userId: { pollId: story.poll.id, userId: actor.sub } },
-      update: { optionId: input.optionId },
-      create: { pollId: story.poll.id, optionId: input.optionId, userId: actor.sub },
-    })
+    const key = { pollId_userId: { pollId: story.poll.id, userId: actor.sub } }
+    try {
+      await this.prisma.storyPollVote.upsert({
+        where: key,
+        update: { optionId: input.optionId },
+        create: { pollId: story.poll.id, optionId: input.optionId, userId: actor.sub },
+      })
+    } catch (error) {
+      // Два первых голоса одновременно (двойной тап, две вкладки): upsert обоих не нашёл
+      // строки, второй упёрся в уникальность. Голос один — второй просто его заменяет.
+      if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') {
+        throw error
+      }
+      await this.prisma.storyPollVote.update({
+        where: key,
+        data: { optionId: input.optionId },
+      })
+    }
     return this.getById(actor, id)
   }
 
-  /** Список зрителей — только автору сторис (§14.7): кто смотрел, видит лишь он. */
   // ── Для чатов: ответ на сторис и пересылка ─────────────────────────────────
 
   /**
@@ -708,6 +776,7 @@ export class StoriesService {
     })
   }
 
+  /** Список зрителей — только автору сторис (§14.7): кто смотрел, видит лишь он. */
   async viewers(actor: JwtPayload, id: string, query: StoryViewersQueryInput) {
     const story = await this.findVisibleOrThrow(actor, id, { id: true, authorId: true })
     if (story.authorId !== actor.sub) {
@@ -905,6 +974,31 @@ export class StoriesService {
     if (!ok) {
       throw new AppException('BAD_REQUEST', 'Отметить можно только тех, кто увидит сторис', [
         { field: 'elements', message: 'Отметка недоступна' },
+      ])
+    }
+  }
+
+  /**
+   * Карточка ссылается только на то, что автор сам видит (событие, пост) или чем вправе
+   * делиться (пара своей группы или своих занятий). Зрителю карточка всё равно
+   * показывается по его собственным правам — это проверка на входе, а не замена им.
+   */
+  private async assertCardsUsable(
+    actor: JwtPayload,
+    elements: readonly StoryElementInput[],
+  ): Promise<void> {
+    const eventIds = cardIds(elements, 'event')
+    const postIds = cardIds(elements, 'post')
+    const pairIds = cardIds(elements, 'schedule')
+    if (eventIds.length + postIds.length + pairIds.length === 0) return
+    const [events, posts, pairs] = await Promise.all([
+      this.events.storySummaries(actor, eventIds),
+      this.posts.storySummaries(actor, postIds),
+      Promise.all(pairIds.map((id) => this.schedules.canSharePair(actor, id))),
+    ])
+    if (events.size !== eventIds.length || posts.size !== postIds.length || pairs.includes(false)) {
+      throw new AppException('BAD_REQUEST', 'Карточка ссылается на недоступную запись', [
+        { field: 'elements', message: 'Запись недоступна' },
       ])
     }
   }

@@ -100,10 +100,36 @@ export const StoryMentionElementSchema = z
   .object({ type: z.literal('mention'), ...storyPlacement, userId: z.string().min(1) })
   .strict()
 
+// Стикеры-карточки: ссылка на настоящую запись StudentHub. Хранится только id — данные
+// (название, время, текст) сервер берёт при выдаче и только то, что видно зрителю.
+export const STORY_CARDS_MAX = 3
+export const STORY_CARD_TYPES = ['event', 'post', 'schedule'] as const
+
+export const StoryEventElementSchema = z
+  .object({ type: z.literal('event'), ...storyPlacement, eventId: z.string().min(1) })
+  .strict()
+
+export const StoryPostElementSchema = z
+  .object({ type: z.literal('post'), ...storyPlacement, postId: z.string().min(1) })
+  .strict()
+
+// Пара расписания на конкретную дату (шаблон пары — без даты): «завтра в 14:00».
+export const StoryScheduleElementSchema = z
+  .object({
+    type: z.literal('schedule'),
+    ...storyPlacement,
+    pairId: z.string().min(1),
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  })
+  .strict()
+
 export const StoryElementSchema = z.discriminatedUnion('type', [
   StoryTextElementSchema,
   StoryEmojiElementSchema,
   StoryMentionElementSchema,
+  StoryEventElementSchema,
+  StoryPostElementSchema,
+  StoryScheduleElementSchema,
 ])
 export type StoryElementInput = z.infer<typeof StoryElementSchema>
 
@@ -133,6 +159,12 @@ export const CreateStorySchema = z
       new Set(data.elements?.filter((e) => e.type === 'mention').map((e) => e.userId)).size <=
       STORY_MENTIONS_MAX,
     { message: 'Слишком много упоминаний', path: ['elements'] },
+  )
+  .refine(
+    (data) =>
+      (data.elements ?? []).filter((e) => (STORY_CARD_TYPES as readonly string[]).includes(e.type))
+        .length <= STORY_CARDS_MAX,
+    { message: 'Слишком много карточек', path: ['elements'] },
   )
   // Содержимое — медиа, подпись или хотя бы один элемент редактора (текст на фоне).
   .refine((data) => Boolean(data.fileId) || Boolean(data.text) || Boolean(data.elements?.length), {
