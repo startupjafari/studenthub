@@ -6,7 +6,11 @@ import type { StoryMedia } from '../model/types'
 
 /**
  * Миниатюра кадра: фото, постер видео или текстовый кадр на своём фоне. Обложки
- * «Актуального» и списки сторис в редакторе подборки. Размер задаёт родитель.
+ * «Актуального», превью соседних колец и выбор обложки. Размер задаёт родитель.
+ *
+ * Постера у видео может не быть: обработка ещё идёт или на машине нет ffmpeg (видео тогда
+ * остаётся в PENDING и играет оригинал). Тогда показываем первый кадр самого ролика —
+ * браузер достаёт его из метаданных, не скачивая видео целиком.
  */
 export function StoryThumb({
   media,
@@ -36,6 +40,18 @@ export function StoryThumb({
         />
       ) : poster ? (
         <MediaImage src={poster} alt="" fit="cover" sizes={sizes} className="size-full" />
+      ) : media && isVideo ? (
+        <video
+          // `#t=0.1` — не чёрный нулевой кадр, а первый настоящий.
+          src={`${media.url}#t=0.1`}
+          preload="metadata"
+          muted
+          playsInline
+          disablePictureInPicture
+          tabIndex={-1}
+          aria-hidden
+          className="pointer-events-none size-full object-cover"
+        />
       ) : (
         <span
           className={cn(
