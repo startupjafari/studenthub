@@ -62,6 +62,12 @@ function setup() {
       count: jest.fn().mockResolvedValue(0),
     },
     friendship: { findMany: jest.fn().mockResolvedValue([]) },
+    // Копии в «Актуальном»: по умолчанию сторис ни в одну подборку не добавлена.
+    storyHighlightItem: {
+      findMany: jest.fn().mockResolvedValue([]),
+      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
+    storyHighlight: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
     storyMute: {
       findMany: jest.fn().mockResolvedValue([]),
       upsert: jest.fn().mockResolvedValue({}),
@@ -645,6 +651,25 @@ describe('StoriesService.remove', () => {
     expect(prisma.story.delete).toHaveBeenCalledWith({ where: { id: 's1' } })
     expect(files.delete).toHaveBeenCalledWith('f-1')
     expect(audit.record.mock.calls[0][0]).toMatchObject({ action: 'story_deleted' })
+  })
+
+  it('удалённая сторис уходит и из «Актуального»: копии, их медиа, пустые подборки', async () => {
+    const { service, prisma, files } = setup()
+    prisma.story.findUnique.mockResolvedValue(story)
+    prisma.storyHighlightItem.findMany.mockResolvedValue([
+      { id: 'i-1', highlightId: 'h-1', fileId: 'copy-1' },
+    ])
+    await service.remove(viewer(Role.STUDENT, { sub: 'author' }), 's1', ctx)
+    expect(prisma.storyHighlightItem.findMany.mock.calls[0][0].where).toEqual({
+      sourceStoryId: 's1',
+    })
+    expect(prisma.storyHighlightItem.deleteMany).toHaveBeenCalledWith({
+      where: { id: { in: ['i-1'] } },
+    })
+    expect(prisma.storyHighlight.deleteMany).toHaveBeenCalledWith({
+      where: { id: { in: ['h-1'] }, items: { none: {} } },
+    })
+    expect(files.delete).toHaveBeenCalledWith('copy-1')
   })
 
   it('модератор вуза не снимает сторис админа своего вуза (ранг)', async () => {

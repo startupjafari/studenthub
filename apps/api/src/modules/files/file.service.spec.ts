@@ -498,6 +498,7 @@ describe('FileService.deleteDetached', () => {
     documentId: null,
     submissionId: null,
     eventCommentId: null,
+    highlightItem: null,
     _count: { stories: 0, albumsCovered: 0 },
   }
 
@@ -532,7 +533,8 @@ describe('FileService.deleteDetached', () => {
     for (const rel of relations) {
       const fk = rel.relationFromFields?.[0]
       if (fk) expect(where[fk]).toBeNull()
-      else expect(where[rel.name]).toEqual({ none: {} })
+      // Обратная сторона: список — «ни одной», одиночная связь (копия в «Актуальном») — «нет».
+      else expect(where[rel.name]).toEqual(rel.isList ? { none: {} } : { is: null })
     }
     expect(where).toMatchObject({ id: 'f1', ownerId: 'user-1' })
   })
@@ -546,6 +548,7 @@ describe('FileService.deleteDetached', () => {
     ['файл сданной работы', { submissionId: 's1' }],
     ['медиа сториса', { _count: { stories: 1, albumsCovered: 0 } }],
     ['обложка альбома', { _count: { stories: 0, albumsCovered: 1 } }],
+    ['копия в «Актуальном»', { highlightItem: { id: 'i-1' } }],
   ])('%s — CONFLICT, ни запись, ни объект не трогаются', async (_label, patch) => {
     const { service, prisma, minio, media } = withFile(patch)
 

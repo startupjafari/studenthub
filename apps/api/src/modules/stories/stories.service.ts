@@ -4,6 +4,7 @@ import { Prisma, StoryAudience } from '@prisma/client'
 import { Role, isHigherRole } from '@studenthub/shared-types'
 import {
   STORY_IMAGE_MIMES,
+  STORY_HIGHLIGHTS_MAX,
   STORY_REACTION_EMOJIS,
   STORY_TTL_HOURS,
   STORY_VIDEO_MIMES,
@@ -71,7 +72,7 @@ const CLEANUP_BATCH = 500
 // до списка, в сводке не считаются — как у постов; через сутки они уходят вместе со сторис.
 const REACTION_EMOJI_WHERE = { emoji: { in: [...STORY_REACTION_EMOJIS] } }
 
-const AUTHOR_SELECT = {
+export const AUTHOR_SELECT = {
   select: { id: true, firstName: true, lastName: true, role: true, avatarUrl: true },
 }
 
@@ -157,7 +158,7 @@ function cardIds(
 }
 
 /** Элементы из JSON-колонки: то, что не проходит схему (старый клиент, ручная правка), отбрасывается. */
-function parseElements(raw: Prisma.JsonValue | null): StoryElementInput[] {
+export function parseElements(raw: Prisma.JsonValue | null): StoryElementInput[] {
   if (!Array.isArray(raw)) return []
   return raw.flatMap((item) => {
     const parsed = StoryElementSchema.safeParse(item)
@@ -477,7 +478,6 @@ export class StoriesService {
     const pollIds = rows.flatMap((row) => (row.poll ? [row.poll.id] : []))
     const fileIds = rows.flatMap((row) => (row.file ? [row.file.id] : []))
     const elementsByStory = new Map(rows.map((row) => [row.id, parseElements(row.elements)]))
-    const allElements = [...elementsByStory.values()].flat()
     const recipientIds = [
       ...new Set(
         rows.flatMap((row) =>
@@ -487,11 +487,8 @@ export class StoriesService {
         ),
       ),
     ]
-    const [names, eventCards, postCards, pairCards, recipients] = await Promise.all([
-      this.mentionNames(viewer, [...new Set(mentionIds(allElements))]),
-      this.events.storySummaries(viewer, cardIds(allElements, 'event')),
-      this.posts.storySummaries(viewer, cardIds(allElements, 'post')),
-      this.schedules.storyPairSummaries(cardIds(allElements, 'schedule')),
+    const [elementViews, recipients] = await Promise.all([
+      this.elementViews(viewer, elementsByStory),
       recipientIds.length > 0
         ? this.prisma.user.findMany({
             where: { id: { in: recipientIds }, deletedAt: null },
@@ -579,22 +576,7 @@ export class StoriesService {
         background: row.background,
         linkUrl: row.linkUrl,
         linkLabel: row.linkLabel,
-        elements: (elementsByStory.get(row.id) ?? []).flatMap((e): StoryElementView[] => {
-          switch (e.type) {
-            case 'mention': {
-              const name = names.get(e.userId)
-              return name ? [{ ...e, name }] : []
-            }
-            case 'event':
-              return [{ ...e, event: eventCards.get(e.eventId) ?? null }]
-            case 'post':
-              return [{ ...e, post: postCards.get(e.postId) ?? null }]
-            case 'schedule':
-              return [{ ...e, pair: pairCards.get(e.pairId) ?? null }]
-            default:
-              return [e]
-          }
-        }),
+        elements: elementViews.get(row.id) ?? [],
         createdAt: row.createdAt,
         expiresAt: row.expiresAt,
         author: row.author,
@@ -616,6 +598,61 @@ export class StoriesService {
         canDelete: row.authorId === viewer.sub || this.canModerate(viewer, row, row.author.role),
       }
     })
+  }
+
+  /**
+   * Элементы кадров глазами зрителя: имена отметок и карточки по его правам — одним
+   * набором запросов на все кадры. Ключ карты — id сторис (или элемента «Актуального»).
+   */
+  async elementViews(
+    viewer: JwtPayload,
+    byId: Map<string, StoryElementInput[]>,
+  ): Promise<Map<string, StoryElementView[]>> {
+    const all = [...byId.values()].flat()
+    if (all.length === 0) return new Map()
+    const [names, eventCards, postCards, pairCards] = await Promise.all([
+      this.mentionNames(viewer, mentionIds(all)),
+      this.events.storySummaries(viewer, cardIds(all, 'event')),
+      this.posts.storySummaries(viewer, cardIds(all, 'post')),
+      this.schedules.storyPairSummaries(cardIds(all, 'schedule')),
+    ])
+    const view = (e: StoryElementInput): StoryElementView[] => {
+      switch (e.type) {
+        case 'mention': {
+          const name = names.get(e.userId)
+          return name ? [{ ...e, name }] : []
+        }
+        case 'event':
+          return [{ ...e, event: eventCards.get(e.eventId) ?? null }]
+        case 'post':
+          return [{ ...e, post: postCards.get(e.postId) ?? null }]
+        case 'schedule':
+          return [{ ...e, pair: pairCards.get(e.pairId) ?? null }]
+        default:
+          return [e]
+      }
+    }
+    return new Map([...byId].map(([id, elements]) => [id, elements.flatMap(view)]))
+  }
+
+  /**
+   * Медиа для клиента по набору файлов: подписанная ссылка и описание вариантов. Файл,
+   * который не удалось подписать, в карту не попадает — клиент не получит битую ссылку.
+   */
+  async mediaFor(
+    files: NonNullable<StoryRow['file']>[],
+  ): Promise<Map<string, NonNullable<StoryCard['media']>>> {
+    if (files.length === 0) return new Map()
+    const [urls, described] = await Promise.all([
+      this.files.getPresignedUrls(files.map((f) => f.id)),
+      this.media.describe(files),
+    ])
+    return new Map(
+      files.flatMap((file) => {
+        const url = urls.get(file.id)
+        return url ? [[file.id, this.storyMedia(file, url, described)] as const] : []
+      }),
+    )
   }
 
   /**
@@ -955,6 +992,7 @@ export class StoriesService {
     if (story.authorId !== actor.sub) {
       this.assertModerator(actor, story, story.author.role)
     }
+    await this.removeHighlightCopies(id)
     await this.prisma.story.delete({ where: { id } })
     if (story.fileId) await this.deleteMedia(story.fileId)
     await this.audit.record({
@@ -974,6 +1012,7 @@ export class StoriesService {
   async removeByModeration(id: string): Promise<void> {
     const story = await this.prisma.story.findUnique({ where: { id }, select: { fileId: true } })
     if (!story) return
+    await this.removeHighlightCopies(id)
     await this.prisma.story.delete({ where: { id } })
     if (story.fileId) await this.deleteMedia(story.fileId)
     this.logger.log(`Сторис ${id} удалена по решению модерации`)
@@ -1008,6 +1047,29 @@ export class StoriesService {
   }
 
   // ── Внутреннее ──────────────────────────────────────────────────────────────
+
+  /**
+   * Удалённая автором или модератором сторис уходит и из «Актуального»: иначе снятая по
+   * жалобе сторис жила бы дальше копией в профиле. Истечение срока копий не трогает —
+   * ради этого их и делают. Опустевшая подборка удаляется: пустой в профиле не бывает.
+   */
+  private async removeHighlightCopies(storyId: string): Promise<void> {
+    const copies = await this.prisma.storyHighlightItem.findMany({
+      where: { sourceStoryId: storyId },
+      select: { id: true, highlightId: true, fileId: true },
+      take: STORY_HIGHLIGHTS_MAX,
+    })
+    if (copies.length === 0) return
+    await this.prisma.storyHighlightItem.deleteMany({
+      where: { id: { in: copies.map((c) => c.id) } },
+    })
+    await this.prisma.storyHighlight.deleteMany({
+      where: { id: { in: copies.map((c) => c.highlightId) }, items: { none: {} } },
+    })
+    for (const copy of copies) {
+      if (copy.fileId) await this.deleteMedia(copy.fileId)
+    }
+  }
 
   /**
    * Снос медиа отдельной операцией, а не каскадом: объект в MinIO удаляет FileService,
