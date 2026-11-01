@@ -1,9 +1,9 @@
 'use client'
 
 import { PublicUserProfile } from '../../../widgets/user-profile'
-import { StoryViewer } from '../../../widgets/stories-rail'
+import { StoryHighlightsRow, StoryViewer } from '../../../widgets/stories-rail'
 
-// Чужой профиль: виджет профиля + окно сторис для кольца вокруг аватара (см. MyProfileView).
+// Чужой профиль: виджет профиля + окно сторис и ряд «Актуального» (см. MyProfileView).
 export function PublicProfileView({ userId }: { userId: string }) {
   return (
     <PublicUserProfile
@@ -11,6 +11,7 @@ export function PublicProfileView({ userId }: { userId: string }) {
       renderStoryViewer={(ring, onClose) => (
         <StoryViewer rings={[ring]} startIndex={0} onClose={onClose} />
       )}
+      renderHighlights={(ownerId) => <StoryHighlightsRow ownerId={ownerId} />}
     />
   )
 }

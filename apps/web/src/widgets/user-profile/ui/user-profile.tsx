@@ -65,7 +65,7 @@ import { useMediaQuota } from '../lib/media-quota'
 import { PostFromUrl } from '../../feed-list'
 import { ProfileCompletion } from './profile-completion'
 import { ShareProfileButton } from './share-profile-button'
-import { StoryAvatarRing, type RenderStoryViewer } from './story-avatar-ring'
+import { StoryAvatarRing, type RenderHighlights, type RenderStoryViewer } from './story-avatar-ring'
 import { useAuthorStories } from '../../../entities/story'
 
 // Тяжёлые модалки (кроппер аватара на canvas, редактор статей с markdown, создание
@@ -104,9 +104,11 @@ function errCode(e: unknown): string {
 
 export function UserProfile({
   renderStoryViewer,
+  renderHighlights,
 }: {
   /** Окно сторис — из слоя выше (views/profile): кольцо вокруг аватара открывает его. */
   renderStoryViewer?: RenderStoryViewer
+  renderHighlights?: RenderHighlights
 } = {}) {
   const t = useTranslations('Profile')
   const tErr = useTranslations('Errors')
@@ -197,6 +199,7 @@ export function UserProfile({
             }}
             onQuickCreate={quickCreate}
             renderStoryViewer={renderStoryViewer}
+            renderHighlights={social ? renderHighlights : undefined}
           />
         }
       >
@@ -274,6 +277,7 @@ function ProfileHeader({
   onToggleEdit,
   onQuickCreate,
   renderStoryViewer,
+  renderHighlights,
 }: {
   me: MeResponse
   social: boolean
@@ -282,6 +286,7 @@ function ProfileHeader({
   onToggleEdit: () => void
   onQuickCreate: (kind: CreateKind) => void
   renderStoryViewer?: RenderStoryViewer
+  renderHighlights?: RenderHighlights
 }) {
   const t = useTranslations('Profile')
   const tStories = useTranslations('Stories')
@@ -527,6 +532,7 @@ function ProfileHeader({
 
         <ProfileIdentity data={me} />
       </div>
+      {renderHighlights?.(me.id)}
 
       {cropFile && (
         <ImageCropModal

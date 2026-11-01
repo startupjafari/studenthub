@@ -17,6 +17,7 @@ import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import {
   BadgeCheck,
+  Bookmark,
   ChevronLeft,
   ChevronRight,
   ExternalLink,
@@ -29,11 +30,14 @@ import {
   Loader2,
   MoreHorizontal,
   Pause,
+  Pencil,
   Play,
   Send,
   Share2,
+  Star,
   Trash2,
   UserRound,
+  Users,
   Volume2,
   VolumeX,
   X,
@@ -69,8 +73,10 @@ import {
   deleteStoryRequest,
   markStoryViewed,
   muteStoryAuthorRequest,
+  removeStoryHighlightItemRequest,
   removeStoryReactionRequest,
   replyToStoryRequest,
+  updateStoryHighlightRequest,
   unmuteStoryAuthorRequest,
   StoryElementsLayer,
   storyBackgroundClass,
@@ -82,6 +88,8 @@ import {
 } from '../../../entities/story'
 import { useAppSelector } from '../../../shared/store'
 import { ReportModal } from '../../../features/report-content'
+import { ChangeAudienceModal, useAudienceLabel } from '../../../features/create-story'
+import { AddToHighlightModal, EditHighlightModal } from '../../../features/story-highlights'
 import { StoryViewersSheet } from './story-viewers-sheet'
 import { ShareStorySheet } from './share-story-sheet'
 
@@ -185,14 +193,26 @@ const REPLY_MAX = 1000
  * экране, открытое меню, вкладка в фоне) и отматывать назад по тапу, а анимация про это
  * ничего не знает. У видео прогресс берётся из самого воспроизведения.
  */
+/**
+ * Подборка «Актуального» в просмотрщике: кольцо — её сторис-снимки. Реакций, ответов,
+ * опроса и отметки просмотра у снимка нет; владельцу — обложка, правка и «убрать».
+ */
+export interface ViewerHighlight {
+  id: string
+  title: string
+  canEdit: boolean
+}
+
 export function StoryViewer({
   rings,
   startIndex,
   onClose,
+  highlight,
 }: {
   rings: StoryRing[]
   startIndex: number
   onClose: () => void
+  highlight?: ViewerHighlight
 }) {
   const t = useTranslations('Stories')
   const tCommon = useTranslations('Common')
@@ -223,6 +243,11 @@ export function StoryViewer({
   const [joining, setJoining] = useState<string | null>(null)
   // Жалоба на сторис (§3.4) — тем, чью жалобу сервер примет; кадр на это время стоит.
   const [reporting, setReporting] = useState<StoryCard | null>(null)
+  // Окна автора поверх кадра: аудитория, «в актуальное», правка подборки.
+  const [audienceOpen, setAudienceOpen] = useState(false)
+  const [highlightPickOpen, setHighlightPickOpen] = useState(false)
+  const [highlightEditOpen, setHighlightEditOpen] = useState(false)
+  const audienceLabel = useAudienceLabel()
   const [muted, setMuted] = useState(readMuted)
   // Медиа кадра не загрузилось (битая ссылка, видео не играет) — показываем это, а кадр
   // идёт дальше по таймеру, а не висит.
@@ -242,15 +267,9 @@ export function StoryViewer({
   const raw = ring?.stories[storyIndex]
   const story = raw ? (patched[raw.id] ?? raw) : undefined
   const reportOpen = reporting !== null
-  const paused =
-    holding ||
-    manualPause ||
-    menuOpen ||
-    viewersOpen ||
-    reportOpen ||
-    tabHidden ||
-    replying ||
-    shareOpen
+  const sheetOpen =
+    viewersOpen || reportOpen || shareOpen || audienceOpen || highlightPickOpen || highlightEditOpen
+  const paused = holding || manualPause || menuOpen || sheetOpen || tabHidden || replying
 
   // Закрытие обновляет кольца — и ленты, и профиля: пока шёл просмотр, сторисы стали
   // просмотренными.
@@ -329,10 +348,20 @@ export function StoryViewer({
   const shown = !!storyId && (!story?.media || isVideoMedia || imageReady)
   const viewedIds = useRef(new Set<string>())
   useEffect(() => {
-    if (!storyId || !shown || viewedIds.current.has(storyId)) return
+    // Снимок из «Актуального» — не живая сторис: просмотров у него нет.
+    if (highlight || !storyId || !shown || viewedIds.current.has(storyId)) return
     viewedIds.current.add(storyId)
     void markStoryViewed(storyId).catch(() => undefined)
-  }, [shown, storyId])
+  }, [highlight, shown, storyId])
+
+  // Подборка поменялась под открытым окном (сторис убрали в редакторе) — кадр остаётся в
+  // пределах кольца, а опустевшее кольцо закрывает окно.
+  const ringLength = ring?.stories.length ?? 0
+  useEffect(() => {
+    if (!ring || storyIndex < ringLength) return
+    if (ringLength === 0) close()
+    else setStoryIndex(ringLength - 1)
+  }, [close, ring, ringLength, storyIndex])
 
   // Следующий кадр греем заранее — и в этом кольце, и первый у следующего автора.
   const nextCard = ring?.stories[storyIndex + 1] ?? rings[ringIndex + 1]?.stories[0]
@@ -377,7 +406,7 @@ export function StoryViewer({
   // Клавиатура: стрелки — листание, пробел — пауза. Esc закрывает Radix. Пока открыто меню
   // или окно поверх и пока фокус в поле ввода, клавиши принадлежат им.
   useEffect(() => {
-    if (reportOpen || viewersOpen || menuOpen || shareOpen) return
+    if (sheetOpen || menuOpen) return
     function onKey(e: KeyboardEvent): void {
       if (isTyping(e.target)) return
       if (e.key === 'ArrowRight') goNext()
@@ -389,7 +418,7 @@ export function StoryViewer({
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [goNext, goPrev, menuOpen, reportOpen, shareOpen, viewersOpen])
+  }, [goNext, goPrev, menuOpen, sheetOpen])
 
   // Жесты на кадре. Тап по краю листает (кнопки-зоны ниже), удержание ставит паузу, свайп
   // в сторону — к соседнему автору, вниз — закрыть. После удержания и свайпа тап по зоне
@@ -526,6 +555,35 @@ export function StoryViewer({
     const ok = await confirm({ title: t('confirmDelete'), destructive: true })
     setManualPause(false)
     if (ok) remove.mutate(card.id)
+  }
+
+  // Обложка подборки — текущий кадр. Ответ сервера ничего не меняет в самом кадре.
+  async function makeCover(card: StoryCard): Promise<void> {
+    if (!highlight) return
+    try {
+      await updateStoryHighlightRequest(highlight.id, { coverItemId: card.id })
+      void qc.invalidateQueries({ queryKey: storyKeys.highlights(card.author.id) })
+      toast.success(t('highlightCoverSet'))
+    } catch (e) {
+      showError(e)
+    }
+  }
+
+  // Убрать кадр из подборки: кольцо перерисует свежая выдача, опустевшая подборка закроется.
+  async function removeFromHighlight(card: StoryCard): Promise<void> {
+    if (!highlight) return
+    setManualPause(true)
+    const ok = await confirm({ title: t('highlightConfirmRemoveItem'), destructive: true })
+    setManualPause(false)
+    if (!ok) return
+    try {
+      const { deleted } = await removeStoryHighlightItemRequest(highlight.id, card.id)
+      void qc.invalidateQueries({ queryKey: storyKeys.all })
+      toast.success(deleted ? t('highlightDeleted') : t('highlightItemRemoved'))
+      if (deleted) onClose()
+    } catch (e) {
+      showError(e)
+    }
   }
 
   function openProfile(authorId: string): void {
@@ -667,7 +725,9 @@ export function StoryViewer({
                 {story.author.lastName.charAt(0)}
               </AvatarFallback>
             </Avatar>
-            <span className="min-w-0 truncate text-sm font-semibold">{authorName}</span>
+            <span className="min-w-0 truncate text-sm font-semibold">
+              {highlight ? highlight.title : authorName}
+            </span>
             {OFFICIAL_ROLES.has(story.author.role) && (
               <span className="flex shrink-0 items-center" title={t('officialAccount')}>
                 <BadgeCheck className="size-4 text-primary" aria-hidden />
@@ -723,41 +783,91 @@ export function StoryViewer({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="z-[60] min-w-48">
-              {mine && story.viewsCount !== null && (
-                <DropdownMenuItem onSelect={() => setViewersOpen(true)}>
-                  <Eye className="size-4" aria-hidden />
-                  {t('viewersWithCount', { count: story.viewsCount })}
-                </DropdownMenuItem>
-              )}
-              {!mine && (
-                <DropdownMenuItem onSelect={() => openProfile(story.author.id)}>
-                  <UserRound className="size-4" aria-hidden />
-                  {t('openProfile')}
-                </DropdownMenuItem>
-              )}
-              <DropdownMenuItem onSelect={() => void copyLink(story)}>
-                <Link2 className="size-4" aria-hidden />
-                {t('copyLink')}
-              </DropdownMenuItem>
-              {!mine && (
-                <DropdownMenuItem onSelect={() => void hideAuthor(story)}>
-                  <EyeOff className="size-4" aria-hidden />
-                  {t('hideAuthor', { name: story.author.firstName })}
-                </DropdownMenuItem>
-              )}
-              {/* Опасные действия — последними и за линией (правило для всех меню). */}
-              {(story.canDelete || (canReport && !mine)) && <DropdownMenuSeparator />}
-              {canReport && !mine && (
-                <DropdownMenuItem variant="destructive" onSelect={() => setReporting(story)}>
-                  <Flag className="size-4" aria-hidden />
-                  {t('report')}
-                </DropdownMenuItem>
-              )}
-              {story.canDelete && (
-                <DropdownMenuItem variant="destructive" onSelect={() => void askDelete(story)}>
-                  <Trash2 className="size-4" aria-hidden />
-                  {t('delete')}
-                </DropdownMenuItem>
+              {highlight ? (
+                <>
+                  {!mine && (
+                    <DropdownMenuItem onSelect={() => openProfile(story.author.id)}>
+                      <UserRound className="size-4" aria-hidden />
+                      {t('openProfile')}
+                    </DropdownMenuItem>
+                  )}
+                  {highlight.canEdit && (
+                    <>
+                      <DropdownMenuItem onSelect={() => void makeCover(story)}>
+                        <Star className="size-4" aria-hidden />
+                        {t('highlightMakeCover')}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => setHighlightEditOpen(true)}>
+                        <Pencil className="size-4" aria-hidden />
+                        {t('highlightEdit')}
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        variant="destructive"
+                        onSelect={() => void removeFromHighlight(story)}
+                      >
+                        <Trash2 className="size-4" aria-hidden />
+                        {t('highlightRemoveItem')}
+                      </DropdownMenuItem>
+                    </>
+                  )}
+                </>
+              ) : (
+                <>
+                  {mine && story.viewsCount !== null && (
+                    <DropdownMenuItem onSelect={() => setViewersOpen(true)}>
+                      <Eye className="size-4" aria-hidden />
+                      {t('viewersWithCount', { count: story.viewsCount })}
+                    </DropdownMenuItem>
+                  )}
+                  {mine && (
+                    <>
+                      <DropdownMenuItem onSelect={() => setHighlightPickOpen(true)}>
+                        <Bookmark className="size-4" aria-hidden />
+                        {t('addToHighlight')}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => setAudienceOpen(true)}>
+                        <Users className="size-4" aria-hidden />
+                        <span className="flex min-w-0 flex-col">
+                          {t('changeAudience')}
+                          <span className="text-xs text-muted-foreground">
+                            {audienceLabel(story.audience)}
+                          </span>
+                        </span>
+                      </DropdownMenuItem>
+                    </>
+                  )}
+                  {!mine && (
+                    <DropdownMenuItem onSelect={() => openProfile(story.author.id)}>
+                      <UserRound className="size-4" aria-hidden />
+                      {t('openProfile')}
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuItem onSelect={() => void copyLink(story)}>
+                    <Link2 className="size-4" aria-hidden />
+                    {t('copyLink')}
+                  </DropdownMenuItem>
+                  {!mine && (
+                    <DropdownMenuItem onSelect={() => void hideAuthor(story)}>
+                      <EyeOff className="size-4" aria-hidden />
+                      {t('hideAuthor', { name: story.author.firstName })}
+                    </DropdownMenuItem>
+                  )}
+                  {/* Опасные действия — последними и за линией (правило для всех меню). */}
+                  {(story.canDelete || (canReport && !mine)) && <DropdownMenuSeparator />}
+                  {canReport && !mine && (
+                    <DropdownMenuItem variant="destructive" onSelect={() => setReporting(story)}>
+                      <Flag className="size-4" aria-hidden />
+                      {t('report')}
+                    </DropdownMenuItem>
+                  )}
+                  {story.canDelete && (
+                    <DropdownMenuItem variant="destructive" onSelect={() => void askDelete(story)}>
+                      <Trash2 className="size-4" aria-hidden />
+                      {t('delete')}
+                    </DropdownMenuItem>
+                  )}
+                </>
               )}
             </DropdownMenuContent>
           </DropdownMenu>
@@ -930,7 +1040,7 @@ export function StoryViewer({
             {story.linkLabel ?? t('openLink')}
           </a>
         )}
-        {mine ? (
+        {highlight ? null : mine ? (
           // Своя сторис: сводка реакций и просмотры. Реагировать на своё незачем.
           <div className="flex items-center gap-1.5">
             {story.reactions.map((r) => (
@@ -1074,7 +1184,9 @@ export function StoryViewer({
           className="fixed inset-0 z-50 overflow-hidden bg-black/95 outline-none"
         >
           <DialogPrimitive.Title className="sr-only">
-            {t('openStoryOf', { name: authorName })}
+            {highlight
+              ? t('openHighlight', { title: highlight.title })
+              : t('openStoryOf', { name: authorName })}
           </DialogPrimitive.Title>
           {visible.map(({ r, index, offset }) => {
             const active = offset === 0
@@ -1128,6 +1240,22 @@ export function StoryViewer({
             <StoryViewersSheet storyId={story.id} onClose={() => setViewersOpen(false)} />
           )}
           {shareOpen && <ShareStorySheet storyId={story.id} onClose={() => setShareOpen(false)} />}
+          {audienceOpen && (
+            <ChangeAudienceModal
+              story={story}
+              onClose={() => setAudienceOpen(false)}
+              onSaved={(updated) => setPatched((prev) => ({ ...prev, [updated.id]: updated }))}
+            />
+          )}
+          {highlightPickOpen && (
+            <AddToHighlightModal story={story} onClose={() => setHighlightPickOpen(false)} />
+          )}
+          {highlightEditOpen && highlight && (
+            <EditHighlightModal
+              highlightId={highlight.id}
+              onClose={() => setHighlightEditOpen(false)}
+            />
+          )}
           {reporting && (
             <ReportModal
               targetType="STORY"
