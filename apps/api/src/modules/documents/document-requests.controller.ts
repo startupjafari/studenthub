@@ -10,7 +10,8 @@ import {
   ReviewSubmissionItemDto,
   SaveSubmissionDto,
 } from './dto/document-request.dto'
-import { SharedWithMeQueryDto } from './dto/shared-with-me-query.dto'
+import { AuthoredRequestsQueryDto } from './dto/authored-requests-query.dto'
+import { SubmissionsQueryDto } from './dto/submissions-query.dto'
 
 // Сотрудники запросов (§15.2): деканат, модератор вуза, преподаватель. Сервис дополнительно
 // сужает область — свои запросы и запросы подразделения.
@@ -41,8 +42,13 @@ export class DocumentRequestsController {
     summary:
       'Запросы в моей области (сотрудник): свои и подразделения; mine/authorName — чей запрос',
   })
-  listAuthored(@CurrentUser() user: CurrentUserData) {
-    return this.requests.listAuthored(user)
+  @ApiResponse({
+    status: 200,
+    description:
+      'Без page — массив до 200 (сначала новые); с page — страница (limit ≤ 100, sort/order) и meta.total',
+  })
+  listAuthored(@CurrentUser() user: CurrentUserData, @Query() query: AuthoredRequestsQueryDto) {
+    return this.requests.listAuthored(user, query)
   }
 
   @Get('manage/:id')
@@ -62,7 +68,7 @@ export class DocumentRequestsController {
   manageSubmissions(
     @CurrentUser() user: CurrentUserData,
     @Param('id') id: string,
-    @Query() query: SharedWithMeQueryDto,
+    @Query() query: SubmissionsQueryDto,
   ) {
     return this.requests.listSubmissionsForStaff(user, id, query)
   }

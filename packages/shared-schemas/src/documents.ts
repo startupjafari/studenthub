@@ -1,5 +1,10 @@
 import { z } from 'zod'
-import { OptionalCursorPaginationSchema, PageSchema, SortOrderSchema } from './pagination.js'
+import {
+  OptionalCursorPaginationSchema,
+  PAGE_MAX,
+  PageSchema,
+  SortOrderSchema,
+} from './pagination.js'
 
 // Схемы модуля «Документы» (Ф15, задача 15.3). Значения enum зеркалят справочник в
 // @studenthub/shared-config (DOCUMENT_CATEGORIES/…); сам `type` валидируется как строка,
@@ -101,6 +106,15 @@ export const DOCUMENT_SORT_FIELDS = [
 export const DocumentSortSchema = z.enum(DOCUMENT_SORT_FIELDS)
 export type DocumentSortValue = z.infer<typeof DocumentSortSchema>
 
+// Таблицы веба листают номерами страниц. Номер необязателен там, где у ручки есть прежние
+// потребители (мобильные клиенты, обзор): без `page` ответ остаётся прежним.
+const OptionalPageSchema = z.coerce.number().int().positive().max(PAGE_MAX).optional()
+// Размер страницы таблицы: те же 20/50/100, что у журнала документов.
+const TableLimitSchema = z.coerce.number().int().positive().max(100)
+// Направление без умолчания: где порядок не задан, сервис берёт естественный для колонки
+// (даты выдачи — сначала новые), а `SortOrderSchema` подставил бы `asc`.
+const SortDirectionSchema = z.enum(['asc', 'desc'])
+
 // Список моих документов: фильтры/поиск/сортировка + вид (активные/архив).
 // sort/order — по всей выборке, а не по открытой странице.
 export const DocumentListQuerySchema = z
@@ -116,13 +130,32 @@ export const DocumentListQuerySchema = z
     // показывала другое.
     preset: z.enum(['active', 'shared', 'issued']).optional(),
     view: z.enum(['active', 'archived']).default('active'),
-    // Страница по запросу (как у комментариев): без `limit`/`cursor` — прежний ответ
-    // массивом, его читают веб и Android; с ними — страница с meta.cursor/hasNext/total.
-    // Без этих полей `.strict()` отвечал 400 iOS-клиенту, который шлёт `?limit=50`.
+    // Три режима выдачи. Без `page`/`limit`/`cursor` — прежний массив (Android). С `limit`
+    // или `cursor` — страница курсором (meta.cursor/hasNext/total), её шлёт iOS
+    // (`?limit=50`). С `page` — страница по номеру (meta.total): таблицы веба. `page`
+    // вместе с `cursor` — `400`, режимы не смешиваются.
+    page: OptionalPageSchema,
     ...OptionalCursorPaginationSchema.shape,
+    limit: TableLimitSchema.optional(),
   })
   .strict()
 export type DocumentListQueryInput = z.infer<typeof DocumentListQuerySchema>
+
+// «Открытые мне» (D-F10): таблица получателя, страница по номеру. Сортировка — по колонкам
+// таблицы; без `sort` — по дате выдачи доступа, сначала новые.
+export const SHARED_WITH_ME_SORTS = ['title', 'owner', 'reason', 'expiresAt', 'grantedAt'] as const
+export const SharedWithMeSortSchema = z.enum(SHARED_WITH_ME_SORTS)
+export type SharedWithMeSort = z.infer<typeof SharedWithMeSortSchema>
+
+export const SharedWithMeQuerySchema = z
+  .object({
+    page: PageSchema,
+    limit: TableLimitSchema.default(20),
+    sort: SharedWithMeSortSchema.optional(),
+    order: SortDirectionSchema.optional(),
+  })
+  .strict()
+export type SharedWithMeQueryInput = z.infer<typeof SharedWithMeQuerySchema>
 
 // Потолок файлов в одном запросе спец-доступа. Документ — это скан на несколько страниц,
 // а не медиатека; ограничение держит и размер аудит-записи, и число presigned-выдач.
@@ -231,6 +264,23 @@ export const CreateDocumentRequestSchema = z
   })
   .strict()
 export type CreateDocumentRequestInput = z.infer<typeof CreateDocumentRequestSchema>
+
+// Запросы в области сотрудника. Без `page` — прежний массив до 200 (его читает обзор
+// раздела), с `page` — страница таблицы с meta.total. Доли отправленных среди колонок
+// сортировки нет: это отношение двух счётчиков, БД сортирует только по одному.
+export const AUTHORED_REQUEST_SORTS = ['title', 'items', 'dueAt', 'status', 'createdAt'] as const
+export const AuthoredRequestSortSchema = z.enum(AUTHORED_REQUEST_SORTS)
+export type AuthoredRequestSort = z.infer<typeof AuthoredRequestSortSchema>
+
+export const AuthoredRequestsQuerySchema = z
+  .object({
+    page: OptionalPageSchema,
+    limit: TableLimitSchema.optional(),
+    sort: AuthoredRequestSortSchema.optional(),
+    order: SortDirectionSchema.optional(),
+  })
+  .strict()
+export type AuthoredRequestsQueryInput = z.infer<typeof AuthoredRequestsQuerySchema>
 
 // Черновик ответа студента (15.15): привязка выбранных документов к позициям запроса.
 export const SaveSubmissionSchema = z

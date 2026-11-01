@@ -5,6 +5,7 @@ import type {
   DocumentJournalQueryInput,
   DocumentListQueryInput,
   GrantDocumentAccessInput,
+  SharedWithMeQueryInput,
   UpdateDocumentInput,
 } from '@studenthub/shared-schemas'
 import {
@@ -14,7 +15,6 @@ import {
   uploadDirect,
   type Paged,
   type PresignedTarget,
-  type ResponseWithMeta,
 } from '../../../shared/api'
 
 export const documentKeys = {
@@ -24,7 +24,7 @@ export const documentKeys = {
   detail: (id: string) => ['documents', 'detail', id] as const,
   events: (id: string) => ['documents', id, 'events'] as const,
   access: (id: string) => ['documents', id, 'access'] as const,
-  sharedWithMe: () => ['documents', 'shared-with-me'] as const,
+  sharedWithMe: (q: Partial<SharedWithMeQueryInput>) => ['documents', 'shared-with-me', q] as const,
   journal: (q: Partial<DocumentJournalQueryInput>) => ['documents', 'journal', q] as const,
 }
 
@@ -91,6 +91,14 @@ export async function fetchDocuments(
 ): Promise<DocumentDto[]> {
   const { data } = await api.get<DocumentDto[]>('/documents', { params: query })
   return data
+}
+
+// Страница таблицы по номеру: порядок, номер и `meta.total` считает сервер. Весь список
+// массивом (`fetchDocuments`) нужен только выбору документа для ответа на запрос.
+export async function fetchDocumentsPage(
+  query: Partial<DocumentListQueryInput> & { page: number; limit: number },
+): Promise<Paged<DocumentDto>> {
+  return getPaged<DocumentDto>('/documents', query)
 }
 
 export async function fetchDocumentOverview(): Promise<DocumentOverview> {
@@ -277,17 +285,11 @@ export interface SharedDocument {
   }
 }
 
-export interface SharedDocumentsPage {
-  items: SharedDocument[]
-  cursor?: string
-  hasNext: boolean
-}
-
-export async function fetchSharedWithMe(cursor?: string): Promise<SharedDocumentsPage> {
-  const res = (await api.get<SharedDocument[]>('/documents/shared-with-me', {
-    params: { limit: 50, ...(cursor ? { cursor } : {}) },
-  })) as ResponseWithMeta & { data: SharedDocument[] }
-  return { items: res.data, cursor: res.meta?.cursor, hasNext: res.meta?.hasNext ?? false }
+// «Открытые мне»: страница по номеру с сортировкой по колонкам, всего — `meta.total`.
+export async function fetchSharedWithMe(
+  params: Partial<SharedWithMeQueryInput> = {},
+): Promise<Paged<SharedDocument>> {
+  return getPaged<SharedDocument>('/documents/shared-with-me', { page: 1, limit: 20, ...params })
 }
 
 // ── Спец-режим платформенного админа (15.21) ──────────────────────────────────

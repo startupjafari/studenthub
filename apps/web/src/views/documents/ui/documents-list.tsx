@@ -1,12 +1,12 @@
 'use client'
 
 import { useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { FilterX, FolderLock, Lock, Paperclip, Plus, Search, SearchX, Users } from 'lucide-react'
 import { DOCUMENT_CATEGORIES, DOCUMENT_STATUSES } from '@studenthub/shared-config'
 import type { DocumentSortValue } from '@studenthub/shared-schemas'
-import { documentKeys, fetchDocuments } from '../../../entities/document'
+import { documentKeys, fetchDocumentsPage } from '../../../entities/document'
 import { useDocumentTypeCatalog } from '../../../entities/document-type'
 import {
   Badge,
@@ -25,10 +25,11 @@ import {
   TableEmpty,
   TableHead,
   TableHeader,
+  TablePagination,
   TableRow,
   TableSkeletonRows,
   TableText,
-  useSortState,
+  usePagedSort,
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { DocumentActions } from './document-actions'
@@ -67,6 +68,8 @@ const HIDE = {
 } as const
 // Порог «скоро истекает» — тот же, что у плитки «Скоро истекает» в обзоре.
 const EXPIRING_DAYS = 30
+// Размер страницы — как у журнала документов; предел серверной схемы — 100.
+const PAGE_SIZES = [20, 50, 100] as const
 
 // Порядок и классы скрытия колонок — те же, что у строк с данными: на время загрузки
 // геометрия таблицы не меняется.
@@ -99,27 +102,39 @@ export function DocumentsList({
   const [status, setStatus] = useState<string>(initialStatus ?? 'all')
   const [uploading, setUploading] = useState(false)
 
-  // Сортировка серверная: упорядочена вся выборка, а не открытая страница. Пресет
-  // раздела тоже уходит на сервер — иначе счётчик строк и содержимое расходились.
-  const { sort, toggle } = useSortState()
+  // Сортировка и страницы серверные: упорядочена и поделена на страницы вся выборка, а не
+  // загруженная часть. Пресет раздела тоже уходит на сервер — иначе счётчик строк и
+  // содержимое расходились. Прежняя страница остаётся на экране, пока грузится следующая.
+  const paged = usePagedSort<DocumentSortValue>(PAGE_SIZES[0])
   const query = {
     view: preset === 'archived' ? ('archived' as const) : ('active' as const),
     ...(preset === 'shared' || preset === 'issued' ? { preset } : {}),
     ...(search.trim() ? { search: search.trim() } : {}),
     ...(category !== 'all' ? { category: category as 'PERSONAL' } : {}),
     ...(status !== 'all' ? { status: status as 'DRAFT' } : {}),
-    ...(sort ? { sort: sort.key as DocumentSortValue, order: sort.dir } : {}),
+    ...paged.query,
   }
-  const q = useQuery({ queryKey: documentKeys.list(query), queryFn: () => fetchDocuments(query) })
-  const docs = q.data ?? []
+  const q = useQuery({
+    queryKey: documentKeys.list(query),
+    queryFn: () => fetchDocumentsPage(query),
+    placeholderData: keepPreviousData,
+  })
+  const rows = q.data?.items ?? []
+  const total = q.data?.total ?? 0
 
-  const rows = docs
-
+  // Фильтр меняет выборку — листать её начинают с первой страницы: на пятой странице
+  // нового, короткого списка может не оказаться ничего.
+  function refilter(apply: () => void): void {
+    apply()
+    paged.setPage(1)
+  }
   const filtered = search.trim() !== '' || category !== 'all' || status !== 'all'
   function resetFilters(): void {
-    setSearch('')
-    setCategory('all')
-    setStatus('all')
+    refilter(() => {
+      setSearch('')
+      setCategory('all')
+      setStatus('all')
+    })
   }
 
   const emptyKey =
@@ -165,12 +180,12 @@ export function DocumentsList({
           />
           <Input
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => refilter(() => setSearch(e.target.value))}
             placeholder={t('search')}
             className="h-9 pl-9 text-sm"
           />
         </div>
-        <Select value={category} onValueChange={setCategory}>
+        <Select value={category} onValueChange={(v) => refilter(() => setCategory(v))}>
           <SelectTrigger aria-label={t('category')} size="md" className="w-40">
             <SelectValue />
           </SelectTrigger>
@@ -183,7 +198,7 @@ export function DocumentsList({
             ))}
           </SelectContent>
         </Select>
-        <Select value={status} onValueChange={setStatus}>
+        <Select value={status} onValueChange={(v) => refilter(() => setStatus(v))}>
           <SelectTrigger aria-label={t('status')} size="md" className="w-40">
             <SelectValue />
           </SelectTrigger>
@@ -204,9 +219,9 @@ export function DocumentsList({
           </Button>
         )}
         <div className="ml-auto flex items-center gap-3">
-          {!q.isLoading && !q.isError && rows.length > 0 && (
+          {!q.isLoading && !q.isError && total > 0 && (
             <span className="text-sm text-muted-foreground tabular-nums">
-              {t('found', { n: rows.length })}
+              {t('found', { n: total })}
             </span>
           )}
           {uploadButton}
@@ -217,7 +232,7 @@ export function DocumentsList({
 
       {q.isError ? (
         <EmptyState title={tErr('INTERNAL_ERROR')} />
-      ) : !q.isLoading && rows.length === 0 ? (
+      ) : !q.isLoading && total === 0 ? (
         // Пусто по фильтру и пусто вообще — разные ситуации: в первой выход
         // из положения — сброс фильтров, во второй — загрузить документ.
         filtered ? (
@@ -252,25 +267,40 @@ export function DocumentsList({
           <Table fixed scrollBody fill cols={COLS}>
             <TableHeader>
               <TableRow>
-                <TableHead sortKey="title" sort={sort} onSort={toggle}>
+                <TableHead sortKey="title" sort={paged.sort} onSort={paged.toggle}>
                   {t('fieldTitle')}
                 </TableHead>
-                <TableHead sortKey="category" sort={sort} onSort={toggle} className={HIDE.category}>
+                <TableHead
+                  sortKey="category"
+                  sort={paged.sort}
+                  onSort={paged.toggle}
+                  className={HIDE.category}
+                >
                   {t('category')}
                 </TableHead>
-                <TableHead sortKey="status" sort={sort} onSort={toggle}>
+                <TableHead sortKey="status" sort={paged.sort} onSort={paged.toggle}>
                   {t('status')}
                 </TableHead>
                 {/* Номер не сортируется: наружу уходит только маска ******4821,
                     порядок по ней ничего не значит. */}
                 <TableHead className={HIDE.number}>{t('fieldNumber')}</TableHead>
-                <TableHead sortKey="issuedAt" sort={sort} onSort={toggle} className={HIDE.issuedAt}>
+                <TableHead
+                  sortKey="issuedAt"
+                  sort={paged.sort}
+                  onSort={paged.toggle}
+                  className={HIDE.issuedAt}
+                >
                   {t('fieldIssuedAt')}
                 </TableHead>
-                <TableHead sortKey="expiresAt" sort={sort} onSort={toggle}>
+                <TableHead sortKey="expiresAt" sort={paged.sort} onSort={paged.toggle}>
                   {t('fieldExpiresAt')}
                 </TableHead>
-                <TableHead sortKey="access" sort={sort} onSort={toggle} className={HIDE.access}>
+                <TableHead
+                  sortKey="access"
+                  sort={paged.sort}
+                  onSort={paged.toggle}
+                  className={HIDE.access}
+                >
                   {t('colAccess')}
                 </TableHead>
                 <TableHead>
@@ -360,6 +390,14 @@ export function DocumentsList({
               ))}
             </TableBody>
           </Table>
+          <TablePagination
+            page={paged.page}
+            total={total}
+            limit={paged.limit}
+            onPageChange={paged.setPage}
+            limitOptions={PAGE_SIZES}
+            onLimitChange={paged.setLimit}
+          />
         </Card>
       )}
     </div>

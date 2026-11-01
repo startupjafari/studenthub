@@ -1,5 +1,10 @@
 import { Role } from '@studenthub/shared-types'
-import { DocumentRequestsService, acceptsSubmissions } from './document-requests.service'
+import {
+  DocumentRequestsService,
+  acceptsSubmissions,
+  authoredRequestsOrderBy,
+  type AuthoredRequestRow,
+} from './document-requests.service'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { DocumentsService } from './documents.service'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
@@ -40,6 +45,7 @@ function setup() {
       }),
       findMany: jest.fn().mockResolvedValue([]),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      count: jest.fn().mockResolvedValue(0),
     },
     documentSubmission: {
       findFirst: jest.fn(),
@@ -899,7 +905,7 @@ describe('DocumentRequestsService — область сотрудника и с�
       },
     ])
     prisma.documentSubmission.groupBy.mockResolvedValue([{ requestId: 'r1', _count: { _all: 3 } }])
-    const [row] = await service.listAuthored(staff(Role.DEAN))
+    const [row] = (await service.listAuthored(staff(Role.DEAN))) as AuthoredRequestRow[]
     expect(prisma.documentSubmission.groupBy).toHaveBeenCalledWith(
       expect.objectContaining({
         by: ['requestId'],
@@ -912,6 +918,45 @@ describe('DocumentRequestsService — область сотрудника и с�
       mine: false,
       authorName: 'Серикович Ерлан',
     })
+  })
+
+  it('без page — прежний массив до 200, сначала новые (его читает обзор)', async () => {
+    const { service, prisma } = setup()
+    const res = await service.listAuthored(staff(Role.DEAN))
+    expect(Array.isArray(res)).toBe(true)
+    const args = prisma.documentRequest.findMany.mock.calls[0][0]
+    expect(args.take).toBe(200)
+    expect(args.orderBy).toEqual([{ createdAt: 'desc' }, { id: 'desc' }])
+    expect(prisma.documentRequest.count).not.toHaveBeenCalled()
+  })
+
+  it('с page — страница таблицы: skip/take, сортировка на сервере и meta.total', async () => {
+    const { service, prisma } = setup()
+    prisma.documentRequest.count.mockResolvedValue(57)
+    const res = await service.listAuthored(staff(Role.DEAN), {
+      page: 3,
+      limit: 20,
+      sort: 'items',
+      order: 'desc',
+    })
+    const args = prisma.documentRequest.findMany.mock.calls[0][0]
+    expect(args.skip).toBe(40)
+    expect(args.take).toBe(20)
+    expect(args.orderBy).toEqual([{ items: { _count: 'desc' } }, { id: 'desc' }])
+    // Область сотрудника — и у страницы, и у счётчика.
+    expect(prisma.documentRequest.count.mock.calls[0][0].where).toBe(args.where)
+    expect(res).toMatchObject({ meta: { total: 57 } })
+  })
+
+  it('срок без даты — в конце при любом направлении', () => {
+    expect(authoredRequestsOrderBy('dueAt', 'asc')).toEqual([
+      { dueAt: { sort: 'asc', nulls: 'last' } },
+      { id: 'asc' },
+    ])
+    expect(authoredRequestsOrderBy('dueAt', 'desc')).toEqual([
+      { dueAt: { sort: 'desc', nulls: 'last' } },
+      { id: 'desc' },
+    ])
   })
 
   it('проверка комплекта ищется в области сотрудника, а не только по автору', async () => {

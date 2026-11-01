@@ -2,6 +2,7 @@ export {
   documentRequestKeys,
   createDocumentRequest,
   fetchAuthoredRequests,
+  fetchAuthoredRequestsPage,
   fetchRequestManage,
   fetchRequestSubmissions,
   closeDocumentRequest,
