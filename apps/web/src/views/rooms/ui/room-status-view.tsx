@@ -1,5 +1,6 @@
 'use client'
 
+import { useRouter } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import type { ReactNode } from 'react'
@@ -38,6 +39,8 @@ import {
   StatusScreen,
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
+import { useAppSelector } from '../../../shared/store'
+import { ROLE_HOME } from '../../../shared/config'
 
 // Ф16: что видит студент, отсканировав QR над дверью. Открывается с телефона в коридоре,
 // поэтому главное — ответ «свободно / занято» первым блоком под шапкой. Экран живёт в общей
@@ -52,6 +55,17 @@ type RoomStatusRoom = RoomStatusResponse['room']
 
 export function RoomStatusView({ code }: { code: string }) {
   const t = useTranslations('Rooms')
+  const tCommon = useTranslations('Common')
+  const router = useRouter()
+  const role = useAppSelector((s) => s.auth.role)
+
+  // Назад — туда, откуда пришли (сканер, список помещений). Но страницу часто открывает
+  // камера телефона прямо с наклейки: истории нет, и `router.back()` ничего бы не сделал —
+  // тогда ведём на главную роли.
+  function goBack(): void {
+    if (window.history.length > 1) router.back()
+    else router.push(role ? ROLE_HOME[role] : '/')
+  }
 
   const query = useQuery({
     queryKey: roomKeys.status(code),
@@ -97,6 +111,8 @@ export function RoomStatusView({ code }: { code: string }) {
   return (
     <div className="flex w-full flex-1 flex-col gap-4">
       <PageHeader
+        onBack={goBack}
+        backLabel={tCommon('goBack')}
         title={room.name}
         subtitle={`${t(`kind.${room.kind}`)} · ${room.universityShort ?? room.university}`}
         actions={
