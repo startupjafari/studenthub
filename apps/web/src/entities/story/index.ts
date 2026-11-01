@@ -29,6 +29,7 @@ export {
   storyBackgroundClass,
 } from './model/backgrounds'
 export type {
+  StoryElement,
   StoryAudienceValue,
   StoryAuthor,
   StoryBackgroundValue,
@@ -40,3 +41,5 @@ export type {
   StoryRing,
   StoryViewer,
 } from './model/types'
+export { StoryElementBody, StoryElementsLayer, storyElementPlacement } from './ui/story-element'
+export { fitImageToStory } from './lib/fit-image'
