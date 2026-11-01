@@ -157,6 +157,8 @@ interface LightboxProps {
   onClose: () => void
   // Открыть с фокусом на поле комментария (клик по иконке комментария в плитке профиля).
   focusComment?: boolean
+  /** С какого вложения открыть пост — с той плитки коллажа, по которой кликнули. */
+  initialMedia?: number
 }
 
 // Лайтбокс поста (Instagram-стиль): медиа/обложка слева, детали и комментарии справа.
@@ -167,6 +169,7 @@ export function PostLightbox({
   onIndex,
   onClose,
   focusComment = false,
+  initialMedia = 0,
 }: LightboxProps) {
   const t = useTranslations('Feed')
   // Второй аргумент — запрет выделения на всей странице: оверлей перетаскивают,
@@ -177,6 +180,8 @@ export function PostLightbox({
   // выходов: порядок хуков один на каждую отрисовку.
   const source = useRepostSource(posts[index])
   const windowRef = useRef<HTMLDivElement>(null)
+  // Номер вложения относится к посту, который открыли; соседние посты — с первого кадра.
+  const openedIndex = useRef(index)
 
   // Фокус — внутрь окна при открытии и обратно на то, что его открыло, при закрытии:
   // иначе после закрытия клавиатура оказывалась в начале страницы.
@@ -348,6 +353,7 @@ export function PostLightbox({
             originalUnavailable={source.kind === 'unavailable'}
             onClose={onClose}
             focusComment={focusComment}
+            initialMedia={index === openedIndex.current ? initialMedia : 0}
           />
         )}
       </div>
@@ -364,6 +370,7 @@ function PostView({
   originalUnavailable = false,
   onClose,
   focusComment = false,
+  initialMedia = 0,
 }: {
   post: FeedPost
   /** Репост, через который открыт `post` (исходник): его пометка сверху и его меню. */
@@ -372,6 +379,7 @@ function PostView({
   originalUnavailable?: boolean
   onClose: () => void
   focusComment?: boolean
+  initialMedia?: number
 }) {
   const t = useTranslations('Feed')
   const tErr = useTranslations('Errors')
@@ -385,7 +393,9 @@ function PostView({
   // Жалобу сервер принимает не от всех ролей (COMPLAINT_REPORTER_ROLES) — пункт по роли.
   const canReportComments = canFileComplaint(myRole)
 
-  const [mi, setMi] = useState(0)
+  const [mi, setMi] = useState(() =>
+    Math.min(Math.max(0, initialMedia), Math.max(0, post.media.length - 1)),
+  )
   const zoom = useMediaZoom(mi)
   const [views, setViews] = useState(post.views)
   const [reactions, setReactions] = useState(() => reactionSummaryOf(post, myId))

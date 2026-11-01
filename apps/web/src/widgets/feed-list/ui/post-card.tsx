@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
@@ -23,7 +23,7 @@ import {
 } from '../../../entities/post'
 import { ProfileLink } from '../../../entities/user'
 import { RepostDialog, useRepost } from '../../../features/repost-post'
-import { Avatar, AvatarFallback, Markdown, Skeleton } from '../../../shared/ui'
+import { Avatar, AvatarFallback, AvatarImage, Markdown, Skeleton } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { relativeTime, toApiError } from '../../../shared/lib'
 import { PostMediaView } from './post-media'
@@ -64,7 +64,8 @@ function initials(a: { firstName: string; lastName: string }): string {
  */
 interface PostCardProps {
   post: FeedPost
-  onOpenMedia?: () => void
+  /** Открыть полный просмотр на вложении с этим номером (клик по плитке коллажа). */
+  onOpenMedia?: (mediaIndex: number) => void
   /** Комментарии живут только в полном просмотре — здесь лишь вход в него. */
   onOpenComments?: () => void
 }
@@ -80,11 +81,16 @@ export function PostCard(props: PostCardProps) {
   if (source.kind === 'loading') {
     return (
       <article
-        className="flex flex-col gap-3 rounded-2xl bg-card p-4 ring-1 ring-foreground/10"
+        className="flex flex-col gap-3 rounded-2xl bg-card p-4 ring-1 ring-foreground/10 sm:p-5"
         aria-hidden
       >
-        <Skeleton className="h-4 w-1/3" />
-        <Skeleton className="h-10 w-1/2" />
+        <div className="flex items-center gap-3">
+          <Skeleton className="size-10 shrink-0 rounded-full" />
+          <div className="flex flex-1 flex-col gap-1.5">
+            <Skeleton className="h-3.5 w-1/3" />
+            <Skeleton className="h-3 w-1/4" />
+          </div>
+        </div>
         <Skeleton className="h-48 w-full" />
       </article>
     )
@@ -109,6 +115,7 @@ function PostCardView({
 }) {
   const t = useTranslations('Feed')
   const tErr = useTranslations('Errors')
+  const tRoles = useTranslations('Roles')
   const locale = useLocale()
   const qc = useQueryClient()
   const myId = useAppSelector((s) => s.auth.user?.id)
@@ -179,24 +186,39 @@ function PostCardView({
         post.pinnedAt && 'ring-primary/40',
       )}
     >
-      {via && <RepostBanner repost={via} className="px-4 pt-3" />}
-      <header className={cn('flex items-center gap-3 px-4', via ? 'pt-3' : 'pt-4')}>
-        <ProfileLink userId={post.author.id} className="shrink-0">
+      {via && <RepostBanner repost={via} className="px-4 pt-3 sm:px-5" />}
+      {/* Шапка: имя забирает всю свободную ширину и сокращается многоточием, роль, кому
+          адресован пост и его возраст — второй строкой и приглушённо. */}
+      <header className={cn('flex items-center gap-3 px-4 sm:px-5', via ? 'pt-3' : 'pt-4')}>
+        <ProfileLink userId={post.author.id} className="shrink-0 rounded-full">
           <Avatar className="size-10">
+            {post.author.avatarUrl && <AvatarImage src={post.author.avatarUrl} alt="" />}
             <AvatarFallback>{initials(post.author)}</AvatarFallback>
           </Avatar>
         </ProfileLink>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold">
-            <ProfileLink userId={post.author.id} className="hover:text-primary hover:underline">
+          <p className="truncate text-sm leading-tight font-semibold">
+            <ProfileLink
+              userId={post.author.id}
+              className="transition-colors duration-150 hover:text-primary"
+            >
               {post.author.lastName} {post.author.firstName}
             </ProfileLink>
           </p>
-          <p className="flex items-center gap-1.5 truncate text-xs text-muted-foreground">
+          <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
             {post.pinnedAt && (
               <Pin className="size-3 shrink-0 fill-current text-primary" aria-hidden />
             )}
-            {t(`audience${post.audience}`)}
+            <span className="truncate">
+              {tRoles(post.author.role)} · {t(`audience${post.audience}`)}
+            </span>
+            <span aria-hidden className="shrink-0">
+              ·
+            </span>
+            {/* Возраст поста не переносим: «45 мин. назад» в узкой колонке ломалось. */}
+            <time dateTime={shownAt} title={exactTime} className="shrink-0 whitespace-nowrap">
+              {ago}
+            </time>
           </p>
         </div>
         {post.status === 'DRAFT' && (
@@ -214,6 +236,7 @@ function PostCardView({
           canModerate={canModerate}
           canDelete={canDelete}
           isMine={menuPost.authorId === myId}
+          triggerClassName="size-9 rounded-full focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
         />
       </header>
 
@@ -224,27 +247,33 @@ function PostCardView({
         <MediaCollage
           postId={post.id}
           media={post.media}
-          onOpen={onOpenMedia}
+          onOpen={(i) => onOpenMedia?.(i)}
           openLabel={t('openPost')}
         />
       )}
 
       {(post.title || post.content) && <PostBody title={post.title} text={post.content} />}
 
-      {originalUnavailable && <RepostUnavailable className="mx-4 mt-3" />}
+      {originalUnavailable && <RepostUnavailable className="mx-4 mt-3 sm:mx-5" />}
 
       {/* Панель действий — как во «ВКонтакте»: лайк, комментарии, репост и «поделиться»
           слева, просмотры справа. Подписи видны с `sm`: голые иконки читаются
           только теми, кто уже знает, что они делают. */}
-      <div className="mt-3 flex items-center gap-0.5 px-2 pb-2 text-sm text-muted-foreground">
+      <div className="mt-3 flex items-center gap-0.5 px-2 pb-2 text-sm text-muted-foreground sm:px-3">
         <ActionButton
           label={t('like')}
           pressed={liked}
           onClick={toggleLike}
           count={reactionTotal(reactions)}
         >
+          {/* Короткий отклик на лайк: сердце чуть «вспухает» при постановке, без прыжков. */}
           <Heart
-            className={cn('size-5', liked && 'fill-destructive text-destructive')}
+            key={liked ? 'on' : 'off'}
+            className={cn(
+              'size-5',
+              liked &&
+                'fill-destructive text-destructive animate-in zoom-in-75 duration-200 motion-reduce:animate-none',
+            )}
             aria-hidden
           />
         </ActionButton>
@@ -265,7 +294,7 @@ function PostCardView({
             платформы. */}
         <SharePostMenu
           postId={post.id}
-          className="flex cursor-pointer items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs transition-colors hover:bg-muted hover:text-foreground"
+          className="flex min-h-9 cursor-pointer items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs transition-colors duration-150 hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
         />
         {/* Избранное — последним в ряду и без счётчика: это личная полка, а не
             вовлечение, и число «сколько людей сохранили» сервер не отдаёт намеренно. */}
@@ -275,21 +304,14 @@ function PostCardView({
             aria-hidden
           />
         </ActionButton>
-        {/* Справа — счётчик просмотров и возраст поста: во «ВКонтакте» дата стоит
-            именно здесь, а не в шапке, где спорит с именем автора. */}
-        <span className="ml-auto flex items-center gap-3 px-2 text-xs">
-          <span
-            className="flex items-center gap-1.5"
-            title={t('viewsLabel', { count: post.views })}
-          >
-            <Eye className="size-4" aria-hidden />
-            {post.views}
-          </span>
-          {/* Возраст поста не переносим: «45 мин. назад» в узкой колонке ломалось
-              на три строки и раздвигало всю панель. */}
-          <time dateTime={shownAt} title={exactTime} className="whitespace-nowrap">
-            {ago}
-          </time>
+        {/* Справа — просмотры. Возраст поста переехал в шапку, ко второй строке автора:
+            там его ищут глазами, а в ряду действий он спорил со счётчиками. */}
+        <span
+          className="ml-auto flex items-center gap-1.5 px-2 text-xs"
+          title={t('viewsLabel', { count: post.views })}
+        >
+          <Eye className="size-4" aria-hidden />
+          <span className="tabular-nums">{post.views}</span>
         </span>
       </div>
 
@@ -298,39 +320,60 @@ function PostCardView({
   )
 }
 
+// Свёрнутый текст — по высоте, около шести строк. Меньше — разворачивать нечего.
+const COLLAPSED_TEXT_REM = 9.5
+
 /**
  * Заголовок и текст поста в ленте.
  *
- * Свёрнутый текст — ОДНА строка и «Читать далее». Раньше показывались четыре, и
- * объявление на два экрана отодвигало следующий пост за нижний край: лента
- * переставала листаться глазами.
- *
- * В свёрнутом виде рисуем обычный текст первой строки, а не размеченный: line-clamp
- * поверх списков и цитат обрезает их непредсказуемо, и «одна строка» превращалась
- * то в полторы, то в пустоту.
+ * Свёрнут по высоте (около шести строк) с мягким затуханием, а не до первой строки:
+ * прежняя «одна строка» обрывала объявление на полуслове, и пост приходилось открывать,
+ * чтобы понять, о чём он. Разметка (списки, цитаты, ссылки) рисуется всегда — обрезка
+ * высотой ничего в ней не ломает, в отличие от line-clamp. Кнопка появляется, только
+ * если текст действительно не поместился.
  */
 function PostBody({ title, text }: { title: string | null; text: string }) {
   const t = useTranslations('Feed')
   const [expanded, setExpanded] = useState(false)
+  const [overflows, setOverflows] = useState(false)
+  const boxRef = useRef<HTMLDivElement>(null)
 
-  const firstLine = text.split('\n').find((l) => l.trim() !== '') ?? ''
-  // Разворачивать нечего, если весь текст — эта самая строка без разметки.
-  const collapsible = text.trim() !== firstLine.trim() || /[*`~[\]>]/.test(firstLine)
+  // Меряем до отрисовки: кнопка «Читать далее» не должна появляться рывком.
+  useLayoutEffect(() => {
+    const box = boxRef.current
+    if (!box) return
+    const measure = (): void => setOverflows(box.scrollHeight > box.clientHeight + 1)
+    measure()
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(measure)
+    observer.observe(box)
+    return () => observer.disconnect()
+  }, [text])
+
+  const clamped = !expanded && overflows
 
   return (
-    <div className="flex flex-col gap-1.5 px-4 pt-3">
-      {title && <h2 className="text-base leading-snug font-semibold">{title}</h2>}
-      {text &&
-        (expanded || !collapsible ? (
-          <Markdown source={text} />
-        ) : (
-          <p className="line-clamp-1 text-sm leading-relaxed text-muted-foreground">{firstLine}</p>
-        ))}
-      {collapsible && (
+    <div className="flex flex-col gap-1.5 px-4 pt-3 sm:px-5">
+      {title && <h2 className="text-base leading-snug font-semibold break-words">{title}</h2>}
+      {text && (
+        <div
+          ref={boxRef}
+          style={expanded ? undefined : { maxHeight: `${COLLAPSED_TEXT_REM}rem` }}
+          className={cn(
+            'relative overflow-hidden [overflow-wrap:anywhere]',
+            clamped &&
+              '[mask-image:linear-gradient(to_bottom,black_70%,transparent)] [-webkit-mask-image:linear-gradient(to_bottom,black_70%,transparent)]',
+          )}
+        >
+          <Markdown source={text} autolink className="text-[0.9375rem]" />
+        </div>
+      )}
+      {(overflows || expanded) && (
         <button
           type="button"
+          aria-expanded={expanded}
           onClick={() => setExpanded((v) => !v)}
-          className="cursor-pointer self-start text-sm text-primary hover:underline"
+          className="cursor-pointer self-start rounded text-sm font-medium text-primary hover:underline focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
         >
           {expanded ? t('showLess') : t('showMore')}
         </button>
@@ -370,7 +413,8 @@ function ActionButton({
       onClick={onClick}
       title={label}
       className={cn(
-        'flex cursor-pointer items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs transition-colors hover:bg-muted hover:text-foreground',
+        'flex min-h-9 cursor-pointer items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs transition-colors duration-150 hover:bg-muted hover:text-foreground active:bg-muted/70',
+        'focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none',
         'disabled:pointer-events-none disabled:opacity-50',
         pressed && 'text-foreground',
       )}
@@ -382,10 +426,11 @@ function ActionButton({
 }
 
 /**
- * Коллаж вложений. Раскладка зависит от их числа: одно — во всю ширину, два — в ряд,
- * три — крупное слева и два справа, дальше — сетка 2×2 с «+N» на последней плитке.
- * Одна и та же сетка на любое количество либо резала одиночную картинку, либо
- * оставляла дыры.
+ * Коллаж вложений в порядке загрузки. Одно — во всю ширину в своих пропорциях (высота
+ * ограничена, поля закрывает размытая копия); два — в ряд квадратами; три — крупное слева
+ * и два справа; четыре и больше — сетка 2×2 с «+N» на последней плитке. У сеток высота
+ * задана пропорцией контейнера: коллаж не вырастает выше разумного на широкой колонке.
+ * Клик открывает полный просмотр именно на этой плитке.
  */
 function MediaCollage({
   postId,
@@ -395,15 +440,20 @@ function MediaCollage({
 }: {
   postId: string
   media: PostMedia[]
-  onOpen?: () => void
+  onOpen?: (index: number) => void
   openLabel: string
 }) {
   const tiles = media.slice(0, MEDIA_TILES)
   const rest = media.length - tiles.length
-  // Плитки квадратные, высоту держит число колонок. Три вложения — в один ряд по
-  // трети ширины; от четырёх — сетка 2×2, а остальное уходит в «+N» на последней.
+  const count = media.length
   const layout =
-    media.length === 1 ? 'grid-cols-1' : media.length === 3 ? 'grid-cols-3' : 'grid-cols-2'
+    count === 1
+      ? 'grid-cols-1'
+      : count === 2
+        ? 'grid-cols-2'
+        : count === 3
+          ? 'aspect-[3/2] grid-cols-[2fr_1fr] grid-rows-2'
+          : 'aspect-[4/3] grid-cols-2 grid-rows-2'
 
   return (
     <div className={cn('mt-3 grid gap-0.5', layout)}>
@@ -411,29 +461,37 @@ function MediaCollage({
         <button
           key={m.id}
           type="button"
-          onClick={onOpen}
-          aria-label={openLabel}
+          onClick={() => onOpen?.(i)}
+          aria-label={`${openLabel} · ${i + 1}/${count}`}
           className={cn(
-            'relative block overflow-hidden',
+            'group/tile relative block min-h-0 overflow-hidden focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none focus-visible:ring-inset',
             // Одиночное медиа не режем под квадрат: у объявления это обычно афиша
-            // или скан, и обрезка съедала бы половину смысла. В сетке — квадрат.
-            media.length !== 1 && 'aspect-square bg-muted',
+            // или скан, и обрезка съедала бы половину смысла.
+            count !== 1 && 'bg-muted',
+            count === 2 && 'aspect-square',
+            count === 3 && i === 0 && 'row-span-2',
           )}
         >
-          {media.length === 1 ? (
-            <MediaFrame postId={postId} media={m} imageClassName="max-h-[32rem]" />
+          {count === 1 ? (
+            <MediaFrame postId={postId} media={m} imageClassName="max-h-[min(36rem,70vh)]" />
           ) : (
             <PostMediaView
               postId={postId}
               media={m}
               fit="cover"
-              sizes="(max-width: 768px) 50vw, 336px"
-              className="size-full"
+              sizes={
+                count === 3 && i === 0
+                  ? '(max-width: 768px) 66vw, 490px'
+                  : '(max-width: 768px) 50vw, 368px'
+              }
+              className="size-full transition-transform duration-200 group-hover/tile:scale-[1.02] motion-reduce:transition-none"
             />
           )}
           {m.mime.startsWith('video/') && (
-            <span className="absolute inset-0 flex items-center justify-center text-white drop-shadow-md">
-              <Play className="size-10 fill-current" aria-hidden />
+            <span className="pointer-events-none absolute inset-0 flex items-center justify-center">
+              <span className="flex size-12 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur-sm">
+                <Play className="ml-0.5 size-6 fill-current" aria-hidden />
+              </span>
             </span>
           )}
           {rest > 0 && i === tiles.length - 1 && (
