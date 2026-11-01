@@ -92,9 +92,12 @@ export class DocumentsController {
   @ApiResponse({
     status: 200,
     description:
-      'Без limit/cursor — массив (до 200). С ними — страница (limit ≤ 50): meta.cursor/hasNext/total',
+      'Без page/limit/cursor — массив (до 200). С page — страница по номеру (limit ≤ 100): meta.total. С limit/cursor — страница курсором: meta.cursor/hasNext/total',
   })
-  @ApiResponse({ status: 400, description: 'BAD_REQUEST — страница с sort=access' })
+  @ApiResponse({
+    status: 400,
+    description: 'BAD_REQUEST — курсорная страница с sort=access; page вместе с cursor',
+  })
   list(@CurrentUser() user: CurrentUserData, @Query() query: DocumentListQueryDto) {
     return this.documents.list(user, query)
   }
@@ -116,7 +119,7 @@ export class DocumentsController {
   @ApiResponse({
     status: 200,
     description:
-      'Гранты с метаданными документа (номер — маской) и страницами; meta.cursor/hasNext',
+      'Гранты с метаданными документа (номер — маской) и страницами; page/limit ≤ 100, sort (title|owner|reason|expiresAt|grantedAt)/order; meta.total',
   })
   sharedWithMe(@CurrentUser() user: CurrentUserData, @Query() query: SharedWithMeQueryDto) {
     return this.documents.listSharedWithMe(user, query)
