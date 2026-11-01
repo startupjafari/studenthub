@@ -8,7 +8,7 @@ import ru from '../../../../messages/ru.json'
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }))
 vi.mock('../../../entities/document/api/document-api', async (orig) => {
   const actual = await orig<typeof import('../../../entities/document/api/document-api')>()
-  return { ...actual, fetchDocuments: vi.fn() }
+  return { ...actual, fetchDocumentsPage: vi.fn() }
 })
 // Каталог типов вуза ходит в сеть — здесь он не предмет проверки.
 vi.mock('../../../entities/document-type', () => ({
@@ -16,7 +16,7 @@ vi.mock('../../../entities/document-type', () => ({
 }))
 vi.mock('../../../shared/store', () => ({ useAppSelector: () => null }))
 
-import { fetchDocuments, type DocumentDto } from '../../../entities/document'
+import { fetchDocumentsPage, type DocumentDto } from '../../../entities/document'
 import { ConfirmProvider, TooltipProvider } from '../../../shared/ui'
 import { DocumentsList } from './documents-list'
 
@@ -74,11 +74,14 @@ afterEach(() => vi.clearAllMocks())
 // Статусы проверки (15.3) приходят от сервера — список обязан их показать владельцу.
 describe('DocumentsList — статусы проверки', () => {
   it('«Требует замены» с причиной отклонения, «На проверке», «Принят»', async () => {
-    vi.mocked(fetchDocuments).mockResolvedValue([
-      doc({ id: 'a', title: 'Паспорт', status: 'NEEDS_REPLACEMENT', rejectionReason: 'Размыто' }),
-      doc({ id: 'b', title: 'Диплом', status: 'IN_REVIEW' }),
-      doc({ id: 'c', title: 'Аттестат', status: 'ACCEPTED' }),
-    ])
+    vi.mocked(fetchDocumentsPage).mockResolvedValue({
+      items: [
+        doc({ id: 'a', title: 'Паспорт', status: 'NEEDS_REPLACEMENT', rejectionReason: 'Размыто' }),
+        doc({ id: 'b', title: 'Диплом', status: 'IN_REVIEW' }),
+        doc({ id: 'c', title: 'Аттестат', status: 'ACCEPTED' }),
+      ],
+      total: 3,
+    })
     setup()
     expect(await screen.findByText('Требует замены')).toBeInTheDocument()
     expect(screen.getByText('Размыто')).toBeInTheDocument()

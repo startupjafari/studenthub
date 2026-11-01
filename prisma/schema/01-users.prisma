@@ -156,10 +156,14 @@ model User {
   postBookmarks PostBookmark[] @relation("UserPostBookmarks")
 
   // Сторисы (Ф14.1): авторство, просмотры, реакции и голоса в опросах сторис.
-  stories        Story[]         @relation("StoryAuthor")
-  storyViews     StoryView[]     @relation("UserStoryViews")
-  storyReactions StoryReaction[] @relation("UserStoryReactions")
-  storyPollVotes StoryPollVote[] @relation("UserStoryPollVotes")
+  stories         Story[]          @relation("StoryAuthor")
+  storyViews      StoryView[]      @relation("UserStoryViews")
+  storyReactions  StoryReaction[]  @relation("UserStoryReactions")
+  storyPollVotes  StoryPollVote[]  @relation("UserStoryPollVotes")
+  // «Скрыть сторис пользователя»: кого скрыл я и кто скрыл меня.
+  storyMutes      StoryMute[]      @relation("StoryMutesBy")
+  storyMutedBy    StoryMute[]      @relation("StoryMutedBy")
+  storyHighlights StoryHighlight[] @relation("StoryHighlightOwner")
 
   // Чаты (Ф9): членство в чатах, отправленные сообщения, закрепления, реакции.
   chatMemberships   ChatMember[]

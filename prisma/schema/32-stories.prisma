@@ -37,9 +37,13 @@ model Story {
 
   // Аудитория-скоуп: заполняется сервисом по типу audience из scope АВТОРА, не из тела
   // запроса (docs/BACKEND_RULES.md §14.5, §14.10). UNIVERSITY → universityId и т.д.
-  universityId String? @map("university_id")
-  facultyId    String? @map("faculty_id")
-  groupId      String? @map("group_id")
+  universityId    String?  @map("university_id")
+  facultyId       String?  @map("faculty_id")
+  groupId         String?  @map("group_id")
+  /// Получатели аудитории SELECTED. Массив, а не таблица связей: сторис живёт сутки, список
+  /// ограничен STORY_AUDIENCE_USERS_MAX, а «виден ли мне» — это `has` по GIN-индексу.
+  /// Удалённый пользователь в списке безвреден: войти под ним некому.
+  audienceUserIds String[] @default([]) @map("audience_user_ids")
 
   /// Фото или видео сторис. NULL — текстовая сторис (тогда обязателен `text`).
   fileId     String? @map("file_id")
@@ -54,6 +58,10 @@ model Story {
   /// Подпись к ссылке; NULL — клиент показывает домен.
   linkLabel String? @map("link_label")
 
+  /// Элементы поверх кадра из редактора: тексты, эмодзи, упоминания (StoryElementSchema
+  /// в shared-schemas). Позиции — доли кадра 0..1, поэтому раскладка не зависит от экрана.
+  /// Упоминание хранит только userId: имя подставляется при выдаче, удалённый — пропадает.
+  elements  Json?
   /// Момент, после которого сторис невидима и подлежит удалению (createdAt + 24 ч).
   expiresAt DateTime @map("expires_at")
   createdAt DateTime @default(now()) @map("created_at")
@@ -64,9 +72,13 @@ model Story {
   faculty    Faculty?    @relation(fields: [facultyId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   group      Group?      @relation(fields: [groupId], references: [id], onDelete: SetNull, onUpdate: Cascade)
 
-  poll      StoryPoll?
-  views     StoryView[]
-  reactions StoryReaction[]
+  poll           StoryPoll?
+  views          StoryView[]
+  reactions      StoryReaction[]
+  // Сообщения в чатах с этой сторис: ответы автору и пересылки (06-chats.prisma).
+  messages       Message[]            @relation("MessageSharedStory")
+  // Копии в «Актуальном»: связь только чтобы не добавить одну сторис в подборку дважды.
+  highlightItems StoryHighlightItem[]
 
   @@index([authorId])
   @@index([audience])
@@ -74,6 +86,7 @@ model Story {
   @@index([facultyId])
   @@index([groupId])
   @@index([fileId])
+  @@index([audienceUserIds], type: Gin)
   // Крон выбирает истёкшие (`expiresAt <= now`), лента — живые того же автора по времени.
   // Составной индекс закрывает оба запроса: первым полем — срок, вторым — порядок показа.
   @@index([expiresAt, createdAt])
@@ -159,4 +172,83 @@ model StoryReaction {
   @@unique([storyId, userId, emoji])
   @@index([userId])
   @@map("story_reactions")
+}
+
+/// «Скрыть сторис пользователя» (§3.4): автор пропадает из ленты колец смотрящего.
+/// Профиль автора сторис по-прежнему показывает — скрытие убирает их из ленты, а не
+/// закрывает доступ. Повторное скрытие — та же строка (уникальная пара).
+model StoryMute {
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id")
+  mutedUserId String   @map("muted_user_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  user      User @relation("StoryMutesBy", fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  mutedUser User @relation("StoryMutedBy", fields: [mutedUserId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([userId, mutedUserId])
+  @@index([mutedUserId])
+  @@map("story_mutes")
+}
+
+/// «Актуальное» (§3.4): подборка сторис в профиле автора. Живёт, пока её не удалит автор.
+/// Порядок подборок в профиле — `position` по возрастанию; новая встаёт первой.
+model StoryHighlight {
+  id          String   @id @default(uuid())
+  ownerId     String   @map("owner_id")
+  title       String
+  /// Обложка — один из элементов подборки. NULL — обложкой служит первый видимый элемент.
+  coverItemId String?  @unique @map("cover_item_id")
+  position    Int
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  owner User                 @relation("StoryHighlightOwner", fields: [ownerId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  cover StoryHighlightItem?  @relation("StoryHighlightCover", fields: [coverItemId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  items StoryHighlightItem[] @relation("StoryHighlightItems")
+
+  @@index([ownerId, position])
+  @@map("story_highlights")
+}
+
+/// Сторис в «Актуальном» — снимок, а не ссылка: сама сторис через сутки удаляется кроном
+/// вместе с медиа, поэтому файл КОПИРУЕТСЯ в бакет `story-highlights` без TTL, а текст,
+/// фон, ссылка и элементы переносятся как есть. Опрос не переносится: голосовать в
+/// архиве не во что. Аудитория — тоже снимок: что видел узкий круг, не становится
+/// видно всем, кто открыл профиль.
+///
+/// universityId/facultyId/groupId — без внешних ключей: удалённая группа оставляет
+/// элемент видимым только автору, ровно как у сторис с SetNull.
+model StoryHighlightItem {
+  id              String        @id @default(uuid())
+  highlightId     String        @map("highlight_id")
+  /// Исходная сторис, пока она жива: по ней не даём добавить её в ту же подборку дважды.
+  sourceStoryId   String?       @map("source_story_id")
+  audience        StoryAudience
+  universityId    String?       @map("university_id")
+  facultyId       String?       @map("faculty_id")
+  groupId         String?       @map("group_id")
+  audienceUserIds String[]      @default([]) @map("audience_user_ids")
+  /// Копия медиа в бакете «Актуального»; своя запись File, удаляется вместе с элементом.
+  fileId          String?       @unique @map("file_id")
+  text            String?
+  background      String?
+  linkUrl         String?       @map("link_url")
+  linkLabel       String?       @map("link_label")
+  elements        Json?
+  /// Когда вышла исходная сторис — подпись «дата» в просмотре подборки.
+  storyCreatedAt  DateTime      @map("story_created_at")
+  position        Int
+  createdAt       DateTime      @default(now()) @map("created_at")
+
+  highlight   StoryHighlight  @relation("StoryHighlightItems", fields: [highlightId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  coverOf     StoryHighlight? @relation("StoryHighlightCover")
+  sourceStory Story?          @relation(fields: [sourceStoryId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  file        File?           @relation("StoryHighlightMedia", fields: [fileId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@unique([highlightId, sourceStoryId])
+  @@index([highlightId, position])
+  @@index([sourceStoryId])
+  @@index([audienceUserIds], type: Gin)
+  @@map("story_highlight_items")
 }

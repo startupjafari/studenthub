@@ -6,11 +6,13 @@ import {
   MATERIAL_LIST_LIMIT,
   type CreateMaterialInput,
   type MaterialListQueryInput,
+  type MaterialSort,
   type MaterialSubjectsQueryInput,
 } from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AuditService } from '../../common/audit/audit.service'
 import { AppException } from '../../common/exceptions/app.exception'
+import { Paginated } from '../../common/http/paginated'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import { isPlatformRole, resolveGroupScope } from '../../common/auth/group-scope'
 import type { RequestContext } from '../auth/auth.service'
@@ -67,6 +69,31 @@ function taughtBy(teacherId: string): Prisma.GroupWhereInput[] {
   ]
 }
 
+/**
+ * Порядок таблицы материалов. Поле — enum колонки, в `orderBy` произвольное имя не попадает.
+ * Без сортировки — свежие сверху. Материал без дисциплины — в конце при любом направлении.
+ * «Файлы» — число вложений. `id` в конце — стабильный порядок страниц при равных значениях.
+ */
+export function materialsOrderBy(
+  sort: MaterialSort | undefined,
+  order: 'asc' | 'desc' | undefined,
+): Prisma.MaterialOrderByWithRelationInput[] {
+  const dir = order ?? (sort === undefined || sort === 'createdAt' ? 'desc' : 'asc')
+  const tie: Prisma.MaterialOrderByWithRelationInput = { id: dir }
+  switch (sort) {
+    case 'title':
+      return [{ title: dir }, tie]
+    case 'subject':
+      return [{ subject: { sort: dir, nulls: 'last' } }, tie]
+    case 'teacher':
+      return [{ teacher: { lastName: dir } }, { teacher: { firstName: dir } }, tie]
+    case 'files':
+      return [{ media: { _count: dir } }, tie]
+    default:
+      return [{ createdAt: dir }, tie]
+  }
+}
+
 @Injectable()
 export class MaterialsService {
   constructor(
@@ -112,9 +139,35 @@ export class MaterialsService {
    * и `subject` сужают выборку на сервере: без них преподаватель получал общий поток вуза,
    * а страница дисциплины искала свои материалы в последних 200 материалах группы.
    */
-  async list(viewer: JwtPayload, query: MaterialListQueryInput): Promise<MaterialRow[]> {
+  /**
+   * Материалы в scope смотрящего. Без `page` — прежний список, свежие сверху, следующая
+   * часть — по `cursor` (мобильные клиенты, экраны дисциплин). С `page` — страница таблицы:
+   * порядок по колонке и номер страницы считает БД, всего — `meta.total`.
+   */
+  async list(
+    viewer: JwtPayload,
+    query: MaterialListQueryInput,
+  ): Promise<MaterialRow[] | Paginated<MaterialRow>> {
+    const where = this.listWhere(viewer, query)
+    if (query.page !== undefined) {
+      if (query.cursor) {
+        throw new AppException('BAD_REQUEST', 'Нельзя листать номером страницы и курсором сразу')
+      }
+      const limit = query.limit ?? 20
+      const [items, total] = await this.prisma.$transaction([
+        this.prisma.material.findMany({
+          where,
+          select: MATERIAL_SELECT,
+          orderBy: materialsOrderBy(query.sort, query.order),
+          skip: (query.page - 1) * limit,
+          take: limit,
+        }),
+        this.prisma.material.count({ where }),
+      ])
+      return new Paginated(items, { total })
+    }
     return this.prisma.material.findMany({
-      where: this.listWhere(viewer, query),
+      where,
       select: MATERIAL_SELECT,
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: query.limit ?? MATERIAL_LIST_LIMIT,

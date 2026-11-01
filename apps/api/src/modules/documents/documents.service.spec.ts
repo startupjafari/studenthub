@@ -1,7 +1,12 @@
 import { Role } from '@studenthub/shared-types'
 import { DocumentListQuerySchema } from '@studenthub/shared-schemas'
 import type { ConfigService } from '@nestjs/config'
-import { DocumentsService, nextDocumentStatus, reviewVerdict } from './documents.service'
+import {
+  DocumentsService,
+  nextDocumentStatus,
+  reviewVerdict,
+  sharedWithMeOrderBy,
+} from './documents.service'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { FileService } from '../files/file.service'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
@@ -67,6 +72,7 @@ function setup() {
       findMany: jest.fn().mockResolvedValue([]),
       findFirst: jest.fn(),
       update: jest.fn().mockResolvedValue({}),
+      count: jest.fn().mockResolvedValue(0),
     },
     file: {
       findMany: jest.fn().mockResolvedValue([]),
@@ -590,7 +596,8 @@ describe('DocumentsService — открытые мне документы (D-F10
   it('декан видит гранты на себя, свой факультет и свой вуз; номер — только маской', async () => {
     const { service, prisma } = setup()
     prisma.documentAccess.findMany.mockResolvedValue([grantRow('a1')])
-    const res = await service.listSharedWithMe(dean, { limit: 20 })
+    prisma.documentAccess.count.mockResolvedValue(1)
+    const res = await service.listSharedWithMe(dean, { page: 1, limit: 20 })
     const where = prisma.documentAccess.findMany.mock.calls[0][0].where
     expect(where.revokedAt).toBeNull()
     expect(where.document).toEqual({ deletedAt: null, ownerId: { not: 'dean-1' } })
@@ -606,17 +613,20 @@ describe('DocumentsService — открытые мне документы (D-F10
     expect(item.document.numberMasked).toBe('******4821')
     expect((item.document as unknown as Record<string, unknown>).numberLast4).toBeUndefined()
     expect(item.document.fileCount).toBe(1)
-    expect(res.meta).toEqual({ cursor: undefined, hasNext: false })
+    expect(res.meta).toEqual({ total: 1 })
+    // Счётчик — по тому же условию, что и страница: иначе подвал врал бы о числе строк.
+    expect(prisma.documentAccess.count.mock.calls[0][0].where).toBe(where)
   })
 
   it('админу вуза «Открытые мне» пусты: без выборки грантов и метаданных', async () => {
     const { service, prisma } = setup()
     prisma.documentAccess.findMany.mockResolvedValue([grantRow('a1')])
     const admin = { ...actor('admin-1'), role: Role.UNIVERSITY_ADMIN }
-    const res = await service.listSharedWithMe(admin, { limit: 20 })
+    const res = await service.listSharedWithMe(admin, { page: 1, limit: 20 })
     expect(res.items).toEqual([])
-    expect(res.meta).toEqual({ hasNext: false })
+    expect(res.meta).toEqual({ total: 0 })
     expect(prisma.documentAccess.findMany).not.toHaveBeenCalled()
+    expect(prisma.documentAccess.count).not.toHaveBeenCalled()
   })
 
   it('персональный грант: админ вуза не получает уведомления о доступе', async () => {
@@ -634,21 +644,43 @@ describe('DocumentsService — открытые мне документы (D-F10
 
   it('студенту — только персональные гранты', async () => {
     const { service, prisma } = setup()
-    await service.listSharedWithMe({ ...actor(), facultyId: 'fac-1' }, { limit: 20 })
+    await service.listSharedWithMe({ ...actor(), facultyId: 'fac-1' }, { page: 1, limit: 20 })
     const where = prisma.documentAccess.findMany.mock.calls[0][0].where
     expect(where.AND[1].OR).toEqual([{ granteeType: 'USER', granteeId: 'me' }])
   })
 
-  it('cursor-пагинация: limit + 1 строк → hasNext и курсор на последний грант страницы', async () => {
+  it('страница по номеру: skip/take от page и limit, всего — из count', async () => {
     const { service, prisma } = setup()
-    prisma.documentAccess.findMany.mockResolvedValue([grantRow('a1'), grantRow('a2')])
-    const res = await service.listSharedWithMe(dean, { limit: 1, cursor: 'a0' })
+    prisma.documentAccess.findMany.mockResolvedValue([grantRow('a21')])
+    prisma.documentAccess.count.mockResolvedValue(41)
+    const res = await service.listSharedWithMe(dean, { page: 3, limit: 10 })
     const args = prisma.documentAccess.findMany.mock.calls[0][0]
-    expect(args.take).toBe(2)
-    expect(args.cursor).toEqual({ id: 'a0' })
-    expect(args.skip).toBe(1)
-    expect(res.items).toHaveLength(1)
-    expect(res.meta).toEqual({ cursor: 'a1', hasNext: true })
+    expect(args.skip).toBe(20)
+    expect(args.take).toBe(10)
+    // Без сортировки — сначала новые гранты; id — стабильный порядок равных дат.
+    expect(args.orderBy).toEqual([{ grantedAt: 'desc' }, { id: 'desc' }])
+    expect(res.meta).toEqual({ total: 41 })
+  })
+
+  it('сортировка по колонкам: владелец по ФИО, бессрочный доступ — в конце', () => {
+    expect(sharedWithMeOrderBy('owner', 'asc')).toEqual([
+      { document: { owner: { lastName: 'asc' } } },
+      { document: { owner: { firstName: 'asc' } } },
+      { id: 'asc' },
+    ])
+    expect(sharedWithMeOrderBy('expiresAt', 'desc')).toEqual([
+      { expiresAt: { sort: 'desc', nulls: 'last' } },
+      { id: 'desc' },
+    ])
+    // Без направления текстовая колонка идёт по алфавиту, дата выдачи — сначала новые.
+    expect(sharedWithMeOrderBy('title', undefined)).toEqual([
+      { document: { title: 'asc' } },
+      { id: 'asc' },
+    ])
+    expect(sharedWithMeOrderBy('grantedAt', undefined)).toEqual([
+      { grantedAt: 'desc' },
+      { id: 'desc' },
+    ])
   })
 
   it('grantAccess DEPARTMENT: уведомление деканам факультета в вузе владельца', async () => {
@@ -1255,15 +1287,43 @@ describe('DocumentsService — список: страница по запрос�
       row({ id: `d${i + 1}`, createdAt: new Date(Date.UTC(2026, 0, 30 - i)) }),
     )
 
-  it('схема принимает limit и cursor; limit > 50 и лишние поля по-прежнему отклоняются', () => {
+  it('схема принимает limit, cursor и page; limit > 100 и лишние поля отклоняются', () => {
     expect(DocumentListQuerySchema.safeParse({ limit: '50' }).success).toBe(true)
     expect(DocumentListQuerySchema.parse({ limit: '50', cursor: 'x' })).toEqual({
       limit: 50,
       cursor: 'x',
       view: 'active',
     })
-    expect(DocumentListQuerySchema.safeParse({ limit: '51' }).success).toBe(false)
-    expect(DocumentListQuerySchema.safeParse({ page: '2' }).success).toBe(false)
+    expect(DocumentListQuerySchema.parse({ page: '2', limit: '100' })).toEqual({
+      page: 2,
+      limit: 100,
+      view: 'active',
+    })
+    expect(DocumentListQuerySchema.safeParse({ limit: '101' }).success).toBe(false)
+    expect(DocumentListQuerySchema.safeParse({ page: '0' }).success).toBe(false)
+    expect(DocumentListQuerySchema.safeParse({ offset: '20' }).success).toBe(false)
+  })
+
+  it('page — страница по номеру с meta.total, в том числе с сортировкой по доступу', async () => {
+    const { service, prisma } = setup()
+    prisma.document.findMany.mockResolvedValue(docs(2))
+    prisma.document.count.mockResolvedValue(42)
+    const res = await service.list(actor(), { view: 'active', page: 2, limit: 20, sort: 'access' })
+    const args = prisma.document.findMany.mock.calls[0][0]
+    expect(args.skip).toBe(20)
+    expect(args.take).toBe(20)
+    expect(res).toMatchObject({ meta: { total: 42 } })
+    expect((res as { items: unknown[] }).items).toHaveLength(2)
+    // Счётчик — по тому же фильтру, что и страница.
+    expect(prisma.document.count.mock.calls[0][0].where).toBe(args.where)
+  })
+
+  it('page вместе с cursor — 400: режимы выдачи не смешиваются', async () => {
+    const { service, prisma } = setup()
+    await expect(
+      service.list(actor(), { view: 'active', page: 1, cursor: 'd1' }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    expect(prisma.document.findMany).not.toHaveBeenCalled()
   })
 
   it('без limit/cursor — прежний ответ массивом (веб, Android), потолок 200', async () => {

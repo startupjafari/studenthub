@@ -25,6 +25,8 @@ const ALL_BUCKETS = [
   'MINIO_BUCKET_AVATARS',
   'MINIO_BUCKET_POSTS',
   'MINIO_BUCKET_STORIES',
+  // «Актуальное» — без TTL: тест ниже требует, чтобы срок жизни был только у сторис.
+  'MINIO_BUCKET_STORY_HIGHLIGHTS',
   'MINIO_BUCKET_APPLICATIONS',
   'MINIO_BUCKET_MATERIALS',
   'MINIO_BUCKET_CHAT',

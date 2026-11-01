@@ -74,6 +74,7 @@ export {
   type MessageForwardOrigin,
   type MessageReaction,
   type SharedPostPreview,
+  type SharedStoryPreview,
   type PresenceEntry,
   type ChatMemberInfo,
   type ChatReadReceipt,

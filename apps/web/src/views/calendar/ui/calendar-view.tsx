@@ -415,27 +415,41 @@ function Agenda({
     .filter((ds) => (byDate.get(ds)?.length ?? 0) > 0 || holidays.has(ds))
     .filter((ds) => (selected ? ds === selected : true))
 
-  if (days.length === 0) {
-    return <EmptyState icon={<Inbox />} title={t('empty')} description={t('emptyHint')} />
-  }
-
+  // Повестка — одна карточка на всю свободную высоту, как сетка месяца: при переключении
+  // «Месяц / Повестка» рамка остаётся на месте, меняется только содержимое. Раньше каждый
+  // день был отдельной карточкой по высоте строк, и под короткой повесткой зиял пустой экран.
+  // Дни внутри разделены линией, а не зазором между карточками.
   return (
-    <div className="flex flex-col gap-4">
-      {days.map((ds) => (
-        <Card key={ds}>
-          <CardContent className="p-4">
-            <DayList
-              date={ds}
-              items={byDate.get(ds) ?? []}
-              holiday={holidays.get(ds) ?? null}
-              locale={locale}
-              t={t}
-              showDateHeader
-            />
-          </CardContent>
-        </Card>
-      ))}
-    </div>
+    <Card className="flex flex-1 flex-col">
+      <CardContent className="flex min-w-0 flex-1 flex-col p-0">
+        {days.length === 0 ? (
+          <EmptyState
+            icon={<Inbox />}
+            title={t('empty')}
+            description={t('emptyHint')}
+            className="border-0"
+          />
+        ) : (
+          <div className="flex flex-col divide-y divide-border">
+            {days.map((ds) => (
+              <section key={ds} className="p-4">
+                <DayList
+                  date={ds}
+                  items={byDate.get(ds) ?? []}
+                  holiday={holidays.get(ds) ?? null}
+                  locale={locale}
+                  t={t}
+                  showDateHeader
+                  // В повестку день без пар попадает только ради праздника — плашка
+                  // праздника и есть его содержимое, «Нет событий» под ней лишнее.
+                  showEmpty={false}
+                />
+              </section>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   )
 }
 
@@ -469,6 +483,7 @@ function DayList({
   locale,
   t,
   showDateHeader,
+  showEmpty = true,
 }: {
   date: string
   items: CalItem[]
@@ -476,6 +491,8 @@ function DayList({
   locale: string
   t: T
   showDateHeader?: boolean
+  /** «Нет событий» у пустого дня. В окне дня — да, в повестке — нет (там пустых дней нет). */
+  showEmpty?: boolean
 }) {
   const label = dayTitle(date, locale)
   return (
@@ -487,7 +504,7 @@ function DayList({
       )}
       {holiday && <HolidayRow holiday={holiday} t={t} />}
       {items.length === 0 ? (
-        <EmptyState title={t('noItems')} className="border-0 p-6" />
+        showEmpty && <EmptyState title={t('noItems')} className="border-0 p-6" />
       ) : (
         <ul className="flex flex-col gap-1.5">
           {items.map((it) => (

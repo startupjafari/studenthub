@@ -65,6 +65,8 @@ import { useMediaQuota } from '../lib/media-quota'
 import { PostFromUrl } from '../../feed-list'
 import { ProfileCompletion } from './profile-completion'
 import { ShareProfileButton } from './share-profile-button'
+import { StoryAvatarRing, type RenderHighlights, type RenderStoryViewer } from './story-avatar-ring'
+import { useAuthorStories } from '../../../entities/story'
 
 // Тяжёлые модалки (кроппер аватара на canvas, редактор статей с markdown, создание
 // поста/фото/видео/опроса) грузятся динамически — только при открытии, а не на каждом
@@ -100,7 +102,14 @@ function errCode(e: unknown): string {
   return (e as { code?: string }).code ?? 'INTERNAL_ERROR'
 }
 
-export function UserProfile() {
+export function UserProfile({
+  renderStoryViewer,
+  renderHighlights,
+}: {
+  /** Окно сторис — из слоя выше (views/profile): кольцо вокруг аватара открывает его. */
+  renderStoryViewer?: RenderStoryViewer
+  renderHighlights?: RenderHighlights
+} = {}) {
   const t = useTranslations('Profile')
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
@@ -189,6 +198,8 @@ export function UserProfile() {
               setTab('profile')
             }}
             onQuickCreate={quickCreate}
+            renderStoryViewer={renderStoryViewer}
+            renderHighlights={social ? renderHighlights : undefined}
           />
         }
       >
@@ -265,6 +276,8 @@ function ProfileHeader({
   saving,
   onToggleEdit,
   onQuickCreate,
+  renderStoryViewer,
+  renderHighlights,
 }: {
   me: MeResponse
   social: boolean
@@ -272,12 +285,19 @@ function ProfileHeader({
   saving: boolean
   onToggleEdit: () => void
   onQuickCreate: (kind: CreateKind) => void
+  renderStoryViewer?: RenderStoryViewer
+  renderHighlights?: RenderHighlights
 }) {
   const t = useTranslations('Profile')
+  const tStories = useTranslations('Stories')
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
   const confirm = useConfirm()
   const fileRef = useRef<HTMLInputElement>(null)
+  // Живые сторисы — кольцом вокруг аватара, как в Instagram; клик по аватару их открывает.
+  const storyRing = useAuthorStories(me.id)
+  const hasStories = !!storyRing && !!renderStoryViewer
+  const [storiesOpen, setStoriesOpen] = useState(false)
   const coverRef = useRef<HTMLInputElement>(null)
   const [cropFile, setCropFile] = useState<File | null>(null)
   const [coverCropFile, setCoverCropFile] = useState<File | null>(null)
@@ -443,24 +463,48 @@ function ProfileHeader({
             {/* Avatar из системы: заглушка появляется и без ссылки, и когда картинка
                 не загрузилась (протухшая ссылка, недоступный MinIO). Голый <Image>
                 во втором случае показывал иконку «битая картинка» на месте лица. */}
-            <Avatar className="size-full border-4 border-background">
-              <AvatarImage
-                src={me.avatarThumbUrl ?? me.avatarUrl ?? undefined}
-                alt={fullNameOf(me)}
-              />
-              <AvatarFallback className="bg-primary text-3xl font-semibold text-primary-foreground lg:text-4xl">
-                {initialsOf(me) || '#'}
-              </AvatarFallback>
-            </Avatar>
-            <button
-              type="button"
-              onClick={() => fileRef.current?.click()}
-              aria-label={t('avatarChange')}
-              className="absolute inset-0 flex flex-col items-center justify-center gap-1 rounded-full bg-foreground/55 text-xs font-medium text-background opacity-0 outline-none transition-opacity duration-(--motion-micro) group-hover:opacity-100 focus-visible:opacity-100 motion-reduce:transition-none"
-            >
-              <Camera className="size-5" aria-hidden />
-              {t('avatarChange')}
-            </button>
+            <StoryAvatarRing ring={hasStories ? storyRing : null}>
+              <Avatar className="size-full border-4 border-background">
+                <AvatarImage
+                  src={me.avatarThumbUrl ?? me.avatarUrl ?? undefined}
+                  alt={fullNameOf(me)}
+                />
+                <AvatarFallback className="bg-primary text-3xl font-semibold text-primary-foreground lg:text-4xl">
+                  {initialsOf(me) || '#'}
+                </AvatarFallback>
+              </Avatar>
+            </StoryAvatarRing>
+            {hasStories ? (
+              <>
+                {/* Есть сторис — аватар открывает их (как в Instagram), а смена фото уходит
+                    в маленькую кнопку на кромке, рядом с удалением. */}
+                <button
+                  type="button"
+                  onClick={() => setStoriesOpen(true)}
+                  aria-label={tStories('openStoryOf', { name: fullNameOf(me) })}
+                  className="absolute inset-0 cursor-pointer rounded-full outline-none focus-visible:ring-4 focus-visible:ring-ring/30"
+                />
+                <button
+                  type="button"
+                  onClick={() => fileRef.current?.click()}
+                  aria-label={t('avatarChange')}
+                  title={t('avatarChange')}
+                  className="absolute left-[15%] top-[85%] z-10 flex size-8 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 border-background bg-card text-muted-foreground opacity-0 transition-opacity hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100"
+                >
+                  <Camera className="size-4" aria-hidden />
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                aria-label={t('avatarChange')}
+                className="absolute inset-0 flex flex-col items-center justify-center gap-1 rounded-full bg-foreground/55 text-xs font-medium text-background opacity-0 outline-none transition-opacity duration-(--motion-micro) group-hover:opacity-100 focus-visible:opacity-100 motion-reduce:transition-none"
+              >
+                <Camera className="size-5" aria-hidden />
+                {t('avatarChange')}
+              </button>
+            )}
             {me.avatarUrl && (
               <button
                 type="button"
@@ -483,9 +527,16 @@ function ProfileHeader({
           {/* Меню «+» — внизу справа, вне group аватара (чтобы не триггерить оверлей) */}
           {social && <AvatarCreateMenu onSelect={onQuickCreate} />}
           <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onPick} />
+          {storiesOpen && storyRing && renderStoryViewer?.(storyRing, () => setStoriesOpen(false))}
         </div>
 
         <ProfileIdentity data={me} />
+        {/* «Актуальное» — справа от ФИО на широком экране, под ним на телефоне. */}
+        {renderHighlights && (
+          <div className="min-w-0 sm:max-w-[45%] sm:shrink-0 sm:self-end">
+            {renderHighlights(me.id)}
+          </div>
+        )}
       </div>
 
       {cropFile && (

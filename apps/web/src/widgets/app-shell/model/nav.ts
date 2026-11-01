@@ -15,8 +15,6 @@ import {
   ClipboardCheck,
   ClipboardList,
   DoorClosed,
-  FileClock,
-  FileCog,
   FileText,
   FolderLock,
   FolderOpen,
@@ -24,24 +22,19 @@ import {
   Handshake,
   Home,
   Rocket,
-  Inbox,
   LayoutDashboard,
   Library,
   LifeBuoy,
   ListChecks,
   MessagesSquare,
-  Milestone,
   Newspaper,
-  ScanLine,
   ScrollText,
   Search,
   Send,
   Table2,
   ShieldAlert,
-  ShieldCheck,
   FileUser,
   TrendingUp,
-  UserCog,
   Users,
   type LucideIcon,
 } from 'lucide-react'
@@ -56,6 +49,31 @@ export interface NavItem {
   // Ключ i18n группы (namespace Nav.group). Заголовки секций показываются, только если у
   // навигации ≥2 групп (сейчас — студенческая); иначе список плоский, как раньше.
   group?: string
+  // Страницы раздела. Пункт с ними — не ссылка, а раскрывающийся список: раньше страницы
+  // раздела переключались табами в шапке, и о них знал только тот, кто уже на первой.
+  // `href` пункта остаётся корнем раздела — по нему раздел ищут палитра и заглушки.
+  children?: NavLeaf[]
+}
+
+/** Страница раздела в раскрывающемся пункте навигации. */
+export interface NavLeaf {
+  // Ключ i18n в namespace Nav.
+  key: string
+  href: string
+  exact?: boolean
+}
+
+/** Открыта ли эта страница навигации на текущем пути. */
+export function isNavHrefActive(href: string, pathname: string, exact?: boolean): boolean {
+  if (href === '/') return pathname === '/'
+  if (exact) return pathname === href
+  return pathname === href || pathname.startsWith(`${href}/`)
+}
+
+/** Активен ли пункт: сам или, у раздела со страницами, одна из них. */
+export function isNavItemActive(item: NavItem, pathname: string): boolean {
+  if (item.children) return item.children.some((c) => isNavHrefActive(c.href, pathname, c.exact))
+  return isNavHrefActive(item.href, pathname, item.exact)
 }
 
 // Вариант навигации — сериализуемый пропс для AppShell (иконки резолвятся в клиенте).
@@ -79,18 +97,37 @@ export const STUDENT_NAV: NavItem[] = [
   { key: 'schedule', href: '/schedule', icon: CalendarDays, group: 'main' },
   { key: 'calendar', href: '/calendar', icon: CalendarRange, group: 'main' },
   { key: 'tasks', href: '/tasks', icon: ListChecks, group: 'main' },
-  { key: 'academic', href: '/academic', icon: TrendingUp, group: 'study' },
+  // Учёба: с дисциплинами и заданиями работают каждый день — они сверху. Всё, что про
+  // результат (оценки, пропуски, экзамены, план), — одним разделом «Успеваемость».
   { key: 'courses', href: '/courses', icon: BookOpen, group: 'study' },
   { key: 'assignments', href: '/assignments', icon: ClipboardList, group: 'study' },
-  { key: 'attendance', href: '/attendance', icon: ClipboardCheck, group: 'study' },
-  { key: 'grades', href: '/grades', icon: GraduationCap, group: 'study' },
-  { key: 'exams', href: '/exams', icon: Award, group: 'study' },
-  { key: 'studyPlan', href: '/study-plan', icon: Milestone, group: 'study' },
+  {
+    key: 'academicGroup',
+    href: '/academic',
+    icon: TrendingUp,
+    group: 'study',
+    children: [
+      { key: 'overview', href: '/academic' },
+      { key: 'grades', href: '/grades' },
+      { key: 'attendance', href: '/attendance' },
+      { key: 'exams', href: '/exams' },
+      { key: 'studyPlan', href: '/study-plan' },
+    ],
+  },
   { key: 'consultations', href: '/consultations', icon: Handshake, group: 'services' },
   { key: 'appointments', href: '/appointments', icon: CalendarClock, group: 'services' },
   { key: 'portfolio', href: '/portfolio', icon: BriefcaseBusiness, group: 'services' },
   // Библиотека вуза (Фаза 20): пункт прячется, пока админ вуза не включил модуль (AppShell).
-  { key: 'books', href: '/books', icon: Library, group: 'services' },
+  {
+    key: 'books',
+    href: '/books',
+    icon: Library,
+    group: 'services',
+    children: [
+      { key: 'libraryCatalog', href: '/books' },
+      { key: 'myBooks', href: '/my-books' },
+    ],
+  },
   { key: 'applications', href: '/applications', icon: FileText, group: 'services' },
   { key: 'chats', href: '/chats', icon: MessagesSquare, group: 'communication' },
   { key: 'events', href: '/events', icon: CalendarClock, group: 'communication' },
@@ -114,53 +151,101 @@ export const UNIVERSITY_ADMIN_NAV: NavItem[] = [
   // полезен и потом, а прятать пункт по состоянию данных значит прятать его непредсказуемо.
   { key: 'setup', href: '/university-admin/setup', icon: Rocket, group: 'main' },
 
-  // Структура вуза: то, что заводят один раз и меняют редко.
-  { key: 'faculties', href: '/university-admin/faculties', icon: Building2, group: 'structure' },
-  { key: 'specialties', href: '/university-admin/specialties', icon: ScrollText, group: 'structure' }, // prettier-ignore
-  { key: 'groups', href: '/university-admin/groups', icon: Users, group: 'structure' },
-  // Ф16: помещения и печатные QR над дверью.
-  { key: 'rooms', href: '/university-admin/rooms', icon: DoorClosed, group: 'structure' },
-  { key: 'cameras', href: '/university-admin/cameras', icon: Cctv, group: 'structure' },
+  // Структура вуза: то, что заводят один раз и меняют редко. Пять экранов свёрнуты в два
+  // раздела: оргструктура (кто где учится) и здания (где идут занятия и что под камерами).
+  {
+    key: 'orgStructure',
+    href: '/university-admin/faculties',
+    icon: Building2,
+    group: 'structure',
+    children: [
+      { key: 'faculties', href: '/university-admin/faculties' },
+      { key: 'specialties', href: '/university-admin/specialties' },
+      { key: 'groups', href: '/university-admin/groups' },
+    ],
+  },
+  {
+    key: 'buildings',
+    href: '/university-admin/rooms',
+    icon: DoorClosed,
+    group: 'structure',
+    children: [
+      // Ф16: помещения и печатные QR над дверью.
+      { key: 'rooms', href: '/university-admin/rooms' },
+      { key: 'cameras', href: '/university-admin/cameras' },
+    ],
+  },
 
   // Учебный процесс.
   { key: 'schedule', href: '/university-admin/schedule', icon: CalendarDays, group: 'study' },
   { key: 'courses', href: '/university-admin/courses', icon: BookOpen, group: 'study' },
 
-  // Люди: выдача доступа и списки по ролям.
+  // Люди: выдача доступа отдельно, списки — одним разделом.
   { key: 'invites', href: '/university-admin/invites', icon: Send, group: 'people' },
-  // Все люди вуза с фильтром роли: модераторов, охрану, библиотекарей и старост в экранах
-  // по одной роли не найти, а блокировать, сбрасывать 2FA и править учёбу их нужно так же.
-  { key: 'users', href: '/university-admin/users', icon: Users, group: 'people' },
-  { key: 'students', href: '/university-admin/students', icon: GraduationCap, group: 'people' },
-  { key: 'teachers', href: '/university-admin/teachers', icon: BookOpen, group: 'people' },
-  { key: 'deans', href: '/university-admin/deans', icon: UserCog, group: 'people' },
-
-  // Обслуживание студентов.
   {
-    key: 'applications',
+    key: 'users',
+    href: '/university-admin/users',
+    icon: Users,
+    group: 'people',
+    children: [
+      // Все люди вуза с фильтром роли: модераторов, охрану, библиотекарей и старост в
+      // экранах по одной роли не найти, а блокировать и править их нужно так же.
+      { key: 'allUsers', href: '/university-admin/users' },
+      { key: 'students', href: '/university-admin/students' },
+      { key: 'teachers', href: '/university-admin/teachers' },
+      { key: 'deans', href: '/university-admin/deans' },
+    ],
+  },
+
+  // Обслуживание студентов. Ключ группы заявок — не `applications`: этот ключ гасит раздел
+  // заявок целиком (entities/platform), а каталог услуг и типы документов — инструменты
+  // админа, они остаются и при погашенном разделе. Гаснет только очередь.
+  {
+    key: 'applicationsGroup',
     href: '/university-admin/applications',
     icon: FileText,
     group: 'services',
+    children: [
+      { key: 'applicationsQueue', href: '/university-admin/applications' },
+      // Каталог услуг вуза: что студент может заказать и что для этого приложить (§3.2).
+      { key: 'serviceCatalog', href: '/university-admin/services' },
+      { key: 'documentTypes', href: '/university-admin/document-types' },
+    ],
   },
-  { key: 'verifyId', href: '/verify-id', icon: ScanLine, group: 'services' },
-  // Каталог услуг вуза: что студент может заказать и что для этого приложить (§3.2).
-  { key: 'serviceCatalog', href: '/university-admin/services', icon: ClipboardList, group: 'services' }, // prettier-ignore
-  { key: 'documentTypes', href: '/university-admin/document-types', icon: FileCog, group: 'services' }, // prettier-ignore
   // Библиотека вуза (Фаза 20): выключатель, правила выдачи; фонд ведёт библиотекарь.
-  { key: 'library', href: '/university-admin/library', icon: Library, group: 'services' },
+  {
+    key: 'library',
+    href: '/university-admin/library',
+    icon: Library,
+    group: 'services',
+    children: [
+      { key: 'settings', href: '/university-admin/library', exact: true },
+      { key: 'libraryCatalog', href: '/university-admin/library/catalog' },
+      { key: 'libraryReports', href: '/university-admin/library/reports' },
+      { key: 'libraryJournal', href: '/university-admin/library/journal' },
+    ],
+  },
 
   // Коммуникации вуза.
   { key: 'posts', href: '/university-admin/posts', icon: Newspaper, group: 'communication' },
   { key: 'events', href: '/university-admin/events', icon: CalendarClock, group: 'communication' },
   { key: 'chats', href: '/university-admin/chats', icon: MessagesSquare, group: 'communication' },
 
-  // Контроль: разбор жалоб и журнал действий.
+  // Контроль: жалобы — очередь, которую разбирают; журналы — то, что читают при разборе.
   { key: 'complaints', href: '/university-admin/complaints', icon: ShieldAlert, group: 'control' },
-  { key: 'audit', href: '/university-admin/audit', icon: ScrollText, group: 'control' },
-  // Журнал действий с документами вуза: кто, над чьим документом, когда — без содержимого.
-  { key: 'documentJournal', href: '/university-admin/document-journal', icon: FileClock, group: 'control' }, // prettier-ignore
-  // Журналы поста охраны (§3.12): ведёт охрана, админ вуза читает.
-  { key: 'securityJournals', href: '/university-admin/security', icon: ShieldCheck, group: 'control' }, // prettier-ignore
+  {
+    key: 'journals',
+    href: '/university-admin/audit',
+    icon: ScrollText,
+    group: 'control',
+    children: [
+      { key: 'audit', href: '/university-admin/audit' },
+      // Действия с документами вуза: кто, над чьим документом, когда — без содержимого.
+      { key: 'documentJournal', href: '/university-admin/document-journal' },
+      // Журналы поста охраны (§3.12): ведёт охрана, админ вуза читает.
+      { key: 'securityJournals', href: '/university-admin/security' },
+    ],
+  },
 ]
 
 // Ролевые дашборды (docs/PROJECT.md §12). У каждого пункта ниже есть свой экран;
@@ -177,12 +262,19 @@ export const DEAN_NAV: NavItem[] = [
   { key: 'calendar', href: '/calendar', icon: CalendarRange, group: 'main' },
 
   // Люди факультета и выдача доступа.
-  { key: 'groups', href: '/dean/groups', icon: Users, group: 'people' },
-  { key: 'students', href: '/dean/students', icon: GraduationCap, group: 'people' },
-  { key: 'teachers', href: '/dean/teachers', icon: BookOpen, group: 'people' },
-  { key: 'starostas', href: '/dean/starostas', icon: UserCog, group: 'people' },
+  {
+    key: 'facultyRoster',
+    href: '/dean/groups',
+    icon: Users,
+    group: 'people',
+    children: [
+      { key: 'groups', href: '/dean/groups' },
+      { key: 'students', href: '/dean/students' },
+      { key: 'teachers', href: '/dean/teachers' },
+      { key: 'starostas', href: '/dean/starostas' },
+    ],
+  },
   { key: 'invites', href: '/dean/invites', icon: Send, group: 'people' },
-  { key: 'verifyId', href: '/verify-id', icon: ScanLine, group: 'people' },
 
   // Учебный процесс и его показатели.
   { key: 'courses', href: '/dean/courses', icon: BookOpen, group: 'study' },
@@ -217,7 +309,6 @@ export const TEACHER_NAV: NavItem[] = [
 
   // Приём студентов. «Документы» подставляет withCommon — в эту же группу.
   { key: 'consultations', href: '/teacher/consultations', icon: Handshake, group: 'services' },
-  { key: 'verifyId', href: '/verify-id', icon: ScanLine, group: 'services' },
 
   { key: 'posts', href: '/teacher/posts', icon: Newspaper, group: 'communication' },
   { key: 'chats', href: '/teacher/chats', icon: MessagesSquare, group: 'communication' },
@@ -244,12 +335,26 @@ export const STAROSTA_NAV: NavItem[] = [
 
 export const PLATFORM_ADMIN_NAV: NavItem[] = [
   { key: 'dashboard', href: '/platform-admin', icon: LayoutDashboard, exact: true },
-  { key: 'universities', href: '/platform-admin/universities', icon: Building2 },
-  // Заявки стоят сразу за вузами: это вход в тот же список, только до того, как вуз
-  // в нём появился.
-  { key: 'demoRequests', href: '/platform-admin/demo-requests', icon: Inbox },
-  { key: 'users', href: '/platform-admin/users', icon: Users },
-  { key: 'invites', href: '/platform-admin/invites', icon: Send },
+  {
+    key: 'universitiesGroup',
+    href: '/platform-admin/universities',
+    icon: Building2,
+    children: [
+      { key: 'universities', href: '/platform-admin/universities' },
+      // Заявки — рядом с вузами: это вход в тот же список, только до того, как вуз в нём
+      // появился.
+      { key: 'demoRequests', href: '/platform-admin/demo-requests' },
+    ],
+  },
+  {
+    key: 'users',
+    href: '/platform-admin/users',
+    icon: Users,
+    children: [
+      { key: 'allUsers', href: '/platform-admin/users' },
+      { key: 'invites', href: '/platform-admin/invites' },
+    ],
+  },
   // События платформы (§12): админ платформы создаёт события «для всех» (§2.2), а раздела
   // у него не было — созданное нельзя было ни найти, ни поправить.
   { key: 'events', href: '/platform-admin/events', icon: CalendarClock },
@@ -257,8 +362,15 @@ export const PLATFORM_ADMIN_NAV: NavItem[] = [
   // Обращения в поддержку платформы: раньше их разбирали только в мини-аппе Telegram.
   { key: 'support', href: '/platform-admin/support', icon: LifeBuoy },
   { key: 'stats', href: '/platform-admin/stats', icon: BarChart3 },
-  { key: 'audit', href: '/platform-admin/audit', icon: ScrollText },
-  { key: 'documentAccess', href: '/platform-admin/document-access', icon: FolderLock },
+  {
+    key: 'journals',
+    href: '/platform-admin/audit',
+    icon: ScrollText,
+    children: [
+      { key: 'audit', href: '/platform-admin/audit' },
+      { key: 'documentAccess', href: '/platform-admin/document-access' },
+    ],
+  },
   // Шаблоны услуг для всех вузов: вуз видит их сразу и может настроить под себя.
   { key: 'serviceCatalog', href: '/platform-admin/services', icon: ClipboardList },
   { key: 'chats', href: '/platform-admin/chats', icon: MessagesSquare },

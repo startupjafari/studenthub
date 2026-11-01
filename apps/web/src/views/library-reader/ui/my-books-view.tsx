@@ -28,7 +28,6 @@ import {
   libraryKeys,
 } from '../../../entities/library'
 import { useReaderErrors } from '../lib/reader-errors'
-import { LibraryReaderTabs } from './library-reader-tabs'
 
 // «Мои книги» студента (Фаза 20.9): что на руках и до какого срока, брони — готовые и в
 // очереди, история. Выдачу, записанную по ошибке, читатель отмечает «Это не я» — решает
@@ -55,7 +54,6 @@ export function MyBooksView() {
       <PageHeader
         title={t('title')}
         subtitle={t('mineSubtitle')}
-        tabs={<LibraryReaderTabs />}
         actions={
           <Button asChild variant="outline" size="md">
             <Link href="/my-books/clearance">

@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common'
+import { StoriesModule } from '../stories/stories.module'
 import { FilesModule } from '../files/files.module'
 import { PostsModule } from '../posts/posts.module'
 import { NotificationsModule } from '../notifications/notifications.module'
@@ -16,7 +17,7 @@ import { LinkPreviewService } from '../../common/link-preview/link-preview.servi
 // ChatGateway навешивает WS-события на общий socket.io-сервер (handshake — в RealtimeGateway).
 // QueueService (job new-message) — из глобального QueueModule. FilesModule — вложения (FileService).
 @Module({
-  imports: [FilesModule, PostsModule, NotificationsModule],
+  imports: [FilesModule, PostsModule, NotificationsModule, StoriesModule],
   // ChatFoldersController — первым: путь `chats/folders` не должен попасть в `chats/:id`.
   controllers: [ChatFoldersController, ChatsController, SupportController],
   providers: [

@@ -45,9 +45,15 @@ export function StoryViewersSheet({ storyId, onClose }: { storyId: string; onClo
                   {viewer.user.lastName.charAt(0)}
                 </AvatarFallback>
               </Avatar>
-              <span className="min-w-0 truncate text-sm">
+              <span className="min-w-0 flex-1 truncate text-sm">
                 {viewer.user.firstName} {viewer.user.lastName}
               </span>
+              {/* Как отреагировал этот зритель — видно только автору (как и сам список). */}
+              {(viewer.reactions ?? []).length > 0 && (
+                <span className="shrink-0 text-base" aria-label={viewer.reactions.join(' ')}>
+                  {viewer.reactions.join(' ')}
+                </span>
+              )}
             </li>
           ))}
         </ul>

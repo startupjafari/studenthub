@@ -157,6 +157,7 @@ const NO_OWNER_BUT_POSTS_BUCKET_WHERE = {
   documentId: null,
   submissionId: null,
   stories: { none: {} },
+  highlightItem: { is: null },
   albumsCovered: { none: {} },
   bookCovers: { none: {} },
 } satisfies Prisma.FileWhereInput
@@ -589,7 +590,8 @@ export class CleanupService {
    * - вложения сообщений, удалённых «для всех» больше DELETED_MESSAGE_FILES_RETENTION_DAYS
    *   назад (F-F21): мягкое удаление скрывало файл, но байты хранились бессрочно;
    * - загрузки в бакеты постов, сторис и заявок, так и не привязанные ни к чему за сутки
-   *   (F-F21, E-F15): «загрузил — пост не создал»;
+   *   (F-F21, E-F15): «загрузил — пост не создал»; туда же копии «Актуального», чей
+   *   элемент исчез вместе с удалённым аккаунтом владельца (каскад не трогает File);
    * - медиа постов, удалённых больше DELETED_POST_MEDIA_RETENTION_DAYS назад (E-F15), — если
    *   на файл не ссылается ничто другое (сторис, альбом);
    * - сканы документов, удалённых больше DELETED_DOCUMENT_FILES_RETENTION_DAYS назад, и
@@ -624,6 +626,7 @@ export class CleanupService {
           in: [
             this.config.get('MINIO_BUCKET_POSTS', { infer: true }),
             this.config.get('MINIO_BUCKET_STORIES', { infer: true }),
+            this.config.get('MINIO_BUCKET_STORY_HIGHLIGHTS', { infer: true }),
             this.config.get('MINIO_BUCKET_APPLICATIONS', { infer: true }),
           ],
         },
@@ -991,6 +994,7 @@ export class CleanupService {
       this.config.get('MINIO_BUCKET_AVATARS', { infer: true }),
       this.config.get('MINIO_BUCKET_POSTS', { infer: true }),
       this.config.get('MINIO_BUCKET_STORIES', { infer: true }),
+      this.config.get('MINIO_BUCKET_STORY_HIGHLIGHTS', { infer: true }),
       this.config.get('MINIO_BUCKET_APPLICATIONS', { infer: true }),
       this.config.get('MINIO_BUCKET_CHAT', { infer: true }),
       this.config.get('MINIO_BUCKET_MATERIALS', { infer: true }),

@@ -16,6 +16,10 @@ describe('isPlannedSection', () => {
     expect(isPlannedSection('dean', '/dean/students/')).toBe(true)
   })
 
+  it('страница внутри раскрывающегося раздела — тоже раздел', () => {
+    expect(isPlannedSection('university-admin', '/university-admin/specialties')).toBe(true)
+  })
+
   it('раздел другой роли в этой зоне не считается', () => {
     expect(isPlannedSection('teacher', '/dean/students')).toBe(false)
   })

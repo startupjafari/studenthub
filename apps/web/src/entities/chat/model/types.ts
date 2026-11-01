@@ -69,6 +69,21 @@ export interface SharedPostPreview {
   _count: { comments: number; reactions: number }
 }
 
+/**
+ * Сторис в сообщении: ответ на неё или пересылка (§3.4). Медиа — только тип: ссылки на
+ * файл сторис в переписке нет, сторис открывается по `/stories/:id` с проверкой аудитории.
+ * Истёкшая — без текста и фона; удалённая — `null` у сообщения.
+ */
+export interface SharedStoryPreview {
+  id: string
+  text: string | null
+  background: string | null
+  expiresAt: string
+  authorId: string
+  author: { id: string; firstName: string; lastName: string; avatarUrl: string | null }
+  file: { mime: string } | null
+}
+
 // Опрос в чате (§38): статика на сообщении. Результаты (счётчики + мой голос) — отдельным запросом.
 export interface ChatPollOptionStatic {
   id: string
@@ -129,6 +144,10 @@ export interface ChatMessage {
   replyTo: MessageReplyPreview | null
   forwardedFrom: MessageForwardOrigin | null
   sharedPost: SharedPostPreview | null
+  // Сторис в сообщении и признак «это ответ на сторис» (а не пересылка). Ответ остаётся
+  // ответом и после удаления сторис — тогда карточка пишет «сторис недоступна».
+  sharedStory?: SharedStoryPreview | null
+  sharedStoryReply?: boolean
   reactions: MessageReaction[]
   // Опрос (§38): не null → сообщение-опрос (рендерится как ChatPoll, не как текст).
   poll: ChatPoll | null

@@ -42,11 +42,11 @@ export function StoriesRail() {
   const canPost = canCreateStory(role)
   if (isLoading) {
     return (
-      <div className="flex gap-3 overflow-hidden px-1 py-2">
+      <div className="flex gap-4 overflow-hidden px-1 py-2">
         {[0, 1, 2, 3].map((i) => (
-          <div key={i} className="flex w-16 flex-col items-center gap-1.5">
-            <Skeleton className="size-14 rounded-full" />
-            <Skeleton className="h-3 w-12" />
+          <div key={i} className="flex w-20 flex-col items-center gap-2">
+            <Skeleton className="size-[4.5rem] rounded-full" />
+            <Skeleton className="h-3 w-14" />
           </div>
         ))}
       </div>
@@ -58,17 +58,17 @@ export function StoriesRail() {
     <>
       {/* Горизонтальная полоса: на телефоне листается пальцем, на десктопе — колесом с shift.
           Полосы прокрутки нет (scrollbar-none), как в мессенджерах. */}
-      <div className="flex gap-3 overflow-x-auto px-1 py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div className="flex gap-4 overflow-x-auto px-1 py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {canPost && (
           <button
             type="button"
             onClick={() => setCreateOpen(true)}
-            className="flex w-16 shrink-0 flex-col items-center gap-1.5 text-center"
+            className="flex w-20 shrink-0 flex-col items-center gap-2 text-center"
           >
-            <span className="flex size-14 items-center justify-center rounded-full border border-dashed border-border bg-muted text-muted-foreground transition-colors hover:border-primary hover:text-primary">
-              <Plus className="size-5" aria-hidden />
+            <span className="flex size-[4.5rem] items-center justify-center rounded-full border border-dashed border-border bg-muted text-muted-foreground transition-colors hover:border-primary hover:text-primary">
+              <Plus className="size-6" aria-hidden />
             </span>
-            <span className="w-full truncate text-xs text-muted-foreground">{t('yourStory')}</span>
+            <span className="w-full truncate text-xs text-muted-foreground">{t('newStory')}</span>
           </button>
         )}
 
@@ -116,13 +116,13 @@ function RingButton({
       type="button"
       onClick={onOpen}
       aria-label={t('openStoryOf', { name: `${ring.author.firstName} ${ring.author.lastName}` })}
-      className="flex w-16 shrink-0 flex-col items-center gap-1.5 text-center"
+      className="flex w-20 shrink-0 flex-col items-center gap-2 text-center"
     >
       {/* Кольцо: яркое у непросмотренных, приглушённое у просмотренных — единственный
           признак, по которому в этом формате отличают новое от уже увиденного. */}
       <span
         className={cn(
-          'flex size-14 items-center justify-center rounded-full p-[2px]',
+          'flex size-[4.5rem] items-center justify-center rounded-full p-[3px]',
           ring.hasUnseen
             ? 'bg-gradient-to-br from-primary via-indigo-500 to-violet-500'
             : 'bg-border',

@@ -6,6 +6,7 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  Patch,
   Post,
   Query,
   Req,
@@ -26,6 +27,7 @@ import { StoriesFeedQueryDto } from './dto/stories-feed-query.dto'
 import { StoryReactionDto } from './dto/story-reaction.dto'
 import { StoryViewersQueryDto } from './dto/story-viewers-query.dto'
 import { StoryVoteDto } from './dto/story-vote.dto'
+import { UpdateStoryAudienceDto } from './dto/update-story-audience.dto'
 
 // Кто публикует сторисы (docs/PROJECT.md §2.2, строка «Сторисы — создание»):
 // те же роли, что и посты, — модераторы контент не создают, работодатель тоже.
@@ -86,6 +88,23 @@ export class StoriesController {
     return this.stories.getById(user, id)
   }
 
+  @Patch(':id/audience')
+  @Roles(...AUTHOR_ROLES)
+  @ApiOperation({ summary: 'Сменить аудиторию своей живой сторис (действует сразу)' })
+  @ApiResponse({ status: 200, description: 'Сторис с новой аудиторией' })
+  @ApiResponse({ status: 400, description: 'BAD_REQUEST — получатели SELECTED недоступны' })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN / WRONG_SCOPE — аудитория вне роли' })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND — не своя или истекла' })
+  updateAudience(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: UpdateStoryAudienceDto,
+    @Req() req: FastifyRequest,
+  ) {
+    this.assertEnabled()
+    return this.stories.updateAudience(user, id, dto, this.ctx(req))
+  }
+
   @Post(':id/view')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Отметить сторис просмотренной (идемпотентно)' })
@@ -141,6 +160,31 @@ export class StoriesController {
   vote(@CurrentUser() user: CurrentUserData, @Param('id') id: string, @Body() dto: StoryVoteDto) {
     this.assertEnabled()
     return this.stories.vote(user, id, dto)
+  }
+
+  @Post('mutes/:userId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({
+    summary: 'Скрыть сторис пользователя из ленты колец (профиль их по-прежнему показывает)',
+  })
+  @ApiResponse({ status: 204, description: 'Скрыто (повтор — тоже 204)' })
+  @ApiResponse({ status: 400, description: 'BAD_REQUEST — свои сторисы' })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND — пользователя нет' })
+  async mute(@CurrentUser() user: CurrentUserData, @Param('userId') userId: string): Promise<void> {
+    this.assertEnabled()
+    await this.stories.mute(user, userId)
+  }
+
+  @Delete('mutes/:userId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Вернуть сторис пользователя в ленту колец' })
+  @ApiResponse({ status: 204, description: 'Возвращено (не было скрыто — тоже 204)' })
+  async unmute(
+    @CurrentUser() user: CurrentUserData,
+    @Param('userId') userId: string,
+  ): Promise<void> {
+    this.assertEnabled()
+    await this.stories.unmute(user, userId)
   }
 
   @Delete(':id')

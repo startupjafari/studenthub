@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
+import { useRouter } from 'next/navigation'
 import { useTranslations } from 'next-intl'
 import { ArrowLeft, BookmarkPlus, BookX } from 'lucide-react'
 import {
@@ -34,6 +35,7 @@ import { useReaderErrors } from '../lib/reader-errors'
 export function ReaderBookView({ bookId }: { bookId: string }) {
   const t = useTranslations('LibraryReader')
   const tCat = useTranslations('LibraryCatalog')
+  const router = useRouter()
   const describe = useReaderErrors()
   const confirm = useConfirm()
   const qc = useQueryClient()
@@ -118,7 +120,13 @@ export function ReaderBookView({ bookId }: { bookId: string }) {
 
   return (
     <div className="flex w-full flex-col gap-6">
-      <PageHeader title={b.title} subtitle={b.authors || undefined} actions={back} />
+      {/* Назад — стрелкой слева, как на остальных экранах с возвратом. */}
+      <PageHeader
+        title={b.title}
+        subtitle={b.authors || undefined}
+        onBack={() => router.push('/books')}
+        backLabel={t('backToCatalog')}
+      />
       <Card className="flex-col gap-4 p-4 sm:flex-row">
         <BookCover url={b.coverUrl} title={b.title} className="w-28 self-start sm:w-36" />
         <div className="flex min-w-0 flex-1 flex-col gap-3">

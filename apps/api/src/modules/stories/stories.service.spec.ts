@@ -1,7 +1,11 @@
-import { StoryAudience } from '@prisma/client'
+import { Prisma, StoryAudience } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
-import { STORY_REACTION_EMOJIS, StoryReactionSchema } from '@studenthub/shared-schemas'
-import { StoriesService } from './stories.service'
+import {
+  CreateStorySchema,
+  STORY_REACTION_EMOJIS,
+  StoryReactionSchema,
+} from '@studenthub/shared-schemas'
+import { StoriesService, audienceIncludes } from './stories.service'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { AuditService } from '../../common/audit/audit.service'
 import type { ConfigService } from '@nestjs/config'
@@ -31,11 +35,13 @@ function setup() {
       delete: jest.fn().mockResolvedValue({}),
       deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
       count: jest.fn().mockResolvedValue(0),
+      update: jest.fn().mockResolvedValue({}),
     },
     storyPollVote: {
       groupBy: jest.fn().mockResolvedValue([]),
       findMany: jest.fn().mockResolvedValue([]),
       upsert: jest.fn().mockResolvedValue({}),
+      update: jest.fn().mockResolvedValue({}),
     },
     storyView: {
       findMany: jest.fn().mockResolvedValue([]),
@@ -50,27 +56,74 @@ function setup() {
     },
     faculty: { findUnique: jest.fn() },
     group: { findUnique: jest.fn() },
+    // Блокировки и скрытые авторы смотрящего: по умолчанию их нет.
+    userBlock: {
+      findMany: jest.fn().mockResolvedValue([]),
+      count: jest.fn().mockResolvedValue(0),
+    },
+    friendship: { findMany: jest.fn().mockResolvedValue([]) },
+    // Копии в «Актуальном»: по умолчанию сторис ни в одну подборку не добавлена.
+    storyHighlightItem: {
+      findMany: jest.fn().mockResolvedValue([]),
+      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
+    storyHighlight: { deleteMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    storyMute: {
+      findMany: jest.fn().mockResolvedValue([]),
+      upsert: jest.fn().mockResolvedValue({}),
+      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+    },
+    user: {
+      findFirst: jest.fn(),
+      findMany: jest.fn().mockResolvedValue([]),
+      findUnique: jest.fn().mockResolvedValue({ firstName: 'Аня', lastName: 'Ким' }),
+      count: jest.fn().mockResolvedValue(0),
+    },
     $transaction: jest.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
   }
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
-  const config = { get: jest.fn().mockReturnValue('stories-media') }
+  // Настройки по ключу: бакет сторис и лимиты медиа (по умолчанию env.schema).
+  const settings: Record<string, unknown> = {
+    MINIO_BUCKET_STORIES: 'stories-media',
+    STORY_IMAGE_MAX_MB: 10,
+    STORY_VIDEO_MAX_MB: 100,
+    STORY_VIDEO_MAX_SECONDS: 60,
+  }
+  const config = { get: jest.fn((key: string) => settings[key] ?? 'stories-media') }
   const files = {
     getPresignedUrls: jest.fn().mockResolvedValue(new Map([['f-1', 'https://minio/signed']])),
-    findOrThrow: jest
-      .fn()
-      .mockResolvedValue({ id: 'f-1', ownerId: 'u-1', bucket: 'stories-media' }),
+    findOrThrow: jest.fn().mockResolvedValue({
+      id: 'f-1',
+      ownerId: 'u-1',
+      bucket: 'stories-media',
+      mime: 'image/jpeg',
+      size: 1000,
+      durationMs: null,
+    }),
     delete: jest.fn().mockResolvedValue(undefined),
   }
   // Описание вариантов — media.service.spec.ts; здесь достаточно пустой карты.
   const media = { describe: jest.fn().mockResolvedValue(new Map()) }
+  const queue = { enqueue: jest.fn().mockResolvedValue(true) }
+  // Карточки-стикеры: видимость решают модули событий, постов и расписания — здесь заглушки.
+  const events = { storySummaries: jest.fn().mockResolvedValue(new Map()) }
+  const posts = { storySummaries: jest.fn().mockResolvedValue(new Map()) }
+  const schedules = {
+    canSharePair: jest.fn().mockResolvedValue(true),
+    storyPairSummaries: jest.fn().mockResolvedValue(new Map()),
+  }
   const service = new StoriesService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
     config as unknown as ConfigService<EnvVars, true>,
     files as unknown as FileService,
     media as never,
+    queue as never,
+    events as never,
+    posts as never,
+    schedules as never,
   )
-  return { service, prisma, tx, audit, files, media }
+  return { service, prisma, tx, audit, files, media, queue, events, posts, schedules }
 }
 
 function viewer(role: Role, scope: Partial<JwtPayload> = {}): JwtPayload {
@@ -158,6 +211,70 @@ describe('StoriesService.feed — видимость', () => {
     const args = prisma.story.findMany.mock.calls[0][0]
     expect(args.take).toBe(200)
     expect(args.orderBy[0]).toEqual({ createdAt: 'desc' })
+  })
+})
+
+describe('StoriesService — блокировки и скрытые авторы', () => {
+  it('сторисы заблокированных в любую сторону не видны: их авторы исключены', async () => {
+    const { service, prisma } = setup()
+    prisma.userBlock.findMany.mockResolvedValue([
+      { blockerId: 's1', blockedId: 'x' },
+      { blockerId: 'y', blockedId: 's1' },
+    ])
+    await service.feed(viewer(Role.STUDENT, { sub: 's1' }), {})
+    const where = prisma.story.findMany.mock.calls[0][0].where
+    expect(where.AND[1]).toEqual({ authorId: { notIn: ['x', 'y'] } })
+  })
+
+  it('сторис заблокировавшего не открывается и по id — NOT_FOUND', async () => {
+    const { service, prisma } = setup()
+    prisma.userBlock.findMany.mockResolvedValue([{ blockerId: 'author', blockedId: 's1' }])
+    prisma.story.findFirst.mockResolvedValue(null)
+    const err = await service.getById(viewer(Role.STUDENT, { sub: 's1' }), 'st-1').catch((e) => e)
+    expect(err.code).toBe('NOT_FOUND')
+    const where = prisma.story.findFirst.mock.calls[0][0].where
+    expect(JSON.stringify(where)).toContain('"notIn":["author"]')
+  })
+
+  it('скрытые авторы уходят из ленты, но не из профиля автора', async () => {
+    const { service, prisma } = setup()
+    prisma.storyMute.findMany.mockResolvedValue([{ mutedUserId: 'm-1' }])
+    await service.feed(viewer(Role.STUDENT, { sub: 's1' }), {})
+    expect(prisma.story.findMany.mock.calls[0][0].where.AND[1]).toEqual({
+      authorId: { notIn: ['m-1'] },
+    })
+    prisma.storyMute.findMany.mockClear()
+    await service.feed(viewer(Role.STUDENT, { sub: 's1' }), { authorId: 'm-1' })
+    expect(prisma.storyMute.findMany).not.toHaveBeenCalled()
+  })
+
+  it('скрыть свои сторисы нельзя; чужие — идемпотентно', async () => {
+    const { service, prisma } = setup()
+    const err = await service.mute(viewer(Role.STUDENT, { sub: 's1' }), 's1').catch((e) => e)
+    expect(err.code).toBe('BAD_REQUEST')
+    prisma.user.findFirst.mockResolvedValue({ id: 'a-1' })
+    await service.mute(viewer(Role.STUDENT, { sub: 's1' }), 'a-1')
+    expect(prisma.storyMute.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { userId_mutedUserId: { userId: 's1', mutedUserId: 'a-1' } },
+        update: {},
+      }),
+    )
+  })
+
+  it('видимость для получателя пересылки берётся из его записи, а не из токена', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findFirst.mockResolvedValue({
+      id: 'r-1',
+      role: Role.STUDENT,
+      universityId: 'uni-2',
+      facultyId: null,
+      groupId: 'grp-2',
+    })
+    prisma.story.findFirst.mockResolvedValue(null)
+    await expect(service.isVisibleToUser('r-1', 'st-1')).resolves.toBe(false)
+    const where = JSON.stringify(prisma.story.findFirst.mock.calls[0][0].where)
+    expect(where).toContain('"groupId":"grp-2"')
   })
 })
 
@@ -475,6 +592,22 @@ describe('StoriesService.viewers', () => {
     expect(args.cursor).toEqual({ id: 'v-10' })
     expect(args.skip).toBe(1)
   })
+
+  it('у зрителя в списке — его реакции на эту сторис', async () => {
+    const { service, prisma } = setup()
+    prisma.story.findFirst.mockResolvedValue({ id: 's1', authorId: 'u-1' })
+    prisma.storyView.findMany.mockResolvedValue([
+      { id: 'v-1', createdAt: new Date(), user: { id: 'w-1' } },
+      { id: 'v-2', createdAt: new Date(), user: { id: 'w-2' } },
+    ])
+    prisma.storyReaction.findMany.mockResolvedValue([
+      { userId: 'w-1', emoji: '🔥' },
+      { userId: 'w-1', emoji: '❤️' },
+    ])
+    const res = await service.viewers(viewer(Role.STUDENT, { sub: 'u-1' }), 's1', { limit: 20 })
+    expect(res.items[0]).toMatchObject({ reactions: ['🔥', '❤️'] })
+    expect(res.items[1]).toMatchObject({ reactions: [] })
+  })
 })
 
 // ── Удаление ─────────────────────────────────────────────────────────────────
@@ -518,6 +651,25 @@ describe('StoriesService.remove', () => {
     expect(prisma.story.delete).toHaveBeenCalledWith({ where: { id: 's1' } })
     expect(files.delete).toHaveBeenCalledWith('f-1')
     expect(audit.record.mock.calls[0][0]).toMatchObject({ action: 'story_deleted' })
+  })
+
+  it('удалённая сторис уходит и из «Актуального»: копии, их медиа, пустые подборки', async () => {
+    const { service, prisma, files } = setup()
+    prisma.story.findUnique.mockResolvedValue(story)
+    prisma.storyHighlightItem.findMany.mockResolvedValue([
+      { id: 'i-1', highlightId: 'h-1', fileId: 'copy-1' },
+    ])
+    await service.remove(viewer(Role.STUDENT, { sub: 'author' }), 's1', ctx)
+    expect(prisma.storyHighlightItem.findMany.mock.calls[0][0].where).toEqual({
+      sourceStoryId: 's1',
+    })
+    expect(prisma.storyHighlightItem.deleteMany).toHaveBeenCalledWith({
+      where: { id: { in: ['i-1'] } },
+    })
+    expect(prisma.storyHighlight.deleteMany).toHaveBeenCalledWith({
+      where: { id: { in: ['h-1'] }, items: { none: {} } },
+    })
+    expect(files.delete).toHaveBeenCalledWith('copy-1')
   })
 
   it('модератор вуза не снимает сторис админа своего вуза (ранг)', async () => {
@@ -574,5 +726,415 @@ describe('StoriesService.deleteExpired', () => {
     files.delete.mockRejectedValue(new Error('minio down'))
 
     await expect(service.deleteExpired()).resolves.toBe(1)
+  })
+})
+
+describe('StoriesService — редактор: элементы, отметки, медиа', () => {
+  const author = viewer(Role.STUDENT, { sub: 'u-1', universityId: 'uni-1', groupId: 'grp-1' })
+  const groupStory = { audience: 'GROUP' as const }
+  const mention = (userId: string) => ({
+    type: 'mention' as const,
+    x: 0.5,
+    y: 0.5,
+    scale: 1,
+    rotation: 0,
+    userId,
+  })
+  function groupSetup() {
+    const s = setup()
+    s.prisma.group.findUnique.mockResolvedValue({
+      facultyId: 'fac-1',
+      faculty: { universityId: 'uni-1' },
+    })
+    s.prisma.story.findFirst.mockResolvedValue(storyRow())
+    return s
+  }
+
+  it('аудитория для одной записи — то же правило, что и выборка', () => {
+    const user = {
+      id: 'x',
+      role: Role.STUDENT,
+      universityId: 'uni-1',
+      facultyId: 'fac-1',
+      groupId: 'grp-1',
+    }
+    expect(
+      audienceIncludes(user, { authorId: 'a', audience: 'GROUP' as never, groupId: 'grp-1' }),
+    ).toBe(true)
+    expect(
+      audienceIncludes(user, { authorId: 'a', audience: 'GROUP' as never, groupId: 'grp-2' }),
+    ).toBe(false)
+    expect(
+      audienceIncludes(user, {
+        authorId: 'a',
+        audience: 'TEACHERS' as never,
+        universityId: 'uni-1',
+      }),
+    ).toBe(false)
+    expect(
+      audienceIncludes(
+        { ...user, role: Role.TEACHER },
+        { authorId: 'a', audience: 'TEACHERS' as never, universityId: 'uni-1' },
+      ),
+    ).toBe(true)
+  })
+
+  it('отметить можно только того, кто увидит сторис: чужая группа — BAD_REQUEST', async () => {
+    const { service, prisma, tx } = groupSetup()
+    prisma.user.findMany.mockResolvedValue([
+      {
+        id: 'm-1',
+        role: Role.STUDENT,
+        universityId: 'uni-1',
+        facultyId: 'fac-1',
+        groupId: 'grp-2',
+      },
+    ])
+    const err = await service
+      .create(author, { ...groupStory, text: 'x', elements: [mention('m-1')] }, ctx)
+      .catch((e) => e)
+    expect(err.code).toBe('BAD_REQUEST')
+    expect(tx.story.create).not.toHaveBeenCalled()
+  })
+
+  it('блокировка с отмеченным в любую сторону — BAD_REQUEST', async () => {
+    const { service, prisma, tx } = groupSetup()
+    prisma.user.findMany.mockResolvedValue([
+      {
+        id: 'm-1',
+        role: Role.STUDENT,
+        universityId: 'uni-1',
+        facultyId: 'fac-1',
+        groupId: 'grp-1',
+      },
+    ])
+    prisma.userBlock.findMany.mockResolvedValue([{ id: 'b-1' }])
+    const err = await service
+      .create(author, { ...groupStory, text: 'x', elements: [mention('m-1')] }, ctx)
+      .catch((e) => e)
+    expect(err.code).toBe('BAD_REQUEST')
+    expect(tx.story.create).not.toHaveBeenCalled()
+  })
+
+  it('элементы сохраняются, отмеченным уходит уведомление (себя — нет)', async () => {
+    const { service, prisma, tx, queue } = groupSetup()
+    prisma.user.findMany.mockResolvedValue([
+      {
+        id: 'm-1',
+        role: Role.STUDENT,
+        universityId: 'uni-1',
+        facultyId: 'fac-1',
+        groupId: 'grp-1',
+      },
+    ])
+    const elements = [mention('m-1'), mention('u-1'), mention('m-1')]
+    await service.create(author, { ...groupStory, elements }, ctx)
+    expect(tx.story.create.mock.calls[0][0].data.elements).toEqual(elements)
+    expect(queue.enqueue).toHaveBeenCalledWith(
+      'notifications',
+      'story-mention',
+      expect.objectContaining({ recipientIds: ['m-1'], type: 'POST' }),
+      expect.anything(),
+    )
+  })
+
+  it('медиа: формат вне списка, размер и длительность сверх лимита — BAD_REQUEST', async () => {
+    const { service, files } = groupSetup()
+    const tryFile = async (file: Record<string, unknown>) => {
+      files.findOrThrow.mockResolvedValue({
+        id: 'f-1',
+        ownerId: 'u-1',
+        bucket: 'stories-media',
+        ...file,
+      })
+      return service.create(author, { ...groupStory, fileId: 'f-1' }, ctx).catch((e) => e)
+    }
+    expect((await tryFile({ mime: 'image/gif', size: 10, durationMs: null })).code).toBe(
+      'BAD_REQUEST',
+    )
+    expect(
+      (await tryFile({ mime: 'image/png', size: 11 * 1024 * 1024, durationMs: null })).code,
+    ).toBe('BAD_REQUEST')
+    expect((await tryFile({ mime: 'video/mp4', size: 10, durationMs: 61_000 })).code).toBe(
+      'BAD_REQUEST',
+    )
+  })
+
+  it('в выдаче у отметки — имя; удалённый или скрытый блокировкой — не рисуется', async () => {
+    const { service, prisma } = setup()
+    prisma.story.findFirst.mockResolvedValue(
+      storyRow({ elements: [mention('m-1'), mention('gone'), { type: 'bogus' }] }),
+    )
+    prisma.user.findMany.mockResolvedValue([{ id: 'm-1', firstName: 'Аня', lastName: 'Ким' }])
+    const card = await service.getById(viewer(Role.STUDENT, { sub: 's-1' }), 's1')
+    expect(card.elements).toEqual([{ ...mention('m-1'), name: 'Аня Ким' }])
+  })
+
+  it('схема: не больше 10 разных отметок, позиция — доля кадра', () => {
+    const many = Array.from({ length: 11 }, (_, i) => mention(`m-${i}`))
+    expect(
+      CreateStorySchema.safeParse({ audience: 'ALL', text: 'x', elements: many }).success,
+    ).toBe(false)
+    expect(
+      CreateStorySchema.safeParse({ audience: 'ALL', elements: [{ ...mention('m'), x: 1.5 }] })
+        .success,
+    ).toBe(false)
+    expect(CreateStorySchema.safeParse({ audience: 'ALL', elements: [mention('m')] }).success).toBe(
+      true,
+    )
+  })
+})
+
+describe('StoriesService — карточки событий, постов и пар (§3.4)', () => {
+  const author = viewer(Role.STUDENT, { sub: 'u-1', universityId: 'uni-1', groupId: 'grp-1' })
+  const place = { x: 0.5, y: 0.5, scale: 1, rotation: 0 }
+  function groupSetup() {
+    const s = setup()
+    s.prisma.group.findUnique.mockResolvedValue({
+      facultyId: 'fac-1',
+      faculty: { universityId: 'uni-1' },
+    })
+    s.prisma.story.findFirst.mockResolvedValue(storyRow())
+    return s
+  }
+
+  it('событие, которого автор не видит, — BAD_REQUEST, сторис не создаётся', async () => {
+    const { service, tx } = groupSetup()
+    const err = await service
+      .create(
+        author,
+        { audience: 'GROUP' as const, elements: [{ type: 'event', ...place, eventId: 'e-1' }] },
+        ctx,
+      )
+      .catch((e) => e)
+    expect(err.code).toBe('BAD_REQUEST')
+    expect(tx.story.create).not.toHaveBeenCalled()
+  })
+
+  it('чужая пара — BAD_REQUEST', async () => {
+    const { service, schedules, tx } = groupSetup()
+    schedules.canSharePair.mockResolvedValue(false)
+    const err = await service
+      .create(
+        author,
+        {
+          audience: 'GROUP' as const,
+          elements: [{ type: 'schedule', ...place, pairId: 'p-1', date: '2026-11-02' }],
+        },
+        ctx,
+      )
+      .catch((e) => e)
+    expect(err.code).toBe('BAD_REQUEST')
+    expect(schedules.canSharePair).toHaveBeenCalledWith(author, 'p-1')
+    expect(tx.story.create).not.toHaveBeenCalled()
+  })
+
+  it('видимые событие и пост проходят', async () => {
+    const { service, events, posts, tx } = groupSetup()
+    events.storySummaries.mockResolvedValue(new Map([['e-1', { id: 'e-1' }]]))
+    posts.storySummaries.mockResolvedValue(new Map([['p-1', { id: 'p-1' }]]))
+    await service.create(
+      author,
+      {
+        audience: 'GROUP' as const,
+        elements: [
+          { type: 'event', ...place, eventId: 'e-1' },
+          { type: 'post', ...place, postId: 'p-1' },
+        ],
+      },
+      ctx,
+    )
+    expect(tx.story.create).toHaveBeenCalled()
+    expect(events.storySummaries).toHaveBeenCalledWith(author, ['e-1'])
+  })
+
+  it('в выдаче карточка — по правам зрителя: невидимое событие приходит как null', async () => {
+    const { service, prisma, events } = setup()
+    prisma.story.findFirst.mockResolvedValue(
+      storyRow({
+        elements: [
+          { type: 'event', ...place, eventId: 'e-1' },
+          { type: 'event', ...place, eventId: 'e-2' },
+        ],
+      }),
+    )
+    const card = { id: 'e-1', title: 'Хакатон' }
+    events.storySummaries.mockResolvedValue(new Map([['e-1', card]]))
+    const s = await service.getById(viewer(Role.STUDENT, { sub: 'v-1' }), 's1')
+    expect(s.elements).toEqual([
+      { type: 'event', ...place, eventId: 'e-1', event: card },
+      { type: 'event', ...place, eventId: 'e-2', event: null },
+    ])
+  })
+
+  it('два первых голоса одновременно: второй заменяет первый, а не падает', async () => {
+    const { service, prisma } = setup()
+    prisma.story.findFirst.mockResolvedValueOnce({
+      id: 's1',
+      poll: { id: 'poll-1', options: [{ id: 'o-1' }, { id: 'o-2' }] },
+    })
+    prisma.story.findFirst.mockResolvedValue(storyRow())
+    prisma.storyPollVote.upsert.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError('unique', { code: 'P2002', clientVersion: 'x' }),
+    )
+    await service.vote(viewer(Role.STUDENT, { sub: 'v-1' }), 's1', { optionId: 'o-2' })
+    expect(prisma.storyPollVote.update).toHaveBeenCalledWith({
+      where: { pollId_userId: { pollId: 'poll-1', userId: 'v-1' } },
+      data: { optionId: 'o-2' },
+    })
+  })
+})
+
+// ── Личные аудитории: друзья и выбранные (§3.4, приватность) ─────────────────
+describe('StoriesService — аудитории FRIENDS и SELECTED', () => {
+  const student = (sub = 'u-1') =>
+    viewer(Role.STUDENT, { sub, universityId: 'uni-1', facultyId: 'fac-1', groupId: 'grp-1' })
+
+  it('выборка: друзья — через дружбу с автором, выбранные — по списку получателей', async () => {
+    const { service, prisma } = setup()
+    await service.feed(student('v-1'), {})
+    const where = prisma.story.findMany.mock.calls[0][0].where
+    const friends = where.OR.find((c: { audience?: string }) => c.audience === 'FRIENDS')
+    expect(friends.author.OR).toEqual([
+      { friendshipsSent: { some: { addresseeId: 'v-1', status: 'ACCEPTED' } } },
+      { friendshipsReceived: { some: { requesterId: 'v-1', status: 'ACCEPTED' } } },
+    ])
+    const selected = where.OR.find((c: { audience?: string }) => c.audience === 'SELECTED')
+    expect(selected.audienceUserIds).toEqual({ has: 'v-1' })
+  })
+
+  it('для одной записи: FRIENDS — только друзья, SELECTED — только названные', () => {
+    const user = {
+      id: 'v-1',
+      role: Role.STUDENT,
+      universityId: null,
+      facultyId: null,
+      groupId: null,
+    }
+    const friendsStory = { authorId: 'a-1', audience: StoryAudience.FRIENDS }
+    expect(audienceIncludes(user, friendsStory)).toBe(false)
+    expect(audienceIncludes(user, friendsStory, new Set(['v-1']))).toBe(true)
+    const selected = { authorId: 'a-1', audience: StoryAudience.SELECTED }
+    expect(audienceIncludes(user, { ...selected, audienceUserIds: ['v-2'] })).toBe(false)
+    expect(audienceIncludes(user, { ...selected, audienceUserIds: ['v-1'] })).toBe(true)
+  })
+
+  it('схема: получатели — только у SELECTED и обязательны для неё', () => {
+    expect(CreateStorySchema.safeParse({ audience: 'SELECTED', text: 'x' }).success).toBe(false)
+    expect(
+      CreateStorySchema.safeParse({ audience: 'GROUP', text: 'x', userIds: ['u-2'] }).success,
+    ).toBe(false)
+    expect(
+      CreateStorySchema.safeParse({ audience: 'SELECTED', text: 'x', userIds: ['u-2'] }).success,
+    ).toBe(true)
+  })
+
+  it('SELECTED: получатели сохраняются, вуз и факультет — автора (для модерации)', async () => {
+    const { service, prisma, tx } = setup()
+    prisma.user.count.mockResolvedValue(2)
+    prisma.story.findFirst.mockResolvedValue(storyRow())
+    await service.create(
+      student(),
+      { audience: 'SELECTED' as const, text: 'x', userIds: ['u-2', 'u-3'] },
+      ctx,
+    )
+    expect(tx.story.create.mock.calls[0][0].data).toMatchObject({
+      audience: 'SELECTED',
+      audienceUserIds: ['u-2', 'u-3'],
+      universityId: 'uni-1',
+      facultyId: 'fac-1',
+    })
+    expect(tx.story.create.mock.calls[0][0].data.groupId).toBeUndefined()
+  })
+
+  it('SELECTED: удалённый, заблокированный или сам автор в списке — BAD_REQUEST', async () => {
+    const { service, prisma, tx } = setup()
+    prisma.user.count.mockResolvedValue(1)
+    const missing = await service
+      .create(student(), { audience: 'SELECTED' as const, text: 'x', userIds: ['u-2', 'u-3'] }, ctx)
+      .catch((e) => e)
+    expect(missing.code).toBe('BAD_REQUEST')
+
+    prisma.user.count.mockResolvedValue(1)
+    prisma.userBlock.count.mockResolvedValue(1)
+    const blocked = await service
+      .create(student(), { audience: 'SELECTED' as const, text: 'x', userIds: ['u-2'] }, ctx)
+      .catch((e) => e)
+    expect(blocked.code).toBe('BAD_REQUEST')
+
+    const self = await service
+      .create(student(), { audience: 'SELECTED' as const, text: 'x', userIds: ['u-1'] }, ctx)
+      .catch((e) => e)
+    expect(self.code).toBe('BAD_REQUEST')
+    expect(tx.story.create).not.toHaveBeenCalled()
+  })
+
+  it('FRIENDS: отметить можно только друга', async () => {
+    const { service, prisma, tx } = setup()
+    prisma.user.findMany.mockResolvedValue([
+      { id: 'u-2', role: Role.STUDENT, universityId: null, facultyId: null, groupId: null },
+    ])
+    const mention = { type: 'mention' as const, x: 0.5, y: 0.5, scale: 1, rotation: 0 }
+    const input = {
+      audience: 'FRIENDS' as const,
+      elements: [{ ...mention, userId: 'u-2' }],
+    }
+    const err = await service.create(student(), input, ctx).catch((e) => e)
+    expect(err.code).toBe('BAD_REQUEST')
+    expect(tx.story.create).not.toHaveBeenCalled()
+
+    prisma.friendship.findMany.mockResolvedValue([{ requesterId: 'u-1', addresseeId: 'u-2' }])
+    prisma.story.findFirst.mockResolvedValue(storyRow())
+    await service.create(student(), input, ctx)
+    expect(tx.story.create).toHaveBeenCalled()
+  })
+
+  it('смена аудитории: только своей живой сторис, поля прежней аудитории очищаются', async () => {
+    const { service, prisma, audit } = setup()
+    prisma.story.findFirst.mockResolvedValueOnce(null)
+    const foreign = await service
+      .updateAudience(student(), 's1', { audience: 'FRIENDS' }, ctx)
+      .catch((e) => e)
+    expect(foreign.code).toBe('NOT_FOUND')
+    expect(prisma.story.findFirst.mock.calls[0][0].where).toMatchObject({
+      id: 's1',
+      authorId: 'u-1',
+    })
+
+    prisma.story.findFirst.mockResolvedValueOnce({ id: 's1', audience: 'GROUP' })
+    prisma.story.findFirst.mockResolvedValue(storyRow({ audience: StoryAudience.FRIENDS }))
+    await service.updateAudience(student(), 's1', { audience: 'FRIENDS' }, ctx)
+    expect(prisma.story.update).toHaveBeenCalledWith({
+      where: { id: 's1' },
+      data: {
+        audience: 'FRIENDS',
+        universityId: 'uni-1',
+        facultyId: 'fac-1',
+        groupId: null,
+        audienceUserIds: [],
+      },
+    })
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'story_audience_changed',
+        metadata: { from: 'GROUP', to: 'FRIENDS' },
+      }),
+    )
+  })
+
+  it('получателей SELECTED видит только автор', async () => {
+    const { service, prisma } = setup()
+    const recipient = {
+      id: 'u-2',
+      firstName: 'B',
+      lastName: 'C',
+      role: Role.STUDENT,
+      avatarUrl: null,
+    }
+    prisma.user.findMany.mockResolvedValue([recipient])
+    const row = storyRow({ audience: StoryAudience.SELECTED, audienceUserIds: ['u-2'] })
+    prisma.story.findFirst.mockResolvedValue(row)
+    expect((await service.getById(student('u-1'), 's1')).audienceUsers).toEqual([recipient])
+    expect((await service.getById(student('u-2'), 's1')).audienceUsers).toBeNull()
   })
 })

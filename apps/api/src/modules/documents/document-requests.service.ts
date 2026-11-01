@@ -2,6 +2,8 @@ import { Injectable, Logger } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
 import type {
+  AuthoredRequestSort,
+  AuthoredRequestsQueryInput,
   CreateDocumentRequestInput,
   CursorPaginationInput,
   GroupProgressStatus,
@@ -163,6 +165,55 @@ export function acceptsSubmissions(
  * привязывая свои документы к позициям; сотрудник проверяет каждую позицию и комплект.
  * Каждое значимое действие пишется в журнал DocumentEvent (по requestId).
  */
+// Поля строки списка запросов: и для массива обзора, и для страницы таблицы.
+const AUTHORED_REQUEST_SELECT = {
+  id: true,
+  title: true,
+  dueAt: true,
+  status: true,
+  createdAt: true,
+  createdBy: { select: { id: true, firstName: true, lastName: true } },
+  _count: { select: { items: true, targets: true, submissions: true } },
+} satisfies Prisma.DocumentRequestSelect
+
+export interface AuthoredRequestRow {
+  id: string
+  title: string
+  dueAt: Date | null
+  status: string
+  createdAt: Date
+  itemCount: number
+  targetCount: number
+  submissionCount: number
+  submittedCount: number
+  mine: boolean
+  authorName: string
+}
+
+/**
+ * Порядок списка запросов. Поле — enum колонки таблицы; без сортировки — сначала новые.
+ * Запрос без срока — в конце при любом направлении. `id` — стабильный порядок страниц.
+ */
+export function authoredRequestsOrderBy(
+  sort: AuthoredRequestSort | undefined,
+  order: 'asc' | 'desc' | undefined,
+): Prisma.DocumentRequestOrderByWithRelationInput[] {
+  const dir = order ?? (sort === undefined || sort === 'createdAt' ? 'desc' : 'asc')
+  const tie: Prisma.DocumentRequestOrderByWithRelationInput = { id: dir }
+  switch (sort) {
+    case 'title':
+      return [{ title: dir }, tie]
+    case 'items':
+      return [{ items: { _count: dir } }, tie]
+    case 'dueAt':
+      return [{ dueAt: { sort: dir, nulls: 'last' } }, tie]
+    case 'status':
+      return [{ status: dir }, { createdAt: 'desc' }, tie]
+    default:
+      return [{ createdAt: dir }, tie]
+  }
+}
+
 @Injectable()
 export class DocumentRequestsService {
   private readonly logger = new Logger(DocumentRequestsService.name)
@@ -480,24 +531,48 @@ export class DocumentRequestsService {
   /**
    * Запросы в области сотрудника (свои и подразделения, см. staffScopeWhere). Имя ручки
    * осталось прежним (`authored`); чужой запрос помечен `mine: false` и именем автора.
-   * Счётчики — агрегатами, а не статусами всех комплектов каждого из 200 запросов.
+   * Счётчики — агрегатами, а не статусами всех комплектов каждого запроса.
+   *
+   * Без `page` — прежний массив до 200 (его читает обзор раздела). С `page` — страница
+   * таблицы: порядок и номер страницы считает БД, в ответе `meta.total`.
    */
-  async listAuthored(actor: JwtPayload) {
+  async listAuthored(
+    actor: JwtPayload,
+    query: AuthoredRequestsQueryInput = {},
+  ): Promise<AuthoredRequestRow[] | Paginated<AuthoredRequestRow>> {
     this.assertStaff(actor)
-    const rows = await this.prisma.documentRequest.findMany({
-      where: this.staffScopeWhere(actor),
-      orderBy: { createdAt: 'desc' },
-      take: 200,
-      select: {
-        id: true,
-        title: true,
-        dueAt: true,
-        status: true,
-        createdAt: true,
-        createdBy: { select: { id: true, firstName: true, lastName: true } },
-        _count: { select: { items: true, targets: true, submissions: true } },
-      },
-    })
+    const where = this.staffScopeWhere(actor)
+    const orderBy = authoredRequestsOrderBy(query.sort, query.order)
+    if (query.page === undefined) {
+      return this.authoredRows(
+        actor,
+        await this.prisma.documentRequest.findMany({
+          where,
+          orderBy,
+          take: 200,
+          select: AUTHORED_REQUEST_SELECT,
+        }),
+      )
+    }
+    const limit = query.limit ?? 20
+    const [rows, total] = await this.prisma.$transaction([
+      this.prisma.documentRequest.findMany({
+        where,
+        orderBy,
+        skip: (query.page - 1) * limit,
+        take: limit,
+        select: AUTHORED_REQUEST_SELECT,
+      }),
+      this.prisma.documentRequest.count({ where }),
+    ])
+    return new Paginated(await this.authoredRows(actor, rows), { total })
+  }
+
+  /** Строки списка запросов: отправленные комплекты — одним groupBy на всю страницу. */
+  private async authoredRows(
+    actor: JwtPayload,
+    rows: Prisma.DocumentRequestGetPayload<{ select: typeof AUTHORED_REQUEST_SELECT }>[],
+  ): Promise<AuthoredRequestRow[]> {
     const submitted = rows.length
       ? await this.prisma.documentSubmission.groupBy({
           by: ['requestId'],

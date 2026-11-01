@@ -902,6 +902,52 @@ export class EventsService {
   // ── Внутреннее ────────────────────────────────────────────────────────────
 
   /** Событие видно зрителю — иначе NOT_FOUND (не раскрываем существование чужих событий). */
+  /**
+   * Карточки событий для стикеров сторис (§3.4): только те, что видны зрителю, плюс его
+   * собственная регистрация. Невидимое просто отсутствует в ответе — сторис нарисует
+   * «событие недоступно», не раскрывая ни названия, ни времени.
+   */
+  async storySummaries(
+    viewer: JwtPayload,
+    ids: string[],
+  ): Promise<
+    Map<
+      string,
+      {
+        id: string
+        title: string
+        startsAt: Date
+        endsAt: Date | null
+        location: string | null
+        isOnline: boolean
+        isRegistered: boolean
+      }
+    >
+  > {
+    if (ids.length === 0) return new Map()
+    const [events, mine] = await Promise.all([
+      this.prisma.event.findMany({
+        where: { id: { in: ids }, ...eventAccessWhere(viewer) },
+        select: {
+          id: true,
+          title: true,
+          startsAt: true,
+          endsAt: true,
+          location: true,
+          isOnline: true,
+        },
+        take: ids.length,
+      }),
+      this.prisma.eventParticipant.findMany({
+        where: { userId: viewer.sub, eventId: { in: ids } },
+        select: { eventId: true },
+        take: ids.length,
+      }),
+    ])
+    const registered = new Set(mine.map((p) => p.eventId))
+    return new Map(events.map((e) => [e.id, { ...e, isRegistered: registered.has(e.id) }]))
+  }
+
   private async assertVisible(viewer: JwtPayload, id: string): Promise<void> {
     const event = await this.prisma.event.findFirst({
       where: { id, ...eventAccessWhere(viewer) },

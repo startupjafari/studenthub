@@ -76,6 +76,8 @@ export const envSchema = z.object({
   MINIO_BUCKET_AVATARS: z.string().default('avatars'),
   MINIO_BUCKET_POSTS: z.string().default('posts-media'),
   MINIO_BUCKET_STORIES: z.string().default('stories-media'),
+  // «Актуальное»: копии медиа сторис без TTL бакета stories-media (32-stories.prisma).
+  MINIO_BUCKET_STORY_HIGHLIGHTS: z.string().default('story-highlights'),
   MINIO_BUCKET_APPLICATIONS: z.string().default('applications'),
   MINIO_BUCKET_MATERIALS: z.string().default('materials'),
   MINIO_BUCKET_CHAT: z.string().default('chat-media'),
@@ -129,6 +131,15 @@ export const envSchema = z.object({
     .enum(['true', 'false'])
     .default('true')
     .transform((v) => v === 'true'),
+
+  /**
+   * Лимиты медиа сторис. Формат проверяется по списку shared-schemas (STORY_IMAGE_MIMES,
+   * STORY_VIDEO_MIMES), размер и длительность — здесь: их подбирают под хранилище и сеть
+   * конкретного стенда. Длительность сверяется, когда обработка видео её уже узнала.
+   */
+  STORY_IMAGE_MAX_MB: z.coerce.number().int().positive().max(50).default(10),
+  STORY_VIDEO_MAX_MB: z.coerce.number().int().positive().max(500).default(100),
+  STORY_VIDEO_MAX_SECONDS: z.coerce.number().int().positive().max(600).default(60),
 
   /**
    * Удалять неподтверждённых работодателей (крон purgeUnverifiedEmployers): компании в

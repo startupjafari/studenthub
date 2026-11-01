@@ -8,6 +8,7 @@ import {
   ArrowLeft,
   BadgeCheck,
   BarChart3,
+  CircleDashed,
   Bell,
   BellOff,
   Bookmark,
@@ -198,6 +199,8 @@ function MessagePreview({
     content?: string | null
     media?: readonly MessageAttachment[]
     sharedPost?: unknown
+    sharedStory?: unknown
+    sharedStoryReply?: boolean
     poll?: unknown
     sender?: { firstName: string } | null
   } | null
@@ -215,8 +218,9 @@ function MessagePreview({
       </>
     )
   }
+  const story = !!message.sharedStory || !!message.sharedStoryReply
   const profile =
-    message.sharedPost || message.poll ? null : parseProfileShare(message.content ?? null)
+    message.sharedPost || message.poll || story ? null : parseProfileShare(message.content ?? null)
   if (profile) {
     return (
       <PreviewWithIcon icon={UserRound}>
@@ -234,6 +238,14 @@ function MessagePreview({
   if (message.sharedPost) {
     const comment = plainPreview(message.content ?? '')
     return <PreviewWithIcon icon={Newspaper}>{comment || t('previewPost')}</PreviewWithIcon>
+  }
+  if (story) {
+    const comment = plainPreview(message.content ?? '')
+    return (
+      <PreviewWithIcon icon={CircleDashed}>
+        {comment || t(message.sharedStoryReply ? 'previewStoryReply' : 'previewStory')}
+      </PreviewWithIcon>
+    )
   }
   const text = plainPreview(message.content ?? '')
   if (text) return <>{text}</>

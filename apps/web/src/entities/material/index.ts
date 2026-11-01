@@ -1,6 +1,7 @@
 export {
   materialKeys,
   fetchMaterials,
+  fetchMaterialsPage,
   fetchMaterialSubjects,
   createMaterialRequest,
   uploadMaterialFileRequest,

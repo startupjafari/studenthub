@@ -16,9 +16,10 @@ import {
 import { Role } from '@studenthub/shared-types'
 import { useAppSelector } from '../../../shared/store'
 import { PageHeader, SegmentedTabs } from '../../../shared/ui'
+import { cn } from '../../../shared/lib/utils'
 import { OverviewPanel, type OverviewOpen } from './overview-panel'
 import { DocumentsList } from './documents-list'
-import { RequestsPanel } from './requests-panel'
+import { RequestsPanel, STAFF_ROLES } from './requests-panel'
 import { SharedWithMe } from './shared-with-me'
 
 type Section = 'overview' | 'my' | 'requests' | 'shared' | 'from-university' | 'access' | 'archive'
@@ -32,6 +33,16 @@ const SECTIONS: { id: Section; icon: LucideIcon }[] = [
   { id: 'access', icon: ShieldCheck },
   { id: 'archive', icon: Archive },
 ]
+
+// Разделы-таблицы: таблица в них на всю высоту окна, прокручиваются строки, шапка стоит.
+// Запросы — таблица только у сотрудников; у студента это карточки (StudentRequests).
+const TABLE_SECTIONS: ReadonlySet<Section> = new Set([
+  'my',
+  'shared',
+  'from-university',
+  'access',
+  'archive',
+])
 
 // Кому студенты открывают документы из веба: деканату факультета (декан) и вузу
 // (модератор вуза). Остальным раздел «Открытые мне» был бы всегда пуст. Админа вуза здесь
@@ -62,8 +73,15 @@ export function DocumentsView() {
     setSection(target === 'requests' ? 'requests' : 'my')
   }
 
+  const tableSection =
+    TABLE_SECTIONS.has(section) || (section === 'requests' && !!role && STAFF_ROLES.has(role))
+
+  // `min-h-0` — только у разделов-таблиц: без него колонка росла по высоте всех строк,
+  // прокручивалась вся страница, и шапка таблицы уезжала вверх вместе с заголовком
+  // (так же устроены журнал документов и поддержка). Обзор и запросы студента — карточки:
+  // им нужна обычная прокрутка страницы, ужатая колонка их бы обрезала.
   return (
-    <div className="flex w-full flex-1 flex-col gap-4">
+    <div className={cn('flex w-full flex-1 flex-col gap-4', tableSection && 'min-h-0')}>
       <PageHeader
         title={t('title')}
         subtitle={t('subtitle')}

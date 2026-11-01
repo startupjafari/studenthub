@@ -1,5 +1,5 @@
 import { createZodDto } from 'nestjs-zod'
-import { CursorPaginationSchema } from '@studenthub/shared-schemas'
+import { SharedWithMeQuerySchema } from '@studenthub/shared-schemas'
 
-// Раздел «Открытые мне»: cursor-пагинация по id гранта, limit ≤ 50.
-export class SharedWithMeQueryDto extends createZodDto(CursorPaginationSchema) {}
+// Раздел «Открытые мне»: страница по номеру (limit ≤ 100) и сортировка по колонкам таблицы.
+export class SharedWithMeQueryDto extends createZodDto(SharedWithMeQuerySchema) {}

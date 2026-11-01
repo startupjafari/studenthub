@@ -5,10 +5,11 @@ import {
   DEFAULT_PAGE_LIMIT,
   isPageRequested,
   type CreateDocumentInput,
-  type CursorPaginationInput,
   type DocumentJournalVia,
   type DocumentListQueryInput,
   type DocumentSortValue,
+  type SharedWithMeQueryInput,
+  type SharedWithMeSort,
   type SortOrderValue,
   type GrantDocumentAccessInput,
   type ReorderDocumentFilesInput,
@@ -290,6 +291,37 @@ export function nextDocumentStatus(
  * Второй ключ — id в том же направлении: у документов с одинаковым названием или статусом
  * порядок иначе случаен, и на стыке страниц строки терялись бы или повторялись.
  */
+/**
+ * Порядок «Открытых мне». Поле приходит enum'ом колонки таблицы, в `orderBy` произвольное
+ * имя не попадает. Без сортировки — по дате выдачи доступа, сначала новые. Бессрочный доступ
+ * (`expiresAt` пуст) — в конце при любом направлении: «пусто» не меньше и не больше даты.
+ * `id` в конце — стабильный порядок при равных значениях, иначе строки прыгали бы между
+ * страницами.
+ */
+export function sharedWithMeOrderBy(
+  sort: SharedWithMeSort | undefined,
+  order: SortOrderValue | undefined,
+): Prisma.DocumentAccessOrderByWithRelationInput[] {
+  const dir = order ?? (sort === undefined || sort === 'grantedAt' ? 'desc' : 'asc')
+  const tie: Prisma.DocumentAccessOrderByWithRelationInput = { id: dir }
+  switch (sort) {
+    case 'title':
+      return [{ document: { title: dir } }, tie]
+    case 'owner':
+      return [
+        { document: { owner: { lastName: dir } } },
+        { document: { owner: { firstName: dir } } },
+        tie,
+      ]
+    case 'reason':
+      return [{ reason: dir }, tie]
+    case 'expiresAt':
+      return [{ expiresAt: { sort: dir, nulls: 'last' } }, tie]
+    default:
+      return [{ grantedAt: dir }, tie]
+  }
+}
+
 function documentOrderBy(spec: DocumentSortSpec): Prisma.DocumentOrderByWithRelationInput[] {
   const { dir } = spec
   const tie = { id: dir }
@@ -1021,61 +1053,64 @@ export class DocumentsService {
    */
   async listSharedWithMe(
     actor: JwtPayload,
-    query: CursorPaginationInput,
+    query: SharedWithMeQueryInput,
   ): Promise<Paginated<SharedDocumentDto>> {
     // Открыть отсюда такой роли нечего (getFileUrl ей откажет), а метаданные чужих документов
     // — название, маска номера, сроки — тоже часть содержимого.
-    if (CONTENT_BARRED_ROLES.has(actor.role)) return new Paginated([], { hasNext: false })
+    if (CONTENT_BARRED_ROLES.has(actor.role)) return new Paginated([], { total: 0 })
     const now = new Date()
-    const rows = await this.prisma.documentAccess.findMany({
-      where: {
-        revokedAt: null,
-        AND: [
-          { OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] },
-          {
-            OR: this.granteeOr(actor, {
-              granteeType: 'UNIVERSITY',
-              document: { universityId: actor.universityId ?? '__none__' },
-            }),
-          },
-        ],
-        // Свои документы здесь не нужны — они в «Моих документах».
-        document: { deletedAt: null, ownerId: { not: actor.sub } },
-      },
-      orderBy: [{ grantedAt: 'desc' }, { id: 'desc' }],
-      take: query.limit + 1,
-      ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
-      select: {
-        id: true,
-        granteeType: true,
-        reason: true,
-        grantedAt: true,
-        expiresAt: true,
-        document: {
-          select: {
-            id: true,
-            category: true,
-            type: true,
-            title: true,
-            numberLast4: true,
-            issuedBy: true,
-            issuedAt: true,
-            expiresAt: true,
-            status: true,
-            files: {
-              select: { id: true, mime: true, size: true, order: true },
-              orderBy: { order: 'asc' },
-              take: DOCUMENT_FILES_LIMIT,
+    const where: Prisma.DocumentAccessWhereInput = {
+      revokedAt: null,
+      AND: [
+        { OR: [{ expiresAt: null }, { expiresAt: { gt: now } }] },
+        {
+          OR: this.granteeOr(actor, {
+            granteeType: 'UNIVERSITY',
+            document: { universityId: actor.universityId ?? '__none__' },
+          }),
+        },
+      ],
+      // Свои документы здесь не нужны — они в «Моих документах».
+      document: { deletedAt: null, ownerId: { not: actor.sub } },
+    }
+    // Страница и порядок — на сервере: упорядочена вся выборка, а не открытая страница.
+    const [rows, total] = await this.prisma.$transaction([
+      this.prisma.documentAccess.findMany({
+        where,
+        orderBy: sharedWithMeOrderBy(query.sort, query.order),
+        skip: (query.page - 1) * query.limit,
+        take: query.limit,
+        select: {
+          id: true,
+          granteeType: true,
+          reason: true,
+          grantedAt: true,
+          expiresAt: true,
+          document: {
+            select: {
+              id: true,
+              category: true,
+              type: true,
+              title: true,
+              numberLast4: true,
+              issuedBy: true,
+              issuedAt: true,
+              expiresAt: true,
+              status: true,
+              files: {
+                select: { id: true, mime: true, size: true, order: true },
+                orderBy: { order: 'asc' },
+                take: DOCUMENT_FILES_LIMIT,
+              },
+              owner: { select: { id: true, firstName: true, lastName: true } },
             },
-            owner: { select: { id: true, firstName: true, lastName: true } },
           },
         },
-      },
-    })
-    const hasNext = rows.length > query.limit
-    const page = hasNext ? rows.slice(0, query.limit) : rows
+      }),
+      this.prisma.documentAccess.count({ where }),
+    ])
     return new Paginated(
-      page.map((r) => {
+      rows.map((r) => {
         const { numberLast4, files, owner, ...doc } = r.document
         return {
           accessId: r.id,
@@ -1092,7 +1127,7 @@ export class DocumentsService {
           },
         }
       }),
-      { cursor: hasNext ? page[page.length - 1]?.id : undefined, hasNext },
+      { total },
     )
   }
 
@@ -1384,9 +1419,10 @@ export class DocumentsService {
   }
 
   /**
-   * Мои документы. Без `limit`/`cursor` — прежний ответ массивом до DOCUMENTS_LEGACY_LIMIT
-   * (веб, Android); с ними — страница той же сортировки: `meta.cursor` — позиция последней
-   * строки, `meta.hasNext`, `meta.total` — сколько документов под фильтром всего.
+   * Мои документы. Без `page`/`limit`/`cursor` — прежний ответ массивом до
+   * DOCUMENTS_LEGACY_LIMIT (Android). С `page` — страница по номеру и `meta.total` (таблицы
+   * веба). С `limit`/`cursor` — страница той же сортировки курсором (iOS): `meta.cursor` —
+   * позиция последней строки, `meta.hasNext`, `meta.total` — сколько документов под фильтром.
    */
   async list(
     actor: JwtPayload,
@@ -1414,6 +1450,28 @@ export class DocumentsService {
     }
     const spec = documentSortSpec(query.sort, query.order)
     const orderBy = documentOrderBy(spec)
+    // Страница по номеру — таблицы веба. Порядок тот же, что у курсорной выдачи, включая
+    // сортировку по доступу: offset ей не мешает, keyset-позиция для неё не строится.
+    if (query.page !== undefined) {
+      if (query.cursor) {
+        throw new AppException('BAD_REQUEST', 'Нельзя листать номером страницы и курсором сразу')
+      }
+      const limit = query.limit ?? DEFAULT_PAGE_LIMIT
+      const [rows, total] = await this.prisma.$transaction([
+        this.prisma.document.findMany({
+          where,
+          select: documentSelect(),
+          orderBy,
+          skip: (query.page - 1) * limit,
+          take: limit,
+        }),
+        this.prisma.document.count({ where }),
+      ])
+      return new Paginated(
+        rows.map((r) => this.toDto(r)),
+        { total },
+      )
+    }
     if (!isPageRequested(query)) {
       const rows = await this.prisma.document.findMany({
         where,

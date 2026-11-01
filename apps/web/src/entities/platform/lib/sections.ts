@@ -14,7 +14,8 @@ const SECTION_NAV_KEYS: Record<string, readonly string[]> = {
   chats: ['chats'],
   events: ['events'],
   documents: ['documents'],
-  applications: ['applications'],
+  // `applicationsQueue` — очередь заявок в разделе «Заявки» у админа вуза (nav.ts).
+  applications: ['applications', 'applicationsQueue'],
   portfolio: ['portfolio'],
   career: [
     'careerHome',

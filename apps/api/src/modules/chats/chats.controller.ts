@@ -55,6 +55,8 @@ import { MessageSearchQueryDto } from './dto/message-search-query.dto'
 import { MessageReactionDto } from './dto/message-reaction.dto'
 import { MessageForwardDto } from './dto/message-forward.dto'
 import { SharePostDto } from './dto/share-post.dto'
+import { ShareStoryDto } from './dto/share-story.dto'
+import { StoryReplyDto } from './dto/story-reply.dto'
 import { SaveDraftDto } from './dto/save-draft.dto'
 import { JoinChatByInviteDto } from './dto/join-chat-by-invite.dto'
 
@@ -348,6 +350,32 @@ export class ChatsController {
     @Body() dto: MessageForwardDto,
   ) {
     return this.chats.forwardMessage(user, id, dto.messageId)
+  }
+
+  @Post('story-reply')
+  @ApiOperation({
+    summary:
+      'Ответить на сторис: личное сообщение автору с карточкой сторис (чат найдётся или создастся)',
+  })
+  @ApiResponse({ status: 201, description: '{ chatId, message }' })
+  @ApiResponse({ status: 400, description: 'BAD_REQUEST — своя сторис' })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN — блокировка или переписка недоступна' })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND — сторис не видна (истекла, аудитория)' })
+  replyToStory(@CurrentUser() user: CurrentUserData, @Body() dto: StoryReplyDto) {
+    return this.chats.replyToStory(user, dto.storyId, dto.content)
+  }
+
+  @Post(':id/share-story')
+  @ApiOperation({ summary: 'Переслать сторис в личный чат (видна и отправителю, и получателю)' })
+  @ApiResponse({ status: 201, description: 'Сообщение с карточкой сторис' })
+  @ApiResponse({ status: 400, description: 'BAD_REQUEST — чат не личный' })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN — получателю сторис недоступна' })
+  shareStory(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: ShareStoryDto,
+  ) {
+    return this.chats.shareStory(user, id, dto.storyId, dto.comment)
   }
 
   @Post(':id/share-post')

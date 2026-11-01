@@ -42,7 +42,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../../../shared/ui'
-import { toApiError } from '../../../shared/lib'
+import { cn, toApiError } from '../../../shared/lib'
 import { TERMINAL_STATUSES } from '@studenthub/shared-schemas'
 import { ResultModal } from './result-modal'
 import { FormAnswers } from './form-answers'
@@ -87,116 +87,191 @@ export function StaffWorkspaceModal({ id, onClose }: { id: string; onClose: () =
     { id: 'issue', label: t('dStepIssue') },
   ]
 
+  // Окно собрано по важности: что за заявка и в каком она статусе (шапка) → на каком этапе
+  // (степпер во всю ширину) → слева то, по чему решают (сведения, ответы, документы), справа
+  // история. На телефоне колонки встают друг под друга, история последней. Действия — в
+  // нижней полосе вне прокрутки, как в остальных окнах: «Закрыть» слева, решения справа.
   return (
-    <Modal onClose={onClose} title={serviceName ?? t('title')} size="2xl">
+    <Modal
+      onClose={onClose}
+      title={serviceName ?? t('title')}
+      headerAction={app && <ApplicationStatusBadge status={app.status} />}
+      size="3xl"
+      bodyClassName="overflow-hidden p-0"
+    >
       {q.isLoading ? (
-        <Skeleton className="h-64 w-full rounded-xl" />
+        <div className="p-5">
+          <Skeleton className="h-64 w-full rounded-xl" />
+        </div>
       ) : q.isError || !app ? (
-        <EmptyState
-          title={t('loadError')}
-          action={
-            <Button variant="outline" onClick={() => q.refetch()}>
-              {t('retry')}
-            </Button>
-          }
-        />
-      ) : (
-        <div className="flex flex-col gap-4">
-          <Stepper
-            steps={deanSteps}
-            current={viewStep}
-            done={activeStep}
-            onStepClick={(i) => i <= activeStep && setSelected(i)}
+        <div className="p-5">
+          <EmptyState
+            title={t('loadError')}
+            action={
+              <Button variant="outline" onClick={() => q.refetch()}>
+                {t('retry')}
+              </Button>
+            }
           />
+        </div>
+      ) : (
+        <div className="flex min-h-0 flex-1 flex-col">
+          <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-5">
+            <Stepper
+              layout="centered"
+              steps={deanSteps}
+              current={viewStep}
+              done={activeStep}
+              onStepClick={(i) => i <= activeStep && setSelected(i)}
+            />
 
-          <Card className="flex flex-col gap-3 p-4">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-sm font-medium text-muted-foreground">{app.number}</span>
-              <ApplicationStatusBadge status={app.status} />
+            {/* Колонки тянутся на высоту ряда: история занимает всю высоту рядом со
+                сведениями, а не обрывается карточкой посреди пустого места. */}
+            <div className="grid gap-4 md:grid-cols-5">
+              <div className="flex min-w-0 flex-col gap-4 md:col-span-3">
+                <Card className="flex flex-col gap-4 p-4">
+                  <h3 className="text-sm font-semibold">{t('infoTitle')}</h3>
+                  {/* Сетка 2×N: пары «кто / как», «когда подано / к какому сроку».
+                      На телефоне — одна колонка. */}
+                  <dl className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
+                    {/* У черновика номера ещё нет — номер выдаётся при отправке. */}
+                    {app.number && <Row label={t('numberLabel')} value={app.number} />}
+                    {app.submittedAt && (
+                      <Row
+                        label={t('submittedAtLabel')}
+                        value={formatDateTime(app.submittedAt, locale)}
+                      />
+                    )}
+                    {app.student && (
+                      <Row
+                        label={t('studentLabel')}
+                        value={`${app.student.lastName} ${app.student.firstName}`}
+                      />
+                    )}
+                    {app.deliveryType && (
+                      <Row label={t('deliveryTitle')} value={t(`delivery_${app.deliveryType}`)} />
+                    )}
+                    {app.dueAt && (
+                      <Row label={t('expectedReady')} value={formatDateTime(app.dueAt, locale)} />
+                    )}
+                    <AssigneeRow app={app} onChanged={() => void q.refetch()} />
+                  </dl>
+                </Card>
+
+                {/* Ответы анкеты — на всех этапах: по ним решают «подготовить или отклонить», а
+                при подготовке берут, например, организацию для справки. */}
+                <FormAnswers fields={app.service.formFields ?? []} formData={app.formData} />
+
+                {/* Шаг «Проверка» — документы заявки */}
+                {viewStep === 0 && app.documents.length > 0 && (
+                  <Card className="flex flex-col gap-3 p-4">
+                    <h3 className="text-sm font-semibold">{t('documentsTitle')}</h3>
+                    <StaffDocumentReview
+                      appId={app.id}
+                      documents={app.documents}
+                      // В исправлении проверка продолжается: можно пометить к замене ещё документ,
+                      // а не отправлять каждый отдельным кругом.
+                      canReview={app.status === 'IN_REVIEW' || app.status === 'NEEDS_CORRECTION'}
+                      onChanged={() => void q.refetch()}
+                    />
+                  </Card>
+                )}
+
+                {/* Шаги «Подготовка»/«Выдача» — результат заявки. У отклонённой — тоже: справку,
+                выданную до отказа, должно быть видно и можно отозвать. */}
+                {(viewStep >= 1 || app.status === 'REJECTED') && app.results.length > 0 && (
+                  <Card className="flex flex-col gap-2 p-4">
+                    <h3 className="text-sm font-semibold">{t('resultTitle')}</h3>
+                    {app.results.map((r) => (
+                      <ResultRow key={r.id} appId={app.id} result={r} />
+                    ))}
+                    <RevokeCertificate app={app} onDone={() => void q.refetch()} />
+                  </Card>
+                )}
+              </div>
+
+              <Timeline app={app} className="min-w-0 md:col-span-2" />
             </div>
-            {app.student && (
-              <Row
-                label={t('studentLabel')}
-                value={`${app.student.lastName} ${app.student.firstName}`}
-              />
-            )}
-            {app.deliveryType && (
-              <Row label={t('deliveryTitle')} value={t(`delivery_${app.deliveryType}`)} />
-            )}
-            {app.dueAt && (
-              <Row label={t('expectedReady')} value={new Date(app.dueAt).toLocaleString(locale)} />
-            )}
-            <AssigneeRow app={app} onChanged={() => void q.refetch()} />
-          </Card>
+          </div>
 
-          {/* Ответы анкеты — на всех этапах: по ним решают «подготовить или отклонить», а
-              при подготовке берут, например, организацию для справки. */}
-          <FormAnswers fields={app.service.formFields ?? []} formData={app.formData} />
-
-          {/* Шаг «Проверка» — документы заявки */}
-          {viewStep === 0 && app.documents.length > 0 && (
-            <Card className="flex flex-col gap-3 p-4">
-              <h3 className="text-sm font-semibold">{t('documentsTitle')}</h3>
-              <StaffDocumentReview
-                appId={app.id}
-                documents={app.documents}
-                // В исправлении проверка продолжается: можно пометить к замене ещё документ,
-                // а не отправлять каждый отдельным кругом.
-                canReview={app.status === 'IN_REVIEW' || app.status === 'NEEDS_CORRECTION'}
-                onChanged={() => void q.refetch()}
-              />
-            </Card>
-          )}
-
-          {/* Шаги «Подготовка»/«Выдача» — результат заявки. У отклонённой — тоже: справку,
-              выданную до отказа, должно быть видно и можно отозвать. */}
-          {(viewStep >= 1 || app.status === 'REJECTED') && app.results.length > 0 && (
-            <Card className="flex flex-col gap-2 p-4">
-              <h3 className="text-sm font-semibold">{t('resultTitle')}</h3>
-              {app.results.map((r) => (
-                <ResultRow key={r.id} appId={app.id} result={r} />
-              ))}
-              <RevokeCertificate app={app} onDone={() => void q.refetch()} />
-            </Card>
-          )}
-
-          {/* Действия — только на текущем этапе обработки */}
-          {viewStep === activeStep && <StaffActions app={app} onDone={() => void q.refetch()} />}
-
-          <Card className="flex flex-col gap-3 p-4">
-            <h3 className="text-sm font-semibold">{t('timelineTitle')}</h3>
-            <ol className="flex flex-col gap-3">
-              {app.events.map((e) => {
-                const key = `event_${e.action}`
-                const label = t.has(key)
-                  ? t(key)
-                  : e.toStatus
-                    ? t(`status2_${e.toStatus}`)
-                    : e.action
-                const comment = eventComment(e, app, locale)
-                return (
-                  <li key={e.id} className="flex gap-3 text-sm">
-                    <span className="mt-1 size-2 shrink-0 rounded-full bg-primary" aria-hidden />
-                    <div className="flex min-w-0 flex-col">
-                      <span className="font-medium">{label}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {new Date(e.createdAt).toLocaleString(locale)}
-                      </span>
-                      {comment && <span className="text-xs text-muted-foreground">{comment}</span>}
-                    </div>
-                  </li>
-                )
-              })}
-            </ol>
-          </Card>
+          {/* Действия относятся к заявке, а не к просматриваемому этапу: полоса не пропадает,
+              когда сотрудник листает пройденные шаги, и кнопки не прыгают по окну. */}
+          <StaffActions app={app} onClose={onClose} onDone={() => void q.refetch()} />
         </div>
       )}
     </Modal>
   )
 }
 
+// Дата и время без секунд: секунды в заявке ничего не решают, а строку удлиняют.
+function formatDateTime(iso: string, locale: string): string {
+  return new Date(iso).toLocaleString(locale, { dateStyle: 'medium', timeStyle: 'short' })
+}
+
+// История заявки — по времени, от первого события к последнему. Порядок с сервера не
+// гарантирован: назначение ответственного приходило раньше создания черновика.
+function Timeline({ app, className }: { app: ApplicationDetail; className?: string }) {
+  const t = useTranslations('Applications')
+  const locale = useLocale()
+  const events = [...app.events].sort(
+    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+  )
+  if (events.length === 0) return null
+
+  return (
+    <Card className={cn('flex flex-col gap-4 p-4', className)}>
+      <h3 className="text-sm font-semibold">{t('timelineTitle')}</h3>
+      <ol className="flex flex-col">
+        {events.map((e, i) => {
+          const key = `event_${e.action}`
+          const label = t.has(key) ? t(key) : e.toStatus ? t(`status2_${e.toStatus}`) : e.action
+          const comment = eventComment(e, app, locale)
+          const last = i === events.length - 1
+          return (
+            <li key={e.id} className="flex gap-3 text-sm">
+              {/* Точка и линия к следующему событию — одна колонка, линия тянется по высоте
+                  записи, сколько бы строк ни занял комментарий. */}
+              <div className="flex flex-col items-center" aria-hidden>
+                <span
+                  className={cn(
+                    'mt-1.5 size-2 shrink-0 rounded-full',
+                    last ? 'bg-primary' : 'bg-primary/40',
+                  )}
+                />
+                {!last && <span className="mt-1 w-px flex-1 bg-border" />}
+              </div>
+              <div className={cn('flex min-w-0 flex-1 flex-col gap-0.5', !last && 'pb-4')}>
+                {/* Событие и время — друг под другом: колонка истории узкая, в строку
+                    длинное событие и дата не помещаются. */}
+                <span className="font-medium">{label}</span>
+                <time dateTime={e.createdAt} className="text-xs text-muted-foreground tabular-nums">
+                  {formatDateTime(e.createdAt, locale)}
+                </time>
+                {comment && (
+                  <span className="text-xs whitespace-pre-line text-muted-foreground">
+                    {comment}
+                  </span>
+                )}
+              </div>
+            </li>
+          )
+        })}
+      </ol>
+    </Card>
+  )
+}
+
 // Действия сотрудника по state-machine (кнопки только для допустимых из текущего статуса).
-function StaffActions({ app, onDone }: { app: ApplicationDetail; onDone: () => void }) {
+function StaffActions({
+  app,
+  onClose,
+  onDone,
+}: {
+  app: ApplicationDetail
+  onClose: () => void
+  onDone: () => void
+}) {
+  const tCommon = useTranslations('Common')
   const t = useTranslations('Applications')
   const qc = useQueryClient()
   const done = () => {
@@ -246,38 +321,32 @@ function StaffActions({ app, onDone }: { app: ApplicationDetail; onDone: () => v
   // номер и примечание. Для этого отдельная форма, а не PromptDialog.
   const [resultOpen, setResultOpen] = useState(false)
 
-  const buttons: React.ReactNode[] = []
+  // Полоса как в остальных окнах (заявка вуза, услуга, вакансия): «Закрыть» слева, решения
+  // справа в постоянном порядке — отказ, вспомогательное, основное крайним справа.
+  let primary: React.ReactNode = null
+  const secondary: React.ReactNode[] = []
+  let danger: React.ReactNode = null
   const s = app.status
   // Отозванная справка результатом не считается (сервер проверяет то же самое).
   const hasActiveResult = app.results.some((r) => !r.revoked)
   if (s === 'SUBMITTED' || s === 'RESUBMITTED') {
-    buttons.push(
-      <Button
-        key="take"
-        className="w-full"
-        loading={takeMut.isPending}
-        onClick={() => takeMut.mutate()}
-      >
+    primary = (
+      <Button loading={takeMut.isPending} onClick={() => takeMut.mutate()}>
         {t('take')}
-      </Button>,
+      </Button>
     )
   }
   if (s === 'IN_REVIEW') {
-    buttons.push(
-      <Button
-        key="start"
-        className="w-full"
-        loading={startMut.isPending}
-        onClick={() => startMut.mutate()}
-      >
+    primary = (
+      <Button loading={startMut.isPending} onClick={() => startMut.mutate()}>
         {t('startPreparation')}
-      </Button>,
+      </Button>
     )
-    buttons.push(
+    secondary.push(
       <Button
         key="corr"
         variant="outline"
-        className="w-full"
+
         onClick={() =>
           setPrompt({
             title: t('requestCorrection'),
@@ -292,15 +361,13 @@ function StaffActions({ app, onDone }: { app: ApplicationDetail; onDone: () => v
     )
   }
   if (s === 'IN_PREPARATION') {
-    buttons.push(
-      <Button key="result" variant="outline" className="w-full" onClick={() => setResultOpen(true)}>
+    secondary.push(
+      <Button key="result" variant="outline" onClick={() => setResultOpen(true)}>
         {t('addResult')}
       </Button>,
     )
-    buttons.push(
+    primary = (
       <Button
-        key="ready"
-        className="w-full"
         onClick={() => {
           // Электронную выдачу без результата сервер не примет: студенту пришло бы «готово»,
           // а скачать нечего. Подсказываем до запроса, а не общей ошибкой после.
@@ -313,22 +380,20 @@ function StaffActions({ app, onDone }: { app: ApplicationDetail; onDone: () => v
         }}
       >
         {t('markReady')}
-      </Button>,
+      </Button>
     )
   }
   // Справку отозвали уже после «готово» — до передачи студенту её можно выпустить заново.
   if ((s === 'READY' || s === 'READY_FOR_PICKUP') && !hasActiveResult && app.results.length > 0) {
-    buttons.push(
-      <Button key="result" variant="outline" className="w-full" onClick={() => setResultOpen(true)}>
+    secondary.push(
+      <Button key="result" variant="outline" onClick={() => setResultOpen(true)}>
         {t('addResult')}
       </Button>,
     )
   }
   if (s === 'READY_FOR_PICKUP') {
-    buttons.push(
+    primary = (
       <Button
-        key="issue"
-        className="w-full"
         loading={issueMut.isPending}
         onClick={() =>
           // Код получения называет студент, сервер сверяет: сотрудник его не видит, и
@@ -342,27 +407,20 @@ function StaffActions({ app, onDone }: { app: ApplicationDetail; onDone: () => v
         }
       >
         {t('issue')}
-      </Button>,
+      </Button>
     )
   }
   if (s === 'READY') {
-    buttons.push(
-      <Button
-        key="deliver"
-        className="w-full"
-        loading={deliverMut.isPending}
-        onClick={() => deliverMut.mutate()}
-      >
+    primary = (
+      <Button loading={deliverMut.isPending} onClick={() => deliverMut.mutate()}>
         {t('deliver')}
-      </Button>,
+      </Button>
     )
   }
   if (s === 'SUBMITTED' || s === 'IN_REVIEW' || s === 'IN_PREPARATION') {
-    buttons.push(
+    danger = (
       <Button
-        key="reject"
-        variant="outline"
-        className="w-full text-destructive hover:text-destructive"
+        variant="destructive"
         onClick={() =>
           setPrompt({
             title: t('rejectApp'),
@@ -373,13 +431,25 @@ function StaffActions({ app, onDone }: { app: ApplicationDetail; onDone: () => v
         }
       >
         {t('rejectApp')}
-      </Button>,
+      </Button>
     )
   }
-  if (buttons.length === 0 && !prompt && !resultOpen) return null
+  // Ход за студентом: решений нет, но справа пояснение — иначе окно выглядит сломанным,
+  // а не ждущим.
+  const waiting = s === 'NEEDS_CORRECTION' ? t('waitingCorrection') : null
   return (
     <>
-      <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">{buttons}</div>
+      <footer className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-border px-5 py-4">
+        <Button variant="outline" onClick={onClose}>
+          {tCommon('close')}
+        </Button>
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {waiting && <p className="text-sm text-muted-foreground">{waiting}</p>}
+          {danger}
+          {secondary}
+          {primary}
+        </div>
+      </footer>
       {resultOpen && (
         <ResultModal appId={app.id} onClose={() => setResultOpen(false)} onDone={done} />
       )}
@@ -611,31 +681,34 @@ function AssigneeRow({ app, onChanged }: { app: ApplicationDetail; onChanged: ()
   }
 
   return (
-    <div className="flex flex-col gap-1">
-      <span className="text-xs text-muted-foreground">{t('assignee')}</span>
-      <Select
-        value={app.assignedToId ?? undefined}
-        onValueChange={(userId) => assign.mutate(userId)}
-        disabled={assign.isPending || candidates.isLoading}
-      >
-        <SelectTrigger size="sm" className="w-full sm:w-72" aria-label={t('assignee')}>
-          <SelectValue placeholder={t('unassigned')} />
-        </SelectTrigger>
-        <SelectContent>
-          {/* Назначенный мог уйти из круга (заблокирован, сменил факультет) — показываем его,
+    // Селект — во всю ширину своей ячейки сетки, вровень с соседней колонкой.
+    <div className="flex min-w-0 flex-col gap-1">
+      <dt className="text-xs text-muted-foreground">{t('assignee')}</dt>
+      <dd>
+        <Select
+          value={app.assignedToId ?? undefined}
+          onValueChange={(userId) => assign.mutate(userId)}
+          disabled={assign.isPending || candidates.isLoading}
+        >
+          <SelectTrigger size="sm" className="w-full" aria-label={t('assignee')}>
+            <SelectValue placeholder={t('unassigned')} />
+          </SelectTrigger>
+          <SelectContent>
+            {/* Назначенный мог уйти из круга (заблокирован, сменил факультет) — показываем его,
               чтобы селект не выглядел пустым при живом назначении. */}
-          {app.assignedToId && !current && (
-            <SelectItem value={app.assignedToId} disabled>
-              {t('assignedSomeone')}
-            </SelectItem>
-          )}
-          {people.map((p) => (
-            <SelectItem key={p.id} value={p.id}>
-              {fullName(p)}
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
+            {app.assignedToId && !current && (
+              <SelectItem value={app.assignedToId} disabled>
+                {t('assignedSomeone')}
+              </SelectItem>
+            )}
+            {people.map((p) => (
+              <SelectItem key={p.id} value={p.id}>
+                {fullName(p)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </dd>
     </div>
   )
 }
@@ -692,11 +765,12 @@ function RevokeCertificate({ app, onDone }: { app: ApplicationDetail; onDone: ()
   )
 }
 
+// Пара «подпись — значение» в сетке сведений (`<dl>`).
 function Row({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex flex-col gap-0.5">
-      <span className="text-xs text-muted-foreground">{label}</span>
-      <span className="text-sm">{value}</span>
+    <div className="flex min-w-0 flex-col gap-1">
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className="text-sm font-medium break-words">{value}</dd>
     </div>
   )
 }

@@ -1,14 +1,53 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { createPortal } from 'react-dom'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+  type PointerEvent as ReactPointerEvent,
+} from 'react'
+import { useRouter } from 'next/navigation'
+import { Dialog as DialogPrimitive } from 'radix-ui'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useTranslations } from 'next-intl'
+import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { ChevronLeft, ChevronRight, Eye, ExternalLink, Flag, Trash2, X } from 'lucide-react'
+import {
+  BadgeCheck,
+  Bookmark,
+  ChevronLeft,
+  ChevronRight,
+  ExternalLink,
+  Eye,
+  EyeOff,
+  Flag,
+  Heart,
+  ImageOff,
+  Link2,
+  Loader2,
+  MoreHorizontal,
+  Pause,
+  Pencil,
+  Play,
+  Send,
+  Share2,
+  Star,
+  Trash2,
+  UserRound,
+  Users,
+  Volume2,
+  VolumeX,
+  X,
+} from 'lucide-react'
 import { STORY_REACTION_EMOJIS, canFileComplaint } from '@studenthub/shared-schemas'
+import { Role } from '@studenthub/shared-types'
+import { registerEventRequest } from '../../../entities/event'
 import {
   pickSource,
+  relativeTime,
   srcSetOf,
   toApiError,
   useBackClose,
@@ -21,6 +60,11 @@ import {
   AvatarFallback,
   AvatarImage,
   Button,
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
   MediaImage,
   useConfirm,
 } from '../../../shared/ui'
@@ -28,21 +72,94 @@ import {
   addStoryReactionRequest,
   deleteStoryRequest,
   markStoryViewed,
+  muteStoryAuthorRequest,
+  removeStoryHighlightItemRequest,
   removeStoryReactionRequest,
+  replyToStoryRequest,
+  updateStoryHighlightRequest,
+  unmuteStoryAuthorRequest,
+  StoryElementsLayer,
+  StoryThumb,
   storyBackgroundClass,
   storyKeys,
   voteStoryRequest,
   type StoryCard,
+  type StoryElement,
   type StoryRing,
 } from '../../../entities/story'
 import { useAppSelector } from '../../../shared/store'
 import { ReportModal } from '../../../features/report-content'
+import { ChangeAudienceModal, useAudienceLabel } from '../../../features/create-story'
+import { AddToHighlightModal, EditHighlightModal } from '../../../features/story-highlights'
 import { StoryViewersSheet } from './story-viewers-sheet'
+import { ShareStorySheet } from './share-story-sheet'
 
 // Сколько держится кадр без своего таймера (текст и фото). У видео длительность своя.
-const FRAME_MS = 7000
+const FRAME_MS = 6000
 // Ширина кадра сторис для srcset: на телефоне во весь экран, на десктопе — колонка ~420px.
-const STORY_SIZES = '(max-width: 640px) 100vw, 420px'
+const STORY_SIZES = '(max-width: 640px) 100vw, 480px'
+// Жесты на кадре: удержание дольше этого — пауза, а не тап; сдвиг больше — свайп.
+const HOLD_MS = 220
+const SWIPE_X_PX = 60
+const SWIPE_DOWN_PX = 90
+// Звук видео — выбор человека, а не каждого ролика: помним его в браузере.
+const MUTED_KEY = 'sh.stories.muted'
+
+// Превью соседних авторов по бокам от активной сторис (десктоп), как в Instagram: сколько
+// колец видно с каждой стороны, во сколько раз превью меньше кадра и зазор между ними.
+const PREVIEW_RADIUS = 2
+const PREVIEW_SCALE = 0.42
+// Ширина кадра на десктопе: до 30rem, но кадр 9:16 целиком помещается по высоте экрана
+// (с полями 1.5rem). Одна CSS-переменная — от неё считаются и превью, и стрелки, поэтому
+// геометрия ленты не расходится при любом размере окна.
+const FRAME_W = 'min(30rem, calc((100dvh - 3rem) * 9 / 16))'
+const GAP_PX = 24
+// Зазор между кадром и первым превью шире: в нём стоят стрелки листания. При общем зазоре
+// стрелка ложилась на превью соседа, и клик по ней выглядел как клик по чужому кольцу.
+const ARROW_GAP_PX = 72
+// Центр стрелки — посередине этого зазора, от центра экрана.
+const ARROW_X = `(var(--frame-w) / 2 + ${ARROW_GAP_PX / 2}px)`
+
+/**
+ * Сдвиг карточки кольца от центра экрана (CSS-выражение): активная — в центре, соседние —
+ * рядом. Первое превью отстоит на полкадра, зазор стрелок и полпревью; каждое следующее —
+ * ещё на превью и обычный зазор.
+ */
+function slotX(offset: number): string {
+  if (offset === 0) return '0px'
+  const n = Math.abs(offset) - 1
+  const frames = 0.5 + PREVIEW_SCALE / 2 + n * PREVIEW_SCALE
+  const px = ARROW_GAP_PX + n * GAP_PX
+  return `calc(${Math.sign(offset)} * (var(--frame-w) * ${frames} + ${px}px))`
+}
+
+/** С какого кадра открывать автора: с первого непросмотренного, как в Instagram. */
+function firstUnseen(ring: StoryRing | undefined): number {
+  const index = ring?.stories.findIndex((s) => !s.seen) ?? -1
+  return index >= 0 ? index : 0
+}
+
+function readMuted(): boolean {
+  try {
+    return window.localStorage.getItem(MUTED_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+function writeMuted(muted: boolean): void {
+  try {
+    window.localStorage.setItem(MUTED_KEY, muted ? '1' : '0')
+  } catch {
+    // Хранилище недоступно (приватный режим) — звук просто не запомнится.
+  }
+}
+
+/** Фокус в поле ввода — горячие клавиши сторис не должны мешать печатать. */
+function isTyping(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false
+  return target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)
+}
 
 /** Прогреть следующий кадр, пока смотрят текущий: листание не упирается в сеть. */
 function warmStory(card: StoryCard | undefined): void {
@@ -64,27 +181,57 @@ function warmStory(card: StoryCard | undefined): void {
 // полноценный пикер в формате, который смотрят секундами, никто не открывает. Это и есть
 // белый список сервера (STORY_REACTION_EMOJIS): другую реакцию он отклонит.
 const QUICK_REACTIONS = STORY_REACTION_EMOJIS
+// «Нравится» — та же реакция ❤️, но отдельной кнопкой у поля ответа (как в Instagram). Одна
+// модель: сердце и ❤️ в ряду реакций — одно и то же состояние, поэтому в ряду его нет.
+const LIKE = '❤️'
+const EXTRA_REACTIONS = QUICK_REACTIONS.filter((e) => e !== LIKE)
+// Официальные аккаунты — роли, которые публикуют от имени вуза, факультета и платформы:
+// у их сторис значок рядом с именем, чтобы объявление отличалось от личной сторис.
+const OFFICIAL_ROLES: ReadonlySet<string> = new Set([
+  Role.PLATFORM_ADMIN,
+  Role.UNIVERSITY_ADMIN,
+  Role.UNIVERSITY_MODERATOR,
+  Role.DEAN,
+])
+// Длина ответа — как в схеме сервера (StoryReplySchema).
+const REPLY_MAX = 1000
 
 /**
- * Полноэкранный просмотр сторис: кадры одного автора идут подряд, по концу кольца
- * открывается следующий автор.
+ * Просмотр сторис: кадры одного автора идут подряд, по концу кольца — следующий автор.
+ *
+ * Окно — Radix Dialog: фокус заперт внутри, Esc закрывает верхний слой (меню, жалобу,
+ * само окно), после закрытия фокус возвращается туда, откуда сторис открыли.
  *
  * Прогресс считается таймером, а не CSS-анимацией: его нужно останавливать (палец на
- * экране, открытый список зрителей, вкладка в фоне) и отматывать назад по тапу, а
- * анимация про это ничего не знает.
+ * экране, открытое меню, вкладка в фоне) и отматывать назад по тапу, а анимация про это
+ * ничего не знает. У видео прогресс берётся из самого воспроизведения.
  */
+/**
+ * Подборка «Актуального» в просмотрщике: кольцо — её сторис-снимки. Реакций, ответов,
+ * опроса и отметки просмотра у снимка нет; владельцу — обложка, правка и «убрать».
+ */
+export interface ViewerHighlight {
+  id: string
+  title: string
+  canEdit: boolean
+}
+
 export function StoryViewer({
   rings,
   startIndex,
   onClose,
+  highlight,
 }: {
   rings: StoryRing[]
   startIndex: number
   onClose: () => void
+  highlight?: ViewerHighlight
 }) {
   const t = useTranslations('Stories')
   const tCommon = useTranslations('Common')
   const tErr = useTranslations('Errors')
+  const locale = useLocale()
+  const router = useRouter()
   // Отказ сервера — тостом по коду (сторис истекла, удалена модератором, нет прав), а не
   // молча: раньше голос и удаление просто ничего не делали.
   const showError = (e: unknown): void => {
@@ -93,17 +240,38 @@ export function StoryViewer({
   const qc = useQueryClient()
   const confirm = useConfirm()
   const [ringIndex, setRingIndex] = useState(startIndex)
-  const [storyIndex, setStoryIndex] = useState(0)
+  const [storyIndex, setStoryIndex] = useState(() => firstUnseen(rings[startIndex]))
   const [progress, setProgress] = useState(0)
-  const [paused, setPaused] = useState(false)
+  // Причины паузы раздельно: удержание пальцем, пробел/кнопка, меню, окна поверх, фон.
+  const [holding, setHolding] = useState(false)
+  const [manualPause, setManualPause] = useState(false)
+  const [menuOpen, setMenuOpen] = useState(false)
   const [viewersOpen, setViewersOpen] = useState(false)
+  const [tabHidden, setTabHidden] = useState(false)
+  // Поле ответа в фокусе и окно «Поделиться» — сторис стоит, пока человек пишет и выбирает.
+  const [replying, setReplying] = useState(false)
+  const [replyText, setReplyText] = useState('')
+  const [shareOpen, setShareOpen] = useState(false)
+  // Регистрация на событие со стикера идёт — кнопка ждёт ответа, повтор не уходит.
+  const [joining, setJoining] = useState<string | null>(null)
   // Жалоба на сторис (§3.4) — тем, чью жалобу сервер примет; кадр на это время стоит.
   const [reporting, setReporting] = useState<StoryCard | null>(null)
+  // Окна автора поверх кадра: аудитория, «в актуальное», правка подборки.
+  const [audienceOpen, setAudienceOpen] = useState(false)
+  const [highlightPickOpen, setHighlightPickOpen] = useState(false)
+  const [highlightEditOpen, setHighlightEditOpen] = useState(false)
+  const audienceLabel = useAudienceLabel()
+  const [muted, setMuted] = useState(readMuted)
+  // Медиа кадра не загрузилось (битая ссылка, видео не играет) — показываем это, а кадр
+  // идёт дальше по таймеру, а не висит.
+  const [failedStoryId, setFailedStoryId] = useState<string | null>(null)
   const myId = useAppSelector((s) => s.auth.user?.id)
   const canReport = canFileComplaint(useAppSelector((s) => s.auth.role))
   // Локальные правки поверх серверной выдачи: голос и реакция должны быть видны сразу,
   // а перезапрашивать всю ленту колец ради одного кадра незачем.
   const [patched, setPatched] = useState<Record<string, StoryCard>>({})
+  // Где остановились у каждого автора: вернулись к нему — продолжаем с того же кадра.
+  const positions = useRef<Record<string, number>>({})
 
   useBodyScrollLock(true, true)
   useBackClose(onClose)
@@ -111,29 +279,60 @@ export function StoryViewer({
   const ring = rings[ringIndex]
   const raw = ring?.stories[storyIndex]
   const story = raw ? (patched[raw.id] ?? raw) : undefined
+  const reportOpen = reporting !== null
+  const sheetOpen =
+    viewersOpen || reportOpen || shareOpen || audienceOpen || highlightPickOpen || highlightEditOpen
+  const paused = holding || manualPause || menuOpen || sheetOpen || tabHidden || replying
 
-  // Закрытие обновляет ленту колец: пока шёл просмотр, сторисы стали просмотренными.
+  // Закрытие обновляет кольца — и ленты, и профиля: пока шёл просмотр, сторисы стали
+  // просмотренными.
   const close = useCallback(() => {
-    void qc.invalidateQueries({ queryKey: storyKeys.feed() })
+    void qc.invalidateQueries({ queryKey: storyKeys.all })
     onClose()
   }, [onClose, qc])
 
+  // Переход к другому автору: запоминаем, где остановились у текущего, у нового — его
+  // сохранённый кадр или первый непросмотренный.
+  const openRing = useCallback(
+    (index: number) => {
+      const current = rings[ringIndex]
+      const target = rings[index]
+      if (!target) return
+      if (current) positions.current[current.author.id] = storyIndex
+      setProgress(0)
+      setRingIndex(index)
+      setStoryIndex(positions.current[target.author.id] ?? firstUnseen(target))
+    },
+    [ringIndex, rings, storyIndex],
+  )
+
+  const goNextRing = useCallback(() => {
+    if (ringIndex + 1 < rings.length) openRing(ringIndex + 1)
+    else close()
+  }, [close, openRing, ringIndex, rings.length])
+
+  const goPrevRing = useCallback(() => {
+    if (ringIndex > 0) openRing(ringIndex - 1)
+  }, [openRing, ringIndex])
+
+  // Конец кадра приходит из двух мест (таймер и `ended` у видео) — переход делается
+  // ровно один раз на кадр, иначе «двойное» листание проскакивало сторис.
+  const advancedFrom = useRef<string | null>(null)
   const goNext = useCallback(() => {
+    const key = `${ringIndex}:${storyIndex}`
+    if (advancedFrom.current === key) return
+    advancedFrom.current = key
     setProgress(0)
     const current = rings[ringIndex]
     if (current && storyIndex + 1 < current.stories.length) {
       setStoryIndex(storyIndex + 1)
       return
     }
-    if (ringIndex + 1 < rings.length) {
-      setRingIndex(ringIndex + 1)
-      setStoryIndex(0)
-      return
-    }
-    close()
-  }, [close, ringIndex, rings, storyIndex])
+    goNextRing()
+  }, [goNextRing, ringIndex, rings, storyIndex])
 
   const goPrev = useCallback(() => {
+    advancedFrom.current = null
     setProgress(0)
     if (storyIndex > 0) {
       setStoryIndex(storyIndex - 1)
@@ -146,20 +345,36 @@ export function StoryViewer({
     }
   }, [ringIndex, rings, storyIndex])
 
-  // Отметка просмотра — один раз на кадр. Ответ не нужен: признак «смотрел» приедет
-  // со следующей выдачей ленты, а ошибка сети не должна мешать смотреть дальше.
+  // Отметка просмотра — когда кадр действительно показан (медиа загрузилось или его нет),
+  // и один раз на кадр. Ответ не нужен: признак «смотрел» приедет со следующей выдачей,
+  // а ошибка сети не должна мешать смотреть дальше. Кто смотрит — сервер берёт из токена.
   const storyId = story?.id
-  useEffect(() => {
-    if (!storyId) return
-    void markStoryViewed(storyId).catch(() => undefined)
-  }, [storyId])
-
-  // Снимок ещё не пришёл — время кадра не идёт: на медленной сети сторис иначе пролистывалась,
-  // так и не показавшись (раньше таймер стартовал вместе с запросом картинки).
-  // Готовность привязана к id кадра, а не сбрасывается эффектом: снимок из кэша присылает
-  // load раньше, чем отработал бы сброс, и кадр навсегда остался бы «не готов».
   const [readyStoryId, setReadyStoryId] = useState<string | null>(null)
+  const isVideoMedia = story?.media?.mime.startsWith('video/') ?? false
+  const failed = !!storyId && failedStoryId === storyId
+  const isVideo = isVideoMedia && !failed
   const imageReady = !!storyId && readyStoryId === storyId
+  // Снимок ещё не пришёл — время кадра не идёт: на медленной сети сторис иначе
+  // пролистывалась, так и не показавшись. Готовность привязана к id кадра, а не
+  // сбрасывается эффектом: снимок из кэша присылает load раньше, чем отработал бы сброс.
+  const waitingImage = !!story?.media && !isVideoMedia && !imageReady
+  const shown = !!storyId && (!story?.media || isVideoMedia || imageReady)
+  const viewedIds = useRef(new Set<string>())
+  useEffect(() => {
+    // Снимок из «Актуального» — не живая сторис: просмотров у него нет.
+    if (highlight || !storyId || !shown || viewedIds.current.has(storyId)) return
+    viewedIds.current.add(storyId)
+    void markStoryViewed(storyId).catch(() => undefined)
+  }, [highlight, shown, storyId])
+
+  // Подборка поменялась под открытым окном (сторис убрали в редакторе) — кадр остаётся в
+  // пределах кольца, а опустевшее кольцо закрывает окно.
+  const ringLength = ring?.stories.length ?? 0
+  useEffect(() => {
+    if (!ring || storyIndex < ringLength) return
+    if (ringLength === 0) close()
+    else setStoryIndex(ringLength - 1)
+  }, [close, ring, ringLength, storyIndex])
 
   // Следующий кадр греем заранее — и в этом кольце, и первый у следующего автора.
   const nextCard = ring?.stories[storyIndex + 1] ?? rings[ringIndex + 1]?.stories[0]
@@ -169,11 +384,23 @@ export function StoryViewer({
   const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null)
   useHls(videoEl, story?.media?.hls, story?.media?.url)
 
-  // Таймер кадра. Шаг 50 мс: полоса растёт плавно, а таймеров на секунду немного.
-  const isVideo = story?.media?.mime.startsWith('video/') ?? false
-  const waitingImage = !!story?.media && !isVideo && !imageReady
+  // Пауза видео — вместе с паузой кадра: удержание, меню, фон вкладки.
   useEffect(() => {
-    if (!story || paused || viewersOpen || reporting || isVideo || waitingImage) return
+    if (!videoEl) return
+    if (paused) videoEl.pause()
+    else void videoEl.play().catch(() => undefined)
+  }, [paused, videoEl])
+
+  // Уход вкладки в фон — пауза; вернулись — продолжаем.
+  useEffect(() => {
+    const onVisibility = (): void => setTabHidden(document.hidden)
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => document.removeEventListener('visibilitychange', onVisibility)
+  }, [])
+
+  // Таймер кадра. Шаг 50 мс: полоса растёт плавно, а таймеров на секунду немного.
+  useEffect(() => {
+    if (!story || paused || isVideo || waitingImage) return
     const step = 50
     const timer = setInterval(() => {
       setProgress((value) => {
@@ -187,24 +414,78 @@ export function StoryViewer({
       })
     }, step)
     return () => clearInterval(timer)
-  }, [goNext, isVideo, paused, reporting, story, viewersOpen, waitingImage])
+  }, [goNext, isVideo, paused, story, waitingImage])
 
-  // Клавиатура: листание стрелками, пробел — пауза, Esc закрывает (useBackClose).
-  // Пока открыта жалоба, клавиатура её: пробел и стрелки нужны полю пояснения.
-  const reportOpen = reporting !== null
+  // Клавиатура: стрелки — листание, пробел — пауза. Esc закрывает Radix. Пока открыто меню
+  // или окно поверх и пока фокус в поле ввода, клавиши принадлежат им.
   useEffect(() => {
-    if (reportOpen) return
+    if (sheetOpen || menuOpen) return
     function onKey(e: KeyboardEvent): void {
+      if (isTyping(e.target)) return
       if (e.key === 'ArrowRight') goNext()
       if (e.key === 'ArrowLeft') goPrev()
       if (e.key === ' ') {
         e.preventDefault()
-        setPaused((p) => !p)
+        setManualPause((p) => !p)
       }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [goNext, goPrev, reportOpen])
+  }, [goNext, goPrev, menuOpen, sheetOpen])
+
+  // Жесты на кадре. Тап по краю листает (кнопки-зоны ниже), удержание ставит паузу, свайп
+  // в сторону — к соседнему автору, вниз — закрыть. После удержания и свайпа тап по зоне
+  // гасится: иначе отпускание пальца ещё и перелистывало бы кадр.
+  const gesture = useRef<{ x: number; y: number } | null>(null)
+  const holdTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const swallowTap = useRef(false)
+  const endGesture = (): void => {
+    if (holdTimer.current) clearTimeout(holdTimer.current)
+    holdTimer.current = null
+    gesture.current = null
+    setHolding(false)
+  }
+  useEffect(() => () => endGesture(), [])
+  const onPointerDown = (e: ReactPointerEvent): void => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return
+    gesture.current = { x: e.clientX, y: e.clientY }
+    swallowTap.current = false
+    holdTimer.current = setTimeout(() => {
+      swallowTap.current = true
+      setHolding(true)
+    }, HOLD_MS)
+  }
+  const onPointerMove = (e: ReactPointerEvent): void => {
+    const g = gesture.current
+    if (!g || !holdTimer.current) return
+    // Палец поехал — это свайп, а не удержание.
+    if (Math.hypot(e.clientX - g.x, e.clientY - g.y) > 12) {
+      clearTimeout(holdTimer.current)
+      holdTimer.current = null
+    }
+  }
+  const onPointerUp = (e: ReactPointerEvent): void => {
+    const g = gesture.current
+    endGesture()
+    if (!g) return
+    const dx = e.clientX - g.x
+    const dy = e.clientY - g.y
+    if (Math.abs(dx) > SWIPE_X_PX && Math.abs(dx) > Math.abs(dy)) {
+      swallowTap.current = true
+      if (dx < 0) goNextRing()
+      else goPrevRing()
+    } else if (dy > SWIPE_DOWN_PX && dy > Math.abs(dx)) {
+      swallowTap.current = true
+      close()
+    }
+  }
+  const tap = (go: () => void) => () => {
+    if (swallowTap.current) {
+      swallowTap.current = false
+      return
+    }
+    go()
+  }
 
   const vote = useMutation({
     mutationFn: ({ id, optionId }: { id: string; optionId: string }) =>
@@ -235,22 +516,204 @@ export function StoryViewer({
     }
   }
 
+  // Ответ уходит в личный чат с автором. Текст при ошибке остаётся в поле — повторить
+  // можно тем же Enter; повторная отправка во время запроса заблокирована.
+  const reply = useMutation({
+    mutationFn: ({ id, text }: { id: string; text: string }) => replyToStoryRequest(id, text),
+    onSuccess: () => {
+      setReplyText('')
+      if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+      toast.success(t('replySent'))
+    },
+    onError: showError,
+  })
+
+  function sendReply(card: StoryCard): void {
+    const text = replyText.trim()
+    if (!text || reply.isPending) return
+    reply.mutate({ id: card.id, text })
+  }
+
+  async function copyLink(card: StoryCard): Promise<void> {
+    try {
+      await navigator.clipboard.writeText(`${window.location.origin}/stories/${card.id}`)
+      toast.success(t('linkCopied'))
+    } catch {
+      toast.error(tErr('INTERNAL_ERROR'))
+    }
+  }
+
+  // «Скрыть сторис автора»: убираем его из ленты и сразу листаем дальше; в тосте — отмена.
+  async function hideAuthor(card: StoryCard): Promise<void> {
+    const name = `${card.author.firstName} ${card.author.lastName}`
+    try {
+      await muteStoryAuthorRequest(card.author.id)
+      toast.success(t('authorHidden', { name }), {
+        action: {
+          label: t('undo'),
+          onClick: () =>
+            void unmuteStoryAuthorRequest(card.author.id)
+              .then(() => qc.invalidateQueries({ queryKey: storyKeys.all }))
+              .catch(showError),
+        },
+      })
+      goNextRing()
+    } catch (e) {
+      showError(e)
+    }
+  }
+
   async function askDelete(card: StoryCard): Promise<void> {
-    setPaused(true)
+    setManualPause(true)
     const ok = await confirm({ title: t('confirmDelete'), destructive: true })
-    setPaused(false)
+    setManualPause(false)
     if (ok) remove.mutate(card.id)
+  }
+
+  // Обложка подборки — текущий кадр. Ответ сервера ничего не меняет в самом кадре.
+  async function makeCover(card: StoryCard): Promise<void> {
+    if (!highlight) return
+    try {
+      await updateStoryHighlightRequest(highlight.id, { coverItemId: card.id })
+      void qc.invalidateQueries({ queryKey: storyKeys.highlights(card.author.id) })
+      toast.success(t('highlightCoverSet'))
+    } catch (e) {
+      showError(e)
+    }
+  }
+
+  // Убрать кадр из подборки: кольцо перерисует свежая выдача, опустевшая подборка закроется.
+  async function removeFromHighlight(card: StoryCard): Promise<void> {
+    if (!highlight) return
+    setManualPause(true)
+    const ok = await confirm({ title: t('highlightConfirmRemoveItem'), destructive: true })
+    setManualPause(false)
+    if (!ok) return
+    try {
+      const { deleted } = await removeStoryHighlightItemRequest(highlight.id, card.id)
+      void qc.invalidateQueries({ queryKey: storyKeys.all })
+      toast.success(deleted ? t('highlightDeleted') : t('highlightItemRemoved'))
+      if (deleted) onClose()
+    } catch (e) {
+      showError(e)
+    }
+  }
+
+  function openProfile(authorId: string): void {
+    close()
+    router.push(authorId === myId ? '/profile' : `/profile/${authorId}`)
+  }
+
+  function go(href: string): void {
+    close()
+    router.push(href)
+  }
+
+  // «Участвовать» со стикера события — та же регистрация, что на странице события. После
+  // ответа карточка сразу показывает «Вы участвуете», не дожидаясь новой выдачи ленты.
+  async function joinEvent(card: StoryCard, eventId: string): Promise<void> {
+    setJoining(eventId)
+    try {
+      await registerEventRequest(eventId)
+      setPatched((prev) => ({
+        ...prev,
+        [card.id]: {
+          ...card,
+          elements: card.elements.map((e) =>
+            e.type === 'event' && e.eventId === eventId && e.event
+              ? { ...e, event: { ...e.event, isRegistered: true } }
+              : e,
+          ),
+        },
+      }))
+      toast.success(t('eventJoinedToast'))
+    } catch (e) {
+      showError(e)
+    } finally {
+      setJoining(null)
+    }
+  }
+
+  // Кнопки карточек-стикеров. У пары кнопки нет: её расписание у каждой роли своё.
+  function cardActions(card: StoryCard, element: StoryElement): ReactNode {
+    const chip =
+      'rounded-full px-[0.8em] py-[0.35em] text-[0.85em] font-semibold transition-colors duration-150'
+    if (element.type === 'event' && element.event) {
+      const event = element.event
+      const ended = new Date(event.endsAt ?? event.startsAt).getTime() < Date.now()
+      return (
+        <span className="mt-[0.2em] flex flex-wrap gap-[0.4em]">
+          <button
+            type="button"
+            className={cn(chip, 'bg-black/10 hover:bg-black/15')}
+            onClick={() => go(`/events/${event.id}`)}
+          >
+            {t('eventDetails')}
+          </button>
+          {event.isRegistered ? (
+            <span className={cn(chip, 'bg-success/15 text-success')}>{t('eventJoined')}</span>
+          ) : (
+            !ended && (
+              <button
+                type="button"
+                disabled={joining === event.id}
+                className={cn(chip, 'bg-primary text-primary-foreground hover:bg-primary/90')}
+                onClick={() => void joinEvent(card, event.id)}
+              >
+                {t('eventJoin')}
+              </button>
+            )
+          )}
+        </span>
+      )
+    }
+    if (element.type === 'post' && element.post) {
+      const post = element.post
+      return (
+        <span className="mt-[0.2em] flex">
+          <button
+            type="button"
+            className={cn(chip, 'bg-black/10 hover:bg-black/15')}
+            onClick={() => go(`/profile/${post.authorId}?post=${post.id}`)}
+          >
+            {t('postOpen')}
+          </button>
+        </span>
+      )
+    }
+    return null
+  }
+
+  function toggleMute(): void {
+    setMuted((m) => {
+      writeMuted(!m)
+      return !m
+    })
   }
 
   const segments = useMemo(() => ring?.stories.map((s) => s.id) ?? [], [ring])
 
-  if (typeof document === 'undefined' || !ring || !story) return null
+  if (!ring || !story) return null
 
-  return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/95">
-      {/* Кадр 9:16 по центру: на телефоне во весь экран, на десктопе — колонкой. */}
-      <div className="relative flex h-full w-full max-w-[26rem] flex-col sm:h-[min(90dvh,46rem)] sm:rounded-2xl sm:overflow-hidden">
-        <div className="absolute inset-x-0 top-0 z-20 flex gap-1 p-2">
+  const authorName = `${story.author.firstName} ${story.author.lastName}`
+  const mine = story.author.id === myId
+  const atStart = ringIndex === 0 && storyIndex === 0
+  const iconButton = 'size-10 text-white hover:bg-white/15 hover:text-white sm:size-9'
+
+  // Лента колец: активное — кадром по центру, соседние — уменьшенными превью по бокам.
+  // Каждая карточка позиционируется сдвигом от центра; при смене автора сдвиг и масштаб
+  // анимируются, и лента плавно проезжает, а не перескакивает. На телефоне превью не
+  // помещаются — там только активный кадр во весь экран.
+  const visible = rings
+    .map((r, index) => ({ r, index, offset: index - ringIndex }))
+    .filter(({ offset }) => Math.abs(offset) <= PREVIEW_RADIUS)
+
+  const activeFrame = (
+    <div className="relative flex h-full w-full flex-col overflow-hidden bg-black sm:rounded-2xl">
+      {/* Верх: сегменты прогресса, автор и действия. Подложка-градиент — чтобы белый текст
+          читался поверх светлого кадра. */}
+      <div className="absolute inset-x-0 top-0 z-20 bg-gradient-to-b from-black/60 to-transparent px-3 pt-[max(0.5rem,env(safe-area-inset-top))] pb-8">
+        <div className="flex gap-1" aria-hidden>
           {segments.map((id, i) => (
             <span key={id} className="h-0.5 flex-1 overflow-hidden rounded-full bg-white/30">
               <span
@@ -262,255 +725,627 @@ export function StoryViewer({
             </span>
           ))}
         </div>
-
-        <header className="absolute inset-x-0 top-0 z-20 flex items-center gap-2 px-3 pt-5 pb-2 text-white">
-          <Avatar className="size-8">
-            {story.author.avatarUrl && <AvatarImage src={story.author.avatarUrl} alt="" />}
-            <AvatarFallback>
-              {story.author.firstName.charAt(0)}
-              {story.author.lastName.charAt(0)}
-            </AvatarFallback>
-          </Avatar>
-          <span className="min-w-0 flex-1 truncate text-sm font-medium">
-            {story.author.firstName} {story.author.lastName}
-          </span>
-          {canReport && story.author.id !== myId && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              icon
-              aria-label={t('report')}
-              className="text-white hover:bg-white/15 hover:text-white"
-              onClick={() => setReporting(story)}
-            >
-              <Flag className="size-4" aria-hidden />
-            </Button>
-          )}
-          {story.canDelete && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              icon
-              aria-label={t('delete')}
-              className="text-white hover:bg-white/15 hover:text-white"
-              onClick={() => void askDelete(story)}
-            >
-              <Trash2 className="size-4" aria-hidden />
-            </Button>
-          )}
+        <div className="mt-2 flex items-center gap-1 text-white">
+          <button
+            type="button"
+            onClick={() => openProfile(story.author.id)}
+            className="flex min-w-0 items-center gap-2 rounded-full py-1 pr-2 pl-0.5 transition-colors duration-150 hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-white/60 focus-visible:outline-none"
+          >
+            <Avatar className="size-8">
+              {story.author.avatarUrl && <AvatarImage src={story.author.avatarUrl} alt="" />}
+              <AvatarFallback>
+                {story.author.firstName.charAt(0)}
+                {story.author.lastName.charAt(0)}
+              </AvatarFallback>
+            </Avatar>
+            <span className="min-w-0 truncate text-sm font-semibold">
+              {highlight ? highlight.title : authorName}
+            </span>
+            {OFFICIAL_ROLES.has(story.author.role) && (
+              <span className="flex shrink-0 items-center" title={t('officialAccount')}>
+                <BadgeCheck className="size-4 text-primary" aria-hidden />
+                <span className="sr-only">{t('officialAccount')}</span>
+              </span>
+            )}
+            <time dateTime={story.createdAt} className="shrink-0 text-xs text-white/70">
+              {relativeTime(story.createdAt, locale)}
+            </time>
+          </button>
+          <span className="flex-1" />
           <Button
             type="button"
             variant="ghost"
-            size="sm"
+            icon
+            aria-label={manualPause ? tCommon('play') : tCommon('pause')}
+            className={iconButton}
+            onClick={() => setManualPause((p) => !p)}
+          >
+            {manualPause ? (
+              <Play className="size-4" aria-hidden />
+            ) : (
+              <Pause className="size-4" aria-hidden />
+            )}
+          </Button>
+          {isVideo && (
+            <Button
+              type="button"
+              variant="ghost"
+              icon
+              aria-label={muted ? tCommon('unmute') : tCommon('mute')}
+              aria-pressed={muted}
+              className={iconButton}
+              onClick={toggleMute}
+            >
+              {muted ? (
+                <VolumeX className="size-4" aria-hidden />
+              ) : (
+                <Volume2 className="size-4" aria-hidden />
+              )}
+            </Button>
+          )}
+          <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                icon
+                aria-label={t('actions')}
+                className={iconButton}
+              >
+                <MoreHorizontal className="size-5" aria-hidden />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="z-[60] min-w-48">
+              {highlight ? (
+                <>
+                  {!mine && (
+                    <DropdownMenuItem onSelect={() => openProfile(story.author.id)}>
+                      <UserRound className="size-4" aria-hidden />
+                      {t('openProfile')}
+                    </DropdownMenuItem>
+                  )}
+                  {highlight.canEdit && (
+                    <>
+                      <DropdownMenuItem onSelect={() => void makeCover(story)}>
+                        <Star className="size-4" aria-hidden />
+                        {t('highlightMakeCover')}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => setHighlightEditOpen(true)}>
+                        <Pencil className="size-4" aria-hidden />
+                        {t('highlightEdit')}
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        variant="destructive"
+                        onSelect={() => void removeFromHighlight(story)}
+                      >
+                        <Trash2 className="size-4" aria-hidden />
+                        {t('highlightRemoveItem')}
+                      </DropdownMenuItem>
+                    </>
+                  )}
+                </>
+              ) : (
+                <>
+                  {mine && story.viewsCount !== null && (
+                    <DropdownMenuItem onSelect={() => setViewersOpen(true)}>
+                      <Eye className="size-4" aria-hidden />
+                      {t('viewersWithCount', { count: story.viewsCount })}
+                    </DropdownMenuItem>
+                  )}
+                  {mine && (
+                    <>
+                      <DropdownMenuItem onSelect={() => setHighlightPickOpen(true)}>
+                        <Bookmark className="size-4" aria-hidden />
+                        {t('addToHighlight')}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onSelect={() => setAudienceOpen(true)}>
+                        <Users className="size-4" aria-hidden />
+                        <span className="flex min-w-0 flex-col">
+                          {t('changeAudience')}
+                          <span className="text-xs text-muted-foreground">
+                            {audienceLabel(story.audience)}
+                          </span>
+                        </span>
+                      </DropdownMenuItem>
+                    </>
+                  )}
+                  {!mine && (
+                    <DropdownMenuItem onSelect={() => openProfile(story.author.id)}>
+                      <UserRound className="size-4" aria-hidden />
+                      {t('openProfile')}
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuItem onSelect={() => void copyLink(story)}>
+                    <Link2 className="size-4" aria-hidden />
+                    {t('copyLink')}
+                  </DropdownMenuItem>
+                  {!mine && (
+                    <DropdownMenuItem onSelect={() => void hideAuthor(story)}>
+                      <EyeOff className="size-4" aria-hidden />
+                      {t('hideAuthor', { name: story.author.firstName })}
+                    </DropdownMenuItem>
+                  )}
+                  {/* Опасные действия — последними и за линией (правило для всех меню). */}
+                  {(story.canDelete || (canReport && !mine)) && <DropdownMenuSeparator />}
+                  {canReport && !mine && (
+                    <DropdownMenuItem variant="destructive" onSelect={() => setReporting(story)}>
+                      <Flag className="size-4" aria-hidden />
+                      {t('report')}
+                    </DropdownMenuItem>
+                  )}
+                  {story.canDelete && (
+                    <DropdownMenuItem variant="destructive" onSelect={() => void askDelete(story)}>
+                      <Trash2 className="size-4" aria-hidden />
+                      {t('delete')}
+                    </DropdownMenuItem>
+                  )}
+                </>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <Button
+            type="button"
+            variant="ghost"
             icon
             aria-label={tCommon('close')}
-            className="text-white hover:bg-white/15 hover:text-white"
+            className={iconButton}
             onClick={close}
           >
             <X className="size-5" aria-hidden />
           </Button>
-        </header>
-
-        {/* Сам кадр. Пауза по удержанию — как во всех сторис: палец на экране останавливает
-            отсчёт, отпускание продолжает. */}
-        <div
-          className={cn(
-            'relative flex flex-1 items-center justify-center overflow-hidden',
-            !story.media && storyBackgroundClass(story.background),
-          )}
-          onPointerDown={() => setPaused(true)}
-          onPointerUp={() => setPaused(false)}
-          onPointerLeave={() => setPaused(false)}
-        >
-          {story.media ? (
-            isVideo ? (
-              <video
-                key={story.id}
-                ref={setVideoEl}
-                // При HLS источник ставит useHls; иначе — оригинал, как раньше.
-                src={story.media.hls ? undefined : story.media.url}
-                poster={pickSource(story.media.poster, 1280)?.url}
-                className="size-full object-contain"
-                autoPlay
-                playsInline
-                controls={false}
-                onTimeUpdate={(e) => {
-                  const el = e.currentTarget
-                  if (el.duration > 0) setProgress(el.currentTime / el.duration)
-                }}
-                onEnded={goNext}
-              />
-            ) : (
-              // Ссылка подписана сервером и живёт 15 минут: next/image её не оптимизирует,
-              // как и у медиа постов. Заглушка видна сразу, копия — по ширине экрана.
-              <MediaImage
-                key={story.id}
-                src={story.media.url}
-                media={story.media}
-                alt=""
-                fit="contain"
-                loading="eager"
-                sizes={STORY_SIZES}
-                className="size-full"
-                onLoad={() => setReadyStoryId(story.id)}
-                // Битую картинку не ждём вечно: кадр идёт дальше по своему таймеру.
-                onError={() => setReadyStoryId(story.id)}
-              />
-            )
-          ) : null}
-
-          {story.text && (
-            <p
-              className={cn(
-                'absolute inset-x-6 text-center text-lg leading-snug font-medium break-words text-white drop-shadow-lg',
-                story.media ? 'bottom-24' : 'top-1/2 -translate-y-1/2',
-              )}
-            >
-              {story.text}
-            </p>
-          )}
-
-          {story.poll && (
-            <div className="absolute inset-x-4 bottom-24 z-10 rounded-2xl bg-black/55 p-3 text-white backdrop-blur">
-              <p className="mb-2 text-sm font-medium">{story.poll.question}</p>
-              <div className="flex flex-col gap-1.5">
-                {story.poll.options.map((option) => {
-                  const total = story.poll?.totalVotes ?? 0
-                  const share = total > 0 ? Math.round((option.votes / total) * 100) : 0
-                  const mine = story.poll?.myOptionId === option.id
-                  const answered = story.poll?.myOptionId !== null
-                  return (
-                    <button
-                      key={option.id}
-                      type="button"
-                      className={cn(
-                        'relative overflow-hidden rounded-lg px-3 py-2 text-left text-sm',
-                        mine ? 'bg-white/25 font-medium' : 'bg-white/10 hover:bg-white/20',
-                      )}
-                      onClick={() => vote.mutate({ id: story.id, optionId: option.id })}
-                    >
-                      {/* Доля голосов — заливкой самой кнопки: отдельная полоса в кадре
-                          этого размера читается хуже, чем закрашенная строка. */}
-                      {answered && (
-                        <span
-                          aria-hidden
-                          className="absolute inset-y-0 left-0 bg-white/20"
-                          style={{ width: `${share}%` }}
-                        />
-                      )}
-                      <span className="relative flex justify-between gap-2">
-                        <span className="truncate">{option.text}</span>
-                        {answered && <span className="tabular-nums">{share}%</span>}
-                      </span>
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* Зоны листания: левая треть — назад, остальное — вперёд. Кнопки, а не
-              обработчики на кадре, — чтобы работала клавиатура и читалка. */}
-          <button
-            type="button"
-            aria-label={tCommon('previous')}
-            className="absolute inset-y-0 left-0 w-1/3 cursor-default"
-            onClick={goPrev}
-          />
-          <button
-            type="button"
-            aria-label={tCommon('next')}
-            className="absolute inset-y-0 right-0 w-2/3 cursor-default"
-            onClick={goNext}
-          />
         </div>
+      </div>
 
-        <footer className="absolute inset-x-0 bottom-0 z-20 flex flex-col gap-2 bg-gradient-to-t from-black/70 to-transparent p-3 text-white">
-          {story.linkUrl && (
-            <a
-              href={story.linkUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center justify-center gap-1.5 rounded-full bg-white/15 px-4 py-2 text-sm font-medium backdrop-blur hover:bg-white/25"
-            >
-              <ExternalLink className="size-4" aria-hidden />
-              {story.linkLabel ?? t('openLink')}
-            </a>
-          )}
-          <div className="flex items-center gap-1">
-            {QUICK_REACTIONS.map((emoji) => {
-              const mine = story.reactions.some((r) => r.emoji === emoji && r.mine)
-              const count = story.reactions.find((r) => r.emoji === emoji)?.count ?? 0
-              return (
-                <button
-                  key={emoji}
-                  type="button"
-                  aria-pressed={mine}
-                  aria-label={emoji}
-                  onClick={() => void toggleReaction(story, emoji)}
-                  className={cn(
-                    'flex items-center gap-1 rounded-full px-2 py-1 text-base',
-                    mine ? 'bg-white/30' : 'bg-white/10 hover:bg-white/20',
-                  )}
-                >
-                  <span aria-hidden>{emoji}</span>
-                  {count > 0 && <span className="text-xs tabular-nums">{count}</span>}
-                </button>
-              )
-            })}
+      {/* Сам кадр. Удержание — пауза, свайп в сторону — соседний автор, вниз — закрыть.
+          `touch-none`: жесты наши, браузер не должен прокручивать и обновлять страницу. */}
+      <div
+        className={cn(
+          'relative flex flex-1 touch-none items-center justify-center overflow-hidden select-none',
+          !story.media && storyBackgroundClass(story.background),
+        )}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={endGesture}
+        onPointerLeave={endGesture}
+      >
+        {story.media && !failed ? (
+          isVideo ? (
+            <video
+              key={story.id}
+              ref={setVideoEl}
+              // При HLS источник ставит useHls; иначе — оригинал, как раньше.
+              src={story.media.hls ? undefined : story.media.url}
+              poster={pickSource(story.media.poster, 1280)?.url}
+              className="size-full object-contain"
+              autoPlay
+              playsInline
+              muted={muted}
+              controls={false}
+              onTimeUpdate={(e) => {
+                const el = e.currentTarget
+                if (el.duration > 0) setProgress(el.currentTime / el.duration)
+              }}
+              onEnded={goNext}
+              onError={() => setFailedStoryId(story.id)}
+            />
+          ) : (
+            // Ссылка подписана сервером и живёт 15 минут: next/image её не оптимизирует,
+            // как и у медиа постов. Заглушка видна сразу, копия — по ширине экрана.
+            <MediaImage
+              key={story.id}
+              src={story.media.url}
+              media={story.media}
+              alt=""
+              fit="contain"
+              loading="eager"
+              sizes={STORY_SIZES}
+              className="size-full"
+              onLoad={() => setReadyStoryId(story.id)}
+              // Битую картинку не ждём вечно: показываем ошибку, кадр идёт дальше.
+              onError={() => {
+                setReadyStoryId(story.id)
+                setFailedStoryId(story.id)
+              }}
+            />
+          )
+        ) : null}
+
+        {failed && (
+          <div className="flex flex-col items-center gap-2 px-8 text-center text-white/80">
+            <ImageOff className="size-8" aria-hidden />
+            <p className="text-sm">{isVideoMedia ? t('videoError') : t('mediaError')}</p>
+          </div>
+        )}
+
+        {waitingImage && !failed && (
+          <Loader2
+            className="absolute size-8 animate-spin text-white/70 motion-reduce:animate-none"
+            aria-label={tCommon('loading')}
+          />
+        )}
+
+        {story.text && (
+          <p
+            className={cn(
+              'pointer-events-none absolute inset-x-6 text-center text-lg leading-snug font-medium break-words text-white drop-shadow-lg',
+              story.media ? 'bottom-28' : 'top-1/2 -translate-y-1/2',
+            )}
+          >
+            {story.text}
+          </p>
+        )}
+
+        {/* Зоны листания: левая треть — назад, остальное — вперёд. Кнопки, а не
+            обработчики на кадре, — чтобы работала клавиатура и читалка. */}
+        <button
+          type="button"
+          aria-label={tCommon('previous')}
+          className="absolute inset-y-0 left-0 w-1/3 cursor-default focus-visible:outline-none"
+          onClick={tap(goPrev)}
+        />
+        <button
+          type="button"
+          aria-label={tCommon('next')}
+          className="absolute inset-y-0 right-0 w-2/3 cursor-default focus-visible:outline-none"
+          onClick={tap(goNext)}
+        />
+
+        {/* Тексты, эмодзи и отметки из редактора — поверх зон листания: слой прозрачен для
+            указателя, кликабельны только отметки людей (ведут в профиль). */}
+        <StoryElementsLayer
+          elements={story.elements ?? []}
+          onMention={openProfile}
+          mentionLabel={(name) => t('openProfileOf', { name })}
+          cardActions={(element) => cardActions(story, element)}
+        />
+
+        {story.poll && (
+          <div className="absolute inset-x-4 bottom-28 z-10 rounded-2xl bg-black/55 p-3 text-white backdrop-blur">
+            <p className="mb-2 text-sm font-medium">{story.poll.question}</p>
+            <div className="flex flex-col gap-1.5">
+              {story.poll.options.map((option) => {
+                const total = story.poll?.totalVotes ?? 0
+                const share = total > 0 ? Math.round((option.votes / total) * 100) : 0
+                const chosen = story.poll?.myOptionId === option.id
+                const answered = story.poll?.myOptionId !== null
+                return (
+                  <button
+                    key={option.id}
+                    type="button"
+                    className={cn(
+                      'relative overflow-hidden rounded-lg px-3 py-2 text-left text-sm transition-colors duration-150',
+                      chosen ? 'bg-white/25 font-medium' : 'bg-white/10 hover:bg-white/20',
+                    )}
+                    onClick={() => vote.mutate({ id: story.id, optionId: option.id })}
+                  >
+                    {/* Доля голосов — заливкой самой кнопки: отдельная полоса в кадре
+                        этого размера читается хуже, чем закрашенная строка. */}
+                    {answered && (
+                      <span
+                        aria-hidden
+                        className="absolute inset-y-0 left-0 bg-white/20 transition-[width] duration-300 motion-reduce:transition-none"
+                        style={{ width: `${share}%` }}
+                      />
+                    )}
+                    <span className="relative flex justify-between gap-2">
+                      <span className="truncate">{option.text}</span>
+                      {answered && <span className="tabular-nums">{share}%</span>}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+
+      <footer className="absolute inset-x-0 bottom-[var(--kb-inset,0px)] z-20 flex flex-col gap-2 bg-gradient-to-t from-black/70 to-transparent px-3 pt-8 pb-[max(0.75rem,env(safe-area-inset-bottom))] text-white">
+        {story.linkUrl && (
+          <a
+            href={story.linkUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-center gap-1.5 rounded-full bg-white/15 px-4 py-2 text-sm font-medium backdrop-blur transition-colors duration-150 hover:bg-white/25"
+          >
+            <ExternalLink className="size-4" aria-hidden />
+            {story.linkLabel ?? t('openLink')}
+          </a>
+        )}
+        {highlight ? null : mine ? (
+          // Своя сторис: сводка реакций и просмотры. Реагировать на своё незачем.
+          <div className="flex items-center gap-1.5">
+            {story.reactions.map((r) => (
+              <span
+                key={r.emoji}
+                className="flex h-9 items-center gap-1 rounded-full bg-white/10 px-2.5 text-sm"
+              >
+                <span aria-hidden>{r.emoji}</span>
+                <span className="text-xs tabular-nums">{r.count}</span>
+              </span>
+            ))}
+            <span className="flex-1" />
             {story.viewsCount !== null && (
               <button
                 type="button"
                 onClick={() => setViewersOpen(true)}
-                className="ml-auto flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1 text-sm hover:bg-white/20"
+                aria-label={t('viewersWithCount', { count: story.viewsCount })}
+                className="flex h-10 items-center gap-1.5 rounded-full bg-white/10 px-3 text-sm transition-colors duration-150 hover:bg-white/20"
               >
                 <Eye className="size-4" aria-hidden />
                 <span className="tabular-nums">{story.viewsCount}</span>
               </button>
             )}
+            <Button
+              type="button"
+              variant="ghost"
+              icon
+              aria-label={t('share')}
+              className={iconButton}
+              onClick={() => setShareOpen(true)}
+            >
+              <Share2 className="size-5" aria-hidden />
+            </Button>
           </div>
-        </footer>
-      </div>
+        ) : (
+          <>
+            {/* Быстрые реакции — один тап; выбранная подсвечена, повторный тап снимает. */}
+            <div className="flex items-center gap-1.5">
+              {EXTRA_REACTIONS.map((emoji) => {
+                const chosen = story.reactions.some((r) => r.emoji === emoji && r.mine)
+                const count = story.reactions.find((r) => r.emoji === emoji)?.count ?? 0
+                return (
+                  <button
+                    key={emoji}
+                    type="button"
+                    aria-pressed={chosen}
+                    aria-label={emoji}
+                    onClick={() => void toggleReaction(story, emoji)}
+                    className={cn(
+                      'flex h-10 min-w-10 items-center justify-center gap-1 rounded-full px-2 text-base transition-[background-color,transform] duration-150 active:scale-90 motion-reduce:transition-none',
+                      chosen ? 'scale-105 bg-white/30' : 'bg-white/10 hover:bg-white/20',
+                    )}
+                  >
+                    <span aria-hidden>{emoji}</span>
+                    {count > 0 && <span className="text-xs tabular-nums">{count}</span>}
+                  </button>
+                )
+              })}
+            </div>
+            {/* Ответ автору — в личный чат. Пока поле в фокусе, сторис стоит на паузе. */}
+            <form
+              className="flex items-center gap-2"
+              onSubmit={(e) => {
+                e.preventDefault()
+                sendReply(story)
+              }}
+            >
+              <input
+                value={replyText}
+                onChange={(e) => setReplyText(e.target.value)}
+                onFocus={() => setReplying(true)}
+                onBlur={() => setReplying(false)}
+                maxLength={REPLY_MAX}
+                enterKeyHint="send"
+                placeholder={t('replyTo', { name: story.author.firstName })}
+                aria-label={t('replyTo', { name: story.author.firstName })}
+                className="h-11 min-w-0 flex-1 rounded-full border border-white/30 bg-black/30 px-4 text-base text-white transition-colors duration-150 placeholder:text-white/60 focus:border-white/70 focus:outline-none sm:text-sm"
+              />
+              {replyText.trim() ? (
+                <Button
+                  type="submit"
+                  icon
+                  aria-label={t('sendReply')}
+                  loading={reply.isPending}
+                  className="size-11 rounded-full"
+                >
+                  <Send className="size-4" aria-hidden />
+                </Button>
+              ) : (
+                <>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    icon
+                    aria-label={t('like')}
+                    aria-pressed={story.reactions.some((r) => r.emoji === LIKE && r.mine)}
+                    className={cn(
+                      iconButton,
+                      'size-11 transition-transform duration-150 active:scale-90 motion-reduce:transition-none',
+                    )}
+                    onClick={() => void toggleReaction(story, LIKE)}
+                  >
+                    <Heart
+                      className={cn(
+                        'size-6',
+                        story.reactions.some((r) => r.emoji === LIKE && r.mine) &&
+                          'fill-destructive text-destructive',
+                      )}
+                      aria-hidden
+                    />
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    icon
+                    aria-label={t('share')}
+                    className={cn(iconButton, 'size-11')}
+                    onClick={() => setShareOpen(true)}
+                  >
+                    <Share2 className="size-5" aria-hidden />
+                  </Button>
+                </>
+              )}
+            </form>
+          </>
+        )}
+      </footer>
+    </div>
+  )
 
-      {/* Стрелки на десктопе: пальцем листают тапом по кадру, мышью — по краям экрана. */}
-      <Button
-        type="button"
-        variant="ghost"
-        size="lg"
-        icon
-        aria-label={tCommon('previous')}
-        className="absolute left-4 hidden text-white hover:bg-white/15 hover:text-white sm:flex"
-        onClick={goPrev}
-      >
-        <ChevronLeft className="size-6" aria-hidden />
-      </Button>
-      <Button
-        type="button"
-        variant="ghost"
-        size="lg"
-        icon
-        aria-label={tCommon('next')}
-        className="absolute right-4 hidden text-white hover:bg-white/15 hover:text-white sm:flex"
-        onClick={goNext}
-      >
-        <ChevronRight className="size-6" aria-hidden />
-      </Button>
+  return (
+    <DialogPrimitive.Root
+      open
+      onOpenChange={(next) => {
+        if (!next) close()
+      }}
+    >
+      <DialogPrimitive.Portal>
+        <DialogPrimitive.Content
+          aria-describedby={undefined}
+          className="fixed inset-0 z-50 overflow-hidden bg-black/95 outline-none"
+          style={{ '--frame-w': FRAME_W } as CSSProperties}
+        >
+          <DialogPrimitive.Title className="sr-only">
+            {highlight
+              ? t('openHighlight', { title: highlight.title })
+              : t('openStoryOf', { name: authorName })}
+          </DialogPrimitive.Title>
+          {visible.map(({ r, index, offset }) => {
+            const active = offset === 0
+            return (
+              <div
+                key={r.author.id}
+                className={cn(
+                  'absolute sm:inset-auto sm:top-1/2 sm:left-1/2 sm:h-[calc(var(--frame-w)*16/9)] sm:w-(--frame-w)',
+                  'sm:[transform:translate(-50%,-50%)_translateX(var(--story-x))_scale(var(--story-s))]',
+                  'sm:transition-[transform,opacity] sm:duration-200 sm:ease-out motion-reduce:transition-none',
+                  active ? 'inset-0 z-10' : 'hidden sm:block sm:opacity-60 sm:hover:opacity-90',
+                )}
+                style={
+                  {
+                    '--story-x': slotX(offset),
+                    '--story-s': active ? 1 : PREVIEW_SCALE,
+                  } as CSSProperties
+                }
+              >
+                {active ? activeFrame : <RingPreview ring={r} onOpen={() => openRing(index)} />}
+              </div>
+            )
+          })}
 
-      {viewersOpen && (
-        <StoryViewersSheet storyId={story.id} onClose={() => setViewersOpen(false)} />
-      )}
-      {reporting && (
-        <ReportModal
-          targetType="STORY"
-          targetId={reporting.id}
-          preview={reporting.text ?? undefined}
-          onClose={() => setReporting(null)}
-        />
-      )}
-    </div>,
-    document.body,
+          {/* Стрелки на десктопе — в зазоре между кадром и превью соседей: пальцем листают
+              тапом, мышью — здесь. Положение считается от центра, как и сама лента.
+              Центрирует обёртка, а не кнопка: у кнопки при нажатии свой сдвиг
+              (`active:translate-y-px`), и он затирал центровку — стрелка прыгала вниз. */}
+          <div
+            className="absolute top-1/2 z-20 hidden -translate-x-1/2 -translate-y-1/2 sm:block"
+            style={{ left: `calc(50% - ${ARROW_X})` }}
+          >
+            <Button
+              type="button"
+              variant="ghost"
+              size="lg"
+              icon
+              aria-label={tCommon('previous')}
+              disabled={atStart}
+              className="rounded-full bg-white/10 text-white hover:bg-white/20 hover:text-white disabled:opacity-0"
+              onClick={goPrev}
+            >
+              <ChevronLeft className="size-6" aria-hidden />
+            </Button>
+          </div>
+          <div
+            className="absolute top-1/2 z-20 hidden -translate-x-1/2 -translate-y-1/2 sm:block"
+            style={{ left: `calc(50% + ${ARROW_X})` }}
+          >
+            <Button
+              type="button"
+              variant="ghost"
+              size="lg"
+              icon
+              aria-label={tCommon('next')}
+              className="rounded-full bg-white/10 text-white hover:bg-white/20 hover:text-white"
+              onClick={goNext}
+            >
+              <ChevronRight className="size-6" aria-hidden />
+            </Button>
+          </div>
+
+          {viewersOpen && (
+            <StoryViewersSheet storyId={story.id} onClose={() => setViewersOpen(false)} />
+          )}
+          {shareOpen && <ShareStorySheet storyId={story.id} onClose={() => setShareOpen(false)} />}
+          {audienceOpen && (
+            <ChangeAudienceModal
+              story={story}
+              onClose={() => setAudienceOpen(false)}
+              onSaved={(updated) => setPatched((prev) => ({ ...prev, [updated.id]: updated }))}
+            />
+          )}
+          {highlightPickOpen && (
+            <AddToHighlightModal story={story} onClose={() => setHighlightPickOpen(false)} />
+          )}
+          {highlightEditOpen && highlight && (
+            <EditHighlightModal
+              highlightId={highlight.id}
+              onClose={() => setHighlightEditOpen(false)}
+            />
+          )}
+          {reporting && (
+            <ReportModal
+              targetType="STORY"
+              targetId={reporting.id}
+              preview={reporting.text ?? undefined}
+              onClose={() => setReporting(null)}
+            />
+          )}
+        </DialogPrimitive.Content>
+      </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
+  )
+}
+
+/**
+ * Превью соседнего автора: следующий непросмотренный кадр (или первый), затемнённый, с
+ * аватаром и именем по центру. Карточка рисуется в размере кадра и уменьшается
+ * трансформацией вместе с лентой, поэтому шрифт и аватар здесь крупнее обычного.
+ */
+function RingPreview({ ring, onOpen }: { ring: StoryRing; onOpen: () => void }) {
+  const t = useTranslations('Stories')
+  const card = ring.stories.find((s) => !s.seen) ?? ring.stories[0]
+  if (!card) return null
+  const name = `${ring.author.firstName} ${ring.author.lastName}`
+
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      aria-label={t('openStoryOf', { name })}
+      className="relative block size-full cursor-pointer overflow-hidden rounded-2xl outline-none focus-visible:ring-8 focus-visible:ring-white/50"
+    >
+      {/* Фото, постер или первый кадр видео; текст кадра под затемнением не нужен. */}
+      <StoryThumb
+        media={card.media}
+        text={null}
+        background={card.background}
+        sizes="200px"
+        className="size-full"
+      />
+      <span className="absolute inset-0 bg-black/50" aria-hidden />
+      <span className="absolute inset-0 flex flex-col items-center justify-center gap-5 px-6 text-white">
+        <span
+          className={cn(
+            'flex size-32 items-center justify-center rounded-full p-1.5',
+            ring.hasUnseen
+              ? 'bg-gradient-to-br from-primary via-indigo-500 to-violet-500'
+              : 'bg-white/40',
+          )}
+        >
+          <Avatar className="size-full border-4 border-black">
+            {ring.author.avatarUrl && <AvatarImage src={ring.author.avatarUrl} alt="" />}
+            <AvatarFallback className="text-4xl">
+              {ring.author.firstName.charAt(0)}
+              {ring.author.lastName.charAt(0)}
+            </AvatarFallback>
+          </Avatar>
+        </span>
+        <span className="max-w-full text-center text-4xl leading-tight font-semibold break-words">
+          {name}
+        </span>
+      </span>
+    </button>
   )
 }
 

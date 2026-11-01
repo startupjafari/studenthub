@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common'
+import { STORY_HIGHLIGHT_ITEMS_MAX } from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { AuditService } from '../../common/audit/audit.service'
 import { AppException } from '../../common/exceptions/app.exception'
@@ -901,10 +902,57 @@ export class DataExportService {
     userId: string,
     take: number,
   ): Promise<Record<string, ExportSection>> {
-    const [blocks, accessGranted, documentEvents, exports] = await Promise.all([
+    const [
+      blocks,
+      storyMutes,
+      storyHighlights,
+      eventCommentReactions,
+      accessGranted,
+      documentEvents,
+      exports,
+    ] = await Promise.all([
       this.prisma.userBlock.findMany({
         where: { blockerId: userId },
         select: { blockedId: true, createdAt: true },
+        orderBy: { createdAt: 'desc' },
+        take,
+      }),
+      // Чьи сторис человек скрыл из ленты — его настройка, как и чёрный список.
+      this.prisma.storyMute.findMany({
+        where: { userId },
+        select: { mutedUserId: true, createdAt: true },
+        orderBy: { createdAt: 'desc' },
+        take,
+      }),
+      // «Актуальное»: подборки и снимки сторис в них. Как у сторис, вместо id копии медиа —
+      // признак `hasMedia`: сам файл лежит в разделе `files`.
+      this.prisma.storyHighlight.findMany({
+        where: { ownerId: userId },
+        select: {
+          id: true,
+          title: true,
+          createdAt: true,
+          items: {
+            select: {
+              audience: true,
+              text: true,
+              background: true,
+              linkUrl: true,
+              linkLabel: true,
+              storyCreatedAt: true,
+              fileId: true,
+            },
+            orderBy: { position: 'asc' },
+            take: STORY_HIGHLIGHT_ITEMS_MAX,
+          },
+        },
+        orderBy: { position: 'asc' },
+        take,
+      }),
+      // Свои реакции в обсуждениях событий — как реакции на сторис: данные о человеке.
+      this.prisma.eventCommentReaction.findMany({
+        where: { userId },
+        select: { commentId: true, emoji: true, createdAt: true },
         orderBy: { createdAt: 'desc' },
         take,
       }),
@@ -958,6 +1006,15 @@ export class DataExportService {
     ])
     return {
       blocks: section(blocks, SECTION_LIMIT),
+      storyMutes: section(storyMutes, SECTION_LIMIT),
+      eventCommentReactions: section(eventCommentReactions, SECTION_LIMIT),
+      storyHighlights: section(
+        storyHighlights.map(({ items, ...highlight }) => ({
+          ...highlight,
+          items: items.map(storyView),
+        })),
+        SECTION_LIMIT,
+      ),
       documentAccessGranted: section(accessGranted, SECTION_LIMIT),
       documentEvents: section(
         documentEvents.map(({ actorId, ...event }) => ({ ...event, byMe: actorId === userId })),
@@ -1221,6 +1278,7 @@ export const USER_RELATIONS: Readonly<Record<string, { section: string } | { exc
     'Event.organizerId': { section: 'eventsOrganized' },
     'EventParticipant.userId': { section: 'events' },
     'EventComment.authorId': { section: 'eventComments' },
+    'EventCommentReaction.userId': { section: 'eventCommentReactions' },
     'File.ownerId': { section: 'files' },
     'Notification.userId': { section: 'notifications' },
     'NotificationSettings.userId': { section: 'notificationSettings' },
@@ -1270,6 +1328,9 @@ export const USER_RELATIONS: Readonly<Record<string, { section: string } | { exc
     'StoryPollVote.userId': { section: 'storyPollVotes' },
     'StoryView.userId': { section: 'storyViews' },
     'StoryReaction.userId': { section: 'storyReactions' },
+    'StoryMute.userId': { section: 'storyMutes' },
+    'StoryMute.mutedUserId': { excluded: 'кто скрыл сторис субъекта — решение другого человека' },
+    'StoryHighlight.ownerId': { section: 'storyHighlights' },
     // Камеры вуза (§3.10): кто завёл агента и кто переключал модуль — работа админа вуза.
     'CameraAgent.createdById': { excluded: STAFF_WORK },
     'CameraSettings.updatedById': { excluded: STAFF_WORK },
@@ -1354,6 +1415,10 @@ export const SCALAR_ID_FIELDS: Readonly<
   'Invite.universityId': { notUser: NOT_USER },
   'Invite.facultyId': { notUser: NOT_USER },
   'Invite.groupId': { notUser: NOT_USER },
+  // Снимок scope аудитории сторис в «Актуальном» — без FK, как scope приглашения.
+  'StoryHighlightItem.universityId': { notUser: NOT_USER },
+  'StoryHighlightItem.facultyId': { notUser: NOT_USER },
+  'StoryHighlightItem.groupId': { notUser: NOT_USER },
   'Chat.supportMergedIntoId': { notUser: NOT_USER },
   'ScheduledMessage.replyToId': { notUser: NOT_USER },
   'DocumentEvent.requestId': { notUser: NOT_USER },

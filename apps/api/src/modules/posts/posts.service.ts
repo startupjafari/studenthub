@@ -281,6 +281,9 @@ function toPostMedia(
   }
 }
 
+// Начало текста поста в карточке стикера сторис: карточка — превью, а не сам пост.
+const STORY_POST_EXCERPT = 160
+
 @Injectable()
 export class PostsService {
   private readonly logger = new Logger(PostsService.name)
@@ -765,6 +768,46 @@ export class PostsService {
    * Без scope модерации: пересылка выносит пост к новым читателям, и право модератора
    * снимать пост не даёт права его распространять.
    */
+  /**
+   * Карточки постов для стикеров сторис (§3.4): видимые зрителю и не удалённые — автор,
+   * заголовок и начало текста. Невидимого в ответе нет: сторис нарисует «публикация
+   * недоступна», ничего не раскрывая.
+   */
+  async storySummaries(
+    viewer: JwtPayload,
+    ids: string[],
+  ): Promise<
+    Map<
+      string,
+      { id: string; authorId: string; authorName: string; title: string | null; excerpt: string }
+    >
+  > {
+    if (ids.length === 0) return new Map()
+    const posts = await this.prisma.post.findMany({
+      where: { AND: [{ id: { in: ids } }, this.visibilityWhere(viewer)] },
+      select: {
+        id: true,
+        authorId: true,
+        title: true,
+        content: true,
+        author: { select: { firstName: true, lastName: true } },
+      },
+      take: ids.length,
+    })
+    return new Map(
+      posts.map((p) => [
+        p.id,
+        {
+          id: p.id,
+          authorId: p.authorId,
+          authorName: `${p.author.lastName} ${p.author.firstName}`.trim(),
+          title: p.title,
+          excerpt: p.content.slice(0, STORY_POST_EXCERPT),
+        },
+      ]),
+    )
+  }
+
   async assertVisibleToViewer(viewer: JwtPayload, id: string): Promise<void> {
     await this.findVisibleOrThrow(viewer, id, { id: true })
   }

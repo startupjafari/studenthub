@@ -83,6 +83,9 @@ enum StoryAudience {
   FACULTY
   GROUP
   TEACHERS
+  // Личные аудитории: друзья автора (Friendship ACCEPTED) и поимённый список.
+  FRIENDS
+  SELECTED
 }
 
 enum ChatType {

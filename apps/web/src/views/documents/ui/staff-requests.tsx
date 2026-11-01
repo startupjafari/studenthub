@@ -1,16 +1,17 @@
 'use client'
 
-import { useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useState, type ReactNode } from 'react'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useLocale, useTranslations } from 'next-intl'
 import { ClipboardList, Plus, Trash2 } from 'lucide-react'
 import { Role } from '@studenthub/shared-types'
+import type { AuthoredRequestSort } from '@studenthub/shared-schemas'
 import {
   closeDocumentRequest,
   createDocumentRequest,
   documentRequestKeys,
-  fetchAuthoredRequests,
+  fetchAuthoredRequestsPage,
   fetchRequestManage,
   fetchRequestSubmissions,
   fetchSubmission,
@@ -48,12 +49,14 @@ import {
   TableEmpty,
   TableHead,
   TableHeader,
+  TablePagination,
   TableRow,
   TableSkeletonRows,
   TableText,
   Textarea,
   useConfirm,
-  useTableSort,
+  usePagedSort,
+  type SortState,
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { DocModal } from './doc-modal'
@@ -95,11 +98,22 @@ const REQ_SKELETON_COLS = [
   undefined,
 ]
 
+// Размер страницы — как у журнала документов; предел серверной схемы — 100.
+const PAGE_SIZES = [20, 50, 100] as const
+
 export function StaffRequests() {
   const t = useTranslations('Documents')
   const [creating, setCreating] = useState(false)
   const [manageId, setManageId] = useState<string | null>(null)
-  const q = useQuery({ queryKey: documentRequestKeys.authored(), queryFn: fetchAuthoredRequests })
+  // Страница и порядок — на сервере: упорядочены все запросы области, а не открытая
+  // страница. Прежняя страница остаётся на экране, пока грузится следующая.
+  const paged = usePagedSort<AuthoredRequestSort>(PAGE_SIZES[0])
+  const q = useQuery({
+    queryKey: documentRequestKeys.authoredPage(paged.query),
+    queryFn: () => fetchAuthoredRequestsPage(paged.query),
+    placeholderData: keepPreviousData,
+  })
+  const total = q.data?.total ?? 0
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
@@ -108,7 +122,7 @@ export function StaffRequests() {
           <Plus className="size-4" aria-hidden /> {t('req_create')}
         </Button>
       </div>
-      {!q.isLoading && (q.data ?? []).length === 0 ? (
+      {!q.isLoading && total === 0 ? (
         <EmptyState
           icon={<ClipboardList className="size-6" aria-hidden />}
           title={t('req_emptyStaff')}
@@ -120,7 +134,23 @@ export function StaffRequests() {
           }
         />
       ) : (
-        <RequestsTable rows={q.data ?? []} loading={q.isLoading} onOpen={setManageId} />
+        <RequestsTable
+          rows={q.data?.items ?? []}
+          loading={q.isLoading}
+          onOpen={setManageId}
+          sort={paged.sort}
+          onSort={paged.toggle}
+          footer={
+            <TablePagination
+              page={paged.page}
+              total={total}
+              limit={paged.limit}
+              onPageChange={paged.setPage}
+              limitOptions={PAGE_SIZES}
+              onLimitChange={paged.setLimit}
+            />
+          }
+        />
       )}
       {creating && <CreateRequestModal onClose={() => setCreating(false)} />}
       {manageId && <ManageRequestModal id={manageId} onClose={() => setManageId(null)} />}
@@ -132,59 +162,50 @@ export function StaffRequests() {
  * Список запросов таблицей.
  *
  * Плитками сотрудник не мог сравнить запросы между собой: «отправлено 3 из 40» и срок
- * лежали в разных местах каждой карточки. В колонках эти же числа стоят друг под другом
- * и сортируются — по сроку видно, что горит, по отправленным — где студенты молчат.
+ * лежали в разных местах каждой карточки. В колонках эти же числа стоят друг под другом.
+ * Сортирует сервер — по всем запросам области. Колонка «Отправлено» без сортировки: это
+ * доля двух счётчиков, а БД упорядочивает только по одному.
  */
 function RequestsTable({
   rows,
   loading,
   onOpen,
+  sort,
+  onSort,
+  footer,
 }: {
   rows: StaffRequestSummary[]
   loading: boolean
   onOpen: (id: string) => void
+  sort: SortState | null
+  onSort: (key: string) => void
+  footer: ReactNode
 }) {
   const t = useTranslations('Documents')
   const locale = useLocale()
-  // Сортировка по доле отправленных, а не по абсолютному числу: «3 из 5» важнее «3 из 400».
-  const {
-    rows: sorted,
-    sort,
-    toggle,
-  } = useTableSort<StaffRequestSummary>(rows, (r, key) => {
-    if (key === 'title') return r.title
-    if (key === 'items') return r.itemCount
-    if (key === 'submitted')
-      return r.submissionCount === 0 ? 0 : r.submittedCount / r.submissionCount
-    if (key === 'due') return r.dueAt
-    if (key === 'status') return r.status
-    return null
-  })
 
   return (
     <Card className="flex min-h-0 flex-1 flex-col gap-0 py-0">
       <Table fixed scrollBody fill cols={REQ_COLS}>
         <TableHeader>
           <TableRow>
-            <TableHead sortKey="title" sort={sort} onSort={toggle}>
+            <TableHead sortKey="title" sort={sort} onSort={onSort}>
               {t('req_fieldTitle')}
             </TableHead>
             <TableHead
               numeric
               sortKey="items"
               sort={sort}
-              onSort={toggle}
+              onSort={onSort}
               className={REQ_HIDE.items}
             >
               {t('req_colItems')}
             </TableHead>
-            <TableHead numeric sortKey="submitted" sort={sort} onSort={toggle}>
-              {t('req_colSubmitted')}
-            </TableHead>
-            <TableHead sortKey="due" sort={sort} onSort={toggle}>
+            <TableHead numeric>{t('req_colSubmitted')}</TableHead>
+            <TableHead sortKey="dueAt" sort={sort} onSort={onSort}>
               {t('req_fieldDue')}
             </TableHead>
-            <TableHead sortKey="status" sort={sort} onSort={toggle} className={REQ_HIDE.status}>
+            <TableHead sortKey="status" sort={sort} onSort={onSort} className={REQ_HIDE.status}>
               {t('status')}
             </TableHead>
             <TableHead>
@@ -194,7 +215,7 @@ function RequestsTable({
         </TableHeader>
         <TableBody>
           {loading && <TableSkeletonRows columns={REQ_SKELETON_COLS} />}
-          {sorted.map((r) => (
+          {rows.map((r) => (
             <TableRow
               key={r.id}
               onClick={() => onOpen(r.id)}
@@ -242,6 +263,7 @@ function RequestsTable({
           ))}
         </TableBody>
       </Table>
+      {footer}
     </Card>
   )
 }

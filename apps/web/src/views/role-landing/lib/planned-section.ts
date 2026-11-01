@@ -10,5 +10,8 @@ import { NAV_BY_VARIANT, type NavVariant } from '../../../widgets/app-shell'
  */
 export function isPlannedSection(variant: NavVariant, path: string): boolean {
   const normalized = path.replace(/\/+$/, '')
-  return (NAV_BY_VARIANT[variant] ?? []).some((item) => item.href === normalized)
+  // Страницы раздела (`children`) — такие же пункты меню, как и верхний уровень.
+  return (NAV_BY_VARIANT[variant] ?? []).some(
+    (item) => item.href === normalized || (item.children ?? []).some((c) => c.href === normalized),
+  )
 }
