@@ -55,6 +55,31 @@ export interface NavItem {
   // Ключ i18n группы (namespace Nav.group). Заголовки секций показываются, только если у
   // навигации ≥2 групп (сейчас — студенческая); иначе список плоский, как раньше.
   group?: string
+  // Страницы раздела. Пункт с ними — не ссылка, а раскрывающийся список: раньше страницы
+  // раздела переключались табами в шапке, и о них знал только тот, кто уже на первой.
+  // `href` пункта остаётся корнем раздела — по нему раздел ищут палитра и заглушки.
+  children?: NavLeaf[]
+}
+
+/** Страница раздела в раскрывающемся пункте навигации. */
+export interface NavLeaf {
+  // Ключ i18n в namespace Nav.
+  key: string
+  href: string
+  exact?: boolean
+}
+
+/** Открыта ли эта страница навигации на текущем пути. */
+export function isNavHrefActive(href: string, pathname: string, exact?: boolean): boolean {
+  if (href === '/') return pathname === '/'
+  if (exact) return pathname === href
+  return pathname === href || pathname.startsWith(`${href}/`)
+}
+
+/** Активен ли пункт: сам или, у раздела со страницами, одна из них. */
+export function isNavItemActive(item: NavItem, pathname: string): boolean {
+  if (item.children) return item.children.some((c) => isNavHrefActive(c.href, pathname, c.exact))
+  return isNavHrefActive(item.href, pathname, item.exact)
 }
 
 // Вариант навигации — сериализуемый пропс для AppShell (иконки резолвятся в клиенте).
@@ -89,7 +114,16 @@ export const STUDENT_NAV: NavItem[] = [
   { key: 'appointments', href: '/appointments', icon: CalendarClock, group: 'services' },
   { key: 'portfolio', href: '/portfolio', icon: BriefcaseBusiness, group: 'services' },
   // Библиотека вуза (Фаза 20): пункт прячется, пока админ вуза не включил модуль (AppShell).
-  { key: 'books', href: '/books', icon: Library, group: 'services' },
+  {
+    key: 'books',
+    href: '/books',
+    icon: Library,
+    group: 'services',
+    children: [
+      { key: 'libraryCatalog', href: '/books' },
+      { key: 'myBooks', href: '/my-books' },
+    ],
+  },
   { key: 'applications', href: '/applications', icon: FileText, group: 'services' },
   { key: 'chats', href: '/chats', icon: MessagesSquare, group: 'communication' },
   { key: 'events', href: '/events', icon: CalendarClock, group: 'communication' },
@@ -145,7 +179,18 @@ export const UNIVERSITY_ADMIN_NAV: NavItem[] = [
   { key: 'serviceCatalog', href: '/university-admin/services', icon: ClipboardList, group: 'services' }, // prettier-ignore
   { key: 'documentTypes', href: '/university-admin/document-types', icon: FileCog, group: 'services' }, // prettier-ignore
   // Библиотека вуза (Фаза 20): выключатель, правила выдачи; фонд ведёт библиотекарь.
-  { key: 'library', href: '/university-admin/library', icon: Library, group: 'services' },
+  {
+    key: 'library',
+    href: '/university-admin/library',
+    icon: Library,
+    group: 'services',
+    children: [
+      { key: 'settings', href: '/university-admin/library', exact: true },
+      { key: 'libraryCatalog', href: '/university-admin/library/catalog' },
+      { key: 'libraryReports', href: '/university-admin/library/reports' },
+      { key: 'libraryJournal', href: '/university-admin/library/journal' },
+    ],
+  },
 
   // Коммуникации вуза.
   { key: 'posts', href: '/university-admin/posts', icon: Newspaper, group: 'communication' },

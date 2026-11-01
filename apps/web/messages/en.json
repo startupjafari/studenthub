@@ -68,6 +68,8 @@
     "libraryCatalog": "Catalogue",
     "libraryInventory": "Inventory",
     "libraryReports": "Reports",
+    "libraryJournal": "Log",
+    "myBooks": "My books",
     "library": "Library",
     "securityRooms": "Rooms",
     "settings": "Settings",
@@ -4393,10 +4395,6 @@
       "reservationHoldDays": "Then the hold passes to the next in the queue",
       "maxRenewals": "The librarian renews; 0 — no renewals"
     },
-    "tabSettings": "Settings",
-    "tabCatalog": "Catalogue",
-    "tabReports": "Reports",
-    "tabJournal": "Log",
     "journalTitle": "ID view log",
     "journalSubtitle": "Which librarians opened readers' cards on loans",
     "journalSearch": "Reader or librarian",
@@ -5397,7 +5395,6 @@
   },
   "LibraryReader": {
     "title": "Library",
-    "tabCatalog": "Catalog",
     "tabMine": "My books",
     "mineSubtitle": "Books you have, holds and history",
     "allTaken": "All copies are checked out",

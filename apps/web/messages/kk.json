@@ -68,6 +68,8 @@
     "libraryCatalog": "Каталог",
     "libraryInventory": "Түгендеу",
     "libraryReports": "Есептер",
+    "libraryJournal": "Журнал",
+    "myBooks": "Менің кітаптарым",
     "library": "Кітапхана",
     "securityRooms": "Бөлмелер",
     "settings": "Баптаулар",
@@ -4393,10 +4395,6 @@
       "reservationHoldDays": "Содан кейін бронь кезектегі келесіге өтеді",
       "maxRenewals": "Кітапханашы ұзартады; 0 — ұзартусыз"
     },
-    "tabSettings": "Баптаулар",
-    "tabCatalog": "Каталог",
-    "tabReports": "Есептер",
-    "tabJournal": "Журнал",
     "journalTitle": "Куәліктерді қарау журналы",
     "journalSubtitle": "Кітапханашылардың қайсысы оқырман карточкаларын ашқаны",
     "journalSearch": "Оқырман немесе кітапханашы",
@@ -5397,7 +5395,6 @@
   },
   "LibraryReader": {
     "title": "Кітапхана",
-    "tabCatalog": "Каталог",
     "tabMine": "Менің кітаптарым",
     "mineSubtitle": "Қолдағы кітаптар, брондар және тарих",
     "allTaken": "Барлық даналар қолда",

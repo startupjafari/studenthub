@@ -134,7 +134,8 @@ export function StaffWorkspaceModal({ id, onClose }: { id: string; onClose: () =
                   {/* Сетка 2×N: пары «кто / как», «когда подано / к какому сроку».
                       На телефоне — одна колонка. */}
                   <dl className="grid gap-x-6 gap-y-4 sm:grid-cols-2">
-                    <Row label={t('numberLabel')} value={app.number} />
+                    {/* У черновика номера ещё нет — номер выдаётся при отправке. */}
+                    {app.number && <Row label={t('numberLabel')} value={app.number} />}
                     {app.submittedAt && (
                       <Row
                         label={t('submittedAtLabel')}
