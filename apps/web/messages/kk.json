@@ -2246,7 +2246,9 @@
     "moveEarlier": "Ертерек",
     "moveLater": "Кейінірек",
     "openHighlight": "«{title}» топтамасын ашу",
-    "highlightStoryOf": "{total} стористің {index}-сі"
+    "highlightStoryOf": "{total} стористің {index}-сі",
+    "highlightCover": "Мұқаба",
+    "highlightCoverHint": "Кадрды басыңыз — ол профильдегі топтаманың мұқабасы болады."
   },
   "Chats": {
     "storyReplyLabel": "Сториске жауап",

@@ -2246,7 +2246,9 @@
     "moveEarlier": "Earlier",
     "moveLater": "Later",
     "openHighlight": "Open the “{title}” highlight",
-    "highlightStoryOf": "Story {index} of {total}"
+    "highlightStoryOf": "Story {index} of {total}",
+    "highlightCover": "Cover",
+    "highlightCoverHint": "Tap a frame to make it the highlight cover in your profile."
   },
   "Chats": {
     "storyReplyLabel": "Replied to a story",

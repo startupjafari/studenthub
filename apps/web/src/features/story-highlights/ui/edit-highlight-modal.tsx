@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Star, Trash2, X } from 'lucide-react'
+import { Check, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Trash2, X } from 'lucide-react'
 import { STORY_HIGHLIGHT_TITLE_MAX } from '@studenthub/shared-schemas'
 import { toApiError } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
@@ -32,9 +32,9 @@ function moved<T>(list: readonly T[], index: number, step: -1 | 1): T[] {
 }
 
 /**
- * Редактор подборки «Актуального»: название, место в ряду профиля, порядок сторис,
- * обложка, удаление сторис и всей подборки. Каждое действие уходит на сервер сразу —
- * кнопки «Сохранить» нет только у порядка и обложки, название сохраняется явно.
+ * Редактор подборки «Актуального»: название, обложка, место в ряду профиля, порядок
+ * сторис, удаление сторис и всей подборки. Обложка выбирается из настоящих кадров
+ * подборки и меняется сразу по нажатию; порядок — тоже сразу; название — по «Сохранить».
  */
 export function EditHighlightModal({
   highlightId,
@@ -78,14 +78,19 @@ export function EditHighlightModal({
     },
     onError: showError,
   })
+  // Выбранный кадр отмечается сразу, до ответа сервера; при ошибке отметка возвращается.
+  const [pendingCover, setPendingCover] = useState<string | null>(null)
   const setCover = useMutation({
     mutationFn: (itemId: string) =>
       updateStoryHighlightRequest(highlightId, { coverItemId: itemId }),
-    onSuccess: () => {
+    onMutate: (itemId) => setPendingCover(itemId),
+    onSuccess: (updated) => {
+      qc.setQueryData(storyKeys.highlight(highlightId), updated)
       refresh()
       toast.success(t('highlightCoverSet'))
     },
     onError: showError,
+    onSettled: () => setPendingCover(null),
   })
   const reorderItems = useMutation({
     mutationFn: (ids: string[]) => reorderStoryHighlightItemsRequest(highlightId, ids),
@@ -121,7 +126,8 @@ export function EditHighlightModal({
   const highlightIds = (row.data ?? []).map((h) => h.id)
   const position = highlightIds.indexOf(highlightId)
   // Обложка — выбранная или, пока не выбрана, первая сторис подборки.
-  const coverId = data?.coverItemId ?? items[0]?.id
+  const coverId = pendingCover ?? data?.coverItemId ?? items[0]?.id
+  const cover = items.find((i) => i.id === coverId) ?? items[0]
   const busy = reorderItems.isPending || move.isPending || removeItem.isPending
 
   async function askRemoveItem(itemId: string): Promise<void> {
@@ -159,7 +165,19 @@ export function EditHighlightModal({
             }}
           >
             <Label htmlFor="highlight-edit-title">{t('highlightTitleLabel')}</Label>
-            <div className="flex gap-2">
+            <div className="flex items-center gap-2">
+              {/* Обложка так, как её увидят в профиле. */}
+              {cover && (
+                <span className="shrink-0 rounded-full border border-border p-0.5">
+                  <StoryThumb
+                    media={cover.media}
+                    text={cover.text}
+                    background={cover.background}
+                    sizes="48px"
+                    className="size-10 rounded-full"
+                  />
+                </span>
+              )}
               <Input
                 id="highlight-edit-title"
                 value={shownTitle}
@@ -207,6 +225,51 @@ export function EditHighlightModal({
           )}
 
           <div className="flex flex-col gap-2">
+            <span className="text-sm font-medium">{t('highlightCover')}</span>
+            <p className="text-xs text-muted-foreground">{t('highlightCoverHint')}</p>
+            <ul
+              role="radiogroup"
+              aria-label={t('highlightCover')}
+              className="-mx-1 flex gap-2.5 overflow-x-auto px-1 py-1.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            >
+              {items.map((item, index) => {
+                const isCover = item.id === coverId
+                return (
+                  <li key={item.id} className="shrink-0">
+                    <button
+                      type="button"
+                      role="radio"
+                      aria-checked={isCover}
+                      aria-label={t('highlightStoryOf', { index: index + 1, total: items.length })}
+                      disabled={setCover.isPending}
+                      onClick={() => !isCover && setCover.mutate(item.id)}
+                      className={cn(
+                        'relative block overflow-hidden rounded-lg outline-none transition-[box-shadow,opacity] duration-150 focus-visible:ring-4 focus-visible:ring-ring/30 motion-reduce:transition-none',
+                        isCover
+                          ? 'ring-2 ring-primary ring-offset-2 ring-offset-background'
+                          : 'opacity-75 hover:opacity-100',
+                      )}
+                    >
+                      <StoryThumb
+                        media={item.media}
+                        text={item.text}
+                        background={item.background}
+                        sizes="64px"
+                        className="h-24 w-[3.375rem]"
+                      />
+                      {isCover && (
+                        <span className="absolute top-1 right-1 flex size-5 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                          <Check className="size-3" aria-hidden />
+                        </span>
+                      )}
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+          </div>
+
+          <div className="flex flex-col gap-2">
             <span className="text-sm font-medium">{t('highlightOrder')}</span>
             <ul className="flex max-h-80 flex-col gap-1.5 overflow-y-auto">
               {items.map((item, index) => {
@@ -232,16 +295,6 @@ export function EditHighlightModal({
                         </span>
                       )}
                     </span>
-                    <button
-                      type="button"
-                      className={cn(arrow, isCover && 'text-primary')}
-                      disabled={busy || isCover || setCover.isPending}
-                      aria-label={t('highlightMakeCover')}
-                      title={t('highlightMakeCover')}
-                      onClick={() => setCover.mutate(item.id)}
-                    >
-                      <Star className={cn('size-4', isCover && 'fill-current')} aria-hidden />
-                    </button>
                     <button
                       type="button"
                       className={arrow}

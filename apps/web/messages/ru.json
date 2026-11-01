@@ -2246,7 +2246,9 @@
     "moveEarlier": "Раньше",
     "moveLater": "Позже",
     "openHighlight": "Открыть подборку «{title}»",
-    "highlightStoryOf": "Сторис {index} из {total}"
+    "highlightStoryOf": "Сторис {index} из {total}",
+    "highlightCover": "Обложка",
+    "highlightCoverHint": "Нажмите на кадр — он станет обложкой подборки в профиле."
   },
   "Chats": {
     "storyReplyLabel": "Ответ на сторис",
