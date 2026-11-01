@@ -82,4 +82,20 @@ describe('Markdown — упоминания', () => {
     )
     expect(mention).toBeUndefined()
   })
+
+  it('с autolink голая ссылка открывается без хвостовой точки, хештег выделяется', () => {
+    const { container } = render(
+      <Markdown autolink source={'Подробнее: https://studenthub.kz/events. #хакатон'} />,
+    )
+    const link = container.querySelector('a')
+    expect(link?.getAttribute('href')).toBe('https://studenthub.kz/events')
+    expect(link?.getAttribute('rel')).toContain('noopener')
+    expect(screen.getByText('#хакатон').className).toContain('text-primary')
+  })
+
+  it('без autolink голая ссылка остаётся текстом', () => {
+    const { container } = render(<Markdown source={'https://studenthub.kz #тег'} />)
+    expect(container.querySelector('a')).toBeNull()
+    expect(screen.queryByText('#тег')).toBeNull()
+  })
 })

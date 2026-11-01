@@ -2090,7 +2090,9 @@
     "filterModeration": "Модерация",
     "bookmark": "В избранное",
     "audienceFRIENDS": "Только друзья",
-    "audienceSELECTED": "Выбранные"
+    "audienceSELECTED": "Выбранные",
+    "commentsError": "Не удалось загрузить комментарии",
+    "commentsEmpty": "Комментариев пока нет — напишите первым"
   },
   "Stories": {
     "toolEvent": "Событие",

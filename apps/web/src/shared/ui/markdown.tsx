@@ -37,16 +37,20 @@ const LINK_RE = /\[([^\]\n]+)\]\(([^)\s]+)\)/
 // подчёркивание и дефис. Ссылку не ставим: маршрута профиля по логину пока нет,
 // поэтому упоминание только выделяется — иначе ссылка вела бы в никуда.
 const MENTION_RE = /(^|[^\w@])@([a-zA-Z0-9._-]{2,32})/
+// Только с `autolink`: голая ссылка (без хвостовой пунктуации) и хештег. Хештег выделяется,
+// но не ведёт никуда — поиска по тегам пока нет.
+const BARE_URL_RE = /https?:\/\/[^\s<>"']+[^\s<>"'.,;:!?)\]]/
+const HASHTAG_RE = /(^|[^\p{L}\d_#&])#([\p{L}\d_]{2,50})/u
 
 /** Рекурсивный разбор строки: находим первое совпадение и делим текст на три части. */
-function parseInline(text: string, key: string): ReactNode[] {
+function parseInline(text: string, key: string, autolink = false): ReactNode[] {
   const link = LINK_RE.exec(text)
   if (link) {
     const [full, label, href] = link
     const before = text.slice(0, link.index)
     const after = text.slice(link.index + full.length)
     return [
-      ...parseInline(before, `${key}b`),
+      ...parseInline(before, `${key}b`, autolink),
       isSafeHref(href ?? '') ? (
         <a
           key={`${key}l`}
@@ -63,8 +67,40 @@ function parseInline(text: string, key: string): ReactNode[] {
         // Небезопасная схема — показываем подпись обычным текстом, ссылкой не делаем.
         <span key={`${key}l`}>{label}</span>
       ),
-      ...parseInline(after, `${key}a`),
+      ...parseInline(after, `${key}a`, autolink),
     ]
+  }
+
+  if (autolink) {
+    const url = BARE_URL_RE.exec(text)
+    if (url) {
+      const [href] = url
+      return [
+        ...parseInline(text.slice(0, url.index), `${key}ub`, autolink),
+        <a
+          key={`${key}u`}
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer nofollow"
+          className="break-all text-primary hover:underline"
+        >
+          {href}
+        </a>,
+        ...parseInline(text.slice(url.index + href.length), `${key}ua`, autolink),
+      ]
+    }
+    const tag = HASHTAG_RE.exec(text)
+    if (tag) {
+      const [full, lead, word] = tag
+      const at = tag.index + (lead?.length ?? 0)
+      return [
+        ...parseInline(text.slice(0, at), `${key}hb`, autolink),
+        <span key={`${key}h`} className="font-medium text-primary">
+          #{word}
+        </span>,
+        ...parseInline(text.slice(tag.index + full.length), `${key}ha`, autolink),
+      ]
+    }
   }
 
   const mention = MENTION_RE.exec(text)
@@ -72,11 +108,11 @@ function parseInline(text: string, key: string): ReactNode[] {
     const [full, lead, login] = mention
     const at = mention.index + (lead?.length ?? 0)
     return [
-      ...parseInline(text.slice(0, at), `${key}mb`),
+      ...parseInline(text.slice(0, at), `${key}mb`, autolink),
       <span key={`${key}mn`} className="font-medium text-primary">
         @{login}
       </span>,
-      ...parseInline(text.slice(mention.index + full.length), `${key}ma`),
+      ...parseInline(text.slice(mention.index + full.length), `${key}ma`, autolink),
     ]
   }
 
@@ -85,9 +121,9 @@ function parseInline(text: string, key: string): ReactNode[] {
     if (!m) continue
     const [full, value] = m
     return [
-      ...parseInline(text.slice(0, m.index), `${key}b${i}`),
+      ...parseInline(text.slice(0, m.index), `${key}b${i}`, autolink),
       rule.render(value ?? '', `${key}m${i}`),
-      ...parseInline(text.slice(m.index + full.length), `${key}a${i}`),
+      ...parseInline(text.slice(m.index + full.length), `${key}a${i}`, autolink),
     ]
   }
 
@@ -124,13 +160,25 @@ function parseBlocks(source: string): Block[] {
   return blocks.filter((b) => b.lines.length > 0)
 }
 
-export function Markdown({ source, className }: { source: string; className?: string }) {
+/**
+ * `autolink` — голые адреса становятся ссылками, хештеги выделяются (лента постов).
+ * По умолчанию выключено: остальные места выводили текст как есть и так и выводят.
+ */
+export function Markdown({
+  source,
+  className,
+  autolink = false,
+}: {
+  source: string
+  className?: string
+  autolink?: boolean
+}) {
   const blocks = parseBlocks(source)
 
   return (
     <div className={cn('flex flex-col gap-2 text-sm leading-relaxed break-words', className)}>
       {blocks.map((block, i) => {
-        const items = block.lines.map((l, j) => parseInline(l, `${i}-${j}`))
+        const items = block.lines.map((l, j) => parseInline(l, `${i}-${j}`, autolink))
         if (block.kind === 'ul' || block.kind === 'ol') {
           const List = block.kind === 'ul' ? 'ul' : 'ol'
           return (

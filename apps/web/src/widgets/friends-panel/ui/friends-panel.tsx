@@ -4,7 +4,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
-import { UserPlus, Users } from 'lucide-react'
+import { Check, UserPlus, Users, X } from 'lucide-react'
 import {
   fetchFriendRequests,
   fetchFriends,
@@ -110,7 +110,7 @@ export function FriendsPanel() {
   return (
     <>
       {incomingCount > 0 && (
-        <Card>
+        <Card size="sm">
           {/* Счётчик — в строке заголовка, а переход к полному списку — в слоте действий
               справа. Раньше «показать всех» стояла под списком: до неё нужно было
               проскроллить карточку целиком, то есть управление оказывалось дальше, чем
@@ -141,58 +141,74 @@ export function FriendsPanel() {
             {/* Счётчик уже пришёл, а список ещё нет: показываем ровно столько заготовок,
                 сколько карточек появится — карточка не «прыгает» по высоте при загрузке. */}
             {requestsQ.isPending && (
-              <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-2">
                 {Array.from({ length: Math.min(incomingCount, REQUESTS_PREVIEW) }).map((_, i) => (
-                  <Skeleton key={i} className="h-[4.75rem] w-full rounded-xl" />
+                  <Skeleton key={i} className="h-11 w-full rounded-lg" />
                 ))}
               </div>
             )}
-            <ul className="flex flex-col gap-3">
-              {requests.slice(0, REQUESTS_PREVIEW).map((r) => (
-                <li key={r.friendshipId} className="flex flex-col gap-2">
-                  <Link
-                    href={`/profile/${r.user.id}`}
-                    className="flex min-w-0 items-center gap-2 hover:underline"
+            {/* Заявка — одной строкой: аватар, имя и два круглых действия. Прежние кнопки
+                во всю ширину под каждым именем делали из трёх заявок полэкрана. Имя
+                забирает всё оставшееся место и сокращается, полное — в подсказке. */}
+            <ul className="flex flex-col gap-1">
+              {requests.slice(0, REQUESTS_PREVIEW).map((r) => {
+                const accepting = accept.isPending && accept.variables === r.friendshipId
+                const declining =
+                  remove.isPending && remove.variables?.friendshipId === r.friendshipId
+                return (
+                  <li
+                    key={r.friendshipId}
+                    className="flex items-center gap-2 rounded-lg px-1 py-1 transition-colors duration-150 hover:bg-muted/60"
                   >
-                    <FriendAvatar
-                      user={r.user}
-                      className="size-10 shrink-0 rounded-full"
-                      textClassName="text-xs"
-                    />
-                    <span className="min-w-0 truncate text-sm font-medium">{fullName(r.user)}</span>
-                  </Link>
-                  {/* Кнопки отдельной строкой: в колонке 20rem «аватар + имя + два действия»
-                      в одну строку ужимает имя до пары букв. */}
-                  <div className="flex gap-2">
+                    <Link
+                      href={`/profile/${r.user.id}`}
+                      title={fullName(r.user)}
+                      className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+                    >
+                      <FriendAvatar
+                        user={r.user}
+                        className="size-9 shrink-0 rounded-full"
+                        textClassName="text-xs"
+                      />
+                      <span className="min-w-0 truncate text-sm font-medium hover:underline">
+                        {fullName(r.user)}
+                      </span>
+                    </Link>
                     <Button
                       size="sm"
-                      className="flex-1"
+                      icon
+                      className="size-8 shrink-0 rounded-full"
+                      aria-label={`${t('accept')}: ${fullName(r.user)}`}
+                      title={t('accept')}
+                      disabled={declining}
+                      loading={accepting}
                       onClick={() => accept.mutate(r.friendshipId)}
-                      loading={accept.isPending && accept.variables === r.friendshipId}
                     >
-                      {t('accept')}
+                      <Check className="size-4" aria-hidden />
                     </Button>
                     <Button
                       size="sm"
+                      icon
                       variant="outline"
-                      className="flex-1"
+                      className="size-8 shrink-0 rounded-full"
+                      aria-label={`${t('decline')}: ${fullName(r.user)}`}
+                      title={t('decline')}
+                      disabled={accepting}
+                      loading={declining}
                       onClick={() => remove.mutate({ friendshipId: r.friendshipId })}
-                      loading={
-                        remove.isPending && remove.variables?.friendshipId === r.friendshipId
-                      }
                     >
-                      {t('decline')}
+                      <X className="size-4" aria-hidden />
                     </Button>
-                  </div>
-                </li>
-              ))}
+                  </li>
+                )
+              })}
             </ul>
           </CardContent>
         </Card>
       )}
 
       {friendsCount > 0 && (
-        <Card>
+        <Card size="sm">
           <CardHeader>
             <CardTitle className="flex min-w-0 items-center gap-2">
               <Users className="size-4 shrink-0 text-primary" aria-hidden />
@@ -229,17 +245,17 @@ export function FriendsPanel() {
                   <Link
                     href={`/profile/${f.user.id}`}
                     title={fullName(f.user)}
-                    className="flex flex-col gap-1"
+                    className="group flex flex-col gap-1 rounded-xl focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
                   >
                     <FriendAvatar
                       user={f.user}
                       // `size-auto` первым: у Avatar в базе `size-9`, и он задаёт
                       // ВЫСОТУ — одним `w-full` его не перебить, ячейка осталась бы
                       // полосой 36px. Дальше высоту даёт aspect-square.
-                      className="size-auto aspect-square w-full rounded-xl"
+                      className="size-auto aspect-square w-full rounded-xl object-cover ring-1 ring-foreground/5 transition-opacity duration-150 group-hover:opacity-90"
                       textClassName="text-base"
                     />
-                    <span className="truncate text-center text-xs hover:underline">
+                    <span className="truncate text-center text-xs group-hover:underline">
                       {f.user.firstName}
                     </span>
                   </Link>

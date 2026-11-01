@@ -1,9 +1,10 @@
 'use client'
 
 import { useMemo } from 'react'
+import Link from 'next/link'
 import { useQuery } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
-import { CalendarClock, CalendarDays, MapPin, Video } from 'lucide-react'
+import { CalendarClock, CalendarDays, CalendarX2, MapPin, Video } from 'lucide-react'
 import {
   buildDayPairs,
   fetchSchedule,
@@ -76,9 +77,18 @@ export function HomeSidebar() {
     />
   )
 
+  // Пустое состояние — одной строкой: большая карточка «ничего нет» в узкой колонке
+  // занимала полэкрана и сообщала ровно одну фразу.
+  const quietEmpty = (icon: React.ReactNode, text: string) => (
+    <p className="flex items-center gap-2 py-1 text-sm text-muted-foreground">
+      {icon}
+      {text}
+    </p>
+  )
+
   return (
     <>
-      <Card>
+      <Card size="sm">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <CalendarDays className="size-4 text-primary" aria-hidden />
@@ -91,43 +101,60 @@ export function HomeSidebar() {
           ) : schedQ.isError && !schedQ.data ? (
             loadFailed(schedQ.refetch)
           ) : todayPairs.length === 0 ? (
-            <EmptyState title={t('noPairsToday')} className="border-0 p-6" />
+            quietEmpty(<CalendarX2 className="size-4 shrink-0" aria-hidden />, t('noPairsToday'))
           ) : (
-            <ul className="flex flex-col gap-2">
+            <ul className="flex flex-col gap-1">
               {todayPairs.map(({ pair, change, state }) => {
                 const cancelled = state === 'cancelled'
                 const room = change?.newRoom ?? pair.room
                 const changeKey = change ? CHANGE_STATE_KEY[change.type] : null
                 return (
-                  <li key={pair.id} className="flex items-start gap-2 text-sm">
-                    <span className="shrink-0 tabular-nums text-muted-foreground">
+                  <li
+                    key={pair.id}
+                    // Идущая пара — акцентом слева, прошедшие приглушены: колонку читают
+                    // ради ответа «что сейчас и что дальше», а не всего дня целиком.
+                    aria-current={state === 'now' ? 'time' : undefined}
+                    className={cn(
+                      'flex items-start gap-3 rounded-lg px-2 py-1.5 text-sm',
+                      state === 'now' && 'bg-primary/10 ring-1 ring-primary/25',
+                      state === 'past' && 'opacity-60',
+                    )}
+                  >
+                    <span className="w-11 shrink-0 pt-px text-xs font-medium tabular-nums text-muted-foreground">
                       {change?.newStartTime ?? pair.startTime}
                     </span>
-                    <div className="min-w-0">
+                    <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                      {/* Длинное название переносится, а не обрезается: «Основы
+                          программирования и алгори…» не отвечает, какая это пара. */}
                       <span
                         className={cn(
-                          'block truncate font-medium',
+                          'leading-snug font-medium break-words',
                           cancelled && 'text-muted-foreground line-through',
                         )}
                       >
                         {pair.subject}
                       </span>
-                      {changeKey && (
-                        <span
-                          className={cn(
-                            'block text-xs font-medium',
-                            cancelled ? 'text-destructive' : 'text-warning',
-                          )}
-                        >
-                          {tToday(changeKey)}
-                        </span>
-                      )}
-                      {room && !cancelled && (
-                        <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                          <MapPin className="size-3" aria-hidden />
-                          {room.name}
-                        </span>
-                      )}
+                      <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                        {room && !cancelled && (
+                          <span className="inline-flex items-center gap-1">
+                            <MapPin className="size-3 shrink-0" aria-hidden />
+                            {room.name}
+                          </span>
+                        )}
+                        {/* Изменение — мягкой плашкой: заметно, но не тревожно. */}
+                        {changeKey && (
+                          <span
+                            className={cn(
+                              'rounded-full px-1.5 py-px text-[11px] font-medium',
+                              cancelled
+                                ? 'bg-destructive/10 text-destructive'
+                                : 'bg-warning/10 text-warning',
+                            )}
+                          >
+                            {tToday(changeKey)}
+                          </span>
+                        )}
+                      </span>
                     </div>
                   </li>
                 )
@@ -137,7 +164,7 @@ export function HomeSidebar() {
         </CardContent>
       </Card>
 
-      <Card>
+      <Card size="sm">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
             <CalendarClock className="size-4 text-primary" aria-hidden />
@@ -150,33 +177,43 @@ export function HomeSidebar() {
           ) : eventsQ.isError && !eventsQ.data ? (
             loadFailed(eventsQ.refetch)
           ) : events.length === 0 ? (
-            <EmptyState title={t('noUpcomingEvents')} className="border-0 p-6" />
+            quietEmpty(
+              <CalendarClock className="size-4 shrink-0" aria-hidden />,
+              t('noUpcomingEvents'),
+            )
           ) : (
-            <ul className="flex flex-col gap-3">
+            <ul className="flex flex-col gap-1">
               {events.map((e) => (
-                <li key={e.id} className="flex flex-col gap-0.5 text-sm">
-                  <span className="truncate font-medium">{e.title}</span>
-                  <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                    {new Date(e.startsAt).toLocaleString(locale, {
-                      day: 'numeric',
-                      month: 'short',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
-                    {e.isOnline ? (
-                      <span className="inline-flex items-center gap-1">
-                        <Video className="size-3" aria-hidden />
-                        {t('online')}
-                      </span>
-                    ) : (
-                      e.location && (
-                        <span className="inline-flex min-w-0 items-center gap-1">
-                          <MapPin className="size-3 shrink-0" aria-hidden />
-                          <span className="truncate">{e.location}</span>
+                <li key={e.id}>
+                  <Link
+                    href={`/events/${e.id}`}
+                    className="flex flex-col gap-0.5 rounded-lg px-2 py-1.5 text-sm transition-colors duration-150 hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+                  >
+                    <span className="line-clamp-2 leading-snug font-medium break-words">
+                      {e.title}
+                    </span>
+                    <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+                      {new Date(e.startsAt).toLocaleString(locale, {
+                        day: 'numeric',
+                        month: 'short',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                      {e.isOnline ? (
+                        <span className="inline-flex items-center gap-1">
+                          <Video className="size-3" aria-hidden />
+                          {t('online')}
                         </span>
-                      )
-                    )}
-                  </span>
+                      ) : (
+                        e.location && (
+                          <span className="inline-flex min-w-0 items-center gap-1">
+                            <MapPin className="size-3 shrink-0" aria-hidden />
+                            <span className="truncate">{e.location}</span>
+                          </span>
+                        )
+                      )}
+                    </span>
+                  </Link>
                 </li>
               ))}
             </ul>

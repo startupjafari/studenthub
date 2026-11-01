@@ -2090,7 +2090,9 @@
     "filterModeration": "Moderation",
     "bookmark": "Save",
     "audienceFRIENDS": "Friends only",
-    "audienceSELECTED": "Selected people"
+    "audienceSELECTED": "Selected people",
+    "commentsError": "Couldn’t load comments",
+    "commentsEmpty": "No comments yet — be the first to write one"
   },
   "Stories": {
     "toolEvent": "Event",
