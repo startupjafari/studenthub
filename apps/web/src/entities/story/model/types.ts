@@ -78,4 +78,6 @@ export interface StoryViewer {
   id: string
   createdAt: string
   user: StoryAuthor
+  /** Реакции этого зрителя на сторис (видит только автор). */
+  reactions: string[]
 }

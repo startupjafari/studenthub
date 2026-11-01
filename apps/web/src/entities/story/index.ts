@@ -1,6 +1,11 @@
 export {
   storyKeys,
   fetchStories,
+  fetchStory,
+  replyToStoryRequest,
+  shareStoryRequest,
+  muteStoryAuthorRequest,
+  unmuteStoryAuthorRequest,
   createStoryRequest,
   deleteStoryRequest,
   markStoryViewed,
