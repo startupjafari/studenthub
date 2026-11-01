@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
@@ -60,6 +60,22 @@ function warmStory(card: StoryCard | undefined): void {
   if (srcset) img.srcset = srcset
   img.src = media.url
 }
+// Превью соседних авторов по бокам от активной сторис (десктоп), как в Instagram: сколько
+// колец видно с каждой стороны, во сколько раз превью меньше кадра и зазор между ними.
+const PREVIEW_RADIUS = 2
+const PREVIEW_SCALE = 0.42
+// Ширина кадра — та же, что у `sm:w-[26rem]` ниже (26rem = 416px); зазор между карточками.
+const FRAME_PX = 416
+const GAP_PX = 24
+
+/** Сдвиг карточки кольца от центра экрана: активная — в центре, соседние — рядом с ней. */
+function slotX(offset: number): number {
+  if (offset === 0) return 0
+  const preview = FRAME_PX * PREVIEW_SCALE
+  const first = FRAME_PX / 2 + GAP_PX + preview / 2
+  return Math.sign(offset) * (first + (Math.abs(offset) - 1) * (preview + GAP_PX))
+}
+
 // Быстрые реакции: один тап, без клавиатуры и выбора эмодзи. Набор закрыт намеренно —
 // полноценный пикер в формате, который смотрят секундами, никто не открывает. Это и есть
 // белый список сервера (STORY_REACTION_EMOJIS): другую реакцию он отклонит.
@@ -112,11 +128,19 @@ export function StoryViewer({
   const raw = ring?.stories[storyIndex]
   const story = raw ? (patched[raw.id] ?? raw) : undefined
 
-  // Закрытие обновляет ленту колец: пока шёл просмотр, сторисы стали просмотренными.
+  // Закрытие обновляет кольца — и ленты, и профиля: пока шёл просмотр, сторисы стали
+  // просмотренными.
   const close = useCallback(() => {
-    void qc.invalidateQueries({ queryKey: storyKeys.feed() })
+    void qc.invalidateQueries({ queryKey: storyKeys.all })
     onClose()
   }, [onClose, qc])
+
+  // Переход к автору по клику на превью — с его первого кадра.
+  const openRing = useCallback((index: number) => {
+    setProgress(0)
+    setRingIndex(index)
+    setStoryIndex(0)
+  }, [])
 
   const goNext = useCallback(() => {
     setProgress(0)
@@ -246,233 +270,265 @@ export function StoryViewer({
 
   if (typeof document === 'undefined' || !ring || !story) return null
 
-  return createPortal(
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/95">
-      {/* Кадр 9:16 по центру: на телефоне во весь экран, на десктопе — колонкой. */}
-      <div className="relative flex h-full w-full max-w-[26rem] flex-col sm:h-[min(90dvh,46rem)] sm:rounded-2xl sm:overflow-hidden">
-        <div className="absolute inset-x-0 top-0 z-20 flex gap-1 p-2">
-          {segments.map((id, i) => (
-            <span key={id} className="h-0.5 flex-1 overflow-hidden rounded-full bg-white/30">
-              <span
-                className="block h-full bg-white"
-                style={{
-                  width: i < storyIndex ? '100%' : i === storyIndex ? `${progress * 100}%` : '0%',
-                }}
-              />
-            </span>
-          ))}
-        </div>
+  // Лента колец: активное — кадром по центру, соседние — уменьшенными превью по бокам.
+  // Каждая карточка позиционируется сдвигом от центра; при смене автора сдвиг и масштаб
+  // анимируются, и лента плавно проезжает, а не перескакивает. На телефоне превью не
+  // помещаются — там только активный кадр во весь экран.
+  const visible = rings
+    .map((r, index) => ({ r, index, offset: index - ringIndex }))
+    .filter(({ offset }) => Math.abs(offset) <= PREVIEW_RADIUS)
 
-        <header className="absolute inset-x-0 top-0 z-20 flex items-center gap-2 px-3 pt-5 pb-2 text-white">
-          <Avatar className="size-8">
-            {story.author.avatarUrl && <AvatarImage src={story.author.avatarUrl} alt="" />}
-            <AvatarFallback>
-              {story.author.firstName.charAt(0)}
-              {story.author.lastName.charAt(0)}
-            </AvatarFallback>
-          </Avatar>
-          <span className="min-w-0 flex-1 truncate text-sm font-medium">
-            {story.author.firstName} {story.author.lastName}
+  const activeFrame = (
+    <div className="relative flex h-full w-full flex-col sm:overflow-hidden sm:rounded-2xl">
+      <div className="absolute inset-x-0 top-0 z-20 flex gap-1 p-2">
+        {segments.map((id, i) => (
+          <span key={id} className="h-0.5 flex-1 overflow-hidden rounded-full bg-white/30">
+            <span
+              className="block h-full bg-white"
+              style={{
+                width: i < storyIndex ? '100%' : i === storyIndex ? `${progress * 100}%` : '0%',
+              }}
+            />
           </span>
-          {canReport && story.author.id !== myId && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              icon
-              aria-label={t('report')}
-              className="text-white hover:bg-white/15 hover:text-white"
-              onClick={() => setReporting(story)}
-            >
-              <Flag className="size-4" aria-hidden />
-            </Button>
-          )}
-          {story.canDelete && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              icon
-              aria-label={t('delete')}
-              className="text-white hover:bg-white/15 hover:text-white"
-              onClick={() => void askDelete(story)}
-            >
-              <Trash2 className="size-4" aria-hidden />
-            </Button>
-          )}
+        ))}
+      </div>
+
+      <header className="absolute inset-x-0 top-0 z-20 flex items-center gap-2 px-3 pt-5 pb-2 text-white">
+        <Avatar className="size-8">
+          {story.author.avatarUrl && <AvatarImage src={story.author.avatarUrl} alt="" />}
+          <AvatarFallback>
+            {story.author.firstName.charAt(0)}
+            {story.author.lastName.charAt(0)}
+          </AvatarFallback>
+        </Avatar>
+        <span className="min-w-0 flex-1 truncate text-sm font-medium">
+          {story.author.firstName} {story.author.lastName}
+        </span>
+        {canReport && story.author.id !== myId && (
           <Button
             type="button"
             variant="ghost"
             size="sm"
             icon
-            aria-label={tCommon('close')}
+            aria-label={t('report')}
             className="text-white hover:bg-white/15 hover:text-white"
-            onClick={close}
+            onClick={() => setReporting(story)}
           >
-            <X className="size-5" aria-hidden />
+            <Flag className="size-4" aria-hidden />
           </Button>
-        </header>
-
-        {/* Сам кадр. Пауза по удержанию — как во всех сторис: палец на экране останавливает
-            отсчёт, отпускание продолжает. */}
-        <div
-          className={cn(
-            'relative flex flex-1 items-center justify-center overflow-hidden',
-            !story.media && storyBackgroundClass(story.background),
-          )}
-          onPointerDown={() => setPaused(true)}
-          onPointerUp={() => setPaused(false)}
-          onPointerLeave={() => setPaused(false)}
+        )}
+        {story.canDelete && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            icon
+            aria-label={t('delete')}
+            className="text-white hover:bg-white/15 hover:text-white"
+            onClick={() => void askDelete(story)}
+          >
+            <Trash2 className="size-4" aria-hidden />
+          </Button>
+        )}
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          icon
+          aria-label={tCommon('close')}
+          className="text-white hover:bg-white/15 hover:text-white"
+          onClick={close}
         >
-          {story.media ? (
-            isVideo ? (
-              <video
-                key={story.id}
-                ref={setVideoEl}
-                // При HLS источник ставит useHls; иначе — оригинал, как раньше.
-                src={story.media.hls ? undefined : story.media.url}
-                poster={pickSource(story.media.poster, 1280)?.url}
-                className="size-full object-contain"
-                autoPlay
-                playsInline
-                controls={false}
-                onTimeUpdate={(e) => {
-                  const el = e.currentTarget
-                  if (el.duration > 0) setProgress(el.currentTime / el.duration)
-                }}
-                onEnded={goNext}
-              />
-            ) : (
-              // Ссылка подписана сервером и живёт 15 минут: next/image её не оптимизирует,
-              // как и у медиа постов. Заглушка видна сразу, копия — по ширине экрана.
-              <MediaImage
-                key={story.id}
-                src={story.media.url}
-                media={story.media}
-                alt=""
-                fit="contain"
-                loading="eager"
-                sizes={STORY_SIZES}
-                className="size-full"
-                onLoad={() => setReadyStoryId(story.id)}
-                // Битую картинку не ждём вечно: кадр идёт дальше по своему таймеру.
-                onError={() => setReadyStoryId(story.id)}
-              />
-            )
-          ) : null}
+          <X className="size-5" aria-hidden />
+        </Button>
+      </header>
 
-          {story.text && (
-            <p
-              className={cn(
-                'absolute inset-x-6 text-center text-lg leading-snug font-medium break-words text-white drop-shadow-lg',
-                story.media ? 'bottom-24' : 'top-1/2 -translate-y-1/2',
-              )}
-            >
-              {story.text}
-            </p>
-          )}
+      {/* Сам кадр. Пауза по удержанию — как во всех сторис: палец на экране останавливает
+            отсчёт, отпускание продолжает. */}
+      <div
+        className={cn(
+          'relative flex flex-1 items-center justify-center overflow-hidden',
+          !story.media && storyBackgroundClass(story.background),
+        )}
+        onPointerDown={() => setPaused(true)}
+        onPointerUp={() => setPaused(false)}
+        onPointerLeave={() => setPaused(false)}
+      >
+        {story.media ? (
+          isVideo ? (
+            <video
+              key={story.id}
+              ref={setVideoEl}
+              // При HLS источник ставит useHls; иначе — оригинал, как раньше.
+              src={story.media.hls ? undefined : story.media.url}
+              poster={pickSource(story.media.poster, 1280)?.url}
+              className="size-full object-contain"
+              autoPlay
+              playsInline
+              controls={false}
+              onTimeUpdate={(e) => {
+                const el = e.currentTarget
+                if (el.duration > 0) setProgress(el.currentTime / el.duration)
+              }}
+              onEnded={goNext}
+            />
+          ) : (
+            // Ссылка подписана сервером и живёт 15 минут: next/image её не оптимизирует,
+            // как и у медиа постов. Заглушка видна сразу, копия — по ширине экрана.
+            <MediaImage
+              key={story.id}
+              src={story.media.url}
+              media={story.media}
+              alt=""
+              fit="contain"
+              loading="eager"
+              sizes={STORY_SIZES}
+              className="size-full"
+              onLoad={() => setReadyStoryId(story.id)}
+              // Битую картинку не ждём вечно: кадр идёт дальше по своему таймеру.
+              onError={() => setReadyStoryId(story.id)}
+            />
+          )
+        ) : null}
 
-          {story.poll && (
-            <div className="absolute inset-x-4 bottom-24 z-10 rounded-2xl bg-black/55 p-3 text-white backdrop-blur">
-              <p className="mb-2 text-sm font-medium">{story.poll.question}</p>
-              <div className="flex flex-col gap-1.5">
-                {story.poll.options.map((option) => {
-                  const total = story.poll?.totalVotes ?? 0
-                  const share = total > 0 ? Math.round((option.votes / total) * 100) : 0
-                  const mine = story.poll?.myOptionId === option.id
-                  const answered = story.poll?.myOptionId !== null
-                  return (
-                    <button
-                      key={option.id}
-                      type="button"
-                      className={cn(
-                        'relative overflow-hidden rounded-lg px-3 py-2 text-left text-sm',
-                        mine ? 'bg-white/25 font-medium' : 'bg-white/10 hover:bg-white/20',
-                      )}
-                      onClick={() => vote.mutate({ id: story.id, optionId: option.id })}
-                    >
-                      {/* Доля голосов — заливкой самой кнопки: отдельная полоса в кадре
-                          этого размера читается хуже, чем закрашенная строка. */}
-                      {answered && (
-                        <span
-                          aria-hidden
-                          className="absolute inset-y-0 left-0 bg-white/20"
-                          style={{ width: `${share}%` }}
-                        />
-                      )}
-                      <span className="relative flex justify-between gap-2">
-                        <span className="truncate">{option.text}</span>
-                        {answered && <span className="tabular-nums">{share}%</span>}
-                      </span>
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* Зоны листания: левая треть — назад, остальное — вперёд. Кнопки, а не
-              обработчики на кадре, — чтобы работала клавиатура и читалка. */}
-          <button
-            type="button"
-            aria-label={tCommon('previous')}
-            className="absolute inset-y-0 left-0 w-1/3 cursor-default"
-            onClick={goPrev}
-          />
-          <button
-            type="button"
-            aria-label={tCommon('next')}
-            className="absolute inset-y-0 right-0 w-2/3 cursor-default"
-            onClick={goNext}
-          />
-        </div>
-
-        <footer className="absolute inset-x-0 bottom-0 z-20 flex flex-col gap-2 bg-gradient-to-t from-black/70 to-transparent p-3 text-white">
-          {story.linkUrl && (
-            <a
-              href={story.linkUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center justify-center gap-1.5 rounded-full bg-white/15 px-4 py-2 text-sm font-medium backdrop-blur hover:bg-white/25"
-            >
-              <ExternalLink className="size-4" aria-hidden />
-              {story.linkLabel ?? t('openLink')}
-            </a>
-          )}
-          <div className="flex items-center gap-1">
-            {QUICK_REACTIONS.map((emoji) => {
-              const mine = story.reactions.some((r) => r.emoji === emoji && r.mine)
-              const count = story.reactions.find((r) => r.emoji === emoji)?.count ?? 0
-              return (
-                <button
-                  key={emoji}
-                  type="button"
-                  aria-pressed={mine}
-                  aria-label={emoji}
-                  onClick={() => void toggleReaction(story, emoji)}
-                  className={cn(
-                    'flex items-center gap-1 rounded-full px-2 py-1 text-base',
-                    mine ? 'bg-white/30' : 'bg-white/10 hover:bg-white/20',
-                  )}
-                >
-                  <span aria-hidden>{emoji}</span>
-                  {count > 0 && <span className="text-xs tabular-nums">{count}</span>}
-                </button>
-              )
-            })}
-            {story.viewsCount !== null && (
-              <button
-                type="button"
-                onClick={() => setViewersOpen(true)}
-                className="ml-auto flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1 text-sm hover:bg-white/20"
-              >
-                <Eye className="size-4" aria-hidden />
-                <span className="tabular-nums">{story.viewsCount}</span>
-              </button>
+        {story.text && (
+          <p
+            className={cn(
+              'absolute inset-x-6 text-center text-lg leading-snug font-medium break-words text-white drop-shadow-lg',
+              story.media ? 'bottom-24' : 'top-1/2 -translate-y-1/2',
             )}
+          >
+            {story.text}
+          </p>
+        )}
+
+        {story.poll && (
+          <div className="absolute inset-x-4 bottom-24 z-10 rounded-2xl bg-black/55 p-3 text-white backdrop-blur">
+            <p className="mb-2 text-sm font-medium">{story.poll.question}</p>
+            <div className="flex flex-col gap-1.5">
+              {story.poll.options.map((option) => {
+                const total = story.poll?.totalVotes ?? 0
+                const share = total > 0 ? Math.round((option.votes / total) * 100) : 0
+                const mine = story.poll?.myOptionId === option.id
+                const answered = story.poll?.myOptionId !== null
+                return (
+                  <button
+                    key={option.id}
+                    type="button"
+                    className={cn(
+                      'relative overflow-hidden rounded-lg px-3 py-2 text-left text-sm',
+                      mine ? 'bg-white/25 font-medium' : 'bg-white/10 hover:bg-white/20',
+                    )}
+                    onClick={() => vote.mutate({ id: story.id, optionId: option.id })}
+                  >
+                    {/* Доля голосов — заливкой самой кнопки: отдельная полоса в кадре
+                          этого размера читается хуже, чем закрашенная строка. */}
+                    {answered && (
+                      <span
+                        aria-hidden
+                        className="absolute inset-y-0 left-0 bg-white/20"
+                        style={{ width: `${share}%` }}
+                      />
+                    )}
+                    <span className="relative flex justify-between gap-2">
+                      <span className="truncate">{option.text}</span>
+                      {answered && <span className="tabular-nums">{share}%</span>}
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
           </div>
-        </footer>
+        )}
+
+        {/* Зоны листания: левая треть — назад, остальное — вперёд. Кнопки, а не
+              обработчики на кадре, — чтобы работала клавиатура и читалка. */}
+        <button
+          type="button"
+          aria-label={tCommon('previous')}
+          className="absolute inset-y-0 left-0 w-1/3 cursor-default"
+          onClick={goPrev}
+        />
+        <button
+          type="button"
+          aria-label={tCommon('next')}
+          className="absolute inset-y-0 right-0 w-2/3 cursor-default"
+          onClick={goNext}
+        />
       </div>
+
+      <footer className="absolute inset-x-0 bottom-0 z-20 flex flex-col gap-2 bg-gradient-to-t from-black/70 to-transparent p-3 text-white">
+        {story.linkUrl && (
+          <a
+            href={story.linkUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center justify-center gap-1.5 rounded-full bg-white/15 px-4 py-2 text-sm font-medium backdrop-blur hover:bg-white/25"
+          >
+            <ExternalLink className="size-4" aria-hidden />
+            {story.linkLabel ?? t('openLink')}
+          </a>
+        )}
+        <div className="flex items-center gap-1">
+          {QUICK_REACTIONS.map((emoji) => {
+            const mine = story.reactions.some((r) => r.emoji === emoji && r.mine)
+            const count = story.reactions.find((r) => r.emoji === emoji)?.count ?? 0
+            return (
+              <button
+                key={emoji}
+                type="button"
+                aria-pressed={mine}
+                aria-label={emoji}
+                onClick={() => void toggleReaction(story, emoji)}
+                className={cn(
+                  'flex items-center gap-1 rounded-full px-2 py-1 text-base',
+                  mine ? 'bg-white/30' : 'bg-white/10 hover:bg-white/20',
+                )}
+              >
+                <span aria-hidden>{emoji}</span>
+                {count > 0 && <span className="text-xs tabular-nums">{count}</span>}
+              </button>
+            )
+          })}
+          {story.viewsCount !== null && (
+            <button
+              type="button"
+              onClick={() => setViewersOpen(true)}
+              className="ml-auto flex items-center gap-1.5 rounded-full bg-white/10 px-3 py-1 text-sm hover:bg-white/20"
+            >
+              <Eye className="size-4" aria-hidden />
+              <span className="tabular-nums">{story.viewsCount}</span>
+            </button>
+          )}
+        </div>
+      </footer>
+    </div>
+  )
+
+  return createPortal(
+    <div className="fixed inset-0 z-50 overflow-hidden bg-black/95">
+      {visible.map(({ r, index, offset }) => {
+        const active = offset === 0
+        return (
+          <div
+            key={r.author.id}
+            className={cn(
+              'absolute sm:inset-auto sm:top-1/2 sm:left-1/2 sm:h-[min(90dvh,46rem)] sm:w-[26rem]',
+              'sm:[transform:translate(-50%,-50%)_translateX(var(--story-x))_scale(var(--story-s))]',
+              'sm:transition-transform sm:duration-300 sm:ease-out motion-reduce:transition-none',
+              active ? 'inset-0 z-10' : 'hidden sm:block',
+            )}
+            style={
+              {
+                '--story-x': `${slotX(offset)}px`,
+                '--story-s': active ? 1 : PREVIEW_SCALE,
+              } as CSSProperties
+            }
+          >
+            {active ? activeFrame : <RingPreview ring={r} onOpen={() => openRing(index)} />}
+          </div>
+        )
+      })}
 
       {/* Стрелки на десктопе: пальцем листают тапом по кадру, мышью — по краям экрана. */}
       <Button
@@ -481,7 +537,7 @@ export function StoryViewer({
         size="lg"
         icon
         aria-label={tCommon('previous')}
-        className="absolute left-4 hidden text-white hover:bg-white/15 hover:text-white sm:flex"
+        className="absolute top-1/2 left-4 z-20 hidden -translate-y-1/2 text-white hover:bg-white/15 hover:text-white sm:flex"
         onClick={goPrev}
       >
         <ChevronLeft className="size-6" aria-hidden />
@@ -492,7 +548,7 @@ export function StoryViewer({
         size="lg"
         icon
         aria-label={tCommon('next')}
-        className="absolute right-4 hidden text-white hover:bg-white/15 hover:text-white sm:flex"
+        className="absolute top-1/2 right-4 z-20 hidden -translate-y-1/2 text-white hover:bg-white/15 hover:text-white sm:flex"
         onClick={goNext}
       >
         <ChevronRight className="size-6" aria-hidden />
@@ -511,6 +567,68 @@ export function StoryViewer({
       )}
     </div>,
     document.body,
+  )
+}
+
+/**
+ * Превью соседнего автора: следующий непросмотренный кадр (или первый), затемнённый, с
+ * аватаром и именем по центру. Карточка рисуется в размере кадра и уменьшается
+ * трансформацией вместе с лентой, поэтому шрифт и аватар здесь крупнее обычного.
+ */
+function RingPreview({ ring, onOpen }: { ring: StoryRing; onOpen: () => void }) {
+  const t = useTranslations('Stories')
+  const card = ring.stories.find((s) => !s.seen) ?? ring.stories[0]
+  if (!card) return null
+  const media = card.media
+  const isVideo = media?.mime.startsWith('video/') ?? false
+  const poster = isVideo && media ? pickSource(media.poster, 640)?.url : undefined
+  const name = `${ring.author.firstName} ${ring.author.lastName}`
+
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      aria-label={t('openStoryOf', { name })}
+      className="relative block size-full cursor-pointer overflow-hidden rounded-2xl outline-none focus-visible:ring-8 focus-visible:ring-white/50"
+    >
+      {media && !isVideo ? (
+        <MediaImage
+          src={media.url}
+          media={media}
+          alt=""
+          fit="cover"
+          sizes="180px"
+          className="size-full"
+        />
+      ) : poster ? (
+        // Постер видео — уже уменьшенная копия с сервера, отдельной заглушки у него нет.
+        <MediaImage src={poster} alt="" fit="cover" sizes="180px" className="size-full" />
+      ) : (
+        <div className={cn('size-full', storyBackgroundClass(card.background))} />
+      )}
+      <span className="absolute inset-0 bg-black/50" aria-hidden />
+      <span className="absolute inset-0 flex flex-col items-center justify-center gap-5 px-6 text-white">
+        <span
+          className={cn(
+            'flex size-32 items-center justify-center rounded-full p-1.5',
+            ring.hasUnseen
+              ? 'bg-gradient-to-br from-primary via-indigo-500 to-violet-500'
+              : 'bg-white/40',
+          )}
+        >
+          <Avatar className="size-full border-4 border-black">
+            {ring.author.avatarUrl && <AvatarImage src={ring.author.avatarUrl} alt="" />}
+            <AvatarFallback className="text-4xl">
+              {ring.author.firstName.charAt(0)}
+              {ring.author.lastName.charAt(0)}
+            </AvatarFallback>
+          </Avatar>
+        </span>
+        <span className="max-w-full text-center text-4xl leading-tight font-semibold break-words">
+          {name}
+        </span>
+      </span>
+    </button>
   )
 }
 
