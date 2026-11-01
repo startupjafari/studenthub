@@ -104,6 +104,8 @@ export type StoryElement =
 export interface StoryCard {
   id: string
   audience: StoryAudienceValue
+  /** Получатели аудитории «выбранные» — только автору; остальным null. */
+  audienceUsers: StoryAuthor[] | null
   text: string | null
   background: StoryBackgroundValue | null
   linkUrl: string | null
@@ -135,4 +137,44 @@ export interface StoryViewer {
   user: StoryAuthor
   /** Реакции этого зрителя на сторис (видит только автор). */
   reactions: string[]
+}
+
+/** Обложка подборки «Актуального»: медиа или текстовый кадр на фоне. */
+export interface StoryHighlightCover {
+  itemId: string
+  text: string | null
+  background: StoryBackgroundValue | null
+  media: StoryMedia | null
+}
+
+/** Подборка в ряду профиля. `itemsCount` — сколько её сторис видит зритель. */
+export interface StoryHighlightSummary {
+  id: string
+  title: string
+  cover: StoryHighlightCover | null
+  itemsCount: number
+}
+
+/** Сторис в подборке — снимок: без опроса, реакций и счётчиков. */
+export interface StoryHighlightItem {
+  id: string
+  audience: StoryAudienceValue
+  text: string | null
+  background: StoryBackgroundValue | null
+  linkUrl: string | null
+  linkLabel: string | null
+  elements: StoryElement[]
+  /** Когда вышла исходная сторис. */
+  createdAt: string
+  media: StoryMedia | null
+}
+
+export interface StoryHighlightDetail {
+  id: string
+  title: string
+  /** Выбранная обложка — только владельцу; null — обложкой служит первая сторис. */
+  coverItemId: string | null
+  owner: StoryAuthor
+  items: StoryHighlightItem[]
+  canEdit: boolean
 }

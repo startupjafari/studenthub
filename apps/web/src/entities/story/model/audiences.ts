@@ -1,16 +1,18 @@
 // Аудитории сторис по роли — зеркало ALLOWED_AUDIENCES из stories.service.ts
-// (docs/PROJECT.md §2.2, строка «Сторисы — создание»). Личной и предметной аудитории
-// у сторис нет: формат публичный и живёт сутки.
+// (docs/PROJECT.md §2.2, строка «Сторисы — создание»). Предметной аудитории у сторис нет;
+// личные (друзья и выбранные) доступны всем, кто публикует: круг задаёт сам автор.
 import { Role } from '@studenthub/shared-types'
 import type { StoryAudienceValue } from '@studenthub/shared-schemas'
 
+const PERSONAL: StoryAudienceValue[] = ['FRIENDS', 'SELECTED']
+
 export const STORY_AUDIENCES_BY_ROLE: Partial<Record<Role, StoryAudienceValue[]>> = {
-  [Role.PLATFORM_ADMIN]: ['ALL'],
-  [Role.UNIVERSITY_ADMIN]: ['UNIVERSITY', 'FACULTY', 'GROUP', 'TEACHERS'],
-  [Role.DEAN]: ['FACULTY', 'GROUP'],
-  [Role.TEACHER]: ['GROUP'],
-  [Role.STAROSTA]: ['GROUP'],
-  [Role.STUDENT]: ['GROUP'],
+  [Role.PLATFORM_ADMIN]: ['ALL', ...PERSONAL],
+  [Role.UNIVERSITY_ADMIN]: ['UNIVERSITY', 'FACULTY', 'GROUP', 'TEACHERS', ...PERSONAL],
+  [Role.DEAN]: ['FACULTY', 'GROUP', ...PERSONAL],
+  [Role.TEACHER]: ['GROUP', ...PERSONAL],
+  [Role.STAROSTA]: ['GROUP', ...PERSONAL],
+  [Role.STUDENT]: ['GROUP', ...PERSONAL],
 }
 
 // Кто выбирает конкретную группу/факультет. У студента и старосты группа своя, у декана —
