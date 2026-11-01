@@ -35,6 +35,7 @@ import { MediaService } from '../media/media.service'
 import { MEDIA_FILE_SELECT, MEDIA_PREVIEW_SELECT, type MediaInfo } from '../media/media.types'
 import { signingWindow } from '../../common/minio/stable-sign'
 import { PostsService } from '../posts/posts.service'
+import { StoriesService } from '../stories/stories.service'
 import { NotificationsService } from '../notifications/notifications.service'
 import { chatMessagesCollapseKey } from '../notifications/notification-job.type'
 import type { EnvVars } from '../../config/env.schema'
@@ -336,6 +337,20 @@ const MESSAGE_SELECT = {
       _count: { select: { comments: true, reactions: true } },
     },
   },
+  // Карточка сторис: ответ автору или пересылка (§3.4). Медиа — только тип: подписанной
+  // ссылки на файл сторис в сообщении нет, сторис открывается по id с проверкой аудитории.
+  sharedStoryReply: true,
+  sharedStory: {
+    select: {
+      id: true,
+      text: true,
+      background: true,
+      expiresAt: true,
+      authorId: true,
+      author: SENDER_SELECT,
+      file: { select: { mime: true } },
+    },
+  },
   reactions: { select: { emoji: true, userId: true, user: SENDER_SELECT } },
   // Опрос (§38): только статика — вопрос/настройки/варианты. Результаты (счётчики + мой голос,
   // с учётом анонимности) отдаёт отдельный viewer-aware эндпоинт getPollResults.
@@ -375,6 +390,11 @@ function toClientMessage(row: MessageDbRow | MessageRow): MessageRow {
   let out: MessageRow = row
   if (row.replyTo?.deletedAt) {
     out = { ...out, replyQuote: null, replyTo: { ...row.replyTo, content: '' } }
+  }
+  // Истёкшая сторис ещё не убрана кроном — содержимое не отдаём: для продукта её уже нет,
+  // клиент по expiresAt пишет «сторис недоступна» (как после удаления, когда связь пуста).
+  if (row.sharedStory && new Date(row.sharedStory.expiresAt).getTime() <= Date.now()) {
+    out = { ...out, sharedStory: { ...row.sharedStory, text: null, background: null, file: null } }
   }
   if (row.sharedPost?.deletedAt) {
     out = {
@@ -552,6 +572,7 @@ export class ChatsService implements OnModuleInit {
     private readonly realtime: RealtimeGateway,
     private readonly files: FileService,
     private readonly posts: PostsService,
+    private readonly stories: StoriesService,
     private readonly config: ConfigService<EnvVars, true>,
     @Inject(REDIS_CLIENT) private readonly redis: Redis,
     private readonly exports: ExportRegistryService,
@@ -3360,6 +3381,89 @@ export class ChatsService implements OnModuleInit {
       message,
       chatId: targetChatId,
     })
+    return message
+  }
+
+  // ── Сторис в чате (§3.4) ────────────────────────────────────────────────────
+
+  /**
+   * Ответ на сторис: личное сообщение автору с карточкой этой сторис. Чат с автором
+   * находится или создаётся теми же правилами, что «Написать» в профиле: блокировки,
+   * свой вуз, запрос на переписку для не-друзей — ответ на сторис их не обходит.
+   */
+  async replyToStory(
+    viewer: JwtPayload,
+    storyId: string,
+    content: string,
+  ): Promise<{ chatId: string; message: MessageRow }> {
+    // Бросит NOT_FOUND, если сторис не видна отвечающему (истекла, чужая аудитория, блок).
+    const { authorId } = await this.stories.assertVisibleToViewer(viewer, storyId)
+    if (authorId === viewer.sub) {
+      throw new AppException('BAD_REQUEST', 'На свою сторис ответить нельзя')
+    }
+    const chat = await this.createChat(viewer, { type: 'PRIVATE', memberIds: [authorId] })
+    const message = await this.sendStoryMessage(viewer, chat.id, storyId, content, true)
+    return { chatId: chat.id, message }
+  }
+
+  /**
+   * Переслать сторис в личный чат. Только личный: в группе нельзя проверить, что сторис
+   * видна каждому участнику. Получатель должен видеть её сам — иначе пересылка открывала
+   * бы сторис вне её аудитории.
+   */
+  async shareStory(
+    viewer: JwtPayload,
+    chatId: string,
+    storyId: string,
+    comment?: string,
+  ): Promise<MessageRow> {
+    await this.assertMembership(viewer.sub, chatId)
+    await this.stories.assertVisibleToViewer(viewer, storyId)
+    const chat = await this.prisma.chat.findUnique({
+      where: { id: chatId },
+      select: { type: true },
+    })
+    if (chat?.type !== ChatType.PRIVATE) {
+      throw new AppException('BAD_REQUEST', 'Сторис пересылается только в личный чат')
+    }
+    const [other] = await this.allMembers(chatId, { exceptUserId: viewer.sub })
+    if (!other || !(await this.stories.isVisibleToUser(other.userId, storyId))) {
+      throw new AppException('FORBIDDEN', 'Получателю эта сторис недоступна')
+    }
+    return this.sendStoryMessage(viewer, chatId, storyId, comment?.trim() ?? '', false)
+  }
+
+  /** Сообщение с карточкой сторис: те же проверки отправки и та же доставка, что у поста. */
+  private async sendStoryMessage(
+    viewer: JwtPayload,
+    chatId: string,
+    storyId: string,
+    content: string,
+    reply: boolean,
+  ): Promise<MessageRow> {
+    await this.assertCanSend(chatId, viewer.sub)
+    const created = await this.prisma.$transaction(async (tx) =>
+      tx.message.create({
+        data: {
+          chatId,
+          seq: await this.allocateSeq(chatId, tx),
+          senderId: viewer.sub,
+          content,
+          sharedStoryId: storyId,
+          sharedStoryReply: reply,
+        },
+        select: { id: true },
+      }),
+    )
+    const message = toClientMessage(
+      await this.prisma.message.findUniqueOrThrow({
+        where: { id: created.id },
+        select: MESSAGE_SELECT,
+      }),
+    )
+    await this.bumpChat(chatId)
+    await this.notifyNewMessage(chatId, viewer.sub, message)
+    this.realtime.emitToRoom(`chat:${chatId}`, 'message:new', { message, chatId })
     return message
   }
 

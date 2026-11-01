@@ -143,6 +143,31 @@ export class StoriesController {
     return this.stories.vote(user, id, dto)
   }
 
+  @Post('mutes/:userId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({
+    summary: 'Скрыть сторис пользователя из ленты колец (профиль их по-прежнему показывает)',
+  })
+  @ApiResponse({ status: 204, description: 'Скрыто (повтор — тоже 204)' })
+  @ApiResponse({ status: 400, description: 'BAD_REQUEST — свои сторисы' })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND — пользователя нет' })
+  async mute(@CurrentUser() user: CurrentUserData, @Param('userId') userId: string): Promise<void> {
+    this.assertEnabled()
+    await this.stories.mute(user, userId)
+  }
+
+  @Delete('mutes/:userId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @ApiOperation({ summary: 'Вернуть сторис пользователя в ленту колец' })
+  @ApiResponse({ status: 204, description: 'Возвращено (не было скрыто — тоже 204)' })
+  async unmute(
+    @CurrentUser() user: CurrentUserData,
+    @Param('userId') userId: string,
+  ): Promise<void> {
+    this.assertEnabled()
+    await this.stories.unmute(user, userId)
+  }
+
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Удалить сторис (автор или модератор scope)' })

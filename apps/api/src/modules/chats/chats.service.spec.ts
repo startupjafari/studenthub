@@ -138,12 +138,18 @@ function setup() {
   }
   // Кэш счётчика непрочитанных (NotificationsService) — сбрасывается при снятии уведомлений.
   const notifications = { invalidateUnread: jest.fn().mockResolvedValue(undefined) }
+  // Видимость сторис (ответы и пересылка) проверяет StoriesService — здесь управляемая заглушка.
+  const stories = {
+    assertVisibleToViewer: jest.fn().mockResolvedValue({ authorId: 'author-1' }),
+    isVisibleToUser: jest.fn().mockResolvedValue(true),
+  }
   const service = new ChatsService(
     prisma as unknown as PrismaService,
     queue as unknown as QueueService,
     realtime as unknown as RealtimeGateway,
     files as unknown as FileService,
     posts as unknown as PostsService,
+    stories as never,
     config as unknown as ConfigService<EnvVars, true>,
     redis as never,
     exportRegistry as never,
@@ -162,6 +168,7 @@ function setup() {
     exportRegistry,
     media,
     notifications,
+    stories,
   }
 }
 
@@ -3897,5 +3904,61 @@ describe('ChatsService.setChatAvatar — замена аватара', () => {
 
     expect(files.delete).toHaveBeenCalledTimes(1)
     expect(files.delete).toHaveBeenCalledWith('new-file')
+  })
+})
+
+describe('ChatsService — сторис в чате (ответ и пересылка, §3.4)', () => {
+  it('на свою сторис ответить нельзя — BAD_REQUEST, чат не создаётся', async () => {
+    const { service, prisma, stories } = setup()
+    stories.assertVisibleToViewer.mockResolvedValue({ authorId: 'u1' })
+    const err = await service.replyToStory(user('u1'), 's1', 'привет').catch((e) => e)
+    expect(err).toBeInstanceOf(AppException)
+    expect(err.code).toBe('BAD_REQUEST')
+    expect(prisma.chat.create).not.toHaveBeenCalled()
+    expect(prisma.message.create).not.toHaveBeenCalled()
+  })
+
+  it('сторис не видна отвечающему — ошибка видимости, сообщения нет', async () => {
+    const { service, prisma, stories } = setup()
+    stories.assertVisibleToViewer.mockRejectedValue(new AppException('NOT_FOUND', 'нет'))
+    const err = await service.replyToStory(user('u1'), 's1', 'привет').catch((e) => e)
+    expect(err.code).toBe('NOT_FOUND')
+    expect(prisma.message.create).not.toHaveBeenCalled()
+  })
+
+  it('пересылка — только в личный чат', async () => {
+    const { service, prisma } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1' })
+    prisma.chat.findUnique.mockResolvedValue({ type: 'GROUP' })
+    const err = await service.shareStory(user('u1'), 'g1', 's1').catch((e) => e)
+    expect(err.code).toBe('BAD_REQUEST')
+    expect(prisma.message.create).not.toHaveBeenCalled()
+  })
+
+  it('получатель не видит сторис — FORBIDDEN: пересылка не открывает её вне аудитории', async () => {
+    const { service, prisma, stories } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1' })
+    prisma.chat.findUnique.mockResolvedValue({ type: 'PRIVATE' })
+    prisma.chatMember.findMany.mockResolvedValueOnce([{ id: 'cm2', userId: 'u2' }])
+    stories.isVisibleToUser.mockResolvedValue(false)
+    const err = await service.shareStory(user('u1'), 'c1', 's1').catch((e) => e)
+    expect(err.code).toBe('FORBIDDEN')
+    expect(stories.isVisibleToUser).toHaveBeenCalledWith('u2', 's1')
+    expect(prisma.message.create).not.toHaveBeenCalled()
+  })
+
+  it('пересылка к заблокировавшему — FORBIDDEN на проверке отправки', async () => {
+    const { service, prisma } = setup()
+    prisma.chatMember.findUnique.mockResolvedValue({ id: 'm1' })
+    prisma.chat.findUnique.mockResolvedValue({
+      type: 'PRIVATE',
+      members: [{ userId: 'u2' }],
+      requestPendingForId: null,
+    })
+    prisma.chatMember.findMany.mockResolvedValueOnce([{ id: 'cm2', userId: 'u2' }])
+    prisma.userBlock.findFirst.mockResolvedValue({ id: 'b1' })
+    const err = await service.shareStory(user('u1'), 'c1', 's1').catch((e) => e)
+    expect(err.code).toBe('FORBIDDEN')
+    expect(prisma.message.create).not.toHaveBeenCalled()
   })
 })

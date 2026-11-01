@@ -359,6 +359,20 @@ export const SharePostSchema = z
   .strict()
 export type SharePostInput = z.infer<typeof SharePostSchema>
 
+// Переслать сторис в личный чат (:id — цель). Сторис должна быть видна и отправителю, и
+// получателю: пересылка не открывает её вне аудитории. В сообщении — sharedStoryId.
+export const ShareStorySchema = z
+  .object({ storyId: z.string().min(1), comment: z.string().max(4000).optional() })
+  .strict()
+export type ShareStoryInput = z.infer<typeof ShareStorySchema>
+
+// Ответ на сторис: личное сообщение автору с карточкой сторис. Чат с автором находится
+// или создаётся по обычным правилам переписки (блокировки, запросы, вуз).
+export const StoryReplySchema = z
+  .object({ storyId: z.string().min(1), content: z.string().trim().min(1).max(1000) })
+  .strict()
+export type StoryReplyInput = z.infer<typeof StoryReplySchema>
+
 // ── WebSocket payloads (валидируются той же схемой, что и REST — WS не доверенный, §10) ──
 
 export const ChatJoinSchema = z.object({ chatId: z.string().min(1) }).strict()

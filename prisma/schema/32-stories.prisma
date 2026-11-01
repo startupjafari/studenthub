@@ -67,6 +67,8 @@ model Story {
   poll      StoryPoll?
   views     StoryView[]
   reactions StoryReaction[]
+  // Сообщения в чатах с этой сторис: ответы автору и пересылки (06-chats.prisma).
+  messages  Message[]       @relation("MessageSharedStory")
 
   @@index([authorId])
   @@index([audience])
@@ -159,4 +161,21 @@ model StoryReaction {
   @@unique([storyId, userId, emoji])
   @@index([userId])
   @@map("story_reactions")
+}
+
+/// «Скрыть сторис пользователя» (§3.4): автор пропадает из ленты колец смотрящего.
+/// Профиль автора сторис по-прежнему показывает — скрытие убирает их из ленты, а не
+/// закрывает доступ. Повторное скрытие — та же строка (уникальная пара).
+model StoryMute {
+  id          String   @id @default(uuid())
+  userId      String   @map("user_id")
+  mutedUserId String   @map("muted_user_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  user      User @relation("StoryMutesBy", fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  mutedUser User @relation("StoryMutedBy", fields: [mutedUserId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([userId, mutedUserId])
+  @@index([mutedUserId])
+  @@map("story_mutes")
 }

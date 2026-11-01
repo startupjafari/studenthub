@@ -160,6 +160,9 @@ model User {
   storyViews     StoryView[]     @relation("UserStoryViews")
   storyReactions StoryReaction[] @relation("UserStoryReactions")
   storyPollVotes StoryPollVote[] @relation("UserStoryPollVotes")
+  // «Скрыть сторис пользователя»: кого скрыл я и кто скрыл меня.
+  storyMutes     StoryMute[]     @relation("StoryMutesBy")
+  storyMutedBy   StoryMute[]     @relation("StoryMutedBy")
 
   // Чаты (Ф9): членство в чатах, отправленные сообщения, закрепления, реакции.
   chatMemberships   ChatMember[]
