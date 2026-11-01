@@ -2,11 +2,45 @@ import { z } from 'zod'
 import { CursorPaginationSchema } from './pagination.js'
 
 // Сторисы (docs/PROJECT.md §3.4, задача Ф14.1). Значения enum дублируют Prisma-enum
-// StoryAudience. Личной (PERSONAL) и предметной (SUBJECT) аудитории здесь нет: формат
-// публичный, адресное сообщение одному человеку — это чат.
+// StoryAudience. Предметной (SUBJECT) аудитории здесь нет. Личные — FRIENDS (друзья автора)
+// и SELECTED (поимённый список `userIds`): их выбирает любой, кто публикует сторисы.
 
-export const StoryAudienceSchema = z.enum(['ALL', 'UNIVERSITY', 'FACULTY', 'GROUP', 'TEACHERS'])
+export const StoryAudienceSchema = z.enum([
+  'ALL',
+  'UNIVERSITY',
+  'FACULTY',
+  'GROUP',
+  'TEACHERS',
+  'FRIENDS',
+  'SELECTED',
+])
 export type StoryAudienceValue = z.infer<typeof StoryAudienceSchema>
+
+/** Потолок списка SELECTED: сторис для узкого круга, а не рассылка. */
+export const STORY_AUDIENCE_USERS_MAX = 100
+
+const StoryAudienceUsersSchema = z
+  .array(z.string().min(1))
+  .min(1)
+  .max(STORY_AUDIENCE_USERS_MAX)
+  .refine((ids) => new Set(ids).size === ids.length, { message: 'Получатели повторяются' })
+
+/** Поля аудитории — общие у публикации и у смены аудитории опубликованной сторис. */
+const storyAudienceFields = {
+  audience: StoryAudienceSchema,
+  facultyId: z.string().min(1).optional(),
+  groupId: z.string().min(1).optional(),
+  // Получатели — только для SELECTED (refine ниже).
+  userIds: StoryAudienceUsersSchema.optional(),
+}
+
+function audienceUsersMatch(data: { audience: StoryAudienceValue; userIds?: string[] }): boolean {
+  return data.audience === 'SELECTED' ? Boolean(data.userIds?.length) : !data.userIds
+}
+const AUDIENCE_USERS_MESSAGE = {
+  message: 'Получатели указываются только для аудитории «выбранные»',
+  path: ['userIds'],
+}
 
 /**
  * Срок жизни сторис в часах. Значение одно на продукт и живёт здесь, а не в модуле:
@@ -135,9 +169,7 @@ export type StoryElementInput = z.infer<typeof StoryElementSchema>
 
 export const CreateStorySchema = z
   .object({
-    audience: StoryAudienceSchema,
-    facultyId: z.string().min(1).optional(),
-    groupId: z.string().min(1).optional(),
+    ...storyAudienceFields,
     // Идентификатор уже загруженного файла (бакет stories-media).
     fileId: z.string().min(1).optional(),
     text: z.string().trim().min(1).max(STORY_TEXT_MAX).optional(),
@@ -179,7 +211,18 @@ export const CreateStorySchema = z
     message: 'Подпись без ссылки',
     path: ['linkLabel'],
   })
+  .refine(audienceUsersMatch, AUDIENCE_USERS_MESSAGE)
 export type CreateStoryInput = z.infer<typeof CreateStorySchema>
+
+/**
+ * Смена аудитории опубликованной сторис (только автор). Действует сразу: проверки видимости
+ * читают аудиторию из записи при каждом запросе, кэша прав нет.
+ */
+export const UpdateStoryAudienceSchema = z
+  .object(storyAudienceFields)
+  .strict()
+  .refine(audienceUsersMatch, AUDIENCE_USERS_MESSAGE)
+export type UpdateStoryAudienceInput = z.infer<typeof UpdateStoryAudienceSchema>
 
 /**
  * Реакции на сторис — только из белого списка, как у постов (POST_REACTION_EMOJIS).
@@ -208,3 +251,49 @@ export type StoriesFeedQueryInput = z.infer<typeof StoriesFeedQuerySchema>
 /** Зрители сторис — список автору, cursor-пагинация (BACKEND_RULES §5.3). */
 export const StoryViewersQuerySchema = CursorPaginationSchema
 export type StoryViewersQueryInput = z.infer<typeof StoryViewersQuerySchema>
+
+// ── «Актуальное» (подборки сторис в профиле) ─────────────────────────────────
+
+export const STORY_HIGHLIGHT_TITLE_MAX = 30
+/** Подборок у одного автора и сторис в одной подборке — предохранители, не тариф. */
+export const STORY_HIGHLIGHTS_MAX = 50
+export const STORY_HIGHLIGHT_ITEMS_MAX = 100
+
+const HighlightTitleSchema = z.string().trim().min(1).max(STORY_HIGHLIGHT_TITLE_MAX)
+
+/** Подборка создаётся сразу с первой сторис: пустой подборки в профиле не бывает. */
+export const CreateStoryHighlightSchema = z
+  .object({ title: HighlightTitleSchema, storyId: z.string().min(1) })
+  .strict()
+export type CreateStoryHighlightInput = z.infer<typeof CreateStoryHighlightSchema>
+
+/** Переименование и выбор обложки (элемент этой же подборки; null — первый элемент). */
+export const UpdateStoryHighlightSchema = z
+  .object({
+    title: HighlightTitleSchema.optional(),
+    coverItemId: z.string().min(1).nullable().optional(),
+  })
+  .strict()
+  .refine((data) => data.title !== undefined || data.coverItemId !== undefined, {
+    message: 'Нечего менять',
+    path: ['title'],
+  })
+export type UpdateStoryHighlightInput = z.infer<typeof UpdateStoryHighlightSchema>
+
+export const AddStoryHighlightItemSchema = z.object({ storyId: z.string().min(1) }).strict()
+export type AddStoryHighlightItemInput = z.infer<typeof AddStoryHighlightItemSchema>
+
+/** Новый порядок — полный список id в нужной последовательности (подборок или элементов). */
+export const ReorderStoryHighlightsSchema = z
+  .object({
+    ids: z
+      .array(z.string().min(1))
+      .min(1)
+      .max(Math.max(STORY_HIGHLIGHTS_MAX, STORY_HIGHLIGHT_ITEMS_MAX))
+      .refine((ids) => new Set(ids).size === ids.length, { message: 'Id повторяются' }),
+  })
+  .strict()
+export type ReorderStoryHighlightsInput = z.infer<typeof ReorderStoryHighlightsSchema>
+
+export const StoryHighlightsQuerySchema = z.object({ ownerId: z.string().min(1) }).strict()
+export type StoryHighlightsQueryInput = z.infer<typeof StoryHighlightsQuerySchema>
