@@ -22,13 +22,11 @@ import {
   Handshake,
   Home,
   Rocket,
-  Inbox,
   LayoutDashboard,
   Library,
   LifeBuoy,
   ListChecks,
   MessagesSquare,
-  Milestone,
   Newspaper,
   ScrollText,
   Search,
@@ -37,7 +35,6 @@ import {
   ShieldAlert,
   FileUser,
   TrendingUp,
-  UserCog,
   Users,
   type LucideIcon,
 } from 'lucide-react'
@@ -100,13 +97,23 @@ export const STUDENT_NAV: NavItem[] = [
   { key: 'schedule', href: '/schedule', icon: CalendarDays, group: 'main' },
   { key: 'calendar', href: '/calendar', icon: CalendarRange, group: 'main' },
   { key: 'tasks', href: '/tasks', icon: ListChecks, group: 'main' },
-  { key: 'academic', href: '/academic', icon: TrendingUp, group: 'study' },
+  // Учёба: с дисциплинами и заданиями работают каждый день — они сверху. Всё, что про
+  // результат (оценки, пропуски, экзамены, план), — одним разделом «Успеваемость».
   { key: 'courses', href: '/courses', icon: BookOpen, group: 'study' },
   { key: 'assignments', href: '/assignments', icon: ClipboardList, group: 'study' },
-  { key: 'attendance', href: '/attendance', icon: ClipboardCheck, group: 'study' },
-  { key: 'grades', href: '/grades', icon: GraduationCap, group: 'study' },
-  { key: 'exams', href: '/exams', icon: Award, group: 'study' },
-  { key: 'studyPlan', href: '/study-plan', icon: Milestone, group: 'study' },
+  {
+    key: 'academicGroup',
+    href: '/academic',
+    icon: TrendingUp,
+    group: 'study',
+    children: [
+      { key: 'overview', href: '/academic' },
+      { key: 'grades', href: '/grades' },
+      { key: 'attendance', href: '/attendance' },
+      { key: 'exams', href: '/exams' },
+      { key: 'studyPlan', href: '/study-plan' },
+    ],
+  },
   { key: 'consultations', href: '/consultations', icon: Handshake, group: 'services' },
   { key: 'appointments', href: '/appointments', icon: CalendarClock, group: 'services' },
   { key: 'portfolio', href: '/portfolio', icon: BriefcaseBusiness, group: 'services' },
@@ -255,10 +262,18 @@ export const DEAN_NAV: NavItem[] = [
   { key: 'calendar', href: '/calendar', icon: CalendarRange, group: 'main' },
 
   // Люди факультета и выдача доступа.
-  { key: 'groups', href: '/dean/groups', icon: Users, group: 'people' },
-  { key: 'students', href: '/dean/students', icon: GraduationCap, group: 'people' },
-  { key: 'teachers', href: '/dean/teachers', icon: BookOpen, group: 'people' },
-  { key: 'starostas', href: '/dean/starostas', icon: UserCog, group: 'people' },
+  {
+    key: 'facultyRoster',
+    href: '/dean/groups',
+    icon: Users,
+    group: 'people',
+    children: [
+      { key: 'groups', href: '/dean/groups' },
+      { key: 'students', href: '/dean/students' },
+      { key: 'teachers', href: '/dean/teachers' },
+      { key: 'starostas', href: '/dean/starostas' },
+    ],
+  },
   { key: 'invites', href: '/dean/invites', icon: Send, group: 'people' },
 
   // Учебный процесс и его показатели.
@@ -320,12 +335,26 @@ export const STAROSTA_NAV: NavItem[] = [
 
 export const PLATFORM_ADMIN_NAV: NavItem[] = [
   { key: 'dashboard', href: '/platform-admin', icon: LayoutDashboard, exact: true },
-  { key: 'universities', href: '/platform-admin/universities', icon: Building2 },
-  // Заявки стоят сразу за вузами: это вход в тот же список, только до того, как вуз
-  // в нём появился.
-  { key: 'demoRequests', href: '/platform-admin/demo-requests', icon: Inbox },
-  { key: 'users', href: '/platform-admin/users', icon: Users },
-  { key: 'invites', href: '/platform-admin/invites', icon: Send },
+  {
+    key: 'universitiesGroup',
+    href: '/platform-admin/universities',
+    icon: Building2,
+    children: [
+      { key: 'universities', href: '/platform-admin/universities' },
+      // Заявки — рядом с вузами: это вход в тот же список, только до того, как вуз в нём
+      // появился.
+      { key: 'demoRequests', href: '/platform-admin/demo-requests' },
+    ],
+  },
+  {
+    key: 'users',
+    href: '/platform-admin/users',
+    icon: Users,
+    children: [
+      { key: 'allUsers', href: '/platform-admin/users' },
+      { key: 'invites', href: '/platform-admin/invites' },
+    ],
+  },
   // События платформы (§12): админ платформы создаёт события «для всех» (§2.2), а раздела
   // у него не было — созданное нельзя было ни найти, ни поправить.
   { key: 'events', href: '/platform-admin/events', icon: CalendarClock },
@@ -333,8 +362,15 @@ export const PLATFORM_ADMIN_NAV: NavItem[] = [
   // Обращения в поддержку платформы: раньше их разбирали только в мини-аппе Telegram.
   { key: 'support', href: '/platform-admin/support', icon: LifeBuoy },
   { key: 'stats', href: '/platform-admin/stats', icon: BarChart3 },
-  { key: 'audit', href: '/platform-admin/audit', icon: ScrollText },
-  { key: 'documentAccess', href: '/platform-admin/document-access', icon: FolderLock },
+  {
+    key: 'journals',
+    href: '/platform-admin/audit',
+    icon: ScrollText,
+    children: [
+      { key: 'audit', href: '/platform-admin/audit' },
+      { key: 'documentAccess', href: '/platform-admin/document-access' },
+    ],
+  },
   // Шаблоны услуг для всех вузов: вуз видит их сразу и может настроить под себя.
   { key: 'serviceCatalog', href: '/platform-admin/services', icon: ClipboardList },
   { key: 'chats', href: '/platform-admin/chats', icon: MessagesSquare },
