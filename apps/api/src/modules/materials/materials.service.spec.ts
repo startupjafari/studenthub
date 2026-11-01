@@ -1,5 +1,6 @@
 import { Role } from '@studenthub/shared-types'
-import { MaterialsService } from './materials.service'
+import { MaterialsService, materialsOrderBy } from './materials.service'
+import { MaterialListQuerySchema } from '@studenthub/shared-schemas'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { AuditService } from '../../common/audit/audit.service'
 import type { FileService } from '../files/file.service'
@@ -16,12 +17,14 @@ function setup() {
       findMany: jest.fn().mockResolvedValue([]),
       create: jest.fn().mockResolvedValue({ id: 'm-new' }),
       delete: jest.fn(),
+      count: jest.fn().mockResolvedValue(0),
     },
     group: { findUnique: jest.fn(), findFirst: jest.fn().mockResolvedValue(null) },
     file: { findFirst: jest.fn().mockResolvedValue(null), count: jest.fn().mockResolvedValue(0) },
     // По умолчанию преподаватель ведёт дисциплину в группе.
     course: { findFirst: jest.fn().mockResolvedValue({ id: 'c1' }) },
     pair: { findFirst: jest.fn().mockResolvedValue(null) },
+    $transaction: jest.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
   }
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
   const files = { upload: jest.fn(), findOrThrow: jest.fn(), getPresignedUrl: jest.fn() }
@@ -124,6 +127,56 @@ describe('MaterialsService.list — фильтры и страницы', () => {
     const { service, prisma } = setup()
     await service.list(teacher, {})
     expect(prisma.material.findMany.mock.calls[0][0].take).toBe(200)
+  })
+
+  it('page — страница таблицы: skip/take, сортировка на сервере и meta.total', async () => {
+    const { service, prisma } = setup()
+    prisma.material.count.mockResolvedValue(45)
+    const res = await service.list(teacher, {
+      mine: true,
+      page: 3,
+      limit: 20,
+      sort: 'teacher',
+      order: 'asc',
+    })
+    const args = prisma.material.findMany.mock.calls[0][0]
+    expect(args.skip).toBe(40)
+    expect(args.take).toBe(20)
+    expect(args.orderBy).toEqual([
+      { teacher: { lastName: 'asc' } },
+      { teacher: { firstName: 'asc' } },
+      { id: 'asc' },
+    ])
+    // Тот же scope и фильтр «мои» — и у страницы, и у счётчика строк.
+    expect(prisma.material.count.mock.calls[0][0].where).toBe(args.where)
+    expect(res).toMatchObject({ meta: { total: 45 } })
+  })
+
+  it('page вместе с cursor — 400: режимы выдачи не смешиваются', async () => {
+    const { service, prisma } = setup()
+    await expect(service.list(teacher, { page: 1, cursor: 'm-1' })).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+    })
+    expect(prisma.material.findMany).not.toHaveBeenCalled()
+  })
+
+  it('порядок колонок: дисциплина без названия — в конце, без sort — свежие сверху', () => {
+    expect(materialsOrderBy('subject', 'desc')).toEqual([
+      { subject: { sort: 'desc', nulls: 'last' } },
+      { id: 'desc' },
+    ])
+    expect(materialsOrderBy('files', undefined)).toEqual([
+      { media: { _count: 'asc' } },
+      { id: 'asc' },
+    ])
+    expect(materialsOrderBy(undefined, undefined)).toEqual([{ createdAt: 'desc' }, { id: 'desc' }])
+  })
+
+  it('схема: страница таблицы — не больше 100 строк, прежний список — до 200', () => {
+    expect(MaterialListQuerySchema.safeParse({ page: '1', limit: '100' }).success).toBe(true)
+    expect(MaterialListQuerySchema.safeParse({ page: '1', limit: '101' }).success).toBe(false)
+    expect(MaterialListQuerySchema.safeParse({ limit: '200' }).success).toBe(true)
+    expect(MaterialListQuerySchema.safeParse({ sort: 'url' }).success).toBe(false)
   })
 })
 
