@@ -40,6 +40,12 @@ export class MaterialsController {
 
   @Get()
   @ApiOperation({ summary: 'Учебные материалы по scope (студент — своя группа)' })
+  @ApiResponse({
+    status: 200,
+    description:
+      'Без page — массив (cursor, limit ≤ 200, свежие сверху). С page — страница (limit ≤ 100, sort title|subject|teacher|files|createdAt, order) и meta.total',
+  })
+  @ApiResponse({ status: 400, description: 'BAD_REQUEST — page вместе с cursor' })
   list(@CurrentUser() user: CurrentUserData, @Query() query: MaterialListQueryDto) {
     return this.materials.list(user, query)
   }

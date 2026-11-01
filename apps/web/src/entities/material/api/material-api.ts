@@ -4,12 +4,22 @@ import type {
   MaterialListQueryInput,
   MaterialSubjectsQueryInput,
 } from '@studenthub/shared-schemas'
-import { api, needsDirectUpload, uploadDirect, type PresignedTarget } from '../../../shared/api'
+import {
+  api,
+  getPaged,
+  needsDirectUpload,
+  uploadDirect,
+  type Paged,
+  type PresignedTarget,
+} from '../../../shared/api'
 import type { Material, MaterialFile, MaterialSubjectCount } from '../model/types'
 
 export const materialKeys = {
   all: ['materials'] as const,
   list: (filters: Partial<MaterialListQueryInput> = {}) => ['materials', 'list', filters] as const,
+  // Страница таблицы — под ключом `list`: сброс списка после создания и удаления сбрасывает и её.
+  page: (filters: Partial<MaterialListQueryInput>) =>
+    ['materials', 'list', 'page', filters] as const,
   subjects: (filters: Partial<MaterialSubjectsQueryInput> = {}) =>
     ['materials', 'subjects', filters] as const,
 }
@@ -23,6 +33,13 @@ export async function fetchMaterials(
 ): Promise<Material[]> {
   const { data } = await api.get<Material[]>('/materials', { params: filters })
   return data
+}
+
+/** Страница таблицы материалов: порядок, номер страницы и `meta.total` считает сервер. */
+export async function fetchMaterialsPage(
+  filters: Partial<MaterialListQueryInput> & { page: number; limit: number },
+): Promise<Paged<Material>> {
+  return getPaged<Material>('/materials', filters)
 }
 
 /** Число материалов по дисциплинам — по всей выборке, а не по одной странице списка. */
