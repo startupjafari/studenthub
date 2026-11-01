@@ -3,9 +3,13 @@ import { ConfigService } from '@nestjs/config'
 import { Prisma, StoryAudience } from '@prisma/client'
 import { Role, isHigherRole } from '@studenthub/shared-types'
 import {
+  STORY_IMAGE_MIMES,
   STORY_REACTION_EMOJIS,
   STORY_TTL_HOURS,
+  STORY_VIDEO_MIMES,
+  StoryElementSchema,
   type CreateStoryInput,
+  type StoryElementInput,
   type StoriesFeedQueryInput,
   type StoryReactionInput,
   type StoryViewersQueryInput,
@@ -16,6 +20,7 @@ import { advisoryXactLock } from '../../common/prisma/advisory-lock'
 import { AuditService } from '../../common/audit/audit.service'
 import { AppException } from '../../common/exceptions/app.exception'
 import { Paginated } from '../../common/http/paginated'
+import { NOTIFICATION_JOBS, QUEUES, QueueService } from '../../common/queue'
 import { FileService } from '../files/file.service'
 import { MediaService } from '../media/media.service'
 import { MEDIA_FILE_SELECT, type MediaInfo } from '../media/media.types'
@@ -74,6 +79,7 @@ const STORY_SELECT = {
   background: true,
   linkUrl: true,
   linkLabel: true,
+  elements: true,
   expiresAt: true,
   createdAt: true,
   author: AUTHOR_SELECT,
@@ -100,6 +106,66 @@ const STORY_SCOPE_SELECT = {
 
 type StoryRow = Prisma.StoryGetPayload<{ select: typeof STORY_SELECT }>
 
+/**
+ * Элемент кадра в выдаче. У упоминания — имя: хранится только userId, имя берётся при
+ * выдаче (переименование видно сразу), удалённый или заблокированный человек пропадает.
+ */
+export type StoryElementView =
+  | Exclude<StoryElementInput, { type: 'mention' }>
+  | (Extract<StoryElementInput, { type: 'mention' }> & { name: string })
+
+/** Элементы из JSON-колонки: то, что не проходит схему (старый клиент, ручная правка), отбрасывается. */
+function parseElements(raw: Prisma.JsonValue | null): StoryElementInput[] {
+  if (!Array.isArray(raw)) return []
+  return raw.flatMap((item) => {
+    const parsed = StoryElementSchema.safeParse(item)
+    return parsed.success ? [parsed.data] : []
+  })
+}
+
+/** Ид упомянутых — без повторов: один человек может стоять на кадре дважды. */
+function mentionIds(elements: readonly StoryElementInput[]): string[] {
+  return [...new Set(elements.flatMap((e) => (e.type === 'mention' ? [e.userId] : [])))]
+}
+
+/** Кто видит сторис с такой аудиторией — то же правило, что visibilityWhere, для одной записи. */
+export function audienceIncludes(
+  user: {
+    id: string
+    role: Role
+    universityId: string | null
+    facultyId: string | null
+    groupId: string | null
+  },
+  story: {
+    authorId: string
+    audience: StoryAudience
+    universityId?: string | null
+    facultyId?: string | null
+    groupId?: string | null
+  },
+): boolean {
+  if (story.authorId === user.id) return true
+  switch (story.audience) {
+    case StoryAudience.ALL:
+      return true
+    case StoryAudience.UNIVERSITY:
+      return !!user.universityId && user.universityId === story.universityId
+    case StoryAudience.TEACHERS:
+      return (
+        user.role === Role.TEACHER &&
+        !!user.universityId &&
+        user.universityId === story.universityId
+      )
+    case StoryAudience.FACULTY:
+      return !!user.facultyId && user.facultyId === story.facultyId
+    case StoryAudience.GROUP:
+      return !!user.groupId && user.groupId === story.groupId
+    default:
+      return false
+  }
+}
+
 /** Сторис глазами конкретного зрителя: агрегаты и личные признаки считаются на сервере. */
 export interface StoryCard {
   id: string
@@ -108,6 +174,8 @@ export interface StoryCard {
   background: string | null
   linkUrl: string | null
   linkLabel: string | null
+  /** Тексты, эмодзи и упоминания поверх кадра (редактор §3.4). */
+  elements: StoryElementView[]
   createdAt: Date
   expiresAt: Date
   author: StoryRow['author']
@@ -158,6 +226,7 @@ export class StoriesService {
     private readonly config: ConfigService<EnvVars, true>,
     private readonly files: FileService,
     private readonly media: MediaService,
+    private readonly queue: QueueService,
   ) {}
 
   /** Медиа сторис для клиента: файл, ссылка на оригинал и описание вариантов. */
@@ -298,6 +367,10 @@ export class StoriesService {
     const myIds = rows.filter((row) => row.authorId === viewer.sub).map((row) => row.id)
     const pollIds = rows.flatMap((row) => (row.poll ? [row.poll.id] : []))
     const fileIds = rows.flatMap((row) => (row.file ? [row.file.id] : []))
+    const elementsByStory = new Map(rows.map((row) => [row.id, parseElements(row.elements)]))
+    const names = await this.mentionNames(viewer, [
+      ...new Set([...elementsByStory.values()].flatMap(mentionIds)),
+    ])
 
     const [seen, viewCounts, reactionCounts, myReactions, voteCounts, myVotes, urls, described] =
       await Promise.all([
@@ -372,6 +445,11 @@ export class StoriesService {
         background: row.background,
         linkUrl: row.linkUrl,
         linkLabel: row.linkLabel,
+        elements: (elementsByStory.get(row.id) ?? []).flatMap((e): StoryElementView[] => {
+          if (e.type !== 'mention') return [e]
+          const name = names.get(e.userId)
+          return name ? [{ ...e, name }] : []
+        }),
         createdAt: row.createdAt,
         expiresAt: row.expiresAt,
         author: row.author,
@@ -393,6 +471,21 @@ export class StoriesService {
         canDelete: row.authorId === viewer.sub || this.canModerate(viewer, row, row.author.role),
       }
     })
+  }
+
+  /**
+   * Имена упомянутых для подписи на кадре. Удалённые и заблокированные (в любую сторону со
+   * зрителем) не подписываются — их упоминание на кадре просто не рисуется.
+   */
+  private async mentionNames(viewer: JwtPayload, ids: string[]): Promise<Map<string, string>> {
+    if (ids.length === 0) return new Map()
+    const blocked = new Set(await this.blockedAuthorIds(viewer.sub))
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: ids.filter((id) => !blocked.has(id)) }, deletedAt: null },
+      select: { id: true, firstName: true, lastName: true },
+      take: ids.length,
+    })
+    return new Map(users.map((u) => [u.id, `${u.firstName} ${u.lastName}`.trim()]))
   }
 
   /**
@@ -438,6 +531,9 @@ export class StoriesService {
     const audience = input.audience as StoryAudience
     const target = await this.resolveTarget(actor, audience, input)
     if (input.fileId) await this.assertOwnMedia(actor.sub, input.fileId)
+    const elements = input.elements ?? []
+    const mentioned = mentionIds(elements).filter((id) => id !== actor.sub)
+    await this.assertMentionable(actor, audience, target, mentioned)
     const expiresAt = new Date(Date.now() + STORY_TTL_HOURS * 60 * 60 * 1000)
 
     const created = await this.prisma.$transaction(async (tx) => {
@@ -462,6 +558,7 @@ export class StoriesService {
           background: input.background ?? null,
           linkUrl: input.linkUrl ?? null,
           linkLabel: input.linkLabel ?? null,
+          ...(elements.length > 0 ? { elements: elements as Prisma.InputJsonValue } : {}),
           expiresAt,
           ...target,
         },
@@ -491,6 +588,7 @@ export class StoriesService {
       metadata: { audience },
       ...ctx,
     })
+    await this.notifyMentioned(actor, created.id, mentioned)
     return this.getById(actor, created.id)
   }
 
@@ -769,12 +867,101 @@ export class StoriesService {
    * а для удаления — на один объект ссылались бы две записи, и снос первой погасил бы
    * картинку у второй.
    */
+  /**
+   * Отметить на кадре можно только того, кто эту сторис увидит, и с кем нет блокировки ни в
+   * одну сторону: иначе упоминание было бы уведомлением о сторис, которую человеку не
+   * откроют, или способом писать тому, кто закрылся. Удалённые и заблокированные платформой —
+   * тоже нет. Ошибка — одна на весь список: какой именно человек не подходит, не сообщаем.
+   */
+  private async assertMentionable(
+    actor: JwtPayload,
+    audience: StoryAudience,
+    target: { universityId?: string; facultyId?: string; groupId?: string },
+    ids: string[],
+  ): Promise<void> {
+    if (ids.length === 0) return
+    const [users, blocks] = await Promise.all([
+      this.prisma.user.findMany({
+        where: { id: { in: ids }, deletedAt: null, isBlocked: false },
+        select: { id: true, role: true, universityId: true, facultyId: true, groupId: true },
+        take: ids.length,
+      }),
+      this.prisma.userBlock.findMany({
+        where: {
+          OR: [
+            { blockerId: actor.sub, blockedId: { in: ids } },
+            { blockedId: actor.sub, blockerId: { in: ids } },
+          ],
+        },
+        select: { id: true },
+        take: 1,
+      }),
+    ])
+    const story = { authorId: actor.sub, audience, ...target }
+    const ok =
+      blocks.length === 0 &&
+      users.length === ids.length &&
+      users.every((u) => audienceIncludes({ ...u, role: u.role as Role }, story))
+    if (!ok) {
+      throw new AppException('BAD_REQUEST', 'Отметить можно только тех, кто увидит сторис', [
+        { field: 'elements', message: 'Отметка недоступна' },
+      ])
+    }
+  }
+
+  /** Уведомить отмеченных. Сбой очереди не отменяет публикацию: сторис уже вышла. */
+  private async notifyMentioned(actor: JwtPayload, storyId: string, ids: string[]): Promise<void> {
+    if (ids.length === 0) return
+    try {
+      const author = await this.prisma.user.findUnique({
+        where: { id: actor.sub },
+        select: { firstName: true, lastName: true },
+      })
+      const dedupeKey = `story-mention:${storyId}`
+      await this.queue.enqueue(
+        QUEUES.NOTIFICATIONS,
+        NOTIFICATION_JOBS.STORY_MENTION,
+        {
+          recipientIds: ids,
+          type: 'POST',
+          titleKey: 'stories.mention.title',
+          bodyKey: 'stories.mention.body',
+          params: { name: `${author?.firstName ?? ''} ${author?.lastName ?? ''}`.trim() },
+          data: { storyId, url: `/stories/${storyId}` },
+          dedupeKey,
+        },
+        { jobId: dedupeKey },
+      )
+    } catch (error) {
+      this.logger.warn({ err: error, storyId }, 'Уведомление об отметке в сторис не поставлено')
+    }
+  }
+
+  /**
+   * Медиа сторис: свой файл из бакета сторис, допустимый формат и размер. Длительность видео
+   * сверяется, если обработка её уже узнала; свежую загрузку ограничивает клиент.
+   */
   private async assertOwnMedia(ownerId: string, fileId: string): Promise<void> {
     const bucket = this.config.get('MINIO_BUCKET_STORIES', { infer: true })
     // Таблица File принадлежит модулю files (§2.1) — читаем её через его сервис.
     const file = await this.files.findOrThrow(fileId)
     if (file.ownerId !== ownerId || file.bucket !== bucket) {
       throw new AppException('BAD_REQUEST', 'Файл недоступен для прикрепления')
+    }
+    const image = (STORY_IMAGE_MIMES as readonly string[]).includes(file.mime)
+    const video = (STORY_VIDEO_MIMES as readonly string[]).includes(file.mime)
+    if (!image && !video) {
+      throw new AppException('BAD_REQUEST', 'Формат файла не подходит для сторис')
+    }
+    const maxMb = this.config.get(image ? 'STORY_IMAGE_MAX_MB' : 'STORY_VIDEO_MAX_MB', {
+      infer: true,
+    })
+    if (file.size > maxMb * 1024 * 1024) {
+      throw new AppException('BAD_REQUEST', `Файл больше ${maxMb} МБ`)
+    }
+    const maxSeconds = this.config.get('STORY_VIDEO_MAX_SECONDS', { infer: true })
+    if (video && file.durationMs !== null && file.durationMs > maxSeconds * 1000) {
+      throw new AppException('BAD_REQUEST', `Видео длиннее ${maxSeconds} с`)
     }
   }
 

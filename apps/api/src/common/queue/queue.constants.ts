@@ -81,6 +81,8 @@ export const NOTIFICATION_JOBS = {
   // Автору публикации, статьи или опроса — новый комментарий; упомянутому — упоминание.
   COMMENT_ADDED: 'comment-added',
   COMMENT_MENTION: 'comment-mention',
+  // Отмеченным в сторис (упоминание в редакторе) — тип POST, тот же тумблер, что у постов.
+  STORY_MENTION: 'story-mention',
   // Участникам события: организатор перенёс или отменил событие.
   EVENT_RESCHEDULED: 'event-rescheduled',
   EVENT_CANCELLED: 'event-cancelled',

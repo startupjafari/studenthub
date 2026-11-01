@@ -1,7 +1,11 @@
 import { StoryAudience } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
-import { STORY_REACTION_EMOJIS, StoryReactionSchema } from '@studenthub/shared-schemas'
-import { StoriesService } from './stories.service'
+import {
+  CreateStorySchema,
+  STORY_REACTION_EMOJIS,
+  StoryReactionSchema,
+} from '@studenthub/shared-schemas'
+import { StoriesService, audienceIncludes } from './stories.service'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { AuditService } from '../../common/audit/audit.service'
 import type { ConfigService } from '@nestjs/config'
@@ -57,28 +61,46 @@ function setup() {
       upsert: jest.fn().mockResolvedValue({}),
       deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
-    user: { findFirst: jest.fn() },
+    user: {
+      findFirst: jest.fn(),
+      findMany: jest.fn().mockResolvedValue([]),
+      findUnique: jest.fn().mockResolvedValue({ firstName: 'Аня', lastName: 'Ким' }),
+    },
     $transaction: jest.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
   }
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
-  const config = { get: jest.fn().mockReturnValue('stories-media') }
+  // Настройки по ключу: бакет сторис и лимиты медиа (по умолчанию env.schema).
+  const settings: Record<string, unknown> = {
+    MINIO_BUCKET_STORIES: 'stories-media',
+    STORY_IMAGE_MAX_MB: 10,
+    STORY_VIDEO_MAX_MB: 100,
+    STORY_VIDEO_MAX_SECONDS: 60,
+  }
+  const config = { get: jest.fn((key: string) => settings[key] ?? 'stories-media') }
   const files = {
     getPresignedUrls: jest.fn().mockResolvedValue(new Map([['f-1', 'https://minio/signed']])),
-    findOrThrow: jest
-      .fn()
-      .mockResolvedValue({ id: 'f-1', ownerId: 'u-1', bucket: 'stories-media' }),
+    findOrThrow: jest.fn().mockResolvedValue({
+      id: 'f-1',
+      ownerId: 'u-1',
+      bucket: 'stories-media',
+      mime: 'image/jpeg',
+      size: 1000,
+      durationMs: null,
+    }),
     delete: jest.fn().mockResolvedValue(undefined),
   }
   // Описание вариантов — media.service.spec.ts; здесь достаточно пустой карты.
   const media = { describe: jest.fn().mockResolvedValue(new Map()) }
+  const queue = { enqueue: jest.fn().mockResolvedValue(true) }
   const service = new StoriesService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
     config as unknown as ConfigService<EnvVars, true>,
     files as unknown as FileService,
     media as never,
+    queue as never,
   )
-  return { service, prisma, tx, audit, files, media }
+  return { service, prisma, tx, audit, files, media, queue }
 }
 
 function viewer(role: Role, scope: Partial<JwtPayload> = {}): JwtPayload {
@@ -662,5 +684,161 @@ describe('StoriesService.deleteExpired', () => {
     files.delete.mockRejectedValue(new Error('minio down'))
 
     await expect(service.deleteExpired()).resolves.toBe(1)
+  })
+})
+
+describe('StoriesService — редактор: элементы, отметки, медиа', () => {
+  const author = viewer(Role.STUDENT, { sub: 'u-1', universityId: 'uni-1', groupId: 'grp-1' })
+  const groupStory = { audience: 'GROUP' as const }
+  const mention = (userId: string) => ({
+    type: 'mention' as const,
+    x: 0.5,
+    y: 0.5,
+    scale: 1,
+    rotation: 0,
+    userId,
+  })
+  function groupSetup() {
+    const s = setup()
+    s.prisma.group.findUnique.mockResolvedValue({
+      facultyId: 'fac-1',
+      faculty: { universityId: 'uni-1' },
+    })
+    s.prisma.story.findFirst.mockResolvedValue(storyRow())
+    return s
+  }
+
+  it('аудитория для одной записи — то же правило, что и выборка', () => {
+    const user = {
+      id: 'x',
+      role: Role.STUDENT,
+      universityId: 'uni-1',
+      facultyId: 'fac-1',
+      groupId: 'grp-1',
+    }
+    expect(
+      audienceIncludes(user, { authorId: 'a', audience: 'GROUP' as never, groupId: 'grp-1' }),
+    ).toBe(true)
+    expect(
+      audienceIncludes(user, { authorId: 'a', audience: 'GROUP' as never, groupId: 'grp-2' }),
+    ).toBe(false)
+    expect(
+      audienceIncludes(user, {
+        authorId: 'a',
+        audience: 'TEACHERS' as never,
+        universityId: 'uni-1',
+      }),
+    ).toBe(false)
+    expect(
+      audienceIncludes(
+        { ...user, role: Role.TEACHER },
+        { authorId: 'a', audience: 'TEACHERS' as never, universityId: 'uni-1' },
+      ),
+    ).toBe(true)
+  })
+
+  it('отметить можно только того, кто увидит сторис: чужая группа — BAD_REQUEST', async () => {
+    const { service, prisma, tx } = groupSetup()
+    prisma.user.findMany.mockResolvedValue([
+      {
+        id: 'm-1',
+        role: Role.STUDENT,
+        universityId: 'uni-1',
+        facultyId: 'fac-1',
+        groupId: 'grp-2',
+      },
+    ])
+    const err = await service
+      .create(author, { ...groupStory, text: 'x', elements: [mention('m-1')] }, ctx)
+      .catch((e) => e)
+    expect(err.code).toBe('BAD_REQUEST')
+    expect(tx.story.create).not.toHaveBeenCalled()
+  })
+
+  it('блокировка с отмеченным в любую сторону — BAD_REQUEST', async () => {
+    const { service, prisma, tx } = groupSetup()
+    prisma.user.findMany.mockResolvedValue([
+      {
+        id: 'm-1',
+        role: Role.STUDENT,
+        universityId: 'uni-1',
+        facultyId: 'fac-1',
+        groupId: 'grp-1',
+      },
+    ])
+    prisma.userBlock.findMany.mockResolvedValue([{ id: 'b-1' }])
+    const err = await service
+      .create(author, { ...groupStory, text: 'x', elements: [mention('m-1')] }, ctx)
+      .catch((e) => e)
+    expect(err.code).toBe('BAD_REQUEST')
+    expect(tx.story.create).not.toHaveBeenCalled()
+  })
+
+  it('элементы сохраняются, отмеченным уходит уведомление (себя — нет)', async () => {
+    const { service, prisma, tx, queue } = groupSetup()
+    prisma.user.findMany.mockResolvedValue([
+      {
+        id: 'm-1',
+        role: Role.STUDENT,
+        universityId: 'uni-1',
+        facultyId: 'fac-1',
+        groupId: 'grp-1',
+      },
+    ])
+    const elements = [mention('m-1'), mention('u-1'), mention('m-1')]
+    await service.create(author, { ...groupStory, elements }, ctx)
+    expect(tx.story.create.mock.calls[0][0].data.elements).toEqual(elements)
+    expect(queue.enqueue).toHaveBeenCalledWith(
+      'notifications',
+      'story-mention',
+      expect.objectContaining({ recipientIds: ['m-1'], type: 'POST' }),
+      expect.anything(),
+    )
+  })
+
+  it('медиа: формат вне списка, размер и длительность сверх лимита — BAD_REQUEST', async () => {
+    const { service, files } = groupSetup()
+    const tryFile = async (file: Record<string, unknown>) => {
+      files.findOrThrow.mockResolvedValue({
+        id: 'f-1',
+        ownerId: 'u-1',
+        bucket: 'stories-media',
+        ...file,
+      })
+      return service.create(author, { ...groupStory, fileId: 'f-1' }, ctx).catch((e) => e)
+    }
+    expect((await tryFile({ mime: 'image/gif', size: 10, durationMs: null })).code).toBe(
+      'BAD_REQUEST',
+    )
+    expect(
+      (await tryFile({ mime: 'image/png', size: 11 * 1024 * 1024, durationMs: null })).code,
+    ).toBe('BAD_REQUEST')
+    expect((await tryFile({ mime: 'video/mp4', size: 10, durationMs: 61_000 })).code).toBe(
+      'BAD_REQUEST',
+    )
+  })
+
+  it('в выдаче у отметки — имя; удалённый или скрытый блокировкой — не рисуется', async () => {
+    const { service, prisma } = setup()
+    prisma.story.findFirst.mockResolvedValue(
+      storyRow({ elements: [mention('m-1'), mention('gone'), { type: 'bogus' }] }),
+    )
+    prisma.user.findMany.mockResolvedValue([{ id: 'm-1', firstName: 'Аня', lastName: 'Ким' }])
+    const card = await service.getById(viewer(Role.STUDENT, { sub: 's-1' }), 's1')
+    expect(card.elements).toEqual([{ ...mention('m-1'), name: 'Аня Ким' }])
+  })
+
+  it('схема: не больше 10 разных отметок, позиция — доля кадра', () => {
+    const many = Array.from({ length: 11 }, (_, i) => mention(`m-${i}`))
+    expect(
+      CreateStorySchema.safeParse({ audience: 'ALL', text: 'x', elements: many }).success,
+    ).toBe(false)
+    expect(
+      CreateStorySchema.safeParse({ audience: 'ALL', elements: [{ ...mention('m'), x: 1.5 }] })
+        .success,
+    ).toBe(false)
+    expect(CreateStorySchema.safeParse({ audience: 'ALL', elements: [mention('m')] }).success).toBe(
+      true,
+    )
   })
 })
