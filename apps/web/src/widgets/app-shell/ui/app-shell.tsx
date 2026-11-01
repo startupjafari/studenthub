@@ -562,6 +562,17 @@ export function AppShell({
       : (NAV_BY_VARIANT[effectiveVariant] ?? STUDENT_NAV)
   )
     .filter((item) => !isNavKeyDisabled(item.key, disabledSections))
+    // Внутри раздела гаснут его страницы по отдельности: в «Заявках» админа очередь уходит
+    // вместе с разделом, а каталог услуг остаётся. Раздел без единой страницы не показываем.
+    .map((item) =>
+      item.children
+        ? {
+            ...item,
+            children: item.children.filter((c) => !isNavKeyDisabled(c.key, disabledSections)),
+          }
+        : item,
+    )
+    .filter((item) => !item.children || item.children.length > 0)
     .filter((item) => item.key !== 'books' || libraryOn)
   const chatsMode = pathname.endsWith('/chats')
   const [listSlot, setListSlot] = useState<HTMLElement | null>(null)
