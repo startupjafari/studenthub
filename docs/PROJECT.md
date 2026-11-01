@@ -498,17 +498,24 @@ status `DRAFT|UPLOADED|IN_REVIEW|VERIFIED|ACCEPTED|REJECTED|NEEDS_REPLACEMENT|EX
 (`document-shared`, §10.1).
 
 **Эндпоинты** (база `/documents`, `/document-requests`, `/document-types`): CRUD документов,
-`GET /documents` (фильтры, `sort`/`order`, `view`) без `limit`/`cursor` отдаёт массив до 200
-документов (веб, Android), с ними — страницу той же сортировки (`limit ≤ 50`, `meta.cursor`/
-`hasNext`/`total`; курсор непрозрачный, голый id своего документа тоже принимается; страница
-с `sort=access` → `400`), `/upload`+`/files`(+`/order`), `GET :id/files/:fileId/url` (presigned), `access` (grant/revoke),
+`GET /documents` (фильтры, `sort`/`order`, `view`) без `page`/`limit`/`cursor` отдаёт массив до
+200 документов (Android); с `page` — страницу по номеру (`limit ≤ 100`, `meta.total`, любая
+сортировка — так листают таблицы веба); с `limit`/`cursor` — страницу той же сортировки курсором
+(iOS; `limit ≤ 100`, `meta.cursor`/`hasNext`/`total`; курсор непрозрачный, голый id своего
+документа тоже принимается; курсорная страница с `sort=access` → `400`); `page` вместе с
+`cursor` → `400`, `/upload`+`/files`(+`/order`), `GET :id/files/:fileId/url` (presigned), `access` (grant/revoke),
 `overview` (плитки считают ровно статус, с которым открывают список: `DRAFT`, `IN_REVIEW`,
 `EXPIRING`, `NEEDS_REPLACEMENT`), `events` (у события ещё `actor { id, name, role }` — имя
 пустое у сотрудника платформы в спец-режиме, `via` по правилам журнала вуза и `granteeType`);
 `accessCount` и пресет `preset=shared` учитывают только действующие гранты (не отозваны, срок не
-прошёл); грант с прошедшим сроком → `400`; `GET /documents/shared-with-me?cursor&limit≤50` — активные гранты на меня
+прошёл); грант с прошедшим сроком → `400`; `GET /documents/shared-with-me?page&limit≤100&sort&order` — активные гранты на меня
 (`USER`), мой факультет (`DEPARTMENT`, декану), мой вуз (`UNIVERSITY`, модератору вуза и декану),
-без своих документов; админу вуза — пусто; запросы — создание/список/`manage`, submission (save/submit), review
+без своих документов; админу вуза — пусто; страница по номеру с `meta.total`, `sort` —
+`title|owner|reason|expiresAt|grantedAt` (без него — по дате выдачи, сначала новые; бессрочный
+доступ — в конце при любом направлении); запросы — создание/список/`manage` (список
+`GET /document-requests/authored`: без `page` — массив до 200, сначала новые, его читает обзор;
+с `page` — страница таблицы, `limit ≤ 100`, `sort` — `title|items|dueAt|status|createdAt`,
+`meta.total`; доли отправленных среди колонок сортировки нет), submission (save/submit), review
 (`submission-items/:id/review`, `submissions/:id/finalize`); типы — `GET /document-types/effective`
 (каталог типов своего вуза для выбора, все роли; вуз из токена, у ролей без вуза — статический
 каталог; ответ как у `GET /document-types`, выключенные типы приходят с `enabled=false`, у
