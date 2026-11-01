@@ -1217,32 +1217,42 @@ export function StoryViewer({
           })}
 
           {/* Стрелки на десктопе — в зазоре между кадром и превью соседей: пальцем листают
-              тапом, мышью — здесь. Положение считается от центра, как и сама лента. */}
-          <Button
-            type="button"
-            variant="ghost"
-            size="lg"
-            icon
-            aria-label={tCommon('previous')}
-            disabled={atStart}
-            className="absolute top-1/2 z-20 hidden -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/10 text-white hover:bg-white/20 hover:text-white disabled:opacity-0 sm:flex"
+              тапом, мышью — здесь. Положение считается от центра, как и сама лента.
+              Центрирует обёртка, а не кнопка: у кнопки при нажатии свой сдвиг
+              (`active:translate-y-px`), и он затирал центровку — стрелка прыгала вниз. */}
+          <div
+            className="absolute top-1/2 z-20 hidden -translate-x-1/2 -translate-y-1/2 sm:block"
             style={{ left: `calc(50% - ${ARROW_X}px)` }}
-            onClick={goPrev}
           >
-            <ChevronLeft className="size-6" aria-hidden />
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="lg"
-            icon
-            aria-label={tCommon('next')}
-            className="absolute top-1/2 z-20 hidden -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/10 text-white hover:bg-white/20 hover:text-white sm:flex"
+            <Button
+              type="button"
+              variant="ghost"
+              size="lg"
+              icon
+              aria-label={tCommon('previous')}
+              disabled={atStart}
+              className="rounded-full bg-white/10 text-white hover:bg-white/20 hover:text-white disabled:opacity-0"
+              onClick={goPrev}
+            >
+              <ChevronLeft className="size-6" aria-hidden />
+            </Button>
+          </div>
+          <div
+            className="absolute top-1/2 z-20 hidden -translate-x-1/2 -translate-y-1/2 sm:block"
             style={{ left: `calc(50% + ${ARROW_X}px)` }}
-            onClick={goNext}
           >
-            <ChevronRight className="size-6" aria-hidden />
-          </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="lg"
+              icon
+              aria-label={tCommon('next')}
+              className="rounded-full bg-white/10 text-white hover:bg-white/20 hover:text-white"
+              onClick={goNext}
+            >
+              <ChevronRight className="size-6" aria-hidden />
+            </Button>
+          </div>
 
           {viewersOpen && (
             <StoryViewersSheet storyId={story.id} onClose={() => setViewersOpen(false)} />
