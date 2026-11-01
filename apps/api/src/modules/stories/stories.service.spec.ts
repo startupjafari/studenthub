@@ -35,6 +35,7 @@ function setup() {
       delete: jest.fn().mockResolvedValue({}),
       deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
       count: jest.fn().mockResolvedValue(0),
+      update: jest.fn().mockResolvedValue({}),
     },
     storyPollVote: {
       groupBy: jest.fn().mockResolvedValue([]),
@@ -56,7 +57,11 @@ function setup() {
     faculty: { findUnique: jest.fn() },
     group: { findUnique: jest.fn() },
     // Блокировки и скрытые авторы смотрящего: по умолчанию их нет.
-    userBlock: { findMany: jest.fn().mockResolvedValue([]) },
+    userBlock: {
+      findMany: jest.fn().mockResolvedValue([]),
+      count: jest.fn().mockResolvedValue(0),
+    },
+    friendship: { findMany: jest.fn().mockResolvedValue([]) },
     storyMute: {
       findMany: jest.fn().mockResolvedValue([]),
       upsert: jest.fn().mockResolvedValue({}),
@@ -66,6 +71,7 @@ function setup() {
       findFirst: jest.fn(),
       findMany: jest.fn().mockResolvedValue([]),
       findUnique: jest.fn().mockResolvedValue({ firstName: 'Аня', lastName: 'Ким' }),
+      count: jest.fn().mockResolvedValue(0),
     },
     $transaction: jest.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
   }
@@ -951,5 +957,159 @@ describe('StoriesService — карточки событий, постов и п
       where: { pollId_userId: { pollId: 'poll-1', userId: 'v-1' } },
       data: { optionId: 'o-2' },
     })
+  })
+})
+
+// ── Личные аудитории: друзья и выбранные (§3.4, приватность) ─────────────────
+describe('StoriesService — аудитории FRIENDS и SELECTED', () => {
+  const student = (sub = 'u-1') =>
+    viewer(Role.STUDENT, { sub, universityId: 'uni-1', facultyId: 'fac-1', groupId: 'grp-1' })
+
+  it('выборка: друзья — через дружбу с автором, выбранные — по списку получателей', async () => {
+    const { service, prisma } = setup()
+    await service.feed(student('v-1'), {})
+    const where = prisma.story.findMany.mock.calls[0][0].where
+    const friends = where.OR.find((c: { audience?: string }) => c.audience === 'FRIENDS')
+    expect(friends.author.OR).toEqual([
+      { friendshipsSent: { some: { addresseeId: 'v-1', status: 'ACCEPTED' } } },
+      { friendshipsReceived: { some: { requesterId: 'v-1', status: 'ACCEPTED' } } },
+    ])
+    const selected = where.OR.find((c: { audience?: string }) => c.audience === 'SELECTED')
+    expect(selected.audienceUserIds).toEqual({ has: 'v-1' })
+  })
+
+  it('для одной записи: FRIENDS — только друзья, SELECTED — только названные', () => {
+    const user = {
+      id: 'v-1',
+      role: Role.STUDENT,
+      universityId: null,
+      facultyId: null,
+      groupId: null,
+    }
+    const friendsStory = { authorId: 'a-1', audience: StoryAudience.FRIENDS }
+    expect(audienceIncludes(user, friendsStory)).toBe(false)
+    expect(audienceIncludes(user, friendsStory, new Set(['v-1']))).toBe(true)
+    const selected = { authorId: 'a-1', audience: StoryAudience.SELECTED }
+    expect(audienceIncludes(user, { ...selected, audienceUserIds: ['v-2'] })).toBe(false)
+    expect(audienceIncludes(user, { ...selected, audienceUserIds: ['v-1'] })).toBe(true)
+  })
+
+  it('схема: получатели — только у SELECTED и обязательны для неё', () => {
+    expect(CreateStorySchema.safeParse({ audience: 'SELECTED', text: 'x' }).success).toBe(false)
+    expect(
+      CreateStorySchema.safeParse({ audience: 'GROUP', text: 'x', userIds: ['u-2'] }).success,
+    ).toBe(false)
+    expect(
+      CreateStorySchema.safeParse({ audience: 'SELECTED', text: 'x', userIds: ['u-2'] }).success,
+    ).toBe(true)
+  })
+
+  it('SELECTED: получатели сохраняются, вуз и факультет — автора (для модерации)', async () => {
+    const { service, prisma, tx } = setup()
+    prisma.user.count.mockResolvedValue(2)
+    prisma.story.findFirst.mockResolvedValue(storyRow())
+    await service.create(
+      student(),
+      { audience: 'SELECTED' as const, text: 'x', userIds: ['u-2', 'u-3'] },
+      ctx,
+    )
+    expect(tx.story.create.mock.calls[0][0].data).toMatchObject({
+      audience: 'SELECTED',
+      audienceUserIds: ['u-2', 'u-3'],
+      universityId: 'uni-1',
+      facultyId: 'fac-1',
+    })
+    expect(tx.story.create.mock.calls[0][0].data.groupId).toBeUndefined()
+  })
+
+  it('SELECTED: удалённый, заблокированный или сам автор в списке — BAD_REQUEST', async () => {
+    const { service, prisma, tx } = setup()
+    prisma.user.count.mockResolvedValue(1)
+    const missing = await service
+      .create(student(), { audience: 'SELECTED' as const, text: 'x', userIds: ['u-2', 'u-3'] }, ctx)
+      .catch((e) => e)
+    expect(missing.code).toBe('BAD_REQUEST')
+
+    prisma.user.count.mockResolvedValue(1)
+    prisma.userBlock.count.mockResolvedValue(1)
+    const blocked = await service
+      .create(student(), { audience: 'SELECTED' as const, text: 'x', userIds: ['u-2'] }, ctx)
+      .catch((e) => e)
+    expect(blocked.code).toBe('BAD_REQUEST')
+
+    const self = await service
+      .create(student(), { audience: 'SELECTED' as const, text: 'x', userIds: ['u-1'] }, ctx)
+      .catch((e) => e)
+    expect(self.code).toBe('BAD_REQUEST')
+    expect(tx.story.create).not.toHaveBeenCalled()
+  })
+
+  it('FRIENDS: отметить можно только друга', async () => {
+    const { service, prisma, tx } = setup()
+    prisma.user.findMany.mockResolvedValue([
+      { id: 'u-2', role: Role.STUDENT, universityId: null, facultyId: null, groupId: null },
+    ])
+    const mention = { type: 'mention' as const, x: 0.5, y: 0.5, scale: 1, rotation: 0 }
+    const input = {
+      audience: 'FRIENDS' as const,
+      elements: [{ ...mention, userId: 'u-2' }],
+    }
+    const err = await service.create(student(), input, ctx).catch((e) => e)
+    expect(err.code).toBe('BAD_REQUEST')
+    expect(tx.story.create).not.toHaveBeenCalled()
+
+    prisma.friendship.findMany.mockResolvedValue([{ requesterId: 'u-1', addresseeId: 'u-2' }])
+    prisma.story.findFirst.mockResolvedValue(storyRow())
+    await service.create(student(), input, ctx)
+    expect(tx.story.create).toHaveBeenCalled()
+  })
+
+  it('смена аудитории: только своей живой сторис, поля прежней аудитории очищаются', async () => {
+    const { service, prisma, audit } = setup()
+    prisma.story.findFirst.mockResolvedValueOnce(null)
+    const foreign = await service
+      .updateAudience(student(), 's1', { audience: 'FRIENDS' }, ctx)
+      .catch((e) => e)
+    expect(foreign.code).toBe('NOT_FOUND')
+    expect(prisma.story.findFirst.mock.calls[0][0].where).toMatchObject({
+      id: 's1',
+      authorId: 'u-1',
+    })
+
+    prisma.story.findFirst.mockResolvedValueOnce({ id: 's1', audience: 'GROUP' })
+    prisma.story.findFirst.mockResolvedValue(storyRow({ audience: StoryAudience.FRIENDS }))
+    await service.updateAudience(student(), 's1', { audience: 'FRIENDS' }, ctx)
+    expect(prisma.story.update).toHaveBeenCalledWith({
+      where: { id: 's1' },
+      data: {
+        audience: 'FRIENDS',
+        universityId: 'uni-1',
+        facultyId: 'fac-1',
+        groupId: null,
+        audienceUserIds: [],
+      },
+    })
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'story_audience_changed',
+        metadata: { from: 'GROUP', to: 'FRIENDS' },
+      }),
+    )
+  })
+
+  it('получателей SELECTED видит только автор', async () => {
+    const { service, prisma } = setup()
+    const recipient = {
+      id: 'u-2',
+      firstName: 'B',
+      lastName: 'C',
+      role: Role.STUDENT,
+      avatarUrl: null,
+    }
+    prisma.user.findMany.mockResolvedValue([recipient])
+    const row = storyRow({ audience: StoryAudience.SELECTED, audienceUserIds: ['u-2'] })
+    prisma.story.findFirst.mockResolvedValue(row)
+    expect((await service.getById(student('u-1'), 's1')).audienceUsers).toEqual([recipient])
+    expect((await service.getById(student('u-2'), 's1')).audienceUsers).toBeNull()
   })
 })

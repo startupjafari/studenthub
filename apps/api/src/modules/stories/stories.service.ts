@@ -14,6 +14,7 @@ import {
   type StoryReactionInput,
   type StoryViewersQueryInput,
   type StoryVoteInput,
+  type UpdateStoryAudienceInput,
 } from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { advisoryXactLock } from '../../common/prisma/advisory-lock'
@@ -32,22 +33,25 @@ import type { RequestContext } from '../auth/auth.service'
 import type { EnvVars } from '../../config/env.schema'
 
 // Кто какую аудиторию может выбрать (docs/PROJECT.md §2.2, строка «Сторисы — создание»).
-// Набор повторяет посты минус PERSONAL/SUBJECT, которых у сторис нет: модераторы контент
-// не создают, работодатель публикуется только вакансиями.
+// Набор повторяет посты минус SUBJECT, которого у сторис нет: модераторы контент
+// не создают, работодатель публикуется только вакансиями. Личные аудитории (друзья,
+// выбранные) доступны всем, кто публикует: круг задаёт сам автор, а не его scope.
+const PERSONAL_AUDIENCES = [StoryAudience.FRIENDS, StoryAudience.SELECTED]
 const ALLOWED_AUDIENCES: Record<Role, StoryAudience[]> = {
-  [Role.PLATFORM_ADMIN]: [StoryAudience.ALL],
+  [Role.PLATFORM_ADMIN]: [StoryAudience.ALL, ...PERSONAL_AUDIENCES],
   [Role.PLATFORM_MODERATOR]: [],
   [Role.UNIVERSITY_ADMIN]: [
     StoryAudience.UNIVERSITY,
     StoryAudience.FACULTY,
     StoryAudience.GROUP,
     StoryAudience.TEACHERS,
+    ...PERSONAL_AUDIENCES,
   ],
   [Role.UNIVERSITY_MODERATOR]: [],
-  [Role.DEAN]: [StoryAudience.FACULTY, StoryAudience.GROUP],
-  [Role.TEACHER]: [StoryAudience.GROUP],
-  [Role.STAROSTA]: [StoryAudience.GROUP],
-  [Role.STUDENT]: [StoryAudience.GROUP],
+  [Role.DEAN]: [StoryAudience.FACULTY, StoryAudience.GROUP, ...PERSONAL_AUDIENCES],
+  [Role.TEACHER]: [StoryAudience.GROUP, ...PERSONAL_AUDIENCES],
+  [Role.STAROSTA]: [StoryAudience.GROUP, ...PERSONAL_AUDIENCES],
+  [Role.STUDENT]: [StoryAudience.GROUP, ...PERSONAL_AUDIENCES],
   [Role.EMPLOYER]: [],
   [Role.SECURITY_GUARD]: [],
   [Role.LIBRARIAN]: [],
@@ -78,6 +82,7 @@ const STORY_SELECT = {
   universityId: true,
   facultyId: true,
   groupId: true,
+  audienceUserIds: true,
   text: true,
   background: true,
   linkUrl: true,
@@ -165,7 +170,56 @@ function mentionIds(elements: readonly StoryElementInput[]): string[] {
   return [...new Set(elements.flatMap((e) => (e.type === 'mention' ? [e.userId] : [])))]
 }
 
-/** Кто видит сторис с такой аудиторией — то же правило, что visibilityWhere, для одной записи. */
+/**
+ * Условие аудитории по полям, общим у сторис и элемента «Актуального». Дружбы здесь нет:
+ * у сторис она проверяется отношением к автору, у подборки — один раз на владельца.
+ */
+interface AudienceCondition {
+  audience: StoryAudience
+  universityId?: string
+  facultyId?: string
+  groupId?: string
+  audienceUserIds?: { has: string }
+}
+
+/**
+ * Зритель входит в аудиторию: ALL, свой вуз (UNIVERSITY, а TEACHERS — только
+ * преподавателю), свой факультет, своя группа и списки SELECTED, где он назван.
+ */
+export function audienceConditions(viewer: JwtPayload): AudienceCondition[] {
+  const or: AudienceCondition[] = [
+    { audience: StoryAudience.ALL },
+    { audience: StoryAudience.SELECTED, audienceUserIds: { has: viewer.sub } },
+  ]
+  if (viewer.universityId) {
+    or.push({ audience: StoryAudience.UNIVERSITY, universityId: viewer.universityId })
+    if (viewer.role === Role.TEACHER) {
+      or.push({ audience: StoryAudience.TEACHERS, universityId: viewer.universityId })
+    }
+  }
+  if (viewer.facultyId) {
+    or.push({ audience: StoryAudience.FACULTY, facultyId: viewer.facultyId })
+  }
+  if (viewer.groupId) {
+    or.push({ audience: StoryAudience.GROUP, groupId: viewer.groupId })
+  }
+  return or
+}
+
+/** Пользователь — принятый друг `userId` (дружба взаимна и хранится одной строкой). */
+export function friendOfWhere(userId: string): Prisma.UserWhereInput {
+  return {
+    OR: [
+      { friendshipsSent: { some: { addresseeId: userId, status: 'ACCEPTED' } } },
+      { friendshipsReceived: { some: { requesterId: userId, status: 'ACCEPTED' } } },
+    ],
+  }
+}
+
+/**
+ * Кто видит сторис с такой аудиторией — то же правило, что visibilityWhere, для одной записи.
+ * `friends` — друзья автора среди проверяемых; без него аудитория FRIENDS не включает никого.
+ */
 export function audienceIncludes(
   user: {
     id: string
@@ -180,12 +234,18 @@ export function audienceIncludes(
     universityId?: string | null
     facultyId?: string | null
     groupId?: string | null
+    audienceUserIds?: readonly string[]
   },
+  friends?: ReadonlySet<string>,
 ): boolean {
   if (story.authorId === user.id) return true
   switch (story.audience) {
     case StoryAudience.ALL:
       return true
+    case StoryAudience.FRIENDS:
+      return friends?.has(user.id) ?? false
+    case StoryAudience.SELECTED:
+      return story.audienceUserIds?.includes(user.id) ?? false
     case StoryAudience.UNIVERSITY:
       return !!user.universityId && user.universityId === story.universityId
     case StoryAudience.TEACHERS:
@@ -207,6 +267,8 @@ export function audienceIncludes(
 export interface StoryCard {
   id: string
   audience: StoryAudience
+  /** Получатели SELECTED — только автору: кому адресована сторис, зрителям знать незачем. */
+  audienceUsers: StoryRow['author'][] | null
   text: string | null
   background: string | null
   linkUrl: string | null
@@ -247,6 +309,20 @@ export interface StoryRing {
   author: StoryRow['author']
   stories: StoryCard[]
   hasUnseen: boolean
+}
+
+/** Куда адресована сторис: scope аудитории и получатели SELECTED. */
+type StoryTarget = {
+  universityId?: string
+  facultyId?: string
+  groupId?: string
+  audienceUserIds?: string[]
+}
+
+function badAudienceUsers(): AppException {
+  return new AppException('BAD_REQUEST', 'Получателей сторис выбрать нельзя', [
+    { field: 'userIds', message: 'Получатель недоступен' },
+  ])
 }
 
 function isPlatform(role: Role): boolean {
@@ -295,25 +371,18 @@ export class StoriesService {
   // ── Видимость ───────────────────────────────────────────────────────────────
 
   /**
-   * Зритель видит живые (`expiresAt > now`) сторисы: ALL + свои + свой вуз
-   * (UNIVERSITY, а TEACHERS — только преподавателю) + свой факультет + свою группу.
-   * Истёкшие не видны никому, даже автору: сутки прошли — сторис больше нет, а крон
-   * лишь убирает строку, которая уже перестала существовать для продукта.
+   * Зритель видит живые (`expiresAt > now`) сторисы: свои, по аудитории (audienceConditions)
+   * и аудитории FRIENDS тех, с кем дружит. Истёкшие не видны никому, даже автору: сутки
+   * прошли — сторис больше нет, а крон лишь убирает строку, которая уже перестала
+   * существовать для продукта. Аудитория читается из записи на каждый запрос, поэтому её
+   * смена у опубликованной сторис действует сразу.
    */
   private visibilityWhere(viewer: JwtPayload): Prisma.StoryWhereInput {
-    const or: Prisma.StoryWhereInput[] = [{ audience: StoryAudience.ALL }, { authorId: viewer.sub }]
-    if (viewer.universityId) {
-      or.push({ audience: StoryAudience.UNIVERSITY, universityId: viewer.universityId })
-      if (viewer.role === Role.TEACHER) {
-        or.push({ audience: StoryAudience.TEACHERS, universityId: viewer.universityId })
-      }
-    }
-    if (viewer.facultyId) {
-      or.push({ audience: StoryAudience.FACULTY, facultyId: viewer.facultyId })
-    }
-    if (viewer.groupId) {
-      or.push({ audience: StoryAudience.GROUP, groupId: viewer.groupId })
-    }
+    const or: Prisma.StoryWhereInput[] = [
+      { authorId: viewer.sub },
+      ...audienceConditions(viewer),
+      { audience: StoryAudience.FRIENDS, author: friendOfWhere(viewer.sub) },
+    ]
     return { expiresAt: { gt: new Date() }, OR: or }
   }
 
@@ -409,12 +478,29 @@ export class StoriesService {
     const fileIds = rows.flatMap((row) => (row.file ? [row.file.id] : []))
     const elementsByStory = new Map(rows.map((row) => [row.id, parseElements(row.elements)]))
     const allElements = [...elementsByStory.values()].flat()
-    const [names, eventCards, postCards, pairCards] = await Promise.all([
+    const recipientIds = [
+      ...new Set(
+        rows.flatMap((row) =>
+          row.authorId === viewer.sub && row.audience === StoryAudience.SELECTED
+            ? row.audienceUserIds
+            : [],
+        ),
+      ),
+    ]
+    const [names, eventCards, postCards, pairCards, recipients] = await Promise.all([
       this.mentionNames(viewer, [...new Set(mentionIds(allElements))]),
       this.events.storySummaries(viewer, cardIds(allElements, 'event')),
       this.posts.storySummaries(viewer, cardIds(allElements, 'post')),
       this.schedules.storyPairSummaries(cardIds(allElements, 'schedule')),
+      recipientIds.length > 0
+        ? this.prisma.user.findMany({
+            where: { id: { in: recipientIds }, deletedAt: null },
+            ...AUTHOR_SELECT,
+            take: recipientIds.length,
+          })
+        : Promise.resolve([]),
     ])
+    const recipientById = new Map(recipients.map((u) => [u.id, u]))
 
     const [seen, viewCounts, reactionCounts, myReactions, voteCounts, myVotes, urls, described] =
       await Promise.all([
@@ -485,6 +571,10 @@ export class StoriesService {
       return {
         id: row.id,
         audience: row.audience,
+        audienceUsers:
+          row.authorId === viewer.sub && row.audience === StoryAudience.SELECTED
+            ? row.audienceUserIds.flatMap((id) => recipientById.get(id) ?? [])
+            : null,
         text: row.text,
         background: row.background,
         linkUrl: row.linkUrl,
@@ -646,6 +736,47 @@ export class StoriesService {
     })
     await this.notifyMentioned(actor, created.id, mentioned)
     return this.getById(actor, created.id)
+  }
+
+  /**
+   * Смена аудитории опубликованной сторис — только автором и пока она жива. Видимость
+   * читается из записи на каждый запрос, поэтому новый круг действует сразу: выбывший
+   * зритель получает NOT_FOUND на следующем же открытии, ответе или пересылке.
+   * Отметки на кадре не перепроверяются: уведомление уже ушло, а открыть сторис
+   * выбывший всё равно не сможет.
+   */
+  async updateAudience(
+    actor: JwtPayload,
+    id: string,
+    input: UpdateStoryAudienceInput,
+    ctx: RequestContext,
+  ): Promise<StoryCard> {
+    const story = await this.prisma.story.findFirst({
+      where: { id, authorId: actor.sub, expiresAt: { gt: new Date() } },
+      select: { id: true, audience: true },
+    })
+    if (!story) throw new AppException('NOT_FOUND', 'Сторис не найдена')
+    const audience = input.audience as StoryAudience
+    const target = await this.resolveTarget(actor, audience, input)
+    await this.prisma.story.update({
+      where: { id },
+      data: {
+        audience,
+        universityId: target.universityId ?? null,
+        facultyId: target.facultyId ?? null,
+        groupId: target.groupId ?? null,
+        audienceUserIds: target.audienceUserIds ?? [],
+      },
+    })
+    await this.audit.record({
+      userId: actor.sub,
+      action: 'story_audience_changed',
+      entity: 'Story',
+      entityId: id,
+      metadata: { from: story.audience, to: audience },
+      ...ctx,
+    })
+    return this.getById(actor, id)
   }
 
   // ── Просмотр, реакции, голос ────────────────────────────────────────────────
@@ -945,11 +1076,11 @@ export class StoriesService {
   private async assertMentionable(
     actor: JwtPayload,
     audience: StoryAudience,
-    target: { universityId?: string; facultyId?: string; groupId?: string },
+    target: StoryTarget,
     ids: string[],
   ): Promise<void> {
     if (ids.length === 0) return
-    const [users, blocks] = await Promise.all([
+    const [users, blocks, friends] = await Promise.all([
       this.prisma.user.findMany({
         where: { id: { in: ids }, deletedAt: null, isBlocked: false },
         select: { id: true, role: true, universityId: true, facultyId: true, groupId: true },
@@ -965,12 +1096,15 @@ export class StoriesService {
         select: { id: true },
         take: 1,
       }),
+      audience === StoryAudience.FRIENDS
+        ? this.friendIdsAmong(actor.sub, ids)
+        : Promise.resolve(new Set<string>()),
     ])
     const story = { authorId: actor.sub, audience, ...target }
     const ok =
       blocks.length === 0 &&
       users.length === ids.length &&
-      users.every((u) => audienceIncludes({ ...u, role: u.role as Role }, story))
+      users.every((u) => audienceIncludes({ ...u, role: u.role as Role }, story, friends))
     if (!ok) {
       throw new AppException('BAD_REQUEST', 'Отметить можно только тех, кто увидит сторис', [
         { field: 'elements', message: 'Отметка недоступна' },
@@ -1059,18 +1193,30 @@ export class StoriesService {
     }
   }
 
-  /** Проверяет аудиторию по роли и вычисляет scope-цель сторис (защита от IDOR). */
+  /**
+   * Проверяет аудиторию по роли и вычисляет scope-цель сторис (защита от IDOR).
+   *
+   * У личных аудиторий вуз и факультет — автора: видимость по ним не считается (условие
+   * привязано к типу аудитории), но по ним модерация вуза и деканат находят свою сторис.
+   */
   private async resolveTarget(
     actor: JwtPayload,
     audience: StoryAudience,
-    input: { facultyId?: string; groupId?: string },
-  ): Promise<{ universityId?: string; facultyId?: string; groupId?: string }> {
+    input: { facultyId?: string; groupId?: string; userIds?: string[] },
+  ): Promise<StoryTarget> {
     if (!ALLOWED_AUDIENCES[actor.role].includes(audience)) {
       throw new AppException('FORBIDDEN', 'Эта аудитория недоступна вашей роли')
     }
     switch (audience) {
       case StoryAudience.ALL:
         return {}
+      case StoryAudience.FRIENDS:
+        return this.authorScope(actor)
+      case StoryAudience.SELECTED:
+        return {
+          ...this.authorScope(actor),
+          audienceUserIds: await this.assertAudienceUsers(actor, input.userIds ?? []),
+        }
       case StoryAudience.UNIVERSITY:
       case StoryAudience.TEACHERS:
         return { universityId: this.requireOwnUniversity(actor) }
@@ -1089,6 +1235,54 @@ export class StoriesService {
       default:
         throw new AppException('BAD_REQUEST', 'Неизвестная аудитория')
     }
+  }
+
+  private authorScope(actor: JwtPayload): StoryTarget {
+    return {
+      ...(actor.universityId ? { universityId: actor.universityId } : {}),
+      ...(actor.facultyId ? { facultyId: actor.facultyId } : {}),
+    }
+  }
+
+  /**
+   * Получатели SELECTED: живые аккаунты без блокировки с автором в любую сторону. Себя в
+   * списке нет — свои сторисы автор видит и так. Ошибка одна на весь список, как у отметок.
+   */
+  private async assertAudienceUsers(actor: JwtPayload, ids: string[]): Promise<string[]> {
+    const unique = [...new Set(ids)]
+    if (unique.length === 0 || unique.includes(actor.sub)) throw badAudienceUsers()
+    const [users, blocks] = await Promise.all([
+      this.prisma.user.count({
+        where: { id: { in: unique }, deletedAt: null, isBlocked: false },
+      }),
+      this.prisma.userBlock.count({
+        where: {
+          OR: [
+            { blockerId: actor.sub, blockedId: { in: unique } },
+            { blockedId: actor.sub, blockerId: { in: unique } },
+          ],
+        },
+      }),
+    ])
+    if (users !== unique.length || blocks > 0) throw badAudienceUsers()
+    return unique
+  }
+
+  /** Кто из `ids` — принятый друг `userId`. */
+  async friendIdsAmong(userId: string, ids: string[]): Promise<Set<string>> {
+    if (ids.length === 0) return new Set()
+    const rows = await this.prisma.friendship.findMany({
+      where: {
+        status: 'ACCEPTED',
+        OR: [
+          { requesterId: userId, addresseeId: { in: ids } },
+          { addresseeId: userId, requesterId: { in: ids } },
+        ],
+      },
+      select: { requesterId: true, addresseeId: true },
+      take: ids.length,
+    })
+    return new Set(rows.map((r) => (r.requesterId === userId ? r.addresseeId : r.requesterId)))
   }
 
   private requireOwnUniversity(actor: JwtPayload): string {
