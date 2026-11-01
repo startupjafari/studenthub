@@ -10,7 +10,11 @@ import { StudentRequests } from './student-requests'
 
 // Ролевая матрица §15.2 (15.18): деканат/студ.офис и преподаватель создают/проверяют запросы;
 // студент/староста — отвечают; админ вуза и платформенные роли в запросах не участвуют.
-const STAFF_ROLES: ReadonlySet<Role> = new Set([Role.DEAN, Role.UNIVERSITY_MODERATOR, Role.TEACHER])
+export const STAFF_ROLES: ReadonlySet<Role> = new Set([
+  Role.DEAN,
+  Role.UNIVERSITY_MODERATOR,
+  Role.TEACHER,
+])
 const RESPONDER_ROLES: ReadonlySet<Role> = new Set([Role.STUDENT, Role.STAROSTA])
 
 // Раздел «Запросы университета» (Ф15C/D, 15.17–15.18): ветвление по роли.
