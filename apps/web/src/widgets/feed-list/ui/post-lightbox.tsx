@@ -23,6 +23,8 @@ import {
   Repeat2,
   Smile,
   X,
+  ZoomIn,
+  ZoomOut,
 } from 'lucide-react'
 import { Role } from '@studenthub/shared-types'
 import { canFileComplaint } from '@studenthub/shared-schemas'
@@ -36,6 +38,7 @@ import {
   fetchCommentsPage,
   hasMyReaction,
   incrementPostView,
+  inlineMediaLink,
   patchCachedPost,
   postKeys,
   reactionSummaryOf,
@@ -60,13 +63,20 @@ import {
   useConfirm,
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
-import { relativeTime, toApiError, useBackClose, useBodyScrollLock } from '../../../shared/lib'
+import {
+  relativeTime,
+  srcSetOf,
+  toApiError,
+  useBackClose,
+  useBodyScrollLock,
+} from '../../../shared/lib'
 import { SharePostMenu } from '../../../features/share-post'
 import { useBookmark } from '../../../features/bookmark-post'
 import { PostTileMenu } from './post-tile-menu'
 import { MediaFrame } from './media-frame'
 import { RepostBanner, RepostUnavailable } from './repost-banner'
 import { useRepostSource } from '../lib/use-repost-source'
+import { useMediaZoom } from '../lib/use-media-zoom'
 import { MentionSuggest, applyMention, mentionQuery } from './mention-suggest'
 
 // Быстрый набор эмодзи для комментариев (как в чате).
@@ -96,6 +106,16 @@ const EMOJI_SET = [
   '😢',
   '😉',
 ]
+
+// Кадр в полном просмотре: на телефоне — во всю ширину, с md — левая колонка окна.
+const LIGHTBOX_SIZES = '(max-width: 768px) 100vw, 70vw'
+
+/**
+ * Черновики комментариев по постам — в памяти вкладки. Случайно закрытое окно не съедает
+ * набранное: открыли пост снова — текст на месте. В хранилище браузера не пишем: черновик
+ * нужен на минуты, а не между сессиями.
+ */
+const drafts = new Map<string, string>()
 
 const MODERATOR_ROLES: Role[] = [
   Role.PLATFORM_ADMIN,
@@ -148,9 +168,44 @@ export function PostLightbox({
   // Репост открывается исходным постом, как в Instagram (useRepostSource). Хук — до ранних
   // выходов: порядок хуков один на каждую отрисовку.
   const source = useRepostSource(posts[index])
+  const windowRef = useRef<HTMLDivElement>(null)
+
+  // Фокус — внутрь окна при открытии и обратно на то, что его открыло, при закрытии:
+  // иначе после закрытия клавиатура оказывалась в начале страницы.
+  useEffect(() => {
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    if (!focusComment) windowRef.current?.focus({ preventScroll: true })
+    return () => opener?.focus({ preventScroll: true })
+    // Только на открытие: листание постов не возвращает фокус.
+  }, [])
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
+      // Tab не уходит под оверлей: с последнего элемента окна — на первый и обратно.
+      // Окна поверх поста (меню, жалоба) живут в своих порталах и держат фокус сами.
+      if (e.key === 'Tab') {
+        const root = windowRef.current?.parentElement
+        if (!root || !root.contains(document.activeElement)) return
+        const focusable = [
+          ...root.querySelectorAll<HTMLElement>(
+            'a[href], button:not([disabled]), textarea, input, [tabindex]:not([tabindex="-1"])',
+          ),
+        ].filter((el) => el.offsetParent !== null)
+        const first = focusable[0]
+        const last = focusable[focusable.length - 1]
+        if (!first || !last) return
+        if (
+          e.shiftKey &&
+          (document.activeElement === first || document.activeElement === windowRef.current)
+        ) {
+          e.preventDefault()
+          last.focus()
+        } else if (!e.shiftKey && document.activeElement === last) {
+          e.preventDefault()
+          first.focus()
+        }
+        return
+      }
       // Esc уже обработало окно поверх поста (пересылка, жалоба: Radix гасит событие через
       // preventDefault) — пост под ним остаётся открытым.
       if (e.defaultPrevented) return
@@ -182,11 +237,13 @@ export function PostLightbox({
   // цитатой, когда исходник зрителю не виден). Пока грузится — скелетон панели.
   const shown = source.kind === 'ready' ? source.source : post
   const repost = source.kind === 'ready' ? post : undefined
+  const withMedia = shown.media.length > 0
 
   return createPortal(
     <div
       role="dialog"
       aria-modal="true"
+      aria-label={`${t('postTitle')} · ${post.author.lastName} ${post.author.firstName}`}
       onClick={onClose}
       // Нижнее поле — под счётчик «2 из 8»; у одиночного поста его нет, и поле не нужно.
       className={cn(
@@ -247,17 +304,26 @@ export function PostLightbox({
         </div>
       )}
 
-      {/* Раскладка Instagram: с md медиа слева на всю высоту окна, справа панель —
-          шапка, подпись с комментариями, действия, ввод. Окно занимает всё свободное место
-          (на телефоне — весь экран): размер не зависит ни от кадра, ни от числа
-          комментариев, и при листании карусели или загрузке ленты окно не прыгает.
-          У поста без вложения левой колонки нет вовсе — только панель на всю высоту,
-          иначе половина окна пустовала бы. */}
+      {/* Две раскладки.
+
+          С медиа — просмотрщик: с md кадр слева (около двух третей окна), справа панель —
+          шапка, подпись с комментариями, действия, ввод. Окно до 1560×92vh, размер не
+          зависит ни от кадра, ни от числа комментариев: при листании карусели оно не
+          прыгает. На телефоне — весь экран.
+
+          Без медиа — компактное окно до 46rem: высота по содержимому, не выше 85vh, дальше
+          внутренняя прокрутка. Раньше и короткий текст открывался окном во всю высоту
+          экрана, и под тремя строками стояла пустота. */}
       <div
+        ref={windowRef}
+        tabIndex={-1}
         onClick={(e) => e.stopPropagation()}
         className={cn(
-          'flex h-full w-full flex-col overflow-hidden bg-background shadow-2xl sm:rounded-2xl',
-          shown.media.length > 0 ? 'max-w-[42rem] md:max-w-none' : 'max-w-[34rem]',
+          'flex h-full w-full flex-col overflow-hidden bg-background shadow-2xl outline-none sm:rounded-[1.25rem]',
+          'animate-in fade-in-0 zoom-in-[0.98] duration-200 motion-reduce:animate-none',
+          withMedia
+            ? 'max-w-[42rem] md:max-h-[92vh] md:max-w-[1560px]'
+            : 'max-w-[46rem] sm:h-auto sm:max-h-[85vh]',
         )}
       >
         {source.kind === 'loading' ? (
@@ -311,7 +377,7 @@ function PostView({
   const canReportComments = canFileComplaint(myRole)
 
   const [mi, setMi] = useState(0)
-  const [zoomed, setZoomed] = useState(false)
+  const zoom = useMediaZoom(mi)
   const [views, setViews] = useState(post.views)
   const [reactions, setReactions] = useState(() => reactionSummaryOf(post, myId))
   // Сводка — из кэша постов: лайк в карточке ленты приходит сюда правкой кэша.
@@ -327,7 +393,16 @@ function PostView({
   // у кого «своей» аудитории нет и цель приходится выбирать руками (useRepost).
   const { audience: repostAudience, repost, isPending: repostPending } = useRepost()
   const [repostDialog, setRepostDialog] = useState(false)
-  const [text, setText] = useState('')
+  // Черновик переживает закрытие окна (см. `drafts`).
+  const [text, setTextState] = useState(() => drafts.get(post.id) ?? '')
+  const setText = (next: string | ((prev: string) => string)): void => {
+    setTextState((prev) => {
+      const value = typeof next === 'function' ? next(prev) : next
+      if (value) drafts.set(post.id, value)
+      else drafts.delete(post.id)
+      return value
+    })
+  }
   // Порядок ленты комментариев. Своего ранжирования у нас нет, поэтому честные
   // «сначала новые / сначала старые», а не «сначала интересные».
   const [newestFirst, setNewestFirst] = useState(false)
@@ -428,6 +503,55 @@ function PostView({
   useEffect(() => {
     if (focusComment) requestAnimationFrame(() => inputRef.current?.focus())
   }, [focusComment])
+
+  // Стрелки клавиатуры листают сначала кадры поста, а на краю карусели — посты (их
+  // обрабатывает окно: событие отмечено preventDefault только когда кадр сменился здесь).
+  // Esc при увеличенном кадре сначала возвращает масштаб, а не закрывает окно.
+  const mediaCount = post.media.length
+  const { zoomed, reset: resetZoom } = zoom
+  useEffect(() => {
+    function onKey(e: KeyboardEvent): void {
+      if (e.defaultPrevented) return
+      const target = e.target as HTMLElement | null
+      if (target && (target.isContentEditable || /^(TEXTAREA|INPUT|SELECT)$/.test(target.tagName)))
+        return
+      if (e.key === 'Escape' && zoomed) {
+        e.preventDefault()
+        resetZoom()
+      } else if (e.key === 'ArrowRight' && mi < mediaCount - 1) {
+        e.preventDefault()
+        setMi(mi + 1)
+      } else if (e.key === 'ArrowLeft' && mi > 0) {
+        e.preventDefault()
+        setMi(mi - 1)
+      }
+    }
+    // Перехват (capture): слушатель окна листает посты и обязан узнать, что кадр уже
+    // сменился здесь, — а этот эффект переподписывается на каждом кадре и в обычной
+    // фазе встал бы в очередь после него.
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [mi, mediaCount, zoomed, resetZoom])
+
+  // Соседние снимки карусели греем заранее с тем же srcset и sizes, что у кадра: браузер
+  // выберет ту же копию, и переход покажет её из кэша, без мигания пустого кадра.
+  useEffect(() => {
+    for (const m of [post.media[mi - 1], post.media[mi + 1]]) {
+      if (!m || m.mime.startsWith('video/')) continue
+      const link = inlineMediaLink(m)
+      if (!link) continue
+      const img = new Image()
+      const srcset =
+        m.mime === 'image/gif'
+          ? undefined
+          : srcSetOf(link.sources, { url: link.url, width: m.width })
+      if (srcset) {
+        img.sizes = LIGHTBOX_SIZES
+        img.srcset = srcset
+      }
+      img.src = link.url
+    }
+  }, [mi, post.media])
 
   const byRole = myRole !== null && MODERATOR_ROLES.includes(myRole)
   // Меню — про публикацию, которую открыли: у репоста это сам репост (удалить его), а не
@@ -610,7 +734,7 @@ function PostView({
     <>
       <div
         className={cn(
-          'sh-scroll flex min-h-0 flex-1 flex-col bg-background max-md:overflow-y-auto',
+          'sh-scroll flex min-h-0 flex-auto flex-col bg-background max-md:overflow-y-auto',
           cur && 'md:flex-row',
         )}
       >
@@ -624,26 +748,44 @@ function PostView({
             // высоту окна. Размытая подложка заполняет поля, поэтому пустоты не видно.
             className="h-[45vh] shrink-0 bg-black max-md:order-2 sm:h-[60vh] md:h-full md:min-w-0 md:flex-1"
             controls={!isImage}
-            // На телефоне кадр во всю ширину, с md — левая колонка; зум ×1.5 возьмёт
-            // крупную копию из того же srcset.
-            sizes="(max-width: 768px) 100vw, 70vw"
-            imageClassName={cn(
-              'max-h-full transition-transform duration-200',
-              zoomed && 'max-h-none scale-150',
-            )}
+            sizes={LIGHTBOX_SIZES}
+            // Подложка приглушённая: в полном просмотре кадр — единственный центр внимания.
+            backdropClassName="brightness-[0.45] saturate-[0.7]"
+            imageClassName="max-h-full"
+            {...(isImage ? { stageRef: zoom.stageRef, stageStyle: zoom.stageStyle } : {})}
           >
-            {/* Кадр кликабелен целиком: приближение — по картинке, а не по кнопке
-                поверх неё, иначе клик по размытым полям ничего не делал. */}
+            {/* Слой жестов над снимком: двойной клик — приближение в точку, перетаскивание —
+                сдвиг увеличенного кадра. Одиночный клик ничего не делает: им промахиваются
+                мимо стрелок, и раньше он неожиданно увеличивал снимок. */}
+            {isImage && (
+              <div
+                aria-hidden
+                {...zoom.handlers}
+                className={cn(
+                  'absolute inset-0 z-[1] touch-none select-none',
+                  zoom.zoomed
+                    ? zoom.dragging
+                      ? 'cursor-grabbing'
+                      : 'cursor-grab'
+                    : 'cursor-zoom-in',
+                )}
+              />
+            )}
             {isImage && (
               <button
                 type="button"
-                aria-label={zoomed ? t('zoomOut') : t('zoomIn')}
-                onClick={() => setZoomed((z) => !z)}
-                className={cn(
-                  'absolute inset-0 z-[1]',
-                  zoomed ? 'cursor-zoom-out' : 'cursor-zoom-in',
+                aria-label={zoom.zoomed ? t('zoomOut') : t('zoomIn')}
+                aria-pressed={zoom.zoomed}
+                title={zoom.zoomed ? t('zoomOut') : t('zoomIn')}
+                onClick={() => zoom.toggle()}
+                className="absolute bottom-3 left-3 z-10 flex size-9 items-center justify-center rounded-full bg-black/55 text-white transition-colors duration-150 hover:bg-black/75 focus-visible:ring-2 focus-visible:ring-white/70 focus-visible:outline-none"
+              >
+                {zoom.zoomed ? (
+                  <ZoomOut className="size-4" aria-hidden />
+                ) : (
+                  <ZoomIn className="size-4" aria-hidden />
                 )}
-              />
+              </button>
             )}
             {media.length > 1 && (
               <>
@@ -653,13 +795,10 @@ function PostView({
                   <button
                     type="button"
                     aria-label={t('prev')}
-                    onClick={() => {
-                      setMi(mi - 1)
-                      setZoomed(false)
-                    }}
+                    onClick={() => setMi(mi - 1)}
                     className="group absolute inset-y-0 left-0 z-10 flex w-14 items-center justify-start pl-2 sm:w-20 sm:pl-3"
                   >
-                    <span className="flex size-8 items-center justify-center rounded-full bg-white/85 text-neutral-900 shadow transition-colors group-hover:bg-white">
+                    <span className="flex size-9 items-center justify-center rounded-full bg-white/85 text-neutral-900 shadow transition-colors duration-150 group-hover:bg-white group-focus-visible:ring-2 group-focus-visible:ring-white">
                       <ChevronLeft className="size-5" aria-hidden />
                     </span>
                   </button>
@@ -668,13 +807,10 @@ function PostView({
                   <button
                     type="button"
                     aria-label={t('next')}
-                    onClick={() => {
-                      setMi(mi + 1)
-                      setZoomed(false)
-                    }}
+                    onClick={() => setMi(mi + 1)}
                     className="group absolute inset-y-0 right-0 z-10 flex w-14 items-center justify-end pr-2 sm:w-20 sm:pr-3"
                   >
-                    <span className="flex size-8 items-center justify-center rounded-full bg-white/85 text-neutral-900 shadow transition-colors group-hover:bg-white">
+                    <span className="flex size-9 items-center justify-center rounded-full bg-white/85 text-neutral-900 shadow transition-colors duration-150 group-hover:bg-white group-focus-visible:ring-2 group-focus-visible:ring-white">
                       <ChevronRight className="size-5" aria-hidden />
                     </span>
                   </button>
@@ -703,9 +839,11 @@ function PostView({
         <div
           className={cn(
             'flex flex-col max-md:contents md:min-h-0',
+            // Панель — около трети окна, но не уже 20rem (комментарии читаемы) и не шире
+            // 28rem (кадр остаётся главным). Без медиа — вся ширина компактного окна.
             cur
-              ? 'md:w-[22rem] md:shrink-0 md:border-l md:border-border lg:w-[26rem] xl:w-[30rem]'
-              : 'md:flex-1',
+              ? 'md:w-[clamp(20rem,32%,28rem)] md:shrink-0 md:border-l md:border-border'
+              : 'md:flex-auto',
           )}
         >
           <header className="flex shrink-0 items-center gap-3 px-4 py-3 max-md:order-1 max-sm:pr-14 md:border-b md:border-border">
@@ -742,7 +880,9 @@ function PostView({
               первой строкой с аватаром автора, дальше реплики. */}
           <div
             ref={threadRef}
-            className="sh-scroll flex flex-col gap-4 px-4 py-3 max-md:order-4 max-md:shrink-0 md:min-h-0 md:flex-1 md:overflow-y-auto"
+            // flex-auto, а не flex-1: в компактном окне текста высота считается по содержимому,
+            // и нулевая основа схлопнула бы ленту; при упоре в 85vh она сжимается и прокручивается.
+            className="sh-scroll flex flex-col gap-4 px-4 py-3 max-md:order-4 max-md:shrink-0 md:min-h-0 md:flex-auto md:overflow-y-auto"
           >
             {via && <RepostBanner repost={via} />}
             {hasCaption && (
