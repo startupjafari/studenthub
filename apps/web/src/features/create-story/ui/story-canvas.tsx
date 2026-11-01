@@ -14,7 +14,14 @@ import { cn } from '../../../shared/lib/utils'
 import { clamp01, type EditorElement } from '../model/editor-element'
 
 // Подпись элемента для читалки — по типу (статические ключи, FRONTEND_RULES §10).
-const TYPE_KEY = { text: 'toolText', emoji: 'toolEmoji', mention: 'toolMention' } as const
+const TYPE_KEY = {
+  text: 'toolText',
+  emoji: 'toolEmoji',
+  mention: 'toolMention',
+  event: 'toolEvent',
+  post: 'toolPost',
+  schedule: 'toolPair',
+} as const
 
 // Шаг сдвига стрелками — доля кадра; с Shift — крупнее.
 const KEY_STEP = 0.01

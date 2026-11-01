@@ -1,4 +1,4 @@
-import { StoryAudience } from '@prisma/client'
+import { Prisma, StoryAudience } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
 import {
   CreateStorySchema,
@@ -40,6 +40,7 @@ function setup() {
       groupBy: jest.fn().mockResolvedValue([]),
       findMany: jest.fn().mockResolvedValue([]),
       upsert: jest.fn().mockResolvedValue({}),
+      update: jest.fn().mockResolvedValue({}),
     },
     storyView: {
       findMany: jest.fn().mockResolvedValue([]),
@@ -92,6 +93,13 @@ function setup() {
   // Описание вариантов — media.service.spec.ts; здесь достаточно пустой карты.
   const media = { describe: jest.fn().mockResolvedValue(new Map()) }
   const queue = { enqueue: jest.fn().mockResolvedValue(true) }
+  // Карточки-стикеры: видимость решают модули событий, постов и расписания — здесь заглушки.
+  const events = { storySummaries: jest.fn().mockResolvedValue(new Map()) }
+  const posts = { storySummaries: jest.fn().mockResolvedValue(new Map()) }
+  const schedules = {
+    canSharePair: jest.fn().mockResolvedValue(true),
+    storyPairSummaries: jest.fn().mockResolvedValue(new Map()),
+  }
   const service = new StoriesService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
@@ -99,8 +107,11 @@ function setup() {
     files as unknown as FileService,
     media as never,
     queue as never,
+    events as never,
+    posts as never,
+    schedules as never,
   )
-  return { service, prisma, tx, audit, files, media, queue }
+  return { service, prisma, tx, audit, files, media, queue, events, posts, schedules }
 }
 
 function viewer(role: Role, scope: Partial<JwtPayload> = {}): JwtPayload {
@@ -840,5 +851,105 @@ describe('StoriesService — редактор: элементы, отметки,
     expect(CreateStorySchema.safeParse({ audience: 'ALL', elements: [mention('m')] }).success).toBe(
       true,
     )
+  })
+})
+
+describe('StoriesService — карточки событий, постов и пар (§3.4)', () => {
+  const author = viewer(Role.STUDENT, { sub: 'u-1', universityId: 'uni-1', groupId: 'grp-1' })
+  const place = { x: 0.5, y: 0.5, scale: 1, rotation: 0 }
+  function groupSetup() {
+    const s = setup()
+    s.prisma.group.findUnique.mockResolvedValue({
+      facultyId: 'fac-1',
+      faculty: { universityId: 'uni-1' },
+    })
+    s.prisma.story.findFirst.mockResolvedValue(storyRow())
+    return s
+  }
+
+  it('событие, которого автор не видит, — BAD_REQUEST, сторис не создаётся', async () => {
+    const { service, tx } = groupSetup()
+    const err = await service
+      .create(
+        author,
+        { audience: 'GROUP' as const, elements: [{ type: 'event', ...place, eventId: 'e-1' }] },
+        ctx,
+      )
+      .catch((e) => e)
+    expect(err.code).toBe('BAD_REQUEST')
+    expect(tx.story.create).not.toHaveBeenCalled()
+  })
+
+  it('чужая пара — BAD_REQUEST', async () => {
+    const { service, schedules, tx } = groupSetup()
+    schedules.canSharePair.mockResolvedValue(false)
+    const err = await service
+      .create(
+        author,
+        {
+          audience: 'GROUP' as const,
+          elements: [{ type: 'schedule', ...place, pairId: 'p-1', date: '2026-11-02' }],
+        },
+        ctx,
+      )
+      .catch((e) => e)
+    expect(err.code).toBe('BAD_REQUEST')
+    expect(schedules.canSharePair).toHaveBeenCalledWith(author, 'p-1')
+    expect(tx.story.create).not.toHaveBeenCalled()
+  })
+
+  it('видимые событие и пост проходят', async () => {
+    const { service, events, posts, tx } = groupSetup()
+    events.storySummaries.mockResolvedValue(new Map([['e-1', { id: 'e-1' }]]))
+    posts.storySummaries.mockResolvedValue(new Map([['p-1', { id: 'p-1' }]]))
+    await service.create(
+      author,
+      {
+        audience: 'GROUP' as const,
+        elements: [
+          { type: 'event', ...place, eventId: 'e-1' },
+          { type: 'post', ...place, postId: 'p-1' },
+        ],
+      },
+      ctx,
+    )
+    expect(tx.story.create).toHaveBeenCalled()
+    expect(events.storySummaries).toHaveBeenCalledWith(author, ['e-1'])
+  })
+
+  it('в выдаче карточка — по правам зрителя: невидимое событие приходит как null', async () => {
+    const { service, prisma, events } = setup()
+    prisma.story.findFirst.mockResolvedValue(
+      storyRow({
+        elements: [
+          { type: 'event', ...place, eventId: 'e-1' },
+          { type: 'event', ...place, eventId: 'e-2' },
+        ],
+      }),
+    )
+    const card = { id: 'e-1', title: 'Хакатон' }
+    events.storySummaries.mockResolvedValue(new Map([['e-1', card]]))
+    const s = await service.getById(viewer(Role.STUDENT, { sub: 'v-1' }), 's1')
+    expect(s.elements).toEqual([
+      { type: 'event', ...place, eventId: 'e-1', event: card },
+      { type: 'event', ...place, eventId: 'e-2', event: null },
+    ])
+  })
+
+  it('два первых голоса одновременно: второй заменяет первый, а не падает', async () => {
+    const { service, prisma } = setup()
+    prisma.story.findFirst.mockResolvedValueOnce({
+      id: 's1',
+      poll: { id: 'poll-1', options: [{ id: 'o-1' }, { id: 'o-2' }] },
+    })
+    prisma.story.findFirst.mockResolvedValue(storyRow())
+    prisma.storyPollVote.upsert.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError('unique', { code: 'P2002', clientVersion: 'x' }),
+    )
+    await service.vote(viewer(Role.STUDENT, { sub: 'v-1' }), 's1', { optionId: 'o-2' })
+    expect(prisma.storyPollVote.update).toHaveBeenCalledWith({
+      where: { pollId_userId: { pollId: 'poll-1', userId: 'v-1' } },
+      data: { optionId: 'o-2' },
+    })
   })
 })

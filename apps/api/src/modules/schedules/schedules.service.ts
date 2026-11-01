@@ -322,6 +322,74 @@ export class SchedulesService {
    * всё; модератору платформы — FORBIDDEN (§2.2).
    * Возвращает пары + таймзону вуза (время «настенное» в этой зоне, docs/FRONTEND_RULES.md §9).
    */
+  /**
+   * Можно ли поделиться парой в сторис (§3.4): своя группа, свои занятия преподавателя,
+   * факультет декана, вуз администрации. Чужое расписание через сторис не уходит.
+   */
+  async canSharePair(actor: JwtPayload, pairId: string): Promise<boolean> {
+    const or: Prisma.PairWhereInput[] = [{ teacherId: actor.sub }]
+    if (actor.groupId) or.push({ groupId: actor.groupId })
+    if (actor.role === Role.DEAN && actor.facultyId) {
+      or.push({ group: { facultyId: actor.facultyId } })
+    }
+    if (
+      (actor.role === Role.UNIVERSITY_ADMIN || actor.role === Role.UNIVERSITY_MODERATOR) &&
+      actor.universityId
+    ) {
+      or.push({ group: { faculty: { universityId: actor.universityId } } })
+    }
+    const pair = await this.prisma.pair.findFirst({
+      where: { id: pairId, OR: or },
+      select: { id: true },
+    })
+    return pair !== null
+  }
+
+  /**
+   * Карточки пар для стикеров сторис: предмет, время, аудитория и группа — без
+   * преподавателя: сторис видят и те, кому его расписание ни к чему. Удалённой пары нет.
+   */
+  async storyPairSummaries(ids: string[]): Promise<
+    Map<
+      string,
+      {
+        id: string
+        subject: string
+        startTime: string
+        endTime: string
+        room: string | null
+        group: string
+      }
+    >
+  > {
+    if (ids.length === 0) return new Map()
+    const pairs = await this.prisma.pair.findMany({
+      where: { id: { in: ids } },
+      select: {
+        id: true,
+        subject: true,
+        startTime: true,
+        endTime: true,
+        room: { select: { name: true } },
+        group: { select: { name: true } },
+      },
+      take: ids.length,
+    })
+    return new Map(
+      pairs.map((p) => [
+        p.id,
+        {
+          id: p.id,
+          subject: p.subject,
+          startTime: p.startTime,
+          endTime: p.endTime,
+          room: p.room?.name ?? null,
+          group: p.group.name,
+        },
+      ]),
+    )
+  }
+
   async getSchedule(
     viewer: JwtPayload,
     query: ScheduleQueryInput,
