@@ -1,4 +1,4 @@
-import { RoomStatusView } from '../../../views/rooms'
+import { RoomStatusView } from '../../../../views/rooms'
 
 // Цель печатного QR помещения (Ф16): короткий путь /r/<код> — он попадает в QR,
 // поэтому чем короче, тем менее плотный код и тем легче он сканируется.
