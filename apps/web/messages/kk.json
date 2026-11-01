@@ -2117,7 +2117,12 @@
     "viewers": "Қарағандар",
     "noViewers": "Әзірге ешкім қараған жоқ",
     "showMore": "Тағы көрсету",
-    "openLink": "Ашу"
+    "openLink": "Ашу",
+    "actions": "Сторис әрекеттері",
+    "viewersWithCount": "{count} қаралым",
+    "openProfile": "Профильді ашу",
+    "mediaError": "Медианы жүктеу мүмкін болмады",
+    "videoError": "Бейнені ойнату мүмкін болмады"
   },
   "Chats": {
     "title": "Чаттар",

@@ -2117,7 +2117,12 @@
     "viewers": "Просмотры",
     "noViewers": "Пока никто не смотрел",
     "showMore": "Показать ещё",
-    "openLink": "Открыть"
+    "openLink": "Открыть",
+    "actions": "Действия со сторис",
+    "viewersWithCount": "{count, plural, one {# просмотр} few {# просмотра} many {# просмотров} other {# просмотра}}",
+    "openProfile": "Открыть профиль",
+    "mediaError": "Не удалось загрузить медиа",
+    "videoError": "Не удалось воспроизвести видео"
   },
   "Chats": {
     "title": "Чаты",

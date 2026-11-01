@@ -2117,7 +2117,12 @@
     "viewers": "Views",
     "noViewers": "No one has watched yet",
     "showMore": "Show more",
-    "openLink": "Open"
+    "openLink": "Open",
+    "actions": "Story actions",
+    "viewersWithCount": "{count, plural, one {# view} other {# views}}",
+    "openProfile": "Open profile",
+    "mediaError": "Could not load media",
+    "videoError": "Could not play the video"
   },
   "Chats": {
     "title": "Chats",
