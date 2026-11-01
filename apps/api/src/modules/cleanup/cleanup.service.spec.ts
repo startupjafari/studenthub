@@ -423,7 +423,14 @@ describe('CleanupService', () => {
         createdAt: { lt: Date }
       }
       expect(uploads).toMatchObject({
-        bucket: { in: ['MINIO_BUCKET_POSTS', 'MINIO_BUCKET_STORIES', 'MINIO_BUCKET_APPLICATIONS'] },
+        bucket: {
+          in: [
+            'MINIO_BUCKET_POSTS',
+            'MINIO_BUCKET_STORIES',
+            'MINIO_BUCKET_STORY_HIGHLIGHTS',
+            'MINIO_BUCKET_APPLICATIONS',
+          ],
+        },
         postId: null,
         messageId: null,
         materialId: null,
@@ -431,6 +438,7 @@ describe('CleanupService', () => {
         documentId: null,
         submissionId: null,
         stories: { none: {} },
+        highlightItem: { is: null },
         albumsCovered: { none: {} },
       })
       const day = 24 * 60 * 60 * 1000

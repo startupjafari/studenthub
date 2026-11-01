@@ -83,6 +83,7 @@ export const DETACHED_WHERE = {
   submissionId: null,
   eventCommentId: null,
   stories: { none: {} },
+  highlightItem: { is: null },
   albumsCovered: { none: {} },
   bookCovers: { none: {} },
 } satisfies Prisma.FileWhereInput
@@ -95,6 +96,7 @@ const ATTACHMENT_SELECT = {
   documentId: true,
   submissionId: true,
   eventCommentId: true,
+  highlightItem: { select: { id: true } },
   _count: { select: { stories: true, albumsCovered: true, bookCovers: true } },
 } satisfies Prisma.FileSelect
 
@@ -109,6 +111,7 @@ function isAttached(file: Prisma.FileGetPayload<{ select: typeof ATTACHMENT_SELE
     file.submissionId !== null ||
     file.eventCommentId !== null ||
     file._count.stories > 0 ||
+    file.highlightItem !== null ||
     file._count.albumsCovered > 0 ||
     file._count.bookCovers > 0
   )
@@ -629,6 +632,50 @@ export class FileService {
     // Варианты копируются, а не готовятся заново: пересланное видео не перекодируется.
     if (source.id) await this.media.scheduleCopy(source.id, copy)
     else await this.media.schedule(copy)
+    return copy
+  }
+
+  /**
+   * Копия файла в другой бакет — новая запись File того же владельца, не привязанная ни к
+   * чему (привязывает вызывающий модуль). Нужна, когда у источника короткий срок жизни:
+   * медиа сторис уходит из `stories-media` через сутки, а в «Актуальном» должно остаться.
+   * Варианты медиа (превью, HLS) копируются, а не готовятся заново.
+   */
+  async copyToBucket(sourceId: string, bucket: string, ownerId: string) {
+    const source = await this.prisma.file.findUnique({
+      where: { id: sourceId },
+      select: {
+        id: true,
+        bucket: true,
+        key: true,
+        mime: true,
+        size: true,
+        name: true,
+        width: true,
+        height: true,
+        durationMs: true,
+      },
+    })
+    if (!source) throw new AppException('NOT_FOUND', 'Файл не найден')
+    const ext = source.key.includes('.') ? source.key.split('.').pop() : undefined
+    const key = ext ? `${randomUUID()}.${ext}` : randomUUID()
+    await this.minio.copyObject(bucket, key, `/${source.bucket}/${source.key}`)
+    const copy = await this.prisma.file.create({
+      data: {
+        bucket,
+        key,
+        mime: source.mime,
+        size: source.size,
+        ownerId,
+        name: source.name,
+        width: source.width,
+        height: source.height,
+        durationMs: source.durationMs,
+        mediaStatus: this.media.initialStatus(bucket, source.mime),
+      },
+      select: FILE_SELECT,
+    })
+    await this.media.scheduleCopy(source.id, copy)
     return copy
   }
 

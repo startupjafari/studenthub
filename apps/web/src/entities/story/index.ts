@@ -8,6 +8,16 @@ export {
   unmuteStoryAuthorRequest,
   createStoryRequest,
   deleteStoryRequest,
+  updateStoryAudienceRequest,
+  fetchStoryHighlights,
+  fetchStoryHighlight,
+  createStoryHighlightRequest,
+  updateStoryHighlightRequest,
+  deleteStoryHighlightRequest,
+  reorderStoryHighlightsRequest,
+  addStoryHighlightItemRequest,
+  removeStoryHighlightItemRequest,
+  reorderStoryHighlightItemsRequest,
   markStoryViewed,
   addStoryReactionRequest,
   removeStoryReactionRequest,
@@ -31,6 +41,10 @@ export {
 export type {
   StoryElement,
   StoryEventCard,
+  StoryHighlightCover,
+  StoryHighlightDetail,
+  StoryHighlightItem,
+  StoryHighlightSummary,
   StoryPairCard,
   StoryPostCard,
   StoryAudienceValue,
@@ -51,3 +65,5 @@ export {
   type AnyStoryElement,
 } from './ui/story-element'
 export { fitImageToStory } from './lib/fit-image'
+export { StoryThumb } from './ui/story-thumb'
+export { highlightRing } from './lib/highlight-ring'

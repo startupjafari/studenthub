@@ -59,6 +59,11 @@ export class MinioBucketsService implements OnModuleInit {
         access: 'private',
         expireDays: Math.ceil(TTL.STORY_HOURS / 24),
       },
+      // «Актуальное» — без TTL: копия живёт, пока автор не уберёт её из подборки.
+      {
+        name: this.config.get('MINIO_BUCKET_STORY_HIGHLIGHTS', { infer: true }),
+        access: 'private',
+      },
       { name: this.config.get('MINIO_BUCKET_APPLICATIONS', { infer: true }), access: 'private' },
       { name: this.config.get('MINIO_BUCKET_MATERIALS', { infer: true }), access: 'private' },
       { name: this.config.get('MINIO_BUCKET_CHAT', { infer: true }), access: 'private' },

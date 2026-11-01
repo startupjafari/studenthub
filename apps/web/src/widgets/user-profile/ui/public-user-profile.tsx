@@ -42,7 +42,7 @@ import {
 import { useRealtimeEvent } from '../../../shared/realtime'
 import { useAppSelector } from '../../../shared/store'
 import { useAuthorStories } from '../../../entities/story'
-import { StoryAvatarRing, type RenderStoryViewer } from './story-avatar-ring'
+import { StoryAvatarRing, type RenderHighlights, type RenderStoryViewer } from './story-avatar-ring'
 import { ReportModal } from '../../../features/report-content'
 import { contentModeration } from '../lib/content-moderation'
 
@@ -78,10 +78,12 @@ function errCode(e: unknown): string {
 export function PublicUserProfile({
   userId,
   renderStoryViewer,
+  renderHighlights,
 }: {
   userId: string
   /** Окно сторис — из слоя выше (views/profile): кольцо вокруг аватара открывает его. */
   renderStoryViewer?: RenderStoryViewer
+  renderHighlights?: RenderHighlights
 }) {
   const t = useTranslations('Profile')
   const tStories = useTranslations('Stories')
@@ -274,6 +276,8 @@ export function PublicUserProfile({
           </div>
           <ProfileIdentity data={u} />
         </div>
+        {/* Закрытый профиль «Актуальное» не показывает, как и остальной контент. */}
+        {u.access !== 'limited' && renderHighlights?.(u.id)}
         {storiesOpen && storyRing && renderStoryViewer?.(storyRing, () => setStoriesOpen(false))}
       </Card>
 

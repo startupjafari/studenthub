@@ -36,6 +36,8 @@ const MODELS = [
   'storyView',
   'storyReaction',
   'storyPollVote',
+  'storyMute',
+  'storyHighlight',
   'auditLog',
   'messageReaction',
   'chatPollVote',

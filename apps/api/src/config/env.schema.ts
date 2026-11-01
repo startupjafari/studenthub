@@ -76,6 +76,8 @@ export const envSchema = z.object({
   MINIO_BUCKET_AVATARS: z.string().default('avatars'),
   MINIO_BUCKET_POSTS: z.string().default('posts-media'),
   MINIO_BUCKET_STORIES: z.string().default('stories-media'),
+  // «Актуальное»: копии медиа сторис без TTL бакета stories-media (32-stories.prisma).
+  MINIO_BUCKET_STORY_HIGHLIGHTS: z.string().default('story-highlights'),
   MINIO_BUCKET_APPLICATIONS: z.string().default('applications'),
   MINIO_BUCKET_MATERIALS: z.string().default('materials'),
   MINIO_BUCKET_CHAT: z.string().default('chat-media'),

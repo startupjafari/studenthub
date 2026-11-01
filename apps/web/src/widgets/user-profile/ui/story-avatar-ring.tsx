@@ -11,6 +11,9 @@ import { cn } from '../../../shared/lib/utils'
  */
 export type RenderStoryViewer = (ring: StoryRing, onClose: () => void) => ReactNode
 
+/** Ряд «Актуального» под шапкой профиля — тоже из stories-rail, тем же путём через views. */
+export type RenderHighlights = (ownerId: string) => ReactNode
+
 /**
  * Кольцо вокруг аватара профиля, когда у человека есть живые сторис: яркое — есть
  * непросмотренные, приглушённое — всё уже видели. Тот же вид, что у колец над лентой.

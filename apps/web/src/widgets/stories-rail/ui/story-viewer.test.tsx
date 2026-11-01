@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { NextIntlClientProvider } from 'next-intl'
@@ -24,6 +24,8 @@ vi.mock('../../../entities/story/api/story-api', async (orig) => {
     replyToStoryRequest: vi.fn().mockResolvedValue({ chatId: 'c1' }),
     addStoryReactionRequest: vi.fn().mockResolvedValue(undefined),
     muteStoryAuthorRequest: vi.fn().mockResolvedValue(undefined),
+    removeStoryHighlightItemRequest: vi.fn().mockResolvedValue({ deleted: false }),
+    updateStoryHighlightRequest: vi.fn().mockResolvedValue({}),
   }
 })
 
@@ -31,18 +33,21 @@ import {
   addStoryReactionRequest,
   markStoryViewed,
   muteStoryAuthorRequest,
+  removeStoryHighlightItemRequest,
   replyToStoryRequest,
+  updateStoryHighlightRequest,
   type StoryCard,
   type StoryRing,
 } from '../../../entities/story'
 import { registerEventRequest } from '../../../entities/event'
 import { ConfirmProvider } from '../../../shared/ui'
-import { StoryViewer } from './story-viewer'
+import { StoryViewer, type ViewerHighlight } from './story-viewer'
 
 function card(id: string, authorId: string, over: Partial<StoryCard> = {}): StoryCard {
   return {
     id,
     audience: 'GROUP',
+    audienceUsers: null,
     text: `Текст ${id}`,
     background: 'ocean',
     linkUrl: null,
@@ -70,7 +75,7 @@ function ring(authorId: string, stories: StoryCard[]): StoryRing {
   return { author: stories[0]!.author, stories, hasUnseen: stories.some((s) => !s.seen) }
 }
 
-function setup(rings: StoryRing[]) {
+function setup(rings: StoryRing[], highlight?: ViewerHighlight) {
   const onClose = vi.fn()
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   const wrapper = ({ children }: { children: ReactNode }) => (
@@ -80,7 +85,9 @@ function setup(rings: StoryRing[]) {
       </QueryClientProvider>
     </NextIntlClientProvider>
   )
-  render(<StoryViewer rings={rings} startIndex={0} onClose={onClose} />, { wrapper })
+  render(<StoryViewer rings={rings} startIndex={0} onClose={onClose} highlight={highlight} />, {
+    wrapper,
+  })
   return { onClose, user: userEvent.setup() }
 }
 
@@ -204,5 +211,58 @@ describe('StoryViewer', () => {
     await user.click(screen.getByRole('button', { name: ru.Stories.eventJoin }))
     await waitFor(() => expect(registerEventRequest).toHaveBeenCalledWith('e-1'))
     expect(await screen.findByText(ru.Stories.eventJoined)).toBeInTheDocument()
+  })
+
+  it('своя сторис: в меню «Добавить в актуальное» и смена аудитории с текущей', async () => {
+    const { user } = setup([
+      ring('me', [card('m1', 'me', { audience: 'FRIENDS', viewsCount: 0, canDelete: true })]),
+    ])
+    await user.click(screen.getByRole('button', { name: 'Действия со сторис' }))
+    expect(
+      await screen.findByRole('menuitem', { name: ru.Stories.addToHighlight }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('menuitem', { name: new RegExp(ru.Feed.audienceFRIENDS) }),
+    ).toBeInTheDocument()
+  })
+})
+
+describe('StoryViewer — «Актуальное»', () => {
+  const highlight = { id: 'h-1', title: 'Хакатон', canEdit: false }
+
+  it('снимок: без отметки просмотра, ответа и реакций; в шапке — название', async () => {
+    setup([ring('anna', [card('i1', 'anna', { seen: true })])], highlight)
+    expect(await screen.findByText('Текст i1')).toBeInTheDocument()
+    expect(screen.getByText('Хакатон')).toBeInTheDocument()
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Нравится' })).not.toBeInTheDocument()
+    await new Promise((r) => setTimeout(r, 0))
+    expect(markStoryViewed).not.toHaveBeenCalled()
+  })
+
+  it('чужому — только профиль в меню, без жалобы и скрытия', async () => {
+    const { user } = setup([ring('anna', [card('i1', 'anna', { seen: true })])], highlight)
+    await user.click(screen.getByRole('button', { name: 'Действия со сторис' }))
+    expect(await screen.findByRole('menuitem', { name: /Открыть профиль/ })).toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: /Пожаловаться/ })).not.toBeInTheDocument()
+    expect(screen.queryByRole('menuitem', { name: /Скрыть сторис/ })).not.toBeInTheDocument()
+  })
+
+  it('владельцу: обложка и «Убрать из актуального» с подтверждением', async () => {
+    const { user } = setup([ring('me', [card('i1', 'me', { seen: true })])], {
+      ...highlight,
+      canEdit: true,
+    })
+    await user.click(screen.getByRole('button', { name: 'Действия со сторис' }))
+    await user.click(await screen.findByRole('menuitem', { name: ru.Stories.highlightMakeCover }))
+    await waitFor(() =>
+      expect(updateStoryHighlightRequest).toHaveBeenCalledWith('h-1', { coverItemId: 'i1' }),
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Действия со сторис' }))
+    await user.click(await screen.findByRole('menuitem', { name: ru.Stories.highlightRemoveItem }))
+    const dialog = await screen.findByRole('alertdialog')
+    await user.click(within(dialog).getAllByRole('button').at(-1)!)
+    await waitFor(() => expect(removeStoryHighlightItemRequest).toHaveBeenCalledWith('h-1', 'i1'))
   })
 })

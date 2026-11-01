@@ -6,6 +6,7 @@ import {
   HttpCode,
   HttpStatus,
   Param,
+  Patch,
   Post,
   Query,
   Req,
@@ -26,6 +27,7 @@ import { StoriesFeedQueryDto } from './dto/stories-feed-query.dto'
 import { StoryReactionDto } from './dto/story-reaction.dto'
 import { StoryViewersQueryDto } from './dto/story-viewers-query.dto'
 import { StoryVoteDto } from './dto/story-vote.dto'
+import { UpdateStoryAudienceDto } from './dto/update-story-audience.dto'
 
 // Кто публикует сторисы (docs/PROJECT.md §2.2, строка «Сторисы — создание»):
 // те же роли, что и посты, — модераторы контент не создают, работодатель тоже.
@@ -84,6 +86,23 @@ export class StoriesController {
   getById(@CurrentUser() user: CurrentUserData, @Param('id') id: string) {
     this.assertEnabled()
     return this.stories.getById(user, id)
+  }
+
+  @Patch(':id/audience')
+  @Roles(...AUTHOR_ROLES)
+  @ApiOperation({ summary: 'Сменить аудиторию своей живой сторис (действует сразу)' })
+  @ApiResponse({ status: 200, description: 'Сторис с новой аудиторией' })
+  @ApiResponse({ status: 400, description: 'BAD_REQUEST — получатели SELECTED недоступны' })
+  @ApiResponse({ status: 403, description: 'FORBIDDEN / WRONG_SCOPE — аудитория вне роли' })
+  @ApiResponse({ status: 404, description: 'NOT_FOUND — не своя или истекла' })
+  updateAudience(
+    @CurrentUser() user: CurrentUserData,
+    @Param('id') id: string,
+    @Body() dto: UpdateStoryAudienceDto,
+    @Req() req: FastifyRequest,
+  ) {
+    this.assertEnabled()
+    return this.stories.updateAudience(user, id, dto, this.ctx(req))
   }
 
   @Post(':id/view')
