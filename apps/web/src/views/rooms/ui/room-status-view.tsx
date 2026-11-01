@@ -2,10 +2,12 @@
 
 import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
+import type { ReactNode } from 'react'
 import {
   Building2,
   CalendarX2,
   Clock,
+  DoorClosed,
   DoorOpen,
   Info,
   Keyboard,
@@ -13,6 +15,7 @@ import {
   Phone,
   RefreshCw,
   ScanLine,
+  Tag,
   Users,
 } from 'lucide-react'
 import {
@@ -21,17 +24,31 @@ import {
   roomKeys,
   type RoomPair,
   type RoomStatus,
+  type RoomStatusResponse,
 } from '../../../entities/room'
 import type { DayPair } from '../../../entities/schedule'
-import { Badge, Button, Card, CardContent, Skeleton, StatusScreen } from '../../../shared/ui'
+import {
+  Badge,
+  Button,
+  Card,
+  CardContent,
+  PageHeader,
+  SectionPanel,
+  Skeleton,
+  StatusScreen,
+} from '../../../shared/ui'
+import { cn } from '../../../shared/lib/utils'
 
-// Ф16: что видит студент, отсканировав QR над дверью. Экран-«киоск»: открывается с телефона
-// в коридоре, поэтому главное — крупный ответ «свободно / занято» в первом экране,
-// без прокрутки и без лишних действий.
+// Ф16: что видит студент, отсканировав QR над дверью. Открывается с телефона в коридоре,
+// поэтому главное — ответ «свободно / занято» первым блоком под шапкой. Экран живёт в общей
+// оболочке и собран из тех же частей, что остальные: шапка страницы, панели, сетка. На
+// телефоне колонки встают друг под друга — сначала статус, потом сведения о помещении.
 //
 // Обновление раз в минуту: пара заканчивается в известное время, но студент может держать
 // страницу открытой, стоя у двери.
 const REFRESH_MS = 60_000
+
+type RoomStatusRoom = RoomStatusResponse['room']
 
 export function RoomStatusView({ code }: { code: string }) {
   const t = useTranslations('Rooms')
@@ -45,10 +62,15 @@ export function RoomStatusView({ code }: { code: string }) {
 
   if (query.isPending) {
     return (
-      <div className="mx-auto flex w-full max-w-lg flex-col gap-4 p-4">
-        <Skeleton className="h-28 w-full rounded-3xl" />
-        <Skeleton className="h-40 w-full rounded-3xl" />
-        <Skeleton className="h-24 w-full rounded-3xl" />
+      <div className="flex w-full flex-1 flex-col gap-4">
+        <Skeleton className="h-14 w-full rounded-xl" />
+        <div className="grid gap-4 lg:grid-cols-3">
+          <div className="flex flex-col gap-4 lg:col-span-2">
+            <Skeleton className="h-32 w-full rounded-xl" />
+            <Skeleton className="h-48 w-full rounded-xl" />
+          </div>
+          <Skeleton className="h-64 w-full rounded-xl" />
+        </div>
       </div>
     )
   }
@@ -70,106 +92,70 @@ export function RoomStatusView({ code }: { code: string }) {
 
   const data = query.data
   const status = buildRoomStatus(data)
+  const room = data.room
 
   return (
-    <main className="mx-auto flex w-full max-w-lg flex-col gap-4 p-4 pb-10">
-      {/* Шапка: где я нахожусь. */}
-      <header className="flex flex-col gap-1 pt-2 text-center">
-        <p className="text-xs font-semibold tracking-[0.18em] text-muted-foreground uppercase">
-          {data.room.universityShort ?? data.room.university}
-        </p>
-        <h1 className="text-4xl font-bold tracking-tight">{data.room.name}</h1>
-        <p className="text-sm text-muted-foreground">{t(`kind.${data.room.kind}`)}</p>
-        <div className="mt-1 flex flex-wrap items-center justify-center gap-2 text-xs text-muted-foreground">
-          {data.room.building && (
-            <span className="inline-flex items-center gap-1">
-              <Building2 className="size-3.5" aria-hidden />
-              {t('buildingValue', { value: data.room.building })}
+    <div className="flex w-full flex-1 flex-col gap-4">
+      <PageHeader
+        title={room.name}
+        subtitle={`${t(`kind.${room.kind}`)} · ${room.universityShort ?? room.university}`}
+        actions={
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground tabular-nums">
+              {t('updatedAt', { time: data.now.time })}
             </span>
-          )}
-          {data.room.floor !== null && (
-            <span className="inline-flex items-center gap-1">
-              <Layers className="size-3.5" aria-hidden />
-              {t('floorValue', { value: data.room.floor })}
-            </span>
-          )}
-          {data.room.capacity !== null && (
-            <span className="inline-flex items-center gap-1">
-              <Users className="size-3.5" aria-hidden />
-              {t('capacityValue', { value: data.room.capacity })}
-            </span>
+            <Button
+              variant="outline"
+              size="md"
+              icon
+              onClick={() => void query.refetch()}
+              loading={query.isFetching}
+              aria-label={t('refresh')}
+            >
+              <RefreshCw className="size-4" aria-hidden />
+            </Button>
+          </div>
+        }
+      />
+
+      <div className="grid items-start gap-4 lg:grid-cols-3">
+        <div className="flex min-w-0 flex-col gap-4 lg:col-span-2">
+          <OccupancyHero status={status} />
+
+          {status.current && <PairCard dayPair={status.current} variant="current" />}
+          {!status.current && status.next && <PairCard dayPair={status.next} variant="next" />}
+
+          {/* Остаток дня — чтобы понять, когда помещение освободится или снова занято. */}
+          {data.academic && status.day.length > 0 && (
+            <SectionPanel title={t('todayTitle')} subtitle={t('todayHint')} bodyClassName="p-0">
+              <ul className="flex flex-col divide-y divide-border">
+                {status.day.map((dp) => (
+                  <DayRow key={dp.pair.id} dayPair={dp} />
+                ))}
+              </ul>
+            </SectionPanel>
           )}
         </div>
-      </header>
 
-      <OccupancyHero status={status} />
-
-      {status.current && <PairCard dayPair={status.current} variant="current" />}
-      {!status.current && status.next && <PairCard dayPair={status.next} variant="next" />}
-
-      {/* Неучебные помещения: расписания пар нет — показываем режим работы и контакт. */}
-      {!data.academic && (
-        <Card>
-          <CardContent className="flex flex-col gap-3 py-5">
-            {data.room.openHours && (
-              <InfoRow icon={Clock} label={t('openHours')} value={data.room.openHours} />
-            )}
-            {data.room.phone && (
-              <InfoRow
-                icon={Phone}
-                label={t('phone')}
-                value={
-                  <a className="text-primary underline" href={`tel:${data.room.phone}`}>
-                    {data.room.phone}
-                  </a>
-                }
-              />
-            )}
-            {data.room.info && <InfoRow icon={Info} label={t('info')} value={data.room.info} />}
-            {!data.room.openHours && !data.room.phone && !data.room.info && (
-              <p className="text-sm text-muted-foreground">{t('noInfo')}</p>
-            )}
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Остаток дня — чтобы понять, когда аудитория освободится или снова занята. */}
-      {data.academic && status.day.length > 0 && (
-        <section className="flex flex-col gap-2">
-          <h2 className="px-1 text-sm font-semibold text-muted-foreground">{t('todayTitle')}</h2>
-          {status.day.map((dp) => (
-            <DayRow key={dp.pair.id} dayPair={dp} />
-          ))}
-        </section>
-      )}
-
-      <footer className="flex items-center justify-center gap-2 pt-2 text-xs text-muted-foreground">
-        <span>{t('updatedAt', { time: data.now.time })}</span>
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => void query.refetch()}
-          loading={query.isFetching}
-          aria-label={t('refresh')}
-        >
-          <RefreshCw className="size-3.5" aria-hidden />
-        </Button>
-      </footer>
-    </main>
+        <AboutPanel room={room} />
+      </div>
+    </div>
   )
 }
 
-// Главный ответ: свободно / занято / (для неучебных) подсказка про часы работы.
+// Главный ответ: свободно / занято / (для неучебных) подсказка про часы работы. Левое
+// выравнивание и иконка — как у остальных карточек системы, цвет — по состоянию.
 function OccupancyHero({ status }: { status: RoomStatus }) {
   const t = useTranslations('Rooms')
 
   if (status.occupancy === 'unknown') {
-    // Назначение помещения уже написано в шапке под названием — не повторяем его здесь
-    // (у «Библиотеки» это давало три одинаковых заголовка подряд).
+    // Назначение помещения уже написано в шапке — не повторяем его здесь.
     return (
       <Card className="border-primary/30 bg-primary/5">
-        <CardContent className="flex flex-col items-center gap-2 py-7 text-center">
-          <DoorOpen className="size-8 text-primary" aria-hidden />
+        <CardContent className="flex items-center gap-4 py-5">
+          <span className="flex size-12 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary">
+            <DoorOpen className="size-6" aria-hidden />
+          </span>
           <p className="text-sm text-muted-foreground">{t('serviceRoomHint')}</p>
         </CardContent>
       </Card>
@@ -177,23 +163,91 @@ function OccupancyHero({ status }: { status: RoomStatus }) {
   }
 
   const busy = status.occupancy === 'busy'
+  const Icon = busy ? DoorClosed : DoorOpen
   return (
     <Card className={busy ? 'border-warning/40 bg-warning/10' : 'border-success/40 bg-success/10'}>
-      <CardContent className="flex flex-col items-center gap-1 py-8 text-center">
-        <p
-          className={`text-3xl font-bold tracking-tight ${busy ? 'text-warning' : 'text-success'}`}
+      <CardContent className="flex items-center gap-4 py-5">
+        <span
+          className={cn(
+            'flex size-12 shrink-0 items-center justify-center rounded-full',
+            busy ? 'bg-warning/15 text-warning' : 'bg-success/15 text-success',
+          )}
         >
-          {busy ? t('busy') : t('free')}
-        </p>
-        <p className="text-sm text-muted-foreground">
-          {busy && status.busyUntil
-            ? t('busyUntil', { time: status.busyUntil })
-            : status.freeUntil
-              ? t('freeUntil', { time: status.freeUntil })
-              : t('freeRestOfDay')}
-        </p>
+          <Icon className="size-6" aria-hidden />
+        </span>
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <p
+            className={cn(
+              'font-heading text-2xl font-bold tracking-tight',
+              busy ? 'text-warning' : 'text-success',
+            )}
+          >
+            {busy ? t('busy') : t('free')}
+          </p>
+          <p className="text-sm text-muted-foreground">
+            {busy && status.busyUntil
+              ? t('busyUntil', { time: status.busyUntil })
+              : status.freeUntil
+                ? t('freeUntil', { time: status.freeUntil })
+                : t('freeRestOfDay')}
+          </p>
+        </div>
       </CardContent>
     </Card>
+  )
+}
+
+/**
+ * Сведения о помещении — одной панелью справа: где оно, сколько мест, как работает.
+ * Раньше корпус, этаж и места были мелкой строкой под названием, а часы работы и телефон —
+ * отдельной карточкой только у неучебных помещений.
+ */
+function AboutPanel({ room }: { room: RoomStatusRoom }) {
+  const t = useTranslations('Rooms')
+  const rows: { key: string; icon: typeof Clock; label: string; value: ReactNode }[] = [
+    { key: 'kind', icon: Tag, label: t('kindLabel'), value: t(`kind.${room.kind}`) },
+  ]
+  if (room.building) {
+    rows.push({ key: 'building', icon: Building2, label: t('building'), value: room.building })
+  }
+  if (room.floor !== null) {
+    rows.push({ key: 'floor', icon: Layers, label: t('floor'), value: room.floor })
+  }
+  if (room.capacity !== null) {
+    rows.push({
+      key: 'capacity',
+      icon: Users,
+      label: t('capacity'),
+      value: t('capacityValue', { value: room.capacity }),
+    })
+  }
+  if (room.openHours) {
+    rows.push({ key: 'hours', icon: Clock, label: t('openHours'), value: room.openHours })
+  }
+  if (room.phone) {
+    rows.push({
+      key: 'phone',
+      icon: Phone,
+      label: t('phone'),
+      value: (
+        <a className="text-primary hover:underline" href={`tel:${room.phone}`}>
+          {room.phone}
+        </a>
+      ),
+    })
+  }
+  if (room.info) {
+    rows.push({ key: 'info', icon: Info, label: t('info'), value: room.info })
+  }
+
+  return (
+    <SectionPanel title={t('aboutTitle')} subtitle={t('aboutHint')}>
+      <dl className="flex flex-col gap-3 py-1">
+        {rows.map((r) => (
+          <InfoRow key={r.key} icon={r.icon} label={r.label} value={r.value} />
+        ))}
+      </dl>
+    </SectionPanel>
   )
 }
 
@@ -249,29 +303,38 @@ function DayRow({ dayPair }: { dayPair: DayPair<RoomPair> }) {
   const end = dayPair.change?.newEndTime ?? dayPair.pair.endTime
 
   return (
-    <div
-      className={`flex items-center gap-3 rounded-2xl border border-border px-4 py-3 ${
-        dayPair.isCurrent ? 'border-primary/40 bg-primary/5' : ''
-      } ${dayPair.state === 'past' ? 'opacity-60' : ''}`}
+    <li
+      className={cn(
+        'flex items-center gap-4 px-4 py-3',
+        dayPair.isCurrent && 'bg-primary/5',
+        dayPair.state === 'past' && 'opacity-60',
+      )}
     >
-      <span className="font-mono text-xs text-muted-foreground">
-        {start}
-        <br />
-        {end}
+      <span className="w-24 shrink-0 text-sm text-muted-foreground tabular-nums">
+        {start}–{end}
       </span>
       <div className="min-w-0 flex-1">
-        <p className={`truncate text-sm font-medium ${cancelled ? 'line-through' : ''}`}>
+        <p className={cn('truncate text-sm font-medium', cancelled && 'line-through')}>
           {dayPair.pair.subject}
         </p>
-        <p className="truncate text-xs text-muted-foreground">{dayPair.pair.group?.name ?? '—'}</p>
+        <p className="truncate text-xs text-muted-foreground">
+          {[
+            dayPair.pair.group?.name,
+            dayPair.pair.teacher &&
+              `${dayPair.pair.teacher.lastName} ${dayPair.pair.teacher.firstName}`,
+          ]
+            .filter(Boolean)
+            .join(' · ')}
+        </p>
       </div>
+      {dayPair.isCurrent && <Badge>{t('nowLabel')}</Badge>}
       {cancelled && (
         <Badge variant="secondary" className="gap-1">
           <CalendarX2 className="size-3" aria-hidden />
           {t('cancelled')}
         </Badge>
       )}
-    </div>
+    </li>
   )
 }
 
@@ -282,14 +345,14 @@ function InfoRow({
 }: {
   icon: typeof Clock
   label: string
-  value: React.ReactNode
+  value: ReactNode
 }) {
   return (
     <div className="flex items-start gap-3">
       <Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
       <div className="min-w-0">
-        <p className="text-xs text-muted-foreground">{label}</p>
-        <p className="text-sm break-words">{value}</p>
+        <dt className="text-xs text-muted-foreground">{label}</dt>
+        <dd className="text-sm font-medium break-words">{value}</dd>
       </div>
     </div>
   )
