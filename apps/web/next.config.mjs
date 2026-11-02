@@ -1,7 +1,7 @@
 import createNextIntlPlugin from 'next-intl/plugin'
 import withBundleAnalyzer from '@next/bundle-analyzer'
 import withPWAInit from '@ducanh2912/next-pwa'
-import { withSentryConfig } from '@sentry/nextjs'
+import { withSentryConfig } from '@sentry/nextjs/config'
 
 // Плагин next-intl указывает на src/i18n/request.ts (i18n без locale-префикса в URL).
 const withNextIntl = createNextIntlPlugin('./src/i18n/request.ts')
