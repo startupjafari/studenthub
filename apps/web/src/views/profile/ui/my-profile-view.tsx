@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense } from 'react'
+import { Suspense, type ReactNode } from 'react'
 import { usePathname, useRouter, useSearchParams } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
@@ -27,9 +27,10 @@ export function MyProfileView() {
   return <PersonalProfile />
 }
 
-function PersonalProfile() {
+function PersonalProfile({ toolbar }: { toolbar?: ReactNode } = {}) {
   return (
     <UserProfile
+      toolbar={toolbar}
       renderStoryViewer={(ring, onClose) => (
         <StoryViewer rings={[ring]} startIndex={0} onClose={onClose} />
       )}
@@ -56,7 +57,16 @@ function EmployerProfiles() {
     <SegmentedTabs<ProfileView>
       items={[
         { value: 'me', label: t('switchMe'), icon: UserRound },
-        { value: 'company', label: company.data?.name ?? t('switchCompany'), icon: Building2 },
+        {
+          value: 'company',
+          // Длинное название компании не выталкивает переключатель за край обложки.
+          label: (
+            <span className="max-w-32 truncate sm:max-w-56">
+              {company.data?.name ?? t('switchCompany')}
+            </span>
+          ),
+          icon: Building2,
+        },
       ]}
       value={view}
       onChange={(next) => {
@@ -68,17 +78,14 @@ function EmployerProfiles() {
       }}
       aria-label={t('switchLabel')}
       collapsible={false}
-      className="self-start"
+      compact
+      // Переключатель лежит на обложке: плотный фон, чтобы читался на любой картинке.
+      className="border-transparent bg-background/85 shadow-md backdrop-blur"
     />
   )
 
   if (view === 'company' && company.data) {
     return <CompanyProfile companyId={company.data.id} toolbar={toggle} />
   }
-  return (
-    <div className="flex w-full flex-1 flex-col gap-4">
-      {toggle}
-      <PersonalProfile />
-    </div>
-  )
+  return <PersonalProfile toolbar={toggle} />
 }

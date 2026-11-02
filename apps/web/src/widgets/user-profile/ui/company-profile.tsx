@@ -58,7 +58,7 @@ import { contentOwnerKey } from '../../../entities/profile-content'
 import { ContentOwnerProvider } from '../lib/content-owner'
 import { useMediaQuota } from '../lib/media-quota'
 import { ProfileTabs, type ProfileTabId } from './profile-tabs'
-import { AvatarCreateMenu, type CreateKind } from './user-profile'
+import { AvatarCreateMenu, CoverToolbar, coverActionsClass, type CreateKind } from './user-profile'
 import { CompanyEditForm, COMPANY_EDIT_FORM_ID } from './company-edit-form'
 import { ENTER } from './profile-content'
 
@@ -186,7 +186,6 @@ export function CompanyProfile({ companyId, toolbar }: CompanyProfileProps) {
   return (
     <ContentOwnerProvider owner={owner}>
       <div className="flex w-full flex-1 flex-col gap-4">
-        {toolbar}
         <ProfileTabs
           userId={companyId}
           isOwner={isMember}
@@ -204,6 +203,7 @@ export function CompanyProfile({ companyId, toolbar }: CompanyProfileProps) {
                 setTab('profile')
               }}
               onQuickCreate={quickCreate}
+              toolbar={toolbar}
             />
           }
         >
@@ -256,6 +256,7 @@ function CompanyHeader({
   editing,
   onToggleEdit,
   onQuickCreate,
+  toolbar,
 }: {
   company: CompanyPage
   isMember: boolean
@@ -263,6 +264,7 @@ function CompanyHeader({
   editing: boolean
   onToggleEdit: () => void
   onQuickCreate: (kind: CreateKind) => void
+  toolbar?: ReactNode
 }) {
   const t = useTranslations('Company')
   const tErr = useTranslations('Errors')
@@ -318,6 +320,7 @@ function CompanyHeader({
 
   return (
     <Card className={cn('relative overflow-hidden p-0', ENTER)}>
+      {toolbar && <CoverToolbar>{toolbar}</CoverToolbar>}
       {canEdit && (
         <div className="absolute top-3 right-3 z-20 flex items-center gap-2 sm:top-4 sm:right-4">
           <Button
@@ -363,7 +366,7 @@ function CompanyHeader({
           <div className={cn('size-full', BRAND_GRADIENT)} />
         )}
         {canEdit && (
-          <div className="absolute top-3 left-3 z-10 flex items-center gap-2 sm:top-4 sm:left-4">
+          <div className={coverActionsClass(!!toolbar)}>
             <button
               type="button"
               onClick={() => coverRef.current?.click()}
