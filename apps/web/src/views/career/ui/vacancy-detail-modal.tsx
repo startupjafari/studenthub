@@ -13,6 +13,8 @@ import {
   type CreateApplicationInput,
 } from '@studenthub/shared-schemas'
 import { fetchVacancy, vacancyKeys, type Vacancy } from '../../../entities/vacancy'
+import { useKatoNames } from '../../../entities/kato'
+import { companyPath } from '../../../entities/company'
 import {
   applicationKeys,
   applyToVacancy,
@@ -60,6 +62,8 @@ export function VacancyDetailModal({
     placeholderData: preview,
   })
   const vacancy = detail.data ?? preview
+  // Город вакансии — код КАТО: показываем название на языке интерфейса.
+  const { nameOf: cityName } = useKatoNames([vacancy.city])
 
   // Уже откликался? Повторный отклик сервер отклонит, поэтому вместо формы показываем статус.
   const mineParams = { vacancyId: preview.id, limit: 1 }
@@ -93,9 +97,16 @@ export function VacancyDetailModal({
     <Modal onClose={onClose} title={vacancy.title} size="xl">
       <div className="flex flex-col gap-5">
         <div className="flex flex-col gap-1">
-          <p className="font-medium">{vacancy.company.name}</p>
+          {/* Витрина вакансии видна только вузу с допуском компании — значит, видна и её
+              страница: название ведёт туда. */}
+          <Link
+            href={companyPath(vacancy.company.id)}
+            className="self-start font-medium text-primary hover:underline"
+          >
+            {vacancy.company.name}
+          </Link>
           <p className="text-sm text-muted-foreground">
-            {[vacancy.city, salary, deadline ? t('deadline', { date: deadline }) : null]
+            {[cityName(vacancy.city), salary, deadline ? t('deadline', { date: deadline }) : null]
               .filter(Boolean)
               .join(' · ')}
           </p>

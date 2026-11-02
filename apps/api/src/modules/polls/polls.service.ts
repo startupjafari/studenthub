@@ -2,6 +2,8 @@ import { Injectable, Logger } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { Role } from '@studenthub/shared-types'
 import {
+  COMPANY_CONTENT_VISIBILITY,
+  UNIVERSITY_PAGE_CONTENT_VISIBILITY,
   DEFAULT_PAGE_LIMIT,
   PROFILE_LIST_LIMITS,
   isPageRequested,
@@ -32,6 +34,18 @@ import {
   assertContentModerator,
   isContentModerator,
 } from '../profile-content/content-moderation'
+import {
+  CareerAccessService,
+  PERSONAL_CONTENT,
+  canManagePageContent,
+  isPageEditor,
+  pageOf,
+  pagePath,
+  pageWhere,
+  type ContentOwnerKind,
+  type PageContentOrg,
+  type PageRef,
+} from '../career/career-access.service'
 
 // Потолки на выборки (BACKEND_RULES §7.2). Голоса одного пользователя ограничены числом
 // вариантов опроса, поэтому здесь потолок — честная граница, а не обрезка данных.
@@ -56,6 +70,8 @@ function pollLockKey(pollId: string): string {
 const POLL_ACCESS_SELECT = {
   id: true,
   userId: true,
+  companyId: true,
+  universityPageId: true,
   status: true,
   visibility: true,
   user: { select: PROFILE_CONTENT_OWNER_SELECT },
@@ -73,6 +89,11 @@ const POLL_VOTE_STATE_SELECT = {
 const POLL_SELECT = {
   id: true,
   userId: true,
+  companyId: true,
+  universityPageId: true,
+  // Опрос страницы организации подписывается ею, а не автором.
+  company: { select: { id: true, name: true, logoUrl: true } },
+  universityPage: { select: { id: true, name: true, logoUrl: true } },
   question: true,
   multiple: true,
   anonymous: true,
@@ -108,6 +129,13 @@ type PollRow = Prisma.PollGetPayload<{ select: typeof POLL_SELECT }>
 type PollAccess = Prisma.PollGetPayload<{ select: typeof POLL_ACCESS_SELECT }>
 type PollComment = Prisma.ContentCommentGetPayload<{ select: typeof POLL_COMMENT_SELECT }>
 
+/** Видимость опроса страницы ставит сервер; у личного — выбранная автором. */
+function pageVisibility(org: PageContentOrg, chosen: string): string {
+  if (org.companyId) return COMPANY_CONTENT_VISIBILITY
+  if (org.universityPageId) return UNIVERSITY_PAGE_CONTENT_VISIBILITY
+  return chosen
+}
+
 function isPlatform(role: Role): boolean {
   return role === Role.PLATFORM_ADMIN || role === Role.PLATFORM_MODERATOR
 }
@@ -125,6 +153,10 @@ export interface PollView {
   createdAt: string
   closed: boolean
   author: { id: string; firstName: string; lastName: string; avatarUrl: string | null }
+  // Компания, от чьего имени опрос (страница компании); null — личный опрос.
+  company: { id: string; name: string; logoUrl: string | null } | null
+  // Университет, от чьего имени опрос (страница вуза); null — не страница вуза.
+  universityPage: { id: string; name: string; logoUrl: string | null } | null
   options: { id: string; text: string; order: number; votes: number }[]
   totalVotes: number
   // Уникальные проголосовавшие (при мультивыборе отличается от суммы голосов).
@@ -144,18 +176,29 @@ export class PollsService {
     private readonly users: UserService,
     private readonly audit: AuditService,
     private readonly queue: QueueService,
+    private readonly careerAccess: CareerAccessService,
   ) {}
 
-  async create(actor: JwtPayload, dto: CreatePollInput): Promise<PollView> {
+  /**
+   * `owner = company|university` — опрос страницы организации: она из токена, видимость
+   * (COMPANY / UNIVERSITY_PAGE) ставит сервер (в личном редакторе таких значений нет).
+   */
+  async create(
+    actor: JwtPayload,
+    dto: CreatePollInput,
+    owner: ContentOwnerKind = 'user',
+  ): Promise<PollView> {
+    const org = await this.careerAccess.resolveContentOrg(actor, owner)
     const poll = await this.prisma.poll.create({
       data: {
         userId: actor.sub,
+        ...org,
         question: dto.question,
         multiple: dto.multiple,
         anonymous: dto.anonymous,
         allowRevote: dto.allowRevote,
         resultsVisibility: dto.resultsVisibility,
-        visibility: dto.visibility,
+        visibility: pageVisibility(org, dto.visibility),
         status: dto.status,
         closesAt: dto.closesAt ?? null,
         options: { create: dto.options.map((text, i) => ({ text, order: i })) },
@@ -181,7 +224,8 @@ export class PollsService {
     query: PollsListQueryInput = {},
   ): Promise<PollView[] | Paginated<PollView>> {
     const paged = isPageRequested(query)
-    let where: Prisma.PollWhereInput = { userId }
+    // Опросы страниц организаций живут на их страницах, а не в личном профиле автора.
+    let where: Prisma.PollWhereInput = { userId, ...PERSONAL_CONTENT }
     if (viewer.sub !== userId) {
       const author = await this.prisma.user.findUnique({
         where: { id: userId },
@@ -190,8 +234,44 @@ export class PollsService {
       if (!author || !(await this.users.canViewProfileContentOf(viewer, author))) {
         return paged ? new Paginated<PollView>([], { hasNext: false }) : []
       }
-      where = { userId, ...this.viewerVisibilityWhere(viewer, author) }
+      where = { userId, ...PERSONAL_CONTENT, ...this.viewerVisibilityWhere(viewer, author) }
     }
+    return this.listWhere(viewer, where, query)
+  }
+
+  /**
+   * Опросы страницы организации. Невидимая смотрящему страница — пустой список, как закрытый
+   * профиль: отличать «нет страницы» от «нет допуска» незачем. Черновики видят те, кто
+   * публикует от её имени.
+   */
+  async listByPage(
+    viewer: JwtPayload,
+    page: PageRef,
+    query: PollsListQueryInput = {},
+  ): Promise<PollView[] | Paginated<PollView>> {
+    if (!(await this.careerAccess.canViewPage(viewer, page))) {
+      return isPageRequested(query) ? new Paginated<PollView>([], { hasNext: false }) : []
+    }
+    return this.listWhere(viewer, this.pageWhere(viewer, page), query)
+  }
+
+  /** Сколько опросов страницы видит смотрящий (видимость страницы — у вызывающего). */
+  async countVisibleByPage(viewer: JwtPayload, page: PageRef): Promise<number> {
+    return this.prisma.poll.count({ where: this.pageWhere(viewer, page) })
+  }
+
+  private pageWhere(viewer: JwtPayload, page: PageRef): Prisma.PollWhereInput {
+    return isPageEditor(viewer, page)
+      ? pageWhere(page)
+      : { ...pageWhere(page), status: 'PUBLISHED' }
+  }
+
+  private async listWhere(
+    viewer: JwtPayload,
+    where: Prisma.PollWhereInput,
+    query: PollsListQueryInput,
+  ): Promise<PollView[] | Paginated<PollView>> {
+    const paged = isPageRequested(query)
     if (!paged) {
       const polls = await this.prisma.poll.findMany({
         where,
@@ -235,8 +315,8 @@ export class PollsService {
   async countVisibleByUser(viewer: JwtPayload, author: ProfileContentOwner): Promise<number> {
     const where: Prisma.PollWhereInput =
       viewer.sub === author.id
-        ? { userId: author.id }
-        : { userId: author.id, ...this.viewerVisibilityWhere(viewer, author) }
+        ? { userId: author.id, ...PERSONAL_CONTENT }
+        : { userId: author.id, ...PERSONAL_CONTENT, ...this.viewerVisibilityWhere(viewer, author) }
     return this.prisma.poll.count({ where })
   }
 
@@ -313,10 +393,10 @@ export class PollsService {
   async update(actor: JwtPayload, id: string, dto: UpdatePollInput): Promise<PollView> {
     const poll = await this.prisma.poll.findUnique({
       where: { id },
-      select: { id: true, userId: true },
+      select: { id: true, userId: true, companyId: true, universityPageId: true },
     })
     if (!poll) throw new AppException('NOT_FOUND', 'Опрос не найден')
-    if (poll.userId !== actor.sub)
+    if (!this.canManage(actor, poll))
       throw new AppException('FORBIDDEN', 'Можно менять только свои опросы')
 
     await this.prisma.$transaction(async (tx) => {
@@ -335,7 +415,8 @@ export class PollsService {
           anonymous: dto.anonymous,
           allowRevote: dto.allowRevote,
           resultsVisibility: dto.resultsVisibility,
-          visibility: dto.visibility,
+          // Опрос компании остаётся на её странице: правка не выносит его в общий доступ.
+          visibility: pageVisibility(poll, dto.visibility),
           status: dto.status,
           closesAt: dto.closesAt ?? null,
           options: { create: dto.options.map((text, i) => ({ text, order: i })) },
@@ -353,10 +434,15 @@ export class PollsService {
   async remove(actor: JwtPayload, id: string, ctx: RequestContext): Promise<void> {
     const poll = await this.prisma.poll.findUnique({
       where: { id },
-      select: { userId: true, user: { select: CONTENT_AUTHOR_SELECT } },
+      select: {
+        userId: true,
+        companyId: true,
+        universityPageId: true,
+        user: { select: CONTENT_AUTHOR_SELECT },
+      },
     })
     if (!poll) throw new AppException('NOT_FOUND', 'Опрос не найден')
-    const moderated = poll.userId !== actor.sub
+    const moderated = !this.canManage(actor, poll)
     if (moderated) {
       if (!isContentModerator(actor.role)) {
         throw new AppException('FORBIDDEN', 'Можно удалять только свои опросы')
@@ -384,6 +470,11 @@ export class PollsService {
     await this.audit.record({ userId: actor.sub, action, entity, entityId, metadata, ...ctx })
   }
 
+  /** Свой опрос или опрос страницы своей организации (им распоряжаются все её публикующие). */
+  private canManage(actor: JwtPayload, poll: { userId: string } & PageContentOrg) {
+    return canManagePageContent(actor, { ownerId: poll.userId, ...poll })
+  }
+
   private isClosed(poll: { closesAt: Date | null }): boolean {
     return poll.closesAt !== null && poll.closesAt.getTime() < Date.now()
   }
@@ -393,6 +484,13 @@ export class PollsService {
    * visibility опроса и по видимости профиля автора (закрытый профиль, удалённый аккаунт).
    */
   private async canSee(viewer: JwtPayload, poll: PollAccess): Promise<boolean> {
+    // Опрос страницы организации: видимость страницы, а не профиля автора (у работодателя
+    // профиль закрыт). Черновик — тем, кто публикует от её имени.
+    const page = pageOf(poll)
+    if (page) {
+      if (poll.status !== 'PUBLISHED' && !isPageEditor(viewer, page)) return false
+      return this.careerAccess.canViewPage(viewer, page)
+    }
     if (viewer.sub === poll.userId) return true
     if (poll.status !== 'PUBLISHED') return false
     const allowed = this.allowedVisibilities(viewer, poll.user)
@@ -487,7 +585,7 @@ export class PollsService {
   ): PollView {
     const closed = this.isClosed(poll)
     const voted = myVotes.length > 0
-    const isOwner = poll.userId === viewer.sub
+    const isOwner = this.canManage(viewer, poll)
     const canSeeResults =
       isOwner ||
       (poll.resultsVisibility === 'AFTER_VOTE' && (voted || closed)) ||
@@ -513,6 +611,8 @@ export class PollsService {
         lastName: poll.user.lastName,
         avatarUrl: poll.user.avatarUrl,
       },
+      company: poll.company,
+      universityPage: poll.universityPage,
       options: poll.options.map((o) => ({
         id: o.id,
         text: o.text,
@@ -589,7 +689,10 @@ export class PollsService {
       data: { authorId: viewer.sub, pollId: id, content: input.content },
       select: POLL_COMMENT_SELECT,
     })
-    await this.notifyOwnerOfComment(viewer, poll.userId, id, comment)
+    // Комментарий к опросу компании ведёт на её страницу, а не в закрытый профиль сотрудника.
+    const page = pageOf(poll)
+    const url = page ? pagePath(page) : `/profile/${poll.userId}`
+    await this.notifyOwnerOfComment(viewer, poll.userId, id, comment, url)
     return comment
   }
 
@@ -605,6 +708,7 @@ export class PollsService {
     ownerId: string,
     pollId: string,
     comment: PollComment,
+    url: string,
   ): Promise<void> {
     if (ownerId === commenter.sub) return
     try {
@@ -625,7 +729,7 @@ export class PollsService {
         titleKey: 'comments.new.title',
         bodyKey: 'comments.poll.body',
         params: { name },
-        data: { pollId, commentId: comment.id, url: `/profile/${ownerId}` },
+        data: { pollId, commentId: comment.id, url },
         dedupeKey: `poll-comment:${comment.id}`,
         collapseKey: `poll-comments:${pollId}`,
       }
@@ -652,11 +756,18 @@ export class PollsService {
         authorId: true,
         pollId: true,
         author: { select: CONTENT_AUTHOR_SELECT },
-        poll: { select: { userId: true, user: { select: CONTENT_AUTHOR_SELECT } } },
+        poll: {
+          select: {
+            userId: true,
+            companyId: true,
+            universityPageId: true,
+            user: { select: CONTENT_AUTHOR_SELECT },
+          },
+        },
       },
     })
     if (!c || c.pollId !== id) throw new AppException('NOT_FOUND', 'Комментарий не найден')
-    const moderated = c.authorId !== viewer.sub && c.poll?.userId !== viewer.sub
+    const moderated = c.authorId !== viewer.sub && !(c.poll && this.canManage(viewer, c.poll))
     if (moderated) {
       if (!isContentModerator(viewer.role)) {
         throw new AppException('FORBIDDEN', 'Нет прав на удаление')

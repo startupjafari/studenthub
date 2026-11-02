@@ -15,6 +15,7 @@ import { useErrorToast } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 import { ContentModal } from './content-modal'
 import { useMediaQuota } from '../lib/media-quota'
+import { useOwnerKey } from '../lib/content-owner'
 import { VideoCoverPicker, type VideoCover } from './video-cover-picker'
 
 function errCode(e: unknown): string {
@@ -96,13 +97,14 @@ export function PhotoCreateModal({ userId, onClose, initialFile }: MediaCreateMo
   const t = useTranslations('Profile')
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
-  const quota = useMediaQuota(userId)
+  const { owner, key: ownerKey } = useOwnerKey(userId)
+  const quota = useMediaQuota(ownerKey)
   const [file, setFile] = useState<File | null>(initialFile ?? null)
 
   const mut = useMutation({
-    mutationFn: (f: File) => uploadProfileMediaAuto(f),
+    mutationFn: (f: File) => uploadProfileMediaAuto(f, undefined, owner),
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: profileContentKeys.media(userId) })
+      void qc.invalidateQueries({ queryKey: profileContentKeys.media(ownerKey) })
       toast.success(t('mediaUploaded'))
       onClose()
     },
@@ -147,7 +149,8 @@ export function VideoCreateModal({ userId, onClose, initialFile }: MediaCreateMo
   const t = useTranslations('Profile')
   const qc = useQueryClient()
   const { show: showApiError } = useErrorToast('profile-video')
-  const quota = useMediaQuota(userId)
+  const { owner, key: ownerKey } = useOwnerKey(userId)
+  const quota = useMediaQuota(ownerKey)
   const [file, setFile] = useState<File | null>(initialFile ?? null)
   const [url, setUrl] = useState<string | null>(null)
   const [cover, setCover] = useState<VideoCover | null>(null)
@@ -164,7 +167,7 @@ export function VideoCreateModal({ userId, onClose, initialFile }: MediaCreateMo
 
   const mut = useMutation({
     mutationFn: async (f: File) => {
-      const media = await uploadProfileMediaAuto(f)
+      const media = await uploadProfileMediaAuto(f, undefined, owner)
       // Прикрепляем выбранную обложку (если есть) — отдельным запросом.
       if (cover) {
         const posterFile = new File([cover.blob], 'poster.jpg', { type: 'image/jpeg' })
@@ -173,7 +176,7 @@ export function VideoCreateModal({ userId, onClose, initialFile }: MediaCreateMo
       return media
     },
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: profileContentKeys.media(userId) })
+      void qc.invalidateQueries({ queryKey: profileContentKeys.media(ownerKey) })
       toast.success(t('mediaUploaded'))
       onClose()
     },

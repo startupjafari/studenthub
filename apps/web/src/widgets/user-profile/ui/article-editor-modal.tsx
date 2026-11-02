@@ -14,7 +14,9 @@ import {
   uploadArticleCover,
   type ProfileArticle,
 } from '../../../entities/profile-content'
+import { useOwnerKey } from '../lib/content-owner'
 import {
+  DictMultiSelect,
   Button,
   Checkbox,
   Input,
@@ -30,7 +32,6 @@ import {
 import { useErrorToast } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 import { ContentModal } from './content-modal'
-import { DictMultiSelect } from './dict-multi-select'
 import { ArticleCover, ARTICLE_GRADIENTS } from './article-cover'
 
 function errCode(e: unknown): string {
@@ -65,6 +66,9 @@ export function ArticleEditorModal({ userId, initial, onClose }: Props) {
   const [visibility, setVisibility] = useState(initial?.visibility ?? 'ALL')
   const [allowComments, setAllowComments] = useState(initial?.allowComments ?? true)
   const [showSettings, setShowSettings] = useState(false)
+  // Статья страницы организации: видимость ставит сервер, выбора области у неё нет.
+  const { owner, key: ownerKey } = useOwnerKey(userId)
+  const isPage = owner.kind !== 'user'
 
   const coverMut = useMutation({
     mutationFn: uploadArticleCover,
@@ -85,14 +89,15 @@ export function ArticleEditorModal({ userId, initial, onClose }: Props) {
         coverGradient: coverMode === 'gradient' ? coverGradient : undefined,
         category: category ? (category as (typeof ARTICLE_CATEGORIES)[number]) : undefined,
         tags,
-        visibility: visibility as (typeof CONTENT_VISIBILITY)[number],
+        // Для статьи страницы сервер значение игнорирует; её видимость схема правки не примет.
+        visibility: isPage ? 'ALL' : (visibility as (typeof CONTENT_VISIBILITY)[number]),
         allowComments,
         status,
       }
-      return initial ? updateProfileArticle(initial.id, input) : createProfileArticle(input)
+      return initial ? updateProfileArticle(initial.id, input) : createProfileArticle(input, owner)
     },
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: profileContentKeys.articles(userId) })
+      void qc.invalidateQueries({ queryKey: profileContentKeys.articles(ownerKey) })
       // Текст статьи читалка берёт отдельным запросом — его кэш тоже устарел.
       if (initial) void qc.invalidateQueries({ queryKey: profileContentKeys.article(initial.id) })
       toast.success(t('saved'))
@@ -310,21 +315,29 @@ export function ArticleEditorModal({ userId, initial, onClose }: Props) {
         </button>
         {showSettings && (
           <div className="flex flex-col gap-4 border-t border-border p-4">
-            <div className="flex flex-col gap-2">
-              <Label>{t('visibility')}</Label>
-              <Select value={visibility} onValueChange={setVisibility}>
-                <SelectTrigger size="xl">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {CONTENT_VISIBILITY.map((v) => (
-                    <SelectItem key={v} value={v}>
-                      {t(`vis_${v}`)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {isPage ? (
+              <p className="text-sm text-muted-foreground">
+                {owner.kind === 'company'
+                  ? t('companyVisibilityHint')
+                  : t('universityVisibilityHint')}
+              </p>
+            ) : (
+              <div className="flex flex-col gap-2">
+                <Label>{t('visibility')}</Label>
+                <Select value={visibility} onValueChange={setVisibility}>
+                  <SelectTrigger size="xl">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CONTENT_VISIBILITY.map((v) => (
+                      <SelectItem key={v} value={v}>
+                        {t(`vis_${v}`)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <label className="flex cursor-pointer items-center gap-2 text-sm">
               <Checkbox
                 checked={allowComments}

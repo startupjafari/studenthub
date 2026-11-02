@@ -1,5 +1,7 @@
-import { EmployerCompanyView } from '../../../../views/employer'
+import { redirect } from 'next/navigation'
 
+// Страница компании переехала в профиль работодателя (переключатель «Мой профиль /
+// Компания»). Старый адрес из закладок и писем ведёт туда же.
 export default function Page() {
-  return <EmployerCompanyView />
+  redirect('/profile?view=company')
 }

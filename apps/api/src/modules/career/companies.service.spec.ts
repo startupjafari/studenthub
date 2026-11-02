@@ -47,7 +47,11 @@ function setup() {
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       count: jest.fn().mockResolvedValue(0),
     },
-    university: { findFirst: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
+    university: {
+      findFirst: jest.fn(),
+      findMany: jest.fn().mockResolvedValue([]),
+      count: jest.fn().mockResolvedValue(0),
+    },
     $transaction: jest.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
   }
   const passwords = { hash: jest.fn().mockResolvedValue('hashed') }
@@ -729,5 +733,52 @@ describe('CompaniesService — роль смотрящего в карточке
     expect(prisma.company.findFirst.mock.calls[0][0].select.members).toMatchObject({
       where: { userId: 'u-1' },
     })
+  })
+})
+
+describe('CompaniesService.universityDirectory — таблица вузов работодателя', () => {
+  const query = { page: 2, limit: 20, sort: 'name' as const, order: 'asc' as const }
+
+  it('страница, итог и своя заявка вуза — одной выборкой', async () => {
+    const { service, prisma } = setup()
+    prisma.university.findMany.mockResolvedValue([
+      {
+        id: 'u-1',
+        name: 'Alem',
+        shortName: null,
+        city: null,
+        companyAccess: [{ status: 'REQUESTED', expiresAt: null, reason: null }],
+      },
+    ])
+    prisma.university.count.mockResolvedValue(41)
+    const res = await service.universityDirectory(employer, query)
+    expect(res).toEqual({
+      items: [
+        {
+          id: 'u-1',
+          name: 'Alem',
+          shortName: null,
+          city: null,
+          access: { status: 'REQUESTED', expiresAt: null, reason: null },
+        },
+      ],
+      total: 41,
+    })
+    const args = prisma.university.findMany.mock.calls[0][0]
+    expect(args).toMatchObject({ skip: 20, take: 20, orderBy: [{ name: 'asc' }, { id: 'asc' }] })
+    // Заявки — только своей компании, чужие статусы наружу не уходят.
+    expect(args.select.companyAccess.where).toEqual({ companyId: 'co-1' })
+  })
+
+  it('фильтр «без доступа» исключает действующий допуск и заявку на рассмотрении', async () => {
+    const { service, prisma } = setup()
+    await service.universityDirectory(employer, { ...query, access: 'NONE' })
+    const where = prisma.university.findMany.mock.calls[0][0].where
+    const excluded = where.NOT.companyAccess.some.OR
+    expect(excluded).toContainEqual({ companyId: 'co-1', status: 'REQUESTED' })
+    expect(excluded).toContainEqual(
+      expect.objectContaining({ companyId: 'co-1', status: 'APPROVED' }),
+    )
+    expect(prisma.university.count).toHaveBeenCalledWith({ where })
   })
 })

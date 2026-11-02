@@ -20,6 +20,20 @@ export function isCompletePhone(value: string | null | undefined): boolean {
 }
 
 /**
+ * Сохранённый до маски номер («89936754444», «+7 999 …») — к виду маски, чтобы поле показало
+ * его правильно: маска, получив «8…» значением, приняла бы восьмёрку за первую цифру номера.
+ * Что разобрать не удалось, возвращается как есть — его покажет ошибка поля.
+ */
+export function toKzPhone(value: string | null | undefined): string {
+  if (!value) return ''
+  if (COMPLETE.test(value)) return value
+  const digits = value.replace(/\D/g, '')
+  const ten = digits.length === 11 && /^[78]/.test(digits) ? digits.slice(1) : digits
+  if (ten.length !== 10) return value
+  return `+7 (${ten.slice(0, 3)}) ${ten.slice(3, 6)}-${ten.slice(6, 8)}-${ten.slice(8)}`
+}
+
+/**
  * Первый ввод в пустое поле — к виду «7 + цифры номера»: закреплённую семёрку маска забирает
  * из ввода сама, и без этого набранная первой «7» оператора съедалась бы ею.
  */

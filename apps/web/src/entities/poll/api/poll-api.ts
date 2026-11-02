@@ -3,6 +3,8 @@ import { api } from '../../../shared/api'
 
 export const pollKeys = {
   byUser: (userId: string) => ['polls', 'by-user', userId] as const,
+  byCompany: (companyId: string) => ['polls', 'by-company', companyId] as const,
+  byUniversity: (universityId: string) => ['polls', 'by-university', universityId] as const,
   detail: (id: string) => ['polls', 'detail', id] as const,
   comments: (id: string) => ['polls', id, 'comments'] as const,
 }
@@ -35,6 +37,10 @@ export interface PollView {
   createdAt: string
   closed: boolean
   author: { id: string; firstName: string; lastName: string; avatarUrl: string | null }
+  // Компания, от чьего имени опрос (страница компании); null — личный.
+  company?: { id: string; name: string; logoUrl: string | null } | null
+  // Университет, от чьего имени опрос (страница вуза).
+  universityPage?: { id: string; name: string; logoUrl: string | null } | null
   options: PollOptionView[]
   totalVotes: number
   participants: number
@@ -49,13 +55,29 @@ export async function fetchPollsByUser(userId: string): Promise<PollView[]> {
   return data
 }
 
+// Опросы страницы компании (видят сотрудники и вузы с допуском; иначе — пусто).
+export async function fetchPollsByCompany(companyId: string): Promise<PollView[]> {
+  const { data } = await api.get<PollView[]>(`/polls/by-company/${companyId}`)
+  return data
+}
+
+// Опросы страницы университета (свои, платформа и компании с допуском; иначе — пусто).
+export async function fetchPollsByUniversity(universityId: string): Promise<PollView[]> {
+  const { data } = await api.get<PollView[]>(`/polls/by-university/${universityId}`)
+  return data
+}
+
 export async function fetchPoll(id: string): Promise<PollView> {
   const { data } = await api.get<PollView>(`/polls/${id}`)
   return data
 }
 
-export async function createPoll(input: CreatePollInput): Promise<PollView> {
-  const { data } = await api.post<PollView>('/polls', input)
+// `as` — на странице своей компании или своего вуза (сервер берёт организацию из токена).
+export async function createPoll(
+  input: CreatePollInput,
+  as?: 'company' | 'university',
+): Promise<PollView> {
+  const { data } = await api.post<PollView>('/polls', input, { params: as ? { as } : {} })
   return data
 }
 

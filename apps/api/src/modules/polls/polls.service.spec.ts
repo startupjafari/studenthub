@@ -10,6 +10,16 @@ import { Paginated } from '../../common/http/paginated'
 const ctx = { ip: '127.0.0.1', userAgent: 'jest' }
 const audit = () => ({ record: jest.fn().mockResolvedValue(undefined) })
 const queueMock = () => ({ enqueue: jest.fn().mockResolvedValue(undefined) })
+const careerAccessMock = () => ({
+  canViewPage: jest.fn().mockResolvedValue(true),
+  resolveContentOrg: jest.fn(async (_actor: JwtPayload, owner: string) =>
+    owner === 'company'
+      ? { companyId: 'company-1', universityPageId: null }
+      : owner === 'university'
+        ? { companyId: null, universityPageId: 'uni-1' }
+        : { companyId: null, universityPageId: null },
+  ),
+})
 
 const voter: JwtPayload = {
   sub: 'u1',
@@ -58,6 +68,7 @@ function setup(existingVotes: number) {
     users as unknown as UserService,
     audit() as unknown as AuditService,
     queueMock() as unknown as QueueService,
+    careerAccessMock() as never,
   )
   // Представление результата — не предмет этих тестов.
   jest.spyOn(service, 'get').mockResolvedValue({} as never)
@@ -115,6 +126,7 @@ describe('PollsService — видимость профиля автора (§14.
       users as unknown as UserService,
       audit() as unknown as AuditService,
       queueMock() as unknown as QueueService,
+      careerAccessMock() as never,
     )
     return { service, prisma, users }
   }
@@ -174,6 +186,7 @@ describe('PollsService — снятие модератором (E-F08)', () => {
       {} as UserService,
       log as unknown as AuditService,
       queueMock() as unknown as QueueService,
+      careerAccessMock() as never,
     )
     return { service, prisma, audit: log }
   }
@@ -395,6 +408,7 @@ describe('PollsService — список опросов автора (E-F17)', ()
       users as unknown as UserService,
       audit() as unknown as AuditService,
       queueMock() as unknown as QueueService,
+      careerAccessMock() as never,
     )
     // Результаты голосования — не предмет этих тестов.
     jest
@@ -410,7 +424,11 @@ describe('PollsService — список опросов автора (E-F17)', ()
     const { service, prisma } = listSetup()
     await service.listByUser({ ...voter, sub: 'author' }, 'author')
     expect(prisma.user.findUnique).not.toHaveBeenCalled()
-    expect(prisma.poll.findMany.mock.calls[0][0].where).toEqual({ userId: 'author' })
+    expect(prisma.poll.findMany.mock.calls[0][0].where).toEqual({
+      userId: 'author',
+      companyId: null,
+      universityPageId: null,
+    })
   })
 
   it('чужой: опубликованные и видимые ему — условием в запросе, до take', async () => {
@@ -420,6 +438,8 @@ describe('PollsService — список опросов автора (E-F17)', ()
     // Свой вуз — ALL и UNIVERSITY; факультет и группа автора смотрящему чужие.
     expect(args.where).toEqual({
       userId: 'author',
+      companyId: null,
+      universityPageId: null,
       status: 'PUBLISHED',
       visibility: { in: ['ALL', 'UNIVERSITY'] },
     })
@@ -434,6 +454,8 @@ describe('PollsService — список опросов автора (E-F17)', ()
     )
     expect(prisma.poll.findMany.mock.calls[0][0].where).toEqual({
       userId: 'author',
+      companyId: null,
+      universityPageId: null,
       status: 'PUBLISHED',
     })
   })
@@ -492,14 +514,22 @@ describe('PollsService — список опросов автора (E-F17)', ()
     prisma.poll.count.mockResolvedValue(140)
     await expect(service.countVisibleByUser(voter, countAuthor)).resolves.toBe(140)
     expect(prisma.poll.count).toHaveBeenCalledWith({
-      where: { userId: 'author', status: 'PUBLISHED', visibility: { in: ['ALL', 'UNIVERSITY'] } },
+      where: {
+        userId: 'author',
+        companyId: null,
+        universityPageId: null,
+        status: 'PUBLISHED',
+        visibility: { in: ['ALL', 'UNIVERSITY'] },
+      },
     })
   })
 
   it('автору итог — все его опросы, включая черновики', async () => {
     const { service, prisma } = listSetup()
     await service.countVisibleByUser({ ...voter, sub: 'author' }, countAuthor)
-    expect(prisma.poll.count).toHaveBeenCalledWith({ where: { userId: 'author' } })
+    expect(prisma.poll.count).toHaveBeenCalledWith({
+      where: { userId: 'author', companyId: null, universityPageId: null },
+    })
   })
 })
 
@@ -529,6 +559,7 @@ describe('PollsService — комментарии (E-F12, E-F17)', () => {
       users as unknown as UserService,
       audit() as unknown as AuditService,
       queue as unknown as QueueService,
+      careerAccessMock() as never,
     )
     return { service, prisma, queue }
   }
@@ -637,5 +668,154 @@ describe('PollsService — комментарии (E-F12, E-F17)', () => {
     await expect(service.addComment(voter, 'p1', { content: 'text' })).resolves.toMatchObject({
       id: 'c1',
     })
+  })
+})
+
+describe('PollsService — опросы страницы компании', () => {
+  const employer: JwtPayload = {
+    sub: 'emp-2',
+    role: Role.EMPLOYER,
+    universityId: null,
+    facultyId: null,
+    groupId: null,
+    companyId: 'company-1',
+  }
+
+  function companySetup() {
+    const tx = {
+      $executeRaw: jest.fn().mockResolvedValue(1),
+      pollVote: { count: jest.fn().mockResolvedValue(0) },
+      pollOption: { deleteMany: jest.fn() },
+      poll: { update: jest.fn() },
+    }
+    const prisma = {
+      poll: {
+        create: jest.fn(),
+        findUnique: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
+        count: jest.fn().mockResolvedValue(0),
+        delete: jest.fn(),
+      },
+      pollVote: { groupBy: jest.fn().mockResolvedValue([]), findMany: jest.fn() },
+      $transaction: jest.fn((fn: (t: typeof tx) => Promise<unknown>) => fn(tx)),
+    }
+    const career = careerAccessMock()
+    const service = new PollsService(
+      prisma as unknown as PrismaService,
+      {} as UserService,
+      audit() as unknown as AuditService,
+      queueMock() as unknown as QueueService,
+      career as never,
+    )
+    jest.spyOn(service, 'get').mockResolvedValue({} as never)
+    return { service, prisma, tx, career }
+  }
+
+  it('as=company: компания из токена, видимость COMPANY ставит сервер', async () => {
+    const { service, prisma, career } = companySetup()
+    prisma.poll.create.mockResolvedValue({
+      id: 'p1',
+      userId: 'emp-2',
+      companyId: 'company-1',
+      universityPageId: null,
+      company: { id: 'company-1', name: 'ТОО', logoUrl: null },
+      universityPage: null,
+      question: 'Вопрос',
+      multiple: false,
+      anonymous: true,
+      allowRevote: false,
+      resultsVisibility: 'AFTER_VOTE',
+      visibility: 'COMPANY',
+      status: 'PUBLISHED',
+      closesAt: null,
+      createdAt: new Date(),
+      options: [],
+      user: { id: 'emp-2', firstName: 'А', lastName: 'Б', avatarUrl: null },
+      _count: { comments: 0 },
+    })
+    await service.create(
+      employer,
+      {
+        question: 'Вопрос',
+        options: ['да', 'нет'],
+        multiple: false,
+        anonymous: true,
+        allowRevote: false,
+        resultsVisibility: 'AFTER_VOTE',
+        visibility: 'ALL',
+        status: 'PUBLISHED',
+      },
+      'company',
+    )
+    expect(career.resolveContentOrg).toHaveBeenCalledWith(employer, 'company')
+    expect(prisma.poll.create.mock.calls[0][0].data).toMatchObject({
+      userId: 'emp-2',
+      companyId: 'company-1',
+      visibility: 'COMPANY',
+    })
+  })
+
+  it('страница невидимой компании — пусто, в базу за опросами не идём', async () => {
+    const { service, prisma, career } = companySetup()
+    career.canViewPage.mockResolvedValue(false)
+    await expect(service.listByPage(voter, { kind: 'company', id: 'company-1' })).resolves.toEqual(
+      [],
+    )
+    expect(prisma.poll.findMany).not.toHaveBeenCalled()
+  })
+
+  it('чужим — только опубликованные; сотруднику — и черновики', async () => {
+    const { service, prisma } = companySetup()
+    await service.listByPage(voter, { kind: 'company', id: 'company-1' })
+    expect(prisma.poll.findMany.mock.calls[0][0].where).toEqual({
+      companyId: 'company-1',
+      status: 'PUBLISHED',
+    })
+    await service.listByPage(employer, { kind: 'company', id: 'company-1' })
+    expect(prisma.poll.findMany.mock.calls[1][0].where).toEqual({ companyId: 'company-1' })
+  })
+
+  it('опрос компании правит любой её сотрудник, и видимость остаётся COMPANY', async () => {
+    const { service, prisma, tx } = companySetup()
+    prisma.poll.findUnique.mockResolvedValue({
+      id: 'p1',
+      userId: 'emp-1',
+      companyId: 'company-1',
+      universityPageId: null,
+    })
+    await service.update(employer, 'p1', {
+      question: 'Новый',
+      options: ['a', 'b'],
+      multiple: false,
+      anonymous: true,
+      allowRevote: false,
+      resultsVisibility: 'AFTER_VOTE',
+      visibility: 'ALL',
+      status: 'PUBLISHED',
+    })
+    expect(tx.poll.update.mock.calls[0][0].data.visibility).toBe('COMPANY')
+  })
+
+  it('сотрудник другой компании опрос не правит', async () => {
+    const { service, prisma } = companySetup()
+    prisma.poll.findUnique.mockResolvedValue({
+      id: 'p1',
+      userId: 'emp-1',
+      companyId: 'company-9',
+      universityPageId: null,
+    })
+    const err = await service
+      .update(employer, 'p1', {
+        question: 'x',
+        options: ['a', 'b'],
+        multiple: false,
+        anonymous: true,
+        allowRevote: false,
+        resultsVisibility: 'AFTER_VOTE',
+        visibility: 'ALL',
+        status: 'PUBLISHED',
+      })
+      .catch((e: { code: string }) => e)
+    expect((err as { code: string }).code).toBe('FORBIDDEN')
   })
 })

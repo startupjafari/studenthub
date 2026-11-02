@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import dynamic from 'next/dynamic'
 import Image from 'next/image'
@@ -96,7 +96,11 @@ const PostCreateModal = dynamic(
   { ssr: false },
 )
 
-type CreateKind = 'post' | 'photo' | 'video' | 'article' | 'poll'
+export type CreateKind = 'post' | 'photo' | 'video' | 'article' | 'poll'
+
+// Работодатель публикует посты только на странице своей компании: в личном профиле у него
+// нет ни вкладки «Посты», ни пункта «Пост» в меню «+».
+const PERSONAL_KINDS_WITHOUT_POSTS: CreateKind[] = ['photo', 'video', 'article', 'poll']
 
 function errCode(e: unknown): string {
   return (e as { code?: string }).code ?? 'INTERNAL_ERROR'
@@ -105,10 +109,13 @@ function errCode(e: unknown): string {
 export function UserProfile({
   renderStoryViewer,
   renderHighlights,
+  toolbar,
 }: {
   /** Окно сторис — из слоя выше (views/profile): кольцо вокруг аватара открывает его. */
   renderStoryViewer?: RenderStoryViewer
   renderHighlights?: RenderHighlights
+  /** Поверх обложки слева сверху — например, переключатель «Мой профиль / Компания». */
+  toolbar?: ReactNode
 } = {}) {
   const t = useTranslations('Profile')
   const tErr = useTranslations('Errors')
@@ -173,6 +180,7 @@ export function UserProfile({
   // Охрана и библиотекарь: служебный профиль без постов и медиа (docs/PROJECT.md §2) —
   // без вкладок контента, меню «+» и «Поделиться» (чатов у них тоже нет).
   const social = !isRestrictedRole(u.role)
+  const personalPosts = u.role !== Role.EMPLOYER
 
   return (
     // flex-1 — профиль занимает всю высоту страницы: пустая вкладка растягивает свою
@@ -185,6 +193,7 @@ export function UserProfile({
         onTabChange={setTab}
         locked={editing}
         content={social}
+        posts={personalPosts}
         settings={<AccountSettingsPanels />}
         stickyTop={
           <ProfileHeader
@@ -198,6 +207,8 @@ export function UserProfile({
               setTab('profile')
             }}
             onQuickCreate={quickCreate}
+            createKinds={personalPosts ? undefined : PERSONAL_KINDS_WITHOUT_POSTS}
+            toolbar={toolbar}
             renderStoryViewer={renderStoryViewer}
             renderHighlights={social ? renderHighlights : undefined}
           />
@@ -276,6 +287,8 @@ function ProfileHeader({
   saving,
   onToggleEdit,
   onQuickCreate,
+  createKinds,
+  toolbar,
   renderStoryViewer,
   renderHighlights,
 }: {
@@ -285,6 +298,8 @@ function ProfileHeader({
   saving: boolean
   onToggleEdit: () => void
   onQuickCreate: (kind: CreateKind) => void
+  createKinds?: CreateKind[]
+  toolbar?: ReactNode
   renderStoryViewer?: RenderStoryViewer
   renderHighlights?: RenderHighlights
 }) {
@@ -369,6 +384,7 @@ function ProfileHeader({
 
   return (
     <Card className={`relative overflow-hidden p-0 ${ENTER}`}>
+      {toolbar && <CoverToolbar>{toolbar}</CoverToolbar>}
       {/* Действия — над обложкой справа (Telegram/VK-стиль): поделиться + редактировать/сохранить. */}
       <div className="absolute top-3 right-3 z-20 flex items-center gap-2 sm:top-4 sm:right-4">
         {/* Цифровой студенческий живёт в профиле, а не в меню: показывают его с телефона. */}
@@ -416,7 +432,7 @@ function ProfileHeader({
         ) : (
           <div className={cn('size-full', BRAND_GRADIENT)} />
         )}
-        <div className="absolute top-3 left-3 z-10 flex items-center gap-2 sm:top-4 sm:left-4">
+        <div className={coverActionsClass(!!toolbar)}>
           <button
             type="button"
             onClick={() => coverRef.current?.click()}
@@ -525,7 +541,7 @@ function ProfileHeader({
             </span>
           </div>
           {/* Меню «+» — внизу справа, вне group аватара (чтобы не триггерить оверлей) */}
-          {social && <AvatarCreateMenu onSelect={onQuickCreate} />}
+          {social && <AvatarCreateMenu onSelect={onQuickCreate} kinds={createKinds} />}
           <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onPick} />
           {storiesOpen && storyRing && renderStoryViewer?.(storyRing, () => setStoriesOpen(false))}
         </div>
@@ -566,8 +582,34 @@ function ProfileHeader({
   )
 }
 
+/**
+ * Слот поверх обложки слева сверху (напротив кнопок действий): переключатель профилей стоит
+ * в самой шапке, а не отдельной полосой над ней — без лишнего отступа сверху страницы.
+ */
+export function CoverToolbar({ children }: { children: ReactNode }) {
+  return (
+    <div className="absolute top-3 left-3 z-20 max-w-[calc(100%-7rem)] sm:top-4 sm:left-4 sm:max-w-[calc(100%-16rem)]">
+      {children}
+    </div>
+  )
+}
+
+/** Кнопки обложки: слева сверху; если там переключатель — в правый нижний угол обложки. */
+export function coverActionsClass(withToolbar: boolean): string {
+  return withToolbar
+    ? 'absolute right-3 bottom-3 z-10 flex items-center gap-2 sm:right-4'
+    : 'absolute top-3 left-3 z-10 flex items-center gap-2 sm:top-4 sm:left-4'
+}
+
 // ── Меню быстрого создания на аватаре («+» → Фото/Видео/Статья/Вопрос-ответ) ──
-function AvatarCreateMenu({ onSelect }: { onSelect: (kind: CreateKind) => void }) {
+export function AvatarCreateMenu({
+  onSelect,
+  kinds,
+}: {
+  onSelect: (kind: CreateKind) => void
+  /** Какие пункты показать; по умолчанию — все. */
+  kinds?: CreateKind[]
+}) {
   const t = useTranslations('Profile')
   const [open, setOpen] = useState(false)
   const btnRef = useRef<HTMLButtonElement>(null)
@@ -638,13 +680,15 @@ function AvatarCreateMenu({ onSelect }: { onSelect: (kind: CreateKind) => void }
     }
   }, [open])
 
-  const items: { target: CreateKind; label: string; icon: LucideIcon }[] = [
-    { target: 'post', label: t('tabPosts'), icon: Newspaper },
-    { target: 'photo', label: t('tabPhotos'), icon: ImageIcon },
-    { target: 'video', label: t('tabVideos'), icon: Video },
-    { target: 'article', label: t('tabArticles'), icon: FileText },
-    { target: 'poll', label: t('tabPolls'), icon: BarChart3 },
-  ]
+  const items: { target: CreateKind; label: string; icon: LucideIcon }[] = (
+    [
+      { target: 'post', label: t('tabPosts'), icon: Newspaper },
+      { target: 'photo', label: t('tabPhotos'), icon: ImageIcon },
+      { target: 'video', label: t('tabVideos'), icon: Video },
+      { target: 'article', label: t('tabArticles'), icon: FileText },
+      { target: 'poll', label: t('tabPolls'), icon: BarChart3 },
+    ] as const
+  ).filter((it) => !kinds || kinds.includes(it.target))
 
   // Пункты меню; на мобильном (bottom-sheet) — крупнее для удобного тапа.
   const renderItems = (variant: 'dropdown' | 'sheet') =>

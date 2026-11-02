@@ -4,8 +4,8 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useTranslations } from 'next-intl'
 import { Plus, X } from 'lucide-react'
-import { cn } from '../../../shared/lib/utils'
-import { useListboxKeys } from '../../../shared/ui'
+import { cn } from '../lib/utils'
+import { useListboxKeys } from './use-listbox-keys'
 
 interface DictMultiSelectProps {
   value: string[]
@@ -14,6 +14,10 @@ interface DictMultiSelectProps {
   // Иконка/оформление значения (например, флаг языка) для чипа и пункта списка.
   renderItem?: (v: string) => ReactNode
   max?: number
+  /** Можно ли добавить своё значение, которого нет в справочнике. По умолчанию — да. */
+  allowCustom?: boolean
+  /** id поля ввода — для связи с подписью (<Label htmlFor>). */
+  id?: string
 }
 
 interface MenuPos {
@@ -39,13 +43,15 @@ function computeMenuPos(r: DOMRect): MenuPos {
 }
 
 // Мультивыбор из справочника + свободный ввод («другой»): чипы выбранного, поиск по списку,
-// добавление своего значения, если его нет в справочнике.
+// добавление своего значения, если его нет в справочнике (allowCustom=false — только список).
 export function DictMultiSelect({
   value,
   onChange,
   options,
   renderItem,
   max = 30,
+  allowCustom = true,
+  id,
 }: DictMultiSelectProps) {
   const t = useTranslations('Profile')
   const [query, setQuery] = useState('')
@@ -86,7 +92,7 @@ export function DictMultiSelect({
 
   const q = query.trim()
   const exact = options.some((o) => o.toLowerCase() === q.toLowerCase())
-  const canAddCustom = q.length > 0 && !exact && !has(q)
+  const canAddCustom = allowCustom && q.length > 0 && !exact && !has(q)
 
   function add(v: string): void {
     const val = v.trim()
@@ -135,6 +141,7 @@ export function DictMultiSelect({
 
       <input
         ref={inputRef}
+        id={id}
         value={query}
         onChange={(e) => {
           setQuery(e.target.value)

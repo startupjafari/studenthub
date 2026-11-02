@@ -52,6 +52,7 @@ import {
   type PostReactionSummary,
 } from '../../../entities/post'
 import { ProfileLink } from '../../../entities/user'
+import { postOrg } from '../lib/post-org'
 import { RepostDialog, useRepost } from '../../../features/repost-post'
 import { ReportModal } from '../../../features/report-content'
 import type { PostAuthor } from '../../../entities/post'
@@ -883,8 +884,12 @@ function PostView({
               </p>
               {/* Аудитория — единственное, чего нет в Instagram, но без неё не понять,
                   кому виден пост. Время — под подписью и в строке под лайками. */}
-              <p className="truncate text-xs text-muted-foreground">
-                {t(`audience${post.audience}`)}
+              <p className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+                {postOrg(post)?.mark}
+                <span className="truncate">
+                  {postOrg(post) ? `${postOrg(post)?.name} · ` : ''}
+                  {t(`audience${post.audience}`)}
+                </span>
               </p>
             </div>
             {post.pinnedAt && <Pin className="size-4 shrink-0 text-primary" aria-hidden />}

@@ -1,6 +1,13 @@
 import type Redis from 'ioredis'
 import { Role } from '@studenthub/shared-types'
-import { CareerAccessService, activeAccessWhere } from './career-access.service'
+import {
+  CareerAccessService,
+  activeAccessWhere,
+  companyContentVisibleWhere,
+  isCompanyMember,
+  isUniversityPageEditor,
+  universityPageVisibleWhere,
+} from './career-access.service'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import { AppException } from '../../common/exceptions/app.exception'
@@ -11,7 +18,10 @@ import { AppException } from '../../common/exceptions/app.exception'
 function setup(rows: Array<{ universityId: string; status: string; expiresAt: Date | null }> = []) {
   const prisma = {
     companyUniversityAccess: { findMany: jest.fn().mockResolvedValue(rows) },
-    company: { findFirst: jest.fn().mockResolvedValue({ status: 'ACTIVE', blockedReason: null }) },
+    company: {
+      findFirst: jest.fn().mockResolvedValue({ status: 'ACTIVE', blockedReason: null }),
+      count: jest.fn().mockResolvedValue(1),
+    },
   }
   // Кэш выключен: get всегда мимо, чтобы тест проверял решение по данным, а не по Redis.
   const redis = {
@@ -234,5 +244,100 @@ describe('CareerAccessService — кэш', () => {
       ]),
     )
     await expect(service.allowedUniversityIds('co-1', now)).resolves.toEqual(['uni-live'])
+  })
+})
+
+// ── Страница компании: кто видит её контент ─────────────────────────────────
+describe('companyContentVisibleWhere', () => {
+  const student: JwtPayload = {
+    sub: 's-1',
+    role: Role.STUDENT,
+    universityId: 'uni-1',
+    facultyId: null,
+    groupId: null,
+  }
+
+  it('вуз смотрящего — только действующая компания с действующим допуском в этот вуз', () => {
+    const now = new Date('2026-11-02T10:00:00Z')
+    expect(companyContentVisibleWhere(student, now)).toEqual({
+      status: 'ACTIVE',
+      deletedAt: null,
+      universityAccess: { some: activeAccessWhere('uni-1', now) },
+    })
+  })
+
+  it('сотрудник — только своя компания; работодатель без компании — ничего', () => {
+    expect(companyContentVisibleWhere(employer('co-1'))).toEqual({ id: 'co-1', deletedAt: null })
+    expect(companyContentVisibleWhere(employer(null))).toBeNull()
+  })
+
+  it('платформа — любая неудалённая; роль вне вуза — ничего', () => {
+    expect(companyContentVisibleWhere({ ...student, role: Role.PLATFORM_MODERATOR })).toEqual({
+      deletedAt: null,
+    })
+    expect(companyContentVisibleWhere({ ...student, universityId: null })).toBeNull()
+  })
+
+  it('isCompanyMember — по роли и компании из токена', () => {
+    expect(isCompanyMember(employer('co-1'), 'co-1')).toBe(true)
+    expect(isCompanyMember(employer('co-1'), 'co-2')).toBe(false)
+    expect(isCompanyMember({ ...student, companyId: 'co-1' }, 'co-1')).toBe(false)
+    expect(isCompanyMember(employer('co-1'), null)).toBe(false)
+  })
+})
+
+describe('CareerAccessService.assertCanViewCompany', () => {
+  it('невидимая компания — NOT_FOUND, без похода в базу для чужого работодателя', async () => {
+    const { service, prisma } = setup()
+    prisma.company.count.mockResolvedValue(0)
+    const err = await service
+      .assertCanViewCompany(employer('co-1'), 'co-2')
+      .catch((e: AppException) => e)
+    expect((err as AppException).code).toBe('NOT_FOUND')
+    const lost = await service
+      .assertCanViewCompany(employer(null), 'co-2')
+      .catch((e: AppException) => e)
+    expect((lost as AppException).code).toBe('NOT_FOUND')
+    expect(prisma.company.count).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('universityPageVisibleWhere / isUniversityPageEditor', () => {
+  const admin: JwtPayload = {
+    sub: 'a-1',
+    role: Role.UNIVERSITY_ADMIN,
+    universityId: 'uni-1',
+    facultyId: null,
+    groupId: null,
+  }
+
+  it('свои видят только свой вуз, платформа — любой', () => {
+    expect(universityPageVisibleWhere({ ...admin, role: Role.STUDENT })).toEqual({ id: 'uni-1' })
+    expect(universityPageVisibleWhere({ ...admin, role: Role.PLATFORM_ADMIN })).toEqual({})
+  })
+
+  it('работодатель — вузы с действующим допуском своей компании', () => {
+    const now = new Date('2026-11-02T10:00:00Z')
+    const where = universityPageVisibleWhere(employer('co-1'), now)
+    expect(where).toMatchObject({
+      status: 'ACTIVE',
+      companyAccess: { some: { companyId: 'co-1', status: 'APPROVED' } },
+    })
+    expect(universityPageVisibleWhere(employer(null))).toBeNull()
+  })
+
+  it('публикуют от имени вуза админ и модератор своего вуза, не декан и не чужой', () => {
+    expect(isUniversityPageEditor(admin, 'uni-1')).toBe(true)
+    expect(isUniversityPageEditor({ ...admin, role: Role.UNIVERSITY_MODERATOR }, 'uni-1')).toBe(
+      true,
+    )
+    expect(isUniversityPageEditor({ ...admin, role: Role.DEAN }, 'uni-1')).toBe(false)
+    expect(isUniversityPageEditor(admin, 'uni-2')).toBe(false)
+  })
+
+  it('чужой работодатель от имени вуза не публикует', async () => {
+    const { service } = setup()
+    expect(() => service.requirePublishingUniversity(employer('co-1'))).toThrow(AppException)
+    expect(service.requirePublishingUniversity(admin)).toBe('uni-1')
   })
 })

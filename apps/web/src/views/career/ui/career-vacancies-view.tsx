@@ -12,6 +12,7 @@ import {
   type WorkFormat,
 } from '@studenthub/shared-schemas'
 import { searchVacancies, vacancyKeys, type Vacancy } from '../../../entities/vacancy'
+import { useKatoNames } from '../../../entities/kato'
 import {
   Card,
   EmptyState,
@@ -103,6 +104,8 @@ export function CareerVacanciesView() {
   }
 
   const rows = query.data?.items ?? []
+  // Город вакансии — код КАТО: названия для всей страницы одним запросом.
+  const { nameOf: cityName } = useKatoNames(rows.map((r) => r.city))
 
   // Новый фильтр или размер страницы — снова с первой: на прежней странице
   // отфильтрованного списка может не быть строк вовсе.
@@ -247,7 +250,7 @@ export function CareerVacanciesView() {
                         {formatLabel[vacancy.workFormat]}
                       </TableCell>
                       <TableCell className="hidden text-muted-foreground sm:table-cell">
-                        <TableText value={vacancy.city} />
+                        <TableText value={cityName(vacancy.city)} />
                       </TableCell>
                       <TableCell className="text-right tabular-nums">
                         <TableText value={salary} />

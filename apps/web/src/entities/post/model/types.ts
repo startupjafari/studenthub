@@ -58,6 +58,10 @@ export interface FeedPost {
   publishedAt: string | null
   createdAt: string
   author: PostAuthor
+  /** Пост страницы компании (аудитория COMPANY): говорит компания, автор — её сотрудник. */
+  company?: { id: string; name: string; logoUrl: string | null } | null
+  /** Пост от имени университета (страница вуза): говорит вуз, автор — админ или модератор. */
+  universityPage?: { id: string; name: string; logoUrl: string | null } | null
   media: PostMedia[]
   /**
    * Реакции сводкой: сколько каждой и стоит ли своя. Нет — ответ старого API; тогда сводку

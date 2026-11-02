@@ -5,7 +5,13 @@ import { infiniteQueryOptions, keepPreviousData, useInfiniteQuery } from '@tanst
 import { useTranslations } from 'next-intl'
 import { Newspaper } from 'lucide-react'
 import type { AuthorFeedSort, PostStatusValue } from '@studenthub/shared-schemas'
-import { fetchAuthorPosts, postKeys } from '../../../entities/post'
+import {
+  fetchAuthorPosts,
+  fetchCompanyPosts,
+  fetchUniversityPagePosts,
+  postKeys,
+} from '../../../entities/post'
+import type { ContentOwner } from '../../../entities/profile-content'
 import { PostGrid } from '../../feed-list'
 import { EmptyState, MosaicGrid, MosaicTile, Skeleton } from '../../../shared/ui'
 import { useInfiniteScroll } from '../../../shared/lib'
@@ -14,6 +20,7 @@ import { PostCreateModal } from './post-create-modal'
 import { ContentLayout, FilterGroup, FilterOption, FilterSkeleton } from './filter-sidebar'
 import { useRetryOnError } from './use-retry-on-error'
 import { LoadFailed } from './load-failed'
+import { useContentOwner } from '../lib/content-owner'
 
 interface Props {
   userId: string
@@ -37,15 +44,28 @@ const PAGE_SIZE = 20
  * бейдж вкладки (ProfileTabs), и первая страница грузится один раз на оба места.
  */
 export function authorPostsQuery(
-  userId: string,
+  owner: ContentOwner,
   sort: AuthorFeedSort = 'new',
   status: StatusFilter = 'all',
 ) {
   const isDefault = sort === 'new' && status === 'all'
+  // Страница организации — её посты, личный профиль — посты автора.
+  const base =
+    owner.kind === 'company'
+      ? postKeys.company(owner.id)
+      : owner.kind === 'university'
+        ? postKeys.universityPage(owner.id)
+        : postKeys.author(owner.id)
+  const fetchPage =
+    owner.kind === 'company'
+      ? fetchCompanyPosts
+      : owner.kind === 'university'
+        ? fetchUniversityPagePosts
+        : fetchAuthorPosts
   return infiniteQueryOptions({
-    queryKey: isDefault ? postKeys.author(userId) : [...postKeys.author(userId), sort, status],
+    queryKey: isDefault ? base : [...base, sort, status],
     queryFn: ({ pageParam }) =>
-      fetchAuthorPosts(userId, {
+      fetchPage(owner.id, {
         limit: PAGE_SIZE,
         cursor: pageParam,
         sort,
@@ -64,6 +84,7 @@ export function ProfilePosts({ userId, isOwner, openCreate, onConsumed }: Props)
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   // Черновики и отложенные — только на своей вкладке; в чужом профиле фильтра нет.
   const status = isOwner ? statusFilter : 'all'
+  const owner = useContentOwner(userId)
 
   useEffect(() => {
     if (openCreate === undefined) return
@@ -72,7 +93,7 @@ export function ProfilePosts({ userId, isOwner, openCreate, onConsumed }: Props)
   }, [openCreate])
 
   const q = useInfiniteQuery({
-    ...authorPostsQuery(userId, sort, status),
+    ...authorPostsQuery(owner, sort, status),
     // При смене сортировки или фильтра мозаика остаётся на месте, пока не придёт новая
     // выдача, — без мигания скелетоном всей вкладки вместе с боковой панелью.
     placeholderData: keepPreviousData,

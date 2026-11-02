@@ -14,6 +14,8 @@ export const AUDIENCES_BY_ROLE: Partial<Record<Role, PostAudienceValue[]>> = {
   [Role.TEACHER]: ['GROUP', 'SUBJECT', 'PERSONAL'],
   [Role.STAROSTA]: ['GROUP', 'PERSONAL'],
   [Role.STUDENT]: ['GROUP', 'PERSONAL'],
+  // Работодатель публикует только на странице своей компании.
+  [Role.EMPLOYER]: ['COMPANY'],
 }
 
 // Репост: у RepostSchema нет поля subject, поэтому аудитория SUBJECT недоступна —

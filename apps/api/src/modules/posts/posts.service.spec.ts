@@ -88,6 +88,10 @@ function setup() {
     ]),
   }
   const redis = { multi: jest.fn(() => redisMulti) }
+  const careerAccess = {
+    requirePublishingCompany: jest.fn().mockResolvedValue('company-1'),
+    requirePublishingUniversity: jest.fn((v: JwtPayload) => v.universityId),
+  }
   const service = new PostsService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
@@ -96,8 +100,9 @@ function setup() {
     media as never,
     queue as unknown as QueueService,
     redis as never,
+    careerAccess as never,
   )
-  return { service, prisma, audit, files, media, queue, redis, redisMulti }
+  return { service, prisma, audit, files, media, queue, redis, redisMulti, careerAccess }
 }
 
 function describedMedia(id: string) {
@@ -1799,5 +1804,150 @@ describe('mentionedLogins', () => {
       'ivan_1',
       'olga',
     ])
+  })
+})
+
+// ── Страница компании: аудитория COMPANY ────────────────────────────────────
+describe('PostsService — посты страницы компании', () => {
+  function employer(companyId = 'company-1'): JwtPayload {
+    return { ...viewer(Role.EMPLOYER, { sub: 'emp-1' }), companyId }
+  }
+
+  it('лента вуза постов компаний не содержит, но открыть пост по допуску можно', async () => {
+    const { service, prisma } = setup()
+    await service.feed(viewer(Role.STUDENT, { sub: 's1', universityId: 'uni-1' }), { limit: 20 })
+    const where = prisma.post.findMany.mock.calls[0][0].where
+    // Ветка видимости есть — по ней открывается пост по id и комментарии к нему.
+    const company = (where.OR as Array<Record<string, unknown>>).find(
+      (c) => c.audience === PostAudience.COMPANY,
+    )
+    expect(company?.company).toMatchObject({
+      status: 'ACTIVE',
+      universityAccess: { some: { universityId: 'uni-1', status: 'APPROVED' } },
+    })
+    // А сама лента их отсекает.
+    expect(where.AND).toContainEqual({ companyId: null })
+  })
+
+  it('без вуза и без компании ветки COMPANY нет вовсе', async () => {
+    const { service, prisma } = setup()
+    await service.feed(viewer(Role.EMPLOYER, { sub: 'emp-1' }), { limit: 20 })
+    const where = prisma.post.findMany.mock.calls[0][0].where
+    expect(hasClause(where, { audience: PostAudience.COMPANY })).toBe(false)
+  })
+
+  it('companyId — только посты этой компании, поверх видимости смотрящего', async () => {
+    const { service, prisma } = setup()
+    await service.feed(viewer(Role.STUDENT, { sub: 's1', universityId: 'uni-1' }), {
+      limit: 20,
+      companyId: 'company-1',
+    })
+    const where = prisma.post.findMany.mock.calls[0][0].where
+    expect(where.AND[0]).toEqual({ audience: PostAudience.COMPANY, companyId: 'company-1' })
+    // Чужой странице — только опубликованные; счётчик для бейджа вкладки считается.
+    expect(where.AND[1].AND).toContainEqual({ status: 'PUBLISHED' })
+    expect(prisma.post.count).toHaveBeenCalled()
+  })
+
+  it('сотрудник на странице своей компании видит и черновики (свои)', async () => {
+    const { service, prisma } = setup()
+    await service.feed(employer(), { limit: 20, companyId: 'company-1' })
+    const where = prisma.post.findMany.mock.calls[0][0].where
+    expect(where.AND[1].AND).not.toContainEqual({ status: 'PUBLISHED' })
+  })
+
+  it('работодатель публикует только на странице своей компании — из токена', async () => {
+    const { service, prisma, careerAccess } = setup()
+    prisma.post.findFirst.mockResolvedValue(postRow({ audience: PostAudience.COMPANY }))
+    await service.create(employer(), { audience: 'COMPANY', content: 'привет' }, ctx)
+    expect(careerAccess.requirePublishingCompany).toHaveBeenCalled()
+    expect(prisma.post.create.mock.calls[0][0].data).toMatchObject({
+      audience: PostAudience.COMPANY,
+      companyId: 'company-1',
+    })
+  })
+
+  it('пост компании удаляет любой её сотрудник, чужой компании — нет', async () => {
+    const { service, prisma } = setup()
+    const companyPost = {
+      ...postRow({ id: 'p1', authorId: 'emp-9', audience: PostAudience.COMPANY }),
+      companyId: 'company-1',
+      universityId: null,
+      facultyId: null,
+      groupId: null,
+      author: { role: Role.EMPLOYER },
+    }
+    prisma.post.findFirst.mockResolvedValue(companyPost)
+    await service.remove(employer(), 'p1', ctx)
+    expect(prisma.post.update).toHaveBeenCalledWith({
+      where: { id: 'p1' },
+      data: { deletedAt: expect.any(Date) },
+    })
+
+    prisma.post.update.mockClear()
+    const err = await service.remove(employer('company-2'), 'p1', ctx).catch((e: AppException) => e)
+    expect(err).toBeInstanceOf(AppException)
+    expect(prisma.post.update).not.toHaveBeenCalled()
+  })
+
+  it('работодателю аудитории вуза закрыты, студенту — аудитория компании', async () => {
+    const { service } = setup()
+    const toAll = await service
+      .create(employer(), { audience: 'ALL', content: 'x' }, ctx)
+      .catch((e: AppException) => e)
+    expect((toAll as AppException).code).toBe('FORBIDDEN')
+    const asStudent = await service
+      .create(
+        viewer(Role.STUDENT, { universityId: 'uni-1', groupId: 'grp-1' }),
+        { audience: 'COMPANY', content: 'x' },
+        ctx,
+      )
+      .catch((e: AppException) => e)
+    expect((asStudent as AppException).code).toBe('FORBIDDEN')
+  })
+})
+
+// ── Страница университета: пост от имени вуза ───────────────────────────────
+describe('PostsService — посты от имени университета', () => {
+  it('модератор вуза публикует от имени вуза: весь вуз, владелец — вуз из токена', async () => {
+    const { service, prisma } = setup()
+    prisma.post.findFirst.mockResolvedValue(postRow({ audience: PostAudience.UNIVERSITY }))
+    await service.create(
+      viewer(Role.UNIVERSITY_MODERATOR, { universityId: 'uni-1' }),
+      { audience: 'GROUP', content: 'объявление', asUniversity: true },
+      ctx,
+    )
+    expect(prisma.post.create.mock.calls[0][0].data).toMatchObject({
+      audience: PostAudience.UNIVERSITY,
+      universityId: 'uni-1',
+      universityPageId: 'uni-1',
+    })
+  })
+
+  it('без asUniversity модератору аудитории закрыты, как и раньше', async () => {
+    const { service } = setup()
+    const err = await service
+      .create(
+        viewer(Role.UNIVERSITY_MODERATOR, { universityId: 'uni-1' }),
+        { audience: 'UNIVERSITY', content: 'x' },
+        ctx,
+      )
+      .catch((e: AppException) => e)
+    expect((err as AppException).code).toBe('FORBIDDEN')
+  })
+
+  it('лента своего вуза включает посты страницы вуза, вкладка профиля автора — нет', async () => {
+    const { service, prisma } = setup()
+    await service.feed(viewer(Role.STUDENT, { sub: 's1', universityId: 'uni-1' }), { limit: 20 })
+    const feedWhere = prisma.post.findMany.mock.calls[0][0].where
+    expect(feedWhere.AND).toContainEqual({
+      OR: [{ universityPageId: null }, { universityId: 'uni-1' }],
+    })
+    await service.feed(viewer(Role.STUDENT, { sub: 's1', universityId: 'uni-1' }), {
+      limit: 20,
+      authorId: 'admin-1',
+    })
+    const authorWhere = prisma.post.findMany.mock.calls[1][0].where
+    expect(authorWhere.AND[1].AND).toContainEqual({ universityPageId: null })
   })
 })

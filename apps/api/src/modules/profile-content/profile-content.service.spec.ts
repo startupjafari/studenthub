@@ -47,6 +47,8 @@ function setup() {
     },
     file: {
       findFirst: jest.fn(),
+      // Компания медиа (mediaCompanyId): по умолчанию личное.
+      findUnique: jest.fn().mockResolvedValue({ companyId: null }),
       updateMany: jest.fn(),
       update: jest.fn(),
       findMany: jest.fn(),
@@ -118,6 +120,18 @@ function setup() {
   const redis = { multi: jest.fn(() => redisMulti) }
   // Число опросов — у модуля опросов (countVisibleByUser), здесь только итог.
   const polls = { countVisibleByUser: jest.fn().mockResolvedValue(0) }
+  const careerAccess = {
+    canViewPage: jest.fn().mockResolvedValue(true),
+    resolveContentOrg: jest.fn(async (_actor: JwtPayload, owner: string) =>
+      owner === 'company'
+        ? { companyId: 'company-1', universityPageId: null }
+        : owner === 'university'
+          ? { companyId: null, universityPageId: 'u' }
+          : { companyId: null, universityPageId: null },
+    ),
+    visibleCompanyIds: jest.fn(async (_v: JwtPayload, ids: string[]) => new Set(ids)),
+    visibleUniversityPageIds: jest.fn(async (_v: JwtPayload, ids: string[]) => new Set(ids)),
+  }
   const service = new ProfileContentService(
     prisma as unknown as PrismaService,
     files as unknown as FileService,
@@ -128,8 +142,9 @@ function setup() {
     queue as unknown as QueueService,
     redis as never,
     polls as never,
+    careerAccess as never,
   )
-  return { service, prisma, files, users, media, audit, queue, redisMulti, polls }
+  return { service, prisma, files, users, media, audit, queue, redisMulti, polls, careerAccess }
 }
 
 // Владелец контента — поля PROFILE_CONTENT_OWNER_SELECT.
@@ -232,6 +247,8 @@ describe('ProfileContentService — квота медиа', () => {
     // Считается только своё медиа профиля, а не все файлы пользователя.
     expect(prisma.file.aggregate.mock.calls[0][0].where).toEqual({
       ownerId: 'me',
+      companyId: null,
+      universityPageId: null,
       bucket: 'profile-media',
     })
   })
@@ -542,6 +559,8 @@ describe('ProfileContentService — статьи и закрытый профи�
     await service.listArticles(user('peer'), 'owner')
     expect(prisma.profileArticle.findMany.mock.calls[0][0].where).toEqual({
       userId: 'owner',
+      companyId: null,
+      universityPageId: null,
       status: 'PUBLISHED',
       visibility: { in: ['ALL', 'UNIVERSITY', 'FACULTY', 'GROUP'] },
     })
@@ -1000,7 +1019,13 @@ describe('ProfileContentService — итоги вкладок профиля (E-
 
     expect(res).toEqual({ photos: 880, videos: 120, articles: 150, polls: 130 })
     expect(prisma.file.count).toHaveBeenCalledWith({
-      where: { ownerId: 'author', bucket: 'profile-media', mime: { startsWith: 'video/' } },
+      where: {
+        ownerId: 'author',
+        companyId: null,
+        universityPageId: null,
+        bucket: 'profile-media',
+        mime: { startsWith: 'video/' },
+      },
     })
     // Чужие статьи — только опубликованные и в доступной смотрящему области.
     const articleWhere = prisma.profileArticle.count.mock.calls[0][0].where
@@ -1034,6 +1059,122 @@ describe('ProfileContentService — итоги вкладок профиля (E-
       videos: 0,
       articles: 0,
       polls: 0,
+    })
+  })
+})
+
+describe('ProfileContentService — страница компании', () => {
+  const employer = (sub = 'emp-2', companyId = 'company-1'): JwtPayload => ({
+    sub,
+    role: Role.EMPLOYER,
+    universityId: null,
+    facultyId: null,
+    groupId: null,
+    companyId,
+  })
+
+  it('медиа as=company привязывается к компании, квота — у компании', async () => {
+    const { service, prisma, files } = setup()
+    files.upload.mockResolvedValue(file({ ownerId: 'emp-2' }))
+    await service.uploadMedia(employer(), Buffer.from('x'), 'company')
+    expect(prisma.file.aggregate.mock.calls[0][0].where).toEqual({
+      companyId: 'company-1',
+      bucket: 'profile-media',
+    })
+    expect(prisma.file.update).toHaveBeenCalledWith({
+      where: { id: 'file1' },
+      data: { companyId: 'company-1', universityPageId: null },
+    })
+  })
+
+  it('медиа невидимой компании — пусто, файлы не читаются', async () => {
+    const { service, prisma, careerAccess } = setup()
+    careerAccess.canViewPage.mockResolvedValue(false)
+    await expect(
+      service.listPageMedia(user('peer'), { kind: 'company', id: 'company-1' }),
+    ).resolves.toEqual([])
+    expect(prisma.file.findMany).not.toHaveBeenCalled()
+  })
+
+  it('медиа компании удаляет коллега загрузившего — без проверки владельца файла', async () => {
+    const { service, prisma, files, audit } = setup()
+    files.findOrThrow.mockResolvedValue(file({ ownerId: 'emp-1' }))
+    prisma.file.findUnique.mockResolvedValue({ companyId: 'company-1', universityPageId: null })
+    await service.deleteMedia(employer(), 'file1', ctx)
+    expect(files.delete).toHaveBeenCalledWith('file1', undefined)
+    // Это не модерация: в журнал модератора не пишется.
+    expect(audit.record).not.toHaveBeenCalled()
+  })
+
+  it('статья as=company: видимость COMPANY, что бы ни пришло в теле', async () => {
+    const { service, prisma } = setup()
+    prisma.profileArticle.create.mockResolvedValue({
+      id: 'a1',
+      _count: { comments: 0, bookmarks: 0 },
+    })
+    await service.createArticle(
+      employer(),
+      {
+        title: 'О нас',
+        content: 'текст',
+        visibility: 'ALL',
+        allowComments: true,
+        status: 'PUBLISHED',
+      },
+      'company',
+    )
+    expect(prisma.profileArticle.create.mock.calls[0][0].data).toMatchObject({
+      userId: 'emp-2',
+      companyId: 'company-1',
+      visibility: 'COMPANY',
+    })
+  })
+
+  it('правка статьи компании не выносит её в общий доступ', async () => {
+    const { service, prisma } = setup()
+    prisma.profileArticle.findUnique.mockResolvedValue({
+      userId: 'emp-1',
+      companyId: 'company-1',
+      universityPageId: null,
+      publishedAt: null,
+    })
+    prisma.profileArticle.update.mockResolvedValue({
+      id: 'a1',
+      _count: { comments: 0, bookmarks: 0 },
+    })
+    await service.updateArticle(employer(), 'a1', {
+      title: 'О нас',
+      content: 'текст',
+      visibility: 'ALL',
+      allowComments: true,
+      status: 'PUBLISHED',
+    })
+    expect(prisma.profileArticle.update.mock.calls[0][0].data.visibility).toBe('COMPANY')
+  })
+
+  it('черновик статьи компании чужому не виден, даже при допуске', async () => {
+    const { service, prisma } = setup()
+    prisma.profileArticle.findUnique.mockResolvedValue({
+      userId: 'emp-1',
+      companyId: 'company-1',
+      universityPageId: null,
+      status: 'DRAFT',
+      visibility: 'COMPANY',
+      user: owner('emp-1'),
+    })
+    const err = await service.getArticle(user('peer'), 'a1').catch((e) => e)
+    expect(err.code).toBe('NOT_FOUND')
+  })
+
+  it('личные статьи сотрудника не включают статьи компании', async () => {
+    const { service, prisma } = setup()
+    prisma.user.findUnique.mockResolvedValue(owner('emp-2'))
+    prisma.profileArticle.findMany.mockResolvedValue([])
+    await service.listArticles(employer(), 'emp-2')
+    expect(prisma.profileArticle.findMany.mock.calls[0][0].where).toEqual({
+      userId: 'emp-2',
+      companyId: null,
+      universityPageId: null,
     })
   })
 })

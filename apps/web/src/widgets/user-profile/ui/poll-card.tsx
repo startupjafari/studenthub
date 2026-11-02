@@ -13,6 +13,8 @@ import {
   type PollView,
 } from '../../../entities/poll'
 import { Badge, Button, Card, CardContent, Progress, useConfirm } from '../../../shared/ui'
+import { CompanyMark } from '../../../entities/company'
+import { UniversityMark } from '../../../entities/university'
 import { cn } from '../../../shared/lib/utils'
 
 function errCode(e: unknown): string {
@@ -49,7 +51,14 @@ export function PollCard({ poll, isOwner, canModerate = false }: Props) {
   }, [])
 
   const invalidate = () => {
-    void qc.invalidateQueries({ queryKey: pollKeys.byUser(poll.author.id) })
+    // Опрос страницы организации лежит в её списке, а не в списке автора.
+    void qc.invalidateQueries({
+      queryKey: poll.company
+        ? pollKeys.byCompany(poll.company.id)
+        : poll.universityPage
+          ? pollKeys.byUniversity(poll.universityPage.id)
+          : pollKeys.byUser(poll.author.id),
+    })
     void qc.invalidateQueries({ queryKey: pollKeys.detail(poll.id) })
   }
 
@@ -107,6 +116,8 @@ export function PollCard({ poll, isOwner, canModerate = false }: Props) {
             ) : (
               <Badge variant="success">{t('pollStatusActive')}</Badge>
             )}
+            {poll.company && <CompanyMark />}
+            {poll.universityPage && <UniversityMark />}
             {!poll.closed && daysLeft !== null && daysLeft > 0 && (
               <span className="inline-flex items-center gap-1">
                 <Clock className="size-3.5" aria-hidden />

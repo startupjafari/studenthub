@@ -38,7 +38,7 @@ import { LocalStrategy } from './strategies/local.strategy'
     // Допуск по статусу вуза: вход, refresh, регистрация по инвайту и JwtStrategy.
     UniversitiesModule,
     // Вход работодателя ждёт подтверждения почты компании (CompaniesService.loginDenial).
-    // Кольца нет: CareerModule сам ничего не импортирует.
+    // Кольца нет: CareerModule импортирует только FilesModule, а тот — ничего.
     CareerModule,
     JwtModule.registerAsync({
       inject: [ConfigService],

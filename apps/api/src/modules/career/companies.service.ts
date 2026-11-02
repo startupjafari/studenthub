@@ -9,6 +9,8 @@ import {
   type CompanyAccessStatus,
   type CompanyListQueryInput,
   type CompanyMemberRole,
+  type CompanyUniversityDirectoryQueryInput,
+  type CompanyUniversityFilter,
   type DecideCompanyAccessInput,
   type EmployerSignupInput,
   type RequestCompanyAccessInput,
@@ -26,6 +28,7 @@ import type { EnvVars } from '../../config/env.schema'
 import { webBaseUrl } from '../../config/web-base'
 import { PLATFORM_TIME_ZONE } from '../platform/platform.constants'
 import { CareerAccessService } from './career-access.service'
+import { COMPANY_PAGE_SELECT } from './company-page.service'
 import { CareerNotifier } from './career-notifier'
 
 /** Срок жизни ссылки подтверждения email. Сутки: письмо могут открыть на следующий день. */
@@ -445,31 +448,60 @@ export class CompaniesService {
    * ролям и отдаёт служебные поля. Здесь — минимум (название, город) плюс статус
    * собственной заявки, чтобы фронт не склеивал два списка руками.
    */
-  async universityDirectory(viewer: JwtPayload, search?: string) {
+  async universityDirectory(viewer: JwtPayload, query: CompanyUniversityDirectoryQueryInput) {
     const companyId = this.access.requireCompany(viewer)
+    const now = new Date()
+    // Заявка, которая сейчас что-то значит: допуск действует или ждёт решения. Отказ, отзыв
+    // и истёкший срок — «доступа нет», заявку можно подать снова (как кнопка в таблице).
+    const active: Prisma.CompanyUniversityAccessWhereInput = {
+      companyId,
+      status: 'APPROVED',
+      OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+    }
+    const pending: Prisma.CompanyUniversityAccessWhereInput = { companyId, status: 'REQUESTED' }
+    const byAccess: Record<CompanyUniversityFilter, Prisma.UniversityWhereInput> = {
+      APPROVED: { companyAccess: { some: active } },
+      REQUESTED: { companyAccess: { some: pending } },
+      NONE: { NOT: { companyAccess: { some: { OR: [active, pending] } } } },
+    }
+    const where: Prisma.UniversityWhereInput = {
+      status: 'ACTIVE',
+      ...(query.search ? { name: { contains: query.search, mode: 'insensitive' } } : {}),
+      ...(query.access ? byAccess[query.access] : {}),
+    }
+    // id — вторым ключом: порядок одноимённых вузов стабилен между страницами.
+    const orderBy: Prisma.UniversityOrderByWithRelationInput[] = [
+      { name: query.order },
+      { id: 'asc' },
+    ]
 
-    const [universities, access] = await Promise.all([
+    const [universities, total] = await Promise.all([
       this.prisma.university.findMany({
-        where: {
-          status: 'ACTIVE',
-          ...(search ? { name: { contains: search, mode: 'insensitive' as const } } : {}),
+        where,
+        select: {
+          id: true,
+          name: true,
+          shortName: true,
+          city: true,
+          // Своя заявка в этот вуз — одна на пару «компания ↔ вуз» (@@unique).
+          companyAccess: {
+            where: { companyId },
+            select: { status: true, expiresAt: true, reason: true },
+            take: 1,
+          },
         },
-        select: { id: true, name: true, shortName: true, city: true },
-        orderBy: { name: 'asc' },
-        take: 50,
+        orderBy,
+        skip: (query.page - 1) * query.limit,
+        take: query.limit,
       }),
-      this.prisma.companyUniversityAccess.findMany({
-        where: { companyId },
-        select: { universityId: true, status: true, expiresAt: true, reason: true },
-        take: 500,
-      }),
+      this.prisma.university.count({ where }),
     ])
 
-    const byUniversity = new Map(access.map((a) => [a.universityId, a]))
-    return universities.map((u) => ({
+    const items = universities.map(({ companyAccess, ...u }) => ({
       ...u,
-      access: byUniversity.get(u.id) ?? null,
+      access: companyAccess[0] ?? null,
     }))
+    return { items, total }
   }
 
   // ── Сторона вуза: очередь заявок и решения ─────────────────────────────────
@@ -833,16 +865,9 @@ export class CompaniesService {
     const company = await this.prisma.company.findFirst({
       where: { id: companyId, deletedAt: null },
       select: {
-        id: true,
-        name: true,
-        slug: true,
-        description: true,
-        website: true,
-        city: true,
-        logoUrl: true,
+        ...COMPANY_PAGE_SELECT,
         status: true,
         blockedReason: true,
-        createdAt: true,
         members: { where: { userId: viewerId }, select: { role: true }, take: 1 },
       },
     })

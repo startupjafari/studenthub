@@ -165,7 +165,7 @@ export function EmployerHomeView() {
         action={
           owner ? (
             <Button asChild variant="outline" size="sm">
-              <Link href="/employer/company">{t('editCompany')}</Link>
+              <Link href="/profile?view=company">{t('editCompany')}</Link>
             </Button>
           ) : undefined
         }

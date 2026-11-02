@@ -1,6 +1,8 @@
 import { z } from 'zod'
 import { OffsetPaginationSchema, SortOrderSchema, queryBoolean } from './pagination.js'
 import { PasswordSchema } from './auth.js'
+import { OrgPageFieldsShape } from './org-page.js'
+import { KatoCodeSchema } from './kato.js'
 
 // Карьера (Фаза 18): компании-работодатели и их допуск к студентам вузов.
 // Единый источник истины для валидации на бэке и типов на фронте — дублировать
@@ -112,12 +114,6 @@ export const CompanyWebsiteSchema = companyWebsiteUrl
   .optional()
   .or(z.literal('').transform(() => undefined))
 
-/** Сайт в форме правки: пустое поле — «убрать сайт» (null), как у `clearableText`. */
-const ClearableCompanyWebsiteSchema = companyWebsiteUrl
-  .nullable()
-  .optional()
-  .or(z.literal('').transform(() => null))
-
 // ── Регистрация работодателя ─────────────────────────────────────────────────
 
 /**
@@ -160,13 +156,30 @@ export type ResendCompanyVerificationInput = z.infer<typeof ResendCompanyVerific
 
 // ── Профиль компании ─────────────────────────────────────────────────────────
 
+/** Численность — диапазоном: точный штат никто не назовёт, а студенту важен порядок. */
+export const COMPANY_SIZES = ['1_10', '11_50', '51_200', '201_1000', '1000_PLUS'] as const
+export const CompanySizeSchema = z.enum(COMPANY_SIZES)
+export type CompanySize = z.infer<typeof CompanySizeSchema>
+
+/**
+ * Правка профиля компании. Логотип и обложка сюда не входят: они загружаются файлом
+ * (`POST /career/companies/me/logo|cover`) — свободная строка позволяла бы подставить
+ * ссылку на чужой сервер, и студент грузил бы картинку оттуда. Описание, контакты и соцсети —
+ * общие со страницей университета (OrgPageFieldsShape).
+ */
 export const UpdateCompanySchema = z
   .object({
     name: CompanyNameSchema.optional(),
-    description: clearableText(2000),
-    website: ClearableCompanyWebsiteSchema,
-    city: clearableText(24),
-    logoUrl: optionalText(500),
+    // Город — только из справочника КАТО (код), а не свободным текстом: иначе «Астана»,
+    // «г. Астана» и «Нур-Султан» стали бы тремя разными городами.
+    city: KatoCodeSchema.nullable()
+      .optional()
+      .or(z.literal('').transform(() => null)),
+    industry: clearableText(80),
+    size: CompanySizeSchema.nullable()
+      .optional()
+      .or(z.literal('').transform(() => null)),
+    ...OrgPageFieldsShape,
   })
   .strict()
 export type UpdateCompanyInput = z.infer<typeof UpdateCompanySchema>
@@ -182,9 +195,30 @@ export const RequestCompanyAccessSchema = z
   .strict()
 export type RequestCompanyAccessInput = z.infer<typeof RequestCompanyAccessSchema>
 
-/** Справочник вузов для заявки компании: поиск по названию. */
-export const CompanyUniversityDirectoryQuerySchema = z.object({
+/**
+ * Колонки таблицы вузов у работодателя, по которым сортирует сервер. Города нет намеренно:
+ * `University.city` хранит код КАТО, и сортировка по коду выстроила бы строки по регионам,
+ * а не по алфавиту названий (то же решение — UNIVERSITY_SORT_FIELDS).
+ */
+export const COMPANY_UNIVERSITY_SORTS = ['name'] as const
+export const CompanyUniversitySortSchema = z.enum(COMPANY_UNIVERSITY_SORTS)
+export type CompanyUniversitySort = z.infer<typeof CompanyUniversitySortSchema>
+
+/**
+ * Фильтр таблицы по состоянию своей заявки. APPROVED — допуск действует прямо сейчас
+ * (истёкший — уже нет), REQUESTED — на рассмотрении, NONE — доступа нет: заявки не было,
+ * отказ, отзыв или срок истёк (во всех этих случаях можно подать заявку).
+ */
+export const COMPANY_UNIVERSITY_FILTERS = ['APPROVED', 'REQUESTED', 'NONE'] as const
+export const CompanyUniversityFilterSchema = z.enum(COMPANY_UNIVERSITY_FILTERS)
+export type CompanyUniversityFilter = z.infer<typeof CompanyUniversityFilterSchema>
+
+/** Справочник вузов для заявки компании: таблица с поиском, фильтром, сортировкой и страницами. */
+export const CompanyUniversityDirectoryQuerySchema = OffsetPaginationSchema.extend({
   search: z.string().trim().max(120).optional(),
+  access: CompanyUniversityFilterSchema.optional(),
+  sort: CompanyUniversitySortSchema.default('name'),
+  order: SortOrderSchema.default('asc'),
 })
 export type CompanyUniversityDirectoryQueryInput = z.infer<
   typeof CompanyUniversityDirectoryQuerySchema
@@ -448,7 +482,10 @@ export const VacancyInputSchema = z
     employmentType: EmploymentTypeSchema,
     workFormat: WorkFormatSchema,
     experienceLevel: ExperienceLevelSchema,
-    city: clearableText(24),
+    // Город — код справочника КАТО (по нему фильтрует витрина студента), не свободный текст.
+    city: KatoCodeSchema.nullable()
+      .optional()
+      .or(z.literal('').transform(() => null)),
     salaryMin: salaryField,
     salaryMax: salaryField,
     salaryCurrency: z.enum(['KZT', 'USD', 'EUR', 'RUB']).nullable().optional(),

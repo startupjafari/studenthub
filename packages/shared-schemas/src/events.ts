@@ -57,7 +57,8 @@ export function meetingProviderOf(url: string): MeetingProviderValue {
 }
 
 const eventBase = {
-  audience: PostAudienceSchema,
+  // У событий нет аудитории компании: она есть только у постов её страницы.
+  audience: PostAudienceSchema.exclude(['COMPANY']),
   title: z.string().min(1).max(200),
   description: z.string().min(1).max(5000),
   location: z.string().max(300).optional(),

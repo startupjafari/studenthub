@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
@@ -23,10 +23,14 @@ import {
   vacancyKeys,
   type EmployerVacancy,
 } from '../../../entities/vacancy'
+import { KatoSelect, isKatoCode } from '../../../entities/kato'
+import { LANGUAGE_VALUES, SKILLS_DICT, languageFlagOf } from '../../../shared/config'
 import {
   Button,
   DatePicker,
+  DictMultiSelect,
   FieldError,
+  LanguageFlag,
   Input,
   Label,
   Modal,
@@ -61,8 +65,8 @@ interface Draft {
   salaryMin: string
   salaryMax: string
   salaryCurrency: Currency | typeof NO_CURRENCY
-  skills: string
-  languages: string
+  skills: string[]
+  languages: string[]
   deadline: string
 }
 
@@ -77,17 +81,11 @@ function toDraft(v: EmployerVacancy | null): Draft {
     salaryMin: v?.salaryMin != null ? String(v.salaryMin) : '',
     salaryMax: v?.salaryMax != null ? String(v.salaryMax) : '',
     salaryCurrency: (v?.salaryCurrency as Currency | null) ?? NO_CURRENCY,
-    skills: (v?.skills ?? []).join(', '),
-    languages: (v?.languages ?? []).join(', '),
+    skills: v?.skills ?? [],
+    languages: v?.languages ?? [],
     deadline: v?.deadline ? v.deadline.slice(0, 10) : '',
   }
 }
-
-const list = (value: string): string[] =>
-  value
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean)
 
 const amount = (value: string): number | null => (value.trim() ? Number(value) : null)
 
@@ -104,14 +102,25 @@ function toInput(d: Draft): VacancyInput {
     salaryMin: amount(d.salaryMin),
     salaryMax: amount(d.salaryMax),
     salaryCurrency: d.salaryCurrency === NO_CURRENCY ? null : d.salaryCurrency,
-    skills: list(d.skills),
-    languages: list(d.languages),
+    skills: d.skills,
+    languages: d.languages,
     // Срок — датой: отклики принимаются до конца выбранного дня.
     deadline: d.deadline ? new Date(`${d.deadline}T23:59:59`).toISOString() : null,
   }
 }
 
 const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.stringify(b)
+
+/** Язык с флагом — как в профиле студента. */
+function languageItem(value: string): ReactNode {
+  const flag = languageFlagOf(value)
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      {flag && <LanguageFlag code={flag} />}
+      {value}
+    </span>
+  )
+}
 
 /**
  * Создание и правка вакансии компании.
@@ -154,6 +163,9 @@ export function VacancyFormModal({
       input.salaryMin != null && input.salaryMax != null && input.salaryMin > input.salaryMax
         ? t('salaryRange')
         : null,
+    // Вакансия, сохранённая до справочника, хранит город текстом: сервер его больше не
+    // примет — просим выбрать город из списка прямо у поля, а не общим «форма неверна».
+    city: input.city && !isKatoCode(input.city) ? t('cityFromList') : null,
   }
   const show = (key: keyof typeof errors): string | null => (submitted ? errors[key] : null)
 
@@ -294,11 +306,15 @@ export function VacancyFormModal({
         <div className="grid gap-4 sm:grid-cols-[1fr_1fr_1fr_8rem]">
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="vacancy-city">{t('fieldCity')}</Label>
-            <Input
+            {/* Город — из справочника КАТО: по нему студент фильтрует витрину, а «Астана»
+                и «г. Астана» свободным текстом были бы разными городами. */}
+            <KatoSelect
               id="vacancy-city"
               value={draft.city}
-              onChange={(e) => set('city', e.target.value)}
+              onChange={(next) => set('city', next)}
+              allowCustom={false}
             />
+            <FieldError>{show('city')}</FieldError>
           </div>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="vacancy-salary-min">{t('fieldSalaryMin')}</Label>
@@ -345,20 +361,25 @@ export function VacancyFormModal({
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="vacancy-skills">{t('fieldSkills')}</Label>
-            <Input
+            {/* Навыки — из того же справочника, что в профиле студента: по ним считается
+                совпадение вакансии и кандидата. Своё значение добавить можно, как в профиле. */}
+            <DictMultiSelect
               id="vacancy-skills"
               value={draft.skills}
-              onChange={(e) => set('skills', e.target.value)}
-              placeholder={t('commaHint')}
+              onChange={(next) => set('skills', next)}
+              options={SKILLS_DICT}
             />
           </div>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="vacancy-languages">{t('fieldLanguages')}</Label>
-            <Input
+            <DictMultiSelect
               id="vacancy-languages"
               value={draft.languages}
-              onChange={(e) => set('languages', e.target.value)}
-              placeholder={t('commaHint')}
+              onChange={(next) => set('languages', next)}
+              options={LANGUAGE_VALUES}
+              renderItem={languageItem}
+              allowCustom={false}
+              max={10}
             />
           </div>
         </div>

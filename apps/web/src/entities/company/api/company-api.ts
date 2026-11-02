@@ -1,5 +1,6 @@
 import type {
   CompanyListQueryInput,
+  CompanyUniversityDirectoryQueryInput,
   DecideCompanyAccessInput,
   EmployerSignupInput,
   RequestCompanyAccessInput,
@@ -8,6 +9,7 @@ import type {
 import { api, getPaged, type Paged } from '../../../shared/api'
 import type {
   Company,
+  CompanyPage,
   CompanyAccess,
   CompanyUniversityOption,
   UniversityCompanyAccess,
@@ -16,8 +18,10 @@ import type {
 export const companyKeys = {
   all: ['company'] as const,
   mine: () => ['company', 'mine'] as const,
+  page: (id: string) => ['company', 'page', id] as const,
   myAccess: () => ['company', 'access'] as const,
-  universityOptions: (search: string) => ['company', 'universities', search] as const,
+  universityOptions: (params: Partial<CompanyUniversityDirectoryQueryInput>) =>
+    ['company', 'universities', params] as const,
   universityAccess: (params: Partial<CompanyListQueryInput> = {}) =>
     ['company', 'university-access', params] as const,
 }
@@ -54,18 +58,43 @@ export async function updateMyCompany(input: UpdateCompanyInput): Promise<Compan
   return data
 }
 
+/** Картинка страницы компании: логотип (аватар) или обложка. Меняет только владелец. */
+export type CompanyImageKind = 'logo' | 'cover'
+
+export async function uploadCompanyImage(
+  kind: CompanyImageKind,
+  file: Blob,
+): Promise<{ url: string }> {
+  const form = new FormData()
+  form.append('file', file)
+  const { data } = await api.post<{ url: string }>(`/career/companies/me/${kind}`, form)
+  return data
+}
+
+export async function removeCompanyImage(kind: CompanyImageKind): Promise<void> {
+  await api.delete(`/career/companies/me/${kind}`)
+}
+
+// Страница компании — сотрудникам, платформе и вузам с действующим допуском (иначе 404).
+export async function fetchCompanyPage(id: string): Promise<CompanyPage> {
+  const { data } = await api.get<CompanyPage>(`/career/companies/${id}`)
+  return data
+}
+
 export async function fetchMyCompanyAccess(): Promise<CompanyAccess[]> {
   const { data } = await api.get<CompanyAccess[]>('/career/companies/me/access')
   return data
 }
 
-export async function fetchCompanyUniversityOptions(
-  search?: string,
-): Promise<CompanyUniversityOption[]> {
-  const { data } = await api.get<CompanyUniversityOption[]>('/career/companies/me/universities', {
-    params: search ? { search } : undefined,
+// Таблица вузов работодателя: поиск, фильтр по своей заявке, сортировка и страницы — на сервере.
+export function fetchCompanyUniversityOptions(
+  params: Partial<CompanyUniversityDirectoryQueryInput> = {},
+): Promise<Paged<CompanyUniversityOption>> {
+  return getPaged<CompanyUniversityOption>('/career/companies/me/universities', {
+    page: 1,
+    limit: 20,
+    ...params,
   })
-  return data
 }
 
 export async function requestCompanyAccess(

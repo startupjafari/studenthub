@@ -119,7 +119,8 @@ const DOCUMENTS: QuickAction = { navKey: 'documents', href: '/documents', icon: 
 // Работодатель (Ф18): разделы его собственной зоны. Общий «Документы» ему не добавляется —
 // см. quickActionsFor.
 const EMPLOYER: QuickAction[] = [
-  { navKey: 'companyProfile', href: '/employer/company', icon: Building2 },
+  // Страница компании живёт в профиле работодателя, за переключателем.
+  { navKey: 'companyProfile', href: '/profile?view=company', icon: Building2 },
   { navKey: 'universityAccess', href: '/employer/access', icon: GraduationCap },
 ]
 

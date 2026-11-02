@@ -17,6 +17,7 @@ import {
   decideCompanyAccess,
   fetchUniversityCompanyAccess,
 } from '../../../entities/company'
+import { useKatoNames } from '../../../entities/kato'
 import {
   Badge,
   Card,
@@ -112,6 +113,8 @@ export function CareerCompaniesView() {
   })
 
   const rows = query.data?.items ?? []
+  // Город компании — код КАТО (или старый свободный текст): названия одним запросом.
+  const { nameOf: cityName } = useKatoNames(rows.map((r) => r.company.city))
 
   // Новый фильтр или размер страницы — снова с первой: на прежней странице
   // отфильтрованного списка может не быть строк вовсе.
@@ -194,7 +197,7 @@ export function CareerCompaniesView() {
                       <TableText value={row.company.name} />
                       {row.company.city && (
                         <span className="block text-xs font-normal text-muted-foreground">
-                          {row.company.city}
+                          {cityName(row.company.city)}
                         </span>
                       )}
                     </TableCell>
