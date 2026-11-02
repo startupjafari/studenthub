@@ -1,10 +1,11 @@
 'use client'
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import Link from 'next/link'
 import { useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { Bookmark, Eye, Heart, MessageSquare, Pin, Play, Repeat2 } from 'lucide-react'
+import { Bookmark, Building2, Eye, Heart, MessageSquare, Pin, Play, Repeat2 } from 'lucide-react'
 import { Role } from '@studenthub/shared-types'
 import { useAppSelector } from '../../../shared/store'
 import {
@@ -22,6 +23,7 @@ import {
   type PostReactionSummary,
 } from '../../../entities/post'
 import { ProfileLink } from '../../../entities/user'
+import { CompanyMark, companyPath } from '../../../entities/company'
 import { RepostDialog, useRepost } from '../../../features/repost-post'
 import { Avatar, AvatarFallback, AvatarImage, Markdown, Skeleton } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
@@ -190,27 +192,59 @@ function PostCardView({
       {/* Шапка: имя забирает всю свободную ширину и сокращается многоточием, роль, кому
           адресован пост и его возраст — второй строкой и приглушённо. */}
       <header className={cn('flex items-center gap-3 px-4 sm:px-5', via ? 'pt-3' : 'pt-4')}>
-        <ProfileLink userId={post.author.id} className="shrink-0 rounded-full">
-          <Avatar className="size-10">
-            {post.author.avatarUrl && <AvatarImage src={post.author.avatarUrl} alt="" />}
-            <AvatarFallback>{initials(post.author)}</AvatarFallback>
-          </Avatar>
-        </ProfileLink>
+        {/* Пост страницы компании говорит от её имени: логотип и название компании, а
+            сотрудник-автор — второй строкой. Профиль работодателя закрыт, ссылка ведёт на
+            страницу компании. */}
+        {post.company ? (
+          <Link
+            href={companyPath(post.company.id)}
+            className="shrink-0 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+          >
+            <Avatar className="size-10">
+              {post.company.logoUrl && <AvatarImage src={post.company.logoUrl} alt="" />}
+              <AvatarFallback>
+                <Building2 className="size-5" aria-hidden />
+              </AvatarFallback>
+            </Avatar>
+          </Link>
+        ) : (
+          <ProfileLink userId={post.author.id} className="shrink-0 rounded-full">
+            <Avatar className="size-10">
+              {post.author.avatarUrl && <AvatarImage src={post.author.avatarUrl} alt="" />}
+              <AvatarFallback>{initials(post.author)}</AvatarFallback>
+            </Avatar>
+          </ProfileLink>
+        )}
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm leading-tight font-semibold">
-            <ProfileLink
-              userId={post.author.id}
-              className="transition-colors duration-150 hover:text-primary"
-            >
-              {post.author.lastName} {post.author.firstName}
-            </ProfileLink>
-          </p>
+          {post.company ? (
+            <p className="flex min-w-0 items-center gap-1.5 text-sm leading-tight font-semibold">
+              <Link
+                href={companyPath(post.company.id)}
+                className="truncate transition-colors duration-150 hover:text-primary"
+              >
+                {post.company.name}
+              </Link>
+              <CompanyMark />
+            </p>
+          ) : (
+            <p className="truncate text-sm leading-tight font-semibold">
+              <ProfileLink
+                userId={post.author.id}
+                className="transition-colors duration-150 hover:text-primary"
+              >
+                {post.author.lastName} {post.author.firstName}
+              </ProfileLink>
+            </p>
+          )}
           <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
             {post.pinnedAt && (
               <Pin className="size-3 shrink-0 fill-current text-primary" aria-hidden />
             )}
             <span className="truncate">
-              {tRoles(post.author.role)} · {t(`audience${post.audience}`)}
+              {post.company
+                ? `${post.author.lastName} ${post.author.firstName}`
+                : tRoles(post.author.role)}{' '}
+              · {t(`audience${post.audience}`)}
             </span>
             <span aria-hidden className="shrink-0">
               ·

@@ -15,12 +15,13 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import {
-  fetchProfileArticles,
-  fetchProfileCounts,
-  fetchProfileMedia,
-  profileContentKeys,
-} from '../../../entities/profile-content'
-import { fetchPollsByUser, pollKeys } from '../../../entities/poll'
+  fetchCountsOf,
+  ownerArticlesQuery,
+  ownerCountsKey,
+  ownerMediaQuery,
+  ownerPollsQuery,
+} from '../lib/owner-queries'
+import { useContentOwner } from '../lib/content-owner'
 import { useScrollRow } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 import { ProfilePosts, authorPostsQuery } from './profile-posts'
@@ -58,6 +59,9 @@ interface ProfileTabsProps {
   // Вкладки контента (посты, фото, видео, статьи, опросы). У охраны и библиотекаря их нет
   // (docs/PROJECT.md §2): остаются «Профиль» и «Настройки», а списки не запрашиваются.
   content?: boolean
+  // Вкладка «Посты». Работодатель публикует только на странице компании, поэтому в его
+  // личном профиле её нет.
+  posts?: boolean
 }
 
 export function ProfileTabs({
@@ -73,28 +77,18 @@ export function ProfileTabs({
   locked = false,
   stickyTop,
   content = true,
+  posts = true,
 }: ProfileTabsProps) {
   const t = useTranslations('Profile')
+  const owner = useContentOwner(userId)
 
   // Счётчики для бейджей на табах. Ключи совпадают с ключами вкладок-контента,
   // поэтому запросы шарят кэш с ProfilePosts/MediaGrid/Articles/Polls (без двойной загрузки).
   // Посты — вид вкладки по умолчанию: его `total` — все видимые посты автора.
-  const postsQ = useInfiniteQuery({ ...authorPostsQuery(userId), enabled: content })
-  const mediaQ = useQuery({
-    queryKey: profileContentKeys.media(userId),
-    queryFn: () => fetchProfileMedia(userId),
-    enabled: content,
-  })
-  const articlesQ = useQuery({
-    queryKey: profileContentKeys.articles(userId),
-    queryFn: () => fetchProfileArticles(userId),
-    enabled: content,
-  })
-  const pollsQ = useQuery({
-    queryKey: pollKeys.byUser(userId),
-    queryFn: () => fetchPollsByUser(userId),
-    enabled: content,
-  })
+  const postsQ = useInfiniteQuery({ ...authorPostsQuery(owner), enabled: content && posts })
+  const mediaQ = useQuery({ ...ownerMediaQuery(owner), enabled: content })
+  const articlesQ = useQuery({ ...ownerArticlesQuery(owner), enabled: content })
+  const pollsQ = useQuery({ ...ownerPollsQuery(owner), enabled: content })
 
   // Медиа, статьи и опросы приходят списком с потолком: пока список короче потолка, его
   // длина и есть итог; дошёл до потолка — итог берётся с сервера (иначе бейдж показал бы
@@ -108,12 +102,12 @@ export function ProfileTabs({
     // Версия списков в ключе: загрузка, удаление и новая запись меняют список — итоги
     // перечитываются вместе с ним, а прежние держатся на бейдже до ответа.
     queryKey: [
-      ...profileContentKeys.counts(userId),
+      ...ownerCountsKey(owner),
       mediaQ.dataUpdatedAt,
       articlesQ.dataUpdatedAt,
       pollsQ.dataUpdatedAt,
     ],
-    queryFn: () => fetchProfileCounts(userId),
+    queryFn: () => fetchCountsOf(owner),
     enabled: capped,
     placeholderData: keepPreviousData,
   })
@@ -158,7 +152,7 @@ export function ProfileTabs({
     { id: 'profile', label: t('tabProfile'), icon: UserRound },
     ...(content
       ? [
-          { id: 'posts' as const, label: t('tabPosts'), icon: Newspaper },
+          ...(posts ? [{ id: 'posts' as const, label: t('tabPosts'), icon: Newspaper }] : []),
           { id: 'photos' as const, label: t('tabPhotos'), icon: ImageIcon },
           { id: 'videos' as const, label: t('tabVideos'), icon: Video },
           { id: 'articles' as const, label: t('tabArticles'), icon: FileText },

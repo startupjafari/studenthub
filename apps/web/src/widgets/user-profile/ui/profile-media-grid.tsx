@@ -19,8 +19,6 @@ import {
   createAlbum,
   deleteAlbum,
   deleteProfileMedia,
-  fetchAlbums,
-  fetchProfileMedia,
   profileContentKeys,
   removeAlbumMedia,
   updateAlbum,
@@ -44,6 +42,8 @@ import { LoadFailed } from './load-failed'
 import { useProgressive } from './use-progressive'
 import type { ContentModeration } from '../lib/content-moderation'
 import { mediaQuotaNear, mediaUsage, useMediaQuota } from '../lib/media-quota'
+import { useOwnerKey } from '../lib/content-owner'
+import { ownerAlbumsQuery, ownerMediaQuery } from '../lib/owner-queries'
 
 function errCode(e: unknown): string {
   return (e as { code?: string }).code ?? 'INTERNAL_ERROR'
@@ -87,7 +87,9 @@ export function ProfileMediaGrid({
   const tErr = useTranslations('Errors')
   const qc = useQueryClient()
   const confirm = useConfirm()
-  const quota = useMediaQuota(userId)
+  // Страница компании: её медиа, альбомы и квота; иначе — пользователя userId.
+  const { owner, key: ownerKey } = useOwnerKey(userId)
+  const quota = useMediaQuota(ownerKey)
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -96,18 +98,11 @@ export function ProfileMediaGrid({
     onConsumed?.()
   }, [openPicker])
 
-  const q = useQuery({
-    queryKey: profileContentKeys.media(userId),
-    queryFn: () => fetchProfileMedia(userId),
-  })
+  const q = useQuery(ownerMediaQuery(owner))
   // Ошибка — один тост и повторы с растущей паузой; не помогло — ошибка на месте вкладки.
   const loadState = useRetryOnError(q, t('loadRetry'))
   const isPhoto = kind === 'PHOTO'
-  const albumsQ = useQuery({
-    queryKey: profileContentKeys.albums(userId),
-    queryFn: () => fetchAlbums(userId),
-    enabled: isPhoto,
-  })
+  const albumsQ = useQuery({ ...ownerAlbumsQuery(owner), enabled: isPhoto })
   const albums = albumsQ.data ?? []
 
   const [lightbox, setLightbox] = useState<number | null>(null)
@@ -120,12 +115,12 @@ export function ProfileMediaGrid({
   const [editAlbumTitle, setEditAlbumTitle] = useState('')
 
   const invalidateAll = () => {
-    void qc.invalidateQueries({ queryKey: profileContentKeys.media(userId) })
-    void qc.invalidateQueries({ queryKey: profileContentKeys.albums(userId) })
+    void qc.invalidateQueries({ queryKey: profileContentKeys.media(ownerKey) })
+    void qc.invalidateQueries({ queryKey: profileContentKeys.albums(ownerKey) })
   }
   const albumErr = (e: unknown) => toast.error(tErr(errCode(e)))
   const createAlbumMut = useMutation({
-    mutationFn: createAlbum,
+    mutationFn: (input: { title: string }) => createAlbum(input, owner),
     onSuccess: invalidateAll,
     onError: albumErr,
   })
@@ -159,9 +154,9 @@ export function ProfileMediaGrid({
   })
 
   const uploadMut = useMutation({
-    mutationFn: (file: File) => uploadProfileMediaAuto(file),
+    mutationFn: (file: File) => uploadProfileMediaAuto(file, undefined, owner),
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: profileContentKeys.media(userId) })
+      void qc.invalidateQueries({ queryKey: profileContentKeys.media(ownerKey) })
       toast.success(t('mediaUploaded'))
     },
     // Квота — своим текстом («удалите лишнее»), а не общим «конфликт».
@@ -172,7 +167,7 @@ export function ProfileMediaGrid({
 
   const delMut = useMutation({
     mutationFn: deleteProfileMedia,
-    onSuccess: () => void qc.invalidateQueries({ queryKey: profileContentKeys.media(userId) }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: profileContentKeys.media(ownerKey) }),
     onError: (e) => toast.error(tErr(errCode(e))),
   })
 

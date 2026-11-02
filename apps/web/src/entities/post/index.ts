@@ -3,6 +3,7 @@ export {
   fetchFeed,
   fetchPost,
   fetchAuthorPosts,
+  fetchCompanyPosts,
   createPostRequest,
   updatePostRequest,
   repostRequest,
