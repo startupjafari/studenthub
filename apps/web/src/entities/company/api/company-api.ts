@@ -1,5 +1,6 @@
 import type {
   CompanyListQueryInput,
+  CompanyUniversityDirectoryQueryInput,
   DecideCompanyAccessInput,
   EmployerSignupInput,
   RequestCompanyAccessInput,
@@ -19,7 +20,8 @@ export const companyKeys = {
   mine: () => ['company', 'mine'] as const,
   page: (id: string) => ['company', 'page', id] as const,
   myAccess: () => ['company', 'access'] as const,
-  universityOptions: (search: string) => ['company', 'universities', search] as const,
+  universityOptions: (params: Partial<CompanyUniversityDirectoryQueryInput>) =>
+    ['company', 'universities', params] as const,
   universityAccess: (params: Partial<CompanyListQueryInput> = {}) =>
     ['company', 'university-access', params] as const,
 }
@@ -84,13 +86,15 @@ export async function fetchMyCompanyAccess(): Promise<CompanyAccess[]> {
   return data
 }
 
-export async function fetchCompanyUniversityOptions(
-  search?: string,
-): Promise<CompanyUniversityOption[]> {
-  const { data } = await api.get<CompanyUniversityOption[]>('/career/companies/me/universities', {
-    params: search ? { search } : undefined,
+// Таблица вузов работодателя: поиск, фильтр по своей заявке, сортировка и страницы — на сервере.
+export function fetchCompanyUniversityOptions(
+  params: Partial<CompanyUniversityDirectoryQueryInput> = {},
+): Promise<Paged<CompanyUniversityOption>> {
+  return getPaged<CompanyUniversityOption>('/career/companies/me/universities', {
+    page: 1,
+    limit: 20,
+    ...params,
   })
-  return data
 }
 
 export async function requestCompanyAccess(

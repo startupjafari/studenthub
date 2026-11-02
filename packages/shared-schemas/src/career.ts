@@ -247,9 +247,26 @@ export const RequestCompanyAccessSchema = z
   .strict()
 export type RequestCompanyAccessInput = z.infer<typeof RequestCompanyAccessSchema>
 
-/** Справочник вузов для заявки компании: поиск по названию. */
-export const CompanyUniversityDirectoryQuerySchema = z.object({
+/** Колонки таблицы вузов у работодателя, по которым сортирует сервер. */
+export const COMPANY_UNIVERSITY_SORTS = ['name', 'city'] as const
+export const CompanyUniversitySortSchema = z.enum(COMPANY_UNIVERSITY_SORTS)
+export type CompanyUniversitySort = z.infer<typeof CompanyUniversitySortSchema>
+
+/**
+ * Фильтр таблицы по состоянию своей заявки. APPROVED — допуск действует прямо сейчас
+ * (истёкший — уже нет), REQUESTED — на рассмотрении, NONE — доступа нет: заявки не было,
+ * отказ, отзыв или срок истёк (во всех этих случаях можно подать заявку).
+ */
+export const COMPANY_UNIVERSITY_FILTERS = ['APPROVED', 'REQUESTED', 'NONE'] as const
+export const CompanyUniversityFilterSchema = z.enum(COMPANY_UNIVERSITY_FILTERS)
+export type CompanyUniversityFilter = z.infer<typeof CompanyUniversityFilterSchema>
+
+/** Справочник вузов для заявки компании: таблица с поиском, фильтром, сортировкой и страницами. */
+export const CompanyUniversityDirectoryQuerySchema = OffsetPaginationSchema.extend({
   search: z.string().trim().max(120).optional(),
+  access: CompanyUniversityFilterSchema.optional(),
+  sort: CompanyUniversitySortSchema.default('name'),
+  order: SortOrderSchema.default('asc'),
 })
 export type CompanyUniversityDirectoryQueryInput = z.infer<
   typeof CompanyUniversityDirectoryQuerySchema
