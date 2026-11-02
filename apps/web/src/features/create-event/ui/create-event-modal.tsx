@@ -10,7 +10,6 @@ import {
   CreateEventSchema,
   type CareerEventKind,
   type CreateEventInput,
-  type PostAudienceValue,
 } from '@studenthub/shared-schemas'
 import { Role } from '@studenthub/shared-types'
 import { useAppSelector } from '../../../shared/store'
@@ -31,8 +30,9 @@ import {
 import { EventDetailsFields } from './event-details-fields'
 
 // Кому роль вправе адресовать событие. Сервер проверяет то же самое — здесь только
-// не показываем заведомо недоступные варианты.
-const UI_AUDIENCES: Partial<Record<Role, PostAudienceValue[]>> = {
+// не показываем заведомо недоступные варианты. Тип — аудитории события, а не поста: у события
+// нет аудитории страницы компании (COMPANY).
+const UI_AUDIENCES: Partial<Record<Role, CreateEventInput['audience'][]>> = {
   [Role.PLATFORM_ADMIN]: ['ALL'],
   [Role.UNIVERSITY_ADMIN]: ['UNIVERSITY', 'FACULTY', 'GROUP', 'TEACHERS'],
   [Role.DEAN]: ['FACULTY', 'GROUP'],
