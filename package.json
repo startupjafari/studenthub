@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "turbo run dev",
     "build": "turbo run build",
+    "start": "turbo run start --filter='!camera-agent'",
     "test": "turbo run test",
     "typecheck": "turbo run typecheck",
     "lint": "eslint .",
