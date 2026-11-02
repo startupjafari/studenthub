@@ -96,7 +96,11 @@ const PostCreateModal = dynamic(
   { ssr: false },
 )
 
-type CreateKind = 'post' | 'photo' | 'video' | 'article' | 'poll'
+export type CreateKind = 'post' | 'photo' | 'video' | 'article' | 'poll'
+
+// Работодатель публикует посты только на странице своей компании: в личном профиле у него
+// нет ни вкладки «Посты», ни пункта «Пост» в меню «+».
+const PERSONAL_KINDS_WITHOUT_POSTS: CreateKind[] = ['photo', 'video', 'article', 'poll']
 
 function errCode(e: unknown): string {
   return (e as { code?: string }).code ?? 'INTERNAL_ERROR'
@@ -173,6 +177,7 @@ export function UserProfile({
   // Охрана и библиотекарь: служебный профиль без постов и медиа (docs/PROJECT.md §2) —
   // без вкладок контента, меню «+» и «Поделиться» (чатов у них тоже нет).
   const social = !isRestrictedRole(u.role)
+  const personalPosts = u.role !== Role.EMPLOYER
 
   return (
     // flex-1 — профиль занимает всю высоту страницы: пустая вкладка растягивает свою
@@ -185,6 +190,7 @@ export function UserProfile({
         onTabChange={setTab}
         locked={editing}
         content={social}
+        posts={personalPosts}
         settings={<AccountSettingsPanels />}
         stickyTop={
           <ProfileHeader
@@ -198,6 +204,7 @@ export function UserProfile({
               setTab('profile')
             }}
             onQuickCreate={quickCreate}
+            createKinds={personalPosts ? undefined : PERSONAL_KINDS_WITHOUT_POSTS}
             renderStoryViewer={renderStoryViewer}
             renderHighlights={social ? renderHighlights : undefined}
           />
@@ -276,6 +283,7 @@ function ProfileHeader({
   saving,
   onToggleEdit,
   onQuickCreate,
+  createKinds,
   renderStoryViewer,
   renderHighlights,
 }: {
@@ -285,6 +293,7 @@ function ProfileHeader({
   saving: boolean
   onToggleEdit: () => void
   onQuickCreate: (kind: CreateKind) => void
+  createKinds?: CreateKind[]
   renderStoryViewer?: RenderStoryViewer
   renderHighlights?: RenderHighlights
 }) {
@@ -525,7 +534,7 @@ function ProfileHeader({
             </span>
           </div>
           {/* Меню «+» — внизу справа, вне group аватара (чтобы не триггерить оверлей) */}
-          {social && <AvatarCreateMenu onSelect={onQuickCreate} />}
+          {social && <AvatarCreateMenu onSelect={onQuickCreate} kinds={createKinds} />}
           <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={onPick} />
           {storiesOpen && storyRing && renderStoryViewer?.(storyRing, () => setStoriesOpen(false))}
         </div>
@@ -567,7 +576,14 @@ function ProfileHeader({
 }
 
 // ── Меню быстрого создания на аватаре («+» → Фото/Видео/Статья/Вопрос-ответ) ──
-function AvatarCreateMenu({ onSelect }: { onSelect: (kind: CreateKind) => void }) {
+export function AvatarCreateMenu({
+  onSelect,
+  kinds,
+}: {
+  onSelect: (kind: CreateKind) => void
+  /** Какие пункты показать; по умолчанию — все. */
+  kinds?: CreateKind[]
+}) {
   const t = useTranslations('Profile')
   const [open, setOpen] = useState(false)
   const btnRef = useRef<HTMLButtonElement>(null)
@@ -638,13 +654,15 @@ function AvatarCreateMenu({ onSelect }: { onSelect: (kind: CreateKind) => void }
     }
   }, [open])
 
-  const items: { target: CreateKind; label: string; icon: LucideIcon }[] = [
-    { target: 'post', label: t('tabPosts'), icon: Newspaper },
-    { target: 'photo', label: t('tabPhotos'), icon: ImageIcon },
-    { target: 'video', label: t('tabVideos'), icon: Video },
-    { target: 'article', label: t('tabArticles'), icon: FileText },
-    { target: 'poll', label: t('tabPolls'), icon: BarChart3 },
-  ]
+  const items: { target: CreateKind; label: string; icon: LucideIcon }[] = (
+    [
+      { target: 'post', label: t('tabPosts'), icon: Newspaper },
+      { target: 'photo', label: t('tabPhotos'), icon: ImageIcon },
+      { target: 'video', label: t('tabVideos'), icon: Video },
+      { target: 'article', label: t('tabArticles'), icon: FileText },
+      { target: 'poll', label: t('tabPolls'), icon: BarChart3 },
+    ] as const
+  ).filter((it) => !kinds || kinds.includes(it.target))
 
   // Пункты меню; на мобильном (bottom-sheet) — крупнее для удобного тапа.
   const renderItems = (variant: 'dropdown' | 'sheet') =>
