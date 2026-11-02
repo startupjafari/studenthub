@@ -770,16 +770,6 @@ describe('CompaniesService.universityDirectory — таблица вузов р�
     expect(args.select.companyAccess.where).toEqual({ companyId: 'co-1' })
   })
 
-  it('сортировка по городу — пустой город в конце, затем по названию', async () => {
-    const { service, prisma } = setup()
-    await service.universityDirectory(employer, { ...query, sort: 'city', order: 'desc' })
-    expect(prisma.university.findMany.mock.calls[0][0].orderBy).toEqual([
-      { city: { sort: 'desc', nulls: 'last' } },
-      { name: 'asc' },
-      { id: 'asc' },
-    ])
-  })
-
   it('фильтр «без доступа» исключает действующий допуск и заявку на рассмотрении', async () => {
     const { service, prisma } = setup()
     await service.universityDirectory(employer, { ...query, access: 'NONE' })

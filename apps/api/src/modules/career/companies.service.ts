@@ -469,11 +469,11 @@ export class CompaniesService {
       ...(query.search ? { name: { contains: query.search, mode: 'insensitive' } } : {}),
       ...(query.access ? byAccess[query.access] : {}),
     }
-    // Вторым ключом — название и id: порядок внутри одного города стабилен между страницами.
-    const orderBy: Prisma.UniversityOrderByWithRelationInput[] =
-      query.sort === 'city'
-        ? [{ city: { sort: query.order, nulls: 'last' } }, { name: 'asc' }, { id: 'asc' }]
-        : [{ name: query.order }, { id: 'asc' }]
+    // id — вторым ключом: порядок одноимённых вузов стабилен между страницами.
+    const orderBy: Prisma.UniversityOrderByWithRelationInput[] = [
+      { name: query.order },
+      { id: 'asc' },
+    ]
 
     const [universities, total] = await Promise.all([
       this.prisma.university.findMany({

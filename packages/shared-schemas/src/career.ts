@@ -247,8 +247,12 @@ export const RequestCompanyAccessSchema = z
   .strict()
 export type RequestCompanyAccessInput = z.infer<typeof RequestCompanyAccessSchema>
 
-/** Колонки таблицы вузов у работодателя, по которым сортирует сервер. */
-export const COMPANY_UNIVERSITY_SORTS = ['name', 'city'] as const
+/**
+ * Колонки таблицы вузов у работодателя, по которым сортирует сервер. Города нет намеренно:
+ * `University.city` хранит код КАТО, и сортировка по коду выстроила бы строки по регионам,
+ * а не по алфавиту названий (то же решение — UNIVERSITY_SORT_FIELDS).
+ */
+export const COMPANY_UNIVERSITY_SORTS = ['name'] as const
 export const CompanyUniversitySortSchema = z.enum(COMPANY_UNIVERSITY_SORTS)
 export type CompanyUniversitySort = z.infer<typeof CompanyUniversitySortSchema>
 
