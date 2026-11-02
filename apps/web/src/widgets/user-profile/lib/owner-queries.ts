@@ -7,7 +7,12 @@ import {
   profileContentKeys,
   type ContentOwner,
 } from '../../../entities/profile-content'
-import { fetchPollsByCompany, fetchPollsByUser, pollKeys } from '../../../entities/poll'
+import {
+  fetchPollsByCompany,
+  fetchPollsByUniversity,
+  fetchPollsByUser,
+  pollKeys,
+} from '../../../entities/poll'
 
 // Запросы вкладок профиля по владельцу контента (пользователь или страница компании). Ключи
 // общие для вкладки и бейджа на ней (ProfileTabs) — список грузится один раз на оба места.
@@ -34,15 +39,19 @@ export function ownerArticlesQuery(owner: ContentOwner) {
 }
 
 export function ownerPollsKey(owner: ContentOwner) {
-  return owner.kind === 'company' ? pollKeys.byCompany(owner.id) : pollKeys.byUser(owner.id)
+  if (owner.kind === 'company') return pollKeys.byCompany(owner.id)
+  if (owner.kind === 'university') return pollKeys.byUniversity(owner.id)
+  return pollKeys.byUser(owner.id)
 }
 
 export function ownerPollsQuery(owner: ContentOwner) {
-  return {
-    queryKey: ownerPollsKey(owner),
-    queryFn: () =>
-      owner.kind === 'company' ? fetchPollsByCompany(owner.id) : fetchPollsByUser(owner.id),
-  }
+  const fetchPolls =
+    owner.kind === 'company'
+      ? fetchPollsByCompany
+      : owner.kind === 'university'
+        ? fetchPollsByUniversity
+        : fetchPollsByUser
+  return { queryKey: ownerPollsKey(owner), queryFn: () => fetchPolls(owner.id) }
 }
 
 export function ownerCountsKey(owner: ContentOwner) {

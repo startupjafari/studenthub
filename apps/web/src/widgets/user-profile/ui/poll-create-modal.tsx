@@ -63,9 +63,9 @@ export function PollCreateModal({ userId, initial, onClose }: Props) {
     initial?.closesAt ? toDateTimeLocal(initial.closesAt) : '',
   )
   const [showSettings, setShowSettings] = useState(false)
-  // Опрос страницы компании: видимость ставит сервер (COMPANY), выбора области у него нет.
+  // Опрос страницы организации: видимость ставит сервер, выбора области у него нет.
   const owner = useContentOwner(userId)
-  const isCompany = owner.kind === 'company'
+  const isPage = owner.kind !== 'user'
 
   const saveMut = useMutation({
     mutationFn: (status: 'DRAFT' | 'PUBLISHED') => {
@@ -79,12 +79,14 @@ export function PollCreateModal({ userId, initial, onClose }: Props) {
         anonymous: true,
         allowRevote,
         resultsVisibility: resultsVisibility as (typeof POLL_RESULTS_VISIBILITY)[number],
-        // Для опроса компании сервер значение игнорирует; COMPANY схема правки не примет.
-        visibility: isCompany ? 'ALL' : (visibility as (typeof CONTENT_VISIBILITY)[number]),
+        // Для опроса страницы сервер значение игнорирует; её видимость схема правки не примет.
+        visibility: isPage ? 'ALL' : (visibility as (typeof CONTENT_VISIBILITY)[number]),
         status,
         closesAt: closesAt(),
       }
-      return initial ? updatePoll(initial.id, input) : createPoll(input, isCompany)
+      return initial
+        ? updatePoll(initial.id, input)
+        : createPoll(input, owner.kind === 'user' ? undefined : owner.kind)
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ownerPollsKey(owner) })
@@ -250,8 +252,12 @@ export function PollCreateModal({ userId, initial, onClose }: Props) {
               )}
             </div>
 
-            {isCompany ? (
-              <p className="text-sm text-muted-foreground">{t('companyVisibilityHint')}</p>
+            {isPage ? (
+              <p className="text-sm text-muted-foreground">
+                {owner.kind === 'company'
+                  ? t('companyVisibilityHint')
+                  : t('universityVisibilityHint')}
+              </p>
             ) : (
               <div className="flex flex-col gap-2">
                 <Label>{t('pollVisibility')}</Label>

@@ -5,7 +5,12 @@ import { infiniteQueryOptions, keepPreviousData, useInfiniteQuery } from '@tanst
 import { useTranslations } from 'next-intl'
 import { Newspaper } from 'lucide-react'
 import type { AuthorFeedSort, PostStatusValue } from '@studenthub/shared-schemas'
-import { fetchAuthorPosts, fetchCompanyPosts, postKeys } from '../../../entities/post'
+import {
+  fetchAuthorPosts,
+  fetchCompanyPosts,
+  fetchUniversityPagePosts,
+  postKeys,
+} from '../../../entities/post'
 import type { ContentOwner } from '../../../entities/profile-content'
 import { PostGrid } from '../../feed-list'
 import { EmptyState, MosaicGrid, MosaicTile, Skeleton } from '../../../shared/ui'
@@ -44,9 +49,19 @@ export function authorPostsQuery(
   status: StatusFilter = 'all',
 ) {
   const isDefault = sort === 'new' && status === 'all'
-  // Страница компании — её посты (аудитория COMPANY), личный профиль — посты автора.
-  const base = owner.kind === 'company' ? postKeys.company(owner.id) : postKeys.author(owner.id)
-  const fetchPage = owner.kind === 'company' ? fetchCompanyPosts : fetchAuthorPosts
+  // Страница организации — её посты, личный профиль — посты автора.
+  const base =
+    owner.kind === 'company'
+      ? postKeys.company(owner.id)
+      : owner.kind === 'university'
+        ? postKeys.universityPage(owner.id)
+        : postKeys.author(owner.id)
+  const fetchPage =
+    owner.kind === 'company'
+      ? fetchCompanyPosts
+      : owner.kind === 'university'
+        ? fetchUniversityPagePosts
+        : fetchAuthorPosts
   return infiniteQueryOptions({
     queryKey: isDefault ? base : [...base, sort, status],
     queryFn: ({ pageParam }) =>

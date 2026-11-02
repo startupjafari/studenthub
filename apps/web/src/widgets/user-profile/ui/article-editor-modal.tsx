@@ -66,9 +66,9 @@ export function ArticleEditorModal({ userId, initial, onClose }: Props) {
   const [visibility, setVisibility] = useState(initial?.visibility ?? 'ALL')
   const [allowComments, setAllowComments] = useState(initial?.allowComments ?? true)
   const [showSettings, setShowSettings] = useState(false)
-  // Статья страницы компании: видимость ставит сервер (COMPANY), выбора области у неё нет.
+  // Статья страницы организации: видимость ставит сервер, выбора области у неё нет.
   const { owner, key: ownerKey } = useOwnerKey(userId)
-  const isCompany = owner.kind === 'company'
+  const isPage = owner.kind !== 'user'
 
   const coverMut = useMutation({
     mutationFn: uploadArticleCover,
@@ -89,8 +89,8 @@ export function ArticleEditorModal({ userId, initial, onClose }: Props) {
         coverGradient: coverMode === 'gradient' ? coverGradient : undefined,
         category: category ? (category as (typeof ARTICLE_CATEGORIES)[number]) : undefined,
         tags,
-        // Для статьи компании сервер значение игнорирует; COMPANY схема правки не примет.
-        visibility: isCompany ? 'ALL' : (visibility as (typeof CONTENT_VISIBILITY)[number]),
+        // Для статьи страницы сервер значение игнорирует; её видимость схема правки не примет.
+        visibility: isPage ? 'ALL' : (visibility as (typeof CONTENT_VISIBILITY)[number]),
         allowComments,
         status,
       }
@@ -315,8 +315,12 @@ export function ArticleEditorModal({ userId, initial, onClose }: Props) {
         </button>
         {showSettings && (
           <div className="flex flex-col gap-4 border-t border-border p-4">
-            {isCompany ? (
-              <p className="text-sm text-muted-foreground">{t('companyVisibilityHint')}</p>
+            {isPage ? (
+              <p className="text-sm text-muted-foreground">
+                {owner.kind === 'company'
+                  ? t('companyVisibilityHint')
+                  : t('universityVisibilityHint')}
+              </p>
             ) : (
               <div className="flex flex-col gap-2">
                 <Label>{t('visibility')}</Label>

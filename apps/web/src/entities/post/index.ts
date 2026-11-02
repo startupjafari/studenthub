@@ -4,6 +4,7 @@ export {
   fetchPost,
   fetchAuthorPosts,
   fetchCompanyPosts,
+  fetchUniversityPagePosts,
   createPostRequest,
   updatePostRequest,
   repostRequest,

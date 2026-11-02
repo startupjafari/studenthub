@@ -52,7 +52,7 @@ import {
   type PostReactionSummary,
 } from '../../../entities/post'
 import { ProfileLink } from '../../../entities/user'
-import { CompanyMark } from '../../../entities/company'
+import { postOrg } from '../lib/post-org'
 import { RepostDialog, useRepost } from '../../../features/repost-post'
 import { ReportModal } from '../../../features/report-content'
 import type { PostAuthor } from '../../../entities/post'
@@ -885,9 +885,9 @@ function PostView({
               {/* Аудитория — единственное, чего нет в Instagram, но без неё не понять,
                   кому виден пост. Время — под подписью и в строке под лайками. */}
               <p className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-                {post.company && <CompanyMark />}
+                {postOrg(post)?.mark}
                 <span className="truncate">
-                  {post.company ? `${post.company.name} · ` : ''}
+                  {postOrg(post) ? `${postOrg(post)?.name} · ` : ''}
                   {t(`audience${post.audience}`)}
                 </span>
               </p>
