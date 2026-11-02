@@ -28,19 +28,33 @@ ss -ltnp | grep -E ':3000|:3001|:5432|:6379|:9000'  # что слушает
 
 ## Рутинные операции
 
-**Рестарт API (сбрасывает in-memory throttler — счётчики rate-limit):**
+**Рестарт API:**
 ```bash
 PID=$(ss -ltnp | grep ':3001' | grep -oP 'pid=\K[0-9]+'); kill "$PID"      # не pkill
 set -a && . apps/api/.env && set +a && node apps/api/dist/main.js          # :3001
 ```
-> Throttler хранит счётчики в памяти процесса — рестарт API моментально снимает лимиты
-> (login 5/15мин, register 3/час, complaints 10/час). Логин/пароли при этом не меняются.
+> Счётчики rate-limit живут **в Redis** (`@nest-lab/throttler-storage-redis`, `app.module.ts`),
+> поэтому рестарт API лимиты больше не снимает. В память процесса throttler уходит только на
+> время недоступности Redis (`ResilientThrottlerStorage`). Лимиты: вход 5/15 мин на адрес +
+> логин (потолок 50/15 мин с адреса), регистрация по инвайту 10/час на токен (потолок
+> 100/час), жалобы 10/час с пользователя. Сбросить все счётчики разом:
+> ```bash
+> for p in '{*}:hits' '{*}:blocked'; do
+>   redis-cli -a "$REDIS_PASSWORD" --no-auth-warning --scan --pattern "$p" \
+>     | xargs -r redis-cli -a "$REDIS_PASSWORD" --no-auth-warning del
+> done
+> ```
+> `LOGIN_LOCKED` (блокировка учётки после 10 неудач) — отдельный счётчик, этим не снимается.
 
 **Рестарт Web:**
 ```bash
 PID=$(ss -ltnp | grep ':3000' | grep -oP 'pid=\K[0-9]+'); kill "$PID"
 pnpm --filter web build && apps/web/node_modules/.bin/next start apps/web -p 3000
 ```
+
+Всё собранное разом — `pnpm build`, затем `pnpm start` из корня: api :3001, web :3000,
+landing :3002, mini-app :3003 (`vite preview`); агент камер в `pnpm start` не входит. Рядом с
+живым `pnpm dev` веб так не собирать: прод-сборка затирает `apps/web/.next` (AGENTS.md).
 
 ## Прод-стек: первый запуск и сертификаты
 
@@ -92,7 +106,9 @@ nginx стартует последним — ждёт, пока api, web, ле�
 
 ## Миграции БД
 
-- Схема — multi-file `prisma/schema/`, `prisma.config.ts` НЕ грузит `.env` (передавайте `DATABASE_URL` окружением).
+- Схема — multi-file `prisma/schema/`. Prisma запускается из корня скриптами `pnpm db:*` (`db:validate`, `db:format`,
+  `db:generate`, `db:migrate`, `db:deploy`, `db:status`), не через `pnpm --filter api prisma …`. `prisma.config.ts` сам
+  читает `apps/api/.env`; уже заданное окружение важнее файла — так `DATABASE_URL=… pnpm db:deploy` бьёт в нужную БД.
 - **⚠️ `migrate diff --shadow-database-url` СБРАСЫВАЕТ указанную БД.** Никогда не подставляйте туда
   рабочую БД — только отдельную пустую (`studenthub_shadow`). Иначе данные и история миграций теряются.
 - Применение к непустой БД: сначала прочитать SQL глазами, показать владельцу, затем `migrate deploy`.
@@ -100,13 +116,13 @@ nginx стартует последним — ждёт, пока api, web, ле�
 
 **Восстановление истории миграций (если `_prisma_migrations` пуста, а схема есть) БЕЗ дропа:**
 ```bash
-for m in <каждая старая миграция>; do prisma migrate resolve --applied "$m"; done
-prisma migrate deploy    # накатит только новые
-node prisma/seed.mjs        # справочник КАТО заливается первым шагом сида
+for m in <каждая старая миграция>; do pnpm exec prisma migrate resolve --applied "$m"; done
+pnpm db:deploy    # накатит только новые
+pnpm db:seed      # справочник КАТО заливается первым шагом сида
 ```
 
 **Пересоздать dev-БД с нуля** (данных не жалко): `DROP SCHEMA public CASCADE; CREATE SCHEMA public;`
-через `prisma db execute` (не `migrate reset`) → `migrate deploy` → `node prisma/seed.mjs`.
+через `pnpm exec prisma db execute` (не `migrate reset`) → `pnpm db:deploy` → `pnpm db:seed`.
 
 **Залить платформу целиком** (100 вузов, ~77 млн строк, 40–70 мин, БД вырастает до ~32 ГБ,
 MinIO до ~13 ГБ):
@@ -116,10 +132,21 @@ MinIO до ~13 ГБ):
 `SEED_FORCE=1`. Гард не даст залить такой объём в нелокальную БД без `SEED_ALLOW_REMOTE=1`,
 а оценка выше 50 млн строк потребует `SEED_CONFIRM_BIG=1` (выше 300 млн — отказ).
 
-**Залить на боевую базу** — только через workflow `SEED` (`.github/workflows/seed.yml`):
+**Залить на боевую базу** — только через workflow `prodDbSeed` (`.github/workflows/seed.yml`):
 с локальной машины прод-БД обычно недоступна. База общая с продом, поэтому сброса там
 нет: прогон помечается меткой, а удалить налитое можно тем же workflow в режиме
 `cleanup` с повтором метки в поле `confirm`. Подробности — `docs/PROJECT.md §14.0`.
+
+**Другие скрипты данных** (все из корня, читают `apps/api/.env`):
+
+| Команда | Что делает |
+|---|---|
+| `pnpm db:seed:small` | сид в профиле `small`: 5 вузов по 200–400 студентов |
+| `pnpm db:seed:test` | стенд по ТЗ: 1 вуз, 1450 учащихся (`docs/PROJECT.md §14.1`) |
+| `pnpm db:seed:media` | только медиа-пул сида в MinIO |
+| `pnpm db:seed:kato` | только справочник КАТО |
+| `pnpm db:seed:library` | библиотека одного уже засеянного вуза |
+| `RESET_CONFIRM=RESET pnpm db:reset:admin` | очистить БД до одного `PLATFORM_ADMIN` и каталога услуг (TRUNCATE, схема и миграции целы). Для прода — workflow `prodDbReset`, необратимо |
 
 ## Бэкапы и восстановление
 
@@ -186,7 +213,7 @@ media/<имя>`. Бакет `stories-media` не зеркалится и не в
 | Секрет | Где задан | Что ломается при смене |
 |---|---|---|
 | `DATABASE_URL` | переменные сервиса api (Railway) | ничего, кроме простоя на перезапуск |
-| пароль Postgres | сервис Postgres (Railway) + секрет `DATABASE_PUBLIC_URL` в GitHub | workflow `Migrate`, `SEED`, `Reset DB` — у них своя копия строки подключения |
+| пароль Postgres | сервис Postgres (Railway) + секреты `DATABASE_PUBLIC_URL` (окружение `production`) и `BACKUP_DATABASE_URL` в GitHub | workflow `prodDbMigrate`, `prodDbSeed`, `prodDbReset`, job «Миграции» в `codeChecks` и `backup` — у них своя копия строки подключения |
 | `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET` | переменные api | все сессии; людей выкидывает на экран входа |
 | `TOTP_ENCRYPTION_KEY` | переменные api | **второй фактор у всех.** Ключ один, версий нет (`CryptoService`), и старые секреты TOTP после смены не расшифровываются. Менять только вместе со сбросом 2FA у всех, кому она включена |
 | `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` | переменные api **и** сервис MinIO | доступ к файлам целиком; менять одновременно в обоих местах |
@@ -416,6 +443,6 @@ Issue закрывать руками не нужно — он закроетс�
 
 ## Частые вопросы
 
-- **`RATE_LIMIT` при логине** — исчерпано окно 5/15мин с IP; подождать или рестартнуть API (сброс throttler).
+- **`RATE_LIMIT` при логине** — исчерпано окно 5/15 мин на адрес + логин (или потолок 50/15 мин с адреса); подождать или сбросить счётчики в Redis (см. «Рестарт API»). Рестарт API больше не помогает.
 - **`P3005` при `migrate deploy`** — схема есть, а `_prisma_migrations` пуста → baseline через `migrate resolve --applied` (см. выше).
 - **Письма «не приходят»** — в dev SMTP не настроен (`jsonTransport`), письма только логируются; это ожидаемо.
