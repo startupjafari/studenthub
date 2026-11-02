@@ -13,6 +13,8 @@ model ProfileArticle {
   category       String?
   tags           String[]  @default([])
   visibility     String    @default("ALL")
+  // Статья страницы компании (visibility = COMPANY): автор — сотрудник, компания — владелец.
+  companyId      String?   @map("company_id")
   allowComments  Boolean   @default(true) @map("allow_comments")
   status         String    @default("PUBLISHED")
   readingMinutes Int?      @map("reading_minutes")
@@ -23,10 +25,12 @@ model ProfileArticle {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   user      User             @relation("UserProfileArticles", fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  company   Company?         @relation(fields: [companyId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   comments  ContentComment[]
   bookmarks Bookmark[]
 
   @@index([userId, createdAt])
+  @@index([companyId, createdAt])
   @@map("profile_articles")
 }
 
@@ -71,14 +75,18 @@ model Album {
   userId      String   @map("user_id")
   title       String
   coverFileId String?  @map("cover_file_id")
+  // Альбом страницы компании: создал сотрудник (userId), принадлежит компании.
+  companyId   String?  @map("company_id")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
 
-  user  User   @relation("UserAlbums", fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  cover File?  @relation("AlbumCover", fields: [coverFileId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  files File[] @relation("AlbumFiles")
+  user    User     @relation("UserAlbums", fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  company Company? @relation(fields: [companyId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  cover   File?    @relation("AlbumCover", fields: [coverFileId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  files   File[]   @relation("AlbumFiles")
 
   @@index([userId])
+  @@index([companyId])
   @@index([coverFileId])
   @@map("albums")
 }
@@ -92,6 +100,8 @@ model Poll {
   allowRevote       Boolean   @default(false) @map("allow_revote")
   resultsVisibility String    @default("AFTER_VOTE") @map("results_visibility")
   visibility        String    @default("ALL")
+  // Опрос страницы компании (visibility = COMPANY): автор — сотрудник, компания — владелец.
+  companyId         String?   @map("company_id")
   status            String    @default("PUBLISHED")
   closesAt          DateTime? @map("closes_at")
 
@@ -99,11 +109,13 @@ model Poll {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   user     User             @relation("UserPolls", fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  company  Company?         @relation(fields: [companyId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   options  PollOption[]
   votes    PollVote[]
   comments ContentComment[]
 
   @@index([userId, createdAt])
+  @@index([companyId, createdAt])
   @@map("polls")
 }
 

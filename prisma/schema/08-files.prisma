@@ -24,6 +24,9 @@ model File {
   materialId     String?     @map("material_id")
   // Альбом фото профиля (Ф-albums): NULL — медиа без альбома.
   albumId        String?     @map("album_id")
+  // Медиа страницы компании (бакет profile-media): загрузил сотрудник (ownerId), принадлежит
+  // компании. NULL — личное медиа профиля.
+  companyId      String?     @map("company_id")
   // Документ (Ф15): NULL для файлов вне документов. order — порядок страниц (лицо/оборот и т.д.).
   documentId     String?     @map("document_id")
   order          Int?
@@ -56,6 +59,7 @@ model File {
   createdAt      DateTime    @default(now()) @map("created_at")
 
   owner         User                @relation(fields: [ownerId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  company       Company?            @relation("CompanyMedia", fields: [companyId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   post          Post?               @relation(fields: [postId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   message       Message?            @relation(fields: [messageId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   material      Material?           @relation(fields: [materialId], references: [id], onDelete: SetNull, onUpdate: Cascade)
@@ -88,6 +92,7 @@ model File {
   @@index([messageId])
   @@index([materialId])
   @@index([albumId])
+  @@index([companyId])
   @@index([documentId])
   @@index([submissionId])
   @@index([eventCommentId])

@@ -24,6 +24,8 @@ model Post {
   // PERSONAL — адресат; SUBJECT — название предмета (модели Subject нет, MVP).
   targetUserId String? @map("target_user_id")
   subject      String?
+  // COMPANY — компания, от чьего имени пост (автор — её сотрудник). NULL у остальных аудиторий.
+  companyId    String? @map("company_id")
 
   // Приоритет в ленте (docs/PROJECT.md §3.3): выставляется при создании из audience/роли автора.
   priority Int @default(0)
@@ -52,6 +54,7 @@ model Post {
   university       University?    @relation(fields: [universityId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   faculty          Faculty?       @relation(fields: [facultyId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   group            Group?         @relation(fields: [groupId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  company          Company?       @relation(fields: [companyId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   original         Post?          @relation("PostRepost", fields: [originalPostId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   reposts          Post[]         @relation("PostRepost")
   media            File[]
@@ -68,6 +71,7 @@ model Post {
   @@index([facultyId])
   @@index([groupId])
   @@index([targetUserId])
+  @@index([companyId])
   @@index([originalPostId])
   @@index([pinnedById])
   @@index([deletedAt])

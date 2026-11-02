@@ -29,6 +29,24 @@ model Company {
   // Логотип: File в публичном бакете (как обложка профиля). Скаляр без FK — файл может
   // быть заменён, а компания жить дальше.
   logoUrl     String? @map("logo_url")
+  // Обложка страницы компании — тот же публичный бакет, что у обложки профиля.
+  coverUrl    String? @map("cover_url")
+
+  // Витрина компании для студента. Отрасль — свободный текст: справочника отраслей нет,
+  // а навязанный список устареет быстрее, чем его кто-то обновит. size — ключ диапазона
+  // численности (COMPANY_SIZES в shared-schemas), а не число: точного штата никто не скажет.
+  industry    String?
+  size        String?
+  foundedYear Int?    @map("founded_year")
+
+  // Контакты для студента. Это рабочие каналы компании, а не адреса её сотрудников:
+  // личная почта работодателя остаётся в User и наружу не уходит.
+  contactEmail String? @map("contact_email")
+  contactPhone String? @map("contact_phone")
+  address      String?
+  telegram     String?
+  instagram    String?
+  linkedin     String?
 
   status String @default("PENDING_EMAIL")
 
@@ -53,6 +71,15 @@ model Company {
   members          CompanyMember[]
   universityAccess CompanyUniversityAccess[]
   vacancies        Vacancy[]
+
+  // Контент страницы компании. Автор — сотрудник (authorId/userId/ownerId), компания —
+  // от чьего имени он опубликован. Видимость — только вузам с действующим допуском
+  // (CareerAccessService), поэтому у такого контента своя метка аудитории COMPANY.
+  posts    Post[]
+  articles ProfileArticle[]
+  polls    Poll[]
+  albums   Album[]
+  media    File[]           @relation("CompanyMedia")
 
   @@index([status])
   @@index([deletedAt])
