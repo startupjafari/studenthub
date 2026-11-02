@@ -36,6 +36,8 @@ const AUTHOR_ROLES = [
   Role.TEACHER,
   Role.STAROSTA,
   Role.STUDENT,
+  // Только на страницу своей компании (аудитория COMPANY, PostsService.resolveTarget).
+  Role.EMPLOYER,
 ] as const
 
 @ApiTags('Посты')

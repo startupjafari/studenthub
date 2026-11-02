@@ -23,6 +23,7 @@ import { VotePollDto } from './dto/vote-poll.dto'
 import { PollCommentDto } from './dto/poll-comment.dto'
 import { PollsListQueryDto } from './dto/polls-list-query.dto'
 import { PollCommentsQueryDto } from './dto/poll-comments-query.dto'
+import { ContentOwnerQueryDto } from './dto/content-owner-query.dto'
 
 // Опросы профиля: создание, голосование, результаты (docs/PROJECT.md §3.7).
 @ApiTags('Опросы')
@@ -32,10 +33,30 @@ export class PollsController {
   constructor(private readonly polls: PollsService) {}
 
   @Post()
-  @ApiOperation({ summary: 'Создать опрос' })
+  @ApiOperation({
+    summary: 'Создать опрос (?as=company — на странице своей компании, только работодатель)',
+  })
   @ApiResponse({ status: 201, description: 'Опрос создан' })
-  create(@CurrentUser() user: CurrentUserData, @Body() dto: CreatePollDto) {
-    return this.polls.create(user, dto)
+  @ApiResponse({ status: 403, description: 'FORBIDDEN — as=company не работодателем' })
+  create(
+    @CurrentUser() user: CurrentUserData,
+    @Body() dto: CreatePollDto,
+    @Query() owner: ContentOwnerQueryDto,
+  ) {
+    return this.polls.create(user, dto, owner.as ?? 'user')
+  }
+
+  @Get('by-company/:companyId')
+  @ApiOperation({
+    summary:
+      'Опросы страницы компании (сотрудники, платформа, вузы с допуском; иначе пусто). Без limit/cursor — массив',
+  })
+  listByCompany(
+    @CurrentUser() user: CurrentUserData,
+    @Param('companyId') companyId: string,
+    @Query() query: PollsListQueryDto,
+  ) {
+    return this.polls.listByCompany(user, companyId, query)
   }
 
   @Get('by-user/:userId')
