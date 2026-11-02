@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
@@ -20,6 +21,7 @@ import {
   type CompanyUniversityOption,
 } from '../../../entities/company'
 import { useKatoNames } from '../../../entities/kato'
+import { universityPath } from '../../../entities/university'
 import {
   Badge,
   Button,
@@ -193,7 +195,17 @@ export function EmployerAccessView() {
               {rows.map((u) => (
                 <TableRow key={u.id} className="hover:bg-muted/40">
                   <TableCell className="font-medium">
-                    <TableText value={u.name} />
+                    {/* Страница вуза открыта компании, пока допуск действует. */}
+                    {u.access?.status === 'APPROVED' && isAccessActive(u.access) ? (
+                      <Link
+                        href={universityPath(u.id)}
+                        className="block truncate text-primary hover:underline"
+                      >
+                        {u.name}
+                      </Link>
+                    ) : (
+                      <TableText value={u.name} />
+                    )}
                     {/* Город на телефоне — под названием: своя колонка скрыта. */}
                     {u.city && (
                       <span className="block text-xs font-normal text-muted-foreground sm:hidden">
