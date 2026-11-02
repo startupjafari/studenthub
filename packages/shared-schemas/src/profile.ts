@@ -27,12 +27,16 @@ export type ContentVisibility = (typeof CONTENT_VISIBILITY)[number]
  */
 export const COMPANY_CONTENT_VISIBILITY = 'COMPANY'
 
+/** Видимость контента страницы университета — так же ставит только сервер (`?as=university`). */
+export const UNIVERSITY_PAGE_CONTENT_VISIBILITY = 'UNIVERSITY_PAGE'
+
 /**
  * От чьего имени создаётся контент профиля: `company` — страница компании сотрудника
- * (только EMPLOYER; компания берётся из токена, не из запроса). По умолчанию — личный.
+ * (только EMPLOYER), `university` — страница своего вуза (админ или модератор вуза).
+ * Организация берётся из токена, не из запроса. По умолчанию — личный.
  */
 export const ContentOwnerQuerySchema = z.object({
-  as: z.enum(['user', 'company']).optional(),
+  as: z.enum(['user', 'company', 'university']).optional(),
 })
 export type ContentOwnerQueryInput = z.infer<typeof ContentOwnerQuerySchema>
 

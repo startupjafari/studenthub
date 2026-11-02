@@ -38,6 +38,9 @@ export const CreatePostSchema = z
     // scheduledAt в будущем → пост становится отложенным (крон опубликует).
     status: z.enum(['DRAFT', 'PUBLISHED']).optional(),
     scheduledAt: z.coerce.date().optional().nullable(),
+    // От имени университета (страница вуза): только админ или модератор вуза, аудитория —
+    // UNIVERSITY своего вуза. Вуз берётся из токена.
+    asUniversity: z.boolean().optional(),
   })
   .strict()
 export type CreatePostInput = z.infer<typeof CreatePostSchema>
@@ -142,6 +145,8 @@ export const FeedQuerySchema = CursorPaginationSchema.extend({
   authorId: z.string().min(1).optional(),
   // Посты страницы компании. Без параметра лента их не содержит вовсе.
   companyId: z.string().uuid().optional(),
+  // Посты страницы университета (от его имени).
+  universityPageId: z.string().uuid().optional(),
   filter: FeedFilterSchema.optional(),
   reactions: z.enum(['list', 'summary']).optional(),
   sort: z.enum(AUTHOR_FEED_SORTS).optional(),
