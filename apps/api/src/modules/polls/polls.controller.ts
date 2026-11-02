@@ -34,7 +34,7 @@ export class PollsController {
 
   @Post()
   @ApiOperation({
-    summary: 'Создать опрос (?as=company — на странице своей компании, только работодатель)',
+    summary: 'Создать опрос (?as=company — страница своей компании, ?as=university — своего вуза)',
   })
   @ApiResponse({ status: 201, description: 'Опрос создан' })
   @ApiResponse({ status: 403, description: 'FORBIDDEN — as=company не работодателем' })
@@ -56,7 +56,20 @@ export class PollsController {
     @Param('companyId') companyId: string,
     @Query() query: PollsListQueryDto,
   ) {
-    return this.polls.listByCompany(user, companyId, query)
+    return this.polls.listByPage(user, { kind: 'company', id: companyId }, query)
+  }
+
+  @Get('by-university/:universityId')
+  @ApiOperation({
+    summary:
+      'Опросы страницы университета (свои, платформа, компании с допуском; иначе пусто). Без limit/cursor — массив',
+  })
+  listByUniversity(
+    @CurrentUser() user: CurrentUserData,
+    @Param('universityId') universityId: string,
+    @Query() query: PollsListQueryDto,
+  ) {
+    return this.polls.listByPage(user, { kind: 'university', id: universityId }, query)
   }
 
   @Get('by-user/:userId')

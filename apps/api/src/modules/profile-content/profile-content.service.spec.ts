@@ -121,9 +121,16 @@ function setup() {
   // Число опросов — у модуля опросов (countVisibleByUser), здесь только итог.
   const polls = { countVisibleByUser: jest.fn().mockResolvedValue(0) }
   const careerAccess = {
-    canViewCompany: jest.fn().mockResolvedValue(true),
-    requirePublishingCompany: jest.fn().mockResolvedValue('company-1'),
+    canViewPage: jest.fn().mockResolvedValue(true),
+    resolveContentOrg: jest.fn(async (_actor: JwtPayload, owner: string) =>
+      owner === 'company'
+        ? { companyId: 'company-1', universityPageId: null }
+        : owner === 'university'
+          ? { companyId: null, universityPageId: 'u' }
+          : { companyId: null, universityPageId: null },
+    ),
     visibleCompanyIds: jest.fn(async (_v: JwtPayload, ids: string[]) => new Set(ids)),
+    visibleUniversityPageIds: jest.fn(async (_v: JwtPayload, ids: string[]) => new Set(ids)),
   }
   const service = new ProfileContentService(
     prisma as unknown as PrismaService,
@@ -241,6 +248,7 @@ describe('ProfileContentService — квота медиа', () => {
     expect(prisma.file.aggregate.mock.calls[0][0].where).toEqual({
       ownerId: 'me',
       companyId: null,
+      universityPageId: null,
       bucket: 'profile-media',
     })
   })
@@ -552,6 +560,7 @@ describe('ProfileContentService — статьи и закрытый профи�
     expect(prisma.profileArticle.findMany.mock.calls[0][0].where).toEqual({
       userId: 'owner',
       companyId: null,
+      universityPageId: null,
       status: 'PUBLISHED',
       visibility: { in: ['ALL', 'UNIVERSITY', 'FACULTY', 'GROUP'] },
     })
@@ -1013,6 +1022,7 @@ describe('ProfileContentService — итоги вкладок профиля (E-
       where: {
         ownerId: 'author',
         companyId: null,
+        universityPageId: null,
         bucket: 'profile-media',
         mime: { startsWith: 'video/' },
       },
@@ -1073,21 +1083,23 @@ describe('ProfileContentService — страница компании', () => {
     })
     expect(prisma.file.update).toHaveBeenCalledWith({
       where: { id: 'file1' },
-      data: { companyId: 'company-1' },
+      data: { companyId: 'company-1', universityPageId: null },
     })
   })
 
   it('медиа невидимой компании — пусто, файлы не читаются', async () => {
     const { service, prisma, careerAccess } = setup()
-    careerAccess.canViewCompany.mockResolvedValue(false)
-    await expect(service.listCompanyMedia(user('peer'), 'company-1')).resolves.toEqual([])
+    careerAccess.canViewPage.mockResolvedValue(false)
+    await expect(
+      service.listPageMedia(user('peer'), { kind: 'company', id: 'company-1' }),
+    ).resolves.toEqual([])
     expect(prisma.file.findMany).not.toHaveBeenCalled()
   })
 
   it('медиа компании удаляет коллега загрузившего — без проверки владельца файла', async () => {
     const { service, prisma, files, audit } = setup()
     files.findOrThrow.mockResolvedValue(file({ ownerId: 'emp-1' }))
-    prisma.file.findUnique.mockResolvedValue({ companyId: 'company-1' })
+    prisma.file.findUnique.mockResolvedValue({ companyId: 'company-1', universityPageId: null })
     await service.deleteMedia(employer(), 'file1', ctx)
     expect(files.delete).toHaveBeenCalledWith('file1', undefined)
     // Это не модерация: в журнал модератора не пишется.
@@ -1123,6 +1135,7 @@ describe('ProfileContentService — страница компании', () => {
     prisma.profileArticle.findUnique.mockResolvedValue({
       userId: 'emp-1',
       companyId: 'company-1',
+      universityPageId: null,
       publishedAt: null,
     })
     prisma.profileArticle.update.mockResolvedValue({
@@ -1144,6 +1157,7 @@ describe('ProfileContentService — страница компании', () => {
     prisma.profileArticle.findUnique.mockResolvedValue({
       userId: 'emp-1',
       companyId: 'company-1',
+      universityPageId: null,
       status: 'DRAFT',
       visibility: 'COMPANY',
       user: owner('emp-1'),
@@ -1160,6 +1174,7 @@ describe('ProfileContentService — страница компании', () => {
     expect(prisma.profileArticle.findMany.mock.calls[0][0].where).toEqual({
       userId: 'emp-2',
       companyId: null,
+      universityPageId: null,
     })
   })
 })

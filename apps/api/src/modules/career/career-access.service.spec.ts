@@ -5,6 +5,8 @@ import {
   activeAccessWhere,
   companyContentVisibleWhere,
   isCompanyMember,
+  isUniversityPageEditor,
+  universityPageVisibleWhere,
 } from './career-access.service'
 import type { PrismaService } from '../../common/prisma/prisma.service'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
@@ -297,5 +299,45 @@ describe('CareerAccessService.assertCanViewCompany', () => {
       .catch((e: AppException) => e)
     expect((lost as AppException).code).toBe('NOT_FOUND')
     expect(prisma.company.count).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('universityPageVisibleWhere / isUniversityPageEditor', () => {
+  const admin: JwtPayload = {
+    sub: 'a-1',
+    role: Role.UNIVERSITY_ADMIN,
+    universityId: 'uni-1',
+    facultyId: null,
+    groupId: null,
+  }
+
+  it('свои видят только свой вуз, платформа — любой', () => {
+    expect(universityPageVisibleWhere({ ...admin, role: Role.STUDENT })).toEqual({ id: 'uni-1' })
+    expect(universityPageVisibleWhere({ ...admin, role: Role.PLATFORM_ADMIN })).toEqual({})
+  })
+
+  it('работодатель — вузы с действующим допуском своей компании', () => {
+    const now = new Date('2026-11-02T10:00:00Z')
+    const where = universityPageVisibleWhere(employer('co-1'), now)
+    expect(where).toMatchObject({
+      status: 'ACTIVE',
+      companyAccess: { some: { companyId: 'co-1', status: 'APPROVED' } },
+    })
+    expect(universityPageVisibleWhere(employer(null))).toBeNull()
+  })
+
+  it('публикуют от имени вуза админ и модератор своего вуза, не декан и не чужой', () => {
+    expect(isUniversityPageEditor(admin, 'uni-1')).toBe(true)
+    expect(isUniversityPageEditor({ ...admin, role: Role.UNIVERSITY_MODERATOR }, 'uni-1')).toBe(
+      true,
+    )
+    expect(isUniversityPageEditor({ ...admin, role: Role.DEAN }, 'uni-1')).toBe(false)
+    expect(isUniversityPageEditor(admin, 'uni-2')).toBe(false)
+  })
+
+  it('чужой работодатель от имени вуза не публикует', async () => {
+    const { service } = setup()
+    expect(() => service.requirePublishingUniversity(employer('co-1'))).toThrow(AppException)
+    expect(service.requirePublishingUniversity(admin)).toBe('uni-1')
   })
 })

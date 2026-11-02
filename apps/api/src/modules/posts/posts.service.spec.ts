@@ -88,7 +88,10 @@ function setup() {
     ]),
   }
   const redis = { multi: jest.fn(() => redisMulti) }
-  const careerAccess = { requirePublishingCompany: jest.fn().mockResolvedValue('company-1') }
+  const careerAccess = {
+    requirePublishingCompany: jest.fn().mockResolvedValue('company-1'),
+    requirePublishingUniversity: jest.fn((v: JwtPayload) => v.universityId),
+  }
   const service = new PostsService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
@@ -1901,5 +1904,50 @@ describe('PostsService — посты страницы компании', () => 
       )
       .catch((e: AppException) => e)
     expect((asStudent as AppException).code).toBe('FORBIDDEN')
+  })
+})
+
+// ── Страница университета: пост от имени вуза ───────────────────────────────
+describe('PostsService — посты от имени университета', () => {
+  it('модератор вуза публикует от имени вуза: весь вуз, владелец — вуз из токена', async () => {
+    const { service, prisma } = setup()
+    prisma.post.findFirst.mockResolvedValue(postRow({ audience: PostAudience.UNIVERSITY }))
+    await service.create(
+      viewer(Role.UNIVERSITY_MODERATOR, { universityId: 'uni-1' }),
+      { audience: 'GROUP', content: 'объявление', asUniversity: true },
+      ctx,
+    )
+    expect(prisma.post.create.mock.calls[0][0].data).toMatchObject({
+      audience: PostAudience.UNIVERSITY,
+      universityId: 'uni-1',
+      universityPageId: 'uni-1',
+    })
+  })
+
+  it('без asUniversity модератору аудитории закрыты, как и раньше', async () => {
+    const { service } = setup()
+    const err = await service
+      .create(
+        viewer(Role.UNIVERSITY_MODERATOR, { universityId: 'uni-1' }),
+        { audience: 'UNIVERSITY', content: 'x' },
+        ctx,
+      )
+      .catch((e: AppException) => e)
+    expect((err as AppException).code).toBe('FORBIDDEN')
+  })
+
+  it('лента своего вуза включает посты страницы вуза, вкладка профиля автора — нет', async () => {
+    const { service, prisma } = setup()
+    await service.feed(viewer(Role.STUDENT, { sub: 's1', universityId: 'uni-1' }), { limit: 20 })
+    const feedWhere = prisma.post.findMany.mock.calls[0][0].where
+    expect(feedWhere.AND).toContainEqual({
+      OR: [{ universityPageId: null }, { universityId: 'uni-1' }],
+    })
+    await service.feed(viewer(Role.STUDENT, { sub: 's1', universityId: 'uni-1' }), {
+      limit: 20,
+      authorId: 'admin-1',
+    })
+    const authorWhere = prisma.post.findMany.mock.calls[1][0].where
+    expect(authorWhere.AND[1].AND).toContainEqual({ universityPageId: null })
   })
 })
