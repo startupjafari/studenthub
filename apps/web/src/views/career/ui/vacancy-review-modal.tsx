@@ -4,6 +4,7 @@ import type { ReactNode } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
 import type { EmploymentType, ExperienceLevel, WorkFormat } from '@studenthub/shared-schemas'
 import type { VacancyReviewRow } from '../../../entities/vacancy'
+import { useKatoNames } from '../../../entities/kato'
 import { Badge, Button, Modal } from '../../../shared/ui'
 import { salaryText } from '../lib/salary-text'
 
@@ -37,6 +38,8 @@ export function VacancyReviewModal({
   const te = useTranslations('EmployerVacancies')
   const locale = useLocale()
   const { vacancy } = row
+  // Город вакансии — код КАТО: показываем название на языке интерфейса.
+  const { nameOf: cityName } = useKatoNames([vacancy.city])
 
   const employmentLabel: Record<EmploymentType, string> = {
     INTERNSHIP: tv('employmentInternship'),
@@ -76,7 +79,7 @@ export function VacancyReviewModal({
             {employmentLabel[vacancy.employmentType]} · {formatLabel[vacancy.workFormat]}
           </Fact>
           <Fact label={t('reviewExperience')}>{experienceLabel[vacancy.experienceLevel]}</Fact>
-          <Fact label={tv('colCity')}>{vacancy.city ?? t('reviewNotSet')}</Fact>
+          <Fact label={tv('colCity')}>{cityName(vacancy.city) ?? t('reviewNotSet')}</Fact>
           <Fact label={tv('colSalary')}>{salary ?? t('reviewNotSet')}</Fact>
           <Fact label={t('reviewDeadline')}>{deadline ?? t('reviewNotSet')}</Fact>
           {vacancy.languages.length > 0 && (

@@ -16,6 +16,7 @@ import {
 } from '../../../entities/profile-content'
 import { useOwnerKey } from '../lib/content-owner'
 import {
+  DictMultiSelect,
   Button,
   Checkbox,
   Input,
@@ -31,7 +32,6 @@ import {
 import { useErrorToast } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 import { ContentModal } from './content-modal'
-import { DictMultiSelect } from './dict-multi-select'
 import { ArticleCover, ARTICLE_GRADIENTS } from './article-cover'
 
 function errCode(e: unknown): string {

@@ -13,6 +13,7 @@ import {
   type CreateApplicationInput,
 } from '@studenthub/shared-schemas'
 import { fetchVacancy, vacancyKeys, type Vacancy } from '../../../entities/vacancy'
+import { useKatoNames } from '../../../entities/kato'
 import { companyPath } from '../../../entities/company'
 import {
   applicationKeys,
@@ -61,6 +62,8 @@ export function VacancyDetailModal({
     placeholderData: preview,
   })
   const vacancy = detail.data ?? preview
+  // Город вакансии — код КАТО: показываем название на языке интерфейса.
+  const { nameOf: cityName } = useKatoNames([vacancy.city])
 
   // Уже откликался? Повторный отклик сервер отклонит, поэтому вместо формы показываем статус.
   const mineParams = { vacancyId: preview.id, limit: 1 }
@@ -103,7 +106,7 @@ export function VacancyDetailModal({
             {vacancy.company.name}
           </Link>
           <p className="text-sm text-muted-foreground">
-            {[vacancy.city, salary, deadline ? t('deadline', { date: deadline }) : null]
+            {[cityName(vacancy.city), salary, deadline ? t('deadline', { date: deadline }) : null]
               .filter(Boolean)
               .join(' · ')}
           </p>

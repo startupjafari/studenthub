@@ -16,6 +16,7 @@ import {
 import type { UpdateProfileInput } from '@studenthub/shared-schemas'
 import type { MeResponse } from '../../../shared/api'
 import {
+  DictMultiSelect,
   Card,
   CardContent,
   CardHeader,
@@ -53,7 +54,6 @@ import {
 import { fetchSpecialties, specialtyKeys } from '../../../entities/specialty'
 import { cn } from '../../../shared/lib/utils'
 import type { FieldDef, Section } from './sections'
-import { DictMultiSelect } from './dict-multi-select'
 import { HandleInput } from './handle-input'
 
 const DICT_OPTIONS: Record<string, string[]> = {
