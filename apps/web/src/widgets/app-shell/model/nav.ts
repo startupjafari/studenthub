@@ -461,7 +461,8 @@ export const EMPLOYER_NAV: NavItem[] = [
   { key: 'careerHome', href: '/employer', icon: LayoutDashboard, exact: true },
   { key: 'vacancies', href: '/employer/vacancies', icon: Search },
   { key: 'candidates', href: '/employer/candidates', icon: Users },
-  { key: 'companyProfile', href: '/employer/company', icon: Building2 },
+  // Отдельного пункта «Компания» нет: страница компании — в профиле работодателя, за
+  // переключателем «Мой профиль / Компания» (/profile?view=company).
   { key: 'universityAccess', href: '/employer/access', icon: GraduationCap },
 ]
 
