@@ -1,6 +1,6 @@
 'use client'
 
-import { useForm } from 'react-hook-form'
+import { Controller, useForm } from 'react-hook-form'
 import type { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
@@ -15,7 +15,7 @@ import {
   updateMyUniversityPage,
   type UniversityPage,
 } from '../../../entities/university'
-import { Card, CardContent, FormAlert } from '../../../shared/ui'
+import { Card, CardContent, FormAlert, toKzPhone } from '../../../shared/ui'
 import { useFormAlert } from '../../../shared/lib'
 import { ENTER } from './profile-content'
 import { OrgPageFieldsForm } from './org-page-fields'
@@ -32,7 +32,7 @@ function toFormValues(u: UniversityPage): UniversityFormValues {
     website: u.website ?? '',
     foundedYear: u.foundedYear ?? undefined,
     contactEmail: u.contactEmail ?? '',
-    contactPhone: u.contactPhone ?? '',
+    contactPhone: toKzPhone(u.contactPhone),
     address: u.address ?? '',
     telegram: u.telegram ?? '',
     instagram: u.instagram ?? '',
@@ -55,6 +55,7 @@ export function UniversityEditForm({
 
   const {
     register,
+    control,
     handleSubmit,
     formState: { errors },
   } = useForm<UniversityFormValues, unknown, UpdateUniversityPageInput>({
@@ -90,7 +91,20 @@ export function UniversityEditForm({
             <p className="text-sm text-muted-foreground">{t('requisitesHint')}</p>
             <OrgPageFieldsForm
               aboutTitle={t('about')}
-              binding={{ register, hasError: (name) => !!errors[name] }}
+              linkedinKind="school"
+              binding={{
+                register,
+                hasError: (name) => !!errors[name],
+                controlled: (name, render) => (
+                  <Controller
+                    control={control}
+                    name={name}
+                    render={({ field: f }) => (
+                      <>{render({ value: f.value, onChange: f.onChange, onBlur: f.onBlur })}</>
+                    )}
+                  />
+                ),
+              }}
             />
           </fieldset>
         </form>

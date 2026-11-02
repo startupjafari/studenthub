@@ -143,7 +143,7 @@
     "size201to1000": "201–1000 employees",
     "size1000plus": "More than 1000 employees",
     "errName": "2 to 120 characters",
-    "errCity": "No more than 24 characters"
+    "errCity": "Choose a city from the list"
   },
   "OrgPage": {
     "switchLabel": "Which profile to show",
@@ -176,9 +176,10 @@
     "errYear": "A year from 1800 to the current one",
     "errWebsite": "The link must start with http:// or https://",
     "errEmail": "Invalid email",
-    "errPhone": "Invalid phone number",
-    "errTelegram": "Enter @name or a https://t.me/name link",
-    "errHttps": "The link must start with https://"
+    "errPhone": "Number in the format +7 (777) 777-77-77",
+    "errTelegram": "Telegram username: Latin letters, digits and _, at least 4 characters",
+    "errInstagram": "Instagram username: Latin letters, digits, dot and _",
+    "errLinkedin": "LinkedIn page: Latin letters, digits and -"
   },
   "University": {
     "mark": "University",
