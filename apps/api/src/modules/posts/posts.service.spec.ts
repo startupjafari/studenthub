@@ -1864,6 +1864,29 @@ describe('PostsService — посты страницы компании', () => 
     })
   })
 
+  it('пост компании удаляет любой её сотрудник, чужой компании — нет', async () => {
+    const { service, prisma } = setup()
+    const companyPost = {
+      ...postRow({ id: 'p1', authorId: 'emp-9', audience: PostAudience.COMPANY }),
+      companyId: 'company-1',
+      universityId: null,
+      facultyId: null,
+      groupId: null,
+      author: { role: Role.EMPLOYER },
+    }
+    prisma.post.findFirst.mockResolvedValue(companyPost)
+    await service.remove(employer(), 'p1', ctx)
+    expect(prisma.post.update).toHaveBeenCalledWith({
+      where: { id: 'p1' },
+      data: { deletedAt: expect.any(Date) },
+    })
+
+    prisma.post.update.mockClear()
+    const err = await service.remove(employer('company-2'), 'p1', ctx).catch((e: AppException) => e)
+    expect(err).toBeInstanceOf(AppException)
+    expect(prisma.post.update).not.toHaveBeenCalled()
+  })
+
   it('работодателю аудитории вуза закрыты, студенту — аудитория компании', async () => {
     const { service } = setup()
     const toAll = await service

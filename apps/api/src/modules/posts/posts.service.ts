@@ -19,7 +19,11 @@ import {
 } from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { REDIS_CLIENT } from '../../common/redis/redis.constants'
-import { CareerAccessService, companyContentVisibleWhere } from '../career/career-access.service'
+import {
+  CareerAccessService,
+  companyContentVisibleWhere,
+  isCompanyMember,
+} from '../career/career-access.service'
 import { NOTIFICATION_JOBS, QUEUES, QueueService } from '../../common/queue'
 import { isFirstViewToday } from './unique-view'
 import { FileService } from '../files/file.service'
@@ -199,6 +203,7 @@ type ViewerPost = Omit<FeedRow, 'media'> & {
 const POST_SCOPE_SELECT = {
   id: true,
   authorId: true,
+  companyId: true,
   audience: true,
   universityId: true,
   facultyId: true,
@@ -474,7 +479,9 @@ export class PostsService {
       original: row.original && originals.has(row.original.id) ? row.original : null,
       _count: counted && row._count ? row._count : { comments: countByPost.get(row.id) ?? 0 },
       bookmarked: savedIds.has(row.id),
-      canDelete: row.authorId === viewer.sub || this.canModerate(viewer, row, row.author.role),
+      canDelete:
+        this.ownsPost(viewer, { authorId: row.authorId, companyId: row.company?.id ?? null }) ||
+        this.canModerate(viewer, row, row.author.role),
       canPin: this.canPinPost(viewer, row, row.author.role),
     }))
   }
@@ -1033,12 +1040,12 @@ export class PostsService {
   ): Promise<ViewerPost> {
     const post = await this.prisma.post.findFirst({
       where: { id, deletedAt: null },
-      select: { id: true, authorId: true, originalPostId: true },
+      select: { id: true, authorId: true, companyId: true, originalPostId: true },
     })
     if (!post) {
       throw new AppException('NOT_FOUND', 'Пост не найден')
     }
-    if (post.authorId !== actor.sub) {
+    if (!this.ownsPost(actor, post)) {
       throw new AppException('FORBIDDEN', 'Редактировать можно только свою публикацию')
     }
     // Пустой текст допустим только у репоста — его заметка необязательна, как при создании.
@@ -1070,12 +1077,12 @@ export class PostsService {
   async publish(actor: JwtPayload, id: string, ctx: RequestContext): Promise<ViewerPost> {
     const post = await this.prisma.post.findFirst({
       where: { id, deletedAt: null },
-      select: { id: true, authorId: true, status: true },
+      select: { id: true, authorId: true, companyId: true, status: true },
     })
     if (!post) {
       throw new AppException('NOT_FOUND', 'Пост не найден')
     }
-    if (post.authorId !== actor.sub) {
+    if (!this.ownsPost(actor, post)) {
       throw new AppException('FORBIDDEN', 'Публиковать можно только свою публикацию')
     }
     if (post.status !== 'DRAFT') {
@@ -1103,7 +1110,7 @@ export class PostsService {
     if (!post) {
       throw new AppException('NOT_FOUND', 'Пост не найден')
     }
-    if (post.authorId !== actor.sub) {
+    if (!this.ownsPost(actor, post)) {
       this.assertModerator(actor, post, post.author.role)
     }
     await this.prisma.post.update({ where: { id }, data: { deletedAt: new Date() } })
@@ -1420,6 +1427,17 @@ export class PostsService {
   }
 
   // ── Внутреннее ──────────────────────────────────────────────────────────────
+
+  /**
+   * Свой пост — или пост страницы своей компании: её контентом распоряжается любой сотрудник
+   * (правка, публикация черновика, удаление), как статьями, опросами и медиа её страницы.
+   */
+  private ownsPost(
+    actor: JwtPayload,
+    post: { authorId: string; companyId: string | null },
+  ): boolean {
+    return post.companyId ? isCompanyMember(actor, post.companyId) : post.authorId === actor.sub
+  }
 
   private priorityFor(actor: JwtPayload, audience: PostAudience): number {
     const base = AUDIENCE_PRIORITY[audience]
