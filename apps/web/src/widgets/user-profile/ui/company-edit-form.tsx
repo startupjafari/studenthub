@@ -1,6 +1,7 @@
 'use client'
 
 import { Controller, useForm } from 'react-hook-form'
+import type { z } from 'zod'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
@@ -29,11 +30,14 @@ import {
 import { useFormAlert } from '../../../shared/lib'
 import { ENTER } from './profile-content'
 
+/** Значения полей до разбора схемой: пустая строка — «очистить поле». */
+type CompanyFormValues = z.input<typeof UpdateCompanySchema>
+
 /** Форма отправляется кнопкой «Сохранить» в шапке страницы компании. */
 export const COMPANY_EDIT_FORM_ID = 'company-edit-form'
 
 // Пустые текстовые поля — пустые строки: так поле можно очистить (схема переводит '' в null).
-function toFormValues(c: Company): UpdateCompanyInput {
+function toFormValues(c: Company): CompanyFormValues {
   return {
     name: c.name,
     description: c.description ?? '',
@@ -62,7 +66,7 @@ export function CompanyEditForm({ company, onSaved }: { company: Company; onSave
     control,
     handleSubmit,
     formState: { errors },
-  } = useForm<UpdateCompanyInput>({
+  } = useForm<CompanyFormValues, unknown, UpdateCompanyInput>({
     resolver: zodResolver(UpdateCompanySchema),
     defaultValues: toFormValues(company),
   })
@@ -88,7 +92,7 @@ export function CompanyEditForm({ company, onSaved }: { company: Company; onSave
   })
 
   const field = (
-    name: keyof UpdateCompanyInput,
+    name: keyof CompanyFormValues,
     label: string,
     error: string,
     props: React.ComponentProps<typeof Input> = {},
