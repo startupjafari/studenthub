@@ -11,6 +11,9 @@ export const PostAudienceSchema = z.enum([
   'SUBJECT',
   'TEACHERS',
   'PERSONAL',
+  // Пост страницы компании: публикует сотрудник компании, видят вузы с действующим допуском.
+  // В ленту вуза не попадает — только на страницу компании.
+  'COMPANY',
 ])
 export type PostAudienceValue = z.infer<typeof PostAudienceSchema>
 
@@ -137,6 +140,8 @@ export type PostStatusValue = (typeof POST_STATUSES)[number]
 
 export const FeedQuerySchema = CursorPaginationSchema.extend({
   authorId: z.string().min(1).optional(),
+  // Посты страницы компании. Без параметра лента их не содержит вовсе.
+  companyId: z.string().uuid().optional(),
   filter: FeedFilterSchema.optional(),
   reactions: z.enum(['list', 'summary']).optional(),
   sort: z.enum(AUTHOR_FEED_SORTS).optional(),
