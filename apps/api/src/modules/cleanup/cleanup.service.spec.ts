@@ -30,6 +30,9 @@ function makeService() {
     chat: { count: jest.fn(async () => 0) as Mock },
     // Обложки статей профиля — raw-объекты profile-covers, живые по ProfileArticle.coverUrl.
     profileArticle: { findMany: jest.fn(async () => []) as Mock },
+    // Логотипы и обложки страниц компаний и вузов — тоже raw-объекты profile-covers.
+    company: { findMany: jest.fn(async () => []) as Mock },
+    university: { findMany: jest.fn(async () => []) as Mock },
     // Снятие временных блокировок по сроку.
     user: {
       findMany: jest.fn(async () => []) as Mock,
@@ -648,6 +651,32 @@ describe('CleanupService', () => {
       expect(removed).toBe(1)
       expect(minio.removeObjects).toHaveBeenCalledTimes(1)
       expect(minio.removeObjects).toHaveBeenCalledWith('MINIO_BUCKET_PROFILE_COVERS', ['junk.jpg'])
+    })
+
+    it('не трогает логотипы и обложки страниц компаний и вузов в profile-covers', async () => {
+      const { service, prisma, minio } = makeService()
+      const old = new Date(Date.now() - 2 * 60 * 60 * 1000)
+      minio.listObjectsV2.mockImplementation((bucket: string) =>
+        bucket === 'MINIO_BUCKET_PROFILE_COVERS'
+          ? objectStream([
+              { name: 'company-logo.webp', lastModified: old },
+              { name: 'uni-cover.webp', lastModified: old },
+              { name: 'junk.webp', lastModified: old },
+            ])
+          : objectStream([]),
+      )
+      prisma.file.findMany.mockResolvedValue([])
+      prisma.company.findMany.mockResolvedValue([
+        { logoUrl: 'https://minio.example/profile-covers/company-logo.webp', coverUrl: null },
+      ])
+      prisma.university.findMany.mockResolvedValue([
+        { logoUrl: null, coverUrl: 'https://minio.example/profile-covers/uni-cover.webp' },
+      ])
+
+      const removed = await service.cleanOrphanFiles()
+
+      expect(removed).toBe(1)
+      expect(minio.removeObjects).toHaveBeenCalledWith('MINIO_BUCKET_PROFILE_COVERS', ['junk.webp'])
     })
 
     it('варианты медиа живут, пока жива запись File-владельца', async () => {
