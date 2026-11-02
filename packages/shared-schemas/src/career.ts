@@ -482,7 +482,10 @@ export const VacancyInputSchema = z
     employmentType: EmploymentTypeSchema,
     workFormat: WorkFormatSchema,
     experienceLevel: ExperienceLevelSchema,
-    city: clearableText(24),
+    // Город — код справочника КАТО (по нему фильтрует витрина студента), не свободный текст.
+    city: KatoCodeSchema.nullable()
+      .optional()
+      .or(z.literal('').transform(() => null)),
     salaryMin: salaryField,
     salaryMax: salaryField,
     salaryCurrency: z.enum(['KZT', 'USD', 'EUR', 'RUB']).nullable().optional(),
