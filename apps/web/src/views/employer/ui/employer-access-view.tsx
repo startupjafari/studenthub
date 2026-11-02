@@ -19,6 +19,7 @@ import {
   requestCompanyAccess,
   type CompanyUniversityOption,
 } from '../../../entities/company'
+import { useKatoNames } from '../../../entities/kato'
 import {
   Badge,
   Button,
@@ -111,6 +112,8 @@ export function EmployerAccessView() {
   })
 
   const rows = options.data?.items ?? []
+  // Город вуза хранится кодом КАТО — показываем название на языке интерфейса.
+  const { nameOf: cityName } = useKatoNames(rows.map((u) => u.city))
   const total = options.data?.total ?? 0
   const filtered = !!debounced || filter !== 'ALL'
 
@@ -180,14 +183,7 @@ export function EmployerAccessView() {
                 <TableHead sortKey="name" sort={table.sort} onSort={table.toggle}>
                   {t('colUniversity')}
                 </TableHead>
-                <TableHead
-                  sortKey="city"
-                  sort={table.sort}
-                  onSort={table.toggle}
-                  className="hidden sm:table-cell"
-                >
-                  {t('colCity')}
-                </TableHead>
+                <TableHead className="hidden sm:table-cell">{t('colCity')}</TableHead>
                 <TableHead>{t('colAccess')}</TableHead>
                 {canRequest && <TableHead className="text-right">{t('colActions')}</TableHead>}
               </TableRow>
@@ -201,12 +197,12 @@ export function EmployerAccessView() {
                     {/* Город на телефоне — под названием: своя колонка скрыта. */}
                     {u.city && (
                       <span className="block text-xs font-normal text-muted-foreground sm:hidden">
-                        {u.city}
+                        {cityName(u.city)}
                       </span>
                     )}
                   </TableCell>
                   <TableCell className="hidden text-muted-foreground sm:table-cell">
-                    <TableText value={u.city} />
+                    <TableText value={cityName(u.city)} />
                   </TableCell>
                   <TableCell>
                     <AccessBadge option={u} />
