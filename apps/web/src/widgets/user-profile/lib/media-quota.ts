@@ -65,7 +65,8 @@ export interface MediaQuotaApi {
   handleError: (error: unknown, toastId?: string) => boolean
 }
 
-export function useMediaQuota(userId: string): MediaQuotaApi {
+// ownerKey — id пользователя или contentOwnerKey(владельца): у страницы компании своя квота.
+export function useMediaQuota(ownerKey: string): MediaQuotaApi {
   const t = useTranslations('Profile')
   const unit = useByteUnitLabel()
   const qc = useQueryClient()
@@ -91,12 +92,12 @@ export function useMediaQuota(userId: string): MediaQuotaApi {
 
   const fits = useCallback(
     (file: File, toastId?: string): boolean => {
-      const items = qc.getQueryData<ProfileMedia[]>(profileContentKeys.media(userId))
+      const items = qc.getQueryData<ProfileMedia[]>(profileContentKeys.media(ownerKey))
       const over = items ? mediaQuotaExceeded(mediaUsage(items), file.size) : null
       if (over) toast.error(message(over), toastId ? { id: toastId } : undefined)
       return !over
     },
-    [qc, userId, message],
+    [qc, ownerKey, message],
   )
 
   const handleError = useCallback(

@@ -12,6 +12,8 @@ export const postKeys = {
   all: ['posts'] as const,
   feed: (filter = 'ALL') => ['posts', 'feed', filter] as const,
   author: (userId: string) => ['posts', 'author', userId] as const,
+  // Посты страницы компании (аудитория COMPANY) — в ленту не попадают.
+  company: (companyId: string) => ['posts', 'company', companyId] as const,
   detail: (id: string) => ['posts', 'detail', id] as const,
   comments: (id: string) => ['posts', id, 'comments'] as const,
   media: (fileId: string) => ['posts', 'media', fileId] as const,
@@ -47,6 +49,14 @@ export async function fetchAuthorPosts(
   query: Omit<FeedQueryInput, 'authorId'> = { limit: 20 },
 ): Promise<FeedPage> {
   return fetchFeed({ ...query, authorId })
+}
+
+// Посты страницы компании. Сервер пересекает с видимостью зрителя (допуск вуза).
+export async function fetchCompanyPosts(
+  companyId: string,
+  query: Omit<FeedQueryInput, 'companyId' | 'authorId'> = { limit: 20 },
+): Promise<FeedPage> {
+  return fetchFeed({ ...query, companyId })
 }
 
 // Один пост по постоянной ссылке. Сервер сам решает, видим ли он зрителю:

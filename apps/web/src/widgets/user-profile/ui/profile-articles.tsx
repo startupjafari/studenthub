@@ -26,7 +26,6 @@ import {
   deleteProfileArticle,
   fetchArticleComments,
   fetchProfileArticle,
-  fetchProfileArticles,
   fetchRelatedArticles,
   incrementArticleView,
   profileContentKeys,
@@ -46,6 +45,7 @@ import {
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { useBodyScrollLock } from '../../../shared/lib'
+import { CompanyMark } from '../../../entities/company'
 import { ArticleEditorModal } from './article-editor-modal'
 import { ArticleCover } from './article-cover'
 import { ContentModal } from './content-modal'
@@ -55,6 +55,8 @@ import { useRetryOnError } from './use-retry-on-error'
 import { LoadFailed } from './load-failed'
 import { useProgressive } from './use-progressive'
 import type { ContentModeration } from '../lib/content-moderation'
+import { useOwnerKey } from '../lib/content-owner'
+import { ownerArticlesQuery } from '../lib/owner-queries'
 
 function errCode(e: unknown): string {
   return (e as { code?: string }).code ?? 'INTERNAL_ERROR'
@@ -85,16 +87,15 @@ export function ProfileArticles({ userId, isOwner, moderation, openCreate, onCon
     onConsumed?.()
   }, [openCreate])
 
-  const q = useQuery({
-    queryKey: profileContentKeys.articles(userId),
-    queryFn: () => fetchProfileArticles(userId),
-  })
+  // Страница компании — её статьи; иначе — статьи пользователя userId.
+  const { owner, key: ownerKey } = useOwnerKey(userId)
+  const q = useQuery(ownerArticlesQuery(owner))
   // Ошибка — один тост и повторы с растущей паузой; не помогло — ошибка на месте вкладки.
   const loadState = useRetryOnError(q, t('loadRetry'))
 
   const delMut = useMutation({
     mutationFn: deleteProfileArticle,
-    onSuccess: () => void qc.invalidateQueries({ queryKey: profileContentKeys.articles(userId) }),
+    onSuccess: () => void qc.invalidateQueries({ queryKey: profileContentKeys.articles(ownerKey) }),
     onError: (e) => toast.error(tErr(errCode(e))),
   })
 
@@ -595,6 +596,7 @@ function ArticleReader({
           )}
           <div className="flex w-full flex-col gap-4 px-6 py-6 sm:px-8">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-muted-foreground">
+              {a.companyId && <CompanyMark />}
               {a.category && <Badge variant="default">{t(`cat_${a.category}`)}</Badge>}
               <time>{new Date(a.publishedAt ?? a.createdAt).toLocaleDateString(locale)}</time>
               {a.readingMinutes ? (

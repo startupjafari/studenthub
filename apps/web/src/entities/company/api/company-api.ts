@@ -8,6 +8,7 @@ import type {
 import { api, getPaged, type Paged } from '../../../shared/api'
 import type {
   Company,
+  CompanyPage,
   CompanyAccess,
   CompanyUniversityOption,
   UniversityCompanyAccess,
@@ -16,6 +17,7 @@ import type {
 export const companyKeys = {
   all: ['company'] as const,
   mine: () => ['company', 'mine'] as const,
+  page: (id: string) => ['company', 'page', id] as const,
   myAccess: () => ['company', 'access'] as const,
   universityOptions: (search: string) => ['company', 'universities', search] as const,
   universityAccess: (params: Partial<CompanyListQueryInput> = {}) =>
@@ -51,6 +53,29 @@ export async function fetchMyCompany(): Promise<Company> {
 
 export async function updateMyCompany(input: UpdateCompanyInput): Promise<Company> {
   const { data } = await api.patch<Company>('/career/companies/me', input)
+  return data
+}
+
+/** Картинка страницы компании: логотип (аватар) или обложка. Меняет только владелец. */
+export type CompanyImageKind = 'logo' | 'cover'
+
+export async function uploadCompanyImage(
+  kind: CompanyImageKind,
+  file: Blob,
+): Promise<{ url: string }> {
+  const form = new FormData()
+  form.append('file', file)
+  const { data } = await api.post<{ url: string }>(`/career/companies/me/${kind}`, form)
+  return data
+}
+
+export async function removeCompanyImage(kind: CompanyImageKind): Promise<void> {
+  await api.delete(`/career/companies/me/${kind}`)
+}
+
+// Страница компании — сотрудникам, платформе и вузам с действующим допуском (иначе 404).
+export async function fetchCompanyPage(id: string): Promise<CompanyPage> {
+  const { data } = await api.get<CompanyPage>(`/career/companies/${id}`)
   return data
 }
 

@@ -26,6 +26,7 @@ import type { EnvVars } from '../../config/env.schema'
 import { webBaseUrl } from '../../config/web-base'
 import { PLATFORM_TIME_ZONE } from '../platform/platform.constants'
 import { CareerAccessService } from './career-access.service'
+import { COMPANY_PAGE_SELECT } from './company-page.service'
 import { CareerNotifier } from './career-notifier'
 
 /** Срок жизни ссылки подтверждения email. Сутки: письмо могут открыть на следующий день. */
@@ -833,16 +834,9 @@ export class CompaniesService {
     const company = await this.prisma.company.findFirst({
       where: { id: companyId, deletedAt: null },
       select: {
-        id: true,
-        name: true,
-        slug: true,
-        description: true,
-        website: true,
-        city: true,
-        logoUrl: true,
+        ...COMPANY_PAGE_SELECT,
         status: true,
         blockedReason: true,
-        createdAt: true,
         members: { where: { userId: viewerId }, select: { role: true }, take: 1 },
       },
     })

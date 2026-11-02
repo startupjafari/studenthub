@@ -20,6 +20,22 @@ export type ArticleCategory = (typeof ARTICLE_CATEGORIES)[number]
 export const CONTENT_VISIBILITY = ['ALL', 'UNIVERSITY', 'FACULTY', 'GROUP'] as const
 export type ContentVisibility = (typeof CONTENT_VISIBILITY)[number]
 
+/**
+ * Видимость контента страницы компании. Не входит в CONTENT_VISIBILITY намеренно: тот список
+ * рисуют личные редакторы, а выбрать «компания» в личной статье нельзя. Ставит её только
+ * сервер — по `?as=company`, и правка статьи компании её не снимает.
+ */
+export const COMPANY_CONTENT_VISIBILITY = 'COMPANY'
+
+/**
+ * От чьего имени создаётся контент профиля: `company` — страница компании сотрудника
+ * (только EMPLOYER; компания берётся из токена, не из запроса). По умолчанию — личный.
+ */
+export const ContentOwnerQuerySchema = z.object({
+  as: z.enum(['user', 'company']).optional(),
+})
+export type ContentOwnerQueryInput = z.infer<typeof ContentOwnerQuerySchema>
+
 export const CreateProfileArticleSchema = z
   .object({
     title: z.string().min(1).max(200),

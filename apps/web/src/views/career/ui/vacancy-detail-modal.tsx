@@ -13,6 +13,7 @@ import {
   type CreateApplicationInput,
 } from '@studenthub/shared-schemas'
 import { fetchVacancy, vacancyKeys, type Vacancy } from '../../../entities/vacancy'
+import { companyPath } from '../../../entities/company'
 import {
   applicationKeys,
   applyToVacancy,
@@ -93,7 +94,14 @@ export function VacancyDetailModal({
     <Modal onClose={onClose} title={vacancy.title} size="xl">
       <div className="flex flex-col gap-5">
         <div className="flex flex-col gap-1">
-          <p className="font-medium">{vacancy.company.name}</p>
+          {/* Витрина вакансии видна только вузу с допуском компании — значит, видна и её
+              страница: название ведёт туда. */}
+          <Link
+            href={companyPath(vacancy.company.id)}
+            className="self-start font-medium text-primary hover:underline"
+          >
+            {vacancy.company.name}
+          </Link>
           <p className="text-sm text-muted-foreground">
             {[vacancy.city, salary, deadline ? t('deadline', { date: deadline }) : null]
               .filter(Boolean)

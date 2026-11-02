@@ -4,7 +4,9 @@ import { useEffect, useMemo, useState, type Ref } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { BarChart3 } from 'lucide-react'
-import { fetchPollsByUser, pollKeys, type PollView } from '../../../entities/poll'
+import type { PollView } from '../../../entities/poll'
+import { useContentOwner } from '../lib/content-owner'
+import { ownerPollsQuery } from '../lib/owner-queries'
 import { EmptyState, Skeleton } from '../../../shared/ui'
 import { PollCard } from './poll-card'
 import { PollCreateModal } from './poll-create-modal'
@@ -37,7 +39,8 @@ export function ProfilePolls({ userId, isOwner, moderation, openCreate, onConsum
     onConsumed?.()
   }, [openCreate])
 
-  const q = useQuery({ queryKey: pollKeys.byUser(userId), queryFn: () => fetchPollsByUser(userId) })
+  const owner = useContentOwner(userId)
+  const q = useQuery(ownerPollsQuery(owner))
   // Ошибка — один тост и повторы с растущей паузой; не помогло — ошибка на месте вкладки.
   const loadState = useRetryOnError(q, t('loadRetry'))
   const polls = q.data ?? []

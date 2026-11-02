@@ -14,6 +14,7 @@ import {
   uploadArticleCover,
   type ProfileArticle,
 } from '../../../entities/profile-content'
+import { useOwnerKey } from '../lib/content-owner'
 import {
   Button,
   Checkbox,
@@ -65,6 +66,9 @@ export function ArticleEditorModal({ userId, initial, onClose }: Props) {
   const [visibility, setVisibility] = useState(initial?.visibility ?? 'ALL')
   const [allowComments, setAllowComments] = useState(initial?.allowComments ?? true)
   const [showSettings, setShowSettings] = useState(false)
+  // Статья страницы компании: видимость ставит сервер (COMPANY), выбора области у неё нет.
+  const { owner, key: ownerKey } = useOwnerKey(userId)
+  const isCompany = owner.kind === 'company'
 
   const coverMut = useMutation({
     mutationFn: uploadArticleCover,
@@ -85,14 +89,15 @@ export function ArticleEditorModal({ userId, initial, onClose }: Props) {
         coverGradient: coverMode === 'gradient' ? coverGradient : undefined,
         category: category ? (category as (typeof ARTICLE_CATEGORIES)[number]) : undefined,
         tags,
-        visibility: visibility as (typeof CONTENT_VISIBILITY)[number],
+        // Для статьи компании сервер значение игнорирует; COMPANY схема правки не примет.
+        visibility: isCompany ? 'ALL' : (visibility as (typeof CONTENT_VISIBILITY)[number]),
         allowComments,
         status,
       }
-      return initial ? updateProfileArticle(initial.id, input) : createProfileArticle(input)
+      return initial ? updateProfileArticle(initial.id, input) : createProfileArticle(input, owner)
     },
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: profileContentKeys.articles(userId) })
+      void qc.invalidateQueries({ queryKey: profileContentKeys.articles(ownerKey) })
       // Текст статьи читалка берёт отдельным запросом — его кэш тоже устарел.
       if (initial) void qc.invalidateQueries({ queryKey: profileContentKeys.article(initial.id) })
       toast.success(t('saved'))
@@ -310,21 +315,25 @@ export function ArticleEditorModal({ userId, initial, onClose }: Props) {
         </button>
         {showSettings && (
           <div className="flex flex-col gap-4 border-t border-border p-4">
-            <div className="flex flex-col gap-2">
-              <Label>{t('visibility')}</Label>
-              <Select value={visibility} onValueChange={setVisibility}>
-                <SelectTrigger size="xl">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {CONTENT_VISIBILITY.map((v) => (
-                    <SelectItem key={v} value={v}>
-                      {t(`vis_${v}`)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {isCompany ? (
+              <p className="text-sm text-muted-foreground">{t('companyVisibilityHint')}</p>
+            ) : (
+              <div className="flex flex-col gap-2">
+                <Label>{t('visibility')}</Label>
+                <Select value={visibility} onValueChange={setVisibility}>
+                  <SelectTrigger size="xl">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {CONTENT_VISIBILITY.map((v) => (
+                      <SelectItem key={v} value={v}>
+                        {t(`vis_${v}`)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <label className="flex cursor-pointer items-center gap-2 text-sm">
               <Checkbox
                 checked={allowComments}

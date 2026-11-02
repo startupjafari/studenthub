@@ -160,13 +160,78 @@ export type ResendCompanyVerificationInput = z.infer<typeof ResendCompanyVerific
 
 // ── Профиль компании ─────────────────────────────────────────────────────────
 
+/** Численность — диапазоном: точный штат никто не назовёт, а студенту важен порядок. */
+export const COMPANY_SIZES = ['1_10', '11_50', '51_200', '201_1000', '1000_PLUS'] as const
+export const CompanySizeSchema = z.enum(COMPANY_SIZES)
+export type CompanySize = z.infer<typeof CompanySizeSchema>
+
+/** Год основания: не раньше 1800 и не позже текущего — будущий год значит опечатку. */
+export const COMPANY_FOUNDED_MIN = 1800
+
+/** Поле-ссылка соцсети: только https — показываем студенту кликабельной. */
+const clearableHttpsUrl = z
+  .string()
+  .trim()
+  .max(200)
+  .url()
+  .refine((v) => v.startsWith('https://'), 'Ссылка должна начинаться с https://')
+  .nullable()
+  .optional()
+  .or(z.literal('').transform(() => null))
+
+/**
+ * Правка профиля компании. Логотип и обложка сюда не входят: они загружаются файлом
+ * (`POST /career/companies/me/logo|cover`) — свободная строка позволяла бы подставить
+ * ссылку на чужой сервер, и студент грузил бы картинку оттуда.
+ */
 export const UpdateCompanySchema = z
   .object({
     name: CompanyNameSchema.optional(),
     description: clearableText(2000),
     website: ClearableCompanyWebsiteSchema,
     city: clearableText(24),
-    logoUrl: optionalText(500),
+    industry: clearableText(80),
+    size: CompanySizeSchema.nullable()
+      .optional()
+      .or(z.literal('').transform(() => null)),
+    foundedYear: z.coerce
+      .number()
+      .int()
+      .min(COMPANY_FOUNDED_MIN)
+      .refine((y) => y <= new Date().getFullYear(), 'Год из будущего')
+      .nullable()
+      .optional()
+      .or(z.literal('').transform(() => null)),
+    contactEmail: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .email()
+      .max(160)
+      .nullable()
+      .optional()
+      .or(z.literal('').transform(() => null)),
+    contactPhone: z
+      .string()
+      .trim()
+      .regex(/^\+?[0-9\s()-]{6,24}$/, 'Номер телефона')
+      .nullable()
+      .optional()
+      .or(z.literal('').transform(() => null)),
+    address: clearableText(200),
+    // Telegram — @имя или ссылка t.me: так его и пишут на визитках.
+    telegram: z
+      .string()
+      .trim()
+      .regex(
+        /^(@[A-Za-z0-9_]{4,32}|https:\/\/t\.me\/[A-Za-z0-9_]{4,32})$/,
+        '@имя или https://t.me/имя',
+      )
+      .nullable()
+      .optional()
+      .or(z.literal('').transform(() => null)),
+    instagram: clearableHttpsUrl,
+    linkedin: clearableHttpsUrl,
   })
   .strict()
 export type UpdateCompanyInput = z.infer<typeof UpdateCompanySchema>
