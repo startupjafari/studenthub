@@ -14967,7 +14967,7 @@
             "required": false,
             "schema": {
               "type": "string",
-              "format": "uuid"
+              "minLength": 1
             }
           },
           {
@@ -24126,7 +24126,7 @@
         "properties": {
           "universityId": {
             "type": "string",
-            "format": "uuid"
+            "minLength": 1
           },
           "message": {
             "type": "string",

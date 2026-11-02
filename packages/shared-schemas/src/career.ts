@@ -189,7 +189,8 @@ export type UpdateCompanyInput = z.infer<typeof UpdateCompanySchema>
 /** Заявка компании в вуз. Сообщение необязательно, но вузу без него труднее решать. */
 export const RequestCompanyAccessSchema = z
   .object({
-    universityId: z.string().uuid(),
+    // Id вуза — не обязательно uuid (у сидовых вузов вида u001).
+    universityId: z.string().min(1),
     message: optionalText(1000),
   })
   .strict()

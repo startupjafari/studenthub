@@ -145,8 +145,9 @@ export const FeedQuerySchema = CursorPaginationSchema.extend({
   authorId: z.string().min(1).optional(),
   // Посты страницы компании. Без параметра лента их не содержит вовсе.
   companyId: z.string().uuid().optional(),
-  // Посты страницы университета (от его имени).
-  universityPageId: z.string().uuid().optional(),
+  // Посты страницы университета (от его имени). Id вуза — не обязательно uuid (у сидовых
+  // вузов вида u001), поэтому min(1), как universityId во всех схемах.
+  universityPageId: z.string().min(1).optional(),
   filter: FeedFilterSchema.optional(),
   reactions: z.enum(['list', 'summary']).optional(),
   sort: z.enum(AUTHOR_FEED_SORTS).optional(),
