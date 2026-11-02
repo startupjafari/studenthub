@@ -27,6 +27,7 @@ pnpm install
 pnpm dev                                    # api:3001 + web:3000
 pnpm lint                                   # весь монорепо
 pnpm build
+pnpm start                                  # собранное: api:3001, web:3000, landing:3002, mini-app:3003
 
 pnpm infra:up                               # postgres, redis, minio, mailpit (docker/README.md)
 pnpm infra:down
