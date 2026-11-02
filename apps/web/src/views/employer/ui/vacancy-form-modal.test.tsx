@@ -23,7 +23,7 @@ function vacancy(over: Partial<EmployerVacancy> = {}): EmployerVacancy {
     employmentType: 'INTERNSHIP',
     workFormat: 'HYBRID',
     experienceLevel: 'NO_EXPERIENCE',
-    city: 'Алматы',
+    city: '750000000',
     salaryMin: 200000,
     salaryMax: 300000,
     salaryCurrency: 'KZT',
@@ -52,6 +52,18 @@ function setup(v: EmployerVacancy | null) {
 
 beforeEach(() => {
   vi.mocked(updateVacancy).mockReset().mockResolvedValue(undefined)
+})
+
+describe('VacancyFormModal — город из справочника', () => {
+  it('город текстом (сохранён до справочника) — ошибка у поля, запрос не уходит', async () => {
+    setup(vacancy({ city: 'Алматы' }))
+    fireEvent.change(screen.getByLabelText(ru.EmployerVacancies.fieldTitle), {
+      target: { value: 'Младший аналитик' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: ru.EmployerVacancies.save }))
+    expect(await screen.findByText(ru.EmployerVacancies.cityFromList)).toBeInTheDocument()
+    expect(updateVacancy).not.toHaveBeenCalled()
+  })
 })
 
 describe('VacancyFormModal — правка одобренной вакансии (D-F12)', () => {

@@ -648,6 +648,7 @@
     "titleTooShort": "At least 3 characters",
     "descriptionTooShort": "At least 30 characters",
     "salaryRange": "Minimum salary is above the maximum",
+    "cityFromList": "Choose a city from the list",
     "formInvalid": "Check the form fields",
     "reReviewWarning": "Changes to the text or terms send the vacancy back to moderation: students will not see it until the university approves it again.",
     "rejectReason": "{university}: reason — {reason}",
