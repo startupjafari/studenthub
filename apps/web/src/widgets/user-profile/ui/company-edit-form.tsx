@@ -12,6 +12,7 @@ import {
   type UpdateCompanyInput,
 } from '@studenthub/shared-schemas'
 import { companyKeys, updateMyCompany, type Company } from '../../../entities/company'
+import { KatoSelect } from '../../../entities/kato'
 import {
   Card,
   CardContent,
@@ -24,6 +25,7 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  toKzPhone,
 } from '../../../shared/ui'
 import { useFormAlert } from '../../../shared/lib'
 import { ENTER } from './profile-content'
@@ -47,7 +49,8 @@ function toFormValues(c: Company): CompanyFormValues {
     size: c.size ?? undefined,
     foundedYear: c.foundedYear ?? undefined,
     contactEmail: c.contactEmail ?? '',
-    contactPhone: c.contactPhone ?? '',
+    // Номер, сохранённый до маски, приводится к её виду — иначе маска его исказит.
+    contactPhone: toKzPhone(c.contactPhone),
     address: c.address ?? '',
     telegram: c.telegram ?? '',
     instagram: c.instagram ?? '',
@@ -85,7 +88,7 @@ export function CompanyEditForm({ company, onSaved }: { company: Company; onSave
     onError: showApiError,
   })
 
-  const own = (name: 'name' | 'industry' | 'city', label: string, error: string) => (
+  const own = (name: 'name' | 'industry', label: string, error: string) => (
     <div className="flex flex-col gap-2">
       <Label htmlFor={`company-${name}`}>{label}</Label>
       <Input id={`company-${name}`} aria-invalid={!!errors[name]} {...register(name)} />
@@ -109,7 +112,20 @@ export function CompanyEditForm({ company, onSaved }: { company: Company; onSave
           <fieldset disabled={save.isPending} className="flex min-w-0 flex-col gap-6">
             <OrgPageFieldsForm
               aboutTitle={t('about')}
-              binding={{ register, hasError: (name) => !!errors[name] }}
+              linkedinKind="company"
+              binding={{
+                register,
+                hasError: (name) => !!errors[name],
+                controlled: (name, render) => (
+                  <Controller
+                    control={control}
+                    name={name}
+                    render={({ field: f }) => (
+                      <>{render({ value: f.value, onChange: f.onChange, onBlur: f.onBlur })}</>
+                    )}
+                  />
+                ),
+              }}
               before={
                 <>
                   {own('name', t('fieldName'), t('errName'))}
@@ -139,7 +155,23 @@ export function CompanyEditForm({ company, onSaved }: { company: Company; onSave
                         )}
                       />
                     </div>
-                    {own('city', t('fieldCity'), t('errCity'))}
+                    {/* Город — из справочника КАТО: свободный текст дал бы три разных «Астаны». */}
+                    <div className="flex flex-col gap-2">
+                      <Label htmlFor="company-city">{t('fieldCity')}</Label>
+                      <Controller
+                        control={control}
+                        name="city"
+                        render={({ field: f }) => (
+                          <KatoSelect
+                            id="company-city"
+                            value={(f.value as string | null | undefined) ?? ''}
+                            onChange={f.onChange}
+                            allowCustom={false}
+                          />
+                        )}
+                      />
+                      <FieldError>{errors.city ? t('errCity') : null}</FieldError>
+                    </div>
                   </div>
                 </>
               }

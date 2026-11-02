@@ -3,7 +3,8 @@
 import type { ComponentProps, ReactNode } from 'react'
 import type { UseFormRegisterReturn } from 'react-hook-form'
 import { useTranslations } from 'next-intl'
-import { FieldError, Input, Label, Textarea } from '../../../shared/ui'
+import { FieldError, Input, Label, PhoneInput, Textarea } from '../../../shared/ui'
+import { SocialLinkInput } from './social-link-input'
 
 /** Общие поля формы страницы организации (OrgPageFieldsShape): их имена в форме. */
 export type OrgPageFieldName =
@@ -17,9 +18,18 @@ export type OrgPageFieldName =
   | 'instagram'
   | 'linkedin'
 
-/** Поле формы: подключение к RHF (register) и ошибка — у вызывающего, разметка — здесь. */
+/** Значение и обработчики управляемого поля (RHF Controller у вызывающего). */
+export interface ControlledField {
+  value: unknown
+  onChange: (value: string) => void
+  onBlur: () => void
+}
+
+/** Поле формы: подключение к RHF и ошибка — у вызывающего, разметка — здесь. */
 export interface OrgFieldBinding {
   register: (name: OrgPageFieldName) => UseFormRegisterReturn
+  /** Поле с маской (телефон, соцсети) — через Controller: маска отдаёт готовое значение. */
+  controlled: (name: OrgPageFieldName, render: (field: ControlledField) => ReactNode) => ReactNode
   hasError: (name: OrgPageFieldName) => boolean
 }
 
@@ -31,10 +41,13 @@ export function OrgPageFieldsForm({
   binding,
   before,
   aboutTitle,
+  linkedinKind,
 }: {
   binding: OrgFieldBinding
   before?: ReactNode
   aboutTitle: string
+  /** Страница LinkedIn: у компании — company, у вуза — school. */
+  linkedinKind: 'company' | 'school'
 }) {
   const t = useTranslations('OrgPage')
   const field = (
@@ -54,6 +67,31 @@ export function OrgPageFieldsForm({
       <FieldError>{binding.hasError(name) ? error : null}</FieldError>
     </div>
   )
+
+  const masked = (
+    name: OrgPageFieldName,
+    label: string,
+    error: string,
+    render: (field: ControlledField) => ReactNode,
+  ) => (
+    <div className="flex flex-col gap-2">
+      <Label htmlFor={`org-${name}`}>{label}</Label>
+      {binding.controlled(name, render)}
+      <FieldError>{binding.hasError(name) ? error : null}</FieldError>
+    </div>
+  )
+  const social = (name: 'telegram' | 'instagram' | 'linkedin', label: string, error: string) =>
+    masked(name, label, error, (f) => (
+      <SocialLinkInput
+        id={`org-${name}`}
+        platform={name}
+        linkedinKind={linkedinKind}
+        value={f.value as string | null | undefined}
+        onChange={f.onChange}
+        onBlur={f.onBlur}
+        invalid={binding.hasError(name)}
+      />
+    ))
 
   return (
     <>
@@ -82,17 +120,18 @@ export function OrgPageFieldsForm({
             type: 'email',
             autoComplete: 'email',
           })}
-          {field('contactPhone', t('fieldContactPhone'), t('errPhone'), {
-            type: 'tel',
-            placeholder: '+7 700 000 00 00',
-          })}
-          {field('telegram', 'Telegram', t('errTelegram'), { placeholder: '@name' })}
-          {field('instagram', 'Instagram', t('errHttps'), {
-            placeholder: 'https://instagram.com/…',
-          })}
-          {field('linkedin', 'LinkedIn', t('errHttps'), {
-            placeholder: 'https://linkedin.com/…',
-          })}
+          {masked('contactPhone', t('fieldContactPhone'), t('errPhone'), (f) => (
+            <PhoneInput
+              id="org-contactPhone"
+              value={f.value as string | null | undefined}
+              onChange={f.onChange}
+              onBlur={f.onBlur}
+              aria-invalid={binding.hasError('contactPhone')}
+            />
+          ))}
+          {social('telegram', 'Telegram', t('errTelegram'))}
+          {social('instagram', 'Instagram', t('errInstagram'))}
+          {social('linkedin', 'LinkedIn', t('errLinkedin'))}
         </div>
       </section>
     </>

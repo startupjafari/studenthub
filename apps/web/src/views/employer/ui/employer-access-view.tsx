@@ -140,24 +140,27 @@ export function EmployerAccessView() {
             }}
           />
         }
+        // Поиск — в шапке справа от вкладок: таблица начинается сразу, без отдельной строки.
+        actions={
+          <div className="relative w-full sm:w-64">
+            <Search
+              className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+              aria-hidden
+            />
+            <Input
+              size="md"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder={t('searchUniversity')}
+              aria-label={t('searchUniversity')}
+              className="pl-9"
+            />
+          </div>
+        }
       />
       {company.data && !canRequest && (
         <p className="text-sm text-muted-foreground">{t('ownerOnlyAccess')}</p>
       )}
-
-      <div className="relative max-w-md">
-        <Search
-          className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
-          aria-hidden
-        />
-        <Input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder={t('searchUniversity')}
-          aria-label={t('searchUniversity')}
-          className="pl-9"
-        />
-      </div>
 
       {options.isError ? (
         // Ошибку показываем именно ошибкой: 403 или обрыв сети, отрисованные как
