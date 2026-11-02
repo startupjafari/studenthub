@@ -11,8 +11,14 @@ const ctx = { ip: '127.0.0.1', userAgent: 'jest' }
 const audit = () => ({ record: jest.fn().mockResolvedValue(undefined) })
 const queueMock = () => ({ enqueue: jest.fn().mockResolvedValue(undefined) })
 const careerAccessMock = () => ({
-  canViewCompany: jest.fn().mockResolvedValue(true),
-  requirePublishingCompany: jest.fn().mockResolvedValue('company-1'),
+  canViewPage: jest.fn().mockResolvedValue(true),
+  resolveContentOrg: jest.fn(async (_actor: JwtPayload, owner: string) =>
+    owner === 'company'
+      ? { companyId: 'company-1', universityPageId: null }
+      : owner === 'university'
+        ? { companyId: null, universityPageId: 'uni-1' }
+        : { companyId: null, universityPageId: null },
+  ),
 })
 
 const voter: JwtPayload = {
@@ -421,6 +427,7 @@ describe('PollsService — список опросов автора (E-F17)', ()
     expect(prisma.poll.findMany.mock.calls[0][0].where).toEqual({
       userId: 'author',
       companyId: null,
+      universityPageId: null,
     })
   })
 
@@ -432,6 +439,7 @@ describe('PollsService — список опросов автора (E-F17)', ()
     expect(args.where).toEqual({
       userId: 'author',
       companyId: null,
+      universityPageId: null,
       status: 'PUBLISHED',
       visibility: { in: ['ALL', 'UNIVERSITY'] },
     })
@@ -447,6 +455,7 @@ describe('PollsService — список опросов автора (E-F17)', ()
     expect(prisma.poll.findMany.mock.calls[0][0].where).toEqual({
       userId: 'author',
       companyId: null,
+      universityPageId: null,
       status: 'PUBLISHED',
     })
   })
@@ -508,6 +517,7 @@ describe('PollsService — список опросов автора (E-F17)', ()
       where: {
         userId: 'author',
         companyId: null,
+        universityPageId: null,
         status: 'PUBLISHED',
         visibility: { in: ['ALL', 'UNIVERSITY'] },
       },
@@ -517,7 +527,9 @@ describe('PollsService — список опросов автора (E-F17)', ()
   it('автору итог — все его опросы, включая черновики', async () => {
     const { service, prisma } = listSetup()
     await service.countVisibleByUser({ ...voter, sub: 'author' }, countAuthor)
-    expect(prisma.poll.count).toHaveBeenCalledWith({ where: { userId: 'author', companyId: null } })
+    expect(prisma.poll.count).toHaveBeenCalledWith({
+      where: { userId: 'author', companyId: null, universityPageId: null },
+    })
   })
 })
 
@@ -705,7 +717,9 @@ describe('PollsService — опросы страницы компании', () =
       id: 'p1',
       userId: 'emp-2',
       companyId: 'company-1',
+      universityPageId: null,
       company: { id: 'company-1', name: 'ТОО', logoUrl: null },
+      universityPage: null,
       question: 'Вопрос',
       multiple: false,
       anonymous: true,
@@ -733,7 +747,7 @@ describe('PollsService — опросы страницы компании', () =
       },
       'company',
     )
-    expect(career.requirePublishingCompany).toHaveBeenCalledWith(employer)
+    expect(career.resolveContentOrg).toHaveBeenCalledWith(employer, 'company')
     expect(prisma.poll.create.mock.calls[0][0].data).toMatchObject({
       userId: 'emp-2',
       companyId: 'company-1',
@@ -743,25 +757,32 @@ describe('PollsService — опросы страницы компании', () =
 
   it('страница невидимой компании — пусто, в базу за опросами не идём', async () => {
     const { service, prisma, career } = companySetup()
-    career.canViewCompany.mockResolvedValue(false)
-    await expect(service.listByCompany(voter, 'company-1')).resolves.toEqual([])
+    career.canViewPage.mockResolvedValue(false)
+    await expect(service.listByPage(voter, { kind: 'company', id: 'company-1' })).resolves.toEqual(
+      [],
+    )
     expect(prisma.poll.findMany).not.toHaveBeenCalled()
   })
 
   it('чужим — только опубликованные; сотруднику — и черновики', async () => {
     const { service, prisma } = companySetup()
-    await service.listByCompany(voter, 'company-1')
+    await service.listByPage(voter, { kind: 'company', id: 'company-1' })
     expect(prisma.poll.findMany.mock.calls[0][0].where).toEqual({
       companyId: 'company-1',
       status: 'PUBLISHED',
     })
-    await service.listByCompany(employer, 'company-1')
+    await service.listByPage(employer, { kind: 'company', id: 'company-1' })
     expect(prisma.poll.findMany.mock.calls[1][0].where).toEqual({ companyId: 'company-1' })
   })
 
   it('опрос компании правит любой её сотрудник, и видимость остаётся COMPANY', async () => {
     const { service, prisma, tx } = companySetup()
-    prisma.poll.findUnique.mockResolvedValue({ id: 'p1', userId: 'emp-1', companyId: 'company-1' })
+    prisma.poll.findUnique.mockResolvedValue({
+      id: 'p1',
+      userId: 'emp-1',
+      companyId: 'company-1',
+      universityPageId: null,
+    })
     await service.update(employer, 'p1', {
       question: 'Новый',
       options: ['a', 'b'],
@@ -777,7 +798,12 @@ describe('PollsService — опросы страницы компании', () =
 
   it('сотрудник другой компании опрос не правит', async () => {
     const { service, prisma } = companySetup()
-    prisma.poll.findUnique.mockResolvedValue({ id: 'p1', userId: 'emp-1', companyId: 'company-9' })
+    prisma.poll.findUnique.mockResolvedValue({
+      id: 'p1',
+      userId: 'emp-1',
+      companyId: 'company-9',
+      universityPageId: null,
+    })
     const err = await service
       .update(employer, 'p1', {
         question: 'x',

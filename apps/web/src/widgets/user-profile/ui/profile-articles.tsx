@@ -46,6 +46,7 @@ import {
 import { cn } from '../../../shared/lib/utils'
 import { useBodyScrollLock } from '../../../shared/lib'
 import { CompanyMark } from '../../../entities/company'
+import { UniversityMark } from '../../../entities/university'
 import { ArticleEditorModal } from './article-editor-modal'
 import { ArticleCover } from './article-cover'
 import { ContentModal } from './content-modal'
@@ -597,6 +598,7 @@ function ArticleReader({
           <div className="flex w-full flex-col gap-4 px-6 py-6 sm:px-8">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm text-muted-foreground">
               {a.companyId && <CompanyMark />}
+              {a.universityPageId && <UniversityMark />}
               {a.category && <Badge variant="default">{t(`cat_${a.category}`)}</Badge>}
               <time>{new Date(a.publishedAt ?? a.createdAt).toLocaleDateString(locale)}</time>
               {a.readingMinutes ? (

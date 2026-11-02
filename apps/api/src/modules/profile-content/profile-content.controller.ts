@@ -37,9 +37,10 @@ import { ContentCommentsQueryDto } from './dto/comments-query.dto'
 import { ProfileArticlesQueryDto } from './dto/profile-articles-query.dto'
 import { ContentOwnerQueryDto } from './dto/content-owner-query.dto'
 
-// `?as=company` у создания: контент страницы своей компании (только работодатель, компания —
-// из токена). Без параметра — личный профиль.
-const AS_COMPANY_403 = 'FORBIDDEN — as=company не работодателем или компания не активна'
+// `?as=company|university` у создания: контент страницы своей компании (работодатель) или
+// своего вуза (админ и модератор вуза); организация — из токена. Без параметра — личный.
+const AS_PAGE_403 =
+  'FORBIDDEN — as=company не работодателем (или компания не активна), as=university не админом/модератором вуза'
 
 // Квота медиа профиля (PROFILE_MEDIA_QUOTA в shared-config) — одинаково у всех путей загрузки.
 const QUOTA_409 =
@@ -66,9 +67,11 @@ export class ProfileContentController {
       properties: { file: { type: 'string', format: 'binary' } },
     },
   })
-  @ApiOperation({ summary: 'Загрузить фото/видео в свой профиль (?as=company — компании)' })
+  @ApiOperation({
+    summary: 'Загрузить фото/видео в свой профиль (?as=company|university — страницы организации)',
+  })
   @ApiResponse({ status: 201, description: 'Медиа загружено' })
-  @ApiResponse({ status: 403, description: AS_COMPANY_403 })
+  @ApiResponse({ status: 403, description: AS_PAGE_403 })
   @ApiResponse({ status: 409, description: QUOTA_409 })
   async uploadMedia(
     @CurrentUser() user: CurrentUserData,
@@ -100,7 +103,7 @@ export class ProfileContentController {
 
   @Post('media/presign')
   @ApiOperation({ summary: 'Presigned URL для прямой загрузки крупного медиа (>10МБ) в MinIO' })
-  @ApiResponse({ status: 403, description: AS_COMPANY_403 })
+  @ApiResponse({ status: 403, description: AS_PAGE_403 })
   @ApiResponse({ status: 409, description: QUOTA_409 })
   presignMedia(
     @CurrentUser() user: CurrentUserData,
@@ -112,7 +115,7 @@ export class ProfileContentController {
 
   @Post('media/confirm')
   @ApiOperation({ summary: 'Подтвердить presigned-загрузку медиа (создаёт запись File)' })
-  @ApiResponse({ status: 403, description: AS_COMPANY_403 })
+  @ApiResponse({ status: 403, description: AS_PAGE_403 })
   @ApiResponse({ status: 409, description: QUOTA_409 })
   confirmMedia(
     @CurrentUser() user: CurrentUserData,
@@ -122,20 +125,20 @@ export class ProfileContentController {
     return this.content.confirmMedia(user, dto, owner.as ?? 'user')
   }
 
-  // ── Страница компании: списки ──────────────────────────────────────────────
-  // Видят сотрудники, платформа и вузы с действующим допуском компании; остальным — пусто
-  // (нули у счётчиков), как закрытый профиль.
+  // ── Страницы организаций: списки ───────────────────────────────────────────
+  // Компания — её сотрудники, платформа и вузы с действующим допуском; университет — свои,
+  // платформа и компании с допуском. Остальным — пусто (нули у счётчиков), как закрытый профиль.
 
   @Get('company/:companyId/media')
   @ApiOperation({ summary: 'Медиа страницы компании (фото и видео)' })
   listCompanyMedia(@CurrentUser() user: CurrentUserData, @Param('companyId') companyId: string) {
-    return this.content.listCompanyMedia(user, companyId)
+    return this.content.listPageMedia(user, { kind: 'company', id: companyId })
   }
 
   @Get('company/:companyId/albums')
   @ApiOperation({ summary: 'Альбомы страницы компании' })
   listCompanyAlbums(@CurrentUser() user: CurrentUserData, @Param('companyId') companyId: string) {
-    return this.content.listCompanyAlbums(user, companyId)
+    return this.content.listPageAlbums(user, { kind: 'company', id: companyId })
   }
 
   @Get('company/:companyId/articles')
@@ -145,13 +148,50 @@ export class ProfileContentController {
     @Param('companyId') companyId: string,
     @Query() query: ProfileArticlesQueryDto,
   ) {
-    return this.content.listCompanyArticles(user, companyId, query)
+    return this.content.listPageArticles(user, { kind: 'company', id: companyId }, query)
   }
 
   @Get('company/:companyId/counts')
   @ApiOperation({ summary: 'Итоги вкладок страницы компании: фото, видео, статьи, опросы' })
   companyCounts(@CurrentUser() user: CurrentUserData, @Param('companyId') companyId: string) {
-    return this.content.companyCounts(user, companyId)
+    return this.content.pageCounts(user, { kind: 'company', id: companyId })
+  }
+
+  @Get('university/:universityId/media')
+  @ApiOperation({ summary: 'Медиа страницы университета (фото и видео)' })
+  listUniversityMedia(
+    @CurrentUser() user: CurrentUserData,
+    @Param('universityId') universityId: string,
+  ) {
+    return this.content.listPageMedia(user, { kind: 'university', id: universityId })
+  }
+
+  @Get('university/:universityId/albums')
+  @ApiOperation({ summary: 'Альбомы страницы университета' })
+  listUniversityAlbums(
+    @CurrentUser() user: CurrentUserData,
+    @Param('universityId') universityId: string,
+  ) {
+    return this.content.listPageAlbums(user, { kind: 'university', id: universityId })
+  }
+
+  @Get('university/:universityId/articles')
+  @ApiOperation({ summary: 'Статьи страницы университета (view=card — без полного текста)' })
+  listUniversityArticles(
+    @CurrentUser() user: CurrentUserData,
+    @Param('universityId') universityId: string,
+    @Query() query: ProfileArticlesQueryDto,
+  ) {
+    return this.content.listPageArticles(user, { kind: 'university', id: universityId }, query)
+  }
+
+  @Get('university/:universityId/counts')
+  @ApiOperation({ summary: 'Итоги вкладок страницы университета: фото, видео, статьи, опросы' })
+  universityCounts(
+    @CurrentUser() user: CurrentUserData,
+    @Param('universityId') universityId: string,
+  ) {
+    return this.content.pageCounts(user, { kind: 'university', id: universityId })
   }
 
   @Get(':userId/media')
@@ -193,8 +233,10 @@ export class ProfileContentController {
   // ── Альбомы фото ──────────────────────────────────────────────────────────────
 
   @Post('albums')
-  @ApiOperation({ summary: 'Создать альбом фото (?as=company — на странице компании)' })
-  @ApiResponse({ status: 403, description: AS_COMPANY_403 })
+  @ApiOperation({
+    summary: 'Создать альбом фото (?as=company|university — на странице организации)',
+  })
+  @ApiResponse({ status: 403, description: AS_PAGE_403 })
   createAlbum(
     @CurrentUser() user: CurrentUserData,
     @Body() dto: CreateAlbumDto,
@@ -251,9 +293,11 @@ export class ProfileContentController {
   // ── Статьи ──────────────────────────────────────────────────────────────────
 
   @Post('articles')
-  @ApiOperation({ summary: 'Создать статью в своём профиле (?as=company — на странице компании)' })
+  @ApiOperation({
+    summary: 'Создать статью в своём профиле (?as=company|university — на странице организации)',
+  })
   @ApiResponse({ status: 201, description: 'Статья создана' })
-  @ApiResponse({ status: 403, description: AS_COMPANY_403 })
+  @ApiResponse({ status: 403, description: AS_PAGE_403 })
   createArticle(
     @CurrentUser() user: CurrentUserData,
     @Body() dto: CreateProfileArticleDto,

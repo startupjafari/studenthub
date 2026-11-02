@@ -18,14 +18,17 @@ model Post {
   content  String
 
   // Аудитория-скоуп: заполняется по типу audience (UNIVERSITY→universityId и т.д.).
-  universityId String? @map("university_id")
-  facultyId    String? @map("faculty_id")
-  groupId      String? @map("group_id")
+  universityId     String? @map("university_id")
+  facultyId        String? @map("faculty_id")
+  groupId          String? @map("group_id")
   // PERSONAL — адресат; SUBJECT — название предмета (модели Subject нет, MVP).
-  targetUserId String? @map("target_user_id")
-  subject      String?
+  targetUserId     String? @map("target_user_id")
+  subject          String?
   // COMPANY — компания, от чьего имени пост (автор — её сотрудник). NULL у остальных аудиторий.
-  companyId    String? @map("company_id")
+  companyId        String? @map("company_id")
+  // Пост от имени университета (страница вуза): аудитория UNIVERSITY того же вуза — он и в
+  // ленте вуза, и на его странице. NULL — обычный пост.
+  universityPageId String? @map("university_page_id")
 
   // Приоритет в ленте (docs/PROJECT.md §3.3): выставляется при создании из audience/роли автора.
   priority Int @default(0)
@@ -55,6 +58,7 @@ model Post {
   faculty          Faculty?       @relation(fields: [facultyId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   group            Group?         @relation(fields: [groupId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   company          Company?       @relation(fields: [companyId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  universityPage   University?    @relation("UniversityPagePosts", fields: [universityPageId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   original         Post?          @relation("PostRepost", fields: [originalPostId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   reposts          Post[]         @relation("PostRepost")
   media            File[]
@@ -72,6 +76,7 @@ model Post {
   @@index([groupId])
   @@index([targetUserId])
   @@index([companyId])
+  @@index([universityPageId])
   @@index([originalPostId])
   @@index([pinnedById])
   @@index([deletedAt])

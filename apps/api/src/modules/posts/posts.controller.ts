@@ -38,6 +38,8 @@ const AUTHOR_ROLES = [
   Role.STUDENT,
   // Только на страницу своей компании (аудитория COMPANY, PostsService.resolveTarget).
   Role.EMPLOYER,
+  // Только от имени своего вуза (asUniversity): личных постов у модератора нет.
+  Role.UNIVERSITY_MODERATOR,
 ] as const
 
 @ApiTags('Посты')

@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { AdminLimitSchema, OffsetPaginationSchema, SortOrderSchema } from './pagination.js'
+import { OrgPageFieldsShape } from './org-page.js'
 
 // Статус вуза (docs/PROJECT.md §6.1 enum UniversityStatus).
 export const UniversityStatusSchema = z.enum(['PENDING', 'ACTIVE', 'BLOCKED'])
@@ -22,6 +23,14 @@ export const CreateUniversitySchema = z
 export type CreateUniversityInput = z.infer<typeof CreateUniversitySchema>
 
 export const UpdateUniversitySchema = CreateUniversitySchema.partial()
+
+/**
+ * Правка страницы университета (витрина в стиле профиля) — админ своего вуза. Название,
+ * город и статус здесь не меняются: это реквизиты вуза, их правит платформа
+ * (`PATCH /universities/:id`). Логотип и обложка — файлом (`POST /universities/my/page/logo|cover`).
+ */
+export const UpdateUniversityPageSchema = z.object({ ...OrgPageFieldsShape }).strict()
+export type UpdateUniversityPageInput = z.infer<typeof UpdateUniversityPageSchema>
 export type UpdateUniversityInput = z.infer<typeof UpdateUniversitySchema>
 
 export const UpdateUniversityStatusSchema = z.object({ status: UniversityStatusSchema }).strict()

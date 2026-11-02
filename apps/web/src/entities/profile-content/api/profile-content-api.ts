@@ -35,7 +35,7 @@ export interface ContentCommentsPage {
  * сотрудники, сервер берёт компанию из токена — `?as=company`).
  */
 export interface ContentOwner {
-  kind: 'user' | 'company'
+  kind: 'user' | 'company' | 'university'
   id: string
 }
 
@@ -44,17 +44,17 @@ export interface ContentOwner {
  * компании — оба uuid, и без него списки разных владельцев могли бы делить кэш.
  */
 export function contentOwnerKey(owner: ContentOwner): string {
-  return owner.kind === 'company' ? `company:${owner.id}` : owner.id
+  return owner.kind === 'user' ? owner.id : `${owner.kind}:${owner.id}`
 }
 
 /** Параметр создания от имени владельца: у личного профиля его нет. */
-export function contentOwnerParams(owner?: ContentOwner): { as?: 'company' } {
-  return owner?.kind === 'company' ? { as: 'company' } : {}
+export function contentOwnerParams(owner?: ContentOwner): { as?: 'company' | 'university' } {
+  return owner && owner.kind !== 'user' ? { as: owner.kind } : {}
 }
 
-/** Путь списков владельца: `/profile/:userId/…` или `/profile/company/:companyId/…`. */
+/** Путь списков владельца: `/profile/:userId/…` или `/profile/<company|university>/:id/…`. */
 function ownerBase(owner: ContentOwner): string {
-  return owner.kind === 'company' ? `/profile/company/${owner.id}` : `/profile/${owner.id}`
+  return owner.kind === 'user' ? `/profile/${owner.id}` : `/profile/${owner.kind}/${owner.id}`
 }
 
 // Фабрика ключей React Query (docs/FRONTEND_RULES.md §5.5). Аргумент — id пользователя или
@@ -104,6 +104,9 @@ export interface ProfileArticle {
   // Статья страницы компании; null — личная статья.
   companyId?: string | null
   company?: ContentCompany | null
+  // Статья страницы университета; null — не страница вуза.
+  universityPageId?: string | null
+  universityPage?: ContentCompany | null
   title: string
   description: string | null
   content: string

@@ -15,6 +15,7 @@ import { uploadToBucket } from '../../../shared/api'
 import {
   AUDIENCES_BY_ROLE,
   FACULTY_PICKER_ROLES,
+  type PostAudienceValue,
   GROUP_PICKER_ROLES,
   createPostRequest,
   postKeys,
@@ -45,6 +46,9 @@ interface UploadedMedia {
   isVideo: boolean
 }
 const MAX_MEDIA = 10
+// Пост от имени университета — всегда весь вуз; так публикует и модератор вуза, у которого
+// личных аудиторий нет вовсе (AUDIENCES_BY_ROLE).
+const UNIVERSITY_PAGE_AUDIENCES: PostAudienceValue[] = ['UNIVERSITY']
 
 // onCreated — необязательный колбэк после успешной публикации (например, закрыть модалку в профиле).
 // bare — без обёртки Card (когда форма уже внутри модалки/карточки).
@@ -57,7 +61,13 @@ const MAX_MEDIA = 10
 export function CreatePostForm({
   onCreated,
   bare,
-}: { onCreated?: () => void; bare?: boolean } = {}) {
+  asUniversity = false,
+}: {
+  onCreated?: () => void
+  bare?: boolean
+  /** От имени университета — со страницы вуза (админ или модератор). */
+  asUniversity?: boolean
+} = {}) {
   const t = useTranslations('Feed')
   const tCommon = useTranslations('Common')
   const tPeople = useTranslations('People')
@@ -74,7 +84,11 @@ export function CreatePostForm({
   const [scheduleOpen, setScheduleOpen] = useState(false)
   const [dragging, setDragging] = useState(false)
 
-  const audiences = role ? (AUDIENCES_BY_ROLE[role] ?? []) : []
+  const audiences = asUniversity
+    ? UNIVERSITY_PAGE_AUDIENCES
+    : role
+      ? (AUDIENCES_BY_ROLE[role] ?? [])
+      : []
 
   const form = useForm<CreatePostInput>({
     resolver: zodResolver(CreatePostSchema),
@@ -118,7 +132,12 @@ export function CreatePostForm({
 
   const mutation = useMutation({
     mutationFn: (input: CreatePostInput) =>
-      createPostRequest({ ...input, mediaIds: media.map((m) => m.id), targetUserId: target?.id }),
+      createPostRequest({
+        ...input,
+        mediaIds: media.map((m) => m.id),
+        targetUserId: target?.id,
+        ...(asUniversity ? { asUniversity: true } : {}),
+      }),
     onMutate: () => resetApiError(),
     onSuccess: (created, variables) => {
       void qc.invalidateQueries({ queryKey: postKeys.all })

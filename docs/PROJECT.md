@@ -376,6 +376,18 @@ AFTER_END / HIDDEN); один голос на пользователя (`@@uniqu
 `GET /polls/by-company/:companyId`. В ответах — `company: { id, name, logoUrl }` (у личного — `null`).
 Уведомление о комментарии к статье или опросу компании ведёт на `/companies/:id`.
 
+**Страница университета.** Так же устроена страница вуза (`universityPageId` у тех же таблиц):
+публикуют от имени вуза админ и модератор своего вуза — пост `asUniversity: true` (аудитория
+всегда `UNIVERSITY` своего вуза, так что он идёт в ленту вуза; модератору личные посты по-прежнему
+закрыты), остальное — `?as=university`; видимость статьи и опроса — `UNIVERSITY_PAGE`. Видят
+свои, платформенные роли и компании с действующим допуском в вуз (`universityPageVisibleWhere`);
+платформе и компаниям посты вуза — только на странице, не в ленте. Списки:
+`GET /posts?universityPageId=`, `GET /profile/university/:universityId/media|albums|articles|counts`,
+`GET /polls/by-university/:universityId`; в ответах — `universityPage: { id, name, logoUrl }`.
+Витрина — `GET /universities/:id/page` (`canPublish`, `canEdit`), правка — `PATCH /universities/my/page`
+и `POST|DELETE /universities/my/page/logo|cover` (только `UNIVERSITY_ADMIN`, вуз из токена;
+название, город и статус правит платформа). Ссылка в уведомлениях — `/universities/:id`.
+
 Мутации проверяют владение (`actor.sub`), просмотр — по `visibility`/scope. Медиа фильтруются по MIME
 (image/video); presigned-confirm валидирует объект через `statObject` и лимит 100 МБ.
 

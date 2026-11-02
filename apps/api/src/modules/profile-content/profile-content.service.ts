@@ -10,6 +10,7 @@ import {
 import { Role } from '@studenthub/shared-types'
 import {
   COMPANY_CONTENT_VISIBILITY,
+  UNIVERSITY_PAGE_CONTENT_VISIBILITY,
   DEFAULT_PAGE_LIMIT,
   PROFILE_LIST_LIMITS,
   isPageRequested,
@@ -52,8 +53,15 @@ import {
 } from './content-moderation'
 import {
   CareerAccessService,
-  companyPagePath,
-  isCompanyMember,
+  PERSONAL_CONTENT as PERSONAL,
+  canManagePageContent,
+  isPageEditor,
+  pageOf,
+  pagePath,
+  pageWhere,
+  type ContentOwnerKind,
+  type PageContentOrg,
+  type PageRef,
 } from '../career/career-access.service'
 
 // Что принимаем в медиа профиля — из белого списка категорий shared-config, а не по
@@ -69,8 +77,10 @@ const ARTICLE_CARD_SELECT = {
   id: true,
   userId: true,
   companyId: true,
-  // Статья страницы компании подписывается компанией, а не сотрудником.
+  universityPageId: true,
+  // Статья страницы организации подписывается ею, а не сотрудником.
   company: { select: { id: true, name: true, logoUrl: true } },
+  universityPage: { select: { id: true, name: true, logoUrl: true } },
   title: true,
   description: true,
   coverUrl: true,
@@ -108,28 +118,23 @@ function isPlatform(role: Role): boolean {
   return role === Role.PLATFORM_ADMIN || role === Role.PLATFORM_MODERATOR
 }
 
-/** От чьего имени создаётся контент: личный профиль или страница компании сотрудника. */
-type ContentOwnerKind = 'user' | 'company'
-
 /**
- * Чьё медиа считается в квоте и подходит альбому: личное — файлы пользователя без компании,
- * компании — все её файлы, кто бы из сотрудников их ни загрузил. У страницы компании своя
- * квота: личные фото сотрудника не съедают её место, а она — его.
+ * Чьё медиа считается в квоте и подходит альбому: личное — файлы пользователя вне страниц
+ * организаций, страницы — все её файлы, кто бы их ни загрузил. У страницы своя квота:
+ * личные фото сотрудника не съедают её место, а она — его.
  */
-interface MediaScope {
+interface MediaScope extends PageContentOrg {
   ownerId: string
-  companyId: string | null
 }
 
 function mediaScopeWhere(scope: MediaScope): Prisma.FileWhereInput {
-  return scope.companyId
-    ? { companyId: scope.companyId }
-    : { ownerId: scope.ownerId, companyId: null }
+  const page = pageOf(scope)
+  return page ? pageWhere(page) : { ownerId: scope.ownerId, ...PERSONAL }
 }
 
-/** Свой контент или контент страницы своей компании (им распоряжается любой сотрудник). */
-function canManage(actor: JwtPayload, row: { ownerId: string; companyId: string | null }): boolean {
-  return row.companyId ? isCompanyMember(actor, row.companyId) : row.ownerId === actor.sub
+/** Свой контент или контент страницы своей организации (им распоряжаются все её публикующие). */
+function canManage(actor: JwtPayload, row: { ownerId: string } & PageContentOrg): boolean {
+  return canManagePageContent(actor, row)
 }
 
 // Оценка времени чтения (~200 слов/мин).
@@ -197,9 +202,19 @@ export class ProfileContentService {
     private readonly careerAccess: CareerAccessService,
   ) {}
 
-  /** Компания, от имени которой сотрудник публикует; null — личный контент. */
-  private async companyFor(actor: JwtPayload, owner: ContentOwnerKind): Promise<string | null> {
-    return owner === 'company' ? this.careerAccess.requirePublishingCompany(actor) : null
+  /** Организация, от имени которой публикуют; обе связи пусты — личный контент. */
+  private orgFor(actor: JwtPayload, owner: ContentOwnerKind): Promise<PageContentOrg> {
+    return this.careerAccess.resolveContentOrg(actor, owner)
+  }
+
+  /** Страница видна смотрящему: сотрудники/свой вуз, платформа и стороны допуска. */
+  private canViewPage(viewer: JwtPayload, page: PageRef): Promise<boolean> {
+    return this.careerAccess.canViewPage(viewer, page)
+  }
+
+  /** Публикует от имени страницы: видит её черновики и распоряжается контентом. */
+  private isPageEditor(viewer: JwtPayload, page: PageRef): boolean {
+    return isPageEditor(viewer, page)
   }
 
   private get bucket(): string {
@@ -277,13 +292,13 @@ export class ProfileContentService {
   }
 
   /**
-   * Свежая загрузка — медиа страницы компании. Привязка отдельной записью после FileService:
-   * тот общий для всех модулей и о компаниях не знает. До привязки файл — личный, поэтому
-   * проверка квоты «после» идёт уже по привязанному.
+   * Свежая загрузка — медиа страницы организации. Привязка отдельной записью после
+   * FileService: тот общий для всех модулей и о страницах не знает. До привязки файл —
+   * личный, поэтому проверка квоты «после» идёт уже по привязанному.
    */
-  private async attachToCompany(fileId: string, companyId: string | null): Promise<void> {
-    if (!companyId) return
-    await this.prisma.file.update({ where: { id: fileId }, data: { companyId } })
+  private async attachToPage(fileId: string, org: PageContentOrg): Promise<void> {
+    if (!pageOf(org)) return
+    await this.prisma.file.update({ where: { id: fileId }, data: org })
   }
 
   // ── Медиа (фото/видео) ─────────────────────────────────────────────────────
@@ -294,7 +309,7 @@ export class ProfileContentService {
     buffer: Buffer,
     owner: ContentOwnerKind = 'user',
   ): Promise<ProfileMediaDto> {
-    const scope = { ownerId: actor.sub, companyId: await this.companyFor(actor, owner) }
+    const scope = { ownerId: actor.sub, ...(await this.orgFor(actor, owner)) }
     // До записи в хранилище: размер буфера известен, и заведомо лишний файл не заливаем.
     await this.assertMediaQuota(scope, buffer.byteLength)
     const file = await this.files.upload({ buffer, bucket: this.bucket, ownerId: actor.sub })
@@ -306,7 +321,7 @@ export class ProfileContentService {
         'В профиль можно загружать только фото и видео',
       )
     }
-    await this.attachToCompany(file.id, scope.companyId)
+    await this.attachToPage(file.id, scope)
     await this.rollbackOverQuota(scope, file.id)
     this.logger.log(`Медиа профиля ${file.id} загружено пользователем ${actor.sub}`)
     return this.toMediaDto({ ...file, variants: [] })
@@ -319,7 +334,7 @@ export class ProfileContentService {
    */
   async listMedia(viewer: JwtPayload, userId: string): Promise<ProfileMediaDto[]> {
     if (!(await this.users.canViewProfileContent(viewer, userId))) return []
-    return this.mediaWhere({ ownerId: userId, companyId: null, bucket: this.bucket })
+    return this.mediaWhere({ ownerId: userId, ...PERSONAL, bucket: this.bucket })
   }
 
   /**
@@ -327,9 +342,9 @@ export class ProfileContentService {
    * профиль. Байты лежат в том же публичном бакете, что и личные фото: закрыт список, а не
    * объект по ссылке — как у профиля пользователя.
    */
-  async listCompanyMedia(viewer: JwtPayload, companyId: string): Promise<ProfileMediaDto[]> {
-    if (!(await this.careerAccess.canViewCompany(viewer, companyId))) return []
-    return this.mediaWhere({ companyId, bucket: this.bucket })
+  async listPageMedia(viewer: JwtPayload, page: PageRef): Promise<ProfileMediaDto[]> {
+    if (!(await this.canViewPage(viewer, page))) return []
+    return this.mediaWhere({ ...pageWhere(page), bucket: this.bucket })
   }
 
   private async mediaWhere(where: Prisma.FileWhereInput): Promise<ProfileMediaDto[]> {
@@ -356,13 +371,13 @@ export class ProfileContentService {
     if (!author || !(await this.users.canViewProfileContentOf(viewer, author))) {
       return { photos: 0, videos: 0, articles: 0, polls: 0 }
     }
-    const media = { ownerId: userId, companyId: null, bucket: this.bucket }
+    const media = { ownerId: userId, ...PERSONAL, bucket: this.bucket }
     const [mediaTotal, videos, articles, polls] = await Promise.all([
       this.prisma.file.count({ where: media }),
       // Тип — как в toMediaDto: видео по mime, всё остальное в бакете — фото.
       this.prisma.file.count({ where: { ...media, mime: { startsWith: 'video/' } } }),
       this.prisma.profileArticle.count({
-        where: { userId, companyId: null, ...this.viewerVisibilityWhere(viewer, author) },
+        where: { userId, ...PERSONAL, ...this.viewerVisibilityWhere(viewer, author) },
       }),
       this.polls.countVisibleByUser(viewer, author),
     ])
@@ -370,27 +385,27 @@ export class ProfileContentService {
   }
 
   /** Итоги вкладок страницы компании — по тем же правилам, что её списки. */
-  async companyCounts(viewer: JwtPayload, companyId: string): Promise<ProfileContentCounts> {
-    if (!(await this.careerAccess.canViewCompany(viewer, companyId))) {
+  async pageCounts(viewer: JwtPayload, page: PageRef): Promise<ProfileContentCounts> {
+    if (!(await this.canViewPage(viewer, page))) {
       return { photos: 0, videos: 0, articles: 0, polls: 0 }
     }
-    const media = { companyId, bucket: this.bucket }
+    const media = { ...pageWhere(page), bucket: this.bucket }
     const [mediaTotal, videos, articles, polls] = await Promise.all([
       this.prisma.file.count({ where: media }),
       this.prisma.file.count({ where: { ...media, mime: { startsWith: 'video/' } } }),
-      this.prisma.profileArticle.count({ where: this.companyArticlesWhere(viewer, companyId) }),
-      this.polls.countVisibleByCompany(viewer, companyId),
+      this.prisma.profileArticle.count({ where: this.pageArticlesWhere(viewer, page) }),
+      this.polls.countVisibleByPage(viewer, page),
     ])
     return { photos: mediaTotal - videos, videos, articles, polls }
   }
 
-  /** Компания медиа профиля (null — личное): FileService о компаниях не знает. */
-  private async mediaCompanyId(fileId: string): Promise<string | null> {
+  /** Страница медиа профиля (обе связи пусты — личное): FileService о страницах не знает. */
+  private async mediaOrg(fileId: string): Promise<PageContentOrg> {
     const row = await this.prisma.file.findUnique({
       where: { id: fileId },
-      select: { companyId: true },
+      select: { companyId: true, universityPageId: true },
     })
-    return row?.companyId ?? null
+    return { companyId: row?.companyId ?? null, universityPageId: row?.universityPageId ?? null }
   }
 
   /**
@@ -400,9 +415,9 @@ export class ProfileContentService {
    */
   async deleteMedia(actor: JwtPayload, fileId: string, ctx: RequestContext): Promise<void> {
     const file = await this.files.findOrThrow(fileId)
-    const companyId = await this.mediaCompanyId(fileId)
-    // Медиа страницы компании снимает любой её сотрудник, не только загрузивший.
-    const moderated = !canManage(actor, { ownerId: file.ownerId, companyId })
+    const org = await this.mediaOrg(fileId)
+    // Медиа страницы организации снимает любой, кто публикует от её имени, не только загрузивший.
+    const moderated = !canManage(actor, { ownerId: file.ownerId, ...org })
     if (file.bucket !== this.bucket || (moderated && !isContentModerator(actor.role))) {
       throw new AppException('NOT_FOUND', 'Медиа не найдено')
     }
@@ -431,7 +446,7 @@ export class ProfileContentService {
     input: PresignProfileMediaInput,
     owner: ContentOwnerKind = 'user',
   ): Promise<{ key: string; url: string; expiresAt: string }> {
-    const scope = { ownerId: actor.sub, companyId: await this.companyFor(actor, owner) }
+    const scope = { ownerId: actor.sub, ...(await this.orgFor(actor, owner)) }
     // Заявленный MIME отсеивает очевидно неподходящее сразу; окончательная проверка —
     // на подтверждении, по содержимому объекта.
     this.assertMediaMime(input.mime)
@@ -451,7 +466,7 @@ export class ProfileContentService {
     input: ConfirmProfileMediaInput,
     owner: ContentOwnerKind = 'user',
   ): Promise<ProfileMediaDto> {
-    const scope = { ownerId: actor.sub, companyId: await this.companyFor(actor, owner) }
+    const scope = { ownerId: actor.sub, ...(await this.orgFor(actor, owner)) }
     const file = await this.files.confirmDirectUpload({
       bucket: this.bucket,
       key: input.key,
@@ -459,7 +474,7 @@ export class ProfileContentService {
       allowedMimes: PROFILE_MEDIA_MIMES,
     })
     // Объект уже в хранилище, и его настоящий размер известен только здесь.
-    await this.attachToCompany(file.id, scope.companyId)
+    await this.attachToPage(file.id, scope)
     await this.rollbackOverQuota(scope, file.id)
     this.logger.log(`Медиа профиля ${file.id} подтверждено (presigned) пользователем ${actor.sub}`)
     return this.toMediaDto({ ...file, variants: [] })
@@ -501,10 +516,10 @@ export class ProfileContentService {
   /** Прикрепить обложку к видео профиля: постер-кадр хранится объектом в бакете profile-covers. */
   async attachPoster(actor: JwtPayload, fileId: string, buffer: Buffer): Promise<ProfileMediaDto> {
     const file = await this.files.findOrThrow(fileId)
-    const companyId = await this.mediaCompanyId(fileId)
+    const org = await this.mediaOrg(fileId)
     if (
       file.bucket !== this.bucket ||
-      !canManage(actor, { ownerId: file.ownerId, companyId }) ||
+      !canManage(actor, { ownerId: file.ownerId, ...org }) ||
       !file.mime.startsWith('video/')
     ) {
       throw new AppException('NOT_FOUND', 'Видео не найдено')
@@ -533,9 +548,9 @@ export class ProfileContentService {
     input: CreateAlbumInput,
     owner: ContentOwnerKind = 'user',
   ): Promise<AlbumDto> {
-    const companyId = await this.companyFor(actor, owner)
+    const org = await this.orgFor(actor, owner)
     const album = await this.prisma.album.create({
-      data: { userId: actor.sub, companyId, title: input.title },
+      data: { userId: actor.sub, ...org, title: input.title },
       select: { id: true, title: true, createdAt: true },
     })
     return { ...album, coverUrl: null, count: 0 }
@@ -544,13 +559,13 @@ export class ProfileContentService {
   /** Альбомы пользователя (с обложкой и числом фото) — по видимости профиля, как и медиа. */
   async listAlbums(viewer: JwtPayload, userId: string): Promise<AlbumDto[]> {
     if (!(await this.users.canViewProfileContent(viewer, userId))) return []
-    return this.albumsWhere({ userId, companyId: null })
+    return this.albumsWhere({ userId, ...PERSONAL })
   }
 
   /** Альбомы страницы компании — по видимости компании, как её медиа. */
-  async listCompanyAlbums(viewer: JwtPayload, companyId: string): Promise<AlbumDto[]> {
-    if (!(await this.careerAccess.canViewCompany(viewer, companyId))) return []
-    return this.albumsWhere({ companyId })
+  async listPageAlbums(viewer: JwtPayload, page: PageRef): Promise<AlbumDto[]> {
+    if (!(await this.canViewPage(viewer, page))) return []
+    return this.albumsWhere(pageWhere(page))
   }
 
   private async albumsWhere(where: Prisma.AlbumWhereInput): Promise<AlbumDto[]> {
@@ -647,12 +662,13 @@ export class ProfileContentService {
   private async assertAlbumOwner(actor: JwtPayload, id: string): Promise<MediaScope> {
     const a = await this.prisma.album.findUnique({
       where: { id },
-      select: { userId: true, companyId: true },
+      select: { userId: true, companyId: true, universityPageId: true },
     })
     if (!a) throw new AppException('NOT_FOUND', 'Альбом не найден')
-    if (!canManage(actor, { ownerId: a.userId, companyId: a.companyId }))
+    const org = { companyId: a.companyId, universityPageId: a.universityPageId }
+    if (!canManage(actor, { ownerId: a.userId, ...org }))
       throw new AppException('FORBIDDEN', 'Можно менять только свои альбомы')
-    return { ownerId: actor.sub, companyId: a.companyId }
+    return { ownerId: actor.sub, ...org }
   }
 
   // ── Статьи ──────────────────────────────────────────────────────────────────
@@ -685,7 +701,7 @@ export class ProfileContentService {
     return url
   }
 
-  private articleData(input: CreateProfileArticleInput, companyId: string | null) {
+  private articleData(input: CreateProfileArticleInput, org: PageContentOrg) {
     return {
       title: input.title,
       description: input.description ?? null,
@@ -696,7 +712,11 @@ export class ProfileContentService {
       tags: input.tags ?? [],
       // Статья компании остаётся на её странице: ни создание, ни правка не выносят её в
       // общий доступ, что бы ни пришло в теле.
-      visibility: companyId ? COMPANY_CONTENT_VISIBILITY : input.visibility,
+      visibility: org.companyId
+        ? COMPANY_CONTENT_VISIBILITY
+        : org.universityPageId
+          ? UNIVERSITY_PAGE_CONTENT_VISIBILITY
+          : input.visibility,
       allowComments: input.allowComments,
       status: input.status,
       readingMinutes: readingMinutes(input.content),
@@ -708,12 +728,12 @@ export class ProfileContentService {
     input: CreateProfileArticleInput,
     owner: ContentOwnerKind = 'user',
   ) {
-    const companyId = await this.companyFor(actor, owner)
+    const org = await this.orgFor(actor, owner)
     const row = await this.prisma.profileArticle.create({
       data: {
         userId: actor.sub,
-        companyId,
-        ...this.articleData(input, companyId),
+        ...org,
+        ...this.articleData(input, org),
         // Момент первой публикации фиксируем при создании со статусом PUBLISHED.
         publishedAt: input.status === 'PUBLISHED' ? new Date() : null,
       },
@@ -769,30 +789,25 @@ export class ProfileContentService {
       select: PROFILE_CONTENT_OWNER_SELECT,
     })
     if (!author || !(await this.users.canViewProfileContentOf(viewer, author))) return []
-    // Статьи страницы компании живут на её странице, а не в личном профиле сотрудника.
+    // Статьи страниц организаций живут на их страницах, а не в личном профиле автора.
     const where = {
       userId: targetUserId,
-      companyId: null,
+      ...PERSONAL,
       ...this.viewerVisibilityWhere(viewer, author),
     }
     return this.articlesWhere(viewer, where, query)
   }
 
-  /** Статьи страницы компании: невидимая компания — пусто, черновики — сотрудникам. */
-  async listCompanyArticles(
-    viewer: JwtPayload,
-    companyId: string,
-    query: ProfileArticlesQueryInput = {},
-  ) {
-    if (!(await this.careerAccess.canViewCompany(viewer, companyId))) return []
-    return this.articlesWhere(viewer, this.companyArticlesWhere(viewer, companyId), query)
+  /** Статьи страницы организации: невидимая — пусто, черновики — тем, кто от её имени публикует. */
+  async listPageArticles(viewer: JwtPayload, page: PageRef, query: ProfileArticlesQueryInput = {}) {
+    if (!(await this.canViewPage(viewer, page))) return []
+    return this.articlesWhere(viewer, this.pageArticlesWhere(viewer, page), query)
   }
 
-  private companyArticlesWhere(
-    viewer: JwtPayload,
-    companyId: string,
-  ): Prisma.ProfileArticleWhereInput {
-    return isCompanyMember(viewer, companyId) ? { companyId } : { companyId, status: 'PUBLISHED' }
+  private pageArticlesWhere(viewer: JwtPayload, page: PageRef): Prisma.ProfileArticleWhereInput {
+    return this.isPageEditor(viewer, page)
+      ? pageWhere(page)
+      : { ...pageWhere(page), status: 'PUBLISHED' }
   }
 
   private async articlesWhere(
@@ -837,17 +852,18 @@ export class ProfileContentService {
   async updateArticle(actor: JwtPayload, id: string, input: UpdateProfileArticleInput) {
     const cur = await this.prisma.profileArticle.findUnique({
       where: { id },
-      select: { userId: true, companyId: true, publishedAt: true },
+      select: { userId: true, companyId: true, universityPageId: true, publishedAt: true },
     })
     if (!cur) throw new AppException('NOT_FOUND', 'Статья не найдена')
-    if (!canManage(actor, { ownerId: cur.userId, companyId: cur.companyId }))
+    const org = { companyId: cur.companyId, universityPageId: cur.universityPageId }
+    if (!canManage(actor, { ownerId: cur.userId, ...org }))
       throw new AppException('FORBIDDEN', 'Можно менять только свои статьи')
     // publishedAt проставляем при первом переходе в PUBLISHED; далее — сохраняем.
     const publishedAt =
       input.status === 'PUBLISHED' ? (cur.publishedAt ?? new Date()) : cur.publishedAt
     const row = await this.prisma.profileArticle.update({
       where: { id },
-      data: { ...this.articleData(input, cur.companyId), publishedAt },
+      data: { ...this.articleData(input, org), publishedAt },
       select: ARTICLE_SELECT,
     })
     return (await this.decorateArticles([row], actor.sub))[0]
@@ -857,10 +873,15 @@ export class ProfileContentService {
   async deleteArticle(actor: JwtPayload, id: string, ctx: RequestContext): Promise<void> {
     const row = await this.prisma.profileArticle.findUnique({
       where: { id },
-      select: { userId: true, companyId: true, user: { select: CONTENT_AUTHOR_SELECT } },
+      select: {
+        userId: true,
+        companyId: true,
+        universityPageId: true,
+        user: { select: CONTENT_AUTHOR_SELECT },
+      },
     })
     if (!row) throw new AppException('NOT_FOUND', 'Статья не найдена')
-    const moderated = !canManage(actor, { ownerId: row.userId, companyId: row.companyId })
+    const moderated = !canManage(actor, { ownerId: row.userId, ...row })
     if (moderated) {
       if (!isContentModerator(actor.role)) {
         throw new AppException('FORBIDDEN', 'Можно менять только свои статьи')
@@ -904,6 +925,7 @@ export class ProfileContentService {
       select: {
         userId: true,
         companyId: true,
+        universityPageId: true,
         category: true,
         tags: true,
         user: { select: PROFILE_CONTENT_OWNER_SELECT },
@@ -915,16 +937,17 @@ export class ProfileContentService {
     if (base.tags.length > 0) similar.push({ tags: { hasSome: base.tags } })
     if (similar.length === 0) return []
 
-    // У статьи компании «тот же автор» — сама компания: похожие берутся с её страницы.
+    // У статьи страницы «тот же автор» — сама организация: похожие берутся с её страницы.
     let owner: Prisma.ProfileArticleWhereInput
-    if (base.companyId) {
-      if (!(await this.careerAccess.canViewCompany(viewer, base.companyId))) return []
-      owner = this.companyArticlesWhere(viewer, base.companyId)
+    const page = pageOf(base)
+    if (page) {
+      if (!(await this.canViewPage(viewer, page))) return []
+      owner = this.pageArticlesWhere(viewer, page)
     } else {
       if (!(await this.users.canViewProfileContentOf(viewer, base.user))) return []
       owner = {
         userId: base.userId,
-        companyId: null,
+        ...PERSONAL,
         ...this.viewerVisibilityWhere(viewer, base.user),
       }
     }
@@ -981,17 +1004,19 @@ export class ProfileContentService {
       select: {
         userId: true,
         companyId: true,
+        universityPageId: true,
         status: true,
         visibility: true,
         user: { select: PROFILE_CONTENT_OWNER_SELECT },
       },
     })
-    // Статья страницы компании: видимость компании, а не профиля автора-сотрудника (у
-    // работодателя профиль закрыт). Черновик — сотрудникам.
-    if (a?.companyId) {
+    // Статья страницы организации: видимость страницы, а не профиля автора (у работодателя
+    // профиль закрыт). Черновик — тем, кто публикует от её имени.
+    const page = a ? pageOf(a) : null
+    if (page && a) {
       const visible =
-        (a.status === 'PUBLISHED' || isCompanyMember(viewer, a.companyId)) &&
-        (await this.careerAccess.canViewCompany(viewer, a.companyId))
+        (a.status === 'PUBLISHED' || this.isPageEditor(viewer, page)) &&
+        (await this.canViewPage(viewer, page))
       if (!visible) throw new AppException('NOT_FOUND', 'Статья не найдена')
       return
     }
@@ -1056,7 +1081,7 @@ export class ProfileContentService {
     await this.assertArticleVisible(viewer, articleId)
     const article = await this.prisma.profileArticle.findUnique({
       where: { id: articleId },
-      select: { allowComments: true, userId: true, companyId: true },
+      select: { allowComments: true, userId: true, companyId: true, universityPageId: true },
     })
     if (!article?.allowComments)
       throw new AppException('FORBIDDEN', 'Комментарии к статье отключены')
@@ -1066,7 +1091,12 @@ export class ProfileContentService {
     })
     await this.notifyArticleOwner(
       viewer,
-      { id: articleId, userId: article.userId, companyId: article.companyId },
+      {
+        id: articleId,
+        userId: article.userId,
+        companyId: article.companyId,
+        universityPageId: article.universityPageId,
+      },
       created,
     )
     return created
@@ -1079,10 +1109,11 @@ export class ProfileContentService {
    */
   private async notifyArticleOwner(
     actor: JwtPayload,
-    article: { id: string; userId: string; companyId: string | null },
+    article: { id: string; userId: string } & PageContentOrg,
     comment: { id: string; author: { firstName: string; lastName: string } },
   ): Promise<void> {
     if (article.userId === actor.sub) return
+    const page = pageOf(article)
     try {
       const blocked = await this.prisma.userBlock.findFirst({
         where: {
@@ -1107,10 +1138,8 @@ export class ProfileContentService {
           data: {
             articleId: article.id,
             commentId: comment.id,
-            // Статья компании открывается на её странице: профиль сотрудника закрыт.
-            url: article.companyId
-              ? companyPagePath(article.companyId)
-              : `/profile/${article.userId}`,
+            // Статья страницы открывается на её странице: профиль автора там ни при чём.
+            url: page ? pagePath(page) : `/profile/${article.userId}`,
           },
           dedupeKey,
           collapseKey: `article-comments:${article.id}`,
@@ -1138,7 +1167,12 @@ export class ProfileContentService {
         articleId: true,
         author: { select: CONTENT_AUTHOR_SELECT },
         article: {
-          select: { userId: true, companyId: true, user: { select: CONTENT_AUTHOR_SELECT } },
+          select: {
+            userId: true,
+            companyId: true,
+            universityPageId: true,
+            user: { select: CONTENT_AUTHOR_SELECT },
+          },
         },
       },
     })
@@ -1148,7 +1182,11 @@ export class ProfileContentService {
     // модератор scope (с записью в аудит).
     const owns =
       !!c.article &&
-      canManage(viewer, { ownerId: c.article.userId, companyId: c.article.companyId })
+      canManage(viewer, {
+        ownerId: c.article.userId,
+        companyId: c.article.companyId,
+        universityPageId: c.article.universityPageId,
+      })
     const moderated = c.authorId !== viewer.sub && !owns
     if (moderated) {
       if (!isContentModerator(viewer.role)) {
@@ -1206,24 +1244,30 @@ export class ProfileContentService {
       orderBy: { createdAt: 'desc' },
       take: 100,
     })
-    const personal = marks.filter((m) => !m.article.companyId)
+    const personal = marks.filter((m) => !pageOf(m.article))
     const viewable = await this.users.viewableProfileContentOwners(
       viewer,
       personal.map((m) => m.article.user),
     )
-    // Статьи страниц компаний — по видимости компании (допуск вуза мог закончиться).
-    const companies = await this.careerAccess.visibleCompanyIds(
-      viewer,
-      marks.flatMap((m) => (m.article.companyId ? [m.article.companyId] : [])),
-    )
+    // Статьи страниц — по видимости страницы (допуск вуза мог закончиться), пачкой.
+    const [companies, universities] = await Promise.all([
+      this.careerAccess.visibleCompanyIds(
+        viewer,
+        marks.flatMap((m) => (m.article.companyId ? [m.article.companyId] : [])),
+      ),
+      this.careerAccess.visibleUniversityPageIds(
+        viewer,
+        marks.flatMap((m) => (m.article.universityPageId ? [m.article.universityPageId] : [])),
+      ),
+    ])
     const visible = marks
       .map((m) => m.article)
-      .filter((a) =>
-        a.companyId
-          ? companies.has(a.companyId) &&
-            (a.status === 'PUBLISHED' || isCompanyMember(viewer, a.companyId))
-          : viewable.has(a.userId) && this.articleScopeOk(viewer, a, a.user),
-      )
+      .filter((a) => {
+        const page = pageOf(a)
+        if (!page) return viewable.has(a.userId) && this.articleScopeOk(viewer, a, a.user)
+        const seen = page.kind === 'company' ? companies : universities
+        return seen.has(page.id) && (a.status === 'PUBLISHED' || this.isPageEditor(viewer, page))
+      })
       // Поля автора нужны только для проверки — наружу уходит прежняя форма статьи.
       .map(({ user, ...article }) => article)
     return this.decorateArticles(visible, viewer.sub)

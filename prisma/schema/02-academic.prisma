@@ -12,8 +12,23 @@ model University {
   city      String?
   // Таймзона вуза для расписания/событий (docs/PROJECT.md §6.2; используется с Ф6).
   timezone  String           @default("Asia/Almaty")
-  createdAt DateTime         @default(now()) @map("created_at")
-  updatedAt DateTime         @updatedAt @map("updated_at")
+
+  // Страница университета (как профиль): витрина для своих и для компаний с допуском.
+  // Логотип и обложка — raw-объекты публичного бакета profile-covers, ссылку строит сервер.
+  logoUrl      String? @map("logo_url")
+  coverUrl     String? @map("cover_url")
+  description  String?
+  website      String?
+  foundedYear  Int?    @map("founded_year")
+  contactEmail String? @map("contact_email")
+  contactPhone String? @map("contact_phone")
+  address      String?
+  telegram     String?
+  instagram    String?
+  linkedin     String?
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   faculties        Faculty[]
   specialties      Specialty[]
@@ -34,7 +49,15 @@ model University {
   companyAccess    CompanyUniversityAccess[] @relation("UniversityCompanyAccess")
   vacancyReviews   VacancyUniversityReview[] @relation("UniversityVacancyReviews")
   demoRequests     UniversityDemoRequest[]   @relation("UniversityDemoRequest")
-  onboarding       UniversityOnboarding?     @relation("UniversityOnboarding")
+
+  // Контент страницы университета: публикует админ или модератор вуза от его имени.
+  // Отдельные связи, а не universityId: тот у постов — scope аудитории, а не владелец.
+  pagePosts        Post[]                @relation("UniversityPagePosts")
+  pageArticles     ProfileArticle[]      @relation("UniversityPageArticles")
+  pagePolls        Poll[]                @relation("UniversityPagePolls")
+  pageAlbums       Album[]               @relation("UniversityPageAlbums")
+  pageMedia        File[]                @relation("UniversityPageMedia")
+  onboarding       UniversityOnboarding? @relation("UniversityOnboarding")
   cameraAgents     CameraAgent[]
   cameras          Camera[]
   cameraSettings   CameraSettings?

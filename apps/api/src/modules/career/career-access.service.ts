@@ -101,6 +101,122 @@ export function companyPagePath(companyId: string): string {
   return `/companies/${companyId}`
 }
 
+// ── Страница университета ─────────────────────────────────────────────────────
+
+/** Кто публикует от имени своего вуза (решение владельца: админ и модератор вуза). */
+const UNIVERSITY_PAGE_EDITORS: ReadonlySet<Role> = new Set([
+  Role.UNIVERSITY_ADMIN,
+  Role.UNIVERSITY_MODERATOR,
+])
+
+/** Смотрящий публикует и распоряжается контентом страницы этого вуза. */
+export function isUniversityPageEditor(
+  viewer: Pick<JwtPayload, 'role' | 'universityId'>,
+  universityId: string | null | undefined,
+): boolean {
+  return (
+    !!universityId &&
+    UNIVERSITY_PAGE_EDITORS.has(viewer.role) &&
+    viewer.universityId === universityId
+  )
+}
+
+/**
+ * Чью страницу университета видит смотрящий — условие на связь `universityPage`:
+ *  - свои — страницу своего вуза;
+ *  - платформенные роли — любую;
+ *  - работодатель — вузов, куда его компания допущена прямо сейчас (зеркало видимости
+ *    страницы компании: стороны допуска видят друг друга).
+ * null — ни одной (роль вне вуза без компании).
+ */
+export function universityPageVisibleWhere(
+  viewer: Pick<JwtPayload, 'role' | 'universityId' | 'companyId'>,
+  now: Date = new Date(),
+): Prisma.UniversityWhereInput | null {
+  if (viewer.role === Role.PLATFORM_ADMIN || viewer.role === Role.PLATFORM_MODERATOR) return {}
+  if (viewer.role === Role.EMPLOYER) {
+    if (!viewer.companyId) return null
+    return {
+      status: 'ACTIVE',
+      companyAccess: {
+        some: {
+          companyId: viewer.companyId,
+          status: 'APPROVED',
+          OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+          company: ACTIVE_COMPANY_WHERE,
+        },
+      },
+    }
+  }
+  return viewer.universityId ? { id: viewer.universityId } : null
+}
+
+/** Путь страницы университета в вебе — ссылка в уведомлениях и на постах от его имени. */
+export function universityPagePath(universityId: string): string {
+  return `/universities/${universityId}`
+}
+
+/**
+ * Владелец контента профиля: личный (ownerId), страница компании или страница вуза. Контент
+ * организации принадлежит ей — правят и удаляют все, кто публикует от её имени.
+ */
+export interface PageContentOwnership {
+  ownerId: string
+  companyId: string | null
+  universityPageId: string | null
+}
+
+export function canManagePageContent(actor: JwtPayload, row: PageContentOwnership): boolean {
+  if (row.companyId) return isCompanyMember(actor, row.companyId)
+  if (row.universityPageId) return isUniversityPageEditor(actor, row.universityPageId)
+  return row.ownerId === actor.sub
+}
+
+/** Страница организации, чей контент читается списком: компании или университета. */
+export interface PageRef {
+  kind: 'company' | 'university'
+  id: string
+}
+
+/** Условие «контент этой страницы» для любой из таблиц контента. */
+export function pageWhere(page: PageRef): { companyId: string } | { universityPageId: string } {
+  return page.kind === 'company' ? { companyId: page.id } : { universityPageId: page.id }
+}
+
+/** Страница, которой принадлежит запись; null — личный контент. */
+export function pageOf(row: {
+  companyId: string | null
+  universityPageId: string | null
+}): PageRef | null {
+  if (row.companyId) return { kind: 'company', id: row.companyId }
+  if (row.universityPageId) return { kind: 'university', id: row.universityPageId }
+  return null
+}
+
+/** Личный контент — ни компании, ни страницы вуза: только он попадает в профиль человека. */
+export const PERSONAL_CONTENT = { companyId: null, universityPageId: null } as const
+
+/** Публикует от имени страницы: видит её черновики и распоряжается контентом. */
+export function isPageEditor(viewer: JwtPayload, page: PageRef): boolean {
+  return page.kind === 'company'
+    ? isCompanyMember(viewer, page.id)
+    : isUniversityPageEditor(viewer, page.id)
+}
+
+/** Путь страницы организации в вебе — ссылка в уведомлениях о комментариях. */
+export function pagePath(page: PageRef): string {
+  return page.kind === 'company' ? companyPagePath(page.id) : universityPagePath(page.id)
+}
+
+/** От чьего имени создаётся контент: личный профиль, страница компании или вуза. */
+export type ContentOwnerKind = 'user' | 'company' | 'university'
+
+/** Организация контента — у личного обе связи пусты. */
+export interface PageContentOrg {
+  companyId: string | null
+  universityPageId: string | null
+}
+
 /** Допуск в кэше: вуз и срок (ISO). Срок сверяется при каждом чтении, а не при записи. */
 interface CachedGrant {
   universityId: string
@@ -271,6 +387,65 @@ export class CareerAccessService {
     const companyId = this.requireCompany(viewer)
     await this.assertCompanyActive(companyId)
     return companyId
+  }
+
+  /** Страница университета видна смотрящему (правило `universityPageVisibleWhere`). */
+  async canViewUniversityPage(viewer: JwtPayload, universityId: string): Promise<boolean> {
+    const where = universityPageVisibleWhere(viewer)
+    if (!where) return false
+    const count = await this.prisma.university.count({
+      where: { AND: [{ id: universityId }, where] },
+    })
+    return count > 0
+  }
+
+  /** То же, с отказом `NOT_FOUND` — перебор id не подтверждает существование вуза. */
+  async assertCanViewUniversityPage(viewer: JwtPayload, universityId: string): Promise<void> {
+    if (!(await this.canViewUniversityPage(viewer, universityId))) {
+      throw new AppException('NOT_FOUND', 'Университет не найден')
+    }
+  }
+
+  /** Страница организации видна смотрящему. */
+  canViewPage(viewer: JwtPayload, page: PageRef): Promise<boolean> {
+    return page.kind === 'company'
+      ? this.canViewCompany(viewer, page.id)
+      : this.canViewUniversityPage(viewer, page.id)
+  }
+
+  /** Какие из страниц вузов видны смотрящему — пачкой (закладки на статьи). */
+  async visibleUniversityPageIds(viewer: JwtPayload, ids: string[]): Promise<Set<string>> {
+    const unique = [...new Set(ids)]
+    const where = universityPageVisibleWhere(viewer)
+    if (unique.length === 0 || !where) return new Set()
+    const rows = await this.prisma.university.findMany({
+      where: { AND: [{ id: { in: unique } }, where] },
+      select: { id: true },
+      take: unique.length,
+    })
+    return new Set(rows.map((r) => r.id))
+  }
+
+  /** Вуз, от имени которого публикует админ или модератор: из токена, иначе `FORBIDDEN`. */
+  requirePublishingUniversity(viewer: JwtPayload): string {
+    if (!viewer.universityId || !isUniversityPageEditor(viewer, viewer.universityId)) {
+      throw new AppException(
+        'FORBIDDEN',
+        'Публиковать от имени университета могут админ и модератор вуза',
+      )
+    }
+    return viewer.universityId
+  }
+
+  /** Организация нового контента по `?as=`; компания и вуз — только из токена. */
+  async resolveContentOrg(actor: JwtPayload, owner: ContentOwnerKind): Promise<PageContentOrg> {
+    if (owner === 'company') {
+      return { companyId: await this.requirePublishingCompany(actor), universityPageId: null }
+    }
+    if (owner === 'university') {
+      return { companyId: null, universityPageId: this.requirePublishingUniversity(actor) }
+    }
+    return { companyId: null, universityPageId: null }
   }
 
   /** Есть ли у компании активный допуск в конкретный вуз. */

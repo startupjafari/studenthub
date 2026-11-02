@@ -21,8 +21,10 @@ import { PrismaService } from '../../common/prisma/prisma.service'
 import { REDIS_CLIENT } from '../../common/redis/redis.constants'
 import {
   CareerAccessService,
+  canManagePageContent,
   companyContentVisibleWhere,
-  isCompanyMember,
+  isUniversityPageEditor,
+  universityPageVisibleWhere,
 } from '../career/career-access.service'
 import { NOTIFICATION_JOBS, QUEUES, QueueService } from '../../common/queue'
 import { isFirstViewToday } from './unique-view'
@@ -139,6 +141,8 @@ const POST_SELECT_CORE = {
   createdAt: true,
   author: AUTHOR_SELECT,
   company: COMPANY_SELECT,
+  // Пост от имени университета (страница вуза) подписывается вузом.
+  universityPage: COMPANY_SELECT,
   // Поля описания медиа с вариантами: ссылки и srcset подписываются пачкой на всю выдачу
   // (decorate). Наружу из этих строк уходит только публичная часть (toPostMedia).
   media: { select: MEDIA_FILE_SELECT },
@@ -204,6 +208,7 @@ const POST_SCOPE_SELECT = {
   id: true,
   authorId: true,
   companyId: true,
+  universityPageId: true,
   audience: true,
   universityId: true,
   facultyId: true,
@@ -244,6 +249,7 @@ export function mentionedLogins(text: string): string[] {
 // Scope-цель поста, вычисленная из audience (проставляется в data при создании).
 interface PostTarget {
   companyId?: string
+  universityPageId?: string
   universityId?: string
   facultyId?: string
   groupId?: string
@@ -355,6 +361,10 @@ export class PostsService {
     // посты не попадают — это отсекает feedWhere; здесь — право открыть пост по id.
     const company = companyContentVisibleWhere(viewer)
     if (company) or.push({ audience: PostAudience.COMPANY, company })
+    // Страница университета: свои видят её посты и так (аудитория UNIVERSITY), ветка — для
+    // платформы и компаний с допуском. В их ленту посты не попадают — это отсекает feedWhere.
+    const universityPage = universityPageVisibleWhere(viewer)
+    if (universityPage) or.push({ universityPage })
     const moderated = opts.moderation ? this.moderationWhere(viewer) : null
     if (moderated) or.push(moderated)
     // Черновики/отложенные (status ≠ PUBLISHED) видит только автор; остальным — лишь опубликованные.
@@ -480,8 +490,11 @@ export class PostsService {
       _count: counted && row._count ? row._count : { comments: countByPost.get(row.id) ?? 0 },
       bookmarked: savedIds.has(row.id),
       canDelete:
-        this.ownsPost(viewer, { authorId: row.authorId, companyId: row.company?.id ?? null }) ||
-        this.canModerate(viewer, row, row.author.role),
+        this.ownsPost(viewer, {
+          authorId: row.authorId,
+          companyId: row.company?.id ?? null,
+          universityPageId: row.universityPage?.id ?? null,
+        }) || this.canModerate(viewer, row, row.author.role),
       canPin: this.canPinPost(viewer, row, row.author.role),
     }))
   }
@@ -729,7 +742,9 @@ export class PostsService {
     // сотруднику: его отсекает visibilityWhere (неопубликованное — только автору).
     const ownPage = query.companyId
       ? query.companyId === viewer.companyId
-      : query.authorId === viewer.sub
+      : query.universityPageId
+        ? isUniversityPageEditor(viewer, query.universityPageId)
+        : query.authorId === viewer.sub
     if (!ownPage) {
       ;(base.AND as Prisma.PostWhereInput[]).push({ status: 'PUBLISHED' })
     }
@@ -738,7 +753,7 @@ export class PostsService {
     if (filterWhere) (base.AND as Prisma.PostWhereInput[]).push(filterWhere)
     // Фильтр статуса вкладки профиля — тоже поверх видимости: в чужом профиле выше уже
     // стоит PUBLISHED, и DRAFT/SCHEDULED там дают пустую выдачу, а не чужие черновики.
-    if ((query.authorId || query.companyId) && query.status) {
+    if ((query.authorId || query.companyId || query.universityPageId) && query.status) {
       ;(base.AND as Prisma.PostWhereInput[]).push({ status: query.status })
     }
     // Страница компании — только её посты; везде остальное (лента, вкладка «Посты» профиля)
@@ -746,7 +761,17 @@ export class PostsService {
     if (query.companyId) {
       return { AND: [{ audience: PostAudience.COMPANY, companyId: query.companyId }, base] }
     }
-    ;(base.AND as Prisma.PostWhereInput[]).push({ companyId: null })
+    // Страница университета — только посты от его имени.
+    if (query.universityPageId) {
+      return { AND: [{ universityPageId: query.universityPageId }, base] }
+    }
+    const and = base.AND as Prisma.PostWhereInput[]
+    and.push({ companyId: null })
+    // Посты страницы вуза — в ленте только своего вуза (там они обычная аудитория UNIVERSITY);
+    // платформе и компаниям с допуском — лишь на странице. Во вкладке «Посты» профиля автора
+    // их нет вовсе: они от имени вуза, а не человека.
+    if (query.authorId || !viewer.universityId) and.push({ universityPageId: null })
+    else and.push({ OR: [{ universityPageId: null }, { universityId: viewer.universityId }] })
     return query.authorId ? { AND: [{ authorId: query.authorId }, base] } : base
   }
 
@@ -906,17 +931,22 @@ export class PostsService {
     input: CreatePostInput,
     ctx: RequestContext,
   ): Promise<ViewerPost> {
-    const target = await this.resolveTarget(actor, input.audience as PostAudience, input)
+    // От имени университета — всегда весь вуз (аудитория UNIVERSITY), вуз — из токена; так
+    // публикует и модератор вуза, которому личные посты недоступны (ALLOWED_AUDIENCES).
+    const audience = input.asUniversity ? PostAudience.UNIVERSITY : (input.audience as PostAudience)
+    const target = input.asUniversity
+      ? this.universityPageTarget(actor)
+      : await this.resolveTarget(actor, audience, input)
     // Пост и привязка медиа — одной транзакцией: раньше пост публиковался, а следом
     // linkMedia отвечал 400, клиент повторял отправку — и в ленте оказывалось два поста.
     const post = await this.prisma.$transaction(async (tx) => {
       const created = await tx.post.create({
         data: {
           authorId: actor.sub,
-          audience: input.audience as PostAudience,
+          audience,
           title: input.title?.trim() || null,
           content: input.content,
-          priority: this.priorityFor(actor, input.audience as PostAudience),
+          priority: this.priorityFor(actor, audience),
           ...this.resolvePublishState(input),
           ...target,
         },
@@ -1040,7 +1070,13 @@ export class PostsService {
   ): Promise<ViewerPost> {
     const post = await this.prisma.post.findFirst({
       where: { id, deletedAt: null },
-      select: { id: true, authorId: true, companyId: true, originalPostId: true },
+      select: {
+        id: true,
+        authorId: true,
+        companyId: true,
+        universityPageId: true,
+        originalPostId: true,
+      },
     })
     if (!post) {
       throw new AppException('NOT_FOUND', 'Пост не найден')
@@ -1077,7 +1113,7 @@ export class PostsService {
   async publish(actor: JwtPayload, id: string, ctx: RequestContext): Promise<ViewerPost> {
     const post = await this.prisma.post.findFirst({
       where: { id, deletedAt: null },
-      select: { id: true, authorId: true, companyId: true, status: true },
+      select: { id: true, authorId: true, companyId: true, universityPageId: true, status: true },
     })
     if (!post) {
       throw new AppException('NOT_FOUND', 'Пост не найден')
@@ -1429,14 +1465,25 @@ export class PostsService {
   // ── Внутреннее ──────────────────────────────────────────────────────────────
 
   /**
-   * Свой пост — или пост страницы своей компании: её контентом распоряжается любой сотрудник
-   * (правка, публикация черновика, удаление), как статьями, опросами и медиа её страницы.
+   * Свой пост — или пост страницы своей организации: её контентом распоряжаются все, кто
+   * публикует от её имени (правка, публикация черновика, удаление), как статьями, опросами и
+   * медиа страницы.
    */
   private ownsPost(
     actor: JwtPayload,
-    post: { authorId: string; companyId: string | null },
+    post: { authorId: string; companyId: string | null; universityPageId?: string | null },
   ): boolean {
-    return post.companyId ? isCompanyMember(actor, post.companyId) : post.authorId === actor.sub
+    return canManagePageContent(actor, {
+      ownerId: post.authorId,
+      companyId: post.companyId,
+      universityPageId: post.universityPageId ?? null,
+    })
+  }
+
+  /** Пост от имени своего вуза: весь вуз, он же — владелец страницы. */
+  private universityPageTarget(actor: JwtPayload): PostTarget {
+    const universityId = this.careerAccess.requirePublishingUniversity(actor)
+    return { universityId, universityPageId: universityId }
   }
 
   private priorityFor(actor: JwtPayload, audience: PostAudience): number {
