@@ -2,7 +2,7 @@
 
 > Обязательный регламент для `apps/web` (Next.js App Router + Feature-Sliced Design).
 > Читается агентом (Claude Code / Codex) **до** написания любого кода во фронтенде.
-> Версия: 1.0 · Последнее обновление: 2026-07
+> Версия: 1.0 · Последнее обновление: 2026-11
 
 ---
 
@@ -20,7 +20,7 @@
 | Скилл говорит | В этом проекте | Причина |
 |---|---|---|
 | Mantine | **Tailwind CSS + shadcn/ui** | Зафиксировано в стеке проекта |
-| `components/`, `features/`, `services/` | **FSD**: `shared / entities / features / widgets / pages` | Масштаб: 8 ролей, ~90 экранов |
+| `components/`, `features/`, `services/` | **FSD**: `shared / entities / features / widgets / views` | Масштаб: 11 ролей, ~185 страниц `app/**/page.tsx` |
 | `services/api.ts` | `shared/api/instance.ts` (та же роль, другое место) | Слой `shared` в FSD |
 | Zod-типы объявляются во фронте | Импортируются из `packages/shared-schemas` | Единый контракт с бэкендом |
 | Токены в httpOnly cookie (оба) | Access — **в памяти (Redux)**, refresh — httpOnly cookie | Защита от XSS, решение §16 архитектуры |
@@ -45,6 +45,10 @@
 | i18n | `next-intl` | Хардкод строк в JSX |
 | PWA | `@ducanh2912/next-pwa` | Ручной service worker |
 
+> Фактически (2026-11): `date-fns` в зависимостях `apps/web` нет — даты форматируются через
+> `Intl` (`toLocale*`, `Intl.DateTimeFormat`) и `useFormatter` из `next-intl`, пояс вуза —
+> `shared/lib/tz-date.ts`.
+
 **Категорически запрещено:** `localStorage` / `sessionStorage` для токенов и любых данных сессии.
 
 ### 1.1 shadcn/ui — практическая настройка (как есть в проекте)
@@ -55,7 +59,7 @@
 - **Зависимости shadcn-стека:** `radix-ui` (унифицированный пакет — импорт `import { Slot } from "radix-ui"`), `sonner` + `next-themes` (тосты, `<Toaster/>` в root layout), `tw-animate-css`, `class-variance-authority`, `clsx`, `tailwind-merge`, `lucide-react`.
 - **Пути:** в `apps/web/tsconfig.json` добавлены `paths` для FSD-алиасов (`shared/*`, `entities/*`, `features/*`, `widgets/*`, `views/*`) — нужны, чтобы shadcn CLI резолвил алиасы. Импорты в коде — относительные или через эти алиасы.
 - **Компонент `form`** из реестра `radix-nova` не ставится — формы собираем из `Label` + `Input` + `Button` + React Hook Form (`register`/`handleSubmit`), ошибки под полями через `text-destructive`.
-- **Шрифт:** пресет `nova` тянет `Geist` из Google Fonts (`next/font/google`) — убрано ради offline-сборки, используется системный sans. Для брендового шрифта подключать `next/font/local` с локальными файлами.
+- **Шрифт:** пресет `nova` тянет `Geist` из Google Fonts (`next/font/google`) — убрано ради offline-сборки. Используется Inter Variable из `@fontsource-variable/inter` (локальные woff2, импорт в `app/layout.tsx`), стек задаётся токеном `--font-sans` в `globals.css`.
 
 ---
 
@@ -64,32 +68,35 @@
 ```
 apps/web/src/
 ├── app/                        # Next.js App Router: только роутинг, layout, loading, error
-│   ├── (auth)/                 # /login, /register?token=
-│   ├── (platform-admin)/       ├── (university-admin)/
-│   ├── (moderator)/            ├── (dean)/
-│   ├── (teacher)/              ├── (starosta)/
-│   └── (student)/              # / — главная лента
+│   ├── (auth)/                 # /login, /register?token=, сброс пароля, /setup-2fa
+│   ├── (student)/              # / — главная лента; общие экраны студента и старосты
+│   ├── platform-admin/ university-admin/ moderator/ dean/ teacher/ starosta/
+│   ├── employer/ security/ library/        # ролевые зоны — обычные сегменты, не группы
+│   ├── r/ c/ verify/ qr/ demo/ legal/ join-chat/ offline/   # публичные и служебные
+│   └── %5Fdev/                 # витрины для разработки (§10, исключение 2)
 ├── shared/                     # Слой 1
-│   ├── api/                    # axios instance, interceptors, socket-провайдер
+│   ├── api/                    # axios instance, interceptors, загрузка файлов
+│   ├── realtime/               # socket-провайдер (одна вкладка-лидер на аккаунт)
+│   ├── store/                  # Redux: auth-slice, ui-slice
 │   ├── ui/                     # shadcn/ui компоненты
-│   ├── lib/                    # cn(), формат дат, хелперы
-│   └── config/                 # ROLE_HOME, NAV_BY_ROLE, env-константы
+│   ├── lib/                    # cn(), пояс вуза, хелперы
+│   └── config/                 # ROLE_HOME, карта доступа (routes.ts), фича-флаги
 ├── entities/                   # Слой 2: бизнес-сущности (модель + API-хуки + карточка)
 │   ├── user/ university/ faculty/ group/
-│   └── schedule/ post/ story/ event/ chat/ application/ notification/
+│   └── schedule/ post/ story/ event/ chat/ application-service/ notification/
 ├── features/                   # Слой 3: одно действие = одна фича
-│   ├── auth-invite/ create-post/ send-message/ create-invite/
-│   └── manage-schedule/ submit-application/ transition-application-status/
+│   ├── auth-invite/ create-post/ create-invite/ login/
+│   └── manage-schedule/ report-content/ record-visitor/
 ├── widgets/                    # Слой 4: составные блоки
 │   ├── feed-list/ chat-window/ schedule-grid/ user-profile/
-│   └── app-sidebar/ notifications-bell/ stats-dashboard/
-└── pages/                      # Слой 5: композиция экрана, вызывается из app/**/page.tsx
+│   └── app-shell/ notifications-bell/ stats-dashboard/
+└── views/                      # Слой 5: композиция экрана, вызывается из app/**/page.tsx
 ```
 
 ### 2.1 Правило импортов FSD (нарушение = блокирующее замечание)
 
 ```
-app → pages → widgets → features → entities → shared
+app → views → widgets → features → entities → shared
 ```
 
 Слой импортирует только слои **ниже**. Дополнительно:
@@ -100,7 +107,7 @@ app → pages → widgets → features → entities → shared
 
 ### 2.2 Что лежит в `app/`
 
-Только: `page.tsx` (тонкая обёртка над `pages/`), `layout.tsx`, `loading.tsx`, `error.tsx`, `not-found.tsx`, `middleware.ts`. Бизнес-логика и вёрстка в `app/` не пишутся.
+Только: `page.tsx` (тонкая обёртка над `views/`), `layout.tsx`, `loading.tsx`, `error.tsx`, `not-found.tsx` (`middleware.ts` лежит в `src/`, рядом с `app/`). Бизнес-логика и вёрстка в `app/` не пишутся.
 
 Каждый route segment обязан иметь `loading.tsx` и `error.tsx`.
 
@@ -108,9 +115,9 @@ app → pages → widgets → features → entities → shared
 
 ## 3. Ролевой роутинг и доступ
 
-- Ролевой редирект решается в `middleware.ts` **до** рендера: читается refresh-cookie, определяется роль, применяется `ROLE_HOME[role]`. Флеш неавторизованного контента недопустим.
+- Ролевой редирект решается в `middleware.ts` **до** рендера: читается нечувствительная role-cookie `sh_role` (не токен, см. §16 п. 2), определяется роль, применяется `ROLE_HOME[role]`. Флеш неавторизованного контента недопустим.
 - `ROLE_HOME` и карта доступа маршрутов живут в `shared/config/routes.ts` и импортируют `Role` из `packages/shared-types`. Строковые литералы ролей в компонентах запрещены.
-- Каждый route group имеет layout, проверяющий роль. Студент, открывший `/dean/...`, получает 403-экран, а не пустую страницу.
+- Каждая ролевая зона (сегмент `app/<роль>/` или группа `(student)`) имеет layout, проверяющий роль. Студент, открывший `/dean/...`, получает 403-экран, а не пустую страницу.
 - **UI-скрытие — не защита.** Скрытая кнопка не отменяет необходимости серверной проверки; но и наоборот: элемент, недоступный роли по матрице доступа, не рендерится.
 - Матрица доступа (`docs/PROJECT.md`) — единственный источник истины по тому, что видит роль. Расхождение UI с матрицей — баг.
 
@@ -173,7 +180,7 @@ const api = axios.create({
 
 ### 5.5 TanStack Query
 
-- Ключи запросов — фабрики в `entities/<entity>/api/keys.ts`: `postKeys.list(filters)`, `postKeys.detail(id)`. Строковые массивы вручную в компонентах — запрещены.
+- Ключи запросов — фабрики в `entities/<entity>/api/` рядом с запросами (`post-api.ts` → `postKeys`): `postKeys.list(filters)`, `postKeys.detail(id)`. Строковые массивы вручную в компонентах — запрещены.
 - Серверные данные не дублируются в Redux. В Redux только `auth` и локальный UI-стейт (модалки, сайдбар).
 - После мутации — целевая инвалидация (`invalidateQueries({ queryKey: postKeys.list() })`), не `queryClient.clear()`.
 - Ленты и сообщения — `useInfiniteQuery` с cursor из `meta.cursor`. Offset-пагинация на фронте не используется.
@@ -215,8 +222,8 @@ interface AuthState {
 
 ## 8. WebSocket на клиенте
 
-- Одно соединение на приложение, создаётся в клиентском провайдере (`shared/api/socket-provider.tsx`), подключается **после** появления access-токена.
-- Соединение живёт в контексте; компоненты подписываются через хук `useSocketEvent(event, handler)` и **обязаны** отписываться в cleanup `useEffect`. Утечка подписок при перемонтировании — типичный баг чата.
+- Одно соединение на приложение, создаётся в клиентском провайдере (`shared/realtime/realtime-context.tsx`), подключается **после** появления access-токена. Соединение держит одна вкладка-лидер на аккаунт, остальные вкладки получают события через неё по `BroadcastChannel`.
+- Соединение живёт в контексте; компоненты подписываются через хук `useRealtimeEvent(event, handler)` и **обязаны** отписываться в cleanup `useEffect`. Утечка подписок при перемонтировании — типичный баг чата.
 - `chat:join` отправляется при открытии чата, `chat:leave` — при закрытии/размонтировании.
 - Входящие события не доверяются слепо: полученное сообщение проверяется на принадлежность текущему чату перед вставкой в список.
 - Realtime-события синхронизируются с кэшем React Query (`setQueryData`), а не хранятся в отдельном локальном стейте. Иначе после рефетча сообщения «пропадут».
@@ -240,7 +247,7 @@ interface AuthState {
 - Списки: `key` — стабильный `id`, не индекс массива.
 - Доступность: интерактивные элементы достижимы с клавиатуры, у иконочных кнопок есть `aria-label`, у полей — связанный `<label>`, у модалок — фокус-трап (берётся из `shadcn/ui`).
 - `dangerouslySetInnerHTML` — запрещён без санитизации (пользовательский контент в постах и комментариях рендерится как текст).
-- Даты форматируются через `date-fns` с активной локалью. Расписание и события — в часовом поясе университета, не браузера.
+- Даты форматируются через `date-fns` с активной локалью (фактическое состояние — примечание в §1). Расписание и события — в часовом поясе университета, не браузера.
 
 ---
 
@@ -287,6 +294,10 @@ interface AuthState {
 | Unit / компоненты | Vitest + React Testing Library | Формы и их валидация, ролевой рендер, состояния loading/empty/error |
 | Мок API | MSW | Все сетевые ответы в тестах. Ручные моки axios запрещены |
 | E2E | Playwright (`apps/web/e2e/`) | Логин, регистрация по инвайту, лента, отправка сообщения, создание заявки |
+
+> Фактически (2026-11): MSW в `apps/web` не подключён — тесты мокают модули `api` слайсов
+> через `vi.mock`. E2E запускаются `pnpm --filter web e2e` (Playwright, проект `chromium`);
+> адаптивный UI-аудит — отдельный проект `ui-audit` (`e2e/ui-audit/`).
 
 - Запрос по роли и label (`getByRole`, `getByLabelText`), не по классам и `data-test-id` без необходимости.
 - Обязательные негативные сценарии: истёкший инвайт, 403 при чужом маршруте, обрыв сокета, ошибка загрузки файла.
@@ -347,10 +358,10 @@ interface AuthState {
 
 ## 16. Открытые вопросы к исходной документации
 
-| # | Вопрос | Почему важно |
-|---|---|---|
-| 1 | В §12.3 указан Redux Toolkit, в §15.3 — React Query. Разделение зон ответственности не описано. | Зафиксировано в этом документе: Redux = auth + UI, React Query = серверные данные. Требует подтверждения. |
-| 2 | `middleware.ts` определяет роль по JWT из cookie, но access-токен по §15.4 в cookie не хранится. | Middleware должен читать **refresh**-cookie либо отдельную нечувствительную cookie с ролью. Требует решения до реализации auth. |
-| 3 | В §15.1 слой `pages` соседствует с `app/` — нестандартно для Next.js App Router. | Возможен конфликт имён с legacy Pages Router. Рекомендуется переименовать в `views/` или `screens/`. |
-| 4 | Часовые пояса расписания не описаны. | Университеты в разных городах/странах (`University.country`). Нужно поле таймзоны у университета. |
-| 5 | Сторисы (v2.0) присутствуют в маршрутах ролей v1.0. | Нужно решить: скрывать пункт меню за фича-флагом или убрать из v1.0. |
+| # | Вопрос | Почему важно | Статус |
+|---|---|---|---|
+| 1 | В §12.3 указан Redux Toolkit, в §15.3 — React Query. Разделение зон ответственности не описано. | Зафиксировано в этом документе: Redux = auth + UI, React Query = серверные данные. Требует подтверждения. | ✅ Решено: в `shared/store` только `auth-slice` и `ui-slice`, серверные данные — React Query (§5.5) |
+| 2 | `middleware.ts` определяет роль по JWT из cookie, но access-токен по §15.4 в cookie не хранится. | Middleware должен читать **refresh**-cookie либо отдельную нечувствительную cookie с ролью. Требует решения до реализации auth. | ✅ Решено: нечувствительная role-cookie `sh_role` (`src/middleware.ts`), авторизация — на сервере |
+| 3 | В §15.1 слой `pages` соседствует с `app/` — нестандартно для Next.js App Router. | Возможен конфликт имён с legacy Pages Router. Рекомендуется переименовать в `views/` или `screens/`. | ✅ Решено: слой называется `views/` (§2, алиас `views/*` в `tsconfig.json`) |
+| 4 | Часовые пояса расписания не описаны. | Университеты в разных городах/странах (`University.country`). Нужно поле таймзоны у университета. | ✅ Решено: `University.timezone` (по умолчанию `Asia/Almaty`), на клиенте — `shared/lib/tz-date.ts`, `use-now-in-tz.ts` |
+| 5 | Сторисы (v2.0) присутствуют в маршрутах ролей v1.0. | Нужно решить: скрывать пункт меню за фича-флагом или убрать из v1.0. | ✅ Решено: фича-флаг `STORIES_ENABLED` (`shared/config/features.ts`, env сборки `NEXT_PUBLIC_FEATURE_STORIES=1`) |
