@@ -23,7 +23,7 @@ import {
   vacancyKeys,
   type EmployerVacancy,
 } from '../../../entities/vacancy'
-import { KatoSelect } from '../../../entities/kato'
+import { KatoSelect, isKatoCode } from '../../../entities/kato'
 import { LANGUAGE_VALUES, SKILLS_DICT, languageFlagOf } from '../../../shared/config'
 import {
   Button,
@@ -163,6 +163,9 @@ export function VacancyFormModal({
       input.salaryMin != null && input.salaryMax != null && input.salaryMin > input.salaryMax
         ? t('salaryRange')
         : null,
+    // Вакансия, сохранённая до справочника, хранит город текстом: сервер его больше не
+    // примет — просим выбрать город из списка прямо у поля, а не общим «форма неверна».
+    city: input.city && !isKatoCode(input.city) ? t('cityFromList') : null,
   }
   const show = (key: keyof typeof errors): string | null => (submitted ? errors[key] : null)
 
@@ -311,6 +314,7 @@ export function VacancyFormModal({
               onChange={(next) => set('city', next)}
               allowCustom={false}
             />
+            <FieldError>{show('city')}</FieldError>
           </div>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="vacancy-salary-min">{t('fieldSalaryMin')}</Label>
