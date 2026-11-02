@@ -34,16 +34,20 @@ const clearableWebsite = z
   .optional()
   .or(emptyToNull)
 
-/** Ссылка соцсети: только https. */
-const clearableHttpsUrl = z
-  .string()
-  .trim()
-  .max(200)
-  .url()
-  .refine((v) => v.startsWith('https://'), 'Ссылка должна начинаться с https://')
-  .nullable()
-  .optional()
-  .or(emptyToNull)
+/**
+ * Ссылка соцсети — только на свой домен: поле Instagram с адресом google.com показывало бы
+ * студенту кнопку Instagram, ведущую неизвестно куда. Веб собирает ссылку из логина (маска
+ * с префиксом), сервер проверяет итог.
+ */
+export const INSTAGRAM_URL_RE = /^https:\/\/(www\.)?instagram\.com\/[A-Za-z0-9._]{1,30}\/?$/
+export const LINKEDIN_URL_RE =
+  /^https:\/\/(www\.)?linkedin\.com\/(company|school|in)\/[A-Za-z0-9\-_.%]{1,100}\/?$/
+
+const clearableSocialUrl = (re: RegExp, message: string) =>
+  z.string().trim().max(200).regex(re, message).nullable().optional().or(emptyToNull)
+
+/** Казахстанский номер в формате маски веба: +7 (777) 777-77-77. */
+export const KZ_PHONE_RE = /^\+7 \(\d{3}\) \d{3}-\d{2}-\d{2}$/
 
 export const OrgPageFieldsShape = {
   description: clearableText(2000),
@@ -68,7 +72,7 @@ export const OrgPageFieldsShape = {
   contactPhone: z
     .string()
     .trim()
-    .regex(/^\+?[0-9\s()-]{6,24}$/, 'Номер телефона')
+    .regex(KZ_PHONE_RE, 'Номер в формате +7 (777) 777-77-77')
     .nullable()
     .optional()
     .or(emptyToNull),
@@ -84,6 +88,6 @@ export const OrgPageFieldsShape = {
     .nullable()
     .optional()
     .or(emptyToNull),
-  instagram: clearableHttpsUrl,
-  linkedin: clearableHttpsUrl,
+  instagram: clearableSocialUrl(INSTAGRAM_URL_RE, 'Ссылка вида https://instagram.com/имя'),
+  linkedin: clearableSocialUrl(LINKEDIN_URL_RE, 'Ссылка вида https://linkedin.com/company/имя'),
 }

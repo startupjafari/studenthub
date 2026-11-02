@@ -2,6 +2,7 @@ import { z } from 'zod'
 import { OffsetPaginationSchema, SortOrderSchema, queryBoolean } from './pagination.js'
 import { PasswordSchema } from './auth.js'
 import { OrgPageFieldsShape } from './org-page.js'
+import { KatoCodeSchema } from './kato.js'
 
 // Карьера (Фаза 18): компании-работодатели и их допуск к студентам вузов.
 // Единый источник истины для валидации на бэке и типов на фронте — дублировать
@@ -169,7 +170,11 @@ export type CompanySize = z.infer<typeof CompanySizeSchema>
 export const UpdateCompanySchema = z
   .object({
     name: CompanyNameSchema.optional(),
-    city: clearableText(24),
+    // Город — только из справочника КАТО (код), а не свободным текстом: иначе «Астана»,
+    // «г. Астана» и «Нур-Султан» стали бы тремя разными городами.
+    city: KatoCodeSchema.nullable()
+      .optional()
+      .or(z.literal('').transform(() => null)),
     industry: clearableText(80),
     size: CompanySizeSchema.nullable()
       .optional()
