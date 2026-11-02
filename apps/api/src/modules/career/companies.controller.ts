@@ -28,6 +28,7 @@ import { CurrentUser } from '../../common/decorators/current-user.decorator'
 import type { CurrentUserData } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
 import { readSingleUpload } from '../../common/http/read-upload'
+import { Paginated } from '../../common/http/paginated'
 import { CompaniesService } from './companies.service'
 import { CompanyPageService, type CompanyImageKind } from './company-page.service'
 import { EmployerSignupDto } from './dto/employer-signup.dto'
@@ -181,13 +182,18 @@ export class CompaniesController {
   @Get('me/universities')
   @Roles(Role.EMPLOYER)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Вузы, куда можно подать заявку, со статусом своей заявки' })
-  @ApiResponse({ status: 200, description: 'Справочник вузов' })
-  universities(
+  @ApiOperation({
+    summary:
+      'Вузы, куда можно подать заявку, со статусом своей заявки (поиск, фильтр access, сортировка name|city, страницы)',
+  })
+  @ApiResponse({ status: 200, description: 'Страница справочника вузов; meta.total — всего' })
+  @ApiResponse({ status: 422, description: 'VALIDATION_ERROR — неверные page/limit/sort/access' })
+  async universities(
     @CurrentUser() user: CurrentUserData,
     @Query() query: CompanyUniversityDirectoryQueryDto,
   ) {
-    return this.companies.universityDirectory(user, query.search)
+    const { items, total } = await this.companies.universityDirectory(user, query)
+    return new Paginated(items, { total })
   }
 
   @Post('me/access')
