@@ -58,6 +58,49 @@ export function vacancyVisibleWhere(
   }
 }
 
+/**
+ * Чей контент страницы компании (посты, статьи, опросы, медиа) видит смотрящий — условие на
+ * связь `company`. Одно правило для всех видов контента:
+ *  - сотрудник видит страницу своей компании;
+ *  - платформенные роли — любую неудалённую (модерация);
+ *  - роли вуза — компании, допущенные в их вуз прямо сейчас, как витрина вакансий.
+ * null — смотрящему не видна ни одна компания (чужой работодатель, роль вне вуза).
+ *
+ * Допуск проверяется в самом запросе, а не по кэшу: отзыв обязан скрыть контент сразу.
+ */
+export function companyContentVisibleWhere(
+  viewer: Pick<JwtPayload, 'role' | 'universityId' | 'companyId'>,
+  now: Date = new Date(),
+): Prisma.CompanyWhereInput | null {
+  if (viewer.role === Role.PLATFORM_ADMIN || viewer.role === Role.PLATFORM_MODERATOR) {
+    return { deletedAt: null }
+  }
+  if (viewer.role === Role.EMPLOYER) {
+    return viewer.companyId ? { id: viewer.companyId, deletedAt: null } : null
+  }
+  if (!viewer.universityId) return null
+  return {
+    ...ACTIVE_COMPANY_WHERE,
+    universityAccess: { some: activeAccessWhere(viewer.universityId, now) },
+  }
+}
+
+/**
+ * Смотрящий — сотрудник компании (по токену). Контент страницы компании принадлежит ей, а не
+ * автору: править и удалять его может любой сотрудник, черновики видят все сотрудники.
+ */
+export function isCompanyMember(
+  viewer: Pick<JwtPayload, 'role' | 'companyId'>,
+  companyId: string | null | undefined,
+): boolean {
+  return !!companyId && viewer.role === Role.EMPLOYER && viewer.companyId === companyId
+}
+
+/** Путь страницы компании в вебе — ссылка в уведомлениях о комментариях к её контенту. */
+export function companyPagePath(companyId: string): string {
+  return `/companies/${companyId}`
+}
+
 /** Допуск в кэше: вуз и срок (ISO). Срок сверяется при каждом чтении, а не при записи. */
 interface CachedGrant {
   universityId: string
@@ -187,6 +230,47 @@ export class CareerAccessService {
     const scope = [...(active.length > 0 ? [{ universityId: { in: active } }] : []), ...ended]
     // Компания без единого допуска откликов не видит — явно, а не через трактовку пустого OR.
     return scope.length > 0 ? { OR: scope } : { id: { in: [] } }
+  }
+
+  /**
+   * Страница компании видна смотрящему (правило `companyContentVisibleWhere`). Невидимая и
+   * несуществующая компания неразличимы — вызывающий отвечает одинаковым 404.
+   */
+  async canViewCompany(viewer: JwtPayload, companyId: string): Promise<boolean> {
+    const where = companyContentVisibleWhere(viewer)
+    if (!where) return false
+    const count = await this.prisma.company.count({ where: { AND: [{ id: companyId }, where] } })
+    return count > 0
+  }
+
+  /** Какие из компаний видны смотрящему — пачкой, для списков с контентом разных компаний. */
+  async visibleCompanyIds(viewer: JwtPayload, ids: string[]): Promise<Set<string>> {
+    const unique = [...new Set(ids)]
+    const where = companyContentVisibleWhere(viewer)
+    if (unique.length === 0 || !where) return new Set()
+    const rows = await this.prisma.company.findMany({
+      where: { AND: [{ id: { in: unique } }, where] },
+      select: { id: true },
+      take: unique.length,
+    })
+    return new Set(rows.map((r) => r.id))
+  }
+
+  /** То же, с отказом: `NOT_FOUND`, чтобы перебор id не подтверждал существование компании. */
+  async assertCanViewCompany(viewer: JwtPayload, companyId: string): Promise<void> {
+    if (!(await this.canViewCompany(viewer, companyId))) {
+      throw new AppException('NOT_FOUND', 'Компания не найдена')
+    }
+  }
+
+  /**
+   * Компания, от имени которой сотрудник публикует контент страницы: из токена, и только
+   * действующая — заблокированная платформой компания не публикует.
+   */
+  async requirePublishingCompany(viewer: JwtPayload): Promise<string> {
+    const companyId = this.requireCompany(viewer)
+    await this.assertCompanyActive(companyId)
+    return companyId
   }
 
   /** Есть ли у компании активный допуск в конкретный вуз. */

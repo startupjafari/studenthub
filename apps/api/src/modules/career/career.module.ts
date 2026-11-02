@@ -1,8 +1,10 @@
 import { Module } from '@nestjs/common'
+import { FilesModule } from '../files/files.module'
 import { CareerAccessService } from './career-access.service'
 import { CareerNotifier } from './career-notifier'
 import { CompaniesService } from './companies.service'
 import { CompaniesController } from './companies.controller'
+import { CompanyPageService } from './company-page.service'
 import { UniversityCompaniesController } from './university-companies.controller'
 import { CareerProfileService } from './career-profile.service'
 import { CareerProfileController } from './career-profile.controller'
@@ -25,7 +27,12 @@ import { CareerEventsController } from './career-events.controller'
 // Карьера (Фаза 18). Пока — контур работодателя: компания, её допуск к вузам и очередь
 // модерации у карьерного центра. Вакансии, отклики и резюме добавляются следующими
 // под-фазами в этот же модуль.
+//
+// FilesModule — логотип и обложка страницы компании (FileService). Кольца нет: FilesModule
+// сам ничего не импортирует, а модули контента (посты, опросы, профиль) тянут CareerModule,
+// не наоборот.
 @Module({
+  imports: [FilesModule],
   controllers: [
     CompaniesController,
     UniversityCompaniesController,
@@ -41,6 +48,7 @@ import { CareerEventsController } from './career-events.controller'
   ],
   providers: [
     CompaniesService,
+    CompanyPageService,
     CareerAccessService,
     // Уведомления сторонам карьеры: вузу о заявке компании, компании о решениях и откликах.
     CareerNotifier,
