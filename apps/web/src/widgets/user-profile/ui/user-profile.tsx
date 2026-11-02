@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import dynamic from 'next/dynamic'
 import Image from 'next/image'
@@ -109,10 +109,13 @@ function errCode(e: unknown): string {
 export function UserProfile({
   renderStoryViewer,
   renderHighlights,
+  toolbar,
 }: {
   /** Окно сторис — из слоя выше (views/profile): кольцо вокруг аватара открывает его. */
   renderStoryViewer?: RenderStoryViewer
   renderHighlights?: RenderHighlights
+  /** Поверх обложки слева сверху — например, переключатель «Мой профиль / Компания». */
+  toolbar?: ReactNode
 } = {}) {
   const t = useTranslations('Profile')
   const tErr = useTranslations('Errors')
@@ -205,6 +208,7 @@ export function UserProfile({
             }}
             onQuickCreate={quickCreate}
             createKinds={personalPosts ? undefined : PERSONAL_KINDS_WITHOUT_POSTS}
+            toolbar={toolbar}
             renderStoryViewer={renderStoryViewer}
             renderHighlights={social ? renderHighlights : undefined}
           />
@@ -284,6 +288,7 @@ function ProfileHeader({
   onToggleEdit,
   onQuickCreate,
   createKinds,
+  toolbar,
   renderStoryViewer,
   renderHighlights,
 }: {
@@ -294,6 +299,7 @@ function ProfileHeader({
   onToggleEdit: () => void
   onQuickCreate: (kind: CreateKind) => void
   createKinds?: CreateKind[]
+  toolbar?: ReactNode
   renderStoryViewer?: RenderStoryViewer
   renderHighlights?: RenderHighlights
 }) {
@@ -378,6 +384,7 @@ function ProfileHeader({
 
   return (
     <Card className={`relative overflow-hidden p-0 ${ENTER}`}>
+      {toolbar && <CoverToolbar>{toolbar}</CoverToolbar>}
       {/* Действия — над обложкой справа (Telegram/VK-стиль): поделиться + редактировать/сохранить. */}
       <div className="absolute top-3 right-3 z-20 flex items-center gap-2 sm:top-4 sm:right-4">
         {/* Цифровой студенческий живёт в профиле, а не в меню: показывают его с телефона. */}
@@ -425,7 +432,7 @@ function ProfileHeader({
         ) : (
           <div className={cn('size-full', BRAND_GRADIENT)} />
         )}
-        <div className="absolute top-3 left-3 z-10 flex items-center gap-2 sm:top-4 sm:left-4">
+        <div className={coverActionsClass(!!toolbar)}>
           <button
             type="button"
             onClick={() => coverRef.current?.click()}
@@ -573,6 +580,25 @@ function ProfileHeader({
       )}
     </Card>
   )
+}
+
+/**
+ * Слот поверх обложки слева сверху (напротив кнопок действий): переключатель профилей стоит
+ * в самой шапке, а не отдельной полосой над ней — без лишнего отступа сверху страницы.
+ */
+export function CoverToolbar({ children }: { children: ReactNode }) {
+  return (
+    <div className="absolute top-3 left-3 z-20 max-w-[calc(100%-7rem)] sm:top-4 sm:left-4 sm:max-w-[calc(100%-16rem)]">
+      {children}
+    </div>
+  )
+}
+
+/** Кнопки обложки: слева сверху; если там переключатель — в правый нижний угол обложки. */
+export function coverActionsClass(withToolbar: boolean): string {
+  return withToolbar
+    ? 'absolute right-3 bottom-3 z-10 flex items-center gap-2 sm:right-4'
+    : 'absolute top-3 left-3 z-10 flex items-center gap-2 sm:top-4 sm:left-4'
 }
 
 // ── Меню быстрого создания на аватаре («+» → Фото/Видео/Статья/Вопрос-ответ) ──
