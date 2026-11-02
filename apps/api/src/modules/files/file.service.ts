@@ -82,6 +82,9 @@ export const DETACHED_WHERE = {
   documentId: null,
   submissionId: null,
   eventCommentId: null,
+  // Медиа страниц организаций: снимает только модуль контента профиля со своими правами.
+  companyId: null,
+  universityPageId: null,
   stories: { none: {} },
   highlightItem: { is: null },
   albumsCovered: { none: {} },
@@ -96,6 +99,8 @@ const ATTACHMENT_SELECT = {
   documentId: true,
   submissionId: true,
   eventCommentId: true,
+  companyId: true,
+  universityPageId: true,
   highlightItem: { select: { id: true } },
   _count: { select: { stories: true, albumsCovered: true, bookCovers: true } },
 } satisfies Prisma.FileSelect
@@ -110,6 +115,8 @@ function isAttached(file: Prisma.FileGetPayload<{ select: typeof ATTACHMENT_SELE
     file.documentId !== null ||
     file.submissionId !== null ||
     file.eventCommentId !== null ||
+    file.companyId !== null ||
+    file.universityPageId !== null ||
     file._count.stories > 0 ||
     file.highlightItem !== null ||
     file._count.albumsCovered > 0 ||

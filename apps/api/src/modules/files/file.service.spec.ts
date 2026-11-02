@@ -498,6 +498,8 @@ describe('FileService.deleteDetached', () => {
     documentId: null,
     submissionId: null,
     eventCommentId: null,
+    companyId: null,
+    universityPageId: null,
     highlightItem: null,
     _count: { stories: 0, albumsCovered: 0 },
   }

@@ -298,7 +298,10 @@ export class ProfileContentService {
    */
   private async attachToPage(fileId: string, org: PageContentOrg): Promise<void> {
     if (!pageOf(org)) return
-    await this.prisma.file.update({ where: { id: fileId }, data: org })
+    await this.prisma.file.update({
+      where: { id: fileId },
+      data: { companyId: org.companyId, universityPageId: org.universityPageId },
+    })
   }
 
   // ── Медиа (фото/видео) ─────────────────────────────────────────────────────
