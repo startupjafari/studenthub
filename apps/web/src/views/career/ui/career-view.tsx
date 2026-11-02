@@ -37,6 +37,7 @@ import {
   type StudentApplication,
 } from '../../../entities/career-application'
 import { searchVacancies, vacancyKeys, type Vacancy } from '../../../entities/vacancy'
+import { useKatoNames } from '../../../entities/kato'
 import { fetchResumeSettings, resumeKeys } from '../../../entities/resume'
 import {
   CareerUniversityPicker,
@@ -704,6 +705,8 @@ function SeekerOverview() {
 
 function VacancyRow({ vacancy: v }: { vacancy: Vacancy }) {
   const t = useTranslations('Vacancies')
+  // Город вакансии — код КАТО: показываем название на языке интерфейса.
+  const { nameOf: cityName } = useKatoNames([v.city])
   return (
     <li>
       {/* Ведём в раздел, а не в карточку: отдельной страницы вакансии нет — список
@@ -719,7 +722,7 @@ function VacancyRow({ vacancy: v }: { vacancy: Vacancy }) {
           <span className="block truncate text-sm font-medium">{v.title}</span>
           <span className="block truncate text-xs text-muted-foreground">
             {v.company.name}
-            {v.city ? ` · ${v.city}` : ''}
+            {v.city ? ` · ${cityName(v.city)}` : ''}
           </span>
         </span>
         {v.match && (
