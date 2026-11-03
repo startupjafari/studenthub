@@ -63,6 +63,7 @@ export {
   StoryElementsLayer,
   storyElementPlacement,
   type AnyStoryElement,
+  type StoryTextEditing,
 } from './ui/story-element'
 export { StoryThumb } from './ui/story-thumb'
 export { highlightRing } from './lib/highlight-ring'
