@@ -5855,13 +5855,13 @@
   },
   "Article": {
     "title": "Article",
-    "breadcrumbRoot": "Articles",
     "unavailableTitle": "Article unavailable",
     "unavailableText": "It was deleted, or the author restricted access to it.",
     "toFeed": "Back to feed",
     "commentsOff": "The author turned off comments on this article",
     "read": "Read article",
     "unavailableShort": "Article unavailable",
-    "authorTag": "Author"
+    "authorTag": "Author",
+    "commentHint": "Enter to send, Shift+Enter for a new line"
   }
 }
