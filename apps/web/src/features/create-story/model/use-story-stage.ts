@@ -23,6 +23,33 @@ const MAX_ZOOM = 10
 /** Размытие фона под фото «целиком», px итогового кадра. На экране — в масштабе кадра. */
 export const STORY_BLUR_PX = 48
 
+/**
+ * Фильтры фото: CSS-фильтр, один и тот же на экране и в canvas при сборке кадра. Набор
+ * короткий — пресеты, а не ползунки: сторис живут сутки, тонкая цветокоррекция им ни к чему.
+ */
+export const STORY_PHOTO_FILTERS = {
+  none: '',
+  vivid: 'saturate(1.5) contrast(1.08)',
+  warm: 'sepia(0.25) saturate(1.3) hue-rotate(-8deg)',
+  cool: 'saturate(1.1) hue-rotate(12deg) brightness(1.04)',
+  fade: 'contrast(0.85) brightness(1.08) saturate(0.75)',
+  mono: 'grayscale(1) contrast(1.1)',
+} as const
+export type StoryPhotoFilter = keyof typeof STORY_PHOTO_FILTERS
+
+let canvasFilter: boolean | null = null
+/**
+ * Умеет ли canvas фильтры (`ctx.filter`). Без них фильтр не запечётся в кадр, и после
+ * публикации фото выглядело бы не так, как в редакторе, — такие фильтры не предлагаем.
+ */
+export function canvasFilterSupported(): boolean {
+  if (canvasFilter === null) {
+    const ctx = document.createElement('canvas').getContext('2d')
+    canvasFilter = ctx !== null && 'filter' in ctx
+  }
+  return canvasFilter
+}
+
 /** Самый большой кадр 9:16, что влезает в сцену с отступами. */
 function fitFrame(stage: Size): Size {
   const w = Math.max(0, Math.min(stage.w - FRAME_PAD * 2, (stage.h - FRAME_PAD * 2) * STORY_ASPECT))
@@ -50,6 +77,7 @@ export function useStoryStage(photo: File | null) {
   const [angle, setAngle] = useState(0)
   const [flip, setFlip] = useState(false)
   const [whole, setWhole] = useState(false)
+  const [filter, setFilter] = useState<StoryPhotoFilter>('none')
   // Поворот, отражение и смена режима — плавно; жесты — без анимации, иначе снимок
   // отставал бы от пальца.
   const [animate, setAnimate] = useState(false)
@@ -92,6 +120,7 @@ export function useStoryStage(photo: File | null) {
     setAngle(0)
     setFlip(false)
     setWhole(false)
+    setFilter('none')
     if (!photo) {
       setUrl(null)
       return
@@ -162,6 +191,20 @@ export function useStoryStage(photo: File | null) {
     })
   }
 
+  // Приближение для ползунка — во сколько раз фото больше «ровно закрывает кадр».
+  const cover = nat && frame ? coverScale(nat, frame, theta) : 1
+  const zoom = place.s / cover
+  const minZoom = nat && frame && whole ? Math.min(1, containScale(nat, frame, theta) / cover) : 1
+
+  /** Приблизить к центру кадра: точка под центром остаётся на месте. */
+  function setZoom(next: number): void {
+    setAnimate(false)
+    setPlace((p) => {
+      const k = (next * cover) / p.s
+      return normalize({ x: p.x * k, y: p.y * k, s: p.s * k })
+    })
+  }
+
   /** Кадр 1080×1920 в JPEG — ровно то, что автор видит в рамке. */
   async function exportPhoto(): Promise<File> {
     const el = imgRef.current
@@ -174,16 +217,21 @@ export function useStoryStage(photo: File | null) {
     ctx.imageSmoothingQuality = 'high'
     ctx.fillStyle = '#000'
     ctx.fillRect(0, 0, STORY_WIDTH, STORY_HEIGHT)
+    // Фильтр есть не во всех движках (`filter` у контекста) — без него кадр уходит без
+    // цветокоррекции, а размытый фон просто темнее.
+    const canFilter = 'filter' in ctx
+    const tone = STORY_PHOTO_FILTERS[filter]
     if (whole) {
-      // Фон — то же фото «заполнить кадр», размытое и притемнённое, как на сцене. Размытие
-      // есть не во всех движках (`filter` у контекста) — без него фон просто темнее.
-      if ('filter' in ctx) ctx.filter = `blur(${STORY_BLUR_PX}px)`
+      // Фон — то же фото «заполнить кадр», размытое и притемнённое, как на сцене.
+      if (canFilter) ctx.filter = `blur(${STORY_BLUR_PX}px) ${tone}`.trim()
       drawPlaced(ctx, el, nat, frame.w, { x: 0, y: 0, s: coverScale(nat, frame, 0) }, 0, false)
-      if ('filter' in ctx) ctx.filter = 'none'
+      if (canFilter) ctx.filter = 'none'
       ctx.fillStyle = 'rgba(0, 0, 0, 0.35)'
       ctx.fillRect(0, 0, STORY_WIDTH, STORY_HEIGHT)
     }
+    if (canFilter) ctx.filter = tone || 'none'
     drawPlaced(ctx, el, nat, frame.w, place, theta, flip)
+    if (canFilter) ctx.filter = 'none'
     const blob = await new Promise<Blob | null>((resolve) =>
       canvas.toBlob(resolve, 'image/jpeg', 0.9),
     )
@@ -203,6 +251,10 @@ export function useStoryStage(photo: File | null) {
     angle,
     flip,
     whole,
+    filter,
+    zoom,
+    minZoom,
+    maxZoom: MAX_ZOOM,
     animate,
     interacting,
     handlers,
@@ -211,6 +263,8 @@ export function useStoryStage(photo: File | null) {
     rotate90,
     toggleFlip,
     toggleWhole,
+    setFilter,
+    setZoom,
     setAngle,
     onRulerStart: () => {
       setAnimate(false)

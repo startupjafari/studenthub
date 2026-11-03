@@ -88,14 +88,43 @@ describe('Редактор сторис', () => {
     expect(uploadStoryMedia).not.toHaveBeenCalled()
   })
 
+  it('новый текст сразу правится на кадре, Esc завершает правку', async () => {
+    const user = setup()
+    await user.click(screen.getByRole('button', { name: 'Текст' }))
+    expect(screen.getByRole('textbox', { name: ru.Stories.editOnCanvas })).toHaveFocus()
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('textbox', { name: ru.Stories.editOnCanvas })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /на кадре/ })).toBeInTheDocument()
+  })
+
   it('элемент на кадре удаляется клавишей Delete', async () => {
     const user = setup()
     await user.click(screen.getByRole('button', { name: 'Текст' }))
+    await user.keyboard('{Escape}')
     const onFrame = screen.getByRole('button', { name: /на кадре/ })
     onFrame.focus()
     await user.keyboard('{Delete}')
     expect(screen.queryByRole('button', { name: /на кадре/ })).not.toBeInTheDocument()
     expect(screen.queryByRole('textbox', { name: 'Текст элемента' })).not.toBeInTheDocument()
+  })
+
+  it('добавление элемента отменяется и повторяется', async () => {
+    const user = setup()
+    await user.click(screen.getByRole('button', { name: 'Текст' }))
+    await user.keyboard('{Escape}')
+    await user.click(screen.getByRole('button', { name: ru.Stories.undoEdit }))
+    expect(screen.queryByRole('button', { name: /на кадре/ })).not.toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: ru.Stories.redo }))
+    expect(screen.getByRole('button', { name: /на кадре/ })).toBeInTheDocument()
+  })
+
+  it('выбранный элемент дублируется из панели настроек', async () => {
+    const user = setup()
+    await user.click(screen.getByRole('button', { name: 'Текст' }))
+    await user.keyboard('{Escape}')
+    screen.getByRole('button', { name: /на кадре/ }).focus()
+    await user.click(screen.getByRole('button', { name: ru.Stories.duplicate }))
+    expect(screen.getAllByRole('button', { name: /на кадре/ })).toHaveLength(2)
   })
 
   it('событие из окна выбора уходит в публикацию только ссылкой на событие', async () => {

@@ -1,7 +1,7 @@
 'use client'
 
 import { useTranslations } from 'next-intl'
-import { AlignCenter, AlignLeft, AlignRight, Trash2 } from 'lucide-react'
+import { AlignCenter, AlignLeft, AlignRight } from 'lucide-react'
 import {
   STORY_ELEMENT_TEXT_MAX,
   STORY_FONTS,
@@ -9,7 +9,7 @@ import {
   STORY_TEXT_BACKGROUNDS,
   STORY_TEXT_COLORS,
 } from '@studenthub/shared-schemas'
-import { Button, Label, Textarea } from '../../../shared/ui'
+import { Label, Textarea } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import type { EditorElement } from '../model/editor-element'
 
@@ -18,6 +18,13 @@ const ALIGN_KEY = { left: 'alignLeft', center: 'alignCenter', right: 'alignRight
 const FONT_KEY = { sans: 'fontSans', serif: 'fontSerif', mono: 'fontMono' } as const
 const FONT_CLASS = { sans: 'font-sans', serif: 'font-serif', mono: 'font-mono' } as const
 const BG_KEY = { none: 'bgNone', solid: 'bgSolid', soft: 'bgSoft' } as const
+// Готовые стили текста — сочетания тех же полей, что ниже: новых свойств на сервер не уходит.
+const TEXT_STYLES = [
+  ['stylePlain', { font: 'sans', background: 'none', scale: 1 }],
+  ['styleHeading', { font: 'sans', background: 'none', scale: 1.8 }],
+  ['styleAccent', { background: 'soft', scale: 1.1 }],
+  ['styleBoxed', { background: 'solid', scale: 1 }],
+] as const
 const COLOR_KEY: Record<(typeof STORY_TEXT_COLORS)[number], string> = {
   '#ffffff': 'colorWhite',
   '#0f1115': 'colorBlack',
@@ -28,18 +35,16 @@ const COLOR_KEY: Record<(typeof STORY_TEXT_COLORS)[number], string> = {
 }
 
 /**
- * Свойства выбранного элемента. У текста — содержание, размер, цвет, шрифт, выравнивание
- * и подложка; у эмодзи и отметки — только размер. Набор намеренно короткий: три шрифта и
- * шесть цветов, а не палитра на все случаи.
+ * Свойства выбранного элемента. У текста — готовые стили, содержание, цвет, шрифт,
+ * выравнивание и подложка; у всех — размер и поворот. Набор намеренно короткий: три
+ * шрифта и шесть цветов, а не палитра на все случаи.
  */
 export function ElementInspector({
   element,
   onChange,
-  onRemove,
 }: {
   element: EditorElement
   onChange: (patch: Partial<EditorElement>) => void
-  onRemove: () => void
 }) {
   const t = useTranslations('Stories')
   const chip = (active: boolean) =>
@@ -49,7 +54,21 @@ export function ElementInspector({
     )
 
   return (
-    <div className="flex flex-col gap-3 rounded-xl border border-border p-3">
+    <div className="flex flex-col gap-3">
+      {element.type === 'text' && (
+        <div className="grid grid-cols-2 gap-1.5">
+          {TEXT_STYLES.map(([key, patch]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => onChange(patch)}
+              className={cn(chip(false), 'h-9')}
+            >
+              {t(key)}
+            </button>
+          ))}
+        </div>
+      )}
       {element.type === 'text' && (
         <Textarea
           value={element.text}
@@ -74,6 +93,29 @@ export function ElementInspector({
           onChange={(e) => onChange({ scale: Number(e.target.value) })}
           className="w-full accent-primary"
         />
+      </div>
+
+      <div className="flex items-center gap-3">
+        <Label
+          htmlFor="story-element-rotation"
+          className="w-24 shrink-0 text-xs text-muted-foreground"
+        >
+          {t('rotation')}
+        </Label>
+        <input
+          id="story-element-rotation"
+          type="range"
+          min={-180}
+          max={180}
+          step={1}
+          value={element.rotation}
+          onChange={(e) => onChange({ rotation: Number(e.target.value) })}
+          onDoubleClick={() => onChange({ rotation: 0 })}
+          className="w-full accent-primary"
+        />
+        <span className="w-10 shrink-0 text-right text-xs text-muted-foreground tabular-nums">
+          {element.rotation}°
+        </span>
       </div>
 
       {element.type === 'text' && (
@@ -153,17 +195,6 @@ export function ElementInspector({
           </div>
         </>
       )}
-
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        className="self-start text-destructive hover:text-destructive"
-        onClick={onRemove}
-      >
-        <Trash2 className="size-4" aria-hidden />
-        {t('removeElement')}
-      </Button>
     </div>
   )
 }

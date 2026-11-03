@@ -1,6 +1,6 @@
 'use client'
 
-import type { CSSProperties, ReactNode } from 'react'
+import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react'
 import { useLocale, useTranslations } from 'next-intl'
 import { CalendarDays, Clock, MapPin, Newspaper, Video } from 'lucide-react'
 import type { StoryElementInput } from '@studenthub/shared-schemas'
@@ -85,6 +85,14 @@ export function storyElementPlacement(
   }
 }
 
+/** Правка текста прямо на кадре (редактор сторис). */
+export interface StoryTextEditing {
+  label: string
+  maxLength: number
+  onInput: (text: string) => void
+  onDone: () => void
+}
+
 /**
  * Сам элемент без позиционирования: текст с подложкой, эмодзи или плашка отметки. Общий
  * для просмотра и для редактора — там его оборачивают в перетаскиваемую рамку.
@@ -93,12 +101,18 @@ export function StoryElementBody({
   element,
   mentionName,
   actions,
+  editing,
 }: {
   element: AnyStoryElement | StoryElement
   /** Имя отметки: в выдаче его кладёт сервер, в редакторе — выбор из поиска. */
   mentionName?: string
   /** Кнопки карточки-стикера (в просмотре; в редакторе их нет). */
   actions?: ReactNode
+  /**
+   * Текст правят прямо на кадре: тот же элемент с теми же классами становится полем ввода,
+   * поэтому перенос строк при наборе ровно такой, как после публикации.
+   */
+  editing?: StoryTextEditing
 }): ReactNode {
   const t = useTranslations('Stories')
   const locale = useLocale()
@@ -215,21 +229,102 @@ export function StoryElementBody({
       </span>
     )
   }
+  const className = cn(
+    'block max-w-[80cqw] leading-tight font-semibold break-words whitespace-pre-wrap',
+    FONT_CLASS[element.font],
+    ALIGN_CLASS[element.align],
+    element.background === 'none' && 'drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]',
+    element.background !== 'none' && 'rounded-[0.3em] px-[0.45em] py-[0.15em]',
+    element.background === 'solid' && (isLight(element.color) ? 'bg-black/75' : 'bg-white/90'),
+    element.background === 'soft' && 'bg-black/35',
+  )
+  const style = { fontSize, color: element.color }
+  if (editing) {
+    return <EditableText text={element.text} className={className} style={style} {...editing} />
+  }
   return (
-    <span
-      className={cn(
-        'block max-w-[80cqw] leading-tight font-semibold break-words whitespace-pre-wrap',
-        FONT_CLASS[element.font],
-        ALIGN_CLASS[element.align],
-        element.background === 'none' && 'drop-shadow-[0_1px_2px_rgba(0,0,0,0.6)]',
-        element.background !== 'none' && 'rounded-[0.3em] px-[0.45em] py-[0.15em]',
-        element.background === 'solid' && (isLight(element.color) ? 'bg-black/75' : 'bg-white/90'),
-        element.background === 'soft' && 'bg-black/35',
-      )}
-      style={{ fontSize, color: element.color }}
-    >
+    <span className={className} style={style}>
       {element.text}
     </span>
+  )
+}
+
+/** Текст с курсора: у поля с переносами `innerText` отдаёт и их (в jsdom его нет). */
+function readText(el: HTMLElement): string {
+  return el.innerText ?? el.textContent ?? ''
+}
+
+/** Курсор в конец поля — после того как обрезали лишнее. */
+function caretToEnd(el: HTMLElement): void {
+  const range = document.createRange()
+  range.selectNodeContents(el)
+  range.collapse(false)
+  const selection = window.getSelection()
+  selection?.removeAllRanges()
+  selection?.addRange(range)
+}
+
+/**
+ * Поле правки текста на кадре. Неуправляемое: текст кладётся один раз при открытии, дальше
+ * им владеет браузер, а наружу уходит каждое изменение. Управляемый contentEditable сбивал
+ * бы курсор на каждой букве. Открывается с выделенным текстом — подсказку нового элемента
+ * сразу заменяют набором; Esc и уход фокуса завершают правку.
+ */
+function EditableText({
+  text,
+  className,
+  style,
+  label,
+  maxLength,
+  onInput,
+  onDone,
+}: StoryTextEditing & { text: string; className: string; style: CSSProperties }) {
+  const ref = useRef<HTMLSpanElement>(null)
+  const initial = useRef(text)
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    el.textContent = initial.current
+    el.focus()
+    const range = document.createRange()
+    range.selectNodeContents(el)
+    const selection = window.getSelection()
+    selection?.removeAllRanges()
+    selection?.addRange(range)
+  }, [])
+
+  return (
+    <span
+      ref={ref}
+      role="textbox"
+      aria-label={label}
+      aria-multiline
+      contentEditable="plaintext-only"
+      suppressContentEditableWarning
+      tabIndex={0}
+      className={cn(className, 'min-w-[1ch] cursor-text outline-none select-text')}
+      style={style}
+      onInput={(e) => {
+        const el = e.currentTarget
+        let value = readText(el)
+        if (value.length > maxLength) {
+          value = value.slice(0, maxLength)
+          el.textContent = value
+          caretToEnd(el)
+        }
+        onInput(value)
+      }}
+      onBlur={onDone}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') {
+          // Esc завершает правку, а не закрывает редактор (тот смотрит на defaultPrevented).
+          e.preventDefault()
+          e.currentTarget.blur()
+        }
+      }}
+      onPointerDown={(e) => e.stopPropagation()}
+    />
   )
 }
 
