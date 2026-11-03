@@ -49,6 +49,7 @@ const MODELS = [
   'profileArticle',
   'contentComment',
   'bookmark',
+  'articleLike',
   'album',
   'poll',
   'pollVote',
