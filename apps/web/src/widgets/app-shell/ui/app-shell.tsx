@@ -2,9 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import Link from 'next/link'
-// Ссылки меню — с `unstable_dynamicOnHover` (Next 15.3+): по наведению и касанию страница
-// подгружается целиком, а не до своего loading.tsx. К клику она уже в кэше маршрутизатора, и
-// вместо мелькнувшего на треть секунды лоадера сразу открывается экран.
+import { NavLink } from './nav-link'
 import { usePathname } from 'next/navigation'
 import { useTranslations } from 'next-intl'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -334,8 +332,7 @@ function BottomNav({
                     {item.children.map((child) => {
                       const childActive = isNavHrefActive(child.href, pathname, child.exact)
                       return (
-                        <Link
-                          unstable_dynamicOnHover
+                        <NavLink
                           key={child.href}
                           href={child.href}
                           onClick={() => setMoreOpen(false)}
@@ -347,15 +344,14 @@ function BottomNav({
                           )}
                         >
                           <span className="min-w-0 truncate">{tNav(child.key)}</span>
-                        </Link>
+                        </NavLink>
                       )
                     })}
                   </div>
                 )
               }
               return (
-                <Link
-                  unstable_dynamicOnHover
+                <NavLink
                   key={item.key}
                   href={item.href}
                   onClick={() => setMoreOpen(false)}
@@ -372,15 +368,14 @@ function BottomNav({
                       {badgeCount > 99 ? '99+' : badgeCount}
                     </span>
                   )}
-                </Link>
+                </NavLink>
               )
             })}
 
             <div className={hairline} aria-hidden />
 
             {/* Профиль и выход — не разделы роли, поэтому отбиты в последнюю группу. */}
-            <Link
-              unstable_dynamicOnHover
+            <NavLink
               href="/profile"
               onClick={() => setMoreOpen(false)}
               aria-current={profileActive ? 'page' : undefined}
@@ -388,7 +383,7 @@ function BottomNav({
             >
               <UserRound className="size-5 shrink-0 opacity-80" aria-hidden />
               {tNav('profile')}
-            </Link>
+            </NavLink>
             {/* Выход — опасное действие: последним и за своей линией (правило для всех меню). */}
             <div className={hairline} aria-hidden />
             <button type="button" onClick={logout} className={cn(menuRow, 'text-destructive')}>
@@ -440,8 +435,7 @@ function BottomNav({
                 const Icon = item.icon
                 const badgeCount = item.key === 'chats' ? chatsUnread : 0
                 return (
-                  <Link
-                    unstable_dynamicOnHover
+                  <NavLink
                     key={item.key}
                     href={item.href}
                     aria-current={active ? 'page' : undefined}
@@ -475,7 +469,7 @@ function BottomNav({
                     >
                       {tNav(item.key)}
                     </span>
-                  </Link>
+                  </NavLink>
                 )
               })}
             </div>
