@@ -66,7 +66,11 @@ export function PostByline({ post }: { post: FeedPost }) {
           </Avatar>
         </ProfileLink>
       )}
-      <div className="min-w-0 flex-1">
+      {/* `@container`: бейдж организации — по ширине самого блока, а не экрана. В узкой
+          колонке (телефон 320px, шапка окна просмотра со стрелками и крестиком) бейдж не
+          сжимается и съедал всю строку — от названия оставалась одна кавычка. Теперь он
+          появляется, только когда рядом с ним названию хватает места. */}
+      <div className="@container min-w-0 flex-1">
         {org ? (
           <p className="flex min-w-0 items-center gap-1.5 text-sm leading-tight font-semibold">
             <Link
@@ -75,7 +79,7 @@ export function PostByline({ post }: { post: FeedPost }) {
             >
               {org.name}
             </Link>
-            {org.mark}
+            <span className="hidden shrink-0 @[16rem]:inline-flex">{org.mark}</span>
           </p>
         ) : (
           <p className="truncate text-sm leading-tight font-semibold">
