@@ -1,7 +1,6 @@
 'use client'
 
-import { useRef, useState } from 'react'
-import dynamic from 'next/dynamic'
+import { useId, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
@@ -12,13 +11,12 @@ import {
   BarChart3,
   CalendarDays,
   Clock,
-  Crop,
   ImagePlus,
   Link2,
   Loader2,
-  Maximize,
   Newspaper,
   Plus,
+  Shrink,
   Smile,
   Type,
   X,
@@ -39,11 +37,21 @@ import { cn } from '../../../shared/lib/utils'
 import {
   STORY_BACKGROUND_CLASS,
   createStoryRequest,
-  fitImageToStory,
   storyKeys,
   uploadStoryMedia,
 } from '../../../entities/story'
-import { Button, EmojiPicker, FieldError, FormAlert, Input, Label, Modal } from '../../../shared/ui'
+import {
+  Button,
+  CROP_TOOL_BUTTON,
+  CropToolbar,
+  EmojiPicker,
+  FieldError,
+  FormAlert,
+  Input,
+  Label,
+  MediaEditorShell,
+  Modal,
+} from '../../../shared/ui'
 import {
   isCard,
   newEmojiElement,
@@ -55,29 +63,26 @@ import {
   toStoryElements,
   type EditorElement,
 } from '../model/editor-element'
+import { useStoryStage } from '../model/use-story-stage'
 import { CardPicker, type CardKind, type PickedCard } from './card-picker'
-import { StoryCanvas, type CanvasMedia } from './story-canvas'
+import { StoryCanvas } from './story-canvas'
 import { ElementInspector } from './element-inspector'
 import { MentionPicker } from './mention-picker'
 import { StoryAudienceFields, useStoryAudiences, type StoryAudienceState } from './audience-fields'
 import type { StoryRecipient } from './recipients-picker'
 
-// Окно кадрирования тяжёлое (жесты, canvas) — грузится, только когда фото выбрано.
-const ImageCropModal = dynamic(
-  () => import('../../../shared/ui/image-crop-modal').then((m) => m.ImageCropModal),
-  { ssr: false },
-)
-
 const MAX_POLL_OPTIONS = 4
 const MIN_POLL_OPTIONS = 2
 const MB = 1024 * 1024
-// Кадр сторис: 9:16, ширина итогового снимка — как у телефона в портрете.
-const STORY_ASPECT = 9 / 16
-const STORY_OUTPUT_WIDTH = 1080
 const MEDIA_ACCEPT = [...STORY_IMAGE_MIMES, ...STORY_VIDEO_MIMES].join(',')
+// Фото выбрано, но ещё не загружено: кадр собирается и уходит на сервер только при
+// публикации. Метка нужна схеме — «сторис с медиа» — и подменяется настоящим id файла.
+const LOCAL_PHOTO = 'local-photo'
 
-interface PickedMedia extends CanvasMedia {
+interface UploadedVideo {
   id: string
+  /** Локальный object-URL для превью: подписанную ссылку сервер отдаст уже в ленте. */
+  url: string
 }
 
 /** Длительность видео в секундах по метаданным; не удалось прочитать — 0 (решит сервер). */
@@ -97,28 +102,33 @@ function videoDuration(file: File): Promise<number> {
 }
 
 /**
- * Редактор сторис.
+ * Редактор сторис на весь экран, в оформлении окна кадрирования фото.
  *
- * Слева — кадр 9:16, каким его увидят: фон или медиа и элементы поверх (текст, эмодзи,
- * отметки), их двигают прямо на кадре. Справа — инструменты и свойства выбранного
- * элемента. Фото перед загрузкой либо кадрируется под 9:16, либо ставится целиком с
- * размытым фоном. Ссылка и опрос открываются кнопками и по умолчанию свёрнуты.
+ * По центру — кадр 9:16, каким его увидят: фон или медиа и элементы поверх (текст, эмодзи,
+ * отметки), их двигают прямо на кадре. Фото кадрируется тут же: его двигают, приближают
+ * колесом или щипком, а снизу — поворот, линейка угла, отражение и «целиком с фоном».
+ * Слева — инструменты и свойства выбранного элемента; ссылка и опрос открываются кнопками
+ * и по умолчанию свёрнуты. Внизу — аудитория и публикация.
  */
-export function CreateStoryForm({ onCreated }: { onCreated?: () => void } = {}) {
+export function CreateStoryForm({
+  onCreated,
+  onClose,
+}: { onCreated?: () => void; onClose?: () => void } = {}) {
   const t = useTranslations('Stories')
   const tErr = useTranslations('Errors')
+  const tCommon = useTranslations('Common')
+  const formId = useId()
   const qc = useQueryClient()
   const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
-  const [media, setMedia] = useState<PickedMedia | null>(null)
+  const [photo, setPhoto] = useState<File | null>(null)
+  const [video, setVideo] = useState<UploadedVideo | null>(null)
   const [uploading, setUploading] = useState(false)
+  const stage = useStoryStage(photo)
   const [elements, setElementsState] = useState<EditorElement[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [emojiOpen, setEmojiOpen] = useState(false)
   const [mentionOpen, setMentionOpen] = useState(false)
   const [cardKind, setCardKind] = useState<CardKind | null>(null)
-  // Фото выбрано — сначала спрашиваем, как его разместить; кадрирование — отдельным окном.
-  const [pendingImage, setPendingImage] = useState<File | null>(null)
-  const [cropFile, setCropFile] = useState<File | null>(null)
   // Блок ссылки открыт — отдельное состояние, а не «linkUrl !== undefined»: пустое поле
   // уходит в форму как undefined (OPTIONAL_TEXT), и блок закрывался бы на стёртом адресе.
   const [linkOpen, setLinkOpen] = useState(false)
@@ -189,12 +199,21 @@ export function CreateStoryForm({ onCreated }: { onCreated?: () => void } = {}) 
   }
 
   const mutation = useMutation({
-    mutationFn: (input: CreateStoryInput) => createStoryRequest(input),
+    mutationFn: async (input: CreateStoryInput) => {
+      // Фото собирается в кадр 1080×1920 и загружается только сейчас: пока автор правил
+      // кадр, на сервер ничего не уходило.
+      if (input.fileId === LOCAL_PHOTO) {
+        const uploaded = await uploadStoryMedia(await stage.exportPhoto())
+        input = { ...input, fileId: uploaded.id }
+      }
+      return createStoryRequest(input)
+    },
     onMutate: () => resetApiError(),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: storyKeys.all })
-      if (media) URL.revokeObjectURL(media.url)
-      setMedia(null)
+      if (video) URL.revokeObjectURL(video.url)
+      setVideo(null)
+      setPhoto(null)
       setLinkOpen(false)
       setElementsState([])
       setSelectedId(null)
@@ -206,16 +225,13 @@ export function CreateStoryForm({ onCreated }: { onCreated?: () => void } = {}) 
     onError: (e) => showApiError(e),
   })
 
-  async function upload(file: File): Promise<void> {
+  // Видео не кадрируется — уходит на сервер сразу, пока автор занят остальным.
+  async function uploadVideo(file: File): Promise<void> {
     setUploading(true)
     try {
       const uploaded = await uploadStoryMedia(file)
-      if (media) URL.revokeObjectURL(media.url)
-      setMedia({
-        id: uploaded.id,
-        url: URL.createObjectURL(file),
-        isVideo: file.type.startsWith('video/'),
-      })
+      dropMedia()
+      setVideo({ id: uploaded.id, url: URL.createObjectURL(file) })
       form.setValue('fileId', uploaded.id)
       // Фон — свойство текстовой сторис: с медиа его не видно, а схема такую пару отвергает.
       form.setValue('background', undefined)
@@ -248,26 +264,19 @@ export function CreateStoryForm({ onCreated }: { onCreated?: () => void } = {}) 
         toast.error(t('tooLong', { s: STORY_MEDIA_DEFAULTS.videoMaxSeconds }))
         return
       }
-      await upload(file)
+      await uploadVideo(file)
       return
     }
-    setPendingImage(file)
-  }
-
-  async function placeWhole(file: File): Promise<void> {
-    setPendingImage(null)
-    setUploading(true)
-    try {
-      await upload(await fitImageToStory(file))
-    } catch {
-      setUploading(false)
-      toast.error(tErr('INTERNAL_ERROR'))
-    }
+    dropMedia()
+    setPhoto(file)
+    form.setValue('fileId', LOCAL_PHOTO)
+    form.setValue('background', undefined)
   }
 
   function dropMedia(): void {
-    if (media) URL.revokeObjectURL(media.url)
-    setMedia(null)
+    if (video) URL.revokeObjectURL(video.url)
+    setVideo(null)
+    setPhoto(null)
     form.setValue('fileId', undefined)
   }
 
@@ -303,21 +312,73 @@ export function CreateStoryForm({ onCreated }: { onCreated?: () => void } = {}) 
 
   if (audiences.length === 0) return null
 
-  const tool = 'shrink-0'
+  // Инструменты: на телефоне — лента с прокруткой вбок, на широком экране — колонка слева.
+  const tool = 'shrink-0 md:w-full md:justify-start'
   const contentError = form.formState.errors.text
   const elementsError = form.formState.errors.elements
+  const busy = uploading || mutation.isPending
+
+  // Пока фото или видео уходит на сервер, редактор не закрывается — иначе публикация
+  // продолжилась бы без окна, а ошибку некому было бы показать.
+  function close(): void {
+    if (busy) return
+    onClose?.()
+  }
 
   return (
-    <form
-      className="flex flex-col gap-4"
-      onSubmit={form.handleSubmit((values) => mutation.mutate(values))}
+    <MediaEditorShell
+      title={t('newStory')}
+      hint={photo ? t('photoHint') : undefined}
+      onClose={close}
+      footer={
+        <>
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+            <StoryAudienceFields
+              value={{
+                audience,
+                groupId: form.watch('groupId'),
+                facultyId: form.watch('facultyId'),
+                recipients,
+              }}
+              onChange={setAudience}
+              recipientsError={form.formState.errors.userIds ? t('recipientsNeed') : undefined}
+            />
+          </div>
+          {onClose && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="md"
+              className="text-white hover:bg-white/10 hover:text-white max-sm:hidden"
+              onClick={close}
+              disabled={busy}
+            >
+              {tCommon('cancel')}
+            </Button>
+          )}
+          <Button
+            type="submit"
+            form={formId}
+            size="md"
+            loading={mutation.isPending}
+            disabled={uploading}
+          >
+            <Plus className="size-4" aria-hidden />
+            {t('publish')}
+          </Button>
+        </>
+      }
     >
-      <FormAlert error={apiError} />
-
-      <div className="flex flex-col items-center gap-4 sm:flex-row sm:items-start">
-        <div className="flex w-full max-w-[18rem] flex-col gap-1">
+      <form
+        id={formId}
+        className="flex min-h-0 flex-1 flex-col md:flex-row"
+        onSubmit={form.handleSubmit((values) => mutation.mutate(values))}
+      >
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <StoryCanvas
-            media={media}
+            stage={stage}
+            hasPhoto={photo !== null}
+            videoUrl={video?.url ?? null}
             background={background}
             elements={elements}
             selectedId={selectedId}
@@ -328,13 +389,47 @@ export function CreateStoryForm({ onCreated }: { onCreated?: () => void } = {}) 
             onRemoveMedia={dropMedia}
             onDropFile={(file) => void pickFile(file)}
           />
-          <FieldError>
-            {contentError ? t('needContent') : elementsError ? t('elementsInvalid') : null}
-          </FieldError>
+
+          {/* Кадрирование фото: поворот · линейка угла · отражение · целиком с фоном */}
+          {photo && (
+            <CropToolbar
+              angle={stage.angle}
+              flip={stage.flip}
+              disabled={!stage.ready}
+              onRotate={stage.rotate90}
+              onAngle={stage.setAngle}
+              onFlip={stage.toggleFlip}
+              onRulerStart={stage.onRulerStart}
+              onRulerEnd={stage.onRulerEnd}
+            >
+              <button
+                type="button"
+                aria-label={t('fitWhole')}
+                title={t('fitWhole')}
+                aria-pressed={stage.whole}
+                onClick={stage.toggleWhole}
+                disabled={!stage.ready}
+                className={cn(
+                  CROP_TOOL_BUTTON,
+                  stage.whole ? 'text-primary' : 'text-white/80 hover:text-white',
+                )}
+              >
+                <Shrink className="size-5" aria-hidden />
+              </button>
+            </CropToolbar>
+          )}
         </div>
 
-        <div className="flex w-full min-w-0 flex-1 flex-col gap-3">
-          <div className="flex flex-wrap items-center gap-2">
+        <aside
+          aria-label={t('tools')}
+          className="flex max-h-[38dvh] shrink-0 flex-col gap-3 overflow-y-auto border-t border-white/10 px-4 py-3 select-text md:order-first md:max-h-none md:w-72 md:border-t-0 md:border-r lg:w-80"
+        >
+          <FormAlert error={apiError} />
+          {(contentError || elementsError) && (
+            <FieldError>{contentError ? t('needContent') : t('elementsInvalid')}</FieldError>
+          )}
+
+          <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 md:mx-0 md:grid md:grid-cols-2 md:overflow-visible md:px-0 md:pb-0">
             <input
               ref={fileRef}
               type="file"
@@ -346,8 +441,8 @@ export function CreateStoryForm({ onCreated }: { onCreated?: () => void } = {}) 
               type="button"
               variant="outline"
               size="md"
-              className={tool}
-              disabled={uploading}
+              className={cn(tool, 'md:col-span-2')}
+              disabled={busy}
               onClick={() => fileRef.current?.click()}
             >
               {uploading ? (
@@ -435,9 +530,9 @@ export function CreateStoryForm({ onCreated }: { onCreated?: () => void } = {}) 
           </div>
 
           {/* Фон выбирается только у сторис без медиа — поверх фото он не виден. */}
-          {!media && (
+          {!photo && !video && (
             <div className="flex flex-wrap items-center gap-2">
-              <Label className="text-xs text-muted-foreground">{t('background')}</Label>
+              <Label className="w-full text-xs text-muted-foreground">{t('background')}</Label>
               {STORY_BACKGROUNDS.map((key) => (
                 <button
                   key={key}
@@ -468,8 +563,8 @@ export function CreateStoryForm({ onCreated }: { onCreated?: () => void } = {}) 
           )}
 
           {linkOpen && (
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <div className="flex-1">
+            <div className="flex flex-col gap-2">
+              <div>
                 <Input
                   {...form.register('linkUrl', OPTIONAL_TEXT)}
                   type="url"
@@ -483,7 +578,6 @@ export function CreateStoryForm({ onCreated }: { onCreated?: () => void } = {}) 
                 {...form.register('linkLabel', OPTIONAL_TEXT)}
                 placeholder={t('linkLabel')}
                 aria-label={t('linkLabel')}
-                className="sm:w-44"
               />
             </div>
           )}
@@ -527,71 +621,8 @@ export function CreateStoryForm({ onCreated }: { onCreated?: () => void } = {}) 
               <FieldError>{form.formState.errors.poll && t('pollIncomplete')}</FieldError>
             </div>
           )}
-        </div>
-      </div>
-
-      <div className="flex flex-wrap items-center justify-end gap-2">
-        <StoryAudienceFields
-          value={{
-            audience,
-            groupId: form.watch('groupId'),
-            facultyId: form.watch('facultyId'),
-            recipients,
-          }}
-          onChange={setAudience}
-          recipientsError={form.formState.errors.userIds ? t('recipientsNeed') : undefined}
-        />
-
-        <Button type="submit" size="md" loading={mutation.isPending} disabled={uploading}>
-          <Plus className="size-4" aria-hidden />
-          {t('publish')}
-        </Button>
-      </div>
-
-      {pendingImage && (
-        <Modal onClose={() => setPendingImage(null)} title={t('fitTitle')} size="md">
-          <div className="grid gap-2 sm:grid-cols-2">
-            <button
-              type="button"
-              onClick={() => {
-                setCropFile(pendingImage)
-                setPendingImage(null)
-              }}
-              className="flex flex-col items-start gap-1 rounded-xl border border-border p-3 text-left transition-colors duration-150 hover:border-ring/60 hover:bg-muted"
-            >
-              <Crop className="size-5 text-primary" aria-hidden />
-              <span className="text-sm font-semibold">{t('fitCrop')}</span>
-              <span className="text-xs text-muted-foreground">{t('fitCropHint')}</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => void placeWhole(pendingImage)}
-              className="flex flex-col items-start gap-1 rounded-xl border border-border p-3 text-left transition-colors duration-150 hover:border-ring/60 hover:bg-muted"
-            >
-              <Maximize className="size-5 text-primary" aria-hidden />
-              <span className="text-sm font-semibold">{t('fitWhole')}</span>
-              <span className="text-xs text-muted-foreground">{t('fitWholeHint')}</span>
-            </button>
-          </div>
-        </Modal>
-      )}
-
-      {cropFile && (
-        <ImageCropModal
-          file={cropFile}
-          saving={uploading}
-          onCancel={() => setCropFile(null)}
-          onSave={(cropped) => {
-            setCropFile(null)
-            void upload(cropped)
-          }}
-          title={t('cropTitle')}
-          confirmLabel={t('cropConfirm')}
-          shape="square"
-          aspect={STORY_ASPECT}
-          outputWidth={STORY_OUTPUT_WIDTH}
-        />
-      )}
+        </aside>
+      </form>
 
       {emojiOpen && (
         <Modal onClose={() => setEmojiOpen(false)} title={t('toolEmoji')} size="md">
@@ -618,6 +649,6 @@ export function CreateStoryForm({ onCreated }: { onCreated?: () => void } = {}) 
           }}
         />
       )}
-    </form>
+    </MediaEditorShell>
   )
 }

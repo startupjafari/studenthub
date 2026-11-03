@@ -30,6 +30,7 @@ export { DictSingleSelect } from './dict-single-select'
 export { DictMultiSelect } from './dict-multi-select'
 export { AsyncSelect, type AsyncSelectItem } from './async-select'
 export { ImageCropModal } from './image-crop-modal'
+export { CropToolbar, CROP_TOOL_BUTTON } from './crop-toolbar'
 export { MediaEditorShell } from './media-editor-shell'
 export {
   AlertDialog,

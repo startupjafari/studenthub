@@ -10,6 +10,19 @@ export { useInfiniteScroll } from './use-infinite-scroll'
 export { OPTIONAL_TEXT, OPTIONAL_NUMBER } from './optional-field'
 export { localId } from './local-id'
 export { useBodyScrollLock } from './use-body-scroll-lock'
+export {
+  clampPlace,
+  containScale,
+  coverScale,
+  drawPlaced,
+  placedTransform,
+  rad,
+  toStage,
+  type Place,
+  type Pt,
+  type Size,
+} from './crop-geometry'
+export { useCropGestures, type CropGesturesOptions } from './use-crop-gestures'
 export { hapticTick, hapticCommit } from './haptics'
 export { useSheetDragClose } from './use-sheet-drag-close'
 export { useSwipeRows, type SwipeRowsController, type SwipeSide } from './use-swipe-row'

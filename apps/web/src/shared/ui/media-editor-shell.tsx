@@ -42,7 +42,9 @@ export function MediaEditorShell({
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') {
+      // Esc уже забрало вложенное окно Radix (выпадающий список, диалог поверх редактора):
+      // оно закрывается само и помечает событие — редактор при этом остаётся открытым.
+      if (e.key === 'Escape' && !e.defaultPrevented) {
         e.preventDefault()
         onClose()
       }
