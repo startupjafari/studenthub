@@ -29,6 +29,7 @@ export function CropToolbar({
   onRulerStart,
   onRulerEnd,
   children,
+  className,
 }: {
   angle: number
   flip: boolean
@@ -39,10 +40,11 @@ export function CropToolbar({
   onRulerStart: () => void
   onRulerEnd: () => void
   children?: ReactNode
+  className?: string
 }) {
   const t = useTranslations('Profile')
   return (
-    <div className="mx-auto flex w-full max-w-3xl items-center gap-3 px-4 pt-3">
+    <div className={cn('mx-auto flex w-full max-w-3xl items-center gap-3 px-4 pt-3', className)}>
       <button
         type="button"
         aria-label={t('rotate')}

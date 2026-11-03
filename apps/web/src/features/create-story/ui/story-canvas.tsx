@@ -1,6 +1,13 @@
 'use client'
 
-import { useRef, useState, type DragEvent, type KeyboardEvent, type PointerEvent } from 'react'
+import {
+  useEffect,
+  useRef,
+  useState,
+  type DragEvent,
+  type KeyboardEvent,
+  type PointerEvent,
+} from 'react'
 import { useTranslations } from 'next-intl'
 import { ImagePlus, RotateCw, Type, X } from 'lucide-react'
 import { STORY_ELEMENT_TEXT_MAX, type StoryBackgroundValue } from '@studenthub/shared-schemas'
@@ -40,8 +47,14 @@ const SNAP_DEG = 4
 // Пределы размера элемента — как в схеме (StoryElementSchema.scale).
 const MIN_SCALE = 0.4
 const MAX_SCALE = 3
-// Углы рамки выбранного элемента: тянут — меняется размер.
-const CORNERS = ['-left-2 -top-2', '-right-2 -top-2', '-left-2 -bottom-2', '-right-2 -bottom-2']
+// Углы рамки выбранного элемента: тянут — меняется размер. Центр маркера (20px) — ровно
+// на углу контура, который отстоит от элемента на 4px: 4 + 20/2 = 14px.
+const CORNERS = [
+  '-left-3.5 -top-3.5',
+  '-right-3.5 -top-3.5',
+  '-left-3.5 -bottom-3.5',
+  '-right-3.5 -bottom-3.5',
+]
 
 type Drag =
   | { mode: 'move'; id: string; dx: number; dy: number }
@@ -73,6 +86,8 @@ export function StoryCanvas({
   stage,
   hasPhoto,
   videoUrl,
+  videoMuted,
+  videoPaused,
   background,
   elements,
   selectedId,
@@ -92,6 +107,9 @@ export function StoryCanvas({
   hasPhoto: boolean
   /** Локальный object-URL видео для превью: подписанную ссылку сервер отдаст уже в ленте. */
   videoUrl: string | null
+  /** Звук и пауза превью видео — кнопками под кадром. */
+  videoMuted: boolean
+  videoPaused: boolean
   background: StoryBackgroundValue | undefined
   elements: EditorElement[]
   selectedId: string | null
@@ -115,6 +133,17 @@ export function StoryCanvas({
   const drag = useRef<Drag | null>(null)
   const [guides, setGuides] = useState<{ x: boolean; y: boolean } | null>(null)
   const [dragOver, setDragOver] = useState(false)
+  const videoRef = useRef<HTMLVideoElement>(null)
+
+  // `muted` React выставляет только при монтировании — звук переключаем свойством.
+  useEffect(() => {
+    const el = videoRef.current
+    if (!el) return
+    el.muted = videoMuted
+    if (videoPaused) el.pause()
+    // Запуск со звуком браузер разрешает только после жеста — нажатие кнопки им и было.
+    else void el.play().catch(() => undefined)
+  }, [videoMuted, videoPaused, videoUrl])
 
   const { stage: size, frame, nat, url } = stage
   const hasMedia = hasPhoto || videoUrl !== null
@@ -342,6 +371,7 @@ export function StoryCanvas({
         <div className="absolute inset-0 overflow-hidden rounded-2xl">
           {videoUrl && (
             <video
+              ref={videoRef}
               src={videoUrl}
               className="size-full object-cover"
               muted

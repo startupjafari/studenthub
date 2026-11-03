@@ -79,7 +79,15 @@ export function MediaEditorShell({
         solid ? 'bg-background' : 'bg-black/80',
       )}
     >
-      <div className="flex items-center gap-3 px-4 pt-[max(0.75rem,env(safe-area-inset-top))] pb-2">
+      <div
+        className={cn(
+          'flex items-center gap-3 px-4',
+          // Редактор с панелями держит шапку ровно 56px — от неё считается сетка под ней.
+          solid
+            ? 'box-content h-14 shrink-0 border-b border-white/10 pt-[env(safe-area-inset-top)]'
+            : 'pt-[max(0.75rem,env(safe-area-inset-top))] pb-2',
+        )}
+      >
         <div className="min-w-0 flex-1">
           <h2 className="truncate text-sm font-semibold">{title}</h2>
           {hint && <p className="truncate text-xs text-white/60">{hint}</p>}
