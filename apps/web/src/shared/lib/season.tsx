@@ -119,24 +119,41 @@ function resolveSeason(date: string, off: boolean, override: string | null): Hol
   return forced?.decorated ? forced : null
 }
 
+/**
+ * Приложение уже гидрировано. До этого праздник и закрытие поздравления читаются только
+ * в эффекте — на сервере нет ни часов пользователя, ни localStorage, и иной первый ответ
+ * разошёлся бы с серверной разметкой. Но после гидрации каждый новый экран монтируется на
+ * клиенте, и откладывать чтение до эффекта незачем: из-за этого поздравление над лентой
+ * появлялось кадром позже и сдвигало всю страницу вниз на каждом переходе.
+ */
+let hydrated = false
+
+function today(timeZone: string | undefined, off: boolean, override: string | null) {
+  // `useTimeZone()` отдаёт undefined, если провайдер без таймзоны, — для nowInTz это
+  // «считай по браузеру», и это верный запасной вариант: оформление не та вещь,
+  // ради которой стоит падать.
+  const { date, time } = nowInTz(timeZone ?? null)
+  return { season: resolveSeason(date, off, override), date, time }
+}
+
 function useSeasonDay(): { season: Holiday | null; date: string } {
   const timeZone = useTimeZone()
   const { off, override } = useContext(SeasonLeverContext)
-  const [day, setDay] = useState<{ season: Holiday | null; date: string }>({
-    season: null,
-    date: '',
+  const [day, setDay] = useState<{ season: Holiday | null; date: string }>(() => {
+    if (!hydrated) return { season: null, date: '' }
+    const { season, date } = today(timeZone, off, override)
+    return { season, date }
   })
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined
 
+    hydrated = true
     const apply = () => {
       if (timer) clearTimeout(timer)
-      // `useTimeZone()` отдаёт undefined, если провайдер без таймзоны, — для nowInTz это
-      // «считай по браузеру», и это верный запасной вариант: оформление не та вещь,
-      // ради которой стоит падать.
-      const { date, time } = nowInTz(timeZone ?? null)
-      setDay({ season: resolveSeason(date, off, override), date })
+      const { season, date, time } = today(timeZone, off, override)
+      // Тот же день — то же состояние: лишняя перерисовка с новым объектом ни к чему.
+      setDay((prev) => (prev.date === date && prev.season === season ? prev : { season, date }))
       timer = setTimeout(apply, msUntilMidnight(time))
     }
 
@@ -168,6 +185,15 @@ function useSeasonDay(): { season: Holiday | null; date: string } {
  * Поздравление: тот же праздник, но закрываемый. Закрытие запоминается на весь праздник,
  * а не на день, и живёт в браузере: на сервере такому состоянию делать нечего.
  */
+function isDismissed(mark: string): boolean {
+  if (!mark) return true
+  try {
+    return localStorage.getItem(SEASON_DISMISS_KEY) === mark
+  } catch {
+    return false
+  }
+}
+
 export function useSeasonGreeting(): {
   season: Holiday | null
   motion: boolean
@@ -175,7 +201,8 @@ export function useSeasonGreeting(): {
 } {
   const { season, date } = useSeasonDay()
   const mark = season ? `${season.id}:${date.slice(0, 4)}` : ''
-  const [hidden, setHidden] = useState(true)
+  // После гидрации — сразу из хранилища (см. `hydrated`), до неё — скрыто до эффекта.
+  const [hidden, setHidden] = useState(() => !hydrated || isDismissed(mark))
   const [motion, setMotion] = useState(false)
 
   useEffect(() => {
@@ -183,11 +210,7 @@ export function useSeasonGreeting(): {
       setHidden(true)
       return
     }
-    try {
-      setHidden(localStorage.getItem(SEASON_DISMISS_KEY) === mark)
-    } catch {
-      setHidden(false)
-    }
+    setHidden(isDismissed(mark))
   }, [mark])
 
   // Движение: своя настройка, свой признак «уже играли», и никогда — в сдержанные дни.

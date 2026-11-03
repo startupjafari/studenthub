@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import Link from 'next/link'
+import { NavLink } from './nav-link'
 import { usePathname } from 'next/navigation'
 import { useTranslations } from 'next-intl'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -331,7 +332,7 @@ function BottomNav({
                     {item.children.map((child) => {
                       const childActive = isNavHrefActive(child.href, pathname, child.exact)
                       return (
-                        <Link
+                        <NavLink
                           key={child.href}
                           href={child.href}
                           onClick={() => setMoreOpen(false)}
@@ -343,14 +344,14 @@ function BottomNav({
                           )}
                         >
                           <span className="min-w-0 truncate">{tNav(child.key)}</span>
-                        </Link>
+                        </NavLink>
                       )
                     })}
                   </div>
                 )
               }
               return (
-                <Link
+                <NavLink
                   key={item.key}
                   href={item.href}
                   onClick={() => setMoreOpen(false)}
@@ -367,14 +368,14 @@ function BottomNav({
                       {badgeCount > 99 ? '99+' : badgeCount}
                     </span>
                   )}
-                </Link>
+                </NavLink>
               )
             })}
 
             <div className={hairline} aria-hidden />
 
             {/* Профиль и выход — не разделы роли, поэтому отбиты в последнюю группу. */}
-            <Link
+            <NavLink
               href="/profile"
               onClick={() => setMoreOpen(false)}
               aria-current={profileActive ? 'page' : undefined}
@@ -382,7 +383,7 @@ function BottomNav({
             >
               <UserRound className="size-5 shrink-0 opacity-80" aria-hidden />
               {tNav('profile')}
-            </Link>
+            </NavLink>
             {/* Выход — опасное действие: последним и за своей линией (правило для всех меню). */}
             <div className={hairline} aria-hidden />
             <button type="button" onClick={logout} className={cn(menuRow, 'text-destructive')}>
@@ -434,7 +435,7 @@ function BottomNav({
                 const Icon = item.icon
                 const badgeCount = item.key === 'chats' ? chatsUnread : 0
                 return (
-                  <Link
+                  <NavLink
                     key={item.key}
                     href={item.href}
                     aria-current={active ? 'page' : undefined}
@@ -468,7 +469,7 @@ function BottomNav({
                     >
                       {tNav(item.key)}
                     </span>
-                  </Link>
+                  </NavLink>
                 )
               })}
             </div>
@@ -547,10 +548,13 @@ export function AppShell({
   // Библиотека у читателя — только когда вуз её включил: пункт, ведущий на «библиотека
   // выключена», хуже отсутствующего. Настройки спрашиваем лишь у студента и старосты.
   const reader = effectiveVariant === 'student' || effectiveVariant === 'starosta'
+  // Запрос — сразу, не дожидаясь профиля: вариант до его прихода берётся из роли сессии
+  // (role-cookie), и это та же роль. Цепочка «профиль → настройки» вставляла пункт
+  // «Библиотека» в середину меню на второй сетевой круг, и пункты под ним сдвигались вниз.
   const library = useQuery({
     queryKey: libraryKeys.settings(),
     queryFn: fetchLibrarySettings,
-    enabled: reader && Boolean(me.data),
+    enabled: reader,
     staleTime: 5 * 60_000,
   })
   const libraryOn = library.data?.enabled === true

@@ -20,7 +20,11 @@ export function PageLoader({ label, className }: PageLoaderProps) {
       role="status"
       aria-live="polite"
       className={cn(
-        'flex min-h-full flex-col items-center justify-center gap-3 animate-in fade-in-0 duration-(--motion-page)',
+        // Проявление — с задержкой 150 мс и прозрачным до неё (`fill-mode-backwards`). Обычно
+        // экран готов раньше, и спиннер, мелькнувший на два кадра между двумя экранами,
+        // читался как мерцание; теперь короткая загрузка проходит незаметно, а долгая
+        // показывает лоадер как раньше. Задержка — не движение, reduced-motion её не снимает.
+        'flex min-h-full flex-col items-center justify-center gap-3 animate-in fade-in-0 fill-mode-backwards delay-150 duration-(--motion-page)',
         className,
       )}
     >

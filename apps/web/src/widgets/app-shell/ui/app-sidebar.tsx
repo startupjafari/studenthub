@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import { NavLink } from './nav-link'
 import { usePathname } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
@@ -91,7 +92,7 @@ function NavSection({ item, pathname }: { item: NavItem; pathname: string }) {
             const childActive = isNavHrefActive(child.href, pathname, child.exact)
             return (
               <li key={child.href}>
-                <Link
+                <NavLink
                   href={child.href}
                   aria-current={childActive ? 'page' : undefined}
                   className={cn(
@@ -102,7 +103,7 @@ function NavSection({ item, pathname }: { item: NavItem; pathname: string }) {
                   )}
                 >
                   <span className="min-w-0 truncate">{tNav(child.key)}</span>
-                </Link>
+                </NavLink>
               </li>
             )
           })}
@@ -214,7 +215,7 @@ export function AppSidebar({
                   const Icon = item.icon
                   const active = isNavItemActive(item, pathname)
                   return (
-                    <Link
+                    <NavLink
                       key={item.key}
                       href={item.href}
                       aria-current={active ? 'page' : undefined}
@@ -235,7 +236,7 @@ export function AppSidebar({
                           {chatsUnread > 99 ? '99+' : chatsUnread}
                         </span>
                       )}
-                    </Link>
+                    </NavLink>
                   )
                 })}
               </div>
@@ -273,7 +274,7 @@ export function AppSidebar({
               </div>
             </div>
           ) : (
-            <Link
+            <NavLink
               href="/profile"
               aria-current={profileActive ? 'page' : undefined}
               className="flex min-w-0 flex-1 items-center gap-3"
@@ -288,7 +289,7 @@ export function AppSidebar({
                 </p>
                 <p className="truncate text-xs text-muted-foreground">{tRoles(me.data.role)}</p>
               </div>
-            </Link>
+            </NavLink>
           )}
           {/* Единый сканер QR StudentHub: вход на другом устройстве, студенческий, отметка. */}
           <Link
