@@ -21,10 +21,11 @@ import { StoryViewer } from './story-viewer'
  * лентой занимала бы первый экран ради сообщения «тут пусто».
  */
 // Поверхность и ряд полосы — общие у колец и у их заготовки.
-// Поле ряда (px-3/sm:px-4) + поле ячейки вокруг кольца (4px) = отступ текста в посте
+// Ячейка шире кольца (5.5rem против 4.5rem), чтобы подпись «Новая сторис» не обрезалась.
+// Поле ряда (px-2/sm:px-3) + поле ячейки вокруг кольца (8px) = отступ текста в посте
 // (16/20px): кольца и аватары постов стоят на одной вертикали.
 const RAIL_SURFACE = 'rounded-xl bg-card ring-1 ring-foreground/10'
-const RAIL_ROW = 'flex gap-3 px-3 py-3 sm:gap-4 sm:px-4'
+const RAIL_ROW = 'flex gap-1 px-2 py-3 sm:gap-2 sm:px-3'
 
 export function StoriesRail() {
   const t = useTranslations('Stories')
@@ -81,7 +82,7 @@ export function StoriesRail() {
       <div className={RAIL_SURFACE} aria-hidden>
         <div className={cn(RAIL_ROW, 'overflow-hidden')}>
           {[0, 1, 2, 3, 4].map((i) => (
-            <div key={i} className="flex w-20 shrink-0 flex-col items-center gap-2">
+            <div key={i} className="flex w-[5.5rem] shrink-0 flex-col items-center gap-2">
               <Skeleton className="size-[4.5rem] rounded-full" />
               <Skeleton className="h-3 w-14" />
             </div>
@@ -113,7 +114,7 @@ export function StoriesRail() {
             <button
               type="button"
               onClick={() => setCreateOpen(true)}
-              className="group flex w-20 shrink-0 flex-col items-center gap-2 rounded-xl text-center outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+              className="group flex w-[5.5rem] shrink-0 flex-col items-center gap-2 rounded-xl text-center outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
             >
               {/* Создание — своим лицом с акцентным плюсом в углу, как в мессенджерах: сразу
                   понятно, что сторис будет от тебя. Без фото — плюс на мягкой подложке, а не
@@ -207,7 +208,7 @@ function RingButton({
       type="button"
       onClick={onOpen}
       aria-label={t('openStoryOf', { name: `${ring.author.firstName} ${ring.author.lastName}` })}
-      className="group flex w-20 shrink-0 flex-col items-center gap-2 rounded-xl text-center outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+      className="group flex w-[5.5rem] shrink-0 flex-col items-center gap-2 rounded-xl text-center outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
     >
       {/* Кольцо: яркое у непросмотренных, приглушённое у просмотренных — единственный
           признак, по которому в этом формате отличают новое от уже увиденного. */}

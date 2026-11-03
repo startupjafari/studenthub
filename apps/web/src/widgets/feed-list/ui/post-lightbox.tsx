@@ -871,7 +871,7 @@ function PostView({
             // Панель — около трети окна, но не уже 20rem (комментарии читаемы) и не шире
             // 26rem (кадр остаётся главным). Без медиа — вся ширина компактного окна.
             cur
-              ? 'md:w-[clamp(20rem,30%,26rem)] md:shrink-0 md:border-l md:border-border'
+              ? 'md:w-[clamp(20rem,32%,26rem)] md:shrink-0 md:border-l md:border-border'
               : 'md:flex-auto',
           )}
         >

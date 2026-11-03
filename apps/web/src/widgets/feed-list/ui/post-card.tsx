@@ -165,7 +165,7 @@ function PostCardView({
         // в ленте стоит рядом с карточками колонки, и разные углы читались как два стиля.
         // Закреплённый отличается только мягкой акцентной обводкой — без заливки и тени.
         'flex flex-col rounded-xl bg-card ring-1 ring-foreground/10',
-        post.pinnedAt && 'ring-primary/30',
+        post.pinnedAt && 'ring-primary/20',
       )}
     >
       {via && <RepostBanner repost={via} className="px-4 pt-3 sm:px-5" />}
@@ -211,10 +211,11 @@ function PostCardView({
       {/* Панель действий — как во «ВКонтакте»: лайк, комментарии, репост и «поделиться»
           слева, просмотры справа. Подписи видны с `sm`: голые иконки читаются
           только теми, кто уже знает, что они делают.
-          Поля ряда (`px-1.5`/`sm:px-2.5`) плюс внутренний отступ кнопки (`px-2.5`) дают
-          ровно отступ текста (16/20px): первая иконка стоит на одной вертикали с аватаром
-          и текстом, а не на 2px левее. */}
-      <div className="mt-2 flex items-center gap-0.5 px-1.5 pb-1.5 text-sm text-muted-foreground sm:px-2.5 sm:pb-2">
+          Поля ряда плюс внутренний отступ кнопки дают ровно отступ текста (16/20px): первая
+          иконка стоит на одной вертикали с аватаром и текстом. Уже 360px (телефоны 320px)
+          кнопки плотнее — иначе просмотры вылезали за край карточки; `flex-wrap` — страховка
+          на случай трёхзначных счётчиков: просмотры уйдут строкой ниже, а не за край. */}
+      <div className="mt-2 flex flex-wrap items-center gap-y-1 px-2.5 pb-1.5 text-sm text-muted-foreground min-[360px]:gap-x-0.5 min-[360px]:px-1.5 sm:px-2.5 sm:pb-2">
         <ActionButton
           label={t('like')}
           pressed={liked}
@@ -249,7 +250,7 @@ function PostCardView({
             платформы. */}
         <SharePostMenu
           postId={post.id}
-          className="flex min-h-10 cursor-pointer items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs transition-colors duration-150 hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none sm:min-h-9"
+          className="flex min-h-10 cursor-pointer items-center gap-1.5 rounded-lg px-1.5 py-1.5 text-xs transition-colors duration-150 hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none min-[360px]:px-2.5 sm:min-h-9"
         />
         {/* Избранное — последним в ряду и без счётчика: это личная полка, а не
             вовлечение, и число «сколько людей сохранили» сервер не отдаёт намеренно. */}
@@ -262,7 +263,7 @@ function PostCardView({
         {/* Справа — просмотры. Возраст поста переехал в шапку, ко второй строке автора:
             там его ищут глазами, а в ряду действий он спорил со счётчиками. */}
         <span
-          className="ml-auto flex items-center gap-1.5 px-2.5 text-xs"
+          className="ml-auto flex items-center gap-1 px-1.5 text-xs min-[360px]:gap-1.5 min-[360px]:px-2.5"
           title={t('viewsLabel', { count: post.views })}
         >
           <Eye className="size-4" aria-hidden />
@@ -369,7 +370,7 @@ function ActionButton({
       title={label}
       className={cn(
         // 40px под палец, 36px под курсор — та же ступень, что у остальных строк действий.
-        'flex min-h-10 cursor-pointer items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs transition-colors duration-150 hover:bg-muted hover:text-foreground active:bg-muted/70 sm:min-h-9',
+        'flex min-h-10 cursor-pointer items-center gap-1.5 rounded-lg px-1.5 py-1.5 text-xs transition-colors duration-150 hover:bg-muted hover:text-foreground active:bg-muted/70 min-[360px]:px-2.5 sm:min-h-9',
         'focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none',
         'disabled:pointer-events-none disabled:opacity-50',
         pressed && 'text-foreground',
