@@ -98,14 +98,14 @@ export function FeedView() {
         }
       />
 
-      {/* Колонка ленты — до 46rem (≈736px): на 36rem большой монитор оставлял узкую полосу,
+      {/* Колонка ленты — до 44rem (704px): на 36rem большой монитор оставлял узкую полосу,
           а снимки выходили мелкими; шире — строка текста становится неудобной. Плитки
           коллажа держат высоту пропорцией, поэтому с колонкой не раздуваются. Ширина
           ленты не зависит от боковой колонки — иначе на широком мониторе посты выглядели
           бы иначе, чем на ноутбуке; поэтому у самой ленты максимум, а не `flex-1`.
 
-          От xl справа встаёт колонка 20rem, и центрируется уже связка «лента + колонка»
-          (46 + 1.5 + 20 = 67.5rem) — колонка не приклеена к краю экрана.
+          От xl справа встаёт колонка (18rem, с 2xl — 20rem), и центрируется уже связка
+          «лента + колонка» (до 44 + 1.5 + 20 = 65.5rem) — колонка не приклеена к краю экрана.
           Ниже xl места на неё нет, а без друзей и заявок её нет вовсе — в обоих случаях
           `justify-center` возвращает ленту ровно в центр страницы. */}
       {/* `shrink-0` и НЕ `flex-1 min-h-0`: высота ряда обязана считаться по содержимому,
@@ -117,12 +117,13 @@ export function FeedView() {
           возвращалась. */}
       <div
         className={cn(
-          'mx-auto flex w-full max-w-[46rem] shrink-0 justify-center gap-6',
-          hasFriendsPanel && 'xl:max-w-[67.5rem]',
+          'mx-auto flex w-full max-w-[44rem] shrink-0 justify-center gap-6',
+          hasFriendsPanel && 'xl:max-w-[65.5rem]',
         )}
       >
         {/* `flex-1` здесь про ШИРИНУ (ряд горизонтальный), высоту колонка берёт по ленте. */}
-        <div className="flex w-full max-w-[46rem] min-w-0 flex-1 flex-col">
+        {/* `gap-4` — тот же шаг, что между постами: полоса сторис стоит в общем ритме ленты. */}
+        <div className="flex w-full max-w-[44rem] min-w-0 flex-1 flex-col gap-4">
           {/* Кольца сторис — только в общей ленте: в срезах («Важное», «Сохранённое»)
               они не про тот контент, который человек там ищет. */}
           {filter === 'ALL' && <StoriesRail />}
@@ -139,7 +140,7 @@ export function FeedView() {
           // когда содержимого мало — полосы прокрутки нет вовсе. 2rem — отступ сверху
           // (`top-4`) и такой же зазор снизу; `main` занимает всю высоту окна, других
           // полос над ним нет.
-          <aside className="hidden w-80 shrink-0 flex-col gap-4 self-start xl:sticky xl:top-4 xl:flex xl:max-h-[calc(100dvh-2rem)] xl:overflow-y-auto">
+          <aside className="sh-scroll hidden w-72 shrink-0 flex-col gap-4 self-start xl:sticky xl:top-4 xl:flex xl:max-h-[calc(100dvh-2rem)] xl:overflow-y-auto 2xl:w-80">
             <FriendsPanel />
           </aside>
         )}

@@ -83,7 +83,7 @@ export function PostCard(props: PostCardProps) {
   if (source.kind === 'loading') {
     return (
       <article
-        className="flex flex-col gap-3 rounded-2xl bg-card p-4 ring-1 ring-foreground/10 sm:p-5"
+        className="flex flex-col gap-3 rounded-xl bg-card p-4 ring-1 ring-foreground/10 sm:p-5"
         aria-hidden
       >
         <div className="flex items-center gap-3">
@@ -186,8 +186,11 @@ function PostCardView({
         // Без `overflow-hidden`: он обрезал поповер «•••» у невысокой карточки — меню
         // раскрывается вниз из шапки и у короткого текстового поста не помещается.
         // Медиа лежит в середине карточки и скруглённых углов не касается.
-        'flex flex-col rounded-2xl bg-card ring-1 ring-foreground/10',
-        post.pinnedAt && 'ring-primary/40',
+        // Радиус и обводка — как у системной `Card` (rounded-xl, ring-foreground/10): пост
+        // в ленте стоит рядом с карточками колонки, и разные углы читались как два стиля.
+        // Закреплённый отличается только мягкой акцентной обводкой — без заливки и тени.
+        'flex flex-col rounded-xl bg-card ring-1 ring-foreground/10',
+        post.pinnedAt && 'ring-primary/30',
       )}
     >
       {via && <RepostBanner repost={via} className="px-4 pt-3 sm:px-5" />}
@@ -291,8 +294,11 @@ function PostCardView({
 
       {/* Панель действий — как во «ВКонтакте»: лайк, комментарии, репост и «поделиться»
           слева, просмотры справа. Подписи видны с `sm`: голые иконки читаются
-          только теми, кто уже знает, что они делают. */}
-      <div className="mt-3 flex items-center gap-0.5 px-2 pb-2 text-sm text-muted-foreground sm:px-3">
+          только теми, кто уже знает, что они делают.
+          Поля ряда (`px-1.5`/`sm:px-2.5`) плюс внутренний отступ кнопки (`px-2.5`) дают
+          ровно отступ текста (16/20px): первая иконка стоит на одной вертикали с аватаром
+          и текстом, а не на 2px левее. */}
+      <div className="mt-2 flex items-center gap-0.5 px-1.5 pb-1.5 text-sm text-muted-foreground sm:px-2.5 sm:pb-2">
         <ActionButton
           label={t('like')}
           pressed={liked}
@@ -327,7 +333,7 @@ function PostCardView({
             платформы. */}
         <SharePostMenu
           postId={post.id}
-          className="flex min-h-9 cursor-pointer items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs transition-colors duration-150 hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+          className="flex min-h-10 cursor-pointer items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs transition-colors duration-150 hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none sm:min-h-9"
         />
         {/* Избранное — последним в ряду и без счётчика: это личная полка, а не
             вовлечение, и число «сколько людей сохранили» сервер не отдаёт намеренно. */}
@@ -340,7 +346,7 @@ function PostCardView({
         {/* Справа — просмотры. Возраст поста переехал в шапку, ко второй строке автора:
             там его ищут глазами, а в ряду действий он спорил со счётчиками. */}
         <span
-          className="ml-auto flex items-center gap-1.5 px-2 text-xs"
+          className="ml-auto flex items-center gap-1.5 px-2.5 text-xs"
           title={t('viewsLabel', { count: post.views })}
         >
           <Eye className="size-4" aria-hidden />
@@ -446,7 +452,8 @@ function ActionButton({
       onClick={onClick}
       title={label}
       className={cn(
-        'flex min-h-9 cursor-pointer items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs transition-colors duration-150 hover:bg-muted hover:text-foreground active:bg-muted/70',
+        // 40px под палец, 36px под курсор — та же ступень, что у остальных строк действий.
+        'flex min-h-10 cursor-pointer items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs transition-colors duration-150 hover:bg-muted hover:text-foreground active:bg-muted/70 sm:min-h-9',
         'focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none',
         'disabled:pointer-events-none disabled:opacity-50',
         pressed && 'text-foreground',
@@ -514,8 +521,8 @@ function MediaCollage({
               fit="cover"
               sizes={
                 count === 3 && i === 0
-                  ? '(max-width: 768px) 66vw, 490px'
-                  : '(max-width: 768px) 50vw, 368px'
+                  ? '(max-width: 768px) 66vw, 470px'
+                  : '(max-width: 768px) 50vw, 352px'
               }
               className="size-full transition-transform duration-200 group-hover/tile:scale-[1.02] motion-reduce:transition-none"
             />

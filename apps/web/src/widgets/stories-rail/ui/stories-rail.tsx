@@ -20,11 +20,18 @@ import { StoryViewer } from './story-viewer'
  * ещё нет. Пустая выдача без права публиковать не рисует ничего — полоса-заглушка над
  * лентой занимала бы первый экран ради сообщения «тут пусто».
  */
+// Поверхность и ряд полосы — общие у колец и у их заготовки.
+// Поле ряда (px-3/sm:px-4) + поле ячейки вокруг кольца (4px) = отступ текста в посте
+// (16/20px): кольца и аватары постов стоят на одной вертикали.
+const RAIL_SURFACE = 'rounded-xl bg-card ring-1 ring-foreground/10'
+const RAIL_ROW = 'flex gap-3 px-3 py-3 sm:gap-4 sm:px-4'
+
 export function StoriesRail() {
   const t = useTranslations('Stories')
   const tCommon = useTranslations('Common')
   const role = useAppSelector((s) => s.auth.role)
-  const myId = useAppSelector((s) => s.auth.user?.id)
+  const me = useAppSelector((s) => s.auth.user)
+  const myId = me?.id
   const [viewerAt, setViewerAt] = useState<number | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
 
@@ -68,14 +75,18 @@ export function StoriesRail() {
   const rings = data ?? []
   const canPost = canCreateStory(role)
   if (isLoading) {
+    // Заготовка повторяет полосу один в один (поверхность, поля, шаг колец) — когда кольца
+    // придут, лента под ней не сдвинется.
     return (
-      <div className="flex gap-4 overflow-hidden px-1 py-2">
-        {[0, 1, 2, 3].map((i) => (
-          <div key={i} className="flex w-20 flex-col items-center gap-2">
-            <Skeleton className="size-[4.5rem] rounded-full" />
-            <Skeleton className="h-3 w-14" />
-          </div>
-        ))}
+      <div className={RAIL_SURFACE} aria-hidden>
+        <div className={cn(RAIL_ROW, 'overflow-hidden')}>
+          {[0, 1, 2, 3, 4].map((i) => (
+            <div key={i} className="flex w-20 shrink-0 flex-col items-center gap-2">
+              <Skeleton className="size-[4.5rem] rounded-full" />
+              <Skeleton className="h-3 w-14" />
+            </div>
+          ))}
+        </div>
       </div>
     )
   }
@@ -83,13 +94,20 @@ export function StoriesRail() {
 
   return (
     <>
-      {/* Горизонтальная полоса: на телефоне листается пальцем, на десктопе — колесом с shift.
-          Полосы прокрутки нет (scrollbar-none), как в мессенджерах. */}
-      <div className="group/rail relative">
+      {/* Горизонтальная полоса: на телефоне листается пальцем, на десктопе — колесом с shift
+          и стрелками. Полосы прокрутки нет (scrollbar-none), как в мессенджерах.
+
+          Полоса — на той же поверхности, что и посты (rounded-xl, ring-foreground/10), и
+          её края совпадают с краями карточек: кольца без подложки висели в воздухе, а
+          первое стояло на 4px левее аватаров в постах. */}
+      <div className={cn(RAIL_SURFACE, 'group/rail relative')}>
         <div
           ref={scrollerRef}
           onScroll={measureEdges}
-          className="flex gap-4 overflow-x-auto scroll-smooth px-1 py-2 [scrollbar-width:none] motion-reduce:scroll-auto [&::-webkit-scrollbar]:hidden"
+          className={cn(
+            RAIL_ROW,
+            'overflow-x-auto scroll-smooth [scrollbar-width:none] motion-reduce:scroll-auto [&::-webkit-scrollbar]:hidden',
+          )}
         >
           {canPost && (
             <button
@@ -97,12 +115,32 @@ export function StoriesRail() {
               onClick={() => setCreateOpen(true)}
               className="group flex w-20 shrink-0 flex-col items-center gap-2 rounded-xl text-center outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
             >
-              {/* Кнопка создания читается сразу: акцентный плюс на мягкой подложке, а не
-                серый пунктир, который сливался с пустым местом. */}
-              <span className="flex size-[4.5rem] items-center justify-center rounded-full border-2 border-dashed border-primary/40 bg-primary/10 text-primary transition-[background-color,border-color,transform] duration-150 group-hover:border-primary group-hover:bg-primary/15 group-active:scale-95 motion-reduce:transition-none">
-                <Plus className="size-6" aria-hidden />
+              {/* Создание — своим лицом с акцентным плюсом в углу, как в мессенджерах: сразу
+                  понятно, что сторис будет от тебя. Без фото — плюс на мягкой подложке, а не
+                  серый пунктир, который сливался с пустым местом. */}
+              <span className="relative flex size-[4.5rem] items-center justify-center rounded-full transition-transform duration-150 group-hover:scale-[1.04] group-active:scale-95 motion-reduce:transition-none">
+                {me?.avatarUrl ? (
+                  <>
+                    <Avatar className="size-full ring-1 ring-foreground/10">
+                      <AvatarImage src={me.avatarUrl} alt="" />
+                      <AvatarFallback>
+                        {me.firstName.charAt(0)}
+                        {me.lastName.charAt(0)}
+                      </AvatarFallback>
+                    </Avatar>
+                    <span className="absolute right-0 bottom-0 flex size-6 items-center justify-center rounded-full bg-primary text-primary-foreground ring-2 ring-card">
+                      <Plus className="size-4" strokeWidth={2.5} aria-hidden />
+                    </span>
+                  </>
+                ) : (
+                  <span className="flex size-full items-center justify-center rounded-full border-2 border-dashed border-primary/40 bg-primary/10 text-primary transition-colors duration-150 group-hover:border-primary group-hover:bg-primary/15">
+                    <Plus className="size-6" aria-hidden />
+                  </span>
+                )}
               </span>
-              <span className="w-full truncate text-xs text-muted-foreground">{t('newStory')}</span>
+              <span className="w-full truncate text-xs text-muted-foreground transition-colors duration-150 group-hover:text-foreground">
+                {t('newStory')}
+              </span>
             </button>
           )}
 
@@ -123,9 +161,10 @@ export function StoriesRail() {
               aria-label={side === 'left' ? tCommon('previous') : tCommon('next')}
               onClick={() => scrollBy(side === 'left' ? -1 : 1)}
               className={cn(
-                'absolute top-[2.6rem] z-10 hidden size-8 -translate-y-1/2 items-center justify-center rounded-full border border-border bg-card/95 text-foreground shadow-sm transition-[opacity,background-color] duration-150 hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none sm:flex',
+                // По центру кольца: поле полосы (0.75rem) + половина кольца (2.25rem).
+                'absolute top-12 z-10 hidden size-8 -translate-y-1/2 items-center justify-center rounded-full border border-border bg-card/95 text-foreground shadow-sm transition-[opacity,background-color] duration-150 hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none sm:flex',
                 'opacity-0 group-hover/rail:opacity-100 focus-visible:opacity-100',
-                side === 'left' ? 'left-0' : 'right-0',
+                side === 'left' ? 'left-2' : 'right-2',
               )}
             >
               {side === 'left' ? (
@@ -180,7 +219,7 @@ function RingButton({
             : 'bg-border',
         )}
       >
-        <Avatar className="size-full border-2 border-background">
+        <Avatar className="size-full border-2 border-card">
           {ring.author.avatarUrl && <AvatarImage src={ring.author.avatarUrl} alt="" />}
           <AvatarFallback>
             {ring.author.firstName.charAt(0)}
