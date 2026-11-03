@@ -2117,6 +2117,8 @@
     "zoomIn": "Zoom in",
     "zoomOut": "Zoom out",
     "commentsCount": "{count, plural, =0 {No comments} one {# comment} other {# comments}}",
+    "commentsHeading": "Comments ({count})",
+    "writeComment": "Write a comment…",
     "actions": "Actions",
     "unpin": "Unpin",
     "pinned": "Pinned",

@@ -104,7 +104,7 @@ describe('PostLightbox', () => {
     const dialog = await screen.findByRole('dialog')
     const win = dialog.querySelector('[tabindex="-1"]') as HTMLElement
     expect(win.className).toContain('sm:h-auto')
-    expect(win.className).toContain('sm:max-h-[85dvh]')
+    expect(win.className).toContain('sm:max-h-full')
     expect(screen.queryByRole('button', { name: ru.Feed.zoomIn })).not.toBeInTheDocument()
   })
 
@@ -156,14 +156,9 @@ describe('PostLightbox', () => {
 
   it('черновик комментария переживает закрытие окна', async () => {
     const first = setup([post('draft-1')])
-    await first.user.type(
-      await screen.findByPlaceholderText(ru.Feed.commentPlaceholder),
-      'Не потерять',
-    )
+    await first.user.type(await screen.findByPlaceholderText(ru.Feed.writeComment), 'Не потерять')
     first.view.unmount()
     setup([post('draft-1')])
-    expect(await screen.findByPlaceholderText(ru.Feed.commentPlaceholder)).toHaveValue(
-      'Не потерять',
-    )
+    expect(await screen.findByPlaceholderText(ru.Feed.writeComment)).toHaveValue('Не потерять')
   })
 })

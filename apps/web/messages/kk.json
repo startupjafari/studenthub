@@ -2117,6 +2117,8 @@
     "zoomIn": "Үлкейту",
     "zoomOut": "Кішірейту",
     "commentsCount": "{count, plural, =0 {Пікірлер жоқ} other {# пікір}}",
+    "commentsHeading": "Пікірлер ({count})",
+    "writeComment": "Пікір жазу…",
     "actions": "Әрекеттер",
     "unpin": "Босату",
     "pinned": "Бекітілген",

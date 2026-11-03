@@ -2117,6 +2117,8 @@
     "zoomIn": "Увеличить",
     "zoomOut": "Уменьшить",
     "commentsCount": "{count, plural, =0 {Нет комментариев} one {# комментарий} few {# комментария} many {# комментариев} other {# комментариев}}",
+    "commentsHeading": "Комментарии ({count})",
+    "writeComment": "Написать комментарий…",
     "actions": "Действия",
     "unpin": "Открепить",
     "pinned": "Закреплено",
