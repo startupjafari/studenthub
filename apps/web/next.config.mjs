@@ -224,7 +224,11 @@ const nextConfig = {
   // React Query со своим кэшем), поэтому устаревать в RSC-ответе нечему; зато без кэша
   // (по умолчанию в Next 15 — 0 с) каждый возврат на экран мигал лоадером loading.tsx.
   // Смена пользователя кэш не переживает: выход — всегда полная перезагрузка /login.
-  experimental: { staleTimes: { dynamic: 30 } },
+  //
+  // `dynamicOnHover` включает проп `unstable_dynamicOnHover` у Link (ссылки меню — NavLink):
+  // без флага проп молча ничего не делает (process.env.__NEXT_DYNAMIC_ON_HOVER в
+  // next/dist/client/components/links.js), и наведение не подгружало страницу.
+  experimental: { staleTimes: { dynamic: 30 }, dynamicOnHover: true },
   // Линтинг — отдельным шагом (root ESLint / CI), не во время next build.
   eslint: { ignoreDuringBuilds: true },
   // Минимальный self-contained сервер для production-образа (docker/apps/web/Dockerfile).

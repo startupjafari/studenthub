@@ -2,8 +2,9 @@
 
 import type { ReactNode } from 'react'
 import { usePathname } from 'next/navigation'
+import { useAppSelector } from '../../../shared/store'
 import { isShellPath } from '../model/shell-paths'
-import type { NavVariant } from '../model/nav'
+import { ROLE_TO_VARIANT, type NavVariant } from '../model/nav'
 import { AppShell } from './app-shell'
 
 /**
@@ -24,13 +25,20 @@ export function PersistentShell({
   children,
 }: {
   locale: string
+  /** Вариант из role-cookie на момент серверной отрисовки корневого layout. */
   variant: NavVariant
   children: ReactNode
 }) {
   const pathname = usePathname()
+  // Роль сессии из стора сильнее варианта с сервера. Корневой layout при клиентских
+  // переходах не перерисовывается: отрисованный на /login (сессии ещё нет — «студент»), он
+  // так и отдавал бы этот вариант, и преподаватель после входа до прихода профиля видел бы
+  // студенческое меню. Вход записывает роль в стор до перехода (establishSession). При
+  // серверной отрисовке и гидрации стор пуст — работает вариант из cookie, без расхождения.
+  const role = useAppSelector((s) => s.auth.role)
   if (!isShellPath(pathname)) return <>{children}</>
   return (
-    <AppShell locale={locale} variant={variant}>
+    <AppShell locale={locale} variant={role ? ROLE_TO_VARIANT[role] : variant}>
       {children}
     </AppShell>
   )
