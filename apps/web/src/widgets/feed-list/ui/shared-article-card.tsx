@@ -40,13 +40,17 @@ export function SharedArticleCard({ post, className }: { post: FeedPost; classNa
         className,
       )}
     >
-      <ArticleCover
-        coverUrl={a.coverUrl}
-        coverGradient={a.coverGradient}
-        title={a.title}
-        letter
-        className="h-40 w-full shrink-0 sm:h-auto sm:min-h-32 sm:w-44"
-      />
+      {/* Высоту карточки задаёт текст, а не снимок: обложка лежит слоем во всю свою колонку.
+          Иначе вертикальное фото растягивало карточку на полэкрана. */}
+      <span className="relative h-40 w-full shrink-0 overflow-hidden sm:h-auto sm:min-h-32 sm:w-44">
+        <ArticleCover
+          coverUrl={a.coverUrl}
+          coverGradient={a.coverGradient}
+          title={a.title}
+          letter
+          className="absolute inset-0 size-full"
+        />
+      </span>
       <span className="flex min-w-0 flex-1 flex-col gap-1.5 p-3.5">
         <span className="flex items-center gap-2 text-xs text-muted-foreground">
           <FileText className="size-3.5 shrink-0" aria-hidden />
