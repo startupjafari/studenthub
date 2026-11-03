@@ -28605,7 +28605,8 @@
               "GROUP",
               "TEACHERS",
               "FRIENDS",
-              "SELECTED"
+              "SELECTED",
+              "PARTNER_UNIVERSITIES"
             ]
           },
           "facultyId": {
@@ -29019,7 +29020,8 @@
               "GROUP",
               "TEACHERS",
               "FRIENDS",
-              "SELECTED"
+              "SELECTED",
+              "PARTNER_UNIVERSITIES"
             ]
           },
           "facultyId": {

@@ -29,18 +29,21 @@ import { PostsService } from '../posts/posts.service'
 import { SchedulesService } from '../schedules/schedules.service'
 import { MediaService } from '../media/media.service'
 import { MEDIA_FILE_SELECT, type MediaInfo } from '../media/media.types'
+import { ACTIVE_COMPANY_WHERE, activeAccessWhere } from '../career/career-access.service'
 import type { JwtPayload } from '../../common/auth/jwt-payload.type'
 import type { RequestContext } from '../auth/auth.service'
 import type { EnvVars } from '../../config/env.schema'
 
 // Кто какую аудиторию может выбрать (docs/PROJECT.md §2.2, строка «Сторисы — создание»).
-// Набор повторяет посты минус SUBJECT, которого у сторис нет: модераторы контент
-// не создают, работодатель публикуется только вакансиями. Личные аудитории (друзья,
-// выбранные) доступны всем, кто публикует: круг задаёт сам автор, а не его scope.
+// Набор повторяет посты минус SUBJECT, которого у сторис нет. Модераторы и работодатель
+// постов не пишут, но сторис публикуют: модератор платформы — всем, модератор вуза — своему
+// вузу. Личные аудитории (друзья, выбранные) доступны всем, кто публикует, кроме
+// работодателя: друзей у него нет (§50), а поимённый список обходил бы допуск вуза — он
+// адресует сторис только студентам вузов, допустивших его компанию (PARTNER_UNIVERSITIES).
 const PERSONAL_AUDIENCES = [StoryAudience.FRIENDS, StoryAudience.SELECTED]
 const ALLOWED_AUDIENCES: Record<Role, StoryAudience[]> = {
   [Role.PLATFORM_ADMIN]: [StoryAudience.ALL, ...PERSONAL_AUDIENCES],
-  [Role.PLATFORM_MODERATOR]: [],
+  [Role.PLATFORM_MODERATOR]: [StoryAudience.ALL, ...PERSONAL_AUDIENCES],
   [Role.UNIVERSITY_ADMIN]: [
     StoryAudience.UNIVERSITY,
     StoryAudience.FACULTY,
@@ -48,12 +51,12 @@ const ALLOWED_AUDIENCES: Record<Role, StoryAudience[]> = {
     StoryAudience.TEACHERS,
     ...PERSONAL_AUDIENCES,
   ],
-  [Role.UNIVERSITY_MODERATOR]: [],
+  [Role.UNIVERSITY_MODERATOR]: [StoryAudience.UNIVERSITY, ...PERSONAL_AUDIENCES],
   [Role.DEAN]: [StoryAudience.FACULTY, StoryAudience.GROUP, ...PERSONAL_AUDIENCES],
   [Role.TEACHER]: [StoryAudience.GROUP, ...PERSONAL_AUDIENCES],
   [Role.STAROSTA]: [StoryAudience.GROUP, ...PERSONAL_AUDIENCES],
   [Role.STUDENT]: [StoryAudience.GROUP, ...PERSONAL_AUDIENCES],
-  [Role.EMPLOYER]: [],
+  [Role.EMPLOYER]: [StoryAudience.PARTNER_UNIVERSITIES],
   [Role.SECURITY_GUARD]: [],
   [Role.LIBRARIAN]: [],
 }
@@ -207,6 +210,25 @@ export function audienceConditions(viewer: JwtPayload): AudienceCondition[] {
   return or
 }
 
+/** Адресаты сторис работодателя (PARTNER_UNIVERSITIES): студенты, а не сотрудники вуза. */
+const PARTNER_VIEWER_ROLES: readonly Role[] = [Role.STUDENT, Role.STAROSTA]
+
+/**
+ * Компания, чьи сторис для вузов-партнёров видит зритель: активная и допущенная в его вуз
+ * (доступ одобрен и не истёк). null — зритель не адресат: не студент или без вуза. Допуск
+ * читается на каждый запрос, поэтому отзыв или истечение скрывают сторис сразу.
+ */
+export function partnerCompanyWhere(
+  viewer: Pick<JwtPayload, 'role' | 'universityId'>,
+  now: Date = new Date(),
+): Prisma.CompanyWhereInput | null {
+  if (!viewer.universityId || !PARTNER_VIEWER_ROLES.includes(viewer.role)) return null
+  return {
+    ...ACTIVE_COMPANY_WHERE,
+    universityAccess: { some: activeAccessWhere(viewer.universityId, now) },
+  }
+}
+
 /** Пользователь — принятый друг `userId` (дружба взаимна и хранится одной строкой). */
 export function friendOfWhere(userId: string): Prisma.UserWhereInput {
   return {
@@ -220,6 +242,8 @@ export function friendOfWhere(userId: string): Prisma.UserWhereInput {
 /**
  * Кто видит сторис с такой аудиторией — то же правило, что visibilityWhere, для одной записи.
  * `friends` — друзья автора среди проверяемых; без него аудитория FRIENDS не включает никого.
+ * `partnerUniversities` — вузы, допустившие компанию автора; без него PARTNER_UNIVERSITIES
+ * тоже не включает никого.
  */
 export function audienceIncludes(
   user: {
@@ -238,6 +262,7 @@ export function audienceIncludes(
     audienceUserIds?: readonly string[]
   },
   friends?: ReadonlySet<string>,
+  partnerUniversities?: ReadonlySet<string>,
 ): boolean {
   if (story.authorId === user.id) return true
   switch (story.audience) {
@@ -259,6 +284,12 @@ export function audienceIncludes(
       return !!user.facultyId && user.facultyId === story.facultyId
     case StoryAudience.GROUP:
       return !!user.groupId && user.groupId === story.groupId
+    case StoryAudience.PARTNER_UNIVERSITIES:
+      return (
+        PARTNER_VIEWER_ROLES.includes(user.role) &&
+        !!user.universityId &&
+        (partnerUniversities?.has(user.universityId) ?? false)
+      )
     default:
       return false
   }
@@ -379,12 +410,22 @@ export class StoriesService {
    * смена у опубликованной сторис действует сразу.
    */
   private visibilityWhere(viewer: JwtPayload): Prisma.StoryWhereInput {
+    const now = new Date()
     const or: Prisma.StoryWhereInput[] = [
       { authorId: viewer.sub },
       ...audienceConditions(viewer),
       { audience: StoryAudience.FRIENDS, author: friendOfWhere(viewer.sub) },
     ]
-    return { expiresAt: { gt: new Date() }, OR: or }
+    // Сторис работодателя — через его компанию: колонки компании у сторис нет, и смена
+    // допуска вуза действует без пересчёта записей.
+    const partner = partnerCompanyWhere(viewer, now)
+    if (partner) {
+      or.push({
+        audience: StoryAudience.PARTNER_UNIVERSITIES,
+        author: { companyMembership: { company: partner } },
+      })
+    }
+    return { expiresAt: { gt: now }, OR: or }
   }
 
   /**
@@ -1142,7 +1183,7 @@ export class StoriesService {
     ids: string[],
   ): Promise<void> {
     if (ids.length === 0) return
-    const [users, blocks, friends] = await Promise.all([
+    const [users, blocks, friends, partners] = await Promise.all([
       this.prisma.user.findMany({
         where: { id: { in: ids }, deletedAt: null, isBlocked: false },
         select: { id: true, role: true, universityId: true, facultyId: true, groupId: true },
@@ -1161,12 +1202,15 @@ export class StoriesService {
       audience === StoryAudience.FRIENDS
         ? this.friendIdsAmong(actor.sub, ids)
         : Promise.resolve(new Set<string>()),
+      audience === StoryAudience.PARTNER_UNIVERSITIES
+        ? this.partnerUniversityIds(actor)
+        : Promise.resolve(new Set<string>()),
     ])
     const story = { authorId: actor.sub, audience, ...target }
     const ok =
       blocks.length === 0 &&
       users.length === ids.length &&
-      users.every((u) => audienceIncludes({ ...u, role: u.role as Role }, story, friends))
+      users.every((u) => audienceIncludes({ ...u, role: u.role as Role }, story, friends, partners))
     if (!ok) {
       throw new AppException('BAD_REQUEST', 'Отметить можно только тех, кто увидит сторис', [
         { field: 'elements', message: 'Отметка недоступна' },
@@ -1294,6 +1338,11 @@ export class StoriesService {
         const scope = await this.assertGroupInScope(actor, groupId)
         return { groupId, facultyId: scope.facultyId, universityId: scope.universityId }
       }
+      case StoryAudience.PARTNER_UNIVERSITIES:
+        // Публиковать может только участник активной компании: сторис заблокированной или
+        // ещё не подтвердившей почту компании не увидел бы никто.
+        await this.requireActiveCompany(actor)
+        return {}
       default:
         throw new AppException('BAD_REQUEST', 'Неизвестная аудитория')
     }
@@ -1328,6 +1377,35 @@ export class StoriesService {
     ])
     if (users !== unique.length || blocks > 0) throw badAudienceUsers()
     return unique
+  }
+
+  /** Вузы, допустившие компанию автора сейчас (одобрено, не истекло; компания активна). */
+  private async partnerUniversityIds(actor: JwtPayload): Promise<Set<string>> {
+    if (!actor.companyId) return new Set()
+    const rows = await this.prisma.companyUniversityAccess.findMany({
+      where: {
+        companyId: actor.companyId,
+        status: 'APPROVED',
+        OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }],
+        company: ACTIVE_COMPANY_WHERE,
+      },
+      select: { universityId: true },
+      // Предохранитель (BACKEND_RULES §5.3): вузов на платформе — сотни, не тысячи.
+      take: 1000,
+    })
+    return new Set(rows.map((r) => r.universityId))
+  }
+
+  private async requireActiveCompany(actor: JwtPayload): Promise<void> {
+    const company = actor.companyId
+      ? await this.prisma.company.findFirst({
+          where: { id: actor.companyId, ...ACTIVE_COMPANY_WHERE },
+          select: { id: true },
+        })
+      : null
+    if (!company) {
+      throw new AppException('FORBIDDEN', 'Публиковать может только участник активной компании')
+    }
   }
 
   /** Кто из `ids` — принятый друг `userId`. */

@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "StoryAudience" ADD VALUE 'PARTNER_UNIVERSITIES';
