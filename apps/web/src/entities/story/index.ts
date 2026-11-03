@@ -64,6 +64,5 @@ export {
   storyElementPlacement,
   type AnyStoryElement,
 } from './ui/story-element'
-export { fitImageToStory } from './lib/fit-image'
 export { StoryThumb } from './ui/story-thumb'
 export { highlightRing } from './lib/highlight-ring'

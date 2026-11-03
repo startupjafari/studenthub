@@ -7,7 +7,7 @@ import { ChevronLeft, ChevronRight, Plus } from 'lucide-react'
 import { useAppSelector } from '../../../shared/store'
 import { STORIES_ENABLED } from '../../../shared/config'
 import { cn } from '../../../shared/lib/utils'
-import { Avatar, AvatarFallback, AvatarImage, Modal, Skeleton } from '../../../shared/ui'
+import { Avatar, AvatarFallback, AvatarImage, Skeleton } from '../../../shared/ui'
 import { CreateStoryForm } from '../../../features/create-story'
 import { canCreateStory, fetchStories, storyKeys, type StoryRing } from '../../../entities/story'
 import { StoryViewer } from './story-viewer'
@@ -143,14 +143,10 @@ export function StoriesRail() {
       )}
 
       {createOpen && (
-        <Modal
+        <CreateStoryForm
           onClose={() => setCreateOpen(false)}
-          title={t('newStory')}
-          size="2xl"
-          className="max-sm:h-[100dvh] max-sm:max-h-none max-sm:w-full max-sm:rounded-none"
-        >
-          <CreateStoryForm onCreated={() => setCreateOpen(false)} />
-        </Modal>
+          onCreated={() => setCreateOpen(false)}
+        />
       )}
     </>
   )
