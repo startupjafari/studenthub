@@ -76,3 +76,11 @@ export interface VariantRow {
   size: number
   bitrate: number | null
 }
+
+/** Отрезок видео, который воркер вырезает до обработки. */
+export interface VideoTrim {
+  startMs: number
+  endMs: number
+  /** Ключ исходника: у File с другим ключом отрезок уже вырезан (повторная попытка). */
+  sourceKey: string
+}

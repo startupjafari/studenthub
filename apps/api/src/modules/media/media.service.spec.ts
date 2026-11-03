@@ -104,6 +104,34 @@ describe('MediaService.schedule', () => {
     )
   })
 
+  it('отрезок видео едет в задаче вместе с ключом исходника', async () => {
+    const { service, queue } = setup()
+    await service.schedule(
+      { id: FILE_ID, bucket: 'stories-media', key: 'a.mp4', mime: 'video/mp4' },
+      { startMs: 1500, endMs: 61500 },
+    )
+    expect(queue.enqueue).toHaveBeenCalledWith(
+      'media-video',
+      'process-media',
+      { fileId: FILE_ID, trimStartMs: '1500', trimEndMs: '61500', trimSourceKey: 'a.mp4' },
+      expect.objectContaining({ jobId: `media_${FILE_ID}` }),
+    )
+  })
+
+  it('отрезок у изображения игнорируется', async () => {
+    const { service, queue } = setup()
+    await service.schedule(
+      { id: FILE_ID, bucket: 'stories-media', key: 'a.jpg', mime: 'image/jpeg' },
+      { startMs: 0, endMs: 1000 },
+    )
+    expect(queue.enqueue).toHaveBeenCalledWith(
+      'media-image',
+      'process-media',
+      { fileId: FILE_ID },
+      expect.anything(),
+    )
+  })
+
   it('документ, аватар и аудио не обрабатываются', async () => {
     const { service, queue } = setup()
     await service.schedule({ id: FILE_ID, bucket: 'chat-media', mime: 'application/pdf' })

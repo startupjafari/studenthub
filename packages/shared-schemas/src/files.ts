@@ -39,11 +39,30 @@ export type PresignUploadInput = z.infer<typeof PresignUploadSchema>
  * Шаг 3: подтвердить загрузку — сервер сам смотрит объект в MinIO (размер и реальный тип
  * по magic bytes) и создаёт запись File. Ни размер, ни MIME из тела запроса не берутся.
  */
+/**
+ * Отрезок видео в миллисекундах от начала ролика. Сервер вырезает его до обработки, и в
+ * хранилище остаётся только отрезок. Пока принимается только для видео сторис; потолок
+ * длины — STORY_VIDEO_MAX_SECONDS стенда.
+ */
+export const VideoTrimSchema = z
+  .object({
+    startMs: z.number().int().min(0),
+    endMs: z.number().int().positive(),
+  })
+  .strict()
+  .refine((t) => t.endMs > t.startMs, {
+    message: 'Конец отрезка должен быть позже начала',
+    path: ['endMs'],
+  })
+export type VideoTrimInput = z.infer<typeof VideoTrimSchema>
+
 export const ConfirmUploadSchema = z
   .object({
     bucket: z.enum(Object.values(FileBucketKind) as [FileBucketKind, ...FileBucketKind[]]),
     key: z.string().min(1).max(300),
     name: z.string().min(1).max(255).optional(),
+    /** Вырезать отрезок видео до обработки — только бакет STORIES и только видео. */
+    trim: VideoTrimSchema.optional(),
   })
   .strict()
 export type ConfirmUploadInput = z.infer<typeof ConfirmUploadSchema>

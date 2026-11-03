@@ -4,10 +4,24 @@ import { reportJobFailure } from '../../common/monitoring'
 import { MEDIA_JOBS } from '../../common/queue'
 import type { JobPayload } from '../../common/queue'
 import type { MediaProcessingService } from './media-processing.service'
+import type { VideoTrim } from './media.types'
 
 export interface MediaJobData {
   fileId: string
   sourceId?: string
+  /** Отрезок видео (мс) и ключ исходника, из которого его режут (MediaService.schedule). */
+  trimStartMs?: string
+  trimEndMs?: string
+  trimSourceKey?: string
+}
+
+/** Отрезок из данных job'а; неполный или битый — как будто его нет. */
+export function trimOf(data: MediaJobData): VideoTrim | undefined {
+  const startMs = Number(data.trimStartMs)
+  const endMs = Number(data.trimEndMs)
+  if (!data.trimSourceKey || !Number.isFinite(startMs) || !Number.isFinite(endMs)) return undefined
+  if (startMs < 0 || endMs <= startMs) return undefined
+  return { startMs, endMs, sourceKey: data.trimSourceKey }
 }
 
 // Общий разбор job'а для обеих очередей: различаются они конкурентностью и временем
@@ -21,7 +35,7 @@ export async function runMediaJob(
   const started = Date.now()
   switch (job.name) {
     case MEDIA_JOBS.PROCESS:
-      await media.process(fileId)
+      await media.process(fileId, trimOf(job.data))
       break
     case MEDIA_JOBS.COPY:
       if (!sourceId) throw new Error(`copy-media-variants без sourceId (jobId=${job.id ?? '?'})`)

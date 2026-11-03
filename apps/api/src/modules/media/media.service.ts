@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config'
 import { JwtService } from '@nestjs/jwt'
 import { MediaStatus, MediaVariantKind, Prisma } from '@prisma/client'
 import type { Client as MinioClient } from 'minio'
+import type { VideoTrimInput } from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { MINIO_CLIENT, MINIO_PUBLIC_CLIENT } from '../../common/minio/minio.constants'
 import { buildPublicObjectUrl } from '../../common/minio/public-url'
@@ -93,18 +94,32 @@ export class MediaService {
   /**
    * Поставить файл в обработку. Вызывается сразу после создания записи File; HTTP-запрос
    * ничего не ждёт. Повторный вызов безопасен: jobId детерминирован.
+   *
+   * `trim` — отрезок видео: воркер вырежет его до обработки. Ключ исходника едет вместе с
+   * отрезком: после вырезки у File новый ключ, и повторная попытка job'а по нему поймёт,
+   * что резать уже нечего (иначе отрезок вырезался бы из уже обрезанного ролика).
    */
-  async schedule(file: {
-    id: string
-    bucket: string
-    mime: string
-    mediaStatus?: MediaStatus
-  }): Promise<void> {
+  async schedule(
+    file: {
+      id: string
+      bucket: string
+      key?: string
+      mime: string
+      mediaStatus?: MediaStatus
+    },
+    trim?: VideoTrimInput,
+  ): Promise<void> {
     const kind = this.kindOf(file.bucket, file.mime)
     if (!kind) return
     // Запись создана сразу с PENDING (initialStatus) — второй update не нужен.
     if (file.mediaStatus !== MediaStatus.PENDING && !(await this.markPending(file.id))) return
-    await this.enqueue(kind, MEDIA_JOBS.PROCESS, { fileId: file.id }, `media_${file.id}`)
+    const data: Record<string, string> = { fileId: file.id }
+    if (trim && kind === 'video' && file.key) {
+      data.trimStartMs = String(trim.startMs)
+      data.trimEndMs = String(trim.endMs)
+      data.trimSourceKey = file.key
+    }
+    await this.enqueue(kind, MEDIA_JOBS.PROCESS, data, `media_${file.id}`)
   }
 
   /**

@@ -4,6 +4,7 @@ import type { Prisma } from '@prisma/client'
 import { CopyDestinationOptions, CopySourceOptions, type Client as MinioClient } from 'minio'
 import sharp from 'sharp'
 import { FILE_UPLOAD, TTL, type FileCategory } from '@studenthub/shared-config'
+import type { VideoTrimInput } from '@studenthub/shared-schemas'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { MINIO_CLIENT, MINIO_PUBLIC_CLIENT } from '../../common/minio/minio.constants'
 import { presignStableGet } from '../../common/minio/stable-sign'
@@ -453,6 +454,10 @@ export class FileService {
     name?: string
     /** Принимать архивы (FILE_UPLOAD.OPT_IN_CATEGORIES) — только вложения чата. */
     allowArchives?: boolean
+    /** Отрезок видео: вырезается до обработки, в хранилище остаётся только он. */
+    trim?: VideoTrimInput
+    /** Потолок длины отрезка; не задан — отрезок в этом бакете не принимается. */
+    trimMaxMs?: number
   }) {
     this.assertKeyOwner(params.key, params.ownerId)
     const linked = await this.prisma.file.count({
@@ -498,6 +503,19 @@ export class FileService {
     if (size > maxBytes) {
       await this.discard(params.bucket, params.key)
       throw new AppException('FILE_TOO_LARGE', `Файл превышает лимит ${maxBytes} байт`)
+    }
+    if (params.trim) {
+      if (params.trimMaxMs === undefined || !detected.mime.startsWith('video/')) {
+        await this.discard(params.bucket, params.key)
+        throw new AppException('BAD_REQUEST', 'Отрезать можно только видео сторис')
+      }
+      if (params.trim.endMs - params.trim.startMs > params.trimMaxMs) {
+        await this.discard(params.bucket, params.key)
+        throw new AppException(
+          'BAD_REQUEST',
+          `Отрезок длиннее ${Math.round(params.trimMaxMs / 1000)} с`,
+        )
+      }
     }
 
     // Тип объекта в хранилище — тот, что определён по содержимому, а не заявленный клиентом
@@ -551,8 +569,9 @@ export class FileService {
       `Подтверждена прямая загрузка ${file.id} (${detected.mime}, ${size} байт) → ${params.bucket}`,
     )
     // Здесь же доезжают размеры снимка: при прямой загрузке API не видел байтов, и
-    // width/height у такого файла проставит обработчик медиа.
-    await this.media.schedule(file)
+    // width/height у такого файла проставит обработчик медиа. Отрезок видео уходит туда же:
+    // он известен до первой обработки, поэтому ролик кодируется один раз и уже обрезанным.
+    await this.media.schedule(file, params.trim)
     return file
   }
 
