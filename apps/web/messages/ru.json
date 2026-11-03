@@ -2234,7 +2234,6 @@
     "textDefault": "Ваш текст",
     "badFormat": "Подходят JPEG, PNG, WebP, MP4 и WebM",
     "tooLarge": "Файл больше {mb} МБ",
-    "tooLong": "Видео длиннее {s} с",
     "elementsInvalid": "Проверьте элементы: текст не может быть пустым",
     "fitWhole": "Целиком с фоном",
     "photoHint": "Двигайте фото, приближайте колесом или двумя пальцами",
@@ -2378,7 +2377,12 @@
     "typography": "Типографика",
     "fontSerifShort": "Засечки",
     "bgNoneShort": "Нет",
-    "remove": "Удалить"
+    "remove": "Удалить",
+    "videoTrim": "Отрезок видео",
+    "videoTrimStart": "Начало отрезка",
+    "videoTrimEnd": "Конец отрезка",
+    "trimMax": "макс. {max}",
+    "uploadingPercent": "Загружаем медиа… {percent}%"
   },
   "Chats": {
     "storyReplyLabel": "Ответ на сторис",

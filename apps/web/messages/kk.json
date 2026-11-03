@@ -2234,7 +2234,6 @@
     "textDefault": "Мәтініңіз",
     "badFormat": "JPEG, PNG, WebP, MP4 және WebM жарайды",
     "tooLarge": "Файл {mb} МБ-тан үлкен",
-    "tooLong": "Бейне {s} с-тан ұзын",
     "elementsInvalid": "Элементтерді тексеріңіз: мәтін бос болмауы керек",
     "fitWhole": "Толығымен, фонмен",
     "photoHint": "Фотоны жылжытыңыз, дөңгелекпен немесе екі саусақпен үлкейтіңіз",
@@ -2378,7 +2377,12 @@
     "typography": "Типография",
     "fontSerifShort": "Серифті",
     "bgNoneShort": "Жоқ",
-    "remove": "Жою"
+    "remove": "Жою",
+    "videoTrim": "Бейне үзіндісі",
+    "videoTrimStart": "Үзінді басы",
+    "videoTrimEnd": "Үзінді соңы",
+    "trimMax": "макс. {max}",
+    "uploadingPercent": "Медиа жүктелуде… {percent}%"
   },
   "Chats": {
     "storyReplyLabel": "Сториске жауап",

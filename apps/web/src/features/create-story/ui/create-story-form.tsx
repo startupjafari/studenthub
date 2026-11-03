@@ -17,6 +17,7 @@ import {
   STORY_VIDEO_MIMES,
   type CreateStoryInput,
   type StoryBackgroundValue,
+  type VideoTrimInput,
 } from '@studenthub/shared-schemas'
 import { localId, useFormAlert, useMediaQuery } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
@@ -61,6 +62,7 @@ import {
   type SettingsView,
 } from './settings-panel'
 import { StoryTools, type StoryTool } from './story-tools'
+import { VideoTimeline } from './video-timeline'
 import type { StoryRecipient } from './recipients-picker'
 
 const MB = 1024 * 1024
@@ -77,10 +79,16 @@ interface StoryDoc {
   background?: StoryBackgroundValue
 }
 
-interface UploadedVideo {
-  id: string
+// Видео тоже уходит на сервер только при публикации — вместе с выбранным отрезком.
+const LOCAL_VIDEO = 'local-video'
+const MAX_VIDEO_MS = STORY_MEDIA_DEFAULTS.videoMaxSeconds * 1000
+
+interface PickedVideo {
+  file: File
   /** Локальный object-URL для превью: подписанную ссылку сервер отдаст уже в ленте. */
   url: string
+  /** Длительность по метаданным; 0 — не прочиталась (тогда отрезать нечего, решит сервер). */
+  durationMs: number
 }
 
 /** Инструмент, чей элемент выбран на кадре: его кнопка слева подсвечивается. */
@@ -141,8 +149,14 @@ export function CreateStoryForm({
   const audienceLabel = useAudienceLabel()
   const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
   const [photo, setPhoto] = useState<File | null>(null)
-  const [video, setVideo] = useState<UploadedVideo | null>(null)
-  const [uploading, setUploading] = useState(false)
+  const [video, setVideo] = useState<PickedVideo | null>(null)
+  // Выбранный на раскадровке отрезок видео.
+  const [trim, setTrim] = useState<VideoTrimInput | null>(null)
+  // Где сейчас превью видео, мс — для черты на раскадровке.
+  const [videoAtMs, setVideoAtMs] = useState(0)
+  const videoRef = useRef<HTMLVideoElement>(null)
+  // Прогресс загрузки медиа при публикации, %; null — ничего не грузится.
+  const [uploadPercent, setUploadPercent] = useState<number | null>(null)
   // Превью видео: по умолчанию без звука (автозапуск со звуком браузер запретит), звук и
   // пауза — кнопками под кадром.
   const [videoMuted, setVideoMuted] = useState(true)
@@ -307,16 +321,27 @@ export function CreateStoryForm({
       // Фото собирается в кадр 1080×1920 и загружается только сейчас: пока автор правил
       // кадр, на сервер ничего не уходило.
       if (input.fileId === LOCAL_PHOTO) {
-        const uploaded = await uploadStoryMedia(await stage.exportPhoto())
+        const uploaded = await uploadStoryMedia(await stage.exportPhoto(), setUploadPercent)
+        input = { ...input, fileId: uploaded.id }
+      } else if (input.fileId === LOCAL_VIDEO && video) {
+        // Отрезок — только если он что-то режет: ролик целиком в лимите грузится как есть.
+        const cuts = trim !== null && (trim.startMs > 0 || trim.endMs < video.durationMs)
+        const uploaded = await uploadStoryMedia(
+          video.file,
+          setUploadPercent,
+          cuts ? trim : undefined,
+        )
         input = { ...input, fileId: uploaded.id }
       }
       return createStoryRequest(input)
     },
+    onSettled: () => setUploadPercent(null),
     onMutate: () => resetApiError(),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: storyKeys.all })
       if (video) URL.revokeObjectURL(video.url)
       setVideo(null)
+      setTrim(null)
       setPhoto(null)
       setLinkOpen(false)
       history.reset({ elements: [] })
@@ -328,23 +353,6 @@ export function CreateStoryForm({
     },
     onError: (e) => showApiError(e),
   })
-
-  // Видео не кадрируется — уходит на сервер сразу, пока автор занят остальным.
-  async function uploadVideo(file: File): Promise<void> {
-    setUploading(true)
-    try {
-      const uploaded = await uploadStoryMedia(file)
-      dropMedia()
-      setVideo({ id: uploaded.id, url: URL.createObjectURL(file) })
-      setVideoMuted(true)
-      setVideoPaused(false)
-      form.setValue('fileId', uploaded.id)
-    } catch (e) {
-      toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR'))
-    } finally {
-      setUploading(false)
-    }
-  }
 
   // Формат, размер и длительность проверяются до загрузки — сервер проверит то же, но
   // гнать по сети файл, который всё равно не пройдёт, незачем.
@@ -363,12 +371,16 @@ export function CreateStoryForm({
       return
     }
     if (isVideo) {
-      const seconds = await videoDuration(file)
-      if (seconds > STORY_MEDIA_DEFAULTS.videoMaxSeconds) {
-        toast.error(t('tooLong', { s: STORY_MEDIA_DEFAULTS.videoMaxSeconds }))
-        return
-      }
-      await uploadVideo(file)
+      // Ролик длиннее лимита не отклоняется: на раскадровке выбирают отрезок до 1:45,
+      // по умолчанию — начало ролика.
+      const durationMs = Math.round((await videoDuration(file)) * 1000)
+      dropMedia()
+      setVideo({ file, url: URL.createObjectURL(file), durationMs })
+      setTrim(durationMs > 0 ? { startMs: 0, endMs: Math.min(durationMs, MAX_VIDEO_MS) } : null)
+      setVideoAtMs(0)
+      setVideoMuted(true)
+      setVideoPaused(false)
+      form.setValue('fileId', LOCAL_VIDEO)
       return
     }
     dropMedia()
@@ -380,9 +392,53 @@ export function CreateStoryForm({
   function dropMedia(): void {
     if (video) URL.revokeObjectURL(video.url)
     setVideo(null)
+    setTrim(null)
     setPhoto(null)
     form.setValue('fileId', undefined)
     if (view === 'media') setView('general')
+  }
+
+  // Превью видео: звук и пауза — кнопками, играет только выбранный отрезок по кругу.
+  // `muted` React выставляет только при монтировании — звук переключаем свойством.
+  useEffect(() => {
+    const el = videoRef.current
+    if (!el) return
+    el.muted = videoMuted
+    if (videoPaused) el.pause()
+    // Запуск со звуком браузер разрешает только после жеста — нажатие кнопки им и было.
+    else void el.play().catch(() => undefined)
+  }, [videoMuted, videoPaused, video])
+
+  useEffect(() => {
+    const el = videoRef.current
+    if (!el || !video) return
+    let frame = 0
+    // Черта на раскадровке — по кадрам анимации: timeupdate приходит 4 раза в секунду, и
+    // черта шла бы рывками. Дошли до конца отрезка — обратно к его началу.
+    const tick = (): void => {
+      const ms = el.currentTime * 1000
+      if (trim && (ms >= trim.endMs || ms < trim.startMs - 250)) {
+        el.currentTime = trim.startMs / 1000
+      }
+      setVideoAtMs(el.currentTime * 1000)
+      frame = requestAnimationFrame(tick)
+    }
+    frame = requestAnimationFrame(tick)
+    const onEnded = (): void => {
+      el.currentTime = (trim?.startMs ?? 0) / 1000
+      if (!videoPaused) void el.play().catch(() => undefined)
+    }
+    el.addEventListener('ended', onEnded)
+    return () => {
+      cancelAnimationFrame(frame)
+      el.removeEventListener('ended', onEnded)
+    }
+  }, [video, trim, videoPaused])
+
+  function seekVideo(ms: number): void {
+    const el = videoRef.current
+    if (el) el.currentTime = ms / 1000
+    setVideoAtMs(ms)
   }
 
   // ── Панели и инструменты ─────────────────────────────────────────────────────────────
@@ -439,7 +495,7 @@ export function CreateStoryForm({
 
   // ── Горячие клавиши ─────────────────────────────────────────────────────────────────
 
-  const busy = uploading || mutation.isPending
+  const busy = mutation.isPending
   // Корень оболочки — граница, внутри которой работают горячие клавиши.
   const stageRootRef = useRef<HTMLElement | null>(null)
   useEffect(() => {
@@ -649,13 +705,11 @@ export function CreateStoryForm({
             stage={stage}
             hasPhoto={photo !== null}
             videoUrl={video?.url ?? null}
-            videoMuted={videoMuted}
-            videoPaused={videoPaused}
+            videoRef={videoRef}
             background={background}
             elements={elements}
             selectedId={selectedId}
             editingId={editingId}
-            uploading={uploading}
             onSelect={select}
             onPatch={patchElement}
             onStartEdit={(id) => {
@@ -687,9 +741,9 @@ export function CreateStoryForm({
                 onRulerEnd={stage.onRulerEnd}
               />
             )}
-            {/* Превью видео: пауза и звук — прослушать перед публикацией. */}
+            {/* Превью видео: пауза, звук и раскадровка с выбором отрезка до 1:45. */}
             {video && (
-              <div className="flex items-center gap-2">
+              <div className="flex w-full min-w-0 items-center gap-2 px-4">
                 <button
                   type="button"
                   className={cn(CROP_TOOL_BUTTON, 'text-white/80 hover:text-white')}
@@ -723,6 +777,23 @@ export function CreateStoryForm({
                     <Volume2 className="size-5" aria-hidden />
                   )}
                 </button>
+                {trim && video.durationMs > 0 && (
+                  <VideoTimeline
+                    url={video.url}
+                    durationMs={video.durationMs}
+                    trim={trim}
+                    maxMs={MAX_VIDEO_MS}
+                    currentMs={videoAtMs}
+                    onTrim={(next, edge) => {
+                      setTrim(next)
+                      // Превью показывает тянущийся край: видно, где режется ролик.
+                      seekVideo(
+                        edge === 'start' ? next.startMs : Math.max(next.startMs, next.endMs - 500),
+                      )
+                    }}
+                    onSeek={seekVideo}
+                  />
+                )}
               </div>
             )}
           </div>
@@ -760,7 +831,11 @@ export function CreateStoryForm({
             формат или ошибка, справа — кому видна сторис, «Отмена» и «Опубликовать». */}
         <footer className="col-span-full row-start-3 flex h-16 items-center gap-3 border-t border-white/10 px-4 md:row-start-2 lg:row-start-2 box-content pb-[env(safe-area-inset-bottom)]">
           <div className="min-w-0 flex-1 text-xs">
-            {apiError ? (
+            {uploadPercent !== null ? (
+              <p className="truncate text-muted-foreground tabular-nums">
+                {t('uploadingPercent', { percent: uploadPercent })}
+              </p>
+            ) : apiError ? (
               <p role="alert" className="truncate text-destructive">
                 {tErr(apiError.code)}
               </p>
@@ -793,13 +868,7 @@ export function CreateStoryForm({
               {tCommon('cancel')}
             </Button>
           )}
-          <Button
-            type="submit"
-            form={formId}
-            size="lg"
-            loading={mutation.isPending}
-            disabled={uploading}
-          >
+          <Button type="submit" form={formId} size="lg" loading={mutation.isPending}>
             <Send className="size-4" aria-hidden />
             {t('publish')}
           </Button>

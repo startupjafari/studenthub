@@ -1,5 +1,6 @@
 import type {
   CreateStoryInput,
+  VideoTrimInput,
   UpdateStoryAudienceInput,
   UpdateStoryHighlightInput,
 } from '@studenthub/shared-schemas'
@@ -198,8 +199,12 @@ export async function fetchStoryViewers(id: string, cursor?: string): Promise<St
 export async function uploadStoryMedia(
   file: File,
   onProgress?: (percent: number) => void,
+  /** Отрезок видео: сервер вырежет его до обработки. Едет только с подтверждением прямой загрузки. */
+  trim?: VideoTrimInput,
 ): Promise<UploadedFile> {
-  if (!needsDirectUpload(file.size)) return uploadFileRequest('STORIES', file, onProgress)
+  if (!trim && !needsDirectUpload(file.size)) {
+    return uploadFileRequest('STORIES', file, onProgress)
+  }
   return uploadDirect<UploadedFile>({
     file,
     onProgress,
@@ -215,6 +220,7 @@ export async function uploadStoryMedia(
         bucket: 'STORIES',
         key,
         ...(name ? { name } : {}),
+        ...(trim ? { trim } : {}),
       })
       return data
     },

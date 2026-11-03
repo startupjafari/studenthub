@@ -2234,7 +2234,6 @@
     "textDefault": "Your text",
     "badFormat": "JPEG, PNG, WebP, MP4 and WebM are supported",
     "tooLarge": "The file is larger than {mb} MB",
-    "tooLong": "The video is longer than {s} s",
     "elementsInvalid": "Check the elements: text cannot be empty",
     "fitWhole": "Whole, with background",
     "photoHint": "Drag the photo; zoom with the wheel or two fingers",
@@ -2378,7 +2377,12 @@
     "typography": "Typography",
     "fontSerifShort": "Serif",
     "bgNoneShort": "None",
-    "remove": "Delete"
+    "remove": "Delete",
+    "videoTrim": "Video clip",
+    "videoTrimStart": "Clip start",
+    "videoTrimEnd": "Clip end",
+    "trimMax": "max {max}",
+    "uploadingPercent": "Uploading media… {percent}%"
   },
   "Chats": {
     "storyReplyLabel": "Replied to a story",
