@@ -2,6 +2,9 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+// Ссылки меню — с `unstable_dynamicOnHover` (Next 15.3+): по наведению и касанию страница
+// подгружается целиком, а не до своего loading.tsx. К клику она уже в кэше маршрутизатора, и
+// вместо мелькнувшего на треть секунды лоадера сразу открывается экран.
 import { usePathname } from 'next/navigation'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
@@ -92,6 +95,7 @@ function NavSection({ item, pathname }: { item: NavItem; pathname: string }) {
             return (
               <li key={child.href}>
                 <Link
+                  unstable_dynamicOnHover
                   href={child.href}
                   aria-current={childActive ? 'page' : undefined}
                   className={cn(
@@ -215,6 +219,7 @@ export function AppSidebar({
                   const active = isNavItemActive(item, pathname)
                   return (
                     <Link
+                      unstable_dynamicOnHover
                       key={item.key}
                       href={item.href}
                       aria-current={active ? 'page' : undefined}
@@ -274,6 +279,7 @@ export function AppSidebar({
             </div>
           ) : (
             <Link
+              unstable_dynamicOnHover
               href="/profile"
               aria-current={profileActive ? 'page' : undefined}
               className="flex min-w-0 flex-1 items-center gap-3"

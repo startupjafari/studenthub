@@ -2,6 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import Link from 'next/link'
+// Ссылки меню — с `unstable_dynamicOnHover` (Next 15.3+): по наведению и касанию страница
+// подгружается целиком, а не до своего loading.tsx. К клику она уже в кэше маршрутизатора, и
+// вместо мелькнувшего на треть секунды лоадера сразу открывается экран.
 import { usePathname } from 'next/navigation'
 import { useTranslations } from 'next-intl'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -332,6 +335,7 @@ function BottomNav({
                       const childActive = isNavHrefActive(child.href, pathname, child.exact)
                       return (
                         <Link
+                          unstable_dynamicOnHover
                           key={child.href}
                           href={child.href}
                           onClick={() => setMoreOpen(false)}
@@ -351,6 +355,7 @@ function BottomNav({
               }
               return (
                 <Link
+                  unstable_dynamicOnHover
                   key={item.key}
                   href={item.href}
                   onClick={() => setMoreOpen(false)}
@@ -375,6 +380,7 @@ function BottomNav({
 
             {/* Профиль и выход — не разделы роли, поэтому отбиты в последнюю группу. */}
             <Link
+              unstable_dynamicOnHover
               href="/profile"
               onClick={() => setMoreOpen(false)}
               aria-current={profileActive ? 'page' : undefined}
@@ -435,6 +441,7 @@ function BottomNav({
                 const badgeCount = item.key === 'chats' ? chatsUnread : 0
                 return (
                   <Link
+                    unstable_dynamicOnHover
                     key={item.key}
                     href={item.href}
                     aria-current={active ? 'page' : undefined}
@@ -547,10 +554,13 @@ export function AppShell({
   // Библиотека у читателя — только когда вуз её включил: пункт, ведущий на «библиотека
   // выключена», хуже отсутствующего. Настройки спрашиваем лишь у студента и старосты.
   const reader = effectiveVariant === 'student' || effectiveVariant === 'starosta'
+  // Запрос — сразу, не дожидаясь профиля: вариант до его прихода берётся из роли сессии
+  // (role-cookie), и это та же роль. Цепочка «профиль → настройки» вставляла пункт
+  // «Библиотека» в середину меню на второй сетевой круг, и пункты под ним сдвигались вниз.
   const library = useQuery({
     queryKey: libraryKeys.settings(),
     queryFn: fetchLibrarySettings,
-    enabled: reader && Boolean(me.data),
+    enabled: reader,
     staleTime: 5 * 60_000,
   })
   const libraryOn = library.data?.enabled === true
