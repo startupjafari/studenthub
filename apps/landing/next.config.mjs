@@ -82,6 +82,8 @@ const PLATFORM_SEGMENTS = [
   'career',
   'chats',
   'checkin',
+  // Страницы организаций: компании и университета (ссылки из уведомлений и с постов).
+  'companies',
   'consultations',
   'courses',
   'documents',
@@ -96,9 +98,11 @@ const PLATFORM_SEGMENTS = [
   'scan',
   'schedule',
   'settings',
+  'stories',
   'student-id',
   'study-plan',
   'tasks',
+  'universities',
   'verify-id',
 ]
 

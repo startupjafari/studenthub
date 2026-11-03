@@ -127,6 +127,10 @@ flowchart LR
 | media-relay | HLS                         | `RELAY_HLS_PORT` = 18888      | 8888      | 127.0.0.1                                         |
 | media-relay | RTMPS                       | `RELAY_RTMPS_PORT` = 11936    | 1936      | `RELAY_DOCKER_HOST_IP` = 172.17.0.1 (мост Docker) |
 
+`pnpm start` (уже собранное, после `pnpm build`) занимает те же порты, что `pnpm dev`:
+api 3001, web 3000, landing 3002, mini-app 3003 (`vite preview`). Агент камер в него не
+входит (`--filter='!camera-agent'`).
+
 Возможные конфликты: dev и prod на одной машине делят 5432 — поменяйте `POSTGRES_PORT`
 в одном из `.env`. Если на машине уже работают свои postgres/redis/minio, поднимайте из
 dev-стека только нужное (`pnpm infra:up mailpit`) или смените порты в `docker/dev/.env` и

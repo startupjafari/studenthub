@@ -8,6 +8,8 @@
 - Сборка `bundleRelease` с R8 и подписью ключом загрузки из окружения (`apps/android/README.md`).
 - Workflow `Android release` (`.github/workflows/android-release.yml`): по кнопке собирает
   подписанный AAB и кладёт его артефактом. В Play он не публикует — см. «Первая загрузка».
+- Workflow `Android` (`.github/workflows/android.yml`): сборка, тесты и lint на каждый push
+  и PR в `develop`/`main`, задевающий `apps/android/**` или каталог строк iOS.
 - Резервные копии выключены целиком (`allowBackup=false`, `data_extraction_rules.xml`):
   кэш переписки и сессия не уходят в Google Drive.
 - Пуши FCM, трекер ошибок Sentry, минимальная версия на сервере — подключаются

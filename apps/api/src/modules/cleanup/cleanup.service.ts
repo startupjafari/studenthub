@@ -888,14 +888,23 @@ export class CleanupService {
    * В `profile-covers` `putAuxImage` кладёт объекты без записи File: постер видео профиля
    * (его ключ — в `File.posterKey`), обложку пользователя и обложку статьи (в
    * `User.coverUrl` и `ProfileArticle.coverUrl` хранится публичный URL, ключ — его последний
-   * сегмент). Без этой сверки чистка удаляла их через час после загрузки. Сравниваем по окончанию URL, а не по целому адресу: домен MinIO
+   * сегмент), а также логотип и обложку страниц компании и университета (`Company.logoUrl/
+   * coverUrl`, `University.logoUrl/coverUrl` — тоже URL). Без этой сверки чистка удаляла их через час после загрузки. Сравниваем по окончанию URL, а не по целому адресу: домен MinIO
    * мог смениться, и старые URL с прежним хостом всё равно указывают на живой объект.
    */
   private async auxReferencedKeys(bucket: string, keys: string[]): Promise<string[]> {
     if (bucket !== this.config.get('MINIO_BUCKET_PROFILE_COVERS', { infer: true })) return []
     if (keys.length === 0) return []
     const coverUrlOf = { OR: keys.map((key) => ({ coverUrl: { endsWith: `/${key}` } })) }
-    const [posters, covers, articleCovers] = await Promise.all([
+    // Страницы организаций: картинка — в логотипе или в обложке.
+    const pageImageOf = {
+      OR: keys.flatMap((key) => [
+        { logoUrl: { endsWith: `/${key}` } },
+        { coverUrl: { endsWith: `/${key}` } },
+      ]),
+    }
+    const pageImage = { logoUrl: true, coverUrl: true } as const
+    const [posters, covers, articleCovers, companies, universities] = await Promise.all([
       this.prisma.file.findMany({
         where: { posterKey: { in: keys } },
         select: { posterKey: true },
@@ -914,12 +923,27 @@ export class CleanupService {
         distinct: ['coverUrl'],
         take: keys.length,
       }),
+      // У компании и вуза — по две картинки на строку: потолок с запасом на обе.
+      this.prisma.company.findMany({
+        where: pageImageOf,
+        select: pageImage,
+        take: keys.length * 2,
+      }),
+      this.prisma.university.findMany({
+        where: pageImageOf,
+        select: pageImage,
+        take: keys.length * 2,
+      }),
     ])
+    const keyOf = (url: string | null | undefined) => url?.split('?')[0]?.split('/').pop()
     const referenced: string[] = []
     for (const p of posters) if (p.posterKey) referenced.push(p.posterKey)
     for (const c of [...covers, ...articleCovers]) {
-      const key = c.coverUrl?.split('?')[0]?.split('/').pop()
+      const key = keyOf(c.coverUrl)
       if (key) referenced.push(key)
+    }
+    for (const page of [...companies, ...universities]) {
+      for (const key of [keyOf(page.logoUrl), keyOf(page.coverUrl)]) if (key) referenced.push(key)
     }
     return referenced
   }

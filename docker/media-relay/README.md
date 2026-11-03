@@ -96,6 +96,8 @@ echo 'NEXT_PUBLIC_MEDIA_RELAY_URL=http://localhost:18888' >> apps/web/.env.local
 (cd docker/media-relay && docker compose up -d --build)  # HLS — 127.0.0.1:18888, RTMPS — 172.17.0.1:11936
 ```
 
+Последнюю строку можно заменить на `pnpm relay:up` из корня, остановить — `pnpm relay:down`.
+
 Ключ и сертификат — одной строкой с `\n` и **в одинарных кавычках**: в PEM есть пробелы, и
 без кавычек `.env` не прочитать через `set -a && . apps/api/.env`. После правки `.env`
 перезапустите `pnpm dev`: API и веб читают переменные только при старте.
