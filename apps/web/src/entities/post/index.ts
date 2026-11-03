@@ -8,6 +8,7 @@ export {
   createPostRequest,
   updatePostRequest,
   repostRequest,
+  repostArticleRequest,
   deletePostRequest,
   pinPostRequest,
   publishPostRequest,
@@ -38,6 +39,7 @@ export {
   type PostReaction,
   type PostReactionSummary,
   type FeedPost,
+  type SharedArticle,
   type PostComment,
   type PostCommentsPage,
 } from './model/types'

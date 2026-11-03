@@ -74,6 +74,12 @@ export interface FeedPost {
    */
   reactions?: PostReaction[]
   original: { id: string; title: string | null; content: string; author: PostAuthor } | null
+  /**
+   * Репост статьи: id статьи и её карточка. Карточка `null` при заполненном id — статья
+   * зрителю недоступна (черновик, закрытый профиль, чужая аудитория). Нет полей — старый API.
+   */
+  sharedArticleId?: string | null
+  sharedArticle?: SharedArticle | null
   _count: { comments: number }
   /**
    * Сохранён ли пост ЗРИТЕЛЕМ. Личный признак: сколько людей сохранили пост, API не
@@ -86,6 +92,20 @@ export interface FeedPost {
    */
   canDelete?: boolean
   canPin?: boolean
+}
+
+/** Карточка статьи в репосте: без текста — читают её на странице `/articles/<id>`. */
+export interface SharedArticle {
+  id: string
+  title: string
+  description: string | null
+  coverUrl: string | null
+  coverGradient: string | null
+  category: string | null
+  readingMinutes: number | null
+  publishedAt: string | null
+  company?: { id: string; name: string; logoUrl: string | null } | null
+  universityPage?: { id: string; name: string; logoUrl: string | null } | null
 }
 
 export interface PostComment {

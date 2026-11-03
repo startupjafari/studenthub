@@ -92,6 +92,15 @@ export async function repostRequest(id: string, input: RepostInput): Promise<Fee
   return data
 }
 
+/** Репост статьи в ленту: пост со ссылкой на статью, тело — как у репоста поста. */
+export async function repostArticleRequest(
+  articleId: string,
+  input: RepostInput,
+): Promise<FeedPost> {
+  const { data } = await api.post<FeedPost>(`/posts/articles/${articleId}/repost`, input)
+  return data
+}
+
 export async function deletePostRequest(id: string): Promise<void> {
   await api.delete(`/posts/${id}`)
 }
