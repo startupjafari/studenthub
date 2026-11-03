@@ -2370,7 +2370,16 @@
     "bgForest": "Forest",
     "bgGrape": "Grape",
     "bgGraphite": "Graphite",
-    "bgRose": "Rose"
+    "bgRose": "Rose",
+    "elementHint": "Drag the element; corners resize, the top handle rotates",
+    "selectHint": "Click an element on the frame to edit it",
+    "formatHint": "A 9:16 frame, like a phone screen",
+    "formatInfo": "9:16 · 1080×1920 · a story lasts 24 hours",
+    "pollOptions": "Answer options",
+    "transform": "Size and rotation",
+    "typography": "Typography",
+    "fontSerifShort": "Serif",
+    "bgNoneShort": "None"
   },
   "Chats": {
     "storyReplyLabel": "Replied to a story",

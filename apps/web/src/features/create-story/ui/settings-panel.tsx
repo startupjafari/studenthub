@@ -9,7 +9,6 @@ import {
   BarChart3,
   ChevronRight,
   Copy,
-  ImagePlus,
   Link2,
   Plus,
   RefreshCw,
@@ -24,7 +23,7 @@ import {
 import { OPTIONAL_TEXT } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 import { STORY_BACKGROUND_CLASS } from '../../../entities/story'
-import { Button, FieldError, Input, Label } from '../../../shared/ui'
+import { Button, FieldError, Input } from '../../../shared/ui'
 import type { EditorElement } from '../model/editor-element'
 import {
   STORY_PHOTO_FILTERS,
@@ -32,6 +31,7 @@ import {
   type StoryStage,
 } from '../model/use-story-stage'
 import { ElementInspector } from './element-inspector'
+import { ICON_ACTION, RangeField, Section, Segmented, SwatchGrid } from './editor-controls'
 
 /** Что показывает правая панель, когда на кадре ничего не выбрано. */
 export type SettingsView = 'general' | 'media' | 'link' | 'poll'
@@ -66,7 +66,12 @@ const ELEMENT_KEY = {
   schedule: 'toolPair',
 } as const
 
-/** Шапка панели: заголовок и «закрыть» — снять выбор или вернуться к общим настройкам. */
+/** Тело панели: секции через 24px. */
+function Panel({ children }: { children: ReactNode }) {
+  return <div className="flex flex-col gap-6">{children}</div>
+}
+
+/** Шапка панели 36px: заголовок и «закрыть» — снять выбор или вернуться к общим. */
 export function PanelHeader({
   title,
   onClose,
@@ -78,7 +83,7 @@ export function PanelHeader({
 }) {
   const tCommon = useTranslations('Common')
   return (
-    <div className="flex items-center gap-2">
+    <div className="flex h-9 items-center gap-2">
       <h3 className="min-w-0 flex-1 truncate text-sm font-semibold">{title}</h3>
       {onClose && (
         <button
@@ -86,7 +91,7 @@ export function PanelHeader({
           aria-label={tCommon('close')}
           onClick={onClose}
           className={cn(
-            'flex size-8 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors duration-150 hover:bg-muted hover:text-foreground motion-reduce:transition-none',
+            'flex size-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors duration-150 hover:bg-muted hover:text-foreground motion-reduce:transition-none',
             closeClassName,
           )}
         >
@@ -94,15 +99,6 @@ export function PanelHeader({
         </button>
       )}
     </div>
-  )
-}
-
-function Section({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <section className="flex flex-col gap-2">
-      <h4 className="text-xs font-medium text-muted-foreground">{title}</h4>
-      {children}
-    </section>
   )
 }
 
@@ -122,13 +118,29 @@ function Row({
     <button
       type="button"
       onClick={onClick}
-      className="flex h-10 items-center gap-2 rounded-lg bg-muted/50 px-3 text-left text-sm transition-colors duration-150 hover:bg-muted motion-reduce:transition-none"
+      className="flex h-10 items-center gap-3 rounded-[10px] bg-muted/50 px-3 text-left text-sm transition-colors duration-150 hover:bg-muted motion-reduce:transition-none"
     >
       <Icon className="size-4 shrink-0 text-muted-foreground" aria-hidden />
       <span className="shrink-0">{label}</span>
       {value && <span className="min-w-0 flex-1 truncate text-muted-foreground">{value}</span>}
       <ChevronRight className="ml-auto size-4 shrink-0 text-muted-foreground" aria-hidden />
     </button>
+  )
+}
+
+/** Удалить — единственное красное действие панели. */
+function RemoveButton({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="md"
+      className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+      onClick={onClick}
+    >
+      <Trash2 className="size-4" aria-hidden />
+      {label}
+    </Button>
   )
 }
 
@@ -158,8 +170,8 @@ export function GeneralSettings({
 }) {
   const t = useTranslations('Stories')
   return (
-    <div className="flex flex-col gap-5">
-      <PanelHeader title={t('settingsTitle')} onClose={onClose} closeClassName="xl:hidden" />
+    <Panel>
+      <PanelHeader title={t('settingsTitle')} onClose={onClose} closeClassName="lg:hidden" />
       <Section title={t('audienceTitle')}>
         <div className="flex flex-col gap-2">{audience}</div>
       </Section>
@@ -167,51 +179,46 @@ export function GeneralSettings({
       {/* Фон выбирается только у сторис без медиа — поверх фото он не виден. */}
       {!hasMedia && (
         <Section title={t('background')}>
-          <div className="flex flex-wrap gap-2">
-            {STORY_BACKGROUNDS.map((key) => (
-              <button
-                key={key}
-                type="button"
-                aria-label={t(BG_KEY[key])}
-                title={t(BG_KEY[key])}
-                aria-pressed={(background ?? 'graphite') === key}
-                onClick={() => onBackground(key)}
-                className={cn(
-                  'size-8 rounded-full ring-offset-2 ring-offset-card transition-shadow duration-150',
-                  STORY_BACKGROUND_CLASS[key],
-                  (background ?? 'graphite') === key && 'ring-2 ring-primary',
-                )}
-              />
-            ))}
-          </div>
+          <SwatchGrid
+            label={t('background')}
+            value={background ?? 'graphite'}
+            onChange={onBackground}
+            options={STORY_BACKGROUNDS.map((key) => ({
+              value: key,
+              label: t(BG_KEY[key]),
+              className: STORY_BACKGROUND_CLASS[key],
+            }))}
+          />
         </Section>
       )}
 
       {(linkUrl !== undefined || hasPoll) && (
         <Section title={t('attachments')}>
-          {linkUrl !== undefined && (
-            <Row
-              icon={Link2}
-              label={t('addLink')}
-              value={linkUrl || undefined}
-              onClick={() => onOpen('link')}
-            />
-          )}
-          {hasPoll && (
-            <Row
-              icon={BarChart3}
-              label={t('addPoll')}
-              value={pollQuestion || undefined}
-              onClick={() => onOpen('poll')}
-            />
-          )}
+          <div className="flex flex-col gap-2">
+            {linkUrl !== undefined && (
+              <Row
+                icon={Link2}
+                label={t('addLink')}
+                value={linkUrl || undefined}
+                onClick={() => onOpen('link')}
+              />
+            )}
+            {hasPoll && (
+              <Row
+                icon={BarChart3}
+                label={t('addPoll')}
+                value={pollQuestion || undefined}
+                onClick={() => onOpen('poll')}
+              />
+            )}
+          </div>
         </Section>
       )}
-    </div>
+    </Panel>
   )
 }
 
-/** Выбрано фото или видео: масштаб и подгонка, фильтры, замена и удаление. */
+/** Выбрано фото или видео: масштаб и размещение, фильтры, замена и удаление. */
 export function MediaSettings({
   kind,
   stage,
@@ -230,46 +237,33 @@ export function MediaSettings({
 }) {
   const t = useTranslations('Stories')
   return (
-    <div className="flex flex-col gap-5">
+    <Panel>
       <PanelHeader title={kind === 'photo' ? t('photoTitle') : t('videoTitle')} onClose={onClose} />
 
       {kind === 'photo' && (
         <>
-          <Section title={t('zoom')}>
-            <input
-              type="range"
-              aria-label={t('zoom')}
+          <Section title={t('fitTitle')}>
+            <Segmented
+              label={t('fitTitle')}
+              value={stage.whole ? 'whole' : 'fill'}
+              disabled={!stage.ready}
+              onChange={(next) => (next === 'whole') !== stage.whole && stage.toggleWhole()}
+              options={[
+                { value: 'fill', label: t('fitFill') },
+                { value: 'whole', label: t('fitWhole') },
+              ]}
+            />
+            <RangeField
+              label={t('zoom')}
+              value={stage.zoom}
+              display={`${Math.round(stage.zoom * 100)}%`}
               min={stage.minZoom}
               max={stage.maxZoom}
               step={0.01}
-              value={stage.zoom}
               disabled={!stage.ready}
-              onChange={(e) => stage.setZoom(Number(e.target.value))}
-              className="w-full accent-primary"
+              onChange={stage.setZoom}
+              onReset={() => stage.setZoom(1)}
             />
-            <p className="text-xs text-muted-foreground">{t('photoHint')}</p>
-          </Section>
-
-          <Section title={t('fitTitle')}>
-            <div className="grid grid-cols-2 gap-1.5">
-              {([false, true] as const).map((whole) => (
-                <button
-                  key={String(whole)}
-                  type="button"
-                  aria-pressed={stage.whole === whole}
-                  disabled={!stage.ready}
-                  onClick={() => stage.whole !== whole && stage.toggleWhole()}
-                  className={cn(
-                    'h-9 rounded-lg px-2 text-xs font-medium transition-colors duration-150 disabled:opacity-50 motion-reduce:transition-none',
-                    stage.whole === whole
-                      ? 'bg-primary/15 text-primary'
-                      : 'bg-muted/50 hover:bg-muted',
-                  )}
-                >
-                  {whole ? t('fitWhole') : t('fitFill')}
-                </button>
-              ))}
-            </div>
           </Section>
 
           {filtersSupported && stage.url && (
@@ -281,20 +275,23 @@ export function MediaSettings({
                     type="button"
                     aria-pressed={stage.filter === key}
                     onClick={() => stage.setFilter(key)}
-                    className="group flex flex-col items-center gap-1 text-xs"
+                    className="group flex flex-col gap-1.5 text-xs"
                   >
                     {/* Локальный object-URL: оптимизировать blob next/image не может. */}
                     <img
                       src={stage.url ?? ''}
                       alt=""
                       className={cn(
-                        'aspect-square w-full rounded-lg object-cover ring-offset-2 ring-offset-card transition-shadow duration-150',
+                        'aspect-square w-full rounded-lg object-cover ring-offset-2 ring-offset-card transition-shadow duration-150 motion-reduce:transition-none',
                         stage.filter === key ? 'ring-2 ring-primary' : 'group-hover:opacity-90',
                       )}
                       style={{ filter: STORY_PHOTO_FILTERS[key] || undefined }}
                     />
                     <span
-                      className={stage.filter === key ? 'text-primary' : 'text-muted-foreground'}
+                      className={cn(
+                        'truncate text-center',
+                        stage.filter === key ? 'text-primary' : 'text-muted-foreground',
+                      )}
                     >
                       {t(FILTER_KEY[key])}
                     </span>
@@ -306,23 +303,14 @@ export function MediaSettings({
         </>
       )}
 
-      <div className="flex gap-2">
-        <Button type="button" variant="secondary" size="md" className="flex-1" onClick={onReplace}>
+      <div className="grid grid-cols-2 gap-2">
+        <Button type="button" variant="secondary" size="md" onClick={onReplace}>
           <RefreshCw className="size-4" aria-hidden />
           {t('replaceMedia')}
         </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="md"
-          className="text-destructive hover:text-destructive"
-          onClick={onRemove}
-        >
-          <Trash2 className="size-4" aria-hidden />
-          {t('removeMedia')}
-        </Button>
+        <RemoveButton label={t('removeMedia')} onClick={onRemove} />
       </div>
-    </div>
+    </Panel>
   )
 }
 
@@ -338,39 +326,36 @@ export function LinkSettings({
 }) {
   const t = useTranslations('Stories')
   return (
-    <div className="flex flex-col gap-4">
+    <Panel>
       <PanelHeader title={t('addLink')} onClose={onClose} />
+      <Section title={t('linkUrl')}>
+        <div className="flex flex-col gap-2">
+          <Input
+            {...form.register('linkUrl', OPTIONAL_TEXT)}
+            type="url"
+            inputMode="url"
+            size="md"
+            placeholder="https://"
+            aria-label={t('linkUrl')}
+            autoFocus
+          />
+          <FieldError>{form.formState.errors.linkUrl && t('badLink')}</FieldError>
+          <Input
+            {...form.register('linkLabel', OPTIONAL_TEXT)}
+            size="md"
+            placeholder={t('linkLabel')}
+            aria-label={t('linkLabel')}
+          />
+        </div>
+      </Section>
       <div>
-        <Input
-          {...form.register('linkUrl', OPTIONAL_TEXT)}
-          type="url"
-          inputMode="url"
-          placeholder="https://"
-          aria-label={t('linkUrl')}
-          autoFocus
-        />
-        <FieldError>{form.formState.errors.linkUrl && t('badLink')}</FieldError>
+        <RemoveButton label={t('removeLink')} onClick={onRemove} />
       </div>
-      <Input
-        {...form.register('linkLabel', OPTIONAL_TEXT)}
-        placeholder={t('linkLabel')}
-        aria-label={t('linkLabel')}
-      />
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        className="self-start text-destructive hover:text-destructive"
-        onClick={onRemove}
-      >
-        <Trash2 className="size-4" aria-hidden />
-        {t('removeLink')}
-      </Button>
-    </div>
+    </Panel>
   )
 }
 
-/** Опрос: вопрос и 2–4 варианта; поля — без лишних рамок вокруг. */
+/** Опрос: вопрос и 2–4 варианта. */
 export function PollSettings({
   form,
   onRemove,
@@ -389,72 +374,65 @@ export function PollSettings({
   }
 
   return (
-    <div className="flex flex-col gap-3">
+    <Panel>
       <PanelHeader title={t('addPoll')} onClose={onClose} />
-      <Label className="text-xs text-muted-foreground" htmlFor="story-poll-question">
-        {t('pollQuestion')}
-      </Label>
-      <Input
-        id="story-poll-question"
-        {...form.register('poll.question')}
-        placeholder={t('pollQuestion')}
-        autoFocus
-      />
-      <div className="flex flex-col gap-2">
-        {poll.options.map((option, index) => (
-          // Варианты опроса — строки без id, порядок меняется только удалением.
-          <div key={index} className="flex items-center gap-1.5">
-            <Input
-              value={option}
-              onChange={(e) =>
-                setOptions(poll.options.map((o, i) => (i === index ? e.target.value : o)))
-              }
-              placeholder={t('pollOption', { n: index + 1 })}
-              aria-label={t('pollOption', { n: index + 1 })}
-            />
-            {poll.options.length > MIN_POLL_OPTIONS && (
-              <Button
-                type="button"
-                variant="ghost"
+      <Section title={t('pollQuestion')}>
+        <Input
+          {...form.register('poll.question')}
+          size="md"
+          placeholder={t('pollQuestion')}
+          aria-label={t('pollQuestion')}
+          autoFocus
+        />
+      </Section>
+      <Section title={t('pollOptions')}>
+        <div className="flex flex-col gap-2">
+          {poll.options.map((option, index) => (
+            // Варианты опроса — строки без id, порядок меняется только удалением.
+            <div key={index} className="flex items-center gap-2">
+              <Input
+                value={option}
                 size="md"
-                icon
+                onChange={(e) =>
+                  setOptions(poll.options.map((o, i) => (i === index ? e.target.value : o)))
+                }
+                placeholder={t('pollOption', { n: index + 1 })}
+                aria-label={t('pollOption', { n: index + 1 })}
+              />
+              <button
+                type="button"
+                className={ICON_ACTION}
                 aria-label={t('removeOption')}
+                title={t('removeOption')}
+                disabled={poll.options.length <= MIN_POLL_OPTIONS}
                 onClick={() => setOptions(poll.options.filter((_, i) => i !== index))}
               >
                 <X className="size-4" aria-hidden />
-              </Button>
-            )}
-          </div>
-        ))}
+              </button>
+            </div>
+          ))}
+          {poll.options.length < MAX_POLL_OPTIONS && (
+            <Button
+              type="button"
+              variant="secondary"
+              size="md"
+              onClick={() => setOptions([...poll.options, ''])}
+            >
+              <Plus className="size-4" aria-hidden />
+              {t('addOption')}
+            </Button>
+          )}
+        </div>
+        <FieldError>{form.formState.errors.poll && t('pollIncomplete')}</FieldError>
+      </Section>
+      <div>
+        <RemoveButton label={t('removePoll')} onClick={onRemove} />
       </div>
-      {poll.options.length < MAX_POLL_OPTIONS && (
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="self-start"
-          onClick={() => setOptions([...poll.options, ''])}
-        >
-          <Plus className="size-4" aria-hidden />
-          {t('addOption')}
-        </Button>
-      )}
-      <FieldError>{form.formState.errors.poll && t('pollIncomplete')}</FieldError>
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        className="self-start text-destructive hover:text-destructive"
-        onClick={onRemove}
-      >
-        <Trash2 className="size-4" aria-hidden />
-        {t('removePoll')}
-      </Button>
-    </div>
+    </Panel>
   )
 }
 
-/** Выбран элемент кадра: его свойства, порядок слоёв, копия и удаление. */
+/** Выбран элемент кадра: его свойства, затем порядок слоёв, копия и удаление. */
 export function ElementSettings({
   element,
   onChange,
@@ -482,15 +460,13 @@ export function ElementSettings({
   onClose: () => void
 }) {
   const t = useTranslations('Stories')
-  const action =
-    'flex size-9 items-center justify-center rounded-lg bg-muted/50 transition-colors duration-150 hover:bg-muted disabled:pointer-events-none disabled:opacity-40 motion-reduce:transition-none'
   return (
-    <div className="flex flex-col gap-4">
+    <Panel>
       <PanelHeader title={t(ELEMENT_KEY[element.type])} onClose={onClose} />
 
       {onReplaceCard && (
         <Button type="button" variant="secondary" size="md" onClick={onReplaceCard}>
-          <ImagePlus className="size-4" aria-hidden />
+          <RefreshCw className="size-4" aria-hidden />
           {t('replaceCard')}
         </Button>
       )}
@@ -498,10 +474,10 @@ export function ElementSettings({
       <ElementInspector element={element} onChange={onChange} />
 
       <Section title={t('layer')}>
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-2">
           <button
             type="button"
-            className={action}
+            className={ICON_ACTION}
             aria-label={t('bringForward')}
             title={t('bringForward')}
             disabled={!canForward}
@@ -511,7 +487,7 @@ export function ElementSettings({
           </button>
           <button
             type="button"
-            className={action}
+            className={ICON_ACTION}
             aria-label={t('sendBackward')}
             title={t('sendBackward')}
             disabled={!canBackward}
@@ -521,7 +497,7 @@ export function ElementSettings({
           </button>
           <button
             type="button"
-            className={action}
+            className={ICON_ACTION}
             aria-label={t('duplicate')}
             title={t('duplicate')}
             disabled={!canDuplicate}
@@ -529,18 +505,11 @@ export function ElementSettings({
           >
             <Copy className="size-4" aria-hidden />
           </button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="md"
-            className="ml-auto text-destructive hover:text-destructive"
-            onClick={onRemove}
-          >
-            <Trash2 className="size-4" aria-hidden />
-            {t('removeElement')}
-          </Button>
+          <div className="ml-auto">
+            <RemoveButton label={t('removeElement')} onClick={onRemove} />
+          </div>
         </div>
       </Section>
-    </div>
+    </Panel>
   )
 }

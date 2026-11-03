@@ -1,5 +1,6 @@
 'use client'
 
+import { Fragment } from 'react'
 import { useTranslations } from 'next-intl'
 import {
   AtSign,
@@ -39,10 +40,11 @@ const GROUPS: { title: string; tools: StoryTool[] }[] = [
 ]
 
 /**
- * Инструменты сторис. Раскладка меняется с шириной, логика — одна:
- * - от 1280px — колонка слева, иконка и подпись;
- * - 768–1279px — узкая колонка из иконок, подпись во всплывающей подсказке;
+ * Инструменты сторис. Одна логика, три раскладки:
+ * - от 1024px — колонка с подписями: пункт 40px, иконка 18px, 12px до подписи и по краям;
+ * - 768–1023px — колонка иконок 40×40, подпись во всплывающей подсказке;
  * - на телефоне — лента внизу с прокруткой вбок, подпись под иконкой.
+ * Все пункты стоят на одной вертикальной оси; группы разделены линией по той же сетке.
  * Медиа — главное действие и выделено цветом; активен инструмент, чьи настройки открыты.
  */
 export function StoryTools({
@@ -61,52 +63,57 @@ export function StoryTools({
   return (
     <nav
       aria-label={t('tools')}
-      className="flex shrink-0 gap-1 overflow-x-auto border-t border-white/10 px-2 py-2 md:w-16 md:flex-col md:gap-4 md:overflow-x-visible md:overflow-y-auto md:border-t-0 md:border-r md:px-2 md:py-3 xl:w-60 xl:px-3"
+      className="flex h-full min-h-0 items-stretch overflow-x-auto px-2 py-1 md:flex-col md:items-center md:overflow-x-visible md:overflow-y-auto md:p-4 lg:items-stretch"
     >
       {GROUPS.map((group, gi) => (
-        <div
-          key={group.title}
-          className={cn(
-            'flex shrink-0 gap-1 md:flex-col',
-            gi > 0 && 'border-l border-white/10 pl-1 md:border-t md:border-l-0 md:pt-4 md:pl-0',
+        <Fragment key={group.title}>
+          {gi > 0 && (
+            <span
+              aria-hidden
+              className="mx-1 my-2 w-px shrink-0 bg-white/10 md:mx-0 md:my-3 md:h-px md:w-10 lg:w-full"
+            />
           )}
-        >
-          <p className="hidden px-3 pb-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase xl:block">
-            {t(group.title)}
-          </p>
-          {group.tools.map((tool) => {
-            const { icon: Icon, label } = TOOLS[tool]
-            const primary = tool === 'media'
-            const isActive = active === tool
-            return (
-              <button
-                key={tool}
-                type="button"
-                title={t(label)}
-                aria-pressed={isActive}
-                disabled={disabled[tool]}
-                onClick={() => onPick(tool)}
-                className={cn(
-                  'flex min-w-16 shrink-0 flex-col items-center justify-center gap-1 rounded-lg px-2 py-1.5 text-[11px] font-medium transition-colors duration-150 outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-40 motion-reduce:transition-none',
-                  'md:size-11 md:min-w-0 md:p-0',
-                  'xl:h-10 xl:w-full xl:flex-row xl:justify-start xl:gap-3 xl:px-3 xl:text-sm',
-                  isActive
-                    ? 'bg-primary/15 text-primary'
-                    : primary
-                      ? 'text-primary hover:bg-primary/10'
-                      : 'text-muted-foreground hover:bg-muted hover:text-foreground',
-                )}
-              >
-                {tool === 'media' && busy ? (
-                  <Loader2 className="size-5 animate-spin xl:size-4" aria-hidden />
-                ) : (
-                  <Icon className="size-5 xl:size-4" aria-hidden />
-                )}
-                <span className="md:sr-only xl:not-sr-only">{t(label)}</span>
-              </button>
-            )
-          })}
-        </div>
+          <div className="flex shrink-0 md:flex-col md:gap-1">
+            <p className="hidden h-8 items-center px-3 text-xs font-medium tracking-wide text-muted-foreground uppercase lg:flex">
+              {t(group.title)}
+            </p>
+            {group.tools.map((tool) => {
+              const { icon: Icon, label } = TOOLS[tool]
+              const isActive = active === tool
+              return (
+                <button
+                  key={tool}
+                  type="button"
+                  title={t(label)}
+                  aria-pressed={isActive}
+                  disabled={disabled[tool]}
+                  onClick={() => onPick(tool)}
+                  className={cn(
+                    'flex shrink-0 items-center rounded-lg font-medium transition-colors duration-150 outline-none focus-visible:ring-2 focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-40 motion-reduce:transition-none',
+                    // телефон: иконка над подписью
+                    'h-14 w-16 flex-col justify-center gap-1 text-[11px]',
+                    // планшет: квадрат 40×40
+                    'md:size-10 md:gap-0',
+                    // ноутбук и шире: строка 40px, 12px по краям и до подписи
+                    'lg:h-10 lg:w-full lg:flex-row lg:justify-start lg:gap-3 lg:px-3 lg:text-sm',
+                    isActive
+                      ? 'bg-primary/15 text-primary'
+                      : tool === 'media'
+                        ? 'text-primary hover:bg-primary/10'
+                        : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+                  )}
+                >
+                  {tool === 'media' && busy ? (
+                    <Loader2 className="size-[18px] shrink-0 animate-spin" aria-hidden />
+                  ) : (
+                    <Icon className="size-[18px] shrink-0" aria-hidden />
+                  )}
+                  <span className="truncate md:sr-only lg:not-sr-only">{t(label)}</span>
+                </button>
+              )
+            })}
+          </div>
+        </Fragment>
       ))}
     </nav>
   )

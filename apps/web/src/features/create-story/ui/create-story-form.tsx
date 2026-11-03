@@ -6,7 +6,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { useTranslations } from 'next-intl'
-import { Plus, Redo2, Undo2, Users } from 'lucide-react'
+import { Pause, Play, Redo2, Send, Undo2, Users, Volume2, VolumeX } from 'lucide-react'
 import {
   CreateStorySchema,
   STORY_CARDS_MAX,
@@ -23,10 +23,9 @@ import { cn } from '../../../shared/lib/utils'
 import { createStoryRequest, storyKeys, uploadStoryMedia } from '../../../entities/story'
 import {
   Button,
+  CROP_TOOL_BUTTON,
   CropToolbar,
   EmojiPicker,
-  FieldError,
-  FormAlert,
   MediaEditorShell,
   Modal,
 } from '../../../shared/ui'
@@ -138,19 +137,23 @@ export function CreateStoryForm({
   const tCommon = useTranslations('Common')
   const formId = useId()
   const qc = useQueryClient()
-  const wide = useMediaQuery('(min-width: 1280px)')
+  const wide = useMediaQuery('(min-width: 1024px)')
   const audienceLabel = useAudienceLabel()
   const { error: apiError, show: showApiError, reset: resetApiError } = useFormAlert()
   const [photo, setPhoto] = useState<File | null>(null)
   const [video, setVideo] = useState<UploadedVideo | null>(null)
   const [uploading, setUploading] = useState(false)
+  // Превью видео: по умолчанию без звука (автозапуск со звуком браузер запретит), звук и
+  // пауза — кнопками под кадром.
+  const [videoMuted, setVideoMuted] = useState(true)
+  const [videoPaused, setVideoPaused] = useState(false)
   const stage = useStoryStage(photo)
   const history = useEditorHistory<StoryDoc>({ elements: [] })
   const { elements, background } = history.present
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [view, setView] = useState<SettingsView>('general')
-  // Шторка настроек на узком экране; от 1280px панель видна всегда.
+  // Шторка настроек на узком экране; от 1024px панель видна всегда.
   const [sheetOpen, setSheetOpen] = useState(false)
   const [emojiOpen, setEmojiOpen] = useState(false)
   const [mentionOpen, setMentionOpen] = useState(false)
@@ -333,6 +336,8 @@ export function CreateStoryForm({
       const uploaded = await uploadStoryMedia(file)
       dropMedia()
       setVideo({ id: uploaded.id, url: URL.createObjectURL(file) })
+      setVideoMuted(true)
+      setVideoPaused(false)
       form.setValue('fileId', uploaded.id)
       openView('media')
     } catch (e) {
@@ -559,8 +564,17 @@ export function CreateStoryForm({
     )
   }
 
-  const historyButton =
+  const iconButton =
     'flex size-9 items-center justify-center rounded-lg text-white/80 transition-colors duration-150 hover:bg-white/10 hover:text-white disabled:pointer-events-none disabled:opacity-30 motion-reduce:transition-none'
+
+  // Подсказка над кадром — по тому, что сейчас в работе.
+  const hint = selected
+    ? t('elementHint')
+    : photo
+      ? t('photoHint')
+      : elements.length > 0
+        ? t('selectHint')
+        : t('formatHint')
 
   return (
     <MediaEditorShell
@@ -568,26 +582,26 @@ export function CreateStoryForm({
       onClose={close}
       solid
       actions={
-        <div className="flex items-center gap-0.5">
+        <div className="flex items-center gap-1">
           <button
             type="button"
-            className={historyButton}
+            className={iconButton}
             aria-label={t('undoEdit')}
             title={t('undoEdit')}
             disabled={!history.canUndo}
             onClick={history.undo}
           >
-            <Undo2 className="size-5" aria-hidden />
+            <Undo2 className="size-[18px]" aria-hidden />
           </button>
           <button
             type="button"
-            className={historyButton}
+            className={iconButton}
             aria-label={t('redo')}
             title={t('redo')}
             disabled={!history.canRedo}
             onClick={history.redo}
           >
-            <Redo2 className="size-5" aria-hidden />
+            <Redo2 className="size-[18px]" aria-hidden />
           </button>
         </div>
       }
@@ -600,12 +614,21 @@ export function CreateStoryForm({
         onChange={(e) => void pickFile(e.target.files?.[0])}
       />
 
+      {/* Каркас — одна сетка, без отступов и сдвигов для раскладки панелей:
+          телефон  — [кадр] / [инструменты] / [публикация];
+          планшет  — [иконки | кадр] / [публикация], настройки выезжают поверх справа;
+          ноутбук  — [220 | кадр | 280], от 1280px — [260 | кадр | 300]; снизу — публикация 64px. */}
       <form
         id={formId}
-        className="relative flex min-h-0 flex-1 flex-col border-t border-white/10 md:flex-row"
+        className={cn(
+          'relative grid min-h-0 flex-1',
+          'grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)_auto_auto]',
+          'md:grid-cols-[72px_minmax(0,1fr)] md:grid-rows-[minmax(0,1fr)_auto]',
+          'lg:grid-cols-[220px_minmax(0,1fr)_280px] xl:grid-cols-[260px_minmax(0,1fr)_300px]',
+        )}
         onSubmit={form.handleSubmit((values) => mutation.mutate(values))}
       >
-        <div className="order-last md:order-none">
+        <div className="row-start-2 min-h-0 border-t border-white/10 md:col-start-1 md:row-start-1 md:border-t-0 md:border-r">
           <StoryTools
             active={activeTool}
             busy={uploading}
@@ -622,11 +645,21 @@ export function CreateStoryForm({
           />
         </div>
 
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        {/* Рабочая область: сверху и снизу — полосы одной высоты, кадр строго посередине.
+            Нижняя полоса есть всегда (линейка фото, звук видео или пусто), поэтому кадр не
+            прыгает, когда появляется медиа или открываются настройки. */}
+        <main className="row-start-1 grid min-h-0 min-w-0 grid-rows-[0_minmax(0,1fr)_3.5rem] md:col-start-2 md:grid-rows-[3.5rem_minmax(0,1fr)_3.5rem]">
+          {/* Не `hidden`: выпавшая из сетки строка сдвинула бы кадр в нулевую. На телефоне
+              строка нулевой высоты, подсказка обрезается. */}
+          <p className="flex min-h-0 items-center justify-center truncate overflow-hidden px-4 text-xs text-muted-foreground">
+            {hint}
+          </p>
           <StoryCanvas
             stage={stage}
             hasPhoto={photo !== null}
             videoUrl={video?.url ?? null}
+            videoMuted={videoMuted}
+            videoPaused={videoPaused}
             background={background}
             elements={elements}
             selectedId={selectedId}
@@ -648,89 +681,139 @@ export function CreateStoryForm({
             onTextStory={textStory}
             onDropFile={(file) => void pickFile(file)}
           />
+          <div className="flex min-w-0 items-center justify-center">
+            {/* Кадрирование фото: поворот · линейка угла · отражение */}
+            {photo && (
+              <CropToolbar
+                className="pt-0"
+                angle={stage.angle}
+                flip={stage.flip}
+                disabled={!stage.ready}
+                onRotate={stage.rotate90}
+                onAngle={stage.setAngle}
+                onFlip={stage.toggleFlip}
+                onRulerStart={stage.onRulerStart}
+                onRulerEnd={stage.onRulerEnd}
+              />
+            )}
+            {/* Превью видео: пауза и звук — прослушать перед публикацией. */}
+            {video && (
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className={cn(CROP_TOOL_BUTTON, 'text-white/80 hover:text-white')}
+                  aria-label={videoPaused ? tCommon('play') : tCommon('pause')}
+                  title={videoPaused ? tCommon('play') : tCommon('pause')}
+                  onClick={() => setVideoPaused((p) => !p)}
+                >
+                  {videoPaused ? (
+                    <Play className="size-5" aria-hidden />
+                  ) : (
+                    <Pause className="size-5" aria-hidden />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  className={cn(
+                    CROP_TOOL_BUTTON,
+                    videoMuted ? 'text-white/80 hover:text-white' : 'text-primary',
+                  )}
+                  aria-label={videoMuted ? tCommon('unmute') : tCommon('mute')}
+                  title={videoMuted ? tCommon('unmute') : tCommon('mute')}
+                  aria-pressed={!videoMuted}
+                  onClick={() => {
+                    setVideoMuted((m) => !m)
+                    setVideoPaused(false)
+                  }}
+                >
+                  {videoMuted ? (
+                    <VolumeX className="size-5" aria-hidden />
+                  ) : (
+                    <Volume2 className="size-5" aria-hidden />
+                  )}
+                </button>
+              </div>
+            )}
+          </div>
+        </main>
 
-          {/* Кадрирование фото: поворот · линейка угла · отражение */}
-          {photo && (
-            <CropToolbar
-              angle={stage.angle}
-              flip={stage.flip}
-              disabled={!stage.ready}
-              onRotate={stage.rotate90}
-              onAngle={stage.setAngle}
-              onFlip={stage.toggleFlip}
-              onRulerStart={stage.onRulerStart}
-              onRulerEnd={stage.onRulerEnd}
-            />
-          )}
-        </div>
-
-        {/* Настройки: колонка справа от 1280px, ниже — выезжающая панель или шторка. */}
+        {/* Настройки: колонка сетки от 1024px; уже — выезжающая панель или шторка поверх
+            рабочей области, чтобы кадр под ней не менял размер. */}
         <aside
           aria-label={t('settingsTitle')}
           className={cn(
-            'z-20 flex-col gap-4 overflow-y-auto bg-card p-4 select-text',
-            'absolute inset-x-0 bottom-0 max-h-[60dvh] rounded-t-2xl border-t border-white/10 shadow-[0_-8px_32px_rgb(0_0_0/0.35)]',
-            'md:inset-x-auto md:top-3 md:right-3 md:bottom-3 md:max-h-none md:w-80 md:rounded-xl md:border',
-            'xl:static xl:w-[18rem] xl:shrink-0 xl:rounded-none xl:border-0 xl:border-l xl:shadow-none',
+            'z-20 min-h-0 flex-col overflow-y-auto bg-card p-4 select-text',
+            'absolute inset-x-0 bottom-0 max-h-[60dvh] rounded-t-xl border-t border-white/10 shadow-[0_-8px_32px_rgb(0_0_0/0.35)]',
+            // планшет: отступ 16px от краёв рабочей области, над полосой публикации (64px)
+            'md:inset-x-auto md:top-4 md:right-4 md:bottom-20 md:max-h-none md:w-80 md:rounded-xl md:border',
+            'lg:static lg:col-start-3 lg:row-start-1 lg:w-auto lg:rounded-none lg:border-0 lg:border-l lg:shadow-none',
             sheetOpen
-              ? 'flex duration-200 animate-in fade-in-0 slide-in-from-bottom-4 md:slide-in-from-right-4 md:slide-in-from-bottom-0 xl:animate-none motion-reduce:animate-none'
-              : 'hidden xl:flex',
+              ? 'flex duration-200 animate-in fade-in-0 slide-in-from-bottom-4 md:slide-in-from-right-4 md:slide-in-from-bottom-0 lg:animate-none motion-reduce:animate-none'
+              : 'hidden lg:flex',
           )}
         >
           <span
             aria-hidden
-            className="mx-auto -mt-1 mb-1 h-1 w-10 shrink-0 rounded-full bg-white/20 md:hidden"
+            className="mx-auto mb-3 h-1 w-10 shrink-0 rounded-full bg-white/20 md:hidden"
           />
           {/* Ключ — смена содержимого панели проигрывается мягким появлением. */}
           <div
             key={selected ? `el:${selected.id}` : view}
-            className="flex flex-col gap-4 duration-200 animate-in fade-in-0 motion-reduce:animate-none"
+            className="duration-200 animate-in fade-in-0 motion-reduce:animate-none"
           >
             {panel}
           </div>
         </aside>
-      </form>
 
-      {/* Публикация: кому видна сторис — рядом с «Опубликовать», а не в другом углу. */}
-      <div className="flex flex-wrap items-center gap-2 border-t border-white/10 px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-        <div className="min-w-0 flex-1">
-          <FormAlert error={apiError} />
-          {(contentError || elementsError) && (
-            <FieldError>{contentError ? t('needContent') : t('elementsInvalid')}</FieldError>
-          )}
-        </div>
-        <button
-          type="button"
-          onClick={() => openView('general')}
-          className="flex h-9 min-w-0 items-center gap-2 rounded-lg bg-muted/60 px-3 text-sm transition-colors duration-150 hover:bg-muted motion-reduce:transition-none"
-        >
-          <Users className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-          <span className="text-muted-foreground max-sm:sr-only">{t('audienceShort')}</span>
-          <span className="truncate font-medium">{audience ? audienceLabel(audience) : ''}</span>
-        </button>
-        {onClose && (
-          <Button
+        {/* Публикация 64px — во всю ширину под колонками: на центр кадра не влияет. Слева —
+            формат или ошибка, справа — кому видна сторис, «Отмена» и «Опубликовать». */}
+        <footer className="col-span-full row-start-3 flex h-16 items-center gap-3 border-t border-white/10 px-4 md:row-start-2 lg:row-start-2 box-content pb-[env(safe-area-inset-bottom)]">
+          <div className="min-w-0 flex-1 text-xs">
+            {apiError ? (
+              <p role="alert" className="truncate text-destructive">
+                {tErr(apiError.code)}
+              </p>
+            ) : contentError || elementsError ? (
+              <p role="alert" className="truncate text-destructive">
+                {contentError ? t('needContent') : t('elementsInvalid')}
+              </p>
+            ) : (
+              <p className="truncate text-muted-foreground max-sm:hidden">{t('formatInfo')}</p>
+            )}
+          </div>
+          <button
             type="button"
-            variant="ghost"
-            size="md"
-            className="text-white hover:bg-white/10 hover:text-white max-sm:hidden"
-            onClick={close}
-            disabled={busy}
+            onClick={() => openView('general')}
+            className="flex h-10 min-w-0 items-center gap-2 rounded-[10px] bg-muted/50 px-3 text-sm transition-colors duration-150 hover:bg-muted motion-reduce:transition-none"
           >
-            {tCommon('cancel')}
+            <Users className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+            <span className="text-muted-foreground max-sm:sr-only">{t('audienceShort')}</span>
+            <span className="truncate font-medium">{audience ? audienceLabel(audience) : ''}</span>
+          </button>
+          {onClose && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="lg"
+              className="max-sm:hidden"
+              onClick={close}
+              disabled={busy}
+            >
+              {tCommon('cancel')}
+            </Button>
+          )}
+          <Button
+            type="submit"
+            form={formId}
+            size="lg"
+            loading={mutation.isPending}
+            disabled={uploading}
+          >
+            <Send className="size-4" aria-hidden />
+            {t('publish')}
           </Button>
-        )}
-        <Button
-          type="submit"
-          form={formId}
-          size="md"
-          loading={mutation.isPending}
-          disabled={uploading}
-        >
-          <Plus className="size-4" aria-hidden />
-          {t('publish')}
-        </Button>
-      </div>
+        </footer>
+      </form>
 
       {emojiOpen && (
         <Modal onClose={() => setEmojiOpen(false)} title={t('toolEmoji')} size="md">
