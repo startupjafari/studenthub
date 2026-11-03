@@ -57,6 +57,12 @@ export interface SegmentedTabsProps<T extends string> {
    * а разбирать это внутри общего компонента значило бы тянуть в него чужие домены.
    */
   onItemContextMenu?: (value: T, event: React.MouseEvent<HTMLElement>) => void
+  /**
+   * Вкладки делят ширину ряда поровну — переключатель внутри окна (друзья и заявки), где
+   * ряд стоит во всю ширину: пункты одной ширины, и активная подложка не прыгает по длине
+   * подписи при переключении.
+   */
+  stretch?: boolean
   className?: string
 }
 
@@ -68,6 +74,7 @@ export function SegmentedTabs<T extends string>({
   collapsible = true,
   compact = false,
   onItemContextMenu,
+  stretch = false,
   className,
 }: SegmentedTabsProps<T>) {
   const row = useScrollRow<HTMLDivElement>()
@@ -212,6 +219,7 @@ export function SegmentedTabs<T extends string>({
       className={cn(
         'flex min-w-0 max-w-full items-center gap-1 overflow-x-auto rounded-2xl border border-border bg-muted/50 lg:rounded-xl',
         compact ? 'p-0.5' : 'p-1',
+        stretch && 'w-full',
         '[scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
         row.overflowing && 'cursor-grab',
         row.dragging && 'cursor-grabbing select-none',
@@ -238,6 +246,7 @@ export function SegmentedTabs<T extends string>({
               // `compact` опускает обе ступени на шкалу ниже — 40 и 28 px.
               'flex shrink-0 cursor-pointer items-center gap-2 rounded-xl text-sm font-medium whitespace-nowrap transition-colors outline-none focus-visible:ring-4 focus-visible:ring-ring/20 lg:rounded-lg',
               compact ? 'min-h-10 px-3 lg:min-h-7 lg:px-2.5' : 'min-h-11 px-3.5 lg:min-h-8 lg:px-3',
+              stretch && 'flex-1 justify-center',
               isActive
                 ? 'bg-background text-foreground shadow-sm'
                 : 'text-muted-foreground hover:text-foreground',
