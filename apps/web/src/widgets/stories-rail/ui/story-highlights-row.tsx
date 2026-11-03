@@ -4,7 +4,9 @@ import { useEffect, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { toApiError } from '../../../shared/lib'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { toApiError, useScrollRow } from '../../../shared/lib'
+import { cn } from '../../../shared/lib/utils'
 import {
   StoryThumb,
   fetchStoryHighlight,
@@ -21,8 +23,12 @@ import { StoryViewer } from './story-viewer'
  */
 export function StoryHighlightsRow({ ownerId }: { ownerId: string }) {
   const t = useTranslations('Stories')
+  const tCommon = useTranslations('Common')
   const tErr = useTranslations('Errors')
   const [openId, setOpenId] = useState<string | null>(null)
+  // Колесо и перетаскивание мышью — из общего хука; стрелки — как в ленте колец: подборок
+  // бывает больше, чем влезает в шапку, и без них дальние мышью не достать.
+  const row = useScrollRow<HTMLUListElement>()
 
   const list = useQuery({
     queryKey: storyKeys.highlights(ownerId),
@@ -48,8 +54,14 @@ export function StoryHighlightsRow({ ownerId }: { ownerId: string }) {
 
   return (
     // Отступы и место в шапке задаёт профиль: ряд стоит справа от ФИО, а на телефоне — под ним.
-    <section aria-label={t('highlightsTitle')}>
-      <ul className="-mx-1 flex gap-3 overflow-x-auto px-1 py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+    <section aria-label={t('highlightsTitle')} className="group/highlights relative">
+      <ul
+        ref={row.ref}
+        className={cn(
+          '-mx-1 flex gap-3 overflow-x-auto px-1 py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
+          row.dragging && 'select-none',
+        )}
+      >
         {highlights.map((h) => (
           <li key={h.id} className="w-[4.75rem] shrink-0">
             <button
@@ -74,6 +86,28 @@ export function StoryHighlightsRow({ ownerId }: { ownerId: string }) {
           </li>
         ))}
       </ul>
+      {(['left', 'right'] as const).map((side) =>
+        row.overflowing && !(side === 'left' ? row.atStart : row.atEnd) ? (
+          <button
+            key={side}
+            type="button"
+            aria-label={side === 'left' ? tCommon('previous') : tCommon('next')}
+            onClick={() => row.scrollPage(side === 'left' ? -1 : 1)}
+            className={cn(
+              // По центру кружка: поле ряда (0.25rem) + половина кружка с рамкой (2.25rem).
+              'absolute top-10 z-10 hidden size-8 -translate-y-1/2 items-center justify-center rounded-full border border-border bg-card/95 text-foreground shadow-sm transition-[opacity,background-color] duration-150 hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none sm:flex',
+              'opacity-0 group-hover/highlights:opacity-100 focus-visible:opacity-100',
+              side === 'left' ? 'left-0' : 'right-0',
+            )}
+          >
+            {side === 'left' ? (
+              <ChevronLeft className="size-4" aria-hidden />
+            ) : (
+              <ChevronRight className="size-4" aria-hidden />
+            )}
+          </button>
+        ) : null,
+      )}
 
       {openId && detail.data && detail.data.items.length > 0 && (
         <StoryViewer
