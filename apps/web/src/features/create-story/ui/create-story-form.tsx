@@ -339,7 +339,6 @@ export function CreateStoryForm({
       setVideoMuted(true)
       setVideoPaused(false)
       form.setValue('fileId', uploaded.id)
-      openView('media')
     } catch (e) {
       toast.error(tErr((e as { code?: string }).code ?? 'INTERNAL_ERROR'))
     } finally {
@@ -402,10 +401,7 @@ export function CreateStoryForm({
   }
 
   function pickTool(tool: StoryTool): void {
-    if (tool === 'media') {
-      if (hasMedia) openView('media')
-      else fileRef.current?.click()
-    } else if (tool === 'text') {
+    if (tool === 'text') {
       addElement(newTextElement(t('textDefault')), true)
     } else if (tool === 'emoji') {
       setEmojiOpen(true)
@@ -437,9 +433,9 @@ export function CreateStoryForm({
 
   const activeTool: StoryTool | null = selected
     ? TOOL_OF[selected.type]
-    : view === 'general'
-      ? null
-      : view
+    : view === 'link' || view === 'poll'
+      ? view
+      : null
 
   // ── Горячие клавиши ─────────────────────────────────────────────────────────────────
 
@@ -533,14 +529,11 @@ export function CreateStoryForm({
         onClose={closePanel}
       />
     )
-  } else if (view === 'media' && hasMedia) {
+  } else if (view === 'media' && photo) {
     panel = (
       <MediaSettings
-        kind={photo ? 'photo' : 'video'}
         stage={stage}
-        filtersSupported={photo !== null && canvasFilterSupported()}
-        onReplace={() => fileRef.current?.click()}
-        onRemove={dropMedia}
+        filtersSupported={canvasFilterSupported()}
         onClose={closePanel}
       />
     )
@@ -631,10 +624,8 @@ export function CreateStoryForm({
         <div className="row-start-2 min-h-0 border-t border-white/10 md:col-start-1 md:row-start-1 md:border-t-0 md:border-r">
           <StoryTools
             active={activeTool}
-            busy={uploading}
             onPick={pickTool}
             disabled={{
-              media: busy,
               text: full,
               emoji: full,
               mention: full || mentionCount >= STORY_MENTIONS_MAX,
@@ -675,7 +666,7 @@ export function CreateStoryForm({
             onRemoveMedia={dropMedia}
             onTapStage={() => {
               setEditingId(null)
-              setView(hasMedia ? 'media' : 'general')
+              setView(photo ? 'media' : 'general')
             }}
             onPickMedia={() => fileRef.current?.click()}
             onTextStory={textStory}
@@ -742,7 +733,7 @@ export function CreateStoryForm({
         <aside
           aria-label={t('settingsTitle')}
           className={cn(
-            'z-20 min-h-0 flex-col overflow-y-auto bg-card p-4 select-text',
+            'z-20 min-h-0 flex-col overflow-x-hidden overflow-y-auto bg-card p-4 select-text',
             'absolute inset-x-0 bottom-0 max-h-[60dvh] rounded-t-xl border-t border-white/10 shadow-[0_-8px_32px_rgb(0_0_0/0.35)]',
             // планшет: отступ 16px от краёв рабочей области, над полосой публикации (64px)
             'md:inset-x-auto md:top-4 md:right-4 md:bottom-20 md:max-h-none md:w-80 md:rounded-xl md:border',
