@@ -36,7 +36,7 @@ ARG NEXT_PUBLIC_APP_URL
 ARG NEXT_PUBLIC_APP_NAME
 # Хранилище медиа: из него строятся img-src/media-src/connect-src в CSP (next.config).
 ARG NEXT_PUBLIC_MINIO_URL
-# Флаг раскатки сторис (Ф14.1): '1' включает полосу колец над лентой.
+# Флаг раскатки сторис (Ф14.1): по умолчанию включены, '0' прячет полосу колец над лентой.
 ARG NEXT_PUBLIC_FEATURE_STORIES
 # Публичный ключ VAPID — без него веб не умеет подписаться на push-уведомления.
 ARG NEXT_PUBLIC_VAPID_PUBLIC_KEY
