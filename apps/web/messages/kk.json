@@ -2085,6 +2085,7 @@
     "sharedToChat": "Пост чатқа жіберілді",
     "repost": "Репост",
     "repostTitle": "Жарияланымның репосты",
+    "articleRepost": "Мақала",
     "repostComment": "Түсініктеме",
     "repostPlaceholder": "Түсініктеме қосыңыз (міндетті емес)",
     "reposted": "Репост жарияланды",
@@ -5851,5 +5852,16 @@
     "viaGrantUniversity": "Рұқсат: университет",
     "viaGrantDepartment": "Рұқсат: деканат",
     "viaGrantUser": "Рұқсат: жеке"
+  },
+  "Article": {
+    "title": "Мақала",
+    "breadcrumbRoot": "Мақалалар",
+    "unavailableTitle": "Мақала қолжетімсіз",
+    "unavailableText": "Оны жойған немесе автор оған қолжетімділікті шектеген.",
+    "toFeed": "Лентаға",
+    "commentsOff": "Автор мақалаға пікірлерді өшірген",
+    "read": "Мақаланы оқу",
+    "unavailableShort": "Мақала қолжетімсіз",
+    "authorTag": "Автор"
   }
 }

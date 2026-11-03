@@ -32,7 +32,7 @@ import {
 import { useErrorToast } from '../../../shared/lib'
 import { cn } from '../../../shared/lib/utils'
 import { ContentModal } from './content-modal'
-import { ArticleCover, ARTICLE_GRADIENTS } from './article-cover'
+import { ArticleCover, ARTICLE_GRADIENTS } from '../../../entities/profile-content'
 
 function errCode(e: unknown): string {
   return (e as { code?: string }).code ?? 'INTERNAL_ERROR'
