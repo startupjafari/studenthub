@@ -21,6 +21,7 @@ import {
   StoriesService,
   audienceConditions,
   audienceIncludes,
+  partnerCompanyWhere,
   parseElements,
   type StoryCard,
   type StoryElementView,
@@ -368,7 +369,10 @@ export class StoryHighlightsService {
     sees: (item: ItemRow) => boolean
   } | null> {
     if (viewer.sub === ownerId) return { where: {}, sees: () => true }
-    const [owner, blocks, friends] = await Promise.all([
+    // Компания владельца допущена в вуз зрителя — один запрос на владельца, как и дружба:
+    // элемент подборки хранит снимок аудитории, а допуск проверяется живым.
+    const partner = partnerCompanyWhere(viewer)
+    const [owner, blocks, friends, admitted] = await Promise.all([
       this.prisma.user.findFirst({
         where: { id: ownerId, deletedAt: null, isBlocked: false },
         select: { id: true },
@@ -382,12 +386,20 @@ export class StoryHighlightsService {
         },
       }),
       this.stories.friendIdsAmong(ownerId, [viewer.sub]),
+      partner
+        ? this.prisma.companyMember.count({ where: { userId: ownerId, company: partner } })
+        : Promise.resolve(0),
     ])
     if (!owner || blocks > 0) return null
     const or: Prisma.StoryHighlightItemWhereInput[] = [
       ...audienceConditions(viewer),
       ...(friends.size > 0 ? [{ audience: StoryAudience.FRIENDS }] : []),
+      ...(admitted > 0 ? [{ audience: StoryAudience.PARTNER_UNIVERSITIES }] : []),
     ]
+    // Для проверки одной строки — тот же ответ: вуз зрителя в числе допустивших или нет.
+    const partnerUniversities = new Set(
+      admitted > 0 && viewer.universityId ? [viewer.universityId] : [],
+    )
     const user = {
       id: viewer.sub,
       role: viewer.role,
@@ -397,7 +409,8 @@ export class StoryHighlightsService {
     }
     return {
       where: { OR: or },
-      sees: (item) => audienceIncludes(user, { ...item, authorId: ownerId }, friends),
+      sees: (item) =>
+        audienceIncludes(user, { ...item, authorId: ownerId }, friends, partnerUniversities),
     }
   }
 

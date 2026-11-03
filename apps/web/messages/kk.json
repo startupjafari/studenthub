@@ -1511,6 +1511,7 @@
     "dropImageHint": "Фото таңдау үшін басыңыз",
     "dropVideoHint": "Бейне таңдау үшін басыңыз",
     "tabPolls": "Сауалнамалар",
+    "createStory": "Сторис",
     "editArticle": "Мақаланы өңдеу",
     "coverImage": "Сурет",
     "coverGradient": "Градиент",
@@ -2174,6 +2175,7 @@
     "bookmark": "Таңдаулыға",
     "audienceFRIENDS": "Тек достар",
     "audienceSELECTED": "Таңдалғандар",
+    "audiencePARTNER_UNIVERSITIES": "Серіктес ЖОО студенттеріне",
     "commentsError": "Пікірлерді жүктеу мүмкін болмады",
     "commentsEmpty": "Әзірге пікір жоқ — бірінші болып жазыңыз"
   },

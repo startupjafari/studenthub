@@ -32,11 +32,14 @@ import { UpdateStoryHighlightDto } from './dto/update-story-highlight.dto'
 // Подборки собирают из своих сторис — значит, те же роли, что публикуют сторисы.
 const AUTHOR_ROLES = [
   Role.PLATFORM_ADMIN,
+  Role.PLATFORM_MODERATOR,
   Role.UNIVERSITY_ADMIN,
+  Role.UNIVERSITY_MODERATOR,
   Role.DEAN,
   Role.TEACHER,
   Role.STAROSTA,
   Role.STUDENT,
+  Role.EMPLOYER,
 ] as const
 
 /**
