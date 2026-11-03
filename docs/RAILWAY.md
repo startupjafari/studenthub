@@ -100,7 +100,7 @@ Branch). Ветка задаётся в интерфейсе Railway, а не в
    | `NEXT_PUBLIC_SENTRY_DSN` | DSN проекта Sentry (пусто = трекер выключен) |
    | `NEXT_PUBLIC_MINIO_URL` | `https://<minio-домен>` — попадает в CSP |
    | `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | тот же ключ, что `VAPID_PUBLIC_KEY` у api; без него нет push |
-   | `NEXT_PUBLIC_FEATURE_STORIES` | `1` включает сторисы (Ф14.1); пусто = раздела нет |
+   | `NEXT_PUBLIC_FEATURE_STORIES` | `0` выключает сторисы (Ф14.1); пусто = включены |
 
    Опционально там же: `NEXT_PUBLIC_SENTRY_ENVIRONMENT`, `NEXT_PUBLIC_SENTRY_RELEASE`
    (тот же `${{RAILWAY_GIT_COMMIT_SHA}}`, что и у api — версия сборки уже показывается
