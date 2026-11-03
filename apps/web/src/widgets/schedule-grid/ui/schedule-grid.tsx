@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useLocale, useTranslations } from 'next-intl'
 import { toast } from 'sonner'
 import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react'
@@ -100,9 +100,12 @@ export function ScheduleGrid({ filters = {} }: ScheduleGridProps) {
     ...(filters.groupId ? { groupId: filters.groupId } : {}),
     ...(filters.teacherId ? { teacherId: filters.teacherId } : {}),
   }
+  // Пока грузятся изменения новой недели, сетка стоит на прежних — переключение недели
+  // не возвращает скелетон (см. условие загрузки ниже).
   const changes = useQuery({
     queryKey: scheduleKeys.changes(changesQuery),
     queryFn: () => fetchScheduleChanges(changesQuery),
+    placeholderData: keepPreviousData,
   })
 
   // Не весь scheduleKeys.all: разовое изменение перечитывает только выборку изменений, правка
@@ -246,7 +249,12 @@ export function ScheduleGrid({ filters = {} }: ScheduleGridProps) {
         </div>
       </div>
 
-      {schedule.isLoading ? (
+      {/* Сетку рисуем, когда пришли и пары, и изменения: границы окна по времени считаются
+          по обоим. Пары часто уже лежат в кэше (их запрашивает блок «Сегодня»), а изменения
+          недели — нет, и сетка, нарисованная без них, расширялась на их приходе: все
+          карточки разом съезжали вниз. Сбой изменений сетку не держит — isLoading у
+          ошибки ложно. */}
+      {schedule.isLoading || changes.isLoading ? (
         <Skeleton fill className="min-h-[28rem]" />
       ) : schedule.isError ? (
         <EmptyState title={tErr('INTERNAL_ERROR')} />

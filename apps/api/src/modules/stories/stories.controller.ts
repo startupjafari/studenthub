@@ -29,15 +29,20 @@ import { StoryViewersQueryDto } from './dto/story-viewers-query.dto'
 import { StoryVoteDto } from './dto/story-vote.dto'
 import { UpdateStoryAudienceDto } from './dto/update-story-audience.dto'
 
-// Кто публикует сторисы (docs/PROJECT.md §2.2, строка «Сторисы — создание»):
-// те же роли, что и посты, — модераторы контент не создают, работодатель тоже.
+// Кто публикует сторисы (docs/PROJECT.md §2.2, строка «Сторисы — создание»): все роли с
+// социальными разделами. Шире, чем посты: сторис — личное и на сутки, модератор и
+// работодатель делятся им как люди (свои аудитории — ALLOWED_AUDIENCES), а не от имени
+// площадки. Охраны и библиотекаря нет: социальных разделов у них нет вовсе (§2).
 const AUTHOR_ROLES = [
   Role.PLATFORM_ADMIN,
+  Role.PLATFORM_MODERATOR,
   Role.UNIVERSITY_ADMIN,
+  Role.UNIVERSITY_MODERATOR,
   Role.DEAN,
   Role.TEACHER,
   Role.STAROSTA,
   Role.STUDENT,
+  Role.EMPLOYER,
 ] as const
 
 // Раздел за флагом раскатки (env FEATURE_STORIES, по умолчанию включён). Выключенный флаг

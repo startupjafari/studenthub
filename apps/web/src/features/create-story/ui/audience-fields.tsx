@@ -42,6 +42,7 @@ const AUDIENCE_KEY: Record<StoryAudienceValue, string> = {
   TEACHERS: 'audienceTEACHERS',
   FRIENDS: 'audienceFRIENDS',
   SELECTED: 'audienceSELECTED',
+  PARTNER_UNIVERSITIES: 'audiencePARTNER_UNIVERSITIES',
 }
 
 /** Подпись аудитории сторис (namespace Feed) — для меню и окна смены аудитории. */

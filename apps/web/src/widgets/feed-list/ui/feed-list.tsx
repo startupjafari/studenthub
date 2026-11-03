@@ -53,7 +53,7 @@ export function FeedList({ filter = 'ALL' }: { filter?: FeedFilterValue }) {
     return (
       <div className="flex flex-col gap-4">
         {Array.from({ length: 3 }).map((_, i) => (
-          <Skeleton key={i} fill className="min-h-64 rounded-2xl" />
+          <Skeleton key={i} fill className="min-h-64 rounded-xl" />
         ))}
       </div>
     )
@@ -99,7 +99,7 @@ export function FeedList({ filter = 'ALL' }: { filter?: FeedFilterValue }) {
           полосе прокрутки дёрнуться в момент, когда посты придут. */}
       {query.hasNextPage && (
         <div ref={loadMoreRef} aria-hidden>
-          <Skeleton className="h-64 w-full rounded-2xl" />
+          <Skeleton className="h-64 w-full rounded-xl" />
         </div>
       )}
 

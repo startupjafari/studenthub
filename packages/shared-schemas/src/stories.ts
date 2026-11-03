@@ -3,7 +3,8 @@ import { CursorPaginationSchema } from './pagination.js'
 
 // Сторисы (docs/PROJECT.md §3.4, задача Ф14.1). Значения enum дублируют Prisma-enum
 // StoryAudience. Предметной (SUBJECT) аудитории здесь нет. Личные — FRIENDS (друзья автора)
-// и SELECTED (поимённый список `userIds`): их выбирает любой, кто публикует сторисы.
+// и SELECTED (поимённый список `userIds`). PARTNER_UNIVERSITIES — только у работодателя:
+// студенты вузов, допустивших его компанию.
 
 export const StoryAudienceSchema = z.enum([
   'ALL',
@@ -13,6 +14,7 @@ export const StoryAudienceSchema = z.enum([
   'TEACHERS',
   'FRIENDS',
   'SELECTED',
+  'PARTNER_UNIVERSITIES',
 ])
 export type StoryAudienceValue = z.infer<typeof StoryAudienceSchema>
 

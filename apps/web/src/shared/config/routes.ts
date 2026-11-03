@@ -23,6 +23,20 @@ export const ROLE_HOME: Record<Role, string> = {
 }
 
 /**
+ * Чаты по роли — для кнопок «Написать» (профиль человека, список друзей): личный чат
+ * открывается на странице чатов СВОЕЙ роли. Источник путей — меню
+ * (widgets/app-shell/model/nav.ts); здесь — общий слой, потому что widget другому widget'у
+ * не импортируется (FSD). Роли не из списка кнопку «Написать» не показывают.
+ */
+export const CHATS_HREF_BY_ROLE: Partial<Record<Role, string>> = {
+  [Role.STUDENT]: '/chats',
+  [Role.UNIVERSITY_ADMIN]: '/university-admin/chats',
+  [Role.DEAN]: '/dean/chats',
+  [Role.TEACHER]: '/teacher/chats',
+  [Role.STAROSTA]: '/starosta/chats',
+}
+
+/**
  * Куда пускать роли с запретом по умолчанию (`RESTRICTED_ROLES`, docs/PROJECT.md §2) — тот
  * же принцип «разрешено только по списку», что у RestrictedRoleGuard на сервере. Остальные
  * экраны платформы им не нужны, а открытые прямой ссылкой показали бы стену ошибок `403`:

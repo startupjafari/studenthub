@@ -1,4 +1,4 @@
-export { ROLE_HOME } from './routes'
+export { CHATS_HREF_BY_ROLE, ROLE_HOME } from './routes'
 export { STORIES_ENABLED } from './features'
 export {
   LANGUAGES_DICT,

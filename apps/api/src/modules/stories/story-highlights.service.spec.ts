@@ -43,6 +43,8 @@ function setup() {
     },
     user: { findFirst: jest.fn().mockResolvedValue({ id: 'o-1' }) },
     userBlock: { count: jest.fn().mockResolvedValue(0) },
+    // Компания владельца допущена в вуз зрителя (PARTNER_UNIVERSITIES) — по умолчанию нет.
+    companyMember: { count: jest.fn().mockResolvedValue(0) },
     $transaction: jest.fn(async (arg: unknown) =>
       typeof arg === 'function' ? (arg as (t: typeof tx) => unknown)(tx) : Promise.all(arg as []),
     ),
@@ -135,6 +137,23 @@ describe('StoryHighlightsService — видимость', () => {
     await service.list(viewer('v-1'), 'o-1')
     where = prisma.storyHighlight.findMany.mock.calls[1][0].where
     expect(where.items.some.OR).toContainEqual({ audience: 'FRIENDS' })
+  })
+
+  it('подборки работодателя — студенту вуза, допустившего компанию, и только при живом допуске', async () => {
+    const { service, prisma } = setup()
+    await service.list(viewer('v-1'), 'o-1')
+    let where = prisma.storyHighlight.findMany.mock.calls[0][0].where
+    expect(where.items.some.OR).not.toContainEqual({ audience: 'PARTNER_UNIVERSITIES' })
+    // Допуск проверяется по компании владельца на каждый запрос, со вузом зрителя.
+    expect(prisma.companyMember.count.mock.calls[0][0].where).toMatchObject({
+      userId: 'o-1',
+      company: { universityAccess: { some: { universityId: 'uni-1', status: 'APPROVED' } } },
+    })
+
+    prisma.companyMember.count.mockResolvedValue(1)
+    await service.list(viewer('v-1'), 'o-1')
+    where = prisma.storyHighlight.findMany.mock.calls[1][0].where
+    expect(where.items.some.OR).toContainEqual({ audience: 'PARTNER_UNIVERSITIES' })
   })
 
   it('выбранная обложка, невидимая зрителю, заменяется первой видимой сторис', async () => {

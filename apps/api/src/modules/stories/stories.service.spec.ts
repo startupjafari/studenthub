@@ -79,6 +79,9 @@ function setup() {
       findUnique: jest.fn().mockResolvedValue({ firstName: 'Аня', lastName: 'Ким' }),
       count: jest.fn().mockResolvedValue(0),
     },
+    // Компания автора и её допуски — для аудитории PARTNER_UNIVERSITIES (работодатель).
+    company: { findFirst: jest.fn().mockResolvedValue(null) },
+    companyUniversityAccess: { findMany: jest.fn().mockResolvedValue([]) },
     $transaction: jest.fn(async (fn: (t: typeof tx) => unknown) => fn(tx)),
   }
   const audit = { record: jest.fn().mockResolvedValue(undefined) }
@@ -133,6 +136,7 @@ function viewer(role: Role, scope: Partial<JwtPayload> = {}): JwtPayload {
     universityId: scope.universityId ?? null,
     facultyId: scope.facultyId ?? null,
     groupId: scope.groupId ?? null,
+    ...(scope.companyId !== undefined ? { companyId: scope.companyId } : {}),
   }
 }
 
@@ -1136,5 +1140,134 @@ describe('StoriesService — аудитории FRIENDS и SELECTED', () => {
     prisma.story.findFirst.mockResolvedValue(row)
     expect((await service.getById(student('u-1'), 's1')).audienceUsers).toEqual([recipient])
     expect((await service.getById(student('u-2'), 's1')).audienceUsers).toBeNull()
+  })
+})
+
+// ── Модераторы и работодатель ────────────────────────────────────────────────
+describe('StoriesService — сторис модераторов и работодателя', () => {
+  const employer = (over: Partial<JwtPayload> = {}) =>
+    viewer(Role.EMPLOYER, { sub: 'e1', universityId: null, companyId: 'co-1', ...over })
+
+  it('студент видит сторис работодателей, допущенных в его вуз, — через компанию автора', async () => {
+    const { service, prisma } = setup()
+    await service.feed(viewer(Role.STUDENT, { sub: 's1', universityId: 'uni-1' }), {})
+    const where = prisma.story.findMany.mock.calls[0][0].where
+    const clause = where.OR.find(
+      (c: Record<string, unknown>) => c.audience === StoryAudience.PARTNER_UNIVERSITIES,
+    )
+    expect(clause.author.companyMembership.company).toMatchObject({
+      status: 'ACTIVE',
+      deletedAt: null,
+      universityAccess: { some: { universityId: 'uni-1', status: 'APPROVED' } },
+    })
+  })
+
+  it('сотрудники вуза сторис для вузов-партнёров не видят: они адресованы студентам', async () => {
+    const { service, prisma } = setup()
+    await service.feed(viewer(Role.TEACHER, { sub: 't1', universityId: 'uni-1' }), {})
+    const where = prisma.story.findMany.mock.calls[0][0].where
+    expect(hasClause(where, { audience: StoryAudience.PARTNER_UNIVERSITIES })).toBe(false)
+  })
+
+  it('работодатель активной компании публикует для вузов-партнёров — без вуза в записи', async () => {
+    const { service, prisma, tx } = setup()
+    prisma.company.findFirst.mockResolvedValue({ id: 'co-1' })
+    prisma.story.findFirst.mockResolvedValue(
+      storyRow({
+        authorId: 'e1',
+        audience: StoryAudience.PARTNER_UNIVERSITIES,
+        universityId: null,
+      }),
+    )
+    await service.create(employer(), { audience: 'PARTNER_UNIVERSITIES', text: 'x' }, ctx)
+    const data = tx.story.create.mock.calls[0][0].data
+    expect(data.audience).toBe(StoryAudience.PARTNER_UNIVERSITIES)
+    expect(data.universityId).toBeUndefined()
+    expect(prisma.company.findFirst.mock.calls[0][0].where).toMatchObject({
+      id: 'co-1',
+      status: 'ACTIVE',
+      deletedAt: null,
+    })
+  })
+
+  it('без активной компании работодатель не публикует — FORBIDDEN', async () => {
+    const { service } = setup()
+    const err = await service
+      .create(employer(), { audience: 'PARTNER_UNIVERSITIES', text: 'x' }, ctx)
+      .catch((e) => e)
+    expect(err).toBeInstanceOf(AppException)
+    expect(err.code).toBe('FORBIDDEN')
+  })
+
+  it('личные аудитории работодателю закрыты: друзей у него нет, а список обходил бы допуск', async () => {
+    const { service } = setup()
+    for (const audience of ['FRIENDS', 'SELECTED'] as const) {
+      const err = await service
+        .create(
+          employer(),
+          audience === 'SELECTED'
+            ? { audience, text: 'x', userIds: ['s1'] }
+            : { audience, text: 'x' },
+          ctx,
+        )
+        .catch((e) => e)
+      expect(err.code).toBe('FORBIDDEN')
+    }
+  })
+
+  it('чужую аудиторию модератору не выбрать: вузу — только свой вуз, не весь мир', async () => {
+    const { service } = setup()
+    const err = await service
+      .create(
+        viewer(Role.UNIVERSITY_MODERATOR, { sub: 'm1', universityId: 'uni-1' }),
+        { audience: 'ALL', text: 'x' },
+        ctx,
+      )
+      .catch((e) => e)
+    expect(err.code).toBe('FORBIDDEN')
+  })
+
+  it('модератор вуза публикует на свой вуз, модератор платформы — на всех', async () => {
+    const { service, prisma, tx } = setup()
+    prisma.story.findFirst.mockResolvedValue(storyRow())
+    await service.create(
+      viewer(Role.UNIVERSITY_MODERATOR, { sub: 'm1', universityId: 'uni-1' }),
+      { audience: 'UNIVERSITY', text: 'x' },
+      ctx,
+    )
+    expect(tx.story.create.mock.calls[0][0].data).toMatchObject({
+      audience: StoryAudience.UNIVERSITY,
+      universityId: 'uni-1',
+    })
+    await service.create(
+      viewer(Role.PLATFORM_MODERATOR, { sub: 'pm1', universityId: null }),
+      { audience: 'ALL', text: 'x' },
+      ctx,
+    )
+    expect(tx.story.create.mock.calls[1][0].data.audience).toBe(StoryAudience.ALL)
+  })
+
+  it('одна запись: видит студент вуза из допустивших, а не сотрудник и не чужой вуз', () => {
+    const story = { authorId: 'e1', audience: StoryAudience.PARTNER_UNIVERSITIES }
+    const partners = new Set(['uni-1'])
+    const user = {
+      id: 's1',
+      role: Role.STUDENT,
+      universityId: 'uni-1',
+      facultyId: null,
+      groupId: null,
+    }
+    expect(audienceIncludes(user, story, undefined, partners)).toBe(true)
+    expect(audienceIncludes({ ...user, role: Role.STAROSTA }, story, undefined, partners)).toBe(
+      true,
+    )
+    expect(audienceIncludes({ ...user, role: Role.TEACHER }, story, undefined, partners)).toBe(
+      false,
+    )
+    expect(audienceIncludes({ ...user, universityId: 'uni-2' }, story, undefined, partners)).toBe(
+      false,
+    )
+    // Без списка допусков — никто: безопасное значение по умолчанию.
+    expect(audienceIncludes(user, story)).toBe(false)
   })
 })
