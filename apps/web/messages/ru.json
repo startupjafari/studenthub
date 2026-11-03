@@ -1511,6 +1511,7 @@
     "dropImageHint": "Нажмите, чтобы выбрать фото",
     "dropVideoHint": "Нажмите, чтобы выбрать видео",
     "tabPolls": "Опросы",
+    "createStory": "Сторис",
     "editArticle": "Редактировать статью",
     "coverImage": "Изображение",
     "coverGradient": "Градиент",
@@ -2174,6 +2175,7 @@
     "bookmark": "В избранное",
     "audienceFRIENDS": "Только друзья",
     "audienceSELECTED": "Выбранные",
+    "audiencePARTNER_UNIVERSITIES": "Студентам вузов-партнёров",
     "commentsError": "Не удалось загрузить комментарии",
     "commentsEmpty": "Комментариев пока нет — напишите первым"
   },

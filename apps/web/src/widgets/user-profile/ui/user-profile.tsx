@@ -12,6 +12,7 @@ import {
   BarChart3,
   Camera,
   Check,
+  CircleFadingPlus,
   FileText,
   Image as ImageIcon,
   Newspaper,
@@ -35,7 +36,7 @@ import {
   useConfirm,
 } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
-import { BRAND_GRADIENT } from '../../../shared/config'
+import { BRAND_GRADIENT, STORIES_ENABLED } from '../../../shared/config'
 import { useSheetDragClose } from '../../../shared/lib'
 import { syncSessionUser } from '../../../shared/session'
 import { AccountSettingsPanels } from '../../account-settings'
@@ -66,7 +67,7 @@ import { PostFromUrl } from '../../feed-list'
 import { ProfileCompletion } from './profile-completion'
 import { ShareProfileButton } from './share-profile-button'
 import { StoryAvatarRing, type RenderHighlights, type RenderStoryViewer } from './story-avatar-ring'
-import { useAuthorStories } from '../../../entities/story'
+import { canCreateStory, useAuthorStories } from '../../../entities/story'
 
 // Тяжёлые модалки (кроппер аватара на canvas, редактор статей с markdown, создание
 // поста/фото/видео/опроса) грузятся динамически — только при открытии, а не на каждом
@@ -95,12 +96,32 @@ const PostCreateModal = dynamic(
   () => import('./post-create-modal').then((m) => m.PostCreateModal),
   { ssr: false },
 )
+// Редактор сторис (холст, элементы, обрезка видео) — тот же, что у полосы колец над лентой;
+// грузится только по выбору пункта «Сторис».
+const CreateStoryForm = dynamic(
+  () => import('../../../features/create-story').then((m) => m.CreateStoryForm),
+  { ssr: false },
+)
 
-export type CreateKind = 'post' | 'photo' | 'video' | 'article' | 'poll'
+export type CreateKind = 'story' | 'post' | 'photo' | 'video' | 'article' | 'poll'
 
-// Работодатель публикует посты только на странице своей компании: в личном профиле у него
-// нет ни вкладки «Посты», ни пункта «Пост» в меню «+».
-const PERSONAL_KINDS_WITHOUT_POSTS: CreateKind[] = ['photo', 'video', 'article', 'poll']
+const ALL_KINDS: CreateKind[] = ['story', 'post', 'photo', 'video', 'article', 'poll']
+
+/**
+ * Что можно создать из меню «+» своего профиля.
+ *
+ * Сторис — отсюда для всех, кто их публикует: полоса колец с кнопкой создания стоит только
+ * над лентой, а ленты у многих ролей нет (админ и модератор платформы, работодатель), и
+ * сторис было негде начать. Работодатель публикует посты только на странице своей
+ * компании: в личном профиле у него нет ни вкладки «Посты», ни пункта «Пост».
+ */
+function createKindsFor(role: Role): CreateKind[] {
+  return ALL_KINDS.filter((kind) => {
+    if (kind === 'story') return STORIES_ENABLED && canCreateStory(role)
+    if (kind === 'post') return role !== Role.EMPLOYER
+    return true
+  })
+}
 
 function errCode(e: unknown): string {
   return (e as { code?: string }).code ?? 'INTERNAL_ERROR'
@@ -207,7 +228,7 @@ export function UserProfile({
               setTab('profile')
             }}
             onQuickCreate={quickCreate}
-            createKinds={personalPosts ? undefined : PERSONAL_KINDS_WITHOUT_POSTS}
+            createKinds={createKindsFor(u.role)}
             toolbar={toolbar}
             renderStoryViewer={renderStoryViewer}
             renderHighlights={social ? renderHighlights : undefined}
@@ -268,6 +289,12 @@ export function UserProfile({
       )}
       {createModal === 'poll' && (
         <PollCreateModal userId={u.id} onClose={() => setCreateModal(null)} />
+      )}
+      {createModal === 'story' && (
+        <CreateStoryForm
+          onClose={() => setCreateModal(null)}
+          onCreated={() => setCreateModal(null)}
+        />
       )}
     </div>
   )
@@ -682,6 +709,7 @@ export function AvatarCreateMenu({
 
   const items: { target: CreateKind; label: string; icon: LucideIcon }[] = (
     [
+      { target: 'story', label: t('createStory'), icon: CircleFadingPlus },
       { target: 'post', label: t('tabPosts'), icon: Newspaper },
       { target: 'photo', label: t('tabPhotos'), icon: ImageIcon },
       { target: 'video', label: t('tabVideos'), icon: Video },
