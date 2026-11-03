@@ -84,6 +84,7 @@ import { useBookmark } from '../../../features/bookmark-post'
 import { PostTileMenu } from './post-tile-menu'
 import { PostByline, initials } from './post-byline'
 import { MediaFrame } from './media-frame'
+import { SharedArticleCard } from './shared-article-card'
 import { RepostBanner, RepostUnavailable } from './repost-banner'
 import { useRepostSource } from '../lib/use-repost-source'
 import { useMediaZoom } from '../lib/use-media-zoom'
@@ -789,7 +790,7 @@ function PostView({
         ref={threadRef}
         className="sh-scroll flex min-h-0 flex-auto flex-col overflow-y-auto overscroll-contain"
       >
-        {(via || hasCaption || cur) && (
+        {(via || hasCaption || cur || post.sharedArticleId) && (
           <div className="flex flex-col gap-3 px-4 pt-4 sm:px-5">
             {via && <RepostBanner repost={via} />}
             {/* Подпись — без второго аватара и имени: автор и время уже в шапке. */}
@@ -808,6 +809,7 @@ function PostView({
                 {originalUnavailable && <RepostUnavailable className="mt-1" />}
               </div>
             )}
+            <SharedArticleCard post={post} />
 
             {cur && (
               // Пропорции кадра — одни на весь пост (mediaAspectFor): при листании карусели

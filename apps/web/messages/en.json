@@ -2085,6 +2085,7 @@
     "sharedToChat": "Post sent to chat",
     "repost": "Repost",
     "repostTitle": "Repost",
+    "articleRepost": "Article",
     "repostComment": "Comment",
     "repostPlaceholder": "Add a comment (optional)",
     "reposted": "Reposted",
@@ -5851,5 +5852,16 @@
     "viaGrantUniversity": "Access: university",
     "viaGrantDepartment": "Access: dean's office",
     "viaGrantUser": "Access: personal"
+  },
+  "Article": {
+    "title": "Article",
+    "breadcrumbRoot": "Articles",
+    "unavailableTitle": "Article unavailable",
+    "unavailableText": "It was deleted, or the author restricted access to it.",
+    "toFeed": "Back to feed",
+    "commentsOff": "The author turned off comments on this article",
+    "read": "Read article",
+    "unavailableShort": "Article unavailable",
+    "authorTag": "Author"
   }
 }

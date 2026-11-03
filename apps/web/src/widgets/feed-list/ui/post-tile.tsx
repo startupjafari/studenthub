@@ -63,6 +63,7 @@ function PostTileView({
   originalUnavailable?: boolean
 }) {
   const t = useTranslations('Feed')
+  const tArticle = useTranslations('Article')
   const myId = useAppSelector((s) => s.auth.user?.id)
   const myRole = useAppSelector((s) => s.auth.role)
 
@@ -72,6 +73,8 @@ function PostTileView({
   const text =
     post.title ||
     plainPreview(post.content) ||
+    // Репост статьи без подписи — заголовком статьи (или «недоступна»).
+    (post.sharedArticleId ? (post.sharedArticle?.title ?? tArticle('unavailableShort')) : '') ||
     (originalUnavailable ? t('postUnavailableTitle') : '')
   const byRole = myRole !== null && MODERATOR_ROLES.includes(myRole)
   // Меню «•••» — про ту публикацию, что лежит в профиле: у репоста это сам репост

@@ -172,6 +172,21 @@ export class PostsController {
     return this.posts.repost(user, id, dto, this.ctx(req))
   }
 
+  @Post('articles/:articleId/repost')
+  @Roles(...AUTHOR_ROLES)
+  @ApiOperation({ summary: 'Репост статьи в ленту (пост со ссылкой на статью)' })
+  @ApiResponse({ status: 201, description: 'Репост создан' })
+  @ApiResponse({ status: 400, description: 'Статья не опубликована' })
+  @ApiResponse({ status: 404, description: 'Статья не найдена или недоступна' })
+  repostArticle(
+    @CurrentUser() user: CurrentUserData,
+    @Param('articleId') articleId: string,
+    @Body() dto: RepostDto,
+    @Req() req: FastifyRequest,
+  ) {
+    return this.posts.repostArticle(user, articleId, dto, this.ctx(req))
+  }
+
   @Post(':id/bookmark')
   @ApiOperation({ summary: 'Сохранить пост в избранное или убрать оттуда (переключатель)' })
   @ApiResponse({ status: 201, description: 'Новое состояние закладки' })

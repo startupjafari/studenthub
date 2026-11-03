@@ -31,6 +31,9 @@ model ProfileArticle {
   universityPage University?      @relation("UniversityPageArticles", fields: [universityPageId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   comments       ContentComment[]
   bookmarks      Bookmark[]
+  likes          ArticleLike[]
+  // Репосты статьи в ленту — посты со ссылкой на неё (Post.sharedArticleId).
+  reposts        Post[]           @relation("PostSharedArticle")
 
   @@index([userId, createdAt])
   @@index([companyId, createdAt])
@@ -71,6 +74,23 @@ model Bookmark {
   @@index([userId])
   @@index([articleId])
   @@map("bookmarks")
+}
+
+// Лайк статьи — одна отметка от человека, без набора эмодзи, как у постов: у статьи
+// одна оценка «понравилось», и счётчик виден всем.
+model ArticleLike {
+  id        String   @id @default(uuid())
+  articleId String   @map("article_id")
+  userId    String   @map("user_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  article ProfileArticle @relation(fields: [articleId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  user    User           @relation("UserArticleLikes", fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  // Идемпотентность: повторный лайк не создаёт второй строки.
+  @@unique([articleId, userId])
+  @@index([userId])
+  @@map("article_likes")
 }
 
 // Альбом фото профиля: группирует File (бакет profile-media) через File.albumId; обложка — coverFileId.

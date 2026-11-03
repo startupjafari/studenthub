@@ -2085,6 +2085,7 @@
     "sharedToChat": "Пост отправлен в чат",
     "repost": "Репост",
     "repostTitle": "Репост публикации",
+    "articleRepost": "Статья",
     "repostComment": "Комментарий",
     "repostPlaceholder": "Добавьте комментарий (необязательно)",
     "reposted": "Репост опубликован",
@@ -5851,5 +5852,16 @@
     "viaGrantUniversity": "Доступ: университет",
     "viaGrantDepartment": "Доступ: деканат",
     "viaGrantUser": "Доступ: лично"
+  },
+  "Article": {
+    "title": "Статья",
+    "breadcrumbRoot": "Статьи",
+    "unavailableTitle": "Статья недоступна",
+    "unavailableText": "Её удалили, или автор ограничил к ней доступ.",
+    "toFeed": "В ленту",
+    "commentsOff": "Автор отключил комментарии к статье",
+    "read": "Читать статью",
+    "unavailableShort": "Статья недоступна",
+    "authorTag": "Автор"
   }
 }

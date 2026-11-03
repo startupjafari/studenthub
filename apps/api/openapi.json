@@ -15369,6 +15369,51 @@
         ]
       }
     },
+    "/posts/articles/{articleId}/repost": {
+      "post": {
+        "operationId": "PostsController_repostArticle",
+        "parameters": [
+          {
+            "name": "articleId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RepostDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Репост создан"
+          },
+          "400": {
+            "description": "Статья не опубликована"
+          },
+          "404": {
+            "description": "Статья не найдена или недоступна"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Репост статьи в ленту (пост со ссылкой на статью)",
+        "tags": [
+          "Посты"
+        ]
+      }
+    },
     "/posts/{id}/bookmark": {
       "post": {
         "operationId": "PostsController_toggleBookmark",
@@ -21802,6 +21847,65 @@
           }
         ],
         "summary": "Переключить закладку на статью",
+        "tags": [
+          "Профиль — контент"
+        ]
+      }
+    },
+    "/profile/articles/{id}/like": {
+      "post": {
+        "operationId": "ProfileContentController_likeArticle",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ liked: true, likesCount }"
+          },
+          "400": {
+            "description": "Статья — черновик"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Лайкнуть статью (идемпотентно)",
+        "tags": [
+          "Профиль — контент"
+        ]
+      },
+      "delete": {
+        "operationId": "ProfileContentController_unlikeArticle",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ liked: false, likesCount }"
+          }
+        },
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "summary": "Снять лайк со статьи (идемпотентно)",
         "tags": [
           "Профиль — контент"
         ]

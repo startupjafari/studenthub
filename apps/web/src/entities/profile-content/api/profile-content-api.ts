@@ -123,6 +123,9 @@ export interface ProfileArticle {
   commentCount: number
   bookmarksCount: number
   bookmarked: boolean
+  /** Лайки статьи: сколько всего и стоит ли свой. Нет полей — ответ старого API. */
+  likesCount?: number
+  liked?: boolean
   createdAt: string
   updatedAt: string
 }
@@ -362,6 +365,18 @@ export async function addArticleComment(id: string, content: string): Promise<Co
 
 export async function deleteArticleComment(id: string, commentId: string): Promise<void> {
   await api.delete(`/profile/articles/${id}/comments/${commentId}`)
+}
+
+/** Лайк статьи или его снятие — идемпотентно; ответ — итоговое состояние и число лайков. */
+export async function setArticleLike(
+  id: string,
+  liked: boolean,
+): Promise<{ liked: boolean; likesCount: number }> {
+  const url = `/profile/articles/${id}/like`
+  const { data } = liked
+    ? await api.post<{ liked: boolean; likesCount: number }>(url)
+    : await api.delete<{ liked: boolean; likesCount: number }>(url)
+  return data
 }
 
 export async function toggleArticleBookmark(id: string): Promise<boolean> {
