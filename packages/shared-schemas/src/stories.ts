@@ -86,7 +86,7 @@ export type StoryPollInput = z.infer<typeof StoryPollSchema>
 // заранее, чтобы не грузить файл, который всё равно не пройдёт.
 export const STORY_IMAGE_MIMES = ['image/jpeg', 'image/png', 'image/webp'] as const
 export const STORY_VIDEO_MIMES = ['video/mp4', 'video/webm'] as const
-export const STORY_MEDIA_DEFAULTS = { imageMaxMb: 10, videoMaxMb: 100, videoMaxSeconds: 60 }
+export const STORY_MEDIA_DEFAULTS = { imageMaxMb: 10, videoMaxMb: 100, videoMaxSeconds: 105 }
 
 // ── Элементы кадра из редактора ───────────────────────────────────────────────
 // Архитектура стикеров: дискриминированное объединение по `type`. Новый вид стикера —

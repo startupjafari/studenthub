@@ -2702,6 +2702,9 @@
           "201": {
             "description": "Запись File"
           },
+          "400": {
+            "description": "BAD_REQUEST — отрезок не для видео сторис или длиннее лимита"
+          },
           "403": {
             "description": "FORBIDDEN — ключ не принадлежит вызывающему"
           },
@@ -24622,6 +24625,25 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 255
+          },
+          "trim": {
+            "type": "object",
+            "properties": {
+              "startMs": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "endMs": {
+                "type": "integer",
+                "minimum": 0,
+                "exclusiveMinimum": true
+              }
+            },
+            "required": [
+              "startMs",
+              "endMs"
+            ],
+            "additionalProperties": false
           }
         },
         "required": [

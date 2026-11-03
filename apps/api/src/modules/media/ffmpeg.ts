@@ -162,6 +162,57 @@ export async function extractFrame(
 }
 
 /**
+ * Вырезать отрезок видео в MP4 (H.264 + AAC). Перекодированием, а не копированием потоков:
+ * копия режет только по ключевым кадрам, и начало уезжало бы на секунду-две раньше
+ * выбранного. `-ss` перед `-i` — быстрый переход, и при перекодировании он точный.
+ * Звук — если он есть (`0:a:0?`); `+faststart` — плеер начинает играть, не дожидаясь
+ * конца файла (оригинал играет, пока не готов HLS).
+ */
+export async function cutSegment(params: {
+  ffmpeg: string
+  input: string
+  startMs: number
+  endMs: number
+  outPath: string
+  timeoutMs: number
+}): Promise<void> {
+  await run(
+    params.ffmpeg,
+    [
+      '-hide_banner',
+      '-loglevel',
+      'error',
+      '-y',
+      '-ss',
+      (params.startMs / 1000).toFixed(3),
+      ...inputArgs(params.input),
+      '-t',
+      ((params.endMs - params.startMs) / 1000).toFixed(3),
+      '-map',
+      '0:v:0',
+      '-map',
+      '0:a:0?',
+      '-c:v',
+      'libx264',
+      '-preset',
+      'veryfast',
+      '-crf',
+      '20',
+      '-pix_fmt',
+      'yuv420p',
+      '-c:a',
+      'aac',
+      '-b:a',
+      '128k',
+      '-movflags',
+      '+faststart',
+      params.outPath,
+    ],
+    params.timeoutMs,
+  )
+}
+
+/**
  * Перекодирование в HLS одним проходом: вход читается один раз, `split` раздаёт кадры на
  * все ступени. Рендишн `<short>` пишется в `<outDir>/<short>/index.m3u8` + `seg-NNNN.ts`.
  *

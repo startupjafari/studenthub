@@ -2,18 +2,19 @@ import { Inject, Injectable, Logger, type OnModuleInit } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { MediaStatus, MediaVariantKind, Prisma } from '@prisma/client'
 import type { Client as MinioClient } from 'minio'
+import { randomUUID } from 'node:crypto'
 import { mkdir, mkdtemp, readdir, readFile, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { PrismaService } from '../../common/prisma/prisma.service'
 import { MINIO_CLIENT } from '../../common/minio/minio.constants'
 import type { EnvVars } from '../../config/env.schema'
-import { extractFrame, isAvailable, probe, transcodeHls } from './ffmpeg'
+import { cutSegment, extractFrame, isAvailable, probe, transcodeHls } from './ffmpeg'
 import { buildImageVariants, buildPosterVariants, type EncodedVariant } from './image-pipeline'
 import { VARIANT_CACHE_CONTROL } from './media.constants'
 import { hlsRenditionDir, imageVariantKey, posterVariantKey, variantPrefix } from './media-keys'
 import { planHlsLadder, posterTimestamp } from './media-plan'
-import type { VariantRow } from './media.types'
+import type { VariantRow, VideoTrim } from './media.types'
 
 // Потолок чтения изображения в память. Лимит категории IMAGE — 10 МБ; запас на случай,
 // если лимит поднимут, но не настолько, чтобы чужой «картинкой» положить воркер.
@@ -131,7 +132,7 @@ export class MediaProcessingService implements OnModuleInit {
 
   // ── Точки входа процессоров ──
 
-  async process(fileId: string): Promise<void> {
+  async process(fileId: string, trim?: VideoTrim): Promise<void> {
     const file = await this.prisma.file.findUnique({
       where: { id: fileId },
       select: {
@@ -172,7 +173,7 @@ export class MediaProcessingService implements OnModuleInit {
       return
     }
     await this.setStatus(file.id, MediaStatus.PROCESSING)
-    if (isVideo) await this.processVideo(file)
+    if (isVideo) await this.processVideo(file, trim)
     else await this.processImage(file)
   }
 
@@ -295,7 +296,15 @@ export class MediaProcessingService implements OnModuleInit {
 
   // ── Видео ──
 
-  private async processVideo(file: SourceFile): Promise<void> {
+  private async processVideo(source: SourceFile, trim?: VideoTrim): Promise<void> {
+    let file = source
+    // Отрезок вырезается первым, и дальше всё — постер, HLS, длительность — готовится уже из
+    // него. Ключ сменился — отрезок вырезан прошлой попыткой job'а, резать второй раз нельзя.
+    if (trim && file.key === trim.sourceKey) {
+      const cut = await this.cutVideo(file, trim)
+      if (!cut) return
+      file = cut
+    }
     // ffmpeg читает исходник по ссылке из внутреннего MinIO: 500 МБ не идут через память
     // воркера и не ложатся вторым экземпляром на диск — перекодирование потоковое.
     const input = await this.minio.presignedGetObject(file.bucket, file.key, SOURCE_URL_TTL_SECONDS)
@@ -362,6 +371,49 @@ export class MediaProcessingService implements OnModuleInit {
         },
         rows,
       )
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  }
+
+  /**
+   * Вырезать отрезок и подменить им исходник: новый объект под новым ключом, запись File
+   * переключается на него, старый объект удаляется. В хранилище остаётся только отрезок —
+   * его же играет оригинальная ссылка, пока не готов HLS. Переключение условное (по старому
+   * ключу): файл удалили или уже переключили — новый объект убирается, обработка не идёт.
+   */
+  private async cutVideo(file: SourceFile, trim: VideoTrim): Promise<SourceFile | null> {
+    const input = await this.minio.presignedGetObject(file.bucket, file.key, SOURCE_URL_TTL_SECONDS)
+    await this.sweepStaleTmp(file.id)
+    const dir = await mkdtemp(join(this.tmpRoot, `${file.id}-`))
+    try {
+      const outPath = join(dir, 'trim.mp4')
+      const seconds = (trim.endMs - trim.startMs) / 1000
+      await cutSegment({
+        ffmpeg: this.ffmpeg,
+        input,
+        startMs: trim.startMs,
+        endMs: trim.endMs,
+        outPath,
+        timeoutMs: Math.max(MIN_TRANSCODE_MS, seconds * TRANSCODE_SPEED_FACTOR * 1000),
+      })
+      const key = `${randomUUID()}.mp4`
+      const size = (await stat(outPath)).size
+      await this.minio.fPutObject(file.bucket, key, outPath, { 'Content-Type': 'video/mp4' })
+      const switched = await this.prisma.file.updateMany({
+        where: { id: file.id, key: file.key },
+        data: { key, mime: 'video/mp4', size },
+      })
+      if (switched.count === 0) {
+        await this.minio.removeObject(file.bucket, key).catch(() => undefined)
+        return null
+      }
+      await this.minio.removeObject(file.bucket, file.key).catch((err: unknown) => {
+        // Не мешает обработке: ничейный объект уберёт ночная cleanOrphanFiles.
+        this.logger.warn(`Исходник ${file.id} не удалён после обрезки: ${String(err)}`)
+      })
+      this.logger.log(`Видео ${file.id} обрезано до ${seconds.toFixed(1)} с`)
+      return { ...file, key, mime: 'video/mp4' }
     } finally {
       await rm(dir, { recursive: true, force: true })
     }

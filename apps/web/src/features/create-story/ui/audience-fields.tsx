@@ -22,6 +22,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '../../../shared/ui'
+import { cn } from '../../../shared/lib/utils'
 import { RecipientsPicker, type StoryRecipient } from './recipients-picker'
 
 export interface StoryAudienceState {
@@ -64,10 +65,13 @@ export function StoryAudienceFields({
   value,
   onChange,
   recipientsError,
+  stacked = false,
 }: {
   value: StoryAudienceState
   onChange: (next: StoryAudienceState) => void
   recipientsError?: string
+  /** Колонкой на всю ширину — в боковой панели редактора, а не строкой в окне. */
+  stacked?: boolean
 }) {
   const tFeed = useTranslations('Feed')
   const t = useTranslations('Stories')
@@ -86,6 +90,8 @@ export function StoryAudienceFields({
     enabled: showFacultyPicker,
   })
 
+  const width = cn('w-full', !stacked && 'sm:w-44')
+
   return (
     <>
       <Select
@@ -97,7 +103,7 @@ export function StoryAudienceFields({
           })
         }
       >
-        <SelectTrigger size="md" aria-label={tFeed('audience')} className="w-full sm:w-44">
+        <SelectTrigger size="md" aria-label={tFeed('audience')} className={width}>
           <SelectValue placeholder={tFeed('audience')} />
         </SelectTrigger>
         <SelectContent>
@@ -111,7 +117,7 @@ export function StoryAudienceFields({
 
       {showGroupPicker && (
         // Поиск по группам на сервере, а не первые 100 по алфавиту.
-        <div className="w-full sm:w-44">
+        <div className={width}>
           <GroupSelect
             value={value.groupId ?? null}
             onChange={(v) => onChange({ ...value, groupId: v ?? undefined })}
@@ -126,7 +132,7 @@ export function StoryAudienceFields({
           value={value.facultyId ?? ''}
           onValueChange={(v) => onChange({ ...value, facultyId: v })}
         >
-          <SelectTrigger size="md" aria-label={tFeed('audienceFACULTY')} className="w-full sm:w-44">
+          <SelectTrigger size="md" aria-label={tFeed('audienceFACULTY')} className={width}>
             <SelectValue placeholder={tFeed('audienceFACULTY')} />
           </SelectTrigger>
           <SelectContent>
@@ -140,7 +146,7 @@ export function StoryAudienceFields({
       )}
 
       {value.audience === 'SELECTED' && (
-        <div className="flex w-full flex-col gap-1 sm:w-auto">
+        <div className={cn('flex w-full flex-col gap-1', !stacked && 'sm:w-auto')}>
           <Button type="button" variant="outline" size="md" onClick={() => setPicking(true)}>
             <Users className="size-4" aria-hidden />
             {value.recipients.length > 0
