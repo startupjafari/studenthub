@@ -5855,13 +5855,13 @@
   },
   "Article": {
     "title": "Статья",
-    "breadcrumbRoot": "Статьи",
     "unavailableTitle": "Статья недоступна",
     "unavailableText": "Её удалили, или автор ограничил к ней доступ.",
     "toFeed": "В ленту",
     "commentsOff": "Автор отключил комментарии к статье",
     "read": "Читать статью",
     "unavailableShort": "Статья недоступна",
-    "authorTag": "Автор"
+    "authorTag": "Автор",
+    "commentHint": "Enter — отправить, Shift+Enter — новая строка"
   }
 }

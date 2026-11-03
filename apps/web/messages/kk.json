@@ -5855,13 +5855,13 @@
   },
   "Article": {
     "title": "Мақала",
-    "breadcrumbRoot": "Мақалалар",
     "unavailableTitle": "Мақала қолжетімсіз",
     "unavailableText": "Оны жойған немесе автор оған қолжетімділікті шектеген.",
     "toFeed": "Лентаға",
     "commentsOff": "Автор мақалаға пікірлерді өшірген",
     "read": "Мақаланы оқу",
     "unavailableShort": "Мақала қолжетімсіз",
-    "authorTag": "Автор"
+    "authorTag": "Автор",
+    "commentHint": "Enter — жіберу, Shift+Enter — жаңа жол"
   }
 }

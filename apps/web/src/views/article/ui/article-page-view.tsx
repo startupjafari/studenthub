@@ -38,18 +38,7 @@ import { fetchUserById, userKeys } from '../../../entities/user'
 import { RepostDialog, useRepost } from '../../../features/repost-post'
 import { contentModeration } from '../../../widgets/user-profile'
 import { useAppSelector } from '../../../shared/store'
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-  Button,
-  EmptyState,
-  MarkdownImage,
-  Skeleton,
-} from '../../../shared/ui'
+import { Button, EmptyState, MarkdownImage, Skeleton } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
 import { toApiError } from '../../../shared/lib'
 import { ArticleComments } from './article-comments'
@@ -81,7 +70,7 @@ const MD_COMPONENTS: Components = {
   img: MarkdownImage,
 }
 
-/** Куда ведёт «Статьи» в крошках: страница организации или профиль автора. */
+/** Куда ведёт «назад» без истории (пришли по ссылке): страница организации или профиль автора. */
 function ownerHref(a: ProfileArticle): string {
   if (a.companyId) return `/companies/${a.companyId}`
   if (a.universityPageId) return `/universities/${a.universityPageId}`
@@ -226,66 +215,29 @@ function ArticleBody({ article: a }: { article: ProfileArticle }) {
 
   return (
     <div className="flex w-full flex-1 flex-col gap-4">
-      {/* Верхняя строка: назад, крошки, закладка и «поделиться». */}
-      <div className="flex min-w-0 items-center gap-3">
-        <Button
-          type="button"
-          variant="secondary"
-          size="md"
-          icon
-          className="rounded-full"
-          aria-label={tCommon('goBack')}
-          title={tCommon('goBack')}
-          onClick={goBack}
-        >
-          <ArrowLeft aria-hidden />
-        </Button>
-        <Breadcrumb className="min-w-0 flex-1">
-          <BreadcrumbList className="flex-nowrap">
-            <BreadcrumbItem className="shrink-0">
-              <BreadcrumbLink href={ownerHref(a)}>{t('breadcrumbRoot')}</BreadcrumbLink>
-            </BreadcrumbItem>
-            {category && (
-              <>
-                <BreadcrumbSeparator className="max-sm:hidden" />
-                <BreadcrumbItem className="shrink-0 max-sm:hidden">{category}</BreadcrumbItem>
-              </>
-            )}
-            <BreadcrumbSeparator />
-            <BreadcrumbItem className="min-w-0">
-              <BreadcrumbPage className="truncate">{a.title}</BreadcrumbPage>
-            </BreadcrumbItem>
-          </BreadcrumbList>
-        </Breadcrumb>
-        <Button
-          type="button"
-          variant="outline"
-          size="md"
-          aria-pressed={bookmarked}
-          onClick={toggleBookmark}
-          className={cn('rounded-full max-sm:px-0 max-sm:size-10', bookmarked && 'text-primary')}
-          aria-label={bookmarked ? tProfile('bookmarked') : tProfile('bookmark')}
-        >
-          <Bookmark className={cn(bookmarked && 'fill-current')} aria-hidden />
-          <span className="max-sm:hidden">
-            {bookmarked ? tProfile('bookmarked') : tProfile('bookmark')}
-          </span>
-        </Button>
-        <ArticleShareMenu
-          articleId={a.id}
-          title={a.title}
-          className="flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-full border border-input bg-background transition-colors duration-150 hover:bg-muted focus-visible:ring-4 focus-visible:ring-ring/20 focus-visible:outline-none dark:bg-input/30 dark:hover:bg-input/50"
-        />
-      </div>
-
       <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_20rem] xl:grid-cols-[minmax(0,1fr)_22rem]">
         <article className="flex min-w-0 flex-col gap-5">
-          {(a.coverUrl || a.coverGradient) && (
-            <ArticleCover
-              coverUrl={a.coverUrl}
-              coverGradient={a.coverGradient}
-              title={a.title}
-              className="h-48 w-full rounded-2xl sm:h-64 xl:h-72"
+          {/* Обложка — первой на странице, «назад» лежит на ней в углу. Без обложки кнопка
+              стоит отдельной строкой над текстом. */}
+          {a.coverUrl || a.coverGradient ? (
+            <div className="relative">
+              <ArticleCover
+                coverUrl={a.coverUrl}
+                coverGradient={a.coverGradient}
+                title={a.title}
+                className="h-48 w-full rounded-2xl sm:h-64 xl:h-72"
+              />
+              <BackButton
+                label={tCommon('goBack')}
+                onClick={goBack}
+                className="absolute top-3 left-3 bg-black/45 text-white backdrop-blur-sm hover:bg-black/65 focus-visible:ring-white/50"
+              />
+            </div>
+          ) : (
+            <BackButton
+              label={tCommon('goBack')}
+              onClick={goBack}
+              className="bg-secondary text-secondary-foreground hover:bg-secondary/80 focus-visible:ring-ring/20"
             />
           )}
 
@@ -386,6 +338,21 @@ function ArticleBody({ article: a }: { article: ProfileArticle }) {
                 title={a.title}
                 className={cn(PILL, '[&_svg]:size-[18px]')}
               />
+              {/* На узком экране правой колонки рядом нет — закладка встаёт в ряд действий. */}
+              <button
+                type="button"
+                aria-pressed={bookmarked}
+                aria-label={bookmarked ? tProfile('bookmarked') : tProfile('bookmark')}
+                title={bookmarked ? tProfile('bookmarked') : tProfile('bookmark')}
+                onClick={toggleBookmark}
+                className={cn(
+                  PILL,
+                  'lg:hidden',
+                  bookmarked && 'bg-primary/15 text-primary hover:bg-primary/20 hover:text-primary',
+                )}
+              >
+                <Bookmark className={cn('size-[18px]', bookmarked && 'fill-current')} aria-hidden />
+              </button>
               <span
                 className="ml-auto flex shrink-0 items-center gap-1.5 text-sm text-muted-foreground tabular-nums"
                 title={tProfile('viewsCount', { count: views })}
@@ -414,7 +381,26 @@ function ArticleBody({ article: a }: { article: ProfileArticle }) {
           </div>
         </article>
 
-        <aside className="flex flex-col gap-4 lg:sticky lg:top-4">
+        <aside className="flex flex-col gap-4 lg:sticky lg:top-0">
+          {/* Закладка и «поделиться» — над оглавлением, едут вместе с колонкой. */}
+          <div className={cn(ASIDE_CARD, 'flex gap-2 p-3 max-lg:hidden')}>
+            <Button
+              type="button"
+              variant={bookmarked ? 'secondary' : 'outline'}
+              size="md"
+              aria-pressed={bookmarked}
+              onClick={toggleBookmark}
+              className={cn('flex-1 rounded-xl', bookmarked && 'text-primary')}
+            >
+              <Bookmark className={cn(bookmarked && 'fill-current')} aria-hidden />
+              {bookmarked ? tProfile('bookmarked') : tProfile('bookmark')}
+            </Button>
+            <ArticleShareMenu
+              articleId={a.id}
+              title={a.title}
+              className="flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-xl border border-input bg-background transition-colors duration-150 hover:bg-muted focus-visible:ring-4 focus-visible:ring-ring/20 focus-visible:outline-none dark:bg-input/30 dark:hover:bg-input/50"
+            />
+          </div>
           {/* Оглавление — только рядом с текстом: на телефоне оно ушло бы под статью. */}
           {toc.length > 1 && (
             <nav
@@ -507,6 +493,32 @@ function ArticleBody({ article: a }: { article: ProfileArticle }) {
         />
       )}
     </div>
+  )
+}
+
+/** «Назад» — кружок; на обложке тёмный полупрозрачный, без неё — обычный. */
+function BackButton({
+  label,
+  onClick,
+  className,
+}: {
+  label: string
+  onClick: () => void
+  className?: string
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      className={cn(
+        'flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-full transition-colors duration-150 focus-visible:ring-4 focus-visible:outline-none',
+        className,
+      )}
+    >
+      <ArrowLeft className="size-5" aria-hidden />
+    </button>
   )
 }
 

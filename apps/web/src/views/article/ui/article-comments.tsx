@@ -64,6 +64,10 @@ const EMOJI_SET = [
   '😉',
 ]
 
+// Предел длины реплики — как в ContentCommentSchema; счётчик — за 200 знаков до него.
+const COMMENT_MAX = 2000
+const COMMENT_WARN = 200
+
 // Ряды скелетона, пока грузится обсуждение: место под список держится заранее.
 const SKELETON_ROWS = 3
 
@@ -76,7 +80,8 @@ function initials(a: { firstName: string; lastName: string }): string {
  * поле ввода, реплики (аватар, имя с меткой автора и временем, текст, действия).
  *
  * Поле ввода — над списком, а не под ним: на странице статьи обсуждение длинное, и под
- * сотней реплик поле пришлось бы искать прокруткой. Ответов у статьи нет — реплики плоские.
+ * сотней реплик поле пришлось бы искать прокруткой. Реплики — «пузырями» с временем и
+ * действиями под ними. Ответов у статьи нет — реплики плоские.
  * Удалить свою реплику может её автор, любую — владелец статьи; модератор scope — через
  * подтверждение (ранг автора реплики сверяет сервер).
  */
@@ -102,10 +107,12 @@ export function ArticleComments({
   const locale = useLocale()
   const qc = useQueryClient()
   const confirm = useConfirm()
-  const myId = useAppSelector((s) => s.auth.user?.id)
+  const me = useAppSelector((s) => s.auth.user)
+  const myId = me?.id
   const queryKey = [...profileContentKeys.article(articleId), 'comments']
 
   const [text, setText] = useState('')
+  const hasText = text.trim().length > 0
   const [newestFirst, setNewestFirst] = useState(false)
   const [emojiOpen, setEmojiOpen] = useState(false)
   const [freshId, setFreshId] = useState<string | null>(null)
@@ -274,69 +281,94 @@ export function ArticleComments({
         )}
       </div>
 
-      {/* Эмодзи · многострочное поле · отправка — по нижней кромке: поле растёт вверх. */}
-      <div className="relative flex items-end gap-2">
-        <div ref={emojiRef} className="relative shrink-0">
-          <button
-            type="button"
-            aria-label={t('emoji')}
-            aria-expanded={emojiOpen}
-            onClick={() => setEmojiOpen((o) => !o)}
-            className={cn(
-              'flex size-10 cursor-pointer items-center justify-center rounded-full border border-border text-muted-foreground transition-colors duration-150 hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none',
-              emojiOpen && 'bg-muted text-foreground',
-            )}
-          >
-            <Smile className="size-5" aria-hidden />
-          </button>
-          {emojiOpen && (
-            <div className="absolute top-full left-0 z-30 mt-2 grid w-64 grid-cols-8 gap-0.5 rounded-xl border border-border bg-popover p-2 shadow-lg">
-              {EMOJI_SET.map((e) => (
-                <button
-                  key={e}
-                  type="button"
-                  onClick={() => insertEmoji(e)}
-                  className="flex size-7 items-center justify-center rounded-md text-lg transition-colors hover:bg-muted"
-                >
-                  {e}
-                </button>
-              ))}
+      {/* Поле ввода: моя аватарка — видно, от чьего имени пишешь; эмодзи и отправка — внутри
+          поля, справа. Всё по нижней кромке: поле растёт вверх. Подсказка про Enter и
+          счётчик длины появляются, когда начали писать. */}
+      <div className="flex items-start gap-3">
+        <Avatar className="size-9 shrink-0">
+          {me?.avatarUrl && <AvatarImage src={me.avatarUrl} alt="" />}
+          <AvatarFallback className="text-[10px]">{me ? initials(me) : ''}</AvatarFallback>
+        </Avatar>
+        <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+          <div className="relative flex items-end gap-1 rounded-2xl bg-muted/60 py-1 pr-1 pl-3.5 ring-1 ring-transparent transition-shadow duration-150 focus-within:bg-muted/80 focus-within:ring-ring/40">
+            <textarea
+              ref={inputRef}
+              value={text}
+              rows={1}
+              maxLength={COMMENT_MAX}
+              onChange={(e) => setText(e.target.value)}
+              onKeyDown={(e) => {
+                // Enter — отправить; Shift+Enter — перенос строки.
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault()
+                  send()
+                }
+              }}
+              placeholder={t('writeComment')}
+              aria-label={t('writeComment')}
+              className="max-h-40 min-h-9 min-w-0 flex-1 resize-none bg-transparent py-2 text-sm leading-snug outline-none placeholder:text-muted-foreground"
+            />
+            <div ref={emojiRef} className="relative shrink-0">
+              <button
+                type="button"
+                aria-label={t('emoji')}
+                aria-expanded={emojiOpen}
+                onClick={() => setEmojiOpen((o) => !o)}
+                className={cn(
+                  'flex size-9 cursor-pointer items-center justify-center rounded-xl text-muted-foreground transition-colors duration-150 hover:bg-background/60 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none',
+                  emojiOpen && 'bg-background/60 text-foreground',
+                )}
+              >
+                <Smile className="size-5" aria-hidden />
+              </button>
+              {emojiOpen && (
+                <div className="absolute top-full right-0 z-30 mt-2 grid w-64 grid-cols-8 gap-0.5 rounded-xl border border-border bg-popover p-2 shadow-lg">
+                  {EMOJI_SET.map((e) => (
+                    <button
+                      key={e}
+                      type="button"
+                      onClick={() => insertEmoji(e)}
+                      className="flex size-7 items-center justify-center rounded-md text-lg transition-colors hover:bg-muted"
+                    >
+                      {e}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
+            <button
+              type="button"
+              onClick={send}
+              disabled={!hasText || addMut.isPending}
+              aria-busy={addMut.isPending}
+              aria-label={t('send')}
+              title={t('send')}
+              className={cn(
+                'flex size-9 shrink-0 cursor-pointer items-center justify-center rounded-xl transition-colors duration-150 focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none disabled:cursor-default',
+                // Пока писать нечего — кнопка тихая, а не бледно-синяя «будто выключенная».
+                hasText
+                  ? 'bg-primary text-primary-foreground hover:bg-primary/90'
+                  : 'text-muted-foreground/60',
+              )}
+            >
+              {addMut.isPending ? (
+                <Loader2 className="size-4 animate-spin motion-reduce:animate-none" aria-hidden />
+              ) : (
+                <SendHorizontal className="size-[18px]" aria-hidden />
+              )}
+            </button>
+          </div>
+          {text.length > 0 && (
+            <p className="flex justify-between gap-3 px-1 text-xs text-muted-foreground">
+              <span>{tArticle('commentHint')}</span>
+              {text.length > COMMENT_MAX - COMMENT_WARN && (
+                <span className="tabular-nums">
+                  {text.length} / {COMMENT_MAX}
+                </span>
+              )}
+            </p>
           )}
         </div>
-        <div className="flex min-w-0 flex-1 rounded-xl bg-muted/60 px-3.5 ring-1 ring-transparent transition-shadow duration-150 focus-within:ring-ring/40">
-          <textarea
-            ref={inputRef}
-            value={text}
-            rows={1}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => {
-              // Enter — отправить; Shift+Enter — перенос строки.
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault()
-                send()
-              }
-            }}
-            placeholder={t('writeComment')}
-            aria-label={t('writeComment')}
-            className="max-h-40 min-h-10 min-w-0 flex-1 resize-none bg-transparent py-2.5 text-sm leading-snug outline-none placeholder:text-muted-foreground"
-          />
-        </div>
-        <button
-          type="button"
-          onClick={send}
-          disabled={text.trim().length === 0 || addMut.isPending}
-          aria-busy={addMut.isPending}
-          aria-label={t('send')}
-          title={t('send')}
-          className="flex size-10 shrink-0 cursor-pointer items-center justify-center rounded-xl bg-primary text-primary-foreground transition-[background-color,opacity] duration-150 hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background focus-visible:outline-none disabled:cursor-default disabled:opacity-50"
-        >
-          {addMut.isPending ? (
-            <Loader2 className="size-4 animate-spin motion-reduce:animate-none" aria-hidden />
-          ) : (
-            <SendHorizontal className="size-[18px]" aria-hidden />
-          )}
-        </button>
       </div>
 
       {q.isLoading ? (
@@ -368,60 +400,59 @@ export function ArticleComments({
       ) : (
         <>
           {!newestFirst && earlier}
-          <ul className="flex flex-col gap-5">
+          <ul className="flex flex-col gap-4">
             {loaded.map((c) => {
-              const canDelete = c.authorId === myId || ownerId === myId || moderate
+              const mine = c.authorId === myId
+              const canDelete = mine || ownerId === myId || moderate
               return (
                 <li
                   key={c.id}
                   className={cn(
-                    'group flex gap-3',
+                    'flex gap-3',
                     c.id === freshId &&
                       'animate-in fade-in-0 slide-in-from-top-1 duration-200 motion-reduce:animate-none',
                   )}
                 >
-                  <ProfileLink userId={c.author.id} className="shrink-0 rounded-full">
+                  <ProfileLink userId={c.author.id} className="shrink-0 self-start rounded-full">
                     <Avatar className="size-9">
                       {c.author.avatarUrl && <AvatarImage src={c.author.avatarUrl} alt="" />}
                       <AvatarFallback className="text-[10px]">{initials(c.author)}</AvatarFallback>
                     </Avatar>
                   </ProfileLink>
-                  <div className="min-w-0 flex-1">
-                    <p className="flex min-w-0 items-baseline gap-1.5 text-sm leading-snug">
-                      <ProfileLink
-                        userId={c.author.id}
-                        className="truncate font-semibold transition-colors duration-150 hover:text-primary"
-                      >
-                        {c.author.lastName} {c.author.firstName}
-                      </ProfileLink>
-                      {c.authorId === ownerId && (
-                        <span className="shrink-0 rounded bg-primary px-1.5 py-px text-[11px] font-medium text-primary-foreground">
-                          {tArticle('authorTag')}
-                        </span>
-                      )}
-                      <time
-                        dateTime={c.createdAt}
-                        className="shrink-0 text-xs text-muted-foreground"
-                      >
-                        {relativeTime(c.createdAt, locale)}
-                      </time>
-                    </p>
-                    <p className="mt-0.5 text-sm leading-snug break-words whitespace-pre-wrap [overflow-wrap:anywhere]">
-                      {c.content}
-                    </p>
-                    {canDelete && (
-                      <div className="mt-1 flex items-center gap-2 text-xs text-muted-foreground">
+                  {/* Реплика — «пузырём»: имя и текст вместе, отдельно от соседних; под ним
+                      время и действия. Действия видны всегда: спрятанная до наведения
+                      строка оставляла между репликами пустоту, и было непонятно, откуда она. */}
+                  <div className="flex min-w-0 flex-1 flex-col items-start gap-1">
+                    <div className="max-w-full rounded-2xl rounded-tl-md bg-muted/60 px-3.5 py-2.5">
+                      <p className="flex min-w-0 items-center gap-1.5 text-sm leading-snug">
+                        <ProfileLink
+                          userId={c.author.id}
+                          className="truncate font-semibold transition-colors duration-150 hover:text-primary"
+                        >
+                          {c.author.lastName} {c.author.firstName}
+                        </ProfileLink>
+                        {c.authorId === ownerId && (
+                          <span className="shrink-0 rounded bg-primary px-1.5 py-px text-[11px] font-medium text-primary-foreground">
+                            {tArticle('authorTag')}
+                          </span>
+                        )}
+                      </p>
+                      <p className="mt-0.5 text-sm leading-relaxed break-words whitespace-pre-wrap [overflow-wrap:anywhere]">
+                        {c.content}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-3 px-1 text-xs text-muted-foreground">
+                      <time dateTime={c.createdAt}>{relativeTime(c.createdAt, locale)}</time>
+                      {canDelete && (
                         <button
                           type="button"
                           onClick={() => remove(c)}
-                          className="-mx-1 cursor-pointer rounded px-1 py-1 opacity-0 transition-[opacity,color] duration-150 group-hover:opacity-100 hover:text-destructive focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none max-md:opacity-100"
+                          className="-mx-1 cursor-pointer rounded px-1 py-0.5 font-medium transition-colors duration-150 hover:text-destructive focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
                         >
-                          {c.authorId === myId || ownerId === myId
-                            ? t('delete')
-                            : tProfile('deleteModeration')}
+                          {mine || ownerId === myId ? t('delete') : tProfile('deleteModeration')}
                         </button>
-                      </div>
-                    )}
+                      )}
+                    </div>
                   </div>
                 </li>
               )
