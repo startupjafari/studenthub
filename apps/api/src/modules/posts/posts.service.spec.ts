@@ -48,6 +48,7 @@ function setup() {
       // Счётчик комментариев ленты: отдельный groupBy по id страницы (decorateFeed).
       groupBy: jest.fn().mockResolvedValue([]),
     },
+    profileArticle: { findUnique: jest.fn() },
     faculty: { findUnique: jest.fn() },
     group: { findUnique: jest.fn() },
     // «Ведёт ли преподаватель занятия в группе» — дисциплина или пара расписания.
@@ -92,6 +93,10 @@ function setup() {
     requirePublishingCompany: jest.fn().mockResolvedValue('company-1'),
     requirePublishingUniversity: jest.fn((v: JwtPayload) => v.universityId),
   }
+  // Видимость статей в репостах: по умолчанию зрителю не видна ни одна.
+  const profileContent = {
+    visibleArticleIds: jest.fn(async (): Promise<Set<string>> => new Set()),
+  }
   const service = new PostsService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
@@ -101,8 +106,20 @@ function setup() {
     queue as unknown as QueueService,
     redis as never,
     careerAccess as never,
+    profileContent as never,
   )
-  return { service, prisma, audit, files, media, queue, redis, redisMulti, careerAccess }
+  return {
+    service,
+    prisma,
+    audit,
+    files,
+    media,
+    queue,
+    redis,
+    redisMulti,
+    careerAccess,
+    profileContent,
+  }
 }
 
 function describedMedia(id: string) {
@@ -647,6 +664,103 @@ describe('PostsService — цитата оригинала только для �
     prisma.post.findMany.mockResolvedValueOnce([{ id: 'o1' }])
     const res = await service.getById(viewer(Role.STUDENT, { groupId: 'grp-1' }), 'r1')
     expect(res.original?.id).toBe('o1')
+  })
+})
+
+// ── Репост статьи ───────────────────────────────────────────────────────────
+describe('PostsService — репост статьи', () => {
+  const article = (id: string) => ({
+    id,
+    title: 'Папки чатов',
+    description: 'Учёба отдельно, личное отдельно',
+    coverUrl: null,
+    coverGradient: 'ocean',
+    category: 'GUIDES',
+    readingMinutes: 3,
+    publishedAt: new Date('2026-10-16T00:00:00Z'),
+    company: null,
+    universityPage: null,
+  })
+  const student = () =>
+    viewer(Role.STUDENT, { groupId: 'grp-1', facultyId: 'fac-1', universityId: 'uni-1' })
+
+  it('видимая опубликованная статья → пост со ссылкой на неё и подписью', async () => {
+    const { service, prisma, profileContent, audit } = setup()
+    profileContent.visibleArticleIds.mockResolvedValue(new Set(['a1']))
+    prisma.profileArticle.findUnique.mockResolvedValue({ status: 'PUBLISHED' })
+    prisma.group.findUnique.mockResolvedValue({
+      facultyId: 'fac-1',
+      faculty: { universityId: 'uni-1' },
+    })
+    prisma.post.findFirst.mockResolvedValue(postRow({ sharedArticleId: 'a1' }))
+    await service.repostArticle(student(), 'a1', { audience: 'GROUP', content: 'почитайте' }, ctx)
+    expect(prisma.post.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          sharedArticleId: 'a1',
+          content: 'почитайте',
+          audience: 'GROUP',
+          groupId: 'grp-1',
+        }),
+      }),
+    )
+    expect(prisma.post.create.mock.calls[0][0].data.originalPostId).toBeUndefined()
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'article_reposted', metadata: { articleId: 'a1' } }),
+    )
+  })
+
+  it('статья, которую репостящий не видит → NOT_FOUND, пост не создаётся', async () => {
+    const { service, prisma } = setup()
+    const err = await service
+      .repostArticle(student(), 'a1', { audience: 'GROUP' }, ctx)
+      .catch((e: AppException) => e)
+    expect((err as AppException).code).toBe('NOT_FOUND')
+    expect(prisma.post.create).not.toHaveBeenCalled()
+  })
+
+  it('черновик (видит только автор) → BAD_REQUEST: карточка не уходит в ленту', async () => {
+    const { service, prisma, profileContent } = setup()
+    profileContent.visibleArticleIds.mockResolvedValue(new Set(['a1']))
+    prisma.profileArticle.findUnique.mockResolvedValue({ status: 'DRAFT' })
+    const err = await service
+      .repostArticle(student(), 'a1', { audience: 'GROUP' }, ctx)
+      .catch((e: AppException) => e)
+    expect((err as AppException).code).toBe('BAD_REQUEST')
+    expect(prisma.post.create).not.toHaveBeenCalled()
+  })
+
+  it('лента: карточка статьи — только тем, кто вправе её читать', async () => {
+    const { service, prisma, profileContent } = setup()
+    prisma.post.findMany.mockResolvedValueOnce([
+      postRow({ id: 'r1', sharedArticleId: 'a-hidden', sharedArticle: article('a-hidden') }),
+      postRow({ id: 'r2', sharedArticleId: 'a-ok', sharedArticle: article('a-ok') }),
+      postRow({ id: 'p3' }),
+    ])
+    profileContent.visibleArticleIds.mockResolvedValue(new Set(['a-ok']))
+    const me = viewer(Role.STUDENT, { groupId: 'grp-1' })
+    const res = await service.feed(me, { limit: 20 })
+    const byId = Object.fromEntries(res.items.map((p) => [p.id, p]))
+    expect(byId.r1?.sharedArticle).toBeNull()
+    expect(byId.r1?.sharedArticleId).toBe('a-hidden')
+    expect(byId.r2?.sharedArticle?.title).toBe('Папки чатов')
+    expect(profileContent.visibleArticleIds).toHaveBeenCalledWith(me, ['a-hidden', 'a-ok'])
+  })
+
+  it('правка репоста статьи: пустая подпись допустима', async () => {
+    const { service, prisma } = setup()
+    prisma.post.findFirst
+      .mockResolvedValueOnce({
+        id: 'r1',
+        authorId: 's1',
+        companyId: null,
+        universityPageId: null,
+        originalPostId: null,
+        sharedArticleId: 'a1',
+      })
+      .mockResolvedValueOnce(postRow({ id: 'r1', sharedArticleId: 'a1' }))
+    await service.update(viewer(Role.STUDENT, { sub: 's1' }), 'r1', { content: ' ' }, ctx)
+    expect(prisma.post.update).toHaveBeenCalled()
   })
 })
 

@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common'
 import { FilesModule } from '../files/files.module'
 import { CareerModule } from '../career/career.module'
+import { ProfileContentModule } from '../profile-content/profile-content.module'
 import { PostsService } from './posts.service'
 import { PostsController } from './posts.controller'
 
@@ -9,7 +10,7 @@ import { PostsController } from './posts.controller'
 // FilesModule — presigned-URL к медиа поста (по видимости поста, FileService).
 // CareerModule — посты страницы компании: её видимость и право публиковать от её имени.
 @Module({
-  imports: [FilesModule, CareerModule],
+  imports: [FilesModule, CareerModule, ProfileContentModule],
   controllers: [PostsController],
   providers: [PostsService],
   exports: [PostsService],

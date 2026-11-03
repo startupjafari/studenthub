@@ -63,6 +63,12 @@ function setup() {
       delete: jest.fn(),
       deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
     },
+    articleLike: {
+      findMany: jest.fn().mockResolvedValue([]),
+      create: jest.fn().mockResolvedValue({}),
+      deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      count: jest.fn().mockResolvedValue(0),
+    },
     contentComment: {
       findMany: jest.fn(),
       findUnique: jest.fn(),
@@ -885,6 +891,123 @@ describe('ProfileContentService — статьи: плитки без текст
       new Prisma.PrismaClientKnownRequestError('unique', { code: 'P2002', clientVersion: 'x' }),
     )
     await expect(service.toggleBookmark(reader, 'a1')).resolves.toEqual({ bookmarked: true })
+  })
+})
+
+describe('ProfileContentService — лайки статей и видимость пачкой', () => {
+  const visibleArticle = {
+    userId: 'owner',
+    status: 'PUBLISHED',
+    visibility: 'ALL',
+    user: owner('owner'),
+  }
+  const reader = user('reader')
+
+  it('лайк идемпотентен: повтор упирается в уникальность и отвечает тем же состоянием', async () => {
+    const { service, prisma } = setup()
+    prisma.profileArticle.findUnique.mockResolvedValue(visibleArticle)
+    prisma.articleLike.count.mockResolvedValue(5)
+    prisma.articleLike.create.mockRejectedValueOnce(
+      new Prisma.PrismaClientKnownRequestError('unique', { code: 'P2002', clientVersion: 'x' }),
+    )
+    await expect(service.setArticleLike(reader, 'a1', true)).resolves.toEqual({
+      liked: true,
+      likesCount: 5,
+    })
+    expect(prisma.articleLike.create).toHaveBeenCalledWith({
+      data: { articleId: 'a1', userId: 'reader' },
+    })
+  })
+
+  it('снятие лайка — без чтения перед записью, только свой', async () => {
+    const { service, prisma } = setup()
+    prisma.profileArticle.findUnique.mockResolvedValue(visibleArticle)
+    prisma.articleLike.count.mockResolvedValue(4)
+    await expect(service.setArticleLike(reader, 'a1', false)).resolves.toEqual({
+      liked: false,
+      likesCount: 4,
+    })
+    expect(prisma.articleLike.deleteMany).toHaveBeenCalledWith({
+      where: { articleId: 'a1', userId: 'reader' },
+    })
+  })
+
+  it('невидимая статья → NOT_FOUND, лайк не пишется', async () => {
+    const { service, prisma } = setup()
+    prisma.profileArticle.findUnique.mockResolvedValue({ ...visibleArticle, status: 'DRAFT' })
+    const err = await service.setArticleLike(reader, 'a1', true).catch((e) => e)
+    expect(err.code).toBe('NOT_FOUND')
+    expect(prisma.articleLike.create).not.toHaveBeenCalled()
+  })
+
+  it('свой черновик лайкнуть нельзя → BAD_REQUEST', async () => {
+    const { service, prisma } = setup()
+    prisma.profileArticle.findUnique.mockResolvedValue({
+      ...visibleArticle,
+      userId: 'reader',
+      user: owner('reader'),
+      status: 'DRAFT',
+    })
+    const err = await service.setArticleLike(user('reader'), 'a1', true).catch((e) => e)
+    expect(err.code).toBe('BAD_REQUEST')
+    expect(prisma.articleLike.create).not.toHaveBeenCalled()
+  })
+
+  it('статья в выдаче: число лайков и «лайкнул ли я»', async () => {
+    const { service, prisma } = setup()
+    prisma.profileArticle.findUnique.mockResolvedValueOnce(visibleArticle).mockResolvedValueOnce({
+      id: 'a1',
+      userId: 'owner',
+      content: 'x',
+      _count: { comments: 0, bookmarks: 0, likes: 7 },
+    })
+    prisma.articleLike.findMany.mockResolvedValue([{ articleId: 'a1' }])
+    const a = await service.getArticle(reader, 'a1')
+    expect(a).toMatchObject({ likesCount: 7, liked: true })
+  })
+
+  it('видимость пачкой: закрытый профиль и черновик отсеиваются одним запросом', async () => {
+    const { service, prisma, users } = setup()
+    prisma.profileArticle.findMany.mockResolvedValueOnce([
+      {
+        id: 'ok',
+        userId: 'open',
+        companyId: null,
+        universityPageId: null,
+        status: 'PUBLISHED',
+        visibility: 'ALL',
+        user: owner('open'),
+      },
+      {
+        id: 'closed',
+        userId: 'closed',
+        companyId: null,
+        universityPageId: null,
+        status: 'PUBLISHED',
+        visibility: 'ALL',
+        user: owner('closed'),
+      },
+      {
+        id: 'draft',
+        userId: 'open',
+        companyId: null,
+        universityPageId: null,
+        status: 'DRAFT',
+        visibility: 'ALL',
+        user: owner('open'),
+      },
+    ])
+    users.viewableProfileContentOwners.mockResolvedValue(new Set(['open']))
+    const ids = await service.visibleArticleIds(reader, ['ok', 'closed', 'draft', 'ok'])
+    expect([...ids]).toEqual(['ok'])
+    expect(prisma.profileArticle.findMany).toHaveBeenCalledTimes(1)
+    expect(prisma.profileArticle.findMany.mock.calls[0][0].take).toBe(3)
+  })
+
+  it('видимость пачкой: пустой список — без запроса', async () => {
+    const { service, prisma } = setup()
+    await expect(service.visibleArticleIds(reader, [])).resolves.toEqual(new Set())
+    expect(prisma.profileArticle.findMany).not.toHaveBeenCalled()
   })
 })
 
