@@ -104,7 +104,7 @@ describe('PostLightbox', () => {
     const dialog = await screen.findByRole('dialog')
     const win = dialog.querySelector('[tabindex="-1"]') as HTMLElement
     expect(win.className).toContain('sm:h-auto')
-    expect(win.className).toContain('sm:max-h-[85vh]')
+    expect(win.className).toContain('sm:max-h-[85dvh]')
     expect(screen.queryByRole('button', { name: ru.Feed.zoomIn })).not.toBeInTheDocument()
   })
 
