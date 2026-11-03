@@ -2328,7 +2328,6 @@
     "highlightStoryOf": "{total} стористің {index}-сі",
     "highlightCover": "Мұқаба",
     "highlightCoverHint": "Кадрды басыңыз — ол профильдегі топтаманың мұқабасы болады.",
-    "toolMedia": "Медиа",
     "toolsBasic": "Негізгі",
     "toolsUniversity": "Университет",
     "settingsTitle": "Баптаулар",
@@ -2346,7 +2345,6 @@
     "filterCool": "Салқын",
     "filterFade": "Жұмсақ",
     "filterMono": "Ақ-қара",
-    "replaceMedia": "Ауыстыру",
     "removeLink": "Сілтемені алып тастау",
     "removePoll": "Сауалнаманы алып тастау",
     "replaceCard": "Басқа жазбаны таңдау",
@@ -2379,7 +2377,8 @@
     "transform": "Өлшем және бұру",
     "typography": "Типография",
     "fontSerifShort": "Серифті",
-    "bgNoneShort": "Жоқ"
+    "bgNoneShort": "Жоқ",
+    "remove": "Жою"
   },
   "Chats": {
     "storyReplyLabel": "Сториске жауап",

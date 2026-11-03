@@ -7,9 +7,7 @@ import {
   BarChart3,
   CalendarDays,
   Clock,
-  ImagePlus,
   Link2,
-  Loader2,
   Newspaper,
   Smile,
   Type,
@@ -18,10 +16,9 @@ import {
 import { cn } from '../../../shared/lib/utils'
 
 export type StoryTool =
-  'media' | 'text' | 'emoji' | 'mention' | 'link' | 'poll' | 'event' | 'schedule' | 'post'
+  'text' | 'emoji' | 'mention' | 'link' | 'poll' | 'event' | 'schedule' | 'post'
 
 const TOOLS: Record<StoryTool, { icon: LucideIcon; label: string }> = {
-  media: { icon: ImagePlus, label: 'toolMedia' },
   text: { icon: Type, label: 'toolText' },
   emoji: { icon: Smile, label: 'toolEmoji' },
   mention: { icon: AtSign, label: 'toolMention' },
@@ -35,7 +32,7 @@ const TOOLS: Record<StoryTool, { icon: LucideIcon; label: string }> = {
 // Обычные инструменты сторис и университетские — разными группами: карточка пары или
 // события — не стикер, а живая запись из расписания и событий вуза.
 const GROUPS: { title: string; tools: StoryTool[] }[] = [
-  { title: 'toolsBasic', tools: ['media', 'text', 'emoji', 'mention', 'link', 'poll'] },
+  { title: 'toolsBasic', tools: ['text', 'emoji', 'mention', 'link', 'poll'] },
   { title: 'toolsUniversity', tools: ['event', 'schedule', 'post'] },
 ]
 
@@ -45,18 +42,16 @@ const GROUPS: { title: string; tools: StoryTool[] }[] = [
  * - 768–1023px — колонка иконок 40×40, подпись во всплывающей подсказке;
  * - на телефоне — лента внизу с прокруткой вбок, подпись под иконкой.
  * Все пункты стоят на одной вертикальной оси; группы разделены линией по той же сетке.
- * Медиа — главное действие и выделено цветом; активен инструмент, чьи настройки открыты.
+ * Медиа здесь нет: фото или видео выбирают на пустом кадре — там же, где текстовую сторис.
+ * Активен инструмент, чьи настройки открыты.
  */
 export function StoryTools({
   active,
   disabled,
-  busy,
   onPick,
 }: {
   active: StoryTool | null
   disabled: Partial<Record<StoryTool, boolean>>
-  /** Идёт загрузка видео — у «Медиа» крутится индикатор. */
-  busy: boolean
   onPick: (tool: StoryTool) => void
 }) {
   const t = useTranslations('Stories')
@@ -98,16 +93,10 @@ export function StoryTools({
                     'lg:h-10 lg:w-full lg:flex-row lg:justify-start lg:gap-3 lg:px-3 lg:text-sm',
                     isActive
                       ? 'bg-primary/15 text-primary'
-                      : tool === 'media'
-                        ? 'text-primary hover:bg-primary/10'
-                        : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+                      : 'text-muted-foreground hover:bg-muted hover:text-foreground',
                   )}
                 >
-                  {tool === 'media' && busy ? (
-                    <Loader2 className="size-[18px] shrink-0 animate-spin" aria-hidden />
-                  ) : (
-                    <Icon className="size-[18px] shrink-0" aria-hidden />
-                  )}
+                  <Icon className="size-[18px] shrink-0" aria-hidden />
                   <span className="truncate md:sr-only lg:not-sr-only">{t(label)}</span>
                 </button>
               )

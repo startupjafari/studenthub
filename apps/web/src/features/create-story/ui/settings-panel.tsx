@@ -129,17 +129,26 @@ function Row({
 }
 
 /** Удалить — единственное красное действие панели. */
-function RemoveButton({ label, onClick }: { label: string; onClick: () => void }) {
+function RemoveButton({
+  label,
+  ariaLabel,
+  onClick,
+}: {
+  label: string
+  ariaLabel?: string
+  onClick: () => void
+}) {
   return (
     <Button
       type="button"
       variant="ghost"
       size="md"
-      className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+      aria-label={ariaLabel}
+      className="min-w-0 justify-center text-destructive hover:bg-destructive/10 hover:text-destructive"
       onClick={onClick}
     >
-      <Trash2 className="size-4" aria-hidden />
-      {label}
+      <Trash2 className="size-4 shrink-0" aria-hidden />
+      <span className="truncate">{label}</span>
     </Button>
   )
 }
@@ -218,98 +227,82 @@ export function GeneralSettings({
   )
 }
 
-/** Выбрано фото или видео: масштаб и размещение, фильтры, замена и удаление. */
+/**
+ * Выбрано фото: размещение, масштаб и фильтры. Убрать фото — крестиком на кадре, после
+ * чего пустой кадр снова предлагает фото, видео или текст.
+ */
 export function MediaSettings({
-  kind,
   stage,
   filtersSupported,
-  onReplace,
-  onRemove,
   onClose,
 }: {
-  kind: 'photo' | 'video'
   stage: StoryStage
   /** Фильтр запекается в кадр через canvas; без его поддержки фильтров не предлагаем. */
   filtersSupported: boolean
-  onReplace: () => void
-  onRemove: () => void
   onClose: () => void
 }) {
   const t = useTranslations('Stories')
   return (
     <Panel>
-      <PanelHeader title={kind === 'photo' ? t('photoTitle') : t('videoTitle')} onClose={onClose} />
+      <PanelHeader title={t('photoTitle')} onClose={onClose} />
+      <Section title={t('fitTitle')}>
+        <Segmented
+          label={t('fitTitle')}
+          value={stage.whole ? 'whole' : 'fill'}
+          disabled={!stage.ready}
+          onChange={(next) => (next === 'whole') !== stage.whole && stage.toggleWhole()}
+          options={[
+            { value: 'fill', label: t('fitFill') },
+            { value: 'whole', label: t('fitWhole') },
+          ]}
+        />
+        <RangeField
+          label={t('zoom')}
+          value={stage.zoom}
+          display={`${Math.round(stage.zoom * 100)}%`}
+          min={stage.minZoom}
+          max={stage.maxZoom}
+          step={0.01}
+          disabled={!stage.ready}
+          onChange={stage.setZoom}
+          onReset={() => stage.setZoom(1)}
+        />
+      </Section>
 
-      {kind === 'photo' && (
-        <>
-          <Section title={t('fitTitle')}>
-            <Segmented
-              label={t('fitTitle')}
-              value={stage.whole ? 'whole' : 'fill'}
-              disabled={!stage.ready}
-              onChange={(next) => (next === 'whole') !== stage.whole && stage.toggleWhole()}
-              options={[
-                { value: 'fill', label: t('fitFill') },
-                { value: 'whole', label: t('fitWhole') },
-              ]}
-            />
-            <RangeField
-              label={t('zoom')}
-              value={stage.zoom}
-              display={`${Math.round(stage.zoom * 100)}%`}
-              min={stage.minZoom}
-              max={stage.maxZoom}
-              step={0.01}
-              disabled={!stage.ready}
-              onChange={stage.setZoom}
-              onReset={() => stage.setZoom(1)}
-            />
-          </Section>
-
-          {filtersSupported && stage.url && (
-            <Section title={t('filters')}>
-              <div className="grid grid-cols-3 gap-2">
-                {(Object.keys(STORY_PHOTO_FILTERS) as StoryPhotoFilter[]).map((key) => (
-                  <button
-                    key={key}
-                    type="button"
-                    aria-pressed={stage.filter === key}
-                    onClick={() => stage.setFilter(key)}
-                    className="group flex flex-col gap-1.5 text-xs"
-                  >
-                    {/* Локальный object-URL: оптимизировать blob next/image не может. */}
-                    <img
-                      src={stage.url ?? ''}
-                      alt=""
-                      className={cn(
-                        'aspect-square w-full rounded-lg object-cover ring-offset-2 ring-offset-card transition-shadow duration-150 motion-reduce:transition-none',
-                        stage.filter === key ? 'ring-2 ring-primary' : 'group-hover:opacity-90',
-                      )}
-                      style={{ filter: STORY_PHOTO_FILTERS[key] || undefined }}
-                    />
-                    <span
-                      className={cn(
-                        'truncate text-center',
-                        stage.filter === key ? 'text-primary' : 'text-muted-foreground',
-                      )}
-                    >
-                      {t(FILTER_KEY[key])}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </Section>
-          )}
-        </>
+      {filtersSupported && stage.url && (
+        <Section title={t('filters')}>
+          <div className="grid grid-cols-3 gap-2">
+            {(Object.keys(STORY_PHOTO_FILTERS) as StoryPhotoFilter[]).map((key) => (
+              <button
+                key={key}
+                type="button"
+                aria-pressed={stage.filter === key}
+                onClick={() => stage.setFilter(key)}
+                className="group flex flex-col gap-1.5 text-xs"
+              >
+                {/* Локальный object-URL: оптимизировать blob next/image не может. */}
+                <img
+                  src={stage.url ?? ''}
+                  alt=""
+                  className={cn(
+                    'aspect-square w-full rounded-lg object-cover ring-offset-2 ring-offset-card transition-shadow duration-150 motion-reduce:transition-none',
+                    stage.filter === key ? 'ring-2 ring-primary' : 'group-hover:opacity-90',
+                  )}
+                  style={{ filter: STORY_PHOTO_FILTERS[key] || undefined }}
+                />
+                <span
+                  className={cn(
+                    'truncate text-center',
+                    stage.filter === key ? 'text-primary' : 'text-muted-foreground',
+                  )}
+                >
+                  {t(FILTER_KEY[key])}
+                </span>
+              </button>
+            ))}
+          </div>
+        </Section>
       )}
-
-      <div className="grid grid-cols-2 gap-2">
-        <Button type="button" variant="secondary" size="md" onClick={onReplace}>
-          <RefreshCw className="size-4" aria-hidden />
-          {t('replaceMedia')}
-        </Button>
-        <RemoveButton label={t('removeMedia')} onClick={onRemove} />
-      </div>
     </Panel>
   )
 }
@@ -474,7 +467,9 @@ export function ElementSettings({
       <ElementInspector element={element} onChange={onChange} />
 
       <Section title={t('layer')}>
-        <div className="flex items-center gap-2">
+        {/* Три квадратных действия и «Удалить» на остаток строки: в колонке 280–300px
+            строка не выходит за край. */}
+        <div className="grid grid-cols-[auto_auto_auto_minmax(0,1fr)] items-center gap-2">
           <button
             type="button"
             className={ICON_ACTION}
@@ -505,9 +500,7 @@ export function ElementSettings({
           >
             <Copy className="size-4" aria-hidden />
           </button>
-          <div className="ml-auto">
-            <RemoveButton label={t('removeElement')} onClick={onRemove} />
-          </div>
+          <RemoveButton label={t('remove')} ariaLabel={t('removeElement')} onClick={onRemove} />
         </div>
       </Section>
     </Panel>
