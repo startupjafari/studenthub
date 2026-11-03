@@ -212,6 +212,7 @@ model User {
   albums          Album[]          @relation("UserAlbums")
   contentComments ContentComment[] @relation("UserContentComments")
   bookmarks       Bookmark[]       @relation("UserBookmarks")
+  articleLikes    ArticleLike[]    @relation("UserArticleLikes")
 
   // Друзья: симметричная дружба; requester — отправитель заявки, addressee — получатель.
   friendshipsSent     Friendship[] @relation("FriendshipRequester")
