@@ -1,11 +1,10 @@
 'use client'
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import Link from 'next/link'
 import { useQueryClient } from '@tanstack/react-query'
-import { useLocale, useTranslations } from 'next-intl'
+import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { Bookmark, Eye, Heart, MessageSquare, Pin, Play, Repeat2 } from 'lucide-react'
+import { Bookmark, Eye, Heart, MessageSquare, Play, Repeat2 } from 'lucide-react'
 import { Role } from '@studenthub/shared-types'
 import { useAppSelector } from '../../../shared/store'
 import {
@@ -22,13 +21,12 @@ import {
   type PostMedia,
   type PostReactionSummary,
 } from '../../../entities/post'
-import { ProfileLink } from '../../../entities/user'
-import { postOrg } from '../lib/post-org'
 import { RepostDialog, useRepost } from '../../../features/repost-post'
-import { Avatar, AvatarFallback, AvatarImage, Markdown, Skeleton } from '../../../shared/ui'
+import { Markdown, Skeleton } from '../../../shared/ui'
 import { cn } from '../../../shared/lib/utils'
-import { relativeTime, toApiError } from '../../../shared/lib'
+import { toApiError } from '../../../shared/lib'
 import { PostMediaView } from './post-media'
+import { PostByline } from './post-byline'
 import { SharePostMenu } from '../../../features/share-post'
 import { useBookmark } from '../../../features/bookmark-post'
 import { MediaFrame } from './media-frame'
@@ -45,10 +43,6 @@ const MODERATOR_ROLES: Role[] = [
 ]
 /** Сколько превью показываем в коллаже; остальное сворачивается в «+N». */
 const MEDIA_TILES = 4
-
-function initials(a: { firstName: string; lastName: string }): string {
-  return `${a.lastName[0] ?? ''}${a.firstName[0] ?? ''}`.toUpperCase()
-}
 
 /**
  * Пост в ленте — развёрнутая карточка в одну колонку (как во «ВКонтакте»).
@@ -83,7 +77,7 @@ export function PostCard(props: PostCardProps) {
   if (source.kind === 'loading') {
     return (
       <article
-        className="flex flex-col gap-3 rounded-2xl bg-card p-4 ring-1 ring-foreground/10 sm:p-5"
+        className="flex flex-col gap-3 rounded-xl bg-card p-4 ring-1 ring-foreground/10 sm:p-5"
         aria-hidden
       >
         <div className="flex items-center gap-3">
@@ -117,8 +111,6 @@ function PostCardView({
 }) {
   const t = useTranslations('Feed')
   const tErr = useTranslations('Errors')
-  const tRoles = useTranslations('Roles')
-  const locale = useLocale()
   const qc = useQueryClient()
   const myId = useAppSelector((s) => s.auth.user?.id)
   const myRole = useAppSelector((s) => s.auth.role)
@@ -163,97 +155,24 @@ function PostCardView({
     })
   }
 
-  // Дата поста — момент публикации (§3.3): отложенный пост и черновик создают раньше, чем
-  // они выходят. Своему черновику и отложенному даты публикации ещё нет — у них дата создания.
-  const shownAt = post.publishedAt ?? post.createdAt
-  const created = new Date(shownAt)
-  // «4 д назад» вместо «27.08, 11:15»: в ленте важен возраст поста, а не точная дата.
-  // Точная — в подсказке, для тех случаев, когда она всё-таки нужна.
-  const ago = relativeTime(shownAt, locale)
-  const exactTime = created.toLocaleString(locale, {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  })
-
-  const org = postOrg(post)
-
   return (
     <article
       className={cn(
         // Без `overflow-hidden`: он обрезал поповер «•••» у невысокой карточки — меню
         // раскрывается вниз из шапки и у короткого текстового поста не помещается.
         // Медиа лежит в середине карточки и скруглённых углов не касается.
-        'flex flex-col rounded-2xl bg-card ring-1 ring-foreground/10',
-        post.pinnedAt && 'ring-primary/40',
+        // Радиус и обводка — как у системной `Card` (rounded-xl, ring-foreground/10): пост
+        // в ленте стоит рядом с карточками колонки, и разные углы читались как два стиля.
+        // Закреплённый отличается только мягкой акцентной обводкой — без заливки и тени.
+        'flex flex-col rounded-xl bg-card ring-1 ring-foreground/10',
+        post.pinnedAt && 'ring-primary/20',
       )}
     >
       {via && <RepostBanner repost={via} className="px-4 pt-3 sm:px-5" />}
       {/* Шапка: имя забирает всю свободную ширину и сокращается многоточием, роль, кому
           адресован пост и его возраст — второй строкой и приглушённо. */}
       <header className={cn('flex items-center gap-3 px-4 sm:px-5', via ? 'pt-3' : 'pt-4')}>
-        {/* Пост страницы организации говорит от её имени: логотип и название компании или
-            вуза, а автор — второй строкой. Ссылка ведёт на страницу организации. */}
-        {org ? (
-          <Link
-            href={org.href}
-            className="shrink-0 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-          >
-            <Avatar className="size-10">
-              {org.logoUrl && <AvatarImage src={org.logoUrl} alt="" />}
-              <AvatarFallback>
-                <org.icon className="size-5" aria-hidden />
-              </AvatarFallback>
-            </Avatar>
-          </Link>
-        ) : (
-          <ProfileLink userId={post.author.id} className="shrink-0 rounded-full">
-            <Avatar className="size-10">
-              {post.author.avatarUrl && <AvatarImage src={post.author.avatarUrl} alt="" />}
-              <AvatarFallback>{initials(post.author)}</AvatarFallback>
-            </Avatar>
-          </ProfileLink>
-        )}
-        <div className="min-w-0 flex-1">
-          {org ? (
-            <p className="flex min-w-0 items-center gap-1.5 text-sm leading-tight font-semibold">
-              <Link
-                href={org.href}
-                className="truncate transition-colors duration-150 hover:text-primary"
-              >
-                {org.name}
-              </Link>
-              {org.mark}
-            </p>
-          ) : (
-            <p className="truncate text-sm leading-tight font-semibold">
-              <ProfileLink
-                userId={post.author.id}
-                className="transition-colors duration-150 hover:text-primary"
-              >
-                {post.author.lastName} {post.author.firstName}
-              </ProfileLink>
-            </p>
-          )}
-          <p className="mt-0.5 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
-            {post.pinnedAt && (
-              <Pin className="size-3 shrink-0 fill-current text-primary" aria-hidden />
-            )}
-            <span className="truncate">
-              {org ? `${post.author.lastName} ${post.author.firstName}` : tRoles(post.author.role)}{' '}
-              · {t(`audience${post.audience}`)}
-            </span>
-            <span aria-hidden className="shrink-0">
-              ·
-            </span>
-            {/* Возраст поста не переносим: «45 мин. назад» в узкой колонке ломалось. */}
-            <time dateTime={shownAt} title={exactTime} className="shrink-0 whitespace-nowrap">
-              {ago}
-            </time>
-          </p>
-        </div>
+        <PostByline post={post} />
         {post.status === 'DRAFT' && (
           <span className="rounded-full bg-warning/15 px-2 py-0.5 text-[11px] font-medium text-warning">
             {t('statusDraft')}
@@ -291,8 +210,12 @@ function PostCardView({
 
       {/* Панель действий — как во «ВКонтакте»: лайк, комментарии, репост и «поделиться»
           слева, просмотры справа. Подписи видны с `sm`: голые иконки читаются
-          только теми, кто уже знает, что они делают. */}
-      <div className="mt-3 flex items-center gap-0.5 px-2 pb-2 text-sm text-muted-foreground sm:px-3">
+          только теми, кто уже знает, что они делают.
+          Поля ряда плюс внутренний отступ кнопки дают ровно отступ текста (16/20px): первая
+          иконка стоит на одной вертикали с аватаром и текстом. Уже 360px (телефоны 320px)
+          кнопки плотнее — иначе просмотры вылезали за край карточки; `flex-wrap` — страховка
+          на случай трёхзначных счётчиков: просмотры уйдут строкой ниже, а не за край. */}
+      <div className="mt-2 flex flex-wrap items-center gap-y-1 px-2.5 pb-1.5 text-sm text-muted-foreground min-[360px]:gap-x-0.5 min-[360px]:px-1.5 sm:px-2.5 sm:pb-2">
         <ActionButton
           label={t('like')}
           pressed={liked}
@@ -327,7 +250,7 @@ function PostCardView({
             платформы. */}
         <SharePostMenu
           postId={post.id}
-          className="flex min-h-9 cursor-pointer items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs transition-colors duration-150 hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none"
+          className="flex min-h-10 cursor-pointer items-center gap-1.5 rounded-lg px-1.5 py-1.5 text-xs transition-colors duration-150 hover:bg-muted hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none min-[360px]:px-2.5 sm:min-h-9"
         />
         {/* Избранное — последним в ряду и без счётчика: это личная полка, а не
             вовлечение, и число «сколько людей сохранили» сервер не отдаёт намеренно. */}
@@ -340,7 +263,7 @@ function PostCardView({
         {/* Справа — просмотры. Возраст поста переехал в шапку, ко второй строке автора:
             там его ищут глазами, а в ряду действий он спорил со счётчиками. */}
         <span
-          className="ml-auto flex items-center gap-1.5 px-2 text-xs"
+          className="ml-auto flex items-center gap-1 px-1.5 text-xs min-[360px]:gap-1.5 min-[360px]:px-2.5"
           title={t('viewsLabel', { count: post.views })}
         >
           <Eye className="size-4" aria-hidden />
@@ -446,7 +369,8 @@ function ActionButton({
       onClick={onClick}
       title={label}
       className={cn(
-        'flex min-h-9 cursor-pointer items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs transition-colors duration-150 hover:bg-muted hover:text-foreground active:bg-muted/70',
+        // 40px под палец, 36px под курсор — та же ступень, что у остальных строк действий.
+        'flex min-h-10 cursor-pointer items-center gap-1.5 rounded-lg px-1.5 py-1.5 text-xs transition-colors duration-150 hover:bg-muted hover:text-foreground active:bg-muted/70 min-[360px]:px-2.5 sm:min-h-9',
         'focus-visible:ring-2 focus-visible:ring-ring/40 focus-visible:outline-none',
         'disabled:pointer-events-none disabled:opacity-50',
         pressed && 'text-foreground',
@@ -514,8 +438,8 @@ function MediaCollage({
               fit="cover"
               sizes={
                 count === 3 && i === 0
-                  ? '(max-width: 768px) 66vw, 490px'
-                  : '(max-width: 768px) 50vw, 368px'
+                  ? '(max-width: 768px) 66vw, 470px'
+                  : '(max-width: 768px) 50vw, 352px'
               }
               className="size-full transition-transform duration-200 group-hover/tile:scale-[1.02] motion-reduce:transition-none"
             />

@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslations } from 'next-intl'
 import { toast } from 'sonner'
-import { Role, isRestrictedRole } from '@studenthub/shared-types'
+import { isRestrictedRole } from '@studenthub/shared-types'
 import { canFileComplaint } from '@studenthub/shared-schemas'
 import {
   ArrowLeft,
@@ -29,7 +29,7 @@ import {
   Skeleton,
   useConfirm,
 } from '../../../shared/ui'
-import { BRAND_GRADIENT } from '../../../shared/config'
+import { BRAND_GRADIENT, CHATS_HREF_BY_ROLE } from '../../../shared/config'
 import { fetchMe, fetchUserById, fetchUserPresence, userKeys } from '../../../entities/user'
 import { createChatRequest } from '../../../entities/chat'
 import {
@@ -46,16 +46,6 @@ import { StoryAvatarRing, type RenderHighlights, type RenderStoryViewer } from '
 import { ReportModal } from '../../../features/report-content'
 import { contentModeration } from '../lib/content-moderation'
 
-// Путь к чатам по роли текущего пользователя (кнопка «Написать»). Источник истины —
-// widgets/app-shell/model/nav.ts; дублируем минимально, т.к. FSD запрещает импорт widget→widget.
-// Роли без чатов (platform-admin, модераторы) кнопку не показывают.
-const CHATS_HREF_BY_ROLE: Partial<Record<Role, string>> = {
-  [Role.STUDENT]: '/chats',
-  [Role.UNIVERSITY_ADMIN]: '/university-admin/chats',
-  [Role.DEAN]: '/dean/chats',
-  [Role.TEACHER]: '/teacher/chats',
-  [Role.STAROSTA]: '/starosta/chats',
-}
 import {
   ENTER,
   ProfileBody,
