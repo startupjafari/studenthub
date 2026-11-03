@@ -104,12 +104,23 @@ export class FilesController {
   @ApiResponse({ status: 403, description: 'FORBIDDEN — ключ не принадлежит вызывающему' })
   @ApiResponse({ status: 404, description: 'NOT_FOUND — объект не загружен' })
   @ApiResponse({ status: 422, description: 'FILE_TYPE_NOT_ALLOWED / FILE_TOO_LARGE' })
+  @ApiResponse({
+    status: 400,
+    description: 'BAD_REQUEST — отрезок не для видео сторис или длиннее лимита',
+  })
   async confirm(@CurrentUser() user: CurrentUserData, @Body() dto: ConfirmUploadDto) {
     return this.files.confirmDirectUpload({
       bucket: this.bucketName(dto.bucket),
       key: dto.key,
       ownerId: user.sub,
       name: dto.name,
+      trim: dto.trim,
+      // Отрезать видео можно только у сторис: у них лимит длительности, и редактор даёт
+      // выбрать отрезок. Остальным бакетам потолок не задаём — отрезок там отклоняется.
+      trimMaxMs:
+        dto.bucket === 'STORIES'
+          ? this.config.get('STORY_VIDEO_MAX_SECONDS', { infer: true }) * 1000
+          : undefined,
     })
   }
 

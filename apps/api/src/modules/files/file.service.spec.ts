@@ -153,6 +153,34 @@ describe('FileService.confirmDirectUpload', () => {
     expect(minio.removeObject).toHaveBeenCalledWith('documents', 'user-1/a.pdf')
   })
 
+  it('отрезок у не-видео отклоняется, объект удаляется', async () => {
+    const { service, minio, prisma } = setup({ head: PDF })
+
+    await expect(
+      service.confirmDirectUpload({
+        ...base,
+        key: 'user-1/a.pdf',
+        trim: { startMs: 0, endMs: 1000 },
+        trimMaxMs: 105_000,
+      }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    expect(minio.removeObject).toHaveBeenCalledWith('documents', 'user-1/a.pdf')
+    expect(prisma.file.create).not.toHaveBeenCalled()
+  })
+
+  it('отрезок там, где обрезка не разрешена (нет потолка), отклоняется', async () => {
+    const { service, prisma } = setup({ head: PDF })
+
+    await expect(
+      service.confirmDirectUpload({
+        ...base,
+        key: 'user-1/a.pdf',
+        trim: { startMs: 0, endMs: 1000 },
+      }),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' })
+    expect(prisma.file.create).not.toHaveBeenCalled()
+  })
+
   it('ключ, на который уже ссылается File, не подтверждается и не удаляется', async () => {
     // Сдача-архив уже отправлена: общий confirm без allowArchives снёс бы её объект.
     const { service, minio, prisma } = setup({ head: ZIP })

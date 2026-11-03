@@ -1,12 +1,12 @@
 'use client'
 
 import {
-  useEffect,
   useRef,
   useState,
   type DragEvent,
   type KeyboardEvent,
   type PointerEvent,
+  type RefObject,
 } from 'react'
 import { useTranslations } from 'next-intl'
 import { ImagePlus, RotateCw, Type, X } from 'lucide-react'
@@ -86,13 +86,11 @@ export function StoryCanvas({
   stage,
   hasPhoto,
   videoUrl,
-  videoMuted,
-  videoPaused,
+  videoRef,
   background,
   elements,
   selectedId,
   editingId,
-  uploading,
   onSelect,
   onPatch,
   onStartEdit,
@@ -107,15 +105,13 @@ export function StoryCanvas({
   hasPhoto: boolean
   /** Локальный object-URL видео для превью: подписанную ссылку сервер отдаст уже в ленте. */
   videoUrl: string | null
-  /** Звук и пауза превью видео — кнопками под кадром. */
-  videoMuted: boolean
-  videoPaused: boolean
+  /** Превью видео: звуком, паузой и отрезком управляет редактор. */
+  videoRef: RefObject<HTMLVideoElement | null>
   background: StoryBackgroundValue | undefined
   elements: EditorElement[]
   selectedId: string | null
   /** Текст, который сейчас правят на кадре. */
   editingId: string | null
-  uploading: boolean
   onSelect: (id: string | null) => void
   /** `key` склеивает серию правок в один шаг истории (перетаскивание, набор текста). */
   onPatch: (id: string, patch: Partial<EditorElement>, key?: string) => void
@@ -133,17 +129,6 @@ export function StoryCanvas({
   const drag = useRef<Drag | null>(null)
   const [guides, setGuides] = useState<{ x: boolean; y: boolean } | null>(null)
   const [dragOver, setDragOver] = useState(false)
-  const videoRef = useRef<HTMLVideoElement>(null)
-
-  // `muted` React выставляет только при монтировании — звук переключаем свойством.
-  useEffect(() => {
-    const el = videoRef.current
-    if (!el) return
-    el.muted = videoMuted
-    if (videoPaused) el.pause()
-    // Запуск со звуком браузер разрешает только после жеста — нажатие кнопки им и было.
-    else void el.play().catch(() => undefined)
-  }, [videoMuted, videoPaused, videoUrl])
 
   const { stage: size, frame, nat, url } = stage
   const hasMedia = hasPhoto || videoUrl !== null
@@ -377,7 +362,6 @@ export function StoryCanvas({
               muted
               playsInline
               autoPlay
-              loop
             />
           )}
 
@@ -402,9 +386,9 @@ export function StoryCanvas({
             </span>
             <div className="flex flex-col gap-1">
               <p className="text-sm font-semibold">{t('emptyTitle')}</p>
-              <p className="text-xs text-white/70">{uploading ? t('uploading') : t('emptyHint')}</p>
+              <p className="text-xs text-white/70">{t('emptyHint')}</p>
             </div>
-            <Button type="button" size="md" onClick={onPickMedia} loading={uploading}>
+            <Button type="button" size="md" onClick={onPickMedia}>
               <ImagePlus className="size-4" aria-hidden />
               {t('media')}
             </Button>
@@ -414,7 +398,6 @@ export function StoryCanvas({
               size="md"
               className="text-white hover:bg-white/10 hover:text-white"
               onClick={onTextStory}
-              disabled={uploading}
             >
               <Type className="size-4" aria-hidden />
               {t('textStory')}

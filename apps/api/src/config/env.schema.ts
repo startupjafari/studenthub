@@ -139,7 +139,7 @@ export const envSchema = z.object({
    */
   STORY_IMAGE_MAX_MB: z.coerce.number().int().positive().max(50).default(10),
   STORY_VIDEO_MAX_MB: z.coerce.number().int().positive().max(500).default(100),
-  STORY_VIDEO_MAX_SECONDS: z.coerce.number().int().positive().max(600).default(60),
+  STORY_VIDEO_MAX_SECONDS: z.coerce.number().int().positive().max(600).default(105),
 
   /**
    * Удалять неподтверждённых работодателей (крон purgeUnverifiedEmployers): компании в
