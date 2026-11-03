@@ -757,7 +757,8 @@ function PostView({
 
   // Порядок блоков на телефоне задаётся через `order`: правая колонка там — `contents`,
   // её части встают в общий столбец как в мобильном Instagram: шапка, медиа, действия,
-  // подпись с комментариями, ввод. С md — две колонки, и порядок снова DOM-овый.
+  // подпись с комментариями, ввод. С md — две колонки, и порядок снова DOM-овый. Без
+  // медиа порядок DOM-овый и на телефоне: шапка, текст, действия, ввод.
   return (
     <>
       <div
@@ -877,7 +878,12 @@ function PostView({
           {/* Шапка — тот же блок автора, что в карточке ленты (PostByline), справа меню
               поста и крестик. Крестик в шапке, а не в углу затемнения: на телефоне окно во
               весь экран, и угловая кнопка ложилась поверх меню «•••». */}
-          <header className="flex shrink-0 items-center gap-3 py-3 pr-2 pl-4 max-md:order-1 md:border-b md:border-border">
+          <header
+            className={cn(
+              'flex shrink-0 items-center gap-3 py-3 pr-2 pl-4 md:border-b md:border-border',
+              cur && 'max-md:order-1',
+            )}
+          >
             <PostByline post={post} />
             {/* Листание постов на телефоне — здесь: по краям экрана стрелки ложились на снимок
                 рядом со стрелками карусели. На десктопе посты листают полосы по краям. */}
@@ -909,7 +915,10 @@ function PostView({
             ref={threadRef}
             // flex-auto, а не flex-1: в компактном окне текста высота считается по содержимому,
             // и нулевая основа схлопнула бы ленту; при упоре в 85vh она сжимается и прокручивается.
-            className="sh-scroll flex flex-col gap-4 px-4 py-3 max-md:order-4 max-md:shrink-0 md:min-h-0 md:flex-auto md:overflow-y-auto"
+            className={cn(
+              'sh-scroll flex flex-col gap-4 px-4 py-3 max-md:shrink-0 md:min-h-0 md:flex-auto md:overflow-y-auto',
+              cur && 'max-md:order-4',
+            )}
           >
             {via && <RepostBanner repost={via} />}
             {/* Подпись — без второго аватара и имени: автор и время уже в шапке, прямо над
@@ -1075,7 +1084,14 @@ function PostView({
 
           {/* Действия, как в Instagram: иконки без подписей и счётчиков, закладка справа;
               под ними число отметок и дата. На телефоне — сразу под медиа. */}
-          <div className="shrink-0 px-2 pt-1.5 pb-3 max-md:order-3 md:border-t md:border-border">
+          <div
+            className={cn(
+              'shrink-0 px-2 pt-1.5 pb-3 md:border-t md:border-border',
+              // Без медиа на телефоне — тот же порядок, что на десктопе: действия под
+              // текстом. Перед текстом ряд лайков стоял бы между автором и его словами.
+              cur ? 'max-md:order-3' : 'max-md:border-t max-md:border-border',
+            )}
+          >
             <div className="flex items-center text-foreground">
               <BarButton label={t('like')} pressed={liked} onClick={toggleLike}>
                 <Heart
@@ -1126,7 +1142,12 @@ function PostView({
               его под длинной лентой комментариев. */}
           {/* Снизу на телефоне — поле под «домашнюю» полосу iOS (safe-area), иначе кнопка
               «Опубликовать» уходила под неё. */}
-          <div className="shrink-0 border-t border-border bg-background max-md:sticky max-md:bottom-0 max-md:order-5 max-md:pb-[env(safe-area-inset-bottom)]">
+          <div
+            className={cn(
+              'shrink-0 border-t border-border bg-background max-md:sticky max-md:bottom-0 max-md:pb-[env(safe-area-inset-bottom)]',
+              cur && 'max-md:order-5',
+            )}
+          >
             {/* Кому отвечаем — отдельной строкой над полем, с отменой. */}
             {replyTarget && (
               <div className="flex items-center gap-2 px-4 pt-2 text-xs text-muted-foreground">
