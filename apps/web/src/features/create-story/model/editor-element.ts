@@ -39,18 +39,6 @@ export function newMentionElement(userId: string, name: string): EditorElement {
   return { id: localId(), type: 'mention', ...CENTER, y: 0.6, userId, name }
 }
 
-export function newEventElement(event: StoryEventCard): EditorElement {
-  return { id: localId(), type: 'event', ...CENTER, y: 0.7, eventId: event.id, event }
-}
-
-export function newPostElement(post: StoryPostCard): EditorElement {
-  return { id: localId(), type: 'post', ...CENTER, y: 0.7, postId: post.id, post }
-}
-
-export function newScheduleElement(pair: StoryPairCard, date: string): EditorElement {
-  return { id: localId(), type: 'schedule', ...CENTER, y: 0.7, pairId: pair.id, date, pair }
-}
-
 /**
  * Элементы для запроса: без локального id, имени отметки и превью карточек — сервер
  * подставит их сам, по правам каждого зрителя.
@@ -60,11 +48,6 @@ export function toStoryElements(elements: readonly EditorElement[]): StoryElemen
     ({ id: _id, name: _name, event: _event, post: _post, pair: _pair, ...element }) =>
       element as StoryElementInput,
   )
-}
-
-/** Карточки-стикеры: их на кадре не больше STORY_CARDS_MAX. */
-export function isCard(element: EditorElement): boolean {
-  return element.type === 'event' || element.type === 'post' || element.type === 'schedule'
 }
 
 /** Значение в пределах кадра: элемент нельзя утащить за край. */

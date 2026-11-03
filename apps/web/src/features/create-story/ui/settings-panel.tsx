@@ -11,7 +11,6 @@ import {
   Copy,
   Link2,
   Plus,
-  RefreshCw,
   Trash2,
   X,
 } from 'lucide-react'
@@ -433,7 +432,6 @@ export function ElementSettings({
   onBackward,
   onDuplicate,
   onRemove,
-  onReplaceCard,
   canForward,
   canBackward,
   canDuplicate,
@@ -445,8 +443,6 @@ export function ElementSettings({
   onBackward: () => void
   onDuplicate: () => void
   onRemove: () => void
-  /** Карточка события, публикации или пары — выбрать другую запись, не двигая карточку. */
-  onReplaceCard?: () => void
   canForward: boolean
   canBackward: boolean
   canDuplicate: boolean
@@ -456,13 +452,6 @@ export function ElementSettings({
   return (
     <Panel>
       <PanelHeader title={t(ELEMENT_KEY[element.type])} onClose={onClose} />
-
-      {onReplaceCard && (
-        <Button type="button" variant="secondary" size="md" onClick={onReplaceCard}>
-          <RefreshCw className="size-4" aria-hidden />
-          {t('replaceCard')}
-        </Button>
-      )}
 
       <ElementInspector element={element} onChange={onChange} />
 

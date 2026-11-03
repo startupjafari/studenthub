@@ -2,21 +2,10 @@
 
 import { Fragment } from 'react'
 import { useTranslations } from 'next-intl'
-import {
-  AtSign,
-  BarChart3,
-  CalendarDays,
-  Clock,
-  Link2,
-  Newspaper,
-  Smile,
-  Type,
-  type LucideIcon,
-} from 'lucide-react'
+import { AtSign, BarChart3, Link2, Smile, Type, type LucideIcon } from 'lucide-react'
 import { cn } from '../../../shared/lib/utils'
 
-export type StoryTool =
-  'text' | 'emoji' | 'mention' | 'link' | 'poll' | 'event' | 'schedule' | 'post'
+export type StoryTool = 'text' | 'emoji' | 'mention' | 'link' | 'poll'
 
 const TOOLS: Record<StoryTool, { icon: LucideIcon; label: string }> = {
   text: { icon: Type, label: 'toolText' },
@@ -24,16 +13,13 @@ const TOOLS: Record<StoryTool, { icon: LucideIcon; label: string }> = {
   mention: { icon: AtSign, label: 'toolMention' },
   link: { icon: Link2, label: 'addLink' },
   poll: { icon: BarChart3, label: 'addPoll' },
-  event: { icon: CalendarDays, label: 'toolEvent' },
-  schedule: { icon: Clock, label: 'toolPair' },
-  post: { icon: Newspaper, label: 'toolPost' },
 }
 
-// Обычные инструменты сторис и университетские — разными группами: карточка пары или
-// события — не стикер, а живая запись из расписания и событий вуза.
+// Группы инструментов, разделённые линией. Сейчас группа одна: карточки события, пары и
+// публикации («Университет») из редактора убраны — уже опубликованные сторис с ними
+// по-прежнему показываются.
 const GROUPS: { title: string; tools: StoryTool[] }[] = [
   { title: 'toolsBasic', tools: ['text', 'emoji', 'mention', 'link', 'poll'] },
-  { title: 'toolsUniversity', tools: ['event', 'schedule', 'post'] },
 ]
 
 /**
