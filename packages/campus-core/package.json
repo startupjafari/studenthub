@@ -20,7 +20,8 @@
     "typecheck": "tsc -p tsconfig.check.json",
     "test": "vitest run",
     "test:cov": "vitest run --coverage",
-    "clean": "rm -rf dist .turbo *.tsbuildinfo coverage"
+    "clean": "rm -rf dist .turbo *.tsbuildinfo coverage",
+    "bench": "vitest bench --run"
   },
   "dependencies": {
     "earcut": "3.2.4",
