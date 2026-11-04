@@ -1,4 +1,4 @@
-import type { Face, FloorPlanDoc, Problem, Pt } from '@studenthub/campus-core'
+import type { Face, FloorPlanDoc, Problem, Pt, SpaceKind } from '@studenthub/campus-core'
 import { SPACE_KIND_COLOR } from '../../../entities/campus'
 import type { EditorState, Selection } from '../model/store'
 import { wallPoints } from './hit'
@@ -58,7 +58,13 @@ export function drawPlan(
   p: Palette,
   width: number,
   height: number,
-  options: { hoverSelection?: Selection; showNodes: boolean; problemsShown: boolean },
+  options: {
+    hoverSelection?: Selection
+    showNodes: boolean
+    problemsShown: boolean
+    /** Подпись помещения без номера и названия — по типу («Аудитория»). */
+    kindLabel?: (kind: SpaceKind) => string
+  },
 ): void {
   const { scale, ox, oy } = s.view
   const c: Ctx = { g, s, p, sx: (x) => ox + x * scale, sy: (y) => oy - y * scale }
@@ -70,7 +76,7 @@ export function drawPlan(
   drawWalls(c)
   drawOpenings(c)
   drawVerticals(c)
-  drawLabels(c)
+  drawLabels(c, options.kindLabel)
   if (options.showNodes) drawNodes(c)
   if (options.hoverSelection) drawSelection(c, options.hoverSelection, true)
   drawSelection(c, s.selection, false)
@@ -329,7 +335,7 @@ function drawVerticals(c: Ctx): void {
   }
 }
 
-function drawLabels(c: Ctx): void {
+function drawLabels(c: Ctx, kindLabel?: (kind: SpaceKind) => string): void {
   const { g, s, p, sx, sy } = c
   g.textAlign = 'center'
   g.textBaseline = 'middle'
@@ -343,10 +349,14 @@ function drawLabels(c: Ctx): void {
     const x = sx(sp.label.x)
     const y = sy(sp.label.y)
     const title = sp.number || sp.name || ''
-    if (!title && faceId) continue
-    g.fillStyle = faceId ? p.foreground : p.destructive
+    g.fillStyle = faceId ? (title ? p.foreground : p.muted) : p.destructive
+    if (!title) {
+      g.font = '12px system-ui, sans-serif'
+      g.fillText(faceId && kindLabel ? truncate(g, kindLabel(sp.kind), sidePx - 8) : '?', x, y)
+      continue
+    }
     g.font = '600 12px system-ui, sans-serif'
-    g.fillText(title || '?', x, y - (sp.number && sp.name ? 7 : 0))
+    g.fillText(title, x, y - (sp.number && sp.name ? 7 : 0))
     if (sp.number && sp.name && sidePx > 70) {
       g.fillStyle = p.muted
       g.font = '11px system-ui, sans-serif'

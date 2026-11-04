@@ -169,6 +169,8 @@ function Editor({ plan }: { plan: CampusPlan }) {
       }
       if (mod || e.altKey) return
       if (key === 'escape') {
+        // Esc в редакторе — отмена жеста и выделения, а не «назад» (useEscapeBack).
+        e.preventDefault()
         tools.cancel()
         store.set({ selection: { kind: 'none' } })
         return
@@ -379,6 +381,7 @@ function Editor({ plan }: { plan: CampusPlan }) {
           <SegmentedTabs
             aria-label={t('panels')}
             stretch
+            compact
             collapsible={false}
             value={tab}
             onChange={setTab}

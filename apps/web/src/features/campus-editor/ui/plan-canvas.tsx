@@ -33,6 +33,11 @@ export function PlanCanvas({ store, tools, problemsShown }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const problemsRef = useRef(problemsShown)
   problemsRef.current = problemsShown
+  const kindLabelRef = useRef((kind: string) => t(`kind_${kind}`))
+  kindLabelRef.current = (kind: string) => t(`kind_${kind}`)
+
+  // Метки проблем включаются вкладкой «Проверка» — холст перерисовывается по подписке.
+  useEffect(() => store.set({}), [store, problemsShown])
 
   useEffect(() => {
     const wrap = wrapRef.current
@@ -58,6 +63,7 @@ export function PlanCanvas({ store, tools, problemsShown }: Props) {
         hoverSelection: hover,
         showNodes: state.tool === 'select' || state.tool === 'wall',
         problemsShown: problemsRef.current,
+        kindLabel: kindLabelRef.current,
       }
       drawPlan(g, state, palette, width, height, opts)
       if (loupe) {

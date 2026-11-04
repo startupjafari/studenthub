@@ -252,11 +252,12 @@ export class CampusSceneController {
     const kindMat = (k: SpaceKind | 'none'): THREE.Material => {
       let m = kindMats.get(k)
       if (!m) {
-        m = this.material(
-          new THREE.MeshLambertMaterial({
-            color: k === 'none' ? this.palette.slab : SPACE_KIND_COLOR[k],
-          }),
-        )
+        // Цвет типа, разбавленный белым: насыщенные полы спорят с подсветкой и маршрутом.
+        const color =
+          k === 'none'
+            ? new THREE.Color(this.palette.slab)
+            : new THREE.Color(SPACE_KIND_COLOR[k]).lerp(new THREE.Color('#ffffff'), 0.45)
+        m = this.material(new THREE.MeshLambertMaterial({ color }))
         kindMats.set(k, m)
       }
       return m
