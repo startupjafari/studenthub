@@ -43,7 +43,7 @@ import {
   Skeleton,
   useConfirm,
 } from '../../../shared/ui'
-import { toApiError } from '../../../shared/lib'
+import { toApiError, scrollToAndFlash } from '../../../shared/lib'
 import { useAppSelector } from '../../../shared/store'
 import { tagLabels } from './tag-label'
 import { SupportBubble, SupportComposer } from './support-thread-parts'
@@ -215,10 +215,8 @@ export function SupportThreadModal({ ticketId, onClose, onOpen }: SupportThreadM
   function jumpTo(messageId: string): void {
     const el = document.getElementById(`support-msg-${messageId}`)
     if (!el) return
-    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    // Подсветка, чтобы глаз нашёл оригинал среди соседей, — как переход к цитате в чате.
-    el.dataset.flash = 'true'
-    window.setTimeout(() => delete el.dataset.flash, 1200)
+    // Подсветка — после приезда, чтобы глаз нашёл оригинал среди соседей (как в чате).
+    scrollToAndFlash(el)
   }
 
   const dayOf = (iso: string): string =>

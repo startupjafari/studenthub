@@ -96,3 +96,4 @@ export {
 export { srcSetOf, pickSource } from './media-source'
 export { useHls, type HlsLevel, type HlsQuality } from './use-hls'
 export { plainPreview } from './plain-text'
+export { afterScrollSettles, scrollToAndFlash } from './scroll-settle'
