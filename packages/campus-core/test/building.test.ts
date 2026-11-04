@@ -9,6 +9,8 @@ import {
   floorForViewer,
   floorFromOutline,
   generateFloor,
+  isBareOutlineFloor,
+  levelRenumber,
   sequentialIds,
   spaceIndex,
   toBuilding,
@@ -158,5 +160,36 @@ describe('контуры-шаблоны корпуса', () => {
       expect(checkOutline(o), shape).toBeNull()
       expect(signedArea2(o), shape).toBeGreaterThan(0)
     }
+  })
+})
+
+describe('нетронутый этаж и перенумерация копии', () => {
+  it('этаж только с наружными стенами по контуру — нетронут, с перегородкой — нет', () => {
+    const ids = sequentialIds()
+    const doc = floorFromOutline(square, ids)
+    expect(isBareOutlineFloor(doc, square)).toBe(true)
+    const moved = square.map((p) => ({ x: p.x + 1000, y: p.y }))
+    expect(isBareOutlineFloor(doc, moved)).toBe(false)
+    const cloned = cloneFloorPlan(doc, ids)
+    expect(isBareOutlineFloor(cloned, square)).toBe(true)
+    const withSpace = {
+      ...doc,
+      spaces: {
+        s: {
+          label: { x: 5000, y: 5000 },
+          edges: [],
+          kind: 'office' as const,
+          visibility: 'public' as const,
+        },
+      },
+    }
+    expect(isBareOutlineFloor(withSpace, square)).toBe(false)
+  })
+
+  it('номера по уровням: только надземные этажи', () => {
+    expect(levelRenumber(1, 3)).toEqual({ from: '1', to: '3' })
+    expect(levelRenumber(2, 2)).toBeUndefined()
+    expect(levelRenumber(-1, 2)).toBeUndefined()
+    expect(levelRenumber(1, 0)).toBeUndefined()
   })
 })
