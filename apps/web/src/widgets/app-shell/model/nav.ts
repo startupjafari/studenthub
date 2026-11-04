@@ -1,6 +1,7 @@
 import { Role, isRestrictedRole } from '@studenthub/shared-types'
 import {
   Award,
+  Map as MapIcon,
   BarChart3,
   BookDown,
   BookOpen,
@@ -172,6 +173,8 @@ export const UNIVERSITY_ADMIN_NAV: NavItem[] = [
     children: [
       // Ф16: помещения и печатные QR над дверью.
       { key: 'rooms', href: '/university-admin/rooms' },
+      // Ф22: цифровая карта кампуса — корпуса, этажи, публикация.
+      { key: 'campus', href: '/university-admin/campus' },
       { key: 'cameras', href: '/university-admin/cameras' },
     ],
   },
@@ -394,6 +397,8 @@ export const UNIVERSITY_MODERATOR_NAV: NavItem[] = [
   { key: 'applications', href: '/moderator/university/applications', icon: FileText },
   { key: 'posts', href: '/moderator/university/posts', icon: Newspaper },
   { key: 'users', href: '/moderator/university/users', icon: Users },
+  // Ф22: модератор правит карту кампуса наравне с админом (решение владельца).
+  { key: 'campus', href: '/moderator/university/campus', icon: MapIcon },
   { key: 'audit', href: '/moderator/university/audit', icon: ScrollText },
   { key: 'chats', href: '/moderator/university/chats', icon: MessagesSquare },
 ]

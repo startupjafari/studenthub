@@ -156,3 +156,63 @@ function renumber(number: string, { from, to }: { from: string; to: string }): s
   const [, prefix = '', digits = ''] = m
   return digits.startsWith(from) ? prefix + to + digits.slice(from.length) : number
 }
+
+export type BuildingShape = 'rect' | 'L' | 'U' | 'T'
+
+/**
+ * Контур корпуса по шаблону и размерам (мм): прямоугольник, Г-, П- и Т-образный. Крыло —
+ * ширины `wingMm`. Нужен форме «Добавить корпус»: нарисовать контур на территории можно и
+ * руками, но типовые корпуса быстрее задать размерами.
+ */
+export function outlineFromShape(
+  shape: BuildingShape,
+  widthMm: number,
+  depthMm: number,
+  wingMm: number,
+): Pt[] {
+  const w = widthMm
+  const d = depthMm
+  const k = Math.min(wingMm, Math.floor(w / 2) - 1, Math.floor(d / 2) - 1)
+  switch (shape) {
+    case 'L':
+      return [
+        { x: 0, y: 0 },
+        { x: w, y: 0 },
+        { x: w, y: k },
+        { x: k, y: k },
+        { x: k, y: d },
+        { x: 0, y: d },
+      ]
+    case 'U':
+      return [
+        { x: 0, y: 0 },
+        { x: w, y: 0 },
+        { x: w, y: d },
+        { x: w - k, y: d },
+        { x: w - k, y: k },
+        { x: k, y: k },
+        { x: k, y: d },
+        { x: 0, y: d },
+      ]
+    case 'T': {
+      const left = Math.round((w - k) / 2)
+      return [
+        { x: 0, y: d - k },
+        { x: left, y: d - k },
+        { x: left, y: 0 },
+        { x: left + k, y: 0 },
+        { x: left + k, y: d - k },
+        { x: w, y: d - k },
+        { x: w, y: d },
+        { x: 0, y: d },
+      ]
+    }
+    default:
+      return [
+        { x: 0, y: 0 },
+        { x: w, y: 0 },
+        { x: w, y: d },
+        { x: 0, y: d },
+      ]
+  }
+}

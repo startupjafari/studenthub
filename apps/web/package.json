@@ -23,6 +23,7 @@
     "@hookform/resolvers": "^5.2.2",
     "@reduxjs/toolkit": "^2.9.0",
     "@sentry/nextjs": "^10.76.2",
+    "@studenthub/campus-core": "workspace:*",
     "@studenthub/shared-config": "workspace:*",
     "@studenthub/shared-schemas": "workspace:*",
     "@studenthub/shared-types": "workspace:*",
