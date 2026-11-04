@@ -6082,7 +6082,7 @@
     "doorWidth": "Door width",
     "windowWidth": "Window width",
     "newRoomKind": "New room purpose",
-    "shortcutsHint": "V select, W wall, R room, D door, N window, S stairs, E elevator. Shift snaps to 15°, Alt disables snapping, Space pans, double-click ends a wall or makes a room.",
+    "shortcutsHint": "V select, W wall, R room, D door, N window, S stairs, E elevator. Shift snaps to 15°, Alt disables snapping, Space pans, arrows nudge the selection (Shift ×10), double-click ends a wall or makes a room.",
     "searchSpaces": "Number or name",
     "noSpaces": "No rooms yet",
     "noRoomShort": "not linked",
@@ -6181,7 +6181,8 @@
     "showOnMap": "Show on map",
     "onMap": "On map",
     "gate": "Gate",
-    "stepStartGate": "Start at {place}"
+    "stepStartGate": "Start at {place}",
+    "selectedAnnounce": "Selected: {place}, {floor}"
   },
   "CampusSite": {
     "loading": "Loading the grounds",

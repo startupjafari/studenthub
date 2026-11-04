@@ -346,6 +346,12 @@ function Viewer({
         />
       </header>
 
+      {/* Холст читалке не виден: что выбрано и на каком этаже — вслух (§22.33). */}
+      <p className="sr-only" aria-live="polite">
+        {selectedPlace
+          ? t('selectedAnnounce', { place: selectedPlace.label, floor: floorLabel(floorId) })
+          : floorLabel(floorId)}
+      </p>
       <div className="flex min-h-0 flex-1 flex-col gap-3 lg:flex-row">
         <div className="relative min-h-[18rem] flex-1 overflow-hidden rounded-2xl border border-border">
           <div ref={canvasBox} className={cn('absolute inset-0', mode !== '2d' && 'invisible')}>
@@ -381,6 +387,7 @@ function Viewer({
                 key={f.id}
                 type="button"
                 aria-current={f.id === floorId}
+                aria-label={t('floorN', { label: f.label })}
                 onClick={() => goTo(f.id, null)}
                 className={cn(
                   'flex size-11 items-center justify-center rounded-xl text-sm font-semibold tabular-nums md:size-9',

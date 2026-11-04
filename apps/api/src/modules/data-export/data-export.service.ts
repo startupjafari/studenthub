@@ -1437,4 +1437,16 @@ export const SCALAR_ID_FIELDS: Readonly<
   'CareerApplication.companyId': { notUser: NOT_USER },
   'CareerApplication.universityId': { notUser: NOT_USER },
   'DocumentExport.shortId': { notUser: NOT_USER },
+  // Карта кампуса (Ф22): правка и публикация — работа сотрудника над картой вуза.
+  'Campus.createdById': { excluded: STAFF_WORK },
+  'CampusFloorPlan.updatedById': { excluded: STAFF_WORK },
+  'CampusFloorPlanSnapshot.createdById': { excluded: STAFF_WORK },
+  'CampusSitePlan.updatedById': { excluded: STAFF_WORK },
+  'CampusVersion.publishedById': { excluded: STAFF_WORK },
+  'Campus.publishedVersionId': { notUser: NOT_USER },
+  'CampusFloorPlanSnapshot.floorId': { notUser: NOT_USER },
+  'CampusVersionFloor.floorId': { notUser: NOT_USER },
+  'CampusSpaceIndex.spaceId': { notUser: NOT_USER },
+  'CampusSpaceIndex.buildingId': { notUser: NOT_USER },
+  'CampusSpaceIndex.floorId': { notUser: NOT_USER },
 }
