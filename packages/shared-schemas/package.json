@@ -17,6 +17,7 @@
     "clean": "rm -rf dist .turbo *.tsbuildinfo"
   },
   "dependencies": {
+    "@studenthub/campus-core": "workspace:*",
     "@studenthub/shared-types": "workspace:*",
     "zod": "^3.25.76"
   },

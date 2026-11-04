@@ -20,6 +20,7 @@ COPY packages/shared-types/package.json packages/shared-types/
 COPY packages/shared-schemas/package.json packages/shared-schemas/
 COPY packages/shared-utils/package.json packages/shared-utils/
 COPY packages/shared-config/package.json packages/shared-config/
+COPY packages/campus-core/package.json packages/campus-core/
 RUN pnpm install --frozen-lockfile
 
 FROM deps AS build
